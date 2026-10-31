@@ -95,7 +95,8 @@ type Agent struct {
 	// Model is the model the binding names now ("" when it names none).
 	Model string
 	// Source is the Provenance label of the binding's fields: local, repo,
-	// workspace, baseline, embedded, profile:<p> or global-role:<p>. A field set
+	// workspace, baseline, embedded, profile:<p>, global-role:<p> or
+	// global-seat:<p>. A field set
 	// by agents.local.toml makes the whole seat local.
 	Source string
 }
@@ -140,8 +141,7 @@ func OriginOf(r substrate.Row, tierRoot string) string {
 // agentOrigin maps a binding's Provenance label to an origin.
 func agentOrigin(source string, team bool) string {
 	switch {
-	case strings.Contains(source, config.SourceLocal),
-		strings.Contains(source, "profile:"), strings.Contains(source, "global-role:"):
+	case strings.Contains(source, config.SourceLocal), config.IsCatalogSource(source):
 		return OriginLocal
 	case strings.Contains(source, config.SourceRepo):
 		if team {

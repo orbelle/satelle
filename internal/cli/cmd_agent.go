@@ -205,7 +205,7 @@ runs each step.`,
 // and settings VALUES are never printed — only their key names, the same rule
 // the grant display already follows.
 func printProfileCatalog(out io.Writer, g config.GlobalAgentsConfig) {
-	if len(g.Profiles) == 0 && len(g.Roles) == 0 {
+	if len(g.Profiles) == 0 && len(g.Roles) == 0 && len(g.Seats) == 0 {
 		return
 	}
 	fmt.Fprintf(out, "Global agent profiles (%s — execution configuration; workflow policy stays repo substrate):\n",
@@ -227,6 +227,10 @@ func printProfileCatalog(out io.Writer, g config.GlobalAgentsConfig) {
 	for _, role := range sortedMapKeys(g.Roles) {
 		fmt.Fprintf(out, "  ROLE DEFAULT %s -> %s (applies only to a repo with [defaults] use_global_roles = true)\n",
 			role, g.Roles[role])
+	}
+	for _, seat := range sortedMapKeys(g.Seats) {
+		fmt.Fprintf(out, "  SEAT [%s] -> %s (every repo on this machine; above agents.toml, below agents.local.toml)\n",
+			seat, g.Seats[seat])
 	}
 }
 
@@ -276,7 +280,9 @@ are both visible here rather than at the next dispatch.
 Each field is printed with the layer and file that supplied it. Precedence:
 agents.local.toml > agents.toml > agents.workspace.toml > embedded baseline >
 profile= / [roles] base. agents.local.toml is this machine's override; it never
-syncs, so keep profile= and use_global_roles there, not in shared agents.toml.`,
+syncs, so keep profile= and use_global_roles there, not in shared agents.toml.
+A seat named in ~/.satelle/agents.toml [seats] takes that profile on every repo
+of this machine, above agents.toml and below agents.local.toml.`,
 		Args:        cobra.NoArgs,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -362,8 +368,8 @@ syncs, so keep profile= and use_global_roles there, not in shared agents.toml.`,
 				if g.InterfaceReason != "" {
 					ifaceNote = fmt.Sprintf("%s (%s)", g.Interface, g.InterfaceReason)
 				}
-				fmt.Fprintf(out, "  GRANT [%s] role=%s principles=%s constitution=%s interface=%s placement=%s backend=%s %s tools=%q model=%q effort=%q timeout=%q inject_principles=%v\n",
-					g.Name, roleNote, g.Principles, consti, ifaceNote, g.Placement, g.Backend, ro, g.Tools, g.Model, g.Effort, g.Timeout, g.InjectsPrinciples)
+				fmt.Fprintf(out, "  GRANT [%s] role=%s principles=%s constitution=%s interface=%s placement=%s backend=%s %s tools=%q model=%q effort=%q timeout=%q idle_timeout=%q inject_principles=%v command=%q\n",
+					g.Name, roleNote, g.Principles, consti, ifaceNote, g.Placement, g.Backend, ro, g.Tools, g.Model, g.Effort, g.Timeout, g.IdleTimeout, g.InjectsPrinciples, g.Command)
 				if g.Notes != "" {
 					fmt.Fprintf(out, "         notes: %s\n", g.Notes)
 				}

@@ -1,3 +1,13 @@
+## [0.0.825] - 2026-11-01
+
+### Added
+- `~/.satelle/agents.toml` can map a named seat to a named profile machine-wide, in a `[seats]` table. A repo then needs no `agents.local.toml` to pick its seats' models. The map layers above the repo's `agents.toml` and below `agents.local.toml`, never creates a seat the repo does not have, and leaves the repo file free of `profile=`, so sync push is unaffected. `satelle agent validate` shows each mapped seat's command, model, tools and timeouts on its GRANT line, labelled as coming from the catalog, and the catalog listing shows `SEAT [x] -> profile`. (sty_1f496a91)
+
+## [serve-v0.0.263] - 2026-11-01
+
+### Changed
+- The service binary resolves the catalog seat map. (sty_1f496a91)
+
 ## [0.0.824] - 2026-11-01
 
 ### Changed

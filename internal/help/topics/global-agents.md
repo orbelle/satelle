@@ -88,6 +88,10 @@ model     = "grok-4.5"
 [roles]
 # OPT-IN per-role defaults — see tier 3 below. Reaches only a repo that asks.
 # reviewer = "claude-opus"
+
+[seats]
+# A seat's profile on every repo of this machine — see global-seat below.
+# reviewer = "claude-opus"
 ```
 
 A profile carries exactly the `AgentBinding` execution keys: `role`,
@@ -124,6 +128,10 @@ Highest first:
    warn on machine-specific content left in the shared file (`profile=`,
    `use_global_roles`, a literal env value, an absolute path), and a push of it
    is refused (`satelle help agent-dispatch`). Only agents.toml has a local twin.
+   Between local and repo sits **global-seat**: the catalog's `[seats]` table
+   maps a seat to a profile (`coder = "opus-coder"`) for every repo on this
+   machine, so a repo needs no local file to pick its seats' models. A local
+   `profile=` on the seat suppresses it.
 1. **repo** — an inline value on the binding in `.satelle/workflows/agents.toml`
 2. **profile** — the profile the binding explicitly names via `profile=`
    (and, transitively, whatever that profile extends)

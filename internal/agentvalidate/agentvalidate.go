@@ -81,7 +81,8 @@ type Grant struct {
 	// without re-deriving it from Tools.
 	ContextChannel bool
 	// Sources maps each effective field (command, tools, model, …) to the tier
-	// that supplied it: "repo", "profile:<name>", "global-role:<name>", or
+	// that supplied it: "repo", "profile:<name>", "global-role:<name>",
+	// "global-seat:<name>", or
 	// "embedded" (sty_c7dfeedf). Nil when the caller validated without resolving
 	// the machine-wide catalog. An operator reading a grant can then see not only
 	// WHAT the reviewer will run but WHERE that value was authored.

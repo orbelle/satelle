@@ -5,7 +5,9 @@
 //
 //  0. local   — an inline value in .satelle/workflows/agents.local.toml, this
 //     machine's own override, which never syncs (sty_5c56143b); it may also name
-//     the profile=, taking precedence over the repo's
+//     the profile=, taking precedence over the repo's; between it and the repo
+//     sits global-seat, the profile the catalog's [seats] map names for this
+//     seat on every repo of the machine, which a local profile= suppresses
 //  1. repo    — an inline value on the binding in .satelle/workflows/agents.toml
 //  2. profile — the catalog profile the binding EXPLICITLY names via profile=
 //     (and, transitively, whatever that profile extends)
@@ -76,7 +78,7 @@ func sourceFile(label string) string {
 		return DefaultDataDir + "/" + AgentsRel
 	case label == SourceWorkspace:
 		return DefaultDataDir + "/" + WorkspaceAgentsRel
-	case strings.HasPrefix(label, "profile:"), strings.HasPrefix(label, "global-role:"):
+	case IsCatalogSource(label):
 		return GlobalAgentsLabel
 	case label == SourceBaseline, label == SourceEmbedded:
 		return SourceEmbedded
@@ -89,6 +91,36 @@ func SourceProfile(profile string) string { return "profile:" + profile }
 
 // SourceGlobalRole labels a field won by the catalog's opt-in [roles] default.
 func SourceGlobalRole(profile string) string { return "global-role:" + profile }
+
+// SourceGlobalSeat labels a field won by the catalog's [seats] map, which names
+// the seat's profile for every repo on this machine.
+func SourceGlobalSeat(profile string) string { return "global-seat:" + profile }
+
+// catalogSourcePrefixes are the label prefixes of the three tiers that reach a
+// catalog profile, so every reader of a label recognises them the same way.
+var catalogSourcePrefixes = []string{"profile:", "global-role:", "global-seat:"}
+
+// CatalogProfile returns the catalog profile named by one label part
+// ("profile:p", "global-role:p" or "global-seat:p"), and whether it is one.
+func CatalogProfile(part string) (string, bool) {
+	for _, p := range catalogSourcePrefixes {
+		if name, ok := strings.CutPrefix(part, p); ok {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// IsCatalogSource reports whether any part of a label (a key-wise merged map
+// field carries "a+b") came from the machine catalog.
+func IsCatalogSource(label string) bool {
+	for _, part := range strings.Split(label, "+") {
+		if _, ok := CatalogProfile(part); ok {
+			return true
+		}
+	}
+	return false
+}
 
 // Provenance records, per binding section, the source of every effective field.
 // Keys are the TOML field names (command, tools, model, …) so a display surface
@@ -330,8 +362,9 @@ func layerModelOrder(layers ...map[string][]ModelRank) map[string][]ModelRank {
 
 // resolveBindingProfile merges one binding against the workspace layer and the
 // catalog, returning the effective binding and its per-field sources. Order:
-// the profile chain (reached only by the REPO's explicit reference or opt-in)
-// is the base; the workspace layer overlays it; the repo overlays last.
+// the profile chain (reached only by an explicit reference or opt-in) is the
+// base; the baseline, workspace and repo overlay it in turn; the catalog's
+// [seats] profile for this seat overlays the repo; the local file overlays last.
 func resolveBindingProfile(section string, baseB, repoB, wsB, localB AgentBinding, global GlobalAgentsConfig, useRoles bool) (AgentBinding, map[string]string, error) {
 	base := AgentBinding{}
 	baseSrc := map[string]string{}
@@ -418,6 +451,38 @@ func resolveBindingProfile(section string, baseB, repoB, wsB, localB AgentBindin
 		}
 	}
 
+	// The catalog's [seats] map names this seat's profile for every repo on the
+	// machine: the operator naming the seat is the explicit reference. It overlays
+	// the repo and sits under the local file; a local profile= is the higher
+	// choice of profile, so it suppresses the seat map outright.
+	seatRef := ""
+	if strings.TrimSpace(localB.Profile) == "" {
+		seatRef = strings.TrimSpace(global.Seats[section])
+	}
+	var seatChain []string
+	if seatRef != "" {
+		chain, err := global.resolveChain(seatRef)
+		if err != nil {
+			return AgentBinding{}, nil, fmt.Errorf("%s [seats] %s: %w", GlobalAgentsLabel, section, err)
+		}
+		seatChain = chain
+		seatB, _ := foldChain(global, chain, SourceGlobalSeat)
+		seatRole := strings.ToLower(strings.TrimSpace(seatB.Role))
+		for _, other := range []struct{ role, from string }{
+			{repoB.Role, AgentsConfigName + " [" + section + "]"},
+			{wsB.Role, "the workspace layer (" + WorkspaceAgentsRel + ")"},
+			{baseB.Role, "the baseline seat"},
+			{base.Role, "the profile it references"},
+			{localB.Role, LocalAgentsName + " [" + section + "]"},
+		} {
+			if r := strings.ToLower(strings.TrimSpace(other.role)); seatRole != "" && r != "" && seatRole != r {
+				return AgentBinding{}, nil, fmt.Errorf(
+					"%s [seats] %s = %q declares role=%q but %s declares role=%q — role is identity and must agree",
+					GlobalAgentsLabel, section, seatRef, seatB.Role, other.from, other.role)
+			}
+		}
+	}
+
 	// Workspace under repo: a synced binding fills what the repo left blank and
 	// never overrides what the repo wrote. profile= is never taken from the
 	// workspace layer (a catalog name means nothing on another machine; ingest
@@ -432,9 +497,13 @@ func resolveBindingProfile(section string, baseB, repoB, wsB, localB AgentBindin
 	merged, src := overlayBinding(base, baseSrc, baseB, SourceBaseline)
 	merged, src = overlayBinding(merged, src, wsB, SourceWorkspace)
 	merged, src = overlayBinding(merged, src, repoB, SourceRepo)
+	merged, src = foldChainOnto(merged, src, global, seatChain, SourceGlobalSeat)
 	localB.Profile = ""
 	merged, src = overlayBinding(merged, src, localB, SourceLocal)
 	merged.Profile = profileRef
+	if seatRef != "" {
+		merged.Profile = seatRef
+	}
 	return merged, src, nil
 }
 
@@ -442,8 +511,13 @@ func resolveBindingProfile(section string, baseB, repoB, wsB, localB AgentBindin
 // deepest base first so the outermost profile wins — the same direction the repo
 // then wins over the whole chain. label names the tier that reached the chain.
 func foldChain(global GlobalAgentsConfig, chain []string, label func(string) string) (AgentBinding, map[string]string) {
-	b := AgentBinding{}
-	src := map[string]string{}
+	return foldChainOnto(AgentBinding{}, map[string]string{}, global, chain, label)
+}
+
+// foldChainOnto is foldChain laid over an existing binding and its sources, so a
+// chain can sit mid-ladder (the [seats] tier) with each field still naming the
+// profile in the chain that supplied it. An empty chain returns b unchanged.
+func foldChainOnto(b AgentBinding, src map[string]string, global GlobalAgentsConfig, chain []string, label func(string) string) (AgentBinding, map[string]string) {
 	for i := len(chain) - 1; i >= 0; i-- {
 		name := chain[i]
 		b, src = overlayBinding(b, src, global.Profiles[name], label(name))

@@ -12,8 +12,10 @@
 //
 // A repo consumes a profile only by naming it: `profile = "<name>"` on a
 // binding in .satelle/workflows/agents.toml, or — opt-in — through the catalog's [roles]
-// defaults. There is no implicit same-name merge, so adding a profile called
-// "reviewer" can never silently change a repo that never asked for it.
+// defaults, or through the catalog's [seats] map, where the operator names a seat
+// and its profile for every repo on this machine. There is no implicit same-name
+// merge, so adding a profile called "reviewer" can never silently change a repo
+// that never asked for it.
 package config
 
 import (
@@ -45,6 +47,7 @@ const (
 //	                            # a repo's own [vars] override per key.
 //	[profiles.<name>]           # one reusable execution profile (an AgentBinding)
 //	[roles]                     # OPT-IN per-role defaults: reviewer = "<profile>"
+//	[seats]                     # per-seat profiles, every repo: coder = "<profile>"
 //
 // Every section is optional; an absent file is the zero value and a nil error,
 // so a machine that never creates one behaves exactly as before.
@@ -59,6 +62,13 @@ type GlobalAgentsConfig struct {
 	// Roles maps a logical role (reviewer|agent) to a default profile name. It is
 	// consulted ONLY for a repo that opts in with [defaults] use_global_roles.
 	Roles map[string]string
+	// Seats maps a seat (a binding section name: coder, reviewer, …) to a profile
+	// name, for every repo on this machine. The operator naming the seat is the
+	// explicit reference, so no repo opt-in is needed. It sits above the repo's
+	// file and below the machine-local one, and a local profile= suppresses it.
+	// It lives only in this catalog, so a repo carries no profile= that a sync
+	// push would refuse.
+	Seats map[string]string
 }
 
 // globalAgentsBindingKeys is the complete set of keys a [profiles.<name>] table
@@ -173,6 +183,7 @@ func ParseGlobalAgents(content string) (GlobalAgentsConfig, error) {
 		Vars:     map[string]string{},
 		Profiles: map[string]AgentBinding{},
 		Roles:    map[string]string{},
+		Seats:    map[string]string{},
 	}
 	for _, key := range sortedPrimitiveKeys(raw) {
 		prim := raw[key]
@@ -185,17 +196,21 @@ func ParseGlobalAgents(content string) (GlobalAgentsConfig, error) {
 			if err := md.PrimitiveDecode(prim, &g.Roles); err != nil {
 				return GlobalAgentsConfig{}, fmt.Errorf("[roles]: %w", err)
 			}
+		case "seats":
+			if err := md.PrimitiveDecode(prim, &g.Seats); err != nil {
+				return GlobalAgentsConfig{}, fmt.Errorf("[seats]: each key is a seat and each value a profile name: %w", err)
+			}
 		case "profiles":
 			if err := decodeGlobalProfiles(md, prim, g.Profiles); err != nil {
 				return GlobalAgentsConfig{}, err
 			}
 		default:
-			// A top-level section other than the three is refused rather than
+			// A top-level section other than the four is refused rather than
 			// ignored: the catalog's whole contract is that it carries execution
 			// configuration only, so an unrecognised section (a stray [workflows],
 			// a mistyped [profile]) must not pass silently.
 			return GlobalAgentsConfig{}, fmt.Errorf(
-				"unknown top-level section [%s] — the catalog holds only [vars], [profiles.<name>], and [roles]; workflows and skills stay repo substrate under .satelle/", key)
+				"unknown top-level section [%s] — the catalog holds only [vars], [profiles.<name>], [roles], and [seats]; workflows and skills stay repo substrate under .satelle/", key)
 		}
 	}
 	if err := g.validate(); err != nil {
@@ -266,7 +281,8 @@ func checkGlobalProfileKeys(name string, keys map[string]any) error {
 }
 
 // validate runs the deterministic catalog checks: valid roles, valid interfaces,
-// parseable timeouts, resolvable [roles] targets, and no profile reference cycle.
+// parseable timeouts, resolvable [roles] and [seats] targets, and no profile
+// reference cycle.
 func (g GlobalAgentsConfig) validate() error {
 	for _, name := range sortedKeys(g.Profiles) {
 		b := g.Profiles[name]
@@ -304,6 +320,18 @@ func (g GlobalAgentsConfig) validate() error {
 		}
 		if _, ok := g.Profiles[target]; !ok {
 			return fmt.Errorf("[roles] %s = %q names no [profiles.%s]%s", role, target, target, g.knownProfiles())
+		}
+	}
+	for _, seat := range sortedStringKeys(g.Seats) {
+		if strings.TrimSpace(seat) == "" {
+			return fmt.Errorf("[seats] carries an unnamed seat")
+		}
+		target := strings.TrimSpace(g.Seats[seat])
+		if target == "" {
+			return fmt.Errorf("[seats] %s is empty — name a profile or drop the key", seat)
+		}
+		if _, err := g.resolveChain(target); err != nil {
+			return fmt.Errorf("[seats] %s = %q: %w", seat, target, err)
 		}
 	}
 	return nil

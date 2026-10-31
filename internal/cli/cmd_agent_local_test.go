@@ -104,3 +104,79 @@ func TestGitignoreNeededIgnoresLocalAgents(t *testing.T) {
 		t.Errorf("needed set must ignore .satelle/workflows/agents.local.toml when .satelle/ is not ignored: %v", need)
 	}
 }
+
+// sty_1f496a91 AC2/AC3: a repo with no agents.local.toml whose seats the catalog's
+// [seats] map names resolves each seat to its profile's command, model, tools and
+// timeouts, and `agent validate` shows them on the GRANT lines — while the repo's
+// own agents.toml carries no profile= for a sync push to refuse.
+func TestAgentValidateShowsCatalogSeatMapWithoutLocalFile(t *testing.T) {
+	shared := "[executor]\nrole = \"agent\"\ncommand = \"in-loop\"\n\n[reviewer]\nrole = \"reviewer\"\n\n[coder]\nrole = \"agent\"\n"
+	repo := localLayerRepo(t, shared, "")
+	writeCatalog(t, `
+[profiles.seat-judge]
+role         = "reviewer"
+command      = "`+agentcli.DefaultClaudeCommand+`"
+tools        = "Read,Grep,Glob"
+model        = "judge-seat-model"
+timeout      = "25m"
+idle_timeout = "6m"
+
+[profiles.seat-coder]
+role         = "agent"
+interface    = "stream"
+command      = "`+agentcli.DefaultClaudeStreamCommand+`"
+tools        = "Read,Grep,Glob,Edit,Write"
+model        = "coder-seat-model"
+timeout      = "40m"
+idle_timeout = "9m"
+
+[seats]
+reviewer = "seat-judge"
+coder    = "seat-coder"
+`)
+	wfDir := filepath.Join(repo, ".satelle", "workflows")
+	if _, err := os.Stat(filepath.Join(wfDir, config.LocalAgentsName)); !os.IsNotExist(err) {
+		t.Fatalf("the fixture must carry no %s: %v", config.LocalAgentsName, err)
+	}
+	body, err := os.ReadFile(filepath.Join(wfDir, config.AgentsConfigName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusals, cerr := config.CheckAgentsTransport(body); cerr != nil || len(refusals) != 0 || strings.Contains(string(body), "profile") {
+		t.Fatalf("the repo agents.toml must carry no profile= and push clean: %v %v", refusals, cerr)
+	}
+
+	out, err := runRoot(t, "agent", "validate")
+	if err != nil {
+		t.Fatalf("agent validate: %v\n%s", err, out)
+	}
+	grant := func(name string) string {
+		for _, ln := range strings.Split(out, "\n") {
+			if strings.Contains(ln, "GRANT ["+name+"]") {
+				return ln
+			}
+		}
+		return ""
+	}
+	for name, wants := range map[string][]string{
+		"reviewer": {`command="` + agentcli.DefaultClaudeCommand + `"`, `model="judge-seat-model"`, `tools="Read,Grep,Glob"`, `timeout="25m"`, `idle_timeout="6m"`},
+		"coder":    {`command="` + agentcli.DefaultClaudeStreamCommand + `"`, `model="coder-seat-model"`, `tools="Read,Grep,Glob,Edit,Write"`, `timeout="40m"`, `idle_timeout="9m"`},
+	} {
+		line := grant(name)
+		for _, want := range wants {
+			if !strings.Contains(line, want) {
+				t.Errorf("GRANT [%s] line lacks %q: %q\n%s", name, want, line, out)
+			}
+		}
+	}
+	for _, want := range []string{
+		`model = "coder-seat-model" ← global-seat:seat-coder (~/.satelle/agents.toml)`,
+		`model = "judge-seat-model" ← global-seat:seat-judge (~/.satelle/agents.toml)`,
+		"SEAT [coder] -> seat-coder",
+		"Machine-local layer: " + config.LocalAgentsRel + " (absent",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("agent validate missing %q:\n%s", want, out)
+		}
+	}
+}

@@ -202,10 +202,7 @@ func bindingOrigin(g agentvalidate.Grant, section string) string {
 	profiles := map[string]bool{}
 	for _, src := range g.Sources {
 		for _, part := range strings.Split(src, "+") {
-			if name, ok := strings.CutPrefix(part, "profile:"); ok {
-				profiles[name] = true
-			}
-			if name, ok := strings.CutPrefix(part, "global-role:"); ok {
+			if name, ok := config.CatalogProfile(part); ok {
 				profiles[name] = true
 			}
 		}
@@ -227,7 +224,7 @@ func bindingOrigin(g agentvalidate.Grant, section string) string {
 func hookSourceFiles(g agentvalidate.Grant, agentsFile, catalogFile string) []string {
 	files := []string{agentsFile}
 	for _, src := range g.Sources {
-		if strings.Contains(src, "profile:") || strings.Contains(src, "global-role:") {
+		if config.IsCatalogSource(src) {
 			return append(files, catalogFile)
 		}
 	}

@@ -517,3 +517,156 @@ func TestSpawnedExecutablesReadsResolvedSeats(t *testing.T) {
 		t.Errorf("all in-loop SpawnedExecutables = %v, want none", got)
 	}
 }
+
+// seatMapCatalog maps the coder seat to a two-profile chain and carries the
+// profiles the repo and local layers may name instead.
+const seatMapCatalog = `
+[profiles.seat-base]
+role         = "agent"
+tools        = "Read,Grep"
+idle_timeout = "11m"
+
+[profiles.seat-coder]
+profile = "seat-base"
+role    = "agent"
+command = "claude -p --model {model} {system}"
+model   = "seat-model"
+timeout = "30m"
+
+[profiles.repo-named]
+role   = "agent"
+model  = "repo-profile-model"
+effort = "low"
+
+[profiles.local-named]
+role  = "agent"
+model = "local-profile-model"
+
+[seats]
+coder = "seat-coder"
+`
+
+// TestResolveSeatMapLayering (sty_1f496a91 AC1): the catalog's [seats] map
+// names a seat's profile for every repo, layered over the baseline, workspace
+// and repo and under agents.local.toml, with each field naming its tier.
+func TestResolveSeatMapLayering(t *testing.T) {
+	cat := catalog(t, seatMapCatalog)
+	baseline := repoAgents(t, "[coder]\nrole = \"agent\"\nprinciples = \"none\"\nmodel = \"baseline-model\"\n")
+	repoBody := "[coder]\nrole = \"agent\"\nmodel = \"repo-model\"\ntools = \"Write\"\neffort = \"high\"\ncommand = \"repo-cmd {system}\"\n\n" +
+		"[other]\nrole = \"agent\"\nmodel = \"other-model\"\n"
+	repo := repoAgents(t, repoBody)
+	resolve := func(t *testing.T, g GlobalAgentsConfig, r, local AgentsConfig) (AgentsConfig, Provenance) {
+		t.Helper()
+		got, prov, err := ResolveAgentsBaseline(baseline, AgentLayers{Repo: r, Local: local}, g)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		return got, prov
+	}
+	want := func(t *testing.T, got AgentBinding, prov Provenance, field, value, source string) {
+		t.Helper()
+		var v string
+		switch field {
+		case "model":
+			v = got.Model
+		case "tools":
+			v = got.Tools
+		case "command":
+			v = got.Command
+		case "timeout":
+			v = got.Timeout
+		case "idle_timeout":
+			v = got.IdleTimeout
+		case "effort":
+			v = got.Effort
+		case "principles":
+			v = got.Principles
+		}
+		if v != value || prov.Source("coder", field) != source {
+			t.Errorf("coder %s = %q (%s), want %q (%s)", field, v, prov.Source("coder", field), value, source)
+		}
+	}
+
+	t.Run("seat map beats the repo, which still fills what the seat leaves", func(t *testing.T) {
+		got, prov := resolve(t, cat, repo, AgentsConfig{})
+		c := got.Agents["coder"]
+		want(t, c, prov, "model", "seat-model", SourceGlobalSeat("seat-coder"))
+		want(t, c, prov, "command", "claude -p --model {model} {system}", SourceGlobalSeat("seat-coder"))
+		want(t, c, prov, "timeout", "30m", SourceGlobalSeat("seat-coder"))
+		want(t, c, prov, "tools", "Read,Grep", SourceGlobalSeat("seat-base"))
+		want(t, c, prov, "idle_timeout", "11m", SourceGlobalSeat("seat-base"))
+		want(t, c, prov, "effort", "high", SourceRepo)
+		want(t, c, prov, "principles", "none", SourceBaseline)
+		if c.Profile != "seat-coder" {
+			t.Errorf("the seat's profile must be reported: %q", c.Profile)
+		}
+		if SourceFile(SourceGlobalSeat("seat-coder")) != GlobalAgentsLabel {
+			t.Errorf("a seat-map field must name the catalog file: %q", SourceFile(SourceGlobalSeat("seat-coder")))
+		}
+	})
+
+	t.Run("a repo profile= sits under the seat map", func(t *testing.T) {
+		got, prov := resolve(t, cat, repoAgents(t, "[coder]\nrole = \"agent\"\nprofile = \"repo-named\"\n"), AgentsConfig{})
+		c := got.Agents["coder"]
+		want(t, c, prov, "model", "seat-model", SourceGlobalSeat("seat-coder"))
+		want(t, c, prov, "effort", "low", SourceProfile("repo-named"))
+	})
+
+	t.Run("a local field beats the seat map", func(t *testing.T) {
+		got, prov := resolve(t, cat, repo, localAgents(t, "[coder]\nmodel = \"local-model\"\n"))
+		c := got.Agents["coder"]
+		want(t, c, prov, "model", "local-model", SourceLocal)
+		want(t, c, prov, "timeout", "30m", SourceGlobalSeat("seat-coder"))
+	})
+
+	t.Run("a local profile= suppresses the seat map", func(t *testing.T) {
+		got, prov := resolve(t, cat, repo, localAgents(t, "[coder]\nprofile = \"local-named\"\n"))
+		c := got.Agents["coder"]
+		want(t, c, prov, "model", "repo-model", SourceRepo)
+		want(t, c, prov, "command", "repo-cmd {system}", SourceRepo)
+		if c.Timeout != "" || c.Profile != "local-named" {
+			t.Errorf("no seat-map field may apply under a local profile=: %+v", c)
+		}
+		for _, f := range prov.Fields("coder") {
+			if strings.HasPrefix(prov.Source("coder", f), "global-seat:") {
+				t.Errorf("field %s sourced from the seat map under a local profile=", f)
+			}
+		}
+	})
+
+	t.Run("an unmapped seat is unchanged", func(t *testing.T) {
+		noSeats := catalog(t, strings.Split(seatMapCatalog, "[seats]")[0])
+		withMap, withProv := resolve(t, cat, repo, AgentsConfig{})
+		without, withoutProv := resolve(t, noSeats, repo, AgentsConfig{})
+		if !reflect.DeepEqual(withMap.Agents["other"], without.Agents["other"]) || !reflect.DeepEqual(withProv["other"], withoutProv["other"]) {
+			t.Errorf("an unmapped seat must resolve as without the map:\n got %+v %v\nwant %+v %v",
+				withMap.Agents["other"], withProv["other"], without.Agents["other"], withoutProv["other"])
+		}
+		if _, ok := withMap.Agents["seat-only"]; ok {
+			t.Error("the seat map must not invent seats")
+		}
+	})
+
+	t.Run("a role that disagrees with the seat's profile is refused", func(t *testing.T) {
+		conflict := catalog(t, seatMapCatalog+"reviewer = \"seat-coder\"\n")
+		_, _, err := ResolveAgentsBaseline(AgentsConfig{}, AgentLayers{Repo: repoAgents(t, "[reviewer]\nrole = \"reviewer\"\n")}, conflict)
+		if err == nil || !strings.Contains(err.Error(), "[seats] reviewer") || !strings.Contains(err.Error(), "role is identity") {
+			t.Errorf("want a role-is-identity error naming [seats] reviewer, got %v", err)
+		}
+	})
+
+	t.Run("the loader refuses a seat naming a missing profile or a non-string value", func(t *testing.T) {
+		for body, wants := range map[string][]string{
+			"[profiles.p]\nrole = \"agent\"\n\n[seats]\ncoder = \"absent\"\n": {"[seats] coder", "missing profile \"absent\"", "known: p"},
+			"[profiles.p]\nrole = \"agent\"\n\n[seats]\ncoder = 3\n":          {"[seats]"},
+			"[profiles.p]\nrole = \"agent\"\n\n[seats]\ncoder = \"\"\n":       {"[seats] coder is empty"},
+		} {
+			_, err := ParseGlobalAgents(body)
+			for _, w := range wants {
+				if err == nil || !strings.Contains(err.Error(), w) {
+					t.Errorf("ParseGlobalAgents(%q) = %v, want an error containing %q", body, err, w)
+				}
+			}
+		}
+	})
+}
