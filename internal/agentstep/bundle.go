@@ -432,7 +432,7 @@ func (g *Engine) runReviewerBundle(ctx context.Context, item workitem.Item, toSt
 		d.BundleID, d.BundleSkills = bundleID, skills
 		d.ReviewMode = refs[live[k]].mode
 		if k == 0 {
-			g.setDecisionUsage(&d, res.Usage, seat.binding.Model)
+			g.setDecisionUsage(&d, res.Usage, res.RanModel(seat.binding.Model))
 			d.RunCounts = res.Counts
 		}
 		// After the usage: setDecisionUsage replaces the whole UsageNote.

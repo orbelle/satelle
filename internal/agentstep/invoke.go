@@ -118,6 +118,14 @@ type InvokeResult struct {
 	// for is present as a fail-closed reject, never absent.
 	Decisions []verb.GateDecision
 	Err       error
+	// Model is the listed model the returned attempt ran on when a binding's
+	// model list moved past its first model (sty_7bfa980d); empty otherwise, so a
+	// dispatch with no move is recorded exactly as before. See RanModel.
+	Model string
+	// NoVerdict is set on a bundled result whose rubrics all failed closed
+	// because no attempt named a verdict: the session ran, but the model did not
+	// answer, so a binding's model list moves on (sty_7bfa980d).
+	NoVerdict bool
 	// Counts is the run's turns and tool calls, or the adapter-named reason each
 	// is unavailable. Stamped for a judging invocation on every outcome, a failed
 	// attempt included — it is what such an attempt measured.
@@ -316,9 +324,11 @@ func (g *Engine) checkDispatchBudget(inv invocation, promptBytes, payloadBytes i
 // Invoke is the ONLY path that calls agentcli.Runner.Run for LLM gate/dispatch
 // steps (sty_ba860c8a). It resolves prompt assembly from the binding, runs the
 // agent, and for ExpectVerdict applies the retry + verdict parse loop.
-// On a classified rate-limit/unavailable failure, retries once on the binding's
-// secondary (per-binding secondary= or [defaults] secondary) when configured
-// (sty_5bf61f89).
+// A binding whose model= lists several models runs on each in order while the
+// current one does not answer (invokeModels, sty_7bfa980d). Once the list is
+// spent, a classified rate-limit/unavailable failure retries once on the
+// binding's secondary (per-binding secondary= or [defaults] secondary) when
+// configured (sty_5bf61f89).
 func (g *Engine) Invoke(ctx context.Context, req InvokeRequest) InvokeResult {
 	// A secret the secondary resolves is kept out of the log from the first
 	// line, before the primary's own input is written.
@@ -327,7 +337,7 @@ func (g *Engine) Invoke(ctx context.Context, req InvokeRequest) InvokeResult {
 			req.Log.addSecrets(g.scrubValues(sec.Env))
 		}
 	}
-	res := g.invokePrimary(ctx, req)
+	res := g.invokeModels(ctx, req)
 	if res.Err == nil {
 		return res
 	}
@@ -352,6 +362,109 @@ func (g *Engine) Invoke(ctx context.Context, req InvokeRequest) InvokeResult {
 	secReq.Section = secName
 	secReq.Runner = nil // rebuild runner from secondary binding
 	return g.invokePrimary(ctx, secReq)
+}
+
+// RanModel is the model a binding's model list moved on to, or fallback (the
+// model the caller chose) when it did not move — so a verdict or performance
+// row credits the model that answered, not the first one listed.
+func (r InvokeResult) RanModel(fallback string) string {
+	if r.Model != "" {
+		return r.Model
+	}
+	return fallback
+}
+
+// invokeModels runs req on its binding's models in order (sty_7bfa980d): the
+// same command, tools, effort, role and payload, only the model changing. It
+// moves to the next model only when nextModelReason says the current one did
+// not answer, records each move on an agent_invocation row (phase
+// model_failover) with the model it ran and why it moved on, and returns the
+// last attempt's result. A binding with one model, or none, is one
+// invokePrimary exactly as before.
+func (g *Engine) invokeModels(ctx context.Context, req InvokeRequest) InvokeResult {
+	models := req.Binding.Models()
+	if len(models) < 2 {
+		return g.invokePrimary(ctx, req)
+	}
+	section := req.Section
+	if section == "" {
+		section = "agent"
+	}
+	var res InvokeResult
+	for i, m := range models {
+		attempt := req
+		attempt.Binding.Model, attempt.Binding.ModelFallbacks = m, nil
+		res = g.invokePrimary(ctx, attempt)
+		if i > 0 {
+			res.Model = m
+		}
+		if i == len(models)-1 {
+			break
+		}
+		reason, ok := nextModelReason(ctx, res)
+		if !ok {
+			break
+		}
+		next := models[i+1]
+		cause := "no parseable verdict for any rubric"
+		if res.Err != nil {
+			cause = res.Err.Error()
+		}
+		row := map[string]any{
+			"phase": "model_failover", "agent": section, "skill": req.Skill,
+			"model": m, "next_model": next, "outcome": reason, "error": cause,
+		}
+		if tp, ok := transitionOf(req.Payload); ok {
+			row["from"], row["to"] = tp.From, tp.To
+		}
+		g.recordInvocation(ctx, req.StoryID, row)
+		g.telemetryEvent(ctx, req.StoryID, req.Actor, "agent-model-failover", map[string]any{
+			"agent": section, "model": m, "next_model": next, "outcome": reason, "cause": causeOf(res.Err),
+		})
+		g.emitProgress("binding %q model %q gave no answer (%s) — retrying once on model %q…", section, m, reason, next)
+	}
+	return res
+}
+
+// errNoVerdict marks a verdict dispatch whose attempts all ended without a
+// parseable verdict; errGrantRefused marks a reviewer refused before it ran
+// because its grant cannot open the material it was handed (sty_7bfa980d).
+var (
+	errNoVerdict    = errors.New("no verdict")
+	errGrantRefused = errors.New("reviewer grant refused")
+)
+
+// nextModelReason reports whether a dispatch that ended with res should be
+// re-run on the binding's next listed model, and the outcome class it moved on
+// for (sty_7bfa980d): the agent did not answer (no final message, no
+// parseable verdict), it timed out or stalled, or it hit a classified
+// rate-limit/unavailability error. A cancel, a turn cap, a refused grant, a
+// broken command and every other failure stay where they are — another model
+// would fail them the same way. A verdict, even a fail-closed one, is an
+// answer, except a bundle that failed closed because no attempt named one.
+func nextModelReason(ctx context.Context, res InvokeResult) (string, bool) {
+	if ctx.Err() != nil {
+		return "", false
+	}
+	err := res.Err
+	if err == nil {
+		return "no-verdict", res.NoVerdict
+	}
+	switch {
+	case errors.Is(err, errGrantRefused), errors.Is(err, agentcli.ErrMaxTurns):
+		return "", false
+	case asStallError(err) != nil:
+		return "stalled", true
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout", true
+	case errors.Is(err, agentcli.ErrNoAnswer):
+		return "no-answer", true
+	case errors.Is(err, errNoVerdict):
+		return "no-verdict", true
+	case IsRateLimitOrUnavailable(err, res.Stdout):
+		return "rate-limit", true
+	}
+	return "", false
 }
 
 // secondaryFor is the binding req fails over to on a rate limit, and its name;
@@ -616,8 +729,8 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 	// A judging reviewer that was handed files must be able to open them.
 	// An empty read class skips the runner; the edge does not accept.
 	if swapped && !agentcli.GrantAdmitsRead(inv.tools) {
-		err := fmt.Errorf("unavailable: %s: reviewer grant admits no read tool; the material at %s could not be opened",
-			runner.Name(), filepath.Join(scratchDir, "material"))
+		err := agentcli.Mark(fmt.Errorf("unavailable: %s: reviewer grant admits no read tool; the material at %s could not be opened",
+			runner.Name(), filepath.Join(scratchDir, "material")), errGrantRefused)
 		g.recordInvocation(ctx, req.StoryID, map[string]any{
 			"phase": "scratch_kept", "scratch_dir": scratchDir, "agent": section,
 		})
@@ -1120,8 +1233,8 @@ func (g *Engine) invokeVerdict(ctx context.Context, req InvokeRequest, runner ag
 					"skill": skill, "step": step, "attempt": attempt, "attempts": attempts,
 					"cause": causeOf(rerr),
 				})
-				return InvokeResult{Command: cmdStr, Err: fmt.Errorf(
-					"reviewer: %s timed out after %s — the gate did not complete and the transition was NOT enacted; retry when the agent backend is responsive", skill, timeout)}
+				return InvokeResult{Command: cmdStr, Err: agentcli.Mark(fmt.Errorf(
+					"reviewer: %s timed out after %s — the gate did not complete and the transition was NOT enacted; retry when the agent backend is responsive", skill, timeout), rerr)}
 			}
 			if agentcli.DetectMaxTurns(out) {
 				rerr = fmt.Errorf("%w: %w", agentcli.ErrMaxTurns, rerr)
@@ -1206,11 +1319,11 @@ func (g *Engine) invokeVerdict(ctx context.Context, req InvokeRequest, runner ag
 			decs[i].Command = cmdStr
 			decs[i].Context = s
 		}
-		return InvokeResult{Stdout: lastOut, Usage: lastUsage, Command: cmdStr, Decisions: decs}
+		return InvokeResult{Stdout: lastOut, Usage: lastUsage, Command: cmdStr, Decisions: decs, NoVerdict: true}
 	}
-	return InvokeResult{Command: cmdStr, Usage: lastUsage, Err: fmt.Errorf(
+	return InvokeResult{Command: cmdStr, Usage: lastUsage, Err: agentcli.Mark(fmt.Errorf(
 		"reviewer: %s produced no verdict after %d attempts (empty/ambiguous reviewer output or a transient agent failure — e.g. a rate-limited or killed subprocess under concurrent sessions; retry, or reduce concurrent satelle sessions): %w%s%s",
-		skill, attempts, lastErr, outputTail(lastOut), where)}
+		skill, attempts, lastErr, outputTail(lastOut), where), errNoVerdict)}
 }
 
 // runOnce executes a single bounded agent run against a caller-supplied
@@ -1247,9 +1360,12 @@ func (g *Engine) runOnceBusy(ctx context.Context, runner agentcli.Runner, req ag
 }
 
 func (g *Engine) runOnceBusyRaw(ctx context.Context, runner agentcli.Runner, req agentcli.Request, hard, idle, busy time.Duration) ([]byte, agentcli.UsageResult, error) {
+	parentCtx := ctx
+	hardCtx := ctx
 	if hard > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, hard)
+		hardCtx = ctx
 		defer cancel()
 	}
 	if idle > 0 {
@@ -1275,6 +1391,12 @@ func (g *Engine) runOnceBusyRaw(ctx context.Context, runner agentcli.Runner, req
 		}
 		if se := StallCause(ctx); se != nil {
 			return se
+		}
+		// A transport killed by the hard bound may report only its exit
+		// ("signal: killed"); mark the deadline so the run reads as a timeout
+		// wherever it is classified (sty_7bfa980d).
+		if hard > 0 && parentCtx.Err() == nil && errors.Is(hardCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+			return agentcli.Mark(err, context.DeadlineExceeded)
 		}
 		return err
 	}

@@ -1,3 +1,13 @@
+## [0.0.827] - 2026-11-01
+
+### Added
+- A seat's `model` may list models in order (`model = "a,b"`). When a dispatch gets no answer on one model (unavailable, rate-limited, a timeout, a stall, or no verdict after its retries), the same binding runs again on the next model in the list, with nothing else changed; the binding's `secondary=` is used only once the list is spent. Each attempt's model is recorded, and `satelle agent validate` shows the list on the GRANT line. `satelle help agent-dispatch` has a "Model list" section. (sty_7bfa980d)
+
+## [serve-v0.0.264] - 2026-11-01
+
+### Changed
+- The service binary carries the per-binding model fallback list. (sty_7bfa980d)
+
 ## [0.0.826] - 2026-11-01
 
 ### Changed

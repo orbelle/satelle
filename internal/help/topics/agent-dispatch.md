@@ -130,7 +130,8 @@ runtime refusal and validate, so they cannot disagree.
 | **`stream`** | Stream-json live session (Claude preset, opt-in: `DefaultClaudeStreamCommand`). `{system}`/`{payload}` are rejected — they ride the first user message; `{tools}`/`{model}`/`{effort}` remain argv. For the orchestrator binding (live turns), not reviewers. |
 | **`pi-rpc`** | A pi command run in pi's RPC mode, one-shot (`agentcli.PiRPCCommand`). The payload is sent as pi's one `prompt` command; satelle reads every turn, message and tool call as an event, ends the seat (stdin closed, process group killed) once pi reports `agent_settled`, aborts it when it starts a turn beyond `turn_budget`, and records usage from `get_session_stats`. Building the runner refuses a template without `--mode rpc`, `--no-session`, `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`, `--no-mcp` and `--system-prompt {system}`. Only a pi command may use it. |
 
-Shared fields on all four: `role`, `tools`, `model`, `effort`, `secondary`,
+Shared fields on all four: `role`, `tools`, `model` (one model, or an ordered
+comma list — see *Model list*), `effort`, `secondary`,
 `principles`, `env`, `timeout`, `idle_timeout`, `settings`, and — reviewers
 only — `isolation = "operator-attested"` (see *Reviewer tool isolation*). Reviewers keep Claude on
 `interface = command` (cold one-shot, verdict contract). `stream` is the
@@ -618,6 +619,34 @@ Empty means the peer default.
 | --- | --- |
 | **command** | Substitutes into `{effort}` (flag dropped when empty, like `{model}`). Also supports fused forms such as `model_reasoning_effort="{effort}"` (empty drops the whole token and a preceding `-`flag). Default Claude/Grok templates include the flag. |
 | **ACP** | Session path: `session/set_config_option` for `reasoning_effort` / `effort` (failure-tolerant). **Grok-shaped** ACP spawns also receive argv `--reasoning-effort` (Grok CLI flag). Other non-Grok peers never get that argv flag — it is not ACP (sty_aa726901). |
+
+### Model list (`model = "a,b"`)
+
+`model=` takes one model or an **ordered comma-separated list**. A dispatch runs on
+the first model; when that model **does not answer**, satelle re-runs the same
+payload **once** on the next listed model — the same binding (command, tools,
+effort, role, grant), only the model changing:
+
+```toml
+[story-create-review]
+role  = "reviewer"
+model = "openai/gpt-6.1-terra,moonshotai/kimi-k3.1-pro"
+```
+
+"Does not answer" is: the agent settles or exits with no final message, an empty
+or unparseable verdict (after the binding's `attempts`), its `timeout` or
+`idle_timeout`, or a classified rate-limit or unavailability error. Anything else
+— a refused tool grant, a broken command, a cancel, a turn cap — stays on the
+current model and fails as it would with one model. Each move is recorded as an
+`agent_invocation` row (`phase = "model_failover"`, the model it ran,
+`next_model`, and why it moved on); `satelle story route` and `satelle story cost`
+show the model that gave the verdict. `satelle agent validate` prints the list on
+the binding's `GRANT` line.
+
+Once the list is spent, `secondary=` (below) applies unchanged. A single model
+behaves exactly as before. Only the first model is checked against the catalog at
+validate time — a typo in a later entry shows when it runs — and the worst-case
+wall time is one full dispatch per listed model.
 
 ### Rate-limit secondary (`secondary=` / `[defaults]`)
 

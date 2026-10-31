@@ -279,7 +279,18 @@ type AgentBinding struct {
 	// Harness is retired: still decoded for MigrateAgents; CommandTemplate ignores it.
 	Harness string `toml:"harness"`
 	Tools   string `toml:"tools"`
-	Model   string `toml:"model"`
+	// Model is the model the binding runs, or an ordered comma-separated list
+	// ("a,b,c", sty_7bfa980d): a dispatch that ends with no answer, no
+	// parseable verdict, a timeout or idle stall, or a rate-limit or
+	// unavailability error is re-run once on the next listed model, with every
+	// other field unchanged; secondary= applies once the list is spent.
+	// Resolution keeps the first entry here and the rest in ModelFallbacks, so
+	// every other reader of Model sees exactly one model.
+	Model string `toml:"model"`
+	// ModelFallbacks is the rest of a comma-listed model=, in order, filled
+	// when the binding is resolved (never decoded, never written back). Nil for
+	// a single model. See Models.
+	ModelFallbacks []string `toml:"-"`
 	// Role is "reviewer" | "agent". Empty means inferred from the section name
 	// (see ResolvedRole). The binary's only hard determination for a reviewer is
 	// the verdict contract; tool grant/model/command are user configuration.
@@ -397,6 +408,37 @@ const (
 	AuthOrg          = "org"
 	AuthUnrecorded   = ledger.AuthUnrecorded
 )
+
+// Models is the binding's ordered model list: Model's comma-separated entries
+// (trimmed, blanks dropped) followed by ModelFallbacks. Nil when no model is
+// set. A resolved binding holds one entry in Model; an unresolved one may still
+// carry the raw list, which this splits the same way.
+func (b AgentBinding) Models() []string {
+	var out []string
+	for _, m := range strings.Split(b.Model, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
+		}
+	}
+	return append(out, b.ModelFallbacks...)
+}
+
+// splitModelList normalises a comma-listed model= in place: Model keeps the
+// first entry and ModelFallbacks the rest. A single model is left exactly as
+// written and ModelFallbacks stays nil.
+func (b *AgentBinding) splitModelList() {
+	if !strings.Contains(b.Model, ",") {
+		return
+	}
+	ms := b.Models()
+	b.Model, b.ModelFallbacks = "", nil
+	if len(ms) > 0 {
+		b.Model = ms[0]
+	}
+	if len(ms) > 1 {
+		b.ModelFallbacks = ms[1:]
+	}
+}
 
 // ResolvedAuth is the binding's declared auth mode, or AuthUnrecorded when none
 // is declared.

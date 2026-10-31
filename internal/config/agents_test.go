@@ -920,3 +920,35 @@ func TestOneShotBindingResolvesTheExecutorForASingleRun(t *testing.T) {
 		t.Errorf("an unknown binding must report not found")
 	}
 }
+
+// sty_7bfa980d AC1: model= takes an ordered comma-separated list. A single model
+// resolves exactly as before (no fallbacks); a list keeps its first entry in
+// Model and the rest, trimmed and in order, in ModelFallbacks. The decoded layer
+// is never rewritten.
+func TestResolveAgentsSplitsAModelList(t *testing.T) {
+	repo := repoAgents(t, "[reviewer]\nmodel = \"m1\"\n\n[lister]\nrole = \"reviewer\"\nmodel = \"m1, m2 ,m3\"\n")
+	agents, _, err := ResolveAgentsLayered(repo, AgentsConfig{}, GlobalAgentsConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	single := agents.Reviewer
+	if single.Model != "m1" || single.ModelFallbacks != nil {
+		t.Fatalf("single model: Model=%q ModelFallbacks=%v, want m1 and nil", single.Model, single.ModelFallbacks)
+	}
+	if got := single.Models(); len(got) != 1 || got[0] != "m1" {
+		t.Fatalf("single model: Models()=%v, want [m1]", got)
+	}
+	list := agents.Agents["lister"]
+	if list.Model != "m1" {
+		t.Fatalf("list: Model=%q, want the first entry m1", list.Model)
+	}
+	if got := strings.Join(list.Models(), "|"); got != "m1|m2|m3" {
+		t.Fatalf("list: Models()=%q, want m1|m2|m3", got)
+	}
+	if raw := repo.Agents["lister"]; raw.Model != "m1, m2 ,m3" || raw.ModelFallbacks != nil {
+		t.Fatalf("the decoded layer must be unchanged: %+v", raw)
+	}
+	if got := (AgentBinding{}).Models(); got != nil {
+		t.Fatalf("no model: Models()=%v, want nil", got)
+	}
+}

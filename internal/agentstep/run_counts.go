@@ -79,7 +79,7 @@ func (g *Engine) failureStamp(skill string, res InvokeResult, seat reviewerSeat)
 	// The same usage mapping and stamp a judged attempt goes through, so a failed
 	// attempt's tokens, duration and isolation are recorded exactly as a judged
 	// one's are.
-	g.setDecisionUsage(&d, res.Usage, seat.binding.Model)
+	g.setDecisionUsage(&d, res.Usage, res.RanModel(seat.binding.Model))
 	stampInvocation(&d, res, seat)
 	d.Command, d.Context, d.RunCounts = res.Command, skill, res.Counts
 	rv := reviewerVerdictOf(skill, 0, false, d)

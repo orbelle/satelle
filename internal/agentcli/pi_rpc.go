@@ -252,7 +252,7 @@ func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageRe
 		return nil, usage, err
 	}
 	if strings.TrimSpace(run.answer()) == "" {
-		err := piRPCExitError("pi settled without an answer", stderr.String())
+		err := Mark(piRPCExitError("pi settled without an answer", stderr.String()), ErrNoAnswer)
 		ev := newEvent(EventFailed)
 		ev.Error = err.Error()
 		emitEvent(onEvent, ev)

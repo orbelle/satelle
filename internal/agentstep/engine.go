@@ -2824,7 +2824,7 @@ func (g *Engine) DispatchExecutor(ctx context.Context, item workitem.Item, toSta
 func (g *Engine) performanceResult(agent, skill string, binding config.AgentBinding, budget config.Budget, mc ModelChoice, invRes InvokeResult) verb.DispatchResult {
 	modelResolved, models := toVerbModels(invRes.Usage)
 	res := verb.DispatchResult{
-		Dispatched: true, Agent: agent, Command: invRes.Command, Model: mc.Model, Skill: skill,
+		Dispatched: true, Agent: agent, Command: invRes.Command, Model: invRes.RanModel(mc.Model), Skill: skill,
 		ModelResolved: modelResolved, Models: models, ModelSource: mc.Source,
 		TokensIn: invRes.Usage.InputTokens, TokensOut: invRes.Usage.OutputTokens, TokensTotal: invRes.Usage.TotalTokens,
 		DurationMs: invRes.Usage.Duration.Milliseconds(), UsageAvailable: invRes.Usage.Available,
@@ -2959,7 +2959,7 @@ func (g *Engine) Retrospect(ctx context.Context, item workitem.Item, spec verb.R
 	})
 	retroModelResolved, retroModels := toVerbModels(invRes.Usage)
 	res := verb.DispatchResult{
-		Dispatched: true, Agent: retrospectAgent, Command: invRes.Command, Model: binding.Model, Skill: retrospectSkill,
+		Dispatched: true, Agent: retrospectAgent, Command: invRes.Command, Model: invRes.RanModel(binding.Model), Skill: retrospectSkill,
 		ModelResolved: retroModelResolved, Models: retroModels, ModelSource: retroModelSource,
 		TokensIn: invRes.Usage.InputTokens, TokensOut: invRes.Usage.OutputTokens, TokensTotal: invRes.Usage.TotalTokens,
 		DurationMs: invRes.Usage.Duration.Milliseconds(), UsageAvailable: invRes.Usage.Available,

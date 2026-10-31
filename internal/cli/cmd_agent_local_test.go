@@ -180,3 +180,26 @@ coder    = "seat-coder"
 		}
 	}
 }
+
+// sty_7bfa980d AC6: a binding whose model= lists several models shows the whole
+// ordered list on its GRANT line; a single-model binding's line is unchanged.
+func TestAgentValidateGrantLineShowsTheModelList(t *testing.T) {
+	localLayerRepo(t, "[executor]\nrole = \"agent\"\ncommand = \"in-loop\"\n\n[reviewer]\nrole = \"reviewer\"\ncommand = \""+
+		agentcli.DefaultClaudeCommand+"\"\ntools = \"Read,Grep,Glob\"\nmodel = \"a, b\"\n\n"+
+		"[lone]\nrole = \"reviewer\"\ncommand = \""+agentcli.DefaultClaudeCommand+"\"\ntools = \"Read,Grep,Glob\"\nmodel = \"solo\"\n", "")
+	out, _ := runRoot(t, "agent", "validate")
+	line := func(name string) string {
+		for _, ln := range strings.Split(out, "\n") {
+			if strings.Contains(ln, "GRANT ["+name+"]") {
+				return ln
+			}
+		}
+		return ""
+	}
+	if l := line("reviewer"); !strings.Contains(l, `model="a,b"`) {
+		t.Errorf("GRANT [reviewer] must show the list model=\"a,b\": %q\n%s", l, out)
+	}
+	if l := line("lone"); !strings.Contains(l, `model="solo"`) {
+		t.Errorf("GRANT [lone] must show its single model unchanged: %q\n%s", l, out)
+	}
+}

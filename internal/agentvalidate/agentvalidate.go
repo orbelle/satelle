@@ -1162,7 +1162,7 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 		Command:           cmd,
 		Secondary:         b.Secondary,
 		Tools:             b.Tools,
-		Model:             b.Model,
+		Model:             grantModel(b),
 		Effort:            b.Effort,
 		Timeout:           b.Timeout,
 		IdleTimeout:       b.IdleTimeout,
@@ -1589,4 +1589,13 @@ func expandRouteSources(workflows []docindex.Doc, scope routeScope) []wfEntry {
 		out = append(out, wfEntry{Doc: doc, route: &s, advisors: dr.Advisors, reworks: dr.Reworks})
 	}
 	return out
+}
+
+// grantModel is the model a GRANT line shows: the binding's model, or its whole
+// ordered list ("a,b") when model= names several (sty_7bfa980d).
+func grantModel(b config.AgentBinding) string {
+	if len(b.ModelFallbacks) == 0 {
+		return b.Model
+	}
+	return strings.Join(b.Models(), ",")
 }

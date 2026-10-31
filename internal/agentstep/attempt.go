@@ -116,6 +116,8 @@ func (g *Engine) runArtifactAttempts(
 			totalUsage.CacheReadInputTokens += lastResult.Usage.CacheReadInputTokens
 		}
 
+		// The row names the model that ran, after any move along the list.
+		attemptBinding.Model = lastResult.RanModel(attemptBinding.Model)
 		if lastResult.Err != nil {
 			g.recordArtifactAttempt(ctx, item.ID, attempt, phase, section, attemptBinding, current.Source, lastResult.Usage,
 				[]string{lastResult.Err.Error()}, reason)

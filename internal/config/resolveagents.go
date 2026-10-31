@@ -277,6 +277,9 @@ func ResolveAgentsBaseline(baseline AgentsConfig, layers AgentLayers, global Glo
 			src["tools"] = SourceEmbedded
 		}
 		markEmbedded(section, merged, src)
+		// A comma-listed model= becomes the first model plus its ordered
+		// fallbacks, on this resolved copy only (sty_7bfa980d).
+		merged.splitModelList()
 		prov[section] = src
 		return merged, nil
 	}

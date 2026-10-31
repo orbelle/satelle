@@ -192,6 +192,14 @@ func TestAgentDispatchTopic(t *testing.T) {
 		"story status",
 		"effort",    // sty_657f77b9
 		"secondary", // sty_5bf61f89
+		// The model list sits beside secondary=: the comma list, what moves it
+		// on, and that secondary= applies once it is spent (sty_7bfa980d).
+		"### Model list (`model = \"a,b\"`)",
+		"ordered comma-separated list",
+		"settles or exits with no final message",
+		"`timeout` or\n`idle_timeout`",
+		"rate-limit or unavailability error",
+		"Once the list is spent, `secondary=` (below) applies unchanged",
 		// Supported adapters + compliance scaffolds (sty_aa726901 / sty_941e60cb).
 		"Supported adapters",
 		"satelle agents install",
