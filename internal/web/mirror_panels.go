@@ -92,7 +92,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
-	stories, links := hostedView(id.Hosted, stories)
+	here, links := hostedView(id.Hosted)
 	tasks, err := decodeItems(ctx, s, repoKey, "task")
 	if err != nil {
 		return pageData{}, id, err
@@ -158,6 +158,9 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 	storyRows := attachStagesFrom(entriesByStory, stories, liveSeat, dispatches, catStepOf, specOf)
 	attachChildrenInFlight(storyRows, stories, dispatches)
+	for i := range storyRows {
+		storyRows[i].Here = here[storyRows[i].ID]
+	}
 	return pageData{
 		RepoRoot:        repoRoot,
 		ProjectName:     projectName,
@@ -181,24 +184,19 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}, id, nil
 }
 
-// hostedView narrows a hosted-mode partition's stories to those this machine
-// engaged and links the server's project page for the rest. A local partition is
-// shown whole, with no links.
-func hostedView(h *mirror.HostedMeta, stories []workitem.Item) ([]workitem.Item, *hostedLinksVM) {
+// hostedView is a hosted-mode partition's here-set — the stories engaged at this
+// checkout, which the list marks but never filters on — and the link to the
+// server's project page. Every story row in the local store is listed whatever
+// engaged it (sty_6ce071dc). A local partition marks nothing and links nothing.
+func hostedView(h *mirror.HostedMeta) (map[string]bool, *hostedLinksVM) {
 	if h == nil || h.Server == "" || h.Project == "" {
-		return stories, nil
+		return nil, nil
 	}
-	mine := make(map[string]bool, len(h.MachineStories))
+	here := make(map[string]bool, len(h.MachineStories))
 	for _, id := range h.MachineStories {
-		mine[id] = true
+		here[id] = true
 	}
-	out := make([]workitem.Item, 0, len(h.MachineStories))
-	for _, st := range stories {
-		if mine[st.ID] {
-			out = append(out, st)
-		}
-	}
-	return out, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
+	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
 }
 
 // attachStagesFrom is the mirror-side stage attach: ledger rows already loaded.

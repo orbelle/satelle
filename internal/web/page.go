@@ -302,7 +302,7 @@ const templatesSrc = `
   </div>
 
   <section class="panel" data-topic="stories" id="panel-stories">
-    {{with .Hosted}}<p class="hosted-links">This machine's stories. On the server: <a href="{{.Project}}">all stories</a></p>{{end}}
+    {{with .Hosted}}<p class="hosted-links">On the server: <a href="{{.Project}}">all stories</a></p>{{end}}
     <div class="filterbar">
       <div class="filter-input">
         <input type="text" placeholder="filter… e.g. status:open priority:high tags:epic:foo order:updated" aria-label="filter stories">
@@ -364,9 +364,9 @@ const templatesSrc = `
 {{/* epicRollup: an epic's roll-up of its children's running indicators — nothing at 0. */}}
 {{define "epicRollup"}}{{if gt . 0}}<div class="dispatch-indicator epic-rollup">agent work in progress · {{.}} {{if eq . 1}}child{{else}}children{{end}}</div>{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}</div>{{if or .Category .Tags}}<div class="wi-tags">{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
+  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{if or .Category .Tags}}<div class="wi-tags">{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
   <td><span class="badge s-{{.Status}}">{{.Status}}</span></td>
   <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{if .Accepted}} <b class="ok">{{.Accepted}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}{{with .Pending}} <span class="pending-gate" title="{{.Title}}">→{{if .Accepted}} <b class="ok">{{.Accepted}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}</span>{{end}}</span>{{end}}</td>
   <td>{{if .Priority}}{{.Priority}}{{else}}—{{end}}</td>

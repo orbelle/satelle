@@ -1,3 +1,13 @@
+## [0.0.828] - 2026-11-01
+
+### Fixed
+- The local web UI lists every story of the project in hosted mode too: backlog, in progress, done, and stories another location engaged, from the local store. Previously it showed only this machine's engaged stories. A story engaged at this checkout is marked "◆ here", live follow adds stories this checkout has never seen without a reload, and the filter bar works over the full list. This ships sty_dd594bb7's slice on trunk instead of waiting on its epic branch. (sty_6ce071dc)
+
+## [serve-v0.0.265] - 2026-11-01
+
+### Fixed
+- The service binary's hosted view no longer narrows the story list to this machine's engaged stories. (sty_6ce071dc)
+
 ## [0.0.827] - 2026-11-01
 
 ### Added
