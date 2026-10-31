@@ -25,9 +25,8 @@ import (
 //     Sequential plan→in_progress still proceeds (lease.State != target).
 //   - err: conflict with another holder, or store failure.
 //
-// A seat newly taken (acquiredThisCall) is what appends the story's working_on
-// row (sty_40853d02) — by the caller, once the move it belongs to has committed
-// (recordSeatTaken), so a refused or rolled-back move leaves no row behind.
+// The story's working_on row is not the seat's (sty_9c782f0e): the caller
+// appends it for every committed move into a performing state (recordWorkingOn).
 func acquireEngagementLease(ctx context.Context, item workitem.Item, targetStatus string) (acquiredThisCall, alreadyInFlight bool, err error) {
 	engaging, ok := storyStatusIsEngaging(ctx, item, targetStatus)
 	if !ok {

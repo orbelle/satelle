@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -30,11 +31,12 @@ func workingOnRows(t *testing.T, db *store.DB, id string) []verb.WorkingOnPayloa
 	return out
 }
 
-// Taking a fresh engagement seat appends one working_on row naming the location,
-// session and state (sty_40853d02 AC4). A step that moves on while the seat is held
-// appends none, a refused engage appends none, and a seat taken again after it was
-// released appends another.
-func TestFreshSeatAppendsOneWorkingOnRow(t *testing.T) {
+// Every move into a performing state appends one working_on row naming the
+// location, session and state (sty_40853d02 AC4, sty_9c782f0e AC2) — not only a
+// move that took a seat: a step under a seat already held writes one too. A move
+// into a state that performs nothing (a park, the terminal state) writes none,
+// and an engage the seat refuses writes none (the seat still works, AC4).
+func TestEveryMoveIntoAPerformingStateAppendsWorkingOn(t *testing.T) {
 	db := wireWithWorkflowsStore(t, singleStoryWF)
 	verb.SetLocationResolver(func() (string, string) { return "loc_unit", "unit box" })
 	t.Setenv(config.SessionEnv, "sess_unit")
@@ -45,38 +47,73 @@ func TestFreshSeatAppendsOneWorkingOnRow(t *testing.T) {
 	if rows := workingOnRows(t, db, a.ID); len(rows) != 0 {
 		t.Fatalf("a story nobody engaged has working_on rows: %+v", rows)
 	}
+	states := func(id string) []string {
+		var out []string
+		for _, r := range workingOnRows(t, db, id) {
+			out = append(out, r.State)
+		}
+		return out
+	}
+	want := func(id string, w ...string) {
+		t.Helper()
+		if got := states(id); strings.Join(got, ",") != strings.Join(w, ",") {
+			t.Fatalf("working_on states = %v, want %v", got, w)
+		}
+	}
 
 	json.Unmarshal(call(t, "story-set", map[string]any{"id": a.ID, "status": "plan"}), &a)
-	rows := workingOnRows(t, db, a.ID)
-	if len(rows) != 1 {
-		t.Fatalf("engaging wrote %d working_on rows, want 1: %+v", len(rows), rows)
-	}
-	if r := rows[0]; r.Location != "loc_unit" || r.Label != "unit box" || r.Session != "sess_unit" || r.State != "plan" {
+	want(a.ID, "plan")
+	if r := workingOnRows(t, db, a.ID)[0]; r.Location != "loc_unit" || r.Label != "unit box" || r.Session != "sess_unit" || r.State != "plan" {
 		t.Errorf("row = %+v, want loc_unit / unit box / sess_unit / plan", r)
 	}
 
-	// The next step while the seat is held re-seats nothing.
+	// The next step under the seat already held is a move into a performing state.
 	json.Unmarshal(call(t, "story-set", map[string]any{"id": a.ID, "status": "in_progress"}), &a)
-	if rows := workingOnRows(t, db, a.ID); len(rows) != 1 {
-		t.Fatalf("a step under a held seat wrote a row: %+v", rows)
-	}
+	want(a.ID, "plan", "in_progress")
 
-	// A refused engage leaves no row: the seat was never taken.
+	// The seat still refuses a second engage, and the refused move leaves no row.
 	if _, err := dispatchRaw(t, "story-set", map[string]any{"id": b.ID, "status": "plan"}); err == nil || !strings.Contains(err.Error(), "engagement seat") {
 		t.Fatalf("second engage should be refused on the seat, got %v", err)
 	}
-	if rows := workingOnRows(t, db, b.ID); len(rows) != 0 {
-		t.Fatalf("a refused engage wrote working_on rows: %+v", rows)
-	}
+	want(b.ID)
 
-	// A seat taken again after the first was released is a fresh seat.
-	if err := db.Leases.ForceRelease(context.Background(), a.ID); err != nil {
+	// A park performs nothing; resuming from it is a move back in.
+	json.Unmarshal(call(t, "story-set", map[string]any{"id": a.ID, "status": "blocked"}), &a)
+	want(a.ID, "plan", "in_progress")
+	json.Unmarshal(call(t, "story-set", map[string]any{"id": a.ID, "status": "in_progress"}), &a)
+	want(a.ID, "plan", "in_progress", "in_progress")
+
+	// The terminal state performs nothing.
+	json.Unmarshal(call(t, "story-set", map[string]any{"id": a.ID, "status": "done"}), &a)
+	if a.Status != "done" {
+		t.Fatalf("a did not close: %s", a.Status)
+	}
+	want(a.ID, "plan", "in_progress", "in_progress")
+}
+
+// A working_on row is presence, never a refusal (sty_9c782f0e AC2): a story
+// another location's row says it is working on still engages here, and the
+// engage writes this location's row after it.
+func TestWorkingOnElsewhereNeverRefusesAnEngage(t *testing.T) {
+	db := wireWithWorkflowsStore(t, singleStoryWF)
+	verb.SetLocationResolver(func() (string, string) { return "loc_here", "" })
+	t.Setenv(config.SessionEnv, "sess_here")
+
+	var it workitem.Item
+	json.Unmarshal(call(t, "story-create", map[string]any{"title": "Worked elsewhere", "category": "feature"}), &it)
+	other, _ := json.Marshal(verb.WorkingOnPayload{Location: "loc_elsewhere", Session: "sess_there", State: "plan"})
+	if _, err := db.Ledger.Append(context.Background(), ledger.AppendInput{
+		StoryID: it.ID, Kind: ledger.KindWorkingOn, Actor: "executor", Body: "elsewhere", Payload: other,
+	}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	call(t, "story-set", map[string]any{"id": a.ID, "status": "in_progress"})
-	rows = workingOnRows(t, db, a.ID)
-	if len(rows) != 2 || rows[1].State != "in_progress" {
-		t.Fatalf("re-engaging after a release: rows = %+v, want a second row at in_progress", rows)
+
+	if _, err := dispatchRaw(t, "story-set", map[string]any{"id": it.ID, "status": "plan"}); err != nil {
+		t.Fatalf("another location's working_on must not refuse an engage: %v", err)
+	}
+	rows := workingOnRows(t, db, it.ID)
+	if len(rows) != 2 || rows[0].Location != "loc_elsewhere" || rows[1].Location != "loc_here" {
+		t.Fatalf("rows = %+v, want the other location's then this one's", rows)
 	}
 }
 

@@ -6,8 +6,8 @@ package cli
 // what the last work-state passes wrote and the local ledger's working_on rows —
 // and never dials, so a session start never waits on the server. The line is
 // marked unverified when the last good snapshot it rests on is older than the
-// mirror freshness window. It is information: nothing is blocked by a story
-// another location is on. Conflicts are reported only while some work-state area
+// mirror freshness window. It is advisory presence, and says so: nothing is
+// blocked by a story another location is on. Conflicts are reported only while some work-state area
 // syncs: once every area resolves local they are dropped from the state file, so
 // turning sync back on starts from a fresh check (sty_c45cb8d5).
 
@@ -69,7 +69,7 @@ func storySyncLine(conflicts map[string]syncstate.StoryConflict, working map[str
 	}
 	for _, id := range slices.Sorted(maps.Keys(working)) {
 		r := working[id]
-		entries = append(entries, fmt.Sprintf("%s last worked at %s %s ago", id, r.who(), r.age(now)))
+		entries = append(entries, fmt.Sprintf("%s last worked at %s %s ago (advisory)", id, r.who(), r.age(now)))
 	}
 	more := ""
 	if len(entries) > storySyncMaxIDs {

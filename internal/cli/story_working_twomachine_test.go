@@ -1,14 +1,18 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/verb"
 )
@@ -186,4 +190,114 @@ func storyHead(t *testing.T, fx *holdFixture, id string) string {
 		t.Fatal(err)
 	}
 	return c.StoryHeads[id]
+}
+
+// sty_9c782f0e AC1: two locations drive the same story. Exclusivity is the
+// chain's compare-and-append on its base, not a lock: neither engage is refused,
+// but the second location's next append builds on a base the first location's
+// move has passed, the server's base check refuses it, the push does not splice
+// it after that move, and the refusal names the other location's latest
+// working_on presence.
+func TestTwoCheckoutsSecondAppendRefusedNamesPresence(t *testing.T) {
+	ts, f := newFakeWorkstateServerWith(t, noHoldRoutes(t))
+	a := workingMachine(t, ts, f, "sess_machine_a")
+	b := workingMachine(t, ts, f, "sess_machine_b")
+
+	a.use(t)
+	id := createStoryID(t, "driven from two locations")
+	a.push(t)
+	b.use(t)
+	b.pull(t)
+
+	// A drives the story first and publishes.
+	a.use(t)
+	if out, err := engageStory(t, id); err != nil {
+		t.Fatalf("A engage: %v\n%s", err, out)
+	}
+	a.push(t)
+	aHead := storyHead(t, a, id)
+
+	// B drives it too, from the base it pulled: engaging is not refused.
+	b.use(t)
+	if out, err := engageStory(t, id); err != nil {
+		t.Fatalf("B engage must not be refused: %v\n%s", err, out)
+	}
+	out, err := runRoot(t, "sync", "workstate", "push", "--server", ts.URL)
+	if err == nil {
+		t.Fatalf("B's append on a stale base must be refused:\n%s", out)
+	}
+	for _, want := range []string{"the story " + id, "moved since", "another location moved its status",
+		"working on at " + a.loc, "session sess_machine_a", "[in_progress]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("B's refusal lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "re-appended after") {
+		t.Errorf("B's events must not be spliced after A's move:\n%s", out)
+	}
+	if stored := f.chain.stored("probe", id); len(stored) == 0 || stored[len(stored)-1] != aHead {
+		t.Errorf("the server's chain %v must still end at A's head %s", stored, aHead)
+	}
+}
+
+// sty_9c782f0e AC3 (card: "A task can then append a result to a story's chain
+// from any session"): a task in a session that never engaged the story appends
+// a result to its chain with no seat check — no seat is held for it here — and
+// the only refusal is a stale base: once another location has moved the story,
+// the next result is refused by the base check, naming that presence.
+func TestTaskAppendsAResultFromASessionThatNeverEngaged(t *testing.T) {
+	ts, f := newFakeWorkstateServerWith(t, noHoldRoutes(t))
+	a := workingMachine(t, ts, f, "sess_driver")
+	task := workingMachine(t, ts, f, "sess_task")
+
+	a.use(t)
+	id := createStoryID(t, "a task reports on it")
+	a.push(t)
+
+	task.use(t)
+	task.pull(t)
+	appendResult := func(body string) {
+		t.Helper()
+		if out, err := runRoot(t, "ledger", "append", "--story", id, "--kind", ledger.KindExecutionLink, "--actor", "task", "--body", body); err != nil {
+			t.Fatalf("task append: %v\n%s", err, out)
+		}
+	}
+	appendResult("result: pass")
+	ap, err := app.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, lerr := ap.Store.Leases.Get(context.Background(), id)
+	ap.Close()
+	if !errors.Is(lerr, lease.ErrNotFound) {
+		t.Fatalf("the task's session holds a seat for %s (err %v); it must append with none", id, lerr)
+	}
+	task.push(t)
+	if stored := f.chain.stored("probe", id); len(stored) == 0 || stored[len(stored)-1] != storyHead(t, task, id) {
+		t.Fatalf("the task's result was not appended: server chain %v, task head %s", stored, storyHead(t, task, id))
+	}
+
+	// The driver moves the story on; the task's next result is on a stale base.
+	a.use(t)
+	a.pull(t)
+	if out, err := engageStory(t, id); err != nil {
+		t.Fatalf("driver engage: %v\n%s", err, out)
+	}
+	a.push(t)
+	task.use(t)
+	appendResult("result: second")
+	out, err := runRoot(t, "sync", "workstate", "push", "--server", ts.URL)
+	if err == nil {
+		t.Fatalf("the task's result on a stale base must be refused:\n%s", out)
+	}
+	for _, want := range []string{"moved since", "working on at " + a.loc, "session sess_driver"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{"engagement seat", "seat held"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("a task's append is refused by no seat (%q):\n%s", banned, out)
+		}
+	}
 }

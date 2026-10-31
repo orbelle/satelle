@@ -1,11 +1,13 @@
 package cli
 
-// Who last worked on a story (sty_40853d02). Taking an engagement seat appends a
-// working_on row to the story's ledger (verb.recordWorkingOn); it travels with
-// the story's other events, so another machine sees it after a pull. `story get`,
-// `story list` and the session-start advisory show the latest row — from the
-// local ledger only, so reading a story never dials the server. This is
-// visibility: nothing here, or anywhere, reads a working_on row to refuse a move.
+// Who last worked on a story (sty_40853d02). Every move into a performing state
+// appends a working_on row to the story's ledger (verb.recordWorkingOn,
+// sty_9c782f0e); it travels with the story's other events, so another machine
+// sees it after a pull. `story get`, `story list` and the session-start advisory
+// show the latest row — from the local ledger only, so reading a story never
+// dials the server — and a push the chain's base check refused names it
+// (presenceIn). This is advisory presence: nothing here, or anywhere, reads a
+// working_on row to refuse an action.
 
 import (
 	"context"
@@ -54,21 +56,47 @@ func (r workingOnRow) who() string {
 // workingMark is the `working_on` object a story row carries when another
 // location last worked it. Text is the human line, and what the compact (text)
 // rendering shows.
+// Advisory is always true: the mark is presence, and refuses nothing.
 type workingMark struct {
 	Location string `json:"location"`
 	Label    string `json:"label,omitempty"`
 	Session  string `json:"session,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
+	State    string `json:"state,omitempty"`
 	At       string `json:"at"`
+	Advisory bool   `json:"advisory"`
 	Text     string `json:"text"`
 }
 
 func newWorkingMark(r workingOnRow, now time.Time) workingMark {
 	return workingMark{
-		Location: r.Location, Label: r.Label, Session: r.Session, Worktree: r.Worktree,
-		At:   r.At.UTC().Format(time.RFC3339),
-		Text: fmt.Sprintf("working: %s, %s ago", r.who(), r.age(now)),
+		Location: r.Location, Label: r.Label, Session: r.Session, Worktree: r.Worktree, State: r.State,
+		At: r.At.UTC().Format(time.RFC3339), Advisory: true,
+		Text: fmt.Sprintf("working: %s, %s ago (advisory)", r.who(), r.age(now)),
 	}
+}
+
+// presenceIn is the newest working_on row another location wrote among events —
+// who a refused push names as having moved the story (sty_9c782f0e). A row with
+// no location, or self's own, names no one else.
+func presenceIn(events []ledger.Entry, self string) (workingOnRow, bool) {
+	var out workingOnRow
+	found := false
+	for _, e := range events {
+		var p verb.WorkingOnPayload
+		if e.Kind != ledger.KindWorkingOn || json.Unmarshal(e.Payload, &p) != nil || p.Location == "" || p.Location == self {
+			continue
+		}
+		if !found || !e.CreatedAt.Before(out.At) {
+			out, found = workingOnRow{WorkingOnPayload: p, At: e.CreatedAt}, true
+		}
+	}
+	return out, found
+}
+
+// presenceText is the line a refusal quotes for a presence row.
+func presenceText(r workingOnRow) string {
+	return verb.WorkingOnText(r.WorkingOnPayload) + " since " + r.At.UTC().Format(time.RFC3339)
 }
 
 // otherWorking reads the ledger for the stories another location last worked on

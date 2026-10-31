@@ -1,3 +1,8 @@
+## [0.0.826] - 2026-11-01
+
+### Changed
+- Every move of a story into a performing state appends a `working_on` presence event. `satelle story get` and session start show another location's latest presence as advisory, and it never refuses an action. When the events this checkout has not seen include a status transition by another location, a push no longer rebases past it: the chain's base check refuses the stale append, and the refusal names that location's latest `working_on`. Events that change no status are still rebased. A task appends a result to a story's chain from any session with no seat check, refused only by a stale base. The engagement seat is unchanged; this is slice A of its removal (sty_9c782f0e; slices B–D: sty_c945a68a, sty_194d5a59, sty_2d8ecad5). (sty_9c782f0e)
+
 ## [0.0.825] - 2026-11-01
 
 ### Added

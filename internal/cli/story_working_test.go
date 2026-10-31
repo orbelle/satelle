@@ -22,7 +22,9 @@ type workingJSON struct {
 		Label    string `json:"label"`
 		Session  string `json:"session"`
 		Worktree string `json:"worktree"`
+		State    string `json:"state"`
 		At       string `json:"at"`
+		Advisory bool   `json:"advisory"`
 		Text     string `json:"text"`
 	} `json:"working_on"`
 }
@@ -69,10 +71,11 @@ func TestStoryGetAndListMarkAStoryAnotherLocationWorks(t *testing.T) {
 
 	row, out := get(theirs)
 	w := row.WorkingOn
-	if w == nil || w.Location != otherLoc || w.Label != "desk" || w.Session != "sess_other" || w.Worktree != "/work/desk" {
-		t.Fatalf("working_on = %+v, want desk / sess_other\n%s", w, out)
+	if w == nil || w.Location != otherLoc || w.Label != "desk" || w.Session != "sess_other" || w.Worktree != "/work/desk" ||
+		w.State != "in_progress" || !w.Advisory {
+		t.Fatalf("working_on = %+v, want desk / sess_other / in_progress, marked advisory\n%s", w, out)
 	}
-	if want := "working: desk (sess_other), 1h30m0s ago"; w.Text != want {
+	if want := "working: desk (sess_other), 1h30m0s ago (advisory)"; w.Text != want {
 		t.Errorf("text = %q, want %q", w.Text, want)
 	}
 	if !strings.Contains(out, `"title": "worked on elsewhere"`) || !strings.Contains(out, `"status"`) {
@@ -168,14 +171,15 @@ func TestOrderLedgerRowsPutsABaseBeforeItsEvent(t *testing.T) {
 	}
 }
 
-// The working_on kind has one writer (the seat claim in package verb) and its
-// readers are display and cache retention only (sty_40853d02, sty_0dc600e1): no
-// other code references the kind, so nothing can read it to refuse a move.
+// The working_on kind has one writer (recordWorkingOn in package verb) and its
+// readers are display — including the presence a refused push names — and cache
+// retention only (sty_40853d02, sty_0dc600e1, sty_9c782f0e): no other code
+// references the kind, so nothing can read it to refuse an action.
 func TestWorkingOnKindIsReferencedOnlyWhereItIsWrittenAndShown(t *testing.T) {
 	allowed := map[string]bool{
 		"ledger/ledger.go":     true, // the constant
 		"verb/working_on.go":   true, // the one writer
-		"cli/story_working.go": true, // `story get|list` and the advisory read it, to show it
+		"cli/story_working.go": true, // `story get|list`, the advisory and a refused push read it, to show it
 		"verb/storyhistory.go": true, // hosted-mode cache retention reads it to choose what stays cached
 	}
 	var found []string

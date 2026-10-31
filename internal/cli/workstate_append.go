@@ -391,6 +391,9 @@ func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, projec
 	if seen[0].BaseID != base {
 		return nil, 0, fmt.Errorf("the server's chain does not build on %s, the last event published from here", forkLabel(base))
 	}
+	if err := refuseMovedElsewhere(a, seen); err != nil {
+		return nil, 0, err
+	}
 	unpublished := make([]string, 0, len(order)-from)
 	for _, e := range order[from:] {
 		unpublished = append(unpublished, e.ID)
@@ -407,6 +410,25 @@ func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, projec
 		return nil, 0, err
 	}
 	return out, at, nil
+}
+
+// refuseMovedElsewhere keeps the chain's base-check refusal standing when the
+// events this checkout has not seen change the story's status (sty_9c782f0e):
+// another location moved the story since this checkout's base, so splicing this
+// checkout's events after that move would fold two drivers' moves into one chain.
+// Events that move no status (a comment, a task's result) are still rebased. The
+// refusal names the other location's latest working_on presence when the events
+// carry one; that presence is advisory and decides nothing here — the status move
+// does.
+func refuseMovedElsewhere(a *app.App, seen []ledger.Entry) error {
+	if !slices.ContainsFunc(seen, func(e ledger.Entry) bool { return e.Kind == ledger.KindStatusTransition }) {
+		return nil
+	}
+	self, _ := thisLocation(a)
+	if r, ok := presenceIn(seen, self); ok {
+		return fmt.Errorf("another location moved its status: %s", presenceText(r))
+	}
+	return errors.New("another location moved its status")
 }
 
 // rebuildRebased brings a rebased story's row under its new chain.
