@@ -63,7 +63,7 @@ CREDGUARD := sh scripts/credguard.sh --
 # through TESTFLAGS. credguard stays OUTSIDE it so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 
-# STRICT=1 is the strict local mode (sty_53c3f311; CI runs no suites, sty_656793e6):
+# STRICT=1 is the strict local mode (sty_53c3f311; CI runs only the unit suite, as plain `make test`, sty_a1f860b4):
 # unit tests run repeated and shuffled (-count=3 -shuffle=on) to expose order and
 # repetition leaks, integration tests shuffled, and both run through scripts/skipcheck, which fails the run on a skip
 # that is not on scripts/skip-allow.txt. skipcheck runs go test as its own child

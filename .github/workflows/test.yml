@@ -20,6 +20,10 @@ jobs:
         run: go build ./...
       - name: vet
         run: go vet ./...
+      - name: unit tests
+        # The hermetic unit suite (credguard + scripts/hermetic.sh + go test ./...),
+        # plain mode: STRICT=1 stays local-only (sty_a1f860b4).
+        run: make test
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
