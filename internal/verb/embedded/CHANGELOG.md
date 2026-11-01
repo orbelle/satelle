@@ -1,3 +1,9 @@
+## [0.0.843] - 2026-11-02
+
+### Fixed
+- `TestOverrideReviewerSkillsQuotationComparison` checks only the operator override skills that are present, logging the absent ones, and still fails when a present one restates the quotation rule or keeps a leftover phrase. It failed in any main-tree run whose operator substrate lacks `satelle-story-deploy-review.md`, so `make test` failed there for every story; worktrees and CI have no operator substrate and skip it. Tests only. (sty_a4b70ba5)
+- This release carries a fresh `satelle.build` stamp: 0.0.841 and 0.0.842 kept 0.0.840's stamp, so `satelle version` reported the wrong build time for them. The version-stamp check is to compare against the last published release (sty_f1d205c6).
+
 ## [0.0.842] - 2026-11-02
 
 ### Added

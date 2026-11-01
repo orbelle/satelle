@@ -23,10 +23,12 @@ const (
 // and the architecture heading sit outside any one section, so
 // the whole normalised body is checked, or "verify prior findings" and "then
 // verify" stay in the skill and the test still passes.
-var leftoverSkills = []struct {
+type leftoverSkill struct {
 	rel     string
 	phrases []string
-}{
+}
+
+var leftoverSkills = []leftoverSkill{
 	{"internal/config/substrate/skills/satelle-story-plan-review.md", []string{
 		"later rounds verify prior findings",
 		"verify prior findings",
@@ -111,20 +113,7 @@ func TestOverrideReviewerSkillsQuotationComparison(t *testing.T) {
 	}
 	selected := quotationReviewerPaths(t, dir)
 	assertOutsideReviewerSet(t, selected)
-	for _, name := range []string{"satelle-story-deploy-review.md", "satelle-story-integration-review.md"} {
-		body, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(body), "quotation comparison governs") {
-			t.Errorf("functional check %s must be unchanged", name)
-		}
-		for _, path := range selected {
-			if filepath.Base(path) == name {
-				t.Errorf("functional check %s must not be selected", path)
-			}
-		}
-	}
+	assertFunctionalOverrides(t, dir, []string{"satelle-story-deploy-review.md", "satelle-story-integration-review.md"}, selected)
 	if _, err := os.Stat(filepath.Join(dir, "satelle-integration-review.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +183,59 @@ func TestAssertDelegatesVerdictRules(t *testing.T) {
 	t.Run("delegating override passes", func(t *testing.T) {
 		if errs := run(skill("")); len(errs) != 0 {
 			t.Errorf("a delegating skill must pass, got %v", errs)
+		}
+	})
+}
+
+// assertFunctionalOverrides holds each named functional-check override under
+// dir to the single-source rule: it restates no quotation rule and is not in
+// the reviewer set. .satelle/skills is operator substrate, so a named override
+// absent from it is logged and skipped; only a present one is judged.
+func assertFunctionalOverrides(tb testing.TB, dir string, names, selected []string) {
+	tb.Helper()
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			tb.Logf("functional check %s absent from operator substrate; skipped", name)
+			continue
+		}
+		if err != nil {
+			tb.Errorf("functional check %s: %v", name, err)
+			continue
+		}
+		if strings.Contains(string(body), "quotation comparison governs") {
+			tb.Errorf("functional check %s must be unchanged", name)
+		}
+		for _, path := range selected {
+			if filepath.Base(path) == name {
+				tb.Errorf("functional check %s must not be selected", path)
+			}
+		}
+	}
+}
+
+// TestAssertFunctionalOverridesFlagsRestatement proves an absent functional
+// check is skipped while a present one that restates the quotation rule is
+// still reported.
+func TestAssertFunctionalOverridesFlagsRestatement(t *testing.T) {
+	names := []string{"satelle-story-deploy-review.md", "satelle-story-integration-review.md"}
+	run := func(deploy string) []string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, names[0]), []byte(deploy), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rec := &recordingTB{TB: t}
+		assertFunctionalOverrides(rec, dir, names, nil)
+		return rec.errs
+	}
+	t.Run("present restating override is flagged", func(t *testing.T) {
+		if errs := run("# Deploy\n\nThe quotation comparison governs a re-presented edge.\n"); len(errs) != 1 {
+			t.Errorf("want exactly one error for the restating deploy-review, got %v", errs)
+		}
+	})
+	t.Run("present clean override passes", func(t *testing.T) {
+		if errs := run("# Deploy\n\nRun the deploy check.\n"); len(errs) != 0 {
+			t.Errorf("a clean deploy-review with integration-review absent must pass, got %v", errs)
 		}
 	})
 }
@@ -322,22 +364,60 @@ func assertOutsideReviewerSet(t *testing.T, selected []string) {
 
 // assertNoLeftoverPhrases checks the leftover phrases for each skill whose rel
 // path starts with prefix.
-func assertNoLeftoverPhrases(t *testing.T, root, prefix string) {
-	t.Helper()
+func assertNoLeftoverPhrases(tb testing.TB, root, prefix string) {
+	tb.Helper()
+	var items []leftoverSkill
 	for _, item := range leftoverSkills {
-		if !strings.HasPrefix(item.rel, prefix) {
+		if strings.HasPrefix(item.rel, prefix) {
+			items = append(items, item)
+		}
+	}
+	assertNoLeftoverPhrasesIn(tb, root, items)
+}
+
+// assertNoLeftoverPhrasesIn checks each item's leftover phrases under root. A
+// .satelle/ override is operator substrate and may be absent, so an absent
+// file is logged and skipped; a present one is always judged.
+func assertNoLeftoverPhrasesIn(tb testing.TB, root string, items []leftoverSkill) {
+	tb.Helper()
+	for _, item := range items {
+		body, err := os.ReadFile(filepath.Join(root, item.rel))
+		if os.IsNotExist(err) {
+			tb.Logf("%s absent; leftover-phrase check skipped", item.rel)
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(root, item.rel))
 		if err != nil {
-			t.Fatal(err)
+			tb.Errorf("%s: %v", item.rel, err)
+			continue
 		}
 		norm := strings.ToLower(normaliseLaterRound(string(body)))
 		for _, phrase := range item.phrases {
 			if strings.Contains(norm, phrase) {
-				t.Errorf("%s still tells a later round to verify prior findings: %q", item.rel, phrase)
+				tb.Errorf("%s still tells a later round to verify prior findings: %q", item.rel, phrase)
 			}
 		}
+	}
+}
+
+// TestAssertNoLeftoverPhrasesSkipsAbsent proves an absent override is skipped,
+// not fatal, while a present one carrying a leftover phrase is still reported.
+func TestAssertNoLeftoverPhrasesSkipsAbsent(t *testing.T) {
+	root := t.TempDir()
+	skills := filepath.Join(root, ".satelle", "skills")
+	if err := os.MkdirAll(skills, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skills, "a.md"), []byte("# A\n\nLater rounds verify prior findings.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	phrases := []string{"verify prior findings"}
+	rec := &recordingTB{TB: t}
+	assertNoLeftoverPhrasesIn(rec, root, []leftoverSkill{
+		{".satelle/skills/a.md", phrases},
+		{".satelle/skills/b.md", phrases},
+	})
+	if len(rec.errs) != 1 {
+		t.Errorf("want exactly one error for the present a.md, got %v", rec.errs)
 	}
 }
 
