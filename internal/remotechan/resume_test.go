@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"syscall"
 	"testing"
@@ -83,10 +84,12 @@ func (h *harness) pair(t *testing.T, session string, rec Recorder, extra ...Opti
 }
 
 // drive advances the fake clock by step, again and again, until cond holds: the
-// resends and backoffs of a resume are all on the session clock.
+// resends and backoffs of a resume are all on the session clock. Fake time runs
+// ahead at real-time pace, so drive suits only a wait whose outcome fake time
+// running ahead cannot change; only a hang, at hangBound, fails it.
 func (h *harness) drive(t *testing.T, step time.Duration, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(hangBound)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out driving the clock until %s", what)
@@ -94,6 +97,34 @@ func (h *harness) drive(t *testing.T, step time.Duration, what string, cond func
 		h.clock.Advance(step)
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// awaitResume waits for both ends to finish redialling, advancing the clock only
+// when observable state says a tick is needed, so fake time never runs ahead into
+// a redial's deadline however slowly the ends run. mark is the tick-log length
+// and upBefore the relay's upgrade count, both taken before the ends redial.
+//
+// Only the remote re-sends, and it registers its HelloResend ticker after its
+// first hello is written (delivered, or dropped because local was not yet on
+// the relay). Once both ends are on the relay and that ticker is registered, one
+// HelloResend delivers a hello local can answer; the clock is then held while
+// the handshake completes.
+func (h *harness) awaitResume(t *testing.T, mark, upBefore int, what string, cond func() bool) {
+	t.Helper()
+	eventually(t, "both ends back on the relay", func() bool { return h.relay.Upgrades() >= upBefore+2 })
+	eventually(t, "the remote waiting to re-send its hello", func() bool {
+		for _, d := range h.clock.tickLog()[mark:] {
+			if d == HelloResend {
+				return true
+			}
+		}
+		return false
+	})
+	if cond() {
+		return
+	}
+	h.clock.Advance(HelloResend)
+	eventually(t, what, cond)
 }
 
 func bothDone(a, b *Session) func() bool {
@@ -138,9 +169,10 @@ func TestResumeAfterRelayRestart(t *testing.T) {
 	local, remote := h.pair(t, "nod_restart", rec)
 	exchange(t, local, remote)
 	before := h.relay.Upgrades()
+	mark := len(h.clock.tickLog())
 
 	h.relay.Restart()
-	h.drive(t, HelloResend, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
 
 	if got := h.relay.Upgrades(); got < before+2 {
 		t.Errorf("upgrades = %d, want both ends to have redialled (at least %d)", got, before+2)
@@ -173,8 +205,10 @@ func TestResumeBackoffIntervals(t *testing.T) {
 	local, remote := h.pair(t, "nod_backoff", rec)
 	mark := len(h.clock.tickLog())
 
-	h.relay.Down()
+	// Read before Down: Down closes both connections, and each end's first redial
+	// is at once, so a count read after it may already include one or both.
 	base := h.relay.Attempts()
+	h.relay.Down()
 	count := func(d time.Duration) int {
 		n := 0
 		for _, got := range h.clock.tickLog()[mark:] {
@@ -184,19 +218,40 @@ func TestResumeBackoffIntervals(t *testing.T) {
 		}
 		return n
 	}
-	for i, want := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second} {
+	// Each step waits for both ends to register their next backoff wait on the
+	// fake clock: an end registers it only after its redial attempt has returned,
+	// so no attempt is counted against a real-time window.
+	intervals := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second}
+	for i, want := range intervals {
 		eventually(t, fmt.Sprintf("both ends waiting %v", want), func() bool { return count(want) >= 2 })
 		if got := count(want); got != 2 {
 			t.Fatalf("%v waited %d times, want once per end", want, got)
 		}
 		h.clock.Advance(want)
+		next := 2 * want
+		eventually(t, fmt.Sprintf("both ends waiting %v after the %v wait", next, want), func() bool { return count(next) >= 2 })
 		// The first redial is at once; each wait that ends makes one more attempt per end.
-		wantAttempts := base + 2*(i+2)
-		eventually(t, fmt.Sprintf("%d attempts", wantAttempts), func() bool { return h.relay.Attempts() >= wantAttempts })
+		if got, wantAttempts := h.relay.Attempts(), base+2*(i+2); got < wantAttempts {
+			t.Fatalf("after the %v wait: %d attempts, want at least %d", want, got, wantAttempts)
+		}
+	}
+	// The waits, in the order the ends registered them, are the sequence once per end.
+	inOrder := []time.Duration{500 * time.Millisecond, 500 * time.Millisecond, time.Second, time.Second,
+		2 * time.Second, 2 * time.Second, 4 * time.Second, 4 * time.Second, 8 * time.Second, 8 * time.Second}
+	var waits []time.Duration
+	for _, d := range h.clock.tickLog()[mark:] {
+		if slices.Contains(inOrder, d) {
+			waits = append(waits, d)
+		}
+	}
+	if !slices.Equal(waits, inOrder) {
+		t.Fatalf("backoff waits in order = %v, want %v", waits, inOrder)
 	}
 
+	upMark, upBefore := len(h.clock.tickLog()), h.relay.Upgrades()
 	h.relay.Up()
-	h.drive(t, HelloResend, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.clock.Advance(2 * intervals[len(intervals)-1]) // both 8s waits are registered: each end redials once
+	h.awaitResume(t, upMark, upBefore, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
 	exchange(t, local, remote)
 }
 
@@ -404,16 +459,17 @@ func TestResumeFailsOpenJobOnce(t *testing.T) {
 
 	local.Expect("j1")
 	job := remote.StartJob(ctx, "j1")
+	mark, before := len(h.clock.tickLog()), h.relay.Upgrades()
 
 	h.relay.Restart()
-	h.drive(t, HelloResend, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
 
 	select {
 	case l := <-local.Lost():
 		if l.Job != "j1" || l.Reason != LostRelayRestarted {
 			t.Fatalf("Lost = %+v, want j1 with reason %q", l, LostRelayRestarted)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangBound):
 		t.Fatal("the open job was never reported lost")
 	}
 	if cause := context.Cause(job.Context()); !errors.Is(cause, ErrRelayRestarted) {
@@ -421,7 +477,7 @@ func TestResumeFailsOpenJobOnce(t *testing.T) {
 	}
 	select {
 	case <-job.exit:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangBound):
 		t.Fatal("the cut job kept heartbeating")
 	}
 

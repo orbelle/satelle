@@ -1,3 +1,8 @@
+## [0.0.841] - 2026-11-02
+
+### Fixed
+- The remotechan tests wait for observable state changes driven by the fake clock, and every fake-clock tick is delivered or its ticker stopped before time moves on. No real-time deadline decides an outcome; the one real-time bound left (60s) only catches a hang. `TestResumeBackoffIntervals` and its siblings no longer fail on a loaded machine. Tests only; no behaviour change. (sty_eab84ff7)
+
 ## [0.0.840] - 2026-11-01
 
 ### Changed

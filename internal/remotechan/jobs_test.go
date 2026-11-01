@@ -67,6 +67,9 @@ func TestStalledJobReportedLost(t *testing.T) {
 	stalls.halt() // the job hangs; the connection does not
 	stalledAt, _ := lastBeat(local, "stalls")
 
+	// Step until fake time crosses LostAfter since the last beat. Before that, a
+	// loss already delivered is premature. On the crossing step the clock is held
+	// while the monitor reports, so however late it runs it reads the same instant.
 	var lost JobLost
 	steps := 0
 	for lost.Job == "" {
@@ -75,9 +78,18 @@ func TestStalledJobReportedLost(t *testing.T) {
 		}
 		step(h.clock)
 		waitBeat(t, local, h.clock, "healthy")
+		if h.clock.Now().Sub(stalledAt) <= LostAfter {
+			select {
+			case l := <-local.Lost():
+				t.Fatalf("lost = %+v reported %v after the last heartbeat, at most %v", l, h.clock.Now().Sub(stalledAt), LostAfter)
+			default:
+			}
+			continue
+		}
 		select {
 		case lost = <-local.Lost():
-		case <-time.After(300 * time.Millisecond):
+		case <-time.After(hangBound):
+			t.Fatalf("stalled job not reported once %v had passed since its last heartbeat", h.clock.Now().Sub(stalledAt))
 		}
 	}
 	if lost.Job != "stalls" || !lost.LastBeat.Equal(stalledAt) {
@@ -118,7 +130,7 @@ func TestJobThatNeverBeatsIsLost(t *testing.T) {
 		if l.Job != "silent" {
 			t.Fatalf("lost = %+v", l)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(hangBound):
 		t.Fatal("a job that never beat was not reported lost")
 	}
 }
