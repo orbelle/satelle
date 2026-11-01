@@ -1,3 +1,11 @@
+## [0.0.842] - 2026-11-02
+
+### Added
+- A remote definition can declare a GitHub credential as `[[secret]] key = "GH_TOKEN" from = "github-app"` (optional `host`, default github.com). Satelle refuses the definition when no `[[repo]]` is on that host. At `satelle node join` the token is read once through the run's existing secret read (satelle.dev mints a GitHub App installation token scoped to the run's `[[repo]]` entries; satelle-server 0.1.260). It is held in the node's process environment for the fire, so every task the node is woken for inherits it, and it is removed when join returns. A local owner run asking for one gets the server's `github_app_owner_run` refusal and join stops. Slice 3 of the remotes epic (sty_77fc610b). (sty_bca61413)
+
+### Fixed
+- A run's process secrets join every dispatch's source redaction set, so a performer's output, `logs/executor.log`, dispatch logs, rows and pushed batches hold the redaction marker instead of the token. Before this, `executor.log` could keep a process secret in plain text. Gate check command output is not covered yet (sty_b4a52b36). (sty_bca61413)
+
 ## [0.0.841] - 2026-11-02
 
 ### Fixed

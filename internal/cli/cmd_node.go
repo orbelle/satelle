@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -64,6 +65,7 @@ var (
 		if err != nil {
 			return drive.Options{}, err
 		}
+		eng.SetProcessSecrets(currentNodeProcessSecrets())
 		return driveOptions(cmd, eng, a, cmd.ErrOrStderr()), nil
 	}
 	// nodeStatusResend, when set, replaces the interval a running task's heartbeat
@@ -202,6 +204,22 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		beat.Stop()
 	}
 
+	// A github-app secret is read once here, before anything of the run starts,
+	// and held in the node's process environment for the life of the fire, so
+	// every run the node is woken for inherits it (the task drive's performers and
+	// gates, and a relay agent job). It is gone from the environment when join
+	// returns.
+	if err := remotedef.Validate(def); err != nil {
+		reportNodeStartFailure(ctx, cmd, client, beat, err)
+		return fmt.Errorf("join: definition: %w", err)
+	}
+	appSecrets, err := loadGitHubAppSecrets(ctx, client, def, cmd.ErrOrStderr())
+	if err != nil {
+		reportNodeStartFailure(ctx, cmd, client, beat, err)
+		return fmt.Errorf("join: %w", err)
+	}
+	defer setNodeProcessSecrets(appSecrets)()
+
 	// The definition's [host] bootstrap runs here: once for the node, after its
 	// definition is read and before it joins the relay or works a run.
 	if err := remotenode.RunBootstrap(ctx, root, def.Host.Bootstrap, nodeBootstrapTimeout, cmd.ErrOrStderr()); err != nil {
@@ -246,6 +264,83 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return serveTaskWake(ctx, cmd, node, sess, report, client, root, session, def)
 	}
 	return node.Serve(ctx, sess, report)
+}
+
+// nodeProcessSecrets is what join placed in the node's process environment for
+// the fire (key → value), for the task drive's engine to scrub from performer
+// output. It is never written anywhere.
+var nodeProcessSecrets struct {
+	mu  sync.Mutex
+	set map[string]string
+}
+
+// currentNodeProcessSecrets is the set join placed, nil outside a fire.
+func currentNodeProcessSecrets() map[string]string {
+	nodeProcessSecrets.mu.Lock()
+	defer nodeProcessSecrets.mu.Unlock()
+	return nodeProcessSecrets.set
+}
+
+// setNodeProcessSecrets places secrets in the process environment and returns
+// what takes them out again: each key back to what it was before, or unset.
+func setNodeProcessSecrets(secrets map[string]string) (restore func()) {
+	type prior struct {
+		value string
+		had   bool
+	}
+	prev := make(map[string]prior, len(secrets))
+	for k, v := range secrets {
+		old, had := os.LookupEnv(k)
+		prev[k] = prior{old, had}
+		_ = os.Setenv(k, v)
+	}
+	nodeProcessSecrets.mu.Lock()
+	nodeProcessSecrets.set = secrets
+	nodeProcessSecrets.mu.Unlock()
+	return func() {
+		nodeProcessSecrets.mu.Lock()
+		nodeProcessSecrets.set = nil
+		nodeProcessSecrets.mu.Unlock()
+		for k, p := range prev {
+			if p.had {
+				_ = os.Setenv(k, p.value)
+			} else {
+				_ = os.Unsetenv(k)
+			}
+		}
+	}
+}
+
+// loadGitHubAppSecrets reads every github-app secret the definition declares,
+// once, through the node's ordinary secret read: satelle.dev mints an
+// installation token scoped to the definition's [[repo]] entries for the run and
+// answers with when it expires. A refusal stops the node; the owner-run refusal
+// says so plainly. One already expired is refused. Only key names are logged.
+func loadGitHubAppSecrets(ctx context.Context, client *remotenode.NodeClient, def remotedef.Definition, log io.Writer) (map[string]string, error) {
+	var out map[string]string
+	for _, d := range def.Secret {
+		if !d.IsGitHubApp() {
+			continue
+		}
+		value, expires, err := client.SecretWithExpiry(ctx, d.Key)
+		if err != nil {
+			var refusal *remotenode.SecretRefusal
+			if errors.As(err, &refusal) && refusal.Err.Code == remotenode.SecretRefusedGitHubAppOwnerRun {
+				return nil, fmt.Errorf("secret %s: a local owner run cannot use a github-app credential (%s): %s",
+					d.Key, remotenode.SecretRefusedGitHubAppOwnerRun, refusal.Err.Reason)
+			}
+			return nil, err
+		}
+		if !expires.IsZero() && !expires.After(time.Now()) {
+			return nil, fmt.Errorf("secret %s: the github-app token satelle.dev answered with expired at %s", d.Key, expires.Format(time.RFC3339))
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[d.Key] = value
+		fmt.Fprintf(log, "join: github-app secret %s read for %s\n", d.Key, d.GitHubHost())
+	}
+	return out, nil
 }
 
 // reportNodeStartFailure tells satelle.dev why the node could not start, on the

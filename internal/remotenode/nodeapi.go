@@ -126,28 +126,51 @@ func (c *NodeClient) Definition(ctx context.Context) (bundle []byte, version str
 	return body, version, nil
 }
 
+// SecretRefusedGitHubAppOwnerRun is satelle.dev's code for a github-app secret
+// read by a local owner run: an installation token is minted only for a woken
+// remote run, so the owner's own run is refused it explicitly.
+const SecretRefusedGitHubAppOwnerRun = "github_app_owner_run"
+
 // Secret reads one secret's value. A key satelle.dev refuses (not declared by the
 // definition, or not granted to it) is a *SecretRefusal.
 func (c *NodeClient) Secret(ctx context.Context, key string) (string, error) {
+	v, _, err := c.SecretWithExpiry(ctx, key)
+	return v, err
+}
+
+// SecretWithExpiry is Secret with the time the value expires, which satelle.dev
+// sends for a value it minted for the run (a github-app installation token); it is
+// the zero time for a value that does not expire. An expiry that is not RFC 3339
+// is a malformed answer.
+func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, time.Time, error) {
 	raw, _, err := c.call(ctx, http.MethodPost, "/secrets/"+url.PathEscape(key), nil)
 	if err != nil {
 		var ae *hosted.APIError
 		if errors.As(err, &ae) {
-			return "", &SecretRefusal{Key: key, Err: ae}
+			return "", time.Time{}, &SecretRefusal{Key: key, Err: ae}
 		}
 		var tr *TokenRefusedError
 		if errors.As(err, &tr) {
-			return "", err
+			return "", time.Time{}, err
 		}
-		return "", fmt.Errorf("secret %s: %w", key, err)
+		return "", time.Time{}, fmt.Errorf("secret %s: %w", key, err)
 	}
 	var v struct {
-		Value string `json:"value"`
+		Value     string `json:"value"`
+		ExpiresAt string `json:"expires_at"`
 	}
 	if json.Unmarshal(raw, &v) != nil {
-		return "", fmt.Errorf("secret %s: the answer is malformed", key)
+		return "", time.Time{}, fmt.Errorf("secret %s: the answer is malformed", key)
 	}
-	return v.Value, nil
+	var expires time.Time
+	if v.ExpiresAt != "" {
+		t, perr := time.Parse(time.RFC3339, v.ExpiresAt)
+		if perr != nil {
+			return "", time.Time{}, fmt.Errorf("secret %s: the answer's expires_at is not RFC 3339", key)
+		}
+		expires = t
+	}
+	return v.Value, expires, nil
 }
 
 // Secrets reads every declared secret once, in declaration order, and returns

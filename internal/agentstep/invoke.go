@@ -566,7 +566,7 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		finishScratch(scratchDir, false)
 		return InvokeResult{Err: err}
 	}
-	agentReq.Redact = resolved
+	agentReq.Redact = g.scrubValues(nil, resolved)
 	if req.Sink != nil {
 		agentReq.Sink = req.Sink
 	}

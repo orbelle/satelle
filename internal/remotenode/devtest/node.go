@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // SecretValue is a value for a test to grant: one that must appear nowhere but the
@@ -49,6 +50,9 @@ type Output struct {
 	Body      string `json:"body"`
 }
 
+// Refusal is a server refusal of one secret read: its error code and reason.
+type Refusal struct{ Code, Reason string }
+
 // Node is the fake. Create it with NewNode.
 type Node struct {
 	// URL is the base URL to hand to the node as its satelle.dev.
@@ -72,6 +76,16 @@ type Node struct {
 	// RefuseFindings answers 400 to a PUT .../status that carries findings: a
 	// server that decodes the heartbeat strictly and predates the field.
 	RefuseFindings bool
+	// SecretExpiry is the expires_at a granted key's read answers with, by key,
+	// as satelle.dev answers for a value it minted for the run; a key not in it
+	// answers none.
+	SecretExpiry map[string]time.Time
+	// Refuse answers a read of a key with 403 and the server's own code and reason,
+	// before Secrets is consulted.
+	Refuse map[string]Refusal
+	// OnEnd, when set, runs as POST .../end is answered, before the token is
+	// ended: what else the server ends with the run (a minted installation token).
+	OnEnd func()
 
 	srv     *httptest.Server
 	id      string
@@ -101,6 +115,16 @@ func NewNode(t testing.TB, id, token string, bundle []byte, version string) *Nod
 
 // Client is an HTTP client for the fake's own server.
 func (n *Node) Client() *http.Client { return n.srv.Client() }
+
+// ID is the node id the fake serves.
+func (n *Node) ID() string { return n.id }
+
+// Token is the node token the fake accepts.
+func (n *Node) Token() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.token
+}
 
 // SetToken replaces the token the fake accepts, for a test whose token is minted
 // after the fake starts.
@@ -195,11 +219,19 @@ func (n *Node) answer(w http.ResponseWriter, r *http.Request) int {
 		return http.StatusOK
 	case r.Method == http.MethodPost && strings.HasPrefix(tail, "secrets/"):
 		key := strings.TrimPrefix(tail, "secrets/")
+		if ref, refused := n.Refuse[key]; refused {
+			raw, _ := json.Marshal(map[string]string{"error": ref.Code, "reason": ref.Reason})
+			return reply(w, http.StatusForbidden, string(raw))
+		}
 		value, granted := n.Secrets[key]
 		if !granted {
 			return reply(w, http.StatusForbidden, `{"error":"secret_refused","reason":"the key is not declared by this definition or not granted to it"}`)
 		}
-		raw, _ := json.Marshal(map[string]string{"value": value})
+		out := map[string]string{"value": value}
+		if exp, ok := n.SecretExpiry[key]; ok {
+			out["expires_at"] = exp.UTC().Format(time.RFC3339)
+		}
+		raw, _ := json.Marshal(out)
 		return reply(w, http.StatusOK, string(raw))
 	case r.Method == http.MethodGet && tail == "run":
 		run := n.Run
@@ -256,6 +288,9 @@ func (n *Node) answer(w http.ResponseWriter, r *http.Request) int {
 		raw, _ := json.Marshal(map[string]any{"project": project, "items": len(in.Items), "ledger": len(in.Ledger), "outputs": len(in.Outputs)})
 		return reply(w, http.StatusOK, string(raw))
 	case r.Method == http.MethodPost && tail == "end":
+		if n.OnEnd != nil {
+			n.OnEnd()
+		}
 		n.Revoke()
 		w.WriteHeader(http.StatusNoContent)
 		return http.StatusNoContent

@@ -24,15 +24,43 @@ const (
 // FromEnv is the value of a secret's From that reads its key from the environment.
 const FromEnv = "env"
 
+// FromGitHubApp is the value of a secret's From whose value satelle.dev mints for
+// each run: a GitHub App installation token scoped to the definition's [[repo]]
+// entries on the secret's Host, revoked when the run ends (satelle-server
+// sty_84e32fda). A node reads it like any other key and never mints it.
+const FromGitHubApp = "github-app"
+
+// DefaultGitHubHost is the GitHub a github-app secret is minted for when it names
+// no host.
+const DefaultGitHubHost = "github.com"
+
 // SecretDecl is one secret a remote reads from satelle.dev. Key is the name it is
 // stored and read under; Scope is ScopePersonal or ScopeTeam; From says where its
-// value comes from (FromEnv, or an argv that prints it); Workspace is the team
-// workspace id, for team scope only.
+// value comes from (FromEnv, FromGitHubApp, or an argv that prints it); Workspace
+// is the team workspace id, for team scope only; Host is the GitHub a github-app
+// secret is minted for (DefaultGitHubHost when empty).
 type SecretDecl struct {
 	Key       string `toml:"key"`
 	Scope     string `toml:"scope"`
 	From      any    `toml:"from"`
 	Workspace string `toml:"workspace"`
+	Host      string `toml:"host"`
+}
+
+// IsGitHubApp reports whether the secret's value is a github-app installation
+// token.
+func (s SecretDecl) IsGitHubApp() bool {
+	from, ok := s.From.(string)
+	return ok && from == FromGitHubApp
+}
+
+// GitHubHost is the GitHub a github-app secret is minted for: Host, or
+// DefaultGitHubHost when it names none.
+func (s SecretDecl) GitHubHost() string {
+	if h := strings.TrimSpace(s.Host); h != "" {
+		return h
+	}
+	return DefaultGitHubHost
 }
 
 // Repo is one repository the node fetches, read-only: an https URL and the ref

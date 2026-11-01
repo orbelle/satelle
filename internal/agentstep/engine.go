@@ -326,7 +326,18 @@ type Engine struct {
 	remoteChannel RemoteChannel
 	teamRunner    TeamRunner
 	teamClock     teamClock
+	// processSecrets are values satelle placed in its own process environment, which
+	// every performer and gate it starts inherits (a remote node's run-minted
+	// credential): scrubValues merges them into every set, and every dispatch's
+	// source redaction set (agentcli.Request.Redact) is built through it, so a
+	// performer's output is scrubbed of them before any log, row or result holds it.
+	processSecrets map[string]string
 }
+
+// SetProcessSecrets names the values satelle placed in its own process
+// environment (key → value) for scrubValues to merge into every set it builds,
+// the source redaction set of each dispatch among them. Nil clears them.
+func (g *Engine) SetProcessSecrets(secrets map[string]string) { g.processSecrets = secrets }
 
 // scrubValues is every value satelle resolved into a performer's environment —
 // the binding's env after ${VAR} resolution — keyed by variable name. A
@@ -334,10 +345,14 @@ type Engine struct {
 // written to the ledger.
 //
 // resolved are the secret sets a dispatch resolved from references
-// (sty_bd8d963c, reference → value), merged in so the same scrub covers them.
+// (sty_bd8d963c, reference → value), merged in so the same scrub covers them, as
+// are the engine's process secrets (SetProcessSecrets).
 func (g *Engine) scrubValues(bindingEnv map[string]string, resolved ...map[string]string) map[string]string {
 	out := make(map[string]string, len(bindingEnv))
 	for k, v := range bindingEnv {
+		out[k] = v
+	}
+	for k, v := range g.processSecrets {
 		out[k] = v
 	}
 	for _, set := range resolved {
@@ -3237,7 +3252,7 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 		finishScratch(scratchDir, false)
 		return nil, rerr
 	}
-	req.Env, req.Redact = env, resolved
+	req.Env, req.Redact = env, g.scrubValues(nil, resolved)
 	// A DRIVING session (the coder rework seat) may edit the tree,
 	// so it is the one that can leave debris; snapshot the untracked files at
 	// open so Close can tell what THIS session created (sty_e7aaf8b1 AC5).
@@ -4383,7 +4398,7 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 	if err != nil {
 		return verb.SummaryResult{}, err
 	}
-	req.Redact = resolved
+	req.Redact = g.scrubValues(nil, resolved)
 	// Reviewer tool isolation (sty_ef3efb51): the summariser is a role=reviewer
 	// dispatch, so it takes the same warn / trim / describe path as a gate verdict.
 	isolation, _ := g.isolateReviewer(ctx, reviewerDispatch{

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -148,6 +150,45 @@ func TestSecretIsReadWithTheNodeBearer(t *testing.T) {
 	if len(calls) != 1 || calls[0].Method != http.MethodPost || calls[0].Auth != "Bearer "+testNodeToken ||
 		calls[0].Path != "/api/v1/remote-nodes/"+testNodeID+"/secrets/CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Errorf("calls = %+v", calls)
+	}
+}
+
+// A value the server minted for the run comes with its expires_at, which
+// SecretWithExpiry returns; a value without one has the zero time, and the owner
+// run's refusal carries the server's code.
+func TestSecretWithExpiryReadsTheServersExpiry(t *testing.T) {
+	fake, client, _ := newFake(t)
+	exp := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	fake.Secrets["GH_TOKEN"] = "ghs_minted"
+	fake.Secrets["PLAIN"] = "plain"
+	fake.SecretExpiry = map[string]time.Time{"GH_TOKEN": exp}
+	fake.Refuse = map[string]devtest.Refusal{"OWNER": {Code: SecretRefusedGitHubAppOwnerRun, Reason: "owner run"}}
+
+	v, got, err := client.SecretWithExpiry(context.Background(), "GH_TOKEN")
+	if err != nil || v != "ghs_minted" || !got.Equal(exp) {
+		t.Fatalf("SecretWithExpiry = %q, %v, %v; want the value and %v", v, got, err, exp)
+	}
+	if _, got, err := client.SecretWithExpiry(context.Background(), "PLAIN"); err != nil || !got.IsZero() {
+		t.Errorf("a value with no expiry = %v, %v; want the zero time", got, err)
+	}
+	_, _, err = client.SecretWithExpiry(context.Background(), "OWNER")
+	var refusal *SecretRefusal
+	if !errors.As(err, &refusal) || refusal.Err.Code != SecretRefusedGitHubAppOwnerRun {
+		t.Errorf("owner-run read = %v, want a SecretRefusal coded %s", err, SecretRefusedGitHubAppOwnerRun)
+	}
+}
+
+// An expires_at that is not RFC 3339 is a malformed answer, and the value is not
+// returned.
+func TestSecretWithExpiryRefusesAMalformedExpiry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"value":"v","expires_at":"tomorrow"}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := NewNodeClient(srv.URL, testNodeID, testNodeToken, srv.Client())
+	v, _, err := client.SecretWithExpiry(context.Background(), "K")
+	if err == nil || v != "" || !strings.Contains(err.Error(), "expires_at") {
+		t.Errorf("SecretWithExpiry = %q, %v; want a malformed-answer error", v, err)
 	}
 }
 
