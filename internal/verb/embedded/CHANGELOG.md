@@ -1,3 +1,8 @@
+## [0.0.839] - 2026-11-01
+
+### Changed
+- `satelle node join` clones exactly the remote definition's `[[repo]]` entries at their declared refs, and nothing else. During the run, a clone or fetch of an undeclared repo or ref is refused, naming the URL and the definition, and a later fetch from a clone is refused too. A definition with no `[[repo]]` clones nothing and the run starts. With github.com implied in a remote's egress, this checkout fence (plus the credential's repo scope, slice 3) keeps a run to its declared repos. Slice 2 of the remotes epic (sty_77fc610b); definition validation and egress enforcement are server-side (satelle-server 0.1.257). (sty_04b3b7c4)
+
 ## [0.0.838] - 2026-11-01
 
 ### Fixed

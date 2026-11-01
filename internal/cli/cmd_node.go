@@ -409,7 +409,8 @@ func prepareNode(ctx context.Context, root, dataDir string, def remotedef.Defini
 			return remotenode.Report{}, err
 		}
 	}
-	repos, err := remotenode.FetchRepos(ctx, filepath.Join(root, "repos"), def.Repos, nodeFetchEnv)
+	defName := fmt.Sprintf("%s at version %s", remotenode.DefinitionFile, version)
+	repos, err := remotenode.FetchRepos(ctx, filepath.Join(root, "repos"), def, defName, def.Repos, nodeFetchEnv)
 	if err != nil {
 		return remotenode.Report{}, err
 	}

@@ -15,7 +15,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/remotechan"
 	"github.com/bobmcallan/satelle/internal/remotechan/relaytest"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/remotenode/gittest"
@@ -467,6 +470,111 @@ func TestNodeJoinRunsFromTheDefinitionItFetches(t *testing.T) {
 	}
 	if strings.Contains(r.log.String(), devtest.SecretValue) {
 		t.Error("the secret value is in the node's log")
+	}
+}
+
+// repoBlocks matches the [[repo]] entries of the satelle-server fixture.
+var repoBlocks = regexp.MustCompile(`(?m)^\[\[repo\]\]\nurl = .*\nref = .*\n`)
+
+// setRepos makes the definition the rig serves declare repos as its [[repo]]
+// entries, each served by the rig's git server at the URL its served map names;
+// nil declares none.
+func (r *nodeRig) setRepos(repos []remotedef.Repo, served map[string]string) {
+	r.t.Helper()
+	cur := r.bundle["remote.toml"]
+	if !repoBlocks.MatchString(cur) {
+		r.t.Fatal("the fixture no longer has a [[repo]] entry")
+	}
+	var decl strings.Builder
+	env := append([]string(nil), r.repo.Env...)
+	env = append(env, "GIT_CONFIG_COUNT="+strconv.Itoa(len(repos)))
+	for i, repo := range repos {
+		decl.WriteString("[[repo]]\nurl = " + strconv.Quote(repo.URL) + "\nref = " + strconv.Quote(repo.Ref) + "\n\n")
+		n := strconv.Itoa(i)
+		env = append(env, "GIT_CONFIG_KEY_"+n+"=url."+served[repo.URL]+".insteadOf", "GIT_CONFIG_VALUE_"+n+"="+repo.URL)
+	}
+	r.bundle["remote.toml"] = repoBlocks.ReplaceAllString(cur, "")
+	r.bundle["remote.toml"] = strings.Replace(r.bundle["remote.toml"], "[network]\n", decl.String()+"[network]\n", 1)
+	nodeFetchEnv = env
+}
+
+// dirNames is the sorted names in dir; none when dir is absent.
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// A node joins with exactly its definition's [[repo]] entries: each is cloned at
+// its declared ref into its clone name, and nothing else is under the node's repos.
+func TestNodeJoinClonesExactlyTheDeclaredRepos(t *testing.T) {
+	r := newNodeRig(t)
+	widgets := remotedef.Repo{URL: "https://github.com/acme/widgets.git", Ref: "main"}
+	gadgets := remotedef.Repo{URL: "https://github.com/acme/gadgets.git", Ref: "v1"}
+	r.setRepos([]remotedef.Repo{widgets, gadgets}, map[string]string{
+		widgets.URL: r.repo.URL,
+		gadgets.URL: r.repo.Also(t, "gadgets"),
+	})
+	run, _, joined, _ := r.open(t)
+
+	reposDir := filepath.Join(r.nodeRoot, "repos")
+	if got := dirNames(t, reposDir); !reflect.DeepEqual(got, []string{"gadgets", "widgets"}) {
+		t.Fatalf("the node's repos = %v, want exactly [gadgets widgets]", got)
+	}
+	for name, want := range map[string]string{"widgets": r.repo.Head, "gadgets": r.repo.Tagged} {
+		if head := gittest.Git(t, filepath.Join(reposDir, name), "rev-parse", "HEAD"); head != want {
+			t.Errorf("%s HEAD = %s, want %s", name, head, want)
+		}
+	}
+	rep := run.Report
+	if rep.Error != "" || len(rep.Repos) != 2 ||
+		rep.Repos[0] != (remotenode.FetchedRepo{Name: "widgets", URL: widgets.URL, Ref: "main", Commit: r.repo.Head}) ||
+		rep.Repos[1] != (remotenode.FetchedRepo{Name: "gadgets", URL: gadgets.URL, Ref: "v1", Commit: r.repo.Tagged}) {
+		t.Errorf("report = %+v", rep)
+	}
+
+	if err := run.End(); err != nil {
+		t.Errorf("End: %v", err)
+	}
+	if err := waitJoin(t, joined); err != nil {
+		t.Errorf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+}
+
+// A definition with no [[repo]] clones nothing, and the run starts and works.
+func TestNodeJoinWithNoReposStarts(t *testing.T) {
+	r := newNodeRig(t)
+	r.setRepos(nil, nil)
+	run, _, joined, _ := r.open(t)
+
+	if rep := run.Report; rep.Error != "" || len(rep.Repos) != 0 {
+		t.Errorf("report = %+v, want a ready node with no repos", rep)
+	}
+	if got := dirNames(t, filepath.Join(r.nodeRoot, "repos")); len(got) != 0 {
+		t.Errorf("the node cloned %v with no [[repo]] declared", got)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	body, err := run.Request(ctx, remotenode.AgentJob, remotenode.AgentRequest{Text: "no repos"})
+	if err != nil {
+		t.Fatalf("agent job: %v\nnode log:\n%s", err, r.log)
+	}
+	if reply, err := remotenode.DecodeAgentReply(body); err != nil || !strings.Contains(reply.Text, "no repos") {
+		t.Errorf("agent reply = %+v, %v", reply, err)
+	}
+
+	if err := run.End(); err != nil {
+		t.Errorf("End: %v", err)
+	}
+	if err := waitJoin(t, joined); err != nil {
+		t.Errorf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
 }
 

@@ -12,23 +12,36 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// refusedPushURL is every clone's push URL. No git transport answers to the
-// scheme, so a push fails before it reaches any network: a node reads its repos
-// and never writes them back.
-const refusedPushURL = "refused://this-clone-is-read-only"
+// refusedPushURL is every clone's push URL and refusedFetchURL its fetch URL
+// once it is checked out. No git transport answers to the scheme, so a push, or a
+// fetch of another ref, fails before it reaches any network: a node reads its
+// declared repos at their declared refs and nothing more, and never writes them
+// back.
+const (
+	refusedPushURL  = "refused://this-clone-is-read-only"
+	refusedFetchURL = "refused://this-clone-fetches-only-its-declared-ref"
+)
 
-// FetchRepos fetches each repo at its ref over https into reposDir/<name> and
-// returns what it fetched. The clone has no credential and a push URL that
-// refuses. env is added to git's environment (a test's trust roots, a proxy).
-func FetchRepos(ctx context.Context, reposDir string, repos []remotedef.Repo, env []string) ([]FetchedRepo, error) {
-	if len(repos) == 0 {
+// FetchRepos fetches each wanted repo at its ref over https into reposDir/<name>
+// and returns what it fetched. It is satelle's one path by which a run clones or
+// fetches, and it is fenced to the definition: every wanted (url, ref) must be a
+// [[repo]] entry of def, named defName in the refusal, or nothing is fetched. The
+// clone has no credential, and its origin answers neither a fetch nor a push. env
+// is added to git's environment (a test's trust roots, a proxy).
+func FetchRepos(ctx context.Context, reposDir string, def remotedef.Definition, defName string, want []remotedef.Repo, env []string) ([]FetchedRepo, error) {
+	for _, r := range want {
+		if err := CheckDeclared(def, defName, r.URL, r.Ref); err != nil {
+			return nil, err
+		}
+	}
+	if len(want) == 0 {
 		return nil, nil
 	}
 	if err := os.MkdirAll(reposDir, 0o755); err != nil {
 		return nil, err
 	}
 	var out []FetchedRepo
-	for _, r := range repos {
+	for _, r := range want {
 		got, err := fetchRepo(ctx, reposDir, r, env)
 		if err != nil {
 			return nil, err
@@ -36,6 +49,17 @@ func FetchRepos(ctx context.Context, reposDir string, repos []remotedef.Repo, en
 		out = append(out, got)
 	}
 	return out, nil
+}
+
+// CheckDeclared refuses a repo and ref that are not, exactly, one of def's
+// [[repo]] entries, naming the repo and the definition.
+func CheckDeclared(def remotedef.Definition, defName, repoURL, ref string) error {
+	for _, d := range def.Repos {
+		if d.URL == repoURL && d.Ref == ref {
+			return nil
+		}
+	}
+	return fmt.Errorf("repo %s at %q is not declared in definition %s", repoLabel(repoURL), ref, defName)
 }
 
 func fetchRepo(ctx context.Context, reposDir string, r remotedef.Repo, env []string) (FetchedRepo, error) {
@@ -61,6 +85,7 @@ func fetchRepo(ctx context.Context, reposDir string, r remotedef.Repo, env []str
 		{"remote", "add", "origin", r.URL},
 		{"fetch", "-q", "--depth", "1", "origin", r.Ref},
 		{"-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"},
+		{"remote", "set-url", "origin", refusedFetchURL},
 		{"remote", "set-url", "--push", "origin", refusedPushURL},
 	}
 	for _, step := range steps {
@@ -86,6 +111,15 @@ func git(ctx context.Context, dir string, env []string, args ...string) (string,
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// repoLabel names a repo by its URL, or by host alone when the URL carries a
+// credential or does not parse.
+func repoLabel(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.User == nil && u.Hostname() != "" {
+		return raw
+	}
+	return redactedHost(raw)
 }
 
 // redactedHost names a URL by host alone, so a malformed one that carried a

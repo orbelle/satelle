@@ -1,5 +1,5 @@
 // Package gittest is test support: a local smart-HTTP git server over TLS —
-// git's own http-backend behind net/http/cgi — serving one bare repository, so
+// git's own http-backend behind net/http/cgi — serving bare repositories, so
 // a test can fetch over https with no network beyond loopback. It is not used by
 // anything but tests.
 package gittest
@@ -28,6 +28,8 @@ type Server struct {
 	Env []string
 	// CAFile is the server's certificate, PEM.
 	CAFile string
+
+	root, base string // the served project root and the server's URL
 }
 
 // Git runs git in dir with a fixed identity and returns its trimmed output.
@@ -78,9 +80,18 @@ func New(t testing.TB) *Server {
 
 	s.CAFile = filepath.Join(t.TempDir(), "ca.pem")
 	write(t, s.CAFile, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})))
+	s.root, s.base = root, srv.URL
 	s.URL = srv.URL + "/git/tool.git"
 	s.Env = []string{"GIT_SSL_CAINFO=" + s.CAFile, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
 	return s
+}
+
+// Also serves a second bare repository, name.git, holding the same commits as
+// tool.git (main at Head, v1 at Tagged), and returns its https URL.
+func (s *Server) Also(t testing.TB, name string) string {
+	t.Helper()
+	Git(t, s.root, "clone", "-q", "--bare", s.Bare, filepath.Join(s.root, name+".git"))
+	return s.base + "/git/" + name + ".git"
 }
 
 func write(t testing.TB, path, body string) {
