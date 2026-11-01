@@ -134,6 +134,12 @@ type Request struct {
 	// launching process holds — a remote's private key — from an agent: Env can
 	// only set, never remove (sty_0b1c72a9).
 	Unset []string
+	// Redact is every secret value satelle resolved into Env (sty_bd8d963c),
+	// keyed by the reference it came from. The engine scrubs a run's output of
+	// these values where that output enters satelle — the returned bytes, the
+	// error, every Event field and every Sink byte — so no reader downstream
+	// ever sees one. In memory only: never logged, serialised or recorded.
+	Redact map[string]string `json:"-"`
 	// Sink, when non-nil, receives a live TEE of the subprocess's stdout/stderr AS
 	// IT RUNS (stderr lines prefixed "[stderr] "), so a caller can write it to a
 	// tailable per-dispatch log an operator watches while a long dispatch runs —

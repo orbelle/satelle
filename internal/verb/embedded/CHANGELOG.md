@@ -1,3 +1,16 @@
+## [0.0.836] - 2026-11-01
+
+### Added
+- satelle configuration can name a secret by its Infisical location, `infisical://<project>/<env>/<path>/<KEY>`, in `[vars]`, a binding's env, or a task's inputs. It is resolved at the point of use through the `infisical` CLI under the caller's own sign-in or machine identity. The value reaches its consumer only as an environment variable or a mode-600 tmpfs file that is removed afterwards. An unresolvable reference fails the action that needs it, naming the reference and the sign-in to fix, never the value. Slice 1 of the remotes epic (sty_77fc610b). (sty_bd8d963c)
+
+### Security
+- Agent output is redacted once, at its source: every run's stdout and stderr, and every string field of an agent event, including a tool call's shell command. A resolved secret that a performer echoes therefore never reaches the dispatch log, `executor.log`, task run-output files, the ledger's tool traces or last-message, or any other sink. A test greps the tree, the data dir and the runtime dir for the value. (sty_bd8d963c)
+
+## [serve-v0.0.271] - 2026-11-01
+
+### Added
+- The service binary resolves Infisical secret references and redacts agent output at the source. (sty_bd8d963c)
+
 ## [0.0.835] - 2026-11-01
 
 ### Changed

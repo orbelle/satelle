@@ -80,6 +80,10 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 		return res, err
 	}
 	defer finishScratch(scratchDir, false)
+	env, resolved, err := dispatchEnv(ctx, binding.Env, scratchDir)
+	if err != nil {
+		return res, fmt.Errorf("[%s]: %w", section, err)
+	}
 
 	built, err := g.buildRequest(ctx, invocation{
 		rubric:     req.Rubric,
@@ -89,12 +93,13 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 		model:      binding.Model,
 		effort:     binding.Effort,
 		settings:   binding.Settings,
-		env:        overlayScratchEnv(binding.Env, scratchDir),
+		env:        env,
 		scratch:    scratchDir,
 	})
 	if err != nil {
 		return res, err
 	}
+	built.Redact = resolved
 	res.SystemPromptBytes, res.PayloadBytes = len(built.SystemPrompt), len(built.Payload)
 	g.isolateReviewer(ctx, reviewerDispatch{
 		Actor: section, Skill: req.Skill, Step: "doctor", Section: section,

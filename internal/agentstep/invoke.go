@@ -519,7 +519,16 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		return InvokeResult{Err: screrr}
 	}
 	inv.scratch = scratchDir
-	inv.env = overlayScratchEnv(inv.env, scratchDir)
+	// Binding env, [vars]-expanded values and SATELLE_INPUT_* resolve together,
+	// here at the point of use; an unresolvable reference fails the dispatch
+	// before any child runs (sty_bd8d963c).
+	var resolved map[string]string
+	var rerr error
+	if inv.env, resolved, rerr = dispatchEnv(ctx, inv.env, scratchDir); rerr != nil {
+		finishScratch(scratchDir, false)
+		return InvokeResult{Err: rerr}
+	}
+	req.Log.addSecrets(resolved)
 	inv.judging = expect.judges()
 	inv.inline = inv.judging && !readsLocalPaths(req.Runner)
 	inv.shell = agentcli.GrantAdmitsShell(inv.tools)
@@ -557,6 +566,7 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		finishScratch(scratchDir, false)
 		return InvokeResult{Err: err}
 	}
+	agentReq.Redact = resolved
 	if req.Sink != nil {
 		agentReq.Sink = req.Sink
 	}
@@ -1297,6 +1307,10 @@ func (g *Engine) runOnce(ctx context.Context, runner agentcli.Runner, req agentc
 // probe's EventProgress, so they are unaffected.
 func (g *Engine) runOnceBusy(ctx context.Context, runner agentcli.Runner, req agentcli.Request, hard, idle, busy time.Duration) ([]byte, agentcli.UsageResult, error) {
 	out, usage, err := g.runOnceBusyRaw(ctx, runner, req, hard, idle, busy)
+	// Redact at the source (sty_bd8d963c): runOnceBusyRaw scrubs the events and
+	// live Sink as they arrive; the returned bytes and error are scrubbed here,
+	// so no caller of runOnceBusy ever holds a raw copy.
+	out, err = redactBytes(out, req.Redact), redactErr(err, req.Redact)
 	if !usage.Available && usage.UnavailableReason == "" {
 		// An adapter that knows why names it; every other unreported run still
 		// names the adapter (the runner's CLI) rather than a bare false
@@ -1332,6 +1346,10 @@ func (g *Engine) runOnceBusyRaw(ctx context.Context, runner agentcli.Runner, req
 			}
 		}
 	}
+	// The redactor is the outermost handler, next to the transport, so the
+	// watchdog's last-event label is scrubbed too (sty_bd8d963c).
+	req, flush := redactRequest(req)
+	defer flush()
 	mapStall := func(err error) error {
 		if err == nil {
 			return nil

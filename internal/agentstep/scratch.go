@@ -5,6 +5,7 @@
 package agentstep
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/secretref"
 )
 
 // dispatchID is 8 random hex — unique per call, and deliberately short: the
@@ -101,6 +103,15 @@ func overlayScratchEnv(env map[string]string, dir string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// dispatchEnv is the env every dispatch shape hands its child:
+// overlayScratchEnv, then every secret reference (secretref) resolved at this
+// point of use (sty_bd8d963c). resolved — reference → value — is the set the
+// run's output is redacted of (agentcli.Request.Redact); an unresolvable
+// reference fails the dispatch, naming the reference and never a value.
+func dispatchEnv(ctx context.Context, env map[string]string, dir string) (map[string]string, map[string]string, error) {
+	return secretref.ResolveEnv(ctx, overlayScratchEnv(env, dir))
 }
 
 // scratchBriefing is the charter sentence every isolated/live agent receives

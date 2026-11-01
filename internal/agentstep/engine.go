@@ -53,6 +53,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/placement"
 	"github.com/bobmcallan/satelle/internal/retrieve"
+	"github.com/bobmcallan/satelle/internal/secretref"
 	"github.com/bobmcallan/satelle/internal/sessionconfig"
 	"github.com/bobmcallan/satelle/internal/structure"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -331,10 +332,18 @@ type Engine struct {
 // the binding's env after ${VAR} resolution — keyed by variable name. A
 // performer's output is scrubbed of them (verb.OutputTail) before any of it is
 // written to the ledger.
-func (g *Engine) scrubValues(bindingEnv map[string]string) map[string]string {
+//
+// resolved are the secret sets a dispatch resolved from references
+// (sty_bd8d963c, reference → value), merged in so the same scrub covers them.
+func (g *Engine) scrubValues(bindingEnv map[string]string, resolved ...map[string]string) map[string]string {
 	out := make(map[string]string, len(bindingEnv))
 	for k, v := range bindingEnv {
 		out[k] = v
+	}
+	for _, set := range resolved {
+		for k, v := range set {
+			out[k] = v
+		}
 	}
 	return out
 }
@@ -1020,7 +1029,14 @@ func execCheck(ctx context.Context, dir, command, payload string) (string, error
 	if id := gateStoryFrom(ctx); id != "" {
 		c.Env = append(os.Environ(), verb.GateStoryEnv+"="+id)
 	}
-	if in := gateInputEnvFrom(ctx); len(in) > 0 {
+	// An input holding a secret reference resolves here, at the check's point
+	// of use, and the check's output is scrubbed of the value where its process
+	// returns (sty_bd8d963c); an unresolvable one fails the check, naming it.
+	in, resolved, rerr := secretref.ResolveEnv(ctx, gateInputEnvFrom(ctx))
+	if rerr != nil {
+		return "", rerr
+	}
+	if len(in) > 0 {
 		if c.Env == nil {
 			c.Env = os.Environ()
 		}
@@ -1030,7 +1046,7 @@ func execCheck(ctx context.Context, dir, command, payload string) (string, error
 	}
 	c.Stdin = strings.NewReader(payload)
 	out, err := c.CombinedOutput()
-	return string(out), err
+	return verb.RedactEnv(string(out), resolved), redactErr(err, resolved)
 }
 
 // transitionPayload is the JSON delivered to the reviewer on stdin.
@@ -3216,7 +3232,12 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 	req.Env[config.DispatchAgentEnv] = name
 	req.Env[config.DispatchStepEnv] = item.Status
 	req.Env[config.DispatchItemEnv] = item.ID
-	req.Env = overlayScratchEnv(req.Env, scratchDir)
+	env, resolved, rerr := dispatchEnv(ctx, req.Env, scratchDir)
+	if rerr != nil {
+		finishScratch(scratchDir, false)
+		return nil, rerr
+	}
+	req.Env, req.Redact = env, resolved
 	// A DRIVING session (the coder rework seat) may edit the tree,
 	// so it is the one that can leave debris; snapshot the untracked files at
 	// open so Close can tell what THIS session created (sty_e7aaf8b1 AC5).
@@ -3230,7 +3251,7 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 	// same signal runOneShotUsage reads for a one-shot dispatch — so the close
 	// row below can report what the live session actually resolved/spent, not
 	// just what open intended. The caller's own onEvent still fires unchanged.
-	tracker := &liveUsageTracker{scrub: g.scrubValues(binding.Env)}
+	tracker := &liveUsageTracker{scrub: g.scrubValues(binding.Env, resolved)}
 	// A denied ask-the-user is ledgered as it happens (not at Close, so a
 	// killed session keeps the row), exactly as a one-shot dispatch does
 	// (sty_ff50f788). A consult session acts as its own binding; a driving one
@@ -3247,14 +3268,18 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 			onEvent(ev)
 		}
 	})
+	// Redact at the source (sty_bd8d963c): the outermost OnEvent and Sink
+	// layer, then the session's channel and capture.
+	req, flush := redactRequest(req)
 	sess, err := opener(ctx, req, pol)
 	if err != nil {
+		flush()
 		finishScratch(scratchDir, false)
-		return nil, err
+		return nil, redactErr(err, req.Redact)
 	}
-	return &liveModelSession{Session: sess, engine: g, ctx: ctx, storyID: item.ID, agent: name,
+	return &liveModelSession{Session: redactSession(sess, req.Redact), engine: g, ctx: ctx, storyID: item.ID, agent: name,
 		model: binding.Model, modelSource: modelSource, tracker: tracker, performer: role == SessionRoleDriving,
-		scratch: scratchDir, repoRoot: g.repoRoot, sweepBefore: leftoverBefore}, nil
+		scratch: scratchDir, repoRoot: g.repoRoot, sweepBefore: leftoverBefore, flush: flush}, nil
 }
 
 // liveUsageTracker accumulates every EventUsage a live session reports across
@@ -3407,11 +3432,17 @@ type liveModelSession struct {
 	scratch     string
 	repoRoot    string
 	sweepBefore map[string]bool
+	// flush drains the redacting Sink wrapper once the session has closed
+	// (sty_bd8d963c); nil when nothing was wrapped.
+	flush func()
 }
 
 func (s *liveModelSession) Close() error {
 	err := s.Session.Close()
 	s.closeOnce.Do(func() {
+		if s.flush != nil {
+			s.flush()
+		}
 		u, turns := s.tracker.total()
 		modelResolved, models := toVerbModels(u)
 		data := map[string]any{
@@ -4330,7 +4361,12 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 		})
 		finishScratch(scratchDir, true)
 	}()
-	scratchedEnv := overlayScratchEnv(env, scratchDir)
+	scratchedEnv, resolved, rerr := dispatchEnv(ctx, env, scratchDir)
+	if rerr != nil {
+		// Not soft: an unresolvable reference is a config fault to fix, never a
+		// summary silently skipped (sty_bd8d963c AC3).
+		return verb.SummaryResult{}, fmt.Errorf("step summary agent=%s: %w", section, rerr)
+	}
 	// The summariser prompt is rubric-only (no charter, principles=none) so it
 	// stays a plain narrator — buildRequest omits empty sections. Grant is read-only.
 	req, err := g.buildRequest(ctx, invocation{
@@ -4347,6 +4383,7 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 	if err != nil {
 		return verb.SummaryResult{}, err
 	}
+	req.Redact = resolved
 	// Reviewer tool isolation (sty_ef3efb51): the summariser is a role=reviewer
 	// dispatch, so it takes the same warn / trim / describe path as a gate verdict.
 	isolation, _ := g.isolateReviewer(ctx, reviewerDispatch{
