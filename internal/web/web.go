@@ -71,6 +71,7 @@ type pageData struct {
 	// EngagedStoryIDs lists those seat item ids (sorted); empty when count is 0.
 	EngagedStoryIDs []string
 	Tasks           []rowVM
+	Activity        []rowVM // stories and task executions under way: not backlog, not finished (sty_c356ed4f)
 	DocKinds        []kindGroup
 	DocCount        int
 	Workflows       []workflowRowVM

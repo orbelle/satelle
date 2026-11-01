@@ -430,8 +430,11 @@ judged", one judge dispatch per area, each sent a manifest of file paths, never
 the items' text or history.
 
 The judge is the repo's in-loop model on the reviewer seat; --binding names an
-agents.toml section instead. Changes no file in the tree: the JSON report goes
-to --out or the OS temp dir.
+agents.toml section instead. Changes no substrate file: the JSON report goes to
+--out or the OS temp dir.
+
+Each review runs as an execution of the task tsk_substrate-review, shown in
+the local UI's Activity tab while it runs.
 
 --apply <item> raises one category-substrate story per chosen item; --from
 <report.json> applies a saved report. See satelle help substrate.`,
@@ -451,15 +454,24 @@ to --out or the OS temp dir.
 					return err
 				}
 			} else {
+				ctx := cmd.Context()
 				path, err := substrateReportPath(a.RepoRoot, out)
 				if err != nil {
 					return err
 				}
-				if rep, err = runSubstrateReview(cmd, a, binding, path); err != nil {
+				run, err := startSubstrateReviewRun(ctx, a, cmd.ErrOrStderr())
+				if err != nil {
 					return err
 				}
+				if rep, err = runSubstrateReview(cmd, a, binding, path, run); err != nil {
+					return run.fail(ctx, err)
+				}
+				rep.ExecutionID = run.id
 				if err := rep.WriteJSON(path); err != nil {
-					return err
+					return run.fail(ctx, err)
+				}
+				if err := run.stage(ctx, "report", map[string]any{"path": path, "items": len(rep.Items)}); err != nil {
+					return run.fail(ctx, err)
 				}
 				if asJSON {
 					enc := json.NewEncoder(cmd.OutOrStdout())
@@ -476,7 +488,10 @@ to --out or the OS temp dir.
 						f.Label(), f.Err, substratereview.NotJudged, f.RawPath)
 				}
 				if rep.Batches > 0 && len(rep.Failures) == rep.Batches {
-					return fmt.Errorf("substrate review: every batch (%d) returned no judgement — the raw answers are named above", rep.Batches)
+					return run.fail(ctx, fmt.Errorf("substrate review: every batch (%d) returned no judgement — the raw answers are named above", rep.Batches))
+				}
+				if err := run.finish(ctx, path); err != nil {
+					return err
 				}
 			}
 			if len(apply) == 0 {
@@ -516,10 +531,13 @@ func substrateReportPath(repoRoot, out string) (string, error) {
 // whose answer does not parse keeps the raw answer at
 // <reportPath>.raw-<area>[-<part>].txt and its items read not judged; the other
 // batches are reported all the same.
-func runSubstrateReview(cmd *cobra.Command, a *app.App, binding, reportPath string) (substratereview.Report, error) {
+func runSubstrateReview(cmd *cobra.Command, a *app.App, binding, reportPath string, run *substrateReviewRun) (substratereview.Report, error) {
 	ctx := cmd.Context()
 	in, bound, hist, err := gatherSubstrateReview(ctx, a)
 	if err != nil {
+		return substratereview.Report{}, err
+	}
+	if err := run.stage(ctx, "gather", map[string]any{"items": len(in.Items)}); err != nil {
 		return substratereview.Report{}, err
 	}
 	judge, err := newSubstrateJudge(cmd, binding, hist)
@@ -533,8 +551,15 @@ func runSubstrateReview(cmd *cobra.Command, a *app.App, binding, reportPath stri
 	batches := substratereview.Batches(in, substrateManifestMax(a.Config.Validate.Injected))
 	var judged []substratereview.Judgement
 	var failures []substratereview.BatchFailure
-	for _, b := range batches {
+	for i, b := range batches {
 		j, raw, err := judge(ctx, b)
+		outcome := "judged"
+		if err != nil {
+			outcome = "no judgement"
+		}
+		if serr := run.stage(ctx, "judge", map[string]any{"batch": fmt.Sprintf("%d/%d", i+1, len(batches)), "area": b.Area, "outcome": outcome}); serr != nil {
+			return substratereview.Report{}, serr
+		}
 		if err == nil {
 			judged = append(judged, j)
 			continue
@@ -729,9 +754,15 @@ func applySubstrateCuts(ctx context.Context, out io.Writer, rep substratereview.
 			continue
 		}
 		title, body, criteria := substratereview.StoryFor(it)
+		tags := []string{substratereview.ApplyTag}
+		if rep.ExecutionID != "" {
+			// The run the cut came from, as a relation tag (sty_c356ed4f).
+			tags = append(tags, "execution:"+rep.ExecutionID)
+			body = strings.TrimRight(body, "\n") + "\n\nFrom execution " + rep.ExecutionID + " of " + substrateReviewTask + ".\n"
+		}
 		req, _ := json.Marshal(map[string]any{
 			"title": title, "body": body, "acceptance_criteria": criteria,
-			"category": substratereview.ApplyCategory, "tags": []string{substratereview.ApplyTag},
+			"category": substratereview.ApplyCategory, "tags": tags,
 		})
 		resp, err := verb.Dispatch(ctx, "story-create", req)
 		if err != nil {

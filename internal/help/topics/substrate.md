@@ -159,11 +159,22 @@ out, or returned without its reason and evidence, is shown as "not judged". A
 batch whose answer does not parse keeps the raw answer beside the report, and
 the other batches are still reported. The report is printed (`--json` for
 JSON), and its JSON is written to `--out` (outside the tree) or to a file under
-the OS temp dir. No file in the tree changes.
+the OS temp dir. No substrate file changes.
+
+Each review runs as an execution of the task `tsk_substrate-review`, an
+embedded default a repo overrides with its own `tasks/tsk_substrate-review.md`.
+The execution enters `in_progress` through the execution route before anything
+is gathered, so the run shows in the local UI's Activity tab while it runs. It
+records each stage (`gather`, `judge` per batch, `report`) on its ledger,
+carries the JSON report as the attachment `substrate-review-report-<exe_id>`,
+and moves to `done` through the route's close gate. On an error, or a gate that
+refuses, it moves to `cancelled` with the reason recorded as its last stage; a
+report already written stays where it is.
 
 `satelle substrate review --apply <item>` (repeatable) raises one story of
 category `substrate` for each item you choose. The story carries the item's
-origin, disposition and evidence. No file changes here either; the cut is made
+origin, disposition and evidence, and names the review's execution in an
+`execution:<exe_id>` tag. No file changes here either; the cut is made
 when that story runs through the substrate lane. `--from <report.json>` applies
 from a saved report and skips a second judgement. An `embedded` item has no file
 in this repo to cut, and a `team` item belongs to the project tier, so both are

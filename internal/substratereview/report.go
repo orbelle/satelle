@@ -206,6 +206,9 @@ type Report struct {
 	// ones that returned no usable judgement.
 	Batches  int            `json:"batches,omitempty"`
 	Failures []BatchFailure `json:"failures,omitempty"`
+	// ExecutionID is the task execution the review ran as, so a cut applied from
+	// the report names the run it came from.
+	ExecutionID string `json:"execution,omitempty"`
 }
 
 // Build joins the inventory, its evidence and the judgement. Every item and

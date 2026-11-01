@@ -408,16 +408,6 @@ func TestNodeWakeThatFindsNothingToDoConcludesNoOp(t *testing.T) {
 	}
 }
 
-// dispatchInto runs a verb in this process and decodes its answer into out.
-func dispatchInto(ctx context.Context, name string, req map[string]any, out any) error {
-	raw, _ := json.Marshal(req)
-	ans, err := verb.Dispatch(ctx, name, raw)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(ans, out)
-}
-
 func containsTag(tags []string, want string) bool {
 	for _, t := range tags {
 		if t == want {

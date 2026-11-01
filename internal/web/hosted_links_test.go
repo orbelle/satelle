@@ -150,7 +150,9 @@ func TestHostedMarksTheStoryEngagedHere(t *testing.T) {
 				t.Errorf("%s must be listed unmarked: %q", id, row)
 			}
 		}
-		if n := strings.Count(body, `class="here-mark"`); n != 1 {
+		// The page also lists sty_mine under Activity (sty_c356ed4f): count the
+		// Stories list only.
+		if n := strings.Count(panelOf(body, "stories"), `class="here-mark"`); n != 1 {
 			t.Errorf("the list shows %d here marks, want 1 (sty_mine's)", n)
 		}
 	}

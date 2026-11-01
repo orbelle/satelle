@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -44,18 +46,54 @@ func treeHashes(t *testing.T, repo string) map[string]string {
 	return out
 }
 
+// assertTreeUnchanged fails on any file stage changed or created in the tree,
+// except the review's own run record: its execution and that execution's report
+// attachment, under the task's folder (sty_c356ed4f).
 func assertTreeUnchanged(t *testing.T, stage string, before, after map[string]string) {
 	t.Helper()
+	runRecord := string(filepath.Separator) + filepath.Join(config.DefaultDataDir, "tasks", substrateReviewTask) + string(filepath.Separator)
 	for p, h := range before {
-		if after[p] != h {
+		if after[p] != h && !strings.HasPrefix(p, runRecord) {
 			t.Errorf("%s changed %s in the tree", stage, p)
 		}
 	}
 	for p := range after {
-		if _, ok := before[p]; !ok {
+		if _, ok := before[p]; !ok && !strings.HasPrefix(p, runRecord) {
 			t.Errorf("%s created %s in the tree", stage, p)
 		}
 	}
+}
+
+// runValidatorsDropped authors repo's step catalogue (its own copy, else the
+// embedded default) with no validator on the execution run: its two task-validate
+// reviewers removed and the instruction-change gate scoped off the task-run
+// categories, so a review's execution starts and closes with no reviewer agent.
+// The shipped before-gate would also shell out to whatever satelle binary is on
+// PATH. Call it before the fixture's reindex. Every other step and gate is the
+// shipped one.
+func runValidatorsDropped(t *testing.T, repo string) {
+	t.Helper()
+	rel := filepath.Join(config.DefaultDataDir, "workflows", "step.toml")
+	body, err := os.ReadFile(filepath.Join(repo, rel))
+	if err != nil {
+		for _, d := range config.EmbeddedDefaults() {
+			if d.Kind == "workflows" && d.Name == "step" {
+				body = []byte(d.Body)
+			}
+		}
+	}
+	s := string(body)
+	for line, with := range map[string]string{
+		`reviewers = ["satelle-task-validate-before-review"]` + "\n": "",
+		`reviewers = ["satelle-task-validate-after-review"]` + "\n":  "",
+		`for = ["*", "docs", "execution", "task"]` + "\n":            `for = ["*", "docs"]` + "\n",
+	} {
+		if strings.Count(s, line) != 1 {
+			t.Fatalf("the step catalogue does not hold %q once", line)
+		}
+		s = strings.Replace(s, line, with, 1)
+	}
+	writeRepoFile(t, repo, rel, s)
 }
 
 // substrateReviewFixture lays a repo holding one item of each origin the apply
@@ -65,6 +103,7 @@ func assertTreeUnchanged(t *testing.T, stage string, before, after map[string]st
 func substrateReviewFixture(t *testing.T) string {
 	t.Helper()
 	repo := tempRepo(t)
+	runValidatorsDropped(t, repo)
 	writeRepoFile(t, repo, ".satelle/skills/repo-cut.md", "---\ntype: skill\nname: repo-cut\ndescription: a repo skill\n---\n# repo cut\n\nkeep me\n\ndrop me\n")
 	writeRepoFile(t, repo, ".satelle/constitution.md", "# constitution\n\n- first: [[rule-a]]\n- second: [[rule-b]]\n- third: [[rule-c]]\n")
 	if out, err := runRoot(t, "substrate", "edit", "skills", "satelle-panel-majority"); err != nil {
@@ -258,5 +297,240 @@ func TestSubstrateReviewReportsEveryItemAndRuleAndAppliesChosenCuts(t *testing.T
 	}
 	if !strings.Contains(seeded.AcceptanceCriteria, "skills/satelle-panel-majority is removed") {
 		t.Errorf("seeded criteria should carry the cut:\n%s", seeded.AcceptanceCriteria)
+	}
+}
+
+// reviewRun is a review's execution as the CLI reads it back: the record, its
+// status transitions and stage rows in ledger order, and its report attachment.
+type reviewRun struct {
+	item   workitem.Item
+	moves  []string         // "from→to", oldest first
+	stages []map[string]any // each stage row's data, oldest first
+	order  []string         // "move:<to>" / "stage:<stage>", oldest first
+	report string
+}
+
+// onlyReviewRun reads the one execution of the review task through the CLI.
+func onlyReviewRun(t *testing.T) reviewRun {
+	t.Helper()
+	out, err := runRoot(t, "execution", "list", "--parent", substrateReviewTask)
+	if err != nil {
+		t.Fatalf("execution list: %v\n%s", err, out)
+	}
+	var runs []workitem.Item
+	if err := json.Unmarshal([]byte(out), &runs); err != nil {
+		t.Fatalf("parse execution list: %v\n%s", err, out)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("%d executions of %s, want 1:\n%s", len(runs), substrateReviewTask, out)
+	}
+	r := reviewRun{item: runs[0]}
+	out, err = runRoot(t, "ledger", "list", "--story", r.item.ID)
+	if err != nil {
+		t.Fatalf("ledger list: %v\n%s", err, out)
+	}
+	var rows []ledger.Entry
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("parse ledger list: %v\n%s", err, out)
+	}
+	ledger.SortEntries(rows)
+	for _, e := range rows {
+		switch e.Kind {
+		case ledger.KindStatusTransition:
+			var p struct{ From, To string }
+			_ = json.Unmarshal(e.Payload, &p)
+			r.moves = append(r.moves, p.From+"→"+p.To)
+			r.order = append(r.order, "move:"+p.To)
+		case ledger.KindTelemetryEvent:
+			var env struct {
+				Kind string         `json:"kind"`
+				Data map[string]any `json:"data"`
+			}
+			if json.Unmarshal(e.Payload, &env) == nil && env.Kind == substrateReviewStageKind {
+				r.stages = append(r.stages, env.Data)
+				r.order = append(r.order, fmt.Sprint("stage:", env.Data["stage"]))
+			}
+		}
+	}
+	if out, err := runRoot(t, "story", "doc", r.item.ID, "substrate-review-report-"+r.item.ID); err == nil {
+		var doc struct {
+			Body string `json:"body"`
+		}
+		_ = json.Unmarshal([]byte(out), &doc)
+		r.report = doc.Body
+	}
+	return r
+}
+
+// sty_c356ed4f AC2: a review is an execution of the embedded substrate-review
+// task, in progress through the execution route before anything is judged, with
+// each stage on its ledger and its report attached, closed done through the
+// route's gate.
+func TestSubstrateReviewRunsAsAnExecutionOfItsTask(t *testing.T) {
+	substrateReviewFixture(t)
+	stubSubstrateJudge(t, substratereview.Judgement{})
+	report := filepath.Join(t.TempDir(), "report.json")
+	out, err := runRoot(t, "substrate", "review", "--out", report)
+	if err != nil {
+		t.Fatalf("substrate review: %v\n%s", err, out)
+	}
+	r := onlyReviewRun(t)
+	if r.item.Kind != workitem.KindExecution || r.item.ParentID != substrateReviewTask || r.item.Status != workitem.StatusDone {
+		t.Fatalf("the run is %s %s of %q, want a done execution of %s", r.item.Status, r.item.Kind, r.item.ParentID, substrateReviewTask)
+	}
+	if !strings.Contains(r.item.Body, "embedded:tasks/"+substrateReviewTask+".md") {
+		t.Errorf("the run does not name the embedded task it ran: %q", r.item.Body)
+	}
+	if strings.Join(r.moves, ",") != "backlog→in_progress,in_progress→done" {
+		t.Errorf("moves = %v, want backlog→in_progress then in_progress→done", r.moves)
+	}
+	rep, err := substratereview.ReadReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"move:in_progress", "stage:gather"}
+	for i := 0; i < rep.Batches; i++ {
+		want = append(want, "stage:judge")
+	}
+	want = append(want, "stage:report", "move:done")
+	if strings.Join(r.order, ",") != strings.Join(want, ",") {
+		t.Errorf("run ledger = %v, want %v", r.order, want)
+	}
+	if rep.Batches == 0 || r.stages[1]["batch"] != fmt.Sprintf("1/%d", rep.Batches) {
+		t.Errorf("the first judge stage = %v over %d batches", r.stages[1], rep.Batches)
+	}
+	if fmt.Sprint(r.stages[0]["items"]) != fmt.Sprint(len(rep.Items)) {
+		t.Errorf("gather stage = %v, want %d items", r.stages[0], len(rep.Items))
+	}
+	if rep.ExecutionID != r.item.ID {
+		t.Errorf("the report names execution %q, want %s", rep.ExecutionID, r.item.ID)
+	}
+	saved, _ := os.ReadFile(report)
+	if !strings.Contains(r.report, strings.TrimSpace(string(saved))) {
+		t.Errorf("the run's attachment is not the JSON report:\n%s", r.report)
+	}
+}
+
+// sty_c356ed4f AC2: a review that fails ends its execution cancelled, with the
+// reason as the last stage on its ledger, so it leaves the Activity tab.
+func TestSubstrateReviewFailureCancelsItsExecution(t *testing.T) {
+	substrateReviewFixture(t)
+	prev := newSubstrateJudge
+	t.Cleanup(func() { newSubstrateJudge = prev })
+	newSubstrateJudge = func(*cobra.Command, string, substratereview.History) (substrateJudge, error) {
+		return func(context.Context, substratereview.JudgeInput) (substratereview.Judgement, string, error) {
+			return substratereview.Judgement{}, "garbled", errors.New("the judge broke")
+		}, nil
+	}
+	out, err := runRoot(t, "substrate", "review", "--out", filepath.Join(t.TempDir(), "report.json"))
+	if err == nil {
+		t.Fatalf("a review whose every batch fails must fail:\n%s", out)
+	}
+	r := onlyReviewRun(t)
+	if r.item.Status != workitem.StatusCancelled {
+		t.Fatalf("the failed run is %s, want cancelled", r.item.Status)
+	}
+	if got := r.moves[len(r.moves)-1]; got != "in_progress→cancelled" {
+		t.Errorf("last move = %s, want in_progress→cancelled", got)
+	}
+	last := r.stages[len(r.stages)-1]
+	if last["stage"] != workitem.StatusCancelled || !strings.Contains(fmt.Sprint(last["reason"]), "returned no judgement") {
+		t.Errorf("the cancel does not record the reason: %v", last)
+	}
+}
+
+// sty_c356ed4f AC2: a repo's own tsk_substrate-review overrides the embedded
+// default, and the review runs as an execution of that copy.
+func TestSubstrateReviewRunsTheRepoOverrideOfItsTask(t *testing.T) {
+	repo := substrateReviewFixture(t)
+	rel := filepath.Join(config.DefaultDataDir, "tasks", substrateReviewTask+".md")
+	writeRepoFile(t, repo, rel, "---\nid: "+substrateReviewTask+"\ntype: task\nstatus: done\n---\n\n# Our substrate review\n\n## Action\nRun it.\n\n## Verification\nThe report is attached.\n")
+	if out, err := runRoot(t, "reindex"); err != nil {
+		t.Fatalf("reindex: %v\n%s", err, out)
+	}
+	stubSubstrateJudge(t, substratereview.Judgement{})
+	if out, err := runRoot(t, "substrate", "review", "--out", filepath.Join(t.TempDir(), "report.json")); err != nil {
+		t.Fatalf("substrate review: %v\n%s", err, out)
+	}
+	r := onlyReviewRun(t)
+	if r.item.ParentID != substrateReviewTask || r.item.Status != workitem.StatusDone {
+		t.Fatalf("the run is %s of %q", r.item.Status, r.item.ParentID)
+	}
+	if !strings.Contains(r.item.Body, filepath.Join(repo, rel)) {
+		t.Errorf("the run does not name the repo's copy of the task: %q", r.item.Body)
+	}
+}
+
+// sty_c356ed4f AC3: a cut applied from a review, or from its saved report, is a
+// substrate story naming the execution it came from.
+func TestSubstrateReviewAppliedCutNamesItsExecution(t *testing.T) {
+	substrateReviewFixture(t)
+	stubSubstrateJudge(t, substratereview.Judgement{Items: []substratereview.ItemJudgement{
+		{Item: "skills/satelle-panel-majority", Disposition: "remove", Reason: "the default covers it", Evidence: "skills/satelle-panel-majority (embedded)"},
+		{Item: "skills/repo-cut", Disposition: "reduce", KeptLines: []string{"keep me"}, Reason: "too long", Evidence: "repo-cut.md:9"},
+	}})
+	report := filepath.Join(t.TempDir(), "report.json")
+	if out, err := runRoot(t, "substrate", "review", "--out", report, "--apply", "skills/repo-cut"); err != nil {
+		t.Fatalf("substrate review --apply: %v\n%s", err, out)
+	}
+	exe := onlyReviewRun(t).item.ID
+	if out, err := runRoot(t, "substrate", "review", "--from", report, "--apply", "skills/satelle-panel-majority"); err != nil {
+		t.Fatalf("substrate review --from --apply: %v\n%s", err, out)
+	}
+	out, err := runRoot(t, "story", "list", "--tag", "execution:"+exe)
+	if err != nil {
+		t.Fatalf("story list: %v\n%s", err, out)
+	}
+	var raised []workitem.Item
+	if err := json.Unmarshal([]byte(out), &raised); err != nil {
+		t.Fatalf("parse story list: %v\n%s", err, out)
+	}
+	if len(raised) != 2 {
+		t.Fatalf("%d stories name execution %s, want 2 (one per apply path):\n%s", len(raised), exe, out)
+	}
+	for _, it := range raised {
+		if it.Category != substratereview.ApplyCategory || !strings.Contains(it.Body, "From execution "+exe) {
+			t.Errorf("%s: category %q, body %q — want a substrate story naming %s", it.ID, it.Category, it.Body, exe)
+		}
+	}
+}
+
+// sty_c356ed4f AC2: a close the route's gate refuses ends the execution
+// cancelled with the refusal as its reason. The gate is a coded check, so no
+// reviewer agent runs.
+func TestSubstrateReviewRefusedCloseCancelsItsExecution(t *testing.T) {
+	repo := substrateReviewFixture(t)
+	writeRepoFile(t, repo, filepath.Join(config.DefaultDataDir, "skills", "refuse-run.md"),
+		"---\nname: refuse-run\ntype: skill\ntags: [type:skill, type:reviewer, type:functional-check]\ndescription: refuses every run close\n---\n# refuse run\n\n```check\necho \"the run left no evidence\"\nexit 1\n```\n")
+	rel := filepath.Join(config.DefaultDataDir, "workflows", "step.toml")
+	step, err := os.ReadFile(filepath.Join(repo, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const verified = "[run-verified]\n"
+	if strings.Count(string(step), verified) != 1 {
+		t.Fatal("the step catalogue declares no run-verified step")
+	}
+	writeRepoFile(t, repo, rel, strings.Replace(string(step), verified, verified+`reviewers = ["refuse-run"]`+"\n", 1))
+	if out, err := runRoot(t, "reindex"); err != nil {
+		t.Fatalf("reindex: %v\n%s", err, out)
+	}
+	stubSubstrateJudge(t, substratereview.Judgement{})
+	if out, err := runRoot(t, "substrate", "review", "--out", filepath.Join(t.TempDir(), "report.json")); err == nil {
+		t.Fatalf("a review whose close is refused must fail:\n%s", out)
+	}
+	r := onlyReviewRun(t)
+	if r.item.Status != workitem.StatusCancelled {
+		t.Fatalf("the refused run is %s, want cancelled", r.item.Status)
+	}
+	if strings.Join(r.moves, ",") != "backlog→in_progress,in_progress→cancelled" {
+		t.Errorf("moves = %v", r.moves)
+	}
+	last := r.stages[len(r.stages)-1]
+	if last["stage"] != workitem.StatusCancelled || !strings.Contains(fmt.Sprint(last["reason"]), "refuse-run") {
+		t.Errorf("the cancel does not record the refusal: %v", last)
+	}
+	if r.report == "" {
+		t.Error("the refused run keeps no report attachment")
 	}
 }

@@ -97,6 +97,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
+	executions, err := decodeItems(ctx, s, repoKey, "execution")
+	if err != nil {
+		return pageData{}, id, err
+	}
 
 	docs, err := decodeDocs(ctx, s, repoKey)
 	if err != nil {
@@ -174,6 +178,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           attachStagesFrom(entriesByStory, tasks, liveSeat, dispatches, catStepOf, specOf),
+		Activity:        activityRows(storyRows, attachStagesFrom(entriesByStory, executions, liveSeat, dispatches, catStepOf, specOf), specOf),
 		DocKinds:        kinds,
 		DocCount:        len(docs),
 		Workflows:       workflowRows(byKind["workflows"], prov, src),
@@ -197,6 +202,23 @@ func hostedView(h *mirror.HostedMeta) (map[string]bool, *hostedLinksVM) {
 		here[id] = true
 	}
 	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
+}
+
+// activityRows is the Activity panel: the story rows and execution rows that are
+// under way — out of backlog and not finished by the route that governs each
+// (an execution resolves by its kind, wfgovern.WorkflowCategory) — so a running
+// task execution is visible beside the stories (sty_c356ed4f).
+func activityRows(stories, executions []rowVM, specOf func(category string) wfdot.Spec) []rowVM {
+	out := []rowVM{}
+	for _, rows := range [][]rowVM{stories, executions} {
+		for _, r := range rows {
+			if r.Status == workitem.StatusBacklog || finished(specOf(wfgovern.WorkflowCategory(r.Item)), r.Status) {
+				continue
+			}
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // attachStagesFrom is the mirror-side stage attach: ledger rows already loaded.
@@ -435,11 +457,10 @@ func decodeEngagedStorySeats(ctx context.Context, s *mirror.Store, repoKey strin
 
 // mirrorLoadDetail builds the expand/detail VM from mirror kinds only.
 func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id string) (detailData, mirror.IdentityMeta, error) {
-	kind := "story"
-	if group == "task" {
-		kind = "task"
-	}
-	payload, err := s.GetItem(ctx, repoKey, kind, id)
+	// group is the mirror kind: story, task, or a task execution (whose ledger
+	// carries its run's stages, sty_c356ed4f). Cost, messages and members are a
+	// story's alone.
+	payload, err := s.GetItem(ctx, repoKey, group, id)
 	if err != nil {
 		return detailData{}, mirror.IdentityMeta{}, err
 	}
@@ -500,13 +521,13 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	// `satelle story cost` scope), computed via costview BEFORE the timeline
 	// reversal below mutates entriesByStory[id] in place (sty_b8542a3a AC7).
 	var cost *costVM
-	if group != "task" {
+	if group == "story" {
 		cost = mirrorBuildCostVM(ctx, s, repoKey, item, entriesByStory)
 	}
 
 	// Before the timeline reversal below, which reorders this slice in place.
 	var messages []messageVM
-	if group != "task" {
+	if group == "story" {
 		messages = buildMessageVMs(entriesByStory[id], time.Now())
 	}
 
@@ -515,10 +536,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 		events[i], events[j] = events[j], events[i]
 	}
-	kindPath := "story"
-	if group == "task" {
-		kindPath = "task"
-	}
+	kindPath := group
 	evs := make([]eventVM, len(events))
 	for i, e := range events {
 		ev := eventVM{Entry: e, Chips: eventChips(e)}
@@ -551,7 +569,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	var membersNote string
 	var wave *waveVM
 	childrenInFlight := 0
-	if group != "task" {
+	if group == "story" {
 		var refs []epicset.Ref
 		refs, membersNote = mirrorBuildMembers(ctx, s, repoKey, item)
 		dispatches, _ := decodeDispatchSeats(ctx, s, repoKey)

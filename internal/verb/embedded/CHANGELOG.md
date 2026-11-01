@@ -1,3 +1,14 @@
+## [0.0.829] - 2026-11-01
+
+### Added
+- The local web UI has an Activity tab beside Stories, Tasks, Workflow and Documents. It lists every story and every task execution that is under way (neither backlog nor done or cancelled) in the same table and filter bar as Stories, with a `kind:story` / `kind:execution` filter token. (sty_c356ed4f)
+- `satelle substrate review` runs as an execution of an embedded `tsk_substrate-review` task (a repo may override it like any other task). It records its stages and attaches its report to the execution, so a review shows in the Activity tab while it runs. `--apply` tags each story it raises with the execution it came from. (sty_c356ed4f)
+
+## [serve-v0.0.266] - 2026-11-01
+
+### Added
+- The service binary serves the Activity tab. (sty_c356ed4f)
+
 ## [0.0.828] - 2026-11-01
 
 ### Fixed

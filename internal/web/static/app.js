@@ -13,15 +13,17 @@
 (function () {
   "use strict";
   var TERMINAL = { done: 1, cancelled: 1 };
-  var PANELS = ["stories", "tasks", "workflow", "docs"];
+  var PANELS = ["stories", "activity", "tasks", "workflow", "docs"];
   // Panels of work items (status + priority + default sort). The workflow and
   // docs panels are read-only catalogs: free-text filter only, no status/order
   // default chips.
   function isItemPanel(panel) {
     var t = panel.dataset.topic;
-    return t === "stories" || t === "tasks";
+    return t === "stories" || t === "activity" || t === "tasks";
   }
-  var FILTER_KEYS = { status: 1, priority: 1, category: 1, tags: 1, tag: 1 };
+  // kind: tells a story row from a task execution row on the Activity panel;
+  // task: narrows execution rows to one task's runs (sty_c356ed4f).
+  var FILTER_KEYS = { status: 1, priority: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
   var ORDER_FIELDS = { updated: 1, created: 1, priority: 1, status: 1, title: 1, id: 1, order: 1 };
   var DEFAULT_ORDER = "updated"; // applied when no explicit order: token (order:none opts out)
   var PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -413,7 +415,10 @@
   }
 
   // Panels with a rows fragment endpoint (the refetch targets); workflow has none.
-  var LIVE_TOPICS = ["stories", "tasks", "docs"];
+  var LIVE_TOPICS = ["stories", "activity", "tasks", "docs"];
+  // A topic doorbell also refetches the panels derived from it: Activity lists
+  // the stories and task executions under way, so it follows both.
+  var DERIVED_TOPICS = { stories: ["activity"], tasks: ["activity"] };
 
   // ---- workspace landing soft-refresh (sty_f968f9db) -----------------------
   // Prefer in-place count updates when the row set is unchanged so numbers
@@ -571,6 +576,7 @@
       });
       src.addEventListener("trigger", function (ev) {
         if (refetch[ev.data]) refetch[ev.data]();
+        (DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); });
         if (refreshDetail && ev.data === detailTopic) refreshDetail();
         // Landing soft-refreshes counts via /fragment/projects — no full reload.
         if (ev.data === "projects" && refreshProjects) refreshProjects();

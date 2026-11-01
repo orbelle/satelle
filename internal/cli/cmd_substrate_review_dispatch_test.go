@@ -169,6 +169,7 @@ func manifestOnlyFixture(t *testing.T) (repo, story string) {
 	t.Helper()
 	repo = tempRepo(t)
 	isolateSubstrateScratch(t)
+	runValidatorsDropped(t, repo)
 	big := "---\nname: huge\ntype: principle\ndescription: huge\n---\n# huge\n\n" + bodySentinel + "\n" + strings.Repeat("filler line of the principle body.\n", 200*1024/35)
 	writeRepoFile(t, repo, ".satelle/principles/huge.md", big)
 	writeRepoFile(t, repo, ".satelle/skills/repo-cut.md", "---\ntype: skill\nname: repo-cut\ndescription: a repo skill\n---\n# repo cut\n")
@@ -333,6 +334,7 @@ func TestSubstrateReviewDefaultJudgeIsOrchestratorModel(t *testing.T) {
 		t.Helper()
 		repo := tempRepo(t)
 		isolateSubstrateScratch(t)
+		runValidatorsDropped(t, repo)
 		writeRepoFile(t, repo, ".satelle/agents.toml", "[executor]\nharness = \"in-loop\"\n\n[reviewer]\ninterface = \"command\"\ncommand = \""+cursorCmd+"\"\nmodel = \"cursor/x\"\n")
 		if _, err := config.LoadAgents(filepath.Join(repo, config.DefaultDataDir)); err != nil {
 			t.Fatalf("the fixture agents.toml does not load: %v", err)
@@ -421,6 +423,7 @@ func TestSubstrateReviewDefaultJudgeIsOrchestratorModel(t *testing.T) {
 func TestSubstrateReviewFixtureDispositions(t *testing.T) {
 	repo := tempRepo(t)
 	isolateSubstrateScratch(t)
+	runValidatorsDropped(t, repo)
 	startSmall, _ := os.ReadFile(filepath.Join("..", "config", "substrate", "principles", "satelle-start-small.md"))
 	writeRepoFile(t, repo, ".satelle/principles/start-small-copy.md", strings.Replace(string(startSmall), "name: satelle-start-small", "name: start-small-copy", 1))
 	writeRepoFile(t, repo, ".satelle/skills/orphan-skill.md", "---\ntype: skill\nname: orphan-skill\ndescription: nothing reads it\n---\n# orphan\n")
@@ -494,6 +497,7 @@ func TestEditedItemJudgedAgainstCurrentDefault(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(strings.Join(append(lines[:dropped:dropped], lines[dropped+1:]...), "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	runValidatorsDropped(t, repo)
 	if out, err := runRoot(t, "reindex"); err != nil {
 		t.Fatalf("reindex: %v\n%s", err, out)
 	}
@@ -553,6 +557,7 @@ func TestEditedItemJudgedAgainstCurrentDefault(t *testing.T) {
 func TestSubstrateReviewMalformedBatch(t *testing.T) {
 	repo := tempRepo(t)
 	isolateSubstrateScratch(t)
+	runValidatorsDropped(t, repo)
 	writeRepoFile(t, repo, ".satelle/skills/repo-cut.md", "---\ntype: skill\nname: repo-cut\ndescription: a repo skill\n---\n# repo cut\n")
 	if out, err := runRoot(t, "reindex"); err != nil {
 		t.Fatalf("reindex: %v\n%s", err, out)

@@ -111,8 +111,8 @@ var tmplFuncs = template.FuncMap{
 		switch key {
 		case "scope", "applies_to":
 			// inert: workflow metadata, not a filter facet
-		case "category":
-			token = tag // category:<value> is itself the filter token
+		case "category", "task":
+			token = tag // category:<value> and an execution's task:<id> are themselves filter tokens
 		default:
 			token = "tags:" + tag
 		}
@@ -125,8 +125,11 @@ var tmplFuncs = template.FuncMap{
 	// tabof maps a work-item kind to its panel/tab name (story→stories). Takes
 	// any so the workitem.Kind type (a distinct string type) is accepted.
 	"tabof": func(kind any) string {
-		if fmt.Sprint(kind) == "task" {
+		switch fmt.Sprint(kind) {
+		case "task":
 			return "tasks"
+		case "execution":
+			return "activity"
 		}
 		return "stories"
 	},
@@ -296,6 +299,7 @@ const templatesSrc = `
       <a class="tab" role="tab" data-panel="stories" href="#stories"><span class="tab-label" data-text="Stories">Stories</span> <span class="n">{{len .Stories}}</span>{{if .BacklogCount}} <span class="n-backlog" title="stories in the open backlog">{{.BacklogCount}} backlog</span>{{end}}</a>
       {{template "engagementBadge" .}}
     </span>
+    <a class="tab" role="tab" data-panel="activity" href="#activity"><span class="tab-label" data-text="Activity">Activity</span> <span class="n">{{len .Activity}}</span></a>
     <a class="tab" role="tab" data-panel="tasks" href="#tasks"><span class="tab-label" data-text="Tasks">Tasks</span> <span class="n">{{len .Tasks}}</span></a>
     <a class="tab" role="tab" data-panel="workflow" href="#workflow"><span class="tab-label" data-text="Workflow">Workflow</span> <span class="n">{{len .Workflows}}</span></a>
     <a class="tab" role="tab" data-panel="docs" href="#docs"><span class="tab-label" data-text="Documents">Documents</span> <span class="n">{{.DocCount}}</span></a>
@@ -313,6 +317,20 @@ const templatesSrc = `
     <table class="panel-table">
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Priority</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
+    </table>
+  </section>
+
+  <section class="panel" data-topic="activity" id="panel-activity">
+    <div class="filterbar">
+      <div class="filter-input">
+        <input type="text" placeholder="filter… e.g. kind:execution status:in_progress priority:high tags:epic:foo order:updated" aria-label="filter activity">
+        <span class="filter-count" aria-live="polite"></span>
+      </div>
+      <div class="chips"></div>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Priority</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "workitemRows" .Activity}}</tbody>
     </table>
   </section>
 
@@ -364,9 +382,9 @@ const templatesSrc = `
 {{/* epicRollup: an epic's roll-up of its children's running indicators — nothing at 0. */}}
 {{define "epicRollup"}}{{if gt . 0}}<div class="dispatch-indicator epic-rollup">agent work in progress · {{.}} {{if eq . 1}}child{{else}}children{{end}}</div>{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{if or .Category .Tags}}<div class="wi-tags">{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
+  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
   <td><span class="badge s-{{.Status}}">{{.Status}}</span></td>
   <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{if .Accepted}} <b class="ok">{{.Accepted}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}{{with .Pending}} <span class="pending-gate" title="{{.Title}}">→{{if .Accepted}} <b class="ok">{{.Accepted}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}</span>{{end}}</span>{{end}}</td>
   <td>{{if .Priority}}{{.Priority}}{{else}}—{{end}}</td>
@@ -410,7 +428,7 @@ const templatesSrc = `
 
 {{define "itemDetail"}}<div class="expbody">
   {{$isTask := eq (printf "%s" .Item.Kind) "task"}}
-  {{if not .Standalone}}<a class="detail-link open-story" href="{{.Item.Kind}}/{{.Item.ID}}">Open {{if $isTask}}task{{else}}story{{end}} →</a>{{end}}
+  {{if not .Standalone}}<a class="detail-link open-story" href="{{.Item.Kind}}/{{.Item.ID}}">Open {{.Item.Kind}} →</a>{{end}}
   <dl>
     <dt>Status</dt><dd><span class="badge s-{{.Item.Status}}">{{.Item.Status}}</span></dd>
     {{if not $isTask}}<dt>Priority</dt><dd>{{if .Item.Priority}}{{.Item.Priority}}{{else}}—{{end}}</dd>
