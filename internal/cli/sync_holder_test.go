@@ -35,7 +35,10 @@ type fakeHolderServer struct {
 	reported, enforced hosted.SubstrateHolder
 	// projectStatus and manifestStatus, when set, are what those GETs answer.
 	projectStatus, manifestStatus int
-	puts                          map[string]int
+	// source and repo, when source is set, are the substrate the project GET
+	// reports in place of the hosted one with its holder.
+	source, repo string
+	puts         map[string]int
 }
 
 // serverHostedPath is the server's hosted list: what only the holder may PUT.
@@ -58,6 +61,10 @@ func newFakeHolderServer(t *testing.T, holder string) (*httptest.Server, *fakeHo
 		segs := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/api/v1/projects/"), "/", 3)
 		h.mu.Lock()
 		reported, enforced, ps, ms := h.reported, h.enforced, h.projectStatus, h.manifestStatus
+		substrate := map[string]any{"source": "hosted", "holder": reported}
+		if h.source != "" {
+			substrate = map[string]any{"source": h.source, "repo": h.repo}
+		}
 		h.mu.Unlock()
 		switch {
 		case len(segs) == 1 && r.Method == http.MethodGet:
@@ -67,7 +74,7 @@ func newFakeHolderServer(t *testing.T, holder string) (*httptest.Server, *fakeHo
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": "p1", "slug": segs[0], "name": "Probe", "team_id": "t1",
-				"substrate": map[string]any{"source": "hosted", "holder": reported},
+				"substrate": substrate,
 			})
 			return
 		case len(segs) == 2 && segs[1] == "config" && r.Method == http.MethodGet && ms != 0:
@@ -148,9 +155,20 @@ func memberTaskBody(v string) string {
 // member's, and no PUT is counted yet.
 func holderTierRepo(t *testing.T) (string, *httptest.Server, *fakeHolderServer) {
 	t.Helper()
+	return holderTierRepoWith(t, nil)
+}
+
+// holderTierRepoWith is holderTierRepo with prep run on the repo before the
+// holder's push, so what it writes is part of the deployed tier. A nil prep
+// does nothing.
+func holderTierRepoWith(t *testing.T, prep func(t *testing.T, repo string)) (string, *httptest.Server, *fakeHolderServer) {
+	t.Helper()
 	ts, h := newFakeHolderServer(t, holderID)
 	seedCredAs(t, ts.URL, holderID)
 	repo := agentsPushRepo(t, "[sync]\n"+boundProjectToml, tierAgents("team-v1"))
+	if prep != nil {
+		prep(t, repo)
+	}
 	writeRepoFile(t, repo, ".satelle/skills/team-skill.md", tierSkill("v1"))
 	writeRepoFile(t, repo, ".satelle/"+memberTask, memberTaskBody("v1"))
 	tierPush(t, ts.URL)

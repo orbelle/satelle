@@ -12,15 +12,32 @@ const ApplyCategory = "substrate"
 // ApplyTag marks every story --apply raises.
 const ApplyTag = "substrate-review"
 
+// TeamHolding is whether this repo may cut a team-owned item: Held when the
+// caller is the project's substrate holder and this tree's copy is the tier's,
+// so the cut raised here is the one the holder publishes. Holder names who
+// holds the substrate (or why that is unknown) for the refusal.
+type TeamHolding struct {
+	Held   bool
+	Holder string
+}
+
 // Refusal is why an item cannot be applied in this repo, or "" when it can.
-// An embedded item has no file in this repo to cut, and a team item is owned by
-// the project tier; a cut to either is raised where it lives, not here.
-func Refusal(it ReportItem) string {
+// An embedded item has no file in this repo to cut. A team item is owned by the
+// project tier: team says whether this repo holds it, and one it does not hold
+// is raised where its substrate holder is, not here. A nil team holds nothing.
+func Refusal(it ReportItem, team func(ReportItem) TeamHolding) string {
 	switch it.Origin {
 	case OriginEmbedded:
 		return fmt.Sprintf("%s: origin embedded — it is the binary's default with no file in this repo, so there is nothing here to cut; change it in satelle itself", it.Key)
 	case OriginTeam:
-		return fmt.Sprintf("%s: origin team — the project tier owns it (%s); raise the cut in the tier's repo", it.Key, it.Source)
+		var h TeamHolding
+		if team != nil {
+			h = team(it)
+		}
+		if h.Held {
+			return ""
+		}
+		return fmt.Sprintf("%s: origin team — the project tier owns it (%s); only its substrate holder can cut it — raise it there (holder: %s)", it.Key, it.Source, nonEmpty(h.Holder, "unknown"))
 	}
 	return ""
 }

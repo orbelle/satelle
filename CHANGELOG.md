@@ -1,3 +1,8 @@
+## [0.0.831] - 2026-11-01
+
+### Fixed
+- `satelle substrate review --apply` raises a team-origin item's story in the current repo when that repo holds the project tier's substrate, meaning its tree equals the tier and it is the holder that publishes it. A repo that only consumes the tier is still refused, and the refusal names the holder. Team-owned agent seats are always refused. (sty_9fc02aa4)
+
 ## [0.0.830] - 2026-11-01
 
 ### Breaking

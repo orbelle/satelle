@@ -404,7 +404,7 @@ func judgeNoteLine(s string) string {
 
 func newSubstrateReviewCmd() *cobra.Command {
 	var asJSON bool
-	var binding, out, from string
+	var binding, out, from, server string
 	var apply []string
 	cmd := &cobra.Command{
 		Use:   "review",
@@ -482,7 +482,7 @@ the local UI's Activity tab while it runs.
 			if len(apply) == 0 {
 				return nil
 			}
-			return applySubstrateCuts(cmd.Context(), cmd.OutOrStdout(), rep, apply)
+			return applySubstrateCuts(cmd.Context(), cmd.OutOrStdout(), rep, apply, substrateHolding(cmd.Context(), a, resolveServer(server)))
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the report as JSON instead of markdown")
@@ -490,6 +490,7 @@ the local UI's Activity tab while it runs.
 	cmd.Flags().StringVar(&out, "out", "", "JSON report path, outside the repo tree (default: a file under the OS temp dir)")
 	cmd.Flags().StringArrayVar(&apply, "apply", nil, "item key from the report to raise a substrate story for (repeatable)")
 	cmd.Flags().StringVar(&from, "from", "", "apply from this saved JSON report instead of judging again")
+	cmd.Flags().StringVar(&server, "server", "", "Hosted server URL (overrides the configured machine hosted server).")
 	return cmd
 }
 
@@ -724,9 +725,10 @@ func substrateDocOf(it substratereview.Item) (kind, name string) {
 
 // applySubstrateCuts raises one substrate story per chosen item through the
 // same create verb `satelle story create` uses, refusing (and raising nothing
-// for) an item the report does not hold or one this repo cannot cut. It edits
-// no file. Any refusal makes the run fail after the rest are raised.
-func applySubstrateCuts(ctx context.Context, out io.Writer, rep substratereview.Report, keys []string) error {
+// for) an item the report does not hold or one this repo cannot cut; team says
+// whether this repo holds a team-owned item (substrateHolding). It edits no
+// file. Any refusal makes the run fail after the rest are raised.
+func applySubstrateCuts(ctx context.Context, out io.Writer, rep substratereview.Report, keys []string, team func(substratereview.ReportItem) substratereview.TeamHolding) error {
 	var refused []string
 	for _, key := range keys {
 		it, ok := rep.Find(key)
@@ -734,7 +736,7 @@ func applySubstrateCuts(ctx context.Context, out io.Writer, rep substratereview.
 			refused = append(refused, fmt.Sprintf("%s: not an item of this report — `satelle substrate review` lists the item keys", key))
 			continue
 		}
-		if why := substratereview.Refusal(it); why != "" {
+		if why := substratereview.Refusal(it, team); why != "" {
 			refused = append(refused, why)
 			continue
 		}
