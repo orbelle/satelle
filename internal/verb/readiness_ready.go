@@ -174,9 +174,12 @@ func checkReadyable(ctx context.Context, item workitem.Item) (readinessEdge, boo
 	if err != nil {
 		return edge, false, refused(item.ID, "%v", err)
 	}
-	if item.Status != edge.From {
+	if item.Status != edge.From && !legacyReady(ctx, item, edge) {
 		return edge, false, refused(item.ID, "status is %q, not the route's start status %q — only a story that has not started can be readied without engagement", item.Status, edge.From)
 	}
+	// The round judges edge.From→edge.To whatever the stored status, so the
+	// budget and the performer are resolved on that edge.
+	item = edge.present(item)
 	if err := refuseSpentRejectBudget(ctx, item, edge.To); err != nil {
 		return edge, false, refused(item.ID, "%v", err)
 	}
@@ -195,6 +198,18 @@ func checkReadyable(ctx context.Context, item workitem.Item) (readinessEdge, boo
 		return edge, false, refused(item.ID, "readiness step %q is not performed by a dispatched agent (%s), so it cannot run without engagement", edge.name(), perf.Reason)
 	}
 	return edge, true, ReadyResult{}
+}
+
+// legacyReady reports whether item is an epic-parent that already sits at its
+// readiness step's state with no accepted round that holds: an epic that reached
+// ready before the readiness mark existed. Such an epic may run the round it never
+// had, so its children can start; one whose readiness holds has nothing to re-run.
+func legacyReady(ctx context.Context, item workitem.Item, edge readinessEdge) bool {
+	if !epicset.IsEpicParent(item) || item.Status != edge.To {
+		return false
+	}
+	_, holds := readinessHolds(ctx, item, edge)
+	return !holds
 }
 
 // readyStory readies one non-container story: it reuses a readiness that still

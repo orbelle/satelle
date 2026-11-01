@@ -1,3 +1,8 @@
+## [0.0.838] - 2026-11-01
+
+### Fixed
+- `satelle story ready <epic>` runs a readiness round on an epic already at its container's ready state that has no accepted round, as happens with an epic that reached ready before readiness rounds existed. The round is presented and recorded on the backlog→ready edge, in memory only; the stored status never changes. An accepted round marks the epic, so its children can start. A child refused for an unreadied epic is told the exact command for the epic's current status. (sty_d4886a11)
+
 ## [0.0.837] - 2026-11-01
 
 ### Fixed

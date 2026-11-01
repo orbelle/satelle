@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -171,8 +172,15 @@ func newRigFor(t *testing.T, stepToml string) *readyRig {
 // newRigWith is newRigFor over an arbitrary lifecycle declaration too.
 func newRigWith(t *testing.T, doneToml, stepToml string) *readyRig {
 	t.Helper()
-	withWiring(t)
-	wireWithWorkflows(t, routeHalves(doneToml, stepToml))
+	r, _ := newRigWithStore(t, doneToml, stepToml)
+	return r
+}
+
+// newRigWithStore is newRigWith that also returns the store, for a fixture that
+// writes a record directly the way legacy data was produced.
+func newRigWithStore(t *testing.T, doneToml, stepToml string) (*readyRig, *store.DB) {
+	t.Helper()
+	db := wireWithWorkflowsStore(t, routeHalves(doneToml, stepToml))
 	verb.SetStoryDir(t.TempDir())
 	r := &readyRig{
 		d: &roundDispatcher{t: t, calls: map[string]int{}, docName: "plan"},
@@ -182,7 +190,7 @@ func newRigWith(t *testing.T, doneToml, stepToml string) *readyRig {
 	verb.SetExecutorDispatcher(r.d)
 	verb.SetTransitionGater(r.g)
 	activeRig = r
-	return r
+	return r, db
 }
 
 func newStoryOf(t *testing.T, category, title string, tags ...string) workitem.Item {

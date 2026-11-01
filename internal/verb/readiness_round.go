@@ -66,6 +66,15 @@ func (e readinessEdge) name() string {
 	return e.To
 }
 
+// present returns item as a readiness round presents it: at the edge's from
+// status. A legacy-ready epic is stored at e.To, but its round is still the
+// e.From→e.To edge — the reviewers it resolves, the rows it writes and the budget
+// it counts. The copy is in memory only; the stored status is never changed.
+func (e readinessEdge) present(item workitem.Item) workitem.Item {
+	item.Status = e.From
+	return item
+}
+
 // readinessEdgeFor resolves item's readiness edge from its governing route.
 func readinessEdgeFor(ctx context.Context, item workitem.Item) (readinessEdge, error) {
 	if item.Kind != workitem.KindStory {
@@ -568,6 +577,7 @@ func flagReadinessInFlight(ctx context.Context, item workitem.Item, state string
 // rejects, and only then is the readiness_accept row written.
 func runReadinessRound(ctx context.Context, item workitem.Item, edge readinessEdge) roundResult {
 	now := time.Now()
+	item = edge.present(item)
 	defer flagReadinessInFlight(ctx, item, edge.From)()
 	attempt := ledger.NewAttemptID()
 	res := roundResult{Attempt: attempt}
@@ -578,7 +588,8 @@ func runReadinessRound(ctx context.Context, item workitem.Item, edge readinessEd
 		return res
 	}
 	run := dispatchPerformer(ctx, item, edge.To, attempt, true, now)
-	item = run.rebind(item)
+	// rebind may reload the stored record; the round still presents edge.From.
+	item = edge.present(run.rebind(item))
 	switch {
 	case run.Err != nil:
 		recordDispatchFailure(ctx, item, edge.To, attempt, run.Res, run.Err, now)
