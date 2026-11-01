@@ -1,3 +1,13 @@
+## [0.0.833] - 2026-11-01
+
+### Changed
+- The story list's progress chip shows each step's gates: how many there are, and how many passed, failed or are still running, tallied live as a gate round runs and pushed to the mirror. Its tooltip lists the round history. Previously it counted rounds, which could not show which gates of an edge had run. (sty_216d5205)
+
+## [serve-v0.0.269] - 2026-11-01
+
+### Changed
+- The service binary renders per-step gate counts in the progress chip. (sty_216d5205)
+
 ## [0.0.832] - 2026-11-01
 
 ### Fixed

@@ -66,14 +66,17 @@ CREATE TABLE IF NOT EXISTS engagement_lease (
     activity_pid         INTEGER NOT NULL DEFAULT 0,
     activity_event_label TEXT NOT NULL DEFAULT '',
     activity_event_at    TEXT NOT NULL DEFAULT '',
-    activity_event_count INTEGER NOT NULL DEFAULT 0
+    activity_event_count INTEGER NOT NULL DEFAULT 0,
+    activity_gates       INTEGER NOT NULL DEFAULT 0,
+    activity_passed      INTEGER NOT NULL DEFAULT 0,
+    activity_failed      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_engagement_lease_seat ON engagement_lease(story_seat);
 `
 
 // leaseCols is the column list every SELECT shares — one source so a new column
 // cannot reach some read paths and not others.
-const leaseCols = `item_id, kind, story_seat, seat_key, worktree, owner, state, acquired_at, heartbeat_at, stop_requested_by, stop_reason, in_flight, in_flight_at, in_flight_pid, activity_label, activity_index, activity_total, activity_at, session_id, tree_scoped, exclusive, activity_agent, activity_model, activity_pid, activity_event_label, activity_event_at, activity_event_count`
+const leaseCols = `item_id, kind, story_seat, seat_key, worktree, owner, state, acquired_at, heartbeat_at, stop_requested_by, stop_reason, in_flight, in_flight_at, in_flight_pid, activity_label, activity_index, activity_total, activity_at, session_id, tree_scoped, exclusive, activity_agent, activity_model, activity_pid, activity_event_label, activity_event_at, activity_event_count, activity_gates, activity_passed, activity_failed`
 
 // Lease is one engagement seat row.
 type Lease struct {
@@ -136,6 +139,25 @@ type Lease struct {
 	ActivityEventLabel string
 	ActivityEventAt    time.Time
 	ActivityEventCount int
+	// ActivityGates marks an activity stamped by a gate round, whose
+	// ActivityPassed and ActivityFailed count the gates of that round that have
+	// returned an accept or a reject so far (sty_216d5205). False and zero for
+	// every other phase (a performer dispatch, a summariser).
+	ActivityGates  bool
+	ActivityPassed int
+	ActivityFailed int
+}
+
+// Activity is the phase stamp SetActivity writes and EffectiveActivity reads:
+// the phase label, its 1-based index in a set of Total, and — on a gate round's
+// stamp (Gates) — how many of the round's gates have passed and failed so far.
+type Activity struct {
+	Label  string
+	Index  int
+	Total  int
+	Gates  bool
+	Passed int
+	Failed int
 }
 
 // ActivityDetail is the in-flight dispatch metadata SetActivityDetail writes
@@ -364,6 +386,18 @@ func Migrate(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE engagement_lease ADD COLUMN ` + col); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("lease: migrate activity detail: %w", err)
+		}
+	}
+	// Gate-round progress on the same activity record (sty_216d5205): whether the
+	// stamp is a gate round's, and its passed and failed counts so far.
+	for _, col := range []string{
+		"activity_gates INTEGER NOT NULL DEFAULT 0",
+		"activity_passed INTEGER NOT NULL DEFAULT 0",
+		"activity_failed INTEGER NOT NULL DEFAULT 0",
+	} {
+		if _, err := db.Exec(`ALTER TABLE engagement_lease ADD COLUMN ` + col); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("lease: migrate activity gates: %w", err)
 		}
 	}
 	// Backfill so pre-upgrade stuck in_flight rows age from a real clock, not
@@ -709,7 +743,7 @@ func (s *Store) Confirm(ctx context.Context, itemID, committedState string) erro
 	}
 	nowS := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE engagement_lease SET state = ?, in_flight = 0, in_flight_at = '', in_flight_pid = 0, activity_label = '', activity_index = 0, activity_total = 0, activity_at = '', heartbeat_at = ?, activity_agent = '', activity_model = '', activity_pid = 0, activity_event_label = '', activity_event_at = '', activity_event_count = 0 WHERE item_id = ?`,
+		`UPDATE engagement_lease SET state = ?, in_flight = 0, in_flight_at = '', in_flight_pid = 0, activity_label = '', activity_index = 0, activity_total = 0, activity_at = '', heartbeat_at = ?, activity_agent = '', activity_model = '', activity_pid = 0, activity_event_label = '', activity_event_at = '', activity_event_count = 0, activity_gates = 0, activity_passed = 0, activity_failed = 0 WHERE item_id = ?`,
 		committedState, nowS, itemID)
 	if err != nil {
 		return fmt.Errorf("lease: confirm: %w", err)
@@ -724,7 +758,7 @@ func (s *Store) ClearInFlight(ctx context.Context, itemID string) error {
 		return errors.New("lease: store not configured")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE engagement_lease SET in_flight = 0, in_flight_at = '', in_flight_pid = 0, activity_label = '', activity_index = 0, activity_total = 0, activity_at = '', activity_agent = '', activity_model = '', activity_pid = 0, activity_event_label = '', activity_event_at = '', activity_event_count = 0 WHERE item_id = ?`, itemID)
+		`UPDATE engagement_lease SET in_flight = 0, in_flight_at = '', in_flight_pid = 0, activity_label = '', activity_index = 0, activity_total = 0, activity_at = '', activity_agent = '', activity_model = '', activity_pid = 0, activity_event_label = '', activity_event_at = '', activity_event_count = 0, activity_gates = 0, activity_passed = 0, activity_failed = 0 WHERE item_id = ?`, itemID)
 	if err != nil {
 		return fmt.Errorf("lease: clear in_flight: %w", err)
 	}
@@ -866,11 +900,12 @@ func scanLeases(rows *sql.Rows, qerr error) ([]Lease, error) {
 	var out []Lease
 	for rows.Next() {
 		var l Lease
-		var seat, inflight, inflightPid, actIdx, actTotal, actPid, actEventCount, treeScoped, exclusive int
+		var seat, inflight, inflightPid, actIdx, actTotal, actPid, actEventCount, treeScoped, exclusive, actGates int
 		var acq, beat, inflightAt, actAt, actEventAt string
 		if err := rows.Scan(&l.ItemID, &l.Kind, &seat, &l.SeatKey, &l.Worktree, &l.Owner, &l.State, &acq, &beat, &l.StopRequestedBy, &l.StopReason,
 			&inflight, &inflightAt, &inflightPid, &l.ActivityLabel, &actIdx, &actTotal, &actAt, &l.SessionID, &treeScoped, &exclusive,
-			&l.ActivityAgent, &l.ActivityModel, &actPid, &l.ActivityEventLabel, &actEventAt, &actEventCount); err != nil {
+			&l.ActivityAgent, &l.ActivityModel, &actPid, &l.ActivityEventLabel, &actEventAt, &actEventCount,
+			&actGates, &l.ActivityPassed, &l.ActivityFailed); err != nil {
 			return nil, fmt.Errorf("lease: list scan: %w", err)
 		}
 		l.StorySeat = seat != 0
@@ -882,6 +917,7 @@ func scanLeases(rows *sql.Rows, qerr error) ([]Lease, error) {
 		l.ActivityTotal = actTotal
 		l.ActivityPid = actPid
 		l.ActivityEventCount = actEventCount
+		l.ActivityGates = actGates != 0
 		l.AcquiredAt = parseLeaseTime(acq)
 		l.HeartbeatAt = parseLeaseTime(beat)
 		l.InFlightAt = parseLeaseTime(inflightAt)
@@ -980,11 +1016,12 @@ func (s *Store) SetInFlightAt(ctx context.Context, itemID string, at time.Time) 
 
 func scanLease(row *sql.Row) (Lease, error) {
 	var l Lease
-	var seat, inflight, inflightPid, actIdx, actTotal, actPid, actEventCount, treeScoped, exclusive int
+	var seat, inflight, inflightPid, actIdx, actTotal, actPid, actEventCount, treeScoped, exclusive, actGates int
 	var acq, beat, inflightAt, actAt, actEventAt string
 	err := row.Scan(&l.ItemID, &l.Kind, &seat, &l.SeatKey, &l.Worktree, &l.Owner, &l.State, &acq, &beat, &l.StopRequestedBy, &l.StopReason,
 		&inflight, &inflightAt, &inflightPid, &l.ActivityLabel, &actIdx, &actTotal, &actAt, &l.SessionID, &treeScoped, &exclusive,
-		&l.ActivityAgent, &l.ActivityModel, &actPid, &l.ActivityEventLabel, &actEventAt, &actEventCount)
+		&l.ActivityAgent, &l.ActivityModel, &actPid, &l.ActivityEventLabel, &actEventAt, &actEventCount,
+		&actGates, &l.ActivityPassed, &l.ActivityFailed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Lease{}, ErrNotFound
 	}
@@ -1000,6 +1037,7 @@ func scanLease(row *sql.Row) (Lease, error) {
 	l.ActivityTotal = actTotal
 	l.ActivityPid = actPid
 	l.ActivityEventCount = actEventCount
+	l.ActivityGates = actGates != 0
 	l.AcquiredAt = parseLeaseTime(acq)
 	l.HeartbeatAt = parseLeaseTime(beat)
 	l.InFlightAt = parseLeaseTime(inflightAt)
@@ -1011,14 +1049,18 @@ func scanLease(row *sql.Row) (Lease, error) {
 // SetActivity stamps the current gate/phase on an in-flight lease so seat can
 // report progress without the dispatching terminal (sty_598a8e1b). Best-effort:
 // callers may ignore the error — observability must not fail a transition.
-func (s *Store) SetActivity(ctx context.Context, itemID, label string, index, total int) error {
+func (s *Store) SetActivity(ctx context.Context, itemID string, a Activity) error {
 	if s == nil || s.db == nil {
 		return errors.New("lease: store not configured")
 	}
 	nowS := time.Now().UTC().Format(time.RFC3339Nano)
+	gates := 0
+	if a.Gates {
+		gates = 1
+	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE engagement_lease SET activity_label = ?, activity_index = ?, activity_total = ?, activity_at = ? WHERE item_id = ?`,
-		label, index, total, nowS, itemID)
+		`UPDATE engagement_lease SET activity_label = ?, activity_index = ?, activity_total = ?, activity_at = ?, activity_gates = ?, activity_passed = ?, activity_failed = ? WHERE item_id = ?`,
+		a.Label, a.Index, a.Total, nowS, gates, a.Passed, a.Failed, itemID)
 	if err != nil {
 		return fmt.Errorf("lease: set activity: %w", err)
 	}
@@ -1033,14 +1075,17 @@ func (s *Store) SetActivity(ctx context.Context, itemID, label string, index, to
 // ok is false when the transition is not effectively in flight or no activity
 // has been stamped (sty_598a8e1b). Domain calculation lives in lease — same
 // rule as EffectiveInFlight.
-func EffectiveActivity(l Lease, now time.Time) (label string, index, total int, elapsed time.Duration, ok bool) {
+func EffectiveActivity(l Lease, now time.Time) (a Activity, elapsed time.Duration, ok bool) {
 	if !EffectiveInFlight(l, now) {
-		return "", 0, 0, 0, false
+		return Activity{}, 0, false
 	}
 	if l.ActivityAt.IsZero() || l.ActivityLabel == "" {
-		return "", 0, 0, 0, false
+		return Activity{}, 0, false
 	}
-	return l.ActivityLabel, l.ActivityIndex, l.ActivityTotal, now.Sub(l.ActivityAt), true
+	return Activity{
+		Label: l.ActivityLabel, Index: l.ActivityIndex, Total: l.ActivityTotal,
+		Gates: l.ActivityGates, Passed: l.ActivityPassed, Failed: l.ActivityFailed,
+	}, now.Sub(l.ActivityAt), true
 }
 
 // SetActivityDetail extends the EXISTING activity record with in-flight

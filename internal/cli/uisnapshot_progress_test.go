@@ -91,11 +91,12 @@ func (e *progressEnv) stories(t *testing.T, n int, status string) []string {
 	return ids
 }
 
-// progress is one row per kind on the from→to edge, each verdict its own round.
+// progress is one row per kind on the from→to edge, each verdict its own round
+// of one gate.
 func progress(storyID, from, to string, kinds ...string) []ledger.AppendInput {
 	out := make([]ledger.AppendInput, 0, len(kinds))
 	for _, kind := range kinds {
-		p, _ := json.Marshal(map[string]string{"from": from, "to": to, "attempt": ledger.NewAttemptID()})
+		p, _ := json.Marshal(map[string]string{"from": from, "to": to, "attempt": ledger.NewAttemptID(), "skill": "rev"})
 		out = append(out, ledger.AppendInput{StoryID: storyID, Kind: kind, Payload: p})
 	}
 	return out
@@ -225,7 +226,8 @@ func TestSnapshotProgressSurvivesDeepLedger(t *testing.T) {
 	e.outsideWindow(t, old)
 
 	cell := e.progressCell(t, old)
-	for _, want := range []string{`class="stage-chip stage-current"`, `>plan <b class="ok">1</b>`} {
+	// The chip counts the plan edge's gates, every one passed (sty_216d5205).
+	for _, want := range []string{`class="stage-chip stage-current"`, `>plan <b class="gates">`, `<b class="rej">0</b>`} {
 		if !strings.Contains(cell, want) {
 			t.Errorf("PROGRESS cell of %s missing %q: %q", old, want, cell)
 		}

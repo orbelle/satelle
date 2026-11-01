@@ -234,7 +234,7 @@ func (g *Engine) partitionBundles(ctx context.Context, item workitem.Item, toSta
 // without `bundle`. Otherwise units are scheduled like gates are elsewhere:
 // concurrently up to parallelCap when the edge sets one, else serially with the
 // first-reject short-circuit; the outcome is assembled as the parallel path does.
-func (g *Engine) runGateBundled(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int) (verb.GateDecision, bool, error) {
+func (g *Engine) runGateBundled(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int, tally *gateTally) (verb.GateDecision, bool, error) {
 	units := g.partitionBundles(ctx, item, toStatus, ordered)
 	bundled := false
 	for _, u := range units {
@@ -247,23 +247,20 @@ func (g *Engine) runGateBundled(ctx context.Context, item workitem.Item, toStatu
 		return verb.GateDecision{}, false, nil
 	}
 	results := make([]gateSlot, len(ordered))
-	nGates := len(ordered)
-	g.emitActivity(item.ID, "gates (bundled)", 0, nGates)
-	var doneMu sync.Mutex
-	doneN := 0
+	g.gatesOpened(item.ID, "gates (bundled)", tally)
 	run := func(u gateUnit) {
 		label := ordered[u.idx[0]].skill
 		if len(u.idx) > 1 {
 			label = fmt.Sprintf("%d bundled gates", len(u.idx))
 		}
-		doneMu.Lock()
-		g.emitActivity(item.ID, label, doneN+1, nGates)
-		doneMu.Unlock()
+		g.gateStarted(item.ID, label, tally)
 		g.runGateUnit(ctx, item, toStatus, ordered, u, results)
-		doneMu.Lock()
-		doneN += len(u.idx)
-		g.emitActivity(item.ID, label, doneN, nGates)
-		doneMu.Unlock()
+		// Each gate of the unit counts on its own: a bundle of three is three gates.
+		slots := make([]gateSlot, len(u.idx))
+		for k, i := range u.idx {
+			slots[k] = results[i]
+		}
+		g.gateReturned(item.ID, label, tally, slots...)
 	}
 	if parallelCap > 0 {
 		cap := parallelCap

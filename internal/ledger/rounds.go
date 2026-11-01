@@ -372,6 +372,37 @@ func EdgePresentations(entries []Entry, from, to string) []Presentation {
 	return out
 }
 
+// LatestRoundVerdicts is the per-gate outcome of the from→to edge's latest
+// presentation in entries: each reviewer skill whose verdict row that
+// presentation carries, mapped to "accept" or "reject". The seats of a panel
+// share their gate's skill and fold under the round's own rule: any reject
+// rejects it. A performer's reject is not a gate's verdict and is left out, as
+// is a readiness accept. Nil when the edge has no presentation (sty_216d5205).
+func LatestRoundVerdicts(entries []Entry, from, to string) map[string]string {
+	ps := EdgePresentations(entries, from, to)
+	if len(ps) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, i := range ps[len(ps)-1].Verdicts {
+		e := entries[i]
+		if e.Kind != KindReviewAccept && e.Kind != KindReviewReject {
+			continue
+		}
+		r, ok := decodeEdgeRow(e)
+		if !ok || r.Skill == "" {
+			continue
+		}
+		switch {
+		case e.Kind == KindReviewReject:
+			out[r.Skill] = "reject"
+		case out[r.Skill] == "":
+			out[r.Skill] = "accept"
+		}
+	}
+	return out
+}
+
 // GatedEdges lists the distinct from→to edges that carry a reviewer verdict or a
 // reviewer invocation in entries, in the order each first appears. A lifecycle
 // hook's rows (create_review, amend_review) guard an operation, not an edge of

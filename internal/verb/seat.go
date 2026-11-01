@@ -48,6 +48,11 @@ type seatRow struct {
 	ActivityIndex int    `json:"activity_index,omitempty"`
 	ActivityTotal int    `json:"activity_total,omitempty"`
 	ActivityAge   string `json:"activity_age,omitempty"`
+	// ActivityGates marks a gate round's stamp, whose ActivityPassed and
+	// ActivityFailed count the round's gates returned so far (sty_216d5205).
+	ActivityGates  bool `json:"activity_gates,omitempty"`
+	ActivityPassed int  `json:"activity_passed,omitempty"`
+	ActivityFailed int  `json:"activity_failed,omitempty"`
 	// In-flight DISPATCH metadata (sty_752c4ef2) — which agent/model/pid is
 	// running the dispatch, the last real event it produced, and this repo's
 	// configured idle-stall bound for that binding. Omitted when Activity is
@@ -134,11 +139,12 @@ func seatRowFromLease(l lease.Lease, now time.Time) seatRow {
 		StopRequested: l.StopRequestedBy,
 		StopReason:    l.StopReason,
 	}
-	if label, idx, total, elapsed, ok := lease.EffectiveActivity(l, now); ok {
-		row.Activity = label
-		row.ActivityIndex = idx
-		row.ActivityTotal = total
+	if act, elapsed, ok := lease.EffectiveActivity(l, now); ok {
+		row.Activity = act.Label
+		row.ActivityIndex = act.Index
+		row.ActivityTotal = act.Total
 		row.ActivityAge = formatAge(elapsed)
+		row.ActivityGates, row.ActivityPassed, row.ActivityFailed = act.Gates, act.Passed, act.Failed
 	}
 	if d, ok := lease.EffectiveActivityDetail(l, now); ok {
 		row.Agent = d.Agent

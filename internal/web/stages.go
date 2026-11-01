@@ -8,39 +8,63 @@ import (
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wfdot"
+	"github.com/bobmcallan/satelle/internal/wfroute"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // The story list's PROGRESS cell presents the STAGES a story has
-// completed and how hard each gate was to clear — not one light per ledger row.
-// A stage is named by the state a forward transition landed in; its totals are
-// the gate's accepted and rejected ROUNDS (one attempt id however many reviewers
-// voted, see ledger.EdgeRounds). Park and recover are not stages: a park is a
-// note on the stage whose gate was in flight. Everything here is read-side
-// presentation over rows the binary already wrote — no verdict is decided.
+// completed and the gates on each step's edge — not one light per ledger row.
+// A stage is named by the state a forward transition landed in. Its chip counts
+// the gates the workflow declares on the edge it was entered by, and how many of
+// them passed and failed in that edge's latest round; while the stage's exit
+// gates are running, the current chip counts those instead, with the gates still
+// running live (sty_216d5205). The round history — accepted and rejected ROUNDS,
+// one attempt id however many reviewers voted (ledger.EdgeRounds) — is spelled
+// in the tooltip. Park and recover are not stages: a park is a note on the stage
+// whose gate was in flight. Everything here is read-side presentation over rows
+// the binary already wrote and the seat's activity stamp — no verdict is decided.
 
 // stageVM is one entry of the PROGRESS cell.
 type stageVM struct {
-	Name     string
-	State    string // done | current | performing
-	Accepted int    // accepted gate rounds on the edges into this stage
-	Rejected int    // rejected gate rounds on the edges into this stage
+	Name  string
+	State string // done | current | performing
+	// Gates is what the chip counts: the outgoing edge's running round on a
+	// current stage whose exit gates are in flight, else the edge the stage was
+	// entered by. Nil when neither applies.
+	Gates    *gateCountsVM
 	Parked   int    // parks taken while this stage's gate was in flight
 	ParkName string // the state those parks went into (the route's park-state name)
-	Title    string // tooltip: the totals spelled in words
-	// Pending is the outgoing gate the story has presented and not yet passed:
-	// its rounds since the story entered the stage. Set only on the current chip.
-	Pending *gateRoundsVM
+	Title    string // tooltip: the counts and the round history spelled in words
 	// Performer is the agent binding working on a performing chip's step.
 	Performer string
+
+	// The tooltip's material, which the chip no longer shows: the accepted and
+	// rejected rounds on the edges into this stage, the state it was last
+	// entered from, its entry edge's counts, and its outgoing edge's — presented
+	// since the stage was entered, or in flight.
+	accepted, rejected int
+	from               string
+	in, out            *gateCountsVM
 }
 
-// gateRoundsVM is one gate's round counts, named by the edge they are for.
-type gateRoundsVM struct {
-	Accepted int
-	Rejected int
-	Edge     string // "from → to" the counts are for
-	Title    string
+// gateCountsVM is one edge's gates: how many the workflow declares on it, and
+// how many passed, failed and are still running in its latest round.
+type gateCountsVM struct {
+	Gates, Passed, Failed, Running int
+	// Live marks a round whose gates are still running: the running count pulses.
+	Live bool
+	Edge string // "from → to" the counts are for
+	// The edge's round history, for the tooltip.
+	accepted, rejected int
+	// inFlight marks counts read from the seat's running gate round.
+	inFlight bool
+}
+
+// seatGateVM is a story's seat activity while its gates are running: the
+// round's whole gate count and how many have passed and failed so far. Built
+// only from an in-flight, non-stale seat whose stamp is a gate round's.
+type seatGateVM struct {
+	Total, Passed, Failed int
 }
 
 // transition kinds, as the stage builder reads them.
@@ -129,19 +153,27 @@ func parseEdge(e ledger.Entry) lightPayload {
 // Stages are in the order they were first reached — never numbered, never by
 // route depth — so a story whose category resolved no route reads the same as
 // one that did, and no stage appears twice. stepOf is consulted only to tell an
-// on-route status from an unstarted one when the ledger is empty.
-func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf func(state string) int, spec wfdot.Spec) []stageVM {
+// on-route status from an unstarted one when the ledger is empty. tags are the
+// story's, which decide the tag-scoped gates on each edge; seat is its gate
+// activity while its exit gates are running, nil otherwise.
+func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf func(state string) int, spec wfdot.Spec, tags []string, seat *seatGateVM) []stageVM {
 	es := append([]ledger.Entry(nil), entries...)
 	ledger.SortEntries(es)
 	ts := classifyTransitions(es, spec)
 	fin := finished(spec, status)
+	var route *wfroute.Route
+	if len(spec.States) > 0 {
+		r := wfroute.Build(spec, "", tags, nil, nil)
+		route = &r
+	}
 
 	var stages []stageVM
 	at := map[string]int{} // stage name → index in stages
 	type park struct{ target, within, name string }
 	var parks []park
 	lastEdgeTo, curName := "", ""
-	offRoute := map[string]bool{} // edges of a park, recover or sink: not a stage's gate
+	offRoute := map[string]bool{}     // edges of a park, recover or sink: not a stage's gate
+	lastIn := map[string]transition{} // stage name → the landing that last entered it
 	ti := 0
 	for _, e := range es {
 		switch e.Kind {
@@ -177,6 +209,7 @@ func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf fu
 					stages = append(stages, stageVM{Name: t.to, State: "done"})
 				}
 				curName = t.to
+				lastIn[t.to] = t
 				lastEdgeTo = ""
 			}
 		}
@@ -196,8 +229,21 @@ func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf fu
 		}
 		seen[key] = true
 		a, r := ledger.EdgeRounds(es, lp.From, lp.To)
-		stages[i].Accepted += a
-		stages[i].Rejected += r
+		stages[i].accepted += a
+		stages[i].rejected += r
+	}
+	// Each stage's entry edge: the gates of the landing that last entered it, its
+	// latest round accepted (the landing is the accept).
+	for i := range stages {
+		t, ok := lastIn[stages[i].Name]
+		if !ok {
+			continue
+		}
+		stages[i].from = t.from
+		if g := completedGates(es[:t.pos], route, t.from, t.to); g != nil {
+			g.accepted, g.rejected = ledger.EdgeRounds(es[:t.pos], t.from, t.to)
+			stages[i].in, stages[i].Gates = g, g
+		}
 	}
 	for _, p := range parks {
 		i, ok := at[p.target]
@@ -215,9 +261,9 @@ func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf fu
 	// ledger is missing, a cancel sink) gets its own chip. A finished story never
 	// pulses — its last chip is simply done.
 	entered := len(ts) > 0
-	var pending *gateRoundsVM
+	var out *gateCountsVM
 	if !fin {
-		pending = pendingGate(es, ts, status)
+		out = outgoingGates(es, ts, status, route, seat)
 	}
 	if i, ok := at[status]; ok {
 		if !fin {
@@ -231,22 +277,29 @@ func buildStages(entries []ledger.Entry, status string, seatHeld bool, stepOf fu
 		stages = append(stages, stageVM{Name: status, State: "current"})
 	} else if seatHeld {
 		stages = append(stages, stageVM{Name: status, State: "current", Title: "starting"})
-	} else if pending != nil {
+	} else if out != nil {
 		// A story still at its start status that has only been readied (`satelle
 		// story ready` holds no seat and takes no edge) has no transition, step or
-		// seat — its readiness rounds are the only trace it is under way.
-		stages = append(stages, stageVM{Name: status, State: "current", Title: "readying"})
+		// seat — its readiness rounds are the only trace it is under way. Its chip
+		// counts that edge's latest round.
+		stages = append(stages, stageVM{Name: status, State: "current", Gates: out, out: out,
+			Title: "readying · " + edgeWords(*out)})
+	}
+	if out != nil {
+		for i := range stages {
+			if stages[i].State != "current" || stages[i].out != nil {
+				continue
+			}
+			stages[i].out = out
+			if out.inFlight {
+				// The exit gates are running: the chip counts them, not the entry.
+				stages[i].Gates, stages[i].Title = out, ""
+			}
+		}
 	}
 	for i := range stages {
 		if stages[i].Title == "" {
 			stages[i].Title = stageTitle(stages[i])
-		}
-	}
-	if pending != nil {
-		for i := range stages {
-			if stages[i].State == "current" {
-				stages[i].Pending = pending
-			}
 		}
 	}
 	return stages
@@ -263,7 +316,7 @@ func applyPerforming(stages []stageVM, status string, d *dispatchVM) []stageVM {
 	}
 	for i := range stages {
 		if stages[i].Name == status && stages[i].State == "current" {
-			stages[i].State, stages[i].Pending = "done", nil
+			stages[i].State, stages[i].out, stages[i].Gates = "done", nil, stages[i].in
 			stages[i].Title = stageTitle(stages[i])
 		}
 	}
@@ -288,11 +341,13 @@ func routeEdgeOff(spec wfdot.Spec, from, to string) bool {
 	return spec.IsResumePark(from) || spec.IsResumePark(to) || isSink(spec, to)
 }
 
-// pendingGate is the outgoing gate the story is waiting on: an edge out of
-// status presented since the story entered it, reported with that edge's rounds
-// since the entry. The entry gate is not reported here — its rounds are already
-// in the totals of the stage it led into. No outgoing review rows, no result.
-func pendingGate(es []ledger.Entry, ts []transition, status string) *gateRoundsVM {
+// outgoingGates is the current stage's exit edge since the story entered status:
+// running — the seat's live tally for its gate round, with the edge named by the
+// route step after status — or, with nothing running, the latest presented
+// round's counts (an edge out of status with verdict rows since the entry), for
+// the tooltip. Nil when neither: the gates are not running and nothing has been
+// presented since the entry.
+func outgoingGates(es []ledger.Entry, ts []transition, status string, route *wfroute.Route, seat *seatGateVM) *gateCountsVM {
 	// The last transition into status that is not a recover: a recovery returns a
 	// story to the state it left, so its entry gate is the one it first arrived by.
 	enterPos := -1
@@ -301,31 +356,212 @@ func pendingGate(es []ledger.Entry, ts []transition, status string) *gateRoundsV
 			enterPos = t.pos
 		}
 	}
-	var last *lightPayload
-	for _, e := range es[enterPos+1:] {
+	since := es[enterPos+1:]
+	to := ""
+	for _, e := range since {
 		if e.Kind != ledger.KindReviewAccept && e.Kind != ledger.KindReviewReject {
 			continue
 		}
 		if lp := parseEdge(e); lp.From == status {
-			last = &lp
+			to = lp.To
 		}
 	}
-	if last == nil {
+	if seat != nil {
+		if next := nextStep(route, status); next != "" {
+			to = next
+		}
+		g := &gateCountsVM{Gates: seat.Total, Passed: seat.Passed, Failed: seat.Failed, Edge: status + " →", inFlight: true}
+		if to != "" {
+			g.Edge = status + " → " + to
+			g.accepted, g.rejected = ledger.EdgeRounds(since, status, to)
+		}
+		g.Running = max(g.Gates-g.Passed-g.Failed, 0)
+		g.Live = g.Running > 0
+		return g
+	}
+	if to == "" {
 		return nil
 	}
-	a, r := ledger.EdgeRounds(es[enterPos+1:], status, last.To)
+	a, r := ledger.EdgeRounds(since, status, to)
 	if a == 0 && r == 0 {
 		return nil
 	}
-	edge := status + " → " + last.To
-	return &gateRoundsVM{Accepted: a, Rejected: r, Edge: edge,
-		Title: edge + ": " + roundsWords(a, r)}
+	g := closedGates(since, route, status, to)
+	g.accepted, g.rejected = a, r
+	return g
 }
 
+// nextStep is the route step after status, "" when status is not a step of the
+// route or is its last.
+func nextStep(route *wfroute.Route, status string) string {
+	if route == nil {
+		return ""
+	}
+	for i, st := range route.Steps {
+		if st.Status == status && i+1 < len(route.Steps) {
+			return route.Steps[i+1].Status
+		}
+	}
+	return ""
+}
+
+// completedGates is an edge the story advanced along: its latest round was
+// accepted, so every gate on it passed. Nil when the edge has no gates to count.
+func completedGates(es []ledger.Entry, route *wfroute.Route, from, to string) *gateCountsVM {
+	n := len(edgeGateSet(es, route, from, to))
+	if n == 0 {
+		return nil
+	}
+	return &gateCountsVM{Gates: n, Passed: n, Edge: from + " → " + to}
+}
+
+// closedGates is an edge's latest round that has returned: its gate count, and
+// the gates that passed and failed in it (ledger.LatestRoundVerdicts). A
+// serial round stops at its first reject, so passed plus failed may fall short
+// of the count.
+func closedGates(es []ledger.Entry, route *wfroute.Route, from, to string) *gateCountsVM {
+	g := &gateCountsVM{Gates: len(edgeGateSet(es, route, from, to)), Edge: from + " → " + to}
+	for _, v := range ledger.LatestRoundVerdicts(es, from, to) {
+		if v == "accept" {
+			g.Passed++
+		} else {
+			g.Failed++
+		}
+	}
+	return g
+}
+
+// edgeGateSet is the from→to edge's gates for its latest round in es: the entry
+// gates the route declares on step to for the story's tags (wfroute leaves out a
+// scoped gate applies_to excludes), less any `when` gate that did not trigger —
+// one with no verdict in the round and a scoped-gate-skipped row (reason "when")
+// written for it in the round. With no route, or to not a step of it, the
+// DEGRADED fallback is the skills with a verdict in the latest round.
+func edgeGateSet(es []ledger.Entry, route *wfroute.Route, from, to string) []string {
+	verdicts := ledger.LatestRoundVerdicts(es, from, to)
+	var set []string
+	if step := routeStep(route, to); step != nil {
+		lo, hi := latestRoundWindow(es, from, to)
+		for _, rv := range step.Reviewers {
+			if _, voted := verdicts[rv.Skill]; rv.When != "" && !voted && whenSkipped(es, rv.Skill, to, lo, hi) {
+				continue
+			}
+			set = append(set, rv.Skill)
+		}
+	}
+	if len(set) == 0 {
+		for skill := range verdicts {
+			set = append(set, skill)
+		}
+	}
+	return set
+}
+
+func routeStep(route *wfroute.Route, status string) *wfroute.Step {
+	if route == nil {
+		return nil
+	}
+	for i := range route.Steps {
+		if route.Steps[i].Status == status {
+			return &route.Steps[i]
+		}
+	}
+	return nil
+}
+
+// latestRoundWindow bounds the from→to edge's latest round in es as (lo, hi]:
+// from the previous presentation's last row — or the last transition into from
+// before the round — to the round's last verdict row. A closed round's skip rows
+// precede its verdict rows: a `when` gate is skipped as the round is enqueued.
+func latestRoundWindow(es []ledger.Entry, from, to string) (lo, hi int) {
+	ps := ledger.EdgePresentations(es, from, to)
+	lo, hi = -1, len(es)-1
+	if len(ps) == 0 {
+		return lo, hi
+	}
+	last := ps[len(ps)-1]
+	if n := len(last.Verdicts); n > 0 {
+		hi = last.Verdicts[n-1]
+	}
+	first := hi
+	if len(last.Verdicts) > 0 {
+		first = last.Verdicts[0]
+	}
+	if len(last.Invocations) > 0 && last.Invocations[0] < first {
+		first = last.Invocations[0]
+	}
+	if len(ps) > 1 {
+		prev := ps[len(ps)-2]
+		for _, rows := range [][]int{prev.Verdicts, prev.Invocations, prev.Performers} {
+			for _, i := range rows {
+				if i > lo && i < first {
+					lo = i
+				}
+			}
+		}
+		return lo, hi
+	}
+	for i := first - 1; i >= 0; i-- {
+		if es[i].Kind == ledger.KindStatusTransition && parseEdge(es[i]).To == from {
+			return i, hi
+		}
+	}
+	return lo, hi
+}
+
+// whenSkipped reports whether es holds, in (lo, hi], the engine's
+// scoped-gate-skipped telemetry row for skill entering to with reason "when".
+func whenSkipped(es []ledger.Entry, skill, to string, lo, hi int) bool {
+	for i := lo + 1; i <= hi && i < len(es); i++ {
+		if es[i].Kind != ledger.KindTelemetryEvent {
+			continue
+		}
+		var p struct {
+			Kind string `json:"kind"`
+			Data struct {
+				Reason string `json:"reason"`
+				Skill  string `json:"skill"`
+				To     string `json:"to"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(es[i].Payload, &p) == nil && p.Kind == "scoped-gate-skipped" &&
+			p.Data.Reason == "when" && p.Data.Skill == skill && p.Data.To == to {
+			return true
+		}
+	}
+	return false
+}
+
+// stageTitle spells a chip in words. A current stage whose exit gates are
+// running leads with that edge; the stage's own part names how it was entered,
+// its entry edge's gates and its round history; an outgoing edge presented and
+// not running follows it.
 func stageTitle(s stageVM) string {
-	parts := []string{}
-	if w := roundsWords(s.Accepted, s.Rejected); w != "" {
-		parts = append(parts, w)
+	var segs []string
+	running := s.out != nil && s.out.inFlight && s.Gates == s.out
+	if running {
+		segs = append(segs, edgeWords(*s.out))
+	}
+	var quals []string
+	switch s.State {
+	case "current":
+		quals = append(quals, "current stage")
+	case "performing":
+		quals = append(quals, "performing: "+s.Performer)
+	}
+	if s.from != "" {
+		quals = append(quals, "entered from "+s.from)
+	}
+	head := s.Name
+	if len(quals) > 0 {
+		head += " (" + strings.Join(quals, ", ") + ")"
+	}
+	var parts []string
+	if s.in != nil {
+		parts = append(parts, gatesWords(*s.in))
+	}
+	if w := roundsWords(s.accepted, s.rejected); w != "" {
+		parts = append(parts, "rounds: "+w)
 	}
 	switch {
 	case s.Parked == 1:
@@ -333,35 +569,55 @@ func stageTitle(s stageVM) string {
 	case s.Parked > 1:
 		parts = append(parts, fmt.Sprintf("%s %d times", s.ParkName, s.Parked))
 	}
-	title := s.Name
-	switch s.State {
-	case "current":
-		title += " (current stage)"
-	case "performing":
-		title += " (performing: " + s.Performer + ")"
-	}
 	if len(parts) > 0 {
-		title += ": " + strings.Join(parts, ", ")
+		head += ": " + strings.Join(parts, "; ")
 	}
-	return title
+	segs = append(segs, head)
+	if s.out != nil && !running {
+		segs = append(segs, edgeWords(*s.out))
+	}
+	return strings.Join(segs, " · ")
 }
 
-// roundsWords spells round totals in words, so a number is never mistaken for a
-// stage index.
+// edgeWords spells one edge: its name, its latest round's gates, and its round
+// history.
+func edgeWords(g gateCountsVM) string {
+	parts := []string{}
+	if g.Gates > 0 {
+		parts = append(parts, gatesWords(g))
+	}
+	if w := roundsWords(g.accepted, g.rejected); w != "" {
+		parts = append(parts, "rounds: "+w)
+	}
+	if len(parts) == 0 {
+		return g.Edge
+	}
+	return g.Edge + ": " + strings.Join(parts, "; ")
+}
+
+// gatesWords spells a round's gate counts, so a number is never mistaken for a
+// stage index; the running count only while gates are running.
+func gatesWords(g gateCountsVM) string {
+	noun := "gates"
+	if g.Gates == 1 {
+		noun = "gate"
+	}
+	w := fmt.Sprintf("%d %s, %d passed, %d failed", g.Gates, noun, g.Passed, g.Failed)
+	if g.Running > 0 {
+		w += fmt.Sprintf(", %d still running", g.Running)
+	}
+	return w
+}
+
+// roundsWords spells round totals in words — "1 accepted, 2 rejected" — the
+// history the chip no longer shows.
 func roundsWords(accepted, rejected int) string {
 	var parts []string
-	for _, p := range []struct {
-		n    int
-		word string
-	}{{accepted, "accepted"}, {rejected, "rejected"}} {
-		if p.n == 0 {
-			continue
-		}
-		noun := "round"
-		if p.n > 1 {
-			noun = "rounds"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s %s", p.n, p.word, noun))
+	if accepted > 0 {
+		parts = append(parts, fmt.Sprintf("%d accepted", accepted))
+	}
+	if rejected > 0 {
+		parts = append(parts, fmt.Sprintf("%d rejected", rejected))
 	}
 	return strings.Join(parts, ", ")
 }

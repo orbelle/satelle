@@ -443,7 +443,8 @@ func TestSetActivityRoundTrip(t *testing.T) {
 	if err != nil || out != OutcomeAcquired {
 		t.Fatalf("acquire: %v %v", out, err)
 	}
-	if err := s.SetActivity(ctx, "sty_act", "satelle-story-plan-review", 2, 3); err != nil {
+	want := Activity{Label: "satelle-story-plan-review", Index: 2, Total: 3, Gates: true, Passed: 1, Failed: 1}
+	if err := s.SetActivity(ctx, "sty_act", want); err != nil {
 		t.Fatal(err)
 	}
 	l, err := s.Get(ctx, "sty_act")
@@ -451,20 +452,35 @@ func TestSetActivityRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	label, idx, total, elapsed, ok := EffectiveActivity(l, now)
-	if !ok || label != "satelle-story-plan-review" || idx != 2 || total != 3 {
-		t.Fatalf("EffectiveActivity = (%q,%d,%d,%v,%v)", label, idx, total, elapsed, ok)
+	got, elapsed, ok := EffectiveActivity(l, now)
+	if !ok || got != want {
+		t.Fatalf("EffectiveActivity = (%+v,%v,%v), want %+v", got, elapsed, ok, want)
 	}
 	if elapsed < 0 || elapsed > time.Minute {
 		t.Fatalf("elapsed = %v", elapsed)
 	}
-	// Clear in_flight → activity not effective.
+	// Clear in_flight → activity not effective, and the gate counts are zeroed
+	// with the rest of the stamp (sty_216d5205).
 	if err := s.ClearInFlight(ctx, "sty_act"); err != nil {
 		t.Fatal(err)
 	}
 	l, _ = s.Get(ctx, "sty_act")
-	if _, _, _, _, ok := EffectiveActivity(l, now); ok {
+	if _, _, ok := EffectiveActivity(l, now); ok {
 		t.Fatal("activity must not be ok after ClearInFlight")
+	}
+	if l.ActivityGates || l.ActivityPassed != 0 || l.ActivityFailed != 0 {
+		t.Fatalf("ClearInFlight left gate counts: gates=%v passed=%d failed=%d", l.ActivityGates, l.ActivityPassed, l.ActivityFailed)
+	}
+	// Confirm clears them the same way.
+	if err := s.SetActivity(ctx, "sty_act", want); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Confirm(ctx, "sty_act", "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ = s.Get(ctx, "sty_act")
+	if l.ActivityGates || l.ActivityPassed != 0 || l.ActivityFailed != 0 {
+		t.Fatalf("Confirm left gate counts: gates=%v passed=%d failed=%d", l.ActivityGates, l.ActivityPassed, l.ActivityFailed)
 	}
 }
 
@@ -479,7 +495,7 @@ func TestSetActivityDetailRoundTrip(t *testing.T) {
 	if err != nil || out != OutcomeAcquired {
 		t.Fatalf("acquire: %v %v", out, err)
 	}
-	if err := s.SetActivity(ctx, "sty_detail", "dispatch:in_progress", 1, 1); err != nil {
+	if err := s.SetActivity(ctx, "sty_detail", Activity{Label: "dispatch:in_progress", Index: 1, Total: 1}); err != nil {
 		t.Fatal(err)
 	}
 	eventAt := time.Now().UTC().Add(-2 * time.Second)
@@ -493,9 +509,9 @@ func TestSetActivityDetailRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The existing phase label survives a detail refresh (sty_598a8e1b semantics unchanged).
-	label, idx, total, _, ok := EffectiveActivity(l, time.Now().UTC())
-	if !ok || label != "dispatch:in_progress" || idx != 1 || total != 1 {
-		t.Fatalf("EffectiveActivity = (%q,%d,%d,_,%v), want phase label preserved", label, idx, total, ok)
+	act, _, ok := EffectiveActivity(l, time.Now().UTC())
+	if !ok || act.Label != "dispatch:in_progress" || act.Index != 1 || act.Total != 1 || act.Gates {
+		t.Fatalf("EffectiveActivity = (%+v,_,%v), want phase label preserved", act, ok)
 	}
 	d, ok := EffectiveActivityDetail(l, time.Now().UTC())
 	if !ok {
@@ -521,9 +537,9 @@ func TestSetActivityDetailRoundTrip(t *testing.T) {
 	if !d2.EventAt.After(d.EventAt) {
 		t.Errorf("EventAt did not advance: first=%v second=%v", d.EventAt, d2.EventAt)
 	}
-	label2, idx2, total2, _, ok2 := EffectiveActivity(l2, time.Now().UTC())
-	if !ok2 || label2 != "dispatch:in_progress" || idx2 != 1 || total2 != 1 {
-		t.Fatalf("phase label disturbed by detail refresh: (%q,%d,%d,%v)", label2, idx2, total2, ok2)
+	act2, _, ok2 := EffectiveActivity(l2, time.Now().UTC())
+	if !ok2 || act2.Label != "dispatch:in_progress" || act2.Index != 1 || act2.Total != 1 {
+		t.Fatalf("phase label disturbed by detail refresh: (%+v,%v)", act2, ok2)
 	}
 	// Clearing in_flight (Confirm/ClearInFlight) clears detail too.
 	if err := s.ClearInFlight(ctx, "sty_detail"); err != nil {
@@ -543,7 +559,7 @@ func TestEffectiveActivityDeadPidNotOk(t *testing.T) {
 		InFlight: true, InFlightAt: now, InFlightPid: dead, HeartbeatAt: now,
 		ActivityLabel: "gate", ActivityIndex: 1, ActivityTotal: 2, ActivityAt: now,
 	}
-	if _, _, _, _, ok := EffectiveActivity(l, now); ok {
+	if _, _, ok := EffectiveActivity(l, now); ok {
 		t.Fatal("dead pid must not expose activity")
 	}
 }
@@ -580,7 +596,7 @@ func TestDeadPidAcquireWithoutForceRelease(t *testing.T) {
 		_ = cmd.Process.Kill()
 		t.Fatal("must be live while child lives")
 	}
-	if _, _, _, _, ok := EffectiveActivity(l, now); !ok {
+	if _, _, ok := EffectiveActivity(l, now); !ok {
 		_ = cmd.Process.Kill()
 		t.Fatal("activity must be visible while child lives")
 	}
@@ -596,7 +612,7 @@ func TestDeadPidAcquireWithoutForceRelease(t *testing.T) {
 	if EffectiveInFlight(l, now) {
 		t.Fatal("must not be live after kill+wait")
 	}
-	if _, _, _, _, ok := EffectiveActivity(l, now); ok {
+	if _, _, ok := EffectiveActivity(l, now); ok {
 		t.Fatal("activity must not surface after kill")
 	}
 	// Re-acquire without ForceRelease.

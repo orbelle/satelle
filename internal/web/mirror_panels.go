@@ -143,6 +143,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	liveSeat, _ := decodeLiveSeats(ctx, s, repoKey)
 	engagedIDs, _ := decodeEngagedStorySeats(ctx, s, repoKey)
 	dispatches, _ := decodeDispatchSeats(ctx, s, repoKey)
+	gateSeats, _ := decodeGateSeats(ctx, s, repoKey)
 	catStepOf := categoryStepOf(byKind["workflows"])
 	specOf := categorySpecOf(byKind["workflows"])
 
@@ -160,7 +161,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if syncSt.PushReason != "" {
 		logPath = displayedSyncLogPath()
 	}
-	storyRows := attachStagesFrom(entriesByStory, stories, liveSeat, dispatches, catStepOf, specOf)
+	storyRows := attachStagesFrom(entriesByStory, stories, liveSeat, dispatches, gateSeats, catStepOf, specOf)
 	attachChildrenInFlight(storyRows, stories, dispatches)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
@@ -177,8 +178,8 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		BacklogCount:    backlog,
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
-		Tasks:           attachStagesFrom(entriesByStory, tasks, liveSeat, dispatches, catStepOf, specOf),
-		Activity:        activityRows(storyRows, attachStagesFrom(entriesByStory, executions, liveSeat, dispatches, catStepOf, specOf), specOf),
+		Tasks:           attachStagesFrom(entriesByStory, tasks, liveSeat, dispatches, gateSeats, catStepOf, specOf),
+		Activity:        activityRows(storyRows, attachStagesFrom(entriesByStory, executions, liveSeat, dispatches, gateSeats, catStepOf, specOf), specOf),
 		DocKinds:        kinds,
 		DocCount:        len(docs),
 		Workflows:       workflowRows(byKind["workflows"], prov, src),
@@ -222,11 +223,12 @@ func activityRows(stories, executions []rowVM, specOf func(category string) wfdo
 }
 
 // attachStagesFrom is the mirror-side stage attach: ledger rows already loaded.
-func attachStagesFrom(entriesByStory map[string][]ledger.Entry, items []workitem.Item, liveSeat map[string]bool, dispatches map[string]*dispatchVM, catStepOf func(category, state string) int, specOf func(category string) wfdot.Spec) []rowVM {
+// gateSeats holds each story's gate activity while its exit gates are running.
+func attachStagesFrom(entriesByStory map[string][]ledger.Entry, items []workitem.Item, liveSeat map[string]bool, dispatches map[string]*dispatchVM, gateSeats map[string]*seatGateVM, catStepOf func(category, state string) int, specOf func(category string) wfdot.Spec) []rowVM {
 	out := make([]rowVM, len(items))
 	for i, it := range items {
 		stepOf := func(s string) int { return catStepOf(it.Category, s) }
-		stages := buildStages(entriesByStory[it.ID], it.Status, liveSeat[it.ID], stepOf, specOf(it.Category))
+		stages := buildStages(entriesByStory[it.ID], it.Status, liveSeat[it.ID], stepOf, specOf(it.Category), it.Tags, gateSeats[it.ID])
 		stages = applyPerforming(stages, it.Status, dispatches[it.ID])
 		out[i] = rowVM{Item: it, Stages: stages, Dispatch: dispatches[it.ID]}
 	}
@@ -348,6 +350,47 @@ type seatPayload struct {
 	// Activity is the seat's phase label; a performer dispatch stamps
 	// "dispatch:<step>" (agentstep emitActivity).
 	Activity string `json:"activity,omitempty"`
+	// A gate round's live tally (sty_216d5205), pushed by cli.listSeatsJSON:
+	// ActivityGates marks the stamp as a gate round's, ActivityTotal is its whole
+	// gate count, and ActivityPassed/ActivityFailed the gates returned so far.
+	ActivityGates  bool `json:"activity_gates,omitempty"`
+	ActivityTotal  int  `json:"activity_total,omitempty"`
+	ActivityPassed int  `json:"activity_passed,omitempty"`
+	ActivityFailed int  `json:"activity_failed,omitempty"`
+}
+
+// gateActivity is the seat's running gate round, or nil when the seat is not in
+// flight, is stale, or is stamped by anything but a gate round (a performer's
+// dispatch runs before the gates and is not them running). A seat pushed by a
+// binary that predates the stamp carries no ActivityGates and reads as nil.
+func gateActivity(seat seatPayload) *seatGateVM {
+	if !seat.InFlight || seat.Stale || !seat.ActivityGates || seat.ActivityTotal <= 0 {
+		return nil
+	}
+	return &seatGateVM{Total: seat.ActivityTotal, Passed: seat.ActivityPassed, Failed: seat.ActivityFailed}
+}
+
+// decodeGateSeats builds the id → running gate round map for every seat whose
+// exit gates are running.
+func decodeGateSeats(ctx context.Context, s *mirror.Store, repoKey string) (map[string]*seatGateVM, error) {
+	rows, err := s.ListItems(ctx, repoKey, "seat")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]*seatGateVM{}
+	for _, r := range rows {
+		var seat seatPayload
+		if err := json.Unmarshal([]byte(r.Payload), &seat); err != nil {
+			continue
+		}
+		if seat.ID == "" {
+			seat.ID = r.ID
+		}
+		if g := gateActivity(seat); g != nil {
+			out[seat.ID] = g
+		}
+	}
+	return out, nil
 }
 
 // dispatchVM is the web story row's running indicator (sty_752c4ef2 AC6):

@@ -196,7 +196,10 @@ func (g *Engine) carryable(ctx context.Context, item workitem.Item, toStatus str
 // gateCarrying runs an edge that declares reviewer_carry. handled is false when
 // nothing is carryable, or everything is (carry is moot: every reviewer is
 // dispatched) — the caller then runs the edge as it would without the key.
-func (g *Engine) gateCarrying(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int) (verb.GateDecision, bool, error) {
+//
+// Both passes stamp the one round tally, so the confirm pass continues from the
+// fresh pass's counts against the edge's whole gate list.
+func (g *Engine) gateCarrying(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int, tally *gateTally) (verb.GateDecision, bool, error) {
 	carried, fresh := g.carryable(ctx, item, toStatus, ordered, sysStart)
 	idx := make([]int, len(carried))
 	for j, c := range carried {
@@ -204,7 +207,7 @@ func (g *Engine) gateCarrying(ctx context.Context, item workitem.Item, toStatus 
 	}
 	return carryRound(idx, fresh,
 		func(at []int) (verb.GateDecision, error) {
-			return g.scheduleGate(ctx, item, toStatus, ordered, at, sysStart, parallelCap)
+			return g.scheduleGate(ctx, item, toStatus, ordered, at, sysStart, parallelCap, tally)
 		},
 		func(dec verb.GateDecision) bool { return dec.Gated && !dec.Accept },
 		func(dec verb.GateDecision) verb.GateDecision {
@@ -224,7 +227,7 @@ func (g *Engine) gateCarrying(ctx context.Context, item workitem.Item, toStatus 
 // scheduleGate dispatches the reviewers at idx (ascending positions in ordered)
 // under the edge's bundle, parallel or serial scheduling, and returns the
 // decision with each verdict's Order restored to its position in ordered.
-func (g *Engine) scheduleGate(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, idx []int, sysStart, parallelCap int) (verb.GateDecision, error) {
+func (g *Engine) scheduleGate(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, idx []int, sysStart, parallelCap int, tally *gateTally) (verb.GateDecision, error) {
 	sub := make([]reviewerRef, len(idx))
 	subSys := 0
 	for j, i := range idx {
@@ -233,7 +236,7 @@ func (g *Engine) scheduleGate(ctx context.Context, item workitem.Item, toStatus 
 			subSys++
 		}
 	}
-	dec, err := g.runScheduled(ctx, item, toStatus, sub, subSys, parallelCap)
+	dec, err := g.runScheduled(ctx, item, toStatus, sub, subSys, parallelCap, tally)
 	for k := range dec.Reviewers {
 		if o := dec.Reviewers[k].Order; o >= 0 && o < len(idx) {
 			dec.Reviewers[k].Order = idx[o]

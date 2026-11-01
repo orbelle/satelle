@@ -74,3 +74,25 @@ func TestSeatListOmitsActivityDetailWhenNotStamped(t *testing.T) {
 		t.Fatalf("settled (not in-flight) row must omit dispatch detail: %+v", row)
 	}
 }
+
+// sty_216d5205: a gate round's live tally rides the seat row `satelle story
+// seat` prints, beside the activity index and total; a non-gate phase carries none.
+func TestSeatRowCarriesGateActivity(t *testing.T) {
+	now := time.Now().UTC()
+	gating := lease.Lease{
+		ItemID: "sty_gate", Kind: "story", StorySeat: true, Owner: "alice", State: "plan",
+		AcquiredAt: now, HeartbeatAt: now,
+		InFlight: true, InFlightAt: now, InFlightPid: os.Getpid(),
+		ActivityLabel: "rev-b", ActivityIndex: 3, ActivityTotal: 4, ActivityAt: now,
+		ActivityGates: true, ActivityPassed: 1, ActivityFailed: 1,
+	}
+	row := seatRowFromLease(gating, now)
+	if !row.ActivityGates || row.ActivityPassed != 1 || row.ActivityFailed != 1 || row.ActivityTotal != 4 {
+		t.Fatalf("gate row = %+v, want gates, 1 passed, 1 failed of 4", row)
+	}
+	gating.ActivityGates, gating.ActivityPassed, gating.ActivityFailed = false, 0, 0
+	gating.ActivityLabel = "dispatch:in_progress"
+	if row := seatRowFromLease(gating, now); row.ActivityGates || row.ActivityPassed+row.ActivityFailed != 0 {
+		t.Fatalf("a performer phase must carry no gate tally: %+v", row)
+	}
+}

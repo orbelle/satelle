@@ -20,6 +20,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/docstory"
 	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/logfile"
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -272,12 +273,23 @@ func openAppForCmd(cmd *cobra.Command) error {
 			rev.SetProgress(gateProgressSink(a.Config, a.RepoRoot, a.RuntimeDir))
 			// Queryable gate progress on the engagement lease (sty_598a8e1b).
 			// Best-effort: a SetActivity failure must never fail a transition.
+			// A gate round's stamp is also pushed to the local serve mirror, so
+			// the story list's progress chip counts the round's gates as each
+			// returns (sty_216d5205); a reviewer session emits no dispatch detail
+			// that would push it otherwise.
 			leases := a.Store.Leases
+			pushEndpoint := gc.Service.ResolveEndpoint()
 			rev.SetActivity(func(itemID string, act agentstep.Activity) {
 				if leases == nil || itemID == "" {
 					return
 				}
-				_ = leases.SetActivity(context.Background(), itemID, act.Label, act.Index, act.Total)
+				_ = leases.SetActivity(context.Background(), itemID, lease.Activity{
+					Label: act.Label, Index: act.Index, Total: act.Total,
+					Gates: act.Gates, Passed: act.Passed, Failed: act.Failed,
+				})
+				if act.Gates {
+					pushSeatSnapshot(a, pushEndpoint)
+				}
 			})
 			// In-flight dispatch metadata on the SAME lease row (sty_752c4ef2):
 			// agent, model, pid, and the last real event, refreshed throttled
@@ -285,7 +297,6 @@ func openAppForCmd(cmd *cobra.Command) error {
 			// Pushed to the local serve mirror on the same throttled beat
 			// (activityDetailSink) so a running dispatch's web indicator
 			// (AC6) and `satelle story seat` (AC7) stay fresh WHILE it runs.
-			pushEndpoint := gc.Service.ResolveEndpoint()
 			rev.SetActivityDetail(func(itemID string, d agentstep.ActivityDetail) {
 				activityDetailSink(leases, a, pushEndpoint, itemID, d)
 			})

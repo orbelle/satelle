@@ -446,11 +446,16 @@ func listSeatsJSON(ctx context.Context, a *app.App) ([]json.RawMessage, error) {
 				}
 			}
 		}
-		if label, idx, total, elapsed, ok := lease.EffectiveActivity(l, now); ok {
-			row["activity"] = label
-			row["activity_index"] = idx
-			row["activity_total"] = total
+		if act, elapsed, ok := lease.EffectiveActivity(l, now); ok {
+			row["activity"] = act.Label
+			row["activity_index"] = act.Index
+			row["activity_total"] = act.Total
 			row["activity_started_at"] = now.Add(-elapsed)
+			// A gate round's live tally (sty_216d5205): the web's progress chip
+			// reads these keys through web.seatPayload.
+			row["activity_gates"] = act.Gates
+			row["activity_passed"] = act.Passed
+			row["activity_failed"] = act.Failed
 		}
 		b, err := json.Marshal(row)
 		if err != nil {

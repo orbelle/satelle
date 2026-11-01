@@ -173,3 +173,23 @@ func TestNewAttemptIDIsUnique(t *testing.T) {
 		t.Fatalf("attempt ids must be unique att_ ids, got %q %q", a, b)
 	}
 }
+
+// sty_216d5205: the latest presentation's per-gate outcome — an earlier round's
+// verdicts are not read, a panel's seats fold to reject when any seat rejects,
+// and a performer reject is no gate's verdict.
+func TestLatestRoundVerdicts(t *testing.T) {
+	if got := LatestRoundVerdicts(nil, "backlog", "plan"); got != nil {
+		t.Fatalf("no presentation: %v, want nil", got)
+	}
+	performer := row(KindPerformerReject, map[string]string{"from": "backlog", "to": "plan", "attempt": "att_2", "skill": "planner"})
+	entries := []Entry{
+		reject("att_1", "intent", "old"), accept("att_1", "arch"),
+		accept("att_2", "intent"), accept("att_2", "panel"), reject("att_2", "panel", "seat two"), accept("att_2", "panel"),
+		performer,
+	}
+	got := LatestRoundVerdicts(entries, "backlog", "plan")
+	want := map[string]string{"intent": "accept", "panel": "reject"}
+	if len(got) != len(want) || got["intent"] != want["intent"] || got["panel"] != want["panel"] {
+		t.Fatalf("LatestRoundVerdicts = %v, want %v (arch is the earlier round's)", got, want)
+	}
+}

@@ -22,6 +22,7 @@ func performingRow(t *testing.T, entries []ledger.Entry, status string, seat sea
 	}
 	rows := attachStagesFrom(map[string][]ledger.Entry{it.ID: entries}, []workitem.Item{it},
 		map[string]bool{it.ID: seat.InFlight && !seat.Stale}, dispatches,
+		map[string]*seatGateVM{it.ID: gateActivity(seat)},
 		func(string, string) int { return 0 }, func(string) wfdot.Spec { return routeSpec() })
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "workitemRows", rows); err != nil {
@@ -57,8 +58,8 @@ func coderSeat(activity string) seatPayload {
 // cell keeps the recorded plan.
 func TestRowShowsDispatchedStepAsPerforming(t *testing.T) {
 	row, html := performingRow(t, acceptedIntoInProgress(), "plan", coderSeat("dispatch:in_progress"))
-	if got := stageNamed(row.Stages, "plan"); got.State != "done" || got.Pending != nil {
-		t.Errorf("plan = %+v, want done with no pending gate", got)
+	if got := stageNamed(row.Stages, "plan"); got.State != "done" || got.out != nil {
+		t.Errorf("plan = %+v, want done with no outgoing gate", got)
 	}
 	got := stageNamed(row.Stages, "in_progress")
 	if got.State != "performing" || got.Performer != "coder" {

@@ -86,12 +86,12 @@ func TestBuildStagesRefusedAttemptIsABadgeNotAStage(t *testing.T) {
 		ev(ledger.KindStatusTransition, "backlog", "plan"), // entry into the live current state
 		ev(ledger.KindReviewReject, "plan", "in_progress"), // the refused earlier attempt
 	}
-	stages := buildStages(chrono, "plan", false, noStep, wfdot.Spec{})
+	stages := buildStages(chrono, "plan", false, noStep, wfdot.Spec{}, nil, nil)
 	if len(stages) != 1 || stages[0].Name != "plan" || stages[0].State != "current" {
 		t.Fatalf("stages = %+v, want exactly the current plan stage", stages)
 	}
-	if p := stages[0].Pending; p == nil || p.Rejected != 1 || p.Accepted != 0 {
-		t.Errorf("pending = %+v, want the refused round as ✗1", p)
+	if p := stages[0].out; p == nil || p.rejected != 1 || p.accepted != 0 || !strings.Contains(stages[0].Title, "plan → in_progress: rounds: 1 rejected") {
+		t.Errorf("outgoing = %+v (title %q), want the refused round as 1 rejected in the tooltip", p, stages[0].Title)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 	if len(row.Stages) != 1 || row.Stages[0].Name != "plan" || row.Stages[0].State != "current" {
 		t.Fatalf("Stages = %+v, want the current plan stage (the live plan step)", row.Stages)
 	}
-	if p := row.Stages[0].Pending; p == nil || p.Rejected != 1 {
-		t.Fatalf("Stages[0].Pending = %+v, want ✗1 (the refused attempt)", p)
+	if p := row.Stages[0].out; p == nil || p.rejected != 1 {
+		t.Fatalf("Stages[0].out = %+v, want 1 rejected round (the refused attempt)", p)
 	}
 
 	ms := NewMirror(s)
@@ -172,7 +172,6 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 	resp.Body.Close()
 	body := string(raw)
 	for _, want := range []string{
-		`<b class="rej">1</b>`,
 		`class="stage-chip stage-current"`,
 		`class="dispatch-indicator"`,
 		"coder (sonnet) running",
@@ -191,8 +190,9 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 		t.Fatalf("no PROGRESS cell in body:\n%s", body)
 	}
 	progress, _, _ := strings.Cut(afterCol, "</td>")
-	if !strings.Contains(progress, `<b class="rej">1</b>`) {
-		t.Errorf("PROGRESS cell = %q, want the refused round ✗1", progress)
+	// The round history moved to the chip's tooltip (sty_216d5205).
+	if !strings.Contains(progress, `plan → in_progress: rounds: 1 rejected`) {
+		t.Errorf("PROGRESS cell = %q, want the refused round in the tooltip", progress)
 	}
 }
 

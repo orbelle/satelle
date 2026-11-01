@@ -490,11 +490,18 @@ const DefaultIdleTimeout = defaultIdleTimeout
 func (g *Engine) SetProgress(fn func(msg string)) { g.progress = fn }
 
 // Activity is structured transition progress: which gate/phase is running,
-// its 1-based index, and the size of the set (sty_598a8e1b).
+// its 1-based index, and the size of the set (sty_598a8e1b). Gates marks a gate
+// round's stamp: Total is then the round's whole gate list, and Passed and
+// Failed count the round's gates that have returned an accept or a reject so far
+// (sty_216d5205). Every other phase (a performer dispatch, a summariser) leaves
+// Gates false.
 type Activity struct {
-	Label string
-	Index int
-	Total int
+	Label  string
+	Index  int
+	Total  int
+	Gates  bool
+	Passed int
+	Failed int
 }
 
 // SetActivity wires the structured progress sink (CLI stamps the lease row).
@@ -537,9 +544,73 @@ func (g *Engine) emitProgress(format string, a ...any) {
 
 // emitActivity sends structured progress for the given story, if wired.
 func (g *Engine) emitActivity(itemID, label string, index, total int) {
+	g.emit(itemID, Activity{Label: label, Index: index, Total: total})
+}
+
+func (g *Engine) emit(itemID string, a Activity) {
 	if g.activity != nil && itemID != "" {
-		g.activity(itemID, Activity{Label: label, Index: index, Total: total})
+		g.activity(itemID, a)
 	}
+}
+
+// gateTally is ONE gate round's live count, shared by every pass that
+// dispatches part of it (a reviewer_carry round's fresh and confirm passes), so
+// its stamps always count against the edge's whole enqueued gate list and never
+// restart mid-round. Guarded for the parallel loops, which stamp under the lock
+// so emissions stay monotonic (sty_216d5205).
+type gateTally struct {
+	mu                          sync.Mutex
+	total, done, passed, failed int
+	opened                      bool
+}
+
+func newGateTally(total int) *gateTally { return &gateTally{total: total} }
+
+// stamp emits the tally's current counts at index under label. Caller holds mu.
+func (g *Engine) stamp(itemID, label string, t *gateTally, index int) {
+	g.emit(itemID, Activity{Label: label, Index: index, Total: t.total, Gates: true, Passed: t.passed, Failed: t.failed})
+}
+
+// gatesOpened emits the round's opening stamp (nothing returned yet), once per
+// round however many passes dispatch it.
+func (g *Engine) gatesOpened(itemID, label string, t *gateTally) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.opened {
+		return
+	}
+	t.opened = true
+	g.stamp(itemID, label, t, 0)
+}
+
+// gateStarted stamps the gate (or bundle) about to be dispatched.
+func (g *Engine) gateStarted(itemID, label string, t *gateTally) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	g.stamp(itemID, label, t, t.done+1)
+}
+
+// gateReturned adds each returned gate's outcome to the tally and stamps it. An
+// accept passes and a reject or an error fails; a gate whose rubric is absent
+// (advisory, ungated) judged nothing, so it leaves the round's total.
+func (g *Engine) gateReturned(itemID, label string, t *gateTally, slots ...gateSlot) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, s := range slots {
+		switch {
+		case s.err != nil:
+			t.failed++
+		case !s.dec.Gated:
+			t.total--
+			continue
+		case s.dec.Accept:
+			t.passed++
+		default:
+			t.failed++
+		}
+		t.done++
+	}
+	g.stamp(itemID, label, t, t.done)
 }
 
 // defaultReviewerAttempts is how many times an LLM reviewer is tried before a
@@ -1925,8 +1996,13 @@ func (g *Engine) gateEdge(ctx context.Context, item workitem.Item, toStatus stri
 	// reviewer_carry (sty_59720b8b): a step that declares it may leave an
 	// unchanged earlier accept undispatched. Absent — the default — never enters
 	// this branch, so every reviewer is dispatched every round.
+	//
+	// One tally counts the round against the whole ordered list, whichever path
+	// dispatches it: a carried round that is not handled dispatched nothing, so
+	// the plain path below starts the same tally fresh.
+	tally := newGateTally(len(ordered))
 	if g.edgeCarry(ctx, item, item.Status, toStatus) == wfdot.CarryUntilAccept {
-		if dec, handled, cerr := g.gateCarrying(ctx, item, toStatus, ordered, sysStart, parallelCap); handled {
+		if dec, handled, cerr := g.gateCarrying(ctx, item, toStatus, ordered, sysStart, parallelCap, tally); handled {
 			return dec, cerr
 		}
 	}
@@ -1934,13 +2010,14 @@ func (g *Engine) gateEdge(ctx context.Context, item workitem.Item, toStatus stri
 	for i := range all {
 		all[i] = i
 	}
-	return g.scheduleGate(ctx, item, toStatus, ordered, all, sysStart, parallelCap)
+	return g.scheduleGate(ctx, item, toStatus, ordered, all, sysStart, parallelCap, tally)
 }
 
 // runScheduled dispatches ordered under the edge's bundle, parallel or serial
 // scheduling and assembles the decision. Verdict Order is the position in
 // ordered; scheduleGate maps it back when ordered is a subset of the edge.
-func (g *Engine) runScheduled(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int) (verb.GateDecision, error) {
+// tally is the round's live count, which every loop stamps as gates return.
+func (g *Engine) runScheduled(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, parallelCap int, tally *gateTally) (verb.GateDecision, error) {
 	// Parallel opt-in (sty_4f0a15db): edge parallel=N|true runs reviewers
 	// concurrently (no short-circuit). Absent/0 or a single reviewer keeps the
 	// sequential first-reject loop byte-for-byte.
@@ -1949,24 +2026,24 @@ func (g *Engine) runScheduled(ctx context.Context, item workitem.Item, toStatus 
 	// rubric. Absent — the default — never enters this branch, so gates run as
 	// separate sessions exactly as before.
 	if len(ordered) >= 2 && g.edgeBundle(ctx, item, item.Status, toStatus) {
-		if dec, handled, berr := g.runGateBundled(ctx, item, toStatus, ordered, sysStart, parallelCap); handled {
+		if dec, handled, berr := g.runGateBundled(ctx, item, toStatus, ordered, sysStart, parallelCap, tally); handled {
 			return dec, berr
 		}
 	}
 	if parallelCap > 0 && len(ordered) >= 2 {
-		return g.runGateParallel(ctx, item, toStatus, ordered, sysStart, parallelCap)
+		return g.runGateParallel(ctx, item, toStatus, ordered, sysStart, parallelCap, tally)
 	}
 
 	var result verb.GateDecision
-	nGates := len(ordered)
-	g.emitActivity(item.ID, "gates", 0, nGates)
+	g.gatesOpened(item.ID, "gates", tally)
 	for i, ref := range ordered {
 		skill := ref.skill
 		if skill == "" {
 			continue
 		}
-		g.emitActivity(item.ID, skill, i+1, nGates)
+		g.gateStarted(item.ID, skill, tally)
 		dec, rerr := g.runReviewerRef(ctx, item, toStatus, ref, nil)
+		g.gateReturned(item.ID, skill, tally, gateSlot{dec: dec, err: rerr})
 		if rerr != nil {
 			return dec, rerr
 		}
@@ -2012,7 +2089,7 @@ func (g *Engine) runScheduled(ctx context.Context, item workitem.Item, toStatus 
 // semaphore of size cap (sty_4f0a15db). Collects ALL verdicts (no short-circuit);
 // order of result.Reviewers is the input index order. A reviewer ERROR (not a
 // reject) returns the lowest-index error after all have finished.
-func (g *Engine) runGateParallel(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, cap int) (verb.GateDecision, error) {
+func (g *Engine) runGateParallel(ctx context.Context, item workitem.Item, toStatus string, ordered []reviewerRef, sysStart, cap int, tally *gateTally) (verb.GateDecision, error) {
 	if cap < 1 {
 		cap = 1
 	}
@@ -2022,10 +2099,7 @@ func (g *Engine) runGateParallel(ctx context.Context, item workitem.Item, toStat
 	results := make([]gateSlot, len(ordered))
 	sem := make(chan struct{}, cap)
 	var wg sync.WaitGroup
-	nGates := len(ordered)
-	g.emitActivity(item.ID, "gates (parallel)", 0, nGates)
-	var doneMu sync.Mutex
-	doneN := 0
+	g.gatesOpened(item.ID, "gates (parallel)", tally)
 	for i, ref := range ordered {
 		if ref.skill == "" {
 			continue
@@ -2041,15 +2115,10 @@ func (g *Engine) runGateParallel(ctx context.Context, item workitem.Item, toStat
 				return
 			}
 			// Approximate progress: most-recent start + completed count (sty_598a8e1b).
-			doneMu.Lock()
-			g.emitActivity(item.ID, ref.skill+" (parallel)", doneN+1, nGates)
-			doneMu.Unlock()
+			g.gateStarted(item.ID, ref.skill+" (parallel)", tally)
 			dec, rerr := g.runReviewerRef(ctx, item, toStatus, ref, nil)
-			doneMu.Lock()
-			doneN++
-			g.emitActivity(item.ID, ref.skill+" (parallel)", doneN, nGates)
-			doneMu.Unlock()
 			results[i] = gateSlot{dec: dec, err: rerr}
+			g.gateReturned(item.ID, ref.skill+" (parallel)", tally, results[i])
 		}(i, ref)
 	}
 	wg.Wait()

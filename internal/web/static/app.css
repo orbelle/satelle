@@ -380,9 +380,10 @@ td.updated-cell { white-space: nowrap; }
 .tag { font-size: 11.5px; color: var(--muted); }
 
 /* Progress column — the stages a story has completed (plus the one it is in),
-   each with its gate's accepted/rejected ROUND totals. No indices: a number here
-   is a count, never a stage. A current chip's .pending-gate is the outgoing
-   gate's rounds, the same pair. */
+   each with the gates on its edge: .gates declared, .ok passed, .rej failed and,
+   while a current chip's exit gates run, .run.live still running (pulsing). No
+   indices: a number here is a count, never a stage. The round history is in the
+   chip's title. */
 .col-reviews { white-space: normal; width: 14rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }
@@ -392,7 +393,9 @@ td.updated-cell { white-space: nowrap; }
 .stage-performing { border-color: var(--accent); color: var(--accent);
   animation: review-pulse 1.4s ease-in-out infinite; }
 .stage-chip .blk { color: var(--warn); font-weight: 600; }
-.pending-gate { color: var(--muted); }
+.stage-chip .gates { color: var(--muted); font-weight: 600; }
+.stage-chip .run.live { color: var(--warn); font-weight: 600;
+  animation: review-pulse 1.4s ease-in-out infinite; }
 .ok { color: var(--accent); font-weight: 600; }
 .rej { color: var(--fail); font-weight: 600; }
 @keyframes review-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
