@@ -49,7 +49,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/board"
 	"github.com/bobmcallan/satelle/internal/compact"
-	"github.com/bobmcallan/satelle/internal/condense"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/placement"
@@ -309,18 +308,6 @@ type Engine struct {
 	// (empty Patterns, empty ContentRegex) disables the sweep entirely: the
 	// binary ships no opinion about what a leftover looks like.
 	leftoverRule config.LeftoverRule
-	// defaultBudget is the repo's [defaults] context_budget / turn_budget
-	// (sty_a7914904): the last tier a dispatch's budget resolves through, after
-	// the step's own and the allocated binding's. The zero value is "unset" — the
-	// binary ships no number.
-	defaultBudget config.Budget
-	// injected is the repo's [validate.injected] table: the per-seat budget, in
-	// estimated tokens, a dispatched seat's system prompt is fitted to
-	// (sty_df21b2db). Zero value: no budget, every resident document in full.
-	injected config.InjectedConfig
-	// condenseRules is how a resident document is condensed to fit that budget;
-	// zero means the embedded defaults.
-	condenseRules condense.Rules
 	// cloudPoll / cloudDefaultDeadline pace and bound the wait for a cloud
 	// performer's pushed branch (sty_82cffd60): the poll interval, and the
 	// deadline a cloud binding gets when it sets no timeout. Tests shorten both.
@@ -356,15 +343,6 @@ func (g *Engine) scrubValues(bindingEnv map[string]string) map[string]string {
 // expression so a replacement receives the engine it is installed on.
 type cloudDispatchFunc func(g *Engine, ctx context.Context, item workitem.Item, toStatus, wfName, agent string,
 	binding config.AgentBinding, composed []string, skill string, remotePlaced bool) (verb.DispatchResult, error)
-
-// SetDefaultBudget wires the repo's [defaults] spend bounds.
-func (g *Engine) SetDefaultBudget(b config.Budget) { g.defaultBudget = b }
-
-// SetInjected wires the repo's [validate.injected] table, whose per-seat budget a
-// dispatched seat's system prompt is fitted to, and the rules it is condensed by.
-func (g *Engine) SetInjected(cfg config.InjectedConfig, rules condense.Rules) {
-	g.injected, g.condenseRules = cfg, rules
-}
 
 // SetLeftoverRule wires the repo's leftover-sweep configuration
 // (sty_e7aaf8b1). Unset (the zero value) disables the sweep.
@@ -2549,14 +2527,6 @@ func (g *Engine) DispatchExecutor(ctx context.Context, item workitem.Item, toSta
 	// callers that need it applied build their OWN per-use copy.
 	modelResolved, modelSource := g.selectModel(ctx, binding, item.ID, target.Model, config.ModelSourceStep)
 	modelChoice := ModelChoice{Model: modelResolved, Source: modelSource}
-	// Spend bounds (sty_a7914904): the step's own, then the binding's, then
-	// [defaults]. Carried on this dispatch's copy of the binding so the turn
-	// budget reaches the harness ({max_turns}) on every path that invokes it,
-	// including the artifact-attempt loop.
-	budget := config.ResolveBudget(
-		config.Budget{Context: target.ContextBudget, Turns: target.TurnBudget},
-		binding.Budget(), g.defaultBudget)
-	binding.ContextBudget, binding.TurnBudget = budget.Context, budget.Turns
 	// A cloud performer returns a pushed branch, not stdout: it runs and is
 	// collected on its own path, which never reaches the runner below.
 	if binding.ResolvedInterface() == config.InterfaceCloud {
@@ -2738,7 +2708,7 @@ func (g *Engine) DispatchExecutor(ctx context.Context, item workitem.Item, toSta
 			Actor:       "executor",
 		})
 	}
-	res := g.performanceResult(dispatchAgent, dispatchSkill, binding, budget, modelChoice, invRes)
+	res := g.performanceResult(dispatchAgent, dispatchSkill, binding, modelChoice, invRes)
 	res.Skills = delivered.Manifest
 	g.logExecutorRun(dispatchAgent, item.ID, toStatus, invRes.Stdout, invRes.Err)
 	if invRes.Err != nil {
@@ -2821,7 +2791,7 @@ func (g *Engine) DispatchExecutor(ctx context.Context, item workitem.Item, toSta
 // command and model, at what cost, and what it printed. DispatchExecutor and
 // PerformExecutorStep both build it, so a dispatched step and an executor step
 // are recorded alike.
-func (g *Engine) performanceResult(agent, skill string, binding config.AgentBinding, budget config.Budget, mc ModelChoice, invRes InvokeResult) verb.DispatchResult {
+func (g *Engine) performanceResult(agent, skill string, binding config.AgentBinding, mc ModelChoice, invRes InvokeResult) verb.DispatchResult {
 	modelResolved, models := toVerbModels(invRes.Usage)
 	res := verb.DispatchResult{
 		Dispatched: true, Agent: agent, Command: invRes.Command, Model: invRes.RanModel(mc.Model), Skill: skill,
@@ -2834,7 +2804,7 @@ func (g *Engine) performanceResult(agent, skill string, binding config.AgentBind
 		Output: string(invRes.Stdout), LastMessage: verb.OutputTail(string(invRes.Stdout), g.scrubValues(binding.Env)),
 	}
 	if invRes.Err == nil {
-		res.Budget = measureBudget(binding, budget, invRes.Usage)
+		res.Turns, res.TurnsUnavailableReason = turnsOf(invRes.Usage, binding.ResolvedInterface(), binding.CommandTemplate())
 	}
 	return res
 }
@@ -3027,15 +2997,6 @@ const (
 	SessionRoleConsult
 )
 
-// liveSessionStep names a live session's dispatch for a budget refusal: the
-// status it opens on and whether it drives or is consulted.
-func liveSessionStep(role SessionRole, status string) string {
-	if role == SessionRoleConsult {
-		return status + " (consult session)"
-	}
-	return status + " (live session)"
-}
-
 // OpenSessionAs opens a live Session for a named binding under the given
 // charter role. in-loop / command / missing bindings return a clear error;
 // they do not fall back to a guessed spawn (sty_1de7494c). onEvent, when
@@ -3135,9 +3096,6 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 		env:        binding.Env,
 		principles: binding.ResolvedPrinciples(),
 		scratch:    scratchDir,
-		section:    name,
-		step:       liveSessionStep(role, item.Status),
-		storyID:    item.ID,
 	})
 	if err != nil {
 		finishScratch(scratchDir, false)
@@ -4316,8 +4274,6 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 		settings:   binding.Settings,
 		env:        scratchedEnv,
 		scratch:    scratchDir,
-		section:    section,
-		step:       "summarise",
 	})
 	if err != nil {
 		return verb.SummaryResult{}, err

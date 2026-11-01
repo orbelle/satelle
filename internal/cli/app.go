@@ -360,12 +360,6 @@ func openAppForCmd(cmd *cobra.Command) error {
 			// A binding's declared placement (sty_7028d996): remote and team:<path>
 			// reach satelle.dev when signed in; otherwise such a step refuses.
 			wirePlacement(rev)
-			// Spend budgets (sty_a7914904): [defaults] backs the engine's dispatch
-			// resolution, and the verb layer's engage-time context check reads the
-			// same binding → [defaults] ladder. Both are the repo's own numbers;
-			// unset stays unset.
-			rev.SetDefaultBudget(agents.Defaults.Budget())
-			verb.SetAgentBudgets(agentBudgetsFor(agents))
 			// Model selection (sty_7069bced): the session-model resolver feeds
 			// config.SelectModel's inherited/creator tiers. Without it, tiers 3
 			// and 4 of the precedence never apply — every dispatch with no
@@ -505,8 +499,8 @@ func engineForCmd(cmd *cobra.Command) (*agentstep.Engine, *app.App, error) {
 	rev.SetPriorVerdictsResolver(priorVerdictsResolver())
 	rev.SetExitRejectResolver(verb.LatestExitReject)
 	rev.SetMessagesResolver(messagesResolver()) // create-path engine; harmless, never fills a transition payload
-	// The store a seat's condensed documents are kept in (sty_df21b2db): the
-	// rework relay opens its sessions on this engine.
+	// The store an oversized diff's overflow is kept in: the rework relay opens
+	// its sessions on this engine.
 	rev.SetDiffOffloader(diffOffloader(a))
 	eff, err := requireAgents(a)
 	if err != nil {
@@ -516,7 +510,6 @@ func engineForCmd(cmd *cobra.Command) (*agentstep.Engine, *app.App, error) {
 		return nil, nil, err
 	}
 	rev.SetNamedAgents(eff.Agents.NamedBinding)
-	rev.SetDefaultBudget(eff.Agents.Defaults.Budget())
 	rev.SetLiveNamedAgents(eff.Agents.LiveBinding)
 	rev.SetOneShotAgents(eff.Agents.OneShotBinding)
 	rev.SetSessionModelsResolver(verb.SessionModels)
@@ -539,17 +532,6 @@ func logRotation(a *app.App) logfile.Config {
 	return logfile.Config{
 		MaxSizeBytes: a.Config.ResolveLogsMaxSizeBytes(),
 		MaxFiles:     a.Config.ResolveLogsMaxFiles(),
-	}
-}
-
-// agentBudgetsFor resolves the repo's spend budget for a named agent binding:
-// the binding's own context_budget / turn_budget, then [defaults]. An agent with
-// no binding (or ""), gets [defaults] alone. The verb layer layers a step's own
-// declaration above this (sty_a7914904).
-func agentBudgetsFor(agents config.AgentsConfig) func(agent string) config.Budget {
-	return func(agent string) config.Budget {
-		b, _ := agents.NamedBinding(agent)
-		return config.ResolveBudget(b.Budget(), agents.Defaults.Budget())
 	}
 }
 
@@ -876,10 +858,6 @@ func applyAgentGrants(rev *agentstep.Engine, a *app.App, agents config.AgentsCon
 	// principles ≠ none (design §5.3) — SessionStart parity with cmd_hook.
 	if a != nil {
 		rev.SetConstitution(readConstitution(a.PlaneConstitution()))
-		// Each seat's system prompt is fitted to its [validate.injected] budget by
-		// the same condense ladder SessionStart uses (sty_df21b2db).
-		rules, _ := condenseRules(a.PlaneDir())
-		rev.SetInjected(a.Config.Validate.Injected, rules)
 	}
 	// Select the reviewer's agent CLI from the agents-layer command binding
 	// (default claude). An unset/in-loop command keeps the global [agent] cli

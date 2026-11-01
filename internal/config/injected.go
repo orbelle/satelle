@@ -1,7 +1,5 @@
 package config
 
-import "strings"
-
 // InstructionReviewConfig is the [instruction_review] table:
 //
 //	[instruction_review]
@@ -17,54 +15,15 @@ type InstructionReviewConfig struct {
 	ExtraPaths []string `toml:"extra_paths"`
 }
 
-// DefaultBytesPerToken is the conversion ratio the injected-size report divides
-// bytes by. It is a unit conversion, not a budget: no adapter reports tokens
-// before a call, so one provider-neutral estimate serves every seat.
-const DefaultBytesPerToken = 4
-
 // ValidateConfig is the [validate] table.
 type ValidateConfig struct {
 	Injected InjectedConfig `toml:"injected"`
 }
 
-// InjectedConfig is the [validate.injected] table:
-//
-//	[validate.injected]
-//	bytes_per_token = 4
-//
-//	[validate.injected.budget]
-//	driver   = 6000    # estimated tokens
-//	reviewer = 9000
-//
-// Budget keys are a seat name (driver, coder, reviewer, …) or a kind name
-// (principles, constitution, skill), or an exact row label such as
-// driver[claude]; the values are estimated tokens. The binary ships no budget:
-// a key absent from this table means "no budget" for that row, and an exceeded
-// budget only warns.
+// InjectedConfig is the [validate.injected] table. It configures nothing now:
+// its budget sub-table, which once fitted each seat's injected principles to a
+// size, is removed (sty_58a7bdfe) and refused at load until satelle init removes
+// it. `satelle validate` still reports each seat's measured bytes.
 type InjectedConfig struct {
-	BytesPerToken int            `toml:"bytes_per_token"`
-	Budget        map[string]int `toml:"budget"`
-}
-
-// ResolveBytesPerToken returns the configured ratio, or DefaultBytesPerToken when
-// unset or not positive.
-func (c InjectedConfig) ResolveBytesPerToken() int {
-	if c.BytesPerToken > 0 {
-		return c.BytesPerToken
-	}
-	return DefaultBytesPerToken
-}
-
-// BudgetFor returns the configured token budget for a report row: the exact row
-// label first (driver[claude]), then its base name (driver). ok is false when the
-// repo set none — there is no default.
-func (c InjectedConfig) BudgetFor(label string) (tokens int, ok bool) {
-	if v, ok := c.Budget[label]; ok && v > 0 {
-		return v, true
-	}
-	base, _, _ := strings.Cut(label, "[")
-	if v, ok := c.Budget[base]; ok && v > 0 {
-		return v, true
-	}
-	return 0, false
+	Budget removedInjectedBudget `toml:"budget"`
 }

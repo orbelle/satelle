@@ -147,19 +147,16 @@ const (
 	// handed. Every one is advisory (WARN or INFO) — a context that is too big,
 	// repeats itself or names something that does not resolve degrades an agent,
 	// it does not stop satelle governing.
-	IDContextSessionOverflow     = "context.session.overflow"     // SessionStart context omits documents to read pointers under a harness limit
-	IDContextSessionUnavailable  = "context.session.unavailable"  // a bound harness's SessionStart context cannot be rendered
-	IDContextDispatchOverBudget  = "context.dispatch.over_budget" // a dispatched seat or reminder exceeds its configured budget
-	IDContextDispatchPointered   = "context.dispatch.pointered"   // a budgeted seat fits only by replacing resident rules with read pointers
-	IDContextDispatchUnbudgeted  = "context.dispatch.unbudgeted"  // a dispatched seat or reminder has no configured budget
-	IDContextDispatchUnavailable = "context.dispatch.unavailable" // a seat's context cannot be sized
-	IDContextDuplicateVerbatim   = "context.duplicate.verbatim"   // a passage is copied word-for-word between two documents
-	IDContextDuplicateSemantic   = "context.duplicate.semantic"   // a reviewer judged one document to restate another (opt-in)
-	IDContextBaselineOverride    = "context.baseline.override"    // a repo principle or skill shadows a baseline principle by name with another body, or restates a passage of one
-	IDContextRefUnresolved       = "context.ref.unresolved"       // a satelle reference names nothing that resolves, or a retired name
-	IDContextRefUnwired          = "context.ref.unwired"          // a named skill exists but no route, gate, hook, summary or task wires it
-	IDContextIndexStale          = "context.index.stale"          // documents/index.md lists a document that does not exist
-	IDContextReviewUnavailable   = "context.review.unavailable"   // the opt-in semantic reviewer could not run or its output did not parse
+	IDContextSessionOverflow    = "context.session.overflow"    // SessionStart context omits documents to read pointers under a harness limit
+	IDContextSessionUnavailable = "context.session.unavailable" // a bound harness's SessionStart context cannot be rendered
+	IDContextReminderOverClip   = "context.reminder.over_clip"  // the per-prompt reminder exceeds its harness's tool_context_limit_chars
+	IDContextDuplicateVerbatim  = "context.duplicate.verbatim"  // a passage is copied word-for-word between two documents
+	IDContextDuplicateSemantic  = "context.duplicate.semantic"  // a reviewer judged one document to restate another (opt-in)
+	IDContextBaselineOverride   = "context.baseline.override"   // a repo principle or skill shadows a baseline principle by name with another body, or restates a passage of one
+	IDContextRefUnresolved      = "context.ref.unresolved"      // a satelle reference names nothing that resolves, or a retired name
+	IDContextRefUnwired         = "context.ref.unwired"         // a named skill exists but no route, gate, hook, summary or task wires it
+	IDContextIndexStale         = "context.index.stale"         // documents/index.md lists a document that does not exist
+	IDContextReviewUnavailable  = "context.review.unavailable"  // the opt-in semantic reviewer could not run or its output did not parse
 
 	// Live probes (opt-in only).
 	IDLiveOK           = "live.ok"            // a provider answered
@@ -198,8 +195,7 @@ var ids = []string{
 	IDSyncSubstrateOk, IDSyncSubstrateUnpushed, IDSyncSubstrateUnmerged, IDSyncSubstrateBehind,
 	IDSyncSubstrateUnchecked, IDSyncSubstrateUnbound,
 	IDStatusDrift,
-	IDContextSessionOverflow, IDContextSessionUnavailable, IDContextDispatchOverBudget,
-	IDContextDispatchUnbudgeted, IDContextDispatchUnavailable, IDContextDuplicateVerbatim,
+	IDContextSessionOverflow, IDContextSessionUnavailable, IDContextReminderOverClip, IDContextDuplicateVerbatim,
 	IDContextDuplicateSemantic, IDContextBaselineOverride, IDContextRefUnresolved, IDContextRefUnwired, IDContextIndexStale,
 	IDContextReviewUnavailable,
 	IDLiveOK, IDLiveAuth, IDLiveTimeout, IDLiveSpawn, IDLiveACPHandshake, IDLiveVersionDrift,

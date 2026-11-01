@@ -146,15 +146,8 @@ func TestPiRPCRefusedPromptIsAnError(t *testing.T) {
 	}
 }
 
-// AC3: satelle enforces a pi-rpc binding's turn budget itself, so the capability
-// output reports it available and counts tool calls; a live session is refused.
+// The capability output counts pi-rpc tool calls; a live session is refused.
 func TestPiRPCCapabilities(t *testing.T) {
-	if sup := TurnBudgetSupport(InterfacePiRPC, PiRPCCommand); !sup.Available {
-		t.Errorf("turn budget = %+v, want available", sup)
-	}
-	if got := EffectiveTurnBudget(InterfacePiRPC, PiRPCCommand, 5); got != "turn budget: 5 (turn_budget)" {
-		t.Errorf("effective = %q", got)
-	}
 	if !ReportsToolEvents(InterfacePiRPC, PiRPCCommand) {
 		t.Error("pi-rpc reports tool events")
 	}
@@ -164,8 +157,8 @@ func TestPiRPCCapabilities(t *testing.T) {
 			row = &r
 		}
 	}
-	if row == nil || !row.TurnBudget.Available {
-		t.Fatalf("capability row = %+v, want pi pi-rpc with the turn budget available", row)
+	if row == nil {
+		t.Fatal("no pi pi-rpc capability row")
 	}
 	if !strings.Contains(CapabilityTableMarkdown(), "| pi pi-rpc |") {
 		t.Error("the rendered capability table has no pi pi-rpc row")

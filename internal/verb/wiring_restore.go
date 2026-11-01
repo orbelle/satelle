@@ -62,7 +62,6 @@ var wiringVars = []wiringVar{
 	{"dirtyPathsProbe", &dirtyPathsProbe},
 	{"actorResolver", &actorResolver},
 	{"locationResolver", &locationResolver},
-	{"agentBudgets", &agentBudgets},
 	{"transitionGater", &transitionGater},
 	{"createReviewer", &createReviewer},
 	{"amendReviewer", &amendReviewer},

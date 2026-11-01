@@ -8,8 +8,7 @@
 // dispatch use, so the thing judged is the thing delivered — and reports:
 //
 //   - whether the SessionStart context fits each bound harness's limit,
-//   - how large each seat's context and the per-prompt reminder are against a
-//     budget the repo configured (and that there is none, when there is none),
+//   - whether the per-prompt reminder fits its harness's declared clip,
 //   - passages copied word-for-word between two documents,
 //   - references that name nothing live.
 //
@@ -35,7 +34,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/agentstep"
-	"github.com/bobmcallan/satelle/internal/condense"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/ctxaudit"
 	"github.com/bobmcallan/satelle/internal/docindex"
@@ -182,7 +180,7 @@ func contextChecks(ctx context.Context, repoRoot, dataDir string) health.Finding
 	a := assembleContexts(ctx, repoRoot, dataDir)
 	var out health.Findings
 	out = append(out, a.sessionFindings()...)
-	out = append(out, a.dispatchFindings(ctx)...)
+	out = append(out, a.reminderFindings()...)
 	out = append(out, a.duplicateFindings()...)
 	out = append(out, a.baselineOverrideFindings(ctx)...)
 	out = append(out, a.referenceFindings(ctx)...)
@@ -209,66 +207,6 @@ func (a *contextAudit) sessionFindings() health.Findings {
 	return out
 }
 
-// judgeInjected places a row's size against its configured budget. set is false
-// when the repo configured none.
-func judgeInjected(bytes int, label string, cfg config.InjectedConfig) (tokens, budget int, set, over bool) {
-	bpt := cfg.ResolveBytesPerToken()
-	tokens = (bytes + bpt - 1) / bpt
-	if b, ok := cfg.BudgetFor(label); ok {
-		return tokens, b, true, tokens > b
-	}
-	return tokens, 0, false, false
-}
-
-// dispatchFindings — each dispatched seat's context and the per-prompt reminder
-// against a budget from configuration. Nothing here is a compiled number: a seat
-// is judged by [validate.injected.budget]; a reminder by that table, else by its
-// harness's own declared tool_context_limit_chars. No budget is said so (INFO).
-func (a *contextAudit) dispatchFindings(ctx context.Context) health.Findings {
-	var out health.Findings
-	inj := a.cfg.Validate.Injected
-	for _, r := range dispatchedRows(ctx, a.env) {
-		if r.Unavailable != "" {
-			out = append(out, health.Info(health.IDContextDispatchUnavailable, "Seat context cannot be sized",
-				"unavailable: "+r.Unavailable).About(r.Label))
-			continue
-		}
-		tokens, budget, set, over := judgeInjected(r.Bytes, r.Label, inj)
-		if set && condense.Pointered(r.Rungs) {
-			out = append(out, health.Error(health.IDContextDispatchPointered, "Seat context needs read pointers to fit its budget",
-				fmt.Sprintf("%s fits its budget of %d tokens only by replacing resident rules with read pointers (%s); the seat starts without them",
-					r.Label, budget, strings.Join(pointeredNames(r.Rungs), ", "))).
-				About(r.Label).
-				WithRemediation("raise [validate.injected.budget] "+budgetKey(r.Label)+", or shorten the skill this seat is handed"))
-		}
-		switch {
-		case !set:
-			out = append(out, health.Info(health.IDContextDispatchUnbudgeted, "Seat context has no budget",
-				fmt.Sprintf("%s receives %d bytes (~%d tokens) and no budget is configured for it", r.Label, r.Bytes, tokens)).
-				About(r.Label).
-				WithRemediation("set [validate.injected.budget] "+budgetKey(r.Label)+" (tokens) in satelle.toml to have this judged"))
-		case over:
-			out = append(out, health.Warn(health.IDContextDispatchOverBudget, "Seat context is over budget",
-				fmt.Sprintf("%s receives %d bytes (~%d tokens), over its budget of %d tokens", r.Label, r.Bytes, tokens, budget)).
-				About(r.Label).
-				WithRemediation("trim what this seat is handed (its principles selector, or its skill), or raise the budget"))
-		}
-	}
-	out = append(out, a.reminderFindings()...)
-	return out
-}
-
-// pointeredNames lists the resident documents a fit reduced to a read pointer.
-func pointeredNames(rungs []condense.Rung) []string {
-	var out []string
-	for _, r := range rungs {
-		if r.Rung == condense.RungPointer {
-			out = append(out, r.Name)
-		}
-	}
-	return out
-}
-
 // limitKey names the [harness.<name>] key that sets h's limit.
 func limitKey(h harnessBinding) string {
 	if h.Unit == "characters" {
@@ -277,42 +215,23 @@ func limitKey(h harnessBinding) string {
 	return "context_limit_bytes"
 }
 
-func budgetKey(label string) string {
-	base, _, _ := strings.Cut(label, "[")
-	return base
-}
-
-// reminderFindings — the text the prompt hook adds to every turn, per bound
-// harness that delivers it.
+// reminderFindings — the text the prompt hook adds to every turn, against the
+// clip each bound harness declares for it ([harness.<name>]
+// tool_context_limit_chars). That clip is the harness's channel limit, like the
+// SessionStart cap — not a satelle budget — so only an overrun is reported.
 func (a *contextAudit) reminderFindings() health.Findings {
 	var out health.Findings
-	chars, bytes := utf8.RuneCountInString(hookPromptReminder), len(hookPromptReminder)
+	chars := utf8.RuneCountInString(hookPromptReminder)
 	for _, f := range a.fits {
 		h := f.Harness.Name
 		label := "reminder[" + h + "]"
-		facts := agentcli.FactsFor(h)
-		if !facts.PromptContext.Available {
-			out = append(out, health.Info(health.IDContextDispatchUnavailable, "Per-prompt reminder cannot be sized",
-				fmt.Sprintf("unavailable: %s: the harness does not deliver it — %s", label, facts.PromptContext.Reason)).About(label))
+		if !agentcli.FactsFor(h).PromptContext.Available {
 			continue
 		}
-		if tokens, budget, set, over := judgeInjected(bytes, label, a.cfg.Validate.Injected); set {
-			if over {
-				out = append(out, health.Warn(health.IDContextDispatchOverBudget, "Per-prompt reminder is over budget",
-					fmt.Sprintf("%s is %d bytes (~%d tokens), over its budget of %d tokens", label, bytes, tokens, budget)).About(label))
-			}
-			continue
+		if limit := a.cfg.ToolContextLimitChars(h); limit > 0 && chars > limit {
+			out = append(out, health.Warn(health.IDContextReminderOverClip, "Per-prompt reminder is over the harness clip",
+				fmt.Sprintf("%s is %d characters, over [harness.%s] tool_context_limit_chars = %d", label, chars, h, limit)).About(label))
 		}
-		if limit := a.cfg.ToolContextLimitChars(h); limit > 0 {
-			if chars > limit {
-				out = append(out, health.Warn(health.IDContextDispatchOverBudget, "Per-prompt reminder is over the harness clip",
-					fmt.Sprintf("%s is %d characters, over [harness.%s] tool_context_limit_chars = %d", label, chars, h, limit)).About(label))
-			}
-			continue
-		}
-		out = append(out, health.Info(health.IDContextDispatchUnbudgeted, "Per-prompt reminder has no budget",
-			fmt.Sprintf("%s is %d characters (%d bytes) and neither [validate.injected.budget] nor [harness.%s] tool_context_limit_chars budgets it", label, chars, bytes, h)).
-			About(label))
 	}
 	return out
 }

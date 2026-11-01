@@ -868,11 +868,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			notifyChange(panelTopic(current.Kind))
 			return nil, fmt.Errorf("transition %s→%s refused: %v", current.Status, *req.Status, run.Refuse)
 		}
-		if run.ParkNotes != "" {
-			if out, perr, handled := parkWith(ResumeParkName(ctx, current), run.ParkNotes, run.Res); handled {
-				return out, perr
-			}
-		}
 		return nil, nil
 	}
 	// Order is the step's declaration: gates then performer (the default), or —
@@ -1080,10 +1075,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if engaging, ok := storyStatusIsEngaging(ctx, it, *req.Status); ok && engaging {
 			recordEngageSessionModel(ctx, it.ID)
 		}
-		// Before this transition's own driver_usage row: tell a driver whose
-		// session already covers another story to start a fresh one
-		// (sty_a7914904). Warning only — engage is already committed.
-		checkFreshSession(ctx, it, current.Status, *req.Status, commitNow)
 		// Say once, on stderr, when the gates this story now runs under are not
 		// (or may not be) the repository's authored ones (sty_d6e209aa).
 		reportProcessAtEngage(ctx, it, current.Status, *req.Status)
@@ -2235,9 +2226,9 @@ func dispatchPayload(from, to string, res DispatchResult, attempt string) json.R
 		PayloadBytes      int    `json:"payload_bytes,omitempty"`
 		ArtifactName      string `json:"artifact_name,omitempty"`
 		ArtifactType      string `json:"artifact_type,omitempty"`
-		// Budget records what the run measured against the repo's spend bounds
-		// (sty_a7914904): the measurement is recorded even when no bound is set.
-		Budget *BudgetReport `json:"budget,omitempty"`
+		// Turns is what the run reported, or the adapter-named reason it did not.
+		Turns                  *int   `json:"turns,omitempty"`
+		TurnsUnavailableReason string `json:"turns_unavailable_reason,omitempty"`
 		// Cloud records a cloud-performed step's session, branch and collected commit.
 		Cloud *CloudDispatch `json:"cloud,omitempty"`
 		// LastMessage is the tail of the run's output, present on every performer
@@ -2263,7 +2254,8 @@ func dispatchPayload(from, to string, res DispatchResult, attempt string) json.R
 		TokensInFresh:  res.TokensInFresh, TokensCacheWrite: res.TokensCacheWrite, TokensCacheRead: res.TokensCacheRead, UsageNote: res.UsageNote,
 		CostUSD: res.CostUSD, CostUnavailableReason: res.CostUnavailableReason,
 		SystemPromptBytes: res.SystemPromptBytes, PayloadBytes: res.PayloadBytes,
-		ArtifactName: res.ArtifactName, ArtifactType: res.ArtifactType, Budget: res.Budget, Cloud: res.Cloud,
+		ArtifactName: res.ArtifactName, ArtifactType: res.ArtifactType, Cloud: res.Cloud,
+		Turns: res.Turns, TurnsUnavailableReason: res.TurnsUnavailableReason,
 		LastMessage: LastMessage(res.LastMessage), FindingsOffered: res.FindingsOffered, FindingAnswers: res.Answers,
 		FindingsEdgeTo: res.FindingsEdgeTo}
 	b, err := json.Marshal(p)

@@ -475,9 +475,6 @@ func checkBindingTimeout(file, section string, b AgentBinding) error {
 	if _, err := b.BusyTimeoutDuration(0); err != nil {
 		return fmt.Errorf("%s [%s] busy_timeout: %w", file, section, err)
 	}
-	if err := checkBudget(fmt.Sprintf("%s [%s]", file, section), b.Budget()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -495,11 +492,7 @@ func StarterGlobalAgents(cli string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	reviewerCommand := runner.Command()
-	if strings.EqualFold(strings.TrimSpace(cli), agentcli.CLIGrok) {
-		reviewerCommand = agentcli.GrokCommandFor(RoleReviewer)
-	}
-	return fmt.Sprintf(starterGlobalAgentsTemplate, cli, cli, reviewerCommand, DefaultReviewerTools, cli, runner.Command(), cli, cli), nil
+	return fmt.Sprintf(starterGlobalAgentsTemplate, cli, cli, runner.Command(), DefaultReviewerTools, cli, runner.Command(), cli, cli), nil
 }
 
 const starterGlobalAgentsTemplate = `# satelle machine-wide agent PROFILE catalog (~/.satelle/agents.toml).

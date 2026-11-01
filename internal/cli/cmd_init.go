@@ -375,6 +375,17 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 	}
 	fmt.Fprintln(out, initLine(created, config.DefaultDataDir+"/"))
 
+	// 1b. Removed budget keys (sty_58a7bdfe), on raw bytes before anything loads a
+	// config: every load refuses them, so they go first.
+	budgetEdits, berr := config.HealRemovedBudget(dataDir)
+	if berr != nil {
+		return fmt.Errorf("init: remove budget keys: %w", berr)
+	}
+	for _, e := range budgetEdits {
+		fmt.Fprintf(out, "~ %s (removed %s — satelle manages no context or turn budget)\n",
+			config.DefaultDataDir+"/"+e.Rel, strings.Join(e.Removed, ", "))
+	}
+
 	// 2. satelle.toml — created only if absent; never overwritten as a whole.
 	// A leftover [hosted] table is folded onto [sync] and dropped (sty_5eb1bb8a).
 	tomlPath := filepath.Join(dataDir, config.ConfigName)

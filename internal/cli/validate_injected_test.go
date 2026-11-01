@@ -6,8 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -201,76 +199,29 @@ func TestInjectedReportCountsCitationsForDeclaringSeat(t *testing.T) {
 	if !strings.Contains(a.Note, fmt.Sprintf("includes up to %d bytes of plan citations", agentstep.CitationsPayloadCeiling)) {
 		t.Errorf("declaring seat must say what the figure includes: %q", a.Note)
 	}
-	if !reflect.DeepEqual(a.Rungs, b.Rungs) {
-		t.Errorf("the citation block must not enter the prompt fit: rungs %v vs %v", a.Rungs, b.Rungs)
-	}
 	if got, was := rowFor(t, after, "reviewer-summary[grok/"), rowFor(t, before, "reviewer-summary[grok/"); got.Bytes != was.Bytes || strings.Contains(got.Note, "citations") {
 		t.Errorf("a seat whose skills do not declare the key is unchanged: %+v vs %+v", got, was)
 	}
 }
 
-// AC3: a budget the repo sets warns when exceeded, never when absent, and
-// printing the report has no error channel to fail validate through.
-func TestInjectedBudgetWarnsOnlyWhenSet(t *testing.T) {
+// sty_58a7bdfe AC5: the report prints measured bytes only — no budget column,
+// no token estimate, no WARN — and has no error channel to fail validate through.
+func TestInjectedReportIsMeasuredBytesOnly(t *testing.T) {
 	env := injectedFixture(t, injectedAgentsTOML)
-	rows := injectedRows(context.Background(), env)
-
-	var none strings.Builder
-	printInjectedReport(&none, rows, config.InjectedConfig{})
-	if strings.Contains(none.String(), "WARN") {
-		t.Errorf("no budget configured, yet the report warns:\n%s", none.String())
-	}
-	if !strings.Contains(none.String(), "no budget") {
-		t.Errorf("rows must say there is no budget:\n%s", none.String())
-	}
-	if !strings.Contains(none.String(), "estimate: bytes / 4") {
-		t.Errorf("header must print the ratio in use:\n%s", none.String())
-	}
-
-	var over strings.Builder
-	printInjectedReport(&over, rows, config.InjectedConfig{Budget: map[string]int{"driver": 1, "principles": 1 << 20}})
-	for _, want := range []string{"WARN  driver[claude]", "WARN  driver[grok]", "over budget 1 tokens"} {
-		if !strings.Contains(over.String(), want) {
-			t.Errorf("report lacks %q:\n%s", want, over.String())
+	var out strings.Builder
+	printInjectedReport(&out, injectedRows(context.Background(), env))
+	for _, banned := range []string{"WARN", "budget", "tokens", "estimate"} {
+		if strings.Contains(out.String(), banned) {
+			t.Errorf("the report carries %q:\n%s", banned, out.String())
 		}
 	}
-	if regexp.MustCompile(`WARN  principles`).MatchString(over.String()) {
-		t.Errorf("a generous budget must not warn:\n%s", over.String())
+	if !strings.Contains(out.String(), "# injected context (measured bytes)") || !strings.Contains(out.String(), " bytes") {
+		t.Errorf("the report must print measured bytes:\n%s", out.String())
 	}
 }
 
-// The ratio is configuration: a different bytes_per_token changes the estimate.
-func TestInjectedBytesPerTokenIsConfigurable(t *testing.T) {
-	rows := []injectedRow{{Group: "kind", Label: "principles", Bytes: 1000}}
-	var four, ten strings.Builder
-	printInjectedReport(&four, rows, config.InjectedConfig{})
-	printInjectedReport(&ten, rows, config.InjectedConfig{BytesPerToken: 10})
-	if !strings.Contains(four.String(), "250 tokens") || !strings.Contains(ten.String(), "100 tokens") {
-		t.Errorf("tokens must follow bytes_per_token:\n%s\n%s", four.String(), ten.String())
-	}
-}
-
-// AC3: no budget number is hard-coded in Go. The one numeric constant that
-// governs the report is the documented conversion ratio, in config.
-func TestInjectedReportHardCodesNoBudget(t *testing.T) {
-	src, err := os.ReadFile("validate_injected.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, line := range strings.Split(string(src), "\n") {
-		code := line
-		if c := strings.Index(code, "//"); c >= 0 {
-			code = code[:c]
-		}
-		if strings.Contains(code, "budget") && regexp.MustCompile(`[=<>:]\s*[1-9]\d*\b`).MatchString(code) {
-			t.Errorf("validate_injected.go:%d carries a numeric literal beside a budget: %s", i+1, strings.TrimSpace(line))
-		}
-	}
-}
-
-// End to end: a budget below the real size warns and validate still exits 0; the
-// same repo with no budget prints no WARN.
-func TestValidateWarnsOnBudgetAndStillPasses(t *testing.T) {
+// End to end: validate reports injected context per seat with no warning.
+func TestValidateReportsInjectedContextWithoutWarning(t *testing.T) {
 	repo := t.TempDir()
 	if err := runInitTest(t, io.Discard, repo); err != nil {
 		t.Fatalf("runInit: %v", err)
@@ -285,22 +236,6 @@ func TestValidateWarnsOnBudgetAndStillPasses(t *testing.T) {
 		t.Fatalf("validate must report injected context per seat:\n%s", out)
 	}
 	if strings.Contains(out, "WARN  ") {
-		t.Errorf("no budget configured, yet validate warns:\n%s", out)
-	}
-
-	toml := filepath.Join(repo, ".satelle", "satelle.toml")
-	body, rerr := os.ReadFile(toml)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	if werr := os.WriteFile(toml, append(body, []byte("\n[validate.injected.budget]\ndriver = 1\n")...), 0o644); werr != nil {
-		t.Fatal(werr)
-	}
-	out, err = runRoot(t, "validate")
-	if err != nil {
-		t.Fatalf("an exceeded budget must never fail validate: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "WARN  driver[claude]") {
-		t.Errorf("budget of 1 token must warn on the driver:\n%s", out)
+		t.Errorf("validate warns about injected context:\n%s", out)
 	}
 }

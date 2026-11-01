@@ -347,18 +347,18 @@ func TestOrdinaryCommandsWarnOnStaleScaffolding(t *testing.T) {
 		}
 	})
 
-	// 0.0.823 is the newest shipped Breaking release that declares
-	// `init-heals:` (`satelle init` removes [sync] recent_window), so a stamp
+	// 0.0.830 is the newest shipped Breaking release that declares
+	// `init-heals:` (`satelle init` removes the budget keys), so a stamp
 	// behind it is refused with init as the heal and the refusal names it. The warn-once path for manual
 	// migrations is covered on synthetic entries in breaking_warn_test.go and
 	// drift_test.go; the shipped corpus no longer reaches it from an old stamp.
 	t.Run("refuses behind an init-heals Breaking release — init is the heal", func(t *testing.T) {
-		driftedRepo(t, "0.0.100") // the shipped 0.0.823 Breaking entry is in range
+		driftedRepo(t, "0.0.100") // the shipped 0.0.830 Breaking entry is in range
 		stdout, _, err := runRootSplit(t, "", "story", "create", "--title", "behind", "--tags", "a")
 		if err == nil {
 			t.Fatalf("story create must refuse behind an init-heals Breaking release:\n%s", stdout)
 		}
-		for _, want := range []string{"BREAKING release 0.0.823", "init-heals:", "Run `satelle init` to heal."} {
+		for _, want := range []string{"BREAKING release 0.0.830", "init-heals:", "Run `satelle init` to heal."} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("refusal missing %q: %v", want, err)
 			}

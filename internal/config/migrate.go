@@ -193,6 +193,9 @@ func decodeAgents(content string, legacyNested bool) (AgentsConfig, error) {
 	if err != nil {
 		return AgentsConfig{}, fmt.Errorf("parse agents.toml: %w", err)
 	}
+	if err := refuseRemovedBudgetKeys(md); err != nil {
+		return AgentsConfig{}, err
+	}
 	ac := AgentsConfig{Agents: map[string]AgentBinding{}}
 	for key, prim := range raw {
 		switch key {
@@ -267,6 +270,18 @@ func refuseRetiredBindingTables(md toml.MetaData, binding ...string) error {
 		}
 		if slices.Contains(globalAgentsRetiredKeys, k[len(binding)]) {
 			return retiredTableError(strings.Join(k[:len(binding)+1], "."), ".satelle/workflows/"+AgentsConfigName)
+		}
+	}
+	return nil
+}
+
+// refuseRemovedBudgetKeys refuses a context_budget or turn_budget on any
+// binding or [defaults] (sty_58a7bdfe), naming the table and the heal. Keys are
+// walked in document order, so the first one present is the one named.
+func refuseRemovedBudgetKeys(md toml.MetaData) error {
+	for _, k := range md.Keys() {
+		if n := len(k); n >= 2 && IsRemovedBudgetKey(k[n-1]) {
+			return RemovedBudgetKeyError(AgentsConfigName, "["+strings.Join(k[:n-1], ".")+"]", k[n-1])
 		}
 	}
 	return nil
@@ -398,9 +413,6 @@ func expandBareCommandInSection(lines []string, section, role string) bool {
 			return false
 		}
 		full := r.Command()
-		if tok == agentcli.CLIGrok {
-			full = agentcli.GrokCommandFor(role)
-		}
 		trailing := valPart[endq+1:] // space + comment, if any
 		lines[i] = prefix + spaces + strconv.Quote(full) + trailing
 		return true

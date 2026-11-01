@@ -1,3 +1,22 @@
+## [0.0.830] - 2026-11-01
+
+### Breaking
+- **satelle manages no context or token budget; each agent CLI manages its own context.** These are removed:
+  - `context_budget` and `turn_budget` on agents.toml bindings, `[defaults]` and workflow steps. An agents layer or `step.toml` that carries either fails to load, naming the key and `satelle init`.
+  - `[validate.injected.budget]` in `satelle.toml` and `satelle.local.toml`. A file that carries it fails to load, naming the table and `satelle init`. `[validate.injected] bytes_per_token` is ignored, and `satelle validate` reports each seat's measured bytes with no token estimate, budget or WARN.
+  - The `{max_turns}` command placeholder and the turn-budget capability column. satelle passes no harness a turn limit, the grok preset no longer carries `--max-turns`, and pi-rpc no longer aborts a run at a turn count. `satelle agent validate` flags a command that still carries `{max_turns}`.
+  - The fresh-session advisory at engage and its `session_advisory` ledger rows.
+  - The per-dispatch "no context_budget or turn_budget is configured" line, `budget_overrun` rows, and reworking or parking a step for spend. A dispatched performer's measured turns are now recorded at the top level of its `agent_invocation` row.
+  - The dispatch-payload refusal ("dispatch payload over budget"), and doctor's `context.dispatch.over_budget`, `.pointered`, `.unbudgeted` and `.unavailable` findings. A per-prompt reminder longer than its harness's `tool_context_limit_chars` is now reported as `context.reminder.over_clip`.
+  - Condensing a dispatched seat's injected principles to a budget: every seat receives its principles whole. `satelle review score --seat-budget` is removed (cobra rejects it as an unknown flag), and `satelle substrate review` never splits an area.
+  - The SessionStart hook's harness byte cap (`context.session.overflow`), measured token actuals, and sending documents to a seat by path are unchanged.
+- init-heals: `satelle init` (or `satelle init --all --yes` for every registered repo) removes `[validate.injected.budget]` from `satelle.toml` and `satelle.local.toml`, and removes `context_budget`, `turn_budget` and `{max_turns}` (with the flag that carried it) from every `.toml` under `workflows/`. Every other line is left as it was. (sty_58a7bdfe)
+
+## [serve-v0.0.267] - 2026-11-01
+
+### Changed
+- The service binary carries no context or token budget: no fresh-session advisory, spend budgets, turn limit, dispatch refusal or seat condensing. (sty_58a7bdfe)
+
 ## [0.0.829] - 2026-11-01
 
 ### Added

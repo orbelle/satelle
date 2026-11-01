@@ -158,11 +158,6 @@ type State struct {
 	// consultation/relay instruction (unlike Advisor/ReworkConsult, which stay
 	// off Spec deliberately).
 	Model string
-	// ContextBudget / TurnBudget are the step's own spend bounds for the
-	// performer Agent names (Step.ContextBudget/TurnBudget, sty_a7914904) —
-	// dispatch input like Model. Zero means unset.
-	ContextBudget int
-	TurnBudget    int
 	// Skill is the step's own rubric — what an executor step performs, or the
 	// gate a reviewer step judges by (empty when the step names none). Populated
 	// from the step's `skills:`.

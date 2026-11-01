@@ -16,7 +16,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -85,7 +84,7 @@ func groupGone(pgid int, within time.Duration) bool {
 
 // piRPCEngine is an engine whose one named agent is binding, built through the
 // real runner constructor, with every telemetry row and attached artifact kept.
-func piRPCEngine(t *testing.T, binding config.AgentBinding, budget config.Budget) (*Engine, *[]attemptEvent, *int) {
+func piRPCEngine(t *testing.T, binding config.AgentBinding) (*Engine, *[]attemptEvent, *int) {
 	t.Helper()
 	wf := spineWF("", "", "", "in_progress|coder|planning-rubric", "done")
 	const rubric = "---\nname: planning-rubric\ntype: skill\ndescription: test rubric\n---\nDo the work."
@@ -93,7 +92,6 @@ func piRPCEngine(t *testing.T, binding config.AgentBinding, budget config.Budget
 	g.repoRoot = t.TempDir() // the seat runs here, so it must exist
 	g.newRunner = agentcli.RunnerFromBinding
 	g.SetNamedAgents(func(string) (config.AgentBinding, bool) { return binding, true })
-	g.SetDefaultBudget(budget)
 	var events []attemptEvent
 	g.SetTelemetry(func(_ context.Context, _, _, kind string, data map[string]any) {
 		events = append(events, attemptEvent{kind: kind, data: data})
@@ -139,30 +137,6 @@ func TestPiRPCStalledSeatEndsAtIdleTimeout(t *testing.T) {
 	}
 }
 
-// AC3: a dispatch whose turn budget the seat exceeds is aborted and recorded as
-// over budget on the ledger — a max-turns failure row — with no artifact taken.
-func TestPiRPCDispatchOverItsTurnBudgetIsRecordedAsSuch(t *testing.T) {
-	binding, _ := piRPCBinding(t, "turns", nil)
-	binding.TurnBudget = 2
-	g, events, attached := piRPCEngine(t, binding, config.Budget{})
-	res, err := g.DispatchExecutor(context.Background(), workitem.Item{ID: "sty_pirpc", Status: "backlog"}, "in_progress")
-	if !errors.Is(err, agentcli.ErrMaxTurns) {
-		t.Fatalf("err = %v, want ErrMaxTurns", err)
-	}
-	if *attached != 0 || res.ArtifactName != "" || res.Output != "" {
-		t.Errorf("attached=%d artifact=%q output=%q, want nothing taken from an over-budget run", *attached, res.ArtifactName, res.Output)
-	}
-	var failures []map[string]any
-	for _, ev := range *events {
-		if ev.kind == "agent-failure" {
-			failures = append(failures, ev.data)
-		}
-	}
-	if len(failures) != 1 || failures[0]["outcome"] != verb.OutcomeMaxTurns {
-		t.Errorf("failure rows = %v, want one recorded as %q", failures, verb.OutcomeMaxTurns)
-	}
-}
-
 // AC4: a pi seat with --no-session records its turns, tokens, cache split, cost
 // and model from the run itself, with no turns or session-record unavailable
 // reason: on the dispatch result the agent_invocation row is written from, and on
@@ -172,7 +146,7 @@ func TestPiRPCDispatchRecordsUsageFromTheRun(t *testing.T) {
 	piModel := map[string]string{"FAKE_PI_PROVIDER": "cursor", "FAKE_PI_MODEL": "claude-opus-5-5-fast"}
 
 	binding, record := piRPCBinding(t, "answer", piModel)
-	g, _, _ := piRPCEngine(t, binding, config.Budget{})
+	g, _, _ := piRPCEngine(t, binding)
 	res, err := g.DispatchExecutor(context.Background(), workitem.Item{ID: "sty_pirpc", Status: "backlog"}, "in_progress")
 	if err != nil {
 		t.Fatal(err)
@@ -186,8 +160,8 @@ func TestPiRPCDispatchRecordsUsageFromTheRun(t *testing.T) {
 	if res.CostUSD == nil || *res.CostUSD != 0.399 || res.ModelResolved != "cursor/claude-opus-5-5-fast" {
 		t.Errorf("dispatch cost=%v model=%q", res.CostUSD, res.ModelResolved)
 	}
-	if res.Budget == nil || res.Budget.Turns == nil || *res.Budget.Turns != 2 || res.Budget.TurnsUnavailableReason != "" {
-		t.Errorf("dispatch budget = %+v, want the 2 counted turns and no turns reason", res.Budget)
+	if res.Turns == nil || *res.Turns != 2 || res.TurnsUnavailableReason != "" {
+		t.Errorf("dispatch turns = %v (%q), want the 2 counted turns and no turns reason", res.Turns, res.TurnsUnavailableReason)
 	}
 	if res.UsageNote.UsageUnavailableReason != "" || res.UsageNote.Adapter != agentcli.HarnessPi {
 		t.Errorf("usage note = %+v, want pi with no unavailable reason", res.UsageNote)

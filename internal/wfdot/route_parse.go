@@ -246,12 +246,28 @@ type stepWire struct {
 	Wait     bool `toml:"wait"`
 	Start    bool `toml:"start"`
 	Terminal bool `toml:"terminal"`
-	// ContextBudget and TurnBudget are the step's own spend bounds for its
-	// performer (sty_a7914904), overriding the allocated binding's. Zero or
-	// absent means unset; a negative value is refused. The numbers are the
-	// repo's — the binary ships none.
-	ContextBudget int `toml:"context_budget"`
-	TurnBudget    int `toml:"turn_budget"`
+	// ContextBudget and TurnBudget once set the step's spend bounds. Satelle
+	// manages no budget now (sty_58a7bdfe), so either key is refused by name,
+	// ahead of the generic unknown-key pass, until satelle init removes it.
+	ContextBudget removedStepContextBudget `toml:"context_budget"`
+	TurnBudget    removedStepTurnBudget    `toml:"turn_budget"`
+}
+
+// removedStepContextBudget / removedStepTurnBudget refuse the removed step
+// budget keys when a step.toml still carries one.
+type (
+	removedStepContextBudget struct{}
+	removedStepTurnBudget    struct{}
+)
+
+func (*removedStepContextBudget) UnmarshalTOML(any) error {
+	return removedStepBudgetError("context_budget")
+}
+
+func (*removedStepTurnBudget) UnmarshalTOML(any) error { return removedStepBudgetError("turn_budget") }
+
+func removedStepBudgetError(key string) error {
+	return fmt.Errorf("%s is removed — satelle manages no context or turn budget (each agent CLI manages its own); run \"satelle init\" to remove it", key)
 }
 
 type gateWire struct {
@@ -585,8 +601,6 @@ func ParseSteps(body string) (Catalogue, error) {
 			PlacementTag:    strings.TrimSpace(s.PlacementTag),
 			DeliveryHeading: strings.TrimSpace(s.DeliveryHeading),
 			LaneTag:         strings.TrimSpace(s.LaneTag),
-			ContextBudget:   s.ContextBudget,
-			TurnBudget:      s.TurnBudget,
 		}
 		if s.RemoteWait != nil {
 			rw, err := parseRemoteWait(provides, s.RemoteWait, s.Agent)
@@ -594,9 +608,6 @@ func ParseSteps(body string) (Catalogue, error) {
 				return Catalogue{}, err
 			}
 			st.RemoteWait = rw
-		}
-		if s.ContextBudget < 0 || s.TurnBudget < 0 {
-			return Catalogue{}, fmt.Errorf("step.toml: step %q: context_budget and turn_budget must not be negative (0 or absent means unset)", provides)
 		}
 		if s.RejectBudget != nil {
 			st.RejectBudget = *s.RejectBudget

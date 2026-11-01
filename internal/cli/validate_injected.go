@@ -22,10 +22,9 @@ import (
 //
 // Instruction text is paid for on every call and shapes what an agent writes, so
 // its size is worth seeing per kind (what a kind of document costs) and per seat
-// (what each agent actually receives). It is an ESTIMATE: no adapter reports
-// tokens before a call, so bytes convert at one provider-neutral ratio
-// ([validate.injected] bytes_per_token). A budget is the repo's own number, warns
-// and never fails validate, and the binary ships none.
+// (what each agent actually receives). It reports measured bytes only: satelle
+// judges no seat against a budget, because managing a seat's context is its
+// CLI's job (sty_58a7bdfe), and nothing here can fail validate.
 
 // injectedRow is one line of the report. Unavailable, when set, replaces the
 // figure with an adapter-named reason: a number that cannot be computed is never
@@ -36,9 +35,6 @@ type injectedRow struct {
 	Bytes       int
 	Note        string
 	Unavailable string
-	// Rungs is the rung each resident document of a dispatched seat was delivered
-	// at after the budget fit; nil for a row that is not a fitted seat.
-	Rungs []condense.Rung
 }
 
 // injectedEnv is everything the report reads, resolved by the caller so the core
@@ -51,8 +47,9 @@ type injectedEnv struct {
 	ConstPath    string
 	Agents       config.AgentsConfig
 	AgentsErr    error
-	// Rules is how a resident document is condensed to fit (zero: the embedded
-	// defaults). Every size in the report is measured after that fit.
+	// Rules is how the SessionStart context is condensed under its harness's
+	// byte cap (zero: the embedded defaults); the driver rows are measured after
+	// that fit. A dispatched seat is never condensed.
 	Rules condense.Rules
 }
 
@@ -269,7 +266,7 @@ func dispatchedRows(ctx context.Context, env injectedEnv) []injectedRow {
 		}
 		in := agentstep.SeatPromptInput{
 			Kind: seat.kind, Section: seat.section, Step: seat.step, Workflow: wfgovern.DerivedRouteName,
-			Rules: env.Rules, Shell: agentcli.GrantAdmitsShell(binding.Tools),
+			Shell:   agentcli.GrantAdmitsShell(binding.Tools),
 			Judging: seat.judges,
 		}
 		if seat.judges {
@@ -279,20 +276,9 @@ func dispatchedRows(ctx context.Context, env injectedEnv) []injectedRow {
 			in.Constitution = strings.TrimSpace(env.Constitution)
 			in.Principles = agentstep.ResidentPrincipleDocs(ctx, env.Docs, binding.ResolvedPrinciples())
 		}
-		// The seat is sized after the fit its dispatch applies, against the same
-		// budget, so the report prints what a dispatch would send.
-		if tokens, ok := env.Cfg.Validate.Injected.BudgetFor(row.Label); ok {
-			in.BudgetBytes = tokens * env.Cfg.Validate.Injected.ResolveBytesPerToken()
-		}
 		name, body := largestSkill(ctx, env.Docs, seat.skills)
 		in.Rubric = body
-		payload, perr := agentstep.SeatPayloadFor(in)
-		if perr != nil {
-			row.Unavailable = seat.section + ": " + perr.Error()
-			rows = append(rows, row)
-			continue
-		}
-		row.Bytes, row.Rungs = len(payload.SystemPrompt), payload.Rungs
+		row.Bytes = len(agentstep.SeatPayloadFor(in))
 		switch {
 		case name != "":
 			row.Note = "largest skill " + name
@@ -302,7 +288,7 @@ func dispatchedRows(ctx context.Context, env injectedEnv) []injectedRow {
 			row.Note = "no LLM skill on this seat's route"
 		}
 		// The plan citations ride the payload, not the system prompt: they add to
-		// what the seat is sent but not to the fitted prompt above.
+		// what the seat is sent but not to the prompt above.
 		if seat.judges && seatDeclaresCitations(ctx, env.Docs, seat.skills) {
 			row.Bytes += agentstep.CitationsPayloadCeiling
 			row.Note += fmt.Sprintf("; includes up to %d bytes of plan citations", agentstep.CitationsPayloadCeiling)
@@ -348,12 +334,10 @@ func largestSkill(ctx context.Context, docs agentstep.DocGetter, names []string)
 	return best, bestBody
 }
 
-// printInjectedReport writes the rows with tokens estimated at the configured
-// ratio. An exceeded budget prints WARN and nothing else: it is advice, so it can
-// never change validate's exit code.
-func printInjectedReport(out io.Writer, rows []injectedRow, cfg config.InjectedConfig) {
-	bpt := cfg.ResolveBytesPerToken()
-	fmt.Fprintf(out, "# injected context (estimate: bytes / %d, provider-neutral)\n", bpt)
+// printInjectedReport writes the rows as measured bytes. It is a report, so it
+// can never change validate's exit code.
+func printInjectedReport(out io.Writer, rows []injectedRow) {
+	fmt.Fprintln(out, "# injected context (measured bytes)")
 	group := ""
 	for _, r := range rows {
 		if r.Group != group {
@@ -364,15 +348,7 @@ func printInjectedReport(out io.Writer, rows []injectedRow, cfg config.InjectedC
 			fmt.Fprintf(out, "INFO  %-34s unavailable (%s)\n", r.Label, r.Unavailable)
 			continue
 		}
-		tokens := (r.Bytes + bpt - 1) / bpt
-		level, budget := "INFO", "no budget"
-		if b, ok := cfg.BudgetFor(r.Label); ok {
-			budget = fmt.Sprintf("within budget %d tokens", b)
-			if tokens > b {
-				level, budget = "WARN", fmt.Sprintf("over budget %d tokens", b)
-			}
-		}
-		line := fmt.Sprintf("%s  %-34s %7d bytes %6d tokens  %s", level, r.Label, r.Bytes, tokens, budget)
+		line := fmt.Sprintf("INFO  %-34s %7d bytes", r.Label, r.Bytes)
 		if r.Note != "" {
 			line += "  — " + r.Note
 		}
@@ -394,5 +370,5 @@ func reportInjected(ctx context.Context, out io.Writer, a *app.App) {
 	}
 	eff, err := config.LoadEffectiveAgents(a.PlaneDir(), a.PlaneConfig().Vars)
 	env.Agents, env.AgentsErr = eff.Agents, err
-	printInjectedReport(out, injectedRows(ctx, env), a.Config.Validate.Injected)
+	printInjectedReport(out, injectedRows(ctx, env))
 }

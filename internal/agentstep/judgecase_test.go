@@ -54,42 +54,37 @@ func TestJudgeCaseCorpusCaseSendsTheDiffAndReturnsTheVerdict(t *testing.T) {
 	}
 }
 
-// The scored seat is fitted exactly as a dispatched one: the arm judged under a
-// token budget receives its resident principles condensed, the arm with the
-// ladder off receives them as written (sty_df21b2db AC5).
-func TestJudgeCaseFitsTheSeatPromptToItsBudget(t *testing.T) {
+// The scored seat is built exactly as a dispatched one: it receives its
+// resident principles whole, never condensed (sty_58a7bdfe AC5).
+func TestJudgeCaseSeatReceivesPrinciplesWhole(t *testing.T) {
 	principles := []docindex.Doc{seatPrinciple(config.OperatingPrinciple, 12), seatPrinciple("p-two", 10)}
-	run := func(inj config.InjectedConfig) string {
-		r := &fakeRunner{out: `{"decision":"accept","notes":"ok"}`}
-		j, err := NewCaseJudge(CaseJudgeOptions{
-			Root:    t.TempDir(),
-			Binding: "reviewer",
-			Docs:    fakeDocs{skillFound: true, skillBody: "rubric", extraPrinciples: principles},
-			Resolve: func(name string) (config.AgentBinding, bool) {
-				return config.AgentBinding{Role: "reviewer", Command: "fake -p --append-system-prompt {system}"}, name == "reviewer"
-			},
-			NewRunner: func(string, string) (agentcli.Runner, error) { return r, nil },
-			Injected:  inj,
-			Offload:   func(_ context.Context, _ string, c []byte) (string, error) { return retrieve.Hash(c), nil },
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := j.Judge(context.Background(), reviewscore.Case{
-			ID: "c1", Skill: "satelle-code-ac-review", StoryID: "sty_c1", Diff: "+x\n", ExpectedVerdict: reviewscore.VerdictAccept,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		return r.got.SystemPrompt
+	r := &fakeRunner{out: `{"decision":"accept","notes":"ok"}`}
+	j, err := NewCaseJudge(CaseJudgeOptions{
+		Root:    t.TempDir(),
+		Binding: "reviewer",
+		Docs:    fakeDocs{skillFound: true, skillBody: "rubric", extraPrinciples: principles},
+		Resolve: func(name string) (config.AgentBinding, bool) {
+			return config.AgentBinding{Role: "reviewer", Command: "fake -p --append-system-prompt {system}"}, name == "reviewer"
+		},
+		NewRunner: func(string, string) (agentcli.Runner, error) { return r, nil },
+		Offload:   func(_ context.Context, _ string, c []byte) (string, error) { return retrieve.Hash(c), nil },
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	full := run(config.InjectedConfig{})
-	if strings.Contains(full, "Retrieve more") {
-		t.Fatalf("the ladder-off arm must receive every principle as written")
+	if _, err := j.Judge(context.Background(), reviewscore.Case{
+		ID: "c1", Skill: "satelle-code-ac-review", StoryID: "sty_c1", Diff: "+x\n", ExpectedVerdict: reviewscore.VerdictAccept,
+	}); err != nil {
+		t.Fatal(err)
 	}
-	budget := len(full) - 1200
-	fitted := run(config.InjectedConfig{BytesPerToken: 1, Budget: map[string]int{"reviewer": budget}})
-	if len(fitted) > budget || !strings.Contains(fitted, "Retrieve more") {
-		t.Errorf("the budgeted arm must be condensed within %d bytes, got %d:\n%s", budget, len(fitted), fitted)
+	got := r.got.SystemPrompt
+	if strings.Contains(got, "Retrieve more") || strings.Contains(got, "OMITTED") {
+		t.Errorf("the judging seat's principles must not be condensed or pointered:\n%s", got)
+	}
+	for _, d := range principles {
+		if body := strings.TrimSpace(stripFrontmatter(d.Body)); !strings.Contains(got, body) {
+			t.Errorf("principle %s not delivered whole", d.Name)
+		}
 	}
 }
 

@@ -42,7 +42,7 @@ func TestTurns_PlainGrokAndAcpAreUnavailableWithAdapterReasons(t *testing.T) {
 	for _, c := range []struct {
 		name, iface, command, want string
 	}{
-		{"grok plain command", "command", DefaultGrokReviewerCommand, "grok command: the run's output carried no turn count"},
+		{"grok plain command", "command", DefaultGrokCommand, "grok command: the run's output carried no turn count"},
 		{"grok acp", "acp", "grok agent stdio", "grok acp: the session protocol reports no turn count"},
 		{"cloud", "cloud", "claude", "cloud: a cloud session is not spawned from a command template"},
 		{"cursor command", "command", CursorCommand, "cursor command: the run's output carried no turn count"},
@@ -63,7 +63,7 @@ func TestToolCalls_AvailabilityIsPerTransport(t *testing.T) {
 	}{
 		{"claude one-shot json", "command", DefaultClaudeCommand, false},
 		{"claude stream-json", "stream", DefaultClaudeStreamCommand, true},
-		{"grok json (default reviewer)", "command", DefaultGrokReviewerCommand, false},
+		{"grok json (default reviewer)", "command", DefaultGrokCommand, false},
 		{"grok json", "command", "grok -p {payload} --output-format json", false},
 		{"grok streaming-json", "command", "grok -p {payload} --output-format streaming-json", true},
 		{"grok streaming fused flag", "command", "grok -p {payload} --output-format=streaming-json", true},
@@ -83,7 +83,7 @@ func TestToolCalls_AvailabilityIsPerTransport(t *testing.T) {
 			}
 		}
 	}
-	if got := ToolCallsUnavailableReason("command", DefaultGrokReviewerCommand); !strings.HasPrefix(got, "grok command:") {
+	if got := ToolCallsUnavailableReason("command", DefaultGrokCommand); !strings.HasPrefix(got, "grok command:") {
 		t.Errorf("reason = %q, want it to name the adapter", got)
 	}
 	if got := ToolCallsUnavailableReason("cloud", "claude"); !strings.HasPrefix(got, "cloud:") {

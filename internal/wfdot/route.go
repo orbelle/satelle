@@ -208,12 +208,6 @@ type Step struct {
 	// terminal: entering it frees the seat and the tree and records a queue
 	// entry, and nothing performs there. The step names no agent.
 	Wait bool
-	// ContextBudget / TurnBudget are this step's own spend bounds for its
-	// performer (sty_a7914904): input tokens and model turns. They override the
-	// allocated binding's, which override [defaults]. Zero means unset — nothing
-	// is inferred, and with none set satelle only warns and records.
-	ContextBudget int
-	TurnBudget    int
 	// Start marks the entry state; Terminal marks a terminal success state.
 	Start    bool
 	Terminal bool
@@ -576,11 +570,9 @@ func assemble(ordered []Step, gates []RouteGate, l List) (Spec, error) {
 			Model: st.Model,
 			Skill: firstOf(st.Skills),
 
-			ContextBudget: st.ContextBudget,
-			TurnBudget:    st.TurnBudget,
-			Obligation:    st.Provides,
-			Shape:         shape,
-			AppliesTo:     st.AppliesTo,
+			Obligation: st.Provides,
+			Shape:      shape,
+			AppliesTo:  st.AppliesTo,
 
 			Propose:      st.Propose,
 			Mark:         st.Mark,

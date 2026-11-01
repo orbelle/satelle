@@ -25,7 +25,8 @@ type ScaffoldFinding struct {
 // DetectScaffoldDrift compares deployed harness hook configs and
 // .satelle/hooks scripts against this binary's canonical wrappers, and reports
 // any removed [sync] scope key in .satelle/satelle.toml or satelle.local.toml —
-// both healed by satelle init. Empty when nothing needs healing. Repo-agnostic:
+// and any removed budget key or table (sty_58a7bdfe) — all healed by satelle
+// init. Empty when nothing needs healing. Repo-agnostic:
 // only well-known relative paths (settings, script and config names) are examined.
 func DetectScaffoldDrift(repoRoot string) []ScaffoldFinding {
 	if strings.TrimSpace(repoRoot) == "" {
@@ -55,6 +56,7 @@ func DetectScaffoldDrift(repoRoot string) []ScaffoldFinding {
 	findings = append(findings, driftPiExtension(repoRoot)...)
 	findings = append(findings, driftCursorHooks(repoRoot)...)
 	findings = append(findings, driftSyncScopeKeys(repoRoot)...)
+	findings = append(findings, driftRemovedBudget(repoRoot)...)
 	findings = append(findings, driftForeignSeatTools(repoRoot)...)
 	// Legacy per-harness scripts on disk are drift (should have been retired).
 	for _, harness := range []string{"claude", "grok", "kimi"} {
@@ -275,6 +277,27 @@ func driftSyncScopeKeys(repoRoot string) []ScaffoldFinding {
 				Path:   config.DefaultDataDir + "/" + name,
 				Kind:   "config",
 				Detail: "[sync] " + k + " is removed — run satelle init",
+			})
+		}
+	}
+	return out
+}
+
+// driftRemovedBudget reports each removed budget key or table (sty_58a7bdfe) a
+// repo file still carries: such a repo fails to load until satelle init removes
+// it. A file that cannot be read is another finding's concern.
+func driftRemovedBudget(repoRoot string) []ScaffoldFinding {
+	edits, err := config.FindRemovedBudget(filepath.Join(repoRoot, config.DefaultDataDir))
+	if err != nil {
+		return nil
+	}
+	var out []ScaffoldFinding
+	for _, e := range edits {
+		for _, k := range e.Removed {
+			out = append(out, ScaffoldFinding{
+				Path:   config.DefaultDataDir + "/" + e.Rel,
+				Kind:   "config",
+				Detail: k + " is removed — run satelle init",
 			})
 		}
 	}

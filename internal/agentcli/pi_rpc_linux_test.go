@@ -150,28 +150,6 @@ func TestPiRPCEventsReachSatelle(t *testing.T) {
 	}
 }
 
-// AC3: with a turn budget of 2, satelle sends abort when pi starts its third
-// turn and returns ErrMaxTurns with no answer.
-func TestPiRPCTurnBudgetAbortsBeyondIt(t *testing.T) {
-	r, req, record := piRPCDispatch(t, "turns", nil)
-	req.MaxTurns = 2
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	out, usage, err := r.(UsageRunner).RunUsage(ctx, req)
-	if !errors.Is(err, ErrMaxTurns) {
-		t.Fatalf("err = %v, want ErrMaxTurns", err)
-	}
-	if out != nil {
-		t.Errorf("out = %q, want no answer from an over-budget run", out)
-	}
-	if got := readPiRPCPeerRecord(t, record).abortAt; got != 3 {
-		t.Errorf("abort arrived after turn %d, want 3", got)
-	}
-	if !usage.TurnsAvailable || usage.Turns != 3 || !usage.Available {
-		t.Errorf("usage = %+v, want the 3 turns and the stats", usage)
-	}
-}
-
 // AC4: the run's own stats and events are its usage, with --no-session and no
 // pi session record anywhere.
 func TestPiRPCUsageFromTheRun(t *testing.T) {

@@ -211,18 +211,6 @@ const (
 	// see a tool writes no row for it, which the check reports as unverifiable.
 	// Not an invocation and not a verdict: enumeration only.
 	KindToolTrace = "tool_trace"
-	// KindSessionAdvisory records the fresh-session warning given to the driver
-	// at engage (sty_a7914904): Payload verb.SessionAdvisoryPayload — the session,
-	// the trigger (other-story | context-budget) and what fired it. A warning
-	// only; engage is never refused for it. Enumeration only.
-	KindSessionAdvisory = "session_advisory"
-	// KindBudgetOverrun records a dispatched performer exceeding a context or
-	// turn budget the REPO configured (sty_a7914904): Payload
-	// verb.BudgetOverrunPayload — the kind, the budget, the measured figure and
-	// the consequence taken (rework | blocked). Written only when a budget is
-	// set; with none configured satelle warns and records the measurement on the
-	// agent_invocation row instead.
-	KindBudgetOverrun = "budget_overrun"
 	// KindFixClaim records one in-loop-fix claim (sty_4b694872) — the typed
 	// exception the fix lane grants — BEFORE the edit it licenses. Payload is
 	// fixlane.ClaimPayload: path, reason, bound_lines, proving_test and the

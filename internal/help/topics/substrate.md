@@ -107,21 +107,9 @@ and interface (`reviewer[claude/stream]`): constitution and principles when its
 binding injects them, the charter, and its largest skill. A figure that cannot be
 computed prints `unavailable (<why>)`, never a number.
 
-Tokens are an estimate: bytes divided by one provider-neutral ratio, because no
-adapter reports tokens before a call.
-
-```toml
-[validate.injected]
-bytes_per_token = 4          # the default; a unit conversion, not a budget
-
-[validate.injected.budget]   # estimated tokens; the binary ships none
-driver   = 6000              # a seat or kind name, or an exact label: "driver[claude]"
-reviewer = 9000
-```
-
-A row over its budget prints `WARN`. A budget only warns: it never fails
-`satelle validate` and never changes its exit code. With no key set for a row it
-prints `no budget`.
+Every figure is measured bytes. A seat is never judged against a budget: each
+agent CLI manages its own context, and nothing in the report can fail
+`satelle validate`.
 
 `satelle-repo-agnostic` (only satelle's OWN embedded `scope: system` substrate
 must avoid repo-specifics) is a satelle-dev concern — never a runtime gate. Your
@@ -147,9 +135,8 @@ panel dissent (`dissent: not recorded` where the ledger holds no per-seat
 verdicts). It also lists every constitution rule.
 
 Judging runs under `satelle-substrate-review`, one dispatch per area
-(principles with the constitution rules, skills, workflows, agents, tasks),
-split further only when an area's manifest outgrows the seat's
-`[validate.injected.budget]`. Each judge gets a manifest of paths: the item's
+(principles with the constitution rules, skills, workflows, agents, tasks); an
+area is never split, since the judge's CLI manages its own context. Each judge gets a manifest of paths: the item's
 file, the current embedded default of an edited or seeded copy, and a file of
 its history. It reads them itself, and gives each item a disposition (remove,
 reduce, keep, conflict) with its reason and evidence, and each rule a

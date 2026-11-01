@@ -229,14 +229,11 @@ func assertDelegatesVerdictRules(t testing.TB, path, verdict string) {
 			t.Errorf("%s carries a %q section; the rules live in %s", path, heading, config.ReviewerVerdictPrinciple)
 		}
 	}
-	seat, err := BuildSeatPayload(SeatPayloadInput{
+	seat := BuildSeatPayload(SeatPayloadInput{
 		Charter: reviewerCharter(), Rubric: body, Judging: true, Verdict: verdict,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertQuotationPhrases(t, path+" (composed judging prompt)", seat.SystemPrompt)
-	if n := strings.Count(seat.SystemPrompt, sharedVerdictPhrases[0]); n != 1 {
+	assertQuotationPhrases(t, path+" (composed judging prompt)", seat)
+	if n := strings.Count(seat, sharedVerdictPhrases[0]); n != 1 {
 		t.Errorf("%s: the composed judging prompt carries the re-presented-edge rules %d times, want once", path, n)
 	}
 }

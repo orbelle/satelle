@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/condense"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/reviewscore"
@@ -30,13 +29,9 @@ type CaseJudgeOptions struct {
 	// and start the binding's real agent CLI.
 	Resolve   func(name string) (config.AgentBinding, bool)
 	NewRunner func(iface, command string) (agentcli.Runner, error)
-	// Injected, Rules and Offload fit the judging seat's prompt exactly as a real
-	// dispatch does (sty_df21b2db): the seat's [validate.injected] budget, the
-	// condense rules, and where the originals of condensed documents are kept. A
-	// zero Injected judges the seat with every resident document in full.
-	Injected config.InjectedConfig
-	Rules    condense.Rules
-	Offload  func(ctx context.Context, itemID string, content []byte) (string, error)
+	// Offload keeps an oversized diff's overflow out of line, exactly as a real
+	// dispatch's does; nil keeps none.
+	Offload func(ctx context.Context, itemID string, content []byte) (string, error)
 }
 
 // CaseJudge judges one known case with a named reviewer binding through
@@ -111,7 +106,6 @@ func (j *CaseJudge) run(ctx context.Context, c reviewscore.Case, skills []string
 	g.SetRunner(runner)
 	g.SetReviewerBinding(b)
 	g.SetNamedAgents(func(name string) (config.AgentBinding, bool) { return j.opts.Resolve(name) })
-	g.SetInjected(j.opts.Injected, j.opts.Rules)
 	if j.opts.Offload != nil {
 		g.SetDiffOffloader(j.opts.Offload)
 	}

@@ -239,7 +239,7 @@ func TestPriorVerdictIgnoresCycleOwnRows(t *testing.T) {
 	selfTelemetry := []string{"agent-attempt", "gate-bundled", "agent-retry", "agent-failure", "agent-timeout",
 		"agent-stalled", "scoped-gate-skipped", "reviewer-isolation-warned", "agent-secondary-failover", "agent-interactive-denied"}
 	selfLedger := []string{ledger.KindAgentInvocation, ledger.KindStepCost, ledger.KindDriverUsage, ledger.KindSessionModel,
-		ledger.KindToolPermission, ledger.KindSessionAdvisory, ledger.KindBudgetOverrun, ledger.KindGateSkipped,
+		ledger.KindToolPermission, ledger.KindGateSkipped,
 		ledger.KindTrunkCheck, ledger.KindEngagementBaseline}
 	for _, id := range []string{"sty_bundle", "sty_propose"} {
 		for _, kind := range selfTelemetry {

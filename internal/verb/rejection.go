@@ -130,10 +130,5 @@ func redispatchStep(ctx context.Context, current workitem.Item, now time.Time,
 		notifyChange(panelTopic(current.Kind))
 		return nil, fmt.Errorf("re-dispatch of step %s refused: %v", step, run.Refuse)
 	}
-	if run.ParkNotes != "" {
-		if out, perr, handled := park(state, run.ParkNotes, run.Res); handled {
-			return out, perr
-		}
-	}
 	return nil, nil
 }

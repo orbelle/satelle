@@ -93,7 +93,7 @@ const grokRealCaptureFormat = "json"
 // UnwrapUsage reads them from that capture. Reverting a preset to `plain` fails.
 func TestGrokPresets_MeasureTurnsAndTokensFromRealCapture(t *testing.T) {
 	for name, command := range map[string]string{
-		"reviewer": DefaultGrokReviewerCommand,
+		"reviewer": DefaultGrokCommand,
 		"agent":    DefaultGrokCommand,
 	} {
 		t.Run(name, func(t *testing.T) {

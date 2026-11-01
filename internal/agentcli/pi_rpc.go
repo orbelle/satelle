@@ -42,9 +42,8 @@ const PiRPCCommand = "pi --mode rpc --no-session --no-extensions --no-skills --n
 // pi's fire-and-forget methods (notify, setStatus, …) expect no reply.
 var piRPCDialogMethods = []string{"select", "confirm", "input", "editor"}
 
-// piRPCGrace bounds each wait after pi has settled or been aborted: for the
-// answer and stats replies, for agent_settled after an abort, and for pi to exit
-// once its stdin is closed. The seat's process group is killed when it runs out.
+// piRPCGrace bounds each wait after pi has settled: for the answer and stats
+// replies, and for pi to exit once its stdin is closed. The seat's process group is killed when it runs out.
 const piRPCGrace = 2 * time.Second
 
 // Request ids satelle puts on its commands, matched against pi's responses.
@@ -52,7 +51,6 @@ const (
 	piRPCPromptID = "satelle-prompt"
 	piRPCTextID   = "satelle-text"
 	piRPCStatsID  = "satelle-stats"
-	piRPCAbortID  = "satelle-abort"
 )
 
 // piRPCLabel names this adapter in usage and model reasons.
@@ -114,12 +112,11 @@ func (p piRPCRunner) spawnArgs(req Request) []string {
 }
 
 // RunUsage runs one dispatched pi seat and returns pi's last assistant text with
-// the usage the run itself reported. A run cut off at req.MaxTurns returns
-// ErrMaxTurns and no text.
+// the usage the run itself reported.
 func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageResult, error) {
 	onEvent, stopEvents := eventStream(req)
 	defer stopEvents()
-	run := &piRPCRun{onEvent: onEvent, maxTurns: req.MaxTurns}
+	run := &piRPCRun{onEvent: onEvent}
 	fail := func(err error) ([]byte, UsageResult, error) {
 		ev := newEvent(EventFailed)
 		ev.Error = err.Error()
@@ -193,15 +190,11 @@ func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageRe
 		end()
 		return fail(fmt.Errorf("agentcli: pi rpc: send prompt: %w", err))
 	}
-	// Phase 1: the run, until pi settles. An abort for the turn cap waits at most
-	// piRPCGrace for that settle.
-	var abortWait <-chan time.Time
+	// Phase 1: the run, until pi settles.
 	for !run.settled {
 		select {
 		case <-ctx.Done():
 			return killed()
-		case <-abortWait:
-			run.settled = true
 		case line, ok := <-lines:
 			if !ok {
 				end()
@@ -211,15 +204,10 @@ func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageRe
 				end()
 				return fail(err)
 			}
-			if run.aborted && abortWait == nil {
-				abortWait = time.After(piRPCGrace)
-			}
 		}
 	}
 	// Phase 2: the answer and the stats, each matched by id.
-	if !run.aborted {
-		_ = run.send(map[string]any{"id": piRPCTextID, "type": "get_last_assistant_text"})
-	}
+	_ = run.send(map[string]any{"id": piRPCTextID, "type": "get_last_assistant_text"})
 	_ = run.send(map[string]any{"id": piRPCStatsID, "type": "get_session_stats"})
 	replyWait := time.After(piRPCGrace)
 	for run.awaitingReplies() {
@@ -243,13 +231,6 @@ func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageRe
 		ev := newEvent(EventUsage)
 		ev.Usage = &usage
 		emitEvent(onEvent, ev)
-	}
-	if run.aborted {
-		err := fmt.Errorf("%w: pi rpc aborted the run when it started turn %d of a %d-turn budget", ErrMaxTurns, run.turns, req.MaxTurns)
-		ev := newEvent(EventFailed)
-		ev.Error = err.Error()
-		emitEvent(onEvent, ev)
-		return nil, usage, err
 	}
 	if strings.TrimSpace(run.answer()) == "" {
 		err := Mark(piRPCExitError("pi settled without an answer", stderr.String()), ErrNoAnswer)
@@ -344,17 +325,16 @@ type piRPCStats struct {
 // piRPCRun is the state of one seat's protocol exchange. Only the run loop
 // touches it.
 type piRPCRun struct {
-	stdin    io.Writer
-	onEvent  EventHandler
-	maxTurns int
+	stdin   io.Writer
+	onEvent EventHandler
 
-	settled, aborted, gaveUp bool
-	turns, tools             int
-	model                    string
-	lastText                 string // the last assistant message_end's text
-	text                     *string
-	gotText, gotStats        bool
-	stats                    *piRPCStats
+	settled, gaveUp   bool
+	turns, tools      int
+	model             string
+	lastText          string // the last assistant message_end's text
+	text              *string
+	gotText, gotStats bool
+	stats             *piRPCStats
 }
 
 func (r *piRPCRun) send(cmd map[string]any) error {
@@ -370,7 +350,7 @@ func (r *piRPCRun) awaitingReplies() bool {
 	if r.gaveUp {
 		return false
 	}
-	return !r.gotStats || (!r.aborted && !r.gotText)
+	return !r.gotStats || !r.gotText
 }
 
 // answer is pi's last assistant text: get_last_assistant_text's reply, or the
@@ -382,8 +362,7 @@ func (r *piRPCRun) answer() string {
 	return r.lastText
 }
 
-// handle applies one pi record: events become satelle events, the turn cap is
-// enforced on turn_start, dialogs are cancelled, and responses are matched to
+// handle applies one pi record: events become satelle events, dialogs are cancelled, and responses are matched to
 // satelle's commands. An error ends the run (a refused prompt).
 func (r *piRPCRun) handle(line []byte) error {
 	var rec piRPCRecord
@@ -398,10 +377,6 @@ func (r *piRPCRun) handle(line []byte) error {
 		ev := newEvent(EventMessage)
 		ev.Text = fmt.Sprintf("turn %d", r.turns)
 		emitEvent(r.onEvent, ev)
-		if r.maxTurns > 0 && r.turns > r.maxTurns && !r.aborted {
-			r.aborted = true
-			_ = r.send(map[string]any{"id": piRPCAbortID, "type": "abort"})
-		}
 	case "message_update":
 		ev := newEvent(EventMessage)
 		if u := rec.AssistantMessageEvent; u != nil && u.Type == "text_delta" {

@@ -54,12 +54,6 @@ parallel = 0
 requires = ["raised"]
 ```
 
-A performing step may also declare its own spend bounds, `context_budget` and
-`turn_budget` (integers; absent or `0` means unset, negative is refused). They
-override the allocated binding's own and `[defaults]`, and the overrun
-consequence depends on whether the step has a `rework` key — see
-`satelle help agent-dispatch` (*Spend budgets*). The binary ships no value.
-
 A step that hands the story to a **team remote** and waits for it declares
 `remote_wait = { remote = "<team remote name>", on = { <outcome> = "<status>", … } }`
 (and no `agent`: nobody performs a waiting step). The local drive reads the

@@ -91,8 +91,6 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 		settings:   binding.Settings,
 		env:        overlayScratchEnv(binding.Env, scratchDir),
 		scratch:    scratchDir,
-		section:    section,
-		step:       reviewTextStep(req.Skill),
 	})
 	if err != nil {
 		return res, err
@@ -123,13 +121,4 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 		return res, fmt.Errorf("[%s] returned no output", section)
 	}
 	return res, nil
-}
-
-// reviewTextStep names a ReviewText dispatch for a budget refusal: the skill it
-// runs, or "review-text" when the caller named none.
-func reviewTextStep(skill string) string {
-	if s := strings.TrimSpace(skill); s != "" {
-		return s
-	}
-	return "review-text"
 }

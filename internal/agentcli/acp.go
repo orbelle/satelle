@@ -40,8 +40,6 @@ func newACPRunner(command string) (Runner, error) {
 		switch tok {
 		case "{system}", "{payload}", "{tools}", "{model}", "{effort}", "{settings}":
 			return nil, fmt.Errorf("agentcli: interface=acp command must not contain placeholder %s — system/payload/tools/effort ride the ACP session, not argv", tok)
-		case "{max_turns}":
-			return nil, fmt.Errorf("agentcli: interface=acp command must not contain placeholder %s — %s", tok, acpTurnBudgetReason)
 		}
 	}
 	if adapterOf(fields[0], fields[1:]) == HarnessCursor {

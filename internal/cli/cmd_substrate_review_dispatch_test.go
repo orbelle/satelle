@@ -157,14 +157,10 @@ func setConfig(t *testing.T, repo, body string) {
 const (
 	bodySentinel      = "BODY-SENTINEL-7f3a"
 	rejectionSentinel = "REJECTION-SENTINEL-91c2"
-	// dispatchBudget is the reviewer seat's budget in bytes (bytes_per_token
-	// 1): room for the system prompt and a manifest, none for the 200 KB body.
-	dispatchBudget = 150000
 )
 
 // manifestOnlyFixture is a repo holding a 200 KB principle, a repo skill with a
-// rejection whose notes carry a sentinel, an in-loop session_model row, and a
-// reviewer budget the principle's body alone would exceed.
+// rejection whose notes carry a sentinel, and an in-loop session_model row.
 func manifestOnlyFixture(t *testing.T) (repo, story string) {
 	t.Helper()
 	repo = tempRepo(t)
@@ -174,7 +170,6 @@ func manifestOnlyFixture(t *testing.T) (repo, story string) {
 	writeRepoFile(t, repo, ".satelle/principles/huge.md", big)
 	writeRepoFile(t, repo, ".satelle/skills/repo-cut.md", "---\ntype: skill\nname: repo-cut\ndescription: a repo skill\n---\n# repo cut\n")
 	writeRepoFile(t, repo, ".satelle/constitution.md", "# constitution\n\n- [[huge]]\n")
-	setConfig(t, repo, "[validate.injected]\nbytes_per_token = 1\n\n[validate.injected.budget]\nreviewer = 150000\n")
 	if out, err := runRoot(t, "reindex"); err != nil {
 		t.Fatalf("reindex: %v\n%s", err, out)
 	}
@@ -185,8 +180,7 @@ func manifestOnlyFixture(t *testing.T) (repo, story string) {
 }
 
 // AC1: every dispatch carries the instruction and a manifest of pointers — no
-// item body, no rejection text — one per area, within the seat's budget, over
-// a fixture whose body would exceed it if embedded.
+// item body, no rejection text — one per area, never split.
 func TestSubstrateReviewDispatchCarriesManifestOnly(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -214,9 +208,6 @@ func TestSubstrateReviewDispatchCarriesManifestOnly(t *testing.T) {
 					if strings.Contains(whole, s) {
 						t.Errorf("the %s dispatch carries %s", d.manifest.Area, s)
 					}
-				}
-				if size := len(whole); size > dispatchBudget {
-					t.Errorf("the %s dispatch sends %d bytes > budget %d", d.manifest.Area, size, dispatchBudget)
 				}
 				raw, _ := json.Marshal(d.manifest)
 				var generic map[string]any
@@ -276,9 +267,9 @@ func TestSubstrateReviewDispatchCarriesManifestOnly(t *testing.T) {
 		})
 	}
 
-	// Control: the same seat refuses the body when it rides the payload, so
-	// the fixture provably exceeds the budget when embedded.
-	t.Run("embedded body is refused", func(t *testing.T) {
+	// sty_58a7bdfe AC4: no dispatch is refused against a budget — the same seat
+	// handed the 200 KB body in its payload runs and receives it whole.
+	t.Run("embedded body is sent whole", func(t *testing.T) {
 		manifestOnlyFixture(t)
 		r := installFakeJudge(t, keepAll)
 		a, err := app.Open()
@@ -286,7 +277,7 @@ func TestSubstrateReviewDispatchCarriesManifestOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer a.Close()
-		j, err := newCaseJudge(a, "reviewer", a.Config.Validate.Injected, nil)
+		j, err := newCaseJudge(a, "reviewer", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -295,15 +286,11 @@ func TestSubstrateReviewDispatchCarriesManifestOnly(t *testing.T) {
 			ID: "embedded", Skill: substrateReviewSkill, StoryID: "substrate-review", From: "backlog", To: "plan",
 			Payload: &reviewscore.ReplayPayload{Title: "embedded", Body: string(body), NoPatch: true},
 		})
-		got := res.Notes
-		if err != nil {
-			got += err.Error()
+		if err != nil || strings.Contains(res.Notes, "over budget") {
+			t.Fatalf("an embedded body must not be refused: %v %s", err, res.Notes)
 		}
-		if res.Verdict == reviewscore.VerdictAccept || !strings.Contains(got, "over budget") {
-			t.Errorf("an embedded body should be refused over budget, got verdict %q: %s", res.Verdict, got)
-		}
-		if len(r.sent) != 0 {
-			t.Errorf("the over-budget dispatch reached the runner")
+		if len(r.sent) != 1 || !strings.Contains(r.sent[0].req.Payload, bodySentinel) {
+			t.Errorf("the dispatch must reach the runner carrying the body, sent %d", len(r.sent))
 		}
 	})
 }
@@ -395,7 +382,7 @@ func TestSubstrateReviewDefaultJudgeIsOrchestratorModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("substrate review: %v\n%s", err, out)
 		}
-		check(t, r, config.InterfaceCommand, agentcli.GrokCommandFor(config.RoleReviewer), "claude-opus-5-5")
+		check(t, r, config.InterfaceCommand, agentcli.DefaultGrokCommand, "claude-opus-5-5")
 	})
 	t.Run("--binding reviewer reaches the configured seat", func(t *testing.T) {
 		fixture(t, "claude")

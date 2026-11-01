@@ -40,14 +40,14 @@ func TestBuildWithoutReasonIsNotJudged(t *testing.T) {
 	}
 }
 
-// Batches with no budget is one batch per area that has items, never an empty
-// or zero-sized split; the rules ride the principles batch.
-func TestBatchesNoBudgetIsOneBatch(t *testing.T) {
+// Batches is one batch per area that has items, never an empty one; the rules
+// ride the principles batch.
+func TestBatchesIsOneBatchPerArea(t *testing.T) {
 	in := JudgeInput{Rules: []Rule{{Name: "r"}}}
 	for _, k := range []string{KindPrinciple, KindSkill, KindStep, KindGate, KindAgent, KindTask, KindSkill} {
 		in.Items = append(in.Items, JudgeItem{Item: Item{Key: k + "/x", Kind: k}})
 	}
-	bs := Batches(in, 0)
+	bs := Batches(in)
 	if len(bs) != len(Areas) {
 		t.Fatalf("got %d batches, want %d", len(bs), len(Areas))
 	}
@@ -59,29 +59,21 @@ func TestBatchesNoBudgetIsOneBatch(t *testing.T) {
 			t.Errorf("rules in area %s: %v", b.Area, b.Rules)
 		}
 	}
-	if n := len(Batches(JudgeInput{}, 0)); n != 0 {
+	if n := len(Batches(JudgeInput{})); n != 0 {
 		t.Errorf("nothing to judge gave %d batch(es)", n)
 	}
+}
 
-	// Under a budget an area splits into parts that each fit.
+// sty_58a7bdfe AC5: an area is never split to fit a budget — 40 skills are one
+// batch holding all 40.
+func TestBatchesNeverSplitsAnArea(t *testing.T) {
 	var skills JudgeInput
 	for i := 0; i < 40; i++ {
 		skills.Items = append(skills.Items, JudgeItem{Item: Item{Key: "skills/" + strings.Repeat("s", 20) + string(rune('a'+i%26)), Kind: KindSkill}})
 	}
-	whole := manifestSize(Batches(skills, 0)[0])
-	parts := Batches(skills, whole/3)
-	if len(parts) < 3 {
-		t.Fatalf("a manifest of %d bytes under a %d-byte cap split into %d part(s)", whole, whole/3, len(parts))
-	}
-	total := 0
-	for i, p := range parts {
-		total += len(p.Items)
-		if p.Chunk != i+1 || manifestSize(p) > whole/3 {
-			t.Errorf("part %d: chunk %d, %d bytes", i, p.Chunk, manifestSize(p))
-		}
-	}
-	if total != len(skills.Items) {
-		t.Errorf("the parts hold %d item(s), want %d", total, len(skills.Items))
+	bs := Batches(skills)
+	if len(bs) != 1 || len(bs[0].Items) != 40 || bs[0].Chunk != 0 {
+		t.Fatalf("batches = %d (first holds %d items, chunk %d), want one batch of 40 with chunk 0", len(bs), len(bs[0].Items), bs[0].Chunk)
 	}
 }
 
@@ -125,7 +117,7 @@ func TestInventoryIncludesTasks(t *testing.T) {
 	for _, it := range items {
 		in.Items = append(in.Items, JudgeItem{Item: it})
 	}
-	bs := Batches(in, 0)
+	bs := Batches(in)
 	if len(bs) != 1 || bs[0].Area != AreaTasks || len(bs[0].Items) != len(items) {
 		t.Errorf("tasks batch = %+v", bs)
 	}

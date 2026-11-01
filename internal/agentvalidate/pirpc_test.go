@@ -15,9 +15,9 @@ import (
 func piRPCAgents(command string) config.AgentsConfig {
 	return config.AgentsConfig{
 		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{Command: agentcli.DefaultGrokReviewerCommand, Tools: "read_file,grep,list_dir", Role: config.RoleReviewer},
+		Reviewer: config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,grep,list_dir", Role: config.RoleReviewer},
 		Agents: map[string]config.AgentBinding{
-			"planner": {Role: config.RoleAgent, Interface: config.InterfacePiRPC, Command: command, Tools: "read,grep,find,ls", TurnBudget: 40},
+			"planner": {Role: config.RoleAgent, Interface: config.InterfacePiRPC, Command: command, Tools: "read,grep,find,ls"},
 		},
 	}
 }
@@ -44,8 +44,21 @@ func TestValidate_PiRPCColdBindingIsClean(t *testing.T) {
 	if g.Interface != config.InterfacePiRPC || g.Backend != "isolated:pi" {
 		t.Errorf("grant = %+v, want interface=pi-rpc backend isolated:pi", g)
 	}
-	if !strings.Contains(g.Notes, "turn budget: 40 (turn_budget)") {
-		t.Errorf("notes = %q, want the turn budget satelle enforces", g.Notes)
+	// sty_58a7bdfe: satelle hands no harness a turn limit, so a grant names none.
+	if strings.Contains(g.Notes, "turn budget") {
+		t.Errorf("notes = %q, want no turn budget", g.Notes)
+	}
+}
+
+// sty_58a7bdfe AC3: {max_turns} is removed, so a command still carrying it is a
+// binding problem rather than a literal token handed to the harness.
+func TestValidate_MaxTurnsPlaceholderIsAProblem(t *testing.T) {
+	ac := piRPCAgents(agentcli.PiRPCCommand)
+	ac.Agents["coder"] = config.AgentBinding{Role: config.RoleAgent, Command: "claude -p --output-format json --max-turns {max_turns}", Tools: "Read"}
+	r := Validate(ac, nil, nil)
+	joined := strings.Join(r.Problems, "\n")
+	if !strings.Contains(joined, "[coder]") || !strings.Contains(joined, config.RemovedMaxTurnsPlaceholder) {
+		t.Fatalf("problems = %v, want [coder] refused naming %s", r.Problems, config.RemovedMaxTurnsPlaceholder)
 	}
 }
 

@@ -123,7 +123,7 @@ func TestToolCallsZeroIsMeasuredOnlyWhereEventsAreReported(t *testing.T) {
 		t.Errorf("an event transport with no tool calls measured zero, got %v (%q)", dec.ToolCalls, dec.ToolCallsUnavailableReason)
 	}
 
-	oneShot := &countsRunner{command: agentcli.DefaultGrokReviewerCommand, tools: 5, out: grokOutputFor(t, agentcli.DefaultGrokReviewerCommand, acceptVerdict)}
+	oneShot := &countsRunner{command: agentcli.DefaultGrokCommand, tools: 5, out: grokOutputFor(t, agentcli.DefaultGrokCommand, acceptVerdict)}
 	dec, err = singleSeatGate(t, oneShot)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestToolCallsZeroIsMeasuredOnlyWhereEventsAreReported(t *testing.T) {
 // sty_5ebcd6f9: a grok seat run by the default reviewer command records its turns
 // and tokens on its row from the real json envelope, and its verdict still parses.
 func TestGrokReviewerDefaultCommandRowCarriesTurnsAndTokens(t *testing.T) {
-	cmd := agentcli.DefaultGrokReviewerCommand
+	cmd := agentcli.DefaultGrokCommand
 	dec, err := singleSeatGate(t, &countsRunner{command: cmd, out: grokOutputFor(t, cmd, acceptVerdict)})
 	if err != nil {
 		t.Fatalf("the verdict must still parse from the command's output form: %v", err)
@@ -255,7 +255,7 @@ func TestMaxTurnsKeepsTheUsageAndTurnsTheRunReported(t *testing.T) {
 }
 
 func TestAnotherFailureIsUnavailableNotMaxTurns(t *testing.T) {
-	_, err := singleSeatGate(t, &countsRunner{command: agentcli.DefaultGrokReviewerCommand, err: errFakeAgent})
+	_, err := singleSeatGate(t, &countsRunner{command: agentcli.DefaultGrokCommand, err: errFakeAgent})
 	if errors.Is(err, agentcli.ErrMaxTurns) {
 		t.Fatalf("an ordinary failure is not a turn cap: %v", err)
 	}

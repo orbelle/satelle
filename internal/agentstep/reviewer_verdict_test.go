@@ -149,34 +149,28 @@ func TestSeatPayloadForKeysOnJudgingNotKind(t *testing.T) {
 	verdict := ReviewerVerdictDoc(context.Background(), verdictDocs())
 	in := SeatPromptInput{Kind: SeatReviewer, Section: "reviewer", Rubric: "RUBRIC", Verdict: verdict}
 
-	idle, err := SeatPayloadFor(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(idle.SystemPrompt, verdictRulesPhrase) || strings.Contains(idle.SystemPrompt, judgingContextBriefing(false)) {
-		t.Errorf("a reviewer-kind seat that does not judge is estimated as a non-judging dispatch:\n%s", idle.SystemPrompt)
+	idle := SeatPayloadFor(in)
+	if strings.Contains(idle, verdictRulesPhrase) || strings.Contains(idle, judgingContextBriefing(false)) {
+		t.Errorf("a reviewer-kind seat that does not judge is estimated as a non-judging dispatch:\n%s", idle)
 	}
 
 	in.Judging = true
-	judging, err := SeatPayloadFor(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := strings.Count(judging.SystemPrompt, verdictRulesPhrase); n != 1 {
+	judging := SeatPayloadFor(in)
+	if n := strings.Count(judging, verdictRulesPhrase); n != 1 {
 		t.Errorf("a judging seat is estimated with the verdict rules once, got %d", n)
 	}
-	if len(judging.SystemPrompt) <= len(idle.SystemPrompt) {
-		t.Errorf("a judging estimate is larger by the rules (%d <= %d)", len(judging.SystemPrompt), len(idle.SystemPrompt))
+	if len(judging) <= len(idle) {
+		t.Errorf("a judging estimate is larger by the rules (%d <= %d)", len(judging), len(idle))
 	}
 
 	in.Verdict = ""
-	if bare, err := SeatPayloadFor(in); err != nil || strings.Contains(bare.SystemPrompt, verdictRulesPhrase) {
-		t.Errorf("no verdict document, no rules in the estimate (err %v)", err)
+	if bare := SeatPayloadFor(in); strings.Contains(bare, verdictRulesPhrase) {
+		t.Error("no verdict document, no rules in the estimate")
 	}
 
 	in.Kind, in.Judging, in.Verdict = SeatPerformer, true, verdict
-	if got, err := SeatPayloadFor(in); err != nil || strings.Count(got.SystemPrompt, verdictRulesPhrase) != 1 {
-		t.Errorf("the estimate keys on Judging, whatever the kind (err %v)", err)
+	if got := SeatPayloadFor(in); strings.Count(got, verdictRulesPhrase) != 1 {
+		t.Error("the estimate keys on Judging, whatever the kind")
 	}
 }
 
@@ -194,21 +188,15 @@ func TestJudgingSeatNeverGetsTheVerdictRulesTwice(t *testing.T) {
 		t.Fatal("fixture: the all selector must pick the verdict principle up as a resident document")
 	}
 	verdict := ReviewerVerdictDoc(context.Background(), docs)
-	got, err := BuildSeatPayload(SeatPayloadInput{
+	got := BuildSeatPayload(SeatPayloadInput{
 		Principles: resident, Charter: "CHARTER", Rubric: "RUBRIC", Judging: true, Verdict: verdict,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := strings.Count(got.SystemPrompt, verdictRulesPhrase); n != 1 {
+	if n := strings.Count(got, verdictRulesPhrase); n != 1 {
 		t.Errorf("verdict rules delivered %d times, want once", n)
 	}
 	// A non-judging seat on the same selector keeps it as an ordinary resident principle.
-	idle, err := BuildSeatPayload(SeatPayloadInput{Principles: resident, Charter: "CHARTER", Rubric: "RUBRIC"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(idle.SystemPrompt, verdictRulesPhrase) != 1 {
+	idle := BuildSeatPayload(SeatPayloadInput{Principles: resident, Charter: "CHARTER", Rubric: "RUBRIC"})
+	if strings.Count(idle, verdictRulesPhrase) != 1 {
 		t.Error("a non-judging seat on selector all keeps the principle as an ordinary resident document")
 	}
 }

@@ -7,7 +7,7 @@
 //
 // A command string is a command template: the first token is the binary, the rest
 // are argv tokens that may carry the placeholders {system}, {tools}, {model},
-// {settings}, {max_turns} (a repo's turn budget, dropped when unset), and {payload}. At call time satelle substitutes each placeholder into
+// {settings}, and {payload}. At call time satelle substitutes each placeholder into
 // its own argv token (so a multi-line system prompt or a JSON payload stays a
 // single argument). The work-item payload is ALWAYS also written to the child
 // stdin (dual delivery): stdin-first CLIs (claude -p) keep using stdin alone;
@@ -33,7 +33,6 @@ import (
 	"runtime"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -88,35 +87,9 @@ const DefaultClaudeStreamCommand = "claude -p --input-format stream-json --outpu
 // `usage` and `num_turns` (UnwrapUsage reads both) and its `text` is unwrapped for
 // verdict parsing; it carries no tool events (ToolCallsUnavailableReason).
 //
-// This is the non-reviewer template (--max-turns grokAgentMaxTurns); a reviewer
-// seat is seeded from DefaultGrokReviewerCommand through GrokCommandFor.
-const DefaultGrokCommand = "grok -p {payload} --system-prompt-override {system} --tools read_file,grep,list_dir -m {model} --reasoning-effort {effort} --deny Write --deny Edit --deny search_replace --deny write --always-approve --output-format json --max-turns " + grokAgentMaxTurns + " --no-subagents"
-
-// grokAgentMaxTurns is the unchanged original turn cap of the grok preset. No
-// measurement covers the coder or other non-reviewer roles, so it stays as it was.
-const grokAgentMaxTurns = "16"
-
-// grokReviewerMaxTurns is the turn cap of the grok preset seeded for a reviewer
-// seat. satelle-server measured (2026-10-22) a code-verifying plan review making
-// 35-60 tool calls (mostly grep and list_dir to find a cited file:line) at 3-5
-// calls per turn, a 20-turn worst case, so the 16-turn cap ended most first
-// attempts at "Max turns reached" and three such failures spent the seat. 32 fits
-// that worst case with headroom, matches satelle-server's interim binding, and
-// still bounds a runaway at twice the old cap.
-const grokReviewerMaxTurns = "32"
-
-// DefaultGrokReviewerCommand is DefaultGrokCommand with the reviewer turn cap; the
-// rest of the template is identical.
-const DefaultGrokReviewerCommand = "grok -p {payload} --system-prompt-override {system} --tools read_file,grep,list_dir -m {model} --reasoning-effort {effort} --deny Write --deny Edit --deny search_replace --deny write --always-approve --output-format json --max-turns " + grokReviewerMaxTurns + " --no-subagents"
-
-// GrokCommandFor returns the grok preset template for a binding role: the
-// reviewer template for "reviewer", the non-reviewer one for anything else.
-func GrokCommandFor(role string) string {
-	if strings.EqualFold(strings.TrimSpace(role), "reviewer") {
-		return DefaultGrokReviewerCommand
-	}
-	return DefaultGrokCommand
-}
+// It carries no turn limit: how many turns a run takes is grok's own business,
+// not satelle's (sty_58a7bdfe).
+const DefaultGrokCommand = "grok -p {payload} --system-prompt-override {system} --tools read_file,grep,list_dir -m {model} --reasoning-effort {effort} --deny Write --deny Edit --deny search_replace --deny write --always-approve --output-format json --no-subagents"
 
 // CursorCommand is the cursor-agent command template (sty_10c52ab3). cursor has no
 // system-prompt flag and a positional prompt suppresses stdin, so the template
@@ -139,11 +112,6 @@ type Request struct {
 	// Effort is {effort}: optional reasoning/thinking level (sty_657f77b9);
 	// "" drops the placeholder AND a directly preceding flag (like Model).
 	Effort string
-	// MaxTurns is {max_turns}: the repo's configured turn budget for this run
-	// (sty_a7914904). Zero means no budget: the placeholder AND a directly
-	// preceding flag are dropped, like an empty Model. satelle never supplies a
-	// number of its own — only a repo's turn_budget reaches here.
-	MaxTurns int
 	// Settings is {settings}: a pre-marshalled JSON object mirroring claude's
 	// settings.local.json schema (env/model/permissions), already ${VAR}-resolved
 	// by the caller (config.ResolveAgentEnvs / agentstep.buildRequest) — agentcli
@@ -696,14 +664,6 @@ func buildArgs(argTemplate []string, req Request) []string {
 				continue
 			}
 			args = append(args, req.Effort)
-		case "{max_turns}":
-			if req.MaxTurns <= 0 {
-				if n := len(args); n > 0 && strings.HasPrefix(args[n-1], "-") {
-					args = args[:n-1]
-				}
-				continue
-			}
-			args = append(args, strconv.Itoa(req.MaxTurns))
 		case "{settings}":
 			if strings.TrimSpace(req.Settings) == "" {
 				if n := len(args); n > 0 && strings.HasPrefix(args[n-1], "-") {
@@ -743,7 +703,6 @@ func fusedPlaceholder(tok string, req Request) (sub string, ok bool, empty bool)
 		{"{model}", strings.TrimSpace(req.Model)},
 		{"{effort}", strings.TrimSpace(req.Effort)},
 		{"{settings}", strings.TrimSpace(req.Settings)},
-		{"{max_turns}", maxTurnsValue(req.MaxTurns)},
 	} {
 		if !strings.Contains(tok, p.ph) || tok == p.ph {
 			continue
@@ -758,15 +717,6 @@ func fusedPlaceholder(tok string, req Request) (sub string, ok bool, empty bool)
 		return strings.ReplaceAll(tok, p.ph, p.val), true, false
 	}
 	return "", false, false
-}
-
-// maxTurnsValue renders a turn budget for a fused placeholder; no budget is the
-// empty value, which drops the token like any other unset placeholder.
-func maxTurnsValue(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strconv.Itoa(n)
 }
 
 // composeEnv layers overlay onto base ("KEY=VALUE" entries, as from os.Environ),

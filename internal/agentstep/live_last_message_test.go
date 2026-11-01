@@ -104,7 +104,7 @@ func TestPerformanceResultLastMessageIsScrubbedButOutputIsRaw(t *testing.T) {
 	g, _ := newEngine(t, "", fakeDocs{})
 	binding := config.AgentBinding{Env: map[string]string{"TOKEN": "LOCAL-token", "DEPLOY_KEY": "run-secret-1"}}
 	out := "OBSERVED-TOKEN=LOCAL-token key=run-secret-1 ok"
-	res := g.performanceResult("coder", "skill", binding, config.Budget{}, ModelChoice{}, InvokeResult{Stdout: []byte(out)})
+	res := g.performanceResult("coder", "skill", binding, ModelChoice{}, InvokeResult{Stdout: []byte(out)})
 	if res.Output != out {
 		t.Errorf("Output = %q, want the raw capture %q", res.Output, out)
 	}

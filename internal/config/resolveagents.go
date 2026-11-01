@@ -334,12 +334,6 @@ func overlayDefaults(base, top AgentsDefaults) AgentsDefaults {
 	if strings.TrimSpace(top.BusyTimeout) != "" {
 		out.BusyTimeout = top.BusyTimeout
 	}
-	if top.ContextBudget != 0 {
-		out.ContextBudget = top.ContextBudget
-	}
-	if top.TurnBudget != 0 {
-		out.TurnBudget = top.TurnBudget
-	}
 	return out
 }
 
@@ -562,16 +556,6 @@ func overlayBinding(base AgentBinding, baseSrc map[string]string, top AgentBindi
 	setScalar("placement", &out.Placement, top.Placement)
 	setScalar("remote", &out.Remote, top.Remote)
 	setScalar("remote_path", &out.RemotePath, top.RemotePath)
-	// Budgets are the REPO's (never a catalog profile's), so only the top tier
-	// carries them; a non-zero value overlays whatever sits beneath.
-	if top.ContextBudget != 0 {
-		out.ContextBudget = top.ContextBudget
-		src["context_budget"] = topSrc
-	}
-	if top.TurnBudget != 0 {
-		out.TurnBudget = top.TurnBudget
-		src["turn_budget"] = topSrc
-	}
 
 	if len(top.Env) > 0 {
 		out.Env = mergeStringMap(base.Env, top.Env)

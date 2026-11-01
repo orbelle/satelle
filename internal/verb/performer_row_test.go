@@ -10,14 +10,14 @@ import (
 
 // sty_51d0f74a: the performer figures `story cost --rounds` reports are read back
 // from the row dispatchPayload writes, so this pins writer and readers to the
-// same keys: the turn count under budget, the tokens and duration at the top, and
-// the findings offered and answered.
+// same keys: the turn count, the tokens and duration at the top, and the findings
+// offered and answered.
 func TestDispatchPayloadRowIsReadBackByTheRoundsReport(t *testing.T) {
 	turns := 9
 	res := DispatchResult{
 		Dispatched: true, Agent: "planner", Skill: "plan",
 		TokensIn: 1200, TokensOut: 300, TokensTotal: 1500, DurationMs: 4000, UsageAvailable: true,
-		Budget:          &BudgetReport{Turns: &turns},
+		Turns:           &turns,
 		FindingsOffered: []string{"rev#1", "rev#2"},
 		Answers:         []agentartifact.Answer{{Finding: "rev#1", Answer: agentartifact.AnswerAdopted}},
 	}

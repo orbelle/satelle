@@ -538,9 +538,10 @@ type DispatchResult struct {
 	// attached before the transition committed.
 	ArtifactName string `json:"artifact_name,omitempty"`
 	ArtifactType string `json:"artifact_type,omitempty"`
-	// Budget is what the run measured against the repo's spend bounds
-	// (sty_a7914904); nil when the dispatch failed before it produced usage.
-	Budget *BudgetReport `json:"budget,omitempty"`
+	// Turns is the model turns the run reported, or nil with the adapter-named
+	// reason it reported none — a measured actual, never a bound.
+	Turns                  *int   `json:"turns,omitempty"`
+	TurnsUnavailableReason string `json:"turns_unavailable_reason,omitempty"`
 	// Cloud is set when the step was performed by a cloud session
 	// (interface=cloud, sty_82cffd60): where it ran and what was collected.
 	Cloud *CloudDispatch `json:"cloud,omitempty"`

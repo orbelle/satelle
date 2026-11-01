@@ -128,7 +128,7 @@ runtime refusal and validate, so they cannot disagree.
 | **`command`** (default for a one-shot use) | Full multi-token argv template; any CLI (Claude Code, `grok -p`, wrappers, custom). One-shot stdin/argv; reviewers stay here. |
 | **`acp`** | Agent Client Protocol over stdio; `command` is the **spawn line only** (e.g. `grok agent stdio`). System/payload ride the session, not `{placeholders}`. |
 | **`stream`** | Stream-json live session (Claude preset, opt-in: `DefaultClaudeStreamCommand`). `{system}`/`{payload}` are rejected — they ride the first user message; `{tools}`/`{model}`/`{effort}` remain argv. For the orchestrator binding (live turns), not reviewers. |
-| **`pi-rpc`** | A pi command run in pi's RPC mode, one-shot (`agentcli.PiRPCCommand`). The payload is sent as pi's one `prompt` command; satelle reads every turn, message and tool call as an event, ends the seat (stdin closed, process group killed) once pi reports `agent_settled`, aborts it when it starts a turn beyond `turn_budget`, and records usage from `get_session_stats`. Building the runner refuses a template without `--mode rpc`, `--no-session`, `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`, `--no-mcp` and `--system-prompt {system}`. Only a pi command may use it. |
+| **`pi-rpc`** | A pi command run in pi's RPC mode, one-shot (`agentcli.PiRPCCommand`). The payload is sent as pi's one `prompt` command; satelle reads every turn, message and tool call as an event, ends the seat (stdin closed, process group killed) once pi reports `agent_settled`, and records usage from `get_session_stats`. Building the runner refuses a template without `--mode rpc`, `--no-session`, `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`, `--no-mcp` and `--system-prompt {system}`. Only a pi command may use it. |
 
 Shared fields on all four: `role`, `tools`, `model` (one model, or an ordered
 comma list — see *Model list*), `effort`, `secondary`,
@@ -310,85 +310,9 @@ CPU progress (a hang, a sleep) still stalls at `idle_timeout` exactly as before.
   probe reports that it is unavailable and the run keeps the strict behaviour.
 - An explicit `timeout` (hard ceiling) still wins over both.
 
-### Spend budgets — `context_budget`, `turn_budget`, fresh session, coder-step edits (sty_a7914904)
+### Coder-step edits go through the named coder
 
-A long driving session and an unbounded coder dispatch are the two ways a story
-quietly costs ten times what it should (one repo's driver drove a dozen stories
-in one session and made most edits itself during coder steps; one coder dispatch
-ran 31 minutes). satelle bounds neither by default: **the numbers are the
-repo's, and the binary ships none.** Everything below is configuration.
-
-**The keys.** Both are integers; `0` or absent means *unset*, a negative value is
-refused at load.
-
-```toml
-# .satelle/workflows/agents.toml
-[defaults]
-context_budget = 400000        # last tier; backs any binding or step that sets none
-
-[coder]
-turn_budget    = 40            # model turns for ONE dispatched coder run
-context_budget = 300000        # input tokens for that run
-command = "claude -p --output-format json --max-turns {max_turns} …"
-```
-
-```toml
-# .satelle/workflows/step.toml — a step's own bound wins over its binding
-[coded]
-status = "in_progress"
-agent  = "coder"
-turn_budget = 25
-```
-
-Each bound resolves on its own: **step, then binding, then `[defaults]`**.
-`context_budget` is measured in **input tokens** — fresh + cache read + cache
-write, the sum a `driver_usage` row carries — of one dispatched run, or for the
-driving session the cumulative input its `driver_usage` rows record.
-`turn_budget` is model turns of one dispatched run.
-
-**Handing the turn budget to the harness — `{max_turns}`.** Where the adapter
-has a turn-limit flag, write it into the binding's command template with the
-`{max_turns}` placeholder (`--max-turns {max_turns}`): satelle substitutes the
-resolved `turn_budget`, and drops the placeholder *and its preceding flag* when
-none is set, exactly like `{model}`. The **turn budget** column of the
-per-adapter capability table below says which adapters can: claude and grok
-`command`/`stream` can; **grok `acp` cannot** (its spawn line carries no
-placeholders and the session protocol has no turn option — `{max_turns}` in an
-acp command is refused, naming the adapter). Where the harness is not told, the
-limitation is recorded on the dispatch's `agent_invocation` row, adapter-named,
-and the run's reported `num_turns` is checked against the budget instead. A run
-that reported no turn count records *unavailable* with the adapter's name — never
-a zero, so it can never look like an overrun.
-
-**With no budget set, satelle only warns and records.** Each dispatched run
-prints one line with what it measured (turns, input tokens) and records the same
-under `budget` on its `agent_invocation` row. A story is **never** parked for
-spend unless the repo configured a bound.
-
-**With a budget set, an overrun has a consequence — and only then.** It is
-recorded as a `budget_overrun` ledger row (`kind`, `budget`, `measured`,
-`consequence`, `reason`), then:
-
-- the step **has a `rework` key** → **rework**: the story is not parked; the
-  output names `satelle story rework <id>` (the entry gate still decides);
-- the step has **no** `rework` key → the story is **blocked**, the reason
-  (`budget overrun: <agent> at step <step> used <n> … > <kind> budget <m>
-  (configured by this repo)`) kept on the ledger as the parked story's comment;
-- the workflow offers **no blocked state** → the transition is refused with that
-  reason. satelle never invents a status (`satelle-agent-goals`).
-
-**Start a fresh session per story — the engage warning.** When a story is
-engaged (entering an engaging state from a non-engaging one), satelle checks the
-driving session's own `driver_usage` rows. If they already cover **another
-story**, the engage output tells the driver to *start a fresh session for this
-story*, and the same is recorded as a `session_advisory` ledger row
-(`trigger = "other-story"`). This fires with **no budget configured**. A
-configured `context_budget` for the step is a second trigger
-(`trigger = "context-budget"`): the session's cumulative input has reached it.
-It is a **warning only** — engage is never refused for it — and a no-op when no
-session id resolves for the caller.
-
-**Coder-step edits go through the named coder.** While the story sits at a step
+While the story sits at a step
 the route allocates to a named (dispatched) agent, the edit gate refuses the
 driver's own in-loop edits. The refusal names `satelle story rework <id>` **only
 when that step declares a `rework` key**; otherwise it names the one-shot
@@ -1040,8 +964,7 @@ seeded by init and the canonical consts:
 
 The first token is the binary; the rest are argv tokens carrying the placeholders
 (each one argv token): **`{system}`** (the rubric), **`{tools}`** (the grant),
-**`{model}`**, **`{settings}`**, **`{max_turns}`** (the repo's `turn_budget`, see
-*Spend budgets*), **`{payload}`**. Empty `{model}`/`{settings}`/`{max_turns}` drop
+**`{model}`**, **`{settings}`**, **`{payload}`**. Empty `{model}`/`{settings}` drop
 that flag; empty `{payload}` does not. The work item is **always also on stdin**
 (dual delivery), so stdin-first CLIs (claude) omit `{payload}` and argv-first
 CLIs (grok) include it.
@@ -1396,19 +1319,13 @@ adapter-named reason on the ledger row, never a silent zero or a Claude default
 (`satelle-agent-agnostic`). `internal/agentcli/capabilities.go` is the source of
 this table and a test checks every cell against the code that produces it.
 
-| adapter | usage | cache split | resolved model | model inheritance | live session | tool trim | offered tools | turn budget | cloud launch |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| claude command | yes | yes | yes | yes | unavailable: interface=command is one-shot only | yes | yes | yes | yes |
-| claude stream | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| grok command | yes | yes | yes | unavailable: grok's hook payload carries no model, so the in-loop tier is unknown | unavailable: interface=command is one-shot only | yes | yes | yes | unavailable: grok command has no cloud runner |
-| grok acp | yes | yes | yes | unavailable: grok's hook payload carries no model, so the in-loop tier is unknown | yes | unavailable: grok agent stdio has no tool-list flag and reports no permission mode, so a grok acp reviewer runs with a warning that its tools are not held to the grant | unavailable: grok agent stdio neither trims nor reports offered tools | unavailable: grok agent stdio has no turn-limit argv or session option, so a turn_budget is recorded and checked against reported turns only | unavailable: grok acp has no cloud runner |
-| pi pi-rpc | yes | yes | yes | unavailable: pi's hook payload carries no model, so the in-loop tier is unknown | unavailable: interface=pi-rpc runs one-shot dispatches only | yes | yes | yes | unavailable: pi pi-rpc has no cloud runner |
-
-**turn budget** means the harness itself is handed the repo's `turn_budget`
-through the `{max_turns}` placeholder in the binding's command template and
-stops the run; it is only "yes" for a binding whose template carries the
-placeholder, or for `interface = "pi-rpc"`, where satelle itself aborts the run
-when it starts a turn beyond the budget (see *Spend budgets* below).
+| adapter | usage | cache split | resolved model | model inheritance | live session | tool trim | offered tools | cloud launch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| claude command | yes | yes | yes | yes | unavailable: interface=command is one-shot only | yes | yes | yes |
+| claude stream | yes | yes | yes | yes | yes | yes | yes | yes |
+| grok command | yes | yes | yes | unavailable: grok's hook payload carries no model, so the in-loop tier is unknown | unavailable: interface=command is one-shot only | yes | yes | unavailable: grok command has no cloud runner |
+| grok acp | yes | yes | yes | unavailable: grok's hook payload carries no model, so the in-loop tier is unknown | yes | unavailable: grok agent stdio has no tool-list flag and reports no permission mode, so a grok acp reviewer runs with a warning that its tools are not held to the grant | unavailable: grok agent stdio neither trims nor reports offered tools | unavailable: grok acp has no cloud runner |
+| pi pi-rpc | yes | yes | yes | unavailable: pi's hook payload carries no model, so the in-loop tier is unknown | unavailable: interface=pi-rpc runs one-shot dispatches only | yes | yes | unavailable: pi pi-rpc has no cloud runner |
 
 **cloud launch** means a binding with `interface = "cloud"` can run its step in
 a cloud session of the harness (see *Cloud performer* below). Only claude has a

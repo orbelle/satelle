@@ -138,10 +138,6 @@ func (g *Engine) PerformExecutorStep(ctx context.Context, item workitem.Item, st
 	}
 	modelResolved, modelSource := g.selectModel(ctx, binding, item.ID, target.Model, config.ModelSourceStep)
 	mc := ModelChoice{Model: modelResolved, Source: modelSource}
-	budget := config.ResolveBudget(
-		config.Budget{Context: target.ContextBudget, Turns: target.TurnBudget},
-		binding.Budget(), g.defaultBudget)
-	binding.ContextBudget, binding.TurnBudget = budget.Context, budget.Turns
 	timeout, err := binding.TimeoutDuration(g.agentTimeout)
 	if err != nil {
 		return verb.DispatchResult{}, fmt.Errorf("[executor]: invalid timeout in .satelle/workflows/agents.toml: %w", err)
@@ -188,7 +184,7 @@ func (g *Engine) PerformExecutorStep(ctx context.Context, item workitem.Item, st
 		Skill:       skill,
 		Actor:       "executor",
 	})
-	res := g.performanceResult("executor", skill, binding, budget, mc, invRes)
+	res := g.performanceResult("executor", skill, binding, mc, invRes)
 	res.Skills = delivered.Manifest
 	g.logExecutorRun("executor", item.ID, step, invRes.Stdout, invRes.Err)
 	if invRes.Err != nil {

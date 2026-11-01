@@ -28,17 +28,17 @@ which is exactly what the constitution forbids.
 
 Instruction text is paid for on every call, so doctor checks what is actually
 delivered, using the same renderers the hook and the dispatch use. All of it is
-advisory (WARN or INFO) except `context.dispatch.pointered`, and none of it makes a
-model call. A resident document that does not fit is first condensed
-(`satelle substrate condense` prints the rules), with a marker that returns the
-original; a read pointer is the last resort.
+advisory (WARN or INFO), and none of it makes a model call. satelle sizes no
+dispatched seat against a budget: each agent CLI manages its own context. A
+resident document that does not fit the SessionStart harness limit is first
+condensed (`satelle substrate condense` prints the rules), with a marker that
+returns the original; a read pointer is the last resort.
 
 | Identifier | What it reports |
 | --- | --- |
 | `context.session.overflow` | the SessionStart context, rendered once per **bound harness** (the harness of each seat's command, plus the harnesses installed for an in-loop seat), still omits documents to read pointers under that harness's own limit after condensing — naming the harness, the limit, the rendered size and each omitted document |
-| `context.dispatch.pointered` | **ERROR.** A seat with a `[validate.injected.budget]` fits it only by replacing resident rules with read pointers, so it starts without rules meant for it |
 | `context.session.unavailable` | a harness could not be judged: no `[harness.<name>]` table, or a seat command no adapter recognises (never assumed to be any provider) |
-| `context.dispatch.over_budget` / `.unbudgeted` / `.unavailable` | the size of each dispatched seat's context (planner, coder, reviewers, summariser, consult) and of the per-prompt reminder, against the budget **you** configured: `[validate.injected.budget]` (tokens) for a seat, that table or the harness's `tool_context_limit_chars` for the reminder. No budget configured is INFO, not a pass — the binary ships none |
+| `context.reminder.over_clip` | the per-prompt reminder is longer than the harness's own `[harness.<name>] tool_context_limit_chars` clip — a channel limit of the harness, like the SessionStart cap, reported only when exceeded |
 | `context.duplicate.verbatim` | a run of at least `[doctor] duplicate_min_words` words copied word-for-word between two documents, compared against every principle and skill (authored and embedded, resident or on-demand, linked or not). Point at the source with `[[name]]` instead of restating it |
 | `context.baseline.override` | a document in `.satelle/principles` or `.satelle/skills` that shadows a baseline principle (`satelle-story-shape`, `satelle-start-small`) by name with a different body, or restates a passage of one (the same word-for-word test). Point at the principle with `[[name]]`; a semantic contradiction is not judged here |
 | `context.ref.unresolved` / `.unwired` / `context.index.stale` | a `[[name]]` or backticked `satelle-…` name that resolves to nothing or is retired; a skill that is named but that no route, gate, hook, summary, advisor or task wires; a `documents/index.md` entry whose document is gone |

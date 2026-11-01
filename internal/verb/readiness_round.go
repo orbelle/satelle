@@ -216,7 +216,7 @@ func recordGateRound(ctx context.Context, current workitem.Item, to, attempt str
 }
 
 // performerRun is what dispatching a step's performer produced and recorded. A
-// zero Err/Refuse/ParkNotes is an accept: the performer did not reject.
+// zero Err/Refuse is an accept: the performer did not reject.
 type performerRun struct {
 	Res DispatchResult
 	// Err is the dispatch failure, or the performer's reject (see Reject).
@@ -224,10 +224,9 @@ type performerRun struct {
 	// Reject is set when Err is a performer that judged the premise wrong and said
 	// why: the engaged route parks the story with those notes.
 	Reject *PerformerReject
-	// Refuse is a spend bound the run broke on a step that can neither rework nor
-	// park; ParkNotes is one it broke where the story would park blocked.
-	Refuse    error
-	ParkNotes string
+	// Refuse is a check on the run's output that refuses the step (the
+	// skill-evidence check under skill_evidence = reject, or unanswered findings).
+	Refuse error
 	// Item is the story as the performer's reported changes left it, set only when
 	// they were applied (sty_af0b1761). The caller rebinds it before the step's
 	// gates run, so they judge the repaired record.
@@ -318,27 +317,21 @@ func dispatchPerformer(ctx context.Context, current workitem.Item, to, attempt s
 				attemptPayload(current.Status, to, res.Skill, attempt), now)
 		}
 	}
-	// Spend budgets (sty_a7914904): with none configured this only warns
-	// and records; a bound the repo set and the run exceeded routes to
-	// rework (the step declares a loop) or parks the story blocked.
-	notes, refuse := applyDispatchBudget(ctx, current, to, res,
-		stepDeclaresRework(ctx, current, to), ResumeParkName(ctx, current), now)
 	// The skill-evidence check (sty_23ceeca2): a gap is always on the row above and
 	// in front of the driver; under the workflow's skill_evidence = reject it also
-	// refuses the step, as a broken spend bound does.
+	// refuses the step.
+	var refuse error
 	if res.Evidence != nil && len(res.Evidence.Gaps()) > 0 {
 		reportSkillEvidence(current.ID, to, res.Evidence)
-		if refuse == nil && notes == "" && res.Evidence.Blocks() {
+		if res.Evidence.Blocks() {
 			refuse = fmt.Errorf("step %q refused by the skill-evidence check (workflow skill_evidence = reject): %s", to, res.Evidence.Notes())
 		}
 	}
-	run.Refuse, run.ParkNotes = refuse, notes
+	run.Refuse = refuse
 	if readiness && refuse != nil {
 		recordPerformerReject(ctx, current, to, attempt, res, refuse.Error(), now)
-	} else if readiness && notes != "" {
-		recordPerformerReject(ctx, current, to, attempt, res, notes, now)
 	}
-	if readiness && run.Refuse == nil && run.ParkNotes == "" {
+	if readiness && run.Refuse == nil {
 		if refuse := refuseUnansweredFindings(ctx, current, to, res); refuse != nil {
 			run.Refuse = refuse
 			rejected := res
@@ -592,8 +585,6 @@ func runReadinessRound(ctx context.Context, item workitem.Item, edge readinessEd
 		return reject(run.Err.Error())
 	case run.Refuse != nil:
 		return reject(run.Refuse.Error())
-	case run.ParkNotes != "":
-		return reject(run.ParkNotes)
 	}
 	if transitionGater != nil {
 		if _, gerr := recordGateRound(ctx, item, edge.To, attempt, now); gerr != nil {

@@ -151,20 +151,16 @@ type invocation struct {
 	tools      string
 	model      string
 	effort     string // optional reasoning effort (sty_657f77b9)
-	maxTurns   int    // the repo's resolved turn budget → {max_turns}; 0 = none (sty_a7914904)
 	settings   map[string]any
 	env        map[string]string
 	scratch    string // this dispatch's scratch dir; "" → no scratch briefing (sty_e7aaf8b1)
 	judging    bool   // Expect judges: the work item is paths, the briefing says so
 	inline     bool   // judging, but the runner reads no local paths: the work item stays inline
 	shell      bool   // the grant admits a shell, so the judging briefing keeps the CLI lines
-	section    string // agents.toml section the seat runs under; names its budget
-	step       string // the verb or step the dispatch performs; names it in a budget refusal
-	storyID    string // the story the dispatch serves; keys the originals of condensed documents
 }
 
 // promptParts are the pieces of an isolated agent's system prompt that follow
-// the constitution and the principles (BuildSeatPayload fits those). Empty parts
+// the constitution and the principles (BuildSeatPayload puts those first). Empty parts
 // are omitted.
 type promptParts struct {
 	charter string // role charter
@@ -178,7 +174,7 @@ type promptParts struct {
 
 // composeSystemPrompt is the canonical order of everything after the constitution
 // and principles: role charter, scratch briefing, pull-context call-to-action,
-// skill rubric. BuildSeatPayload puts the fitted constitution and principles in
+// skill rubric. BuildSeatPayload puts the constitution and principles in
 // front of it, for buildRequest and the injected-size report alike, so the number
 // the report prints is the length of what a dispatch sends.
 func composeSystemPrompt(p promptParts) string {
@@ -241,25 +237,8 @@ func (g *Engine) buildRequest(ctx context.Context, inv invocation) (agentcli.Req
 	if inv.principles != "" && inv.principles != config.PrinciplesNone {
 		in.Constitution = g.constitution
 		in.Principles = ResidentPrincipleDocs(ctx, g.docs, inv.principles)
-		// The seat's budget fits them (sty_df21b2db). Without a store to keep the
-		// originals behind their markers there is no condensing: the seat gets
-		// them as written, as it did before the budget existed.
-		if tokens, ok := g.injected.BudgetFor(inv.section); ok && inv.section != "" {
-			if off := g.seatOffloader(ctx, inv.storyID); off != nil {
-				in.Section, in.Offload, in.Rules = inv.section, off, g.condenseRules
-				in.BudgetBytes = tokens * g.injected.ResolveBytesPerToken()
-				in.PayloadBytes = len(payload)
-			}
-		}
 	}
-	seat, err := BuildSeatPayload(in)
-	if err != nil {
-		return agentcli.Request{}, err
-	}
-	systemPrompt := seat.SystemPrompt
-	if err := g.checkDispatchBudget(inv, len(systemPrompt), len(payload)); err != nil {
-		return agentcli.Request{}, err
-	}
+	systemPrompt := BuildSeatPayload(in)
 	var settings string
 	if len(inv.settings) > 0 {
 		sb, serr := json.Marshal(inv.settings)
@@ -287,38 +266,10 @@ func (g *Engine) buildRequest(ctx context.Context, inv invocation) (agentcli.Req
 		AllowedTools: inv.tools,
 		Model:        inv.model,
 		Effort:       inv.effort,
-		MaxTurns:     inv.maxTurns,
 		Settings:     settings,
 		Env:          env,
 		Dir:          g.repoRoot,
 	}, nil
-}
-
-// checkDispatchBudget is the backstop on what one isolated dispatch sends
-// (sty_73a2dc68 AC3): the assembled system prompt plus the stdin payload,
-// measured against the seat's [validate.injected.budget] row. Over budget is
-// refused with the seat, the step and both sizes — never trimmed or batched,
-// since content a seat can read for itself belongs behind a pointer
-// (satelle-dispatch-pointers). A seat with no budget row, or a bare invocation
-// naming no seat, is not measured.
-func (g *Engine) checkDispatchBudget(inv invocation, promptBytes, payloadBytes int) error {
-	if inv.section == "" {
-		return nil
-	}
-	tokens, ok := g.injected.BudgetFor(inv.section)
-	if !ok {
-		return nil
-	}
-	budget := tokens * g.injected.ResolveBytesPerToken()
-	if size := promptBytes + payloadBytes; size > budget {
-		step := inv.step
-		if step == "" {
-			step = "(unnamed)"
-		}
-		return fmt.Errorf("dispatch payload over budget: seat %q, step %q sends %d bytes (system prompt %d + payload %d) > budget %d bytes ([validate.injected.budget] %s = %d tokens) — send the instruction and pointers, not content the seat can read (satelle-dispatch-pointers)",
-			inv.section, step, size, promptBytes, payloadBytes, budget, inv.section, tokens)
-	}
-	return nil
 }
 
 // Invoke is the ONLY path that calls agentcli.Runner.Run for LLM gate/dispatch
@@ -514,12 +465,8 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		tools:      binding.Tools,
 		model:      binding.Model,
 		effort:     binding.Effort,
-		maxTurns:   binding.TurnBudget,
 		settings:   binding.Settings,
 		env:        binding.Env,
-		section:    section,
-		step:       req.Step,
-		storyID:    req.StoryID,
 	}
 	// Fall back to engine reviewer caches when the binding leaves grant fields
 	// empty (tests that only set g.tools/g.model still work until order:3 deletes

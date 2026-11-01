@@ -104,7 +104,6 @@ func wiringCases() []wiringCase {
 		{fn: "SetSubstrateConfigDir", call: func() { SetSubstrateConfigDir("wiring-sentinel") }, want: []string{"substrateConfigDir"}},
 		{fn: "SetEngagementMode", pre: ClearEngagementMode, call: func() { SetEngagementMode(epic) }, want: []string{"engagementParallel"}},
 		{fn: "ClearEngagementMode", pair: "SetEngagementMode", pre: func() { SetEngagementMode(epic) }, call: ClearEngagementMode, want: []string{"engagementParallel"}},
-		{fn: "SetAgentBudgets", call: func() { SetAgentBudgets(func(string) config.Budget { return config.Budget{} }) }, want: []string{"agentBudgets"}},
 		{fn: "SetAgentsConfig", pre: ClearAgentsConfig, call: func() { SetAgentsConfig(agents, vars) }, want: []string{"agentsLayer", "agentsVars", "agentsWired"}},
 		{fn: "ClearAgentsConfig", pair: "SetAgentsConfig", pre: func() { SetAgentsConfig(agents, vars) }, call: ClearAgentsConfig, want: []string{"agentsLayer", "agentsVars", "agentsWired"}},
 		{fn: "SetLocationResolver", call: func() { SetLocationResolver(loc) }, want: []string{"locationResolver"}},

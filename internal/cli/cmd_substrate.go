@@ -304,7 +304,7 @@ var newSubstrateJudge = func(cmd *cobra.Command, binding string, hist substrater
 	if err != nil {
 		return nil, err
 	}
-	j, err := newCaseJudge(a, name, a.Config.Validate.Injected, resolve)
+	j, err := newCaseJudge(a, name, resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -382,26 +382,11 @@ func orchestratorJudgeBinding(base config.AgentBinding, agent, model string) (co
 		return config.AgentBinding{}, fmt.Errorf("%s (the in-loop agent %q has no one-shot runner) — pass --binding", stop, agent)
 	}
 	command := r.Command()
-	if strings.EqualFold(strings.TrimSpace(agent), agentcli.CLIGrok) {
-		command = agentcli.GrokCommandFor(config.RoleReviewer)
-	}
 	return config.AgentBinding{
 		Interface: config.InterfaceCommand, Command: command, Model: model,
 		Tools: base.Tools, Role: base.Role, Principles: base.Principles, InjectPrinciples: base.InjectPrinciples,
 		Env: base.Env, Timeout: base.Timeout, IdleTimeout: base.IdleTimeout, BusyTimeout: base.BusyTimeout,
 	}, nil
-}
-
-// substrateManifestMax is the manifest size above which an area is split: half
-// the judging seat's dispatch budget, the other half headroom for the system
-// prompt and the instruction. The judge always runs as seat "reviewer", so its
-// row is the one checkDispatchBudget measures. No row means no split.
-func substrateManifestMax(inj config.InjectedConfig) int {
-	tokens, ok := inj.BudgetFor("reviewer")
-	if !ok {
-		return 0
-	}
-	return tokens * inj.ResolveBytesPerToken() / 2
 }
 
 // judgeNoteLine is the first line of a judge's notes, bounded, for an error;
@@ -548,7 +533,7 @@ func runSubstrateReview(cmd *cobra.Command, a *app.App, binding, reportPath stri
 	if label == "" {
 		label = fmt.Sprintf("orchestrator:%s/%s", hist.OrchestratorAgent, hist.Orchestrator)
 	}
-	batches := substratereview.Batches(in, substrateManifestMax(a.Config.Validate.Injected))
+	batches := substratereview.Batches(in)
 	var judged []substratereview.Judgement
 	var failures []substratereview.BatchFailure
 	for i, b := range batches {

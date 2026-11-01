@@ -231,8 +231,9 @@ func DecodeRow(e ledger.Entry) (Row, bool) {
 		ToolCalls                  *int   `json:"tool_calls"`
 		ToolCallsUnavailableReason string `json:"tool_calls_unavailable_reason"`
 
-		// A performer's row carries its turn count in its budget report, not at the
-		// top level a reviewer's row writes it.
+		// A performer's row written before sty_58a7bdfe carries its turn count in
+		// a budget report; a newer one writes it at the top level, as a
+		// reviewer's row does.
 		Budget struct {
 			Turns                  *int   `json:"turns"`
 			TurnsUnavailableReason string `json:"turns_unavailable_reason"`

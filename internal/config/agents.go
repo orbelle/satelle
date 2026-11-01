@@ -374,13 +374,6 @@ type AgentBinding struct {
 	// performer attempt as auth_mode. Empty resolves to AuthUnrecorded; any other
 	// value fails at load. It never changes a price (costview.Pricing owns that).
 	Auth string `toml:"auth"`
-	// ContextBudget and TurnBudget are the repo's own spend bounds for this
-	// binding (sty_a7914904): input tokens (fresh + cache read + cache write) and
-	// model turns. Zero or absent means unset — there is no shipped default, and
-	// with none set satelle only warns and records. A step's own budget overrides
-	// them, and [defaults] backs them. See Budget.
-	ContextBudget int `toml:"context_budget"`
-	TurnBudget    int `toml:"turn_budget"`
 	// Placement declares where this binding's work runs (sty_7028d996): "local"
 	// (default, the dispatching session's machine), "remote" (an ephemeral remote
 	// performer paired with the local session over the remote channel) or
@@ -479,10 +472,6 @@ type AgentsDefaults struct {
 	// BusyTimeout is the repo-wide CPU-liveness cap (sty_db62a3b9) for a
 	// binding that omits its own busy_timeout=. Empty falls to the shipped default.
 	BusyTimeout string `toml:"busy_timeout"`
-	// ContextBudget and TurnBudget are the repo-wide spend bounds for a binding
-	// or step that sets neither (sty_a7914904). Zero means unset.
-	ContextBudget int `toml:"context_budget"`
-	TurnBudget    int `toml:"turn_budget"`
 }
 
 // LiveInterfaces returns the preference order ResolveInterface walks for a
@@ -1379,9 +1368,6 @@ func (a AgentsConfig) validateTimeouts() error {
 	}
 	if _, err := parseBusyDuration(a.Defaults.BusyTimeout, 0); err != nil {
 		return fmt.Errorf("%s [defaults] busy_timeout: %w", AgentsConfigName, err)
-	}
-	if err := checkBudget(AgentsConfigName+" [defaults]", a.Defaults.Budget()); err != nil {
-		return err
 	}
 	return nil
 }

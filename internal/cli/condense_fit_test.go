@@ -378,24 +378,15 @@ func TestHookRenderUsesFit(t *testing.T) {
 	}
 }
 
-// `review score --seat-budget` picks the arm: the repo's own budget, ladder off,
-// or an explicit token budget; and the report names which arm it scored.
-func TestReviewScoreSeatBudgetSelectsTheArm(t *testing.T) {
-	repo := config.InjectedConfig{BytesPerToken: 3, Budget: map[string]int{"reviewer": 5500}}
-	if v, ok := scoreInjected(repo, "reviewer", -1).BudgetFor("reviewer"); !ok || v != 5500 {
-		t.Errorf("-1 keeps the repo's own budget, got %d %v", v, ok)
+// sty_58a7bdfe AC5: `review score --seat-budget` is removed with the per-seat
+// budget it fitted the judging seat to.
+func TestReviewScoreHasNoSeatBudgetFlag(t *testing.T) {
+	score, _, err := NewRootCmd().Find([]string{"review", "score"})
+	if err != nil || score.Name() != "score" {
+		t.Fatalf("review score: %v", err)
 	}
-	if _, ok := scoreInjected(repo, "reviewer", 0).BudgetFor("reviewer"); ok {
-		t.Error("0 judges with the ladder off: no budget")
-	}
-	got := scoreInjected(repo, "reviewer", 4000)
-	if v, ok := got.BudgetFor("reviewer"); !ok || v != 4000 || got.ResolveBytesPerToken() != 3 {
-		t.Errorf("N sets the seat's budget and keeps the repo's ratio, got %+v", got)
-	}
-	for flag, want := range map[int]string{-1: "reviewer", 0: "reviewer [ladder off]", 4000: "reviewer [4000-token budget]"} {
-		if scoreArm("reviewer", flag) != want {
-			t.Errorf("arm %d = %q, want %q", flag, scoreArm("reviewer", flag), want)
-		}
+	if score.Flags().Lookup("seat-budget") != nil {
+		t.Error("review score still defines --seat-budget")
 	}
 }
 

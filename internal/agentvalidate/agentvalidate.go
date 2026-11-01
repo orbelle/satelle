@@ -516,7 +516,6 @@ func validateShipped(agents config.AgentsConfig, vars map[string]string, workflo
 		g, _, _, fs := checkBinding(sec.name, b, vars)
 		g.Interface = iface
 		g.InterfaceReason = reason
-		addNote(&g, agentcli.EffectiveTurnBudget(iface, g.Command, agents.BudgetFor(b, config.Budget{}).Turns))
 		g.Sources = prov[sec.name]
 		r.Grants = append(r.Grants, g)
 		r.record(fs...)
@@ -1174,6 +1173,11 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 		Principles:        b.ResolvedPrinciples(),
 		RoleInferred:      config.RoleInferred(b),
 		ContextChannel:    config.BindingGrantsContextChannel(b),
+	}
+	// {max_turns} is removed (sty_58a7bdfe): satelle hands no harness a turn
+	// limit, so the placeholder would reach the harness as a literal token.
+	if strings.Contains(cmd, config.RemovedMaxTurnsPlaceholder) {
+		bindingProblem(fmt.Sprintf("[%s] command carries %s, which is removed — satelle passes no turn limit to a harness; run satelle init to remove it", section, config.RemovedMaxTurnsPlaceholder))
 	}
 	// idle_timeout is what actually bounds a dispatch; an explicit hard timeout
 	// smaller than it would cut a progressing agent before the stall detector

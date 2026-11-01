@@ -52,7 +52,7 @@ func (t *toolTally) counts(u agentcli.UsageResult, iface, command string) verb.R
 }
 
 // turnsOf is the run's reported turn count, or nil with the adapter-named reason
-// the run reported none — the one rule a budget report and a reviewer row share.
+// the run reported none — the one rule a performer row and a reviewer row share.
 func turnsOf(u agentcli.UsageResult, iface, command string) (*int, string) {
 	if u.TurnsAvailable {
 		n := u.Turns

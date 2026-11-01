@@ -11,7 +11,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/agentstep"
-	"github.com/bobmcallan/satelle/internal/condense"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/doctor"
 	"github.com/bobmcallan/satelle/internal/health"
@@ -127,132 +126,38 @@ func TestDoctorSessionUnavailableWhenAHarnessHasNoTable(t *testing.T) {
 	}
 }
 
-// --- AC3: seat and reminder sizes against configured budgets ------------------
+// --- sty_58a7bdfe AC4/AC5: no seat is sized against a budget -----------------
 
-func TestDoctorSeatWithNoBudgetIsReportedUnbudgeted(t *testing.T) {
+// Doctor reports no context.dispatch.* seat finding: a seat's context is its
+// CLI's to manage, so there is nothing to size it against — not even when the
+// seat is large.
+func TestDoctorReportsNoSeatBudgetFindings(t *testing.T) {
 	f := newCtxFixture(t, "")
 	f.write("workflows/agents.toml", f.claudeAgents())
-	got := seatOnly(byID(checksFor(f), health.IDContextDispatchUnbudgeted), "reviewer[claude/command]")
-	if len(got) != 1 || got[0].Severity != health.SeverityInfo || !strings.Contains(got[0].Detail, "no budget is configured") {
-		t.Fatalf("an unbudgeted seat is INFO, never a silent pass, got %+v", got)
-	}
-}
-
-func TestDoctorSeatOverBudgetWarnsAndWithinBudgetIsQuiet(t *testing.T) {
-	f := newCtxFixture(t, "")
-	f.write("workflows/agents.toml", f.claudeAgents())
-
-	f.write("satelle.toml", "[validate.injected.budget]\nreviewer = 1\n")
-	over := byID(checksFor(f), health.IDContextDispatchOverBudget)
-	over = mentioning(over, "reviewer[claude/command]", "over its budget of 1 tokens")
-	if len(over) != 1 || over[0].Severity != health.SeverityWarn {
-		t.Fatalf("want a WARN over budget, got %+v", over)
-	}
-
-	f.write("satelle.toml", "[validate.injected.budget]\nreviewer = 1000000\n")
-	all := checksFor(f)
-	for _, id := range []string{health.IDContextDispatchOverBudget, health.IDContextDispatchUnbudgeted} {
-		if got := seatOnly(byID(all, id), "reviewer[claude/command]"); len(got) != 0 {
-			t.Fatalf("a seat within its budget is quiet, got %s %+v", id, got)
+	f.principle("satelle-fixture-big", "# Big\n\n"+strings.Repeat("A long resident rule that is never trimmed. ", 4000), true)
+	for _, fd := range checksFor(f) {
+		if strings.HasPrefix(fd.ID, "context.dispatch.") {
+			t.Errorf("doctor emitted a seat-sizing finding: %+v", fd)
 		}
 	}
 }
 
-// A seat whose budget is met only by replacing resident rules with read pointers
-// is an error: the seat would start without rules meant for it (sty_df21b2db).
-// A budget the ladder can meet is quiet, and the report and the audit size the
-// seat from the same dispatchedRows.
-func TestDoctorSeatFittedOnlyByPointersIsAnError(t *testing.T) {
+// The per-prompt reminder is judged only against its harness's declared clip
+// (a channel limit, like the SessionStart cap), and only an overrun is reported.
+func TestDoctorPromptReminderOverTheHarnessClip(t *testing.T) {
 	f := newCtxFixture(t, "")
 	f.write("workflows/agents.toml", f.claudeAgents())
-
-	rowAt := func(budget int) (injectedRow, health.Findings) {
-		f.write("satelle.toml", "[validate.injected.budget]\nreviewer = "+strconv.Itoa(budget)+"\n")
-		a := assembleContexts(context.Background(), f.repo, f.dataDir)
-		var row injectedRow
-		for _, r := range dispatchedRows(context.Background(), a.env) {
-			if strings.HasPrefix(r.Label, "reviewer[claude/command]") {
-				row = r
-			}
-		}
-		return row, byID(a.dispatchFindings(context.Background()), health.IDContextDispatchPointered)
+	if got := mentioning(checksFor(f), "reminder[claude]"); len(got) != 0 {
+		t.Fatalf("a reminder with no declared clip is not reported, got %+v", got)
 	}
-
-	// Find the smallest budget the ladder can meet, then step below it.
-	roomy, quiet := rowAt(1 << 20)
-	if len(quiet) != 0 || condense.Pointered(roomy.Rungs) {
-		t.Fatalf("a roomy budget needs no pointer: %+v %+v", roomy.Rungs, quiet)
-	}
-	full := roomy.Bytes
-	tight, errs := rowAt((full / 4) / 2) // half the full size, in tokens
-	if !condense.Pointered(tight.Rungs) {
-		t.Fatalf("fixture must force the pointer rung, got %+v at %d bytes", tight.Rungs, tight.Bytes)
-	}
-	got := mentioning(errs, "reviewer[claude/command]", "read pointers")
-	if len(got) != 1 || got[0].Severity != health.SeverityError {
-		t.Fatalf("a pointered seat is an ERROR finding, got %+v", errs)
-	}
-	for _, n := range pointeredNames(tight.Rungs) {
-		if !strings.Contains(got[0].Detail, n) {
-			t.Errorf("the finding must name %s: %s", n, got[0].Detail)
-		}
-	}
-
-	// validate and doctor read one number: the row dispatchedRows computes.
-	over := byID(checksFor(f), health.IDContextDispatchOverBudget)
-	if len(over) == 1 && !strings.Contains(over[0].Detail, strconv.Itoa(tight.Bytes)+" bytes") {
-		t.Errorf("doctor and the report must size the seat identically (%d bytes): %s", tight.Bytes, over[0].Detail)
-	}
-}
-
-// The per-prompt reminder (UserPromptSubmit) row.
-func TestDoctorPromptReminderRow(t *testing.T) {
-	f := newCtxFixture(t, "")
-	f.write("workflows/agents.toml", f.claudeAgents())
-
-	// No budget anywhere: INFO, named.
-	got := mentioning(byID(checksFor(f), health.IDContextDispatchUnbudgeted), "reminder[claude]")
-	if len(got) != 1 || got[0].Severity != health.SeverityInfo {
-		t.Fatalf("want the reminder reported unbudgeted, got %+v", got)
-	}
-
-	// The harness declares a clip and the reminder exceeds it.
 	f.write("satelle.toml", "[harness.claude]\ntool_context_limit_chars = 10\n")
-	got = mentioning(byID(checksFor(f), health.IDContextDispatchOverBudget), "reminder[claude]", "tool_context_limit_chars = 10")
+	got := mentioning(byID(checksFor(f), health.IDContextReminderOverClip), "reminder[claude]", "tool_context_limit_chars = 10")
 	if len(got) != 1 || got[0].Severity != health.SeverityWarn {
 		t.Fatalf("want a WARN against the harness clip, got %+v", got)
 	}
-
-	// The repo's own budget wins over the clip.
-	f.write("satelle.toml", "[harness.claude]\ntool_context_limit_chars = 10\n\n[validate.injected.budget]\nreminder = 1000000\n")
-	all := checksFor(f)
-	if got := mentioning(all, "reminder[claude]"); len(got) != 0 {
-		t.Fatalf("a reminder within its configured budget is quiet, got %+v", got)
-	}
-	f.write("satelle.toml", "[validate.injected.budget]\nreminder = 1\n")
-	got = mentioning(byID(checksFor(f), health.IDContextDispatchOverBudget), "reminder[claude]", "over its budget of 1 tokens")
-	if len(got) != 1 {
-		t.Fatalf("want the reminder over its token budget, got %+v", got)
-	}
-}
-
-// A harness that discards the prompt hook's context cannot be sized, and says so.
-func TestDoctorPromptReminderUnavailableWhereTheHarnessDiscardsIt(t *testing.T) {
-	f := newCtxFixture(t, "[executor]\ncommand = \"in-loop\"\n\n[reviewer]\nrole = \"reviewer\"\ncommand = \""+grokSeatCmd+"\"\n")
-	got := mentioning(byID(checksFor(f), health.IDContextDispatchUnavailable), "reminder[grok]")
-	if len(got) != 1 || !strings.Contains(got[0].Detail, "unavailable") {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-// No budget number is compiled in: the judge reads only configuration.
-func TestJudgeInjectedReadsOnlyConfiguration(t *testing.T) {
-	if _, _, set, _ := judgeInjected(1<<20, "reviewer[claude/command]", config.InjectedConfig{}); set {
-		t.Fatal("with no configuration there is no budget")
-	}
-	tokens, budget, set, over := judgeInjected(100, "reviewer[x/y]", config.InjectedConfig{BytesPerToken: 10, Budget: map[string]int{"reviewer": 5}})
-	if !set || !over || tokens != 10 || budget != 5 {
-		t.Fatalf("got tokens=%d budget=%d set=%v over=%v", tokens, budget, set, over)
+	f.write("satelle.toml", "[harness.claude]\ntool_context_limit_chars = 1000000\n")
+	if got := mentioning(checksFor(f), "reminder[claude]"); len(got) != 0 {
+		t.Fatalf("a reminder within its clip is quiet, got %+v", got)
 	}
 }
 
@@ -533,7 +438,11 @@ func TestPlainDoctorSpawnsNoReviewer(t *testing.T) {
 	if got := byID(rep.Findings, health.IDContextDuplicateSemantic); len(got) != 0 {
 		t.Fatalf("no semantic finding without the flag, got %+v", got)
 	}
-	if got := byID(rep.Findings, health.IDContextDispatchUnbudgeted); len(got) == 0 {
+	var ran bool
+	for _, fd := range rep.Findings {
+		ran = ran || strings.HasPrefix(fd.ID, "context.")
+	}
+	if !ran {
 		t.Error("the deterministic context checks must run in plain doctor")
 	}
 
