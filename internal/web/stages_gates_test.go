@@ -126,9 +126,9 @@ func TestChipShowsExitGatesAndRejections(t *testing.T) {
 	}
 	_, progress := renderRowCells(t, "integration", stages)
 	for _, want := range []string{
-		`backlog <b class="gates">3</b> · <b class="rej">1 rejected</b></span>`,
-		`plan <b class="gates">1</b></span>`,
-		`in_progress <b class="gates">2</b> · <b class="rej">2 rejected</b></span>`,
+		`backlog <b class="gates tone-ok">3</b> <b class="rej">1</b></span>`,
+		`plan <b class="gates tone-ok">1</b></span>`,
+		`in_progress <b class="gates tone-ok">2</b> <b class="rej">2</b></span>`,
 	} {
 		if !strings.Contains(progress, want) {
 			t.Errorf("progress cell missing %q:\n%s", want, progress)
@@ -156,13 +156,13 @@ func TestChipShowsExitGatesAndRejections(t *testing.T) {
 // readiness, and on a performing step's own exit edge.
 func TestChipShowsStepBeingWorkedNotRunOrRunning(t *testing.T) {
 	_, progress := renderRowCells(t, "integration", buildStages(atIntegration(), "integration", false, noStep, exitSpec(), nil, nil))
-	if want := `integration <b class="gates">1</b> <b class="pend">not run</b></span>`; !strings.Contains(progress, want) {
+	if want := `integration <b class="gates tone-idle">1</b></span>`; !strings.Contains(progress, want) {
 		t.Errorf("not-run cell missing %q:\n%s", want, progress)
 	}
 
 	running := buildStages(atIntegration(), "integration", true, noStep, exitSpec(), nil, &seatGateVM{Total: 1})
 	_, progress = renderRowCells(t, "integration", running)
-	if want := `integration <b class="gates">1</b> <b class="run live">1 running</b></span>`; !strings.Contains(progress, want) {
+	if want := `integration <b class="gates tone-live">1</b><b class="run live">/1</b></span>`; !strings.Contains(progress, want) {
 		t.Errorf("running cell missing %q:\n%s", want, progress)
 	}
 	if got, want := stageNamed(running, "integration").Title, "integration: 1 exit gate, 1 running"; got != want {
@@ -172,7 +172,7 @@ func TestChipShowsStepBeingWorkedNotRunOrRunning(t *testing.T) {
 	// Readiness: still in backlog, no transition, the readiness panel running.
 	ready := buildStages(nil, "backlog", true, noStep, exitSpec(), nil, &seatGateVM{Total: 3})
 	_, progress = renderRowCells(t, "backlog", ready)
-	if want := `backlog <b class="gates">3</b> <b class="run live">3 running</b></span>`; len(ready) != 1 || !strings.Contains(progress, want) {
+	if want := `backlog <b class="gates tone-live">3</b><b class="run live">/3</b></span>`; len(ready) != 1 || !strings.Contains(progress, want) {
 		t.Errorf("readiness cell = %q (stages %+v), want %q", progress, ready, want)
 	}
 	if got, want := ready[0].Title, "backlog: 3 exit gates, 3 running"; got != want {
@@ -185,7 +185,7 @@ func TestChipShowsStepBeingWorkedNotRunOrRunning(t *testing.T) {
 	stages := applyPerforming(buildStages(es, "plan", true, noStep, exitSpec(), nil, nil), "plan",
 		&dispatchVM{Agent: "coder", Step: "in_progress"}, stageRoute(exitSpec(), nil))
 	_, progress = renderRowCells(t, "plan", stages)
-	if want := `in_progress <b class="gates">2</b> <b class="pend">not run</b></span>`; !strings.Contains(progress, want) {
+	if want := `in_progress <b class="gates tone-idle">2</b></span>`; !strings.Contains(progress, want) {
 		t.Errorf("performing cell missing %q:\n%s", want, progress)
 	}
 	if got, want := stageNamed(stages, "in_progress").Title, "in_progress: 2 exit gates, not yet run; performing: coder"; got != want {
@@ -251,7 +251,7 @@ func TestPerformerDispatchIsNotGatesRunning(t *testing.T) {
 func TestCurrentChipShowsOnlyOutgoingGates(t *testing.T) {
 	stages := buildStages(enteredPlan(), "plan", true, noStep, gatedSpec(), nil, &seatGateVM{Total: 4, Passed: 1, Failed: 1})
 	_, progress := renderRowCells(t, "plan", stages)
-	want := `plan <b class="gates">4</b> <b class="run live">2 running</b></span>`
+	want := `plan <b class="gates tone-live">4</b><b class="run live">/2</b></span>`
 	if !strings.Contains(progress, want) {
 		t.Errorf("progress cell = %q, want %q", progress, want)
 	}
@@ -261,7 +261,7 @@ func TestCurrentChipShowsOnlyOutgoingGates(t *testing.T) {
 }
 
 // AC1: the live class pulses — it reuses the chip's pulse animation; the passed
-// count's class is gone and the not-run mark has its own rule.
+// count's class and the not-run mark's rule are gone (sty_7ce4f9c9).
 func TestRunningCountPulses(t *testing.T) {
 	raw, err := staticFS.ReadFile("static/app.css")
 	if err != nil {
@@ -282,8 +282,8 @@ func TestRunningCountPulses(t *testing.T) {
 	if strings.Contains(css, "\n.ok {") {
 		t.Error("app.css still styles the removed .ok passed count")
 	}
-	if !strings.Contains(css, ".stage-chip .pend {") {
-		t.Error("app.css has no .stage-chip .pend rule for not-run exit gates")
+	if strings.Contains(css, ".pend") {
+		t.Error("app.css still styles the removed .pend not-run mark")
 	}
 }
 
@@ -300,7 +300,7 @@ func TestCompletedStageShowsItsExitGates(t *testing.T) {
 		t.Fatalf("plan chip = %+v gates %+v, want done with 3 exit gates, 1 rejected", plan, plan.Gates)
 	}
 	_, progress := renderRowCells(t, "in_progress", stages)
-	if !strings.Contains(progress, `plan <b class="gates">3</b> · <b class="rej">1 rejected</b></span>`) {
+	if !strings.Contains(progress, `plan <b class="gates tone-ok">3</b> <b class="rej">1</b></span>`) {
 		t.Errorf("completed plan chip not rendered with its counts: %q", progress)
 	}
 }
@@ -394,5 +394,156 @@ func TestSeatPayloadDecodesGateActivity(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"id":"sty_1","in_flight":true,"activity":"gates","activity_total":4}`), &old)
 	if g := gateActivity(old); g != nil {
 		t.Errorf("a row with no activity_gates read as gates running: %+v", g)
+	}
+}
+
+// sty_7ce4f9c9: the chip reads "<step> <total>/<running> <failed>" — the total
+// coloured by the step's state (idle grey, running orange, passed green), the
+// "/<running>" part only while gates run, and <failed> the step's rejections
+// over every round, red and only when there are any.
+
+// twoGateSpec is exitSpec with two readiness gates on backlog → plan.
+func twoGateSpec() wfdot.Spec {
+	spec := exitSpec()
+	spec.Transitions[0].Skills = []string{"arch", "plan-review"}
+	return spec
+}
+
+// chipBody is the text of the named step's chip, after its opening tag (so not
+// its title) up to </span>; "" when the cell has no such chip.
+func chipBody(progress, name string) string {
+	for _, part := range strings.Split(progress, `<span class="stage-chip`)[1:] {
+		_, rest, ok := strings.Cut(part, `">`)
+		if !ok {
+			continue
+		}
+		body, _, _ := strings.Cut(rest, "</span>")
+		if body == name || strings.HasPrefix(body, name+" ") {
+			return body
+		}
+	}
+	return ""
+}
+
+// sty_7ce4f9c9 AC1-AC4: each combination of state (idle, running, passed) with
+// and without rejections, failed greater than total, and no words in the chip.
+func TestChipReadsTotalRunningFailed(t *testing.T) {
+	rejectedAtIntegration := append(atIntegration(),
+		evS(ledger.KindReviewReject, "integration", "done", "d1", "release"))
+	// backlog's two exit gates rejected four rounds, then passed.
+	var fourRejected []ledger.Entry
+	for _, r := range []string{"r1", "r2", "r3", "r4"} {
+		fourRejected = append(fourRejected,
+			evS(ledger.KindReviewReject, "backlog", "plan", r, "arch"),
+			evS(ledger.KindReviewAccept, "backlog", "plan", r, "plan-review"))
+	}
+	fourRejected = append(fourRejected,
+		evS(ledger.KindReviewAccept, "backlog", "plan", "r5", "arch"),
+		evS(ledger.KindReviewAccept, "backlog", "plan", "r5", "plan-review"),
+		ev(ledger.KindStatusTransition, "backlog", "plan"))
+	// A step left by a park after a rejected round of its exit gates.
+	parked := append(atIntegration()[:7],
+		evS(ledger.KindReviewReject, "in_progress", "integration", "c1", "ac"),
+		ev(ledger.KindStatusTransition, "in_progress", "blocked"))
+
+	for _, c := range []struct {
+		name, status string
+		es           []ledger.Entry
+		spec         wfdot.Spec
+		seatHeld     bool
+		seat         *seatGateVM
+		step, want   string
+		title        string
+	}{
+		// Idle: not yet run (AC1), and presented-and-rejected with nothing running.
+		{"not run", "integration", atIntegration(), exitSpec(), false, nil,
+			"integration", `integration <b class="gates tone-idle">1</b>`, "integration: 1 exit gate, not yet run"},
+		{"idle rejected, not taken", "integration", rejectedAtIntegration, exitSpec(), false, nil,
+			"integration", `integration <b class="gates tone-idle">1</b> <b class="rej">1</b>`, "integration: 1 exit gate, 1 rejection"},
+		{"seat idle, some failed", "integration", atIntegration(), exitSpec(), true, &seatGateVM{Total: 3, Passed: 1, Failed: 2},
+			"integration", `integration <b class="gates tone-idle">3</b>`, "integration: 3 exit gates"},
+		{"left by a park", "blocked", parked, exitSpec(), false, nil,
+			"in_progress", `in_progress <b class="gates tone-idle">2</b> <b class="rej">1</b> <b class="blk">1</b>`, "in_progress: 2 exit gates, 1 rejection; blocked once"},
+		// Running (AC2).
+		{"running", "integration", atIntegration(), exitSpec(), true, &seatGateVM{Total: 3, Passed: 1},
+			"integration", `integration <b class="gates tone-live">3</b><b class="run live">/2</b>`, "integration: 3 exit gates, 2 running"},
+		{"running rejected", "integration", rejectedAtIntegration, exitSpec(), true, &seatGateVM{Total: 3, Passed: 1},
+			"integration", `integration <b class="gates tone-live">3</b><b class="run live">/2</b> <b class="rej">1</b>`, "integration: 3 exit gates, 1 rejection, 2 running"},
+		// Passed (AC3): a taken edge, or a seat round with every gate passed.
+		{"passed", "integration", atIntegration(), exitSpec(), false, nil,
+			"plan", `plan <b class="gates tone-ok">1</b>`, "plan: 1 exit gate"},
+		{"passed rejected", "integration", atIntegration(), exitSpec(), false, nil,
+			"in_progress", `in_progress <b class="gates tone-ok">2</b> <b class="rej">2</b>`, "in_progress: 2 exit gates, 2 rejections"},
+		{"passed, failed > total", "plan", fourRejected, twoGateSpec(), false, nil,
+			"backlog", `backlog <b class="gates tone-ok">2</b> <b class="rej">4</b>`, "backlog: 2 exit gates, 4 rejections"},
+		{"seat all passed", "integration", rejectedAtIntegration, exitSpec(), true, &seatGateVM{Total: 1, Passed: 1},
+			"integration", `integration <b class="gates tone-ok">1</b> <b class="rej">1</b>`, "integration: 1 exit gate, 1 rejection"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stages := buildStages(c.es, c.status, c.seatHeld, noStep, c.spec, nil, c.seat)
+			_, progress := renderRowCells(t, c.status, stages)
+			body := chipBody(progress, c.step)
+			if body != c.want {
+				t.Errorf("%s chip = %q, want %q\ncell: %s", c.step, body, c.want, progress)
+			}
+			// AC4: no words in the chip itself; the tooltip keeps them.
+			for _, bad := range []string{"not run", "rejected", "running"} {
+				if strings.Contains(body, bad) {
+					t.Errorf("%s chip carries %q: %q", c.step, bad, body)
+				}
+			}
+			if got := stageNamed(stages, c.step).Title; got != c.title {
+				t.Errorf("%s title = %q, want %q", c.step, got, c.title)
+			}
+			if title := `title="` + c.title + `"`; !strings.Contains(progress, title) {
+				t.Errorf("cell missing %s:\n%s", title, progress)
+			}
+		})
+	}
+}
+
+// sty_7ce4f9c9 AC3: exitEdge's taken is a forward transition out of the step,
+// never verdict rows alone.
+func TestExitEdgeTakenOnlyByForwardTransition(t *testing.T) {
+	spec := exitSpec()
+	route := stageRoute(spec, nil)
+	none := func(string, string) bool { return false }
+	presented := atIntegration()[:12] // rounds on in_progress → integration, no transition
+	if _, _, ran, taken := exitEdge(route, presented, classifyTransitions(presented, spec), "in_progress", true, none); !ran || taken {
+		t.Errorf("verdict rows alone: ran=%v taken=%v, want ran and not taken", ran, taken)
+	}
+	es := atIntegration()
+	if to, _, ran, taken := exitEdge(route, es, classifyTransitions(es, spec), "in_progress", false, none); to != "integration" || !ran || !taken {
+		t.Errorf("forward transition: to=%q ran=%v taken=%v, want integration, ran and taken", to, ran, taken)
+	}
+}
+
+// sty_7ce4f9c9 AC1-AC3: the total's tone classes colour it grey, orange and
+// green from the theme tokens, and --ok is defined in both themes.
+func TestChipToneColours(t *testing.T) {
+	raw, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for sel, token := range map[string]string{
+		".stage-chip .gates.tone-idle": "var(--muted)",
+		".stage-chip .gates.tone-live": "var(--warn)",
+		".stage-chip .gates.tone-ok":   "var(--ok)",
+	} {
+		i := strings.Index(css, sel+" {")
+		if i < 0 {
+			t.Errorf("app.css has no %s rule", sel)
+			continue
+		}
+		if rule := css[i : i+strings.Index(css[i:], "}")]; !strings.Contains(rule, "color: "+token) {
+			t.Errorf("%s rule = %q, want color %s", sel, rule, token)
+		}
+	}
+	if n := strings.Count(css, "  --ok: "); n != 2 {
+		t.Errorf("--ok defined %d times, want 2 (light and dark themes)", n)
+	}
+	if !strings.Contains(css, ".rej { color: var(--fail)") {
+		t.Error("the failed count is no longer red")
 	}
 }

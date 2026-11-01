@@ -193,7 +193,7 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 	}
 	progress, _, _ := strings.Cut(afterCol, "</td>")
 	// The refusal is a rejection of plan's work by its exit gates (sty_0b1abacc).
-	if !strings.Contains(progress, `plan <b class="gates">1</b> · <b class="rej">1 rejected</b>`) {
+	if !strings.Contains(progress, `plan <b class="gates tone-idle">1</b> <b class="rej">1</b>`) {
 		t.Errorf("PROGRESS cell = %q, want the refused round as plan's rejection", progress)
 	}
 }

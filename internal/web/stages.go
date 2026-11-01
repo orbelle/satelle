@@ -53,7 +53,14 @@ type gateCountsVM struct {
 	// NotRun marks exit gates of the step being worked that have not run since
 	// it was entered.
 	NotRun bool
-	Edge   string // "from → to" the counts are for
+	// Tone is the gate count's colour on the chip: "live" (orange) while a
+	// round's gates are still running, "ok" (green) when they all passed (a taken
+	// edge, or a seat round with every gate passed), otherwise "idle" (grey) — not
+	// yet run, or nothing running (a rejected round, a park or cancel out of the
+	// step). The names keep the words the chip no longer shows ("running",
+	// "passed") out of its markup.
+	Tone string
+	Edge string // "from → to" the counts are for
 }
 
 // seatGateVM is a story's seat activity while its gates are running: the
@@ -321,9 +328,11 @@ func routeEdgeOff(spec wfdot.Spec, from, to string) bool {
 // worked (current) has not left since it was last entered: its exit edge is the
 // one presented since that entry, else the route's next step. A step left by no
 // forward transition (a park or cancel out of it) falls back to the last edge
-// presented out of it. ran reports a taken edge or one with verdict rows; to is
-// "" when the step has no exit edge to name.
-func exitEdge(route *wfroute.Route, es []ledger.Entry, ts []transition, stage string, current bool, off func(from, to string) bool) (to string, upTo int, ran bool) {
+// presented out of it. ran reports a taken edge or one with verdict rows; taken
+// reports only the former — a forward transition out of the step, so its exit
+// gates passed — never verdict rows alone; to is "" when the step has no exit
+// edge to name.
+func exitEdge(route *wfroute.Route, es []ledger.Entry, ts []transition, stage string, current bool, off func(from, to string) bool) (to string, upTo int, ran, taken bool) {
 	upTo, from := len(es), 0
 	if current {
 		// A recovery returns a story to the state it left, so the entry is the one
@@ -340,7 +349,7 @@ func exitEdge(route *wfroute.Route, es []ledger.Entry, ts []transition, stage st
 			}
 		}
 		if ran {
-			return to, upTo, true
+			return to, upTo, true, true
 		}
 	}
 	for _, e := range es[from:] {
@@ -354,7 +363,7 @@ func exitEdge(route *wfroute.Route, es []ledger.Entry, ts []transition, stage st
 	if to == "" && current {
 		to = nextStep(route, stage)
 	}
-	return to, upTo, ran
+	return to, upTo, ran, false
 }
 
 // exitGates is a step's exit gates: the edge exitEdge names, its gate count and
@@ -363,7 +372,7 @@ func exitEdge(route *wfroute.Route, es []ledger.Entry, ts []transition, stage st
 // live), and an edge with no round since the step was entered is not yet run.
 // Nil when the step has no exit edge or no gates on it.
 func exitGates(es []ledger.Entry, ts []transition, stage string, current bool, route *wfroute.Route, off func(from, to string) bool, seat *seatGateVM) *gateCountsVM {
-	to, upTo, ran := exitEdge(route, es, ts, stage, current, off)
+	to, upTo, ran, taken := exitEdge(route, es, ts, stage, current, off)
 	if current && seat != nil {
 		if next := nextStep(route, stage); next != "" {
 			to = next
@@ -375,6 +384,14 @@ func exitGates(es []ledger.Entry, ts []transition, stage string, current bool, r
 		}
 		g.Running = max(g.Gates-g.Passed-g.Failed, 0)
 		g.Live = g.Running > 0
+		switch {
+		case g.Live:
+			g.Tone = "live"
+		case g.Gates > 0 && g.Passed == g.Gates:
+			g.Tone = "ok"
+		default:
+			g.Tone = "idle"
+		}
 		return g
 	}
 	if to == "" {
@@ -391,7 +408,10 @@ func exitGates(es []ledger.Entry, ts []transition, stage string, current bool, r
 	if n == 0 {
 		return nil
 	}
-	g := &gateCountsVM{Gates: n, Edge: stage + " → " + to}
+	g := &gateCountsVM{Gates: n, Tone: "idle", Edge: stage + " → " + to}
+	if taken {
+		g.Tone = "ok"
+	}
 	_, g.Rejected = ledger.EdgeRounds(es, stage, to)
 	return g
 }
@@ -405,7 +425,7 @@ func notRunGates(route *wfroute.Route, stage string) *gateCountsVM {
 	if step == nil || len(step.Reviewers) == 0 {
 		return nil
 	}
-	return &gateCountsVM{Gates: len(step.Reviewers), NotRun: true, Edge: stage + " → " + to}
+	return &gateCountsVM{Gates: len(step.Reviewers), NotRun: true, Tone: "idle", Edge: stage + " → " + to}
 }
 
 // nextStep is the route step after status, "" when status is not a step of the

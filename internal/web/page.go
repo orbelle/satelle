@@ -386,7 +386,7 @@ const templatesSrc = `
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
   <td><span class="badge s-{{.Status}}">{{.Status}}</span></td>
-  <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{with .Gates}}{{if .Gates}} <b class="gates">{{.Gates}}</b>{{if .Rejected}} · <b class="rej">{{.Rejected}} rejected</b>{{end}}{{if .Live}} <b class="run live">{{.Running}} running</b>{{else if .NotRun}} <b class="pend">not run</b>{{end}}{{end}}{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}</span>{{end}}</td>
+  <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{with .Gates}}{{if .Gates}} <b class="gates tone-{{.Tone}}">{{.Gates}}</b>{{if .Live}}<b class="run live">/{{.Running}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}{{end}}{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}</span>{{end}}</td>
   <td>{{if .Priority}}{{.Priority}}{{else}}—{{end}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}

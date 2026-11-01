@@ -400,7 +400,7 @@ func TestProgressCellPresentedRoundIsARejection(t *testing.T) {
 		evA(ledger.KindReviewReject, "plan", "in_progress", "m2"),
 	}
 	_, progress := renderRowCells(t, "plan", buildStages(mid, "plan", false, noStep, routeSpec(), nil, nil))
-	for _, want := range []string{`title="plan: 1 exit gate, 1 rejection"`, `plan <b class="gates">1</b> · <b class="rej">1 rejected</b>`} {
+	for _, want := range []string{`title="plan: 1 exit gate, 1 rejection"`, `plan <b class="gates tone-idle">1</b> <b class="rej">1</b>`} {
 		if !strings.Contains(progress, want) {
 			t.Errorf("mid-gate progress cell missing %q: %q", want, progress)
 		}

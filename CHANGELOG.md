@@ -1,3 +1,13 @@
+## [0.0.840] - 2026-11-01
+
+### Changed
+- The progress chip reads `<step> <total>/<running> <failed>`. The total's colour is the step's state: grey when nothing is running, orange while exit gates run, green when all passed. `/<running>` is omitted when 0, and `<failed>` is the step's total rejections across all rounds, always red, omitted when 0, and may exceed the gate count. The words "not run", "rejected" and "running" are gone from the chip; the tooltip keeps its wording. (sty_7ce4f9c9)
+
+## [serve-v0.0.273] - 2026-11-01
+
+### Changed
+- The service binary renders the compact progress chip. (sty_7ce4f9c9)
+
 ## [0.0.839] - 2026-11-01
 
 ### Changed
