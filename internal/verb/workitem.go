@@ -697,8 +697,9 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			if !acq && !inFlight && current.Kind == workitem.KindExecution && !hasLiveLease(ctx, current.ID) {
 				return nil, fmt.Errorf("satelle: could not seat %s at %q: no engagement lease was granted (the lease store is unavailable, or the item waits on open children) — `satelle story seat` lists no holder for it, so a commit or push from its tree stays refused", current.ID, *req.Status)
 			}
-			// A named performer whose step's exit was rejected since it last ran
-			// is run once more, with the findings, before anything else applies.
+			// A named one-shot performer owed a run — its step's exit was rejected,
+			// or a directed message to it waits, since it last ran — is run once
+			// more, with the messages and findings, before anything else applies.
 			if reDispatchOwed(ctx, current) {
 				park := func(state, notes string, res DispatchResult) (json.RawMessage, error, bool) {
 					return parkStory(ctx, current, raw, "", state, notes, res, now)

@@ -1,3 +1,8 @@
+## [0.0.834] - 2026-11-01
+
+### Fixed
+- A same-status set on an in_progress story re-dispatches its one-shot coder (`interface=command`) when it is owed: when the last in_progress→integration was rejected, or when a directed message to the coder is unanswered. The coder receives those findings and messages, so an orchestrator's message alone is enough and no park is needed. `satelle story rework`'s refusal for a one-shot performer names that command, filled in for the story. (sty_47525ee9)
+
 ## [0.0.833] - 2026-11-01
 
 ### Changed

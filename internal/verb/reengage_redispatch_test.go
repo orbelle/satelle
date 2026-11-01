@@ -236,3 +236,116 @@ func TestLatestExitRejectFromPicksTheNewestExit(t *testing.T) {
 		t.Error("a step with no rejected exit reports none")
 	}
 }
+
+// directCoder posts a message from the orchestrator addressed to the coder by name.
+func directCoder(t *testing.T, id, to, cc, body string) {
+	t.Helper()
+	req := map[string]any{"id": id, "from": "orchestrator", "to": to, "body": body}
+	if cc != "" {
+		req["cc"] = cc
+	}
+	post(t, req)
+}
+
+// sty_47525ee9 AC1/AC3: with no gate reject at all, an unanswered message
+// directed to the one-shot coder owes it exactly one run at the same status. The
+// story is not parked and its status does not move. A repeated set with no newer
+// message dispatches nothing; a newer message owes one more run; a message FROM
+// the coder answers what came before it.
+func TestSameStatusSetRedispatchesOnADirectedMessageAlone(t *testing.T) {
+	d := &redispatchStub{perf: coderAtInProgress}
+	_, it := engagedAtInProgress(t, d)
+	directCoder(t, it.ID, "coder", "", "the guard allows a downgrade — fix it")
+
+	if got := sameStatusSet(t, it.ID, "in_progress"); got.Status != "in_progress" {
+		t.Fatalf("status = %q, a re-dispatch never moves status or parks", got.Status)
+	}
+	if n := d.sameStatusCalls("in_progress"); n != 1 {
+		t.Fatalf("same-status dispatches = %d (%v), want exactly 1 for a directed message", n, d.calls)
+	}
+	if runs := stepRuns(t, it.ID, "in_progress"); len(runs) != 1 {
+		t.Fatalf("step→step agent_invocation rows = %d, want 1", len(runs))
+	}
+	for _, e := range ledgerRows(t, it.ID, ledger.KindStatusTransition) {
+		var p struct{ To string }
+		if json.Unmarshal(e.Payload, &p) == nil && p.To == "blocked" {
+			t.Fatalf("the re-dispatch parked the story: %s", e.Payload)
+		}
+	}
+
+	sameStatusSet(t, it.ID, "in_progress")
+	if n := d.sameStatusCalls("in_progress"); n != 1 {
+		t.Errorf("a repeated set with no newer message dispatched again: %d calls (%v)", n, d.calls)
+	}
+
+	directCoder(t, it.ID, "coder", "", "and the test is missing")
+	sameStatusSet(t, it.ID, "in_progress")
+	if n := d.sameStatusCalls("in_progress"); n != 2 {
+		t.Errorf("a newer directed message must owe one more run: %d calls (%v)", n, d.calls)
+	}
+
+	// The coder answers; a message from it clears what came before it.
+	directCoder(t, it.ID, "coder", "", "one more")
+	post(t, map[string]any{"id": it.ID, "from": "coder", "to": "orchestrator", "body": "done"})
+	sameStatusSet(t, it.ID, "in_progress")
+	if n := d.sameStatusCalls("in_progress"); n != 2 {
+		t.Errorf("a message the coder answered must owe nothing: %d calls (%v)", n, d.calls)
+	}
+}
+
+// sty_47525ee9 AC1: a rejected in_progress→integration exit and a directed
+// message together owe one run (not two), whose row records the findings it was
+// offered and the exit they came from.
+func TestSameStatusSetRedispatchesOnceForARejectAndAMessage(t *testing.T) {
+	d := &redispatchStub{perf: coderAtInProgress, res: verb.DispatchResult{
+		Skill: "code", FindingsOffered: []string{"code-review#1"}, FindingsEdgeTo: "integration",
+	}}
+	db, it := engagedAtInProgress(t, d)
+	rejectExit(t, db, it.ID, "in_progress", "integration")
+	directCoder(t, it.ID, "coder", "", "answer code-review#1")
+
+	if got := sameStatusSet(t, it.ID, "in_progress"); got.Status != "in_progress" {
+		t.Fatalf("status = %q", got.Status)
+	}
+	if n := d.sameStatusCalls("in_progress"); n != 1 {
+		t.Fatalf("same-status dispatches = %d (%v), want exactly 1", n, d.calls)
+	}
+	runs := stepRuns(t, it.ID, "in_progress")
+	if len(runs) != 1 {
+		t.Fatalf("step→step agent_invocation rows = %d, want 1", len(runs))
+	}
+	var row struct {
+		Agent   string   `json:"agent"`
+		Offered []string `json:"findings_offered"`
+		EdgeTo  string   `json:"findings_edge_to"`
+	}
+	if err := json.Unmarshal(runs[0].Payload, &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.Agent != "coder" || len(row.Offered) != 1 || row.EdgeTo != "integration" {
+		t.Errorf("run row = %+v, want the coder's run offered code-review#1 from the exit to integration", row)
+	}
+}
+
+// sty_47525ee9 AC3: a message that is not directed to the step's performer owes
+// it nothing — addressed to another role, a broadcast, or a relay transcript row.
+func TestSameStatusSetIgnoresMessagesNotDirectedToThePerformer(t *testing.T) {
+	cases := map[string]struct{ to, cc string }{
+		"to another role":      {to: "planner"},
+		"broadcast":            {to: "*"},
+		"relay transcript row": {to: "coder", cc: "*"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			d := &redispatchStub{perf: coderAtInProgress}
+			_, it := engagedAtInProgress(t, d)
+			directCoder(t, it.ID, c.to, c.cc, "context")
+			if got := sameStatusSet(t, it.ID, "in_progress"); got.Status != "in_progress" {
+				t.Fatalf("status = %q", got.Status)
+			}
+			if n := d.sameStatusCalls("in_progress"); n != 0 {
+				t.Errorf("dispatches = %d (%v), want none", n, d.calls)
+			}
+		})
+	}
+}

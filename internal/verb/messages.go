@@ -413,6 +413,28 @@ func MessagesSince(ctx context.Context, itemID string, addresses []string) []Age
 	return out
 }
 
+// UnansweredDirected returns the messages addressed to performer by name that
+// it has not answered, oldest first (msgs is oldest first). A later message
+// FROM performer answers everything before it, whoever it was addressed to —
+// msgs must be the unfiltered window (EngagementMessages), not one filtered to
+// the performer's inbox. Broadcasts do not count, and neither do the rework
+// relay's own transcript rows (cc="*"): those are conversation, not a
+// directive. The rework relay reads it to decide who speaks first, and the
+// same-status re-dispatch reads it to decide whether a one-shot performer is
+// owed a run (reDispatchOwed).
+func UnansweredDirected(msgs []AgentMessage, performer string) []AgentMessage {
+	var out []AgentMessage
+	for _, m := range msgs {
+		switch {
+		case m.From == performer:
+			out = nil
+		case m.To == performer && m.Cc != "*":
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // EngagementMessages returns every engagement-windowed agent message whatever
 // its addressee, oldest first; nil on the same conditions as MessagesSince. It
 // is for a reader that must see a role's own outbound messages, which

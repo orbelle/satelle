@@ -84,25 +84,49 @@ func lastStepRun(entries []ledger.Entry, step string) (at time.Time, ok bool) {
 }
 
 // reDispatchOwed reports whether a same-status set at current.Status owes the
-// step's named performer one more run: an exit of the step was rejected after
-// the performer last ran, and RejectionTarget holds the step's own dispatched
-// performer to that rejection. The executor binding, an in-loop performer and a
-// step nobody performs are owed nothing here.
+// step's named one-shot performer one more run. It is owed when either holds:
+//
+//   - an exit of the step was rejected after the performer last ran, and
+//     RejectionTarget holds the step's own dispatched performer to that
+//     rejection; or
+//   - the step's dispatched performer has an unanswered directed message
+//     (UnansweredDirected) newer than its last run — the orchestrator's message
+//     alone is enough, whether or not a gate rejected.
+//
+// The run's payload carries the waiting messages and, when there is one, the
+// latest rejected exit's findings. The guard on the last run keeps a repeated
+// set from re-running a performer on what it was already offered. This is the
+// command `satelle story rework` names for a one-shot performer. The executor
+// binding, an in-loop performer and a step nobody performs are owed nothing.
 func reDispatchOwed(ctx context.Context, current workitem.Item) bool {
 	resolver, ok := executorDispatcher.(PerformerResolver)
 	if !ok {
 		return false
 	}
 	entries := storyLedgerEntries(ctx, current.ID)
-	to, rejectedAt, ok := LatestExitRejectFrom(entries, current.Status)
-	if !ok {
+	ranAt, ran := lastStepRun(entries, current.Status)
+	if to, rejectedAt, ok := LatestExitRejectFrom(entries, current.Status); ok && (!ran || rejectedAt.After(ranAt)) {
+		step, target, _, err := RejectionTarget(ctx, resolver, current, to)
+		if err == nil && step == current.Status && target.Kind == PerformerDispatched {
+			return true
+		}
+	}
+	return directedMessageOwed(ctx, resolver, current, ranAt, ran)
+}
+
+// directedMessageOwed reports whether the step's own dispatched performer has
+// an unanswered directed message created after its last run (ranAt; any such
+// message when it never ran).
+func directedMessageOwed(ctx context.Context, resolver PerformerResolver, current workitem.Item, ranAt time.Time, ran bool) bool {
+	perf, err := resolver.StepPerformer(ctx, current, current.Status)
+	if err != nil || perf.Kind != PerformerDispatched || perf.Agent == "" {
 		return false
 	}
-	if ranAt, ran := lastStepRun(entries, current.Status); ran && !rejectedAt.After(ranAt) {
+	waiting := UnansweredDirected(EngagementMessages(ctx, current.ID), perf.Agent)
+	if len(waiting) == 0 {
 		return false
 	}
-	step, target, _, err := RejectionTarget(ctx, resolver, current, to)
-	return err == nil && step == current.Status && target.Kind == PerformerDispatched
+	return !ran || waiting[len(waiting)-1].CreatedAt.After(ranAt)
 }
 
 // redispatchStep runs the step's named performer once more at the status the

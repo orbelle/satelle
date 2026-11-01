@@ -314,6 +314,16 @@ func TestSameStatusDispatchOffersTheRejectedExitsFindingsAndMessages(t *testing.
 	if strings.Contains(r.got.Payload, "findings_to_answer") || strings.Contains(r.got.Payload, "findings_edge_to") {
 		t.Errorf("no rejected exit must add no findings: %s", r.got.Payload)
 	}
+	// sty_47525ee9: the orchestrator's message alone still reaches the performer.
+	var alone struct {
+		Messages []MessageState `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(r.got.Payload), &alone); err != nil {
+		t.Fatalf("payload: %v\n%s", err, r.got.Payload)
+	}
+	if len(alone.Messages) != 1 || alone.Messages[0].Body != "ORCH-DECISION: keep the guard in deploy.go" {
+		t.Errorf("with no rejected exit, messages = %+v, want the waiting orchestrator→coder message", alone.Messages)
+	}
 }
 
 func TestFindingAnswersFromReadsAStepRunByTheExitItAnswered(t *testing.T) {

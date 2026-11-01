@@ -202,7 +202,7 @@ func runRework(cmd *cobra.Command, id string, roundsFlag int, modelFlag string, 
 		if config.IsInLoopCommand(coderBinding.CommandTemplate()) {
 			return fmt.Errorf("satelle story rework: %s", reason)
 		}
-		return fmt.Errorf("satelle story rework: %s — a one-shot performer is re-dispatched with the findings by: satelle story set %s --status %s",
+		return fmt.Errorf("satelle story rework: %s — a one-shot performer is re-dispatched with its unanswered messages and the last rejected exit's findings by: satelle story set %s --status %s",
 			reason, it.ID, it.Status)
 	}
 	consultBinding, found := eff.Agents.NamedBinding(rw.ConsultBinding)
@@ -301,7 +301,7 @@ func runRework(cmd *cobra.Command, id string, roundsFlag int, modelFlag string, 
 		return err
 	}
 	var pending []string
-	for _, m := range unansweredDirected(verb.EngagementMessages(ctx, it.ID), rw.CoderBinding) {
+	for _, m := range verb.UnansweredDirected(verb.EngagementMessages(ctx, it.ID), rw.CoderBinding) {
 		pending = append(pending, fmt.Sprintf("from %s: %s", m.From, strings.TrimSpace(m.Body)))
 	}
 	loop := &reworkLoop{
@@ -337,27 +337,6 @@ func runRework(cmd *cobra.Command, id string, roundsFlag int, modelFlag string, 
 		return runErr
 	}
 	return nil
-}
-
-// unansweredDirected returns the messages addressed to coder by name that it has
-// not answered, oldest first (msgs is oldest first). A later message FROM coder
-// answers everything before it, whoever it was addressed to — msgs must be the
-// unfiltered window (verb.EngagementMessages), not one filtered to the coder's
-// inbox. Broadcasts do not count, and neither do the
-// relay's own transcript rows (cc="*"): those are conversation, not a directive,
-// and a relay that ended on the consultant's READY must not make the next one
-// start coder-first.
-func unansweredDirected(msgs []verb.AgentMessage, coder string) []verb.AgentMessage {
-	var out []verb.AgentMessage
-	for _, m := range msgs {
-		switch {
-		case m.From == coder:
-			out = nil
-		case m.To == coder && m.Cc != "*":
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 // laterGates lists the reviewer gates on route steps AFTER the one holding
