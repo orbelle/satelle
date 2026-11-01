@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 // sty_58a7bdfe AC2/AC5: satelle init removes the removed budget keys on raw
@@ -15,6 +16,7 @@ import (
 // layers and the route sources — leaving every other line as it was, and the
 // healed repo loads. Scaffold drift names each one until then.
 func TestInitRemovesRemovedBudgetKeys(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	dataDir := filepath.Join(repo, config.DefaultDataDir)
 	wfDir := filepath.Join(dataDir, config.AgentsConfigDir)

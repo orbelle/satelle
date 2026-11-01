@@ -12,9 +12,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/health"
+	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func TestDetectScaffoldDrift_CleanAfterWrite(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	writeCanonicalHooks(t, repo)
 	if fs := DetectScaffoldDrift(repo); len(fs) != 0 {
@@ -48,6 +50,7 @@ func writeCanonicalHooks(t *testing.T, repo string) {
 // config file is a finding naming the file, the key and the heal; once removed
 // there is none.
 func TestDetectScaffoldDriftReportsSyncScopeKeys(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	writeCanonicalHooks(t, repo)
 	data := filepath.Join(repo, config.DefaultDataDir)
@@ -88,6 +91,7 @@ func TestDetectScaffoldDriftReportsSyncScopeKeys(t *testing.T) {
 // UserPromptSubmit or Stop command omits --harness grok, even though the
 // freshly built scaffold (asserted clean above) never does.
 func TestDetectScaffoldDrift_GrokMissingHarnessFlag(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".grok", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -130,6 +134,7 @@ func TestDetectScaffoldDrift_GrokMissingHarnessFlag(t *testing.T) {
 }
 
 func TestDetectScaffoldDrift_LegacyInlineCommand(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
@@ -172,6 +177,7 @@ func TestDetectScaffoldDrift_LegacyInlineCommand(t *testing.T) {
 }
 
 func TestDetectScaffoldDrift_StaleScriptContent(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	if err := writeHookScripts(repo); err != nil {
 		t.Fatal(err)
@@ -212,6 +218,7 @@ exit 2
 }
 
 func TestDetectScaffoldDrift_NoHarnessSkipSafe(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	// Empty repo — no settings, no scripts.
 	if fs := DetectScaffoldDrift(repo); len(fs) != 0 {
@@ -220,6 +227,7 @@ func TestDetectScaffoldDrift_NoHarnessSkipSafe(t *testing.T) {
 }
 
 func TestDetectScaffoldDrift_HealClears(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".claude"), 0o755); err != nil {
 		t.Fatal(err)

@@ -170,11 +170,7 @@ func FindRemovedBudget(dataDir string) ([]RemovedBudgetEdit, error) {
 		if rerr != nil {
 			return rerr
 		}
-		healed, removed := RemoveBudgetKeys(string(b))
-		if next, changed := RemoveMaxTurnsPlaceholder(healed); changed {
-			healed, removed = next, append(removed, RemovedMaxTurnsPlaceholder)
-		}
-		if len(removed) > 0 {
+		if healed, removed := removeBindingBudget(string(b)); len(removed) > 0 {
 			rel, _ := filepath.Rel(dataDir, path)
 			out = append(out, RemovedBudgetEdit{Rel: filepath.ToSlash(rel), Removed: removed, path: path, healed: healed})
 		}
@@ -187,6 +183,17 @@ func FindRemovedBudget(dataDir string) ([]RemovedBudgetEdit, error) {
 	return out, nil
 }
 
+// removeBindingBudget removes context_budget, turn_budget and {max_turns} (with
+// the flag that carried it) from a document of agent bindings, returning the
+// healed text and what it removed.
+func removeBindingBudget(s string) (string, []string) {
+	healed, removed := RemoveBudgetKeys(s)
+	if next, changed := RemoveMaxTurnsPlaceholder(healed); changed {
+		healed, removed = next, append(removed, RemovedMaxTurnsPlaceholder)
+	}
+	return healed, removed
+}
+
 // HealRemovedBudget removes every removed budget FindRemovedBudget reports,
 // keeping every other line of each file as it was, and returns what it removed.
 func HealRemovedBudget(dataDir string) ([]RemovedBudgetEdit, error) {
@@ -194,14 +201,51 @@ func HealRemovedBudget(dataDir string) ([]RemovedBudgetEdit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return edits, writeRemovedBudget(edits)
+}
+
+// FindRemovedBudgetCatalog reports the machine profile catalog
+// (GlobalAgentsPath) when it still carries a removed budget: a seat bound to one
+// of its profiles resolves the removed key into every repo's binding, so the
+// catalog is healed with the repo files (sty_ba9f5d14). It reads raw bytes, never
+// LoadGlobalAgents. Rel is GlobalAgentsLabel; an absent or clean catalog is nil.
+func FindRemovedBudgetCatalog() (*RemovedBudgetEdit, error) {
+	path := GlobalAgentsPath()
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	healed, removed := removeBindingBudget(string(b))
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	return &RemovedBudgetEdit{Rel: GlobalAgentsLabel, Removed: removed, path: path, healed: healed}, nil
+}
+
+// HealRemovedBudgetCatalog removes what FindRemovedBudgetCatalog reports,
+// keeping every other line of the catalog as it was, and returns the edit (nil
+// when there was nothing to remove).
+func HealRemovedBudgetCatalog() (*RemovedBudgetEdit, error) {
+	e, err := FindRemovedBudgetCatalog()
+	if err != nil || e == nil {
+		return nil, err
+	}
+	return e, writeRemovedBudget([]RemovedBudgetEdit{*e})
+}
+
+// writeRemovedBudget writes each edit's healed text back, keeping its file mode.
+func writeRemovedBudget(edits []RemovedBudgetEdit) error {
 	for _, e := range edits {
-		info, serr := os.Stat(e.path)
-		if serr != nil {
-			return nil, serr
+		info, err := os.Stat(e.path)
+		if err != nil {
+			return err
 		}
-		if werr := os.WriteFile(e.path, []byte(e.healed), info.Mode().Perm()); werr != nil {
-			return nil, werr
+		if err := os.WriteFile(e.path, []byte(e.healed), info.Mode().Perm()); err != nil {
+			return err
 		}
 	}
-	return edits, nil
+	return nil
 }

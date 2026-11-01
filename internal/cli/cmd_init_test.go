@@ -1428,6 +1428,7 @@ func TestInitAllHealsSyncScopeKeysWithCurrentHooks(t *testing.T) {
 // sty_7c01ca14 AC5: init removes [sync] recent_window from satelle.toml and
 // satelle.local.toml, keeps every other [sync] key, and leaves a config that loads.
 func TestInitRemovesRecentWindow(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	dataDir := filepath.Join(repo, ".satelle")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {

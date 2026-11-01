@@ -284,22 +284,23 @@ func driftSyncScopeKeys(repoRoot string) []ScaffoldFinding {
 }
 
 // driftRemovedBudget reports each removed budget key or table (sty_58a7bdfe) a
-// repo file still carries: such a repo fails to load until satelle init removes
-// it. A file that cannot be read is another finding's concern.
+// repo file — or the machine catalog a seat's profile resolves through
+// (sty_ba9f5d14) — still carries: such a repo fails to load or bind until
+// satelle init removes it. A file that cannot be read is another finding's concern.
 func driftRemovedBudget(repoRoot string) []ScaffoldFinding {
-	edits, err := config.FindRemovedBudget(filepath.Join(repoRoot, config.DefaultDataDir))
-	if err != nil {
-		return nil
-	}
 	var out []ScaffoldFinding
-	for _, e := range edits {
-		for _, k := range e.Removed {
-			out = append(out, ScaffoldFinding{
-				Path:   config.DefaultDataDir + "/" + e.Rel,
-				Kind:   "config",
-				Detail: k + " is removed — run satelle init",
-			})
+	add := func(path string, removed []string) {
+		for _, k := range removed {
+			out = append(out, ScaffoldFinding{Path: path, Kind: "config", Detail: k + " is removed — run satelle init"})
 		}
+	}
+	if edits, err := config.FindRemovedBudget(filepath.Join(repoRoot, config.DefaultDataDir)); err == nil {
+		for _, e := range edits {
+			add(config.DefaultDataDir+"/"+e.Rel, e.Removed)
+		}
+	}
+	if e, err := config.FindRemovedBudgetCatalog(); err == nil && e != nil {
+		add(e.Rel, e.Removed)
 	}
 	return out
 }

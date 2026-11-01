@@ -1,3 +1,13 @@
+## [0.0.837] - 2026-11-01
+
+### Fixed
+- `satelle init`, and `satelle init --all`, heal a removed key or placeholder in the machine catalog `~/.satelle/agents.toml` (for example the `{max_turns}` 0.0.830 removed from a profile's command), leaving every other line as it was and reporting the edit. Previously only repo files were healed, so a catalog profile left every repo UNHEALTHY with advice to run an init that could not fix it. The drift report lists catalog findings with the file named, and the release skill's init-heals rule now covers the machine catalog. (sty_ba9f5d14)
+
+## [serve-v0.0.272] - 2026-11-01
+
+### Fixed
+- The service binary's drift report names machine-catalog findings. (sty_ba9f5d14)
+
 ## [0.0.836] - 2026-11-01
 
 ### Added

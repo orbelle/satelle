@@ -594,6 +594,7 @@ func TestRemoveLeavesForeignStatusLineIntact(t *testing.T) {
 // TestStatusLineAloneIsNotScaffoldDrift (AC9): the presence or absence of
 // statusLine must never register as drift — drift is a PreToolUse concern.
 func TestStatusLineAloneIsNotScaffoldDrift(t *testing.T) {
+	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
 	repo := t.TempDir()
 	if _, _, _, err := ensureClaudeHooks(repo); err != nil {
 		t.Fatal(err)

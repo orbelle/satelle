@@ -385,6 +385,17 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 		fmt.Fprintf(out, "~ %s (removed %s — satelle manages no context or turn budget)\n",
 			config.DefaultDataDir+"/"+e.Rel, strings.Join(e.Removed, ", "))
 	}
+	// The machine catalog too (sty_ba9f5d14): a seat bound to one of its profiles
+	// resolves the removed key into this repo, so init heals every file it reads.
+	// Idempotent, so init --all heals it on the first repo and finds nothing after.
+	catalogEdit, cerr := config.HealRemovedBudgetCatalog()
+	if cerr != nil {
+		return fmt.Errorf("init: remove budget keys from the machine catalog: %w", cerr)
+	}
+	if catalogEdit != nil {
+		fmt.Fprintf(out, "~ %s (removed %s — satelle manages no context or turn budget)\n",
+			catalogEdit.Rel, strings.Join(catalogEdit.Removed, ", "))
+	}
 
 	// 2. satelle.toml — created only if absent; never overwritten as a whole.
 	// A leftover [hosted] table is folded onto [sync] and dropped (sty_5eb1bb8a).
