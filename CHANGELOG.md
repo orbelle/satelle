@@ -1,3 +1,8 @@
+## [0.0.844] - 2026-11-02
+
+### Fixed
+- Gate check commands redact a run's process secrets (such as a remote run's `GH_TOKEN` from github-app), not only the resolved secret references. Every engine check, whether combine, `when` or functional, goes through one wrapper that scrubs its output and error before anything reads them, so a check that prints the token leaves the redaction marker in the gate notes, the reviewer verdict, the telemetry and the check log. A test fails if any check call bypasses the wrapper. Closes the gap 0.0.842 left. (sty_b4a52b36)
+
 ## [0.0.843] - 2026-11-02
 
 ### Fixed

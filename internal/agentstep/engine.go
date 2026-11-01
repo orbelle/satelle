@@ -1064,6 +1064,20 @@ func execCheck(ctx context.Context, dir, command, payload string) (string, error
 	return verb.RedactEnv(string(out), resolved), redactErr(err, resolved)
 }
 
+// redactedCheck runs g.check and scrubs its output and error of the engine's
+// process secrets (scrubValues) before any consumer — a gate's notes, the
+// telemetry detail, the log compressor — reads them. execCheck already scrubs
+// the secrets it resolved, so a check's output is redacted with the same set as
+// a dispatch's (sty_b4a52b36). Every gate check goes through here.
+func (g *Engine) redactedCheck(ctx context.Context, dir, command, payload string) (string, error) {
+	out, err := g.check(ctx, dir, command, payload)
+	set := g.scrubValues(nil)
+	if len(set) == 0 {
+		return out, err
+	}
+	return verb.RedactEnv(out, set), redactErr(err, set)
+}
+
 // transitionPayload is the JSON delivered to the reviewer on stdin.
 type transitionPayload struct {
 	Story       workitem.Item `json:"story"`
@@ -4130,7 +4144,7 @@ func (g *Engine) foldPanel(ctx context.Context, skill, combine, command string, 
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, cerr := g.check(cctx, g.repoRoot, command, string(payload))
+	out, cerr := g.redactedCheck(cctx, g.repoRoot, command, string(payload))
 	notes := strings.TrimSpace(out)
 	accept := cerr == nil
 	if !accept && notes == "" {
@@ -4233,7 +4247,7 @@ func (g *Engine) whenAllows(ctx context.Context, item workitem.Item, toStatus st
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := g.check(withGateItem(cctx, item), g.repoRoot, command, string(payload))
+	out, err := g.redactedCheck(withGateItem(cctx, item), g.repoRoot, command, string(payload))
 	if err == nil {
 		return true
 	}
@@ -5108,7 +5122,7 @@ func (g *Engine) runCheck(ctx context.Context, item workitem.Item, skill, comman
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	started := time.Now()
-	out, err := g.check(withGateItem(cctx, item), g.repoRoot, command, payload)
+	out, err := g.redactedCheck(withGateItem(cctx, item), g.repoRoot, command, payload)
 	if tree != "" {
 		outcome := verb.SuiteGreen
 		if err != nil {
