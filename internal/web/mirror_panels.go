@@ -228,8 +228,9 @@ func attachStagesFrom(entriesByStory map[string][]ledger.Entry, items []workitem
 	out := make([]rowVM, len(items))
 	for i, it := range items {
 		stepOf := func(s string) int { return catStepOf(it.Category, s) }
-		stages := buildStages(entriesByStory[it.ID], it.Status, liveSeat[it.ID], stepOf, specOf(it.Category), it.Tags, gateSeats[it.ID])
-		stages = applyPerforming(stages, it.Status, dispatches[it.ID])
+		spec := specOf(it.Category)
+		stages := buildStages(entriesByStory[it.ID], it.Status, liveSeat[it.ID], stepOf, spec, it.Tags, gateSeats[it.ID])
+		stages = applyPerforming(stages, it.Status, dispatches[it.ID], stageRoute(spec, it.Tags))
 		out[i] = rowVM{Item: it, Stages: stages, Dispatch: dispatches[it.ID]}
 	}
 	return out

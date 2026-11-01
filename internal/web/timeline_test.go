@@ -163,7 +163,7 @@ func TestTimelineDotOutcomeClass(t *testing.T) {
 
 // TestTimelineDotPaletteReused pins the timeline dot fills (tl-pass green, tl-fail
 // red, fixed hexes that read on both themes) and that the progress column's
-// .ok/.rej text uses theme tokens rather than those hexes.
+// .rej text uses a theme token rather than those hexes.
 func TestTimelineDotPaletteReused(t *testing.T) {
 	raw, err := staticFS.ReadFile("static/app.css")
 	if err != nil {
@@ -178,9 +178,9 @@ func TestTimelineDotPaletteReused(t *testing.T) {
 			t.Errorf("app.css missing timeline dot fill rule: %q", want)
 		}
 	}
-	// The progress column's accepted/rejected text uses theme tokens (legible in both
+	// The progress column's rejected text uses a theme token (legible in both
 	// themes), never a hard-coded hex.
-	for _, want := range []string{".ok { color: var(--accent);", ".rej { color: var(--fail);"} {
+	for _, want := range []string{".rej { color: var(--fail);"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("progress-column text token rule missing (%q)", want)
 		}

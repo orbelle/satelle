@@ -380,10 +380,10 @@ td.updated-cell { white-space: nowrap; }
 .tag { font-size: 11.5px; color: var(--muted); }
 
 /* Progress column — the stages a story has completed (plus the one it is in),
-   each with the gates on its edge: .gates declared, .ok passed, .rej failed and,
-   while a current chip's exit gates run, .run.live still running (pulsing). No
-   indices: a number here is a count, never a stage. The round history is in the
-   chip's title. */
+   each with its exit gates: .gates declared, .rej how many times they rejected
+   the step's work and, on the step being worked, .pend not yet run or .run.live
+   still running (pulsing). No indices: a number here is a count, never a stage.
+   The chip's title spells the same counts in words. */
 .col-reviews { white-space: normal; width: 14rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }
@@ -396,7 +396,7 @@ td.updated-cell { white-space: nowrap; }
 .stage-chip .gates { color: var(--muted); font-weight: 600; }
 .stage-chip .run.live { color: var(--warn); font-weight: 600;
   animation: review-pulse 1.4s ease-in-out infinite; }
-.ok { color: var(--accent); font-weight: 600; }
+.stage-chip .pend { color: var(--muted); font-style: italic; }
 .rej { color: var(--fail); font-weight: 600; }
 @keyframes review-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
@@ -458,7 +458,7 @@ ol.timeline li::before { content: ""; position: absolute; left: -7px; top: 4px; 
 /* Outcome-coloured dots (sty_f19d2ec4): an accepted review is a pass (green) dot,
    a rejected review a fail (red) dot. These are small FILLS, so they use fixed
    hexes (pass #2ecc71, fail #e74c3c) that read on both themes; the progress
-   column's .ok/.rej are 11px TEXT and use the --accent/--fail theme tokens
+   column's .rej is 11px TEXT and uses the --fail theme token
    instead. Neutral events keep the accent dot above. */
 ol.timeline li.tl-pass::before { background: #2ecc71; }
 ol.timeline li.tl-fail::before { background: #e74c3c; }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -78,7 +79,7 @@ func TestBuildDispatchIndicatorWarnsPastHalfIdleTimeout(t *testing.T) {
 // (entered via a status_transition, never having left it — the next edge has not
 // committed), and an EARLIER coder attempt on plan→in_progress was refused. That
 // must render the pulsing current plan stage AND the refused round as a red
-// count on the STATUS badge — a refused next-edge attempt is never a stage of
+// rejection on plan's own exit gates — a refused next-edge attempt is never a stage of
 // its own, nor a single ambiguous red mark standing in for "currently broken"
 // while a new coder dispatch is in flight toward the same edge.
 func TestBuildStagesRefusedAttemptIsABadgeNotAStage(t *testing.T) {
@@ -87,11 +88,11 @@ func TestBuildStagesRefusedAttemptIsABadgeNotAStage(t *testing.T) {
 		ev(ledger.KindReviewReject, "plan", "in_progress"), // the refused earlier attempt
 	}
 	stages := buildStages(chrono, "plan", false, noStep, wfdot.Spec{}, nil, nil)
-	if len(stages) != 1 || stages[0].Name != "plan" || stages[0].State != "current" {
-		t.Fatalf("stages = %+v, want exactly the current plan stage", stages)
+	if got, want := names(stages), []string{"backlog", "plan"}; !reflect.DeepEqual(got, want) || stages[1].State != "current" {
+		t.Fatalf("stages = %+v, want the done start state and the current plan stage", stages)
 	}
-	if p := stages[0].out; p == nil || p.rejected != 1 || p.accepted != 0 || !strings.Contains(stages[0].Title, "plan → in_progress: rounds: 1 rejected") {
-		t.Errorf("outgoing = %+v (title %q), want the refused round as 1 rejected in the tooltip", p, stages[0].Title)
+	if g := stages[1].Gates; g == nil || g.Rejected != 1 || stages[1].Title != "plan: 1 exit gate, 1 rejection" {
+		t.Errorf("plan exit gates = %+v (title %q), want the refused round as 1 rejection", g, stages[1].Title)
 	}
 }
 
@@ -126,7 +127,7 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 	elb, _ := json.Marshal(entryLed)
 	rejectLed := map[string]any{
 		"id": "evt_reject", "story_id": "sty_7069bced", "kind": "review_reject",
-		"created_at": now.Add(-5 * time.Minute), "payload": map[string]string{"from": "plan", "to": "in_progress"},
+		"created_at": now.Add(-5 * time.Minute), "payload": map[string]string{"from": "plan", "to": "in_progress", "skill": "gate"},
 	}
 	rlb, _ := json.Marshal(rejectLed)
 	seat, _ := json.Marshal(map[string]any{
@@ -154,11 +155,12 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 	if row.Dispatch == nil || row.Dispatch.Agent != "coder" {
 		t.Fatalf("expected a running dispatch indicator on the recovering row, got %+v", row.Dispatch)
 	}
-	if len(row.Stages) != 1 || row.Stages[0].Name != "plan" || row.Stages[0].State != "current" {
-		t.Fatalf("Stages = %+v, want the current plan stage (the live plan step)", row.Stages)
+	cur := stageNamed(row.Stages, "plan")
+	if len(row.Stages) != 2 || cur.State != "current" {
+		t.Fatalf("Stages = %+v, want the start state and the current plan stage (the live plan step)", row.Stages)
 	}
-	if p := row.Stages[0].out; p == nil || p.rejected != 1 {
-		t.Fatalf("Stages[0].out = %+v, want 1 rejected round (the refused attempt)", p)
+	if g := cur.Gates; g == nil || g.Rejected != 1 {
+		t.Fatalf("plan exit gates = %+v, want 1 rejection (the refused attempt)", g)
 	}
 
 	ms := NewMirror(s)
@@ -190,9 +192,9 @@ func TestMirrorRowShowsRunningDispatchBesideEarlierRefusal(t *testing.T) {
 		t.Fatalf("no PROGRESS cell in body:\n%s", body)
 	}
 	progress, _, _ := strings.Cut(afterCol, "</td>")
-	// The round history moved to the chip's tooltip (sty_216d5205).
-	if !strings.Contains(progress, `plan → in_progress: rounds: 1 rejected`) {
-		t.Errorf("PROGRESS cell = %q, want the refused round in the tooltip", progress)
+	// The refusal is a rejection of plan's work by its exit gates (sty_0b1abacc).
+	if !strings.Contains(progress, `plan <b class="gates">1</b> · <b class="rej">1 rejected</b>`) {
+		t.Errorf("PROGRESS cell = %q, want the refused round as plan's rejection", progress)
 	}
 }
 

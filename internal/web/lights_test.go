@@ -156,16 +156,25 @@ requires = ["coded"]
 	}
 }
 
-// ev builds a ledger entry with a {from,to} payload.
+// ev builds a ledger entry with a {from,to} payload; a verdict row names the
+// gate that cast it, as the engine's rows do, so a story with no route still
+// counts one gate on the edge.
 func ev(kind, from, to string) ledger.Entry {
-	p, _ := json.Marshal(lightPayload{From: from, To: to})
+	p, _ := json.Marshal(lightPayload{From: from, To: to, Skill: verdictSkill(kind)})
 	return ledger.Entry{Kind: kind, Payload: p}
 }
 
 // evA is ev with the attempt id the gate run stamped on the row.
 func evA(kind, from, to, attempt string) ledger.Entry {
-	p, _ := json.Marshal(map[string]string{"from": from, "to": to, "attempt": attempt})
+	p, _ := json.Marshal(map[string]string{"from": from, "to": to, "attempt": attempt, "skill": verdictSkill(kind)})
 	return ledger.Entry{Kind: kind, Payload: p}
+}
+
+func verdictSkill(kind string) string {
+	if kind == ledger.KindReviewAccept || kind == ledger.KindReviewReject {
+		return "gate"
+	}
+	return ""
 }
 
 // names lists the stage names in order.
@@ -203,14 +212,14 @@ func TestBuildStagesRetriedEdgeKeepsItsRounds(t *testing.T) {
 		ev(ledger.KindStatusTransition, "in_progress", "done"),
 	}
 	stages := buildStages(chrono, "done", false, testStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"in_progress", "done"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"open", "in_progress", "done"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
-	if s := stages[0]; s.accepted != 1 || s.rejected != 0 {
-		t.Errorf("in_progress = %+v, want 1 accepted 0 rejected", s)
+	if g := stages[0].Gates; g == nil || g.Rejected != 0 {
+		t.Errorf("open exit gates = %+v, want gated with 0 rejected", g)
 	}
-	if s := stages[1]; s.accepted != 1 || s.rejected != 1 {
-		t.Errorf("done = %+v, want 1 accepted 1 rejected (the reject is not turned green by the later accept)", s)
+	if g := stages[1].Gates; g == nil || g.Rejected != 1 {
+		t.Errorf("in_progress exit gates = %+v, want 1 rejected (the reject is not turned green by the later accept)", g)
 	}
 	for _, s := range stages {
 		if s.State == "current" {
@@ -223,7 +232,7 @@ func TestBuildStagesRetriedEdgeKeepsItsRounds(t *testing.T) {
 // buildStages keys off the row kind; it does not re-vote the seats.
 func TestBuildStagesPanelDissentIsNotARejection(t *testing.T) {
 	p, err := json.Marshal(map[string]any{
-		"from": "open", "to": "in_progress", "accept": true,
+		"from": "open", "to": "in_progress", "accept": true, "skill": "panel",
 		"seats": []map[string]any{
 			{"seat": "a", "accept": true},
 			{"seat": "b", "accept": false},
@@ -237,8 +246,8 @@ func TestBuildStagesPanelDissentIsNotARejection(t *testing.T) {
 		ev(ledger.KindStatusTransition, "open", "in_progress"),
 	}
 	stages := buildStages(entries, "in_progress", false, testStep, wfdot.Spec{}, nil, nil)
-	if s := stageNamed(stages, "in_progress"); s.rejected != 0 || s.accepted != 1 {
-		t.Fatalf("nested dissent must not count as a rejected round: %+v", stages)
+	if g := stageNamed(stages, "open").Gates; g == nil || g.Rejected != 0 {
+		t.Fatalf("nested dissent must not count as a rejected round: %+v", g)
 	}
 }
 
@@ -250,8 +259,8 @@ func TestBuildStagesCurrentStagePulses(t *testing.T) {
 		ev(ledger.KindStatusTransition, "open", "in_progress"),
 	}
 	stages := buildStages(chrono, "in_progress", false, testStep, wfdot.Spec{}, nil, nil)
-	if len(stages) != 1 || stages[0].State != "current" || stages[0].Name != "in_progress" {
-		t.Fatalf("want [current in_progress], got %+v", stages)
+	if len(stages) != 2 || stages[0].State != "done" || stages[1].State != "current" || stages[1].Name != "in_progress" {
+		t.Fatalf("want [done open, current in_progress], got %+v", stages)
 	}
 }
 
@@ -263,23 +272,23 @@ func TestBuildStagesPriorStageDoneCurrentPulses(t *testing.T) {
 		ev(ledger.KindStatusTransition, "in_progress", "release"),
 	}
 	stages := buildStages(chrono, "release", false, noStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"in_progress", "release"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"open", "in_progress", "release"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
-	if stages[0].State != "done" || stages[1].State != "current" {
-		t.Errorf("states = %s,%s, want done,current", stages[0].State, stages[1].State)
+	if stages[1].State != "done" || stages[2].State != "current" {
+		t.Errorf("states = %s,%s, want done,current", stages[1].State, stages[2].State)
 	}
 }
 
 func TestBuildStagesUngatedStageHasNoCounts(t *testing.T) {
 	chrono := []ledger.Entry{ev(ledger.KindStatusTransition, "open", "in_progress")}
 	stages := buildStages(chrono, "done", false, testStep, wfdot.Spec{}, nil, nil)
-	if len(stages) != 2 || stages[0].Name != "in_progress" || stages[0].accepted+stages[0].rejected != 0 {
-		t.Fatalf("want an ungated in_progress stage with no counts, got %+v", stages)
+	if got, want := names(stages), []string{"open", "in_progress", "done"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stages = %v, want %v", got, want)
 	}
 	for _, s := range stages {
-		if s.out != nil {
-			t.Errorf("no review rows must show no pending gate, got %+v", s)
+		if s.Gates != nil {
+			t.Errorf("no review rows must show no gate counts, got %+v", s)
 		}
 	}
 }
@@ -310,8 +319,8 @@ func TestBuildStagesStartingSeat(t *testing.T) {
 		ev(ledger.KindStatusTransition, "backlog", "in_progress"),
 	}
 	stages = buildStages(chrono, "in_progress", true, projStep, wfdot.Spec{}, nil, nil)
-	if len(stages) != 1 || stages[0].Name != "in_progress" || stages[0].Title == "starting" {
-		t.Fatalf("entered with seat: want one real in_progress stage, got %+v", stages)
+	if got, want := names(stages), []string{"backlog", "in_progress"}; !reflect.DeepEqual(got, want) || stages[1].Title == "starting" {
+		t.Fatalf("entered with seat: want the start state and a real in_progress stage, got %+v", stages)
 	}
 }
 
@@ -319,8 +328,8 @@ func TestBuildStagesFollowTheLedgerNotRouteDepth(t *testing.T) {
 	// A ledger recording a deeper step before a shallower one: stages are in the
 	// order they were reached, never re-sorted by depth.
 	chrono := []ledger.Entry{
-		ev(ledger.KindStatusTransition, "in_progress", "done"),
-		ev(ledger.KindStatusTransition, "open", "in_progress"),
+		ev(ledger.KindStatusTransition, "done", "in_progress"),
+		ev(ledger.KindStatusTransition, "open", "done"),
 	}
 	stages := buildStages(chrono, "done", false, testStep, wfdot.Spec{}, nil, nil)
 	if got, want := names(stages), []string{"done", "in_progress"}; !reflect.DeepEqual(got, want) {
@@ -335,11 +344,14 @@ func TestBuildStagesRetriedStageKeepsOneEntry(t *testing.T) {
 		ev(ledger.KindStatusTransition, "open", "in_progress"),
 	}
 	stages := buildStages(chrono, "in_progress", false, testStep, wfdot.Spec{}, nil, nil)
-	if len(stages) != 1 {
-		t.Fatalf("want one stage, got %+v", stages)
+	if got, want := names(stages), []string{"open", "in_progress"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stages = %v, want %v (each once)", got, want)
 	}
-	if s := stages[0]; s.State != "current" || s.accepted != 1 || s.rejected != 1 {
-		t.Errorf("stage = %+v, want current with 1 accepted 1 rejected", s)
+	if s := stages[1]; s.State != "current" {
+		t.Errorf("stage = %+v, want current", s)
+	}
+	if g := stages[0].Gates; g == nil || g.Rejected != 1 {
+		t.Errorf("open exit gates = %+v, want 1 rejected", g)
 	}
 }
 
@@ -353,11 +365,11 @@ func TestBuildStagesChronologicalWithRetry(t *testing.T) {
 		ev(ledger.KindStatusTransition, "e", "f"),
 	}
 	stages := buildStages(chrono, "f", false, noStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"b", "c", "d", "e", "f"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"a", "b", "c", "d", "e", "f"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
-	if stageNamed(stages, "d").rejected != 1 {
-		t.Errorf("d = %+v, want 1 rejected", stageNamed(stages, "d"))
+	if g := stageNamed(stages, "c").Gates; g == nil || g.Rejected != 1 {
+		t.Errorf("c exit gates = %+v, want 1 rejected (c → d)", g)
 	}
 	if last := stages[len(stages)-1]; last.State != "current" {
 		t.Errorf("the last stage must be the current one, got %q", last.State)
@@ -449,7 +461,7 @@ func TestBuildStagesFullSpineEachOnce(t *testing.T) {
 		ev(ledger.KindStatusTransition, "committed", "done"),
 	}
 	stages := buildStages(chrono, "done", false, projStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"in_progress", "commit_push", "committed", "done"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"backlog", "in_progress", "commit_push", "committed", "done"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
 }
@@ -472,20 +484,20 @@ func TestBuildStagesRecoveryLoopListsEachStageOnce(t *testing.T) {
 		ev(ledger.KindStatusTransition, "committed", "done"),
 	}
 	stages := buildStages(chrono, "done", false, projStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"in_progress", "commit_push", "committed", "done"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"backlog", "in_progress", "commit_push", "committed", "done"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v (no stage twice)", got, want)
 	}
-	if s := stageNamed(stages, "done"); s.rejected != 1 || s.accepted != 1 {
-		t.Errorf("done = %+v, want 1 accepted 1 rejected", s)
+	if g := stageNamed(stages, "committed").Gates; g == nil || g.Rejected != 1 || g.Edge != "committed → done" {
+		t.Errorf("committed exit gates = %+v, want committed → done with 1 rejected", g)
 	}
-	if s := stageNamed(stages, "committed"); s.accepted != 2 {
-		t.Errorf("committed = %+v, want 2 accepted rounds across the loop", s)
+	if g := stageNamed(stages, "commit_push").Gates; g == nil || g.Rejected != 0 {
+		t.Errorf("commit_push exit gates = %+v, want gated with no rejection across the loop", g)
 	}
 }
 
 // A story AT release that attempted release→done and was rejected: release is
-// the current stage, done has not been reached, and the rejected outgoing round
-// shows as the pending gate on the release chip — never as a stage.
+// the current stage, done has not been reached, and the rejected round is a
+// rejection by the release chip's exit gates — never a stage.
 func TestBuildStagesRejectPastCurrentIsPending(t *testing.T) {
 	chrono := []ledger.Entry{
 		ev(ledger.KindStatusTransition, "a", "b"),
@@ -495,14 +507,14 @@ func TestBuildStagesRejectPastCurrentIsPending(t *testing.T) {
 		ev(ledger.KindReviewReject, "release", "done"),
 	}
 	stages := buildStages(chrono, "release", false, noStep, wfdot.Spec{}, nil, nil)
-	if got, want := names(stages), []string{"b", "c", "d", "release"}; !reflect.DeepEqual(got, want) {
+	if got, want := names(stages), []string{"a", "b", "c", "d", "release"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %v, want %v", got, want)
 	}
-	if last := stages[3]; last.State != "current" || last.rejected != 0 {
-		t.Errorf("release = %+v, want current with no counts of its own", last)
+	if last := stages[4]; last.State != "current" {
+		t.Errorf("release = %+v, want current", last)
 	}
-	if p := stages[3].out; p == nil || p.rejected != 1 || p.accepted != 0 || p.Edge != "release → done" {
-		t.Errorf("pending = %+v, want 1 rejected (the outgoing release→done round)", p)
+	if g := stages[4].Gates; g == nil || g.Rejected != 1 || g.NotRun || g.Edge != "release → done" {
+		t.Errorf("release exit gates = %+v, want 1 rejected (the release→done round)", g)
 	}
 }
 

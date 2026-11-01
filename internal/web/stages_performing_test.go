@@ -58,8 +58,8 @@ func coderSeat(activity string) seatPayload {
 // cell keeps the recorded plan.
 func TestRowShowsDispatchedStepAsPerforming(t *testing.T) {
 	row, html := performingRow(t, acceptedIntoInProgress(), "plan", coderSeat("dispatch:in_progress"))
-	if got := stageNamed(row.Stages, "plan"); got.State != "done" || got.out != nil {
-		t.Errorf("plan = %+v, want done with no outgoing gate", got)
+	if got := stageNamed(row.Stages, "plan"); got.State != "done" || got.Gates == nil || got.Gates.Edge != "plan → in_progress" || got.Gates.Live {
+		t.Errorf("plan = %+v, want done carrying its exit gates (the edge it is leaving)", got)
 	}
 	got := stageNamed(row.Stages, "in_progress")
 	if got.State != "performing" || got.Performer != "coder" {

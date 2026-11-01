@@ -226,8 +226,8 @@ func TestSnapshotProgressSurvivesDeepLedger(t *testing.T) {
 	e.outsideWindow(t, old)
 
 	cell := e.progressCell(t, old)
-	// The chip counts the plan edge's gates, every one passed (sty_216d5205).
-	for _, want := range []string{`class="stage-chip stage-current"`, `>plan <b class="gates">`, `<b class="rej">0</b>`} {
+	// The backlog→plan gates are backlog's exit gates, on its chip (sty_0b1abacc).
+	for _, want := range []string{`class="stage-chip stage-current"`, `>backlog <b class="gates">`, `title="plan"`} {
 		if !strings.Contains(cell, want) {
 			t.Errorf("PROGRESS cell of %s missing %q: %q", old, want, cell)
 		}

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,9 +10,9 @@ import (
 	"github.com/bobmcallan/satelle/internal/wfdot"
 )
 
-// sty_216d5205: the PROGRESS chip counts the gates on a step's edge — declared,
-// passed, failed and, while the exit gates run, still running — and spells the
-// counts and the round history in its tooltip.
+// sty_216d5205, sty_0b1abacc: the PROGRESS chip counts a step's EXIT gates — the
+// gates on the edge leaving it — and how many times they rejected the step's
+// work; the step being worked shows them not yet run or still running.
 
 // gatedSpec is a route whose edges declare gates: three into plan, two into
 // in_progress plus a tag-scoped gate (rev-c, surface:ui) and a conditional one
@@ -72,6 +73,126 @@ func counts(g *gateCountsVM) [4]int {
 	return [4]int{g.Gates, g.Passed, g.Failed, g.Running}
 }
 
+// exitSpec is the route sty_0b1abacc's criteria name: backlog → plan (3
+// reviewers) → in_progress (1) → integration (2) → done (1).
+func exitSpec() wfdot.Spec {
+	return wfdot.Spec{
+		States: []wfdot.State{
+			{Name: "backlog", Shape: "Mdiamond"},
+			{Name: "plan", Agent: "planner"},
+			{Name: "in_progress", Agent: "coder"},
+			{Name: "integration", Agent: "executor"},
+			{Name: "done", Shape: "Msquare"},
+			{Name: "blocked", Agent: "reviewer", From: []string{"*"}},
+		},
+		Transitions: []wfdot.Transition{
+			{From: "backlog", To: "plan", Skills: []string{"arch", "plan-review", "intent"}},
+			{From: "plan", To: "in_progress", Skills: []string{"definition"}},
+			{From: "in_progress", To: "integration", Skills: []string{"ac", "scope"}},
+			{From: "integration", To: "done", Skills: []string{"release"}},
+		},
+	}
+}
+
+// atIntegration is a story whose plan was rejected once on backlog→plan and
+// whose code was rejected twice on in_progress→integration; it is now at
+// integration.
+func atIntegration() []ledger.Entry {
+	return []ledger.Entry{
+		evS(ledger.KindReviewReject, "backlog", "plan", "r1", "arch"),
+		evS(ledger.KindReviewAccept, "backlog", "plan", "r2", "arch"),
+		evS(ledger.KindReviewAccept, "backlog", "plan", "r2", "plan-review"),
+		evS(ledger.KindReviewAccept, "backlog", "plan", "r2", "intent"),
+		ev(ledger.KindStatusTransition, "backlog", "plan"),
+		evS(ledger.KindReviewAccept, "plan", "in_progress", "p1", "definition"),
+		ev(ledger.KindStatusTransition, "plan", "in_progress"),
+		evS(ledger.KindReviewReject, "in_progress", "integration", "c1", "ac"),
+		evS(ledger.KindReviewAccept, "in_progress", "integration", "c2", "ac"),
+		evS(ledger.KindReviewReject, "in_progress", "integration", "c2", "scope"),
+		evS(ledger.KindReviewAccept, "in_progress", "integration", "c3", "ac"),
+		evS(ledger.KindReviewAccept, "in_progress", "integration", "c3", "scope"),
+		ev(ledger.KindStatusTransition, "in_progress", "integration"),
+	}
+}
+
+// sty_0b1abacc AC1 + AC3: each step's chip shows its exit gates — the start
+// state's chip carries the readiness panel, plan carries plan→in_progress — and
+// the rejections across every round, with no passed, failed or rounds counts;
+// the tooltip reads "<step>: <N> exit gates, <R> rejections".
+func TestChipShowsExitGatesAndRejections(t *testing.T) {
+	stages := buildStages(atIntegration(), "integration", false, noStep, exitSpec(), nil, nil)
+	if got, want := names(stages), []string{"backlog", "plan", "in_progress", "integration"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("chips = %v, want %v (the start state has a chip)", got, want)
+	}
+	_, progress := renderRowCells(t, "integration", stages)
+	for _, want := range []string{
+		`backlog <b class="gates">3</b> · <b class="rej">1 rejected</b></span>`,
+		`plan <b class="gates">1</b></span>`,
+		`in_progress <b class="gates">2</b> · <b class="rej">2 rejected</b></span>`,
+	} {
+		if !strings.Contains(progress, want) {
+			t.Errorf("progress cell missing %q:\n%s", want, progress)
+		}
+	}
+	for _, bad := range []string{"passed", "failed", "rounds", `class="ok"`, "entered from"} {
+		if strings.Contains(progress, bad) {
+			t.Errorf("progress cell carries %q:\n%s", bad, progress)
+		}
+	}
+	for name, want := range map[string]string{
+		"backlog":     "backlog: 3 exit gates, 1 rejection",
+		"plan":        "plan: 1 exit gate",
+		"in_progress": "in_progress: 2 exit gates, 2 rejections",
+		"integration": "integration: 1 exit gate, not yet run",
+	} {
+		if got := stageNamed(stages, name).Title; got != want {
+			t.Errorf("%s title = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// sty_0b1abacc AC2: the step being worked shows its exit gates as not yet run,
+// and while they run how many are running — on the backlog chip for a story in
+// readiness, and on a performing step's own exit edge.
+func TestChipShowsStepBeingWorkedNotRunOrRunning(t *testing.T) {
+	_, progress := renderRowCells(t, "integration", buildStages(atIntegration(), "integration", false, noStep, exitSpec(), nil, nil))
+	if want := `integration <b class="gates">1</b> <b class="pend">not run</b></span>`; !strings.Contains(progress, want) {
+		t.Errorf("not-run cell missing %q:\n%s", want, progress)
+	}
+
+	running := buildStages(atIntegration(), "integration", true, noStep, exitSpec(), nil, &seatGateVM{Total: 1})
+	_, progress = renderRowCells(t, "integration", running)
+	if want := `integration <b class="gates">1</b> <b class="run live">1 running</b></span>`; !strings.Contains(progress, want) {
+		t.Errorf("running cell missing %q:\n%s", want, progress)
+	}
+	if got, want := stageNamed(running, "integration").Title, "integration: 1 exit gate, 1 running"; got != want {
+		t.Errorf("running title = %q, want %q", got, want)
+	}
+
+	// Readiness: still in backlog, no transition, the readiness panel running.
+	ready := buildStages(nil, "backlog", true, noStep, exitSpec(), nil, &seatGateVM{Total: 3})
+	_, progress = renderRowCells(t, "backlog", ready)
+	if want := `backlog <b class="gates">3</b> <b class="run live">3 running</b></span>`; len(ready) != 1 || !strings.Contains(progress, want) {
+		t.Errorf("readiness cell = %q (stages %+v), want %q", progress, ready, want)
+	}
+	if got, want := ready[0].Title, "backlog: 3 exit gates, 3 running"; got != want {
+		t.Errorf("readiness title = %q, want %q", got, want)
+	}
+
+	// A performing step: the coder dispatched for in_progress while the status is
+	// still plan. Its own exit edge (in_progress → integration) is not yet run.
+	es := atIntegration()[:7]
+	stages := applyPerforming(buildStages(es, "plan", true, noStep, exitSpec(), nil, nil), "plan",
+		&dispatchVM{Agent: "coder", Step: "in_progress"}, stageRoute(exitSpec(), nil))
+	_, progress = renderRowCells(t, "plan", stages)
+	if want := `in_progress <b class="gates">2</b> <b class="pend">not run</b></span>`; !strings.Contains(progress, want) {
+		t.Errorf("performing cell missing %q:\n%s", want, progress)
+	}
+	if got, want := stageNamed(stages, "in_progress").Title, "in_progress: 2 exit gates, not yet run; performing: coder"; got != want {
+		t.Errorf("performing title = %q, want %q", got, want)
+	}
+}
+
 // AC1: gates running on the outgoing edge — the seat's gate activity reports
 // some returned and others not — count on the current chip, the running count live.
 func TestInFlightGateCountsFromSeatActivity(t *testing.T) {
@@ -87,19 +208,19 @@ func TestInFlightGateCountsFromSeatActivity(t *testing.T) {
 }
 
 // AC1: a new round with nothing returned yet counts every gate as running, not
-// the previous rejected round's verdicts.
+// the previous rejected round's verdicts; that rejected round is still counted.
 func TestInFlightNewRoundNothingReported(t *testing.T) {
 	es := append(enteredPlan(),
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "o1", "rev-a"),
 		evS(ledger.KindReviewReject, "plan", "in_progress", "o1", "rev-b"))
 	cur := stageNamed(buildStages(es, "plan", true, noStep, gatedSpec(), nil, &seatGateVM{Total: 4}), "plan")
-	if counts(cur.Gates) != [4]int{4, 0, 0, 4} || !cur.Gates.Live {
-		t.Fatalf("plan gates = %+v, want 4 gates, 0 passed, 0 failed, 4 running", cur.Gates)
+	if counts(cur.Gates) != [4]int{4, 0, 0, 4} || !cur.Gates.Live || cur.Gates.Rejected != 1 {
+		t.Fatalf("plan gates = %+v, want 4 gates, 4 running, 1 rejected", cur.Gates)
 	}
 }
 
 // AC1: a seat in flight on the step performer's dispatch is not gates running —
-// the chip shows the entry edge's counts and no running count.
+// the chip shows its exit gates not yet run and no running count.
 func TestPerformerDispatchIsNotGatesRunning(t *testing.T) {
 	seat := seatPayload{ID: "sty_1", InFlight: true, Activity: "perform:plan", ActivityTotal: 1}
 	if g := gateActivity(seat); g != nil {
@@ -107,8 +228,8 @@ func TestPerformerDispatchIsNotGatesRunning(t *testing.T) {
 	}
 	stages := buildStages(enteredPlan(), "plan", true, noStep, gatedSpec(), nil, gateActivity(seat))
 	cur := stageNamed(stages, "plan")
-	if counts(cur.Gates) != [4]int{3, 3, 0, 0} || cur.Gates.Live {
-		t.Fatalf("plan gates = %+v, want the entry edge's 3 passed of 3", cur.Gates)
+	if cur.Gates == nil || cur.Gates.Live || !cur.Gates.NotRun {
+		t.Fatalf("plan gates = %+v, want its exit gates not yet run", cur.Gates)
 	}
 	_, progress := renderRowCells(t, "plan", stages)
 	if strings.Contains(progress, `class="run`) {
@@ -125,16 +246,12 @@ func TestPerformerDispatchIsNotGatesRunning(t *testing.T) {
 	}
 }
 
-// AC1: the rendered PROGRESS cell of a story with exit gates running holds ONE
-// gate count — the outgoing edge's — with the running count carrying the live
-// class, and no pending-gate mark.
+// AC1: the current chip of a story with exit gates running holds ONE gate
+// count — its exit edge's — with the running count carrying the live class.
 func TestCurrentChipShowsOnlyOutgoingGates(t *testing.T) {
 	stages := buildStages(enteredPlan(), "plan", true, noStep, gatedSpec(), nil, &seatGateVM{Total: 4, Passed: 1, Failed: 1})
 	_, progress := renderRowCells(t, "plan", stages)
-	if n := strings.Count(progress, `class="gates"`); n != 1 {
-		t.Fatalf("want exactly one gate count, got %d: %q", n, progress)
-	}
-	want := `plan <b class="gates">4</b> <b class="ok">1</b> <b class="rej">1</b> <b class="run live">2</b></span>`
+	want := `plan <b class="gates">4</b> <b class="run live">2 running</b></span>`
 	if !strings.Contains(progress, want) {
 		t.Errorf("progress cell = %q, want %q", progress, want)
 	}
@@ -143,7 +260,8 @@ func TestCurrentChipShowsOnlyOutgoingGates(t *testing.T) {
 	}
 }
 
-// AC1: the live class pulses — it reuses the chip's pulse animation.
+// AC1: the live class pulses — it reuses the chip's pulse animation; the passed
+// count's class is gone and the not-run mark has its own rule.
 func TestRunningCountPulses(t *testing.T) {
 	raw, err := staticFS.ReadFile("static/app.css")
 	if err != nil {
@@ -161,41 +279,51 @@ func TestRunningCountPulses(t *testing.T) {
 	if strings.Contains(css, ".pending-gate") {
 		t.Error("app.css still styles the removed .pending-gate")
 	}
+	if strings.Contains(css, "\n.ok {") {
+		t.Error("app.css still styles the removed .ok passed count")
+	}
+	if !strings.Contains(css, ".stage-chip .pend {") {
+		t.Error("app.css has no .stage-chip .pend rule for not-run exit gates")
+	}
 }
 
-// AC2: a completed step shows its gate count with every gate passed and no
-// running count, even when an earlier round on the edge was rejected.
-func TestCompletedStageShowsPassedEqualsGates(t *testing.T) {
+// AC2: a completed step shows its exit gate count and no running or not-run
+// mark, and an earlier rejected round on the edge is counted.
+func TestCompletedStageShowsItsExitGates(t *testing.T) {
 	es := append(enteredPlan(),
+		evS(ledger.KindReviewReject, "plan", "in_progress", "i0", "rev-a"),
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i1", "rev-a"),
 		ev(ledger.KindStatusTransition, "plan", "in_progress"))
 	stages := buildStages(es, "in_progress", false, noStep, gatedSpec(), nil, nil)
 	plan := stageNamed(stages, "plan")
-	if plan.State != "done" || counts(plan.Gates) != [4]int{3, 3, 0, 0} || plan.Gates.Live {
-		t.Fatalf("plan chip = %+v gates %+v, want done with 3 gates, 3 passed, 0 failed", plan, plan.Gates)
+	if plan.State != "done" || plan.Gates == nil || plan.Gates.Gates != 3 || plan.Gates.Rejected != 1 || plan.Gates.Live || plan.Gates.NotRun {
+		t.Fatalf("plan chip = %+v gates %+v, want done with 3 exit gates, 1 rejected", plan, plan.Gates)
 	}
 	_, progress := renderRowCells(t, "in_progress", stages)
-	if !strings.Contains(progress, `plan <b class="gates">3</b> <b class="ok">3</b> <b class="rej">0</b></span>`) {
+	if !strings.Contains(progress, `plan <b class="gates">3</b> · <b class="rej">1 rejected</b></span>`) {
 		t.Errorf("completed plan chip not rendered with its counts: %q", progress)
-	}
-	if strings.Contains(progress, `class="run`) {
-		t.Errorf("a completed step rendered a running count: %q", progress)
 	}
 }
 
 // AC3: a scoped gate applies_to excludes for the story's tags, and a `when` gate
 // whose skip row falls in the latest round, are not counted; a control with the
-// tag and a triggered `when` gate counts both.
+// tag and a triggered `when` gate counts both. The gates are plan's exit gates.
 func TestGateCountExcludesUntriggeredAndTagSkipped(t *testing.T) {
+	gates := func(es []ledger.Entry, tags []string) int {
+		g := stageNamed(buildStages(es, "in_progress", false, noStep, gatedSpec(), tags, nil), "plan").Gates
+		if g == nil {
+			return 0
+		}
+		return g.Gates
+	}
 	skipped := append(enteredPlan(),
 		evS(ledger.KindReviewReject, "plan", "in_progress", "i1", "rev-a"), // an earlier round
 		whenSkip("rev-d", "in_progress"),
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i2", "rev-a"),
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i2", "rev-b"),
 		ev(ledger.KindStatusTransition, "plan", "in_progress"))
-	cur := stageNamed(buildStages(skipped, "in_progress", false, noStep, gatedSpec(), []string{"surface:cli"}, nil), "in_progress")
-	if counts(cur.Gates) != [4]int{2, 2, 0, 0} {
-		t.Fatalf("in_progress gates = %+v, want 2 (rev-c tag-skipped, rev-d untriggered)", cur.Gates)
+	if n := gates(skipped, []string{"surface:cli"}); n != 2 {
+		t.Fatalf("plan exit gates = %d, want 2 (rev-c tag-skipped, rev-d untriggered)", n)
 	}
 
 	// A skip row from an EARLIER round does not exclude a gate the latest round ran.
@@ -207,28 +335,27 @@ func TestGateCountExcludesUntriggeredAndTagSkipped(t *testing.T) {
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i2", "rev-d"),
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i2", "rev-c"),
 		ev(ledger.KindStatusTransition, "plan", "in_progress"))
-	cur = stageNamed(buildStages(triggered, "in_progress", false, noStep, gatedSpec(), []string{"surface:ui"}, nil), "in_progress")
-	if counts(cur.Gates) != [4]int{4, 4, 0, 0} {
-		t.Fatalf("control gates = %+v, want 4 (rev-c by tag, rev-d triggered)", cur.Gates)
+	if n := gates(triggered, []string{"surface:ui"}); n != 4 {
+		t.Fatalf("control exit gates = %d, want 4 (rev-c by tag, rev-d triggered)", n)
 	}
 	// Without the tag but with rev-d triggered: rev-c alone leaves the count.
-	cur = stageNamed(buildStages(triggered, "in_progress", false, noStep, gatedSpec(), nil, nil), "in_progress")
-	if counts(cur.Gates) != [4]int{3, 3, 0, 0} {
-		t.Fatalf("untagged gates = %+v, want 3 (rev-c tag-skipped)", cur.Gates)
+	if n := gates(triggered, nil); n != 3 {
+		t.Fatalf("untagged exit gates = %d, want 3 (rev-c tag-skipped)", n)
 	}
 }
 
-// AC4: the tooltip spells the counts in words and lists the round history the
-// chip no longer shows — for an in-flight step and for a completed one.
-func TestChipTooltipSpellsGatesAndRounds(t *testing.T) {
+// AC3: the tooltip spells the exit gates and their rejections in words — for a
+// step whose exit gates are running and for completed ones.
+func TestChipTooltipSpellsExitGatesAndRejections(t *testing.T) {
 	inFlight := append(enteredPlan(),
 		evS(ledger.KindReviewReject, "plan", "in_progress", "o1", "rev-a"),
 		evS(ledger.KindReviewReject, "plan", "in_progress", "o2", "rev-b"))
-	cur := stageNamed(buildStages(inFlight, "plan", true, noStep, gatedSpec(), nil, &seatGateVM{Total: 4, Passed: 1, Failed: 1}), "plan")
-	want := "plan → in_progress: 4 gates, 1 passed, 1 failed, 2 still running; rounds: 2 rejected" +
-		" · plan (current stage, entered from backlog): 3 gates, 3 passed, 0 failed; rounds: 1 accepted, 1 rejected"
-	if cur.Title != want {
-		t.Errorf("in-flight title =\n  %q\nwant\n  %q", cur.Title, want)
+	stages := buildStages(inFlight, "plan", true, noStep, gatedSpec(), nil, &seatGateVM{Total: 4, Passed: 1, Failed: 1})
+	if got, want := stageNamed(stages, "plan").Title, "plan: 4 exit gates, 2 rejections, 2 running"; got != want {
+		t.Errorf("in-flight title = %q, want %q", got, want)
+	}
+	if got, want := stageNamed(stages, "backlog").Title, "backlog: 3 exit gates, 1 rejection"; got != want {
+		t.Errorf("backlog title = %q, want %q", got, want)
 	}
 
 	completed := append(enteredPlan(),
@@ -238,9 +365,15 @@ func TestChipTooltipSpellsGatesAndRounds(t *testing.T) {
 		evS(ledger.KindReviewAccept, "plan", "in_progress", "i2", "rev-d"),
 		ev(ledger.KindStatusTransition, "plan", "in_progress"),
 		ev(ledger.KindStatusTransition, "in_progress", "done"))
-	stages := buildStages(completed, "done", false, noStep, gatedSpec(), nil, nil)
-	if got, want := stageNamed(stages, "in_progress").Title, "in_progress (entered from plan): 3 gates, 3 passed, 0 failed; rounds: 1 accepted, 1 rejected"; got != want {
-		t.Errorf("completed title =\n  %q\nwant\n  %q", got, want)
+	stages = buildStages(completed, "done", false, noStep, gatedSpec(), nil, nil)
+	for name, want := range map[string]string{
+		"plan":        "plan: 3 exit gates, 1 rejection",
+		"in_progress": "in_progress: 4 exit gates",
+		"done":        "done",
+	} {
+		if got := stageNamed(stages, name).Title; got != want {
+			t.Errorf("%s title = %q, want %q", name, got, want)
+		}
 	}
 }
 

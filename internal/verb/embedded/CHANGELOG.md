@@ -1,3 +1,13 @@
+## [0.0.835] - 2026-11-01
+
+### Changed
+- Each step's progress chip shows its exit gates, the gates its work must pass to leave it, and how many times they rejected that work across all rounds, for example `in_progress 7 · 2 rejected`. The planner plans while a story is in backlog, so the readiness panel shows on backlog, and the start state has its own chip. The step being worked shows its exit gates as not yet run, then how many are running. The tooltip reads `<step>: <N> exit gates, <R> rejections`. Passed/failed counts and the rounds count are gone. (sty_0b1abacc)
+
+## [serve-v0.0.270] - 2026-11-01
+
+### Changed
+- The service binary renders exit gates and rejection counts per step. (sty_0b1abacc)
+
 ## [0.0.834] - 2026-11-01
 
 ### Fixed
