@@ -594,11 +594,16 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	transitioning := req.Status != nil && *req.Status != current.Status
 	// Same-status re-engage (sty_4f74d01f): when the story is already performing
 	// but its seat lease was dropped, `story set --status <same>` must claim a
-	// lease (or refuse loudly) — never report plain success with no seat.
+	// lease (or refuse loudly) — never report plain success with no seat. A task
+	// execution re-engages the same way (sty_7f93ae45): the edit gate's dropped-
+	// seat advice names this command for every kind.
 	sameStatusReengage := false
-	if !transitioning && req.Status != nil && (current.Kind == workitem.KindStory || current.Kind == workitem.KindTask) {
-		if eng, ok := storyStatusIsEngaging(ctx, current, *req.Status); ok && eng {
+	if !transitioning && req.Status != nil && current.Kind.Leasable() {
+		eng, ok := storyStatusIsEngaging(ctx, current, *req.Status)
+		if ok && eng {
 			sameStatusReengage = true
+		} else if current.Kind == workitem.KindExecution {
+			return nil, unseatableExecutionError(current, *req.Status, ok)
 		}
 	}
 
@@ -646,7 +651,11 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// sameStatusReengage also acquires (sty_4f74d01f) without running gate/dispatch.
 	acquiredThisCall := false
 	settled := true // non-transitioning / non-lease paths never need abort release
-	if (transitioning || sameStatusReengage) && (current.Kind == workitem.KindStory || current.Kind == workitem.KindTask) {
+	// An execution takes a lease only by the same-status re-engage
+	// (sty_7f93ae45); its moves keep the path they had, so a run's close is not
+	// newly held by the dirty-close guard or a stop request.
+	leaseOnMove := transitioning && (current.Kind == workitem.KindStory || current.Kind == workitem.KindTask)
+	if leaseOnMove || sameStatusReengage {
 		// Step-edge stop arbitration (AC5): a pending stop request refuses forward
 		// engaging moves; park/terminal remain open.
 		if transitioning {
@@ -683,6 +692,11 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 				recordWorkingOn(ctx, current, *req.Status, now)
 			}
 			// inFlight / AlreadyHeld: seat already held — good enough for AC2.
+			// An execution that came away with neither, and holds no live lease,
+			// was not seated: say so rather than print success (sty_7f93ae45).
+			if !acq && !inFlight && current.Kind == workitem.KindExecution && !hasLiveLease(ctx, current.ID) {
+				return nil, fmt.Errorf("satelle: could not seat %s at %q: no engagement lease was granted (the lease store is unavailable, or the item waits on open children) — `satelle story seat` lists no holder for it, so a commit or push from its tree stays refused", current.ID, *req.Status)
+			}
 			// A named performer whose step's exit was rejected since it last ran
 			// is run once more, with the findings, before anything else applies.
 			if reDispatchOwed(ctx, current) {

@@ -1,3 +1,13 @@
+## [0.0.832] - 2026-11-01
+
+### Fixed
+- Re-engaging a performing execution with a same-status set (`satelle story set exe_… --status <its status>`) grants it a seat for the calling session and worktree, as the edit gate's advice says. A task run can then commit and push. When an execution cannot be seated, the command exits non-zero and says why, instead of reporting success with no seat. When one session holds several seats in the same tree, the commit and push gate attributes the action to the latest-acquired one and picks none on an exact tie, so another story's seat in the main tree no longer stands in for the release run. (sty_7f93ae45)
+
+## [serve-v0.0.268] - 2026-11-01
+
+### Fixed
+- The service binary carries execution re-engage and the latest-seat attribution. (sty_7f93ae45)
+
 ## [0.0.831] - 2026-11-01
 
 ### Fixed

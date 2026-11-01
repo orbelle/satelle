@@ -105,6 +105,15 @@ func (k Kind) idPrefix() string {
 // holds are gone, sty_40853d02.)
 func (k Kind) Holdable() bool { return k != KindExecution }
 
+// Leasable reports whether a kind of record takes an engagement lease when it
+// moves into (or is re-engaged at) a performing state. Stories, tasks and task
+// executions all do: the lease is how the edit and commit gates see the item as
+// engaged. Only a story occupies the story seat; that is decided at acquire, not
+// here (sty_7f93ae45).
+func (k Kind) Leasable() bool {
+	return k == KindStory || k == KindTask || k == KindExecution
+}
+
 // Holdable reports whether the record with this id may be held back from a push.
 // It is the id form of Kind.Holdable, for the callers that have an id and no
 // record.

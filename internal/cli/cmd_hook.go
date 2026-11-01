@@ -1013,6 +1013,12 @@ func pickSessionSeat(live, dropped []seatInfo, sessionID string) (seatInfo, bool
 // target sits in a git tree), else the seat whose worktree is the session's own
 // tree, else none — the caller reports the session's seats instead of guessing
 // (sty_42231b74). Exactly one stamped seat resolves as it always did.
+//
+// One session may also hold several seats in the SAME tree — a task run that
+// moved a story into a performing state, then re-engaged its own execution
+// (sty_7f93ae45). Then the most recently acquired of that tree's seats is the
+// engagement the session works under now; an exact tie on AcquiredAt is no
+// pick, for the same reason position never is.
 func pickSessionSeatFor(live, dropped []seatInfo, sessionID, targetTree string) (seatInfo, bool) {
 	if len(live) == 0 {
 		return seatInfo{}, false
@@ -1025,10 +1031,20 @@ func pickSessionSeatFor(live, dropped []seatInfo, sessionID, targetTree string) 
 			return mine[0], true
 		default:
 			for _, tree := range []string{targetTree, sessionWorktree()} {
+				if tree == "" {
+					continue
+				}
+				var inTree []seatInfo
 				for _, s := range mine {
-					if tree != "" && sameTree(s.Worktree, tree) {
+					if sameTree(s.Worktree, tree) {
+						inTree = append(inTree, s)
+					}
+				}
+				if len(inTree) > 0 {
+					if s, ok := latestAcquired(inTree); ok {
 						return s, true
 					}
+					return seatInfo{}, false
 				}
 			}
 			return seatInfo{}, false
@@ -1055,6 +1071,27 @@ func pickSessionSeatFor(live, dropped []seatInfo, sessionID, targetTree string) 
 		return seatInfo{}, false
 	}
 	return live[0], false
+}
+
+// latestAcquired is the seat with the latest AcquiredAt, or none when two seats
+// share that latest instant (sty_7f93ae45). One seat is returned as it is.
+func latestAcquired(seats []seatInfo) (seatInfo, bool) {
+	if len(seats) == 0 {
+		return seatInfo{}, false
+	}
+	best, tied := seats[0], false
+	for _, s := range seats[1:] {
+		switch {
+		case s.AcquiredAt.After(best.AcquiredAt):
+			best, tied = s, false
+		case s.AcquiredAt.Equal(best.AcquiredAt):
+			tied = true
+		}
+	}
+	if tied {
+		return seatInfo{}, false
+	}
+	return best, true
 }
 
 // sessionSeats is the live seats stamped with this session id, in store order.

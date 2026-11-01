@@ -240,6 +240,29 @@ func confirmEngagementLease(ctx context.Context, itemID, committedState string) 
 	_ = ls.Confirm(ctx, itemID, committedState)
 }
 
+// hasLiveLease reports whether a live engagement lease is recorded for itemID.
+// False when no lease store is wired: nothing can then be seated.
+func hasLiveLease(ctx context.Context, itemID string) bool {
+	ls, err := requireLease()
+	if err != nil {
+		return false
+	}
+	l, err := ls.Get(ctx, itemID)
+	return err == nil && lease.Alive(l, time.Now().UTC())
+}
+
+// unseatableExecutionError is the refusal for a same-status set on a task
+// execution whose status is not a performing state of its workflow, or whose
+// workflow does not resolve (sty_7f93ae45): a re-engage that cannot take a seat
+// says why instead of printing success.
+func unseatableExecutionError(item workitem.Item, status string, resolved bool) error {
+	why := fmt.Sprintf("%q is not a performing state of its workflow, so it takes no engagement lease", status)
+	if !resolved {
+		why = "no workflow governing executions resolves, so no performing state can be read"
+	}
+	return fmt.Errorf("satelle: could not seat %s at %q: %s — a commit or push from its tree stays refused (`satelle story route %s` shows its states)", item.ID, status, why, item.ID)
+}
+
 // forceReleaseEngagementLease frees the seat on workflow exit (terminal/park)
 // regardless of owner — sequential CLI invocations must free the seat when
 // status commits to an exit state (sty_8426b9c0).
