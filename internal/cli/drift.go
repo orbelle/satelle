@@ -53,6 +53,16 @@ func readDeployedVersion(dataDir string) string {
 	return ""
 }
 
+// stampDataDir is the data dir whose deployed.version the drift gate, doctor
+// and session advisory read. The stamp is a property of the REPOSITORY, so in a
+// linked worktree it is the main working tree's .satelle (resolved through
+// config.CanonicalRepoRoot — see its OWNERSHIP RULE), never the worktree's own:
+// .satelle is gitignored, so a worktree never carries the stamp. In the main
+// tree, or when the main tree is not initialised, it is <repoRoot>/.satelle.
+func stampDataDir(repoRoot string) string {
+	return filepath.Join(config.CanonicalRepoRoot(repoRoot), config.DefaultDataDir)
+}
+
 // isDevVersion reports builds that must never self-gate (local make / go run).
 // scripts/build-version.sh produces the +<sha>[-dirty] form for unreleased
 // make install trees so they hit the '+' rule (sty_022929ef).
@@ -123,7 +133,7 @@ func checkBreakingDrift(repoRoot string) (*breakingWarning, error) {
 	if isDevVersion(binVer) {
 		return nil, nil
 	}
-	dataDir := filepath.Join(repoRoot, config.DefaultDataDir)
+	dataDir := stampDataDir(repoRoot)
 	// Uninitialized repo: no .satelle → app.Open may still work zero-config;
 	// only gate when the data dir exists (initialized).
 	if st, err := os.Stat(dataDir); err != nil || !st.IsDir() {
@@ -202,7 +212,7 @@ func breakingDriftFindings(repoRoot string) health.Findings {
 	if isDevVersion(binVer) {
 		return nil
 	}
-	dataDir := filepath.Join(repoRoot, config.DefaultDataDir)
+	dataDir := stampDataDir(repoRoot)
 	if st, err := os.Stat(dataDir); err != nil || !st.IsDir() {
 		return nil
 	}
@@ -326,7 +336,7 @@ func versionDriftAdvisory(repoRoot string) string {
 	if isDevVersion(binVer) {
 		return ""
 	}
-	dataDir := filepath.Join(repoRoot, config.DefaultDataDir)
+	dataDir := stampDataDir(repoRoot)
 	// Uninitialised repo: nothing was ever deployed here, so there is no gap to
 	// report — same guard checkBreakingDrift applies.
 	if st, err := os.Stat(dataDir); err != nil || !st.IsDir() {

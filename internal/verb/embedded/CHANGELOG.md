@@ -1,3 +1,13 @@
+## [0.0.860] - 2026-11-02
+
+### Fixed
+- In a linked story worktree, satelle reads the repo's .satelle/deployed.version stamp from the main working tree, so a worktree that has its own .satelle directory is no longer refused with "this repo has no .satelle/deployed.version stamp". The drift decision in a worktree is the one the main tree's stamp gives. (sty_5bf84ba4)
+
+## [serve-v0.0.282] - 2026-11-02
+
+### Fixed
+- The service resolves the deployed.version stamp of a repo opened from a linked worktree from its main working tree. (sty_5bf84ba4)
+
 ## [0.0.859] - 2026-11-02
 
 ### Fixed
