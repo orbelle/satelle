@@ -1,3 +1,13 @@
+## [0.0.853] - 2026-11-02
+
+### Fixed
+- Creating an execution runs the deterministic structure check only, never the workflow's `create_review` content hook. An execution is one run of a task whose intent was judged when the task was authored. Before this, a task wake on a remote node whose bundle binds a `[reviewer]` was rejected while making its execution: the content review judged the machine-written run as a story intake, and the run concluded reject before the task started. This was seen live on the first Claude-bound `pr-approve` run, node nod_cbc33f417acc, which ended about 11 s after join. Local task triggers with a bound reviewer hit the same rejection. Stories and tasks still get the content review. (sty_313f9018)
+
+## [serve-v0.0.278] - 2026-11-02
+
+### Changed
+- The service binary's create review gives executions the structure check only. (sty_313f9018)
+
 ## [0.0.852] - 2026-11-02
 
 ### Fixed
