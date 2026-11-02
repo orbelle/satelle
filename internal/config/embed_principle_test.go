@@ -285,6 +285,30 @@ func TestStartSmallPrinciple(t *testing.T) {
 	})
 }
 
+// TestLocalFirstPrinciple (sty_4952b78a AC1-AC4, AC6): the local factory needs
+// no sign-in and is the default; a third-party integration enters through a
+// named provider seam chosen by configuration; a missing provider degrades to the
+// local path with a warning. agent-goals links it so it is reachable.
+func TestLocalFirstPrinciple(t *testing.T) {
+	embeddedPrincipleShape(t, "satelle-local-first", []string{
+		"every route phase is runnable locally with no sign-in",
+		"a placement choice, never a requirement",
+		"a third-party integration enters through a named provider seam selected by configuration",
+		"the secret resolver by ref scheme",
+		"the credential provider by `from=`",
+		"the forge for PR/merge/release",
+		"the agent CLI by profile",
+		"never referenced outside its seam",
+		"[[satelle-start-small]]",
+		"a missing provider degrades to the local path with a warning, never a block",
+		"[[satelle-configure-freely]]",
+	})
+	goals := strings.Join(strings.Fields(embeddedPrinciples()["satelle-agent-goals"]), " ")
+	if !strings.Contains(goals, "[[satelle-local-first]]") {
+		t.Error("satelle-agent-goals must link [[satelle-local-first]] so the principle is reachable")
+	}
+}
+
 // TestDispatchPointersPrinciple (sty_73a2dc68 AC1): before designing how work
 // reaches an agent, establish what it can already read and run; send it the
 // instruction and pointers, never content it can fetch; a design that copies

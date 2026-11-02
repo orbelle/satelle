@@ -87,4 +87,4 @@ Do **not** weaken the ACs (definition freeze). Diagnose:
 
 Relations are **tags** only.
 
-See [[satelle-agent-model]], [[satelle-done-is-last]], [[satelle-constitution]].
+See [[satelle-agent-model]], [[satelle-done-is-last]], [[satelle-local-first]], [[satelle-constitution]].

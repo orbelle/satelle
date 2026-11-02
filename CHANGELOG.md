@@ -1,3 +1,13 @@
+## [0.0.845] - 2026-11-02
+
+### Added
+- A new principle, `satelle-local-first`, delivered to every dispatched planner, coder and reviewer seat. The local factory (no sign-in) is the default and must always work: every route phase runs locally, and remote is a placement choice, never a requirement. A third-party service enters only through a named provider seam chosen by configuration (secret resolver by ref scheme, credential provider by `from=`, forge for PR/merge/release, agent CLI by profile). The first provider may be concrete but is never referenced outside its seam, and a missing provider falls back to the local path with a warning, never a block. `satelle-agent-goals` links it. (sty_4952b78a)
+
+## [serve-v0.0.274] - 2026-11-02
+
+### Changed
+- The service binary carries the new `satelle-local-first` principle and the `satelle-agent-goals` link to it, as embedded substrate. (sty_4952b78a)
+
 ## [0.0.844] - 2026-11-02
 
 ### Fixed
