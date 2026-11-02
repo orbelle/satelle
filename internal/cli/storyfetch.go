@@ -71,6 +71,27 @@ func fetchBeforeRead(cmd *cobra.Command, id string) {
 	}
 }
 
+// fetchBeforeWrite runs fetchRemoteHistory for each story a write is about to
+// append to, so the write builds on the hosted head instead of starting a chain
+// of its own that no push can publish (sty_00212637). It is the one pre-write
+// fetch: every caller that writes a story's events outside dispatch names its
+// stories here. A held story costs one mark lookup. A fetch that fails is said
+// on errw with the repair, and the write goes on: local first, never blocked.
+func fetchBeforeWrite(cmd *cobra.Command, ids ...string) {
+	a, err := appFrom(cmd)
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ferr := fetchRemoteHistory(cmd.Context(), a, id); ferr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: history is on the server and was not fetched before this write: %v — if push then refuses it, run `satelle sync workstate rechain %s`\n", id, ferr, id)
+		}
+	}
+}
+
 // newSyncWorkstateFetchCmd is the fetch as a verb, for a reader outside the CLI:
 // satelled execs it when the web story page opens a story whose history is on the
 // server, then reads the mirror the verb refreshes.

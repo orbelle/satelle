@@ -33,6 +33,9 @@ func dispatchResponse(cmd *cobra.Command, name string, req any) (json.RawMessage
 		}
 		body = b
 	}
+	// A story whose history this checkout left on the server is fetched first, so
+	// any event the verb appends builds on the hosted head (sty_00212637).
+	fetchBeforeWrite(cmd, requestStoryID(req))
 	// A verb that will run a reviewer holds its caller for minutes. Called by an
 	// agent it hands the run to a detached copy and answers with the verdict or a
 	// handle instead (sty_c4b92c9e); a person at a terminal runs it here, with

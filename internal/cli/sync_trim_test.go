@@ -50,10 +50,19 @@ func hostedTeamRepo(t *testing.T) (*httptest.Server, *fakeWorkstateServer, strin
 // made at at, in the local store and on the fake server, with its head saved.
 func cacheStory(t *testing.T, f *fakeWorkstateServer, server, repo, title, status string, at time.Time, extra ...ledger.Entry) string {
 	t.Helper()
+	return cacheItem(t, f, server, repo, workitem.CreateInput{Title: title, Status: status}, at, extra...)
+}
+
+// cacheItem is cacheStory for a story created from in, so a test can give it a
+// category and tags.
+func cacheItem(t *testing.T, f *fakeWorkstateServer, server, repo string, in workitem.CreateInput, at time.Time, extra ...ledger.Entry) string {
+	t.Helper()
 	ctx := context.Background()
+	title, status := in.Title, in.Status
+	in.Kind = workitem.KindStory
 	var id string
 	withRepoStore(t, func(db *store.DB) {
-		it, err := db.Stories.Create(ctx, workitem.CreateInput{Kind: workitem.KindStory, Title: title, Status: status}, at)
+		it, err := db.Stories.Create(ctx, in, at)
 		if err != nil {
 			t.Fatal(err)
 		}

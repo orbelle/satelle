@@ -210,26 +210,45 @@ func TestRechainRepairsSeededFork(t *testing.T) {
 	}
 }
 
-// sty_9b1dcf4b AC4: a story with local work beyond a seeded genesis is refused by
-// name and left untouched.
-func TestRechainRefusesLocalWork(t *testing.T) {
-	ts, _, id, want, _ := forkedByOldPull(t)
+// sty_9b1dcf4b AC4, as sty_00212637 AC2 changed it: local work beyond a seeded
+// genesis on a root of its own is replayed after the hosted chain, the seeded
+// snapshot alone dropped, and the next push publishes the work.
+func TestRechainReplaysWorkBeyondSeededGenesis(t *testing.T) {
+	ts, f, id, want, repo := forkedByOldPull(t)
+	var work string
 	withRepoStore(t, func(db *store.DB) {
-		if _, err := db.Ledger.Append(context.Background(), ledger.AppendInput{StoryID: id, Kind: ledger.KindComment, Actor: "bob", Body: "local work"}, time.Now()); err != nil {
+		e, err := db.Ledger.Append(context.Background(), ledger.AppendInput{StoryID: id, Kind: ledger.KindComment, Actor: "bob", Body: "local work"}, time.Now())
+		if err != nil {
 			t.Fatal(err)
 		}
+		work = e.ID
 	})
-	before := idsOf(localChain(t, id))
+	var replayed []string
+	for _, e := range localChain(t, id) {
+		if e.Kind != ledger.KindDefinitionSnapshot {
+			replayed = append(replayed, e.ID)
+		}
+	}
 
 	out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL)
-	if err == nil || !strings.Contains(out, "refused "+id) || !strings.Contains(out, "not only a seeded genesis") {
-		t.Fatalf("rechain = %v\n%s, want the story refused by name", err, out)
+	if err != nil || !strings.Contains(out, "rechained "+id) || !strings.Contains(out, "1 seeded") || !strings.Contains(out, "replay 2 local event(s)") {
+		t.Fatalf("rechain = %v\n%s, want the work replayed and the seeded snapshot dropped", err, out)
 	}
-	if got := idsOf(localChain(t, id)); !slices.Equal(got, before) {
-		t.Errorf("a refused rechain changed the chain: %v, want %v", got, before)
+	got := localChain(t, id)
+	if g, w := idsOf(got), append(idsOf(want), replayed...); !slices.Equal(g, w) {
+		t.Fatalf("chain after rechain = %v, want the hosted chain then %v", g, replayed)
 	}
-	if slices.Contains(before, want[0].ID) {
-		t.Error("the refused story took hosted events")
+	if got[len(want)].BaseID != want[len(want)-1].ID {
+		t.Errorf("the first replayed event builds on %q, want the hosted latest %q", got[len(want)].BaseID, want[len(want)-1].ID)
+	}
+	if out, err := pushRaw(t, ts.URL); err != nil || strings.Contains(out, "moved since") {
+		t.Fatalf("push after rechain = %v\n%s", err, out)
+	}
+	if hostedIDs := f.chain.stored("probe", id); !slices.Contains(hostedIDs, work) {
+		t.Errorf("the server holds %v, want the replayed work %s", hostedIDs, work)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after push = %v, want none", c)
 	}
 }
 

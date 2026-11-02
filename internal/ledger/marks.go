@@ -185,7 +185,7 @@ func chainTip(events []Entry) (string, bool) {
 // and this checkout had not seen, in one transaction: the server's events are
 // inserted with the bases they carry, then the unpublished events (named in chain
 // order) are written again after them, the first now building on newBase and each
-// other on the one before, as before. Ids, kinds, payloads and times are kept; the
+// other on the one named before it. Ids, kinds, payloads and times are kept; the
 // events are re-inserted rather than edited so insertion order stays chain order.
 func (s *Store) RebaseEvents(ctx context.Context, storyID string, hosted []Entry, unpublished []string, newBase string) error {
 	if strings.TrimSpace(storyID) == "" || len(unpublished) == 0 {
@@ -219,7 +219,13 @@ func (s *Store) RebaseEvents(ctx context.Context, storyID string, hosted []Entry
 				return err
 			}
 		}
-		moved[0].BaseID = newBase
+		for i := range moved {
+			if i == 0 {
+				moved[i].BaseID = newBase
+			} else {
+				moved[i].BaseID = moved[i-1].ID
+			}
+		}
 		for _, e := range moved {
 			if err := insertKnown(ctx, ex, e); err != nil {
 				return err

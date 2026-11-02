@@ -1,3 +1,13 @@
+## [0.0.861] - 2026-11-02
+
+### Fixed
+- In team scope a write to a story whose history this checkout left on the server builds on the hosted head, so the story keeps publishing instead of forking into a conflict every push refuses. `story set` (status and tags), `story log`, `story recover` and every other command that goes through dispatch fetch the story's hosted chain first, and `story ready` fetches each story its round can write to, an epic's members included. A failed fetch warns and the write goes on. The tool-trace hook appends nothing to such a story, since a hook makes no network call. `sync workstate rechain` repairs a story already forked this way without `--force`: it takes the hosted chain and replays the local work after its latest in its order, dropping only a seeded definition snapshot. It refuses when a replayed status move does not start from the status the hosted chain folds to. `sync workstate push --dry-run` names the resolved scope (`team` or `personal`) for each area instead of a fixed `personal`. (sty_00212637)
+
+## [serve-v0.0.283] - 2026-11-02
+
+### Fixed
+- The service's ledger rebase carries the base of the first replayed event correctly when a forked story's local work is replayed onto its hosted head. (sty_00212637)
+
 ## [0.0.860] - 2026-11-02
 
 ### Fixed

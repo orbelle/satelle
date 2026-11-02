@@ -28,15 +28,14 @@ func newSyncWorkstateRechainCmd() *cobra.Command {
 		Short:       "Put a story forked from its hosted chain onto that chain",
 		Annotations: hostedOrigin(needsStore()),
 		Args:        cobra.ArbitraryArgs,
-		Long: `rechain repairs a story an earlier pull forked from its hosted chain: it seeded
-a genesis of its own, or linked the hosted events in another order, so every push
-of it is refused.
+		Long: `rechain puts a story forked from its hosted chain back on it, moves its push
+head to the hosted latest and clears its conflict. It never pushes.
 
-It keeps the start of the local chain the hosted chain shares event for event,
-replaces the rest with the hosted events, moves the push head to the hosted
-latest and clears the conflict. It never pushes. A local event the hosted chain
-lacks is dropped when seeded, or a status_reconcile of the status the hosted chain
-folds to; any other is local work: refused by name, untouched.
+A local event the hosted chain lacks is dropped when seeded, or a status_reconcile
+to the status the hosted chain folds to. Local work on a root of its own (written
+while the history was on the server) is replayed after the hosted latest, in
+order; a replayed status move must start from the hosted status. Any other local
+work is refused by name, untouched.
 
 With no ids it takes every story in conflict or differing from its hosted chain.
 --dry-run applies the same checks and changes nothing.`,
@@ -102,8 +101,12 @@ func runSyncWorkstateRechain(cmd *cobra.Command, serverArg string, dryRun bool, 
 				continue
 			}
 		}
-		fmt.Fprintf(out, "%s %s: remove %d event(s) (%d seeded, %d reconcile), take %d hosted event(s)\n",
-			word("rechained", "would rechain"), c.id, len(c.plan.remove), c.plan.seeded, len(c.plan.reconciled), len(c.plan.take))
+		replayed := ""
+		if n := len(c.plan.replay); n > 0 {
+			replayed = fmt.Sprintf(", replay %d local event(s)", n)
+		}
+		fmt.Fprintf(out, "%s %s: remove %d event(s) (%d seeded, %d reconcile), take %d hosted event(s)%s\n",
+			word("rechained", "would rechain"), c.id, len(c.plan.remove)+len(c.plan.retake), c.plan.seeded, len(c.plan.reconciled), len(c.plan.take), replayed)
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d stor(y/ies) not rechained — see above", failed)
@@ -200,6 +203,8 @@ type rechainPlan struct {
 	remove  []string            // local events to remove, in chain order
 	seeded  int                 // of remove, the ones that are a seeded genesis
 	take    []hosted.ChainEvent // hosted events to take, in chain order
+	replay  []string            // local work to put after the hosted latest, in chain order
+	retake  []string            // local copies of hosted events, off the hosted chain, the replay takes again
 
 	reconciled map[string]bool // of remove, the status_reconcile events whose status the hosted chain folds to
 }
@@ -261,6 +266,9 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 	refuse := func(format string, args ...any) rechainPlan {
 		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}
 	}
+	if plan, ok := planReplay(local, events, hostedStatus); ok {
+		return plan
+	}
 	order, err := chainOrder(local)
 	if err != nil {
 		return refuse("%v", err)
@@ -321,6 +329,88 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 	return plan
 }
 
+// planReplay decides a story whose local-only events are real work on a root of
+// their own: a write made after this checkout left the story's history on the
+// server started a new chain instead of building on the hosted head
+// (sty_00212637). ok is false for any other shape, which planRechain judges as
+// before.
+//
+// The local copies of hosted events are kept while they are a start of the hosted
+// chain, id and base; the rest are retaken from the server — a fetch after the
+// fork linked the hosted root onto the local work. The local-only events must be
+// one chain from their own root, and are replayed after the hosted latest in that
+// order, a workflow_version included: only a seeded definition snapshot, SeedItem's
+// copy of a definition the hosted chain carries, is dropped. A replayed status move
+// must start from the status the hosted chain folds to; otherwise the story moved
+// elsewhere and is refused with both statuses.
+func planReplay(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus func() (string, error)) (rechainPlan, bool) {
+	refuse := func(format string, args ...any) (rechainPlan, bool) {
+		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}, true
+	}
+	onHosted := make(map[string]bool, len(events))
+	for _, e := range events {
+		onHosted[e.ID] = true
+	}
+	held := map[string]ledger.Entry{}
+	var own []ledger.Entry
+	for _, e := range local {
+		if onHosted[e.ID] {
+			held[e.ID] = e
+		} else {
+			own = append(own, e)
+		}
+	}
+	// Only seeded events and reconciles are the shapes planRechain repairs by
+	// dropping them; anything else among the local-only events is work.
+	if !slices.ContainsFunc(own, func(e ledger.Entry) bool {
+		return !storyfold.IsSeededEvent(e) && e.Kind != ledger.KindStatusReconcile
+	}) {
+		return rechainPlan{}, false
+	}
+	ownOrder, err := chainOrder(own)
+	if err != nil {
+		return rechainPlan{}, false // not a root of its own: built on a hosted event, or forked
+	}
+	var kept []ledger.Entry
+	for _, ev := range events {
+		e, ok := held[ev.ID]
+		if !ok || e.BaseID != ev.BaseID {
+			break
+		}
+		kept = append(kept, e)
+	}
+	take, err := takePlan(kept, events)
+	if err != nil {
+		return refuse("the hosted chain cannot be taken: %v", err)
+	}
+	plan := rechainPlan{outcome: rechainDo, take: take}
+	for _, ev := range events[len(kept):] {
+		if _, ok := held[ev.ID]; ok {
+			plan.retake = append(plan.retake, ev.ID)
+		}
+	}
+	guarded := false
+	for _, e := range ownOrder {
+		if e.Kind == ledger.KindDefinitionSnapshot && storyfold.IsSeededEvent(e) {
+			plan.remove = append(plan.remove, e.ID)
+			plan.seeded++
+			continue
+		}
+		if e.Kind == ledger.KindStatusTransition && !guarded {
+			guarded = true
+			folded, err := hostedStatus()
+			if err != nil {
+				return refuse("the hosted chain cannot be folded: %v", err)
+			}
+			if from := storyfold.TransitionFrom(e); from != folded {
+				return refuse("local status_transition %s moves from %s but the hosted chain folds to %s", e.ID, from, folded)
+			}
+		}
+		plan.replay = append(plan.replay, e.ID)
+	}
+	return plan, true
+}
+
 // matchingPrefix counts the events a local chain in chain order and a hosted chain
 // share from their start: same id, same base.
 func matchingPrefix(order []ledger.Entry, events []hosted.ChainEvent) int {
@@ -350,6 +440,9 @@ func divergent(local []ledger.Entry, events []hosted.ChainEvent) bool {
 // latest and clears its conflict. planRechain made every check; a re-run after a
 // failure part way finds a start of the hosted chain and takes the rest.
 func (c rechainCase) apply(ctx context.Context, a *app.App, chain *chainPull, now time.Time) error {
+	if len(c.plan.replay) > 0 {
+		return c.applyReplay(ctx, a, chain, now)
+	}
 	onHosted := make(map[string]bool, len(c.events))
 	for _, e := range c.events {
 		onHosted[e.ID] = true
@@ -376,6 +469,65 @@ func (c rechainCase) apply(ctx context.Context, a *app.App, chain *chainPull, no
 	if len(order) != len(c.events) || matchingPrefix(order, c.events) != len(c.events) {
 		return fmt.Errorf("the local chain is not the hosted chain after taking it")
 	}
+	return c.settle(ctx, a, chain, now)
+}
+
+// applyReplay drops the local copies of hosted events that are off the hosted
+// chain, writes the hosted events the store lacks with the bases they carry and
+// the local work after the hosted latest in its order, in one transaction, then
+// drops any seeded snapshot planReplay named. The head stays at the hosted
+// latest, so the next push sends the replayed events.
+func (c rechainCase) applyReplay(ctx context.Context, a *app.App, chain *chainPull, now time.Time) error {
+	onHosted := make(map[string]bool, len(c.events))
+	for _, e := range c.events {
+		onHosted[e.ID] = true
+	}
+	if len(c.plan.retake) > 0 {
+		if err := a.Store.Ledger.RemoveEvents(ctx, c.id, c.plan.retake, func(e ledger.Entry) bool { return onHosted[e.ID] }); err != nil {
+			return err
+		}
+	}
+	taken := make([]ledger.Entry, 0, len(c.plan.take))
+	for _, ev := range c.plan.take {
+		e, err := ledgerEntryOf(c.id, ev)
+		if err != nil {
+			return fmt.Errorf("decode the hosted event %s of %s: %w", ev.ID, c.id, err)
+		}
+		if e.CreatedAt.IsZero() {
+			e.CreatedAt = now
+		}
+		taken = append(taken, e)
+	}
+	if err := a.Store.Ledger.RebaseEvents(ctx, c.id, taken, c.plan.replay, c.latest); err != nil {
+		return err
+	}
+	if len(c.plan.remove) > 0 {
+		if err := a.Store.Ledger.RemoveEvents(ctx, c.id, c.plan.remove, storyfold.IsSeededEvent); err != nil {
+			return err
+		}
+	}
+	local, err := a.Store.Ledger.StoryChain(ctx, c.id)
+	if err != nil {
+		return fmt.Errorf("read the local chain: %w", err)
+	}
+	order, err := chainOrder(local)
+	if err != nil {
+		return err
+	}
+	if len(order) != len(c.events)+len(c.plan.replay) || matchingPrefix(order, c.events) != len(c.events) ||
+		!slices.Equal(idsOfEntries(order[len(c.events):]), c.plan.replay) {
+		return fmt.Errorf("the local chain is not the hosted chain and the replayed work after replaying it")
+	}
+	// The store holds the story's whole chain again, as a fetch leaves it.
+	if err := a.Store.Ledger.ClearMarks(ctx, ledger.MarkHistoryRemote, []string{c.id}); err != nil {
+		return err
+	}
+	return c.settle(ctx, a, chain, now)
+}
+
+// settle rebuilds the story's row from its repaired chain, moves its head to the
+// hosted latest and clears its conflict.
+func (c rechainCase) settle(ctx context.Context, a *app.App, chain *chainPull, now time.Time) error {
 	row, err := a.Store.Stories.Get(ctx, c.id)
 	if err != nil {
 		return fmt.Errorf("read the story row: %w", err)
@@ -387,4 +539,12 @@ func (c rechainCase) apply(ctx context.Context, a *app.App, chain *chainPull, no
 	chain.flush()
 	_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, nil, []string{c.id}, now)
 	return nil
+}
+
+func idsOfEntries(events []ledger.Entry) []string {
+	out := make([]string, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.ID)
+	}
+	return out
 }

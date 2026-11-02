@@ -301,7 +301,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		fmt.Fprintf(out, "Would push work-state areas to the bound project on %s:\n", server)
 		for _, area := range WorkstateAreas {
 			if optIn[area] {
-				fmt.Fprintf(out, "  %s -> personal\n", area)
+				fmt.Fprintf(out, "  %s -> %s\n", area, syncScope)
 			}
 		}
 		if sc.scoped() {

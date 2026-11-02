@@ -706,3 +706,32 @@ func TestScopedPullEpicExpansionRefusalsApplyNothing(t *testing.T) {
 		refused(t, r.m1+" not found on")
 	})
 }
+
+// sty_00212637 AC4: push --dry-run names the scope the binding resolves to, team
+// or personal, for every area it would push, never a fixed "personal".
+func TestWorkstatePushDryRunNamesResolvedScope(t *testing.T) {
+	for _, tc := range []struct{ kind, scope string }{{kindTeam, "team"}, {kindPersonal, "personal"}} {
+		t.Run(tc.scope, func(t *testing.T) {
+			ts, _ := newFakeWorkstateServer(t)
+			seedCred(t, ts.URL)
+			workstateRepo(t, scopeToml)
+			useScope(t, tc.kind)
+			out, err := runRoot(t, "sync", "workstate", "push", "--dry-run", "--server", ts.URL)
+			if err != nil {
+				t.Fatalf("push --dry-run: %v\n%s", err, out)
+			}
+			var areas []string
+			for _, l := range strings.Split(out, "\n") {
+				if strings.Contains(l, " -> ") {
+					areas = append(areas, l)
+					if !strings.HasSuffix(l, " -> "+tc.scope) {
+						t.Errorf("dry-run line %q, want it to name the %s scope", l, tc.scope)
+					}
+				}
+			}
+			if len(areas) == 0 {
+				t.Fatalf("push --dry-run names no area:\n%s", out)
+			}
+		})
+	}
+}

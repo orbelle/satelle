@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/costview"
+	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/storyfold"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -1770,6 +1771,9 @@ One line per story: <id> marked|not-accepted|refused|no-readiness-step[: why]; n
 		Args:        cobra.MinimumNArgs(1),
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The round runs in process and records on every story it readies — an
+			// epic's backlog children too — so each is fetched first (sty_00212637).
+			fetchBeforeWrite(cmd, readyWriteSet(cmd, args)...)
 			body, err := json.Marshal(map[string]any{"ids": args})
 			if err != nil {
 				return err
@@ -1815,6 +1819,42 @@ One line per story: <id> marked|not-accepted|refused|no-readiness-step[: why]; n
 			return nil
 		},
 	}
+}
+
+// readyWriteSet is every story a readiness round over ids may write to: each id
+// and, transitively, the members epicset.Members gives a container — the source
+// the epic round iterates. It is not filtered by what the round will skip; a
+// skipped member costs only the fetch's mark lookup.
+func readyWriteSet(cmd *cobra.Command, ids []string) []string {
+	a, err := appFrom(cmd)
+	if err != nil {
+		return ids
+	}
+	seen := map[string]bool{}
+	var out []string
+	var walk func(id string)
+	walk = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+		it, err := a.Store.Stories.Get(cmd.Context(), id)
+		if err != nil {
+			return
+		}
+		members, err := epicset.Members(cmd.Context(), a.Store.Stories, it)
+		if err != nil {
+			return
+		}
+		for _, m := range members {
+			walk(m.ID)
+		}
+	}
+	for _, id := range ids {
+		walk(id)
+	}
+	return out
 }
 
 // storyRestampCommand builds `satelle story restamp <id> [--workflow <name>]`:
@@ -2236,6 +2276,7 @@ See: satelle help agent-dispatch`,
 			req := map[string]any{"id": args[0]}
 			putIf(req, "choice", choice)
 			putIf(req, "reason", reason)
+			fetchBeforeWrite(cmd, args[0])
 			resp, err := verb.Dispatch(cmd.Context(), "story-recover", mustJSON(req))
 			if err != nil {
 				return err

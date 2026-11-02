@@ -68,6 +68,12 @@ func recordToolTrace(gs *gateStore, raw []byte, seat traceSeat) {
 	if err != nil {
 		return
 	}
+	// A hook makes no network call, so it cannot fetch a story whose history is on
+	// the server; a trace appended there would root a chain of its own that no push
+	// can publish (sty_00212637).
+	if remote, err := a.Store.Ledger.HasMark(context.Background(), info.ItemID, ledger.MarkHistoryRemote); err != nil || remote {
+		return
+	}
 	command := agentcli.CommandFromHookEvent(raw)
 	if !stepWantsTrace(context.Background(), a.Store.Ledger, info, command != "") {
 		return
