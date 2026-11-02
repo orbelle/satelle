@@ -1,3 +1,8 @@
+## [0.0.857] - 2026-11-02
+
+### Fixed
+- `go test -race ./internal/cli/...` passes: the doctor context-review tests count their stub reviewer builds with an atomic counter, so a reviewer built from another goroutine no longer races the test reading the count. (sty_e5a334f7)
+
 ## [0.0.856] - 2026-11-02
 
 ### Breaking

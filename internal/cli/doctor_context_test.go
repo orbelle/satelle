@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
@@ -310,12 +311,12 @@ func (r *fakeReviewRunner) calls() []agentcli.Request {
 
 // stubReviewer installs a runner for the reviewer binding and returns it with the
 // number of times the factory was asked for one.
-func stubReviewer(t *testing.T, reply string, err error) (*fakeReviewRunner, *int) {
+func stubReviewer(t *testing.T, reply string, err error) (*fakeReviewRunner, *atomic.Int32) {
 	t.Helper()
 	r := &fakeReviewRunner{reply: reply, err: err}
-	built := 0
+	var built atomic.Int32
 	contextReviewRunner = func(string, string) (agentcli.Runner, error) {
-		built++
+		built.Add(1)
 		return r, nil
 	}
 	t.Cleanup(func() { contextReviewRunner = nil })
@@ -432,8 +433,8 @@ func TestPlainDoctorSpawnsNoReviewer(t *testing.T) {
 		RepoRoot: f.repo, DataDir: f.dataDir,
 		ContextChecks: contextChecks, ContextReviewer: contextReview,
 	})
-	if *built != 0 {
-		t.Fatalf("plain doctor built %d reviewer runner(s), want none", *built)
+	if n := built.Load(); n != 0 {
+		t.Fatalf("plain doctor built %d reviewer runner(s), want none", n)
 	}
 	if got := byID(rep.Findings, health.IDContextDuplicateSemantic); len(got) != 0 {
 		t.Fatalf("no semantic finding without the flag, got %+v", got)
@@ -450,7 +451,7 @@ func TestPlainDoctorSpawnsNoReviewer(t *testing.T) {
 		RepoRoot: f.repo, DataDir: f.dataDir, ContextReview: true,
 		ContextChecks: contextChecks, ContextReviewer: contextReview,
 	})
-	if *built == 0 {
+	if built.Load() == 0 {
 		t.Fatal("--context-review must run the reviewer")
 	}
 	if got := byID(rep.Findings, health.IDContextDuplicateSemantic); len(got) != 1 {
