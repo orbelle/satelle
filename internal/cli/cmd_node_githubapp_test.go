@@ -83,7 +83,8 @@ func TestNodeTaskWakeGetsARepoScopedGitHubAppToken(t *testing.T) {
 			map[string]any{"id": item.ID, "output": "checked the repos", "outcome": verb.OutcomeAccept}, &struct{}{})
 	}}, 0)
 
-	_, fake, joined, _ := r.open(t)
+	w := r.wake(t)
+	fake, joined := w.fake, w.joined
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
@@ -264,7 +265,8 @@ func TestNodeTaskWakeProductionDriveGivesTheTaskProcessTheToken(t *testing.T) {
 	r.bundle["workflows/agents.toml"] += "\n[executor]\nrole = \"agent\"\ncommand = \"" +
 		exe + " " + ghAppAgentArg + " " + report + " " + gh.URL + " {system}\"\ntools = \"read_file\"\n"
 
-	_, fake, joined, _ := r.open(t)
+	w := r.wake(t)
+	fake, joined := w.fake, w.joined
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}

@@ -19,19 +19,7 @@ type Handler func(ctx context.Context, body json.RawMessage) (json.RawMessage, e
 type Node struct {
 	mu       sync.Mutex
 	handlers map[string]Handler
-	onReady  func()
 	active   atomic.Int32 // jobs whose handler is running
-}
-
-// OnReady registers f to be called once, by Serve, right after the ready report
-// has been sent, and before Serve starts answering jobs. It is not called when
-// the send fails or when the report carries an Error. It is the one place that
-// knows the report is on the wire, so a caller that must not end the session
-// before then (a run that may conclude instantly) waits on it.
-func (n *Node) OnReady(f func()) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.onReady = f
 }
 
 // What a node reports as its heartbeat step while it waits for a job and while a
@@ -87,12 +75,6 @@ func (n *Node) Serve(ctx context.Context, sess *remotechan.Session, report Repor
 	if report.Error != "" {
 		return errors.New(report.Error)
 	}
-	n.mu.Lock()
-	ready := n.onReady
-	n.mu.Unlock()
-	if ready != nil {
-		ready()
-	}
 
 	ctx, stop := context.WithCancelCause(ctx)
 	var wg sync.WaitGroup
@@ -118,37 +100,6 @@ func (n *Node) Serve(ctx context.Context, sess *remotechan.Session, report Repor
 			n.serveJob(ctx, sess, m, stop)
 		}()
 	}
-}
-
-// ServeWithRun is Serve with one run beside it: run is started before Serve sends
-// the ready report and is handed its own context, never Serve's. The ready report
-// is never delayed by the run, and a run that returns at once cannot pre-empt it:
-// Serve is stopped only after it has sent the report (OnReady) and run has
-// returned, so the node ends with its single run. If Serve ends first (the
-// controller closed the session, a signal, a failed send) run's context is
-// cancelled and ServeWithRun waits for it to return. It returns Serve's result.
-func (n *Node) ServeWithRun(ctx context.Context, sess *remotechan.Session, report Report, run func(ctx context.Context)) error {
-	serveCtx, cancelServe := context.WithCancel(ctx)
-	defer cancelServe()
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-
-	ready, serveDone, runDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	n.OnReady(func() { close(ready) })
-	go func() {
-		defer close(runDone)
-		run(runCtx)
-		select {
-		case <-ready:
-			cancelServe()
-		case <-serveDone:
-		}
-	}()
-	err := n.Serve(serveCtx, sess, report)
-	close(serveDone)
-	cancelRun()
-	<-runDone
-	return err
 }
 
 // serveJob answers one request: heartbeat while the handler runs, send its

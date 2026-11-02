@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -334,6 +336,34 @@ func (r *nodeRig) tryOpen(t *testing.T) (run *remotenode.Run, fake *devtest.Node
 	}
 	run, err = remotenode.Attach(ctx, sess, 60*time.Second)
 	return run, <-fakeCh, joined, got, err
+}
+
+// taskWake is a node satelle.dev woke: its fake, the join's end, the launch it was
+// handed, and the relay it was pointed at, which counts every request and pairs
+// nothing.
+type taskWake struct {
+	fake      *devtest.Node
+	joined    chan error
+	spec      remotechan.LaunchSpec
+	relayHits *atomic.Int32
+}
+
+// wake plays satelle.dev waking a task node from a route or trigger: it serves the
+// node's fake and starts `satelle node join` with no controller end on the relay,
+// pointed at a relay that never upgrades, so a node that waited on the relay would
+// never pair.
+func (r *nodeRig) wake(t *testing.T) taskWake {
+	t.Helper()
+	w := taskWake{joined: make(chan error, 1), relayHits: new(atomic.Int32)}
+	relay := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		w.relayHits.Add(1)
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(relay.Close)
+	w.spec = remotechan.LaunchSpec{RelayURL: relay.URL, Session: "nod_wake", Token: "node-token"}
+	w.fake = r.serve(w.spec.Session, w.spec.Token, r.encode())
+	go func() { w.joined <- r.joinNow(w.spec.RelayURL, w.spec.Session, w.spec.Token) }()
+	return w
 }
 
 // files is every file under dir, by slash path.

@@ -235,29 +235,67 @@ func runSteps(t *testing.T, fake *devtest.Node, subject string) []string {
 }
 
 // A definition that declares [drive] kind = "task" with a task its bundle does
-// not carry is refused at prepare, naming the task; the node reports not ready and
+// not carry is refused at prepare, naming the task: the node reports the failed
+// start on the node API as a concluded reject whose findings name the task, and
 // ends once.
 func TestNodePrepareRefusesATaskItDoesNotHave(t *testing.T) {
-	r, _ := taskRig(t, "missing", false)
+	r, subject := taskRig(t, "missing", false)
 	useTaskNode(t, &taskPerformers{}, 0)
-	_, fake, joined, _, err := r.tryOpen(t)
-	if err == nil || !strings.Contains(err.Error(), "missing") || !strings.Contains(err.Error(), "tsk_missing") {
-		t.Fatalf("Attach = %v, want a not-ready error naming the task missing (tsk_missing)", err)
-	}
-	if jerr := waitJoin(t, joined); jerr == nil || !strings.Contains(jerr.Error(), "which the node does not have") {
+	w := r.wake(t)
+	if jerr := waitJoin(t, w.joined); jerr == nil || !strings.Contains(jerr.Error(), "which the node does not have") {
 		t.Errorf("join ended with %v, want the task refusal", jerr)
 	}
-	if n := fake.Count(http.MethodPost, "/end"); n != 1 {
+	assertStartFailureStatuses(t, w.fake, 1)
+	st := w.fake.Statuses()
+	last := st[len(st)-1]
+	if f := last["findings"]; !strings.Contains(f, "missing") || !strings.Contains(f, "tsk_missing") {
+		t.Errorf("concluded findings = %q, want the refusal naming the task missing (tsk_missing)", f)
+	}
+	if last["story_id"] != subject.ID() {
+		t.Errorf("concluded status story = %q, want the wake's subject %q", last["story_id"], subject.ID())
+	}
+	// The run is read once, by the failed-start report, to name its story.
+	if n := w.fake.Count(http.MethodGet, "/run"); n != 1 {
+		t.Errorf("run reads = %d, want 1 (the failed-start report's)", n)
+	}
+	if n := w.relayHits.Load(); n != 0 {
+		t.Errorf("relay requests = %d, want none", n)
+	}
+}
+
+// A task node woken by satelle.dev (no local end on the relay, which here never
+// pairs) runs its task against the node API alone: it concludes accept, ends once
+// and never dials the relay.
+func TestNodeJoinTaskNodeRunsWithoutTheRelay(t *testing.T) {
+	r, subject := taskRig(t, "nightly-sweep", true)
+	useTaskNode(t, recordingPerformers(), 0)
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+	st := w.fake.Statuses()
+	if len(st) == 0 {
+		t.Fatal("the node sent no status")
+	}
+	if last := st[len(st)-1]; last["run_state"] != "concluded" || last["outcome"] != verb.OutcomeAccept || last["story_id"] != subject.ID() {
+		t.Errorf("last status = %v, want the wake's run concluded accept", last)
+	}
+	if n := w.relayHits.Load(); n != 0 {
+		t.Errorf("relay requests = %d, want none", n)
+	}
+	if n := r.relay.Attempts(); n != 0 {
+		t.Errorf("rig relay dials = %d, want none", n)
+	}
+	if n := w.fake.Count(http.MethodPost, "/end"); n != 1 {
 		t.Errorf("end calls = %d, want 1", n)
 	}
-	if n := fake.Count(http.MethodGet, "/run"); n != 0 {
-		t.Errorf("a node that cannot prepare read its run (%d), want none", n)
+	if !strings.Contains(r.log.String(), "join: ready: definition=v7 ") {
+		t.Errorf("node log does not record the ready report:\n%s", r.log)
 	}
 }
 
 // A wake of a task node: one execution of the task, its inputs the descriptor's
-// fields the task declares, driven through the task's own route without delaying
-// the ready report, reported as queued, running with the step (and re-sent while
+// fields the task declares, driven through the task's own route, reported as queued, running with the step (and re-sent while
 // the step runs, at an interval under the server's lost-after window) and
 // concluded with the outcome; the subject story is not touched and the node ends
 // after its run.
@@ -297,10 +335,9 @@ func TestNodeWakeRunsOneExecutionAndReportsIt(t *testing.T) {
 	}
 	useTaskNode(t, perf, 10*time.Millisecond)
 
-	// Attach returning is the ready report arriving: it must not wait for the run,
-	// which is held in its step until the test lets it go.
-	run, fake, joined, spec := r.open(t)
-	_ = run
+	// The run is held in its step until the test lets it go.
+	w := r.wake(t)
+	fake, joined, spec := w.fake, w.joined, w.spec
 	select {
 	case <-entered:
 	case <-time.After(30 * time.Second):
@@ -375,9 +412,7 @@ func TestNodeWakeRunsOneExecutionAndReportsIt(t *testing.T) {
 }
 
 // A task whose performer records outcome no-op concludes without error, and the
-// node reports concluded with outcome no-op. The run ends instantly, so this is
-// also the proof that a run which concludes before the ready report is on the wire
-// cannot pre-empt it: the controller still attaches, and the node ends once.
+// node reports concluded with outcome no-op and ends once.
 func TestNodeWakeThatFindsNothingToDoConcludesNoOp(t *testing.T) {
 	r, subject := taskRig(t, "nightly-sweep", true)
 	perf := &taskPerformers{step: func(item workitem.Item) error {
@@ -386,10 +421,8 @@ func TestNodeWakeThatFindsNothingToDoConcludesNoOp(t *testing.T) {
 	}}
 	useTaskNode(t, perf, 0)
 
-	run, fake, joined, _ := r.open(t)
-	if run.Report.Error != "" {
-		t.Fatalf("report = %+v", run.Report)
-	}
+	w := r.wake(t)
+	fake, joined := w.fake, w.joined
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}

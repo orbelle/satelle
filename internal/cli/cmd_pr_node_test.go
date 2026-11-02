@@ -5,7 +5,7 @@ package cli
 import (
 	"context"
 	"os"
-	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -66,15 +66,13 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 			map[string]any{"id": item.ID, "output": "checked", "outcome": verb.OutcomeAccept}, &struct{}{})
 	}}, 0)
 
-	run, _, joined, _ := r.open(t)
-	if err := waitJoin(t, joined); err != nil {
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
-	if want := []string{"api.github.com"}; !reflect.DeepEqual(run.Report.Allow, want) || run.Report.Error != "" {
-		t.Errorf("report allow = %v (error %q), want %v", run.Report.Allow, run.Report.Error, want)
-	}
-	if len(run.Report.Repos) != 1 || run.Report.Repos[0].Name != "widgets" {
-		t.Errorf("report repos = %+v, want exactly widgets", run.Report.Repos)
+	// With no relay end, the ready report is the node's log line.
+	if !regexp.MustCompile(`join: ready: definition=\S* allow=api\.github\.com repos=widgets@[0-9a-f]+ `).MatchString(r.log.String()) {
+		t.Errorf("node log does not report exactly the bundle's allowlist and the widgets repo:\n%s", r.log)
 	}
 
 	mu.Lock()

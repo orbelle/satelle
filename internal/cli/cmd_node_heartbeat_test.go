@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,67 @@ func TestNodeJoinHeartbeatsDuringASlowBootstrap(t *testing.T) {
 		t.Fatalf("node join: %v\nnode log:\n%s", err, r.log)
 	}
 	if n := fake.Count(http.MethodPost, "/end"); n != 1 {
+		t.Errorf("end calls = %d, want 1", n)
+	}
+}
+
+// A task node's join heartbeat runs until its run's own heartbeat starts: a
+// bootstrap held open for many resend intervals keeps node heartbeats (no story,
+// no run state) arriving, then the run's queued, running and concluded statuses
+// follow, and no node heartbeat comes after the run's first.
+func TestNodeJoinTaskNodeHeartbeatsThroughAStallBeforeTheRun(t *testing.T) {
+	r, subject := taskRig(t, "nightly-sweep", true)
+	scratch := t.TempDir()
+	started, release := filepath.Join(scratch, "started"), filepath.Join(scratch, "release")
+	r.bundle["remote.toml"] += "\n[host]\n"
+	r.setBootstrap([][]string{{"sh", "-c", ": > " + started + " && while [ ! -e " + release + " ]; do sleep 0.02; done"}})
+	useTaskNode(t, recordingPerformers(), 20*time.Millisecond)
+
+	w := r.wake(t)
+	const stalled = 5
+	deadline := time.Now().Add(30 * time.Second)
+	for (!fileExists(started) || len(w.fake.Statuses()) < stalled) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	during := w.fake.Statuses()
+	if !fileExists(started) || len(during) < stalled {
+		t.Fatalf("bootstrap started = %v, statuses during it = %v, want at least %d heartbeats\nnode log:\n%s", fileExists(started), during, stalled, r.log)
+	}
+	for _, s := range during {
+		if s["story_id"] != "" || s["run_state"] != "" || s["state"] != remotenode.StateRunning {
+			t.Errorf("heartbeat during the stall = %v, want a node heartbeat with no story and no run state", s)
+		}
+	}
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+
+	st := w.fake.Statuses()
+	first := -1
+	for i, s := range st {
+		if s["story_id"] != "" {
+			first = i
+			break
+		}
+	}
+	if first < stalled {
+		t.Fatalf("the run's first status is at %d of %v, want at least %d node heartbeats before it", first, st, stalled)
+	}
+	if s := st[first]; s["story_id"] != subject.ID() || s["run_state"] != "queued" {
+		t.Errorf("the run's first status = %v, want queued for the wake's subject", s)
+	}
+	for _, s := range st[first:] {
+		if s["story_id"] == "" {
+			t.Errorf("node heartbeat %v follows the run's first status", s)
+		}
+	}
+	if got, want := runSteps(t, w.fake, subject.ID()), []string{"queued//", "running/in_progress/", "running/done/", "concluded//accept"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("run statuses = %v, want %v", got, want)
+	}
+	if n := w.fake.Count(http.MethodPost, "/end"); n != 1 {
 		t.Errorf("end calls = %d, want 1", n)
 	}
 }

@@ -166,8 +166,9 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	// silent node lost) does not end it. The status says whether a job is in flight.
 	// The beat stops before the end call (this defer is registered after it), so no
 	// heartbeat follows the end, and before a failed start is reported, so that
-	// report is the last status. A task-kind node hands over to its run's own
-	// heartbeat once its definition shows it runs a task.
+	// report is the last status. A task-kind node keeps it until the moment its
+	// run's own heartbeat starts (runTaskWake), so a stall anywhere before the run,
+	// a secret read, the bootstrap or the repo fetch, is still heard.
 	node := remotenode.NewNode()
 	beat := remotenode.StartHeartbeat(ctx, client, nodeStatusResend, node.Status, cmd.ErrOrStderr())
 	defer beat.Stop()
@@ -199,9 +200,6 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	if err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return fmt.Errorf("join: %w", err)
-	}
-	if def.RunsTask() {
-		beat.Stop()
 	}
 
 	// A github-app secret is read once here, before anything of the run starts,
@@ -235,20 +233,30 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return fmt.Errorf("join: %w", err)
 	}
 
+	// A task-kind node is woken by satelle.dev, which leaves no local end on the
+	// relay to pair with, so it never joins the relay: everything its run needs is
+	// on the node API under its node token.
+	if def.RunsTask() {
+		report, perr := prepareNode(ctx, root, dataDir, def, version)
+		if perr != nil {
+			reportNodeStartFailure(ctx, cmd, client, beat, perr)
+			return fmt.Errorf("join: %w", perr)
+		}
+		logNodeReady(cmd.ErrOrStderr(), report)
+		return runTaskWake(ctx, cmd, beat, client, root, session, def)
+	}
+
 	// A node a starter asked satelle.dev for to perform a step (mode=performer)
 	// publishes its channel key before it dials, once, so the starter pins it from
 	// satelle.dev rather than from this node's stdout (sty_7028d996). Every other
-	// mode prints the key line above and publishes nothing; a task-kind node reads
-	// its own run later, so it is not asked here.
-	if !def.RunsTask() {
-		desc, rerr := client.Run(ctx)
-		if rerr != nil {
-			return fmt.Errorf("join: %w", rerr)
-		}
-		if desc.Mode == remotenode.ModePerformer {
-			if perr := client.PublishChannelKey(ctx, id.Public()); perr != nil {
-				return fmt.Errorf("join: %w", perr)
-			}
+	// mode prints the key line above and publishes nothing.
+	desc, rerr := client.Run(ctx)
+	if rerr != nil {
+		return fmt.Errorf("join: %w", rerr)
+	}
+	if desc.Mode == remotenode.ModePerformer {
+		if perr := client.PublishChannelKey(ctx, id.Public()); perr != nil {
+			return fmt.Errorf("join: %w", perr)
 		}
 	}
 
@@ -267,9 +275,6 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	report, perr := prepareNode(ctx, root, dataDir, def, version)
 	if perr != nil {
 		report = remotenode.Report{Error: perr.Error()}
-	}
-	if perr == nil && def.RunsTask() {
-		return serveTaskWake(ctx, cmd, node, sess, report, client, root, session, def)
 	}
 	return node.Serve(ctx, sess, report)
 }
@@ -384,31 +389,45 @@ func reportNodeStartFailure(ctx context.Context, cmd *cobra.Command, client *rem
 	remotenode.ReportStartFailure(ctx, client, desc.StoryID, cause.Error(), cmd.ErrOrStderr())
 }
 
-// serveTaskWake serves a task-kind remote's node with its wake run beside Serve
-// (Node.ServeWithRun): the ready report is not delayed by the run, and the node
-// ends with its single run. A run that cannot be made or driven is logged; it has
-// already reported itself concluded as rejected. A node at a pull-only root
-// (refusePullOnly) runs its task and pushes no workstate.
-func serveTaskWake(ctx context.Context, cmd *cobra.Command, node *remotenode.Node, sess *remotechan.Session,
-	report remotenode.Report, client *remotenode.NodeClient, root, session string, def remotedef.Definition) error {
+// logNodeReady writes what a task node would have reported ready to its own log:
+// with no relay end to read a ready report, the log is where it is seen.
+func logNodeReady(log io.Writer, report remotenode.Report) {
+	repos := make([]string, len(report.Repos))
+	for i, r := range report.Repos {
+		repos[i] = r.Name + "@" + r.Commit
+	}
+	fmt.Fprintf(log, "join: ready: definition=%s allow=%s repos=%s bindings=%s\n", report.DefinitionVersion,
+		strings.Join(report.Allow, ","), strings.Join(repos, ","), strings.Join(report.Bindings, ","))
+}
+
+// runTaskWake runs a task-kind remote's single wake against the node API. The
+// node's join heartbeat (beat) runs until the line before RunTask, whose first act
+// is its queued status, so satelle.dev hears the node throughout and no join
+// heartbeat follows the run's first (Stop waits for one in flight). A wake that
+// cannot be prepared is reported as a failed start; a run that cannot be made or
+// driven is returned, having already reported itself concluded as rejected. A
+// node at a pull-only root (refusePullOnly) runs its task and pushes no workstate.
+func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heartbeat, client *remotenode.NodeClient,
+	root, session string, def remotedef.Definition) error {
 	opts, desc, err := prepareTaskWake(ctx, cmd, client)
 	if err != nil {
-		return node.Serve(ctx, sess, remotenode.Report{Error: err.Error()})
+		reportNodeStartFailure(ctx, cmd, client, beat, err)
+		return err
 	}
 	var pusher remotenode.WorkstatePusher = client
 	if err := refusePullOnly(root); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "workstate push skipped: %v\n", err)
 		pusher = nil
 	}
-	return node.ServeWithRun(ctx, sess, report, func(runCtx context.Context) {
-		res, rerr := remotenode.RunTask(runCtx, remotenode.TaskRun{
-			Def: def, Desc: desc, NodeID: session, Client: client, Drive: opts, ResendEvery: nodeStatusResend,
-			Pusher: pusher, Batch: nodeWorkstateBatch(cmd),
-		})
-		if rerr != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "join: the task run %s: %v\n", res.Execution, rerr)
-		}
+	beat.Stop()
+	res, rerr := remotenode.RunTask(ctx, remotenode.TaskRun{
+		Def: def, Desc: desc, NodeID: session, Client: client, Drive: opts, ResendEvery: nodeStatusResend,
+		Pusher: pusher, Batch: nodeWorkstateBatch(cmd),
 	})
+	if rerr != nil {
+		return fmt.Errorf("join: the task run %s: %w", res.Execution, rerr)
+	}
+	return nil
 }
 
 // nodeWorkstateBatch collects what a task run pushes to the team workspace: the
@@ -449,7 +468,8 @@ func nodeWorkstateBatch(cmd *cobra.Command) func(context.Context, workitem.Item,
 }
 
 // prepareTaskWake reads the wake's subject and builds how its execution is driven.
-// Either failing means the node cannot do its one job, so it is reported not ready.
+// Either failing means the node cannot do its one job, so it is reported as a
+// failed start.
 func prepareTaskWake(ctx context.Context, cmd *cobra.Command, client *remotenode.NodeClient) (drive.Options, remotenode.RunDescriptor, error) {
 	desc, err := client.Run(ctx)
 	if err != nil {

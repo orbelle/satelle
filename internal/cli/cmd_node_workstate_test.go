@@ -41,7 +41,8 @@ func TestNodeTaskWakePushesWorkstate(t *testing.T) {
 	}
 	useTaskNode(t, recordingPerformers(), 0)
 
-	_, fake, joined, spec := r.open(t)
+	w := r.wake(t)
+	fake, joined, spec := w.fake, w.joined, w.spec
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
@@ -135,7 +136,8 @@ func TestNodeWorkstatePushNeedsNoLogin(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	useTaskNode(t, recordingPerformers(), 0)
 
-	_, fake, joined, spec := r.open(t)
+	w := r.wake(t)
+	fake, joined, spec := w.fake, w.joined, w.spec
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
@@ -171,7 +173,8 @@ func TestPullOnlyNodeWorkstatePushSkipped(t *testing.T) {
 	writeRepoFile(t, r.nodeRoot, ".satelle/"+config.LocalConfigName, "[sync]\npull_only = true\n")
 	useTaskNode(t, recordingPerformers(), 0)
 
-	_, fake, joined, _ := r.open(t)
+	w := r.wake(t)
+	fake, joined := w.fake, w.joined
 	if err := waitJoin(t, joined); err != nil {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}

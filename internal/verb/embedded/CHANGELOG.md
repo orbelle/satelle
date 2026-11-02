@@ -1,3 +1,8 @@
+## [0.0.851] - 2026-11-02
+
+### Fixed
+- A task node that satelle.dev wakes runs its task against the node API alone and never waits on the relay. Before this, `satelle node join` dialled the relay (`remotechan.Join`) for every node before running a task, and a server-woken task node has no local end to pair with, so the sealed-channel handshake waited forever. The join heartbeat had already stopped, so the node went silent and was reaped "lost: no heartbeat within the lost window" (seen live on the first route-driven PR-approval run, node nod_582d6f3ab586, just after its GH_TOKEN read was allowed). The join heartbeat now runs until immediately before the task run starts, so a stall anywhere before then reports as a stall. The relay-coupled run path used only by task nodes (`remotenode.ServeWithRun`, `OnReady`) is deleted. Relay-driven nodes are unchanged. (sty_1bd3fb76)
+
 ## [0.0.850] - 2026-11-02
 
 ### Changed
