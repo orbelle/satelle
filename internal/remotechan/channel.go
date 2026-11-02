@@ -126,6 +126,7 @@ type Session struct {
 	jmu  sync.Mutex
 	open map[*Job]struct{} // sending-end jobs in flight, cut off by a resume
 
+	closing atomic.Bool // set by Close: a read error from here on is our own end, never a restart
 	done    chan struct{}
 	errOnce sync.Once
 	err     error
@@ -199,10 +200,15 @@ func (s *Session) Err() error {
 	}
 }
 
-// Close ends the session.
+// Close ends the session. The normal close frame is written while the read loop's
+// context is still live: cancelling that context first makes the library drop the
+// socket with no frame, which the relay passes on as a vanished end and the other
+// end takes for a relay restart, redialling for up to ResumeWindow.
 func (s *Session) Close() error {
+	s.closing.Store(true)
+	err := s.conn.Load().Close(websocket.StatusNormalClosure, "")
 	s.finish(ErrClosed)
-	return s.conn.Load().Close(websocket.StatusNormalClosure, "")
+	return err
 }
 
 // finish records why the session ended, once, and wakes everything waiting on it.

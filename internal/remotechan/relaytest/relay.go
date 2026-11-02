@@ -24,6 +24,14 @@ type Frame struct {
 	Data []byte
 }
 
+// Departure is how the first end of a paired session left the relay: the close
+// status its connection ended with (-1 when it vanished with no close frame).
+type Departure struct {
+	Session string
+	Role    string
+	Status  websocket.StatusCode
+}
+
 // slot is one session's two ends. ready is non-nil while a local end has been
 // admitted but is not yet recorded in local (its upgrade is being answered): the
 // contract's "local end waiting" starts at the admission, not at the 101.
@@ -40,6 +48,7 @@ type Relay struct {
 	slots         map[string]*slot
 	conns         []*websocket.Conn
 	frames        []Frame
+	departures    []Departure
 	bearers       []string
 	remoteBearers []string
 	attempts      int
@@ -246,6 +255,15 @@ func (r *Relay) Frames() []Frame {
 	return out
 }
 
+// Departures lists, in order, how the first end of each paired session left: the
+// end whose leaving the relay passed on to the other. The second end's leaving is
+// the relay's own doing and is not listed.
+func (r *Relay) Departures() []Departure {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]Departure(nil), r.departures...)
+}
+
 // Mount serves every path outside /relay/ with h, so a test can put a stand-in for
 // the server's other routes on the host the relay is under.
 func (r *Relay) Mount(h http.Handler) {
@@ -403,6 +421,9 @@ func (r *Relay) serve(w http.ResponseWriter, req *http.Request) {
 		sl.remote = nil
 	} else {
 		sl.local = nil
+	}
+	if peer != nil {
+		r.departures = append(r.departures, Departure{Session: session, Role: role, Status: websocket.CloseStatus(err)})
 	}
 	r.mu.Unlock()
 	c.CloseNow()

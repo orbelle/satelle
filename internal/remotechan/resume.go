@@ -111,8 +111,8 @@ func (e *RelayStatusError) class() closeClass {
 // returns true once a new connection is swapped in, and false when the session
 // has ended.
 func (s *Session) resume(cause error) bool {
-	if s.ctx.Err() != nil {
-		return false
+	if s.closing.Load() || s.ctx.Err() != nil {
+		return false // Close ended it: never redial, and leave Close to record ErrClosed
 	}
 	class := classifyClose(cause)
 	if s.res == nil || class == closeOther {

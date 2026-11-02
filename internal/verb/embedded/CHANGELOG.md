@@ -1,3 +1,8 @@
+## [0.0.846] - 2026-11-02
+
+### Fixed
+- Ending a remote session always sends a normal close first. `Session.Close` used to cancel the session's read context before writing the close frame, and the websocket library answers a cancelled read by dropping the socket with no frame, so a deliberate end could reach the relay as an abrupt drop. The node then took it for a relay restart and redialled for up to `ResumeWindow` (2 minutes), and `satelle node join` did not end. That is the cause of the intermittent "node join did not end" test failures, which were not a timing flake. A session that is closing no longer redials. A real relay restart still makes both ends redial. The NodeJoin group passed 200 consecutive runs (4,800 passes) with its 30s wait unchanged. Counterpart: satelle-server 0.1.261 (sty_7b561514), live on satelle.dev, now passes a leaving end's normal close on as 1000 "peer left" instead of GoingAway, so with both halves a production node stops as soon as its controller ends the run. (sty_e18dfcf8)
+
 ## [0.0.845] - 2026-11-02
 
 ### Added
