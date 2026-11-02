@@ -66,7 +66,8 @@ type Report struct {
 	// DefinitionVersion is the version of the definition the node fetched and runs
 	// from (the X-Satelle-Definition-Version of its bundle).
 	DefinitionVersion string `json:"definition_version"`
-	// Workflows are the categories of the remote's own done.toml.
+	// Workflows are the categories of the remote's effective workflow: its
+	// bundle's done.toml merged over the embedded default, or that default alone.
 	Workflows []string `json:"workflows"`
 	// Allow is the egress allowlist the definition declares.
 	Allow []string      `json:"allow"`

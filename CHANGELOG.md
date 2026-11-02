@@ -1,3 +1,8 @@
+## [0.0.852] - 2026-11-02
+
+### Fixed
+- A node whose definition bundle carries no workflow tree resolves its workflow as satelle does everywhere else: the bundle's `workflows/` merged over the embedded defaults, or the embedded defaults alone. Before this, `satelle node join` read `.satelle/workflows/done.toml` straight from disk to list the node's workflow categories, so a task remote such as `pr-approve` (whose bundle carries only `remote.toml` and the repo constitution) concluded reject with "the remote's done.toml: … no such file or directory" (seen live on node nod_3741de3aef54). The node now also opens its app after installing the bundle, so the bundle's own bindings answer the execution route's gates. (sty_76e35a37)
+
 ## [0.0.851] - 2026-11-02
 
 ### Fixed

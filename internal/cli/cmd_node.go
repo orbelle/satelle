@@ -35,6 +35,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentstep"
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/doctor"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -43,6 +44,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfdot"
+	"github.com/bobmcallan/satelle/internal/wfgovern"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -396,8 +398,9 @@ func logNodeReady(log io.Writer, report remotenode.Report) {
 	for i, r := range report.Repos {
 		repos[i] = r.Name + "@" + r.Commit
 	}
-	fmt.Fprintf(log, "join: ready: definition=%s allow=%s repos=%s bindings=%s\n", report.DefinitionVersion,
-		strings.Join(report.Allow, ","), strings.Join(repos, ","), strings.Join(report.Bindings, ","))
+	fmt.Fprintf(log, "join: ready: definition=%s allow=%s repos=%s bindings=%s workflows=%s\n", report.DefinitionVersion,
+		strings.Join(report.Allow, ","), strings.Join(repos, ","), strings.Join(report.Bindings, ","),
+		strings.Join(report.Workflows, ","))
 }
 
 // runTaskWake runs a task-kind remote's single wake against the node API. The
@@ -506,18 +509,19 @@ func installNodeDefinition(ctx context.Context, cmd *cobra.Command, client *remo
 	if err != nil {
 		return remotedef.Definition{}, "", err
 	}
-	// The store opens against what init scaffolded; the remote's own bindings are
-	// judged later by resolving them, not by the bootstrap.
+	def, err := remotenode.InstallDefinition(dataDir, bundle)
+	if err != nil {
+		return remotedef.Definition{}, "", fmt.Errorf("definition: %w", err)
+	}
+	// The app opens over the installed definition, so the gates and dispatches it
+	// wires bind the remote's own agents layer, not init's scaffold. The bindings
+	// are still judged later by resolving them (prepareNode).
 	if err := openAppForCmd(cmd); err != nil {
 		return remotedef.Definition{}, "", err
 	}
 	a, err := appFrom(cmd)
 	if err != nil {
 		return remotedef.Definition{}, "", err
-	}
-	def, err := remotenode.InstallDefinition(dataDir, bundle)
-	if err != nil {
-		return remotedef.Definition{}, "", fmt.Errorf("definition: %w", err)
 	}
 	if err := reindexSubstrate(cmd, a, false); err != nil {
 		return remotedef.Definition{}, "", fmt.Errorf("reindex: %w", err)
@@ -624,15 +628,23 @@ func resolveNodeBindings(dataDir string) ([]string, error) {
 	return resolved, nil
 }
 
-// doneCategories lists the workflow categories of the remote's own done.toml.
+// doneCategories lists the workflow categories of the remote's effective
+// workflow: the bundle's workflows/done.toml merged by name over the embedded
+// default, or the embedded default alone when the bundle carries no workflow
+// tree. It resolves through doctor.GoverningWorkflows and
+// wfgovern.RouteSourceOf, the route resolution the rest of satelle uses, so a
+// bundle need not carry a done.toml for its node to report what it runs.
 func doneCategories(dataDir string) ([]string, error) {
-	body, err := os.ReadFile(filepath.Join(dataDir, config.AgentsConfigDir, "done.toml"))
+	rs := wfgovern.RouteSourceOf(doctor.GoverningWorkflows(dataDir))
+	if rs.Unreadable.Path != "" {
+		return nil, fmt.Errorf("the remote's workflow %s is unreadable: %s", rs.Unreadable.Path, rs.Unreadable.Reason)
+	}
+	if rs.Done == "" {
+		return nil, errors.New("the remote's workflow route declares no done.toml")
+	}
+	lists, err := wfdot.ParseDone(rs.Done)
 	if err != nil {
 		return nil, fmt.Errorf("the remote's done.toml: %w", err)
-	}
-	lists, err := wfdot.ParseDone(string(body))
-	if err != nil {
-		return nil, err
 	}
 	out := make([]string, len(lists))
 	for i, l := range lists {

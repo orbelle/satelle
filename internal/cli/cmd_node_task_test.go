@@ -17,10 +17,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/verb"
+	"github.com/bobmcallan/satelle/internal/wfdot"
+	"github.com/bobmcallan/satelle/internal/wfgovern"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -439,6 +442,114 @@ func TestNodeWakeThatFindsNothingToDoConcludesNoOp(t *testing.T) {
 	if body, err := os.ReadFile(docs[0]); err != nil || !strings.Contains(string(body), "\noutcome: no-op\n") {
 		t.Errorf("the run-output doc does not record the outcome: %v\n%s", err, body)
 	}
+}
+
+// A definition bundle that carries no workflow tree runs on the embedded
+// defaults: the node prepares, reports the embedded done.toml's categories, and
+// drives its task through the shipped execution route — whose reviewer gates a
+// stub reviewer bound in the bundle's agents layer answers — to a concluded
+// outcome, never failing on a missing done.toml.
+func TestNodeTaskRunsWithoutWorkflowTree(t *testing.T) {
+	r, subject := taskRig(t, "nightly-sweep", true)
+	delete(r.bundle, "workflows/done.toml")
+	delete(r.bundle, "workflows/step.toml")
+	stubDir := t.TempDir()
+	reviewer, judged := filepath.Join(stubDir, "stub-reviewer"), filepath.Join(stubDir, "judged")
+	script := "#!/bin/sh\necho judged >> " + judged + "\ncat > /dev/null\n" + `echo '{"decision":"accept","notes":"stub"}'` + "\n"
+	if err := os.WriteFile(reviewer, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.bundle["workflows/agents.toml"] += "\n[reviewer]\nrole = \"reviewer\"\ninterface = \"command\"\ncommand = \"" + reviewer +
+		" -p {system}\"\ntools = \"Read,Grep,Glob\"\nisolation = \"operator-attested\"\n"
+	useTaskNode(t, recordingPerformers(), 0)
+
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+	st := w.fake.Statuses()
+	if len(st) == 0 {
+		t.Fatal("the node sent no status")
+	}
+	last := st[len(st)-1]
+	if last["run_state"] != "concluded" || last["story_id"] != subject.ID() || strings.Contains(last["findings"], "done.toml") {
+		t.Errorf("last status = %v, want the wake's run concluded with no done.toml finding\nnode log:\n%s", last, r.log)
+	}
+	// The gates were answered by the bundle's own [reviewer], not a binding
+	// init scaffolded before the definition was installed.
+	if body, err := os.ReadFile(judged); err != nil || strings.Count(string(body), "judged") < 2 {
+		t.Errorf("the bundle's stub reviewer judged %q (%v), want at least the run's two gates", body, err)
+	}
+	assertReadyWorkflows(t, r.log.String(), embeddedCategories(t))
+}
+
+// A bundle that carries its own done.toml reports the categories satelle
+// resolves from it: the file's categories merged by name over the embedded
+// default, so a category only the file declares is listed beside the embedded
+// ones it does not mention.
+func TestNodeTaskReportsAuthoredCategories(t *testing.T) {
+	r, _ := taskRig(t, "nightly-sweep", true)
+	r.bundle["workflows/done.toml"] += "\n[sweep]\nobligations = [\"raised\", \"run\", \"run-verified\"]\n"
+	useTaskNode(t, recordingPerformers(), 0)
+
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+	rs := wfgovern.RouteSourceOf([]docindex.Doc{{Kind: "workflows", Name: wfgovern.RouteSourceDone, Body: r.bundle["workflows/done.toml"]}})
+	want := categoriesOf(t, rs.Done)
+	for _, c := range []string{"sweep", "epic-parent"} {
+		if !containsTag(want, c) {
+			t.Fatalf("the effective categories %v lack %q: the fixture no longer proves the merge", want, c)
+		}
+	}
+	assertReadyWorkflows(t, r.log.String(), want)
+}
+
+// embeddedCategories is the categories of the binary's embedded done.toml.
+func embeddedCategories(t *testing.T) []string {
+	t.Helper()
+	for _, d := range config.EmbeddedDefaults() {
+		if d.Kind == "workflows" && d.Name == wfgovern.RouteSourceDone {
+			return categoriesOf(t, d.Body)
+		}
+	}
+	t.Fatal("no embedded done.toml")
+	return nil
+}
+
+// categoriesOf is the categories a done.toml declares, in order.
+func categoriesOf(t *testing.T, body string) []string {
+	t.Helper()
+	lists, err := wfdot.ParseDone(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]string, len(lists))
+	for i, l := range lists {
+		out[i] = l.Category
+	}
+	return out
+}
+
+// assertReadyWorkflows checks the ready report the task node logged lists
+// exactly want as its workflows.
+func assertReadyWorkflows(t *testing.T, log string, want []string) {
+	t.Helper()
+	for _, line := range strings.Split(log, "\n") {
+		if !strings.HasPrefix(line, "join: ready: ") {
+			continue
+		}
+		_, got, ok := strings.Cut(line, " workflows=")
+		if !ok {
+			t.Fatalf("ready line %q carries no workflows", line)
+		}
+		if got != strings.Join(want, ",") {
+			t.Errorf("reported workflows = %s, want %s", got, strings.Join(want, ","))
+		}
+		return
+	}
+	t.Fatalf("the node logged no ready report:\n%s", log)
 }
 
 func containsTag(tags []string, want string) bool {

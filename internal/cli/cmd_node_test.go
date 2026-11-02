@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/filebundle"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/remotechan"
@@ -35,6 +36,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/remotenode/gittest"
+	"github.com/bobmcallan/satelle/internal/wfgovern"
 )
 
 type nodeTestStore struct{ cred hosted.Credential }
@@ -420,8 +422,11 @@ func TestNodeJoinRunsFromTheDefinitionItFetches(t *testing.T) {
 	if rep.Error != "" || rep.Version == "" || rep.DefinitionVersion != "v7" {
 		t.Errorf("report = %+v", rep)
 	}
-	if !reflect.DeepEqual(rep.Bindings, []string{"worker"}) || !reflect.DeepEqual(rep.Workflows, []string{"*"}) {
-		t.Errorf("report bindings/workflows = %v / %v", rep.Bindings, rep.Workflows)
+	// The workflows are the effective route's: the bundle's done.toml merged by
+	// name over the embedded default.
+	wantWorkflows := categoriesOf(t, wfgovern.RouteSourceOf([]docindex.Doc{{Kind: "workflows", Name: wfgovern.RouteSourceDone, Body: nodeDefinition["workflows/done.toml"]}}).Done)
+	if !reflect.DeepEqual(rep.Bindings, []string{"worker"}) || !reflect.DeepEqual(rep.Workflows, wantWorkflows) {
+		t.Errorf("report bindings/workflows = %v / %v, want [worker] / %v", rep.Bindings, rep.Workflows, wantWorkflows)
 	}
 	// The report's allowlist and repos are what remote.toml declares.
 	if want := []string{"api.example.com", "*.example.org"}; !reflect.DeepEqual(rep.Allow, want) {
