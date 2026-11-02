@@ -504,10 +504,12 @@ func min(a, b int) int {
 }
 
 // TestAppJSTickerAddsNoConnection is AC5: the freshness ticker must not have
-// become an excuse for a second stream or a poll. sty_a4fc4d00 closes the SSE
-// on a hidden tab because HTTP/1.1 caps ~6 connections per host and a stream
-// per hidden tab starves the ACTIVE tab. A timer costs none of that — but only
-// while it stays a timer.
+// become an excuse for a second stream or a poll. HTTP/1.1 caps ~6 connections
+// per host, so app.js shares ONE /events stream across every open page
+// (sty_1ea8202b): the Web Lock leader holds it and relays it over a
+// BroadcastChannel. A timer costs none of that — but only while it stays a timer.
+// It also pins sty_1ea8202b AC6: the per-tab visibility gating is gone, not
+// kept as a second path beside the shared stream.
 func TestAppJSTickerAddsNoConnection(t *testing.T) {
 	js, err := staticFS.ReadFile("static/app.js")
 	if err != nil {
@@ -515,10 +517,15 @@ func TestAppJSTickerAddsNoConnection(t *testing.T) {
 	}
 	src := string(js)
 	if n := strings.Count(src, "new EventSource"); n != 1 {
-		t.Errorf("want exactly 1 EventSource (the visibility-gated one), got %d", n)
+		t.Errorf("want exactly 1 EventSource (the shared stream's one call site), got %d", n)
 	}
-	if !strings.Contains(src, "visibilitychange") {
-		t.Error("the SSE visibility gate from sty_a4fc4d00 must remain")
+	for _, want := range []string{"navigator.locks", "BroadcastChannel"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("the shared live stream must coordinate pages through %s", want)
+		}
+	}
+	if strings.Contains(src, "visibilitychange") {
+		t.Error("the per-tab visibility gating must be deleted (no dual paths beside the shared stream)")
 	}
 	// The ticker re-renders from the DOM; it must not fetch to learn the time.
 	if strings.Contains(src, "renderRelTimes") && strings.Contains(src, "fetch(\"fragment/time") {

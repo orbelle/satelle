@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"github.com/bobmcallan/satelle/internal/testutil"
@@ -924,9 +925,9 @@ func TestBrowserMarkTracksConnection(t *testing.T) {
 // TestBrowserMarkSoftRedOnDisconnect drives AC3 of sty_2faa7dd4 in the real browser:
 // on a live /events disconnect only the ◐ MARK turns a MUTED soft-red (not the
 // saturated fail red) while the "satelle" WORDMARK stays ink, and it returns to the
-// accent on reconnect. The disconnect is driven through app.js's real teardown path
-// (a visibilitychange to hidden closes the EventSource and adds .sse-down); restoring
-// visibility reopens it and clears the class.
+// accent on reconnect. The disconnect is driven through the shared stream's real
+// teardown path (sty_1ea8202b): the leader's drop() closes its EventSource through
+// the error path and adds .sse-down; reopen() opens it again and clears the class.
 func TestBrowserMarkSoftRedOnDisconnect(t *testing.T) {
 	base, _ := serveRepo(t, "8822")
 	ctx := newChrome(t)
@@ -971,16 +972,16 @@ func TestBrowserMarkSoftRedOnDisconnect(t *testing.T) {
 		t.Errorf("wordmark and ◐ should be different colours (ink vs accent); both %q", wordConnected)
 	}
 
-	// Disconnect via the REAL teardown path: hide the tab → app.js closes the
-	// EventSource and adds .sse-down.
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){
-		Object.defineProperty(document, 'visibilityState', {configurable:true, get:function(){return 'hidden';}});
-		document.dispatchEvent(new Event('visibilitychange'));
-	})()`, nil)); err != nil {
+	// Disconnect via the REAL teardown path: this lone page leads the shared
+	// stream, and drop() closes it through the error path, adding .sse-down.
+	if !waitCond(t, ctx, `window.__satelleLive.leader && window.__satelleLive.open`, 5*time.Second) {
+		t.Fatal("a lone page should lead the shared /events stream")
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__satelleLive.drop()`, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if !waitCond(t, ctx, `document.querySelector('.brand-mark').classList.contains('sse-down')`, 5*time.Second) {
-		t.Fatal("hiding the tab should add sse-down (the /events stream is torn down)")
+		t.Fatal("dropping the shared stream should add sse-down (the /events stream is torn down)")
 	}
 
 	// The ◐ is now a MUTED red — red-dominant, but softer than the saturated fail
@@ -997,16 +998,13 @@ func TestBrowserMarkSoftRedOnDisconnect(t *testing.T) {
 		t.Errorf("wordmark should stay ink on disconnect (was %q, now %q)", wordConnected, wd)
 	}
 
-	// Reconnect: show the tab → app.js reopens the stream and clears sse-down; the ◐
-	// returns to the accent green.
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){
-		Object.defineProperty(document, 'visibilityState', {configurable:true, get:function(){return 'visible';}});
-		document.dispatchEvent(new Event('visibilitychange'));
-	})()`, nil)); err != nil {
+	// Reconnect: reopen() → the leader reopens the stream and clears sse-down; the
+	// ◐ returns to the accent green.
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__satelleLive.reopen()`, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if !waitCond(t, ctx, `!document.querySelector('.brand-mark').classList.contains('sse-down')`, 6*time.Second) {
-		t.Error("showing the tab again should reopen the stream and clear sse-down")
+		t.Error("reopening the shared stream should clear sse-down")
 	}
 	rr, rg, rb := markColour()
 	if !(rg > rr && rg >= rb) {
@@ -1665,112 +1663,219 @@ func setInput(sel, val string) chromedp.Action {
 	return chromedp.Evaluate(js, nil)
 }
 
-// TestBrowserSSEVisibilityGating drives the served UI in headless Chrome and
-// asserts the live-update EventSource is held ONLY while the tab is visible: it
-// closes when the tab is hidden and reopens when visible again — so background
-// tabs release their HTTP/1.1 connection slot and the active tab can always load
-// or refresh (sty_a4fc4d00). It also asserts a single EventSource per page
-// (previously a detail page opened two).
-func TestBrowserSSEVisibilityGating(t *testing.T) {
-	// Unique port — 8813 is used by TestBrowserTimelineDotsByOutcome (sequential
-	// cleanup can still leave bind races / blackholed sockets on this host).
+// liveState is one page's window.__satelleLive snapshot: whether it holds an
+// /events stream (open, opens), leads the shared stream, runs the per-tab
+// fallback, and how many on-reconnect reconciles it has run.
+type liveState struct {
+	Open, Leader, Fallback bool
+	Opens, Reconciles      int
+}
+
+func readLive(ctx context.Context) (liveState, error) {
+	var s liveState
+	err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){var l=window.__satelleLive||{};
+		return {open:!!l.open,leader:!!l.leader,fallback:!!l.fallback,opens:l.opens||0,reconciles:l.reconciles||0};})()`, &s))
+	return s, err
+}
+
+// TestBrowserSharedLiveStream drives sty_1ea8202b in headless Chrome: ten
+// pages in ONE browser profile share ONE /events stream. The Web Lock leader
+// holds it and relays every trigger and its connection state over a
+// BroadcastChannel; closing the leader hands the stream to another page within
+// a second, and that page reconciles. An eleventh page still loads — the
+// browser's ~6-connections-per-host pool is no longer starved by streams.
+func TestBrowserSharedLiveStream(t *testing.T) {
 	base, repo := serveRepo(t, "8851")
-	storyID := createStory(t, repo, "VisibilityGateStory", "")
-	ctx := newChrome(t)
+	browser := newChrome(t)
 
-	// --- List page: one connection, held while visible ---
-	if err := chromedp.Run(ctx,
-		chromedp.Navigate(base+"/#stories"),
+	// Every tab comes from the one browser so all share the profile, the lock
+	// and the channel.
+	newTab := func() (context.Context, context.CancelFunc) {
+		tab, cancel := chromedp.NewContext(browser)
+		t.Cleanup(cancel)
+		if err := chromedp.Run(tab); err != nil {
+			t.Fatalf("open tab: %v", err)
+		}
+		return tab, cancel
+	}
+	snapshot := func(tabs []context.Context) []liveState {
+		out := make([]liveState, len(tabs))
+		for i, tab := range tabs {
+			s, err := readLive(tab)
+			if err != nil {
+				t.Fatalf("read tab %d live state: %v", i, err)
+			}
+			out[i] = s
+		}
+		return out
+	}
+	const markDown = `document.querySelector('.brand-mark').classList.contains('sse-down')`
+
+	const pages = 10
+	tabs := make([]context.Context, pages)
+	cancels := make([]context.CancelFunc, pages)
+	for i := range tabs {
+		tabs[i], cancels[i] = newTab()
+		if err := chromedp.Run(tabs[i],
+			chromedp.Navigate(base+"/#stories"),
+			chromedp.WaitVisible(`.brand-mark`, chromedp.ByQuery),
+		); err != nil {
+			t.Fatalf("load page %d: %v", i, err)
+		}
+	}
+
+	// AC1: exactly one leader, and it holds the one open stream between them.
+	leader := -1
+	var states []liveState
+	for deadline := time.Now().Add(testutil.WaitBudget); ; {
+		states = snapshot(tabs)
+		leaders, open := 0, 0
+		for i, s := range states {
+			if s.Leader {
+				leaders++
+				leader = i
+			}
+			if s.Open {
+				open++
+			}
+		}
+		if leaders == 1 && open == 1 && states[leader].Open {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("want exactly one leader holding the one open /events stream across %d pages; got %d leaders, %d open: %+v", pages, leaders, open, states)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	for i, s := range states {
+		if s.Fallback {
+			t.Fatalf("page %d fell back to a per-tab stream with Web Locks and BroadcastChannel available: %+v", i, s)
+		}
+	}
+
+	// AC5 (open half): every page's mark shows the shared stream connected.
+	for i, tab := range tabs {
+		if !waitCond(t, tab, `!`+markDown, 5*time.Second) {
+			t.Fatalf("page %d mark should be connected (no sse-down) while the leader's stream is open", i)
+		}
+	}
+
+	// AC2: a live trigger reaches every page through the relay.
+	createStory(t, repo, "SharedStreamStory", "")
+	for i, tab := range tabs {
+		wctx, cancel := context.WithTimeout(tab, testutil.WaitBudget)
+		err := chromedp.Run(wctx, chromedp.WaitVisible(`#panel-stories .row[data-title="sharedstreamstory"]`, chromedp.ByQuery))
+		cancel()
+		if err != nil {
+			t.Fatalf("page %d (leader %d) never showed the story created after load: %v", i, leader, err)
+		}
+	}
+
+	// AC5 (down half): the leader's stream errors → every page's mark goes red;
+	// reopening it clears every mark.
+	if err := chromedp.Run(tabs[leader], chromedp.Evaluate(`window.__satelleLive.drop()`, nil)); err != nil {
+		t.Fatalf("drop the leader's stream: %v", err)
+	}
+	for i, tab := range tabs {
+		if !waitCond(t, tab, markDown, 5*time.Second) {
+			t.Fatalf("page %d mark should show sse-down after the leader's stream errors", i)
+		}
+	}
+	if err := chromedp.Run(tabs[leader], chromedp.Evaluate(`window.__satelleLive.reopen()`, nil)); err != nil {
+		t.Fatalf("reopen the leader's stream: %v", err)
+	}
+	for i, tab := range tabs {
+		if !waitCond(t, tab, `!`+markDown, 5*time.Second) {
+			t.Fatalf("page %d mark should clear sse-down once the leader's stream reopens", i)
+		}
+	}
+
+	// AC4: with the ten pages open, an eleventh page load returns and renders.
+	extra, _ := newTab()
+	lctx, lcancel := context.WithTimeout(extra, 5*time.Second)
+	err := chromedp.Run(lctx,
+		chromedp.Navigate(base+"/"),
 		chromedp.WaitVisible(`.brand-mark`, chromedp.ByQuery),
-	); err != nil {
-		t.Fatalf("navigate/connect: %v", err)
-	}
-	// SSE connected: the mark carries no 'sse-down' red class once /events opens.
-	if !waitCond(t, ctx, `window.__satelleLive.open && !document.querySelector('.brand-mark').classList.contains('sse-down')`, 5*time.Second) {
-		t.Fatal("live SSE did not connect (mark still sse-down)")
+	)
+	lcancel()
+	if err != nil {
+		t.Fatalf("an 11th page load with %d pages open did not render within 5s: %v", pages, err)
 	}
 
-	var open bool
-	var opens int
-	if err := chromedp.Run(ctx,
-		chromedp.Evaluate(`window.__satelleLive.open`, &open),
-		chromedp.Evaluate(`window.__satelleLive.opens`, &opens),
-	); err != nil {
-		t.Fatal(err)
+	// AC3: close the leader → another page takes the lock, reopens /events and
+	// reconciles within one second. Timed here, not by waitCond (whose budget
+	// floor would hide a slow handover).
+	var rest []context.Context
+	for i, tab := range tabs {
+		if i != leader {
+			rest = append(rest, tab)
+		}
 	}
-	if !open {
-		t.Fatal("expected the live connection open while visible")
+	rest = append(rest, extra)
+	before := snapshot(rest)
+	cancels[leader]()
+	t0 := time.Now()
+	deadline := t0.Add(time.Second)
+	for {
+		after := snapshot(rest)
+		took := false
+		for i, s := range after {
+			if s.Leader && s.Open {
+				took = true
+				if s.Reconciles > before[i].Reconciles {
+					t.Logf("handover in %v: page took the lead, reopened /events and reconciled (%d → %d)", time.Since(t0), before[i].Reconciles, s.Reconciles)
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			if took {
+				t.Fatalf("a page took the lead within 1s but did not run the on-reconnect reconcile: before %+v after %+v", before, after)
+			}
+			t.Fatalf("no remaining page took the lead with an open /events stream within 1s of the leader closing: %+v", after)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	if opens != 1 {
-		t.Fatalf("expected exactly ONE EventSource on load, got %d", opens)
-	}
+}
 
-	// --- Hide the tab → the connection must close (slot released) ---
-	hide := `Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return 'hidden';}});document.dispatchEvent(new Event('visibilitychange'));window.__satelleLive.open`
-	if err := chromedp.Run(ctx, chromedp.Evaluate(hide, &open)); err != nil {
-		t.Fatal(err)
+// TestBrowserLiveFallback drives sty_1ea8202b AC7: where the browser lacks Web
+// Locks or BroadcastChannel, a page holds its own /events stream as before —
+// not a leader, flagged as the fallback. Each case removes one API before app.js
+// runs, so a feature check that tested only the other one fails that case.
+func TestBrowserLiveFallback(t *testing.T) {
+	base, _ := serveRepo(t, "8852")
+	browser := newChrome(t)
+	cases := []struct {
+		name, remove, gone string
+	}{
+		{"no web locks", `delete Navigator.prototype.locks;`, `!('locks' in navigator)`},
+		{"no broadcast channel", `delete window.BroadcastChannel;`, `!('BroadcastChannel' in window)`},
 	}
-	if open {
-		t.Fatal("live connection must CLOSE when the tab is hidden (connection-pool fix)")
-	}
-	// The ◐ mark goes red (sse-down) while holding no connection.
-	var down bool
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.brand-mark').classList.contains('sse-down')`, &down)); err != nil {
-		t.Fatal(err)
-	}
-	if !down {
-		t.Fatal("brand mark must be sse-down (red) while holding no connection")
-	}
-
-	// --- AC2: create a story WHILE HIDDEN (SSE closed → no live push), so the
-	// tab is now stale; returning to visible must reconcile it in. ---
-	createStory(t, repo, "ReconcileWhileHidden", "")
-
-	// --- Show again → reopen + reconcile ---
-	show := `Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return 'visible';}});document.dispatchEvent(new Event('visibilitychange'));window.__satelleLive.open`
-	if err := chromedp.Run(ctx, chromedp.Evaluate(show, &open)); err != nil {
-		t.Fatal(err)
-	}
-	if !open {
-		t.Fatal("live connection must REOPEN when the tab becomes visible again")
-	}
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__satelleLive.opens`, &opens)); err != nil {
-		t.Fatal(err)
-	}
-	if opens != 2 {
-		t.Fatalf("reopen should be the 2nd connection, got opens=%d", opens)
-	}
-	// The reconcile on reopen must refetch the panel so the story created while
-	// hidden appears — with NO live 'trigger' (none was received while closed).
-	if err := chromedp.Run(ctx,
-		chromedp.WaitVisible(`#panel-stories .row[data-title="reconcilewhilehidden"]`, chromedp.ByQuery),
-	); err != nil {
-		t.Fatalf("returning tab did not reconcile the story created while hidden (AC2): %v", err)
-	}
-
-	// --- pagehide releases the slot ---
-	if err := chromedp.Run(ctx, chromedp.Evaluate(
-		`window.dispatchEvent(new Event('pagehide'));window.__satelleLive.open`, &open)); err != nil {
-		t.Fatal(err)
-	}
-	if open {
-		t.Fatal("live connection must close on pagehide")
-	}
-
-	// --- Detail page: still exactly ONE connection (was two before the fix) ---
-	if err := chromedp.Run(ctx,
-		chromedp.Navigate(base+"/story/"+storyID),
-		chromedp.WaitVisible(`.brand-mark`, chromedp.ByQuery),
-	); err != nil {
-		t.Fatalf("detail page: %v", err)
-	}
-	if !waitCond(t, ctx, `window.__satelleLive.open && !document.querySelector('.brand-mark').classList.contains('sse-down')`, 5*time.Second) {
-		t.Fatal("detail page live SSE did not connect")
-	}
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__satelleLive.opens`, &opens)); err != nil {
-		t.Fatalf("detail page opens: %v", err)
-	}
-	if opens != 1 {
-		t.Fatalf("detail page must open exactly ONE EventSource, got %d", opens)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tab, cancel := chromedp.NewContext(browser)
+			defer cancel()
+			if err := chromedp.Run(tab,
+				chromedp.ActionFunc(func(ctx context.Context) error {
+					_, err := page.AddScriptToEvaluateOnNewDocument(tc.remove).Do(ctx)
+					return err
+				}),
+				chromedp.Navigate(base+"/#stories"),
+				chromedp.WaitVisible(`.brand-mark`, chromedp.ByQuery),
+			); err != nil {
+				t.Fatalf("load page: %v", err)
+			}
+			var gone bool
+			if err := chromedp.Run(tab, chromedp.Evaluate(tc.gone, &gone)); err != nil || !gone {
+				t.Fatalf("the API was not removed before app.js ran (%s = %v, err %v)", tc.gone, gone, err)
+			}
+			if !waitCond(t, tab, `window.__satelleLive.fallback && window.__satelleLive.open && !window.__satelleLive.leader`, 5*time.Second) {
+				s, _ := readLive(tab)
+				t.Fatalf("want the page's own /events stream with leader:false, fallback:true; got %+v", s)
+			}
+			if s, err := readLive(tab); err != nil || s.Opens != 1 {
+				t.Fatalf("the fallback page should open exactly its own one stream; got %+v (err %v)", s, err)
+			}
+		})
 	}
 }

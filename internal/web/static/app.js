@@ -501,14 +501,18 @@
     if (live) live.innerHTML = html;
   }
 
-  // initLive wires realtime through ONE visibility-gated EventSource that serves
-  // both consumers — the panel refetch (list pages) and the detail-fragment
-  // refresh (detail pages). It is held ONLY while the tab is visible: browsers
-  // cap HTTP/1.1 connections at ~6 PER HOST across all tabs, and a persistent SSE
-  // per open tab starves that pool, so a REFRESH of the active tab can't get a
-  // connection and hangs (sty_a4fc4d00). Closing the stream on a hidden tab (and
-  // on pagehide) frees the slot; the on-reconnect reconcile keeps a returning tab
-  // current. window.__satelleLive exposes the connection state for tests.
+  // initLive wires realtime through ONE /events stream per browser profile that
+  // serves every open page — the panel refetch (list pages), the landing counts,
+  // the logs page and the detail-fragment refresh (detail pages). Browsers cap
+  // HTTP/1.1 at ~6 connections PER HOST across all tabs and windows, and a stream
+  // per page starves that pool so a further page load never returns
+  // (sty_a4fc4d00, sty_1ea8202b). So the page that holds the 'satelle-live' Web
+  // Lock is the leader: it alone opens the EventSource and rebroadcasts each
+  // trigger and its connection state over a BroadcastChannel; every other page
+  // follows the channel. When the leader goes (close, navigation, crash) the
+  // browser passes the lock to a waiting page, which reopens the stream and
+  // reconciles. Where Web Locks or BroadcastChannel is missing, each page holds
+  // its own stream. window.__satelleLive exposes the state for tests.
   function initLive() {
     if (!window.EventSource) return;
     // The ◐ brand mark carries the live SSE connection state as its COLOUR
@@ -517,6 +521,7 @@
     // Inverted from a positive 'connected' flag so a fresh render shows green with
     // no red flash before the first open. The uptime snapshot rides in the mark's
     // title tooltip (a server render-time value). (was the .uptime pill, sty_efeb2a69)
+    // On a follower the class follows the leader's relayed stream state.
     var dot = document.querySelector(".brand-mark");
     var isProjects = document.body.getAttribute("data-page") === "projects";
     var isLogs = document.body.getAttribute("data-page") === "logs";
@@ -545,68 +550,139 @@
         .catch(function () {});
     }, 250) : null;
 
-    // reconcile pulls fresh state after ANY connection gap (reconnect, or a
-    // reopen after hidden→visible) so nothing is missed while disconnected.
+    var live = window.__satelleLive = { open: false, opens: 0, leader: false, fallback: false, reconciles: 0 };
+
+    // reconcile pulls fresh state after ANY connection gap (an SSE reconnect, or
+    // a new leader's stream after a handover) so nothing is missed meanwhile.
     function reconcile() {
+      live.reconciles++;
       if (isProjects) { if (refreshProjects) refreshProjects(); return; }
       if (isLogs) { if (refreshLogs) refreshLogs(); return; }
       LIVE_TOPICS.forEach(function (tp) { refetchPanel(tp); });
       if (refreshDetail) refreshDetail();
     }
 
+    // handleTrigger applies one /events trigger to this page. ev.data is the
+    // topic, whether ev is this page's own SSE event or the leader's relayed
+    // {t:"trigger", data} message.
+    function handleTrigger(ev) {
+      if (refetch[ev.data]) refetch[ev.data]();
+      (DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); });
+      if (refreshDetail && ev.data === detailTopic) refreshDetail();
+      // Landing soft-refreshes counts via /fragment/projects — no full reload.
+      if (ev.data === "projects" && refreshProjects) refreshProjects();
+      if (ev.data === "logs" && refreshLogs) refreshLogs();
+    }
+
+    var LOCK = "satelle-live";
+    var bc = (navigator.locks && window.BroadcastChannel) ? new BroadcastChannel(LOCK) : null;
+    live.fallback = !bc;
+
     var src = null;
+    var state = null; // the stream's last known state, "up" or "down" (leader/fallback)
     // firstOpen is PAGE-lifetime (not per-EventSource): only the first open of a
-    // freshly server-rendered page skips reconcile; every later open (SSE
-    // auto-reconnect OR a reopen after the tab returns to visible) reconciles.
-    var firstOpen = document.visibilityState === "visible";
+    // freshly server-rendered page that led from load skips reconcile; every later
+    // open (SSE auto-reconnect, a reopen, or a stream taken over from another
+    // leader) reconciles — and, from a leader, tells the followers to reconcile.
+    var firstOpen = true;
 
-    window.__satelleLive = { open: false, opens: 0 };
+    function post(msg) { if (bc && live.leader) bc.postMessage(msg); }
+    function setState(s) {
+      state = s;
+      if (dot) dot.classList.toggle("sse-down", s === "down");
+      post({ t: s });
+    }
 
-    function connectLive() {
-      if (src || document.visibilityState !== "visible") return;
+    function openStream() {
+      if (src) return;
       // Mirror multi-partition pages use <base href="/r/slug/">; SSE is always at /events.
       var esURL = (location.pathname.indexOf("/r/") === 0) ? "/events" : "events";
       src = new EventSource(esURL);
-      window.__satelleLive.open = true;
-      window.__satelleLive.opens++;
+      live.open = true;
+      live.opens++;
       src.addEventListener("open", function () {
-        if (dot) dot.classList.remove("sse-down"); // connected → mark is accent-green
+        setState("up"); // connected → mark is accent-green
         if (firstOpen) { firstOpen = false; return; }
         reconcile();
+        post({ t: "reconcile" });
       });
       src.addEventListener("trigger", function (ev) {
-        if (refetch[ev.data]) refetch[ev.data]();
-        (DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); });
-        if (refreshDetail && ev.data === detailTopic) refreshDetail();
-        // Landing soft-refreshes counts via /fragment/projects — no full reload.
-        if (ev.data === "projects" && refreshProjects) refreshProjects();
-        if (ev.data === "logs" && refreshLogs) refreshLogs();
+        handleTrigger(ev);
+        post({ t: "trigger", data: ev.data });
       });
-      src.onerror = function () { if (dot) dot.classList.add("sse-down"); }; // stream dropped → mark red
+      src.onerror = function () { setState("down"); }; // stream dropped → mark red
     }
 
-    function disconnectLive() {
+    function closeStream() {
       if (!src) return;
       src.close();
       src = null;
-      window.__satelleLive.open = false;
-      if (dot) dot.classList.add("sse-down"); // holding no connection (invisible on a hidden tab; cleared on reopen)
-      // A page that first loads hidden must reconcile on its first (deferred)
-      // open, so it is not the skip-me first-open of a fresh render.
-      firstOpen = false;
+      live.open = false;
+      firstOpen = false; // a stream closed before its first open still reconciles on the next
     }
 
-    document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "visible") connectLive(); else disconnectLive();
-    });
-    // Free the slot promptly on navigation/close and before bfcache entry.
-    window.addEventListener("pagehide", disconnectLive);
-    // bfcache restore does not always fire visibilitychange — reopen on show.
-    window.addEventListener("pageshow", function () {
-      if (document.visibilityState === "visible") connectLive();
-    });
+    // Test hooks: drop() closes the stream through the error path, reopen() opens
+    // it again — the real teardown and reconnect, without a server restart.
+    live.drop = function () { closeStream(); setState("down"); };
+    live.reopen = function () { if (live.leader || live.fallback) openStream(); };
 
-    connectLive(); // opens only if visible; a background-opened tab waits for view
+    if (!bc) {
+      // Fallback: this page holds its own stream while it is shown.
+      window.addEventListener("pagehide", closeStream);
+      window.addEventListener("pageshow", function (e) { if (e.persisted) openStream(); });
+      openStream();
+      return;
+    }
+
+    var release = null; // resolves the held lock
+    var waiting = null; // aborts a queued lock request
+
+    function lead() {
+      waiting = null;
+      live.leader = true;
+      openStream();
+      return new Promise(function (resolve) { release = resolve; });
+    }
+
+    function claim() {
+      navigator.locks.request(LOCK, { ifAvailable: true }, function (lock) {
+        if (lock) return lead();
+        // Another page leads: follow it. A lead this page takes later follows a
+        // gap in the stream, so its first open reconciles.
+        firstOpen = false;
+        bc.postMessage({ t: "hello" }); // ask the leader for the stream's state
+        waiting = new AbortController();
+        navigator.locks.request(LOCK, { signal: waiting.signal }, lead).catch(function () {});
+      }).catch(function () {});
+    }
+
+    bc.onmessage = function (e) {
+      var m = e.data || {};
+      if (live.leader) {
+        if (m.t === "hello" && state) bc.postMessage({ t: state });
+        return;
+      }
+      if (m.t === "trigger") handleTrigger(m);
+      else if (m.t === "up" || m.t === "down") { if (dot) dot.classList.toggle("sse-down", m.t === "down"); }
+      else if (m.t === "reconcile") reconcile();
+    };
+
+    // On navigation, close or bfcache entry the leader closes its stream, tells
+    // the followers the stream is down and releases the lock to the next page; a
+    // follower withdraws its queued request. A crashed page's lock is released
+    // by the browser.
+    window.addEventListener("pagehide", function () {
+      if (live.leader) {
+        closeStream();
+        setState("down");
+        live.leader = false;
+        if (release) { release(); release = null; }
+      }
+      if (waiting) { waiting.abort(); waiting = null; }
+    });
+    window.addEventListener("pageshow", function (e) { if (e.persisted) claim(); });
+
+    claim();
   }
 
   // ---- theme (light default, dark optional, persisted) --------------------
@@ -749,7 +825,7 @@
     consumeExpandParam(); // after filters so ?expand survives replaceState drop
     openHashDoc();
     window.addEventListener("hashchange", openHashDoc);
-    initLive(); // one visibility-gated SSE serves both panels and detail
+    initLive(); // one /events stream per browser profile serves every page
     initProjectSwitcher();
     initAccountMenu();
     initTimelineFields();
@@ -757,12 +833,13 @@
   });
 
   // initRelTimes keeps every freshness phrase current. It is deliberately NOT
-  // part of initLive and deliberately NOT visibility-gated (sty_226a661e):
+  // part of initLive and deliberately runs on every page, shown or not
+  // (sty_226a661e):
   //
-  //   - It holds no connection and issues no request. The reason initLive closes
-  //     its EventSource on a hidden tab is HTTP/1.1's ~6-connections-per-host cap
-  //     starving the ACTIVE tab (sty_a4fc4d00). A timer costs none of that, so
-  //     gating it would only make a returning tab briefly show a stale phrase.
+  //   - It holds no connection and issues no request. The reason initLive shares
+  //     one EventSource across all pages is HTTP/1.1's ~6-connections-per-host
+  //     cap starving further page loads (sty_a4fc4d00, sty_1ea8202b). A timer
+  //     costs none of that, so it needs no such coordination.
   //   - Everything it needs is already in the DOM as an absolute datetime, so it
   //     never has to ask the server what time it is.
   //

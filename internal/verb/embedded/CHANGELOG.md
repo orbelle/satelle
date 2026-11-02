@@ -1,3 +1,13 @@
+## [0.0.858] - 2026-11-02
+
+### Fixed
+- Any number of open local UI pages and windows share one live-update connection: one page holds the /events stream under a Web Lock and relays each update to the others over a BroadcastChannel, and another page takes over within a second when it closes. Pages no longer use up the browser's 6-connections-per-host limit, so a project page always loads. (sty_1ea8202b)
+
+## [serve-v0.0.281] - 2026-11-02
+
+### Fixed
+- The service's web UI script shares one live-update stream across all open pages of a browser profile. (sty_1ea8202b)
+
 ## [0.0.857] - 2026-11-02
 
 ### Fixed
