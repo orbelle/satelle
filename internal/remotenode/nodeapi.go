@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
 // DefinitionVersionHeader carries the version of the definition a node fetched.
@@ -171,20 +170,6 @@ func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, 
 		expires = t
 	}
 	return v.Value, expires, nil
-}
-
-// Secrets reads every declared secret once, in declaration order, and returns
-// key → value. The first one refused stops the read and nothing is returned.
-func (c *NodeClient) Secrets(ctx context.Context, decls []remotedef.SecretDecl) (map[string]string, error) {
-	out := make(map[string]string, len(decls))
-	for _, d := range decls {
-		v, err := c.Secret(ctx, d.Key)
-		if err != nil {
-			return nil, err
-		}
-		out[d.Key] = v
-	}
-	return out, nil
 }
 
 // RunDescriptor is what GET .../run tells a node about its run. Only the wake's

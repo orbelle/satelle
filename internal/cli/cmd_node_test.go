@@ -36,7 +36,9 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/remotenode/gittest"
+	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
+	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 type nodeTestStore struct{ cred hosted.Credential }
@@ -404,8 +406,9 @@ func waitJoin(t *testing.T, joined <-chan error) error {
 // `satelle node join` is the node mode that stays in the binary: handed the launch
 // contract (--root, --relay, --session, --token) it prints its key line, fetches
 // its definition from satelle.dev with its node token, installs and reindexes it,
-// joins the relay with the same token, reports ready, answers an agent job whose
-// secrets it read from satelle.dev, and ends itself through satelle.dev. The
+// reads its secrets from satelle.dev, joins the relay with the same token, reports
+// ready, answers an agent job with those secrets, and ends itself through
+// satelle.dev. The
 // controller end is remotenode.Attach.
 func TestNodeJoinRunsFromTheDefinitionItFetches(t *testing.T) {
 	r := newNodeRig(t)
@@ -459,8 +462,9 @@ func TestNodeJoinRunsFromTheDefinitionItFetches(t *testing.T) {
 		t.Errorf("relay remote bearers = %v, want [the node token]", got)
 	}
 
-	// AC5: the agent job reads the declared secret from satelle.dev with the node
-	// bearer and the agent sees it in its environment.
+	// AC5: join read the declared secret from satelle.dev with the node bearer,
+	// once, and the agent job hands it to the agent's environment without a read of
+	// its own (sty_2dabc0f6).
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	body, err := run.Request(ctx, remotenode.AgentJob, remotenode.AgentRequest{Text: "hello node"})
@@ -613,22 +617,38 @@ func TestNodeJoinWithNoReposStarts(t *testing.T) {
 	}
 }
 
-// AC8: a node whose token is revoked mid-run stops with a message saying so and
-// naming the route; nothing further is asked of satelle.dev, the agent never runs
-// and at most one end call is made.
+// revokeOnFirstSecretRead makes the satelle.dev fake revoke the node token the
+// moment the node first asks it for a secret: after the definition fetch, as the
+// join reads its secrets.
+func revokeOnFirstSecretRead(fake *devtest.Node) {
+	inner := fake.Client().Transport
+	if inner == nil {
+		inner = http.DefaultTransport
+	}
+	var once sync.Once
+	nodeHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.Path, "/secrets/") {
+			once.Do(fake.Revoke)
+		}
+		return inner.RoundTrip(req)
+	})}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// AC8: a node whose token is revoked stops at join, as it reads its secrets, with a
+// message saying so and naming the route; nothing further is asked of satelle.dev,
+// the agent never runs, the relay is never dialled and at most one end call is
+// made. The secrets are read once at join (sty_2dabc0f6), so join is where a
+// revoked token is found.
 func TestNodeJoinStopsWhenItsTokenIsRevoked(t *testing.T) {
 	r := newNodeRig(t)
-	run, fake, joined, _ := r.open(t)
-	fake.Revoke()
+	fake := r.serve("nod_a", "node-token", r.encode())
+	revokeOnFirstSecretRead(fake)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	_, rerr := run.Request(ctx, remotenode.AgentJob, remotenode.AgentRequest{Text: "work"})
-	if rerr == nil || !strings.Contains(rerr.Error(), "refused or revoked") {
-		t.Errorf("agent job error = %v, want the token refused or revoked", rerr)
-	}
-
-	err := waitJoin(t, joined)
+	err := r.joinNow(r.relay.URL(), "nod_a", "node-token")
 	if err == nil || !strings.Contains(err.Error(), "node token was refused or revoked") ||
 		!strings.Contains(err.Error(), "POST /api/v1/remote-nodes/") || !strings.Contains(err.Error(), "/secrets/CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Fatalf("node join ended with %v, want the token refused naming the secrets route", err)
@@ -645,30 +665,139 @@ func TestNodeJoinStopsWhenItsTokenIsRevoked(t *testing.T) {
 	if n := fake.Count(http.MethodPost, "/end"); n > 1 {
 		t.Errorf("end calls = %d, want at most 1", n)
 	}
+	if n := r.relay.Attempts(); n != 0 {
+		t.Errorf("relay dials = %d, want none", n)
+	}
 }
 
-// AC5: a key satelle.dev refuses (not declared or not granted) stops the job
-// before the agent starts, with a refusal naming the key; the node stays up.
-func TestNodeJoinRefusedSecretStopsTheJobBeforeTheAgentStarts(t *testing.T) {
+// sty_2dabc0f6 AC4: a declared secret satelle.dev refuses (not declared or not
+// granted) fails the node's start, naming the key, as a github-app refusal does:
+// the failed start is reported on the run's status, no agent runs and the relay
+// is never dialled.
+func TestNodeJoinRefusedSecretFailsTheStartNamingTheKey(t *testing.T) {
 	r := newNodeRig(t)
-	run, fake, joined, _ := r.open(t)
-	delete(fake.Secrets, "CLAUDE_CODE_OAUTH_TOKEN")
+	r.fakeSetup = func(f *devtest.Node) { delete(f.Secrets, "CLAUDE_CODE_OAUTH_TOKEN") }
+	fake := r.serve("nod_a", "node-token", r.encode())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	_, err := run.Request(ctx, remotenode.AgentJob, remotenode.AgentRequest{Text: "work"})
-	if err == nil || !strings.Contains(err.Error(), "secret CLAUDE_CODE_OAUTH_TOKEN refused") {
-		t.Fatalf("agent job error = %v, want a refusal naming the key", err)
+	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
+	if jerr == nil || !strings.Contains(jerr.Error(), "secret CLAUDE_CODE_OAUTH_TOKEN refused") {
+		t.Fatalf("join ended with %v, want a refusal naming the key", jerr)
+	}
+	assertStartFailureStatuses(t, fake, 0)
+	st := fake.Statuses()
+	if len(st) == 0 || !strings.Contains(st[len(st)-1]["findings"], "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("the failed start's status = %v, want its findings naming the key", st)
+	}
+	if n := fake.Count(http.MethodPost, "/secrets/CLAUDE_CODE_OAUTH_TOKEN"); n != 1 {
+		t.Errorf("secret reads = %d, want the one refused", n)
 	}
 	if _, serr := os.Stat(r.marker); serr == nil {
 		t.Error("the agent started after a secret was refused")
 	}
-	if err := run.End(); err != nil {
-		t.Errorf("End: %v", err)
+	if n := r.relay.Attempts(); n != 0 {
+		t.Errorf("relay dials = %d, want none", n)
 	}
-	if jerr := waitJoin(t, joined); jerr != nil {
-		t.Errorf("a refused secret must not stop the node: %v", jerr)
+}
+
+// claudeTeamSecret is a team secret whose value is stored at satelle.dev from the
+// developer's environment, as pr-approve declares its agent CLI credential.
+const claudeTeamSecret = "\n[[secret]]\nkey = \"CLAUDE_CODE_OAUTH_TOKEN\"\nscope = \"team\"\nworkspace = \"ws-1\"\nfrom = \"env\"\n"
+
+// sty_2dabc0f6 AC1 and AC3: a woken task node reads every secret its definition
+// declares at join, a github-app minted token and a from = "env" team secret
+// alike, each exactly once, and holds both in its process environment, so the
+// task drive's performer (and any process it starts) inherits them. The join log
+// names each key and its source and never carries a value.
+func TestNodeTaskWakeReadsEverySecretItDeclaresAtJoin(t *testing.T) {
+	r, _, _, _ := ghAppTaskRig(t)
+	r.bundle["remote.toml"] += claudeTeamSecret
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN"} {
+		if _, had := os.LookupEnv(k); had {
+			t.Setenv(k, "")
+			_ = os.Unsetenv(k)
+		}
 	}
+
+	var (
+		mu                 sync.Mutex
+		ran                bool
+		inProcess, inChild map[string]string
+	)
+	useTaskNode(t, &taskPerformers{step: func(item workitem.Item) error {
+		mu.Lock()
+		defer mu.Unlock()
+		ran = true
+		inProcess = map[string]string{"GH_TOKEN": os.Getenv("GH_TOKEN"), "CLAUDE_CODE_OAUTH_TOKEN": os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")}
+		// A process the performer starts inherits the node's environment.
+		out, err := exec.Command("sh", "-c", `printf '%s\n%s' "$GH_TOKEN" "$CLAUDE_CODE_OAUTH_TOKEN"`).Output()
+		if err != nil {
+			return err
+		}
+		gh, claude, _ := strings.Cut(string(out), "\n")
+		inChild = map[string]string{"GH_TOKEN": gh, "CLAUDE_CODE_OAUTH_TOKEN": claude}
+		return dispatchInto(context.Background(), "execution-record",
+			map[string]any{"id": item.ID, "output": "read the environment", "outcome": verb.OutcomeAccept}, &struct{}{})
+	}}, 0)
+
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !ran {
+		t.Fatalf("the performer never ran\nnode log:\n%s", r.log)
+	}
+	want := map[string]string{"GH_TOKEN": ghAppToken, "CLAUDE_CODE_OAUTH_TOKEN": devtest.SecretValue}
+	if !reflect.DeepEqual(inProcess, want) {
+		t.Errorf("the performer's environment carried %v of the declared secrets, want both", redactedKeys(inProcess, want))
+	}
+	if !reflect.DeepEqual(inChild, want) {
+		t.Errorf("a process the performer started inherited %v of the declared secrets, want both", redactedKeys(inChild, want))
+	}
+	for key := range want {
+		if n := w.fake.Count(http.MethodPost, "/secrets/"+key); n != 1 {
+			t.Errorf("%s reads = %d, want exactly 1 (join's)", key, n)
+		}
+	}
+
+	// AC3: each key is named with its source; no value is in the log.
+	log := r.log.String()
+	for _, line := range []string{"join: secret CLAUDE_CODE_OAUTH_TOKEN read (team)", "join: secret GH_TOKEN read (github-app github.com)"} {
+		if !strings.Contains(log, line) {
+			t.Errorf("the join log lacks %q\nnode log:\n%s", line, log)
+		}
+	}
+	for key, value := range want {
+		if strings.Contains(log, value) {
+			t.Errorf("the join log carries the value of %s", key)
+		}
+	}
+	if currentNodeProcessSecrets() != nil {
+		t.Error("the node still holds its process secrets after the fire")
+	}
+	if v := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); v != "" {
+		t.Error("the node's environment still carries CLAUDE_CODE_OAUTH_TOKEN after the fire")
+	}
+}
+
+// redactedKeys names, for a failure message, which keys of want got carries with
+// the right value, never the values themselves.
+func redactedKeys(got, want map[string]string) []string {
+	var out []string
+	for k, v := range want {
+		state := "missing"
+		switch {
+		case got[k] == v:
+			state = "present"
+		case got[k] != "":
+			state = "wrong value"
+		}
+		out = append(out, k+": "+state)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // AC3 and AC7: a definition that does not check out stops the join naming the

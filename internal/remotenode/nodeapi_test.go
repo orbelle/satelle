@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/runstatus"
 )
@@ -192,27 +191,6 @@ func TestSecretWithExpiryRefusesAMalformedExpiry(t *testing.T) {
 	}
 }
 
-// AC5: a key the server refuses is a SecretRefusal naming it, and the read stops
-// there: nothing is returned and no later key is asked for.
-func TestSecretsStopAtTheFirstRefusal(t *testing.T) {
-	fake, client, _ := newFake(t)
-	fake.Secrets["A"] = "a-value"
-	fake.Secrets["C"] = "c-value"
-	decls := []remotedef.SecretDecl{{Key: "A"}, {Key: "B"}, {Key: "C"}}
-
-	values, err := client.Secrets(context.Background(), decls)
-	var refusal *SecretRefusal
-	if !errors.As(err, &refusal) || refusal.Key != "B" || refusal.Err.Status != http.StatusForbidden {
-		t.Fatalf("Secrets = %v, want a SecretRefusal for B", err)
-	}
-	if !strings.Contains(err.Error(), "secret B refused") || values != nil {
-		t.Errorf("err = %q, values = %v", err, values)
-	}
-	if fake.Count(http.MethodPost, "/secrets/C") != 0 {
-		t.Error("a key after the refused one was read")
-	}
-}
-
 // A value is returned in memory and goes nowhere else: nothing is written under
 // the working directory, and the value is in no error.
 func TestReadingNeverWritesTheValueToDisk(t *testing.T) {
@@ -221,7 +199,7 @@ func TestReadingNeverWritesTheValueToDisk(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	if _, err := client.Secrets(context.Background(), []remotedef.SecretDecl{{Key: "K"}}); err != nil {
+	if _, err := client.Secret(context.Background(), "K"); err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {

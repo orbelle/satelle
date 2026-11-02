@@ -204,21 +204,22 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return fmt.Errorf("join: %w", err)
 	}
 
-	// A github-app secret is read once here, before anything of the run starts,
-	// and held in the node's process environment for the life of the fire, so
-	// every run the node is woken for inherits it (the task drive's performers and
-	// gates, and a relay agent job). It is gone from the environment when join
-	// returns.
+	// Every secret the definition declares (a github-app minted token and a team
+	// or personal stored value alike) is read once here, before anything of the
+	// run starts, and held in the node's process environment for the life of the
+	// fire, so every run the node is woken for inherits it (the task drive's
+	// performers and gates, and a relay agent job). It is gone from the
+	// environment when join returns.
 	if err := remotedef.Validate(def); err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return fmt.Errorf("join: definition: %w", err)
 	}
-	appSecrets, err := loadGitHubAppSecrets(ctx, client, def, cmd.ErrOrStderr())
+	secrets, err := loadNodeSecrets(ctx, client, def, cmd.ErrOrStderr())
 	if err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return fmt.Errorf("join: %w", err)
 	}
-	defer setNodeProcessSecrets(appSecrets)()
+	defer setNodeProcessSecrets(secrets)()
 	// The definition itself (key names, never values) rides the same environment,
 	// so a command the run starts knows the remote's repo and credential.
 	envDef, err := def.EnvValue()
@@ -272,7 +273,7 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	}
 	defer sess.Close()
 
-	node.Handle(remotenode.AgentJob, agentJobHandler(dataDir, root, client, def.Secret))
+	node.Handle(remotenode.AgentJob, agentJobHandler(dataDir, root, secrets))
 	node.Handle(remotenode.StoryReportJob, remotenode.StoryReportHandler(nodeProcess))
 	report, perr := prepareNode(ctx, root, dataDir, def, version)
 	if perr != nil {
@@ -340,36 +341,50 @@ func setNodeEnv(key, value string) (restore func()) {
 	}
 }
 
-// loadGitHubAppSecrets reads every github-app secret the definition declares,
-// once, through the node's ordinary secret read: satelle.dev mints an
-// installation token scoped to the definition's [[repo]] entries for the run and
-// answers with when it expires. A refusal stops the node; the owner-run refusal
-// says so plainly. One already expired is refused. Only key names are logged.
-func loadGitHubAppSecrets(ctx context.Context, client *remotenode.NodeClient, def remotedef.Definition, log io.Writer) (map[string]string, error) {
+// loadNodeSecrets reads every secret the definition declares, once, through the
+// node's ordinary secret read: the single read of a node's secrets, whose result
+// join holds in the process environment for the fire and hands a relay agent
+// job. For a github-app secret satelle.dev mints an installation token scoped to
+// the definition's [[repo]] entries for the run and answers with when it expires;
+// a team or personal secret is its stored value. Any refusal stops the node,
+// naming the key; the owner-run refusal says so plainly, and a revoked node
+// token is returned as is. A value already expired is refused. Only key names
+// and their source are logged, never a value.
+func loadNodeSecrets(ctx context.Context, client *remotenode.NodeClient, def remotedef.Definition, log io.Writer) (map[string]string, error) {
 	var out map[string]string
 	for _, d := range def.Secret {
-		if !d.IsGitHubApp() {
-			continue
-		}
 		value, expires, err := client.SecretWithExpiry(ctx, d.Key)
 		if err != nil {
 			var refusal *remotenode.SecretRefusal
-			if errors.As(err, &refusal) && refusal.Err.Code == remotenode.SecretRefusedGitHubAppOwnerRun {
+			if d.IsGitHubApp() && errors.As(err, &refusal) && refusal.Err.Code == remotenode.SecretRefusedGitHubAppOwnerRun {
 				return nil, fmt.Errorf("secret %s: a local owner run cannot use a github-app credential (%s): %s",
 					d.Key, remotenode.SecretRefusedGitHubAppOwnerRun, refusal.Err.Reason)
 			}
 			return nil, err
 		}
 		if !expires.IsZero() && !expires.After(time.Now()) {
-			return nil, fmt.Errorf("secret %s: the github-app token satelle.dev answered with expired at %s", d.Key, expires.Format(time.RFC3339))
+			return nil, fmt.Errorf("secret %s: the value satelle.dev answered with expired at %s", d.Key, expires.Format(time.RFC3339))
 		}
 		if out == nil {
 			out = map[string]string{}
 		}
 		out[d.Key] = value
-		fmt.Fprintf(log, "join: github-app secret %s read for %s\n", d.Key, d.GitHubHost())
+		fmt.Fprintf(log, "join: secret %s read (%s)\n", d.Key, secretSource(d))
 	}
 	return out, nil
+}
+
+// secretSource names where a declared secret comes from, for the join log: the
+// GitHub a github-app token is minted for, else the secret's scope (team or
+// personal), else its from.
+func secretSource(d remotedef.SecretDecl) string {
+	if d.IsGitHubApp() {
+		return remotedef.FromGitHubApp + " " + d.GitHubHost()
+	}
+	if s := strings.TrimSpace(d.Scope); s != "" {
+		return s
+	}
+	return fmt.Sprint(d.From)
 }
 
 // reportNodeStartFailure tells satelle.dev why the node could not start, on the
@@ -656,10 +671,11 @@ func doneCategories(dataDir string) ([]string, error) {
 // agentJobHandler answers an agent job by running the remote's agent binding on
 // the message: the executor if it names a command, else the first agent binding
 // by name that does. The binding's env is not applied here. The agent gets the
-// secrets the definition declares, read from satelle.dev with the node token, in
-// its process environment alone. A secret satelle.dev refuses stops the job
-// before the agent starts; a refused node token also stops the node (Serve).
-func agentJobHandler(dataDir, root string, client *remotenode.NodeClient, decls []remotedef.SecretDecl) remotenode.Handler {
+// secrets the definition declares, as join read them once (loadNodeSecrets), in
+// its process environment; the handler makes no node-API call. A secret
+// satelle.dev refuses, or a revoked node token, stops the node at join, so no job
+// runs without its secrets.
+func agentJobHandler(dataDir, root string, secrets map[string]string) remotenode.Handler {
 	return func(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
 		var req remotenode.AgentRequest
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -679,10 +695,6 @@ func agentJobHandler(dataDir, root string, client *remotenode.NodeClient, decls 
 		runner, err := agentstep.LookupRunner(b.ResolvedInterface(), b.CommandTemplate())
 		if err != nil {
 			return nil, fmt.Errorf("binding %q: %w", name, err)
-		}
-		secrets, err := client.Secrets(ctx, decls)
-		if err != nil {
-			return nil, err
 		}
 		system := "You are the agent on a remote node. Answer the developer's message."
 		if req.SystemPrompt != "" {

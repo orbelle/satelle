@@ -89,7 +89,7 @@ func TestAgentJobHandlerRunsTheNamedBindingWithTheStepPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, config.AgentsConfigName), []byte(agents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := agentJobHandler(dataDir, t.TempDir(), nil, nil)
+	h := agentJobHandler(dataDir, t.TempDir(), nil)
 	ask := func(req remotenode.AgentRequest) (string, error) {
 		body, _ := json.Marshal(req)
 		out, err := h(context.Background(), body)
@@ -111,6 +111,41 @@ func TestAgentJobHandlerRunsTheNamedBindingWithTheStepPrompt(t *testing.T) {
 	_, err = ask(remotenode.AgentRequest{Binding: "ghost", Text: "x"})
 	if err == nil || !strings.Contains(err.Error(), `remote defines no runnable binding "ghost"`) {
 		t.Fatalf("job for a missing binding = %v, want it named", err)
+	}
+}
+
+// The relay agent-talk path hands its runner the secrets join read, and makes no
+// read of its own: the handler takes the join-time values, not a client, so the
+// agent's environment carries exactly them (sty_2dabc0f6 AC2).
+func TestAgentJobHandlerHandsTheRunnerTheJoinSecrets(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("the fake agent is a shell script")
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho \"K=$JOIN_SECRET_K\"\ncat >/dev/null\n"
+	if err := os.WriteFile(filepath.Join(bin, "agent-env"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dataDir := t.TempDir()
+	agents := "[worker]\nrole = \"agent\"\ncommand = \"agent-env --system {system}\"\n"
+	if err := os.WriteFile(filepath.Join(dataDir, config.AgentsConfigName), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, had := os.LookupEnv("JOIN_SECRET_K"); had {
+		t.Setenv("JOIN_SECRET_K", "")
+		_ = os.Unsetenv("JOIN_SECRET_K")
+	}
+
+	h := agentJobHandler(dataDir, t.TempDir(), map[string]string{"JOIN_SECRET_K": "join-read-value"})
+	body, _ := json.Marshal(remotenode.AgentRequest{Binding: "worker", Text: "hi"})
+	out, err := h(context.Background(), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := remotenode.DecodeAgentReply(out)
+	if err != nil || !strings.Contains(reply.Text, "K=join-read-value") {
+		t.Fatalf("agent reply = %q, %v; want the join-read secret in the runner's environment", reply.Text, err)
 	}
 }
 
