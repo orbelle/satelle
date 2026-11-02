@@ -36,6 +36,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Supported agent CLI identifiers.
@@ -780,7 +781,8 @@ func composeEnv(base []string, overlay map[string]string, unset ...string) []str
 // visible on the sink, and a SIGKILL (ctx deadline) leaves whatever was already
 // streamed on disk (sty_0aa67b7f). The returned bytes are the exact accumulated
 // stdout regardless of req.Sink, so the caller's final JSON/usage parse is
-// unaffected. A non-zero exit surfaces stderr in the error, as before.
+// unaffected. A non-zero exit carries failureDetail in the error: the CLI's own
+// error from stdout and the stderr, scrubbed and bounded.
 func runProcess(ctx context.Context, binary string, args []string, req Request) ([]byte, error) {
 	onEvent, stopEvents := eventStream(req)
 	defer stopEvents()
@@ -821,20 +823,131 @@ func runProcess(ctx context.Context, binary string, args []string, req Request) 
 	stopProbe()
 
 	if err := cmd.Wait(); err != nil {
+		detail := failureDetail(stdout.Bytes(), stderr.String(), req.Redact)
 		ev := newEvent(EventFailed)
 		if ctx.Err() != nil {
 			ev.Error = ctx.Err().Error()
 		} else {
 			ev.Error = err.Error()
 		}
+		if detail != "" {
+			ev.Error += ": " + detail
+		}
 		emitEvent(onEvent, ev)
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return stdout.Bytes(), fmt.Errorf("agentcli: %s: %w: %s", binary, err, msg)
+		if detail != "" {
+			return stdout.Bytes(), fmt.Errorf("agentcli: %s: %w: %s", binary, err, detail)
 		}
 		return stdout.Bytes(), fmt.Errorf("agentcli: %s: %w", binary, err)
 	}
 	emitEvent(onEvent, newEvent(EventCompleted))
 	return stdout.Bytes(), nil
+}
+
+// failureDetailCap bounds each part of a failed run's error text (sty_4bf6adbe).
+const failureDetailCap = 2048
+
+// failureScanCap bounds how much of stdout is scanned for the CLI's own error, so
+// a long stream-json run costs no more than its tail.
+const failureScanCap = 64 << 10
+
+// failureDetail is the text a non-zero exit carries in its error (sty_4bf6adbe):
+// the CLI's own error, then the stderr. A CLI that reports its failure as JSON on
+// stdout (`claude -p --output-format json` writes {"is_error":true,"result":...}
+// and leaves stderr empty) is read from the last such object; otherwise the
+// stdout stands in. Every secret value in redact, then every secret-shaped
+// pattern, is scrubbed from each part BEFORE it is clipped to 2048 bytes, so a
+// secret cut by the clip cannot survive as a fragment.
+func failureDetail(stdout []byte, stderr string, redact map[string]string) string {
+	if len(stdout) > failureScanCap {
+		stdout = stdout[len(stdout)-failureScanCap:]
+	}
+	clean := func(s string) string {
+		return clipBytes(RedactSecrets(redactValues(s, redact)), failureDetailCap)
+	}
+	var parts []string
+	if msg := stdoutFailure(stdout); msg != "" {
+		parts = append(parts, clean(msg))
+	}
+	if msg := strings.TrimSpace(stderr); msg != "" {
+		parts = append(parts, "stderr: "+clean(msg))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// stdoutFailure is the CLI's own error on stdout: the result (else error) of the
+// last JSON line that is an error, else the trimmed stdout.
+func stdoutFailure(stdout []byte) string {
+	lines := bytes.Split(stdout, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var v struct {
+			IsError bool   `json:"is_error"`
+			Result  string `json:"result"`
+			Error   any    `json:"error"`
+		}
+		if json.Unmarshal(line, &v) != nil {
+			continue
+		}
+		errText := ""
+		switch e := v.Error.(type) {
+		case nil:
+		case string:
+			errText = e
+		default:
+			if b, err := json.Marshal(e); err == nil {
+				errText = string(b)
+			}
+		}
+		if !v.IsError && errText == "" {
+			continue
+		}
+		if strings.TrimSpace(v.Result) != "" {
+			return strings.TrimSpace(v.Result)
+		}
+		if errText != "" {
+			return errText
+		}
+		return string(line)
+	}
+	return strings.TrimSpace(string(stdout))
+}
+
+// clipBytes caps s at max bytes, keeping its head and its tail (half each, cut on
+// rune boundaries) around an ellipsis: a CLI usually leads with its reason and
+// ends with the line that failed, and a pure tail would drop the reason (cursor's
+// "Cannot use this model: …" precedes kilobytes of model names).
+func clipBytes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	half := max / 2
+	head, tail := s[:half], s[len(s)-half:]
+	for len(head) > 0 && !utf8.ValidString(head) {
+		head = head[:len(head)-1]
+	}
+	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	return head + "…" + tail
+}
+
+// redactValues replaces every non-empty value in redact with [REDACTED], longest
+// first so a secret that contains another is scrubbed whole.
+func redactValues(s string, redact map[string]string) string {
+	vals := make([]string, 0, len(redact))
+	for _, v := range redact {
+		if v != "" {
+			vals = append(vals, v)
+		}
+	}
+	sort.Slice(vals, func(i, j int) bool { return len(vals[i]) > len(vals[j]) })
+	for _, v := range vals {
+		s = strings.ReplaceAll(s, v, "[REDACTED]")
+	}
+	return s
 }
 
 const defaultHeartbeatInterval = 15 * time.Second

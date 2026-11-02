@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -143,11 +144,27 @@ func RunTask(ctx context.Context, tr TaskRun) (TaskRunResult, error) {
 	case res.Outcome == "":
 		res.Outcome = verb.OutcomeReject
 	}
+	if res.Findings == "" && res.Outcome == verb.OutcomeReject {
+		res.Findings = stopFindings(err, res.Drive)
+	}
 	if exec.ID != "" {
 		tr.record(ctx, exec, res.Outcome)
 	}
 	rep.conclude(ctx, res.Outcome, res.Findings)
 	return res, err
+}
+
+// stopFindings is what a rejected run the performer recorded no findings for
+// reports instead (sty_4bf6adbe): the drive's error, else the reason it parked or
+// stopped, so the node and run records say why rather than nothing. The text is
+// already scrubbed of resolved secret values where it was made (agentcli and
+// agentstep); the pattern scrub here is a backstop.
+func stopFindings(err error, res drive.Result) string {
+	text := res.Reason
+	if err != nil {
+		text = err.Error()
+	}
+	return agentcli.RedactSecrets(text)
 }
 
 // record writes the run's link row on the subject and pushes the run, before the
