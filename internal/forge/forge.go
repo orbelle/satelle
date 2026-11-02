@@ -5,6 +5,7 @@
 // [forge] provider (config.ForgeConfig); nothing outside a provider's own
 // package names it. With no provider selected, Open says so and the caller
 // posts nothing.
+// The first provider is GitHub (package forge/github), per [[satelle-local-first]].
 package forge
 
 import (
