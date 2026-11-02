@@ -219,6 +219,14 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return fmt.Errorf("join: %w", err)
 	}
 	defer setNodeProcessSecrets(appSecrets)()
+	// The definition itself (key names, never values) rides the same environment,
+	// so a command the run starts knows the remote's repo and credential.
+	envDef, err := def.EnvValue()
+	if err != nil {
+		reportNodeStartFailure(ctx, cmd, client, beat, err)
+		return fmt.Errorf("join: definition: %w", err)
+	}
+	defer setNodeEnv(remotedef.EnvDefinition, envDef)()
 
 	// The definition's [host] bootstrap runs here: once for the node, after its
 	// definition is read and before it joins the relay or works a run.
@@ -307,6 +315,20 @@ func setNodeProcessSecrets(secrets map[string]string) (restore func()) {
 			} else {
 				_ = os.Unsetenv(k)
 			}
+		}
+	}
+}
+
+// setNodeEnv sets key to value in the process environment for the fire and
+// returns what puts the prior value (or its absence) back.
+func setNodeEnv(key, value string) (restore func()) {
+	old, had := os.LookupEnv(key)
+	_ = os.Setenv(key, value)
+	return func() {
+		if had {
+			_ = os.Setenv(key, old)
+		} else {
+			_ = os.Unsetenv(key)
 		}
 	}
 }

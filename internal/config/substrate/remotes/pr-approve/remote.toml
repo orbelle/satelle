@@ -1,0 +1,37 @@
+# The PR-approval remote: each wake runs one execution of the embedded task
+# tsk_pr-approve for the story it was woken for, which approves that story's PR
+# as the repo's GitHub App after a cold review. This is a template a repo copies
+# into its own remote definition; satelle does not layer it. The repo supplies
+# the values marked REPO below and its constitution as
+# principles/repo-constitution.md beside this file. The status the approval
+# posts is named by the node's [forge.github] status_context
+# (default satelle/pr-approval).
+# The satelle the node installs: satelle.dev installs exactly this version, so it
+# must be one that ships `satelle pr` (0.0.847 or later).
+satelle_version = "0.0.847"
+remote_id = "rmt_pr-approve"        # REPO: the id satelle.dev gave this remote
+wake_key = "REMOTE_WAKE_KEY"
+lifecycle = "idle"
+
+[drive]
+kind = "task"
+task = "pr-approve"
+
+# REPO: the one repo whose PRs the remote approves. The App's installation
+# token is minted scoped to it.
+[[repo]]
+url = "https://github.com/OWNER/NAME.git"
+ref = "main"
+
+# The run's GitHub credential: an installation token of the repo's reviewer App,
+# minted by satelle.dev for each run from the App id and key reference the repo
+# stores there, and revoked when the run ends.
+[[secret]]
+key = "GH_TOKEN"
+scope = "team"
+workspace = "WORKSPACE_ID"          # REPO: the team workspace holding the App
+from = "github-app"
+
+# The sandbox reaches the GitHub API and nothing else.
+[network]
+allow = ["api.github.com"]

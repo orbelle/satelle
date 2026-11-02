@@ -186,6 +186,9 @@ type Config struct {
 	// commit and release identifier (`satelle story release-record`). See
 	// ReleaseConfig.
 	Release ReleaseConfig `toml:"release"`
+	// Forge selects the forge provider PR reads, reviews and commit statuses go
+	// through, and names the approval's status context. See ForgeConfig.
+	Forge ForgeConfig `toml:"forge"`
 }
 
 // ReleaseConfig is the [release] table. Fields lists the extra metadata keys a

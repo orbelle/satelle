@@ -10,6 +10,8 @@
 package remotedef
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/url"
 	"path"
 	"strings"
@@ -130,4 +132,40 @@ func RepoName(repoURL string) string {
 		return ""
 	}
 	return strings.TrimSuffix(path.Base(strings.TrimRight(u.Path, "/")), ".git")
+}
+
+// RepoSlug is a repo URL's host and owner/name path: github.com and
+// orbelle/satelle for https://github.com/orbelle/satelle.git. ok is false for a
+// URL that is not host/owner/name.
+func RepoSlug(repoURL string) (host, slug string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(repoURL))
+	if err != nil || u.Hostname() == "" {
+		return "", "", false
+	}
+	p := strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
+	if strings.Count(p, "/") != 1 || strings.HasPrefix(p, "/") || strings.HasSuffix(p, "/") {
+		return "", "", false
+	}
+	return u.Hostname(), p, true
+}
+
+// EnvDefinition is the environment variable a node's join sets, for the life of
+// the fire, to the definition it read (EnvValue), so a command the run starts —
+// `satelle pr` on a PR-approval remote — knows the repo and the credential the
+// remote declares. It carries key names, never a secret's value.
+const EnvDefinition = "SATELLE_NODE_DEFINITION"
+
+// EnvValue is d as EnvDefinition carries it.
+func (d Definition) EnvValue() (string, error) {
+	b, err := json.Marshal(d)
+	return string(b), err
+}
+
+// FromEnvValue reads a definition EnvValue wrote.
+func FromEnvValue(v string) (Definition, error) {
+	var d Definition
+	if err := json.Unmarshal([]byte(v), &d); err != nil {
+		return Definition{}, fmt.Errorf("%s: %w", EnvDefinition, err)
+	}
+	return d, nil
 }

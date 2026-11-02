@@ -1,3 +1,16 @@
+## [0.0.847] - 2026-11-02
+
+### Added
+- PR approval as a task on a sandboxed remote, repo-agnostic. An embedded task `tsk_pr-approve` and reviewer skill `satelle-pr-review` resolve a story's open PR (head `epic/<story id>`) and run a cold review of it against the story's criteria and the repo's constitution. The review is handed pointers, never inline content. Only on accept does satelle post an APPROVE review as the repo's GitHub App on the PR's exact head sha, plus one commit status. It refuses to post when the head has moved since the review. A rejecting review posts nothing, records `outcome: reject` and its findings on the execution's run output, and concludes the task run with them. Slice 4 of the remotes epic (sty_77fc610b). (sty_d57d078b)
+- A forge provider seam (`internal/forge`), chosen by the `[forge]` table, with GitHub as its first provider; `[forge.github] status_context` names the posted status (default `satelle/pr-approval`). Nothing outside the seam calls GitHub (`satelle-local-first`). (sty_d57d078b)
+- `satelle pr`: `pr body <story_id>` prints the story's criteria block (id, criteria and their sha256) for the PR body; `pr view <owner/name>#<n> [--criteria]` reads a PR's head, or the criteria from its body, so a node with no story store still has them; `pr diff` prints the diff; `pr approve` runs the review-and-approve. A PR whose block is missing, names another story or fails its hash concludes reject. (sty_d57d078b)
+- An embedded remote-definition template, `remotes/pr-approve` (`[drive] kind = "task"` on `tsk_pr-approve`, one `[[repo]]`, `api.github.com` as the only egress, one github-app `GH_TOKEN`), which a repo copies with its own repo, workspace and constitution (`principles/repo-constitution.md`). Its `satelle_version` names 0.0.847, the first release a node needs, because satelle.dev installs exactly that version on the node. `satelle node join` exposes the definition (key names only, never secret values) to the node's `satelle pr` as `SATELLE_NODE_DEFINITION`. (sty_d57d078b)
+
+## [serve-v0.0.275] - 2026-11-02
+
+### Changed
+- The service binary carries the embedded `tsk_pr-approve` task and `satelle-pr-review` skill as substrate. (sty_d57d078b)
+
 ## [0.0.846] - 2026-11-02
 
 ### Fixed

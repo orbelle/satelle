@@ -32,6 +32,10 @@ type CaseJudgeOptions struct {
 	// Offload keeps an oversized diff's overflow out of line, exactly as a real
 	// dispatch's does; nil keeps none.
 	Offload func(ctx context.Context, itemID string, content []byte) (string, error)
+	// NoConstitution keeps the repo's constitution.md out of the reviewer's
+	// prompt: a judge that reads the constitution itself, from a pointer, is
+	// handed none inline.
+	NoConstitution bool
 }
 
 // CaseJudge judges one known case with a named reviewer binding through
@@ -109,7 +113,7 @@ func (j *CaseJudge) run(ctx context.Context, c reviewscore.Case, skills []string
 	if j.opts.Offload != nil {
 		g.SetDiffOffloader(j.opts.Offload)
 	}
-	if body, err := os.ReadFile(filepath.Join(j.opts.Root, config.DefaultDataDir, "constitution.md")); err == nil {
+	if body, err := os.ReadFile(filepath.Join(j.opts.Root, config.DefaultDataDir, "constitution.md")); err == nil && !j.opts.NoConstitution {
 		g.SetConstitution(string(body))
 	}
 	item := workitem.Item{ID: c.StoryID, Kind: workitem.KindStory, Status: from, Category: "feature", Title: c.ID, Body: c.Summary}

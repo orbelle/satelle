@@ -47,10 +47,20 @@ var caseJudgeRunner func(iface, command string) (agentcli.Runner, error)
 // name resolves (substrate review's default judge re-points the reviewer seat);
 // nil reads agents.toml.
 func newCaseJudge(a *app.App, binding string, resolve func(string) (config.AgentBinding, bool)) (*agentstep.CaseJudge, error) {
+	opts, err := caseJudgeOptions(a, binding, resolve)
+	if err != nil {
+		return nil, err
+	}
+	return agentstep.NewCaseJudge(opts)
+}
+
+// caseJudgeOptions are newCaseJudge's options, for a caller that sets more of
+// them before building the judge.
+func caseJudgeOptions(a *app.App, binding string, resolve func(string) (config.AgentBinding, bool)) (agentstep.CaseJudgeOptions, error) {
 	if resolve == nil {
 		eff, err := requireAgents(a)
 		if err != nil {
-			return nil, err
+			return agentstep.CaseJudgeOptions{}, err
 		}
 		resolve = func(name string) (config.AgentBinding, bool) {
 			b, ok := eff.Agents.RawBinding(name)
@@ -60,14 +70,14 @@ func newCaseJudge(a *app.App, binding string, resolve func(string) (config.Agent
 			return eff.Agents.EffectiveBinding(b, config.UseOneShot), true
 		}
 	}
-	return agentstep.NewCaseJudge(agentstep.CaseJudgeOptions{
+	return agentstep.CaseJudgeOptions{
 		Root:      a.RepoRoot,
 		Binding:   binding,
 		Docs:      a.Store.DocIndex,
 		Offload:   diffOffloader(a),
 		Resolve:   resolve,
 		NewRunner: caseJudgeRunner,
-	})
+	}, nil
 }
 
 func init() {

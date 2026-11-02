@@ -94,7 +94,38 @@ var substrateExts = map[string]bool{".md": true, ".toml": true}
 // `satelle process` output (sty_81bb0dde). This is the same carve-out
 // docindex.Indexable makes for the repo's agents.toml, and for the same reason:
 // a file being TOML does not make it substrate.
-var nonSubstrateKinds = map[string]bool{"config": true}
+//
+// `remotes/` holds remote definition bundle templates (EmbeddedRemote): a
+// remote.toml and the substrate a repo copies into its own definition. A
+// template's files are not this binary's defaults; layering them would make the
+// template's placeholder principle a principle of every repo.
+var nonSubstrateKinds = map[string]bool{"config": true, remotesDir: true}
+
+// remotesDir is the substrate/ subdirectory holding remote definition bundle
+// templates, one directory per template.
+const remotesDir = "remotes"
+
+// EmbeddedRemote is the remote definition bundle template the binary ships under
+// name: each file's bundle-relative slash path (remote.toml,
+// principles/<name>.md, …) and its text. ok is false when there is none.
+func EmbeddedRemote(name string) (files map[string]string, ok bool) {
+	root := path.Join("substrate", remotesDir, name)
+	_ = fs.WalkDir(substrateFS, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		body, rerr := substrateFS.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		if files == nil {
+			files = map[string]string{}
+		}
+		files[strings.TrimPrefix(p, root+"/")] = string(body)
+		return nil
+	})
+	return files, files != nil
+}
 
 // EmbeddedDefaults returns every embedded default artifact, across all kinds.
 // These are the canonical SEED + reference: init materialises them onto disk, the
