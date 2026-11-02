@@ -1,3 +1,8 @@
+## [0.0.854] - 2026-11-02
+
+### Fixed
+- A remote node reads every secret its definition declares once at join, including team and personal stored values, not only github-app tokens. It holds them in the process environment for the fire, so a task drive's bound agent CLI gets its credential. Before this, join loaded only github-app secrets, and other declared secrets were read only on the relay agent-job path, which task nodes no longer take (0.0.851). A task remote whose executor runs `claude -p` therefore ran without `CLAUDE_CODE_OAUTH_TOKEN` and exited 1. This was seen live on pr-approve v6, node nod_5b9c99a9d9b4, where satelle.dev recorded no read of the token. The relay agent-job path now uses the values read at join, and its separate per-job read (`NodeClient.Secrets`) is deleted. The join log names each key and its source (`join: secret CLAUDE_CODE_OAUTH_TOKEN read (team)`), never a value. A declared secret that cannot be read stops the node at join, naming the key. Behaviour change: a secret revoked or deleted after join no longer stops a later relay job, because the job uses the value read at join. (sty_2dabc0f6)
+
 ## [0.0.853] - 2026-11-02
 
 ### Fixed
