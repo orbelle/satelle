@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
@@ -19,6 +20,10 @@ func TestMain(m *testing.M) {
 		// A test that fakes a release installs this binary as "satelle <version>".
 		if v := os.Getenv("SATELLE_TEST_VERSION"); v != "" {
 			buildinfo.Version = v
+		}
+		// A test that runs `satelle pr` as a child points its forge at a fake.
+		if u := os.Getenv(testForgeAPIURLEnv); u != "" {
+			forgeAPIURL = u
 		}
 		initGateRun()
 		root := NewRootCmd()
@@ -95,6 +100,10 @@ func runIsolated(m *testing.M) int {
 	}
 	defer os.RemoveAll(dir)
 	_ = os.Setenv("XDG_CONFIG_HOME", dir)
+	// A node join a test runs writes its secrets hand-off under the user cache
+	// dir (remotedef.HandoffPath); keep it off the operator's.
+	cache := filepath.Join(dir, "cache")
+	_ = os.Setenv("XDG_CACHE_HOME", cache)
 	recordGateDelivered = restoringRecorder(recordGateDelivered)
 	// The push tests exercise push MECHANICS over throwaway fixtures (a skill
 	// named x whose body is "x") that are not valid substrate, so the validation a
@@ -107,6 +116,10 @@ func runIsolated(m *testing.M) int {
 	installSuiteAccount()
 	return m.Run()
 }
+
+// testForgeAPIURLEnv names the fake forge a re-exec'd child's `satelle pr`
+// talks to (forgeAPIURL).
+const testForgeAPIURLEnv = "SATELLE_TEST_FORGE_API_URL"
 
 // realPushValidator is the validation a push really runs, kept aside while the
 // rest of the suite runs with it stood down.

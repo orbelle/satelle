@@ -503,6 +503,16 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 	for k, v := range workitem.InputEnv(payloadInputs(req.Payload)) {
 		env[k] = v
 	}
+	// A process secret this process's own environment lacks (a node's declared
+	// secret that the harness above this satelle did not pass down, read back
+	// from join's hand-off) is given to the child here, in its environment only,
+	// unless the binding sets that key itself. The log already scrubs it
+	// (scrubValues, above).
+	for k, v := range g.processSecrets {
+		if _, set := env[k]; !set && os.Getenv(k) == "" {
+			env[k] = v
+		}
+	}
 	env[config.DispatchAgentEnv] = section
 	env[config.DispatchStepEnv] = req.Step
 	env[config.DispatchItemEnv] = req.StoryID

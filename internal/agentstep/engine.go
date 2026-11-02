@@ -52,6 +52,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/placement"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/retrieve"
 	"github.com/bobmcallan/satelle/internal/secretref"
 	"github.com/bobmcallan/satelle/internal/sessionconfig"
@@ -433,8 +434,20 @@ func withCause(data map[string]any, err error) map[string]any {
 	return data
 }
 
+// loadProcessSecrets reads the secrets a running node join handed off
+// (remotedef.LoadHandoff); a test replaces it.
+var loadProcessSecrets = remotedef.LoadHandoff
+
 // New builds a Engine over the agent runner and doc index. model "" inherits the
 // agent's default; the tool grant is read-only.
+//
+// Its process secrets start as what a running node join handed off: a satelle
+// started by a command of the node's run (a reviewer `satelle pr approve`
+// dispatches) is a child of a performer harness that need not pass join's
+// environment on, so every engine it builds scrubs those values and hands any
+// its own environment lacks to what it dispatches (invokePrimary). They are read
+// at each construction, so an engine built after the fire ends holds none. Join
+// itself sets the same values with SetProcessSecrets.
 func New(runner agentcli.Runner, docs DocGetter, repoRoot, model string) *Engine {
 	return &Engine{
 		runner: runner, docs: docs, repoRoot: repoRoot, model: model, tools: defaultTools,
@@ -446,6 +459,8 @@ func New(runner agentcli.Runner, docs DocGetter, repoRoot, model string) *Engine
 		newRunner: LookupRunner,
 		newOpener: agentcli.OpenerFromBinding,
 		warnOut:   os.Stderr,
+
+		processSecrets: loadProcessSecrets(),
 	}
 }
 

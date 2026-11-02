@@ -216,7 +216,7 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return fmt.Errorf("join: %w", err)
 	}
-	defer setNodeProcessSecrets(secrets)()
+	defer setNodeProcessSecrets(secrets, cmd.ErrOrStderr())()
 	// The definition itself (key names, never values) rides the same environment,
 	// so a command the run starts knows the remote's repo and credential.
 	envDef, err := def.EnvValue()
@@ -324,7 +324,15 @@ func currentNodeProcessSecrets() map[string]string {
 
 // setNodeProcessSecrets places secrets in the process environment and returns
 // what takes them out again: each key back to what it was before, or unset.
-func setNodeProcessSecrets(secrets map[string]string) (restore func()) {
+//
+// It also hands them off (remotedef.WriteHandoff) to a satelle a command of the
+// run starts: that satelle is a child of the performer's harness, which need not
+// pass these variables to its children (a reviewer `satelle pr approve` starts
+// would otherwise run without the declared CLAUDE_CODE_OAUTH_TOKEN). The
+// hand-off and its path variable (remotedef.EnvSecretsFile) are gone on
+// restore. A hand-off that cannot be written is a warning on log, naming no
+// value: the environment still carries the secrets.
+func setNodeProcessSecrets(secrets map[string]string, log io.Writer) (restore func()) {
 	type prior struct {
 		value string
 		had   bool
@@ -338,7 +346,22 @@ func setNodeProcessSecrets(secrets map[string]string) (restore func()) {
 	nodeProcessSecrets.mu.Lock()
 	nodeProcessSecrets.set = secrets
 	nodeProcessSecrets.mu.Unlock()
+	unhand := func() {}
+	if len(secrets) > 0 {
+		if path, err := remotedef.WriteHandoff(secrets); err != nil {
+			fmt.Fprintf(log, "join: warning: secrets hand-off not written (%v); a satelle the run starts reads only its inherited environment\n", err)
+		} else {
+			unsetEnv := setNodeEnv(remotedef.EnvSecretsFile, path)
+			unhand = func() {
+				unsetEnv()
+				if err := remotedef.RemoveHandoff(path); err != nil {
+					fmt.Fprintf(log, "join: warning: secrets hand-off not removed: %v\n", err)
+				}
+			}
+		}
+	}
 	return func() {
+		unhand()
 		nodeProcessSecrets.mu.Lock()
 		nodeProcessSecrets.set = nil
 		nodeProcessSecrets.mu.Unlock()

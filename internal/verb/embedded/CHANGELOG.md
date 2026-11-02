@@ -1,3 +1,8 @@
+## [0.0.859] - 2026-11-02
+
+### Fixed
+- On a remote node, an agent CLI that satelle starts from a command the performer runs (for example `satelle pr approve`'s satelle-pr-review reviewer) receives the secrets the definition declares, such as CLAUDE_CODE_OAUTH_TOKEN, even when the performer's harness does not pass them to its shell children. The node hands its declared secrets to nested satelle runs through a private hand-off file in the user cache directory, and no value is written to argv, logs, the ledger or the repo. Before this, the pr-approve review failed with "Not logged in". (sty_a55324f2)
+
 ## [0.0.858] - 2026-11-02
 
 ### Fixed
