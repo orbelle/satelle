@@ -32,33 +32,74 @@ func TestFireRemoteMapsTheServersAnswers(t *testing.T) {
 		_, _ = w.Write([]byte(reply))
 	}))
 
-	res, err := c.FireRemote(context.Background(), "acme/ops", "sty_1")
+	res, err := c.FireRemote(context.Background(), "acme/ops", "sty_1", "pr-approve-request")
 	if err != nil || res.Pending {
 		t.Fatalf("200: res=%+v err=%v, want requested and not pending", res, err)
 	}
 	if gotMethod != http.MethodPost || gotPath != "/api/v1/remotes/acme%2Fops/fire" && gotPath != "/api/v1/remotes/acme/ops/fire" {
 		t.Errorf("request = %s %s", gotMethod, gotPath)
 	}
-	if gotBody["story_id"] != "sty_1" || gotAuth != "Bearer t" {
+	if gotBody["story_id"] != "sty_1" || gotBody["trigger"] != "pr-approve-request" || gotAuth != "Bearer t" {
 		t.Errorf("body = %v auth = %q", gotBody, gotAuth)
 	}
 
 	status, reply = http.StatusAccepted, `{"outcome":"pending","position":2}`
-	res, err = c.FireRemote(context.Background(), "r", "sty_1")
+	res, err = c.FireRemote(context.Background(), "r", "sty_1", "pr-approve-request")
 	if err != nil || !res.Pending || res.Position != 2 {
 		t.Fatalf("202: res=%+v err=%v, want a held wake at position 2", res, err)
 	}
 
 	status, reply = http.StatusConflict, `{"error":"limit_spend","reason":"cap reached"}`
-	_, err = c.FireRemote(context.Background(), "r", "sty_1")
+	_, err = c.FireRemote(context.Background(), "r", "sty_1", "pr-approve-request")
 	var ae *APIError
 	if !errors.As(err, &ae) || ae.Status != http.StatusConflict || ae.Code != "limit_spend" {
 		t.Fatalf("409: err = %v, want an APIError carrying limit_spend", err)
 	}
 
 	status, reply = http.StatusUnauthorized, ``
-	if _, err = c.FireRemote(context.Background(), "r", "sty_1"); !errors.Is(err, ErrLoginRequired) {
+	if _, err = c.FireRemote(context.Background(), "r", "sty_1", "pr-approve-request"); !errors.Is(err, ErrLoginRequired) {
 		t.Fatalf("401: err = %v, want ErrLoginRequired", err)
+	}
+}
+
+// satelle-server starts a runner-backed remote (no wake_url) only through a
+// declared request trigger (sty_1f6e6667). This fake refuses a fire whose body
+// names no trigger, or an undeclared one, the way the server does, and accepts
+// one that names a declared trigger.
+func TestFireRemoteSendsTheDeclaredRequestTrigger(t *testing.T) {
+	declared := map[string]bool{"pr-approve-request": true}
+	var got []map[string]string
+	c := remoteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		got = append(got, body)
+		if !declared[body["trigger"]] {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"name a declared request trigger to start this remote"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+
+	res, err := c.FireRemote(context.Background(), "rmt_c9ecdce8d1ba", "sty_1", "pr-approve-request")
+	if err != nil || res.Pending {
+		t.Fatalf("declared trigger: res=%+v err=%v, want the wake accepted", res, err)
+	}
+	if len(got) != 1 || got[0]["story_id"] != "sty_1" || got[0]["trigger"] != "pr-approve-request" || len(got[0]) != 2 {
+		t.Fatalf("body = %v, want exactly {story_id: sty_1, trigger: pr-approve-request}", got)
+	}
+
+	for _, tc := range []struct{ name, trigger string }{{"absent", ""}, {"undeclared", "nightly"}} {
+		_, err := c.FireRemote(context.Background(), "rmt_c9ecdce8d1ba", "sty_1", tc.trigger)
+		var ae *APIError
+		if !errors.As(err, &ae) || ae.Status != http.StatusConflict || !strings.Contains(err.Error(), "name a declared request trigger") {
+			t.Errorf("%s trigger: err = %v, want the server's 409 refusal as an APIError", tc.name, err)
+		}
+	}
+	if _, has := got[1]["trigger"]; has {
+		t.Errorf("an empty trigger must be left out of the body: %v", got[1])
 	}
 }
 

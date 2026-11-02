@@ -556,6 +556,7 @@ func overlayBinding(base AgentBinding, baseSrc map[string]string, top AgentBindi
 	setScalar("placement", &out.Placement, top.Placement)
 	setScalar("remote", &out.Remote, top.Remote)
 	setScalar("remote_path", &out.RemotePath, top.RemotePath)
+	setScalar("trigger", &out.Trigger, top.Trigger)
 
 	if len(top.Env) > 0 {
 		out.Env = mergeStringMap(base.Env, top.Env)

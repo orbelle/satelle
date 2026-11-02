@@ -393,6 +393,7 @@ func bindingTable(b AgentBinding) map[string]any {
 	set("placement", b.Placement)
 	set("remote", b.Remote)
 	set("remote_path", b.RemotePath)
+	set("trigger", b.Trigger)
 	set("profile", b.Profile)
 	if b.InjectPrinciples != nil {
 		out["inject_principles"] = *b.InjectPrinciples

@@ -73,17 +73,27 @@ func (c *fakeChannel) Open(_ context.Context, name string, b config.AgentBinding
 	return c.run, nil
 }
 
+// teamTrigger is the request trigger fakeTeam's remote declares.
+const teamTrigger = "pr-approve-request"
+
 // fakeTeam is a TeamRunner that records its fires and answers each status read
-// with the next scripted standing (the last repeats).
+// with the next scripted standing (the last repeats). Like satelle-server with a
+// runner-backed remote (sty_1f6e6667), it refuses a fire that names no declared
+// request trigger; its remote declares teamTrigger.
 type fakeTeam struct {
 	fires    []string
+	triggers []string
 	fireErr  error
 	statuses []hosted.RunStanding
 	reads    int
 }
 
-func (f *fakeTeam) FireRemote(_ context.Context, remoteID, storyID string) (hosted.FireResult, error) {
+func (f *fakeTeam) FireRemote(_ context.Context, remoteID, storyID, trigger string) (hosted.FireResult, error) {
 	f.fires = append(f.fires, remoteID+"|"+storyID)
+	f.triggers = append(f.triggers, trigger)
+	if trigger != teamTrigger {
+		return hosted.FireResult{}, &hosted.APIError{Status: 409, Code: "name a declared request trigger to start this remote"}
+	}
 	return hosted.FireResult{}, f.fireErr
 }
 
@@ -258,7 +268,7 @@ func TestPlacementLocalBindingDispatchesAsToday(t *testing.T) {
 const teamPath = "acme/ops"
 
 func teamBinding(timeout string) config.AgentBinding {
-	return config.AgentBinding{Role: "agent", Placement: "team:" + teamPath, Timeout: timeout}
+	return config.AgentBinding{Role: "agent", Placement: "team:" + teamPath, Timeout: timeout, Trigger: teamTrigger}
 }
 
 func newTeamRig(t *testing.T, timeout string, statuses ...hosted.RunStanding) (*boundRig, *fakeTeam, *stepClock) {
@@ -288,6 +298,9 @@ func TestPlacementTeamBindingWakesTheRemote(t *testing.T) {
 	}
 	if len(tm.fires) != 1 || tm.fires[0] != teamPath+"|"+cloudStoryID {
 		t.Fatalf("fires = %v, want one wake of %s for %s", tm.fires, teamPath, cloudStoryID)
+	}
+	if tm.triggers[0] != teamTrigger {
+		t.Errorf("fired through trigger %q, want the binding's %q", tm.triggers[0], teamTrigger)
 	}
 	if res.RunID != "nod_9" || !res.Dispatched || res.Agent != boundAgent {
 		t.Errorf("result = %+v, want a dispatched worker step carrying run nod_9", res)
@@ -386,6 +399,67 @@ func TestPlacementTeamBindingRefusedWake(t *testing.T) {
 	}
 	if tm.reads != 0 {
 		t.Errorf("status reads = %d after a refused wake, want 0", tm.reads)
+	}
+}
+
+// sty_1f6e6667 AC3: the remote refuses a fire that names no declared request
+// trigger, as satelle-server does for a runner-backed remote; a team-bound step
+// whose binding names trigger = "pr-approve-request" wakes it through that
+// trigger and concludes.
+func TestPlacementTeamBindingWakesThroughItsRequestTrigger(t *testing.T) {
+	tm := &fakeTeam{statuses: []hosted.RunStanding{concluded("accept")}}
+	if _, err := tm.FireRemote(context.Background(), teamPath, cloudStoryID, ""); err == nil ||
+		!strings.Contains(err.Error(), "name a declared request trigger") {
+		t.Fatalf("fixture: a fire without a trigger must be refused like satelle-server, got %v", err)
+	}
+
+	r, tm, _ := newTeamRig(t, "", concluded("accept"))
+	if _, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan"); err != nil {
+		t.Fatalf("DispatchExecutor: %v", err)
+	}
+	if len(tm.triggers) != 1 || tm.triggers[0] != "pr-approve-request" {
+		t.Fatalf("triggers = %v, want one wake through pr-approve-request", tm.triggers)
+	}
+	if rows := r.telemetry("team_dispatch"); len(rows) != 1 || rows[0].data["outcome"] != "concluded" {
+		t.Errorf("team_dispatch rows = %+v, want one concluded", rows)
+	}
+}
+
+// sty_1f6e6667 AC4: a team-bound step whose binding names no trigger is refused
+// before any fire, naming the agent, its team placement and the trigger key to
+// add; the team_dispatch row records the failure.
+func TestPlacementTeamBindingWithoutATriggerRefusesBeforeFiring(t *testing.T) {
+	b := teamBinding("")
+	b.Trigger = ""
+	r := newBoundRig(t, b)
+	tm := &fakeTeam{statuses: []hosted.RunStanding{concluded("accept")}}
+	r.SetTeamRunner(tm)
+	_, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	assertMissingTrigger(t, err, boundAgent, "team:"+teamPath)
+	if len(tm.fires) != 0 || tm.reads != 0 {
+		t.Errorf("fires = %v, reads = %d; a binding without a trigger must not fire", tm.fires, tm.reads)
+	}
+	if rows := r.telemetry("team_dispatch"); len(rows) != 1 || rows[0].data["outcome"] != "failed" {
+		t.Errorf("team_dispatch rows = %+v, want one failed", rows)
+	}
+}
+
+// assertMissingTrigger checks the AC4 refusal: it names the agent, the team
+// placement and the trigger = "<request trigger>" key on that agent's binding.
+func assertMissingTrigger(t *testing.T, err error, agent, placed string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("want a refusal naming the missing trigger, got nil")
+	}
+	for _, want := range []string{
+		`named agent "` + agent + `"`,
+		`"` + placed + `"`,
+		"names no request trigger",
+		`add trigger = "<request trigger>" to [` + agent + `]`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
 	}
 }
 

@@ -19,10 +19,11 @@ import (
 // channel session opens here: the remote runs its own task with the story as its
 // subject, and the step blocks on the run the server holds.
 
-// TeamRunner wakes a team remote and reads where the story's run stands. The
-// hosted client is the real implementation; tests install a fake.
+// TeamRunner wakes a team remote through a declared request trigger and reads
+// where the story's run stands. The hosted client is the real implementation;
+// tests install a fake.
 type TeamRunner interface {
-	FireRemote(ctx context.Context, remoteID, storyID string) (hosted.FireResult, error)
+	FireRemote(ctx context.Context, remoteID, storyID, trigger string) (hosted.FireResult, error)
 	TeamRunStatus(ctx context.Context, remoteID, storyID string) (hosted.RunStanding, error)
 }
 
@@ -63,8 +64,11 @@ func teamOutcomeFailed(s hosted.RunStanding) bool {
 	return strings.EqualFold(s.Outcome, "reject")
 }
 
-// dispatchTeam wakes the team remote at path for the story and blocks until its
-// run concludes. The wait is bounded by the binding's timeout, else the cloud
+// dispatchTeam wakes the team remote at path for the story, through the request
+// trigger the step's binding names, and blocks until its run concludes. A binding
+// that names no trigger is refused before any fire (sty_1f6e6667): satelle-server
+// wakes a runner-backed remote only through a declared request trigger, so the
+// error names the key to add. The wait is bounded by the binding's timeout, else the cloud
 // dispatch's default deadline (a remote's run is as slow and unattended). It
 // returns the run id the status read reports.
 func (g *Engine) dispatchTeam(ctx context.Context, item workitem.Item, toStatus, agent, skill, path string,
@@ -90,12 +94,17 @@ func (g *Engine) dispatchTeam(ctx context.Context, item workitem.Item, toStatus,
 			"agent": agent, "step": toStatus, "placement": placed, "outcome": outcome, "run_id": runID,
 		})
 	}()
+	trigger := strings.TrimSpace(binding.Trigger)
+	if trigger == "" {
+		return res, fmt.Errorf("named agent %q is placed on %q but its binding names no request trigger; add trigger = \"<request trigger>\" to [%s] in .satelle/workflows/agents.toml (satelle-server wakes a runner-backed remote only through a declared request trigger)",
+			agent, placed, agent)
+	}
 
 	g.emitActivity(item.ID, "dispatch:"+toStatus, 1, 1)
-	if _, err := g.teamRunner.FireRemote(ctx, path, item.ID); err != nil {
+	if _, err := g.teamRunner.FireRemote(ctx, path, item.ID, trigger); err != nil {
 		return res, fmt.Errorf("named agent %q could not wake team remote %q for step %q: %w", agent, path, toStatus, err)
 	}
-	g.emitProgress("woke team remote %s for %s — waiting up to %s for its run on step %s…", path, item.ID, deadline, toStatus)
+	g.emitProgress("woke team remote %s through trigger %s for %s — waiting up to %s for its run on step %s…", path, trigger, item.ID, deadline, toStatus)
 
 	start := clock.Now()
 	for {

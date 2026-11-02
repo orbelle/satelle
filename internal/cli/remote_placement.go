@@ -21,8 +21,8 @@ const remotePerformerReady = 5 * time.Minute
 // client. satelle.dev starts every node; this side only asks, then pairs.
 type hostedPlacement struct{ client *hosted.Client }
 
-func (p hostedPlacement) FireRemote(ctx context.Context, remoteID, storyID string) (hosted.FireResult, error) {
-	return p.client.FireRemote(ctx, remoteID, storyID)
+func (p hostedPlacement) FireRemote(ctx context.Context, remoteID, storyID, trigger string) (hosted.FireResult, error) {
+	return p.client.FireRemote(ctx, remoteID, storyID, trigger)
 }
 
 func (p hostedPlacement) TeamRunStatus(ctx context.Context, remoteID, storyID string) (hosted.RunStanding, error) {

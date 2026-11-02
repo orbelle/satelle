@@ -96,6 +96,7 @@ var globalAgentsBindingKeys = map[string]bool{
 	"placement":    true,
 	"remote":       true,
 	"remote_path":  true,
+	"trigger":      true,
 }
 
 // globalAgentsRetiredKeys are profile keys satelle once declared and no longer
@@ -435,7 +436,12 @@ func checkBindingAuth(file, section string, b AgentBinding) error {
 // empty, local, remote or team:<path> — nothing else. A remote placement must name
 // the published remote it starts and cannot ride interface=cloud (that transport
 // is already its own remote session); remote= is refused on any other placement.
+// trigger= is accepted on any placement (a pin can place any step on a team) but
+// is refused when present and blank.
 func checkBindingPlacement(file, section string, b AgentBinding) error {
+	if b.Trigger != "" && strings.TrimSpace(b.Trigger) == "" {
+		return fmt.Errorf("%s [%s] trigger is blank: name the declared request trigger the team remote is woken through, or remove the key", file, section)
+	}
 	kind, _ := b.ResolvedPlacement()
 	if kind == PlacementTeam && ResolvedRole(section, b) == RoleReviewer {
 		return fmt.Errorf("%s [%s]: a team placement carries no verdict; a reviewer uses placement = %q with remote = \"<published remote id>\"", file, section, PlacementRemote)

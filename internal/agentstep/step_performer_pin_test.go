@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -76,6 +77,41 @@ func TestStepPerformerHonoursPin(t *testing.T) {
 	// DispatchExecutor refuses a pin it cannot honour, with the same error.
 	if _, err := g.DispatchExecutor(ctx, pinned("placement:bogus"), "named"); err == nil || !strings.Contains(err.Error(), "placement:bogus") {
 		t.Errorf("DispatchExecutor on a bad pin: want an error naming it, got %v", err)
+	}
+}
+
+// sty_1f6e6667 AC4: a child pinned placement:team:<path> on a step whose binding
+// is local is woken through that step binding's trigger; with no trigger on the
+// binding the wake is refused before any fire, naming the agent, the team
+// placement and the key to add.
+func TestTeamPinnedChildWakesThroughItsStepBindingsTrigger(t *testing.T) {
+	ctx := context.Background()
+	child := pinned("placement:team:acme/ops")
+
+	g := pinEngine(t, "fake -p {system}", "fake -p {system}")
+	tm := &fakeTeam{statuses: []hosted.RunStanding{concluded("accept")}}
+	g.SetTeamRunner(tm)
+	_, err := g.DispatchExecutor(ctx, child, "named")
+	assertMissingTrigger(t, err, "architect", "team:acme/ops")
+	if len(tm.fires) != 0 {
+		t.Errorf("fires = %v; a pinned child whose step binding names no trigger must not fire", tm.fires)
+	}
+
+	g = pinEngine(t, "fake -p {system}", "fake -p {system}")
+	g.SetNamedAgents(func(name string) (config.AgentBinding, bool) {
+		if name == "architect" {
+			return config.AgentBinding{Command: "fake -p {system}", Tools: "Read", Trigger: teamTrigger}, true
+		}
+		return config.AgentBinding{}, false
+	})
+	tm = &fakeTeam{statuses: []hosted.RunStanding{concluded("accept")}}
+	g.SetTeamRunner(tm)
+	g.teamClock = &stepClock{}
+	if _, err := g.DispatchExecutor(ctx, child, "named"); err != nil {
+		t.Fatalf("pinned child with a trigger on its step binding: %v", err)
+	}
+	if len(tm.fires) != 1 || tm.fires[0] != "acme/ops|sty_child" || tm.triggers[0] != teamTrigger {
+		t.Errorf("fires = %v triggers = %v, want one wake of acme/ops for sty_child through %s", tm.fires, tm.triggers, teamTrigger)
 	}
 }
 

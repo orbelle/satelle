@@ -24,12 +24,20 @@ type FireResult struct {
 	Position int  `json:"position,omitempty"`
 }
 
-// FireRemote wakes the remote remoteID for storyID (POST /api/v1/remotes/{id}/fire).
-// 200 (a node started) and 202 (the wake is held) both mean it was requested; any
-// other answer, notably 409 with an outcome such as limit_spend or launch_failed,
-// is an *APIError carrying the server's code and reason.
-func (c *Client) FireRemote(ctx context.Context, remoteID, storyID string) (FireResult, error) {
-	payload, err := json.Marshal(map[string]string{"story_id": storyID})
+// FireRemote wakes the remote remoteID for storyID (POST /api/v1/remotes/{id}/fire)
+// through its declared request trigger: the body is {"story_id", "trigger"}, and
+// satelle-server starts a runner-backed remote (one with no wake_url) only when
+// trigger names a request trigger it declares (sty_1f6e6667). An empty trigger is
+// left out of the body. 200 (a node started) and 202 (the wake is held) both mean
+// it was requested; any other answer, notably 409 with an outcome such as
+// limit_spend, launch_failed or an undeclared trigger, is an *APIError carrying
+// the server's code and reason.
+func (c *Client) FireRemote(ctx context.Context, remoteID, storyID, trigger string) (FireResult, error) {
+	fire := map[string]string{"story_id": storyID}
+	if trigger != "" {
+		fire["trigger"] = trigger
+	}
+	payload, err := json.Marshal(fire)
 	if err != nil {
 		return FireResult{}, err
 	}

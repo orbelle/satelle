@@ -1,3 +1,13 @@
+## [0.0.849] - 2026-11-02
+
+### Fixed
+- A step bound to a runner-backed team remote can wake it. An agent binding takes a `trigger` key naming the remote's declared request trigger (`[pr-remote] placement = "team:<remote>"` plus `trigger = "<name>"`), and the wake sends `{story_id, trigger}` to `POST /api/v1/remotes/{id}/fire`. satelle.dev requires a named trigger to start a runner-backed remote, and before this the wake sent only the story, so the pr route's `pr_raising → pr_open` was refused with "name a declared request trigger to start this remote". `trigger` is accepted on any binding, so a child pinned `placement:team:<path>` on a step whose binding is not a team binding still names one. A team wake whose binding names no trigger is refused before it fires, naming the missing key. (sty_1f6e6667)
+
+## [serve-v0.0.276] - 2026-11-02
+
+### Changed
+- The service binary reads the agent binding's new `trigger` key. (sty_1f6e6667)
+
 ## [0.0.848] - 2026-11-02
 
 ### Fixed

@@ -388,6 +388,13 @@ type AgentBinding struct {
 	// performer node starts from, when the remote's default is not wanted.
 	// Optional; valid only with placement="remote".
 	RemotePath string `toml:"remote_path"`
+	// Trigger names the declared request trigger this step is woken through
+	// whenever it is placed on a team remote, by its own placement = "team:<path>"
+	// or by a placement:team:<path> pin on the story (sty_1f6e6667): satelle-server
+	// wakes a runner-backed remote only through one. Accepted on any placement and
+	// ignored by a local or remote dispatch; a team wake without one is refused
+	// before it fires. Present but blank fails at load.
+	Trigger string `toml:"trigger"`
 }
 
 // IsolationOperatorAttested is the one valid isolation= value.

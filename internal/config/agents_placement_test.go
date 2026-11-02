@@ -148,3 +148,46 @@ func TestOverlayBindingCarriesPlacement(t *testing.T) {
 		t.Errorf("an empty tier must not clear placement: %+v", out)
 	}
 }
+
+// trigger = "<request trigger>" names the declared request trigger a step is
+// woken through when it is placed on a team remote (sty_1f6e6667). It is
+// accepted on a binding of any placement (a pin can place a local-bound step on
+// a team), carried through the overlay, and refused when present but blank.
+func TestTriggerLoadsOnABinding(t *testing.T) {
+	ac, err := loadAgentsText(t, strings.Join([]string{
+		"[pr-remote]", "role = \"agent\"", "placement = \"team:acme/ops\"", "trigger = \"pr-approve-request\"", placementCmd,
+		"[coder]", "role = \"agent\"", "trigger = \"coder-request\"", placementCmd,
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("trigger on a team and a local binding must load: %v", err)
+	}
+	if got := ac.Agents["pr-remote"].Trigger; got != "pr-approve-request" {
+		t.Errorf("[pr-remote] trigger = %q, want pr-approve-request", got)
+	}
+	if got := ac.Agents["coder"].Trigger; got != "coder-request" {
+		t.Errorf("[coder] trigger = %q, want coder-request", got)
+	}
+	if _, err := ParseGlobalAgents("[profiles.p]\nrole = \"agent\"\nplacement = \"team:acme/ops\"\ntrigger = \"t\"\n"); err != nil {
+		t.Errorf("a catalog profile may declare a trigger: %v", err)
+	}
+	out, src := overlayBinding(AgentBinding{}, nil, AgentBinding{Placement: "team:acme/ops", Trigger: "pr-approve-request"}, "T")
+	if out.Trigger != "pr-approve-request" || src["trigger"] != "T" {
+		t.Errorf("overlay dropped trigger: %+v %v", out, src)
+	}
+}
+
+func TestBlankTriggerRefusedNamingFileAndSection(t *testing.T) {
+	_, err := loadAgentsText(t, "[pr-remote]\nrole = \"agent\"\nplacement = \"team:acme/ops\"\ntrigger = \"  \"\n"+placementCmd)
+	if err == nil {
+		t.Fatal("a blank-but-present trigger must be refused")
+	}
+	for _, want := range []string{AgentsConfigName, "[pr-remote]", "trigger is blank"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+	_, err = ParseGlobalAgents("[profiles.p]\nrole = \"agent\"\ntrigger = \" \"\n")
+	if err == nil || !strings.Contains(err.Error(), GlobalAgentsLabel) || !strings.Contains(err.Error(), "trigger is blank") {
+		t.Errorf("catalog blank trigger: err = %v, want a refusal naming %s", err, GlobalAgentsLabel)
+	}
+}
