@@ -22,8 +22,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/hosted/syncpb"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/syncscope"
 	"github.com/bobmcallan/satelle/internal/syncstate"
+	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 // fakeChain is a satelle.chain.v1.Chain server with the real compare-and-append
@@ -48,6 +50,9 @@ type fakeChain struct {
 	// bareStale refuses a stale base without the StaleBase detail, as the server
 	// does when the detail is too large for the HTTP/2 trailers.
 	bareStale bool
+	// heldRefusal refuses, for a story, an Append carrying an event id the chain
+	// already holds, ahead of the base check, as the server does.
+	heldRefusal map[string]bool
 	// unreadable makes Read answer Unimplemented, as a server that predates the
 	// Read RPC does: a pull then has no hosted chain to take.
 	unreadable bool
@@ -124,6 +129,13 @@ func (c *fakeChain) Append(_ context.Context, req *syncpb.AppendRequest) (*syncp
 	if q := c.transient[req.GetStoryId()]; len(q) > 0 {
 		c.transient[req.GetStoryId()] = q[1:]
 		return nil, q[0]
+	}
+	if c.heldRefusal[req.GetStoryId()] {
+		for _, e := range req.GetEvents() {
+			if slices.ContainsFunc(chain, func(h *syncpb.Event) bool { return h.GetId() == e.GetId() }) {
+				return nil, status.Error(codes.InvalidArgument, "invalid chain event: event id already in the story's chain")
+			}
+		}
 	}
 	latest := ""
 	if len(chain) > 0 {
@@ -1048,5 +1060,222 @@ func TestPushAfterCursorResetSendsNoHeldEvent(t *testing.T) {
 	}
 	if strings.Contains(out, "Published the events of 2") {
 		t.Errorf("the story with nothing to send was counted as published:\n%s", out)
+	}
+}
+
+// watchHeld makes the chain record, for each Append of story, the ids it carried
+// that the story's chain already held when it arrived. seed, when set, runs first
+// with the call's number (from 1), so a test can move the chain before it.
+func (c *fakeChain) watchHeld(story string, seed func(call int, chain *[]*syncpb.Event)) func() [][]string {
+	var held [][]string
+	calls := 0
+	c.mu.Lock()
+	c.before = func(req *syncpb.AppendRequest, chain *[]*syncpb.Event) {
+		if req.GetStoryId() != story {
+			return
+		}
+		calls++
+		if seed != nil {
+			seed(calls, chain)
+		}
+		var ids []string
+		for _, e := range req.GetEvents() {
+			if slices.ContainsFunc(*chain, func(h *syncpb.Event) bool { return h.GetId() == e.GetId() }) {
+				ids = append(ids, e.GetId())
+			}
+		}
+		held = append(held, ids)
+	}
+	c.mu.Unlock()
+	return func() [][]string {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return slices.Clone(held)
+	}
+}
+
+// ungatedLifecycle gives repo a backlog → plan → in_progress → done route with no
+// gates, so a test moves a story's status without a reviewer.
+func ungatedLifecycle(t *testing.T, repo string) {
+	t.Helper()
+	writeRoute(t, filepath.Join(repo, ".satelle", "workflows"),
+		`["*"]
+obligations = ["raised", "planned", "coded", "closed"]
+`,
+		`[raised]
+status = "backlog"
+start = true
+
+[planned]
+status = "plan"
+agent = "executor"
+requires = ["raised"]
+
+[coded]
+status = "in_progress"
+agent = "executor"
+requires = ["planned"]
+
+[closed]
+status = "done"
+terminal = true
+requires = ["coded"]
+`)
+	if out, err := runRoot(t, "reindex"); err != nil {
+		t.Fatalf("reindex: %v\n%s", err, out)
+	}
+}
+
+// sty_aa605c84 AC3: a story pushed mid-flight, moved on and noted here, then pushed
+// again keeps the hosted ids equal to the local ones in order, and the second push
+// is a pure append of the two new events on the first push's head. A story pushed
+// once (the control) stays equal too.
+func TestPushedTwiceKeepsHostedIdsEqualLocal(t *testing.T) {
+	ts, f := newFakeWorkstateServer(t)
+	seedCred(t, ts.URL)
+	repo := workstateRepo(t, holdOffToml)
+	ungatedLifecycle(t, repo)
+	twice, once := createStoryID(t, "twice"), createStoryID(t, "once")
+	if out, err := runRoot(t, "story", "set", twice, "--status", "plan"); err != nil {
+		t.Fatalf("move to plan: %v\n%s", err, out)
+	}
+	if out, err := pushRaw(t, ts.URL); err != nil {
+		t.Fatalf("first push: %v\n%s", err, out)
+	}
+	first := localIDs(t, twice)
+	sentFirst := len(f.chain.appendsFor(twice))
+
+	// The status move is its transition event alone (a `story set` also writes its
+	// working_on, change record and documents), the row rebuilt from the chain as a
+	// verb leaves it; the note goes through `story log`, as the vire correction did.
+	withRepoStore(t, func(db *store.DB) {
+		ctx := context.Background()
+		payload, err := json.Marshal(map[string]string{"from": "plan", "to": "in_progress"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Ledger.Append(ctx, ledger.AppendInput{StoryID: twice, Kind: ledger.KindStatusTransition, Actor: "bob", Body: "plan → in_progress", Payload: payload}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		row, err := db.Stories.Get(ctx, twice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if row, err = verb.RebuildRow(ctx, db.Stories, db.Ledger, row, time.Now()); err != nil || row.Status != "in_progress" {
+			t.Fatalf("rebuild after the move: status %q, %v", row.Status, err)
+		}
+	})
+	if out, err := runRoot(t, "story", "log", twice, "--kind", "note", "--data", "text=a correction"); err != nil {
+		t.Fatalf("note: %v\n%s", err, out)
+	}
+	local := localIDs(t, twice)
+	if len(local) != len(first)+2 || !slices.Equal(local[:len(first)], first) {
+		t.Fatalf("local chain = %v, want the first push's %v and two new events", local, first)
+	}
+	if out, err := pushRaw(t, ts.URL); err != nil {
+		t.Fatalf("second push: %v\n%s", err, out)
+	}
+
+	if got := f.chain.stored("probe", twice); !slices.Equal(got, local) {
+		t.Errorf("hosted ids = %v, want the local ids %v in order", got, local)
+	}
+	second := f.chain.appendsFor(twice)[sentFirst:]
+	var sent []string
+	for i, r := range second {
+		wantBase := first[len(first)-1]
+		if i > 0 {
+			wantBase = sent[len(sent)-1]
+		}
+		if r.GetBaseId() != wantBase {
+			t.Errorf("second push Append %d base = %q, want %q", i, r.GetBaseId(), wantBase)
+		}
+		sent = append(sent, eventIDs(r.GetEvents())...)
+	}
+	if len(second) == 0 || second[0].GetBaseId() != first[len(first)-1] || !slices.Equal(sent, local[len(first):]) {
+		t.Errorf("second push sent %v on base %v, want exactly %v on the first push's head %q", sent, second, local[len(first):], first[len(first)-1])
+	}
+	if got := f.chain.stored("probe", once); !slices.Equal(got, localIDs(t, once)) {
+		t.Errorf("control: hosted ids = %v, want the local ids %v", got, localIDs(t, once))
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts = %v, want none", c)
+	}
+}
+
+// sty_aa605c84 AC4: a story fast-forwarded by a pull and then given one local
+// event pushes only that event: no Append carries an id the chain already held.
+func TestPushAfterFastForwardSendsNoHeldId(t *testing.T) {
+	ts, f, id, want, repo := publishedElsewhere(t)
+	seedLocalPrefix(t, ts.URL, repo, id, want[:1])
+	if out, err := pullRaw(t, ts.URL); err != nil {
+		t.Fatalf("pull: %v\n%s", err, out)
+	}
+	sameChain(t, localChain(t, id), want)
+	appendLocal(t, id, "made after the fast-forward")
+	held := f.chain.watchHeld(id, nil)
+
+	if out, err := pushRaw(t, ts.URL); err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+	for i, ids := range held() {
+		if len(ids) > 0 {
+			t.Errorf("Append %d re-sent held ids %v", i, ids)
+		}
+	}
+	if len(held()) == 0 {
+		t.Error("the local event was never sent")
+	}
+	if got, local := f.chain.stored("probe", id), localIDs(t, id); !slices.Equal(got, local) || len(local) != len(want)+1 {
+		t.Errorf("hosted ids = %v, want the hosted chain and the one local event %v", got, local)
+	}
+}
+
+// sty_aa605c84 AC5: a push the server refuses because an event id is already in the
+// story's chain resumes after the server's latest event, publishes the rest and
+// exits 0: no Append after the refusal carries a held id.
+func TestPushResumesPastAHeldEventRefusal(t *testing.T) {
+	ts, f := newFakeWorkstateServer(t)
+	seedCred(t, ts.URL)
+	repo := workstateRepo(t, holdOffToml)
+	id := createStoryID(t, "alpha")
+	local := localChain(t, id)
+	if len(local) < 3 {
+		t.Fatalf("need at least 3 local events, have %d", len(local))
+	}
+	f.chain.heldRefusal = map[string]bool{id: true}
+	// The hosted chain is empty when the push reads it, and holds the first two
+	// local events by the time its Append arrives: an earlier publish that landed.
+	held := f.chain.watchHeld(id, func(call int, chain *[]*syncpb.Event) {
+		if call == 1 {
+			for _, e := range local[:2] {
+				*chain = append(*chain, &syncpb.Event{Id: e.ID, StoryId: id, BaseId: e.BaseID})
+			}
+		}
+	})
+
+	out, err := pushRaw(t, ts.URL)
+	if err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+	if want := "the story " + id + " is already published up to " + local[1].ID + ": resuming from it"; !strings.Contains(out, want) {
+		t.Errorf("report missing %q:\n%s", want, out)
+	}
+	got := held()
+	if len(got) < 2 || len(got[0]) == 0 {
+		t.Fatalf("held ids per Append = %v, want the refused one carrying held ids and a resume", got)
+	}
+	for i, ids := range got[1:] {
+		if len(ids) > 0 {
+			t.Errorf("Append %d after the refusal re-sent held ids %v", i+1, ids)
+		}
+	}
+	if got, want := f.chain.stored("probe", id), localIDs(t, id); !slices.Equal(got, want) {
+		t.Errorf("hosted ids = %v, want the local chain %v", got, want)
+	}
+	if got := storyHeads(t, ts.URL, "probe", repo)[id]; got != local[len(local)-1].ID {
+		t.Errorf("head = %q, want the last event", got)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts = %v, want none", c)
 	}
 }

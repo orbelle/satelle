@@ -1,3 +1,8 @@
+## [0.0.848] - 2026-11-02
+
+### Fixed
+- A push no longer fails when the server refuses an Append because one of its event ids is already on the story's chain ("invalid chain event: event id already in the story's chain"). `hosted.ChainConn.AppendStory` now reads the hosted chain on that refusal, as it does for a stale base with no detail, and returns a stale base at the server's latest event. The push then resumes after the latest event it holds and sends only the rest, so a held id is never sent again. A story the server moved past with events this checkout lacks is still reported as moved. New tests pin the rest of the reported behaviour: a pull of a local chain that is a strict prefix of the hosted one fast-forwards with no conflict; a real fork is still recorded as `conflictChainForked`; a story pushed mid-flight, moved on and noted, then pushed again keeps hosted ids equal to local and sends only the new events; and a push after a fast-forward sends no held id. The vire report's other half is not in this client, whose push and pull paths keep every event id verbatim: the hosted chain held the same history under different ids. The server half (storing client event ids verbatim, and refusing or deduplicating a re-sent held id) is satelle-server sty_45a43285; a reconcile that adopts hosted ids for chains already forked that way follows it. (sty_aa605c84)
+
 ## [0.0.847] - 2026-11-02
 
 ### Added

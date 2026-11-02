@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -229,5 +230,73 @@ func TestRechainRefusesLocalWork(t *testing.T) {
 	}
 	if slices.Contains(before, want[0].ID) {
 		t.Error("the refused story took hosted events")
+	}
+}
+
+// seedLocalPrefix gives this checkout the events of prefix, under their hosted ids
+// and bases, and saves the last of them as the story's head.
+func seedLocalPrefix(t *testing.T, server, repo, id string, prefix []ledger.Entry) {
+	t.Helper()
+	withRepoStore(t, func(db *store.DB) {
+		for _, e := range prefix {
+			if _, err := db.Ledger.Upsert(context.Background(), e, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	if err := hosted.SaveStoryHead(server, "probe", repo, id, prefix[len(prefix)-1].ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// sty_aa605c84 AC1: a story whose local event ids are a strict prefix of its hosted
+// chain is fast-forwarded: the extra hosted events are stored under their hosted
+// ids, no conflict is recorded and the head is the hosted latest.
+func TestPullFastForwardsAStrictPrefix(t *testing.T) {
+	ts, _, id, want, repo := publishedElsewhere(t)
+	k := len(want) - 2
+	seedLocalPrefix(t, ts.URL, repo, id, want[:k])
+
+	out, err := pullRaw(t, ts.URL)
+	if err != nil {
+		t.Fatalf("pull: %v\n%s", err, out)
+	}
+	sameChain(t, localChain(t, id), want)
+	if c, ok := storyConflicts(t, repo)[id]; ok {
+		t.Errorf("the fast-forward recorded a conflict: %+v", c)
+	}
+	if strings.Contains(out, "rechain") {
+		t.Errorf("the fast-forward was named for rechain:\n%s", out)
+	}
+	if head := storyHeads(t, ts.URL, "probe", repo)[id]; head != want[len(want)-1].ID {
+		t.Errorf("head = %q, want the hosted latest %q", head, want[len(want)-1].ID)
+	}
+}
+
+// sty_aa605c84 AC2: a story whose local chain has an unpublished event and whose
+// hosted chain has a different event on the same base is recorded as forked, and
+// no hosted event is taken.
+func TestPullRecordsATrueFork(t *testing.T) {
+	ts, _, id, want, repo := publishedElsewhere(t)
+	k := 2
+	seedLocalPrefix(t, ts.URL, repo, id, want[:k])
+	appendLocal(t, id, "unpublished here")
+	before := idsOf(localChain(t, id))
+	if len(before) != k+1 || before[k] == want[k].ID {
+		t.Fatalf("local chain = %v, want %v and a local event of its own", before, idsOf(want[:k]))
+	}
+
+	out, err := pullRaw(t, ts.URL)
+	if err != nil {
+		t.Fatalf("pull: %v\n%s", err, out)
+	}
+	if c := storyConflicts(t, repo)[id]; c.Reason != conflictChainForked {
+		t.Errorf("conflict = %+v, want %q", c, conflictChainForked)
+	}
+	if got := idsOf(localChain(t, id)); !slices.Equal(got, before) {
+		t.Errorf("local chain = %v, want it untouched %v: no hosted event taken", got, before)
+	}
+	if head := storyHeads(t, ts.URL, "probe", repo)[id]; head != want[k-1].ID {
+		t.Errorf("head = %q, want it unchanged at %q", head, want[k-1].ID)
 	}
 }

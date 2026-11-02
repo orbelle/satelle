@@ -132,3 +132,44 @@ func TestAppendStoryReportsABareRefusalTheStoryDidNotMove(t *testing.T) {
 		t.Fatalf("err = %v, want a plain refusal", err)
 	}
 }
+
+// sty_aa605c84 AC5: a refusal of an event id the story's chain already holds is
+// resolved by reading the story, so the caller resumes after the server's latest
+// event instead of sending the held ids again; while the story is still at the
+// base it stays the refusal it is.
+func TestAppendStoryResolvesAHeldEventRefusalByReading(t *testing.T) {
+	for _, code := range []codes.Code{codes.InvalidArgument, codes.AlreadyExists} {
+		var afters []string
+		cc := openStubChain(t, &stubChain{
+			append: func(*syncpb.AppendRequest) (*syncpb.AppendResponse, error) {
+				return nil, status.Error(code, "invalid chain event: event id already in the story's chain")
+			},
+			read: func(req *syncpb.ReadRequest) (*syncpb.ReadResponse, error) {
+				afters = append(afters, req.GetAfterId())
+				return &syncpb.ReadResponse{LatestId: "evt_2", Events: []*syncpb.Event{{Id: "evt_1"}, {Id: "evt_2"}}}, nil
+			},
+		})
+		_, err := cc.AppendStory(context.Background(), "probe", "sty_a", "", oneEvent)
+		var stale *StaleBaseError
+		if !errors.As(err, &stale) {
+			t.Fatalf("%v: err = %v, want *StaleBaseError", code, err)
+		}
+		if stale.LatestID != "evt_2" || stale.Missing != 2 || stale.Base != "" || len(afters) != 1 || afters[0] != "" {
+			t.Fatalf("%v: stale = %+v after reads %v", code, stale, afters)
+		}
+	}
+
+	cc := openStubChain(t, &stubChain{
+		append: func(*syncpb.AppendRequest) (*syncpb.AppendResponse, error) {
+			return nil, status.Error(codes.InvalidArgument, "invalid chain event: event id already in the story's chain")
+		},
+		read: func(*syncpb.ReadRequest) (*syncpb.ReadResponse, error) {
+			return &syncpb.ReadResponse{LatestId: "evt_1"}, nil
+		},
+	})
+	_, err := cc.AppendStory(context.Background(), "probe", "sty_a", "evt_1", oneEvent)
+	var stale *StaleBaseError
+	if err == nil || errors.As(err, &stale) {
+		t.Fatalf("still at base: err = %v, want the plain refusal", err)
+	}
+}

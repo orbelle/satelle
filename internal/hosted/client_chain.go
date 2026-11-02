@@ -120,8 +120,11 @@ func (cc *ChainConn) Close() error { return cc.conn.Close() }
 
 // AppendStory stores events after base on the story's chain and returns the new
 // latest event id. base is the latest event this machine saw for the story,
-// empty when it saw none. A stale base returns *StaleBaseError; any other
-// refusal is mapped like every other hosted gRPC error.
+// empty when it saw none. A stale base returns *StaleBaseError, and so does a
+// refusal of an event id the story's chain already holds (heldEventRefusal) when
+// the story has moved past base: the caller resumes after the server's latest
+// event instead of sending the held events again. Any other refusal is mapped
+// like every other hosted gRPC error.
 func (cc *ChainConn) AppendStory(ctx context.Context, project, storyID, base string, events []ChainEvent) (string, error) {
 	req := &syncpb.AppendRequest{Project: project, StoryId: storyID, BaseId: base}
 	for _, e := range events {
@@ -138,11 +141,14 @@ func (cc *ChainConn) AppendStory(ctx context.Context, project, storyID, base str
 		if sb := staleBaseFromStatus(err); sb != nil {
 			return "", &StaleBaseError{StoryID: storyID, Base: base, LatestID: sb.GetLatestId(), Missing: staleMissingCount(sb)}
 		}
-		if bareStaleBase(err) {
+		if bareStaleBase(err) || heldEventRefusal(err) {
 			// The refusal's detail echoes every event the caller has not seen and
 			// can be too large for the HTTP/2 trailers, so it arrives without it. The
-			// story's latest event is read instead and decides the same way.
-			// A read that fails too leaves the refusal as it came.
+			// story's latest event is read instead and decides the same way. A
+			// refused held event id means the chain already holds part of what was
+			// sent; the read names where it ends, and the caller resumes from it.
+			// A read that fails too, or a story still at base, leaves the refusal as
+			// it came.
 			if stale, rerr := cc.staleBaseByRead(ctx, project, storyID, base); rerr == nil && stale != nil {
 				return "", stale
 			}
@@ -185,8 +191,9 @@ func transientChainErr(err error) bool {
 
 // retryTransient runs call, repeating it after each chainRetryDelays wait while it
 // fails transiently. An Append that did apply before its reply was lost is safe to
-// repeat: the repeat is refused as a stale base whose latest event is one this
-// checkout holds, which the caller resumes from.
+// repeat: the repeat is refused as a stale base, or as an event id the chain
+// already holds, whose latest event is one this checkout holds, which the caller
+// resumes from.
 func retryTransient(ctx context.Context, call func() error) error {
 	err := call()
 	for _, d := range chainRetryDelays {
@@ -209,6 +216,26 @@ func retryTransient(ctx context.Context, call func() error) error {
 func bareStaleBase(err error) bool {
 	st, ok := status.FromError(err)
 	return ok && st.Code() == codes.FailedPrecondition && staleBaseFromStatus(err) == nil
+}
+
+// heldEventMessage is the text of the server's refusal of an event whose id the
+// story's chain already holds ("invalid chain event: event id already in the
+// story's chain").
+const heldEventMessage = "already in the story's chain"
+
+// heldEventRefusal reports the server refusing an Append because one of its event
+// ids is already on the story's chain. It is matched by its message, under either
+// code the server may give it; a reworded refusal falls back to the plain error.
+func heldEventRefusal(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch st.Code() {
+	case codes.InvalidArgument, codes.AlreadyExists:
+		return strings.Contains(st.Message(), heldEventMessage)
+	}
+	return false
 }
 
 // ErrChainUnsupported is a server that has no Chain service (or no Read on it).
