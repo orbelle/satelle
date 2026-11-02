@@ -48,7 +48,7 @@ func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	if len(def.Repos) != 1 {
 		t.Errorf("repos = %+v, want exactly one", def.Repos)
 	}
-	if want := []string{"api.github.com"}; !reflect.DeepEqual(def.Allow(), want) {
+	if want := []string{"api.github.com", "api.anthropic.com"}; !reflect.DeepEqual(def.Allow(), want) {
 		t.Errorf("allow = %v, want %v", def.Allow(), want)
 	}
 	key, ok := def.GitHubAppKey("github.com")
@@ -72,8 +72,8 @@ func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	rep := Report{Allow: def.Allow()}
 	raw, _ := json.Marshal(rep)
 	var back Report
-	if err := json.Unmarshal(raw, &back); err != nil || !reflect.DeepEqual(back.Allow, []string{"api.github.com"}) {
-		t.Errorf("reported allow = %v (%v), want [api.github.com]", back.Allow, err)
+	if err := json.Unmarshal(raw, &back); err != nil || !reflect.DeepEqual(back.Allow, []string{"api.github.com", "api.anthropic.com"}) {
+		t.Errorf("reported allow = %v (%v), want [api.github.com api.anthropic.com]", back.Allow, err)
 	}
 }
 

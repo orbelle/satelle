@@ -41,9 +41,10 @@ GH_TOKEN = { provider = "github-app", permissions = { contents = "read", pull_re
 # granted to the remote. REPO: the name it is held under.
 CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
 
-# The sandbox reaches the GitHub API and nothing else.
+# The sandbox reaches the GitHub API and the model API the agent CLI calls with
+# CLAUDE_CODE_OAUTH_TOKEN, and nothing else.
 [network]
-allow = ["api.github.com"]
+allow = ["api.github.com", "api.anthropic.com"]
 
 # The node stops when its run ends.
 [lifecycle]

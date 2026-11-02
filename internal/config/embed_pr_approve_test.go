@@ -65,8 +65,10 @@ func TestEmbeddedPRApproveTemplateIsV1(t *testing.T) {
 	if got := def.SecretEntries(); !reflect.DeepEqual(got, want) {
 		t.Errorf("secrets = %+v, want %+v", got, want)
 	}
-	if len(def.Repos) != 1 || !reflect.DeepEqual(def.Allow(), []string{"api.github.com"}) {
-		t.Errorf("repos = %+v allow = %v, want one repo and only the GitHub API", def.Repos, def.Allow())
+	// The template declares CLAUDE_CODE_OAUTH_TOKEN, so the node must reach the
+	// model API as well as GitHub's.
+	if len(def.Repos) != 1 || !reflect.DeepEqual(def.Allow(), []string{"api.github.com", "api.anthropic.com"}) {
+		t.Errorf("repos = %+v allow = %v, want one repo and only the GitHub and model APIs", def.Repos, def.Allow())
 	}
 }
 
