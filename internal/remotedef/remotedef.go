@@ -40,13 +40,17 @@ const DefaultGitHubHost = "github.com"
 // stored and read under; Scope is ScopePersonal or ScopeTeam; From says where its
 // value comes from (FromEnv, FromGitHubApp, or an argv that prints it); Workspace
 // is the team workspace id, for team scope only; Host is the GitHub a github-app
-// secret is minted for (DefaultGitHubHost when empty).
+// secret is minted for (DefaultGitHubHost when empty); Permissions is the GitHub
+// App permission set satelle.dev mints a github-app secret's token with, name to
+// "read" or "write", required for a github-app secret and refused on any other
+// (satelle-server sty_5b905ad8).
 type SecretDecl struct {
-	Key       string `toml:"key"`
-	Scope     string `toml:"scope"`
-	From      any    `toml:"from"`
-	Workspace string `toml:"workspace"`
-	Host      string `toml:"host"`
+	Key         string            `toml:"key"`
+	Scope       string            `toml:"scope"`
+	From        any               `toml:"from"`
+	Workspace   string            `toml:"workspace"`
+	Host        string            `toml:"host"`
+	Permissions map[string]string `toml:"permissions"`
 }
 
 // IsGitHubApp reports whether the secret's value is a github-app installation

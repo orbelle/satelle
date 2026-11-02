@@ -33,7 +33,8 @@ func embeddedPRApprove(t *testing.T) map[string]string {
 
 // AC5: the shipped pr-approve bundle installs; its definition runs task
 // tsk_pr-approve, fetches exactly one repo, allows only the GitHub API and
-// declares one github-app secret, and that allowlist is what the node reports.
+// declares one github-app secret with the permissions its token needs to read the
+// repo, approve and post a status, and that allowlist is what the node reports.
 func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	dataDir := t.TempDir()
 	def, err := InstallDefinition(dataDir, bundleOf(t, embeddedPRApprove(t)))
@@ -53,6 +54,10 @@ func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	for _, s := range def.Secret {
 		if s.IsGitHubApp() {
 			apps++
+			want := map[string]string{"contents": "read", "pull_requests": "write", "statuses": "write"}
+			if !reflect.DeepEqual(s.Permissions, want) {
+				t.Errorf("github-app permissions = %v, want %v", s.Permissions, want)
+			}
 		}
 	}
 	if apps != 1 || len(def.Secret) != 1 {

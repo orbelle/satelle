@@ -27,9 +27,13 @@ import (
 // that must appear nowhere but the node's process environment.
 const ghAppToken = "ghs_NEVER-WRITTEN-ANYWHERE"
 
+// ghAppSecretNoPermissions is a github-app [[secret]] that declares no
+// permissions, which the node refuses before any read (sty_d05785f6).
+const ghAppSecretNoPermissions = "\n[[secret]]\nkey = \"GH_TOKEN\"\nfrom = \"github-app\"\n"
+
 // ghAppSecret is the [[secret]] a definition declares for a run-minted GitHub
-// credential.
-const ghAppSecret = "\n[[secret]]\nkey = \"GH_TOKEN\"\nfrom = \"github-app\"\n"
+// credential, with the permissions its token is minted with.
+const ghAppSecret = ghAppSecretNoPermissions + "permissions = { contents = \"read\", pull_requests = \"write\", statuses = \"write\" }\n"
 
 // ghAppResult is what the task's performer saw of GH_TOKEN, recorded as booleans
 // and statuses only, never the value.
@@ -104,6 +108,13 @@ func TestNodeTaskWakeGetsARepoScopedGitHubAppToken(t *testing.T) {
 	}
 	if n := fake.Count(http.MethodPost, "/secrets/GH_TOKEN"); n != 2 {
 		t.Errorf("GH_TOKEN reads = %d, want 2 (join, and the run's own)", n)
+	}
+	// The read carries nothing but the key: the server mints the token with the
+	// permissions of the definition it stores, never ones the node sends.
+	for _, c := range fake.Calls() {
+		if c.Method == http.MethodPost && strings.HasSuffix(c.Path, "/secrets/GH_TOKEN") && c.Body != "" {
+			t.Errorf("GH_TOKEN read carried body %q, want none", c.Body)
+		}
 	}
 	st := fake.Statuses()
 	if len(st) == 0 || st[len(st)-1]["run_state"] != "concluded" || st[len(st)-1]["outcome"] != verb.OutcomeAccept {
@@ -388,6 +399,24 @@ func TestNodeJoinRefusesAGitHubAppSecretWithNoRepoOnItsHost(t *testing.T) {
 	fake := r.serve("nod_a", "node-token", r.encode())
 	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
 	if jerr == nil || !strings.Contains(jerr.Error(), `secret GH_TOKEN: from = "github-app" needs a [[repo]] on ghe.example.com`) {
+		t.Fatalf("join ended with %v, want the validator's refusal", jerr)
+	}
+	assertStartFailureStatuses(t, fake, 0)
+	if n := fake.Count(http.MethodPost, "/secrets/GH_TOKEN"); n != 0 {
+		t.Errorf("GH_TOKEN reads = %d, want none", n)
+	}
+}
+
+// A definition whose github-app secret declares no permissions is refused at join
+// before any secret is read, naming secret[i].permissions as satelle-server does
+// (sty_5b905ad8): the rig's definition already declares one secret, so the
+// github-app one is secret[1].
+func TestNodeJoinRefusesAGitHubAppSecretWithNoPermissions(t *testing.T) {
+	r := newNodeRig(t)
+	r.bundle["remote.toml"] += ghAppSecretNoPermissions
+	fake := r.serve("nod_a", "node-token", r.encode())
+	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
+	if jerr == nil || !strings.Contains(jerr.Error(), `secret[1].permissions: required for from = "github-app"`) {
 		t.Fatalf("join ended with %v, want the validator's refusal", jerr)
 	}
 	assertStartFailureStatuses(t, fake, 0)

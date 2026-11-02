@@ -25,12 +25,15 @@ ref = "main"
 
 # The run's GitHub credential: an installation token of the repo's reviewer App,
 # minted by satelle.dev for each run from the App id and key reference the repo
-# stores there, and revoked when the run ends.
+# stores there, and revoked when the run ends. The token carries exactly the
+# permissions below: reading the repo, approving its PR and posting the
+# approval's status. The App's installation must grant at least these.
 [[secret]]
 key = "GH_TOKEN"
 scope = "team"
 workspace = "WORKSPACE_ID"          # REPO: the team workspace holding the App
 from = "github-app"
+permissions = { contents = "read", pull_requests = "write", statuses = "write" }
 
 # The sandbox reaches the GitHub API and nothing else.
 [network]

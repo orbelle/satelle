@@ -7,10 +7,12 @@
 package devtest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +28,8 @@ const SecretValue = "sk-ant-oat01-NEVER-WRITTEN-ANYWHERE"
 // Call is one request the fake received.
 type Call struct {
 	Method, Path, Auth string
+	// Body is the request body as the fake received it, "" when it carried none.
+	Body string
 	// Status is what the fake answered.
 	Status int
 }
@@ -184,9 +188,11 @@ func (n *Node) Count(method, tail string) int {
 }
 
 func (n *Node) serve(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	status := n.answer(w, r)
 	n.mu.Lock()
-	n.calls = append(n.calls, Call{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization"), Status: status})
+	n.calls = append(n.calls, Call{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization"), Body: string(body), Status: status})
 	n.mu.Unlock()
 }
 

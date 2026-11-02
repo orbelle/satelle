@@ -1,3 +1,14 @@
+## [0.0.850] - 2026-11-02
+
+### Changed
+- A github-app `[[secret]]` declares the GitHub App permissions its token needs, and satelle validates them: `permissions = { contents = "read", pull_requests = "write", statuses = "write" }`. The table is required and non-empty when `from = "github-app"` and refused on any other secret; each key is a permission name matching `[a-z_]+`, each value exactly `read` or `write`. A missing table, an empty table, a bad key or a bad value is refused naming `secret[i].permissions`, and `satelle node join` refuses such a definition before it reads any secret. satelle.dev (0.1.263, satelle-server sty_5b905ad8) now mints exactly the declared set, scoped to the declared repos, and its readiness checks without minting that the App key resolves, the installation covers each repo and grants the declared permissions. Before this the mint always asked for `contents: write`, which the orbelle reviewer App does not hold, so a run was refused `secret_unavailable`, and a token minted that way could not approve a PR or post a status. Breaking for definitions: a github-app secret with no `permissions` table no longer validates; add the table the token needs. (sty_d05785f6)
+- The embedded `remotes/pr-approve` template declares `permissions = { contents = "read", pull_requests = "write", statuses = "write" }`. (sty_d05785f6)
+
+## [serve-v0.0.277] - 2026-11-02
+
+### Changed
+- The service binary carries the `remotes/pr-approve` template with its permissions table. (sty_d05785f6)
+
 ## [0.0.849] - 2026-11-02
 
 ### Fixed
