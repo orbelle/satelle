@@ -4529,6 +4529,13 @@ func (g *Engine) ReviewCreate(ctx context.Context, draft verb.CreateDraft) (verb
 	if problems := structure.Story(draft.Title, draft.Body, draft.AcceptanceCriteria, draft.Category); len(problems) > 0 {
 		return verb.GateDecision{Gated: true, Accept: false, Skill: structureSkill, Notes: strings.Join(problems, "; ")}, nil
 	}
+	// An execution is one run of a task whose intent was judged when the task was
+	// authored: its creation needs the structure check only, whatever the category
+	// or reviewer binding. The content hook would judge a machine-written run as a
+	// story intake and reject it (sty_313f9018).
+	if draft.Kind == string(workitem.KindExecution) {
+		return verb.GateDecision{Gated: true, Accept: true, Skill: structureSkill}, nil
+	}
 	// 2. Optional content/alignment review — the reviewer skill AND the logical
 	// agent that runs it are DECLARED by the active workflow's create-review hook
 	// (selected by the draft's category), not hardcoded. Absent a declaration (or

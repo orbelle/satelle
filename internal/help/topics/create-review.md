@@ -159,6 +159,10 @@ This is a graceful degradation, not an error: no `gate_create`, no
 runs the deterministic structure check only. The `workflow validate` warning
 above is how an *intended-but-broken* binding is surfaced.
 
+Creating an **execution** (one run of a task, e.g. a task trigger or a remote
+node's wake) always runs the structure check only: the task's intent was judged
+when the task was authored, so the create-review never runs on its runs.
+
 ## Other lifecycle operations
 
 `create_review` is the only lifecycle operation today. The `hooks:` grammar is

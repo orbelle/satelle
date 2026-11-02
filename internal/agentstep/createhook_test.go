@@ -141,6 +141,77 @@ func TestReviewCreateUndeclaredHookStaysDeterministic(t *testing.T) {
 	}
 }
 
+// TestReviewCreateExecutionSkipsContentHook pins sty_313f9018 AC1: creating an
+// execution runs the deterministic structure check and never the create_review
+// content hook — whatever the category, and whether the hook allocates the
+// default reviewer or a named binding. The stub reviewer would reject.
+func TestReviewCreateExecutionSkipsContentHook(t *testing.T) {
+	execDraft := validDraft
+	execDraft.Kind = "execution"
+	execDraft.Category = "chore" // workitem.RunCategory, as the wake creates it
+
+	for name, wf := range map[string]string{"shorthand": createWF, "named binding": hookWF} {
+		t.Run(name, func(t *testing.T) {
+			g, r := newEngine(t, `{"decision":"reject","notes":"must not run"}`,
+				fakeDocs{workflow: wf, skillBody: "content rubric", skillFound: true})
+			g.SetNamedAgents(func(name string) (config.AgentBinding, bool) {
+				t.Errorf("an execution's create must not resolve the hook's agent %q", name)
+				return config.AgentBinding{}, false
+			})
+			dec, err := g.ReviewCreate(context.Background(), execDraft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !dec.Gated || !dec.Accept || dec.Skill != structureSkill {
+				t.Fatalf("execution create: want gated accept by %s, got %+v", structureSkill, dec)
+			}
+			if r.got.SystemPrompt != "" {
+				t.Error("the content reviewer ran on an execution's create")
+			}
+		})
+	}
+
+	// The structure check still runs first: a malformed execution is rejected.
+	g, r := newEngine(t, `{"decision":"accept"}`,
+		fakeDocs{workflow: createWF, skillBody: "content rubric", skillFound: true})
+	bad := execDraft
+	bad.Body = ""
+	dec, err := g.ReviewCreate(context.Background(), bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dec.Gated || dec.Accept || dec.Skill != structureSkill {
+		t.Fatalf("malformed execution: want %s reject, got %+v", structureSkill, dec)
+	}
+	if r.got.SystemPrompt != "" {
+		t.Error("no reviewer may run on a malformed execution")
+	}
+}
+
+// TestReviewCreateStoryAndTaskStillRunHook pins sty_313f9018 AC2: the execution
+// carve-out leaves story and task creation judged by the declared create_review
+// hook, as before.
+func TestReviewCreateStoryAndTaskStillRunHook(t *testing.T) {
+	for _, kind := range []string{"story", "task"} {
+		t.Run(kind, func(t *testing.T) {
+			g, r := newEngine(t, `{"decision":"reject","notes":"not aligned"}`,
+				fakeDocs{workflow: createWF, skillBody: "content rubric", skillFound: true})
+			draft := validDraft
+			draft.Kind = kind
+			dec, err := g.ReviewCreate(context.Background(), draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !dec.Gated || dec.Accept || dec.Skill != "my-create-review" {
+				t.Fatalf("%s create: want gated reject by the hook, got %+v", kind, dec)
+			}
+			if r.got.SystemPrompt == "" {
+				t.Errorf("%s create: the content reviewer must have run", kind)
+			}
+		})
+	}
+}
+
 // TestWorkflowConsistencyReportsHookDefects pins AC5's declaration half: an
 // unresolved hook skill and a malformed/unknown declaration are both surfaced by
 // the consistency check `satelle workflow validate` and `agent validate` run.
