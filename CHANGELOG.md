@@ -1,3 +1,13 @@
+## [0.0.855] - 2026-11-02
+
+### Fixed
+- A failed agent CLI run reports the CLI's own error. When a command-interface binding exits non-zero, the error carries the CLI's message, then its stderr. The message comes from the last JSON error object it wrote to stdout (`result`, else `error`); `claude -p --output-format json` writes `{"is_error":true,"result":…}` there and leaves stderr empty. Each part is scrubbed of the run's secret values and secret-shaped patterns, then capped at 2 KB, keeping head and tail. Before this the error was a bare `agentcli: claude: exit status 1`, seen live on pr-approve v7, node nod_318d06f710d0. A remote task run that ends reject with no findings recorded by its performer now concludes with the drive's stop reason as findings, so satelle.dev's node and run records say why instead of null. (sty_4bf6adbe)
+
+## [serve-v0.0.279] - 2026-11-02
+
+### Changed
+- The service binary's agent runs carry the CLI's own error on failure. (sty_4bf6adbe)
+
 ## [0.0.854] - 2026-11-02
 
 ### Fixed
