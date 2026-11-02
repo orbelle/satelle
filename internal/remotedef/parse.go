@@ -2,19 +2,29 @@ package remotedef
 
 import (
 	"fmt"
-
-	"github.com/BurntSushi/toml"
+	"strings"
 )
 
-// Parse decodes the secrets, repos and egress allowlist of a remote.toml. It does
-// not validate and it does not refuse a key it does not read: the definition a
-// node receives is already validated by satelle-server, which may add keys a
-// node built earlier has never heard of. It fails only when data is not TOML or
-// a field the node reads has the wrong type.
+// Parse reads a schema v1 remote.toml and refuses it when Validate finds any
+// error: the node acts on no definition the server would refuse, and a
+// definition in the earlier shape is refused naming each old key's v1
+// replacement. v1 is closed (the server's schema is additionalProperties false),
+// so a key v1 does not carry is a finding too; a schema change bumps version.
+// The error lists every error finding as "<key>: <message>", in check order,
+// and never carries a submitted value.
 func Parse(data []byte) (Definition, error) {
-	var d Definition
-	if _, err := toml.Decode(string(data), &d); err != nil {
-		return Definition{}, fmt.Errorf("remote.toml: %w", err)
+	def, findings := check(data)
+	if errs := Errors(findings); len(errs) > 0 {
+		return Definition{}, fmt.Errorf("remote.toml is not a valid v1 definition: %s", FormatFindings(errs))
 	}
-	return d, nil
+	return def, nil
+}
+
+// FormatFindings is fs as "<key>: <message>" joined by "; ".
+func FormatFindings(fs []Finding) string {
+	parts := make([]string, len(fs))
+	for i, f := range fs {
+		parts[i] = f.Key + ": " + f.Message
+	}
+	return strings.Join(parts, "; ")
 }

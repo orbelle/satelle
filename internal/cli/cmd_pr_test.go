@@ -27,7 +27,7 @@ const (
 )
 
 // prNode is a node-like repo: no story in its store, the node definition in its
-// environment naming orbelle/satelle and the github-app secret GH_TOKEN, the
+// environment naming orbelle/satelle and the github-app override GH_TOKEN, the
 // token the fake GitHub minted for that repo, and the forge pointed at the fake.
 type prNode struct {
 	repo string
@@ -56,8 +56,10 @@ func newPRNode(t *testing.T, story string, withConstitution bool) *prNode {
 	t.Cleanup(func() { forgeAPIURL, forgeHTTP = prevURL, prevHTTP })
 
 	def := remotedef.Definition{
-		Repos:  []remotedef.Repo{{URL: "https://github.com/" + prRepo + ".git", Ref: "main"}},
-		Secret: []remotedef.SecretDecl{{Key: "GH_TOKEN", Scope: remotedef.ScopeTeam, From: remotedef.FromGitHubApp}},
+		Repos: []remotedef.Repo{{URL: "https://github.com/" + prRepo + ".git", Ref: "main"}},
+		Secrets: remotedef.Secrets{Override: map[string]remotedef.OverrideValue{
+			"GH_TOKEN": map[string]any{"provider": remotedef.OverrideGitHubApp, "permissions": map[string]any{"contents": "read"}},
+		}},
 	}
 	env, err := def.EnvValue()
 	if err != nil {

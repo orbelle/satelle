@@ -27,13 +27,13 @@ import (
 // that must appear nowhere but the node's process environment.
 const ghAppToken = "ghs_NEVER-WRITTEN-ANYWHERE"
 
-// ghAppSecretNoPermissions is a github-app [[secret]] that declares no
-// permissions, which the node refuses before any read (sty_d05785f6).
-const ghAppSecretNoPermissions = "\n[[secret]]\nkey = \"GH_TOKEN\"\nfrom = \"github-app\"\n"
+// ghAppNoPermissions is a github-app override that declares no permissions,
+// which the node refuses before any read.
+const ghAppNoPermissions = `{ provider = "github-app" }`
 
-// ghAppSecret is the [[secret]] a definition declares for a run-minted GitHub
-// credential, with the permissions its token is minted with.
-const ghAppSecret = ghAppSecretNoPermissions + "permissions = { contents = \"read\", pull_requests = \"write\", statuses = \"write\" }\n"
+// ghAppOverride is the [secrets.override] value a definition declares for a
+// run-minted GitHub credential, with the permissions its token is minted with.
+const ghAppOverride = `{ provider = "github-app", permissions = { contents = "read", pull_requests = "write", statuses = "write" } }`
 
 // ghAppResult is what the task's performer saw of GH_TOKEN, recorded as booleans
 // and statuses only, never the value.
@@ -144,7 +144,8 @@ func ghAppTaskRig(t *testing.T) (r *nodeRig, gh *devtest.GitHub, expires time.Ti
 	r, _ = taskRig(t, "nightly-sweep", true)
 	gh = devtest.NewGitHub(t)
 	gh.Mint(ghAppToken, "acme/widgets", "acme/gadgets")
-	r.bundle["remote.toml"] += ghAppSecret + "\n[[repo]]\nurl = \"https://github.com/acme/gadgets.git\"\nref = \"main\"\n"
+	r.addOverride("GH_TOKEN", ghAppOverride)
+	r.bundle["remote.toml"] += "\n[[repo]]\nurl = \"https://github.com/acme/gadgets.git\"\nref = \"main\"\n"
 	nodeFetchEnv = append(append([]string(nil), r.repo.Env...),
 		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=url."+r.repo.URL+".insteadOf",
@@ -365,7 +366,7 @@ func treeContains(t *testing.T, needle []byte, dirs ...string) bool {
 // ends, and never fetches a repo or dials the relay.
 func TestNodeJoinStopsOnTheGitHubAppOwnerRunRefusal(t *testing.T) {
 	r := newNodeRig(t)
-	r.bundle["remote.toml"] += ghAppSecret
+	r.addOverride("GH_TOKEN", ghAppOverride)
 	r.fakeSetup = func(f *devtest.Node) {
 		f.Refuse = map[string]devtest.Refusal{"GH_TOKEN": {
 			Code: remotenode.SecretRefusedGitHubAppOwnerRun, Reason: "an installation token is minted only for a woken remote run",
@@ -393,36 +394,41 @@ func TestNodeJoinStopsOnTheGitHubAppOwnerRunRefusal(t *testing.T) {
 	}
 }
 
-// A definition whose github-app secret has no [[repo]] on its host is refused at
-// join before any secret is read.
-func TestNodeJoinRefusesAGitHubAppSecretWithNoRepoOnItsHost(t *testing.T) {
+// A definition whose github-app override has no [[repo]] on github.com is
+// refused at join, before any secret is read, naming the override as
+// satelle-server does.
+func TestNodeJoinRefusesAGitHubAppOverrideWithNoRepoOnGitHub(t *testing.T) {
 	r := newNodeRig(t)
-	r.bundle["remote.toml"] += ghAppSecret + "host = \"ghe.example.com\"\n"
+	r.bundle["remote.toml"] = strings.Replace(r.bundle["remote.toml"], "https://github.com/acme/widgets.git", "https://ghe.example.com/acme/widgets.git", 1)
+	r.addOverride("GH_TOKEN", ghAppOverride)
 	fake := r.serve("nod_a", "node-token", r.encode())
 	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
-	if jerr == nil || !strings.Contains(jerr.Error(), `secret GH_TOKEN: from = "github-app" needs a [[repo]] on ghe.example.com`) {
+	if jerr == nil || !strings.Contains(jerr.Error(), "secrets.override.GH_TOKEN: a github-app token needs a [[repo]] on github.com") {
 		t.Fatalf("join ended with %v, want the validator's refusal", jerr)
 	}
 	assertStartFailureStatuses(t, fake, 0)
-	if n := fake.Count(http.MethodPost, "/secrets/GH_TOKEN"); n != 0 {
-		t.Errorf("GH_TOKEN reads = %d, want none", n)
+	for _, key := range []string{"GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"} {
+		if n := fake.Count(http.MethodPost, "/secrets/"+key); n != 0 {
+			t.Errorf("%s reads = %d, want none", key, n)
+		}
 	}
 }
 
-// A definition whose github-app secret declares no permissions is refused at join
-// before any secret is read, naming secret[i].permissions as satelle-server does
-// (sty_5b905ad8): the rig's definition already declares one secret, so the
-// github-app one is secret[1].
-func TestNodeJoinRefusesAGitHubAppSecretWithNoPermissions(t *testing.T) {
+// A definition whose github-app override declares no permissions is refused at
+// join before any secret is read, naming secrets.override.GH_TOKEN.permissions as
+// satelle-server does.
+func TestNodeJoinRefusesAGitHubAppOverrideWithNoPermissions(t *testing.T) {
 	r := newNodeRig(t)
-	r.bundle["remote.toml"] += ghAppSecretNoPermissions
+	r.addOverride("GH_TOKEN", ghAppNoPermissions)
 	fake := r.serve("nod_a", "node-token", r.encode())
 	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
-	if jerr == nil || !strings.Contains(jerr.Error(), `secret[1].permissions: required for from = "github-app"`) {
+	if jerr == nil || !strings.Contains(jerr.Error(), "secrets.override.GH_TOKEN.permissions: required") {
 		t.Fatalf("join ended with %v, want the validator's refusal", jerr)
 	}
 	assertStartFailureStatuses(t, fake, 0)
-	if n := fake.Count(http.MethodPost, "/secrets/GH_TOKEN"); n != 0 {
-		t.Errorf("GH_TOKEN reads = %d, want none", n)
+	for _, key := range []string{"GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"} {
+		if n := fake.Count(http.MethodPost, "/secrets/"+key); n != 0 {
+			t.Errorf("%s reads = %d, want none", key, n)
+		}
 	}
 }

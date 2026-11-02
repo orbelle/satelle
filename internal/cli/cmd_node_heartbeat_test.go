@@ -32,15 +32,15 @@ func nonStatusCalls(fake *devtest.Node) []devtest.Call {
 	return out
 }
 
-// A node heartbeats from the moment it joins, not once it has bootstrapped: a
-// [host] bootstrap command may run for minutes, far past the window after which
+// A node heartbeats from the moment it joins, not once it has set up: a
+// [setup] command may run for minutes, far past the window after which
 // satelle.dev lists a silent node lost. One held open here keeps sending running
 // statuses while it runs, and none reports a run.
-func TestNodeJoinHeartbeatsDuringASlowBootstrap(t *testing.T) {
+func TestNodeJoinHeartbeatsDuringASlowSetup(t *testing.T) {
 	r := newNodeRig(t)
 	scratch := t.TempDir()
 	started, release := filepath.Join(scratch, "started"), filepath.Join(scratch, "release")
-	r.setBootstrap([][]string{{"sh", "-c", ": > " + started + " && while [ ! -e " + release + " ]; do sleep 0.02; done"}})
+	r.setSetup([]string{": > " + started + " && while [ ! -e " + release + " ]; do sleep 0.02; done"}, nil)
 	prev := nodeStatusResend
 	nodeStatusResend = 20 * time.Millisecond
 	t.Cleanup(func() { nodeStatusResend = prev })
@@ -64,19 +64,19 @@ func TestNodeJoinHeartbeatsDuringASlowBootstrap(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !fileExists(started) {
-		t.Fatalf("the bootstrap command never ran\nnode log:\n%s", r.log)
+		t.Fatalf("the setup command never ran\nnode log:\n%s", r.log)
 	}
 	during := fake.Statuses()
 	if len(during) < 3 {
-		t.Fatalf("statuses during the bootstrap = %v, want at least 3 heartbeats", during)
+		t.Fatalf("statuses during the setup = %v, want at least 3 heartbeats", during)
 	}
 	for _, s := range during {
 		if s["state"] != remotenode.StateRunning || s["step"] != remotenode.StepWaiting || s["run_state"] != "" {
-			t.Errorf("bootstrap heartbeat = %v, want state running, step waiting and no run state", s)
+			t.Errorf("setup heartbeat = %v, want state running, step waiting and no run state", s)
 		}
 	}
 	if n := fake.Count(http.MethodPost, "/end"); n != 0 {
-		t.Errorf("end calls = %d while the bootstrap runs, want 0", n)
+		t.Errorf("end calls = %d while the setup runs, want 0", n)
 	}
 	if err := os.WriteFile(release, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -90,15 +90,14 @@ func TestNodeJoinHeartbeatsDuringASlowBootstrap(t *testing.T) {
 }
 
 // A task node's join heartbeat runs until its run's own heartbeat starts: a
-// bootstrap held open for many resend intervals keeps node heartbeats (no story,
+// setup command held open for many resend intervals keeps node heartbeats (no story,
 // no run state) arriving, then the run's queued, running and concluded statuses
 // follow, and no node heartbeat comes after the run's first.
 func TestNodeJoinTaskNodeHeartbeatsThroughAStallBeforeTheRun(t *testing.T) {
 	r, subject := taskRig(t, "nightly-sweep", true)
 	scratch := t.TempDir()
 	started, release := filepath.Join(scratch, "started"), filepath.Join(scratch, "release")
-	r.bundle["remote.toml"] += "\n[host]\n"
-	r.setBootstrap([][]string{{"sh", "-c", ": > " + started + " && while [ ! -e " + release + " ]; do sleep 0.02; done"}})
+	r.setSetup([]string{": > " + started + " && while [ ! -e " + release + " ]; do sleep 0.02; done"}, nil)
 	useTaskNode(t, recordingPerformers(), 20*time.Millisecond)
 
 	w := r.wake(t)
@@ -109,7 +108,7 @@ func TestNodeJoinTaskNodeHeartbeatsThroughAStallBeforeTheRun(t *testing.T) {
 	}
 	during := w.fake.Statuses()
 	if !fileExists(started) || len(during) < stalled {
-		t.Fatalf("bootstrap started = %v, statuses during it = %v, want at least %d heartbeats\nnode log:\n%s", fileExists(started), during, stalled, r.log)
+		t.Fatalf("setup started = %v, statuses during it = %v, want at least %d heartbeats\nnode log:\n%s", fileExists(started), during, stalled, r.log)
 	}
 	for _, s := range during {
 		if s["story_id"] != "" || s["run_state"] != "" || s["state"] != remotenode.StateRunning {
@@ -186,18 +185,18 @@ func assertStartFailureStatuses(t *testing.T, fake *devtest.Node, wantRunning in
 	}
 }
 
-// A bootstrap that fails after running statuses are in flight: the failed start's
+// A setup command that fails after running statuses are in flight: the failed start's
 // concluded status is the last one satelle.dev hears, no running re-send follows
 // it, and the node ends once with nothing sent after.
-func TestNodeJoinEndsAndStopsHeartbeatOnBootstrapFailure(t *testing.T) {
+func TestNodeJoinEndsAndStopsHeartbeatOnSetupFailure(t *testing.T) {
 	r := newNodeRig(t)
-	r.setBootstrap([][]string{{"sh", "-c", "sleep 0.3; exit 3"}})
+	r.setSetup([]string{"sleep 0.3; exit 3"}, nil)
 	prev := nodeStatusResend
 	nodeStatusResend = 20 * time.Millisecond
 	t.Cleanup(func() { nodeStatusResend = prev })
 	fake := r.serve("nod_a", "node-token", r.encode())
 	jerr := r.joinNow(r.relay.URL(), "nod_a", "node-token")
-	if jerr == nil || !strings.Contains(jerr.Error(), "bootstrap command 1: exit status 3") {
+	if jerr == nil || !strings.Contains(jerr.Error(), "setup on_create command 1: exit status 3") {
 		t.Errorf("join ended with %v, want the failing command's index and reason", jerr)
 	}
 	assertStartFailureStatuses(t, fake, 3)

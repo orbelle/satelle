@@ -1,0 +1,21 @@
+# satelle-server internal/remotedef/validate.go oldKeys at 02e27f8 (satelle-server
+# 0.1.265): the map's entries as Go literals, one per line, copied verbatim.
+# TestOldKeysMirrorTheServer holds the client's oldKeys to them.
+"remote_id":          "was removed in v1, with no replacement: a remote is bound to its definition path by connect",
+"wake_key":           "was removed in v1, with no replacement: a runner-backed remote is woken by starting a node",
+"spend_cap_usd":      "was removed in v1, with no replacement: a trigger's params.spend_cap_usd caps a run",
+"lifecycle":          `the earlier lifecycle string is refused: v1 uses the [lifecycle] table, scope = "run" or "job"`,
+"secret":             "[[secret]] was replaced in v1 by [secrets]: list backend keys in names, and a github-app or satelle:<name> value in [secrets.override]",
+"runner":             `[runner] was replaced in v1 by provider = "fly-sprite"`,
+"host.bootstrap":     "was replaced in v1 by [setup] on_create and post_start, each a list of commands",
+"host.name":          "was replaced in v1 by name",
+"host.story_command": "was removed in v1, with no replacement: a story node drives the story it is woken for",
+"host.env":           "was removed in v1, with no replacement",
+"identity.key":       "was replaced in v1 by identity.principal",
+"identity.oidc":      "was replaced in v1 by identity.principal",
+"keepalive":          "was removed in v1, with no replacement",
+"segment":            "was removed in v1, with no replacement",
+"trigger":            `the earlier [[trigger]] array is refused: v1 declares one [trigger] table, on = "story.status:<status>"`,
+"preflight":          "was removed in v1, with no replacement",
+"step":               "was removed in v1, with no replacement",
+"mcp":                "was removed in v1, with no replacement",

@@ -12,8 +12,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/filebundle"
 )
 
-// fixtureRemoteToml is the definition satelle-server accepts, copied into the
-// remotedef package's testdata; every bundle here carries it as its remote.toml.
+// fixtureRemoteToml is the v1 story definition in the remotedef package's
+// testdata; every bundle here carries it as its remote.toml.
 func fixtureRemoteToml(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "remotedef", "testdata", "remote.toml"))
@@ -117,7 +117,7 @@ func TestInstallDefinitionReplacesTheSubstrateDirs(t *testing.T) {
 	if got := listing(t, dataDir); !reflect.DeepEqual(got, want) {
 		t.Errorf("data dir = %v, want %v", got, want)
 	}
-	if len(def.Secret) != 1 || def.Secret[0].Key != "CLAUDE_CODE_OAUTH_TOKEN" || len(def.Repos) != 1 ||
+	if e := def.SecretEntries(); len(e) != 1 || e[0].Key != "CLAUDE_CODE_OAUTH_TOKEN" || len(def.Repos) != 1 ||
 		!reflect.DeepEqual(def.Allow(), []string{"api.example.com", "*.example.org"}) {
 		t.Errorf("definition = %+v", def)
 	}
@@ -153,6 +153,7 @@ func TestInstallDefinitionRefusesAndInstallsNothing(t *testing.T) {
 		{"malformed remote.toml", bundleOf(t, with("remote.toml", "[[secret\nkey = 1")), "remote.toml"},
 		{"wrong-typed allow", bundleOf(t, with("remote.toml", "[network]\nallow = \"x\"\n")), "remote.toml"},
 		{"wrong-typed repo url", bundleOf(t, with("remote.toml", "[[repo]]\nurl = 3\n")), "remote.toml"},
+		{"old-shape remote.toml", bundleOf(t, with("remote.toml", "satelle_version = \"0.0.702\"\n[[secret]]\nkey = \"A\"\nfrom = \"env\"\n")), "secret[0]: [[secret]] was replaced in v1 by [secrets]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()

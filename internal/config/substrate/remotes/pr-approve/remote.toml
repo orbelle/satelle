@@ -1,40 +1,50 @@
-# The PR-approval remote: each wake runs one execution of the embedded task
-# tsk_pr-approve for the story it was woken for, which approves that story's PR
-# as the repo's GitHub App after a cold review. This is a template a repo copies
-# into its own remote definition; satelle does not layer it. The repo supplies
-# the values marked REPO below and its constitution as
+# The PR-approval remote, schema v1: each wake runs one execution of the
+# embedded task tsk_pr-approve for the story it was woken for, which approves
+# that story's PR as the repo's GitHub App after a cold review. This is a
+# template a repo copies into its own remote definition; satelle does not layer
+# it. The repo supplies the values marked REPO below and its constitution as
 # principles/repo-constitution.md beside this file. The status the approval
 # posts is named by the node's [forge.github] status_context
 # (default satelle/pr-approval).
+version = 1
+name = "pr-approve"
+provider = "fly-sprite"
 # The satelle the node installs: satelle.dev installs exactly this version, so it
-# must be one that ships `satelle pr` (0.0.847 or later).
-satelle_version = "0.0.847"
-remote_id = "rmt_pr-approve"        # REPO: the id satelle.dev gave this remote
-wake_key = "REMOTE_WAKE_KEY"
-lifecycle = "idle"
+# must be one that reads schema v1 (0.0.856 or later).
+satelle_version = "0.0.856"
 
 [drive]
 kind = "task"
 task = "pr-approve"
 
+# A story entering pr_open starts a node, once the remote's trigger is
+# connected to this definition's path.
+[trigger]
+on = "story.status:pr_open"
+
 # REPO: the one repo whose PRs the remote approves. The App's installation
-# token is minted scoped to it.
+# token is minted limited to it.
 [[repo]]
 url = "https://github.com/OWNER/NAME.git"
 ref = "main"
 
-# The run's GitHub credential: an installation token of the repo's reviewer App,
-# minted by satelle.dev for each run from the App id and key reference the repo
-# stores there, and revoked when the run ends. The token carries exactly the
-# permissions below: reading the repo, approving its PR and posting the
-# approval's status. The App's installation must grant at least these.
-[[secret]]
-key = "GH_TOKEN"
-scope = "team"
-workspace = "WORKSPACE_ID"          # REPO: the team workspace holding the App
-from = "github-app"
-permissions = { contents = "read", pull_requests = "write", statuses = "write" }
+# The keys the node reads at join, each by name through satelle.dev; a value
+# never appears here.
+[secrets.override]
+# The run's GitHub credential: an installation token of the repo's reviewer
+# App, minted by satelle.dev for each run and revoked when the run ends. It
+# carries exactly these permissions: reading the repo, approving its PR and
+# posting the approval's status. The App's installation must grant at least
+# these.
+GH_TOKEN = { provider = "github-app", permissions = { contents = "read", pull_requests = "write", statuses = "write" } }
+# The agent CLI's credential: a team value satelle holds in its own store,
+# granted to the remote. REPO: the name it is held under.
+CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
 
 # The sandbox reaches the GitHub API and nothing else.
 [network]
 allow = ["api.github.com"]
+
+# The node stops when its run ends.
+[lifecycle]
+scope = "run"

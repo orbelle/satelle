@@ -68,7 +68,7 @@ func (l *nodeLog) String() string {
 // nodeDefinition is the substrate files of a node's definition: the directories
 // remotenode.SubstrateDirs names, a one-lane workflow, one binding that runs the
 // fake agent, one skill and one principle. The definition's remote.toml is the
-// one satelle-server accepts (remotedef's testdata).
+// v1 story fixture in remotedef's testdata.
 var nodeDefinition = map[string]string{
 	"workflows/done.toml": `[meta]
 name = "done"
@@ -156,7 +156,7 @@ type nodeRig struct {
 
 // newNodeRig sets the environment of a fresh machine with a fake agent on its PATH
 // and the seams pointing at in-process fakes. The definition it will serve is
-// nodeDefinition plus the satelle-server fixture as its remote.toml.
+// nodeDefinition plus the v1 story fixture as its remote.toml.
 func newNodeRig(t *testing.T) *nodeRig {
 	t.Helper()
 	if _, err := exec.LookPath("sh"); err != nil {
@@ -164,8 +164,8 @@ func newNodeRig(t *testing.T) *nodeRig {
 	}
 	r := &nodeRig{t: t, log: &nodeLog{}, relay: relaytest.New(t), repo: gittest.New(t)}
 	r.joinCtx, r.stopJoins = context.WithCancel(context.Background())
-	// Read before the working directory changes: it is the fixture satelle-server
-	// accepts, committed with the remotedef package.
+	// Read before the working directory changes: it is the v1 story fixture,
+	// committed with the remotedef package.
 	remoteToml, err := os.ReadFile(filepath.Join("..", "remotedef", "testdata", "remote.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -202,9 +202,9 @@ func newNodeRig(t *testing.T) *nodeRig {
 	for rel, body := range nodeDefinition {
 		r.bundle[rel] = body
 	}
-	// The fixture's bootstrap names a host-only command the test node does not
+	// The fixture's setup names a host-only command the test node does not
 	// have; a rig starts without one, and a test that wants one sets it.
-	r.setBootstrap(nil)
+	r.setSetup(nil, nil)
 	// Registered last, so it runs first: before the relay closes its connections
 	// (which a node would answer by redialling), before the temp directories the
 	// node works in go, and before the seams above are put back.
@@ -512,7 +512,7 @@ func TestNodeJoinRunsFromTheDefinitionItFetches(t *testing.T) {
 	}
 }
 
-// repoBlocks matches the [[repo]] entries of the satelle-server fixture.
+// repoBlocks matches the [[repo]] entries of the v1 fixture.
 var repoBlocks = regexp.MustCompile(`(?m)^\[\[repo\]\]\nurl = .*\nref = .*\n`)
 
 // setRepos makes the definition the rig serves declare repos as its [[repo]]
@@ -699,9 +699,9 @@ func TestNodeJoinRefusedSecretFailsTheStartNamingTheKey(t *testing.T) {
 	}
 }
 
-// claudeTeamSecret is a team secret whose value is stored at satelle.dev from the
-// developer's environment, as pr-approve declares its agent CLI credential.
-const claudeTeamSecret = "\n[[secret]]\nkey = \"CLAUDE_CODE_OAUTH_TOKEN\"\nscope = \"team\"\nworkspace = \"ws-1\"\nfrom = \"env\"\n"
+// claudeTeamOverride is a team value satelle holds in its own store, as
+// pr-approve declares its agent CLI credential.
+const claudeTeamOverride = `"satelle:CLAUDE_CODE_OAUTH_TOKEN"`
 
 // sty_2dabc0f6 AC1 and AC3: a woken task node reads every secret its definition
 // declares at join, a github-app minted token and a from = "env" team secret
@@ -710,7 +710,7 @@ const claudeTeamSecret = "\n[[secret]]\nkey = \"CLAUDE_CODE_OAUTH_TOKEN\"\nscope
 // names each key and its source and never carries a value.
 func TestNodeTaskWakeReadsEverySecretItDeclaresAtJoin(t *testing.T) {
 	r, _, _, _ := ghAppTaskRig(t)
-	r.bundle["remote.toml"] += claudeTeamSecret
+	r.addOverride("CLAUDE_CODE_OAUTH_TOKEN", claudeTeamOverride)
 	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN"} {
 		if _, had := os.LookupEnv(k); had {
 			t.Setenv(k, "")
@@ -764,7 +764,7 @@ func TestNodeTaskWakeReadsEverySecretItDeclaresAtJoin(t *testing.T) {
 
 	// AC3: each key is named with its source; no value is in the log.
 	log := r.log.String()
-	for _, line := range []string{"join: secret CLAUDE_CODE_OAUTH_TOKEN read (team)", "join: secret GH_TOKEN read (github-app github.com)"} {
+	for _, line := range []string{"join: secret CLAUDE_CODE_OAUTH_TOKEN read (satelle:CLAUDE_CODE_OAUTH_TOKEN)", "join: secret GH_TOKEN read (github-app github.com)"} {
 		if !strings.Contains(log, line) {
 			t.Errorf("the join log lacks %q\nnode log:\n%s", line, log)
 		}

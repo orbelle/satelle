@@ -1,19 +1,13 @@
-# Copied verbatim from the validTOML constant in satelle-server's
-# internal/remotedef/validate_test.go (satelle-server main at
-# 35763552e1e14c89088975c7307a2f14c983e66b): a complete definition that passes
-# every definition-local check. It carries many keys a node does not read on
-# purpose; the node's reader must tolerate them. Re-copy it when the server's
-# accepted shape changes.
+# A schema v1 story-drive definition: the fixture the node join tests serve
+# (internal/cli) and the bundle tests install (internal/remotenode). Its shape is
+# satelle-server's internal/remotedef at 02e27f8. A test adds [setup] commands
+# and [secrets.override] entries to it as it needs them.
+version = 1
+provider = "fly-sprite"
 satelle_version = "0.0.702"
-remote_id = "rmt_abc123"
-wake_key = "REMOTE_WAKE_KEY"
-lifecycle = "idle"
-spend_cap_usd = 25.5
 
-[[secret]]
-key = "CLAUDE_CODE_OAUTH_TOKEN"
-scope = "personal"
-from = "env"
+[secrets]
+names = ["CLAUDE_CODE_OAUTH_TOKEN"]
 
 [[repo]]
 url = "https://github.com/acme/widgets.git"
@@ -22,36 +16,8 @@ ref = "main"
 [network]
 allow = ["api.example.com", "*.example.org"]
 
-[identity]
-label = "your-host-label"
-key = "REMOTE_PRIVATE_KEY"
+[setup]
+on_create = ["host-cli setup"]
 
-[host]
-start = ["host-cli", "start", "{label}"]
-network = ["host-cli", "net", "{label}", "{allow}"]
-run = ["host-cli", "run", "{label}", "{command}"]
-stop = ["host-cli", "stop", "{label}"]
-story_command = "satelle story drive {story}"
-bootstrap = [["host-cli", "setup"]]
-
-[host.env]
-GITHUB_TOKEN = "${GITHUB_TOKEN}"
-
-[[segment]]
-entry = "plan"
-exit = "done"
-
-[[trigger]]
-name = "manual"
-kind = "manual"
-
-[preflight]
-env_probe = ["host-cli", "env"]
-
-[[step]]
-name = "in_progress"
-legs = ["data", "outbound"]
-
-[[step.probe]]
-argv = ["host-cli", "probe"]
-expect = "refused"
+[drive]
+kind = "story"

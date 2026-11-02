@@ -74,8 +74,8 @@ var (
 	// is re-sent at (remotenode.DefaultStatusResendInterval, or a third of the
 	// window the server reports).
 	nodeStatusResend time.Duration
-	// nodeBootstrapTimeout bounds each [host] bootstrap command.
-	nodeBootstrapTimeout = 10 * time.Minute
+	// nodeSetupTimeout bounds each [setup] command.
+	nodeSetupTimeout = 10 * time.Minute
 )
 
 // nodeEndTimeout bounds the one end call a stopping node makes.
@@ -163,14 +163,14 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	defer stop()
 
 	// The node heartbeats on satelle.dev's status route from the moment it joins, so
-	// a slow definition install or [host] bootstrap (each command may run for
-	// nodeBootstrapTimeout, far past the window after which satelle.dev lists a
+	// a slow definition install or [setup] command (each may run for
+	// nodeSetupTimeout, far past the window after which satelle.dev lists a
 	// silent node lost) does not end it. The status says whether a job is in flight.
 	// The beat stops before the end call (this defer is registered after it), so no
 	// heartbeat follows the end, and before a failed start is reported, so that
 	// report is the last status. A task-kind node keeps it until the moment its
 	// run's own heartbeat starts (runTaskWake), so a stall anywhere before the run,
-	// a secret read, the bootstrap or the repo fetch, is still heard.
+	// a secret read, the setup or the repo fetch, is still heard.
 	node := remotenode.NewNode()
 	beat := remotenode.StartHeartbeat(ctx, client, nodeStatusResend, node.Status, cmd.ErrOrStderr())
 	defer beat.Stop()
@@ -204,16 +204,13 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return fmt.Errorf("join: %w", err)
 	}
 
-	// Every secret the definition declares (a github-app minted token and a team
-	// or personal stored value alike) is read once here, before anything of the
-	// run starts, and held in the node's process environment for the life of the
-	// fire, so every run the node is woken for inherits it (the task drive's
-	// performers and gates, and a relay agent job). It is gone from the
-	// environment when join returns.
-	if err := remotedef.Validate(def); err != nil {
-		reportNodeStartFailure(ctx, cmd, client, beat, err)
-		return fmt.Errorf("join: definition: %w", err)
-	}
+	// Every key the definition declares (a [secrets] name, a github-app run token
+	// and a satelle:<name> team value alike) is read once here by name, before
+	// anything of the run starts, and held in the node's process environment for
+	// the life of the fire, so every run the node is woken for inherits it (the
+	// task drive's performers and gates, and a relay agent job). It is gone from
+	// the environment when join returns. The definition was validated as v1 when
+	// it was installed (remotedef.Parse), so an old-shape one never gets here.
 	secrets, err := loadNodeSecrets(ctx, client, def, cmd.ErrOrStderr())
 	if err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
@@ -229,11 +226,17 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	}
 	defer setNodeEnv(remotedef.EnvDefinition, envDef)()
 
-	// The definition's [host] bootstrap runs here: once for the node, after its
-	// definition is read and before it joins the relay or works a run.
-	if err := remotenode.RunBootstrap(ctx, root, def.Host.Bootstrap, nodeBootstrapTimeout, cmd.ErrOrStderr()); err != nil {
-		reportNodeStartFailure(ctx, cmd, client, beat, err)
-		return fmt.Errorf("join: %w", err)
+	// The definition's [setup] runs here, where the node is created and started:
+	// on_create, then post_start, after its definition is read and before it
+	// joins the relay or works a run. Each join is a fresh node, so both run once.
+	for _, phase := range []struct {
+		name string
+		cmds []string
+	}{{remotenode.SetupOnCreate, def.Setup.OnCreate}, {remotenode.SetupPostStart, def.Setup.PostStart}} {
+		if err := remotenode.RunSetup(ctx, root, phase.name, phase.cmds, nodeSetupTimeout, cmd.ErrOrStderr()); err != nil {
+			reportNodeStartFailure(ctx, cmd, client, beat, err)
+			return fmt.Errorf("join: %w", err)
+		}
 	}
 
 	// A task-kind node is woken by satelle.dev, which leaves no local end on the
@@ -246,6 +249,13 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 			return fmt.Errorf("join: %w", perr)
 		}
 		logNodeReady(cmd.ErrOrStderr(), report)
+		// The wake is the node's one job: its swap is made for it and gone after.
+		disableSwap, serr := remotenode.EnableSwap(ctx, def.Machine.Swap)
+		if serr != nil {
+			reportNodeStartFailure(ctx, cmd, client, beat, serr)
+			return fmt.Errorf("join: %w", serr)
+		}
+		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
 		return runTaskWake(ctx, cmd, beat, client, root, session, def)
 	}
 
@@ -279,7 +289,22 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	if perr != nil {
 		report = remotenode.Report{Error: perr.Error()}
 	}
+	// A story node serves one story: that is its job, and its swap lives as long.
+	disableSwap, serr := remotenode.EnableSwap(ctx, def.Machine.Swap)
+	if serr != nil {
+		report = remotenode.Report{Error: serr.Error()}
+	} else {
+		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
+	}
 	return node.Serve(ctx, sess, report)
+}
+
+// logSwapOff turns off and removes the job's swapfile, logging a failure: the
+// job is over, so it is the node's log that hears it.
+func logSwapOff(log io.Writer, disable func() error) {
+	if err := disable(); err != nil {
+		fmt.Fprintf(log, "join: removing the job's swap: %v\n", err)
+	}
 }
 
 // nodeProcessSecrets is what join placed in the node's process environment for
@@ -341,22 +366,24 @@ func setNodeEnv(key, value string) (restore func()) {
 	}
 }
 
-// loadNodeSecrets reads every secret the definition declares, once, through the
-// node's ordinary secret read: the single read of a node's secrets, whose result
-// join holds in the process environment for the fire and hands a relay agent
-// job. For a github-app secret satelle.dev mints an installation token scoped to
-// the definition's [[repo]] entries for the run and answers with when it expires;
-// a team or personal secret is its stored value. Any refusal stops the node,
-// naming the key; the owner-run refusal says so plainly, and a revoked node
-// token is returned as is. A value already expired is refused. Only key names
-// and their source are logged, never a value.
+// loadNodeSecrets reads every key the definition declares (SecretEntries), once
+// each, by name, through the node's ordinary secret read: the single read of a
+// node's secrets, whose result join holds in the process environment for the
+// fire and hands a relay agent job. satelle.dev serves each from its source: a
+// [secrets] name from the secrets backend, a satelle:<name> override from its
+// own store, and a github-app override as an installation token limited to the
+// definition's [[repo]] entries, answered with when it expires. The node never
+// resolves an override itself. Any refusal stops the node, naming the key; the
+// owner-run refusal says so plainly, and a revoked node token is returned as is.
+// A value already expired is refused. Only key names and their source are
+// logged, never a value.
 func loadNodeSecrets(ctx context.Context, client *remotenode.NodeClient, def remotedef.Definition, log io.Writer) (map[string]string, error) {
 	var out map[string]string
-	for _, d := range def.Secret {
+	for _, d := range def.SecretEntries() {
 		value, expires, err := client.SecretWithExpiry(ctx, d.Key)
 		if err != nil {
 			var refusal *remotenode.SecretRefusal
-			if d.IsGitHubApp() && errors.As(err, &refusal) && refusal.Err.Code == remotenode.SecretRefusedGitHubAppOwnerRun {
+			if d.Source == remotedef.SourceRunToken && errors.As(err, &refusal) && refusal.Err.Code == remotenode.SecretRefusedGitHubAppOwnerRun {
 				return nil, fmt.Errorf("secret %s: a local owner run cannot use a github-app credential (%s): %s",
 					d.Key, remotenode.SecretRefusedGitHubAppOwnerRun, refusal.Err.Reason)
 			}
@@ -374,23 +401,23 @@ func loadNodeSecrets(ctx context.Context, client *remotenode.NodeClient, def rem
 	return out, nil
 }
 
-// secretSource names where a declared secret comes from, for the join log: the
-// GitHub a github-app token is minted for, else the secret's scope (team or
-// personal), else its from.
-func secretSource(d remotedef.SecretDecl) string {
-	if d.IsGitHubApp() {
-		return remotedef.FromGitHubApp + " " + d.GitHubHost()
+// secretSource names where a declared key comes from, for the join log: the
+// secrets backend, satelle's store under its name, or the GitHub a github-app
+// token is minted for.
+func secretSource(e remotedef.SecretEntry) string {
+	switch e.Source {
+	case remotedef.SourceRunToken:
+		return remotedef.OverrideGitHubApp + " " + remotedef.DefaultGitHubHost
+	case remotedef.SourceSatelle:
+		return "satelle:" + e.Name
 	}
-	if s := strings.TrimSpace(d.Scope); s != "" {
-		return s
-	}
-	return fmt.Sprint(d.From)
+	return string(e.Source)
 }
 
 // reportNodeStartFailure tells satelle.dev why the node could not start, on the
 // status of the run it was started for. It reads the run only now, on the failure
 // path, so the success path reads it exactly where it did. Both calls outlive a
-// cancelled ctx, as a SIGTERM that stopped the bootstrap is still reported. A run
+// cancelled ctx, as a SIGTERM that stopped the setup is still reported. A run
 // that cannot be read is logged; the failure is returned by the caller regardless.
 // It stops beat first, so the concluded status is the last one satelle.dev hears
 // and no running re-send follows it.

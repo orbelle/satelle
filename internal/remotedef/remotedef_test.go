@@ -1,32 +1,20 @@
 package remotedef
 
 import (
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/BurntSushi/toml"
 )
 
-func fixture(t *testing.T) []byte {
-	t.Helper()
-	raw, err := os.ReadFile("testdata/remote.toml")
+// Parse reads the v1 story fixture the node tests serve: its secrets, repos,
+// allowlist, setup and drive.
+func TestParseReadsTheStoryFixture(t *testing.T) {
+	d, err := Parse(readTestdata(t, "remote.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return raw
-}
-
-// Parse reads the secrets, repos and allowlist of the definition satelle-server
-// accepts (testdata/remote.toml, copied from its validTOML), and nothing else.
-func TestParseReadsWhatTheNodeNeedsFromTheServersAcceptedDefinition(t *testing.T) {
-	d, err := Parse(fixture(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []SecretDecl{{Key: "CLAUDE_CODE_OAUTH_TOKEN", Scope: ScopePersonal, From: FromEnv}}; !reflect.DeepEqual(d.Secret, want) {
-		t.Errorf("secrets = %+v, want %+v", d.Secret, want)
+	if want := []SecretEntry{{Key: "CLAUDE_CODE_OAUTH_TOKEN", Source: SourceBackend, Name: "CLAUDE_CODE_OAUTH_TOKEN"}}; !reflect.DeepEqual(d.SecretEntries(), want) {
+		t.Errorf("secrets = %+v, want %+v", d.SecretEntries(), want)
 	}
 	if want := []Repo{{URL: "https://github.com/acme/widgets.git", Ref: "main"}}; !reflect.DeepEqual(d.Repos, want) {
 		t.Errorf("repos = %+v, want %+v", d.Repos, want)
@@ -34,76 +22,18 @@ func TestParseReadsWhatTheNodeNeedsFromTheServersAcceptedDefinition(t *testing.T
 	if want := []string{"api.example.com", "*.example.org"}; !reflect.DeepEqual(d.Allow(), want) {
 		t.Errorf("allow = %v, want %v", d.Allow(), want)
 	}
-}
-
-// The fixture carries keys the node does not read, so a parser that refused
-// undecoded keys would fail the test above. This pins that the fixture really has
-// them.
-func TestTheFixtureCarriesKeysTheNodeDoesNotRead(t *testing.T) {
-	var d Definition
-	md, err := toml.Decode(string(fixture(t)), &d)
-	if err != nil {
-		t.Fatal(err)
+	if want := []string{"host-cli setup"}; !reflect.DeepEqual(d.Setup.OnCreate, want) {
+		t.Errorf("setup on_create = %v, want %v", d.Setup.OnCreate, want)
 	}
-	undecoded := map[string]bool{}
-	for _, k := range md.Undecoded() {
-		undecoded[k.String()] = true
-	}
-	for _, want := range []string{"satelle_version", "identity.label", "host.start", "segment", "step"} {
-		if !undecoded[want] {
-			t.Errorf("the fixture should carry %q, which Parse does not read (undecoded: %v)", want, md.Undecoded())
-		}
-	}
-}
-
-// A secret's From is "env" or an argv, and a team secret names its workspace.
-func TestParseSecretFromIsAnArgvOrEnv(t *testing.T) {
-	d, err := Parse([]byte(`
-[[secret]]
-key = "A"
-scope = "team"
-workspace = "ws-1"
-from = ["print-it", "A"]
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := SecretDecl{Key: "A", Scope: ScopeTeam, Workspace: "ws-1", From: []any{"print-it", "A"}}
-	if len(d.Secret) != 1 || !reflect.DeepEqual(d.Secret[0], want) {
-		t.Errorf("secret = %+v, want %+v", d.Secret, want)
-	}
-}
-
-func TestParseRefusesWhatItCannotRead(t *testing.T) {
-	for name, body := range map[string]string{
-		"malformed TOML":      "[[secret\nkey = 1",
-		"wrong-typed allow":   "[network]\nallow = \"x\"\n",
-		"wrong-typed repo":    "[[repo]]\nurl = 3\n",
-		"wrong-typed secrets": "secret = \"x\"\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := Parse([]byte(body)); err == nil || !strings.Contains(err.Error(), "remote.toml") {
-				t.Errorf("Parse(%q) = %v, want an error naming remote.toml", body, err)
-			}
-		})
-	}
-}
-
-func TestParseOfNothingIsAnEmptyDefinition(t *testing.T) {
-	d, err := Parse(nil)
-	if err != nil || len(d.Secret)+len(d.Repos)+len(d.Allow()) != 0 {
-		t.Errorf("Parse(nil) = %+v, %v", d, err)
+	if d.RunsTask() || d.Drive.Kind != DriveStory || d.Trigger != nil {
+		t.Errorf("drive = %+v trigger = %+v, want a request-only story drive", d.Drive, d.Trigger)
 	}
 }
 
 // A [drive] kind = "task" definition names the task a wake runs, as its bare
 // name; the node finds it under the tsk_ id SyncTasks ingests it as.
 func TestParseReadsTheTaskARemoteDrives(t *testing.T) {
-	raw, err := os.ReadFile("testdata/task.remote.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := Parse(raw)
+	d, err := Parse(readTestdata(t, "task.remote.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,34 +45,86 @@ func TestParseReadsTheTaskARemoteDrives(t *testing.T) {
 	}
 }
 
-// A definition with no [drive] table, or kind = "story", drives stories as before.
-func TestAStoryOrUndeclaredDriveRunsNoTask(t *testing.T) {
-	for name, body := range map[string]string{
-		"no drive table": string(fixture(t)),
-		"story kind":     "[drive]\nkind = \"story\"\n",
+// AC1: Parse is the single refusal seam. A definition with an error finding is
+// refused with every finding's key path, an old-shape one with the server's
+// message naming the v1 key that replaced it.
+func TestParseRefusesWhatValidateRefuses(t *testing.T) {
+	for name, c := range map[string]struct{ body, want string }{
+		"malformed TOML":    {"[[secret\nkey = 1", "parse: not valid TOML"},
+		"wrong-typed allow": {minimalV1 + "[network]\nallow = \"x\"\n", "network.allow: must be a list"},
+		"wrong-typed repo":  {minimalV1 + "[[repo]]\nurl = 3\nref = \"main\"\n", "repo[0].url: must be a string"},
+		"old secret":        {minimalV1 + "[[secret]]\nkey = \"A\"\n", "secret[0]: [[secret]] was replaced in v1 by [secrets]"},
+		"old host":          {minimalV1 + "[host]\nbootstrap = [[\"x\"]]\n", "host.bootstrap: was replaced in v1 by [setup]"},
+		"nothing":           {"", "version: required"},
 	} {
-		d, err := Parse([]byte(body))
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if d.RunsTask() {
-			t.Errorf("%s: RunsTask() = true, want false (drive = %+v)", name, d.Drive)
-		}
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(c.body))
+			if err == nil || !strings.Contains(err.Error(), "remote.toml") || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Parse = %v, want an error naming remote.toml and %q", err, c.want)
+			}
+		})
 	}
 }
 
-// The node reads the [host] bootstrap argvs, in order, and no other [host] key.
-func TestParseReadsTheHostBootstrap(t *testing.T) {
-	d, err := Parse(fixture(t))
+// SecretEntries lists the names in order, then the overrides in key order, and
+// leaves out a name an override also carries.
+func TestSecretEntries(t *testing.T) {
+	d := Definition{Secrets: Secrets{
+		Names: []string{"B_KEY", "A_KEY", "GH_TOKEN"},
+		Override: map[string]OverrideValue{
+			"GH_TOKEN": map[string]any{"provider": "github-app", "permissions": map[string]any{"contents": "read"}},
+			"NOTES":    "satelle:TEAM_NOTES",
+			"BAD":      "satelle:",
+		},
+	}}
+	want := []SecretEntry{
+		{Key: "B_KEY", Source: SourceBackend, Name: "B_KEY"},
+		{Key: "A_KEY", Source: SourceBackend, Name: "A_KEY"},
+		{Key: "GH_TOKEN", Source: SourceRunToken, Name: "GH_TOKEN", Permissions: map[string]string{"contents": "read"}},
+		{Key: "NOTES", Source: SourceSatelle, Name: "TEAM_NOTES"},
+	}
+	if got := d.SecretEntries(); !reflect.DeepEqual(got, want) {
+		t.Errorf("SecretEntries = %+v, want %+v", got, want)
+	}
+}
+
+// GitHubAppKey names the github-app override's key on github.com, and none on
+// another host or when the definition declares none.
+func TestGitHubAppKey(t *testing.T) {
+	d := Definition{Secrets: Secrets{Override: map[string]OverrideValue{
+		"NOTES":    "satelle:NOTES",
+		"GH_TOKEN": map[string]any{"provider": "github-app"},
+	}}}
+	for host, want := range map[string]string{"": "GH_TOKEN", "github.com": "GH_TOKEN", "GitHub.com": "GH_TOKEN", "ghe.example.com": ""} {
+		if got, ok := d.GitHubAppKey(host); got != want || ok != (want != "") {
+			t.Errorf("GitHubAppKey(%q) = %q, %v, want %q", host, got, ok, want)
+		}
+	}
+	if _, ok := (Definition{}).GitHubAppKey(""); ok {
+		t.Error("a definition with no github-app override names a key")
+	}
+}
+
+// The definition the node hands a run in its environment reads back the same,
+// overrides included, and carries no value.
+func TestEnvValueRoundTrips(t *testing.T) {
+	d, err := Parse(readTestdata(t, "full.v1.remote.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := [][]string{{"host-cli", "setup"}}; !reflect.DeepEqual(d.Host.Bootstrap, want) {
-		t.Errorf("bootstrap = %v, want %v", d.Host.Bootstrap, want)
+	v, err := d.EnvValue()
+	if err != nil {
+		t.Fatal(err)
 	}
-	none, err := Parse([]byte("[host]\nstart = [\"x\"]\n"))
-	if err != nil || len(none.Host.Bootstrap) != 0 {
-		t.Errorf("a definition with no bootstrap = %+v, %v, want none", none.Host, err)
+	back, err := FromEnvValue(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(back.SecretEntries(), d.SecretEntries()) || !reflect.DeepEqual(back.Repos, d.Repos) || back.Machine != d.Machine {
+		t.Errorf("round trip = %+v, want %+v", back, d)
+	}
+	if key, ok := back.GitHubAppKey("github.com"); !ok || key != "GH_TOKEN" {
+		t.Errorf("GitHubAppKey after the round trip = %q, %v", key, ok)
 	}
 }
 

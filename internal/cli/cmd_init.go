@@ -30,6 +30,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/health"
+	"github.com/bobmcallan/satelle/internal/remotedef"
+	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -670,6 +672,14 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 	//     network). Non-fatal on global-config errors; --no-workspace opts out.
 	ensureWorkspaceRegistration(out, repoRoot, noWorkspace)
 
+	// 6c. Remote definitions — report each that is not schema v1, with its
+	//     finding key paths. A heal would need values the old file does not
+	//     carry (the overrides' sources, the team store's names), so init
+	//     rewrites nothing and the exit status is unchanged.
+	for _, line := range remoteDefinitionReport(dataDir) {
+		fmt.Fprintln(out, line)
+	}
+
 	// 7. Agent guidance — init is usually run BY a coding agent, and this report is
 	//    its cue: when the repo carries an agent instruction file (CLAUDE.md /
 	//    AGENTS.md), tell the reading agent to fold satelle into it. init never
@@ -749,6 +759,32 @@ func agentInstructionFiles(repoRoot string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// remotesDirName is the directory under the data dir holding a repo's remote
+// definitions, one directory per remote, each with its remote.toml.
+const remotesDirName = "remotes"
+
+// remoteDefinitionReport names each remote definition under dataDir/remotes
+// that is not a valid schema v1 remote.toml, one line per error finding with its
+// key path (an old-shape key's finding names its v1 replacement). It reads and
+// writes nothing else; a repo with no remotes reports nothing.
+func remoteDefinitionReport(dataDir string) []string {
+	paths, _ := filepath.Glob(filepath.Join(dataDir, remotesDirName, "*", remotenode.DefinitionFile))
+	sort.Strings(paths)
+	var out []string
+	for _, p := range paths {
+		name := filepath.Base(filepath.Dir(p))
+		body, err := os.ReadFile(p)
+		if err != nil {
+			out = append(out, fmt.Sprintf("warning: remote %s: definition unreadable: %v", name, err))
+			continue
+		}
+		for _, f := range remotedef.Errors(remotedef.Validate(body)) {
+			out = append(out, fmt.Sprintf("warning: remote %s: definition is not v1: %s: %s", name, f.Key, f.Message))
+		}
+	}
 	return out
 }
 

@@ -40,7 +40,7 @@ const (
 	// prReviewSkill is the embedded rubric the cold review runs under.
 	prReviewSkill = "satelle-pr-review"
 	// defaultTokenEnv is the variable the forge token is read from when the
-	// node's definition declares no github-app secret.
+	// node's definition declares no github-app override.
 	defaultTokenEnv = "GH_TOKEN"
 )
 
@@ -52,7 +52,7 @@ func init() {
 ([forge] provider in satelle.toml; github by default).
 
 On a remote node the repo is the definition's single [[repo]] and the token is
-read from the variable its github-app secret names; elsewhere pass --repo, and
+read from the variable its github-app override names; elsewhere pass --repo, and
 the token is read from GH_TOKEN.`,
 	}
 	var repo string
@@ -260,7 +260,7 @@ type prTarget struct {
 }
 
 // resolvePRTarget is the repo --repo names, else the node definition's single
-// [[repo]], with the token variable its github-app secret on that host names.
+// [[repo]], with the token variable its github-app override on that host names.
 func resolvePRTarget(repoFlag string) (prTarget, error) {
 	t := prTarget{repo: strings.TrimSpace(repoFlag), tokenEnv: defaultTokenEnv}
 	raw, onNode := os.LookupEnv(remotedef.EnvDefinition)
@@ -284,11 +284,8 @@ func resolvePRTarget(repoFlag string) (prTarget, error) {
 		}
 		t.repo, t.host = slug, host
 	}
-	for _, s := range def.Secret {
-		if s.IsGitHubApp() && (t.host == "" || strings.EqualFold(s.GitHubHost(), t.host)) {
-			t.tokenEnv, t.host = s.Key, s.GitHubHost()
-			break
-		}
+	if key, ok := def.GitHubAppKey(t.host); ok {
+		t.tokenEnv, t.host = key, remotedef.DefaultGitHubHost
 	}
 	return t, nil
 }

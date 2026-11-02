@@ -1,122 +1,284 @@
-// Package remotedef reads the part of a remote definition that a node needs: the
-// secrets the remote declares, the repos it fetches and the egress it is allowed.
-// A node receives the definition from satelle.dev, in the bundle it fetches with
-// its own node token, and Parse is the only reader of its remote.toml.
+// Package remotedef reads and validates a remote definition (remote.toml),
+// schema v1. A node receives the definition from satelle.dev, in the bundle it
+// fetches with its own node token, and Parse is the only reader of its
+// remote.toml.
 //
-// The format and its validation are satelle-server's internal/remotedef: the
-// version a node receives was validated there, so Parse decodes only what the
-// node uses and tolerates every other key, including any the server adds later.
-// It runs nothing, opens nothing and holds no credential.
+// The format and its rules are satelle-server's internal/remotedef: this package
+// mirrors its keys, rules and finding paths (satelle-server 0.1.265, commit
+// 02e27f8) so a node refuses exactly what the server refuses. v1 is the only
+// shape. A definition in the earlier shape is refused, each old key named with
+// its v1 replacement, and there is no second reader for it.
+//
+// The definition is data. Nothing here runs a command, opens a file or holds a
+// credential, and no finding carries a submitted value.
 package remotedef
 
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 )
 
-// The two scopes a secret is stored under on satelle.dev.
-const (
-	ScopePersonal = "personal"
-	ScopeTeam     = "team"
-)
+// SchemaVersion is the one definition schema version this package reads.
+const SchemaVersion = 1
 
-// FromEnv is the value of a secret's From that reads its key from the environment.
-const FromEnv = "env"
+// Definition is the decoded remote.toml, schema v1. The toml tags are the
+// accepted key set and the json tags give the same names, as on the server, so
+// the decode of the shape-checked table is a JSON round trip.
+type Definition struct {
+	// Version is the schema version; it must be 1.
+	Version int `toml:"version" json:"version"`
+	// Name is the definition's own name, as the team knows it.
+	Name string `toml:"name" json:"name,omitempty"`
+	// Provider is the platform that hosts the node (see Providers).
+	Provider Provider `toml:"provider" json:"provider"`
+	// SatelleVersion pins the satelle the node runs (MAJOR.MINOR.PATCH).
+	SatelleVersion string `toml:"satelle_version" json:"satelle_version"`
+	// Machine is the workload's machine, carried to the node unchanged.
+	Machine Machine `toml:"machine" json:"machine,omitzero"`
+	// Setup is what the node runs as it comes up.
+	Setup Setup `toml:"setup" json:"setup,omitzero"`
+	// Identity is who the remote acts as: validated and carried, not acted on.
+	Identity Identity `toml:"identity" json:"identity,omitzero"`
+	// Secrets are the keys the node reads; a value never appears.
+	Secrets Secrets `toml:"secrets" json:"secrets,omitzero"`
+	// Repos are fetched onto the node read-only, each at its ref: the checkout
+	// fence (remotenode.FetchRepos refuses anything else).
+	Repos   []Repo  `toml:"repo" json:"repo,omitempty"`
+	Network Network `toml:"network" json:"network,omitzero"`
+	// Lifecycle is how long a node lives and how many may live at once.
+	Lifecycle Lifecycle `toml:"lifecycle" json:"lifecycle,omitzero"`
+	// Trigger is the event that starts a node; nil starts one only on request.
+	Trigger *Trigger `toml:"trigger" json:"trigger,omitempty"`
+	// Drive says what drives the node.
+	Drive Drive `toml:"drive" json:"drive,omitzero"`
+}
 
-// FromGitHubApp is the value of a secret's From whose value satelle.dev mints for
-// each run: a GitHub App installation token scoped to the definition's [[repo]]
-// entries on the secret's Host, revoked when the run ends (satelle-server
-// sty_84e32fda). A node reads it like any other key and never mints it.
-const FromGitHubApp = "github-app"
+// Provider is a platform that hosts a node.
+type Provider string
 
-// DefaultGitHubHost is the GitHub a github-app secret is minted for when it names
-// no host.
+// ProviderFlySprite hosts the node on a Fly sprite.
+const ProviderFlySprite Provider = "fly-sprite"
+
+// Providers lists every Provider. The server maps each to a runner catalog
+// type; a node checks only that the provider is one of them.
+var Providers = []Provider{ProviderFlySprite}
+
+// Machine is the [machine] table: workload data, validated at machine.<key> and
+// carried to the node unchanged. Swap is a size: digits then K, M or G; the node
+// makes a fresh swapfile of it for each job (remotenode.EnableSwap).
+type Machine struct {
+	Region string `toml:"region" json:"region,omitempty"`
+	Size   string `toml:"size" json:"size,omitempty"`
+	Swap   string `toml:"swap" json:"swap,omitempty"`
+	Image  string `toml:"image" json:"image,omitempty"`
+}
+
+// Setup is the [setup] table: shell commands the node runs, each one string.
+// OnCreate runs once, after the node joins and reads this definition and before
+// it works the run; PostStart runs each time the node starts. A failing command
+// fails the node's start.
+type Setup struct {
+	OnCreate  []string `toml:"on_create" json:"on_create,omitempty"`
+	PostStart []string `toml:"post_start" json:"post_start,omitempty"`
+}
+
+// Identity is the [identity] table. Principal is who the remote acts as; it is
+// validated and carried, not yet acted on.
+type Identity struct {
+	Principal string `toml:"principal" json:"principal,omitempty"`
+}
+
+// SecretsProviderInfisical is the secrets backend [secrets] names resolve from:
+// the default, and the only value today.
+const SecretsProviderInfisical = "infisical"
+
+// Secrets is the [secrets] table. Each of Names is a key resolved server-side
+// from the secrets backend. Override maps a key the node reads to another
+// source: a GitHub App run token ({ provider = "github-app", permissions = {…} })
+// or a team value satelle holds in its own store ("satelle:<name>"). The node
+// reads every one by its key through the node API and never resolves one itself.
+type Secrets struct {
+	Provider string                   `toml:"provider" json:"provider,omitempty"`
+	Names    []string                 `toml:"names" json:"names,omitempty"`
+	Override map[string]OverrideValue `toml:"override" json:"override,omitempty"`
+}
+
+// OverrideValue is one [secrets.override] entry: the string "satelle:<name>", or
+// a table { provider = "github-app", permissions = { <name> = "read"|"write" } }.
+// It is untyped so each form is judged at its own path.
+type OverrideValue any
+
+// OverrideGitHubApp is the provider of an override whose value is a run's GitHub
+// installation token, minted by satelle.dev and limited to the definition's
+// [[repo]] entries on github.com.
+const OverrideGitHubApp = "github-app"
+
+// overrideSatellePrefix opens an override held in satelle's own store.
+const overrideSatellePrefix = "satelle:"
+
+// DefaultGitHubHost is the host a github-app override mints for.
 const DefaultGitHubHost = "github.com"
 
-// SecretDecl is one secret a remote reads from satelle.dev. Key is the name it is
-// stored and read under; Scope is ScopePersonal or ScopeTeam; From says where its
-// value comes from (FromEnv, FromGitHubApp, or an argv that prints it); Workspace
-// is the team workspace id, for team scope only; Host is the GitHub a github-app
-// secret is minted for (DefaultGitHubHost when empty); Permissions is the GitHub
-// App permission set satelle.dev mints a github-app secret's token with, name to
-// "read" or "write", required for a github-app secret and refused on any other
-// (satelle-server sty_5b905ad8).
-type SecretDecl struct {
-	Key         string            `toml:"key"`
-	Scope       string            `toml:"scope"`
-	From        any               `toml:"from"`
-	Workspace   string            `toml:"workspace"`
-	Host        string            `toml:"host"`
-	Permissions map[string]string `toml:"permissions"`
+// SecretSource is where one key the node reads comes from.
+type SecretSource string
+
+// The sources of a key the node reads.
+const (
+	// SourceBackend is a [secrets] name, read from the secrets backend.
+	SourceBackend SecretSource = "backend"
+	// SourceSatelle is a "satelle:<name>" override, read from satelle's store.
+	SourceSatelle SecretSource = "satelle"
+	// SourceRunToken is a github-app override: a run token minted for the node.
+	SourceRunToken SecretSource = "github-app"
+)
+
+// SecretEntry is one key the node reads and where it comes from. Name is the key
+// the value is held under: the [secrets] name itself, the <name> of
+// "satelle:<name>", or the key for a github-app run token. Permissions are a
+// github-app override's, exactly.
+type SecretEntry struct {
+	Key         string
+	Source      SecretSource
+	Name        string
+	Permissions map[string]string
 }
 
-// IsGitHubApp reports whether the secret's value is a github-app installation
-// token.
-func (s SecretDecl) IsGitHubApp() bool {
-	from, ok := s.From.(string)
-	return ok && from == FromGitHubApp
-}
-
-// GitHubHost is the GitHub a github-app secret is minted for: Host, or
-// DefaultGitHubHost when it names none.
-func (s SecretDecl) GitHubHost() string {
-	if h := strings.TrimSpace(s.Host); h != "" {
-		return h
+// SecretEntries lists every key the definition's node reads, each once: the
+// [secrets] names in declaration order, then the overrides in key order. An
+// override entry that does not parse is left out (the validator names it), as is
+// a name an override also carries.
+func (d Definition) SecretEntries() []SecretEntry {
+	var out []SecretEntry
+	for _, n := range d.Secrets.Names {
+		if _, over := d.Secrets.Override[n]; !over {
+			out = append(out, SecretEntry{Key: n, Source: SourceBackend, Name: n})
+		}
 	}
-	return DefaultGitHubHost
+	for _, k := range slices.Sorted(maps.Keys(d.Secrets.Override)) {
+		if e, ok := parseOverride(k, d.Secrets.Override[k]); ok {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// GitHubAppKey is the key of the definition's first github-app override, in key
+// order, when its host is host ("" matches any): the variable a run's GitHub
+// token is held in. ok is false when the definition declares none.
+func (d Definition) GitHubAppKey(host string) (key string, ok bool) {
+	for _, e := range d.SecretEntries() {
+		if e.Source == SourceRunToken && (host == "" || strings.EqualFold(host, DefaultGitHubHost)) {
+			return e.Key, true
+		}
+	}
+	return "", false
+}
+
+// parseOverride reads one override value into its entry; ok is false for a value
+// in neither form.
+func parseOverride(key string, v OverrideValue) (SecretEntry, bool) {
+	switch t := v.(type) {
+	case string:
+		name, ok := strings.CutPrefix(t, overrideSatellePrefix)
+		if !ok || name == "" {
+			return SecretEntry{}, false
+		}
+		return SecretEntry{Key: key, Source: SourceSatelle, Name: name}, true
+	case map[string]any:
+		if p, _ := t["provider"].(string); p != OverrideGitHubApp {
+			return SecretEntry{}, false
+		}
+		perms := map[string]string{}
+		raw, _ := t["permissions"].(map[string]any)
+		for n, l := range raw {
+			if s, ok := l.(string); ok {
+				perms[n] = s
+			}
+		}
+		return SecretEntry{Key: key, Source: SourceRunToken, Name: key, Permissions: perms}, true
+	}
+	return SecretEntry{}, false
 }
 
 // Repo is one repository the node fetches, read-only: an https URL and the ref
 // (branch, tag or commit) to check out.
 type Repo struct {
-	URL string `toml:"url"`
-	Ref string `toml:"ref"`
+	URL string `toml:"url" json:"url"`
+	Ref string `toml:"ref" json:"ref"`
 }
 
 // Network is the node's egress beyond what the definition already implies.
 type Network struct {
-	Allow []string `toml:"allow"`
+	// Allow are extra hostnames (or *.domain) the node may reach.
+	Allow []string `toml:"allow" json:"allow,omitempty"`
 }
 
-// What a wake of the remote drives (Drive.Kind). satelle-server validates the
-// field; a node only reads it.
+// LifecycleScope is how long a node lives.
+type LifecycleScope string
+
+// The scopes a node may live for.
 const (
-	// DriveStory: each wake drives a story through host.story_command. It is the
-	// meaning of a definition that declares no [drive] table.
-	DriveStory = "story"
-	// DriveTask: each wake runs one execution of the task Drive.Task names.
-	DriveTask = "task"
+	// ScopeRun: the node is stopped when its run ends (the default).
+	ScopeRun LifecycleScope = "run"
+	// ScopeJob: the node is left running when its run ends.
+	ScopeJob LifecycleScope = "job"
 )
+
+// LifecycleScopes lists every LifecycleScope.
+var LifecycleScopes = []LifecycleScope{ScopeRun, ScopeJob}
+
+// Lifecycle is the [lifecycle] table. IdleDestroy is a positive duration an
+// idle node may live; MaxNodes, when set, caps the live nodes of the definition
+// per remote. KeepWarm, for a task drive only, is how many idle nodes the server
+// keeps warm (0, the default, keeps none), never above MaxNodes.
+type Lifecycle struct {
+	Scope       LifecycleScope `toml:"scope" json:"scope,omitempty"`
+	IdleDestroy string         `toml:"idle_destroy" json:"idle_destroy,omitempty"`
+	MaxNodes    *int           `toml:"max_nodes" json:"max_nodes,omitempty"`
+	KeepWarm    *int           `toml:"keep_warm" json:"keep_warm,omitempty"`
+}
+
+// Trigger is the [trigger] table. On is "story.status:<status>", a story
+// entering <status>. A definition with no [trigger] starts a node only on request.
+type Trigger struct {
+	On string `toml:"on" json:"on"`
+}
+
+// TriggerOnStatusPrefix opens a trigger that fires on a story entering a status.
+const TriggerOnStatusPrefix = "story.status:"
+
+// DriveKind is what drives a remote.
+type DriveKind string
+
+// The kinds a remote may be driven by.
+const (
+	// DriveTask: each wake runs one execution of the task Drive.Task names.
+	DriveTask DriveKind = "task"
+	// DriveStory: a node is woken for one story and drives it.
+	DriveStory DriveKind = "story"
+)
+
+// DriveKinds lists every DriveKind.
+var DriveKinds = []DriveKind{DriveTask, DriveStory}
+
+// KeepsWarm reports whether [lifecycle] keep_warm is accepted for this drive
+// kind: a task node waits for work, a story node is woken for one story.
+func (k DriveKind) KeepsWarm() bool { return k == DriveTask }
 
 // TaskIDPrefix prefixes a task's bare name to make its item id, the convention
 // verb.SyncTasks ingests task files under (tasks/tsk_<name>.md).
 const TaskIDPrefix = "tsk_"
 
-// Drive is the [drive] table: what a wake of the remote runs. Task is the bare
-// name of the task, as satelle-server validates it, not its item id.
+// Drive is the [drive] table. Task is the bare name of the task a task-kind wake
+// runs, not its item id.
 type Drive struct {
-	Kind string `toml:"kind"`
-	Task string `toml:"task"`
-}
-
-// Host is the [host] table as far as a node reads it: the commands the node runs
-// once, after it has read its definition and before it works a run. The server's
-// own host commands (start, network, run, stop) are not the node's and are not
-// decoded.
-type Host struct {
-	Bootstrap [][]string `toml:"bootstrap"`
-}
-
-// Definition is the part of remote.toml a node reads.
-type Definition struct {
-	Secret  []SecretDecl `toml:"secret"`
-	Repos   []Repo       `toml:"repo"`
-	Network Network      `toml:"network"`
-	Drive   Drive        `toml:"drive"`
-	Host    Host         `toml:"host"`
+	Kind DriveKind `toml:"kind" json:"kind,omitempty"`
+	Task string    `toml:"task" json:"task,omitempty"`
 }
 
 // RunsTask reports whether a wake of the remote runs a task.

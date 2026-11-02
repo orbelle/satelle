@@ -1,0 +1,48 @@
+# Copied verbatim (below this header) from satelle-server
+# internal/remotedef/testdata/full.v1.remote.toml at 02e27f8 (satelle-server
+# 0.1.265): the full v1 example, every table and key v1 carries. Re-copy it when
+# the server's schema changes.
+version = 1
+name = "pr-approve"
+provider = "fly-sprite"
+satelle_version = "0.0.709"
+
+[machine]
+region = "syd"
+size = "shared-cpu-2x"
+swap = "8G"
+image = "registry.example.com/satelle-node:base"
+
+[setup]
+on_create = ["apt-get install -y jq"]
+post_start = ["satelle doctor"]
+
+[identity]
+principal = "pr-approve@acme"
+
+[secrets]
+provider = "infisical"
+names = ["CLAUDE_CODE_OAUTH_TOKEN"]
+
+[secrets.override]
+GH_TOKEN = { provider = "github-app", permissions = { contents = "read", pull_requests = "write" } }
+REVIEW_NOTES = "satelle:REVIEW_NOTES"
+
+[[repo]]
+url = "https://github.com/acme/widgets.git"
+ref = "main"
+
+[network]
+allow = ["api.anthropic.com"]
+
+[lifecycle]
+scope = "run"
+idle_destroy = "30m"
+max_nodes = 2
+
+[trigger]
+on = "story.status:ready_for_review"
+
+[drive]
+kind = "task"
+task = "pr-approve"

@@ -31,10 +31,11 @@ func embeddedPRApprove(t *testing.T) map[string]string {
 	return files
 }
 
-// AC5: the shipped pr-approve bundle installs; its definition runs task
+// The shipped pr-approve bundle installs; its v1 definition runs task
 // tsk_pr-approve, fetches exactly one repo, allows only the GitHub API and
-// declares one github-app secret with the permissions its token needs to read the
-// repo, approve and post a status, and that allowlist is what the node reports.
+// declares one github-app override with the permissions its token needs to read
+// the repo, approve and post a status, beside the agent CLI's team credential,
+// and that allowlist is what the node reports.
 func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	dataDir := t.TempDir()
 	def, err := InstallDefinition(dataDir, bundleOf(t, embeddedPRApprove(t)))
@@ -50,21 +51,20 @@ func TestEmbeddedPRApproveBundleInstallsAndDeclaresItsSandbox(t *testing.T) {
 	if want := []string{"api.github.com"}; !reflect.DeepEqual(def.Allow(), want) {
 		t.Errorf("allow = %v, want %v", def.Allow(), want)
 	}
-	apps := 0
-	for _, s := range def.Secret {
-		if s.IsGitHubApp() {
-			apps++
+	key, ok := def.GitHubAppKey("github.com")
+	if !ok || key != "GH_TOKEN" {
+		t.Errorf("github-app key = %q, %v, want GH_TOKEN", key, ok)
+	}
+	for _, e := range def.SecretEntries() {
+		if e.Source == remotedef.SourceRunToken {
 			want := map[string]string{"contents": "read", "pull_requests": "write", "statuses": "write"}
-			if !reflect.DeepEqual(s.Permissions, want) {
-				t.Errorf("github-app permissions = %v, want %v", s.Permissions, want)
+			if !reflect.DeepEqual(e.Permissions, want) {
+				t.Errorf("github-app permissions = %v, want %v", e.Permissions, want)
 			}
 		}
 	}
-	if apps != 1 || len(def.Secret) != 1 {
-		t.Errorf("secrets = %+v, want exactly one github-app secret", def.Secret)
-	}
-	if err := remotedef.Validate(def); err != nil {
-		t.Errorf("the shipped definition fails the node's own check: %v", err)
+	if n := len(def.SecretEntries()); n != 2 {
+		t.Errorf("secrets = %+v, want GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN", def.SecretEntries())
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "principles", forge.RepoConstitution+".md")); err != nil {
 		t.Errorf("the bundle's constitution placeholder was not installed: %v", err)
