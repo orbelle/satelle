@@ -71,7 +71,7 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
 	// With no relay end, the ready report is the node's log line.
-	if !regexp.MustCompile(`join: ready: definition=\S* allow=api\.github\.com repos=widgets@[0-9a-f]+ `).MatchString(r.log.String()) {
+	if !regexp.MustCompile(`join: ready: definition=\S* allow=api\.github\.com,api\.anthropic\.com repos=widgets@[0-9a-f]+ `).MatchString(r.log.String()) {
 		t.Errorf("node log does not report exactly the bundle's allowlist and the widgets repo:\n%s", r.log)
 	}
 
