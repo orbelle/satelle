@@ -1,3 +1,8 @@
+## [0.0.875] - 2026-11-03
+
+### Fixed
+- The relay-restart tests (`TestRelayRestartRepairsAndJobCompletes`, `TestRelayRestartRepairsNodeFirstSimultaneous`) wait for both ends to redial before sending the job after the restart. `Restart` returns once the relay has closed its connections, before either session has run `resume()`, so a job sent in that window was rightly cut as "relay restarted mid-job" or failed writing to the closed connection; the tests flaked on loaded CI runners. Proven with the race window forced open: the unfixed tests fail 40/40, the fixed tests pass. (sty_e27ed653)
+
 ## [0.0.874] - 2026-11-03
 
 ### Fixed
