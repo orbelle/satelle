@@ -1,3 +1,19 @@
+## [0.0.873] - 2026-11-03
+
+### Changed
+- The `.satelle` process substrate (workflows, skills, principles, constitution, `satelle.toml`, tasks, documents) is tracked in git by default. `satelle init` writes the managed `.gitignore` block in that shape: it re-includes `.satelle/` over a machine-wide `core.excludesFile`, ignores only machine-local and runtime state (`.satelle/**/.env`, `.satelle/logs`, `.satelle/hooks`, `.satelle/deployed.version`, `.satelle/*.local.toml`, `.satelle/workflows/agents.local.toml`, the pinned binary `.satelle/satelle`, task execution records `.satelle/tasks/*/exe_*.md`), and never adds `.satelle/` itself. An old block is rewritten. `satelle init --all` now also repairs a repo whose only drift is the old block. (sty_45bf867b)
+- A `.gitignore` line outside the managed block that ignores `.satelle/` wholesale is reported by `satelle init` and `satelle doctor` with the exact line; init never edits lines outside its block. (sty_45bf867b)
+
+### Added
+- `satelle doctor` warns `repo.substrate.untracked` when a repo's `.satelle` substrate is not tracked in git (ignored by a line in `.gitignore`, ignored through `core.excludesFile`, or present but untracked), quoting the ignoring rule and its file. (sty_45bf867b)
+
+### Moving your substrate into git
+In each satelle repo:
+1. Run `satelle init` (or `satelle init --all --yes` once for every registered repo) to rewrite the managed `.gitignore` block.
+2. Remove any `.gitignore` line of your own that ignores `.satelle/` wholesale (doctor names it), and any `.satelle/` entry in your machine-wide `core.excludesFile` you no longer want; the block's `!.satelle/` re-include overrides the latter for this repo either way.
+3. `git add .satelle .gitignore` and check `git status` lists no `.local.toml`, `.env`, `logs` or `deployed.version` file.
+4. Commit. `satelle doctor` no longer reports `repo.substrate.untracked`.
+
 ## [0.0.872] - 2026-11-03
 
 ### Fixed
