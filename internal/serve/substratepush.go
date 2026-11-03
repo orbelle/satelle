@@ -19,9 +19,6 @@ package serve
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os/exec"
-	"strings"
 )
 
 // substratePushArgs is the exact argv of each substrate verb the loop runs: the
@@ -43,19 +40,15 @@ var substratePushArgs = [][]string{
 
 // substratePushViaCLI runs every substrate verb inside repoPath. A refusal in one
 // does not stop the next; the errors are joined.
+// The leg runs under one gate key, skipped as errChildBusy while it is running.
 func substratePushViaCLI(ctx context.Context, repoPath string) error {
-	bin, err := satelleBinary()
-	if err != nil {
-		return err
-	}
-	var errs []error
-	for _, args := range substratePushArgs {
-		cmd := exec.CommandContext(ctx, bin, args...)
-		cmd.Dir = repoPath
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s %s: %w: %s", bin, strings.Join(args, " "), err, strings.TrimSpace(string(out))))
+	return gated(ctx, repoPath, kindSubstrate, false, func(bin string) error {
+		var errs []error
+		for _, args := range substratePushArgs {
+			if _, err := execVerb(ctx, bin, repoPath, nil, args...); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
-	return errors.Join(errs...)
+		return errors.Join(errs...)
+	})
 }

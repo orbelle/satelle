@@ -175,8 +175,10 @@ func TestNilSubstrateLegLogsNothing(t *testing.T) {
 	}
 	r.pass(context.Background())
 	r.pass(context.Background())
-	if lines := logs.snapshot(); len(lines) != 0 {
-		t.Fatalf("a nil substrate leg logged %v", lines)
+	for _, ln := range logs.snapshot() {
+		if !isRunLine(ln) || strings.Contains(ln, "error") {
+			t.Fatalf("a nil substrate leg logged %q", ln)
+		}
 	}
 }
 

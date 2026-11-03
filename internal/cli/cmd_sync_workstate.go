@@ -67,9 +67,11 @@ entirely under a local scope.`,
 	var pushServer string
 	var dryRun, full, pushVerbose bool
 	push := &cobra.Command{
-		Use:         "push [story-or-epic-id...]",
-		Short:       "Replicate work-state to the bound hosted project under the resolved scope",
-		Annotations: needsStore(),
+		Use:   "push [story-or-epic-id...]",
+		Short: "Replicate work-state to the bound hosted project under the resolved scope",
+		// The push writes only its own bookkeeping (cursors, marks, held set); as
+		// a local change that would set off the next push (sty_0367d20c).
+		Annotations: hostedOrigin(needsStore()),
 		Args:        cobra.ArbitraryArgs,
 		Long: `push upserts local stories, task-executions and ledger entries, under a
 personal or team scope, into the bound hosted project. Only records
@@ -93,6 +95,7 @@ remote-tracking ref ([sync] hold_unpushed = false turns this off).`,
 	push.Flags().BoolVar(&dryRun, "dry-run", false, "List which areas would be pushed, and which stories would be held; only the scope is asked of the account.")
 	push.Flags().BoolVar(&full, "full", false, "Ignore the stored cursor and push the complete set (then advance the cursor).")
 	push.Flags().BoolVar(&pushVerbose, "verbose", false, verboseReachabilityUsage)
+	addOutcomeFlag(push)
 	group.AddCommand(push)
 
 	var pullServer string
@@ -152,6 +155,7 @@ Story or epic ids scope it as for pull.`,
 	}
 	snap.Flags().StringVar(&snapServer, "server", "", "Hosted server URL (overrides the configured machine hosted server).")
 	snap.Flags().BoolVar(&snapForce, "force", false, "Upsert hosted rows even when the local copy or ledger is newer.")
+	addOutcomeFlag(snap)
 	group.AddCommand(snap)
 	group.AddCommand(newSyncWorkstateRechainCmd())
 	group.AddCommand(newSyncWorkstateFetchCmd())
@@ -160,7 +164,38 @@ Story or epic ids scope it as for pull.`,
 	return group
 }
 
-func runSyncWorkstateSnapshot(cmd *cobra.Command, serverArg string, force bool, ids ...string) error {
+// outcomeFlagName is the hidden flag satelled passes to push and snapshot: the
+// verb ends its stdout with one workstateOutcome line, so a run that exits 0
+// without converging is told apart from one that did (sty_0367d20c).
+const outcomeFlagName = "outcome-json"
+
+// workstateOutcome is that closing line: the stories a push held in flight, or
+// the stories a snapshot stopped on in conflict. Drifted and refused rows are
+// not counted; the push exits non-zero for them.
+type workstateOutcome struct {
+	Held     int `json:"held"`
+	Conflict int `json:"conflict"`
+}
+
+func addOutcomeFlag(cmd *cobra.Command) {
+	cmd.Flags().Bool(outcomeFlagName, false, "End stdout with a JSON outcome line (for satelled).")
+	_ = cmd.Flags().MarkHidden(outcomeFlagName)
+}
+
+// reportOutcome prints *o as the last stdout line when cmd was asked for it
+// and the verb is returning nil. Defer it first, so it runs last.
+func reportOutcome(cmd *cobra.Command, o *workstateOutcome, retErr *error) {
+	f := cmd.Flags().Lookup(outcomeFlagName)
+	if f == nil || f.Value.String() != "true" || *retErr != nil {
+		return
+	}
+	b, _ := json.Marshal(o)
+	fmt.Fprintln(cmd.OutOrStdout(), string(b))
+}
+
+func runSyncWorkstateSnapshot(cmd *cobra.Command, serverArg string, force bool, ids ...string) (retErr error) {
+	var outcome workstateOutcome
+	defer reportOutcome(cmd, &outcome, &retErr)
 	a, err := appFrom(cmd)
 	if err != nil {
 		return err
@@ -196,6 +231,7 @@ func runSyncWorkstateSnapshot(cmd *cobra.Command, serverArg string, force bool, 
 	if err != nil {
 		return err
 	}
+	outcome.Conflict = len(rep.Stories.Conflicts)
 	if err := pushMirrorAfterWorkstate(cmd.Context(), a, rep.Items+rep.Ledger); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "workstate: mirror push warning: %v\n", err)
 	}
@@ -257,6 +293,8 @@ func verboseRequested(cmd *cobra.Command) bool {
 }
 
 func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, verbose bool, ids ...string) (retErr error) {
+	var outcome workstateOutcome
+	defer reportOutcome(cmd, &outcome, &retErr)
 	if err := refuseIfPushOff("sync workstate push"); err != nil {
 		return err
 	}
@@ -474,6 +512,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		}
 		codeHeld = len(res.held)
 		codeHolds = res.held
+		outcome.Held = codeHeld
 		withheld := maps.Clone(res.held)
 		for id, why := range drift.held {
 			withheld[id] = why

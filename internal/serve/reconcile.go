@@ -29,12 +29,14 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
@@ -44,6 +46,10 @@ import (
 // reconcileTimeout bounds one re-seed. A snapshot of a large repo takes a second
 // or two; anything beyond this is a hung child, not a slow one.
 const reconcileTimeout = 2 * time.Minute
+
+// syncBackoffBase is the first wait after a snapshot stops on a conflict; it
+// doubles per repeat up to pushBackoffCap (sty_0367d20c).
+const syncBackoffBase = time.Minute
 
 // Reconciler re-requests a snapshot for each mirrored partition on an interval.
 // Every collaborator is injectable so tests drive it without a real binary.
@@ -89,6 +95,13 @@ type Reconciler struct {
 	// PushOff reports the machine-local push switch; true skips the SubstratePush
 	// leg while Reseed, Snapshot and Follow keep the UI fed. nil means on.
 	PushOff func() (off bool, setting string)
+	// Now is the time source for the conflict backoff; nil means time.Now.
+	Now func() time.Time
+
+	// holdMu guards holdoff, which Touch reaches from the ingest handler.
+	holdMu sync.Mutex
+	// holdoff is, per repo path, the backoff a snapshot's conflict stop armed.
+	holdoff map[string]*syncHoldoff
 
 	// failing remembers, per repo, the reason it last failed and how many
 	// consecutive passes have produced that same reason. It exists so silence
@@ -127,10 +140,86 @@ func (r *Reconciler) startFollow(ctx context.Context, path string, follow func(c
 	r.follows[path] = done
 	go func() {
 		defer close(done)
-		if err := follow(ctx, path); err != nil && ctx.Err() == nil {
+		if err := follow(ctx, path); err != nil && ctx.Err() == nil && !errors.Is(err, errChildBusy) {
 			r.logf("workstate follow %s: %v", path, err)
 		}
 	}()
+}
+
+// syncHoldoff is one repo's conflict backoff: no snapshot or follow restart
+// before nextRun, and the attempt count the next delay doubles from.
+type syncHoldoff struct {
+	repoKey  string
+	attempts int
+	nextRun  time.Time
+}
+
+func (r *Reconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
+}
+
+// heldOff reports whether path's snapshot is backing off at now.
+func (r *Reconciler) heldOff(path string, now time.Time) bool {
+	r.holdMu.Lock()
+	defer r.holdMu.Unlock()
+	h := r.holdoff[path]
+	return h != nil && now.Before(h.nextRun)
+}
+
+// holdOff arms the next, longer, backoff for path and returns its delay.
+func (r *Reconciler) holdOff(path string, now time.Time) time.Duration {
+	r.holdMu.Lock()
+	defer r.holdMu.Unlock()
+	if r.holdoff == nil {
+		r.holdoff = map[string]*syncHoldoff{}
+	}
+	h := r.holdoff[path]
+	if h == nil {
+		h = &syncHoldoff{repoKey: config.RepoKey(path)}
+		r.holdoff[path] = h
+	}
+	d := unconvergedDelay(h.attempts)
+	h.attempts++
+	h.nextRun = now.Add(d)
+	return d
+}
+
+// clearHoldoff forgets path's backoff after a snapshot that converged.
+func (r *Reconciler) clearHoldoff(path string) {
+	r.holdMu.Lock()
+	defer r.holdMu.Unlock()
+	delete(r.holdoff, path)
+}
+
+// Touch resets the conflict backoff of every path under repoKey, so the next
+// pass snapshots it again. serve calls it on each local-origin ingest: a local
+// change is what can let a stopped snapshot converge.
+func (r *Reconciler) Touch(repoKey string) {
+	r.holdMu.Lock()
+	defer r.holdMu.Unlock()
+	for path, h := range r.holdoff {
+		if h.repoKey == repoKey {
+			delete(r.holdoff, path)
+		}
+	}
+}
+
+// unconvergedDelay is syncBackoffBase doubled per prior attempt, capped.
+func unconvergedDelay(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	if attempt > 20 {
+		return pushBackoffCap
+	}
+	d := syncBackoffBase << attempt
+	if d > pushBackoffCap || d <= 0 {
+		return pushBackoffCap
+	}
+	return d
 }
 
 // repoFailure is one repo's current failure streak.
@@ -186,23 +275,17 @@ func (r *Reconciler) Loop(ctx context.Context) {
 // pass re-requests every target serially — a background repair must not spawn a
 // process per partition at once on an operator's machine.
 //
-// WHY NO BACKOFF (sty_a2162ee3, AC5). Every target is re-seeded on every pass,
-// including one that has failed identically for a day. That is a decision, not
-// an oversight:
+// WHICH LEG BACKS OFF (sty_a2162ee3, sty_0367d20c). Every target is re-seeded on
+// every pass, including one whose reseed has failed identically for a day: that
+// poll is how a repo an operator healed is noticed, and nothing else notifies
+// the service of it.
 //
-//   - This poll is the ONLY signal that a repo recovered. Nothing notifies the
-//     service when an operator heals a repo, so backing off to (say) an hour
-//     would delay the recovery report by up to an hour — trading a log problem
-//     for a stale-view problem, which is the defect this file exists to fix.
-//   - The cost being avoided is not the one that hurt. A handful of repos, one
-//     bounded serial subprocess each, every interval, is negligible; the log
-//     volume was the whole complaint and report() removes that outright.
-//   - Backoff needs its own probe schedule, reset rule and documented bound —
-//     more machinery than the problem has left.
-//
-// If spawn cost ever does become the binding constraint, r.failing already
-// carries the consecutive-pass count a backoff would key on, so it is a
-// separable follow-up rather than a rewrite.
+// The snapshot leg is different. A snapshot that exits 0 having stopped on a
+// story in conflict (in flight here, moved on hosted) cannot converge until
+// something local changes, so re-running it each pass only burns a child. It
+// waits syncBackoffBase, doubling to pushBackoffCap, and so does the follow
+// restart. Recovery is still seen at once: a local-origin ingest calls Touch,
+// which clears the wait for the next pass.
 func (r *Reconciler) pass(ctx context.Context) {
 	if r.Targets == nil {
 		return
@@ -256,20 +339,49 @@ func (r *Reconciler) pass(ctx context.Context) {
 		seen[path+substrateKeySuffix] = true
 		runCtx, cancel := context.WithTimeout(ctx, r.timeout())
 		err := reseed(runCtx, path)
+		if errors.Is(err, errChildBusy) {
+			err = nil
+		}
+		leg, outcome, next := "reseed", "ok", r.interval()
 		if bound(path) && !r.following(path) {
-			if serr := snapshot(runCtx, path); serr != nil {
-				if err != nil {
-					err = fmt.Errorf("%v; snapshot: %w", err, serr)
-				} else {
-					err = serr
+			now := r.now()
+			if r.heldOff(path, now) {
+				outcome = "held off"
+			} else {
+				leg = "snapshot"
+				serr := snapshot(runCtx, path)
+				if u, ok := unconverged(serr); ok {
+					next = r.holdOff(path, now)
+					outcome = u.Error()
+					serr = nil
+				} else if errors.Is(serr, errChildBusy) {
+					outcome = "busy"
+					serr = nil
+				} else if serr == nil {
+					r.clearHoldoff(path)
 				}
+				if serr != nil {
+					if err != nil {
+						err = fmt.Errorf("%v; snapshot: %w", err, serr)
+					} else {
+						err = serr
+					}
+				}
+				r.startFollow(ctx, path, follow)
 			}
-			r.startFollow(ctx, path, follow)
 		}
 		serr := substrate(runCtx, path)
+		if errors.Is(serr, errChildBusy) {
+			serr = nil
+		}
 		cancel()
 		r.report(path, err)
 		r.reportSubstrate(path, serr)
+		if err != nil {
+			outcome = "error"
+		}
+		r.logf("sync %s %s: %s next in %s", leg, path, outcome, next)
+		r.logf("sync substrate %s: %s next in %s", path, okOrError(serr), r.interval())
 	}
 	// Forget repos this pass no longer targets (partition removed, directory
 	// gone). Keeping the entry would emit a bogus "recovered" line across a gap
@@ -339,6 +451,13 @@ func (r *Reconciler) track(key, label string, err error) {
 	r.failing[key] = &repoFailure{reason: reason, passes: 1}
 }
 
+func okOrError(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "ok"
+}
+
 // mirrorTargets returns the repo paths of every partition the mirror renders
 // whose directory still exists AND whose store this machine home can answer for.
 // Driving from PARTITIONS rather than the workspace registry is deliberate: the
@@ -388,20 +507,18 @@ func storeExists(globalDir, repoPath string) bool {
 
 // reseedViaCLI runs `satelle workspace add` inside repoPath. That verb already
 // builds the full snapshot and posts it to the ingest endpoint, so reconcile
-// needs no second code path and no new transport.
+// needs no second code path and no new transport. Its ingest is stamped hosted
+// origin (mirror.EnvIngestOrigin): it only re-reads the store, and as local it
+// would set off a push for every target on every pass (sty_0367d20c).
 func reseedViaCLI(ctx context.Context, repoPath string) error {
-	bin, err := satelleBinary()
-	if err != nil {
+	return gated(ctx, repoPath, kindReseed, false, func(bin string) error {
+		_, err := execVerb(ctx, bin, repoPath, reseedEnv, "workspace", "add")
 		return err
-	}
-	cmd := exec.CommandContext(ctx, bin, "workspace", "add")
-	cmd.Dir = repoPath
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s workspace add: %w: %s", bin, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	})
 }
+
+// reseedEnv is the environment the reseed child adds to satelled's own.
+var reseedEnv = []string{mirror.EnvIngestOrigin + "=" + string(mirror.OriginHosted)}
 
 // snapshotArgs is the flag-free verb each pass runs. It pages the project and
 // sends the last pass's since-token, and checkpoints every page, so a child cut
@@ -409,55 +526,42 @@ func reseedViaCLI(ctx context.Context, repoPath string) error {
 // (sty_2cb4e1f6). The loop adds no flag of its own.
 var snapshotArgs = []string{"sync", "workstate", "snapshot"}
 
-// snapshotViaCLI runs `satelle sync workstate snapshot` inside repoPath.
-// The CLI no-ops when work-state areas are local.
+// snapshotViaCLI runs `satelle sync workstate snapshot` inside repoPath. The
+// CLI no-ops when work-state areas are local. A snapshot that exits 0 having
+// stopped on stories in conflict returns errUnconverged.
 func snapshotViaCLI(ctx context.Context, repoPath string) error {
-	bin, err := satelleBinary()
-	if err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, bin, snapshotArgs...)
-	cmd.Dir = repoPath
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s sync workstate snapshot: %w: %s", bin, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return gated(ctx, repoPath, kindSnapshot, false, func(bin string) error {
+		o, err := execWithOutcome(ctx, bin, repoPath, snapshotArgs...)
+		if err != nil {
+			return err
+		}
+		if o.Conflict > 0 {
+			return errUnconverged{n: o.Conflict, what: "conflict"}
+		}
+		return nil
+	})
 }
 
 // followViaCLI runs `satelle sync workstate follow` inside repoPath until it
 // ends or ctx does. The CLI exits non-zero for a server without the subscription.
 func followViaCLI(ctx context.Context, repoPath string) error {
-	bin, err := satelleBinary()
-	if err != nil {
+	return gated(ctx, repoPath, kindFollow, false, func(bin string) error {
+		_, err := execVerb(ctx, bin, repoPath, nil, "sync", "workstate", "follow")
 		return err
-	}
-	cmd := exec.CommandContext(ctx, bin, "sync", "workstate", "follow")
-	cmd.Dir = repoPath
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s sync workstate follow: %w: %s", bin, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	})
 }
 
 // fetchViaCLI runs `satelle sync workstate fetch <id>` inside repoPath, which
 // brings back a story's history the checkout left on the server and refreshes
-// the mirror. The CLI no-ops for a held story and a local-only checkout.
+// the mirror. The CLI no-ops for a held story and a local-only checkout. A
+// second page loading at once waits for the running fetch, within fetchTimeout.
 func fetchViaCLI(ctx context.Context, repoPath, id string) error {
-	bin, err := satelleBinary()
-	if err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "sync", "workstate", "fetch", id)
-	cmd.Dir = repoPath
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s sync workstate fetch: %w: %s", bin, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return gated(ctx, repoPath, kindFetch, true, func(bin string) error {
+		_, err := execVerb(ctx, bin, repoPath, nil, "sync", "workstate", "fetch", id)
+		return err
+	})
 }
 
 // fetchTimeout bounds a story page's wait on a fetch.

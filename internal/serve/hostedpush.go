@@ -6,19 +6,25 @@
 // command-path process never dials hosted; the short-lived sync child is the
 // AC2 hatch.
 //
-// WHY BACKOFF HERE (and not in Reconciler). reconcile.go:129-146 has no backoff
-// because its poll is the only recovery signal. The Pusher has independent
-// recovery (the next mutation, plus the reconcile pass backstop), so delaying
-// a failing target does not delay noticing that it healed. The bound is
+// WHY BACKOFF HERE. A push that exits non-zero (drifted or refused rows, a
+// transport failure) waits an increasing backoff before it runs again, and Run
+// keeps a retry timer armed for the earliest one, so a repo left dirty by a
+// failure is retried when its backoff ends with no other trigger. The next local
+// mutation also marks it dirty, but never cuts the backoff short. The bound is
 // memory, not time: state is one map entry per partition, never per mutation.
+//
+// WHAT NEVER TRIGGERS A PUSH (sty_0367d20c). A hosted-origin ingest — every
+// write a sync child makes, including the push's own bookkeeping and satelled's
+// reseed — marks nothing, or each push would schedule the next. A push that held
+// only in-flight stories exits 0 and schedules nothing: held is in flight, not a
+// failure (sty_c203fd62), and the push after the story leaves flight, itself a
+// local change, publishes it.
 package serve
 
 import (
-	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +49,9 @@ type Pusher struct {
 	// Now is the time source; nil means time.Now. Tests inject a fake clock
 	// so backoff assertions are not sleep tests.
 	Now func() time.Time
+	// After is the timer source for the debounce and the retry wait; nil means
+	// time.After. A test pairs it with Now to run simulated time.
+	After func(d time.Duration) <-chan time.Time
 	// Keys lists repo_keys to mark dirty on Run entry (catch-up). nil seeds nothing.
 	Keys func(ctx context.Context) []string
 	// Bound reports whether the repo at a path names its hosted project; nil
@@ -72,6 +81,10 @@ type Pusher struct {
 	dirty   map[string]bool
 	wake    chan struct{}
 	backoff map[string]*pushState
+	// retryAt is when flush left a key dirty to be tried again: the end of its
+	// backoff, or a debounce after a busy skip. Run's retry timer reads it. Like
+	// backoff, only Run's goroutine touches it.
+	retryAt map[string]time.Time
 }
 
 // pushState is one repo's backoff + failure-streak. Touched only from Run's
@@ -101,6 +114,13 @@ func (p *Pusher) now() time.Time {
 		return p.Now()
 	}
 	return time.Now()
+}
+
+func (p *Pusher) after(d time.Duration) <-chan time.Time {
+	if p.After != nil {
+		return p.After(d)
+	}
+	return time.After(d)
 }
 
 func (p *Pusher) logf(format string, args ...any) {
@@ -196,17 +216,20 @@ func (p *Pusher) Run(ctx context.Context) {
 	p.mu.Unlock()
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
+		var retry <-chan time.Time
+		if d, ok := p.nextRetry(); ok {
+			retry = p.after(d)
 		}
-		timer := time.NewTimer(p.debounce())
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
-		case <-timer.C:
+		case <-retry:
+		case <-wake:
+			select {
+			case <-ctx.Done():
+				return
+			case <-p.after(p.debounce()):
+			}
 		}
 		select {
 		case <-wake:
@@ -216,9 +239,38 @@ func (p *Pusher) Run(ctx context.Context) {
 	}
 }
 
+// nextRetry is how long until the earliest key flush left dirty may be tried
+// again. ok is false when there is none, so Run waits for Notify alone: a key a
+// Notify dirtied rides the debounce, not this timer.
+func (p *Pusher) nextRetry() (time.Duration, bool) {
+	if len(p.retryAt) == 0 {
+		return 0, false
+	}
+	now := p.now()
+	best, ok := time.Duration(0), false
+	for _, at := range p.retryAt {
+		d := max(at.Sub(now), 0)
+		if !ok || d < best {
+			best, ok = d, true
+		}
+	}
+	return best, ok
+}
+
+// retryLater keeps key dirty and arms Run's retry timer for it at at.
+func (p *Pusher) retryLater(key string, at time.Time) {
+	if p.retryAt == nil {
+		p.retryAt = map[string]time.Time{}
+	}
+	p.retryAt[key] = at
+	p.markDirty(key)
+}
+
 func (p *Pusher) flush(ctx context.Context) {
 	keys := p.takeDirty()
 	if p.pushOff() {
+		// The dirty set is dropped, so nothing is left to retry.
+		p.retryAt = nil
 		return
 	}
 	push := p.Push
@@ -233,9 +285,10 @@ func (p *Pusher) flush(ctx context.Context) {
 			break
 		}
 		if st := p.backoff[key]; st != nil && now.Before(st.failUntil) {
-			leftover = append(leftover, key)
+			p.retryLater(key, st.failUntil)
 			continue
 		}
+		delete(p.retryAt, key)
 		if p.Resolve == nil {
 			continue
 		}
@@ -246,10 +299,25 @@ func (p *Pusher) flush(ctx context.Context) {
 		runCtx, cancel := context.WithTimeout(ctx, p.timeout())
 		err := push(runCtx, path)
 		cancel()
+		if errors.Is(err, errChildBusy) {
+			// The running push may predate the change that dirtied this key.
+			p.logf("sync push %s: busy next in %s", path, p.debounce())
+			p.retryLater(key, p.now().Add(p.debounce()))
+			continue
+		}
+		if heldCount(err) > 0 {
+			p.report(key, path, nil)
+			p.logf("sync push %s: held %d next in on change", path, heldCount(err))
+			continue
+		}
 		p.report(key, path, err)
 		if err != nil {
-			leftover = append(leftover, key)
+			until := p.backoff[key].failUntil
+			p.retryLater(key, until)
+			p.logf("sync push %s: error next in %s", path, until.Sub(p.now()))
+			continue
 		}
+		p.logf("sync push %s: ok next in on change", path)
 	}
 	for _, k := range leftover {
 		p.markDirty(k)
@@ -274,7 +342,9 @@ func (p *Pusher) pushOff() bool {
 }
 
 // report logs on failure-reason transition and recovered, never on a repeat.
-// On failure it also arms per-repo exponential backoff.
+// On failure it also arms per-repo exponential backoff. flush adds one
+// unsuppressed "sync push" line per run after it, naming the outcome and when
+// the repo runs next.
 func (p *Pusher) report(key, path string, err error) {
 	if p.Record != nil {
 		reason := ""
@@ -325,33 +395,27 @@ func backoffDelay(attempt int) time.Duration {
 	return d
 }
 
-// pushViaCLI runs `satelle sync workstate push` inside repoPath.
-// The CLI no-ops when work-state areas are local — opt-in is its call.
+// pushViaCLI runs `satelle sync workstate push` inside repoPath, skipped as
+// errChildBusy while another push runs there. The CLI no-ops when work-state
+// areas are local — opt-in is its call.
 func pushViaCLI(ctx context.Context, repoPath string) error {
-	bin, err := satelleBinary()
-	if err != nil {
-		return err
-	}
-	return pushWithBinary(ctx, bin, repoPath)
+	return gated(ctx, repoPath, kindPush, false, func(bin string) error {
+		return pushWithBinary(ctx, bin, repoPath)
+	})
 }
 
 // pushWithBinary is pushViaCLI with the binary named. A failure's reason is the
 // push's stderr, where its refusals go; stdout carries progress, including the
 // stories held until their code is on the remote, which the push records apart
 // and which are no failure (sty_c203fd62). Stdout is the reason only when stderr
-// says nothing.
+// says nothing. A push that exits 0 having held stories returns errHeldOnly.
 func pushWithBinary(ctx context.Context, bin, repoPath string) error {
-	cmd := exec.CommandContext(ctx, bin, "sync", "workstate", "push")
-	cmd.Dir = repoPath
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		reason := strings.TrimSpace(stderr.String())
-		if reason == "" {
-			reason = strings.TrimSpace(stdout.String())
-		}
-		return fmt.Errorf("%s sync workstate push: %w: %s", bin, err, reason)
+	o, err := execWithOutcome(ctx, bin, repoPath, "sync", "workstate", "push")
+	if err != nil {
+		return err
+	}
+	if o.Held > 0 {
+		return errHeldOnly{n: o.Held}
 	}
 	return nil
 }

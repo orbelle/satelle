@@ -140,6 +140,12 @@ func (l *lineRecorder) snapshot() []string {
 	return append([]string(nil), l.lines...)
 }
 
+// isRunLine reports whether ln is a per-run "sync <leg> <path>: … next in …"
+// line rather than a streak transition.
+func isRunLine(ln string) bool {
+	return strings.HasPrefix(ln, "sync ") && strings.Contains(ln, " next in ")
+}
+
 // countLines returns how many recorded lines contain every one of subs.
 func countLines(lines []string, subs ...string) int {
 	n := 0
@@ -201,7 +207,9 @@ func TestReconcileSuppressesRepeatedIdenticalFailure(t *testing.T) {
 	mu.Unlock()
 	lines := rec.snapshot()
 
-	if got := countLines(lines, "/repo/bad"); got != 1 {
+	// Only the transition lines are suppressed; the per-run "sync" line is
+	// written every pass by design (sty_0367d20c).
+	if got := countLines(lines, "mirror reconcile /repo/bad"); got != 1 {
 		t.Errorf("a stably-failing repo was logged %d times over %d passes, want 1:\n%s",
 			got, attempts, strings.Join(lines, "\n"))
 	}
@@ -210,7 +218,7 @@ func TestReconcileSuppressesRepeatedIdenticalFailure(t *testing.T) {
 		t.Errorf("bad repo re-seeded only %d times — suppression must skip the LOG, never the work", attempts)
 	}
 	// A healthy repo has never been logged and must not start being.
-	if got := countLines(lines, "/repo/good"); got != 0 {
+	if got := countLines(lines, "mirror reconcile /repo/good"); got != 0 {
 		t.Errorf("a healthy repo produced %d lines, want 0:\n%s", got, strings.Join(lines, "\n"))
 	}
 }
@@ -279,9 +287,11 @@ func TestReconcileReportsChangedReasonAndRecovery(t *testing.T) {
 	all := rec.snapshot()
 	// Lines about THIS repo. Loop's one-off "mirror reconcile every %s" startup
 	// notice is not a per-repo report and is deliberately excluded.
+	// The per-run "sync" lines (sty_0367d20c) are not transitions; they are
+	// written every pass and excluded here.
 	var lines []string
 	for _, ln := range all {
-		if strings.Contains(ln, "/repo/one") {
+		if strings.Contains(ln, "/repo/one") && !isRunLine(ln) {
 			lines = append(lines, ln)
 		}
 	}

@@ -76,9 +76,14 @@ func hostedOrigin(ann map[string]string) map[string]string {
 	return ann
 }
 
-// ingestOrigin is the mirror origin cmd's UI drain stamps.
+// ingestOrigin is the mirror origin cmd's UI drain stamps. satelled sets
+// mirror.EnvIngestOrigin on a child whose verb is local when an operator runs it
+// (the reseed's `workspace add`), so that child's drain never sets off a push.
 func ingestOrigin(cmd *cobra.Command) mirror.IngestOrigin {
 	if cmd != nil && cmd.Annotations[hostedOriginAnnotation] != "" {
+		return mirror.OriginHosted
+	}
+	if os.Getenv(mirror.EnvIngestOrigin) == string(mirror.OriginHosted) {
 		return mirror.OriginHosted
 	}
 	return mirror.OriginLocal

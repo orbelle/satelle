@@ -20,9 +20,10 @@ import (
 func newSyncWorkstateFollowCmd() *cobra.Command {
 	var server string
 	return &cobra.Command{
-		Use:         "follow",
-		Short:       "Follow the bound project's story chains live through the chain subscription",
-		Annotations: needsStore(),
+		Use:   "follow",
+		Short: "Follow the bound project's story chains live through the chain subscription",
+		// Every event follow applies came from the hosted project (sty_0367d20c).
+		Annotations: hostedOrigin(needsStore()),
 		Args:        cobra.NoArgs,
 		Long: `follow subscribes, in hosted mode, to every event appended to the bound
 project's stories and applies each as it arrives, resuming each story after the

@@ -26,6 +26,11 @@ const (
 	OriginHosted IngestOrigin = "hosted"
 )
 
+// EnvIngestOrigin, set to OriginHosted, stamps a CLI verb's ingest hosted
+// whatever the verb: satelled sets it on its reseed child, whose
+// `workspace add` is local when an operator runs it (sty_0367d20c).
+const EnvIngestOrigin = "SATELLE_INGEST_ORIGIN"
+
 // ChangeEvent is the body POSTed by the CLI push publisher (sty_126228b2).
 type ChangeEvent struct {
 	RepoKey string       `json:"repo_key"`
