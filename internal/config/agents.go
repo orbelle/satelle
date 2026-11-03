@@ -31,6 +31,14 @@ const (
 // location has ONE spelling.
 const AgentsRel = AgentsConfigDir + "/" + AgentsConfigName
 
+// LegacyAgentsKey reports whether a hosted config key is the bare agents.toml a
+// push made before the agents layer moved under workflows/ (sty_10f732ed). A
+// hosted copy may still carry it beside AgentsRel, but only AgentsRel is the
+// agents layer: a deploy that honoured the bare key would land it at the data
+// dir's root and race it with AgentsRel for the project tier's one
+// workflows/agents.toml (sty_195dd215).
+func LegacyAgentsKey(path string) bool { return path == AgentsConfigName }
+
 // WorkspaceAgentsName is the SYNCED workspace bindings layer (sty_01949949):
 // what `satelle sync bindings pull` materialises from the bound team
 // workspace's publish catalog. It is a separate file beside the authored

@@ -442,8 +442,12 @@ func (d *Driver) planPush(ctx context.Context, area string, local map[string]str
 }
 
 // Push runs a prepared job: claim the snapshot, re-walk to confirm the claim
-// won, record the base, then upload whichever blobs the hosted heads lack.
+// won, upload whichever blobs the hosted heads lack, then record the base.
 // Claiming first is what lets a lost race be refused before a single blob moves.
+// Uploading before the base is recorded is what keeps the base honest: a path
+// the server refused is left out of it, so the next push sees it as unpushed and
+// sends it again (sty_195dd215). A refused file returns *UploadError after every
+// other file of the job was tried.
 func (d *Driver) Push(ctx context.Context, job *PushJob) (PushResult, error) {
 	res := PushResult{Area: job.Area, Version: job.effVersion, Parent: job.effVersion}
 	if job.plan.Claim {
@@ -459,7 +463,8 @@ func (d *Driver) Push(ctx context.Context, job *PushJob) (PushResult, error) {
 			// finds records it cannot read and stays on the plain upload.
 			d.printf("%s: snapshot %d cannot be read back from the hosted copy — pushing without a snapshot.\n", job.Area, v)
 			job.plan.Claim = false
-			return d.upload(ctx, job, res)
+			res, _, err = d.upload(ctx, job, res)
+			return res, err
 		}
 		won, _, err := Effective(job.effVersion, v, d.read(ctx, job.Area))
 		if err != nil {
@@ -471,10 +476,13 @@ func (d *Driver) Push(ctx context.Context, job *PushJob) (PushResult, error) {
 			return res, newErrBehind(job.Area, job.base, won, nil, job.local, job.set, d.PullCmd, d.DivergedCmd)
 		}
 		res.Claimed, res.Version = true, v
+		var failed map[string]bool
+		var uerr error
+		res, failed, uerr = d.upload(ctx, job, res)
 		// The base is what THIS tree holds, not the record: a first claim may carry
 		// forward hosted files this tree lacks, and the next pull must fetch those
 		// rather than read them as files this machine deleted.
-		if err := d.saveBase(job.Area, hosted.AreaBase{Version: v, Files: job.local}); err != nil {
+		if err := d.saveBase(job.Area, hosted.AreaBase{Version: v, Files: storedFiles(job.local, failed)}); err != nil {
 			return res, err
 		}
 		if job.plan.Forced {
@@ -482,21 +490,81 @@ func (d *Driver) Push(ctx context.Context, job *PushJob) (PushResult, error) {
 		} else {
 			d.printf("%s: snapshot %d (parent %d)\n", job.Area, v, job.effVersion)
 		}
-	} else if job.effVersion > 0 {
-		if err := d.saveBase(job.Area, hosted.AreaBase{Version: job.effVersion, Files: job.local}); err != nil {
+		return res, uerr
+	}
+	res, failed, uerr := d.upload(ctx, job, res)
+	if job.effVersion > 0 {
+		if err := d.saveBase(job.Area, hosted.AreaBase{Version: job.effVersion, Files: storedFiles(job.local, failed)}); err != nil {
 			return res, err
 		}
 		d.printf("%s: snapshot %d (unchanged)\n", job.Area, job.effVersion)
 	}
-	return d.upload(ctx, job, res)
+	return res, uerr
 }
 
-// upload puts every blob whose hosted head is not the snapshot's bytes.
-func (d *Driver) upload(ctx context.Context, job *PushJob, res PushResult) (PushResult, error) {
-	for _, p := range job.plan.Uploads {
+// UploadFailure is one file the hosted copy did not store.
+type UploadFailure struct {
+	Path string
+	Err  error
+}
+
+// UploadError is a push whose every file was tried and some were not stored. A
+// caller keeps going with its other areas and exits non-zero naming each path.
+type UploadError struct {
+	Failures []UploadFailure
+}
+
+func (e *UploadError) Error() string {
+	lines := make([]string, 0, len(e.Failures))
+	for _, f := range e.Failures {
+		lines = append(lines, fmt.Sprintf("not stored: %s: %v", f.Path, f.Err))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Unwrap exposes each failure's cause, so errors.Is finds a login error in it.
+func (e *UploadError) Unwrap() []error {
+	out := make([]error, 0, len(e.Failures))
+	for _, f := range e.Failures {
+		out = append(out, f.Err)
+	}
+	return out
+}
+
+// storedFiles is local without the paths the hosted copy refused: the files a
+// base may record as pushed.
+func storedFiles(local map[string]string, failed map[string]bool) map[string]string {
+	if len(failed) == 0 {
+		return local
+	}
+	out := make(map[string]string, len(local))
+	for p, sha := range local {
+		if !failed[p] {
+			out[p] = sha
+		}
+	}
+	return out
+}
+
+// upload puts every blob whose hosted head is not the snapshot's bytes. A file
+// the server refuses is recorded in failed and the rest are still tried; the
+// error is then *UploadError. A missing login fails every file left, so it stops
+// there and is returned as itself.
+func (d *Driver) upload(ctx context.Context, job *PushJob, res PushResult) (PushResult, map[string]bool, error) {
+	var failures []UploadFailure
+	failed := map[string]bool{}
+	for i, p := range job.plan.Uploads {
 		created, err := d.Blobs.Put(ctx, p, job.files[p])
+		if errors.Is(err, hosted.ErrLoginRequired) {
+			for _, rest := range job.plan.Uploads[i:] {
+				failed[rest] = true
+			}
+			return res, failed, err
+		}
 		if err != nil {
-			return res, fmt.Errorf("push %s: %w", p, err)
+			failed[p] = true
+			failures = append(failures, UploadFailure{Path: p, Err: err})
+			continue
 		}
 		if created {
 			res.Created++
@@ -508,7 +576,10 @@ func (d *Driver) upload(ctx context.Context, job *PushJob, res PushResult) (Push
 		}
 	}
 	res.NotUploaded = len(job.local) - len(job.plan.Uploads)
-	return res, nil
+	if len(failures) > 0 {
+		return res, failed, &UploadError{Failures: failures}
+	}
+	return res, failed, nil
 }
 
 // PullJob is a planned pull of one area.

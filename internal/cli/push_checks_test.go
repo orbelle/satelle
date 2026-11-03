@@ -391,7 +391,16 @@ func nodeAllocFindings(rep doctor.Report, sev health.Severity) []health.Finding 
 // loads it, doctor reports it as a warning naming agents.local.toml.
 func TestPushDefersRoleOnlyPerformerGrantToTheMachine(t *testing.T) {
 	useRealPushValidator(t)
-	ts, requests := newCountingServer(t)
+	// A dry run asks the hosted copy where each area stands (sty_195dd215), so it
+	// may read; it never writes.
+	var writes atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writes.Add(1)
+		}
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(ts.Close)
 	seedCred(t, ts.URL)
 	repo, dataDir := coderPushRepo(t, roleOnlyCoder)
 
@@ -399,8 +408,8 @@ func TestPushDefersRoleOnlyPerformerGrantToTheMachine(t *testing.T) {
 	if err := runSyncConfigPush(cmd, ts.URL, "", true); err != nil {
 		t.Fatalf("a role-only performer seat was refused: %v\n%s", err, buf.String())
 	}
-	if n := requests(); n != 0 {
-		t.Fatalf("a dry run contacted the server %d time(s)", n)
+	if n := writes.Load(); n != 0 {
+		t.Fatalf("a dry run wrote to the server %d time(s)", n)
 	}
 
 	var out strings.Builder

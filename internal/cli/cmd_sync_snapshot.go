@@ -210,14 +210,22 @@ func runSnapshotPush(ctx context.Context, d *snapsync.Driver, areaFiles map[stri
 		// can still tell which refusals they were.
 		return out, true, errors.Join(refusals...)
 	}
+	// A file the server refuses (too large, say) stops neither its own area nor
+	// the areas after it: every job runs, and the refusals come back joined so the
+	// command names each path and exits non-zero (sty_195dd215).
+	var notStored []error
 	for _, job := range jobs {
 		res, perr := d.Push(ctx, job)
-		if perr != nil {
+		var uploadErr *snapsync.UploadError
+		if perr != nil && !errors.As(perr, &uploadErr) {
 			var behind *snapsync.ErrBehind
 			if errors.As(perr, &behind) {
 				out.mark(&out.raced, job.Area)
 			}
 			return out, true, perr
+		}
+		if perr != nil {
+			notStored = append(notStored, perr)
 		}
 		if res.Claimed {
 			out.mark(&out.claimed, job.Area)
@@ -226,7 +234,7 @@ func runSnapshotPush(ctx context.Context, d *snapsync.Driver, areaFiles map[stri
 		out.unchanged += res.Unchanged
 		out.notUploaded += res.NotUploaded
 	}
-	return out, true, nil
+	return out, true, errors.Join(notStored...)
 }
 
 // snapshotOnlyRefusal is the error a --snapshot-only push exits with when it

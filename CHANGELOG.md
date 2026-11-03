@@ -1,3 +1,16 @@
+## [0.0.878] - 2026-11-03
+
+### Fixed
+- `satelle sync config push` records as pushed only the files the server stored. Before, it saved an area's base before uploading, so a push the server cut short (HTTP 400 on an oversized file) recorded every area as pushed, and every later push, `--force` included, said "nothing to push" while the hosted copy kept the old files (the agents layer among them). Now each file is uploaded before the base is saved, a refused file is left out of the base so the next push sends it again, and the push carries on with every other file and area, then names each refused path and exits non-zero. (sty_195dd215)
+- Config push no longer uploads task run outputs: the tasks area carries only top-level `.satelle/tasks/*.md` definitions, not the `tasks/<tsk>/` run records and reports beside them. (sty_195dd215)
+- `satelle sync config push --dry-run` lists a file whose hosted head differs from the tree even when this checkout's last-push record matches it, and the real push re-publishes it, so an area a failed push left stale on satelle.dev can be sent again. (sty_195dd215)
+- `satelle sync config deploy` ignores a legacy bare `agents.toml` key in a hosted copy: the agents layer deploys only to `.satelle/workflows/agents.toml`, so deploy no longer writes a stray `.satelle/agents.toml` or lets an old root copy override the project tier's `workflows/agents.toml`. Writing a project tier where two hosted keys map to one path is refused before anything is written. (sty_195dd215)
+
+## [serve-v0.0.288] - 2026-11-03
+
+### Fixed
+- The service binary carries the config push and deploy fixes of 0.0.878: partial pushes record only stored files, task run outputs are not pushed, and a legacy bare `agents.toml` never reaches the project tier. (sty_195dd215)
+
 ## [0.0.877] - 2026-11-03
 
 ### Fixed

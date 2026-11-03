@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/testutil"
@@ -322,5 +323,25 @@ func TestTeamPathsRefuseEscape(t *testing.T) {
 	writeTierFile(t, p, "[team]\npaths = [\"../outside/*\"]\n")
 	if _, _, err := Load(p); err == nil {
 		t.Fatal("an escaping [team] path must be refused")
+	}
+}
+
+// sty_195dd215 AC5: two keys that name one tier path — a hosted copy's legacy bare
+// agents.toml beside workflows/agents.toml — are refused before anything is
+// written, so the old tier stays whole and no path is listed twice.
+func TestWriteProjectTierRefusesCollidingKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteProjectTier(dir, ProjectTierStamp{Project: "probe"}, map[string][]byte{AgentsRel: []byte("old tier\n")}); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteProjectTier(dir, ProjectTierStamp{Project: "probe"}, map[string][]byte{
+		AgentsConfigName: []byte("legacy\n"),
+		AgentsRel:        []byte("current\n"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "agents.toml and workflows/agents.toml both map to workflows/agents.toml") {
+		t.Fatalf("colliding keys: err = %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ProjectTierDir(dir), filepath.FromSlash(AgentsRel))); string(got) != "old tier\n" {
+		t.Errorf("the old tier was not left whole: %q", got)
 	}
 }

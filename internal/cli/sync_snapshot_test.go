@@ -34,6 +34,27 @@ type snapFake struct {
 	// unreadableRecords makes every pinned read of a snapshot record 404, as a
 	// server without pinned reads does: records can be put but not read back.
 	unreadableRecords bool
+	// refuse counts, per config path, the PUTs still to be refused as a server
+	// refuses a file it will not store (sty_195dd215).
+	refuse map[string]int
+	// down makes every request fail, as an unreachable server does.
+	down bool
+}
+
+// refuseNext makes the next n config PUTs of path fail with HTTP 400.
+func (f *snapFake) refuseNext(path string, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refuse == nil {
+		f.refuse = map[string]int{}
+	}
+	f.refuse[path] = n
+}
+
+func (f *snapFake) setDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = down
 }
 
 func (f *snapFake) putLog() []string {
@@ -50,6 +71,13 @@ func newSnapServer(t *testing.T) (*httptest.Server, *snapFake) {
 	f := &snapFake{cfg: &fakeConfigStore{data: map[string]map[string][][]byte{}}, docs: newFakeDocStore()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/projects/", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		down := f.down
+		f.mu.Unlock()
+		if down {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		segs := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/api/v1/projects/"), "/", 3)
 		if len(segs) < 2 {
 			http.NotFound(w, r)
@@ -73,8 +101,19 @@ func newSnapServer(t *testing.T) (*httptest.Server, *snapFake) {
 			}
 			body, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
-			f.puts = append(f.puts, kind+":"+path)
+			refused := kind == "config" && f.refuse[path] > 0
+			if refused {
+				f.refuse[path]--
+			} else {
+				f.puts = append(f.puts, kind+":"+path)
+			}
 			f.mu.Unlock()
+			if refused {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "could not store file (too large?)"})
+				return
+			}
 			sha, ver, created := store.put(project, path, body)
 			status := http.StatusOK
 			if created {
@@ -931,5 +970,153 @@ func TestSyncPushDryRunAgreesWithStatus(t *testing.T) {
 	}
 	if n := len(f.putLog()) - before; n != 0 {
 		t.Errorf("--dry-run made %d PUT(s): %v", n, f.putLog()[before:])
+	}
+}
+
+// dryRunConfig runs `satelle sync config push --dry-run` as machine m.
+func (m *snapMachine) dryRunConfig() string {
+	m.t.Helper()
+	m.use()
+	cmd, buf := testCmd()
+	if err := runSyncConfigPush(cmd, m.url, "", true); err != nil {
+		m.t.Fatalf("sync config push --dry-run: %v\n%s", err, buf.String())
+	}
+	return buf.String()
+}
+
+// hasPut reports whether the fake received a PUT of key ("config:<path>").
+func hasPut(puts []string, key string) bool { return slices.Contains(puts, key) }
+
+// sty_195dd215 AC1, AC2, AC3: a push the server refuses one file of records only
+// what it stored, still pushes every other file and the areas after it, names the
+// refused file and exits non-zero; a task's run output never goes up; the next
+// push sends the refused file.
+func TestSnapshotPushRefusedFileStaysUnpushed(t *testing.T) {
+	ts, f := newSnapServer(t)
+	seedCred(t, ts.URL)
+	a := newSnapMachine(t, ts.URL)
+	a.write("tasks/x.md", "x\n")
+	a.write("tasks/y.md", "y\n")
+	a.write("tasks/tsk_x/report.md", "a run output\n")
+	f.refuseNext("tasks/x.md", 1)
+
+	out, err := a.tryPushConfig()
+	if err == nil {
+		t.Fatalf("a push the server refused a file of exited zero:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "not stored: tasks/x.md") || !strings.Contains(err.Error(), "could not store file") {
+		t.Errorf("the refused file is not named with the server's reason: %v", err)
+	}
+	puts := f.putLog()
+	for _, want := range []string{"config:tasks/y.md", "config:" + config.ConfigName} {
+		if !hasPut(puts, want) {
+			t.Errorf("%s was not pushed after tasks/x.md was refused: %v", want, puts)
+		}
+	}
+	base, ok := a.base("tasks")
+	if !ok {
+		t.Fatal("no tasks base saved")
+	}
+	if _, has := base.Files["tasks/x.md"]; has {
+		t.Errorf("the tasks base records the refused tasks/x.md as pushed: %v", base.Files)
+	}
+	if _, has := base.Files["tasks/y.md"]; !has {
+		t.Errorf("the tasks base lacks the stored tasks/y.md: %v", base.Files)
+	}
+
+	// Offline, the dry run compares with the last push alone, and still lists it.
+	f.setDown(true)
+	dry := a.dryRunConfig()
+	f.setDown(false)
+	if lines := linesNaming(dry, "tasks/x.md"); len(lines) != 1 || !strings.Contains(lines[0], "-> personal") {
+		t.Errorf("an offline dry run does not list the refused file: %v\n%s", lines, dry)
+	}
+	if !strings.Contains(dry, "offline — compared with the last push only") {
+		t.Errorf("an offline dry run does not say it is offline:\n%s", dry)
+	}
+
+	before := len(f.putLog())
+	a.pushConfig()
+	if !hasPut(f.putLog()[before:], "config:tasks/x.md") {
+		t.Errorf("the re-run did not push tasks/x.md: %v", f.putLog()[before:])
+	}
+	if body, _, ok := f.cfg.get("probe", "tasks/x.md", 0); !ok || string(body) != "x\n" {
+		t.Errorf("hosted tasks/x.md = %q (ok=%v), want %q", body, ok, "x\n")
+	}
+	for _, put := range f.putLog() {
+		if strings.Contains(put, "tsk_x/") {
+			t.Errorf("a task run output was pushed: %s", put)
+		}
+	}
+}
+
+// sty_195dd215 AC4: a file whose hosted head holds older bytes than the tree is
+// listed by the dry run even though the last-push record matches the tree, and
+// the real push re-publishes it.
+func TestSnapshotDryRunListsHostedHeadMismatch(t *testing.T) {
+	ts, f := newSnapServer(t)
+	seedCred(t, ts.URL)
+	a := newSnapMachine(t, ts.URL)
+	a.write(config.AgentsRel, tierAgents("current"))
+	a.pushConfig()
+	if base, _ := a.base("agents"); base.Files[config.AgentsRel] == "" {
+		t.Fatalf("the premise: the agents base must match the tree: %+v", base)
+	}
+	f.cfg.put("probe", config.AgentsRel, []byte(tierAgents("older")))
+
+	dry := a.dryRunConfig()
+	if lines := linesNaming(dry, config.AgentsRel); len(lines) != 1 || !strings.Contains(lines[0], "hosted head differs") {
+		t.Fatalf("the dry run does not list the mismatched head: %v\n%s", lines, dry)
+	}
+	before := len(f.putLog())
+	a.pushConfig()
+	if !hasPut(f.putLog()[before:], "config:"+config.AgentsRel) {
+		t.Errorf("the push did not re-publish %s: %v", config.AgentsRel, f.putLog()[before:])
+	}
+	if body, _, _ := f.cfg.get("probe", config.AgentsRel, 0); string(body) != tierAgents("current") {
+		t.Errorf("hosted head = %q, want the tree's bytes", body)
+	}
+	if dry := a.dryRunConfig(); !strings.Contains(dry, "nothing to push") {
+		t.Errorf("after the push the dry run still lists changes:\n%s", dry)
+	}
+}
+
+// sty_195dd215 AC5: a hosted copy holding a legacy bare agents.toml beside
+// workflows/agents.toml deploys the agents layer only from workflows/agents.toml:
+// no agents.toml at the data dir's root, and the project tier holds the
+// workflows/agents.toml head's bytes, listed once in its stamp.
+func TestDeployIgnoresLegacyBareAgentsKey(t *testing.T) {
+	ts, f := newSnapServer(t)
+	seedCred(t, ts.URL)
+	a := newSnapMachine(t, ts.URL)
+	// The tree holds only the canonical agents layer: the fixture's legacy-path
+	// copy would make a root agents.toml that deploy never wrote.
+	a.remove(config.AgentsConfigName)
+	current := tierAgents("current")
+	a.write(config.AgentsRel, current)
+	a.pushConfig()
+	f.cfg.put("probe", config.AgentsConfigName, []byte("[reviewer-gpt]\nrole = \"reviewer\"\nmodel = \"legacy\"\n"))
+
+	out := a.deploy()
+	if a.has(config.AgentsConfigName) {
+		t.Errorf("deploy wrote the legacy key to the data dir's root: %q\n%s", a.read(config.AgentsConfigName), out)
+	}
+	tier := config.ProjectTierDir(config.Config{}.ResolveRuntimeDir(a.repo).Dir)
+	got, err := os.ReadFile(filepath.Join(tier, filepath.FromSlash(config.AgentsRel)))
+	if err != nil || string(got) != current {
+		t.Errorf("tier %s = %q (err %v), want the workflows/agents.toml head\n%s", config.AgentsRel, got, err, out)
+	}
+	stamp, ok := config.ReadProjectTierStamp(tier)
+	if !ok {
+		t.Fatalf("no tier stamp\n%s", out)
+	}
+	n := 0
+	for _, p := range stamp.Files {
+		if p == config.AgentsRel {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("the tier stamp lists %s %d time(s), want once: %v", config.AgentsRel, n, stamp.Files)
 	}
 }

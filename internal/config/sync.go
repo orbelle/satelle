@@ -755,12 +755,12 @@ func walkAreaFiles(cfg Config, repoRoot, area string, scope Scope) ([]ConfigFile
 		if d.IsDir() {
 			return nil
 		}
-		if walkSkips(area, filepath.Base(p)) {
-			return nil
-		}
 		rel, rerr := filepath.Rel(location, p)
 		if rerr != nil {
 			return rerr
+		}
+		if walkSkips(area, filepath.ToSlash(rel)) {
+			return nil
 		}
 		serverPath := area + "/" + filepath.ToSlash(rel)
 		cf, ok, rerr := readConfigFile(area, p, serverPath, scope)
@@ -778,18 +778,29 @@ func walkAreaFiles(cfg Config, repoRoot, area string, scope Scope) ([]ConfigFile
 	return out, nil
 }
 
-// walkSkips reports whether a file basename inside a directory area is never
-// part of that area's push: a generated read-only view, and — in workflows — the
-// agents layer, which sits IN the workflows dir but is its own sync area with its
-// own tier (sty_10f732ed); without this skip the walk
-// would push it a second time under a workflows/ key. agents.workspace.toml is
-// the SYNCED workspace layer (sty_01949949): it came from the team catalog and is
-// never pushed back as config. The one rule behind walkAreaFiles and AreaOfRepoPath.
-func walkSkips(area, base string) bool {
+// walkSkips reports whether a file inside a directory area is never part of that
+// area's push. rel is the file's slash path relative to the area's directory.
+// Skipped: a generated read-only view; in workflows, the agents layer, which sits
+// IN the workflows dir but is its own sync area with its own tier (sty_10f732ed) —
+// without this skip the walk would push it a second time under a workflows/ key —
+// and agents.workspace.toml, the SYNCED workspace layer (sty_01949949), which came
+// from the team catalog and is never pushed back as config; in tasks, everything
+// but a top-level tasks/*.md definition, because tasks/<tsk>/ holds that task's
+// execution runs and their outputs, which are run state, not substrate, and can be
+// far larger than the server stores (sty_195dd215). The one rule behind
+// walkAreaFiles and AreaOfRepoPath.
+func walkSkips(area, rel string) bool {
+	base := rel[strings.LastIndex(rel, "/")+1:]
 	if isReservedView(base) {
 		return true
 	}
-	return area == "workflows" && (base == AgentsConfigName || base == WorkspaceAgentsName)
+	switch area {
+	case "workflows":
+		return base == AgentsConfigName || base == WorkspaceAgentsName
+	case "tasks":
+		return strings.Contains(rel, "/") || !strings.HasSuffix(rel, ".md")
+	}
+	return false
 }
 
 // AreaOfRepoPath names the config or documents area a tree path belongs to, or ""
@@ -824,7 +835,7 @@ func AreaOfRepoPath(cfg Config, repoRoot, path string) string {
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		if walkSkips(area, filepath.Base(abs)) {
+		if walkSkips(area, filepath.ToSlash(rel)) {
 			continue
 		}
 		return area

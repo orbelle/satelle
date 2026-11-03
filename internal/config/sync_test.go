@@ -248,6 +248,34 @@ func TestSyncAreasNoDuplicates(t *testing.T) {
 	}
 }
 
+// sty_195dd215 AC2: the tasks area carries only top-level task definitions — a
+// task's execution runs and their outputs under tasks/<tsk>/ never go up.
+func TestTasksAreaCarriesOnlyDefinitions(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"tasks/tsk_x.md":            "---\nid: tsk_x\n---\n",
+		"tasks/tsk_x/report.md":     "a run output\n",
+		"tasks/tsk_x/exe_1.md":      "---\nid: exe_1\n---\n",
+		"tasks/tsk_x/deep/notes.md": "deeper\n",
+		"tasks/notes.txt":           "not a definition\n",
+	} {
+		p := filepath.Join(repo, ".satelle", filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := AreaFiles(Config{}, repo, "tasks", Ignore{})
+	if err != nil {
+		t.Fatalf("AreaFiles: %v", err)
+	}
+	if got, want := bundlePaths(files), []string{"tasks/tsk_x.md"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AreaFiles(tasks) = %v, want %v", got, want)
+	}
+}
+
 // AreaOfRepoPath maps the repo-relative paths story-diff reports to the sync area
 // that would push them — through ConfigAreaLocation, so layout is honoured, and
 // through walkAreaFiles' skip rules, so a path no push carries maps to no area.
@@ -271,6 +299,8 @@ func TestAreaOfRepoPath(t *testing.T) {
 			{".satelle/workflows/w.toml", "workflows"},
 			{".satelle/documents/d.md", "documents"},
 			{".satelle/tasks/t.md", "tasks"},
+			{".satelle/tasks/tsk_x/report.md", ""},
+			{".satelle/tasks/tsk_x/exe_1.md", ""},
 			{".satelle/satelle.toml", "settings"},
 			{".satelle/constitution.md", "constitution"},
 			{".satelle/workflows/agents.toml", "agents"},

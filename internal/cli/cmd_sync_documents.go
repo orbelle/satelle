@@ -122,7 +122,7 @@ func runSyncDocumentsPush(cmd *cobra.Command, serverArg, workspaceArg string, dr
 		fmt.Fprintln(out, note)
 	}
 	if dryRun {
-		printDryRunChanges(out, cfg, server, repoRoot, dataDir, ign, files, "document(s)")
+		printDryRunChanges(cmd.Context(), out, cfg, server, repoRoot, dataDir, ign, files, "document(s)")
 		printWithheldLocal()
 		return nil
 	}

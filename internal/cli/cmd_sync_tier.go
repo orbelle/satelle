@@ -60,6 +60,11 @@ func materialiseProjectTier(cmd *cobra.Command, cfg config.Config, repoRoot, dat
 	team := config.NewTeamSet(paths)
 	files := map[string][]byte{}
 	for _, it := range manifest {
+		// The legacy bare agents.toml is not the agents layer, though a team glob
+		// naming agents.toml owns it: only workflows/agents.toml fills the tier's.
+		if config.LegacyAgentsKey(it.Path) {
+			continue
+		}
 		if _, isRecord := snapsync.AreaOfRecordPath(it.Path); isRecord || !team.Owns(it.Path) {
 			continue
 		}

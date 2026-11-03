@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -573,7 +574,7 @@ func pushConfigFileSet(cmd *cobra.Command, cfg config.Config, repoRoot, dataDir 
 		if opts.IgnoreScope {
 			printDryRunAll(out, server, "config file(s)", files)
 		} else {
-			printDryRunChanges(out, cfg, server, repoRoot, dataDir, ign, files, "config file(s)")
+			printDryRunChanges(cmd.Context(), out, cfg, server, repoRoot, dataDir, ign, files, "config file(s)")
 		}
 		printWithheldLocal()
 		return ref, nil
@@ -604,6 +605,9 @@ func pushConfigFileSet(cmd *cobra.Command, cfg config.Config, repoRoot, dataDir 
 	if err != nil {
 		return ref, err
 	}
+	// notStored is every file the server refused to store: the push still sends
+	// every other file and area, then exits non-zero naming each (sty_195dd215).
+	var notStored error
 	if merr == nil && !opts.IgnoreScope {
 		// A push publishes each area's whole state as a snapshot (sty_fe5a8ed4):
 		// refused when this machine is behind, so it never overwrites a newer
@@ -612,40 +616,59 @@ func pushConfigFileSet(cmd *cobra.Command, cfg config.Config, repoRoot, dataDir 
 		snap, handled, serr := pushConfigSnapshots(cmd, cfg, repoRoot, dataDir, ign, client, server, project, manifest, files)
 		if serr != nil {
 			var nh *hosted.NotHolderError
-			if !errors.As(serr, &nh) {
+			var ue *snapsync.UploadError
+			switch {
+			case errors.As(serr, &nh):
+				ref.add(nh.Path, nh.Holder)
+			case errors.As(serr, &ue):
+				notStored = serr
+			default:
 				return ref, serr
 			}
-			ref.add(nh.Path, nh.Holder)
 		}
 		if handled {
 			// Team-owned files no area holds (scripts, hooks) are in no snapshot:
 			// they go up as plain files beside it.
 			c, u, n, perr := pushPlainConfigFiles(cmd, client, project, headSHA, teamAreaFiles(files), &ref)
-			if perr != nil {
+			if perr = collectNotStored(&notStored, perr); perr != nil {
 				return ref, perr
 			}
 			snap.created, snap.unchanged, snap.notUploaded = snap.created+c, snap.unchanged+u, snap.notUploaded+n
 			printWithheldLocal()
 			fmt.Fprintf(out, "Pushed %d of %d config file(s) to project %q on %s: %d new, %d unchanged, %d skipped (unchanged, not uploaded).\n",
 				snap.created+snap.unchanged, len(files), project, server, snap.created, snap.unchanged, snap.notUploaded)
-			return ref, nil
+			return ref, notStored
 		}
 	}
 	created, unchanged, notUploaded, err := pushPlainConfigFiles(cmd, client, project, headSHA, files, &ref)
-	if err != nil {
+	if err = collectNotStored(&notStored, err); err != nil {
 		return ref, err
 	}
 	printWithheldLocal()
 	uploaded := created + unchanged
 	fmt.Fprintf(out, "Pushed %d of %d config file(s) to project %q on %s: %d new, %d unchanged, %d skipped (unchanged, not uploaded).\n",
 		uploaded, len(files), project, server, created, unchanged, notUploaded)
-	return ref, nil
+	return ref, notStored
+}
+
+// collectNotStored folds a plain upload's *snapsync.UploadError into the
+// refusals gathered so far; any other error is returned, for the caller to stop on.
+func collectNotStored(notStored *error, err error) error {
+	var ue *snapsync.UploadError
+	if err != nil && !errors.As(err, &ue) {
+		return err
+	}
+	*notStored = errors.Join(*notStored, err)
+	return nil
 }
 
 // pushPlainConfigFiles uploads each file whose bytes the hosted head does not
 // already hold, with no snapshot check. A path the server refuses because the
 // caller is not the substrate holder is recorded in ref, and the rest still go.
+// So does every other file after one the server refuses to store: those come
+// back as one *snapsync.UploadError. A missing login stops at once.
 func pushPlainConfigFiles(cmd *cobra.Command, client *hosted.Client, project string, headSHA map[string]string, files []config.ConfigFile, ref *holderRefusal) (created, unchanged, notUploaded int, err error) {
+	var failures []snapsync.UploadFailure
 	for _, f := range files {
 		if contentMatchesSHA(headSHA[f.Path], f.Content) {
 			notUploaded++
@@ -661,13 +684,17 @@ func pushPlainConfigFiles(cmd *cobra.Command, client *hosted.Client, project str
 			if errors.Is(perr, hosted.ErrLoginRequired) {
 				return created, unchanged, notUploaded, perr
 			}
-			return created, unchanged, notUploaded, fmt.Errorf("push %s: %w", f.Path, perr)
+			failures = append(failures, snapsync.UploadFailure{Path: f.Path, Err: perr})
+			continue
 		}
 		if res.Created {
 			created++
 		} else {
 			unchanged++
 		}
+	}
+	if len(failures) > 0 {
+		return created, unchanged, notUploaded, &snapsync.UploadError{Failures: failures}
 	}
 	return created, unchanged, notUploaded, nil
 }
@@ -692,13 +719,16 @@ func printDryRunAll(out io.Writer, server, noun string, files []config.ConfigFil
 	}
 }
 
-// printDryRunChanges is a dry run's listing of what a push would send, read from
-// disk alone: per snapshot area, every file when this checkout never pushed the
-// area, else only the paths changed since its recorded base — the comparison
-// doctor and `sync status` make (snapsync.OfflineDrift). Team files ride no
-// snapshot and the hosted head decides them, so they are listed apart. noun
-// names the set ("config file(s)", "document(s)").
-func printDryRunChanges(out io.Writer, cfg config.Config, server, repoRoot, dataDir string, ign config.Ignore, files []config.ConfigFile, noun string) {
+// printDryRunChanges is a dry run's listing of what a push would send. Each
+// snapshot area is asked where it stands against the hosted copy — the
+// push-planning path a real push runs (snapsync.Driver.Status, via
+// probeSubstrate) — so a file whose hosted head differs from the tree is listed
+// even when this checkout's last-push record matches it (sty_195dd215). An area
+// the hosted copy cannot answer for falls back to the comparison with its
+// recorded base that doctor and `sync status` make offline (snapsync.OfflineDrift),
+// and says so. Team files ride no snapshot and the hosted head decides them, so
+// they are listed apart. noun names the set ("config file(s)", "document(s)").
+func printDryRunChanges(ctx context.Context, out io.Writer, cfg config.Config, server, repoRoot, dataDir string, ign config.Ignore, files []config.ConfigFile, noun string) {
 	project, err := resolveBoundProject(cfg, repoRoot)
 	if err != nil {
 		fmt.Fprintln(out, "(no bound project — cannot compare with the last push; listing every file)")
@@ -709,13 +739,29 @@ func printDryRunChanges(out io.Writer, cfg config.Config, server, repoRoot, data
 	if err != nil {
 		abs = repoRoot
 	}
-	var areas []string
+	var areas, snapAreas []string
 	byArea := map[string][]config.ConfigFile{}
 	for _, f := range files {
 		if _, seen := byArea[f.Area]; !seen {
 			areas = append(areas, f.Area)
+			if f.Area != config.TeamArea {
+				snapAreas = append(snapAreas, f.Area)
+			}
 		}
 		byArea[f.Area] = append(byArea[f.Area], f)
+	}
+	online := map[string]snapsync.AreaStatus{}
+	var offline error
+	if len(snapAreas) > 0 {
+		// No repo root: a dry run only reads, so it registers no checkout location.
+		client := newHostedClient(ctx, server, "")
+		for _, st := range probeSubstrate(ctx, cfg, repoRoot, dataDir, server, project, client, snapAreas) {
+			if st.State == snapsync.StateUnavailable {
+				offline = st.Err
+				continue
+			}
+			online[st.Area] = st
+		}
 	}
 	var body strings.Builder
 	listAll := func(area, note string) int {
@@ -725,11 +771,8 @@ func printDryRunChanges(out io.Writer, cfg config.Config, server, repoRoot, data
 		}
 		return len(byArea[area])
 	}
-	n := 0
-	for _, area := range areas {
-		if area == config.TeamArea {
-			continue
-		}
+	n, refused := 0, 0
+	for _, area := range snapAreas {
 		local, err := snapsync.LocalShas(cfg, repoRoot, area, ign)
 		var defaults map[string]map[string]bool
 		if err == nil {
@@ -743,21 +786,44 @@ func printDryRunChanges(out io.Writer, cfg config.Config, server, repoRoot, data
 		if err == nil {
 			drift, err = snapsync.OfflineDrift(server, project, abs, dataDir, area, local, stampOnly, defaults, ign)
 		}
+		listChanged := func(changed []string, sinceBase map[string]bool) int {
+			fmt.Fprintf(&body, "  %s: %d changed\n", area, len(changed))
+			for _, p := range changed {
+				switch _, ok := local[p]; {
+				case !ok:
+					fmt.Fprintf(&body, "    %-40s (deleted)\n", p)
+				case sinceBase != nil && !sinceBase[p]:
+					fmt.Fprintf(&body, "    %-40s -> personal (hosted head differs)\n", p)
+				default:
+					fmt.Fprintf(&body, "    %-40s -> personal\n", p)
+				}
+			}
+			return len(changed)
+		}
+		if st, ok := online[area]; ok {
+			switch st.State {
+			case snapsync.StateInStep:
+			case snapsync.StateNeverSynced:
+				n += listAll(area, "never synced")
+			case snapsync.StateUnpushed:
+				sinceBase := map[string]bool{}
+				for _, p := range drift.Changed {
+					sinceBase[p] = true
+				}
+				n += listChanged(st.Changed, sinceBase)
+			default:
+				refused++
+				fmt.Fprintf(&body, "  %s: %s — a push would be refused (%s)\n", area, st.State, nextCommand(st))
+			}
+			continue
+		}
 		switch {
 		case err != nil:
 			n += listAll(area, fmt.Sprintf("cannot compare with the last push: %v", err))
 		case !drift.Synced:
 			n += listAll(area, "never synced")
 		case len(drift.Changed) > 0:
-			fmt.Fprintf(&body, "  %s: %d changed\n", area, len(drift.Changed))
-			for _, p := range drift.Changed {
-				if _, ok := local[p]; ok {
-					fmt.Fprintf(&body, "    %-40s -> personal\n", p)
-				} else {
-					fmt.Fprintf(&body, "    %-40s (deleted)\n", p)
-				}
-			}
-			n += len(drift.Changed)
+			n += listChanged(drift.Changed, nil)
 		}
 	}
 	team := byArea[config.TeamArea]
@@ -767,11 +833,22 @@ func printDryRunChanges(out io.Writer, cfg config.Config, server, repoRoot, data
 			fmt.Fprintf(&body, "    %-40s -> personal\n", f.Path)
 		}
 	}
-	if n == 0 && len(team) == 0 {
-		fmt.Fprintln(out, "nothing to push — every area matches its last push")
+	if offline != nil {
+		fmt.Fprintf(out, "(offline — compared with the last push only: %v)\n", offline)
+	}
+	against := "against the hosted copy"
+	if offline != nil {
+		against = "since each area's last push"
+	}
+	if n == 0 && refused == 0 && len(team) == 0 {
+		if offline != nil {
+			fmt.Fprintln(out, "nothing to push — every area matches its last push")
+		} else {
+			fmt.Fprintln(out, "nothing to push — every area matches its last push and the hosted copy")
+		}
 		return
 	}
-	fmt.Fprintf(out, "Would push %d %s to the bound project on %s — changed since each area's last push:\n", n, noun, server)
+	fmt.Fprintf(out, "Would push %d %s to the bound project on %s — changed %s:\n", n, noun, server, against)
 	fmt.Fprint(out, body.String())
 }
 
@@ -854,12 +931,16 @@ func printWithheldBinding(out io.Writer, files []config.ConfigFile) {
 	}
 }
 
-// ingestDeployedAgents drops the workspace layer from a deploy set if an old
-// manifest carries one, and refuses an agents layer that carries
-// machine-specific content (ingestAgents).
+// ingestDeployedAgents drops the workspace layer and the legacy bare agents.toml
+// (config.LegacyAgentsKey) from a deploy set if an old manifest carries them, and
+// refuses an agents layer that carries machine-specific content (ingestAgents).
 func ingestDeployedAgents(out io.Writer, files []subsync.File) ([]subsync.File, error) {
 	kept := files[:0]
 	for _, f := range files {
+		if config.LegacyAgentsKey(f.Path) {
+			fmt.Fprintf(out, "agents: %s is a legacy hosted key — the agents layer deploys only from %s (removing it from the hosted copy is sty_0214369e).\n", f.Path, config.AgentsRel)
+			continue
+		}
 		switch f.Path {
 		case config.WorkspaceAgentsRel:
 			fmt.Fprintf(out, "agents: %s is the synced workspace layer — not deployed from the personal store (use `satelle sync bindings pull`).\n", f.Path)

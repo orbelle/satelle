@@ -288,6 +288,20 @@ func WriteProjectTier(runtimeDir string, stamp ProjectTierStamp, files map[strin
 		return fmt.Errorf("project tier: %w", err)
 	}
 	defer os.RemoveAll(tmp)
+	// Two keys that name one tier path would race for it in map order and list it
+	// twice in the stamp: refuse before anything is written, so the old tier stays.
+	keyOf := make(map[string]string, len(files))
+	for key := range files {
+		rel := normaliseTeamGlob(key)
+		if other, dup := keyOf[rel]; dup {
+			a, b := other, key
+			if b < a {
+				a, b = b, a
+			}
+			return fmt.Errorf("project tier: %s and %s both map to %s", a, b, rel)
+		}
+		keyOf[rel] = key
+	}
 	stamp.Files = stamp.Files[:0]
 	for rel, body := range files {
 		rel = normaliseTeamGlob(rel)
