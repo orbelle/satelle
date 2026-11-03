@@ -13,7 +13,7 @@ import (
 // stderr nobody delivers; the session receives only the run's verdict. The
 // engage-time trunk line must therefore be in the verdict the driver is handed.
 // (The in-process path still printing to stderr is
-// TestStorySetEngageTrunkLineStaysOnStderrOutsideAGateRun.)
+// TestSlowStorySetEngageTrunkLineStaysOnStderrOutsideAGateRun.)
 func TestSlowStorySetEngageTrunkLineReachesTheDeliveredVerdict(t *testing.T) {
 	repo, r, id := trunkEngageRepo(t, "")
 	r.PublishFromPusher(t, "a.txt")
