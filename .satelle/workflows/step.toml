@@ -44,12 +44,13 @@ requires = ["raised"]
 enabled = true
 min_progress = 1
 
-# Plan review passes only when both model families accept.
+# Plan review passes only when both seats accept; at least one runs a model
+# other than the planner's.
 [[gate]]
 skill = "satelle-story-plan-review"
 on = ["plan"]
 for = ["*", "chore", "pr"]
-panel = ["reviewer", "reviewer-gpt"]
+panel = ["reviewer", "reviewer-alt"]
 combine = "satelle-panel-all-accept"
 
 # The coder implements against the frozen definition, converging with the consult seat before the gate judges cold.

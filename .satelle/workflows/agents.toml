@@ -18,8 +18,9 @@ busy_timeout = "60m"
 role       = "reviewer"
 principles = "session"
 
-# Second plan-review panel seat, on a different model family from [reviewer].
-[reviewer-gpt]
+# Second plan-review panel seat (reviewer-alt). The panel must hold at least one
+# model other than the planner's; a same-model seat beside it is fine.
+[reviewer-alt]
 role       = "reviewer"
 principles = "session"
 
