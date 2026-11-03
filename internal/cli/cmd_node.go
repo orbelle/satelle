@@ -151,13 +151,17 @@ func readTokenStdin(r io.Reader) (string, error) {
 // stops, it tells satelle.dev once, which revokes its token.
 func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	client := remotenode.NewNodeClient(nodeServer(), session, token, nodeHTTP)
-	defer func() {
+	// endNode tells satelle.dev the node has ended. It is once-guarded
+	// (NodeClient.End), so a job's teardown calls it before releasing its sprite
+	// hold and this defer, which covers every other way join stops, is then a no-op.
+	endNode := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), nodeEndTimeout)
 		defer cancel()
 		if err := client.End(ctx); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "join: telling satelle.dev the node has ended: %v\n", err)
 		}
-	}()
+	}
+	defer endNode()
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -256,9 +260,14 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 			return fmt.Errorf("join: %w", serr)
 		}
 		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
-		// On a fly-sprite the wake holds the sprite awake until it concludes.
-		defer spriteHold(ctx, cmd, session)()
-		return runTaskWake(ctx, cmd, beat, client, root, session, def)
+		// On a fly-sprite the wake holds the sprite awake until it concludes, and
+		// past that until the node has told satelle.dev it ended: a sprite paused
+		// between the release and the end call leaves the node silent, listed lost.
+		release := spriteHold(ctx, cmd, session)
+		defer release()
+		err := runTaskWake(ctx, cmd, beat, client, root, session, def)
+		endAfterJob(beat, endNode, release)
+		return err
 	}
 
 	// A node a starter asked satelle.dev for to perform a step (mode=performer)
@@ -298,9 +307,23 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	} else {
 		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
 	}
-	// So too its sprite hold: the sprite is held awake for the whole serve.
-	defer spriteHold(ctx, cmd, session)()
-	return node.Serve(ctx, sess, report)
+	// So too its sprite hold: the sprite is held awake for the whole serve, and
+	// through the end call after it.
+	release := spriteHold(ctx, cmd, session)
+	defer release()
+	err = node.Serve(ctx, sess, report)
+	endAfterJob(beat, endNode, release)
+	return err
+}
+
+// endAfterJob is a node's teardown once its one job is over, in the order
+// satelle.dev must see it: the heartbeat stops (so no status follows the
+// job's last one), the node ends, and only then is its sprite hold released.
+// Each step is idempotent, so join's deferred backstops are then no-ops.
+func endAfterJob(beat *remotenode.Heartbeat, endNode, release func()) {
+	beat.Stop()
+	endNode()
+	release()
 }
 
 // spriteHold holds a fly-sprite awake for the node's job and returns what

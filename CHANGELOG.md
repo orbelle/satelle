@@ -1,3 +1,8 @@
+## [0.0.867] - 2026-11-03
+
+### Fixed
+- A node whose definition sets [lifecycle] scope = "run" ends itself as soon as its run concludes: it sends the concluded status, reports ended and exits, and only then releases its sprite hold. Before, it released the hold and went silent, so the sprite paused and satelle.dev listed the node as lost (still counted as running) until the lost window passed. (sty_8637f1f1)
+
 ## [0.0.866] - 2026-11-03
 
 ### Fixed

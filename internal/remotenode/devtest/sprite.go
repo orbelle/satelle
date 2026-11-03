@@ -23,9 +23,10 @@ type SpriteCall struct {
 type SpriteAPI struct {
 	Socket string
 
-	mu    sync.Mutex
-	calls []SpriteCall
-	code  int
+	mu     sync.Mutex
+	calls  []SpriteCall
+	code   int
+	onCall func(SpriteCall)
 }
 
 // NewSpriteAPI serves a fake sprite API until the test ends.
@@ -39,9 +40,13 @@ func NewSpriteAPI(t testing.TB) *SpriteAPI {
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
-		f.calls = append(f.calls, SpriteCall{r.Method, r.URL.Path, string(b), time.Now()})
-		code := f.code
+		call := SpriteCall{r.Method, r.URL.Path, string(b), time.Now()}
+		f.calls = append(f.calls, call)
+		code, hook := f.code, f.onCall
 		f.mu.Unlock()
+		if hook != nil {
+			hook(call)
+		}
 		w.WriteHeader(code)
 	})}
 	go func() { _ = srv.Serve(ln) }()
@@ -70,6 +75,14 @@ func (f *SpriteAPI) Refuse(code int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.code = code
+}
+
+// OnCall runs fn on each later request as it is received, before it is
+// answered, so a test can see what else had happened by then.
+func (f *SpriteAPI) OnCall(fn func(SpriteCall)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onCall = fn
 }
 
 // Calls is every request received so far, in order.
