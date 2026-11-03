@@ -257,9 +257,10 @@ func runPagedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer, 
 }
 
 // settle closes a pass whose pages are all in: the story views are regenerated
-// once. A story's status needs no forwarding here: each page rebuilds the rows it
-// applied from the fold of their chains, so a transition that lands on a later
-// page than its story moves that row when the page lands.
+// once. A story's status needs no forwarding here: each page rebuilds, from the
+// fold of their chains, the rows it applied and the row of every story it wrote
+// events to, so a transition that lands on a later page than its story moves
+// that row when the page lands (sty_a28c64dd).
 func (p *snapshotPass) settle(ctx context.Context, now time.Time) error {
 	if _, _, verr := verb.SyncStoryBacklog(ctx, p.a.Store.Stories, now); verr != nil {
 		return fmt.Errorf("regenerate story views after %d item(s), %d ledger: %w — store rows landed; re-run is safe", p.rep.Items, p.rep.Ledger, verr)

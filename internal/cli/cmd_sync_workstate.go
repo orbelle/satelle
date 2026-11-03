@@ -993,6 +993,10 @@ func upsertWorkstatePage(ctx context.Context, a *app.App, optIn map[string]bool,
 			out.clear(it.ID)
 		}
 	}
+	// The stories whose chain this page writes to, in first-seen order: each is
+	// rebuilt below whether or not the page carried its row, so a story whose
+	// later events land on a later page than its row follows them (sty_a28c64dd).
+	var touched []string
 	if optIn["ledger"] {
 		// A row that arrives without a base is linked to the story's tail as it is
 		// inserted, so arrival order becomes its place in the chain the fold reads.
@@ -1009,6 +1013,9 @@ func upsertWorkstatePage(ctx context.Context, a *app.App, optIn map[string]bool,
 				return applied, nItems, nLedger, nKept, fmt.Errorf("upsert ledger %s after %d item(s), %d ledger: %w — re-run is safe (upsert-by-id)", hr.ID, nItems, nLedger, uerr)
 			}
 			nLedger++
+			if e.StoryID != "" && !slices.Contains(touched, e.StoryID) {
+				touched = append(touched, e.StoryID)
+			}
 		}
 	}
 	// The events of a story are not on the page: the hosted chain of each story it
@@ -1020,18 +1027,38 @@ func upsertWorkstatePage(ctx context.Context, a *app.App, optIn map[string]bool,
 	if rerr != nil {
 		return applied, nItems, nLedger, nKept, fmt.Errorf("%w — re-run is safe (upsert-by-id)", rerr)
 	}
-	// The page's events are in: the rows it applied are now a cache of their chains.
-	if err := foldPulledStories(ctx, a, folded, priorStatus, out, force, now); err != nil {
+	// The page's events are in: the rows it applied, and those of every story it
+	// wrote events to, are now a cache of their chains.
+	if err := foldPulledStories(ctx, a, folded, refoldOnly(applied, touched), priorStatus, out, force, now, chain); err != nil {
 		return applied, nItems, nLedger, nKept, fmt.Errorf("%w — re-run is safe (upsert-by-id)", err)
 	}
 	return applied, nItems, nLedger, nKept, nil
 }
 
-// foldPulledStories brings the stories a pull applied under their chains
+// refoldOnly is the stories of touched whose row the page did not apply: those
+// foldPulledStories rebuilds from their chain alone.
+func refoldOnly(applied []workitem.Item, touched []string) []string {
+	var out []string
+	for _, id := range touched {
+		if !slices.ContainsFunc(applied, func(it workitem.Item) bool { return it.ID == id }) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// foldPulledStories brings the stories a pull page wrote under their chains
 // (sty_d84be8bc): each cached row is rebuilt from the fold of its chain. The
 // chain decides status — a transition that disagrees with the hosted row's status
 // moves the row, and a story with no transition takes the hosted row's — so no
 // separate status forwarding exists. A task or execution is not folded.
+//
+// The page's stories are those it applied and those it wrote only events to
+// (touched): a story whose row landed on an earlier page is rebuilt again when
+// its later events land, so its row follows the newest transition its chain
+// holds rather than the fold of the part that had arrived (sty_a28c64dd). A
+// touched story has no hosted row on the page, so it is rebuilt from its chain
+// alone; one with no local row, or whose history stays on the server, is left.
 //
 // The pass appends nothing to a chain (sty_199ad82b): a chain moves only by the
 // hosted events it took. A story whose hosted chain was not read is
@@ -1046,8 +1073,10 @@ func upsertWorkstatePage(ctx context.Context, a *app.App, optIn map[string]bool,
 // A story that was done or cancelled here and whose rebuild leaves it in a
 // non-terminal status is named in out — the story, both statuses and the event
 // that set the new one — whichever path wrote the row first (priorStatus is read
-// before either), so a pull never moves a closed story silently.
-func foldPulledStories(ctx context.Context, a *app.App, applied []workitem.Item, priorStatus map[string]string, out *storyOutcome, force bool, now time.Time) error {
+// before either; a touched story's row is unwritten until its rebuild, so its
+// prior status is the row read here), so a pull never moves a closed story
+// silently.
+func foldPulledStories(ctx context.Context, a *app.App, applied []workitem.Item, touched []string, priorStatus map[string]string, out *storyOutcome, force bool, now time.Time, chain *chainPull) error {
 	for _, hosted := range applied {
 		if hosted.Kind != workitem.KindStory {
 			continue
@@ -1073,24 +1102,49 @@ func foldPulledStories(ctx context.Context, a *app.App, applied []workitem.Item,
 				return fmt.Errorf("take the hosted status of %s: %w", hosted.ID, err)
 			}
 		}
-		rebuilt, err := verb.RebuildRow(ctx, a.Store.Stories, a.Store.Ledger, row, now)
-		if err != nil {
-			return fmt.Errorf("rebuild %s from its chain: %w", hosted.ID, err)
-		}
 		prior, had := priorStatus[hosted.ID]
-		if !had || prior == rebuilt.Status || !verb.EndsEngagementForGood(ctx, rebuilt, prior) || verb.EndsEngagementForGood(ctx, rebuilt, rebuilt.Status) {
+		if err := rebuildPulledRow(ctx, a, row, prior, had, out, now); err != nil {
+			return err
+		}
+	}
+	for _, id := range touched {
+		row, err := a.Store.Stories.Get(ctx, id)
+		if errors.Is(err, workitem.ErrNotFound) {
 			continue
 		}
-		st, _, ferr = verb.FoldStory(ctx, a.Store.Ledger, rebuilt)
-		if ferr != nil {
-			return fmt.Errorf("fold %s: %w", hosted.ID, ferr)
+		if err != nil {
+			return fmt.Errorf("read %s after pull: %w", id, err)
 		}
-		by := "the hosted row"
-		if st.StatusEvent != "" {
-			by = "event " + st.StatusEvent
+		if row.Kind != workitem.KindStory || chain.remote(row) {
+			continue
 		}
-		out.moved(fmt.Sprintf("%s was %s and the pull moved it to %s (set by %s)", hosted.ID, prior, rebuilt.Status, by))
+		if err := rebuildPulledRow(ctx, a, row, row.Status, true, out, now); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// rebuildPulledRow rebuilds row from the fold of its chain and names it in out
+// when that moves it off a status that ended its engagement for good (prior,
+// when had) onto one that does not.
+func rebuildPulledRow(ctx context.Context, a *app.App, row workitem.Item, prior string, had bool, out *storyOutcome, now time.Time) error {
+	rebuilt, err := verb.RebuildRow(ctx, a.Store.Stories, a.Store.Ledger, row, now)
+	if err != nil {
+		return fmt.Errorf("rebuild %s from its chain: %w", row.ID, err)
+	}
+	if !had || prior == rebuilt.Status || !verb.EndsEngagementForGood(ctx, rebuilt, prior) || verb.EndsEngagementForGood(ctx, rebuilt, rebuilt.Status) {
+		return nil
+	}
+	st, _, ferr := verb.FoldStory(ctx, a.Store.Ledger, rebuilt)
+	if ferr != nil {
+		return fmt.Errorf("fold %s: %w", row.ID, ferr)
+	}
+	by := "the hosted row"
+	if st.StatusEvent != "" {
+		by = "event " + st.StatusEvent
+	}
+	out.moved(fmt.Sprintf("%s was %s and the pull moved it to %s (set by %s)", row.ID, prior, rebuilt.Status, by))
 	return nil
 }
 
