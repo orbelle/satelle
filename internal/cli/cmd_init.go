@@ -173,7 +173,7 @@ func runInitAll(out io.Writer, apply bool, forcedHarness []string) error {
 		// runInit is idempotent over AUTHORED substrate — it seeds only absent
 		// files — so healing deploys canonical scaffolding without touching
 		// anything the operator wrote.
-		unpushed, ierr := runInitReport(io.Discard, root, false, forcedHarness)
+		unpushed, ierr := runInitReport(io.Discard, root, false, forcedHarness, true)
 		if ierr != nil {
 			fmt.Fprintf(out, "  FAILED  %s — %v\n", root, ierr)
 			failed++
@@ -251,16 +251,23 @@ func initRepoRoot(configArg string) string {
 // under no store-backed command and `init --all` targets other repos, so the
 // row goes to the ledger opened here, never the wired one.
 func runInit(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string) error {
-	_, err := runInitReport(out, repoRoot, noWorkspace, forcedHarness)
+	return runInitWith(out, repoRoot, noWorkspace, forcedHarness, true)
+}
+
+// runInitWith is runInit with the process-hook step switchable. processHooks
+// false skips ensureProcessHooks, for a caller (node join) that learns which
+// harness to install only after init, and installs the hooks itself then.
+func runInitWith(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string, processHooks bool) error {
+	_, err := runInitReport(out, repoRoot, noWorkspace, forcedHarness, processHooks)
 	return err
 }
 
 // runInitReport is runInit returning, beside its error, the synced areas the run
 // changed but could not publish: the heal succeeded and its push did not, which
 // `init --all` reports per repo and never counts as a failed heal.
-func runInitReport(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string) ([]string, error) {
+func runInitReport(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string, processHooks bool) ([]string, error) {
 	before := initSubstrateHashes(repoRoot)
-	err := runInitBody(out, repoRoot, noWorkspace, forcedHarness)
+	err := runInitBody(out, repoRoot, noWorkspace, forcedHarness, processHooks)
 	changed := verb.SeededChanges(before, initSubstrateHashes(repoRoot))
 	if len(changed) > 0 {
 		if rerr := recordInitSeed(repoRoot, changed); rerr != nil {
@@ -368,7 +375,7 @@ func recordInitSeed(repoRoot string, files []verb.SeededFile) error {
 // a test can make a second run rewrite init's own bytes only through this seam.
 var initTomlHealHook func([]byte) []byte
 
-func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string) error {
+func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string, processHooks bool) error {
 	// 1. .satelle/ directory.
 	dataDir := filepath.Join(repoRoot, config.DefaultDataDir)
 	created, err := ensureDir(dataDir)
@@ -642,9 +649,12 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 
 	// 5. Process hooks ON DEMAND — Claude (.claude/settings.json) and/or Grok
 	//    (.grok/hooks/satelle.json) when forced via --harness or when those dirs
-	//    already exist. Never PATH, never a silent claude default.
-	if err := ensureProcessHooks(out, repoRoot, forcedHarness); err != nil {
-		return err
+	//    already exist. Never PATH, never a silent claude default. Skipped when
+	//    the caller installs them itself (processHooks false).
+	if processHooks {
+		if err := ensureProcessHooks(out, repoRoot, forcedHarness); err != nil {
+			return err
+		}
 	}
 
 	// 5b. Launchers — heal an installed one to the current form, and hint at

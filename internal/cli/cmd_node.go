@@ -190,8 +190,9 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		return err
 	}
 	// noWorkspace: the node is not registered in any workspace. Init's output is
-	// the node's own log; stdout is reserved for the key line.
-	if err := runInit(cmd.ErrOrStderr(), root, true, nil); err != nil {
+	// the node's own log; stdout is reserved for the key line. Init's process-hook
+	// step is deferred until the definition names the harnesses its bindings run.
+	if err := runInitWith(cmd.ErrOrStderr(), root, true, nil, false); err != nil {
 		return fmt.Errorf("join: init %s: %w", root, err)
 	}
 
@@ -204,6 +205,10 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	dataDir := filepath.Join(root, config.DefaultDataDir)
 	def, version, err := installNodeDefinition(ctx, cmd, client, dataDir)
 	if err != nil {
+		reportNodeStartFailure(ctx, cmd, client, beat, err)
+		return fmt.Errorf("join: %w", err)
+	}
+	if err := installNodeHooks(cmd.ErrOrStderr(), root, dataDir); err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return fmt.Errorf("join: %w", err)
 	}
@@ -687,19 +692,9 @@ func nodeProcess() (config.Config, string, error) {
 // through agentstep.LookupRunner, the resolution a dispatch uses, and names every
 // one that does not resolve.
 func resolveNodeBindings(dataDir string) ([]string, error) {
-	cfg, err := config.LoadAgents(dataDir)
+	all, err := nodeBindings(dataDir)
 	if err != nil {
-		return nil, fmt.Errorf("agents.toml: %w", err)
-	}
-	all := map[string]config.AgentBinding{}
-	if cfg.Executor.Command != "" {
-		all["executor"] = cfg.Executor
-	}
-	if cfg.Reviewer.Command != "" {
-		all["reviewer"] = cfg.Reviewer
-	}
-	for n, b := range cfg.Agents {
-		all[n] = b
+		return nil, err
 	}
 	names := make([]string, 0, len(all))
 	for n := range all {
@@ -725,6 +720,69 @@ func resolveNodeBindings(dataDir string) ([]string, error) {
 		return nil, errors.Join(failed...)
 	}
 	return resolved, nil
+}
+
+// nodeBindings is every binding the remote's agents.toml defines, by name: the
+// executor and reviewer seats when set, and each named agent.
+func nodeBindings(dataDir string) (map[string]config.AgentBinding, error) {
+	cfg, err := config.LoadAgents(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("agents.toml: %w", err)
+	}
+	all := map[string]config.AgentBinding{}
+	if cfg.Executor.Command != "" {
+		all["executor"] = cfg.Executor
+	}
+	if cfg.Reviewer.Command != "" {
+		all["reviewer"] = cfg.Reviewer
+	}
+	for n, b := range cfg.Agents {
+		all[n] = b
+	}
+	return all, nil
+}
+
+// nodeHarnesses names, sorted and de-duplicated, the harnesses whose process
+// hooks init can install (claude, grok) that the remote's node-run bindings
+// run, each resolved from its binding command by agentcli.HarnessOf. A cloud
+// binding is dispatched by the platform, not run on the node, so it names none.
+func nodeHarnesses(dataDir string) ([]string, error) {
+	all, err := nodeBindings(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range all {
+		if b.ResolvedInterface() == config.InterfaceCloud {
+			continue
+		}
+		h := agentcli.HarnessOf(b.CommandTemplate())
+		if (h == agentcli.HarnessClaude || h == agentcli.HarnessGrok) && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// installNodeHooks installs satelle's process hooks on the node for the
+// harnesses its definition's bindings run, through init's own hook step with
+// those harnesses forced, as `satelle init --harness` does locally. With none,
+// init's step reports that no hooks were installed, as join did before.
+func installNodeHooks(out io.Writer, root, dataDir string) error {
+	hs, err := nodeHarnesses(dataDir)
+	if err != nil {
+		return fmt.Errorf("process hooks: %w", err)
+	}
+	if err := ensureProcessHooks(out, root, hs); err != nil {
+		return fmt.Errorf("process hooks: %w", err)
+	}
+	if len(hs) > 0 {
+		fmt.Fprintf(out, "join: process hooks installed: %s\n", strings.Join(hs, ","))
+	}
+	return nil
 }
 
 // doneCategories lists the workflow categories of the remote's effective

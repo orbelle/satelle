@@ -1,3 +1,8 @@
+## [0.0.871] - 2026-11-03
+
+### Fixed
+- `satelle node join` installs satelle's hooks for each harness its definition's agent bindings run (resolved from the binding commands, e.g. claude for pr-approve) into that harness's repo settings file, as `satelle init --harness` does locally, so a remote runs satelle with the same hook gates (the edit gate among them) as a local session. The join log names the harnesses whose hooks it installed instead of "process hooks: none". (sty_a9530d39)
+
 ## [0.0.870] - 2026-11-03
 
 ### Fixed
