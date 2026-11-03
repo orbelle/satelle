@@ -1,3 +1,8 @@
+## [0.0.876] - 2026-11-03
+
+### Fixed
+- `satelle substrate review` creates its run's execution with the run category, so a repo whose create gate requires a category can run it. Before, the execution was created with no category and the create gate refused it ("category is empty — pass --category"), so the command exited before judging anything. (sty_5ed358e0)
+
 ## [0.0.875] - 2026-11-03
 
 ### Fixed
