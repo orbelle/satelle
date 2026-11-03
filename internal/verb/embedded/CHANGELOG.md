@@ -1,3 +1,13 @@
+## [0.0.877] - 2026-11-03
+
+### Fixed
+- `satelle sync workstate push`, `snapshot` and `pull` report a run that left work unpublished or unpulled for a reason a retry cannot change (a refused or conflicting row) as unconverged, and a sync child marks its own writes with its origin, so they never schedule another sync. (sty_0367d20c)
+
+## [serve-v0.0.287] - 2026-11-03
+
+### Fixed
+- satelled's workstate sync no longer re-triggers itself and holds several cores. A sync child's own writes mark nothing; a push that held only in-flight stories schedules no re-run; a failing push waits an increasing backoff before it runs again, on a retry timer; and at most one sync child per repo and kind runs at a time, a second caller waiting for it rather than failing. satelled logs each sync run's outcome and next delay, and serves Go pprof on loopback. (sty_0367d20c)
+
 ## [0.0.876] - 2026-11-03
 
 ### Fixed
