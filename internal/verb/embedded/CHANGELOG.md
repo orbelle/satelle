@@ -1,3 +1,8 @@
+## [0.0.863] - 2026-11-03
+
+### Fixed
+- `satelle task archive` on a synced repo fetches the task's hosted chain first and appends its archive event on that head, so the next push publishes the archived task instead of refusing it as "moved since its start". `satelle sync workstate pull` (and the snapshot pass) fetches task chains as it does story chains, so a task archived before this release becomes publishable after one pull. (sty_0810c2a3)
+
 ## [0.0.862] - 2026-11-03
 
 ### Fixed

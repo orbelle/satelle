@@ -234,6 +234,11 @@ func runPagedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer, 
 	if err := p.settle(ctx, now); err != nil {
 		return p.rep, err
 	}
+	// A task this page set did not carry is read once per project pass: a since
+	// pass carries no row the server did not change (sty_0810c2a3).
+	if err := p.chain.sweepTasks(ctx, a, optIn, &p.rep.Stories, now); err != nil {
+		return p.rep, fmt.Errorf("%w — re-run is safe", err)
+	}
 	p.chain.flush()
 	if _, err := trimHostedHistory(ctx, a, server, project); err != nil {
 		return p.rep, fmt.Errorf("trim the local history: %w", err)

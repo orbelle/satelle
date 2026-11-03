@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -89,6 +90,36 @@ func fetchBeforeWrite(cmd *cobra.Command, ids ...string) {
 		if _, ferr := fetchRemoteHistory(cmd.Context(), a, id); ferr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: history is on the server and was not fetched before this write: %v — if push then refuses it, run `satelle sync workstate rechain %s`\n", id, ferr, id)
 		}
+	}
+}
+
+// fetchChainBeforeWrite reads, in hosted mode, the hosted chain of an item a
+// write is about to append to and takes it under the local chain, so the write
+// builds on the hosted head (sty_0810c2a3). fetchBeforeWrite fetches only a
+// story whose history was trimmed; a task's history is never trimmed, yet its
+// chain may hold events another location made that this checkout never read. A
+// fetch that fails is said on errw and the write goes on: local first, never
+// blocked.
+func fetchChainBeforeWrite(cmd *cobra.Command, id string) {
+	a, err := appFrom(cmd)
+	if err != nil || a == nil || a.Store == nil || id == "" || !verb.HostedMode(a.Config) {
+		return
+	}
+	ctx, errw := cmd.Context(), cmd.ErrOrStderr()
+	server := resolveServer("")
+	project, err := resolveBoundProject(a.Config, a.RepoRoot)
+	if err != nil {
+		fmt.Fprintf(errw, "%s: the hosted chain was not read before this write: %v\n", id, err)
+		return
+	}
+	c := newChainPull(newHostedClient(ctx, server, a.RepoRoot), server, project, a.RepoRoot, errw)
+	defer c.close()
+	rd, err := c.reader(ctx)
+	if err == nil {
+		_, err = c.materializeStory(ctx, a, rd, id, &storyOutcome{}, time.Now().UTC())
+	}
+	if err != nil && !errors.Is(err, hosted.ErrChainUnsupported) && !errors.Is(err, hosted.ErrLoginRequired) {
+		fmt.Fprintf(errw, "%s: the hosted chain was not read before this write: %v — if push then refuses it, run `satelle sync workstate pull`\n", id, err)
 	}
 }
 

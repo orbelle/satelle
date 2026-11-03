@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +10,11 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/app"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/storyfold"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -44,6 +47,7 @@ type chainPull struct {
 	reads       int
 	heads       map[string]string // story -> last event this checkout holds that the server has
 	pending     map[string]string
+	taken       map[string]bool // chains this pass has read
 
 	// held, set in hosted mode, names the stories whose hosted chain a pass reads;
 	// every other story arrives as its row alone (sty_0dc600e1). Nil reads all.
@@ -174,20 +178,84 @@ func (c *chainPull) materialize(ctx context.Context, a *app.App, optIn map[strin
 		return nil
 	}
 	for _, it := range applied {
-		if it.Kind != workitem.KindStory || c.remote(it) {
+		// A task's chain is read like a story's (sty_0810c2a3): its events, an
+		// archive among them, are published by the same compare-and-append.
+		if (it.Kind != workitem.KindStory && it.Kind != workitem.KindTask) || c.remote(it) {
 			continue
 		}
-		rd, err := c.reader(ctx)
+		if done, err := c.take(ctx, a, it.ID, out, now); done || err != nil {
+			return err
+		}
+	}
+	c.flush()
+	return nil
+}
+
+// take materializes one chain and remembers it was read this pass. done reports
+// that the pass reads no more chains: the server has no chain service.
+func (c *chainPull) take(ctx context.Context, a *app.App, id string, out *storyOutcome, now time.Time) (done bool, err error) {
+	rd, err := c.reader(ctx)
+	if err != nil {
+		return true, err
+	}
+	if c.taken == nil {
+		c.taken = map[string]bool{}
+	}
+	c.taken[id] = true
+	_, err = c.materializeStory(ctx, a, rd, id, out, now)
+	if errors.Is(err, hosted.ErrChainUnsupported) {
+		c.unsupported = true
+		fmt.Fprintln(c.errw, "workstate: the server has no story chain service; pulled stories keep the chain they have here")
+		return true, nil
+	}
+	return err != nil, err
+}
+
+// sweepTasks reads the hosted chain of every local task the pass did not read
+// whose saved head is not its local tip (sty_0810c2a3). A task archived here on
+// a chain that never took its hosted events — an earlier pull read no task
+// chain — is refused by every push as moved; reading it here brings the hosted
+// events in and moves the local-only ones after them, so the next push
+// publishes it. A task whose head is its tip, or whose chain forks here, is not
+// read.
+func (c *chainPull) sweepTasks(ctx context.Context, a *app.App, optIn map[string]bool, out *storyOutcome, now time.Time) error {
+	if c == nil || !optIn["ledger"] || c.unsupported {
+		return nil
+	}
+	ids, err := a.Store.Ledger.StoryIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("list the local chains: %w", err)
+	}
+	for _, id := range ids {
+		if c.taken[id] {
+			continue
+		}
+		it, err := a.Store.Stories.Get(ctx, id)
+		if errors.Is(err, workitem.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read item %s: %w", id, err)
+		}
+		if it.Kind != workitem.KindTask {
+			continue
+		}
+		local, err := a.Store.Ledger.StoryChain(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read the chain of %s: %w", id, err)
+		}
+		order, oerr := chainOrder(local)
+		if oerr != nil || len(order) == 0 {
+			continue
+		}
+		head, err := c.head(id)
 		if err != nil {
 			return err
 		}
-		_, err = c.materializeStory(ctx, a, rd, it.ID, out, now)
-		if errors.Is(err, hosted.ErrChainUnsupported) {
-			c.unsupported = true
-			fmt.Fprintln(c.errw, "workstate: the server has no story chain service; pulled stories keep the chain they have here")
-			return nil
+		if head == order[len(order)-1].ID {
+			continue
 		}
-		if err != nil {
+		if done, err := c.take(ctx, a, id, out, now); done || err != nil {
 			return err
 		}
 	}
@@ -216,6 +284,9 @@ func (c *chainPull) materializeStory(ctx context.Context, a *app.App, rd chainRe
 	var unlinked unlinkedError
 	switch {
 	case errors.Is(perr, errTakeForked):
+		if isTask(ctx, a, id) {
+			return c.rebaseTask(ctx, a, rd, id, local, events, latest, after, out, now)
+		}
 		c.forked(id, local, events, after, out)
 		return false, nil
 	case errors.As(perr, &unlinked):
@@ -325,4 +396,120 @@ func (c *chainPull) forked(id string, local []ledger.Entry, events []hosted.Chai
 		return
 	}
 	out.conflict(id, conflictChainForked)
+}
+
+// isTask reports whether id is a task in the local store.
+func isTask(ctx context.Context, a *app.App, id string) bool {
+	it, err := a.Store.Stories.Get(ctx, id)
+	return err == nil && it.Kind == workitem.KindTask
+}
+
+// redundantSeed returns the local-only events a task rebase drops rather than
+// moves: SeedItem's copy of a definition (rechain's replay drops it too), and a
+// workflow_version event the hosted chain already records, which the local
+// append wrote only because the local chain did not hold the hosted one. Any
+// other workflow_version is moved like any other event.
+func redundantSeed(seen []ledger.Entry) func(ledger.Entry) bool {
+	versions := map[string]bool{}
+	for _, e := range seen {
+		if v := workflowVersionOf(e); v != "" {
+			versions[v] = true
+		}
+	}
+	return func(e ledger.Entry) bool {
+		if e.Kind == ledger.KindDefinitionSnapshot {
+			return storyfold.IsSeededEvent(e)
+		}
+		v := workflowVersionOf(e)
+		return v != "" && versions[v]
+	}
+}
+
+// workflowVersionOf is the version a workflow_version event records; empty for
+// any other event.
+func workflowVersionOf(e ledger.Entry) string {
+	if !ledger.IsVersionEvent(e) {
+		return ""
+	}
+	var refs map[string]string
+	_ = json.Unmarshal(e.Refs, &refs)
+	return refs["workflow_version"]
+}
+
+// rebaseTask brings a task's hosted chain under a local chain that forks it
+// (sty_0810c2a3): the hosted events this checkout lacks are inserted, and the
+// local-only events after the prefix both chains share are moved after the hosted
+// latest, so the next push appends only them. A seeded genesis among the local-only
+// events is dropped, never republished (redundantSeed). A task is driven by no workflow, so the
+// hosted events are taken whatever they move; its row is not a fold of its chain,
+// so no row is rebuilt. A shape this cannot read as prefix-then-divergence is
+// reported as a story fork is.
+func (c *chainPull) rebaseTask(ctx context.Context, a *app.App, rd chainReader, id string, local []ledger.Entry, events []hosted.ChainEvent, latest, after string, out *storyOutcome, now time.Time) (bool, error) {
+	if after != "" {
+		// The read began after the saved head; the shared prefix needs the whole chain.
+		var err error
+		if events, latest, err = rd.ReadStory(ctx, c.project, id, ""); err != nil {
+			return false, fmt.Errorf("read the hosted chain of %s: %w — re-run is safe", id, err)
+		}
+	}
+	order, err := chainOrder(local)
+	if err != nil || len(events) == 0 || events[len(events)-1].ID != latest {
+		c.forked(id, local, events, "", out)
+		return false, nil
+	}
+	n := matchingPrefix(order, events)
+	held := make(map[string]bool, len(order))
+	for _, e := range order {
+		held[e.ID] = true
+	}
+	onHosted := make(map[string]bool, len(events))
+	for _, e := range events {
+		onHosted[e.ID] = true
+	}
+	var seen []ledger.Entry
+	for _, ev := range events[n:] {
+		if held[ev.ID] {
+			c.forked(id, local, events, "", out)
+			return false, nil
+		}
+		e, perr := ledgerEntryOf(id, ev)
+		if perr != nil {
+			return false, fmt.Errorf("decode the hosted event %s of %s: %w — re-run is safe", ev.ID, id, perr)
+		}
+		seen = append(seen, e)
+	}
+	hostedEntries := append(append([]ledger.Entry(nil), order[:n]...), seen...)
+	drop := redundantSeed(hostedEntries)
+	var unpublished, seeded []string
+	for _, e := range order[n:] {
+		switch {
+		case onHosted[e.ID]:
+			c.forked(id, local, events, "", out)
+			return false, nil
+		case drop(e):
+			seeded = append(seeded, e.ID)
+		default:
+			unpublished = append(unpublished, e.ID)
+		}
+	}
+	if len(unpublished) > 0 {
+		if err := a.Store.Ledger.RebaseEvents(ctx, id, seen, unpublished, latest); err != nil {
+			return false, fmt.Errorf("rebase the task %s on its hosted chain: %w — re-run is safe", id, err)
+		}
+	}
+	if len(seeded) > 0 {
+		if err := a.Store.Ledger.RemoveEvents(ctx, id, seeded, drop); err != nil {
+			return false, fmt.Errorf("drop the seeded genesis of %s: %w", id, err)
+		}
+	}
+	if len(unpublished) == 0 {
+		if err := takeEvents(ctx, a, id, events[n:], now); err != nil {
+			return false, err
+		}
+	}
+	fmt.Fprintf(c.errw, "workstate: the task %s moved on the server: %d event(s) applied here, %d re-appended after %s\n", id, len(seen), len(unpublished), latest)
+	c.pending[id] = latest
+	out.clear(id)
+	_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, nil, []string{id}, now)
+	return true, nil
 }

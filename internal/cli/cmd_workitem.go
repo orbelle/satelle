@@ -377,6 +377,8 @@ recoverable from the backup tree.`,
 		Args:        cobra.ExactArgs(1),
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The archive event builds on the task's hosted head (sty_0810c2a3).
+			fetchChainBeforeWrite(cmd, args[0])
 			return dispatch(cmd, "task-archive", map[string]any{"id": args[0]})
 		},
 	}
