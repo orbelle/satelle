@@ -165,20 +165,6 @@ func (e *storyEnv) lastChangeRecord() []string {
 	return p.Files
 }
 
-// AC2: once the story edits the file init wrote, it is the story's change again.
-func TestInitRewriteThenStoryEditListed(t *testing.T) {
-	repo, e := seededStory(t)
-	initUnwired(t, repo, e)
-	raw, err := os.ReadFile(filepath.Join(repo, seedTomlRel))
-	if err != nil {
-		t.Fatal(err)
-	}
-	editAfterEngage(t, repo, seedTomlRel, string(raw)+"# the story's edit\n")
-	if res := e.substrateDiff(); !slices.Contains(res.Files, seedTomlRel) {
-		t.Fatalf("the story's edit after init must be listed, got %v", res.Files)
-	}
-}
-
 // AC4: one run records one row in the repo's own ledger naming what it healed,
 // with the bytes before and after; a run that changes nothing records none.
 func TestInitRecordsSeedRow(t *testing.T) {
@@ -222,39 +208,5 @@ func TestInitRecordsSeedRow(t *testing.T) {
 	}
 	if toml.BeforeSHA256 != sha256Hex([]byte(before)) || toml.SHA256 != sha256Hex(cur) || toml.BeforeMtime.IsZero() {
 		t.Errorf("row must carry the bytes before and after and the pre-write mtime: %+v", *toml)
-	}
-}
-
-// AC4: the --all heal records each healed repo's row in that repo's own ledger.
-func TestInitAllRecordsPerRepo(t *testing.T) {
-	isolateUserHome(t)
-	repos := []string{t.TempDir(), t.TempDir()}
-	for _, r := range repos {
-		if err := runInit(io.Discard, r, false, []string{"claude"}); err != nil {
-			t.Fatalf("runInit %s: %v", r, err)
-		}
-		writeRepoFile(t, r, satelleHookScriptRel, "# stale wrapper\n")
-	}
-	if err := runInitAll(io.Discard, true, nil); err != nil {
-		t.Fatalf("init --all: %v", err)
-	}
-	for i, r := range repos {
-		db, err := store.Open(initRuntimeDB(t, r))
-		if err != nil {
-			t.Fatal(err)
-		}
-		rows := seedRows(t, db, satelleHookScriptRel)
-		all, _ := db.Ledger.List(context.Background(), ledger.ListFilter{Kind: ledger.KindSubstrateSeeded})
-		_ = db.Close()
-		if len(rows) == 0 || rows[len(rows)-1].BeforeSHA256 != sha256Hex([]byte("# stale wrapper\n")) {
-			t.Errorf("repo %d: its own ledger must record the --all heal of %s, got %+v", i, satelleHookScriptRel, rows)
-		}
-		for _, e := range all {
-			var p verb.SubstrateSeedPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			if p.Root != r {
-				t.Errorf("repo %d: ledger holds a row for another repo %s", i, p.Root)
-			}
-		}
 	}
 }

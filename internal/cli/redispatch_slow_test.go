@@ -100,3 +100,18 @@ func TestSlowSameStatusSetRedispatchesACommandCoderWithTheExitFindings(t *testin
 		t.Errorf("the exit gate must be told rd-gate#1 was answered: %+v\n%s", fa, gate)
 	}
 }
+
+// AC5: a coder seat that is not live-capable is refused by `story rework` with
+// the one-shot re-dispatch named, so the operator is not left without a way out.
+func TestSlowStoryReworkRefusalNamesTheOneShotRedispatch(t *testing.T) {
+	_, id := redispatchRepo(t)
+	out, err := runRoot(t, "story", "rework", id)
+	if err == nil {
+		t.Fatalf("a command-interface coder cannot be relayed:\n%s", out)
+	}
+	for _, want := range []string{"interface=command", "satelle story set " + id + " --status in_progress"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal must name %q, got: %v", want, err)
+		}
+	}
+}

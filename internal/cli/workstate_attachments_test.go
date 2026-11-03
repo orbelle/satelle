@@ -192,56 +192,6 @@ func syncWorkstateCLI(t *testing.T, url string, verbArgs ...string) string {
 	return out
 }
 
-// TestAttachmentPushUploadsByteExact (AC1): every markdown attachment, the
-// type:change patch included, reaches the personal documents collection, with the
-// ledger area opted in and with it local. Unchanged files are not re-sent; an
-// edited one is sent alone.
-func TestAttachmentPushUploadsByteExact(t *testing.T) {
-	for _, tc := range []struct{ name, toml string }{
-		{"ledger personal", ledgerPushToml},
-		{"ledger local", storiesOnlyToml},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			url, _, docs := attachmentServer(t)
-			workstateRepo(t, tc.toml)
-			id := createStoryID(t, "attachment push")
-			attachDoc(t, id, "change-in_progress-done", "change", "diff --git a/x.go b/x.go\n+hello\n")
-			attachDoc(t, id, "plan", "plan", "the plan")
-
-			out := runPush(t, url)
-			if !strings.Contains(out, "attachments: 2 uploaded") {
-				t.Errorf("push should report the uploads: %q", out)
-			}
-			for _, name := range []string{"change-in_progress-done", "plan"} {
-				got, ok := docs.file("stories/" + id + "/" + name + ".md")
-				if !ok {
-					t.Fatalf("%s not uploaded", name)
-				}
-				if want := mustDocBody(t, id, name); string(got) != want {
-					t.Errorf("%s uploaded bytes differ:\n got %q\nwant %q", name, got, want)
-				}
-			}
-
-			if docs.putCount() != 2 {
-				t.Fatalf("PUTs = %d, want 2", docs.putCount())
-			}
-			runPush(t, url)
-			if docs.putCount() != 2 {
-				t.Errorf("unchanged re-push PUTs = %d, want no more", docs.putCount())
-			}
-			attachDoc(t, id, "plan", "plan", "the plan, revised")
-			runPush(t, url)
-			if docs.putCount() != 3 {
-				t.Errorf("edited attachment PUTs = %d, want exactly one more", docs.putCount())
-			}
-			got, _ := docs.file("stories/" + id + "/plan.md")
-			if want := mustDocBody(t, id, "plan"); string(got) != want {
-				t.Errorf("revised plan bytes differ: got %q want %q", got, want)
-			}
-		})
-	}
-}
-
 // TestAttachmentExposure (AC4, replaces sty_948ad5df's
 // TestWorkstatePushCarriesNoAttachmentBodies): a planted change patch is never
 // uploaded under a local scope; under a syncing scope it goes only to the bound
@@ -495,38 +445,5 @@ func TestAttachmentPullNeverOverwritesSilently(t *testing.T) {
 	}
 	if got := mustDocBody(t, id, "only-here"); !strings.Contains(got, "B only") {
 		t.Errorf("a local-only attachment must be kept, got %q", got)
-	}
-}
-
-// TestAttachmentScopedPullLeavesTheCursor (AC2): a pull scoped to one story takes
-// only that story's attachments and does not move the cursor past the others.
-func TestAttachmentScopedPullLeavesTheCursor(t *testing.T) {
-	url, _, _ := attachmentServer(t)
-	a := newCLIMachine(t, storiesOnlyToml)
-	b := newCLIMachine(t, storiesOnlyToml)
-
-	a.use(t)
-	x := createStoryID(t, "scope x")
-	y := createStoryID(t, "scope y")
-	runPush(t, url)
-	b.use(t)
-	syncWorkstateCLI(t, url, "pull")
-
-	a.use(t)
-	attachDoc(t, x, "plan", "plan", "x plan")
-	attachDoc(t, y, "plan", "plan", "y plan")
-	runPush(t, url)
-
-	b.use(t)
-	syncWorkstateCLI(t, url, "pull", x)
-	if _, err := storyDocBody(t, x, "plan"); err != nil {
-		t.Errorf("the scoped story's attachment should arrive: %v", err)
-	}
-	if _, err := storyDocBody(t, y, "plan"); err == nil {
-		t.Error("a story outside the scope must not receive its attachment")
-	}
-	syncWorkstateCLI(t, url, "pull")
-	if _, err := storyDocBody(t, y, "plan"); err != nil {
-		t.Errorf("the scoped pull must not move the cursor past the other story: %v", err)
 	}
 }

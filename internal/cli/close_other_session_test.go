@@ -113,24 +113,6 @@ func otherSessionClose(t *testing.T, reviewers ...string) (*closeEnv, string, *c
 	return e, id, r
 }
 
-// AC2: the reviewer payload a gate judges is the story's own change set when the
-// close is presented from another tree and another session.
-func TestDiffResolverReadsTheStoriesTreeFromAnotherSession(t *testing.T) {
-	_, id, _ := otherSessionClose(t)
-	d := diffResolver()(context.Background(), id)
-	if d == nil || d.NoBaseline {
-		t.Fatalf("the gate payload diff must resolve from another tree, got %+v", d)
-	}
-	if !hasString(d.Files, "slice.go") {
-		t.Errorf("files = %v, want the slice committed in the story's own tree", d.Files)
-	}
-	// Unmarked, interactive enumeration from the same tree keeps the anchor.
-	if _, err := verb.StoryDiff(context.Background(), id, verb.StoryDiffOpts{}); err == nil ||
-		!strings.Contains(err.Error(), "was engaged from working tree") {
-		t.Errorf("a plain story diff from another tree must still be refused: %v", err)
-	}
-}
-
 func hasString(list []string, want string) bool {
 	for _, s := range list {
 		if s == want {

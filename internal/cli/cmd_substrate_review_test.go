@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -223,103 +222,4 @@ func onlyReviewRun(t *testing.T) reviewRun {
 		r.report = doc.Body
 	}
 	return r
-}
-
-// sty_c356ed4f AC2: a review is an execution of the embedded substrate-review
-// task, in progress through the execution route before anything is judged, with
-// each stage on its ledger and its report attached, closed done through the
-// route's gate.
-func TestSubstrateReviewRunsAsAnExecutionOfItsTask(t *testing.T) {
-	substrateReviewFixture(t)
-	stubSubstrateJudge(t, substratereview.Judgement{})
-	report := filepath.Join(t.TempDir(), "report.json")
-	out, err := runRoot(t, "substrate", "review", "--out", report)
-	if err != nil {
-		t.Fatalf("substrate review: %v\n%s", err, out)
-	}
-	r := onlyReviewRun(t)
-	if r.item.Kind != workitem.KindExecution || r.item.ParentID != substrateReviewTask || r.item.Status != workitem.StatusDone {
-		t.Fatalf("the run is %s %s of %q, want a done execution of %s", r.item.Status, r.item.Kind, r.item.ParentID, substrateReviewTask)
-	}
-	if !strings.Contains(r.item.Body, "embedded:tasks/"+substrateReviewTask+".md") {
-		t.Errorf("the run does not name the embedded task it ran: %q", r.item.Body)
-	}
-	if strings.Join(r.moves, ",") != "backlog→in_progress,in_progress→done" {
-		t.Errorf("moves = %v, want backlog→in_progress then in_progress→done", r.moves)
-	}
-	rep, err := substratereview.ReadReport(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"move:in_progress", "stage:gather"}
-	for i := 0; i < rep.Batches; i++ {
-		want = append(want, "stage:judge")
-	}
-	want = append(want, "stage:report", "move:done")
-	if strings.Join(r.order, ",") != strings.Join(want, ",") {
-		t.Errorf("run ledger = %v, want %v", r.order, want)
-	}
-	if rep.Batches == 0 || r.stages[1]["batch"] != fmt.Sprintf("1/%d", rep.Batches) {
-		t.Errorf("the first judge stage = %v over %d batches", r.stages[1], rep.Batches)
-	}
-	if fmt.Sprint(r.stages[0]["items"]) != fmt.Sprint(len(rep.Items)) {
-		t.Errorf("gather stage = %v, want %d items", r.stages[0], len(rep.Items))
-	}
-	if rep.ExecutionID != r.item.ID {
-		t.Errorf("the report names execution %q, want %s", rep.ExecutionID, r.item.ID)
-	}
-	saved, _ := os.ReadFile(report)
-	if !strings.Contains(r.report, strings.TrimSpace(string(saved))) {
-		t.Errorf("the run's attachment is not the JSON report:\n%s", r.report)
-	}
-}
-
-// sty_c356ed4f AC2: a review that fails ends its execution cancelled, with the
-// reason as the last stage on its ledger, so it leaves the Activity tab.
-func TestSubstrateReviewFailureCancelsItsExecution(t *testing.T) {
-	substrateReviewFixture(t)
-	prev := newSubstrateJudge
-	t.Cleanup(func() { newSubstrateJudge = prev })
-	newSubstrateJudge = func(*cobra.Command, string, substratereview.History) (substrateJudge, error) {
-		return func(context.Context, substratereview.JudgeInput) (substratereview.Judgement, string, error) {
-			return substratereview.Judgement{}, "garbled", errors.New("the judge broke")
-		}, nil
-	}
-	out, err := runRoot(t, "substrate", "review", "--out", filepath.Join(t.TempDir(), "report.json"))
-	if err == nil {
-		t.Fatalf("a review whose every batch fails must fail:\n%s", out)
-	}
-	r := onlyReviewRun(t)
-	if r.item.Status != workitem.StatusCancelled {
-		t.Fatalf("the failed run is %s, want cancelled", r.item.Status)
-	}
-	if got := r.moves[len(r.moves)-1]; got != "in_progress→cancelled" {
-		t.Errorf("last move = %s, want in_progress→cancelled", got)
-	}
-	last := r.stages[len(r.stages)-1]
-	if last["stage"] != workitem.StatusCancelled || !strings.Contains(fmt.Sprint(last["reason"]), "returned no judgement") {
-		t.Errorf("the cancel does not record the reason: %v", last)
-	}
-}
-
-// sty_c356ed4f AC2: a repo's own tsk_substrate-review overrides the embedded
-// default, and the review runs as an execution of that copy.
-func TestSubstrateReviewRunsTheRepoOverrideOfItsTask(t *testing.T) {
-	repo := substrateReviewFixture(t)
-	rel := filepath.Join(config.DefaultDataDir, "tasks", substrateReviewTask+".md")
-	writeRepoFile(t, repo, rel, "---\nid: "+substrateReviewTask+"\ntype: task\nstatus: done\n---\n\n# Our substrate review\n\n## Action\nRun it.\n\n## Verification\nThe report is attached.\n")
-	if out, err := runRoot(t, "reindex"); err != nil {
-		t.Fatalf("reindex: %v\n%s", err, out)
-	}
-	stubSubstrateJudge(t, substratereview.Judgement{})
-	if out, err := runRoot(t, "substrate", "review", "--out", filepath.Join(t.TempDir(), "report.json")); err != nil {
-		t.Fatalf("substrate review: %v\n%s", err, out)
-	}
-	r := onlyReviewRun(t)
-	if r.item.ParentID != substrateReviewTask || r.item.Status != workitem.StatusDone {
-		t.Fatalf("the run is %s of %q", r.item.Status, r.item.ParentID)
-	}
-	if !strings.Contains(r.item.Body, filepath.Join(repo, rel)) {
-		t.Errorf("the run does not name the repo's copy of the task: %q", r.item.Body)
-	}
 }

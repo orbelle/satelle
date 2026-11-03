@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,4 +174,65 @@ func TestSlowSubstrateLockRefusalNamesTheCondition(t *testing.T) {
 			})
 		}
 	}
+}
+
+// AC1 + AC2: a session holding a substrate seat and non-substrate epic siblings,
+// each from its own worktree, may change the main tree's substrate when the edit
+// is attributed to none of them; the non-substrate live seats are noted, once per
+// hook call, and nothing is refused.
+func TestSlowSubstrateLockLaneAmbiguousSessionSiblings(t *testing.T) {
+	for _, via := range []string{"edit", "bash"} {
+		t.Run(via, func(t *testing.T) {
+			e := newLaneEnv(t, []laneSpec{
+				{key: "S", category: "substrate", session: "sess"},
+				{key: "F1", category: "fix", session: "sess"},
+				{key: "F2", category: "fix", session: "sess"},
+				{key: "X", category: "feature", session: "other"},
+			})
+			target := filepath.Join(e.repo, laneRel)
+			s := e.seats("sess", target)
+			if pick, _ := pickSessionSeatFor(s.live, nil, "sess", treeOf(target)); pick.ItemID != "" || s.engaged || s.info.ItemID != "" {
+				t.Fatalf("fixture: the edit must be unresolved for the session, pick=%q info=%q engaged=%v", pick.ItemID, s.info.ItemID, s.engaged)
+			}
+			if err, out := e.gate(t, via, target, s); err != nil {
+				t.Fatalf("a substrate-lane story's change must pass (%s): %v\n%s", via, err, out)
+			}
+			if n, _ := rowsByStory(t, ledger.KindSubstrateLockDeny); len(n) != 0 {
+				t.Errorf("an allowed change records no refusal, got %v", n)
+			}
+			n, rows := rowsByStory(t, ledger.KindSubstrateChangeNote)
+			for _, k := range []string{"F1", "F2", "X"} {
+				if n[e.ids[k]] != 1 {
+					t.Errorf("%s must be noted exactly once, got %d (%v)", k, n[e.ids[k]], n)
+				}
+			}
+			if n[e.ids["S"]] != 0 || len(rows) != 3 {
+				t.Errorf("the substrate story is not noted and nothing else is: %v", n)
+			}
+			for _, r := range rows {
+				var p substrateChangePayload
+				if err := json.Unmarshal(r.Payload, &p); err != nil || p.SubstrateStory != e.ids["S"] || p.Path != laneRel {
+					t.Errorf("note payload = %s (%v), want substrate story %s and path %s", r.Payload, err, e.ids["S"], laneRel)
+				}
+			}
+		})
+	}
+
+	t.Run("one seat resolves", func(t *testing.T) {
+		e := newLaneEnv(t, []laneSpec{
+			{key: "S", category: "substrate", session: "sess"},
+			{key: "F1", category: "fix", session: "other"},
+		})
+		target := filepath.Join(e.repo, laneRel)
+		s := e.seats("sess", target)
+		if !s.engaged || s.info.ItemID != e.ids["S"] {
+			t.Fatalf("fixture: a session holding one seat resolves to it, got %q engaged=%v", s.info.ItemID, s.engaged)
+		}
+		if err, out := e.gate(t, "edit", target, s); err != nil {
+			t.Fatalf("the single substrate seat must pass: %v\n%s", err, out)
+		}
+		if n, _ := rowsByStory(t, ledger.KindSubstrateChangeNote); n[e.ids["F1"]] != 1 || len(n) != 1 {
+			t.Errorf("only the sibling is noted, once: %v", n)
+		}
+	})
 }

@@ -3,7 +3,11 @@
 package cli
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 // AC2: a close by id from another tree and session is judged by the edge's gate
@@ -38,5 +42,23 @@ func TestSlowCloseByIDFromAnotherSessionRefusedByAnyGate(t *testing.T) {
 	}
 	if n := len(r.seen()); n != 2 {
 		t.Errorf("both gates on the edge must judge, ran %d", n)
+	}
+}
+
+// AC2: the reviewer payload a gate judges is the story's own change set when the
+// close is presented from another tree and another session.
+func TestSlowDiffResolverReadsTheStoriesTreeFromAnotherSession(t *testing.T) {
+	_, id, _ := otherSessionClose(t)
+	d := diffResolver()(context.Background(), id)
+	if d == nil || d.NoBaseline {
+		t.Fatalf("the gate payload diff must resolve from another tree, got %+v", d)
+	}
+	if !hasString(d.Files, "slice.go") {
+		t.Errorf("files = %v, want the slice committed in the story's own tree", d.Files)
+	}
+	// Unmarked, interactive enumeration from the same tree keeps the anchor.
+	if _, err := verb.StoryDiff(context.Background(), id, verb.StoryDiffOpts{}); err == nil ||
+		!strings.Contains(err.Error(), "was engaged from working tree") {
+		t.Errorf("a plain story diff from another tree must still be refused: %v", err)
 	}
 }
