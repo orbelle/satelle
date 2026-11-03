@@ -280,6 +280,11 @@ func TestRelayRestartRepairsAndJobCompletes(t *testing.T) {
 	before := r.relay.Upgrades()
 
 	r.relay.Restart()
+	// Restart returns once the relay has closed its connections, not once either
+	// session has seen the drop. A job sent before then is open across the drop and
+	// is rightly cut as "relay restarted mid-job"; an end redials only after it has
+	// cut its jobs, so wait for both redials before sending the job after the restart.
+	r.driveUntil("both ends redialled", func() bool { return r.relay.Upgrades() >= before+2 })
 	var got requested
 	res := r.request(run, AgentJob, AgentRequest{Text: "after"})
 	r.driveUntil("the request over the resumed channel", settled(res, &got))
@@ -312,6 +317,10 @@ func TestRelayRestartRepairsNodeFirstSimultaneous(t *testing.T) {
 
 	r.relay.DelayAdmit("local", 600*time.Millisecond)
 	r.relay.Restart()
+	// Restart returns before either session has seen the drop, and a job sent
+	// meanwhile is rightly cut as "relay restarted mid-job". Each end redials only
+	// after cutting its jobs, so the job after the restart waits for both redials.
+	r.driveUntil("both ends redialled", func() bool { return r.relay.Upgrades() >= before+2 })
 	var got requested
 	res := r.request(run, AgentJob, AgentRequest{Text: "after"})
 	r.driveUntil("the request over the resumed channel", settled(res, &got))
