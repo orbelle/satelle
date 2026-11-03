@@ -92,8 +92,35 @@ UNIT_STRICTFLAGS := -json -count=3 -shuffle=on -timeout 30m
 INTEG_STRICTFLAGS := -json -shuffle=on
 endif
 
+# TESTJSON=<file> (and TESTJSON_SLOW=<file> for test-cli-slow) writes the run's
+# go test -json stream to that file instead of the terminal. CI sets both, uploads
+# them and prints each package's time and its slowest tests from them, so a
+# package's drift toward go test's 10m default shows in the log before it fails a
+# release (sty_210df6c3). A plain redirect keeps go test's own exit status.
+TESTJSON ?=
+TESTJSON_SLOW ?=
+ifneq ($(TESTJSON),)
+UNIT_JSON := -json
+UNIT_JSONOUT := > $(TESTJSON)
+endif
+ifneq ($(TESTJSON_SLOW),)
+SLOW_JSON := -json
+SLOW_JSONOUT := > $(TESTJSON_SLOW)
+endif
+
 test:
-	$(CREDGUARD) $(HERMETIC) $(UNIT_SKIPCHECK) go test $(UNIT_STRICTFLAGS) $(TESTFLAGS) ./...
+	$(CREDGUARD) $(HERMETIC) $(UNIT_SKIPCHECK) go test $(UNIT_STRICTFLAGS) $(UNIT_JSON) $(TESTFLAGS) ./... $(UNIT_JSONOUT)
+
+# test-cli-slow runs the internal/cli tests split out behind the `clislow` build
+# tag: the slowest of a package that is almost entirely serial, moved whole into
+# *_slow_test.go files and named TestSlow*, so the internal/cli package in `make
+# test` stays well inside go test's 10m default (sty_210df6c3). The tag compiles
+# the untagged test files too, so shared helpers resolve; -run runs only the moved
+# tests. A plain `go test ./...` skips them, as it skips the integration tag; CI
+# runs this target as its own step.
+.PHONY: test-cli-slow
+test-cli-slow:
+	$(CREDGUARD) $(HERMETIC) $(UNIT_SKIPCHECK) go test $(UNIT_STRICTFLAGS) $(SLOW_JSON) -tags clislow -run '^TestSlow' $(TESTFLAGS) ./internal/cli/ $(SLOW_JSONOUT)
 
 # integration builds the binary once, then drives it from ./tests via SATELLE_BIN
 # (no per-test rebuild). Run by hand with: SATELLE_BIN=$(command -v satelle) go test -tags integration ./tests/...
