@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,21 +110,33 @@ func TestInitPointerListed_PartlyTrackedSatelle(t *testing.T) {
 	}
 }
 
-func TestInitPointerNoExtraEntry_IgnoredSatelle(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".satelle/\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var out strings.Builder
-	if err := runInitTest(t, &out, repo); err != nil {
-		t.Fatal(err)
-	}
-	gi, _ := os.ReadFile(filepath.Join(repo, ".gitignore"))
-	// The operator line remains; the managed block must not add .satelle/logs.
-	for _, line := range strings.Split(string(gi), "\n") {
-		if strings.TrimSpace(line) == ".satelle/logs" {
-			t.Fatalf("ignore-all repo must not gain pointer entry:\n%s", gi)
-		}
+// sty_45bf867b AC2: an operator's own line that ignores .satelle/ wholesale
+// is outside satelle's block, so init leaves it byte-for-byte as written, adds
+// no re-include over it, and names the exact line to remove.
+func TestInitReportsOwnSatelleIgnore(t *testing.T) {
+	for _, own := range []string{".satelle/", "/.satelle"} {
+		t.Run(own, func(t *testing.T) {
+			repo := t.TempDir()
+			before := "node_modules/\n" + own + "\n"
+			if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(before), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var out strings.Builder
+			if err := runInitTest(t, &out, repo); err != nil {
+				t.Fatal(err)
+			}
+			gi, _ := os.ReadFile(filepath.Join(repo, ".gitignore"))
+			if !strings.HasPrefix(string(gi), before) {
+				t.Fatalf("lines outside the managed block must stay as written:\n%s", gi)
+			}
+			if got := string(gi)[len(before):]; strings.Contains(got, own+"\n") || strings.Contains(got, "\n!.satelle/\n") {
+				t.Errorf("init must neither repeat nor override the operator's own line:\n%s", gi)
+			}
+			want := fmt.Sprintf("! .gitignore line %q ignores .satelle/ wholesale — remove it so the substrate is tracked", own)
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("init must name the line to remove (%s):\n%s", want, out.String())
+			}
+		})
 	}
 }
 

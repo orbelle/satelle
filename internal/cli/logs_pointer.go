@@ -99,12 +99,42 @@ func gitignoreHasRule(content, path string) bool {
 // rule is not one: it can be re-opened by a negation.
 func gitignoreTextIgnoresSatelleDir(content string) bool {
 	for _, line := range strings.Split(content, "\n") {
-		switch strings.TrimSpace(line) {
-		case ".satelle", ".satelle/", "/.satelle", "/.satelle/":
+		if isSatelleWholesaleIgnore(line) {
 			return true
 		}
 	}
 	return false
+}
+
+// isSatelleWholesaleIgnore reports whether one .gitignore line ignores the whole
+// .satelle directory — the line that keeps the process substrate out of git.
+func isSatelleWholesaleIgnore(line string) bool {
+	switch strings.TrimSpace(line) {
+	case ".satelle", ".satelle/", "/.satelle", "/.satelle/":
+		return true
+	}
+	return false
+}
+
+// gitignoreOwnSatelleIgnore returns the first line OUTSIDE satelle's managed
+// block that ignores .satelle wholesale, as written. satelle never edits such a
+// line; init and doctor name it so the operator can remove it.
+func gitignoreOwnSatelleIgnore(content string) (line string, ok bool) {
+	inBlock := false
+	for _, l := range strings.Split(content, "\n") {
+		switch strings.TrimSpace(l) {
+		case gitignoreMarker:
+			inBlock = true
+			continue
+		case gitignoreMarkerEnd:
+			inBlock = false
+			continue
+		}
+		if !inBlock && isSatelleWholesaleIgnore(l) {
+			return strings.TrimSpace(l), true
+		}
+	}
+	return "", false
 }
 
 func plantLogsPointer(out io.Writer, repoRoot string) {

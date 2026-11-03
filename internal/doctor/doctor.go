@@ -63,6 +63,11 @@ type Opts struct {
 	// stamp reader and the drift classification live in internal/cli. Nil means
 	// the check is skipped.
 	BreakingDrift func(repoRoot string) health.Findings
+	// SubstrateTracking reports a repo whose .satelle/ process substrate is not
+	// tracked in git. Injected for the same reason as ScaffoldDrift: the managed
+	// .gitignore shape it names lives in internal/cli. Nil means the check is
+	// skipped.
+	SubstrateTracking func(repoRoot string) health.Findings
 	// ContextChecks reports on the context every agent actually receives — the
 	// SessionStart injection per bound harness, each dispatched seat, duplicated
 	// guidance and unresolved references (sty_a17afa15). Injected for the same
@@ -282,6 +287,9 @@ func Check(ctx context.Context, o Opts) Report {
 	}
 	if o.BreakingDrift != nil && strings.TrimSpace(o.RepoRoot) != "" {
 		rep.Findings = append(rep.Findings, o.BreakingDrift(o.RepoRoot)...)
+	}
+	if o.SubstrateTracking != nil && strings.TrimSpace(o.RepoRoot) != "" {
+		rep.Findings = append(rep.Findings, o.SubstrateTracking(o.RepoRoot)...)
 	}
 
 	// 5b. Leftover machine-scope keys in repo files (config.MachineScopeStrays

@@ -421,6 +421,30 @@ func TestBreakingDriftFindingsAreInjected(t *testing.T) {
 	}
 }
 
+// TestSubstrateTrackingFindingsAreInjected (sty_45bf867b AC3): doctor surfaces
+// an untracked process substrate through the injected authority, as a warning
+// that does not fail the report; no injection means no finding.
+func TestSubstrateTrackingFindingsAreInjected(t *testing.T) {
+	root := newFixtureRepo(t, fixtureOpts{})
+	dataDir := filepath.Join(root, ".satelle")
+	if ids(check(t, root))[health.IDSubstrateUntracked] {
+		t.Fatal("no substrate-tracking authority was injected, so no finding may appear")
+	}
+	warn := Check(context.Background(), Opts{
+		RepoRoot: root, DataDir: dataDir,
+		SubstrateTracking: func(string) health.Findings {
+			return health.Findings{health.Warn(health.IDSubstrateUntracked, "Process substrate not tracked in git",
+				".satelle/ is present but no file under it is tracked in git")}
+		},
+	})
+	if !ids(warn)[health.IDSubstrateUntracked] {
+		t.Fatalf("injected finding must reach the report: %+v", warn.Findings)
+	}
+	if !warn.OK {
+		t.Errorf("an untracked-substrate warning must not fail the report: %+v", warn.Findings)
+	}
+}
+
 // TestScaffoldFindingsAreInjectedNotImported pins the dependency direction:
 // doctor never imports the harness-scaffold writer, it consumes the detector as
 // an injected authority. A nil injection skips the check rather than guessing.

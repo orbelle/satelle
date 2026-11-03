@@ -123,11 +123,13 @@ func TestRunInitScaffolds(t *testing.T) {
 	if strings.Contains(string(gi), ".satelle/satelle.db") {
 		t.Error("gitignore must not list satelle.db — runtime is home-keyed")
 	}
-	// sty_dbc0be85: with no setting for .satelle, the default is one `.satelle/`
-	// rule — it covers the logs pointer, local.toml and the pinned binary, so
-	// the finer local-state lines are added only when .satelle/ is not ignored.
-	if !gitignoreTextIgnoresSatelleDir(string(gi)) {
-		t.Errorf("gitignore must ignore .satelle/ on a fresh init:\n%s", gi)
+	// sty_45bf867b AC1: the process substrate is tracked — init never ignores
+	// .satelle/ wholesale; it re-includes it and ignores only local state.
+	if gitignoreTextIgnoresSatelleDir(string(gi)) {
+		t.Errorf("gitignore must not ignore .satelle/ on a fresh init:\n%s", gi)
+	}
+	if !strings.Contains(string(gi), "\n!.satelle/\n") {
+		t.Errorf("gitignore must re-include .satelle/ on a fresh init:\n%s", gi)
 	}
 	if strings.Contains(string(gi), ".satelle/logs/") {
 		t.Error("gitignore must not list .satelle/logs/ (trailing slash misses the symlink)")
@@ -854,7 +856,9 @@ func TestRunInitLeavesSettledGitignoreUntouched(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".satelle", "workflows", "agents.toml"), []byte("[executor]\nharness = \"in-loop\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := "node_modules/\n# >>> satelle (managed) >>>\n# an older wording of the header\n.satelle/\n.satelle/satelle.db\n.satelle/logs/\nsty_*_body.md\nsty_*_ac.md\n# <<< satelle (managed) <<<\n# keep-me\n"
+	old := "node_modules/\n# >>> satelle (managed) >>>\n# an older wording of the header\n" +
+		strings.Join(satelleTrackedSubstrateIgnores, "\n") +
+		"\n.satelle/satelle.db\nsty_*_body.md\nsty_*_ac.md\n# <<< satelle (managed) <<<\n# keep-me\n"
 	giPath := filepath.Join(repo, ".gitignore")
 	if err := os.WriteFile(giPath, []byte(old), 0o644); err != nil {
 		t.Fatal(err)

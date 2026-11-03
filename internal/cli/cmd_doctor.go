@@ -97,14 +97,15 @@ killed and reaped on the deadline or on cancellation.`,
 				a, err = oa, nil
 			}
 			opts := doctor.Opts{
-				Live:            live,
-				LiveTimeout:     timeout,
-				ScaffoldDrift:   scaffoldFindings,
-				StatusDrift:     statusDriftFindings,
-				BreakingDrift:   breakingDriftFindings,
-				ContextChecks:   contextChecks,
-				ContextReview:   contextReviewFlag,
-				ContextReviewer: contextReview,
+				Live:              live,
+				LiveTimeout:       timeout,
+				ScaffoldDrift:     scaffoldFindings,
+				StatusDrift:       statusDriftFindings,
+				BreakingDrift:     breakingDriftFindings,
+				SubstrateTracking: substrateTrackingFindings,
+				ContextChecks:     contextChecks,
+				ContextReview:     contextReviewFlag,
+				ContextReviewer:   contextReview,
 			}
 			if a != nil {
 				opts.RepoRoot = a.RepoRoot

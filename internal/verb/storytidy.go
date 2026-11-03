@@ -307,6 +307,27 @@ func GitListed(worktree string, args ...string) bool {
 	return err == nil && len(strings.TrimSpace(string(out))) > 0
 }
 
+// GitCheckIgnoreSource reports whether git ignores path in worktree under its
+// full rule set — the repo's .gitignore files, .git/info/exclude and the
+// machine-wide core.excludesFile — whether or not the path is tracked. When it
+// is ignored, source is the file holding the deciding rule as git names it
+// (repo-relative for a .gitignore, absolute for an excludes file) and pattern
+// is that rule as written.
+func GitCheckIgnoreSource(worktree, path string) (ignored bool, source, pattern string) {
+	out, err := exec.Command("git", "-C", worktree, "check-ignore", "-v", "--no-index", "--", path).Output()
+	if err != nil {
+		return false, "", ""
+	}
+	// <source>:<linenum>:<pattern>\t<pathname>
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
+	src, rest, ok := strings.Cut(line, ":")
+	if !ok {
+		return true, "", ""
+	}
+	_, pattern, _ = strings.Cut(rest, ":")
+	return true, src, pattern
+}
+
 // uniqueDst avoids clobbering an earlier tidy of the same relative path.
 func uniqueDst(dst string) string {
 	if _, err := os.Lstat(dst); err != nil {

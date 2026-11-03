@@ -81,6 +81,7 @@ func validateSystem(out io.Writer, dataDir string, forPush bool) (failed int) {
 		RepoRoot:                  filepath.Dir(dataDir),
 		DataDir:                   dataDir,
 		ScaffoldDrift:             scaffoldFindings,
+		SubstrateTracking:         substrateTrackingFindings,
 		ExcludeMachineAgentLayers: forPush,
 	})
 	if !forPush {

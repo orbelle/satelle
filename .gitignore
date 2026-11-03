@@ -32,26 +32,15 @@
 /tests/plannerbench/out/
 
 # >>> satelle (managed) >>>
-# RECOMMENDED defaults — the operator owns .gitignore. .satelle is git-optional
-# overall (continuity is local disk or personal rehydrate). When a team tracks
-# process under .satelle, workflows/agents.toml is intended to be committed
-# (roles workflows name; sty_552d2d87) — it is deliberately NOT listed below;
-# its machine-local twin, agents.local.toml, is.
-# Execution detail belongs in ~/.satelle/agents.toml; secrets in satelle.local.toml.
-# Continuity is local disk by default; once the repo is bound and the account's
-# scope is personal or team, the bound hosted project backs it up and can
-# rehydrate it (push = backup; pull / config deploy = sync down). Git is not the
-# recovery path.
-# Runtime state (satelle.db, backups, stories cache) lives under
-# ~/.satelle/<repo-key>/ — outside the repo. .satelle/logs is a symlink pointer
-# to that logs directory and is listed here only when .satelle/ is not already ignored.
-# Sync credentials and cursors live under ~/.config/satelle.
+# .satelle/ is this repo's process substrate (workflows, skills, principles,
+# constitution, satelle.toml, tasks, documents) and is tracked in git; only the
+# machine-local state below is ignored. The re-include overrides a machine-wide
+# core.excludesFile that ignores .satelle/. satelle adds only entries this file
+# does not already settle; any rule written here or elsewhere is kept.
+# Runtime state lives under ~/.satelle/<repo-key>/, outside the repo.
 .satelle/satelle.local.toml
-# this machine's agents override (command paths, profile= into ~/.satelle) never leaves the machine
 .satelle/workflows/agents.local.toml
-# the repo-local pinned binary (satelle update --local) is local state, never committed
 .satelle/satelle
-# agent story-reference dumps (edit-gate exempt via [gate] edit_exempt_globs)
 sty_*_body.md
 sty_*_ac.md
 # <<< satelle (managed) <<<

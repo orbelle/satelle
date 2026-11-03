@@ -123,6 +123,10 @@ const (
 	// documented opt-out, so a performing story can rewrite the substrate that
 	// judges it. Reported so the unlocked posture is visible (sty_992cffc6).
 	IDSubstrateUnlocked = "gate.substrate.unlocked"
+	// IDSubstrateUntracked: the repo's .satelle/ process substrate is not tracked
+	// in git — ignored by the repo's .gitignore or a machine-wide
+	// core.excludesFile, or present but never added (sty_45bf867b).
+	IDSubstrateUntracked = "repo.substrate.untracked"
 
 	// Workstate sync health (sty_30696eeb).
 	IDSyncLocal    = "sync.local"         // work-state areas are all local
@@ -190,7 +194,7 @@ var ids = []string{
 	IDBinaryMissing, IDBinaryMalformed,
 	IDWorkflowStructure, IDWorkflowConsistency, IDCommandRuleAllow,
 	IDProcessUnreadable, IDProcessAbsent, IDProcessDivergent,
-	IDScaffoldStale, IDScaffoldMissing, IDRepoUnreadable, IDConfigStray, IDSubstrateUnlocked, IDBreakingUnacknowledged,
+	IDScaffoldStale, IDScaffoldMissing, IDRepoUnreadable, IDConfigStray, IDSubstrateUnlocked, IDSubstrateUntracked, IDBreakingUnacknowledged,
 	IDSyncLocal, IDSyncOk, IDSyncFailing, IDSyncUnbacked, IDSyncConfig, IDSyncPushOff,
 	IDSyncSubstrateOk, IDSyncSubstrateUnpushed, IDSyncSubstrateUnmerged, IDSyncSubstrateBehind,
 	IDSyncSubstrateUnchecked, IDSyncSubstrateUnbound,
