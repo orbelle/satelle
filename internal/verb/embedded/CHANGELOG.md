@@ -1,3 +1,8 @@
+## [0.0.872] - 2026-11-03
+
+### Fixed
+- A remote node reads the hosted chain of the story it was woken for, and of the execution it creates, before writing to either, so the rows its run writes (the execution link, the outcome, an execution_stopped alert) build on the hosted head, and its work-state push publishes them instead of being refused as a stale base. Rows the fetch brought from satelle.dev are not pushed again. The node reads through its node token (GET /api/v1/remote-nodes/{id}/stories/{story}/chain); while satelle.dev does not serve that route the node logs it and writes on its own store, as before. The join log names what the push published. (sty_0d621eaf)
+
 ## [0.0.871] - 2026-11-03
 
 ### Fixed
