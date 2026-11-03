@@ -283,6 +283,9 @@ type statusReporter struct {
 	storyID  string
 	override time.Duration
 	log      func(error)
+	// beat, when set, logs one live heartbeat as it is sent: the host's vitals,
+	// so a node that stalls leaves the state it was in.
+	beat func()
 	// refresh, when set, makes each re-send report the status it returns now rather
 	// than the last one sent: a node-lifetime heartbeat whose step changes.
 	refresh func() NodeStatus
@@ -305,6 +308,9 @@ func newStatusReporter(client StatusSender, storyID string, override time.Durati
 			fmt.Fprintf(out, "node: status: %v\n", err)
 		}
 	}
+	if out != nil {
+		r.beat = func() { fmt.Fprintf(out, "node: heartbeat: %s\n", ReadVitals(procRoot)) }
+	}
 	if override > 0 {
 		r.every = override
 	}
@@ -324,11 +330,19 @@ func (r *statusReporter) send(ctx context.Context, s NodeStatus) {
 	s.State, s.StoryID = StateRunning, r.storyID
 	r.last = s
 	r.mu.Unlock()
+	r.logBeat()
 	r.put(ctx, s)
 	r.once.Do(func() {
 		r.wg.Add(1)
 		go r.resend()
 	})
+}
+
+// logBeat logs a live heartbeat about to be sent.
+func (r *statusReporter) logBeat() {
+	if r.beat != nil {
+		r.beat()
+	}
 }
 
 // put sends one heartbeat and learns the resend interval from its reply.
@@ -368,6 +382,7 @@ func (r *statusReporter) resend() {
 		last, done := r.last, r.done
 		r.mu.Unlock()
 		if !done {
+			r.logBeat()
 			r.put(context.Background(), last)
 		}
 		r.sendMu.Unlock()

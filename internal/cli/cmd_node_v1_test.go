@@ -157,6 +157,18 @@ ref = "main"
 	}
 }
 
+// stubSwapRunner replaces the node's swap runner with record, which sees each
+// argv and succeeds, so a definition that declares swap joins without root.
+func stubSwapRunner(t *testing.T, record func(argv []string)) {
+	t.Helper()
+	prev := remotenode.SwapRunner
+	remotenode.SwapRunner = func(_ context.Context, argv []string) error {
+		record(argv)
+		return nil
+	}
+	t.Cleanup(func() { remotenode.SwapRunner = prev })
+}
+
 // swapRecorder replaces the node's swap runner with one that records each argv,
 // and the task step with one that records "wake" in the same log, so the order of
 // the swap's lifecycle around the job is visible.
@@ -166,14 +178,11 @@ func swapRecorder(t *testing.T) (log func() [][]string) {
 		mu  sync.Mutex
 		got [][]string
 	)
-	prev := remotenode.SwapRunner
-	remotenode.SwapRunner = func(_ context.Context, argv []string) error {
+	stubSwapRunner(t, func(argv []string) {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, argv)
-		return nil
-	}
-	t.Cleanup(func() { remotenode.SwapRunner = prev })
+	})
 	useTaskNode(t, &taskPerformers{step: func(item workitem.Item) error {
 		mu.Lock()
 		got = append(got, []string{"wake"})

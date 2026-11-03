@@ -1,3 +1,13 @@
+## [0.0.866] - 2026-11-03
+
+### Fixed
+- A node on a fly-sprite holds its sprite awake for as long as a run or job is in flight: it takes a sprite Tasks API task (PUT /v1/tasks/<name> with an expiry on /.sprite/api.sock), renews it well inside its expiry and deletes it when the run concludes, so a long executor run (an agent CLI that prints nothing until it ends) is no longer paused by the sprite's idle timer and ended by satelle.dev as lost. A node without the socket runs as before. Each heartbeat the node logs carries the host's memory, swap and memory-pressure figures. The embedded remotes/pr-approve template declares [machine] swap = "8G". (sty_2cf348ca)
+
+## [serve-v0.0.285] - 2026-11-03
+
+### Changed
+- The service binary carries the remotes/pr-approve template with [machine] swap = "8G". (sty_2cf348ca)
+
 ## [0.0.865] - 2026-11-03
 
 ### Fixed

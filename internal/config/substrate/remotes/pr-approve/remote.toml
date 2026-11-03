@@ -46,6 +46,11 @@ CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
 [network]
 allow = ["api.github.com", "api.anthropic.com"]
 
+# An 8 GB sprite running two agent CLIs (the executor and its reviewer) runs out
+# of memory without swap; each run gets a fresh 8G swapfile.
+[machine]
+swap = "8G"
+
 # The node stops when its run ends.
 [lifecycle]
 scope = "run"

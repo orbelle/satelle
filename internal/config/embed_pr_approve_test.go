@@ -70,6 +70,10 @@ func TestEmbeddedPRApproveTemplateIsV1(t *testing.T) {
 	if len(def.Repos) != 1 || !reflect.DeepEqual(def.Allow(), []string{"api.github.com", "api.anthropic.com"}) {
 		t.Errorf("repos = %+v allow = %v, want one repo and only the GitHub and model APIs", def.Repos, def.Allow())
 	}
+	// An 8 GB sprite running two agent CLIs needs swap (sty_2cf348ca).
+	if def.Machine.Swap != "8G" {
+		t.Errorf("[machine] swap = %q, want 8G", def.Machine.Swap)
+	}
 }
 
 func keys(m map[string]string) []string {

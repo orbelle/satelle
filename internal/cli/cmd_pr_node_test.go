@@ -32,6 +32,8 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 		t.Fatal("the binary ships no pr-approve remote bundle")
 	}
 	r, _ := taskRig(t, "pr-approve", false)
+	// The bundle declares [machine] swap; the swap is not this test's subject.
+	stubSwapRunner(t, func([]string) {})
 	r.bundle["remote.toml"] = strings.Replace(files["remote.toml"], "https://github.com/OWNER/NAME.git", "https://github.com/acme/widgets.git", 1)
 	r.bundle["principles/"+forge.RepoConstitution+".md"] = "---\nname: repo-constitution\ntype: principle\ndescription: the repo's constitution\n---\n\n# Constitution\n\n" + constitution + "\n"
 	nodeFetchEnv = append(append([]string(nil), r.repo.Env...),

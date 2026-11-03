@@ -256,6 +256,8 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 			return fmt.Errorf("join: %w", serr)
 		}
 		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
+		// On a fly-sprite the wake holds the sprite awake until it concludes.
+		defer spriteHold(ctx, cmd, session)()
 		return runTaskWake(ctx, cmd, beat, client, root, session, def)
 	}
 
@@ -296,7 +298,16 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 	} else {
 		defer logSwapOff(cmd.ErrOrStderr(), disableSwap)
 	}
+	// So too its sprite hold: the sprite is held awake for the whole serve.
+	defer spriteHold(ctx, cmd, session)()
 	return node.Serve(ctx, sess, report)
+}
+
+// spriteHold holds a fly-sprite awake for the node's job and returns what
+// releases it (remotenode.SpriteHold): a sprite pauses a node whose only traffic
+// is its own outbound calls. Off a sprite it holds nothing.
+func spriteHold(ctx context.Context, cmd *cobra.Command, session string) (release func()) {
+	return remotenode.SpriteHold{Name: "satelle-" + session, Out: cmd.ErrOrStderr()}.Start(ctx)
 }
 
 // logSwapOff turns off and removes the job's swapfile, logging a failure: the
