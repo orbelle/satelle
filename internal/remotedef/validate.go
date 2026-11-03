@@ -351,13 +351,18 @@ var keyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 
 func validKey(k string) bool { return keyPattern.MatchString(k) }
 
-// checkSecrets judges [secrets]: the backend provider, each name a well-formed
-// key listed once, and each override a well-formed key not also a name, holding
-// "satelle:<name>" or a github-app table.
+// checkSecrets judges [secrets]: the backend provider (omitted or "satelle", the
+// satelle vault; the retired "infisical" is refused naming the replacement), each
+// name a well-formed key listed once, and each override a well-formed key not
+// also a name, holding "satelle:<name>" or a github-app table.
 func (v *validator) checkSecrets(def Definition) {
 	s := def.Secrets
-	if s.Provider != "" && s.Provider != SecretsProviderInfisical {
-		v.fail("secrets.provider", `is not "`+SecretsProviderInfisical+`", the one secrets backend`)
+	switch s.Provider {
+	case "", SecretsProviderSatelle:
+	case retiredSecretsProviderInfisical:
+		v.fail("secrets.provider", `"`+retiredSecretsProviderInfisical+`" is retired: [secrets] names resolve from the satelle vault; omit secrets.provider or set it to "`+SecretsProviderSatelle+`"`)
+	default:
+		v.fail("secrets.provider", `is not "`+SecretsProviderSatelle+`", the one secrets backend (the satelle vault)`)
 	}
 	seen := map[string]int{}
 	for i, n := range s.Names {

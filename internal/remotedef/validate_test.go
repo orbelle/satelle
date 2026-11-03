@@ -195,6 +195,44 @@ func TestV1AcceptedForms(t *testing.T) {
 	}
 }
 
+// [secrets] names resolve from the satelle vault: an omitted provider or
+// "satelle" validates, the retired "infisical" is refused at secrets.provider
+// naming the replacement, and any other value names the one backend.
+func TestSecretsProvider(t *testing.T) {
+	for _, c := range []struct {
+		name, provider string
+		want           []string // substrings of the finding at secrets.provider; nil = no finding
+	}{
+		{"absent", "", nil},
+		{"satelle", "satelle", nil},
+		{"infisical", "infisical", []string{"retired", `"satelle"`}},
+		{"unknown", "vault-x", []string{`"satelle"`}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := minimalV1 + "[secrets]\nnames = [\"A_KEY\"]\n"
+			if c.provider != "" {
+				body += "provider = \"" + c.provider + "\"\n"
+			}
+			fs := Validate([]byte(body))
+			f, ok := findingAt(fs, "secrets.provider")
+			if c.want == nil {
+				if len(fs) != 0 {
+					t.Fatalf("want no finding; findings=%+v", fs)
+				}
+				return
+			}
+			if !ok || f.Severity != SeverityError || len(Errors(fs)) != 1 {
+				t.Fatalf("want one error at secrets.provider; findings=%+v", fs)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(f.Message, w) {
+					t.Errorf("message %q does not contain %q", f.Message, w)
+				}
+			}
+		})
+	}
+}
+
 // AC1: a definition in the earlier shape is refused, every finding at the path
 // of its old key carrying the message satelle-server's oldKeys has for it, which
 // names the v1 key that replaced it or says v1 removed it. The key → substring

@@ -93,9 +93,15 @@ type Identity struct {
 	Principal string `toml:"principal" json:"principal,omitempty"`
 }
 
-// SecretsProviderInfisical is the secrets backend [secrets] names resolve from:
-// the default, and the only value today.
-const SecretsProviderInfisical = "infisical"
+// SecretsProviderSatelle is the secrets backend [secrets] names resolve from:
+// satelle-vault's own sealed store. Omitting secrets.provider means the same, and
+// it is the only explicit value accepted.
+const SecretsProviderSatelle = "satelle"
+
+// retiredSecretsProviderInfisical is the backend satelle-vault retired (satelle-
+// server sty_02359fe3); a definition that still names it is refused with the
+// replacement.
+const retiredSecretsProviderInfisical = "infisical"
 
 // Secrets is the [secrets] table. Each of Names is a key resolved server-side
 // from the secrets backend. Override maps a key the node reads to another

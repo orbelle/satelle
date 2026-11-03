@@ -1,3 +1,8 @@
+## [0.0.864] - 2026-11-03
+
+### Breaking
+- A remote definition's `[secrets]` names resolve from satelle-vault's own sealed store, the only secrets backend (paired with satelle-server sty_02359fe3). `secrets.provider` may be omitted or set to `"satelle"`; `"infisical"` is refused with a finding at `secrets.provider` naming `"satelle"` as the replacement, and any other value is refused naming the one backend. Remediation: delete the `provider` line under `[secrets]` or set `provider = "satelle"`, and put each named value in the satelle vault. (sty_80f756b7)
+
 ## [0.0.863] - 2026-11-03
 
 ### Fixed
