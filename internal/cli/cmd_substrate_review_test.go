@@ -102,6 +102,13 @@ func runValidatorsDropped(t *testing.T, repo string) {
 // links three rules, and one story's ledger holds a rejection by the repo skill.
 func substrateReviewFixture(t *testing.T) string {
 	t.Helper()
+	return substrateReviewFixtureGate(t, false)
+}
+
+// substrateReviewFixtureGate is substrateReviewFixture with the repo's
+// [review] gate_create set to gateCreate once the fixture's own story exists.
+func substrateReviewFixtureGate(t *testing.T, gateCreate bool) string {
+	t.Helper()
 	repo := tempRepo(t)
 	runValidatorsDropped(t, repo)
 	writeRepoFile(t, repo, ".satelle/skills/repo-cut.md", "---\ntype: skill\nname: repo-cut\ndescription: a repo skill\n---\n# repo cut\n\nkeep me\n\ndrop me\n")
@@ -112,9 +119,13 @@ func substrateReviewFixture(t *testing.T) string {
 
 	// The project tier owns skills/team-skill.md.
 	cfgPath := filepath.Join(repo, ".satelle", "satelle.toml")
-	if err := os.WriteFile(cfgPath, []byte("[review]\ngate_create = false\n\n[hosted]\nproject = \"team-p\"\n"), 0o644); err != nil {
-		t.Fatal(err)
+	writeCfg := func(gate bool) {
+		t.Helper()
+		if err := os.WriteFile(cfgPath, []byte(fmt.Sprintf("[review]\ngate_create = %t\n\n[hosted]\nproject = \"team-p\"\n", gate)), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
+	writeCfg(false)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +154,9 @@ func substrateReviewFixture(t *testing.T) string {
 	b, _ := json.Marshal(map[string]any{"from": "backlog", "to": "plan", "skill": "repo-cut", "attempt": "att_x", "notes": "too long", "model_resolved": "M1"})
 	if _, err := db.Ledger.Append(context.Background(), ledger.AppendInput{StoryID: created.ID, Kind: ledger.KindReviewReject, Actor: "reviewer", Body: "reject", Payload: b}, time.Now()); err != nil {
 		t.Fatal(err)
+	}
+	if gateCreate {
+		writeCfg(true)
 	}
 	return repo
 }
@@ -532,5 +546,58 @@ func TestSubstrateReviewRefusedCloseCancelsItsExecution(t *testing.T) {
 	}
 	if r.report == "" {
 		t.Error("the refused run keeps no report attachment")
+	}
+}
+
+// sty_5ed358e0 AC1: with the create gate on, the review's execution is created
+// with the fixed run category, so the review runs to its report and ends done.
+func TestSubstrateReviewRunsWithCreateGateOn(t *testing.T) {
+	substrateReviewFixtureGate(t, true)
+	stubSubstrateJudge(t, substratereview.Judgement{})
+	report := filepath.Join(t.TempDir(), "report.json")
+	out, err := runRoot(t, "substrate", "review", "--out", report)
+	if err != nil {
+		t.Fatalf("substrate review with the create gate on: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(report); err != nil {
+		t.Fatalf("the JSON report was not written: %v", err)
+	}
+	r := onlyReviewRun(t)
+	if r.item.Status != workitem.StatusDone || r.item.Category != workitem.RunCategory {
+		t.Fatalf("the run is %s with category %q, want done with %q", r.item.Status, r.item.Category, workitem.RunCategory)
+	}
+}
+
+// sty_5ed358e0 AC2: a create-gate rejection of the review's execution fails the
+// command with the gate's notes, and no report or execution is left behind.
+func TestSubstrateReviewCreateRejectionIsReported(t *testing.T) {
+	substrateReviewFixtureGate(t, true)
+	prev := substrateReviewCategory
+	t.Cleanup(func() { substrateReviewCategory = prev })
+	substrateReviewCategory = ""
+	stubSubstrateJudge(t, substratereview.Judgement{})
+	report := filepath.Join(t.TempDir(), "report.json")
+	out, err := runRoot(t, "substrate", "review", "--out", report)
+	if err == nil {
+		t.Fatalf("a review whose execution the create gate rejects must fail:\n%s", out)
+	}
+	for _, want := range []string{"create the run's execution", "category is empty"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	if _, serr := os.Stat(report); !os.IsNotExist(serr) {
+		t.Errorf("a rejected review wrote a report: %v", serr)
+	}
+	out, lerr := runRoot(t, "execution", "list", "--parent", substrateReviewTask)
+	if lerr != nil {
+		t.Fatalf("execution list: %v\n%s", lerr, out)
+	}
+	var runs []workitem.Item
+	if err := json.Unmarshal([]byte(out), &runs); err != nil {
+		t.Fatalf("parse execution list: %v\n%s", err, out)
+	}
+	if len(runs) != 0 {
+		t.Errorf("%d executions exist after a rejected create, want 0:\n%s", len(runs), out)
 	}
 }

@@ -23,6 +23,12 @@ const substrateReviewTask = "tsk_substrate-review"
 // run is recorded under on its execution.
 const substrateReviewStageKind = "substrate-review-stage"
 
+// substrateReviewCategory is the category the run's execution is created with:
+// workitem.RunCategory, the fixed category of a run satelle makes itself, so the
+// create gate's structure check passes (sty_5ed358e0). A var so a test can force
+// a rejection.
+var substrateReviewCategory = workitem.RunCategory
+
 // substrateReviewRun is one review's execution of substrateReviewTask. It is
 // in_progress — so in the Activity tab — only while the review runs: it starts
 // through the execution route's entry gate and ends through its close gate, or
@@ -53,6 +59,7 @@ func startSubstrateReviewRun(ctx context.Context, a *app.App, errOut io.Writer) 
 		"title":     "satelle substrate review",
 		"body":      "A run of `satelle substrate review`, from task " + source + ".",
 		"parent_id": substrateReviewTask,
+		"category":  substrateReviewCategory,
 	}, &exe); err != nil {
 		return nil, fmt.Errorf("substrate review: create the run's execution: %w", err)
 	}
