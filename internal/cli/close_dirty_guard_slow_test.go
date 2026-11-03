@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -223,5 +224,34 @@ func TestSlowSeatlessTerminalMoveIgnoresAnotherStoriesDirtyTree(t *testing.T) {
 	}
 	if after.Worktree != before.Worktree || !lease.Alive(after, time.Now()) {
 		t.Errorf("A's seat changed: %+v -> %+v", before, after)
+	}
+}
+
+// The CLI wires the probe itself: a close through the real command tree names
+// the dirty file too.
+func TestSlowStorySetDoneRefusedThroughTheCommandTree(t *testing.T) {
+	repo := tempRepo(t)
+	t.Chdir(repo)
+	writeRoute(t, filepath.Join(repo, ".satelle", "workflows"), closeRouteDone, closeRouteStep)
+	gitInitCommit(t, repo)
+
+	out, err := runRoot(t, "story", "create", "--title", "cli close guard", "--body", "goal",
+		"--acceptance", "1. ok", "--category", "chore")
+	if err != nil {
+		t.Fatalf("create: %v\n%s", err, out)
+	}
+	var created map[string]any
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatalf("parse create: %v\n%s", err, out)
+	}
+	id, _ := created["id"].(string)
+	if out, err := runRoot(t, "story", "set", id, "--status", "in_progress"); err != nil {
+		t.Fatalf("engage: %v\n%s", err, out)
+	}
+	writeRepoFile(t, repo, "foo.go", "package foo\n")
+	if out, err := runRoot(t, "story", "set", id, "--status", "done"); err == nil {
+		t.Fatalf("close must be refused:\n%s", out)
+	} else if !strings.Contains(err.Error(), "foo.go") {
+		t.Errorf("refusal must name foo.go, got: %v", err)
 	}
 }

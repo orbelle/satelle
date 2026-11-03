@@ -119,3 +119,20 @@ func TestSlowStorySetEngagePrintsTrunkCheck(t *testing.T) {
 		})
 	}
 }
+
+// Outside a detached run the line prints to the command's stderr.
+func TestSlowStorySetEngageTrunkLineStaysOnStderrOutsideAGateRun(t *testing.T) {
+	repo, r, id := trunkEngageRepo(t, "")
+	r.PublishFromPusher(t, "a.txt")
+	before := r.Head(t, repo)
+	tip := r.Git(t, r.Remote, "rev-parse", "refs/heads/main")
+
+	_, stderr, err := runRootSplit(t, "", "story", "set", id, "--status", "in_progress")
+	if err != nil {
+		t.Fatalf("engage: %v\n%s", err, stderr)
+	}
+	want := "satelle: trunk fast-forwarded main by 1 commit(s) " + before[:8] + ".." + tip[:8]
+	if lines := trunkLines(stderr); len(lines) != 1 || !strings.HasPrefix(lines[0], want) {
+		t.Fatalf("trunk lines = %q, want one starting %q", lines, want)
+	}
+}

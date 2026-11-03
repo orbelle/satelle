@@ -135,6 +135,8 @@ func TestOnlyDeliveryAndReplayReadAHandle(t *testing.T) {
 		filepath.Join("internal", "cli", "gatesettle_test.go"):           true,
 		filepath.Join("internal", "cli", "harness_pi_gatewake_test.go"):  true,
 		filepath.Join("internal", "cli", "cursor_gate_delivery_test.go"): true,
+		// gatecaller_test.go's slowest tests, behind the clislow tag (sty_210df6c3).
+		filepath.Join("internal", "cli", "gatecaller_slow_test.go"): true,
 	}
 	root := filepath.Join("..", "..")
 	var offenders []string

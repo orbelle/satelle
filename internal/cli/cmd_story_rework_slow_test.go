@@ -67,3 +67,100 @@ func TestSlowStoryReworkExportsLeaseSessionAndRelayMarkerOnlyOnCoder(t *testing.
 		t.Fatalf("consultant must not inherit the coder relay marker, got: %q", consultBody)
 	}
 }
+
+// TestSlowStoryReworkE2EConvergesAndLeavesStatusAlone covers AC2 (two live
+// sessions, relayed turns, `satelle story messages` in order with the real
+// roles) and AC3 (converged result printed and ledgered; status identical
+// before and after).
+func TestSlowStoryReworkE2EConvergesAndLeavesStatusAlone(t *testing.T) {
+	_, id := reworkRepo(t, "3",
+		"AC1 has no test.\nNOT READY: AC1 has no test|Looks right now.\nREADY",
+		"added TestAC1 in internal/x; done")
+
+	before := storyStatus(t, id)
+	out, err := runRoot(t, "story", "rework", id)
+	if err != nil {
+		t.Fatalf("rework: %v\n%s", err, out)
+	}
+	after := storyStatus(t, id)
+	if before != after || after != "in_progress" {
+		t.Fatalf("status moved: %q → %q (the relay must never set status)", before, after)
+	}
+
+	// The result is on stdout as JSON.
+	if !strings.Contains(out, `"converged":true`) || !strings.Contains(out, `"rounds":2`) {
+		t.Fatalf("result line missing from stdout:\n%s", out)
+	}
+	// ...and on the ledger, so the orchestrator can read it either way.
+	led, err := runRoot(t, "ledger", "list", "--story", id)
+	if err != nil {
+		t.Fatalf("ledger: %v\n%s", err, led)
+	}
+	if !strings.Contains(led, "rework outcome=converged converged=true rounds=2/3") {
+		t.Fatalf("ledger missing the relay outcome row:\n%s", led)
+	}
+
+	// AC2: the conversation reads as itself, in order, with the real roles.
+	rows := reworkMessages(t, id)
+	if len(rows) != 3 {
+		t.Fatalf("message rows = %d, want 3:\n%+v", len(rows), rows)
+	}
+	wantDir := [][2]string{{"consultant", "coder"}, {"coder", "consultant"}, {"consultant", "coder"}}
+	for i, w := range wantDir {
+		if rows[i].From != w[0] || rows[i].To != w[1] {
+			t.Errorf("row %d = %s -> %s, want %s -> %s", i, rows[i].From, rows[i].To, w[0], w[1])
+		}
+		if rows[i].Cc != "*" {
+			t.Errorf("row %d cc = %q, want * so the transcript reaches the edge reviewer", i, rows[i].Cc)
+		}
+	}
+	if !strings.Contains(rows[0].Body, "NOT READY: AC1 has no test") {
+		t.Errorf("first row = %q; want the consultant's whole reply", rows[0].Body)
+	}
+	if !strings.Contains(rows[1].Body, "added TestAC1") {
+		t.Errorf("second row = %q; want the coder's reply", rows[1].Body)
+	}
+}
+
+// TestSlowStoryReworkE2ESpendsTheBudgetAndParksNothing covers AC3's other end: the
+// budget is spent, converged is false with the last objection captured, and
+// status is STILL untouched — parking is the orchestrator's decision, not the
+// relay's.
+func TestSlowStoryReworkE2ESpendsTheBudgetAndParksNothing(t *testing.T) {
+	_, id := reworkRepo(t, "2",
+		"NOT READY: first thing|NOT READY: second thing|NOT READY: third thing",
+		"tried a|tried b|tried c")
+
+	out, err := runRoot(t, "story", "rework", id)
+	if err != nil {
+		t.Fatalf("rework: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"converged":false`) || !strings.Contains(out, `"rounds":2`) {
+		t.Fatalf("result line wrong:\n%s", out)
+	}
+	if !strings.Contains(out, `"last_objection":"second thing"`) {
+		t.Fatalf("last objection not captured:\n%s", out)
+	}
+	if got := storyStatus(t, id); got != "in_progress" {
+		t.Fatalf("status = %q; a spent budget must not move or park the story", got)
+	}
+}
+
+// TestSlowStoryReworkRoundsFlagMayOnlyLower: the budget is configuration.
+func TestSlowStoryReworkRoundsFlagMayOnlyLower(t *testing.T) {
+	_, id := reworkRepo(t, "2", "NOT READY: a|NOT READY: b", "fix a|fix b")
+
+	if out, err := runRoot(t, "story", "rework", id, "--rounds", "5"); err == nil {
+		t.Fatalf("--rounds above the authored budget must refuse:\n%s", out)
+	} else if !strings.Contains(err.Error(), "authored budget") {
+		t.Errorf("refusal should name the authored budget, got: %v", err)
+	}
+
+	out, err := runRoot(t, "story", "rework", id, "--rounds", "1")
+	if err != nil {
+		t.Fatalf("rework --rounds 1: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"rounds":1`) {
+		t.Fatalf("--rounds 1 should have spent exactly one round:\n%s", out)
+	}
+}
