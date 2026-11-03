@@ -34,7 +34,7 @@ func TestEmbeddedPRApproveDefaultsAndTemplate(t *testing.T) {
 }
 
 // AC3: the shipped pr-approve template is schema v1 and validates with no
-// finding: a task drive of pr-approve, started by a story entering pr_open, whose
+// finding: a task drive of pr-approve in the prd vault environment, started by a story entering pr_open, whose
 // GH_TOKEN is a github-app override with exactly the permissions the approval
 // needs and whose agent CLI credential is a team value satelle holds.
 func TestEmbeddedPRApproveTemplateIsV1(t *testing.T) {
@@ -53,6 +53,9 @@ func TestEmbeddedPRApproveTemplateIsV1(t *testing.T) {
 	if def.Version != 1 || def.Provider != remotedef.ProviderFlySprite ||
 		def.Drive != (remotedef.Drive{Kind: remotedef.DriveTask, Task: "pr-approve"}) {
 		t.Errorf("definition = %+v, want v1 on fly-sprite driving task pr-approve", def)
+	}
+	if def.Environment != "prd" {
+		t.Errorf("environment = %q, want prd: the vault environment its secrets resolve in", def.Environment)
 	}
 	if def.Trigger == nil || def.Trigger.On != "story.status:pr_open" {
 		t.Errorf("trigger = %+v, want on story.status:pr_open", def.Trigger)

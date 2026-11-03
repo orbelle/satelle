@@ -1,9 +1,11 @@
 # A schema v1 task-drive definition: each wake runs one execution of the named
 # task. The shape of [drive] is satelle-server's internal/remotedef at 02e27f8
-# (kind = "task" with the bare task name in task).
+# (kind = "task" with the bare task name in task). A test adds [secrets] to it as
+# it needs them, resolved in its environment.
 version = 1
 provider = "fly-sprite"
 satelle_version = "0.0.702"
+environment = "prd"
 
 [[repo]]
 url = "https://github.com/acme/widgets.git"

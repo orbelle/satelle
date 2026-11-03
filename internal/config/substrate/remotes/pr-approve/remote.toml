@@ -12,6 +12,9 @@ provider = "fly-sprite"
 # The satelle the node installs: satelle.dev installs exactly this version, so it
 # must be one that reads schema v1 (0.0.856 or later).
 satelle_version = "0.0.856"
+# The vault environment the secrets below resolve in. satelle.dev checks it
+# against the workspace's environments (by default dev, stg and prd).
+environment = "prd"
 
 [drive]
 kind = "task"

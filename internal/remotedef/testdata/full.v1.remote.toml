@@ -3,11 +3,14 @@
 # 0.1.265): the full v1 example, every table and key v1 carries. Re-copy it when
 # the server's schema changes. One line differs: [secrets] provider is "satelle"
 # where 02e27f8 had "infisical", which satelle-vault retired (satelle-server
-# sty_02359fe3, client sty_80f756b7).
+# sty_02359fe3, client sty_80f756b7). One line is added: environment, the vault
+# environment its secrets resolve in (satelle-server sty_d2c07a3e, client
+# sty_0f654084).
 version = 1
 name = "pr-approve"
 provider = "fly-sprite"
 satelle_version = "0.0.709"
+environment = "prd"
 
 [machine]
 region = "syd"

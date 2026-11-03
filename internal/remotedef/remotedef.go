@@ -38,6 +38,12 @@ type Definition struct {
 	Provider Provider `toml:"provider" json:"provider"`
 	// SatelleVersion pins the satelle the node runs (MAJOR.MINOR.PATCH).
 	SatelleVersion string `toml:"satelle_version" json:"satelle_version"`
+	// Environment is the vault environment the definition's secrets resolve in
+	// (such as dev, stg or prd). It is required when [secrets] declares a name or
+	// a satelle: override. The client checks its form; the server also checks it
+	// against the workspace's environments and takes it from the stored
+	// definition, never from the node.
+	Environment string `toml:"environment" json:"environment,omitempty"`
 	// Machine is the workload's machine, carried to the node unchanged.
 	Machine Machine `toml:"machine" json:"machine,omitzero"`
 	// Setup is what the node runs as it comes up.

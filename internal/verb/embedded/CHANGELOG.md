@@ -1,3 +1,13 @@
+## [0.0.869] - 2026-11-03
+
+### Added
+- A remote definition (schema v1) may declare a top-level `environment` naming the vault environment it runs in (a name matching `[a-z][a-z0-9-]{0,31}`, e.g. `prd`). It is required, with a finding on `environment`, when the definition declares any `[secrets]` name or `satelle:` override, and optional otherwise; satelle.dev also checks it against the workspace's environments. `satelle node join` accepts a definition that carries it. The embedded `remotes/pr-approve` template declares `environment = "prd"`. Paired with satelle-server sty_d2c07a3e. (sty_0f654084)
+
+## [serve-v0.0.286] - 2026-11-03
+
+### Changed
+- The service binary carries the remotes/pr-approve template with `environment = "prd"`. (sty_0f654084)
+
 ## [0.0.868] - 2026-11-03
 
 ### Fixed

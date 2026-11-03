@@ -113,6 +113,7 @@ func check(body []byte) (Definition, []Finding) {
 		v.fail("identity.principal", "required when [identity] is present: who the remote acts as")
 	}
 	v.checkSecrets(def)
+	v.checkEnvironment(def)
 	v.checkRepos(def)
 	for i, h := range def.Network.Allow {
 		if !hostPattern.MatchString(h) {
@@ -389,6 +390,26 @@ func (v *validator) checkSecrets(def Definition) {
 	}
 }
 
+// checkEnvironment holds environment to a vault environment name and requires it
+// when the definition reads a value from the vault: a [secrets] name or a
+// satelle: override. A github-app override is minted, not held, so it needs none.
+// The server also checks the name against the workspace's environments.
+func (v *validator) checkEnvironment(def Definition) {
+	if def.Environment != "" {
+		if !environmentPattern.MatchString(def.Environment) {
+			v.fail("environment", "must be lower-case letters, digits or -, starting with a letter, at most 32 characters")
+		}
+		return
+	}
+	needs := len(def.Secrets.Names) > 0
+	for _, e := range def.SecretEntries() {
+		needs = needs || e.Source == SourceSatelle
+	}
+	if needs {
+		v.fail("environment", "required when [secrets] declares a name or a satelle: override: the vault environment its values resolve in")
+	}
+}
+
 // overrideForms says what an override may hold.
 const overrideForms = `must be "satelle:<name>" (a team value satelle holds, granted to the remote) or { provider = "github-app", permissions = { <name> = "read" or "write" } }`
 
@@ -556,6 +577,8 @@ var (
 	hostPattern = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 	// repoNamePattern is a directory name a clone can safely have.
 	repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	// environmentPattern is a vault environment name, such as dev, stg or prd.
+	environmentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 )
 
 // httpsURL parses raw as an https URL with a host; ok is false for anything else.

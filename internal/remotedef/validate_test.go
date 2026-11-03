@@ -175,13 +175,13 @@ func TestV1AcceptedForms(t *testing.T) {
 		"swap in M":                 minimalV1 + "[machine]\nswap = \"2048M\"\n",
 		"swap in G":                 minimalV1 + "[machine]\nswap = \"8G\"\n",
 		"machine strings":           minimalV1 + "[machine]\nregion = \"syd\"\nsize = \"shared-cpu-2x\"\nimage = \"img:base\"\n",
-		"secrets provider default":  minimalV1 + "[secrets]\nnames = [\"A_KEY\"]\n",
+		"secrets provider default":  "environment = \"prd\"\n" + minimalV1 + "[secrets]\nnames = [\"A_KEY\"]\n",
 		"job scope":                 minimalV1 + "[lifecycle]\nscope = \"job\"\nidle_destroy = \"2h\"\n",
 		"max_nodes one":             minimalV1 + "[lifecycle]\nmax_nodes = 1\n",
 		"keep_warm on a task":       taskV1 + "[lifecycle]\nkeep_warm = 2\nidle_destroy = \"10m\"\nmax_nodes = 3\n",
 		"keep_warm equal max_nodes": taskV1 + "[lifecycle]\nkeep_warm = 3\nmax_nodes = 3\n",
 		"keep_warm zero on a task":  taskV1 + "[lifecycle]\nkeep_warm = 0\n",
-		"satelle override":          minimalV1 + "[secrets.override]\nNOTES = \"satelle:TEAM_NOTES\"\n",
+		"satelle override":          "environment = \"prd\"\n" + minimalV1 + "[secrets.override]\nNOTES = \"satelle:TEAM_NOTES\"\n",
 		"status trigger":            minimalV1 + "[trigger]\non = \"story.status:review\"\n",
 		"no trigger":                minimalV1,
 		"setup lists":               minimalV1 + "[setup]\non_create = [\"make\"]\npost_start = []\n",
@@ -209,7 +209,7 @@ func TestSecretsProvider(t *testing.T) {
 		{"unknown", "vault-x", []string{`"satelle"`}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			body := minimalV1 + "[secrets]\nnames = [\"A_KEY\"]\n"
+			body := "environment = \"prd\"\n" + minimalV1 + "[secrets]\nnames = [\"A_KEY\"]\n"
 			if c.provider != "" {
 				body += "provider = \"" + c.provider + "\"\n"
 			}
@@ -230,6 +230,70 @@ func TestSecretsProvider(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// environment is the vault environment a definition's secrets resolve in: a
+// name of lower-case letters, digits and -, starting with a letter, at most 32
+// characters. It is required when [secrets] declares a name or a satelle:
+// override, and optional otherwise; a github-app override alone needs none.
+func TestEnvironment(t *testing.T) {
+	const (
+		names     = "[secrets]\nnames = [\"A_KEY\"]\n"
+		satelle   = "[secrets.override]\nNOTES = \"satelle:TEAM_NOTES\"\n"
+		githubApp = "[[repo]]\nurl = \"https://github.com/acme/w.git\"\nref = \"main\"\n[secrets.override]\nGH = { provider = \"github-app\", permissions = { statuses = \"write\" } }\n"
+	)
+	env := func(v string) string { return "environment = \"" + v + "\"\n" }
+	for _, c := range []struct {
+		name, body string
+		want       string // substring of the one finding at environment; "" = no finding
+	}{
+		{"prd with names", env("prd") + minimalV1 + names, ""},
+		{"dev-2 with a satelle override", env("dev-2") + minimalV1 + satelle, ""},
+		{"32 characters", env("a"+strings.Repeat("b", 31)) + minimalV1 + names, ""},
+		{"set with no secrets", env("stg") + minimalV1, ""},
+		{"absent with neither", minimalV1, ""},
+		{"absent with a github-app override only", minimalV1 + githubApp, ""},
+		{"upper-case letter", env("Prd") + minimalV1 + names, "lower-case"},
+		{"starts with a digit", env("2prd") + minimalV1 + names, "starting with a letter"},
+		{"33 characters", env("a"+strings.Repeat("b", 32)) + minimalV1 + names, "at most 32"},
+		{"underscore", env("pr_d") + minimalV1, "lower-case"},
+		{"empty with names", env("") + minimalV1 + names, "required"},
+		{"absent with names", minimalV1 + names, "required"},
+		{"absent with a satelle override", minimalV1 + satelle, "required"},
+		{"absent with a github-app and a satelle override", minimalV1 + githubApp + "NOTES = \"satelle:TEAM_NOTES\"\n", "required"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fs := Validate([]byte(c.body))
+			if c.want == "" {
+				if len(fs) != 0 {
+					t.Fatalf("want no finding; findings=%+v", fs)
+				}
+				return
+			}
+			f, ok := findingAt(fs, "environment")
+			if !ok || f.Severity != SeverityError || len(fs) != 1 {
+				t.Fatalf("want one error at environment; findings=%+v", fs)
+			}
+			if !strings.Contains(f.Message, c.want) {
+				t.Errorf("message %q does not contain %q", f.Message, c.want)
+			}
+		})
+	}
+	def, err := Parse([]byte(env("prd") + minimalV1 + names))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Environment != "prd" {
+		t.Errorf("Environment = %q, want prd", def.Environment)
+	}
+}
+
+// environment is a string: any other type is the shape finding at its path.
+func TestEnvironmentMustBeAString(t *testing.T) {
+	fs := Validate([]byte("environment = 3\n" + minimalV1))
+	if f, ok := findingAt(fs, "environment"); !ok || f.Message != "must be a string" {
+		t.Fatalf("want must be a string at environment; findings=%+v", fs)
 	}
 }
 

@@ -5,6 +5,7 @@
 version = 1
 provider = "fly-sprite"
 satelle_version = "0.0.702"
+environment = "prd"
 
 [secrets]
 names = ["CLAUDE_CODE_OAUTH_TOKEN"]

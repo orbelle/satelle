@@ -13,6 +13,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/forge"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
@@ -24,7 +25,8 @@ import (
 // allowlist and one repo (AC5), resolves `doc get principles repo-constitution`
 // to the bundle's file rather than anything init scaffolded (AC9), and hands the
 // run its definition, from which `satelle pr` reads the repo and the token's
-// variable.
+// variable. The bundle declares environment = "prd": join accepts it and hands
+// it to the run unchanged (sty_0f654084).
 func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 	const constitution = "REPO-CONSTITUTION-SENTINEL-4e1d"
 	files, ok := config.EmbeddedRemote("pr-approve")
@@ -57,6 +59,8 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 		target prTarget
 		tgtErr error
 		task   string
+		def    remotedef.Definition
+		defErr error
 	)
 	useTaskNode(t, &taskPerformers{step: func(item workitem.Item) error {
 		mu.Lock()
@@ -64,6 +68,7 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 		task = item.ParentID
 		docErr = dispatchInto(context.Background(), "doc-get", map[string]any{"kind": "principles", "name": forge.RepoConstitution}, &doc)
 		target, tgtErr = resolvePRTarget("")
+		def, defErr = remotedef.FromEnvValue(os.Getenv(remotedef.EnvDefinition))
 		return dispatchInto(context.Background(), "execution-record",
 			map[string]any{"id": item.ID, "output": "checked", "outcome": verb.OutcomeAccept}, &struct{}{})
 	}}, 0)
@@ -87,5 +92,8 @@ func TestNodeJoinedOnThePRApproveBundle(t *testing.T) {
 	}
 	if tgtErr != nil || target.repo != "acme/widgets" || target.host != "github.com" || target.tokenEnv != "GH_TOKEN" {
 		t.Errorf("the run's PR target = %+v, %v; want acme/widgets on github.com with GH_TOKEN", target, tgtErr)
+	}
+	if defErr != nil || def.Environment != "prd" {
+		t.Errorf("the run's definition environment = %q, %v; want prd, carried unchanged", def.Environment, defErr)
 	}
 }
