@@ -1,15 +1,24 @@
-# Harness / agent local dirs — never commit (operator-owned). The one tracked
-# file under .claude/ is settings.local.json: the Claude cloud-session hook
-# carrier (scripts/claude-cloud-hook.sh). A file inside an ignored directory
-# cannot be re-included, so the directory is ignored by contents (.claude/*).
+# Harness / agent local dirs — operator-owned. The one tracked file under
+# .claude/ is settings.local.json: the Claude cloud-session hook carrier
+# (scripts/claude-cloud-hook.sh). A file inside an ignored directory cannot be
+# re-included, so the directory is ignored by contents (.claude/*).
 .claude/*
 !.claude/settings.local.json
 .grok/
 .cursor/
+.pi/
 
-# satelle workspace (authored substrate + local config). Continuity is local
-# disk by default (or hosted sync); Git is not the recovery path.
-.satelle/
+# satelle process substrate (.satelle/) is tracked: workflows, skills,
+# principles, constitution, satelle.toml, task definitions and documents.
+# Its machine-local and runtime parts are not (sty_3f91b9e2). The re-include
+# overrides a machine-wide core.excludesFile that ignores .satelle/.
+!.satelle/
+.satelle/**/.env
+.satelle/logs
+.satelle/hooks
+.satelle/deployed.version
+.satelle/*.local.toml
+.satelle/tasks/*/exe_*.md
 
 # Built binaries — leading `/` is required so only the *named path* is ignored.
 # A bare `satelled` would also match cmd/satelled/ and hide the source.
@@ -21,12 +30,6 @@
 
 # Opt-in live benchmark output (generated evidence, not source fixtures).
 /tests/plannerbench/out/
-
-# Legacy pre-rebrand state. The old `satellites` CLI (V5) writes a workspace
-# state dir at ./.satellites/ in whatever cwd it runs in. satelle (V6) uses
-# .satelle/ exclusively; .satellites/ is dead and must never be tracked.
-# See docs/legacy-satellites-dir.md.
-/.satellites
 
 # >>> satelle (managed) >>>
 # RECOMMENDED defaults — the operator owns .gitignore. .satelle is git-optional
@@ -52,6 +55,3 @@
 sty_*_body.md
 sty_*_ac.md
 # <<< satelle (managed) <<<
-
-# Pi harness config + local key override (.pi/.env) — never commit (operator-owned)
-.pi/

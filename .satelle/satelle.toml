@@ -1,0 +1,317 @@
+# satelle.toml — per-repo config (committed, secret-free). Every setting has a
+# default, so this file may stay fully commented; uncomment a key to override.
+# Per-user overrides go in satelle.local.toml beside this file (gitignored).
+
+# data_dir = ".satelle"          # home for the per-repo database (default)
+# db = ".satelle/satelle.db"     # database path (default: <data_dir>/satelle.db)
+# web_port = 8787                # 'satelle serve' listen port (default)
+# log_level = "info"             # debug | info | warn | error (default info)
+
+# substrate_roots — per-kind parent dir for authored markdown. Unset means
+# <data_dir>/<kind> (e.g. .satelle/documents). Point a kind elsewhere — even
+# outside .satelle/ — to author it at the repo root or another path:
+# [substrate_roots]
+# documents = "."                # → ./documents
+# skills = "."                   # → ./skills
+
+[review]
+# Create gate ON (channel-alignment sty_83782ffb): structure + content/alignment
+# + classification (satelle-story-create-review) on every story/task create.
+# Misclassification is cheapest to catch at create. Set false to opt out.
+gate_create = true
+
+# [tags.vocabulary] — controlled tag namespaces (sty_034d843c / epic:surface-scoped-steps).
+# A tag in a listed namespace must use a declared value (matched case-insensitively;
+# stored in the casing declared here). Namespaces absent from the table stay free-form
+# (area:, epic:, order:, …). Repo-specific: another repo declares its own surfaces.
+# back_reference_namespaces: a tag in one of these names the story this one
+# refers back to, and must name a story that exists (sty_5201507b). A done story
+# is never reopened; its follow-up carries one of these instead.
+[tags]
+back_reference_namespaces = ["follows", "regression-of"]
+
+[tags.vocabulary]
+surface = ["ui", "cli"]
+# cancel-reason: queryable why a story was cancelled (sty_de8e8e2c). See
+# satelle-story-classification for the value glossary; the cancel gate owns
+# terminality/revival (revival = new story tagged supersedes:<id>).
+cancel-reason = ["shelved", "duplicate", "superseded", "withdrawn", "wrong"]
+
+# Category TYPE vocabulary (sty_b2315e17): default list is embedded; warn on
+# unknown values (never auto-migrate stories). No extra — surface-shaped
+# values stay as surface: tags, not categories.
+[categories]
+enforce = "warn"
+
+# [release] fields: the extra metadata keys `satelle story release-record`
+# accepts beyond the commit and release identifier (sty_5201507b).
+[release]
+fields = ["serve_version", "channel"]
+
+[gate]
+edit_exempt_paths = [".satelle/", ".claude/", ".grok/", ".gitignore", ".satelle-market/", "internal/config/substrate/", "/home/bobmcallan/.claude/", "/tmp/"]
+edit_exempt_globs = ["sty_*_body.md", "sty_*_ac.md"]
+# [gate.command_allow] — OPT-IN step-scoped Bash policy (sty_c21490cc). Keys are
+# git subcommands; values are story statuses that may run them while engaged.
+# Empty/absent = no step restriction (commitgate only requires SOME engagement).
+# Example (push only at release):
+#   [gate.command_allow]
+#   push = ["release"]
+
+# Fly.io is off limits to every agent session in this repo (sty_176703f4).
+# The CLIs are signed in with the operator's own Fly tokens, so an agent could
+# create, change or destroy Fly resources as the operator. These rules have no
+# `allow` list, so no story status or step lifts them. `**/NAME` matches the
+# program however it is invoked (bare, by path, ~/... or $HOME/...), and
+# `** *HOST*` matches the Fly API hosts anywhere in an HTTP client's arguments.
+# satelle judges only the command line it sees (`satelle help command-rules`):
+# a wrapper, a script or a variable holding the whole program bypasses these.
+# Only a separate OS user, or a token the agent cannot read, truly prevents
+# access.
+allow_outside_tree_edits = false
+[[gate.command_rule]]
+pattern = "**/fly"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/flyctl"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/sprite"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/curl ** *api.fly.io*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/wget ** *api.fly.io*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/http ** *api.fly.io*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/https ** *api.fly.io*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/xh ** *api.fly.io*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/curl ** *api.machines.dev*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/wget ** *api.machines.dev*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/http ** *api.machines.dev*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/https ** *api.machines.dev*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[[gate.command_rule]]
+pattern = "**/xh ** *api.machines.dev*"
+action  = "deny"
+message = "Fly.io is operator-only in this repo: the operator runs Fly commands by hand"
+
+[instruction_review]
+# Extra instruction paths for satelle-instruction-change-trigger (sty_012394c0),
+# beyond the generic .satelle/{skills,principles}/ and .satelle/constitution.md.
+# THIS repo keeps the embedded defaults in-tree, so a change to them is a change
+# to injected instructions too; the binary ships no repo path of its own.
+extra_paths = ["internal/config/substrate/skills/**", "internal/config/substrate/principles/**"]
+
+[dispatch.leftovers]
+# What a coder/driving session leaves in the tree gets moved to its scratch
+# directory at session close, before the next gate sees it (sty_e7aaf8b1).
+# Language-neutral: patterns/content_regex are this repo's own opinion, never
+# a binary default.
+patterns = [".ac-evidence*", ".throwaway*", "*_debug_test.go"]
+content_regex = '^\s*package \w+\s*$'
+max_bytes = 64
+action = "move"
+
+[sync]
+# skills = "shared"
+# documents = "personal"
+# stories = "personal"
+stale_after = "24h"
+project = "satelle"
+
+[engagement]
+parallel = "worktree"
+
+[output]
+# Compact CLI rendering (sty_75b76691): the list/diff commands an agent pulls
+# through Bash(satelle:*) fold to a CSV-backed table / noise-stripped patch
+# instead of full indented JSON, whenever a fold round-trips exactly and is
+# smaller (AC3). compact_for_agents makes this the default for a dispatched or
+# in-loop agent caller (SATELLE_SCRATCH set, or CLAUDECODE=1); --json always
+# forces plain JSON regardless.
+compact_for_agents = true
+compact_commands = ["ledger-list", "story-list", "story-doc-list", "story-messages", "story-diff"]
+# go.sum is THIS repo's own opinion (a Go module checksum file, never
+# reviewable content) — the binary ships no filename pattern of its own.
+noise_patterns = ["go.sum"]
+
+[output.diff_rank]
+# Ranked diff compressor (sty_918e2086): the gate payload's PRIMARY patch
+# reducer, replacing the old unranked 64KiB cut (diffPayloadCeiling stays as
+# a backstop that now offloads its overflow behind a marker too). Also used
+# by `story diff --patch` rendering above when compact mode applies. Every
+# threshold/cap/pattern here is THIS repo's own opinion — the binary ships
+# none of its own (internal/compact.RankPatch treats an absent/disabled table
+# as a no-op). --full always skips this (and noise-stripping) for the raw
+# patch.
+enabled = true
+# A patch at or under this many lines rides unranked.
+passthrough_lines = 50
+# Keep the N files with the most changed lines; the rest are dropped behind
+# one retrieval marker per file.
+max_files = 20
+# Keep up to N hunks per surviving file: always the first and last, then the
+# highest-scored remainder (0.03/changed line, capped at 0.3, +0.3 on a
+# priority_patterns match, capped at 1.0).
+max_hunks_per_file = 10
+# Unchanged lines kept on each side of a change within a kept hunk; a longer
+# run is trimmed to this width behind a marker for the trimmed middle.
+context_lines = 2
+priority_patterns = ["(?i)error", "(?i)todo|fixme|bug|fix", "(?i)security|auth|secret"]
+
+[output.crush]
+# JSON array crusher (sty_aa34491d): the LOSSY last resort for a
+# compact_commands list whose lossless table form is still over
+# size_threshold_bytes. Every value here is THIS repo's own opinion — the
+# binary ships none (an absent/disabled table is a no-op). Kept rows are
+# emitted untouched plus one trailing {"_crushed": "<<ccr:HASH,rows,SIZE>>"}
+# element; `satelle retrieve HASH` returns the full original array. --json
+# and --full always bypass it.
+enabled = true
+min_items = 5
+size_threshold_bytes = 20000
+# K: first/last fractions are positional keeps, the rest is stride-sampled.
+# Forced keeps (below) are outside this budget.
+max_kept = 60
+first_fraction = 0.30
+last_fraction = 0.15
+# Length / numeric outliers beyond this many standard deviations are kept.
+variance_sigma = 2.0
+# A row carrying a key present in fewer than this fraction of rows is kept.
+structural_outlier_fraction = 0.20
+# A status value occurring in fewer than this fraction of rows is kept.
+rare_status_fraction = 0.20
+status_fields = ["status", "kind", "verdict", "level"]
+# Rows with a string value containing one of these words are always kept.
+error_keywords = ["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]
+
+[output.check_log]
+# Log compressor (sty_ef930f81) for a failing functional check's reject
+# notes, replacing the old blind tail(40). Every threshold/cap/pattern here
+# is THIS repo's own Go opinion — internal/compact.CompressLog carries no
+# language-specific pattern of its own; a repo with no [output.check_log]
+# still gets bounded head/tail notes, just with nothing pattern-matched.
+enabled = true
+# A log at or under this many lines rides verbatim.
+passthrough_lines = 60
+# Unchanged lines of context kept on each side of a kept line.
+context_lines = 3
+# Fallback body when nothing matches: first/last N lines.
+head_lines = 20
+tail_lines = 20
+# Cap on the notes' total kept-line count; the lowest-priority context —
+# farthest from its kept anchor — is dropped first.
+max_kept_lines = 400
+# Always-keep lines: go test/build failures, panics, fatal errors, build
+# error locations (file.go:N:M:), test assertion messages, this repo's own
+# OBJECTIVE-style dogfood failure marker, and the ok/FAIL summary line for
+# each package.
+#
+# Assertion messages (sty_a1990fff): go test (no -v) prints EVERY t.Log line
+# of a failing test in the same indented "x_test.go:N:" shape as its
+# t.Errorf/t.Fatalf, so a catch-all indented pattern kept 222 of 235 lines.
+# Keep only indented _test.go lines carrying assertion vocabulary (want/got/
+# expect/missing/not/" = "/...) — 83% of this repo's assertion calls. The rest
+# still survive via context: a t.Fatalf message is the last line before the
+# next "--- FAIL"/"FAIL" and lands in its 3 lines of context. Only a
+# vocabulary-free t.Errorf buried mid-noise can drop — it stays retrievable
+# through the footer's ccr marker. Replay: 222→28 (dogfood log), 194→53
+# (real failing fixture), every failure line and message kept.
+keep_patterns = [
+  "^--- FAIL",
+  "^FAIL\\b",
+  "^panic:",
+  "^fatal error:",
+  "\\.go:\\d+:\\d+:",
+  "^\\s+\\S+_test\\.go:\\d+: .*(?i:\\bwant|\\bgot\\b|expect|unexpected|missing|mismatch|should|must|\\bnot\\b|\\bnever\\b|!=|\\s=\\s|=%|\\bwrong\\b|differ)",
+  "^OBJECTIVE \\d+ FAILED",
+  "^(ok|FAIL)\\s+\\S+\\s+[\\d.]+s",
+]
+# Warning lines that repeat are deduplicated to their first occurrence.
+warn_patterns = ["(?i)^warning:"]
+# A goroutine dump's header opens a trace block; a "line" here is either half
+# of a Go frame pair (function call, or its "\tfile.go:N" continuation).
+trace_start = "^goroutine \\d+ \\["
+trace_frame = "^(\\S.*\\(.*\\)|\\s+/.*\\.go:\\d+.*)$"
+trace_app_frame = "github.com/bobmcallan/satelle"
+# Leading frame lines kept in full before the rest collapse.
+trace_keep_frames = 3
+
+# [fix_lane] — the scoped in-loop fix lane (sty_4b694872). THIS repo's product
+# surface is the shipped Go module plus its tests; everything else (README,
+# CHANGELOG, scripts, build files) is what a mid-step fix may reach. Tests are
+# NOT special-cased: internal/** and tests/** are product surface, so a fix to a
+# *_test.go is refused like any other product edit. The embedded-substrate
+# classes are named so a refusal reports the specific class, not just "product".
+[fix_lane]
+max_lines = 20
+product_surface = ["cmd/**", "internal/**", "api/**", "tests/**", "go.mod", "go.sum"]
+gate_skills = ["internal/config/substrate/skills/**"]
+workflows = ["internal/config/substrate/workflows/**"]
+principles = ["internal/config/substrate/principles/**"]
+
+# [worktree] — what `satelle story worktree <id> --base <ref>` carries into a
+# story's worktree, and where it opens it (sty_1c0fb2d2; satelle help worktree).
+# The edit and commit gate hooks are wired only in .claude/settings.json, which
+# is gitignored, so a plain `git worktree add` tree runs ungated; each harness
+# dir is linked from this main tree instead. .claude/settings.local.json is
+# tracked (the Claude cloud-session hook carrier, sty_3b112554), so git checks
+# out a real .claude/ and only the init-managed settings.json is linked
+# (sty_b5d5c825). .cursor/hooks.json is cursor-agent's wiring (sty_7d098d50);
+# it names the main tree's wrapper by absolute path, so linking it is enough
+# (sty_2407d2fc).
+[worktree]
+include = [".claude/settings.json", ".grok", ".pi", ".cursor/hooks.json"]
+branch  = "epic/{id}"
+path    = "../satelle-wt/{id}"
+
+# Injected-context budgets (sty_891477c0, replayed by sty_f7c5216f). Estimated
+# tokens per dispatched seat; since 0.0.653 the payload is fitted to this budget
+# at assembly time (condensed, with retrieve markers), and satelle validate /
+# satelle doctor report each seat against it.
+# The forge the PR-approval task posts through (satelle-local-first: GitHub is
+# the first provider behind the forge seam). sty_8a03f28d.
+[forge]
+provider = "github"
+
+[forge.github]
+status_context = "satelle/pr-approval"
