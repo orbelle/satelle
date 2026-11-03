@@ -19,6 +19,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/drive"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -133,7 +134,10 @@ func (p *taskPerformers) PerformExecutorStep(_ context.Context, item workitem.It
 func useTaskNode(t *testing.T, perf drive.Performers, every time.Duration) {
 	t.Helper()
 	prevOpts, prevEvery := nodeDriveOptions, nodeStatusResend
-	nodeDriveOptions = func(*cobra.Command) (drive.Options, error) { return drive.Options{Performers: perf}, nil }
+	// The drive logs to the join's log, as production's driveOptions has it.
+	nodeDriveOptions = func(cmd *cobra.Command) (drive.Options, error) {
+		return drive.Options{Performers: perf, Out: cmd.ErrOrStderr()}, nil
+	}
 	nodeStatusResend = every
 	t.Cleanup(func() { nodeDriveOptions, nodeStatusResend = prevOpts, prevEvery })
 }
@@ -156,6 +160,7 @@ func taskRig(t *testing.T, task string, withTaskFile bool) (*nodeRig, *subjectSt
 	}
 	subject := &subjectStory{}
 	r.fakeSetup = func(f *devtest.Node) {
+		subject.fake = f
 		f.Run = subject
 		f.LostAfterSeconds = 3
 	}
@@ -164,11 +169,13 @@ func taskRig(t *testing.T, task string, withTaskFile bool) (*nodeRig, *subjectSt
 
 // subjectStory is the story a wake names: a real story in the node's own store,
 // made when the node reads its run, so the test can show the run leaves it alone.
-// Its JSON is the run descriptor the fake serves.
+// Its rows are on the fake's hosted chain too, as a story of the team workspace's
+// are. Its JSON is the run descriptor the fake serves.
 type subjectStory struct {
 	mu   sync.Mutex
 	item workitem.Item
 	err  error
+	fake *devtest.Node
 }
 
 func (s *subjectStory) MarshalJSON() ([]byte, error) {
@@ -178,11 +185,36 @@ func (s *subjectStory) MarshalJSON() ([]byte, error) {
 		s.err = dispatchInto(context.Background(), "story-create", map[string]any{
 			"title": "subject", "body": "the story a task wake names, which the run must not move", "category": "chore",
 		}, &s.item)
+		if s.err == nil && s.fake != nil {
+			s.err = seedHostedRows(s.fake, s.item.ID)
+		}
 	}
 	if s.err != nil {
 		return nil, s.err
 	}
 	return json.Marshal(map[string]string{"mode": "node", "story_id": s.item.ID, "trigger": "nightly", "trigger_source": "schedule"})
+}
+
+// seedHostedRows puts every ledger row the node's store holds of id on the fake's
+// hosted chain of id, in chain order (ledger-list orders by time), in the
+// encoding a push sends.
+func seedHostedRows(fake *devtest.Node, id string) error {
+	var rows []ledger.Entry
+	if err := dispatchInto(context.Background(), "ledger-list", map[string]any{"story_id": id}, &rows); err != nil {
+		return err
+	}
+	next := make(map[string]ledger.Entry, len(rows))
+	for _, e := range rows {
+		next[e.BaseID] = e
+	}
+	for e, ok := next[""]; ok; e, ok = next[e.ID] {
+		raw, err := marshalWorkstateLedger(e)
+		if err != nil {
+			return err
+		}
+		fake.SeedChain(id, raw)
+	}
+	return nil
 }
 
 // ID is the subject's id, "" until the node has read its run.

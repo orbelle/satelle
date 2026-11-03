@@ -2,7 +2,8 @@ package remotenode
 
 // A node talks to satelle.dev with one credential, the node token the launcher
 // gave it, and about one thing: the node it is. The definition it runs from, each
-// secret it is granted, the record of its run (workstate) and the end of its run are all routes under
+// secret it is granted, the hosted chain of a story it writes to, the record of
+// its run (workstate) and the end of its run are all routes under
 // /api/v1/remote-nodes/{id}, where {id} is the --session value the node was
 // started with (satelle-server sty_c9013137). A value a secret route returns is
 // handed to the caller in memory and goes nowhere else: not to disk, the ledger,
@@ -291,6 +292,49 @@ func (c *NodeClient) PushWorkstate(ctx context.Context, w NodeWorkstate) (PushWo
 	var r PushWorkstateReply
 	_ = json.Unmarshal(raw, &r)
 	return r, nil
+}
+
+// ErrChainRouteUnsupported: satelle.dev answered the node's story-chain read with
+// 404, so it serves no chain to a node. The node writes on what its store holds,
+// as it did before the route.
+var ErrChainRouteUnsupported = errors.New("satelle.dev serves no story chain to a node")
+
+// chainEvent is one event of a story's hosted chain as the node's chain route
+// carries it: the hosted.ChainEvent fields, whose payload is the event's ledger
+// row in the encoding a workstate push sends.
+type chainEvent struct {
+	ID              string          `json:"id"`
+	BaseID          string          `json:"base_id"`
+	WorkflowVersion string          `json:"workflow_version,omitempty"`
+	Payload         json.RawMessage `json:"payload"`
+}
+
+// StoryChain reads the hosted chain of storyID (a story of the node's team
+// workspace, or an execution the node made) under the node token, oldest first,
+// and its latest event id: GET .../stories/{story}/chain answering
+// {"events":[…],"latest":"…"}. A node writes onto that head, so its push builds on
+// the chain rather than starting one (sty_0d621eaf).
+func (c *NodeClient) StoryChain(ctx context.Context, storyID string) ([]hosted.ChainEvent, string, error) {
+	raw, _, err := c.call(ctx, http.MethodGet, "/stories/"+url.PathEscape(storyID)+"/chain", nil)
+	if err != nil {
+		var ae *hosted.APIError
+		if errors.As(err, &ae) && ae.Status == http.StatusNotFound {
+			return nil, "", fmt.Errorf("chain of %s: %w", storyID, ErrChainRouteUnsupported)
+		}
+		return nil, "", fmt.Errorf("chain of %s: %w", storyID, err)
+	}
+	var out struct {
+		Events []chainEvent `json:"events"`
+		Latest string       `json:"latest"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, "", fmt.Errorf("chain of %s: the answer is malformed", storyID)
+	}
+	events := make([]hosted.ChainEvent, len(out.Events))
+	for i, e := range out.Events {
+		events[i] = hosted.ChainEvent{ID: e.ID, BaseID: e.BaseID, WorkflowVersion: e.WorkflowVersion, Payload: e.Payload}
+	}
+	return events, out.Latest, nil
 }
 
 // End tells satelle.dev the node's run is over, which revokes the node token. It

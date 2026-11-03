@@ -1,6 +1,8 @@
 // Package devtest is a stand-in for the routes satelle.dev serves to a remote
 // node, for tests: GET /api/v1/remote-nodes/{id}/definition, GET .../run,
-// PUT .../status, PUT .../channel-key, POST .../secrets/{key}, POST .../workstate and POST .../end, all keyed by the node's id and taking
+// PUT .../status, PUT .../channel-key, POST .../secrets/{key}, GET
+// .../stories/{story}/chain, POST .../workstate (which judges each ledger row's
+// base against its story's chain) and POST .../end, all keyed by the node's id and taking
 // the node token as a bearer (satelle-server sty_c9013137). A call under any other
 // id is a 404; a bad token, or one an end call or Revoke has ended, is a 401. It
 // records every request. It is for tests only: nothing in the product imports it.
@@ -90,6 +92,19 @@ type Node struct {
 	// OnEnd, when set, runs as POST .../end is answered, before the token is
 	// ended: what else the server ends with the run (a minted installation token).
 	OnEnd func()
+	// Chains is each story's hosted chain, by story id, oldest first: ledger rows
+	// in the workstate push encoding (id, story_id, base_id, …). A test seeds it
+	// before the node asks. GET .../stories/{id}/chain serves it, and POST
+	// .../workstate judges each ledger row's base_id against its story's head here
+	// and appends the rows it accepts. A story not in it has an empty chain.
+	Chains map[string][]json.RawMessage
+	// NoChainRoute answers GET .../stories/{id}/chain with 404: a server that
+	// predates the route.
+	NoChainRoute bool
+	// OnAccept, when set, is called with each ledger row a POST .../workstate
+	// accepted, in batch order, after it is answered: where else the server
+	// records it (a test's hosted chain the local machine pulls from).
+	OnAccept func(story string, row json.RawMessage)
 
 	srv     *httptest.Server
 	id      string
@@ -173,6 +188,117 @@ func (n *Node) Pushed() []Batch {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return append([]Batch(nil), n.pushed...)
+}
+
+// SeedChain appends rows to the hosted chain of story, as events another machine
+// pushed there.
+func (n *Node) SeedChain(story string, rows ...json.RawMessage) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.Chains == nil {
+		n.Chains = map[string][]json.RawMessage{}
+	}
+	n.Chains[story] = append(n.Chains[story], rows...)
+}
+
+// Chain is the hosted chain of story now: what was seeded and what pushes added.
+func (n *Node) Chain(story string) []json.RawMessage {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]json.RawMessage(nil), n.Chains[story]...)
+}
+
+// chainRow is what the fake reads of a ledger row to keep its chain.
+type chainRow struct {
+	ID           string `json:"id"`
+	StoryID      string `json:"story_id"`
+	BaseID       string `json:"base_id"`
+	WorkflowHash string `json:"workflow_hash"`
+}
+
+// headOf is the latest id of a chain, "" when it is empty.
+func headOf(chain []json.RawMessage) string {
+	if len(chain) == 0 {
+		return ""
+	}
+	var r chainRow
+	_ = json.Unmarshal(chain[len(chain)-1], &r)
+	return r.ID
+}
+
+// serveChain answers GET .../stories/{id}/chain from Chains.
+func (n *Node) serveChain(w http.ResponseWriter, story string) int {
+	if n.NoChainRoute {
+		return reply(w, http.StatusNotFound, `{"error":"not_found"}`)
+	}
+	chain := n.Chain(story)
+	type event struct {
+		ID              string          `json:"id"`
+		BaseID          string          `json:"base_id"`
+		WorkflowVersion string          `json:"workflow_version,omitempty"`
+		Payload         json.RawMessage `json:"payload"`
+	}
+	events := make([]event, 0, len(chain))
+	for _, raw := range chain {
+		var r chainRow
+		_ = json.Unmarshal(raw, &r)
+		events = append(events, event{ID: r.ID, BaseID: r.BaseID, WorkflowVersion: r.WorkflowHash, Payload: raw})
+	}
+	out, _ := json.Marshal(map[string]any{"events": events, "latest": headOf(chain)})
+	return reply(w, http.StatusOK, string(out))
+}
+
+// acceptLedger judges a batch's ledger rows in order against their stories'
+// heads, as satelle.dev does: a row whose base is not its story's head (the
+// chain's latest event, or a row earlier in the batch) refuses the whole batch
+// with the server's stale-base text. A row the chain already holds is taken as
+// it is. It appends the batch's rows when every one is accepted and returns them.
+func (n *Node) acceptLedger(rows []json.RawMessage) (accepted []chainRow, raws []json.RawMessage, refusal string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	staged := map[string][]json.RawMessage{}
+	chainOf := func(story string) []json.RawMessage {
+		if c, ok := staged[story]; ok {
+			return c
+		}
+		return n.Chains[story]
+	}
+	for _, raw := range rows {
+		var r chainRow
+		if json.Unmarshal(raw, &r) != nil || r.StoryID == "" {
+			continue
+		}
+		chain := chainOf(r.StoryID)
+		if holds(chain, r.ID) {
+			continue
+		}
+		if head := headOf(chain); r.BaseID != head {
+			if head == "" {
+				head = "empty (no event yet)"
+			}
+			return nil, nil, "stale base for " + r.StoryID + ": head is " + head
+		}
+		staged[r.StoryID] = append(append([]json.RawMessage(nil), chain...), raw)
+		accepted, raws = append(accepted, r), append(raws, raw)
+	}
+	if n.Chains == nil {
+		n.Chains = map[string][]json.RawMessage{}
+	}
+	for story, chain := range staged {
+		n.Chains[story] = chain
+	}
+	return accepted, raws, ""
+}
+
+// holds reports whether chain has a row with id.
+func holds(chain []json.RawMessage, id string) bool {
+	for _, raw := range chain {
+		var r chainRow
+		if json.Unmarshal(raw, &r) == nil && r.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Count is how many requests ended with tail (for example "/end" or
@@ -283,6 +409,11 @@ func (n *Node) answer(w http.ResponseWriter, r *http.Request) int {
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			return reply(w, http.StatusBadRequest, `{"error":"invalid_body"}`)
 		}
+		accepted, rows, refusal := n.acceptLedger(in.Ledger)
+		if refusal != "" {
+			raw, _ := json.Marshal(map[string]string{"error": "stale_base", "reason": refusal})
+			return reply(w, http.StatusConflict, string(raw))
+		}
 		project := n.Project
 		if project == "" {
 			project = DefaultProject
@@ -292,7 +423,15 @@ func (n *Node) answer(w http.ResponseWriter, r *http.Request) int {
 		n.pushed = append(n.pushed, in)
 		n.mu.Unlock()
 		raw, _ := json.Marshal(map[string]any{"project": project, "items": len(in.Items), "ledger": len(in.Ledger), "outputs": len(in.Outputs)})
-		return reply(w, http.StatusOK, string(raw))
+		status := reply(w, http.StatusOK, string(raw))
+		if n.OnAccept != nil {
+			for i, r := range accepted {
+				n.OnAccept(r.StoryID, rows[i])
+			}
+		}
+		return status
+	case r.Method == http.MethodGet && strings.HasPrefix(tail, "stories/") && strings.HasSuffix(tail, "/chain"):
+		return n.serveChain(w, strings.TrimSuffix(strings.TrimPrefix(tail, "stories/"), "/chain"))
 	case r.Method == http.MethodPost && tail == "end":
 		if n.OnEnd != nil {
 			n.OnEnd()

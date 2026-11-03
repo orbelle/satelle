@@ -8,8 +8,9 @@ package remotenode
 // concluded (with the outcome). The subject story item is never loaded or edited:
 // the only rows written on it are an execution_link row, written when the run
 // concludes, and an execution_stopped alert, written by the drive when the run ends
-// short of its route's exit. The run is then pushed to the team workspace under the
-// node's own token.
+// short of its route's exit. The subject's and the execution's hosted chains are
+// read first, so those rows build on the hosted head, and the run is then pushed to
+// the team workspace under the node's own token.
 
 import (
 	"context"
@@ -82,6 +83,12 @@ type TaskRun struct {
 	// them) and its run output. Either nil is no push.
 	Pusher WorkstatePusher
 	Batch  func(ctx context.Context, exec workitem.Item, subject string) (NodeWorkstate, error)
+	// Fetch, when set, brings the hosted chain of each id into the node's store
+	// before the run writes to it, so those writes, and so the push, build on the
+	// hosted head (sty_0d621eaf). It is called with the subject before the
+	// execution is made or driven, and with the execution before it is driven. A
+	// failed fetch is logged and the run goes on: local first, never blocked.
+	Fetch func(ctx context.Context, ids ...string) error
 	// ResendEvery, when set, replaces the heartbeat resend interval (a test's).
 	ResendEvery time.Duration
 }
@@ -114,10 +121,12 @@ func RunTask(ctx context.Context, tr TaskRun) (TaskRunResult, error) {
 	var exec workitem.Item
 	err := func() error {
 		var err error
+		tr.fetch(ctx, tr.Desc.StoryID)
 		if exec, err = executionFor(ctx, tr); err != nil {
 			return err
 		}
 		res.Execution = exec.ID
+		tr.fetch(ctx, exec.ID)
 		opts := tr.Drive
 		onMove := opts.OnMove
 		opts.OnMove = func(m drive.Move) {
@@ -183,11 +192,28 @@ func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string
 		return
 	}
 	batch, err := tr.Batch(ctx, exec, tr.Desc.StoryID)
+	var reply PushWorkstateReply
 	if err == nil {
-		_, err = tr.Pusher.PushWorkstate(ctx, batch)
+		reply, err = tr.Pusher.PushWorkstate(ctx, batch)
 	}
 	if err != nil {
 		logf("workstate", err)
+		return
+	}
+	if tr.Drive.Out != nil {
+		fmt.Fprintf(tr.Drive.Out, "node: workstate: published to %s: %d item(s), %d ledger row(s), %d output(s)\n",
+			reply.Project, reply.Items, reply.Ledger, reply.Outputs)
+	}
+}
+
+// fetch runs Fetch for id, logging a failure: the write that follows goes on with
+// what the node's store holds.
+func (tr TaskRun) fetch(ctx context.Context, id string) {
+	if tr.Fetch == nil || id == "" {
+		return
+	}
+	if err := tr.Fetch(ctx, id); err != nil && tr.Drive.Out != nil {
+		fmt.Fprintf(tr.Drive.Out, "node: workstate: the hosted chain of %s was not read before this write: %v\n", id, err)
 	}
 }
 

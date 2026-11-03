@@ -38,7 +38,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/doctor"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotechan"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode"
@@ -526,22 +525,71 @@ func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heart
 		fmt.Fprintf(cmd.ErrOrStderr(), "workstate push skipped: %v\n", err)
 		pusher = nil
 	}
-	beat.Stop()
-	res, rerr := remotenode.RunTask(ctx, remotenode.TaskRun{
+	tr := remotenode.TaskRun{
 		Def: def, Desc: desc, NodeID: session, Client: client, Drive: opts, ResendEvery: nodeStatusResend,
-		Pusher: pusher, Batch: nodeWorkstateBatch(cmd),
-	})
+	}
+	// A node that pushes reads the hosted chains it writes to first, so its rows
+	// build on the hosted head; one that pushes nothing has no head to build on.
+	if pusher != nil {
+		held := nodeHeldRows{}
+		tr.Pusher, tr.Batch, tr.Fetch = pusher, nodeWorkstateBatch(cmd, held), nodeChainFetch(cmd, client, held)
+	}
+	beat.Stop()
+	res, rerr := remotenode.RunTask(ctx, tr)
 	if rerr != nil {
 		return fmt.Errorf("join: the task run %s: %w", res.Execution, rerr)
 	}
 	return nil
 }
 
+// nodeHeldRows is, for one task wake, the id of every hosted ledger row the
+// node's pre-write fetch applied. They are already on satelle.dev and none is the
+// run's, so its push leaves them out: a fetched execution_link of an earlier run
+// is not pushed again.
+type nodeHeldRows map[string]bool
+
+// nodeChainFetch is a task run's pre-write fetch (remotenode.TaskRun.Fetch): for
+// each id it reads the hosted chain under the node token and applies it to the
+// node's store through the same applier a trimmed story's fetch uses
+// (applyHostedChain), so the rows the run then appends take the hosted head as
+// their base (sty_0d621eaf). The node holds no login and binds no project, so it
+// reads through its node API, not the user's chain client, and saves no head: its
+// push carries each row's base. Every row it applies is held.
+func nodeChainFetch(cmd *cobra.Command, client *remotenode.NodeClient, held nodeHeldRows) func(context.Context, ...string) error {
+	return func(ctx context.Context, ids ...string) error {
+		a, err := appFrom(cmd)
+		if err != nil {
+			return err
+		}
+		var errs []error
+		for _, id := range ids {
+			if id == "" {
+				continue
+			}
+			events, _, ferr := client.StoryChain(ctx, id)
+			if ferr == nil {
+				var applied []string
+				applied, ferr = applyHostedChain(ctx, a, id, events)
+				for _, row := range applied {
+					held[row] = true
+				}
+			}
+			if ferr != nil {
+				errs = append(errs, ferr)
+			}
+		}
+		return errors.Join(errs...)
+	}
+}
+
 // nodeWorkstateBatch collects what a task run pushes to the team workspace: the
-// execution, the ledger rows of the execution and of the subject (its link row)
-// and the execution's run-output doc. It reads only the node's own store and holds
-// no credential; the node token that sends it is the NodeClient's.
-func nodeWorkstateBatch(cmd *cobra.Command) func(context.Context, workitem.Item, string) (remotenode.NodeWorkstate, error) {
+// execution, the ledger rows of the execution and of the subject that the run
+// wrote (its link row, and the drive's execution_stopped alert when the run ended
+// short), in the order they were written, and the execution's run-output doc. A
+// row the pre-write fetch brought from satelle.dev (held) is not pushed. It reads
+// only the node's own store and holds no credential; the node token that sends it
+// is the NodeClient's.
+func nodeWorkstateBatch(cmd *cobra.Command, held nodeHeldRows) func(context.Context, workitem.Item, string) (remotenode.NodeWorkstate, error) {
 	return func(ctx context.Context, exec workitem.Item, subject string) (remotenode.NodeWorkstate, error) {
 		a, err := appFrom(cmd)
 		if err != nil {
@@ -551,19 +599,13 @@ func nodeWorkstateBatch(cmd *cobra.Command) func(context.Context, workitem.Item,
 		if subject != "" {
 			scope[subject] = true
 		}
-		rows, _, _, _, err := collectWorkstateRows(ctx, a, map[string]bool{"executions": true, "ledger": true}, hosted.WorkstateCursor{}, scope)
+		rows, _, _, meta, err := collectWorkstateRows(ctx, a, map[string]bool{"executions": true, "ledger": true}, hosted.WorkstateCursor{}, scope)
 		if err != nil {
 			return remotenode.NodeWorkstate{}, err
 		}
-		// Of the subject's ledger only the link row is the run's; the rest is
-		// whatever the node's store holds of that story, and is not pushed.
 		batch := remotenode.NodeWorkstate{Items: rows.Items, Ledger: []json.RawMessage{}, Outputs: []remotenode.RunOutput{}}
-		for _, raw := range rows.Ledger {
-			var row struct {
-				StoryID string `json:"story_id"`
-				Kind    string `json:"kind"`
-			}
-			if json.Unmarshal(raw, &row) == nil && (row.StoryID == exec.ID || row.Kind == ledger.KindExecutionLink) {
+		for i, raw := range rows.Ledger {
+			if !held[meta[i].id] {
 				batch.Ledger = append(batch.Ledger, raw)
 			}
 		}

@@ -42,15 +42,8 @@ func fetchRemoteHistory(ctx context.Context, a *app.App, id string) (bool, error
 	if err != nil {
 		return false, fmt.Errorf("read the history of %s: %w", id, err)
 	}
-	now := time.Now().UTC()
-	for _, ev := range events {
-		e, perr := ledgerEntryOf(id, ev)
-		if perr != nil {
-			return false, fmt.Errorf("decode %s of %s: %w", ev.ID, id, perr)
-		}
-		if _, uerr := a.Store.Ledger.Upsert(ctx, e, now); uerr != nil {
-			return false, fmt.Errorf("apply %s of %s: %w", ev.ID, id, uerr)
-		}
+	if _, err := applyHostedChain(ctx, a, id, events); err != nil {
+		return false, err
 	}
 	if latest != "" {
 		if err := hosted.SaveStoryHead(server, project, a.RepoRoot, id, latest); err != nil {
@@ -58,6 +51,27 @@ func fetchRemoteHistory(ctx context.Context, a *app.App, id string) (bool, error
 		}
 	}
 	return true, a.Store.Ledger.ClearMarks(ctx, ledger.MarkHistoryRemote, []string{id})
+}
+
+// applyHostedChain writes the hosted events of story id into the local store, in
+// chain order, each keeping the base it has on the server, and returns their ids.
+// An event the store already holds is left as it is. It is the one applier of a
+// fetched chain: the trimmed-history fetch above reads through the user's chain
+// client, a remote node's pre-write fetch through its node token.
+func applyHostedChain(ctx context.Context, a *app.App, id string, events []hosted.ChainEvent) ([]string, error) {
+	now := time.Now().UTC()
+	ids := make([]string, 0, len(events))
+	for _, ev := range events {
+		e, err := ledgerEntryOf(id, ev)
+		if err != nil {
+			return ids, fmt.Errorf("decode %s of %s: %w", ev.ID, id, err)
+		}
+		if _, err := a.Store.Ledger.Upsert(ctx, e, now); err != nil {
+			return ids, fmt.Errorf("apply %s of %s: %w", ev.ID, id, err)
+		}
+		ids = append(ids, ev.ID)
+	}
+	return ids, nil
 }
 
 // fetchBeforeRead runs fetchRemoteHistory for a story verb. A fetch that fails is
