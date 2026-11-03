@@ -336,6 +336,10 @@ func TestShippedChangelogMarksDOTRetirement(t *testing.T) {
 //     key but rewrites none, since the override sources and team-store names
 //     are values the old file does not carry.
 //
+//   - 0.0.864, remote definition secrets resolve from satelle-vault's own
+//     store (sty_80f756b7). Manual: delete secrets.provider = "infisical" from a
+//     remote.toml (or set it to "satelle") and put each named value in the vault.
+//
 // What stays invariant is the shape: at-or-after the newest marker is quiet, and
 // the warning a repo below it gets carries that release's own bullets.
 func TestShippedChangelogSparesCurrentRepos(t *testing.T) {
@@ -378,8 +382,10 @@ func TestShippedChangelogSparesCurrentRepos(t *testing.T) {
 		{"0.0.829", true, "the release just before the budget removal", false},
 		{"0.0.830", false, "stamped at the budget removal, the newest init-heals release, but predates the manual schema v1 at 0.0.856", true},
 		{"0.0.855", false, "the release just before schema v1", true},
-		{"0.0.856", false, "stamped AT the newest Breaking release", false},
-		{"0.0.857", false, "past it", false},
+		{"0.0.856", false, "stamped at the manual schema v1, but predates the manual vault secrets at 0.0.864", true},
+		{"0.0.863", false, "the release just before the vault secrets", true},
+		{"0.0.864", false, "stamped AT the newest Breaking release", false},
+		{"0.0.865", false, "past it", false},
 	}
 	for _, c := range cases {
 		entries, err := verb.ChangelogRange(c.deployed, future)
@@ -390,8 +396,8 @@ func TestShippedChangelogSparesCurrentRepos(t *testing.T) {
 		if c.refused && bw != nil {
 			t.Errorf("stamp %s (%s): a range with an init-heals release refuses, never warns:\n%s", c.deployed, c.why, bw.Text)
 		}
-		if c.warned && (bw == nil || bw.Version != "0.0.856") {
-			t.Errorf("stamp %s (%s): want a warning across the manual 0.0.856, got %+v", c.deployed, c.why, bw)
+		if c.warned && (bw == nil || bw.Version != "0.0.864") {
+			t.Errorf("stamp %s (%s): want a warning across the manual 0.0.864, got %+v", c.deployed, c.why, bw)
 		}
 		if !c.refused && !c.warned && bw != nil {
 			t.Errorf("stamp %s (%s): must be quiet:\n%s", c.deployed, c.why, bw.Text)
