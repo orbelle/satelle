@@ -152,21 +152,39 @@ func TestRechainRepairsMidChainSeed(t *testing.T) {
 	noAppendsAfterPush(t, ts, f, id)
 }
 
-// sty_8fc70019 AC2: local work anywhere in the chain, not only at its end, refuses
-// the story by name and leaves its chain as it was, whether run or dry-run.
-func TestRechainRefusesMidChainLocalWork(t *testing.T) {
+// sty_8fc70019 AC2, as sty_f321c29e changed it: local work in the middle of the
+// chain, built on a hosted event the hosted chain builds on differently, is a
+// fork. The dry run changes nothing; the run merges the work after the hosted
+// chain, drops the seeded snapshot and records the merge.
+func TestRechainMergesMidChainLocalWork(t *testing.T) {
 	ts, _, id, want, _ := forkedByOldPull(t)
 	seeds := localChain(t, id)
 	setLocalChain(t, id, relinked(spliced(want[:2], seeds, []ledger.Entry{localWork(id)}, want[2:])...))
 	before := chainShape(localChain(t, id))
 
-	for _, args := range [][]string{{"--dry-run"}, {}} {
-		out, err := runRoot(t, append([]string{"sync", "workstate", "rechain", id, "--server", ts.URL}, args...)...)
-		if err == nil || !strings.Contains(out, id+": local events the hosted chain lacks are not only a seeded genesis") || !strings.Contains(out, "evt_localwork (comment)") {
-			t.Fatalf("rechain %v = %v\n%s, want the story refused by name with the event", args, err, out)
-		}
-		if got := chainShape(localChain(t, id)); !slices.Equal(got, before) {
-			t.Errorf("rechain %v changed the chain: %v, want %v", args, got, before)
+	out, err := runRoot(t, "sync", "workstate", "rechain", id, "--dry-run", "--server", ts.URL)
+	if err != nil || !strings.Contains(out, "would rechain "+id) || !strings.Contains(out, "merge ") {
+		t.Fatalf("rechain --dry-run = %v\n%s, want the story merged", err, out)
+	}
+	if got := chainShape(localChain(t, id)); !slices.Equal(got, before) {
+		t.Fatalf("--dry-run changed the chain: %v, want %v", got, before)
+	}
+	if out, err = runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL); err != nil || !strings.Contains(out, "rechained "+id) {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	got, err := chainOrder(localChain(t, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(idsOf(got[:len(want)]), idsOf(want)) || got[len(got)-1].Kind != ledger.KindChainMerge {
+		t.Fatalf("chain after rechain = %v, want the hosted chain, the merged work, then a chain_merge", chainShape(got))
+	}
+	if !slices.Contains(idsOf(got), "evt_localwork") {
+		t.Errorf("chain after rechain = %v, want the local work kept", idsOf(got))
+	}
+	for _, e := range got[len(want):] {
+		if isSeededSnapshot(e) {
+			t.Errorf("the seeded snapshot %s was merged, want it dropped", e.ID)
 		}
 	}
 }
@@ -318,23 +336,51 @@ func hostedIDs(events []hosted.ChainEvent) []string {
 	return out
 }
 
-func TestPlanRechain(t *testing.T) {
+// encodedHosted is a hosted chain of events as a push sends them, each built on
+// the one before: the payloads planMerge decodes.
+func encodedHosted(t *testing.T, events ...ledger.Entry) []hosted.ChainEvent {
+	t.Helper()
+	out, err := chainEvents(relinked(events...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func move(id, base, from, to string) ledger.Entry {
+	e := ent(id, base, ledger.KindStatusTransition)
+	e.Body = from + " → " + to
+	e.Payload = json.RawMessage(`{"from":"` + from + `","to":"` + to + `"}`)
+	return e
+}
+
+// planRechainRow is one shape planRechain judges. A row with merge set is a fork
+// planMerge merges; planMerge declines every other row that is not a refusal.
+type planRechainRow struct {
+	name         string
+	local        []ledger.Entry
+	hosted       []hosted.ChainEvent
+	outcome      string
+	remove, take []string
+	replay       []string // checked when set
+	merge        []string // checked when set
+	retake       []string // checked when set
+	excluded     []string // checked when merge is set
+	seeded       int
+	reconciled   int
+	hostedStatus string // what the hosted chain folds to
+	reason       string
+}
+
+func planRechainRows(t *testing.T) []planRechainRow {
+	t.Helper()
 	a, b := ent("a", "", ledger.KindStoryCreated), ent("b", "a", ledger.KindComment)
 	seeds := seedEvents("v", "s", "b")
 	cancel := ent("t", "", ledger.KindStatusTransition)
 	cancel.Payload = json.RawMessage(`{"from":"backlog","to":"cancelled"}`)
-	tests := []struct {
-		name         string
-		local        []ledger.Entry
-		hosted       []hosted.ChainEvent
-		outcome      string
-		remove, take []string
-		replay       []string // checked when set
-		seeded       int
-		reconciled   int
-		hostedStatus string // what the hosted chain folds to
-		reason       string
-	}{
+	changed := b
+	changed.Body = "changed here"
+	return []planRechainRow{
 		{
 			// sty_7f977031 AC1: the seeded pair mid-chain, a status_reconcile to done
 			// after it, and a hosted chain that folds to done.
@@ -399,10 +445,12 @@ func TestPlanRechain(t *testing.T) {
 			outcome: rechainNothing,
 		},
 		{
-			name:    "local work is refused by name",
+			// sty_f321c29e: local work built on a hosted event, with a hosted event
+			// linked onto it, is a fork, merged after the hosted chain.
+			name:    "local work off a hosted event is merged",
 			local:   relinked(a, ent("w", "", ledger.KindComment), b),
-			hosted:  hostedOf("a", "b"),
-			outcome: rechainRefused, reason: "not only a seeded genesis: w (comment)",
+			hosted:  encodedHosted(t, a, b),
+			outcome: rechainDo, take: []string{"b"}, retake: []string{"b"}, merge: []string{"w"},
 		},
 		{
 			name:    "a workflow_version alone is no seed",
@@ -435,13 +483,71 @@ func TestPlanRechain(t *testing.T) {
 			outcome:      rechainRefused, reason: "local status_transition t moves from backlog but the hosted chain folds to plan",
 		},
 		{
-			name:    "a local chain that forks",
+			name:    "a local chain that forks is merged",
+			local:   []ledger.Entry{a, b, ent("x", "a", ledger.KindComment)},
+			hosted:  encodedHosted(t, a, b),
+			outcome: rechainDo, merge: []string{"x"},
+		},
+		{
+			// sty_f321c29e AC2: a move whose from is not the status folded so far is
+			// left out of the merged chain; the work around it is merged.
+			name:         "a move invalid at its merged place is excluded",
+			local:        []ledger.Entry{a, b, ent("w", "a", ledger.KindComment), move("m", "w", "backlog", "plan"), ent("y", "m", ledger.KindComment)},
+			hosted:       encodedHosted(t, a, b),
+			hostedStatus: "in_progress",
+			outcome:      rechainDo, merge: []string{"w", "y"}, excluded: []string{"m"},
+		},
+		{
+			name:         "a valid move at its merged place is merged",
+			local:        []ledger.Entry{a, b, move("m", "a", "in_progress", "integration"), move("n", "m", "integration", "release")},
+			hosted:       encodedHosted(t, a, b),
+			hostedStatus: "in_progress",
+			outcome:      rechainDo, merge: []string{"m", "n"},
+		},
+		{
+			// sty_f321c29e AC4: no valid merge exists.
+			name:    "a fork with a base neither side holds is refused",
+			local:   []ledger.Entry{a, b, ent("x", "a", ledger.KindComment), ent("y", "nowhere", ledger.KindComment)},
+			hosted:  encodedHosted(t, a, b),
+			outcome: rechainRefused, reason: "y builds on nowhere, which neither side holds",
+		},
+		{
+			name:    "a fork with a cycle is refused",
+			local:   []ledger.Entry{a, b, ent("x", "a", ledger.KindComment), ent("y", "z", ledger.KindComment), ent("z", "y", ledger.KindComment)},
+			hosted:  encodedHosted(t, a, b),
+			outcome: rechainRefused, reason: "local events y, z form a cycle",
+		},
+		{
+			name:    "a fork with an event both sides hold differently is refused",
+			local:   []ledger.Entry{a, changed, ent("x", "a", ledger.KindComment)},
+			hosted:  encodedHosted(t, a, b),
+			outcome: rechainRefused, reason: "b is on both sides with different content",
+		},
+		{
+			name:    "a fork over a hosted event that cannot be decoded is refused",
 			local:   []ledger.Entry{a, b, ent("x", "a", ledger.KindComment)},
 			hosted:  hostedOf("a", "b"),
-			outcome: rechainRefused, reason: "forks at a",
+			outcome: rechainRefused, reason: "decode hosted event a",
 		},
 	}
-	for _, tc := range tests {
+}
+
+// sty_f321c29e AC1: planMerge sits before the stub drops in planRechain, so it
+// declines every shape that is not a fork itself: the seeded and reconcile stubs
+// keep the plans they had.
+func TestPlanMergeDeclinesStubShapes(t *testing.T) {
+	for _, tc := range planRechainRows(t) {
+		if tc.merge != nil || strings.HasPrefix(tc.name, "a fork ") {
+			continue
+		}
+		if plan, ok := planMerge(tc.local, tc.hosted, func() (string, error) { return tc.hostedStatus, nil }); ok {
+			t.Errorf("%s: planMerge took it (%q %q), want it declined", tc.name, plan.outcome, plan.reason)
+		}
+	}
+}
+
+func TestPlanRechain(t *testing.T) {
+	for _, tc := range planRechainRows(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := planRechain(tc.local, tc.hosted, func() (string, error) { return tc.hostedStatus, nil })
 			if got.outcome != tc.outcome || !strings.Contains(got.reason, tc.reason) {
@@ -455,6 +561,18 @@ func TestPlanRechain(t *testing.T) {
 			}
 			if tc.replay != nil && !slices.Equal(got.replay, tc.replay) {
 				t.Errorf("replay %v, want %v", got.replay, tc.replay)
+			}
+			if tc.retake != nil && !slices.Equal(got.retake, tc.retake) {
+				t.Errorf("retake %v, want %v", got.retake, tc.retake)
+			}
+			if tc.merge != nil {
+				var excluded []string
+				for _, x := range got.excluded {
+					excluded = append(excluded, x.ID)
+				}
+				if !got.merging || !slices.Equal(got.merge, tc.merge) || !slices.Equal(excluded, tc.excluded) {
+					t.Errorf("merging %v merge %v excluded %v, want a merge of %v excluding %v", got.merging, got.merge, excluded, tc.merge, tc.excluded)
+				}
 			}
 			// Nothing that stays builds on an event that goes, so the ledger cannot
 			// refuse the removal.

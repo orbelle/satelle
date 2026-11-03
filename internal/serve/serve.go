@@ -57,11 +57,12 @@ func Run(ctx context.Context, opts Options) error {
 	// connection has to find Notify already wired (sty_c526753a).
 	home := config.GlobalDir()
 	pusher := &Pusher{
-		Resolve: resolvePushPath(ms, home),
-		Keys:    pushKeys(ms),
-		Log:     logLine,
-		Record:  recordPushFunc(home),
-		PushOff: config.MachinePushOff,
+		Resolve:    resolvePushPath(ms, home),
+		Keys:       pushKeys(ms),
+		Log:        logLine,
+		Record:     recordPushFunc(home),
+		PushOff:    config.MachinePushOff,
+		Conflicted: conflictedFunc(home),
 	}
 	// Repair loop for pushes that never landed (sty_e6e467fe). Runs beside the
 	// server, off the request path, and stops with ctx.

@@ -184,6 +184,12 @@ func IsStampRefusal(reason string) bool {
 	return strings.Contains(reason, StampRefusalMarker) && strings.Contains(reason, "deployed stamp")
 }
 
+// RechainRemediation is the fix for a story a push could not publish because its
+// local chain left its hosted one: rechain merges the two, dry run first. Doctor
+// and the push name it, so the text has one owner; it never points at --force,
+// which drops the local work (sty_f321c29e).
+const RechainRemediation = "run `satelle sync workstate rechain --dry-run`, then `satelle sync workstate rechain`"
+
 // ids is the registry every constant above belongs to — the uniqueness test
 // reads it, so a copy-pasted duplicate fails the build's tests rather than
 // silently collapsing two defects into one identifier.

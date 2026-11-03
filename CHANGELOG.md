@@ -1,3 +1,17 @@
+## [0.0.879] - 2026-11-03
+
+### Fixed
+- `satelle sync workstate rechain` merges a story whose local chain forks from its hosted chain, where before it refused it ("the local chain forks at evt_…"). Local work is placed after the hosted latest in event time, never before the event it builds on, and a `chain_merge` record names the merge. A status move that is invalid at its merged place is left out of the fold and named in the output. A story with no valid merge is refused by name and left untouched. Seeded and reconcile-only local stubs are still replaced by the hosted chain, as before. (sty_f321c29e)
+- `satelle sync workstate push` records a forked story as a conflict. The push's "not published" summary, and doctor's `sync.failing` and `story.status.drift` findings, now give the fix as "run `satelle sync workstate rechain --dry-run`, then `satelle sync workstate rechain`" and never point at `--force`. (sty_f321c29e)
+
+### Added
+- `satelle sync workstate rechain --conflicted` takes only the stories recorded as in conflict. (sty_f321c29e)
+
+## [serve-v0.0.289] - 2026-11-03
+
+### Fixed
+- After a workstate push that fails with conflicts recorded, satelled runs `satelle sync workstate rechain --conflicted` once for that repo, under the existing one-sync-child-per-repo limit, and a failed rechain feeds the same retry backoff. It never sweeps every story. (sty_f321c29e)
+
 ## [0.0.878] - 2026-11-03
 
 ### Fixed

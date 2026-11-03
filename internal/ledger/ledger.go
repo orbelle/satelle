@@ -34,8 +34,13 @@ const (
 	// KindStatusReconcile records that a story row's status was repaired from
 	// the last status_transition (the row is a projection of the ledger).
 	KindStatusReconcile = "status_reconcile"
-	KindReviewAccept    = "review_accept"
-	KindReviewReject    = "review_reject"
+	// KindChainMerge records that `sync workstate rechain` merged a story's
+	// forked local chain onto its hosted chain (sty_f321c29e). Payload:
+	// {fork_base, hosted_latest, merged, excluded:[{id,from,to}], dropped}.
+	// The fold ignores it.
+	KindChainMerge   = "chain_merge"
+	KindReviewAccept = "review_accept"
+	KindReviewReject = "review_reject"
 	// KindPerformerReject is a readiness round's performer verdict when it did not
 	// accept: the performer rejected the premise, or failed to run. It is written
 	// beside the review rows, under the same `attempt` id, so a round whose gate

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -13,11 +14,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/store"
 )
 
-// sty_8fc70019 AC3, AC4: over one set of stories in every shape, the dry run reports
-// each story as the real run then does, each exactly once, and exits non-zero for
-// the refusals in both.
+// sty_8fc70019 AC3, AC4, and sty_f321c29e AC5: over one set of stories in every
+// shape, a fork among them, the dry run reports each story as the real run then
+// does, each exactly once, changes neither the ledger nor the sync state, and
+// exits non-zero for the refusals in both.
 func TestSlowRechainDryRunMatchesRun(t *testing.T) {
-	ts, f, ids, wants, _ := publishedStories(t, "head seed", "mid seed", "reordered", "local work", "unlinkable", "in sync")
+	ts, f, ids, wants, repo := publishedStories(t, "head seed", "mid seed", "reordered", "local work", "unlinkable", "in sync")
 	forkAll(t, ts, f)
 	headSeed, midSeed, reordered, work, unlinkable, inSync := ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]
 
@@ -37,6 +39,10 @@ func TestSlowRechainDryRunMatchesRun(t *testing.T) {
 		shapes[id] = chainShape(localChain(t, id))
 	}
 
+	syncState := func() string {
+		return fmt.Sprint(storyConflicts(t, repo), storyHeads(t, ts.URL, "probe", repo))
+	}
+	stateBefore := syncState()
 	dryOut, dryErr := runRoot(t, "sync", "workstate", "rechain", "--dry-run", "--server", ts.URL)
 	if dryErr == nil {
 		t.Errorf("--dry-run exited 0 with refusals:\n%s", dryOut)
@@ -45,6 +51,9 @@ func TestSlowRechainDryRunMatchesRun(t *testing.T) {
 		if got := chainShape(localChain(t, id)); !slices.Equal(got, shapes[id]) {
 			t.Errorf("--dry-run changed %s: %v, want %v", id, got, shapes[id])
 		}
+	}
+	if got := syncState(); got != stateBefore {
+		t.Errorf("--dry-run changed the sync state: %s, want %s", got, stateBefore)
 	}
 	runOut, runErr := runRoot(t, "sync", "workstate", "rechain", "--server", ts.URL)
 	if runErr == nil {
@@ -66,16 +75,17 @@ func TestSlowRechainDryRunMatchesRun(t *testing.T) {
 		}
 		sameChain(t, localChain(t, id), wants[id])
 	}
-	if !strings.HasPrefix(run[work], "refuse: ") || !strings.Contains(run[work], "evt_localwork (comment)") {
-		t.Errorf("local work = %q, want it refused by name", run[work])
+	if !strings.HasPrefix(run[work], "rechain: ") || !strings.Contains(run[work], "merge ") {
+		t.Errorf("local work = %q, want the fork merged", run[work])
+	}
+	if order, err := chainOrder(localChain(t, work)); err != nil || !slices.Contains(idsOf(order), "evt_localwork") || order[len(order)-1].Kind != ledger.KindChainMerge {
+		t.Errorf("local work after rechain = %v (%v), want the work merged and a chain_merge last", idsOf(order), err)
 	}
 	if !strings.HasPrefix(run[unlinkable], "refuse: ") || !strings.Contains(run[unlinkable], "does not link at "+wants[unlinkable][2].ID) {
 		t.Errorf("unlinkable = %q, want it refused with the reason", run[unlinkable])
 	}
-	for _, id := range []string{work, unlinkable} {
-		if got := chainShape(localChain(t, id)); !slices.Equal(got, shapes[id]) {
-			t.Errorf("refused %s changed: %v, want %v", id, got, shapes[id])
-		}
+	if got := chainShape(localChain(t, unlinkable)); !slices.Equal(got, shapes[unlinkable]) {
+		t.Errorf("refused %s changed: %v, want %v", unlinkable, got, shapes[unlinkable])
 	}
 	if _, ok := run[inSync]; ok || len(run) != 5 {
 		t.Errorf("run reported %v, want the five stories that differ and not the one in sync", run)
@@ -84,6 +94,40 @@ func TestSlowRechainDryRunMatchesRun(t *testing.T) {
 	out, err := runRoot(t, "sync", "workstate", "rechain", inSync, "--dry-run", "--server", ts.URL)
 	if err != nil || rechainOutcomes(t, out)[inSync] != "nothing: the local chain is the hosted chain" {
 		t.Errorf("rechain of a story in sync = %v\n%s, want nothing to rechain", err, out)
+	}
+}
+
+// sty_f321c29e AC3: after rechain merges a forked story, push publishes the merged
+// events and the chain_merge to the hosted chain, and the next push sends nothing
+// and names nothing unpublished.
+func TestSlowRechainMergeThenPushPublishes(t *testing.T) {
+	ts, f, id, want, repo := forkedFromHosted(t)
+	tip, t0 := want[len(want)-1].ID, time.Now().UTC()
+	setLocalChain(t, id, spliced(want, []ledger.Entry{
+		localEvent(id, "evt_l1", tip, ledger.KindComment, "one", t0.Add(time.Second)),
+		localEvent(id, "evt_l2", tip, ledger.KindComment, "two", t0.Add(2*time.Second)),
+	}))
+	if out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL); err != nil {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	order, _ := mergedChain(t, id)
+
+	if out, err := pushRaw(t, ts.URL); err != nil || strings.Contains(out, "was not published") {
+		t.Fatalf("push after rechain = %v\n%s", err, out)
+	}
+	if got, wantIDs := f.chain.stored("probe", id), idsOf(order); !slices.Equal(got, wantIDs) {
+		t.Fatalf("the server holds %v, want the merged chain %v", got, wantIDs)
+	}
+	before := len(f.chain.appendsFor(id))
+	out, err := pushRaw(t, ts.URL)
+	if err != nil || strings.Contains(out, "not published") {
+		t.Fatalf("second push = %v\n%s, want nothing unpublished", err, out)
+	}
+	if n := len(f.chain.appendsFor(id)); n != before {
+		t.Errorf("the second push sent %d Append(s) for %s, want none", n-before, id)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after the pushes = %v, want none", c)
 	}
 }
 

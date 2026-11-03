@@ -31,6 +31,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
 const (
@@ -73,6 +74,14 @@ type Pusher struct {
 	// PushOff reports the machine-local push switch and names it; true makes a
 	// flush drop its dirty set without pushing or recording. nil means push on.
 	PushOff func() (off bool, setting string)
+	// Conflicted counts the stories the repo's sync state records as in
+	// conflict, which a failed push left there (sty_f321c29e). nil means none,
+	// so no rechain runs.
+	Conflicted func(repoPath string) int
+	// Rechain runs `satelle sync workstate rechain --conflicted` in the repo
+	// after a push that ran, failed and left stories in conflict; nil means
+	// rechainViaCLI. Never a sweep: only the recorded conflicts are taken.
+	Rechain func(ctx context.Context, repoPath string) error
 
 	// wasOff is the last PushOff answer, so the switch logs on a transition only.
 	// Touched only from Run's goroutine.
@@ -310,6 +319,9 @@ func (p *Pusher) flush(ctx context.Context) {
 			p.logf("sync push %s: held %d next in on change", path, heldCount(err))
 			continue
 		}
+		if err != nil {
+			err = p.rechainConflicted(ctx, path, err)
+		}
 		p.report(key, path, err)
 		if err != nil {
 			until := p.backoff[key].failUntil
@@ -322,6 +334,34 @@ func (p *Pusher) flush(ctx context.Context) {
 	for _, k := range leftover {
 		p.markDirty(k)
 	}
+}
+
+// rechainConflicted runs rechain once for a repo whose push ran and failed with
+// stories recorded in conflict, and returns the error report arms backoff with:
+// the push's, joined with the rechain's when that failed too. A rechain skipped
+// because one is running is no failure. The push this flush made was one the
+// backoff allowed, so the rechain runs under the same limit.
+func (p *Pusher) rechainConflicted(ctx context.Context, path string, pushErr error) error {
+	if p.Conflicted == nil || p.Conflicted(path) == 0 {
+		return pushErr
+	}
+	rechain := p.Rechain
+	if rechain == nil {
+		rechain = rechainViaCLI
+	}
+	runCtx, cancel := context.WithTimeout(ctx, p.timeout())
+	defer cancel()
+	err := rechain(runCtx, path)
+	switch {
+	case errors.Is(err, errChildBusy):
+		p.logf("sync rechain %s: busy", path)
+		return pushErr
+	case err == nil:
+		p.logf("sync rechain %s: ok", path)
+		return pushErr
+	}
+	p.logf("sync rechain %s: %v", path, err)
+	return errors.Join(pushErr, err)
 }
 
 // pushOff asks the machine-local switch, logging once on each transition.
@@ -418,6 +458,27 @@ func pushWithBinary(ctx context.Context, bin, repoPath string) error {
 		return errHeldOnly{n: o.Held}
 	}
 	return nil
+}
+
+// rechainViaCLI runs `satelle sync workstate rechain --conflicted` inside
+// repoPath, skipped as errChildBusy while another rechain runs there.
+func rechainViaCLI(ctx context.Context, repoPath string) error {
+	return gated(ctx, repoPath, kindRechain, false, func(bin string) error {
+		_, err := execVerb(ctx, bin, repoPath, nil, "sync", "workstate", "rechain", "--conflicted")
+		return err
+	})
+}
+
+// conflictedFunc counts the story conflicts the repo's sync state records under
+// home.
+func conflictedFunc(home string) func(string) int {
+	return func(repoPath string) int {
+		st, _, err := syncstate.Load(home, repoPath)
+		if err != nil {
+			return 0
+		}
+		return len(st.StoryConflicts)
+	}
 }
 
 // resolvePushPath maps repo_key → path with the same guards as mirrorTargets:

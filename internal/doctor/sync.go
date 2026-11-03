@@ -44,7 +44,7 @@ func checkWorkstatePush(cfg config.Config, cfgPath, repoRoot, globalDir string, 
 
 	var out health.Findings
 	if st.PushReason != "" {
-		fix := "run `satelle sync workstate push`"
+		fix := health.RechainRemediation + ", then `satelle sync workstate push`"
 		if health.IsStampRefusal(st.PushReason) {
 			// Retrying the push meets the same drift gate; only init re-stamps past it.
 			fix = "run `satelle init` to heal the stamp, then `satelle sync push`"

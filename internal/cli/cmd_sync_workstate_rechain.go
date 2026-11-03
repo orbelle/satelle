@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -22,7 +24,7 @@ import (
 
 func newSyncWorkstateRechainCmd() *cobra.Command {
 	var server string
-	var dryRun bool
+	var dryRun, conflicted bool
 	cmd := &cobra.Command{
 		Use:         "rechain [story-id...]",
 		Short:       "Put a story forked from its hosted chain onto that chain",
@@ -31,24 +33,29 @@ func newSyncWorkstateRechainCmd() *cobra.Command {
 		Long: `rechain puts a story forked from its hosted chain back on it, moves its push
 head to the hosted latest and clears its conflict. It never pushes.
 
-A local event the hosted chain lacks is dropped when seeded, or a status_reconcile
-to the status the hosted chain folds to. Local work on a root of its own (written
-while the history was on the server) is replayed after the hosted latest, in
-order; a replayed status move must start from the hosted status. Any other local
-work is refused by name, untouched.
+Seeded events and a status_reconcile to the hosted status are dropped. Local work
+on a root of its own is replayed after the hosted latest. Local work that forks
+from the hosted chain is merged after it in event time, none before its base, with
+a chain_merge record; a status move invalid at its merged place is excluded and
+named. A story with no valid merge is refused by name, untouched.
 
-With no ids it takes every story in conflict or differing from its hosted chain.
+With no ids it takes every story in conflict or differing from its hosted chain;
+--conflicted takes only the stories recorded in conflict.
 --dry-run applies the same checks and changes nothing.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSyncWorkstateRechain(cmd, server, dryRun, args)
+			if conflicted && len(args) > 0 {
+				return fmt.Errorf("--conflicted takes no story ids")
+			}
+			return runSyncWorkstateRechain(cmd, server, dryRun, conflicted, args)
 		},
 	}
 	cmd.Flags().StringVar(&server, "server", "", "Hosted server URL (overrides the configured machine hosted server).")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report each story as it would be repaired or refused without changing anything.")
+	cmd.Flags().BoolVar(&conflicted, "conflicted", false, "Take only the stories recorded as in conflict, not every story that differs from its hosted chain.")
 	return cmd
 }
 
-func runSyncWorkstateRechain(cmd *cobra.Command, serverArg string, dryRun bool, ids []string) error {
+func runSyncWorkstateRechain(cmd *cobra.Command, serverArg string, dryRun, conflictedOnly bool, ids []string) error {
 	a, err := appFrom(cmd)
 	if err != nil {
 		return err
@@ -68,7 +75,7 @@ func runSyncWorkstateRechain(cmd *cobra.Command, serverArg string, dryRun bool, 
 	if err != nil {
 		return err
 	}
-	cases, err := rechainCases(ctx, a, chain, rd, ids)
+	cases, err := rechainCases(ctx, a, chain, rd, ids, conflictedOnly)
 	if err != nil {
 		return err
 	}
@@ -105,8 +112,14 @@ func runSyncWorkstateRechain(cmd *cobra.Command, serverArg string, dryRun bool, 
 		if n := len(c.plan.replay); n > 0 {
 			replayed = fmt.Sprintf(", replay %d local event(s)", n)
 		}
+		if c.plan.merging {
+			replayed += fmt.Sprintf(", merge %d local event(s), exclude %d", len(c.plan.merge), len(c.plan.excluded))
+		}
 		fmt.Fprintf(out, "%s %s: remove %d event(s) (%d seeded, %d reconcile), take %d hosted event(s)%s\n",
 			word("rechained", "would rechain"), c.id, len(c.plan.remove)+len(c.plan.retake), c.plan.seeded, len(c.plan.reconciled), len(c.plan.take), replayed)
+		for _, x := range c.plan.excluded {
+			fmt.Fprintf(out, "  %s %s (%s → %s): invalid after %s\n", word("excluded", "would exclude"), x.ID, x.fromLabel(), x.To, x.after)
+		}
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d stor(y/ies) not rechained — see above", failed)
@@ -127,8 +140,9 @@ type rechainCase struct {
 
 // rechainCases reads and judges every story to report, in id order. Named ids are
 // all reported; with none, the stories recorded as in conflict are, and so is every
-// local story whose chain differs from its hosted one.
-func rechainCases(ctx context.Context, a *app.App, chain *chainPull, rd chainReader, ids []string) ([]rechainCase, error) {
+// local story whose chain differs from its hosted one. conflictedOnly takes the
+// recorded conflicts alone: satelled's run after a push, never a sweep.
+func rechainCases(ctx context.Context, a *app.App, chain *chainPull, rd chainReader, ids []string, conflictedOnly bool) ([]rechainCase, error) {
 	discover := len(ids) == 0
 	conflicted := map[string]bool{}
 	if discover {
@@ -139,7 +153,9 @@ func rechainCases(ctx context.Context, a *app.App, chain *chainPull, rd chainRea
 		for id := range st.StoryConflicts {
 			conflicted[id] = true
 		}
-		if ids, err = a.Store.Ledger.StoryIDs(ctx); err != nil {
+		if conflictedOnly {
+			ids = slices.Collect(maps.Keys(conflicted))
+		} else if ids, err = a.Store.Ledger.StoryIDs(ctx); err != nil {
 			return nil, fmt.Errorf("list story chains: %w", err)
 		}
 		for id := range conflicted {
@@ -206,6 +222,12 @@ type rechainPlan struct {
 	replay  []string            // local work to put after the hosted latest, in chain order
 	retake  []string            // local copies of hosted events, off the hosted chain, the replay takes again
 
+	merging  bool           // a fork planMerge merges
+	merge    []string       // local-only events to put after the hosted latest, in merged order
+	excluded []excludedMove // local status moves the merge leaves out of the chain
+	dropped  []string       // of remove, the seeded snapshots the merge drops
+	forkBase string         // the earliest hosted event local work builds on
+
 	reconciled map[string]bool // of remove, the status_reconcile events whose status the hosted chain folds to
 }
 
@@ -267,6 +289,9 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}
 	}
 	if plan, ok := planReplay(local, events, hostedStatus); ok {
+		return plan
+	}
+	if plan, ok := planMerge(local, events, hostedStatus); ok {
 		return plan
 	}
 	order, err := chainOrder(local)
@@ -360,38 +385,22 @@ func planReplay(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus f
 			own = append(own, e)
 		}
 	}
-	// Only seeded events and reconciles are the shapes planRechain repairs by
-	// dropping them; anything else among the local-only events is work.
-	if !slices.ContainsFunc(own, func(e ledger.Entry) bool {
-		return !storyfold.IsSeededEvent(e) && e.Kind != ledger.KindStatusReconcile
-	}) {
+	if onlyStubEvents(own) {
 		return rechainPlan{}, false
 	}
 	ownOrder, err := chainOrder(own)
 	if err != nil {
 		return rechainPlan{}, false // not a root of its own: built on a hosted event, or forked
 	}
-	var kept []ledger.Entry
-	for _, ev := range events {
-		e, ok := held[ev.ID]
-		if !ok || e.BaseID != ev.BaseID {
-			break
-		}
-		kept = append(kept, e)
-	}
+	kept, retake := hostedStart(held, events)
 	take, err := takePlan(kept, events)
 	if err != nil {
 		return refuse("the hosted chain cannot be taken: %v", err)
 	}
-	plan := rechainPlan{outcome: rechainDo, take: take}
-	for _, ev := range events[len(kept):] {
-		if _, ok := held[ev.ID]; ok {
-			plan.retake = append(plan.retake, ev.ID)
-		}
-	}
+	plan := rechainPlan{outcome: rechainDo, take: take, retake: retake}
 	guarded := false
 	for _, e := range ownOrder {
-		if e.Kind == ledger.KindDefinitionSnapshot && storyfold.IsSeededEvent(e) {
+		if isSeededSnapshot(e) {
 			plan.remove = append(plan.remove, e.ID)
 			plan.seeded++
 			continue
@@ -414,6 +423,254 @@ func planReplay(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus f
 		plan.replay = append(plan.replay, e.ID)
 	}
 	return plan, true
+}
+
+// onlyStubEvents reports whether a story's local-only events are only the shapes
+// planRechain repairs by dropping them, seeded events and reconciles; anything
+// else among them is work, which a replay or a merge keeps.
+func onlyStubEvents(own []ledger.Entry) bool {
+	return !slices.ContainsFunc(own, func(e ledger.Entry) bool { return !isStub(e) })
+}
+
+func isStub(e ledger.Entry) bool {
+	return storyfold.IsSeededEvent(e) || e.Kind == ledger.KindStatusReconcile
+}
+
+// isSeededSnapshot reports SeedItem's copy of a definition the hosted chain
+// carries: the one local-only event a replay or a merge drops. A workflow_version
+// is work, never dropped by either.
+func isSeededSnapshot(e ledger.Entry) bool {
+	return e.Kind == ledger.KindDefinitionSnapshot && storyfold.IsSeededEvent(e)
+}
+
+// hostedStart splits the local copies of hosted events into the ones kept, a start
+// of the hosted chain id and base, and the ones after it, which are retaken from
+// the server with the bases the hosted chain gives them.
+func hostedStart(held map[string]ledger.Entry, events []hosted.ChainEvent) (kept []ledger.Entry, retake []string) {
+	for _, ev := range events {
+		e, ok := held[ev.ID]
+		if !ok || e.BaseID != ev.BaseID {
+			break
+		}
+		kept = append(kept, e)
+	}
+	for _, ev := range events[len(kept):] {
+		if _, ok := held[ev.ID]; ok {
+			retake = append(retake, ev.ID)
+		}
+	}
+	return kept, retake
+}
+
+// excludedMove is a local status move a merge leaves out: invalid after the
+// status the merged chain folds to at its place.
+type excludedMove struct {
+	ID    string `json:"id"`
+	From  string `json:"from,omitempty"` // empty for a status_reconcile, which names no from
+	To    string `json:"to"`
+	after string
+}
+
+func (x excludedMove) fromLabel() string {
+	if x.From == "" {
+		return "reconcile"
+	}
+	return x.From
+}
+
+// chainMergeRecord is the payload of the chain_merge event a merge ends with.
+type chainMergeRecord struct {
+	ForkBase     string         `json:"fork_base"`
+	HostedLatest string         `json:"hosted_latest"`
+	Merged       []string       `json:"merged"`
+	Excluded     []excludedMove `json:"excluded"`
+	Dropped      []string       `json:"dropped"`
+}
+
+// planMerge decides a story whose local chain forks from its hosted chain: local
+// work built on a hosted event, beside hosted events built on it differently
+// (sty_f321c29e). ok is false for any other shape: a local side of only seeded
+// events and reconciles, which planRechain drops, and a local chain that is the
+// hosted chain and then local events, which a push publishes.
+//
+// The server is append-only, so the merged chain is the hosted chain as it stands
+// and then every local-only event, from any number of local branches, in event
+// time, none before the event it builds on, ties in local order. Only a seeded
+// definition snapshot is dropped. A status move whose from is not the status
+// folded so far is excluded, and so is a status_reconcile to another status; one
+// to the folded status stays, a no-op. Every check is made here, before anything
+// is written: a base neither side holds, a cycle, an event both sides hold with
+// different content, or a hosted event that cannot be decoded refuses the story.
+func planMerge(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus func() (string, error)) (rechainPlan, bool) {
+	refuse := func(format string, args ...any) (rechainPlan, bool) {
+		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}, true
+	}
+	onHosted := make(map[string]int, len(events))
+	for i, e := range events {
+		onHosted[e.ID] = i
+	}
+	held, own := map[string]ledger.Entry{}, map[string]ledger.Entry{}
+	var ownOrder []ledger.Entry // local insert order, which breaks a tie in event time
+	for _, e := range local {
+		if _, ok := onHosted[e.ID]; ok {
+			held[e.ID] = e
+		} else {
+			own[e.ID] = e
+			ownOrder = append(ownOrder, e)
+		}
+	}
+	if onlyStubEvents(ownOrder) {
+		return rechainPlan{}, false
+	}
+	if order, err := chainOrder(local); err == nil && matchingPrefix(order, events) == len(events) {
+		return rechainPlan{}, false
+	}
+	if !slices.ContainsFunc(ownOrder, func(e ledger.Entry) bool { return !isStub(e) && buildsOnHosted(e, own, onHosted) }) {
+		return rechainPlan{}, false
+	}
+
+	storyID := ownOrder[0].StoryID
+	for _, ev := range events {
+		h, err := ledgerEntryOf(storyID, ev)
+		if err != nil {
+			return refuse("decode hosted event %s: %v", ev.ID, err)
+		}
+		if l, ok := held[ev.ID]; ok && !sameContent(l, h) {
+			return refuse("%s is on both sides with different content", ev.ID)
+		}
+	}
+	forkAt := -1
+	for _, e := range ownOrder {
+		if i, ok := onHosted[e.BaseID]; ok {
+			if forkAt < 0 || i < forkAt {
+				forkAt = i
+			}
+			continue
+		}
+		if _, ok := own[e.BaseID]; !ok && e.BaseID != "" {
+			return refuse("%s builds on %s, which neither side holds", e.ID, e.BaseID)
+		}
+	}
+
+	merged := mergeOrder(ownOrder, own)
+	if len(merged) != len(ownOrder) {
+		placed := map[string]bool{}
+		for _, e := range merged {
+			placed[e.ID] = true
+		}
+		var left []string
+		for _, e := range ownOrder {
+			if !placed[e.ID] {
+				left = append(left, e.ID)
+			}
+		}
+		return refuse("local events %s form a cycle", strings.Join(left, ", "))
+	}
+
+	kept, retake := hostedStart(held, events)
+	take, err := takePlan(kept, events)
+	if err != nil {
+		return refuse("the hosted chain cannot be taken: %v", err)
+	}
+	plan := rechainPlan{outcome: rechainDo, take: take, retake: retake, merging: true, forkBase: events[forkAt].ID}
+	status, folded := "", false
+	for _, e := range merged {
+		if isSeededSnapshot(e) {
+			plan.remove = append(plan.remove, e.ID)
+			plan.dropped = append(plan.dropped, e.ID)
+			plan.seeded++
+			continue
+		}
+		to, reconciled := reconciledStatus(e)
+		if e.Kind == ledger.KindStatusTransition || reconciled {
+			if !folded {
+				if status, err = hostedStatus(); err != nil {
+					return refuse("the hosted chain cannot be folded: %v", err)
+				}
+				folded = true
+			}
+			from := ""
+			if !reconciled {
+				from, to = storyfold.TransitionFrom(e), storyfold.TransitionTo(e)
+			}
+			// An empty fold is the item's start: nothing moved it, so any move is
+			// valid from it, as a replay judges (sty_937fd6cc).
+			if status != "" && ((!reconciled && from != status) || (reconciled && to != status)) {
+				plan.excluded = append(plan.excluded, excludedMove{ID: e.ID, From: from, To: to, after: status})
+				continue
+			}
+			status = to
+		}
+		plan.merge = append(plan.merge, e.ID)
+	}
+	return plan, true
+}
+
+// buildsOnHosted reports whether e, through local-only events, builds on a hosted
+// event.
+func buildsOnHosted(e ledger.Entry, own map[string]ledger.Entry, onHosted map[string]int) bool {
+	seen := map[string]bool{}
+	for !seen[e.ID] {
+		seen[e.ID] = true
+		if _, ok := onHosted[e.BaseID]; ok {
+			return true
+		}
+		next, ok := own[e.BaseID]
+		if !ok {
+			return false
+		}
+		e = next
+	}
+	return false
+}
+
+// mergeOrder puts the local-only events in event time, each after the event it
+// builds on: an event is ready once its base is placed (or is not local-only), and
+// the ready event with the least time goes next, a tie to the earlier in local
+// order. An event of a cycle never becomes ready and is left out.
+func mergeOrder(ownOrder []ledger.Entry, own map[string]ledger.Entry) []ledger.Entry {
+	pos := make(map[string]int, len(ownOrder))
+	children := map[string][]ledger.Entry{}
+	var ready []ledger.Entry
+	for i, e := range ownOrder {
+		pos[e.ID] = i
+		if _, ok := own[e.BaseID]; ok {
+			children[e.BaseID] = append(children[e.BaseID], e)
+		} else {
+			ready = append(ready, e)
+		}
+	}
+	var merged []ledger.Entry
+	for len(ready) > 0 {
+		next := 0
+		for i, e := range ready {
+			if best := ready[next]; e.CreatedAt.Before(best.CreatedAt) || (e.CreatedAt.Equal(best.CreatedAt) && pos[e.ID] < pos[best.ID]) {
+				next = i
+			}
+		}
+		e := ready[next]
+		ready = slices.Delete(ready, next, next+1)
+		merged = append(merged, e)
+		ready = append(ready, children[e.ID]...)
+	}
+	return merged
+}
+
+// sameContent reports whether a local copy of a hosted event is the same event:
+// kind, body and payload. Its base is the chain's, judged apart.
+func sameContent(l, h ledger.Entry) bool {
+	return l.Kind == h.Kind && l.Body == h.Body && compactJSON(l.Payload) == compactJSON(h.Payload)
+}
+
+func compactJSON(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "{}"
+	}
+	var b bytes.Buffer
+	if json.Compact(&b, raw) != nil {
+		return string(raw)
+	}
+	return b.String()
 }
 
 // matchingPrefix counts the events a local chain in chain order and a hosted chain
@@ -445,6 +702,9 @@ func divergent(local []ledger.Entry, events []hosted.ChainEvent) bool {
 // latest and clears its conflict. planRechain made every check; a re-run after a
 // failure part way finds a start of the hosted chain and takes the rest.
 func (c rechainCase) apply(ctx context.Context, a *app.App, chain *chainPull, now time.Time) error {
+	if c.plan.merging {
+		return c.applyMerge(ctx, a, chain, now)
+	}
 	if len(c.plan.replay) > 0 {
 		return c.applyReplay(ctx, a, chain, now)
 	}
@@ -524,6 +784,96 @@ func (c rechainCase) applyReplay(ctx context.Context, a *app.App, chain *chainPu
 		return fmt.Errorf("the local chain is not the hosted chain and the replayed work after replaying it")
 	}
 	// The store holds the story's whole chain again, as a fetch leaves it.
+	if err := a.Store.Ledger.ClearMarks(ctx, ledger.MarkHistoryRemote, []string{c.id}); err != nil {
+		return err
+	}
+	return c.settle(ctx, a, chain, now)
+}
+
+// applyMerge writes the merge planMerge decided. The merged events are first moved
+// onto the last kept hosted event, so nothing that stays builds on the copies of
+// hosted events off the hosted chain, the excluded moves or the dropped snapshots,
+// and those are removed; then the hosted events the store lacks are written with
+// their bases and the merged events moved after the hosted latest, in one
+// transaction, and the chain_merge event is appended on the new tip. A failure part
+// way leaves a fork of the hosted chain, which a re-run merges again.
+func (c rechainCase) applyMerge(ctx context.Context, a *app.App, chain *chainPull, now time.Time) error {
+	onHosted := make(map[string]bool, len(c.events))
+	for _, e := range c.events {
+		onHosted[e.ID] = true
+	}
+	keptEnd := ""
+	if n := len(c.events) - len(c.plan.take); n > 0 {
+		keptEnd = c.events[n-1].ID
+	}
+	if len(c.plan.merge) > 0 {
+		if err := a.Store.Ledger.RebaseEvents(ctx, c.id, nil, c.plan.merge, keptEnd); err != nil {
+			return err
+		}
+	}
+	left := map[string]bool{}
+	for _, x := range c.plan.excluded {
+		left[x.ID] = true
+	}
+	for _, id := range c.plan.dropped {
+		left[id] = true
+	}
+	if gone := append(slices.Clone(c.plan.retake), slices.Collect(maps.Keys(left))...); len(gone) > 0 {
+		guard := func(e ledger.Entry) bool { return onHosted[e.ID] || left[e.ID] }
+		if err := a.Store.Ledger.RemoveEvents(ctx, c.id, gone, guard); err != nil {
+			return err
+		}
+	}
+	taken := make([]ledger.Entry, 0, len(c.plan.take))
+	for _, ev := range c.plan.take {
+		e, err := ledgerEntryOf(c.id, ev)
+		if err != nil {
+			return fmt.Errorf("decode the hosted event %s of %s: %w", ev.ID, c.id, err)
+		}
+		if e.CreatedAt.IsZero() {
+			e.CreatedAt = now
+		}
+		taken = append(taken, e)
+	}
+	if len(c.plan.merge) > 0 {
+		if err := a.Store.Ledger.RebaseEvents(ctx, c.id, taken, c.plan.merge, c.latest); err != nil {
+			return err
+		}
+	} else if err := takeEvents(ctx, a, c.id, c.plan.take, now); err != nil {
+		return err
+	}
+	record := chainMergeRecord{ForkBase: c.plan.forkBase, HostedLatest: c.latest,
+		Merged: c.plan.merge, Excluded: c.plan.excluded, Dropped: c.plan.dropped}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	// The tip's workflow hash is named so the append records no version event of
+	// its own between the merged events and the record.
+	tip := c.events[len(c.events)-1].WorkflowVersion
+	if local, err := a.Store.Ledger.StoryChain(ctx, c.id); err == nil && len(local) > 0 && local[len(local)-1].WorkflowHash != "" {
+		tip = local[len(local)-1].WorkflowHash
+	}
+	if _, err := a.Store.Ledger.Append(ctx, ledger.AppendInput{
+		StoryID: c.id, Kind: ledger.KindChainMerge, Actor: "satelle",
+		Body:    fmt.Sprintf("merged %d local event(s) after the hosted latest %s, forked at %s", len(c.plan.merge), c.latest, c.plan.forkBase),
+		Payload: payload, WorkflowHash: tip,
+	}, now); err != nil {
+		return err
+	}
+	local, err := a.Store.Ledger.StoryChain(ctx, c.id)
+	if err != nil {
+		return fmt.Errorf("read the local chain: %w", err)
+	}
+	order, err := chainOrder(local)
+	if err != nil {
+		return err
+	}
+	n := len(c.events)
+	if len(order) < n+len(c.plan.merge)+1 || matchingPrefix(order, c.events) != n ||
+		!slices.Equal(idsOfEntries(order[n:n+len(c.plan.merge)]), c.plan.merge) || order[len(order)-1].Kind != ledger.KindChainMerge {
+		return fmt.Errorf("the local chain is not the hosted chain, the merged work and its chain_merge record after merging it")
+	}
 	if err := a.Store.Ledger.ClearMarks(ctx, ledger.MarkHistoryRemote, []string{c.id}); err != nil {
 		return err
 	}

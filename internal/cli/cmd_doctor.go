@@ -172,6 +172,11 @@ func scaffoldFindings(repoRoot string) health.Findings {
 	return out
 }
 
+// statusDriftFix is the drift finding's fix: a row that disagrees with its chain
+// is most often a story whose chain forked from its hosted one, which rechain
+// merges; reconcile repairs the row of a story only this checkout holds.
+const statusDriftFix = health.RechainRemediation + "; for a story only this checkout holds, run `satelle story reconcile --repair`"
+
 // statusDriftFindings opens the repo's store (if it exists) and reports
 // work-item rows whose status disagrees with the last status_transition.
 // No store ⇒ no finding (the check is optional).
@@ -198,7 +203,7 @@ func statusDriftFindings(repoRoot string) health.Findings {
 	for _, d := range drifts {
 		out = append(out, health.Error(health.IDStatusDrift, "Story disagrees with its ledger chain",
 			fmt.Sprintf("%s %s: row=%q chain=%q", d.ID, d.Field, d.Row, d.Chain)).
-			About(d.ID).WithRemediation("run `satelle story reconcile --repair`"))
+			About(d.ID).WithRemediation(statusDriftFix))
 	}
 	return out
 }

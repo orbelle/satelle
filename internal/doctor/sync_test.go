@@ -190,6 +190,32 @@ func TestCheckSyncHealthStampRefusalNamesInit(t *testing.T) {
 	}
 }
 
+// sty_f321c29e AC6: a standing push failure that is no stamp refusal names
+// rechain as the fix, dry run first, before the push, and never --force.
+func TestCheckSyncHealthFailingNamesRechain(t *testing.T) {
+	repo, data := writeRepoTOML(t, t.TempDir(), "[sync]\nproject = \"p\"\nstale_after = \"24h\"\n")
+	home := t.TempDir()
+	if err := syncstate.RecordResolvedScope(home, repo, config.PersonalScope, "p", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	reason := "1 stor(y/ies) not published (sty_x) — see the reasons on stderr"
+	if err := syncstate.RecordPush(home, repo, false, reason, "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	fix := ""
+	for _, f := range checkSyncHealth(repo, data, home, time.Now()) {
+		if f.ID == health.IDSyncFailing {
+			fix = f.Remediation
+		}
+	}
+	if !strings.Contains(fix, "`satelle sync workstate rechain --dry-run`, then `satelle sync workstate rechain`") || strings.Contains(fix, "--force") {
+		t.Errorf("fix = %q, want rechain dry run first and no --force", fix)
+	}
+	if i, j := strings.Index(fix, "rechain --dry-run"), strings.Index(fix, "sync workstate push"); i < 0 || j < i {
+		t.Errorf("fix = %q, want rechain named before the push", fix)
+	}
+}
+
 func TestCheckSyncHealthMissingThresholdWarns(t *testing.T) {
 	home := t.TempDir()
 	repo, data := boundPersonal(t, home, "")

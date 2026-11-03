@@ -12,6 +12,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/health"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/syncstate"
@@ -108,7 +109,7 @@ func chainOrder(events []ledger.Entry) ([]ledger.Entry, error) {
 			break
 		}
 		if len(next) > 1 {
-			return nil, fmt.Errorf("the local chain forks at %s: %d events build on it", forkLabel(base), len(next))
+			return nil, chainForkError{base: base, n: len(next)}
 		}
 		order = append(order, next[0])
 		base = next[0].ID
@@ -117,6 +118,17 @@ func chainOrder(events []ledger.Entry) ([]ledger.Entry, error) {
 		return nil, fmt.Errorf("the local chain is broken: %d of %d events are not reached from its first event", len(events)-len(order), len(events))
 	}
 	return order, nil
+}
+
+// chainForkError is chainOrder's answer for a chain two events build on one
+// event of: the fork `sync workstate rechain` merges.
+type chainForkError struct {
+	base string
+	n    int
+}
+
+func (e chainForkError) Error() string {
+	return fmt.Sprintf("the local chain forks at %s: %d events build on it", forkLabel(e.base), e.n)
 }
 
 func forkLabel(base string) string {
@@ -164,6 +176,11 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 		}
 		if p.err != nil {
 			fmt.Fprintf(w, "the story %s was not published: %v\n", p.id, p.err)
+			// A forked story is a conflict, so rechain and satelled's targeted
+			// rechain find it in the recorded set.
+			if errors.As(p.err, new(chainForkError)) {
+				_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, map[string]string{p.id: p.err.Error()}, nil, time.Now().UTC())
+			}
 			failed = append(failed, p.id)
 			continue
 		}
@@ -192,7 +209,7 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 		}
 	}
 	if len(failed) > 0 {
-		return published, fmt.Errorf("%d stor(y/ies) not published (%s) — see the reasons on stderr", len(failed), strings.Join(failed, ", "))
+		return published, fmt.Errorf("%d stor(y/ies) not published (%s) — see the reasons on stderr; fix: %s", len(failed), strings.Join(failed, ", "), health.RechainRemediation)
 	}
 	return published, nil
 }

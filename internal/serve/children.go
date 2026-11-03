@@ -36,6 +36,7 @@ const (
 	kindReseed    = "reseed"
 	kindSubstrate = "substrate"
 	kindFetch     = "fetch"
+	kindRechain   = "rechain"
 )
 
 type childKey struct{ repo, kind string }
