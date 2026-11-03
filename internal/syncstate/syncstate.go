@@ -10,6 +10,7 @@ package syncstate
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,11 @@ type State struct {
 	PushLastFailure time.Time `json:"push_last_failure,omitempty"`
 	PushReason      string    `json:"push_reason,omitempty"`
 	PushPasses      int       `json:"push_passes,omitempty"`
+	// PushHeld is the stories the last project push held until their code is on
+	// the git remote (story id -> reason, sty_c203fd62). Holding is intended while
+	// a story is in flight, so it is kept apart from PushReason, which names only
+	// what the push failed on.
+	PushHeld map[string]string `json:"push_held,omitempty"`
 
 	SnapshotLastSuccess time.Time `json:"snapshot_last_success,omitempty"`
 	SnapshotLastFailure time.Time `json:"snapshot_last_failure,omitempty"`
@@ -131,6 +137,25 @@ func RecordPush(globalDir, repoPath string, success bool, reason, scope string, 
 			s.PushReason = reason
 			s.PushPasses = 1
 		}
+	})
+}
+
+// RecordPushHeld replaces the held stories of the push leg with held; an empty
+// map clears them. Nothing is written when there is nothing held and nothing
+// recorded, so a repo with no state gains no file.
+func RecordPushHeld(globalDir, repoPath string, held map[string]string) error {
+	if len(held) == 0 {
+		s, ok, err := Load(globalDir, repoPath)
+		if err != nil || !ok || len(s.PushHeld) == 0 {
+			return err
+		}
+	}
+	return record(globalDir, repoPath, "", func(s *State) {
+		if len(held) == 0 {
+			s.PushHeld = nil
+			return
+		}
+		s.PushHeld = maps.Clone(held)
 	})
 }
 

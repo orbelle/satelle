@@ -310,3 +310,100 @@ func TestLandingLocalHidesStaleFailure(t *testing.T) {
 		}
 	}
 }
+
+// projectPageWithSync renders the project page of a partition whose repo has
+// the recorded push state record writes.
+func projectPageWithSync(t *testing.T, record func(repo string)) string {
+	t.Helper()
+	testutil.IsolateHome(t)
+	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := t.Context()
+	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	record(repo)
+	rr := httptest.NewRecorder()
+	NewMirror(s).Handler.ServeHTTP(rr, httptest.NewRequest("GET", "/r/demo/", nil))
+	return rr.Body.String()
+}
+
+// sty_c203fd62 AC1: a push that only held stories shows them as held — neutral
+// class, ids and reasons — and never as push failing.
+func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
+	body := projectPageWithSync(t, func(repo string) {
+		if err := syncstate.RecordPush(config.GlobalDir(), repo, true, "", "", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{
+			"sty_216d5205": "uncommitted changes in /wt/sty_216d5205",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	held := sectionOf(t, body, `<div class="sync-held"`)
+	if !strings.Contains(held, "sty_216d5205") || !strings.Contains(held, "uncommitted changes in /wt/sty_216d5205") {
+		t.Fatalf("held section must name the id and its reason:\n%s", held)
+	}
+	for _, gone := range []string{"push failing", "sync-fail", "Push Failing"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("a held-only push must not render %q:\n%s", gone, body)
+		}
+	}
+	if !strings.Contains(body, `remote: <span class="sync-ok"`) {
+		t.Errorf("a held-only push is a pushed remote:\n%s", body)
+	}
+}
+
+// sty_c203fd62 AC2: a real refusal still shows push failing with only the
+// refusal as its reason; the held story is shown apart, as held.
+func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
+	body := projectPageWithSync(t, func(repo string) {
+		if err := syncstate.RecordPush(config.GlobalDir(), repo, false, "the story sty_r was not published: archived task refused", "", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{
+			"sty_216d5205": "uncommitted changes in /wt/sty_216d5205",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(body, `remote: <span class="sync-fail">push failing`) {
+		t.Fatalf("a refusal must show push failing:\n%s", body)
+	}
+	fail := sectionOf(t, body, `<div class="sync-fail-body"`)
+	if !strings.Contains(fail, `<span class="sync-fail-reason">the story sty_r was not published: archived task refused</span>`) {
+		t.Errorf("the refusal must be the failure reason:\n%s", fail)
+	}
+	if strings.Contains(fail, "sty_216d5205") {
+		t.Errorf("a held story must not appear inside the failure:\n%s", fail)
+	}
+	held := sectionOf(t, body, `<div class="sync-held"`)
+	if !strings.Contains(held, "sty_216d5205") || strings.Contains(held, "sty_r ") {
+		t.Errorf("held section must name only the held story:\n%s", held)
+	}
+}
+
+// sectionOf returns the header div opened by open, up to the next top-level
+// header element; it fails the test when open is missing.
+func sectionOf(t *testing.T, body, open string) string {
+	t.Helper()
+	i := strings.Index(body, open)
+	if i < 0 {
+		t.Fatalf("%s missing:\n%s", open, body)
+	}
+	rest := body[i:]
+	if j := strings.Index(rest, "\n"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest
+}

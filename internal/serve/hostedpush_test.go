@@ -7,7 +7,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -541,4 +544,66 @@ func TestHostedOriginIngestNeverPushes(t *testing.T) {
 	full.Origin = mirror.OriginLocal
 	postIngest(t, srv, "/ingest/snapshot", full)
 	waitFor(t, waitBudget, func() bool { return rec.countPath("/repo/rk") == 1 })
+}
+
+// sty_c203fd62 AC2: a push that both holds stories and is refused records only
+// the refusal as its failure reason. The held lines the push prints to stdout
+// are no failure, and never reach the reason.
+func TestPusherRecordsOnlyRefusalsAsTheReason(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake binary is a shell script")
+	}
+	bin := filepath.Join(t.TempDir(), "satelle")
+	script := "#!/bin/sh\n" +
+		"echo 'held sty_x: uncommitted changes in /wt/sty_x'\n" +
+		"echo 'the story sty_r was not published: archived task refused' >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	var mu sync.Mutex
+	var reasons []string
+	p := &Pusher{
+		Push:    func(ctx context.Context, path string) error { return pushWithBinary(ctx, bin, path) },
+		Resolve: func(context.Context, string) (string, bool) { return repo, true },
+		Record: func(_ string, success bool, reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !success {
+				reasons = append(reasons, reason)
+			}
+		},
+	}
+	testPusher(t, p)
+	p.Notify("rk")
+	waitFor(t, waitBudget, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(reasons) == 1
+	})
+	mu.Lock()
+	reason := reasons[0]
+	mu.Unlock()
+	if !strings.Contains(reason, "the story sty_r was not published: archived task refused") {
+		t.Errorf("the refusal is missing from the reason: %q", reason)
+	}
+	if strings.Contains(reason, "held sty_x") || strings.Contains(reason, "uncommitted changes") {
+		t.Errorf("a held story leaked into the failure reason: %q", reason)
+	}
+}
+
+// A failing push that writes nothing to stderr still has a reason: its stdout.
+func TestPushWithBinaryFallsBackToStdout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake binary is a shell script")
+	}
+	bin := filepath.Join(t.TempDir(), "satelle")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'only on stdout'\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := pushWithBinary(context.Background(), bin, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "only on stdout") {
+		t.Fatalf("err = %v, want the stdout as the reason", err)
+	}
 }

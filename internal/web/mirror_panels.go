@@ -3,10 +3,12 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +46,24 @@ func mirrorIdentity(ctx context.Context, s *mirror.Store, repoKey string) mirror
 // It no longer returns a stale BOOLEAN. The view renders elapsed time on every
 // surface unconditionally (sty_226a661e), so nothing consumes a threshold —
 // mirror.Partition.Stale remains for callers that genuinely branch on it.
+// syncHeldVM is one story the last push held until its code is on the remote.
+type syncHeldVM struct {
+	ID     string
+	Reason string
+}
+
+// syncHeldRows orders the recorded held stories by id for the header.
+func syncHeldRows(held map[string]string) []syncHeldVM {
+	if len(held) == 0 {
+		return nil
+	}
+	rows := make([]syncHeldVM, 0, len(held))
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		rows = append(rows, syncHeldVM{ID: id, Reason: held[id]})
+	}
+	return rows
+}
+
 // loadPartitionSync reads recorded hosted-push state. Missing file is empty
 // (no marker, no false green). Never contacts satelle.dev.
 func loadPartitionSync(repoPath string) syncstate.State {
@@ -174,6 +194,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncReason:      syncSt.PushReason,
 		SyncLocal:       syncSt.Scope == "local",
 		SyncLogPath:     logPath,
+		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
 		BacklogCount:    backlog,
 		EngagementCount: len(engagedIDs),

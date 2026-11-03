@@ -93,6 +93,10 @@ type pageData struct {
 	SyncReason      string
 	SyncLocal       bool
 	SyncLogPath     string
+	// SyncHeld are the stories the last push held until their code is on the
+	// remote (sty_c203fd62). Holding is intended while a story is in flight, so
+	// they are shown apart from SyncReason, never as push failing.
+	SyncHeld []syncHeldVM
 	// Hosted, set when the server is the repo's store of record, links the
 	// server's project page; Stories still lists every story in the local store.
 	Hosted *hostedLinksVM

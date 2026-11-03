@@ -415,6 +415,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		if hadCursor && !full {
 			fmt.Fprintf(out, "Work-state up to date on %s — no records changed since the last push.\n", server)
 			recordWorkstatePush(a.RepoRoot, true, "", syncScope.String())
+			recordWorkstateHeld(a.RepoRoot, nil)
 			return nil
 		}
 		fmt.Fprintln(out, "No work-state rows to push (the work-state areas are empty).")
@@ -431,6 +432,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		return err
 	}
 	var held map[string]string
+	var codeHolds map[string]string // held for unpushed code: recorded apart from failures
 	var earliestHeld time.Time
 	codeHeld := 0 // stories held for unpushed code, apart from those withheld for drift
 	// A story's cached row is validated against the fold of its ledger chain before
@@ -471,6 +473,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 			}
 		}
 		codeHeld = len(res.held)
+		codeHolds = res.held
 		withheld := maps.Clone(res.held)
 		for id, why := range drift.held {
 			withheld[id] = why
@@ -483,6 +486,11 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 				maxItems = itemsCursorBefore(batch.Items, earliestHeld, cursor.ItemsUpdatedAt)
 			}
 		}
+	}
+	// A held story is in flight, not a failure: the project push records which are
+	// held apart from its failure reason (sty_c203fd62), replacing the last set.
+	if scope == nil {
+		recordWorkstateHeld(a.RepoRoot, codeHolds)
 	}
 
 	// Story events go by compare-and-append, never through Apply (sty_9bdf08c4).
@@ -598,6 +606,10 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 
 func recordWorkstatePush(repoPath string, success bool, reason, scope string) {
 	_ = syncstate.RecordPush(config.GlobalDir(), repoPath, success, reason, scope, time.Now())
+}
+
+func recordWorkstateHeld(repoPath string, held map[string]string) {
+	_ = syncstate.RecordPushHeld(config.GlobalDir(), repoPath, held)
 }
 
 func chunkRaw(in []json.RawMessage, size int) [][]json.RawMessage {

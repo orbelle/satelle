@@ -259,6 +259,10 @@ const templatesSrc = `
 
 {{define "syncfail"}}<div class="sync-fail-body"><span class="sync-fail-reason">{{.SyncReason}}</span>{{if .SyncLogPath}} <span class="sync-fail-log">logged to <code>{{.SyncLogPath}}</code></span>{{end}}</div>{{end}}
 
+{{/* syncheld: stories the last push held until their code is on the remote
+     (sty_c203fd62). In flight, not failing: muted, never inside syncfail. */}}
+{{define "syncheld"}}<div class="sync-held" title="held until their code is on the remote — they push once it is">{{range .SyncHeld}}<div class="sync-held-item">held: <code>{{.ID}}</code> — {{.Reason}}</div>{{end}}</div>{{end}}
+
 {{/* syncfailtag: landing-only status chip. No reason, no log path — those
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="hosted push is failing — see the project page">Push Failing</span>{{end}}{{end}}
@@ -288,6 +292,7 @@ const templatesSrc = `
     <h1>{{.ProjectName}}</h1>
     <div class="meta">{{.RepoRoot}} · <a href="help">help →</a> · <a href="settings">settings →</a> · {{template "freshness" .}} · {{template "syncstate" .}}</div>
     {{if and .SyncReason (not .SyncLocal)}}{{template "syncfail" .}}{{end}}
+    {{if and .SyncHeld (not .SyncLocal)}}{{template "syncheld" .}}{{end}}
   </header>
 
   <div class="tabs" role="tablist">

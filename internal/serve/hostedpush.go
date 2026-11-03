@@ -14,6 +14,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -331,11 +332,26 @@ func pushViaCLI(ctx context.Context, repoPath string) error {
 	if err != nil {
 		return err
 	}
+	return pushWithBinary(ctx, bin, repoPath)
+}
+
+// pushWithBinary is pushViaCLI with the binary named. A failure's reason is the
+// push's stderr, where its refusals go; stdout carries progress, including the
+// stories held until their code is on the remote, which the push records apart
+// and which are no failure (sty_c203fd62). Stdout is the reason only when stderr
+// says nothing.
+func pushWithBinary(ctx context.Context, bin, repoPath string) error {
 	cmd := exec.CommandContext(ctx, bin, "sync", "workstate", "push")
 	cmd.Dir = repoPath
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s sync workstate push: %w: %s", bin, err, strings.TrimSpace(string(out)))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		reason := strings.TrimSpace(stderr.String())
+		if reason == "" {
+			reason = strings.TrimSpace(stdout.String())
+		}
+		return fmt.Errorf("%s sync workstate push: %w: %s", bin, err, reason)
 	}
 	return nil
 }

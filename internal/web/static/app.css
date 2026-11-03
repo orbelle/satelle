@@ -323,6 +323,9 @@ header.app h1 .dot { color: var(--accent); }
 .sync-fail-body { color: var(--fail); font-size: 12px; margin-top: 4px; max-width: 72rem; }
 .sync-fail-reason { white-space: pre-wrap; word-break: break-word; }
 .sync-fail-log { color: var(--muted); }
+/* Held stories are in flight, not failing (sty_c203fd62): metadata, never --fail. */
+.sync-held { color: var(--muted); font-size: 12px; margin-top: 4px; max-width: 72rem; }
+.sync-held-item { white-space: pre-wrap; word-break: break-word; }
 /* Landing Updated cell: local stamp on line 1, fail tag on line 2
    (sty_a447695e). Chip box matches .n-backlog; fail colour is the signal. */
 .sync-tag-fail {

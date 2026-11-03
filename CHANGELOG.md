@@ -1,3 +1,13 @@
+## [0.0.862] - 2026-11-03
+
+### Fixed
+- A work-state push whose only unpublished stories are held until their code reaches the remote (an in-flight worktree with uncommitted changes, or a head not yet on any remote branch) exits 0, and the project page header shows those stories as held, with each id and reason, instead of "push failing". A push with a real refusal still shows push failing and lists only the refusals as failures, with held stories shown apart. (sty_c203fd62)
+
+## [serve-v0.0.284] - 2026-11-03
+
+### Fixed
+- The service's background push records held stories apart from refusals, and the project page header shows them as held instead of push failing. (sty_c203fd62)
+
 ## [0.0.861] - 2026-11-02
 
 ### Fixed
