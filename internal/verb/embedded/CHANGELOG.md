@@ -1,3 +1,14 @@
+## [0.0.874] - 2026-11-03
+
+### Fixed
+- `satelle sync workstate pull` re-folds every story whose chain a page of the pull wrote events to, not only the stories whose rows that page carried. Before, a story whose row landed on an earlier page kept the status of the part of its chain that had arrived, so done stories could be listed at an earlier status (plan, in_progress, integration, …) while `satelle story get` said done. (sty_a28c64dd)
+
+### Added
+- `satelle story reconcile --story <id>` (repeatable or comma-separated) limits the drift report and `--repair` to the named stories, so a repair fixes chosen rows without rewriting others. (sty_a28c64dd)
+
+### Repairing listed statuses
+If `satelle story list` and `satelle story get` disagree on a story's status after a pull, run `satelle story reconcile` (dry run), then `satelle story reconcile --repair --story <ids>` for the stories whose row is behind a chain that reached done. Do not run an unscoped `--repair` yet: a story whose chain has two roots can fold to an earlier status than its row (sty_524c753f).
+
 ## [0.0.873] - 2026-11-03
 
 ### Changed
