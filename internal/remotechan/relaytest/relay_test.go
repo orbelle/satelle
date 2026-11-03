@@ -2,6 +2,7 @@ package relaytest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -90,4 +91,79 @@ func TestRelayRefusesOutsideTheContract(t *testing.T) {
 	refusedWith(t, resp, err, http.StatusNotFound)
 	_, resp, err = dial(ctx, r, "s1", "other") // unknown role
 	refusedWith(t, resp, err, http.StatusNotFound)
+}
+
+// A session the relay closes with a code reaches both ends with exactly that
+// code, every time: the relay's own teardown of the first end never drops the
+// second end without a frame (which a client reads as a relay restart and
+// redials). The hook pins the losing ordering: the remote end is closed only
+// after the local end's teardown has run.
+func TestCloseWithReachesBothEnds(t *testing.T) {
+	r := New(t)
+	const code = websocket.StatusCode(4404)
+
+	for i := range 1000 {
+		session := fmt.Sprintf("s%d", i)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+		local, resp, err := dial(ctx, r, session, "local")
+		if err != nil {
+			cancel()
+			t.Fatalf("iteration %d: local dial: %v (response %v)", i, err, resp)
+		}
+		remote, resp, err := dial(ctx, r, session, "remote")
+		if err != nil {
+			cancel()
+			t.Fatalf("iteration %d: remote dial: %v (response %v)", i, err, resp)
+		}
+		// Remote first: its pump starts only once it is recorded, so its frame
+		// reaching local proves the pairing before local sends back.
+		send(t, ctx, remote, local, "ping")
+		send(t, ctx, local, remote, "pong")
+
+		read := func(c *websocket.Conn) (chan error, chan struct{}) {
+			errc, done := make(chan error, 1), make(chan struct{})
+			go func() {
+				_, _, err := c.Read(ctx)
+				errc <- err
+				close(done)
+			}()
+			return errc, done
+		}
+		localErr, _ := read(local)
+		remoteErr, remoteDone := read(remote)
+
+		r.beforeRemoteClose = func(s string) {
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) && !departed(r, s, "local") {
+				time.Sleep(time.Millisecond)
+			}
+			// Give a teardown that reaches for the remote end the moment to do so.
+			select {
+			case <-remoteDone:
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+		r.CloseWith(session, code, "bad_session")
+
+		for _, end := range []struct {
+			role string
+			errc chan error
+		}{{"local", localErr}, {"remote", remoteErr}} {
+			if got := websocket.CloseStatus(<-end.errc); got != code {
+				cancel()
+				t.Fatalf("iteration %d: %s end closed with status %d, want %d", i, end.role, got, code)
+			}
+		}
+		cancel()
+	}
+}
+
+func departed(r *Relay, session, role string) bool {
+	for _, d := range r.Departures() {
+		if d.Session == session && d.Role == role {
+			return true
+		}
+	}
+	return false
 }

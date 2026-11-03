@@ -1,3 +1,8 @@
+## [0.0.868] - 2026-11-03
+
+### Fixed
+- The test relay (internal/remotechan/relaytest) marks a slot as closing before a relay-initiated close (CloseWith, Restart, shutdown), so its serve teardown no longer drops the other end without a close frame. Every end of a CloseWith session now receives exactly the given code, which removes the flaky redial in TestResumeRefusalNotRetried and the relay-restart tests. Test-only. (sty_a257f0b3)
+
 ## [0.0.867] - 2026-11-03
 
 ### Fixed

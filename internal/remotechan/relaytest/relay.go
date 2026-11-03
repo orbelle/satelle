@@ -35,9 +35,13 @@ type Departure struct {
 // slot is one session's two ends. ready is non-nil while a local end has been
 // admitted but is not yet recorded in local (its upgrade is being answered): the
 // contract's "local end waiting" starts at the admission, not at the 101.
+// closing marks a slot the relay itself is closing (CloseWith, Restart, Down,
+// shutdown): it is closing both ends, so an end's serve teardown must leave the
+// other end alone, or it could drop that end before its close frame is written.
 type slot struct {
 	local, remote *websocket.Conn
 	ready         chan struct{}
+	closing       bool
 }
 
 // Relay is the stand-in relay. Create it with New.
@@ -64,6 +68,11 @@ type Relay struct {
 	delay   map[string]time.Duration
 	refuse  map[string]refusal
 	dropped int
+
+	// beforeRemoteClose, when set by an in-package test, runs in CloseWith just
+	// before the remote end is closed, so a test can pin the ordering of the two
+	// closes against the serve teardown.
+	beforeRemoteClose func(session string)
 }
 
 // refusal is a scripted answer to every upgrade of one session.
@@ -82,6 +91,7 @@ func New(t testing.TB) *Relay {
 	r.srv = httptest.NewTLSServer(http.HandlerFunc(r.serve))
 	t.Cleanup(func() {
 		r.mu.Lock()
+		r.markClosing()
 		conns := append([]*websocket.Conn(nil), r.conns...)
 		r.mu.Unlock()
 		for _, c := range conns {
@@ -184,6 +194,7 @@ func (r *Relay) Up() {
 func (r *Relay) closeAll(down bool) {
 	r.mu.Lock()
 	r.down = down
+	r.markClosing()
 	conns := r.conns
 	r.conns = nil
 	r.slots = map[string]*slot{}
@@ -199,6 +210,13 @@ func (r *Relay) closeAll(down bool) {
 	wg.Wait()
 }
 
+// markClosing marks every session slot as being closed by the relay. r.mu held.
+func (r *Relay) markClosing() {
+	for _, sl := range r.slots {
+		sl.closing = true
+	}
+}
+
 // DelayAdmit holds every upgrade for role ("local" or "remote") for d before the
 // relay admits it, whatever the other end is doing; d of 0 ends the delay. It
 // fixes which end a simultaneous redial reaches the relay first.
@@ -212,22 +230,32 @@ func (r *Relay) DelayAdmit(role string, d time.Duration) {
 // a relay refusing the session does.
 func (r *Relay) CloseWith(session string, code websocket.StatusCode, reason string) {
 	r.mu.Lock()
-	var conns []*websocket.Conn
+	var local, remote *websocket.Conn
 	if sl := r.slots[session]; sl != nil {
-		conns = append(conns, sl.local, sl.remote)
+		local, remote = sl.local, sl.remote
+		// The serve goroutines keep their own pointer to sl, so they still see the
+		// mark; a later admission of this session gets a fresh slot.
+		sl.closing = true
+		delete(r.slots, session)
 	}
+	hook := r.beforeRemoteClose
 	r.mu.Unlock()
 	var wg sync.WaitGroup
-	for _, c := range conns {
+	closeEnd := func(c *websocket.Conn, before func(string)) {
 		if c == nil {
-			continue
+			return
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if before != nil {
+				before(session)
+			}
 			c.Close(code, reason)
 		}()
 	}
+	closeEnd(local, nil)
+	closeEnd(remote, hook)
 	wg.Wait()
 }
 
@@ -425,9 +453,11 @@ func (r *Relay) serve(w http.ResponseWriter, req *http.Request) {
 	if peer != nil {
 		r.departures = append(r.departures, Departure{Session: session, Role: role, Status: websocket.CloseStatus(err)})
 	}
+	closing := sl.closing
 	r.mu.Unlock()
 	c.CloseNow()
-	if peer != nil {
+	// The relay closing this session is closing the peer itself, with its own code.
+	if peer != nil && !closing {
 		if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
 			// An end that left on purpose is passed on as such, so the other end can
 			// tell it from a relay that went away.
