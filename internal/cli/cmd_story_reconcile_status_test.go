@@ -69,3 +69,55 @@ func TestReconcileRepairsAStoredStatusBehindItsChainsDone(t *testing.T) {
 		t.Errorf("reconcile after the repair is not clean: %v\n%s", err, out)
 	}
 }
+
+// sty_a28c64dd AC4 scope: reconcile --repair --story <id> rebuilds only the named
+// story's row; another drifted story is left as it is and still reports drift.
+func TestReconcileRepairStoryScopeLeavesOtherDriftAlone(t *testing.T) {
+	workstateRepo(t, holdOffToml)
+	ctx, now := context.Background(), time.Now().UTC()
+	named := createStoryID(t, "named, listed behind")
+	other := createStoryID(t, "other, listed behind")
+	db := openScopeDB(t)
+	for _, id := range []string{named, other} {
+		for i, tr := range [][2]string{
+			{"backlog", "plan"}, {"plan", "in_progress"}, {"in_progress", "integration"},
+			{"integration", "release"}, {"release", "done"},
+		} {
+			if _, err := db.Ledger.Append(ctx, ledger.AppendInput{
+				StoryID: id, Kind: ledger.KindStatusTransition, Body: tr[0] + " → " + tr[1],
+				Payload: mustJSON(transitionPayload(tr[0], tr[1])),
+			}, now.Add(time.Duration(i+1)*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.Stories.SetStatus(ctx, id, "plan", now.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+
+	out, err := runRoot(t, "story", "reconcile", "--story", named)
+	if err == nil || !strings.Contains(out, named) || strings.Contains(out, other) {
+		t.Fatalf("scoped dry run must report only %s and exit non-zero: %v\n%s", named, err, out)
+	}
+
+	if out, err := runRoot(t, "story", "reconcile", "--repair", "--story", named); err != nil {
+		t.Fatalf("reconcile --repair --story: %v\n%s", err, out)
+	} else if strings.Contains(out, other) {
+		t.Errorf("scoped repair names the story outside its scope:\n%s", out)
+	}
+	if got := localStatus(t, named); got != "done" {
+		t.Errorf("named story after scoped repair = %q, want done", got)
+	}
+	if got := localStatus(t, other); got != "plan" {
+		t.Errorf("story outside the scope after scoped repair = %q, want it left at plan", got)
+	}
+
+	out, err = runRoot(t, "story", "reconcile")
+	if err == nil || !strings.Contains(out, other) || !strings.Contains(out, `row="plan"`) {
+		t.Errorf("the story outside the scope must still report drift: %v\n%s", err, out)
+	}
+	if strings.Contains(out, named) {
+		t.Errorf("the repaired story still reports drift:\n%s", out)
+	}
+}

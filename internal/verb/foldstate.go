@@ -268,13 +268,34 @@ func DetectStaleTransitions(ctx context.Context, stories *workitem.Store, led *l
 	return out, nil
 }
 
+// DriftOf keeps the drifts of the stories named in only. A nil only keeps all.
+func DriftOf(drifts []StoryDrift, only map[string]bool) []StoryDrift {
+	if only == nil {
+		return drifts
+	}
+	var out []StoryDrift
+	for _, d := range drifts {
+		if only[d.ID] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // RepairDrift rebuilds every drifted story's row from its fold and appends a
 // status_reconcile event naming each repaired field. It returns what it repaired.
 func RepairDrift(ctx context.Context, stories *workitem.Store, led *ledger.Store, now time.Time) (repaired []StoryDrift, err error) {
+	return RepairDriftOf(ctx, stories, led, now, nil)
+}
+
+// RepairDriftOf is RepairDrift limited to the stories named in only; a drifted
+// story outside it is left as it is. A nil only repairs every drifted story.
+func RepairDriftOf(ctx context.Context, stories *workitem.Store, led *ledger.Store, now time.Time, only map[string]bool) (repaired []StoryDrift, err error) {
 	drifts, err := DetectDrift(ctx, stories, led)
 	if err != nil {
 		return nil, err
 	}
+	drifts = DriftOf(drifts, only)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}

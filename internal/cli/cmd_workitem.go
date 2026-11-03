@@ -612,6 +612,7 @@ not this command's.`,
 // Default is a dry-run report of row/chain drift; --repair applies.
 func storyReconcileCommand() *cobra.Command {
 	var repair, asJSON bool
+	var scope []string
 	cmd := &cobra.Command{
 		Use:   "reconcile",
 		Short: "Detect (and optionally repair) story rows that disagree with their ledger chain",
@@ -625,7 +626,9 @@ each drifted row from the chain and records a status_reconcile event.
 A transition whose from is not the status the chain had reached is listed as
 stale: skipped when the story had already ended (done or cancelled), applied out
 of order otherwise. It never fails reconcile; 'satelle ledger verify' reports
-it as a stale_from break.`,
+it as a stale_from break.
+
+--story <id> (repeatable) limits the report and --repair to those stories.`,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := appFrom(cmd)
@@ -634,12 +637,14 @@ it as a stale_from break.`,
 			}
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
+			only := reconcileScope(scope)
 			stale, serr := verb.DetectStaleTransitions(ctx, a.Store.Stories, a.Store.Ledger)
 			if serr != nil {
 				return serr
 			}
+			stale = staleOf(stale, only)
 			if repair {
-				repaired, rerr := verb.RepairDrift(ctx, a.Store.Stories, a.Store.Ledger, time.Now())
+				repaired, rerr := verb.RepairDriftOf(ctx, a.Store.Stories, a.Store.Ledger, time.Now(), only)
 				if rerr != nil {
 					return rerr
 				}
@@ -663,6 +668,7 @@ it as a stale_from break.`,
 			if derr != nil {
 				return derr
 			}
+			drifts = verb.DriftOf(drifts, only)
 			if asJSON {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
@@ -689,7 +695,38 @@ it as a stale_from break.`,
 	}
 	cmd.Flags().BoolVar(&repair, "repair", false, "rebuild drifted rows from their ledger chain")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().StringSliceVar(&scope, "story", nil, "limit the report and --repair to these story ids (repeatable or comma-separated)")
 	return cmd
+}
+
+// reconcileScope is the set of story ids --story names, or nil (every story)
+// when it names none.
+func reconcileScope(ids []string) map[string]bool {
+	var only map[string]bool
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id == "" {
+			continue
+		}
+		if only == nil {
+			only = map[string]bool{}
+		}
+		only[id] = true
+	}
+	return only
+}
+
+// staleOf keeps the stale transitions of the stories in only; nil keeps all.
+func staleOf(stale []storyfold.ReplayBreak, only map[string]bool) []storyfold.ReplayBreak {
+	if only == nil {
+		return stale
+	}
+	var out []storyfold.ReplayBreak
+	for _, b := range stale {
+		if only[b.StoryID] {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // printStaleTransitions names each transition whose from was not the story's
