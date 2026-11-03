@@ -123,6 +123,11 @@ func newLaneRepo(t *testing.T) epicLane {
 		"[ready-reviewer]\ncommand = %q\ntools = \"read,grep,find,ls\"\nmodel = \"stub-model\"\n",
 		stub+" -p --tools {tools} {system}"))
 	mustRun(t, testBin, repo, "reindex")
+	// The .satelle process substrate is tracked in git (sty_45bf867b): init's
+	// managed .gitignore re-includes it, which overrides the info/exclude above,
+	// so commit it as a repo does; its machine-local files stay ignored.
+	r.Git(t, repo, "add", "-A")
+	r.Git(t, repo, "commit", "-q", "-m", "track the .satelle substrate")
 
 	create := func(args ...string) string {
 		out := w.must(t, repo, append([]string{"story", "create"}, args...)...)
