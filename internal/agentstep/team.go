@@ -69,8 +69,10 @@ func teamOutcomeFailed(s hosted.RunStanding) bool {
 // that names no trigger is refused before any fire (sty_1f6e6667): satelle-server
 // wakes a runner-backed remote only through a declared request trigger, so the
 // error names the key to add. The wait is bounded by the binding's timeout, else the cloud
-// dispatch's default deadline (a remote's run is as slow and unattended). It
-// returns the run id the status read reports.
+// dispatch's default deadline (a remote's run is as slow and unattended). It fires
+// every time it is presented and waits only on the run that fire started
+// (sty_0b062fb1): a repeat answer naming the story's existing run fails the step
+// rather than reporting that run, and it returns the run id of its own node.
 func (g *Engine) dispatchTeam(ctx context.Context, item workitem.Item, toStatus, agent, skill, path string,
 	binding config.AgentBinding) (verb.DispatchResult, error) {
 	res := verb.DispatchResult{Dispatched: true, Agent: agent, Skill: skill, Command: config.PlacementTeamPrefix + path}
@@ -101,34 +103,81 @@ func (g *Engine) dispatchTeam(ctx context.Context, item workitem.Item, toStatus,
 	}
 
 	g.emitActivity(item.ID, "dispatch:"+toStatus, 1, 1)
-	if _, err := g.teamRunner.FireRemote(ctx, path, item.ID, trigger); err != nil {
+	// The fire is the first call: no standing is read before it, so an earlier run
+	// of the story can never stand in for the run this presentation asks for.
+	fired, err := g.teamRunner.FireRemote(ctx, path, item.ID, trigger)
+	if err != nil {
 		return res, fmt.Errorf("named agent %q could not wake team remote %q for step %q: %w", agent, path, toStatus, err)
 	}
-	g.emitProgress("woke team remote %s through trigger %s for %s — waiting up to %s for its run on step %s…", path, trigger, item.ID, deadline, toStatus)
+	if fired.Repeat() {
+		// The server started no run: the story already has one it still counts as
+		// live or pending, and it answered with that run. It is not this step's run,
+		// so neither its outcome nor a wait on it is taken.
+		outcome = "repeat"
+		return res, fmt.Errorf("named agent %q: team remote %q answered the wake for step %q with its existing run %s (%s) and started no new run; that run must end before the step can run again",
+			agent, path, toStatus, runLabel(*fired.Standing), fired.Standing.State)
+	}
+	wake := fired.TriggerID
+	if wake == "" {
+		wake = "(unnamed)"
+	}
+	if fired.Pending {
+		g.emitProgress("wake %s held by team remote %s (position %d) — waiting for its run on step %s for %s, up to %s…",
+			wake, path, fired.Position, toStatus, item.ID, deadline)
+	} else {
+		g.emitProgress("woke team remote %s through trigger %s for %s (trigger %s) — waiting up to %s for its run on step %s…",
+			path, trigger, item.ID, wake, deadline, toStatus)
+	}
 
+	// ours is the node this wake started. A started wake (200) is recorded only when
+	// the story had no live run, and the server writes the node before answering,
+	// so the first node a read names is this wake's. A held wake (202) may leave the
+	// queue without a node (a refusal on drain), after which the standing falls back
+	// to the story's newest ended run; so a held wake pins only a node it first sees
+	// running, and a terminal standing seen before that is not taken as its result.
+	ours := ""
+	sawQueued := false
 	start := clock.Now()
 	for {
 		st, err := g.teamRunner.TeamRunStatus(ctx, path, item.ID)
 		if err != nil {
 			return res, fmt.Errorf("named agent %q reading team remote %q's run for step %q: %w", agent, path, toStatus, err)
 		}
-		if st.NodeID != "" {
-			runID = st.NodeID
-			res.RunID = st.NodeID
-		}
-		if st.State == hosted.RunConcluded {
-			if teamOutcomeFailed(st) {
-				outcome = "rejected"
-				return res, fmt.Errorf("named agent %q: team remote %q's run %s for step %q ended %s",
-					agent, path, runLabel(st), toStatus, runEnd(st))
+		if ours == "" && fired.Pending {
+			switch {
+			case st.State == hosted.RunQueued:
+				sawQueued = true
+			case st.State == hosted.RunRunning && st.NodeID != "":
+				ours = st.NodeID
+			case st.State == hosted.RunConcluded || (st.State == hosted.RunNone && sawQueued):
+				outcome = "held_unstarted"
+				return res, fmt.Errorf("named agent %q: team remote %q's held wake %s for step %q left the queue without starting a run this step saw; the story's newest run %s is not taken as its result",
+					agent, path, wake, toStatus, runLabel(st))
 			}
-			outcome = "concluded"
-			return res, nil
+		} else if ours == "" && st.NodeID != "" {
+			ours = st.NodeID
+		}
+		if ours != "" && st.NodeID == ours {
+			runID = ours
+			res.RunID = ours
+			if st.State == hosted.RunConcluded {
+				if teamOutcomeFailed(st) {
+					outcome = "rejected"
+					return res, fmt.Errorf("named agent %q: team remote %q's run %s for step %q ended %s",
+						agent, path, ours, toStatus, runEnd(st))
+				}
+				outcome = "concluded"
+				return res, nil
+			}
 		}
 		if !clock.Now().Before(start.Add(deadline)) {
 			outcome = "timeout"
+			if ours == "" && fired.Pending {
+				return res, fmt.Errorf("named agent %q: team remote %q's wake %s held at position %d for step %q did not start within %s",
+					agent, path, wake, fired.Position, toStatus, deadline)
+			}
 			return res, fmt.Errorf("named agent %q: team remote %q's run %s for step %q did not conclude within %s",
-				agent, path, runLabel(st), toStatus, deadline)
+				agent, path, runLabel(hosted.RunStanding{NodeID: ours}), toStatus, deadline)
 		}
 		if err := clock.Sleep(ctx, g.teamPollEvery()); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

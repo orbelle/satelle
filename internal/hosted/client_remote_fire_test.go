@@ -62,6 +62,38 @@ func TestFireRemoteMapsTheServersAnswers(t *testing.T) {
 	}
 }
 
+// sty_0b062fb1: the 200 body is decoded. A recorded wake names its trigger id; a
+// repeat answer (the story already has a live run, nothing recorded) carries that
+// run's standing; a body that names neither is still a started wake.
+func TestFireRemoteDecodesTheWakeAnswer(t *testing.T) {
+	status, reply := http.StatusOK, `{"id":"trg_y","outcome":"started"}`
+	c := remoteTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(reply))
+	}))
+	res, err := c.FireRemote(context.Background(), "r", "sty_1", "t")
+	if err != nil || res.TriggerID != "trg_y" || res.Outcome != "started" || res.Repeat() || res.Pending {
+		t.Fatalf("started: res=%+v err=%v, want trigger trg_y, not a repeat", res, err)
+	}
+
+	reply = `{"outcome":"started","detail":"this story already has a run on this remote; no second run was added","standing":{"state":"concluded","node_id":"nod_x","outcome":"reject"}}`
+	res, err = c.FireRemote(context.Background(), "r", "sty_1", "t")
+	if err != nil || !res.Repeat() || res.Standing.NodeID != "nod_x" || res.Standing.State != RunConcluded || res.TriggerID != "" {
+		t.Fatalf("repeat: res=%+v err=%v, want a repeat carrying nod_x's standing", res, err)
+	}
+
+	status, reply = http.StatusAccepted, `{"id":"trg_h","outcome":"pending","position":2,"pending":3}`
+	res, err = c.FireRemote(context.Background(), "r", "sty_1", "t")
+	if err != nil || !res.Pending || res.Position != 2 || res.TriggerID != "trg_h" || res.Repeat() {
+		t.Fatalf("held: res=%+v err=%v, want held wake trg_h at position 2", res, err)
+	}
+
+	status, reply = http.StatusOK, `not json`
+	if res, err = c.FireRemote(context.Background(), "r", "sty_1", "t"); err != nil || res.Repeat() || res.Pending {
+		t.Fatalf("undecodable: res=%+v err=%v, want a started wake", res, err)
+	}
+}
+
 // satelle-server starts a runner-backed remote (no wake_url) only through a
 // declared request trigger (sty_1f6e6667). This fake refuses a fire whose body
 // names no trigger, or an undeclared one, the way the server does, and accepts

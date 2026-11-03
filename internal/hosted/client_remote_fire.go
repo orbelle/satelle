@@ -16,20 +16,35 @@ import (
 // remoteRoute is the base of one published remote.
 func remoteRoute(remoteID string) string { return "/api/v1/remotes/" + url.PathEscape(remoteID) }
 
-// FireResult is the server's answer to a wake that it accepted.
+// FireResult is the server's answer to a wake that it accepted: the trigger row
+// satelle-server sends on 200 and 202 alike (internal/remotes Trigger).
 type FireResult struct {
 	// Pending is true when the wake was held (202) because the remote is at its
 	// concurrency limit; Position is its place in the queue.
 	Pending  bool `json:"-"`
 	Position int  `json:"position,omitempty"`
+	// TriggerID is the recorded wake (trg_…); Outcome and Detail are the server's
+	// word on it (started, pending).
+	TriggerID string `json:"id,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+	// Standing is set only on a repeat wake: the story already has a live or
+	// pending run, so the server recorded nothing, started no run, and answered
+	// with that earlier run's standing (satelle-server internal/remotes/wake.go
+	// fireWake → repeatAnswer).
+	Standing *RunStanding `json:"standing,omitempty"`
 }
+
+// Repeat reports whether the wake started no run because the story already had
+// one: the answer carries that earlier run's standing.
+func (r FireResult) Repeat() bool { return r.Standing != nil }
 
 // FireRemote wakes the remote remoteID for storyID (POST /api/v1/remotes/{id}/fire)
 // through its declared request trigger: the body is {"story_id", "trigger"}, and
 // satelle-server starts a runner-backed remote (one with no wake_url) only when
 // trigger names a request trigger it declares (sty_1f6e6667). An empty trigger is
-// left out of the body. 200 (a node started) and 202 (the wake is held) both mean
-// it was requested; any other answer, notably 409 with an outcome such as
+// left out of the body. 200 (a node started, or a repeat answer naming the story's
+// existing run) and 202 (the wake is held) both mean it was requested; any other answer, notably 409 with an outcome such as
 // limit_spend, launch_failed or an undeclared trigger, is an *APIError carrying
 // the server's code and reason.
 func (c *Client) FireRemote(ctx context.Context, remoteID, storyID, trigger string) (FireResult, error) {
@@ -49,10 +64,13 @@ func (c *Client) FireRemote(ctx context.Context, remoteID, storyID, trigger stri
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxCallBody))
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return FireResult{}, nil
+		var res FireResult
+		_ = json.Unmarshal(body, &res) // a body that does not decode is still a started wake
+		return res, nil
 	case http.StatusAccepted:
-		res := FireResult{Pending: true}
+		var res FireResult
 		_ = json.Unmarshal(body, &res) // a body without the position is still a held wake
+		res.Pending = true
 		return res, nil
 	case http.StatusUnauthorized:
 		return FireResult{}, ErrLoginRequired

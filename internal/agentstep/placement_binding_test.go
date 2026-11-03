@@ -79,22 +79,30 @@ const teamTrigger = "pr-approve-request"
 // fakeTeam is a TeamRunner that records its fires and answers each status read
 // with the next scripted standing (the last repeats). Like satelle-server with a
 // runner-backed remote (sty_1f6e6667), it refuses a fire that names no declared
-// request trigger; its remote declares teamTrigger.
+// request trigger; its remote declares teamTrigger. fireRes is the answer a
+// declared fire gets (the zero value is a started wake); readsAtFire records how
+// many standings were read before the fire.
 type fakeTeam struct {
-	fires    []string
-	triggers []string
-	fireErr  error
-	statuses []hosted.RunStanding
-	reads    int
+	fires       []string
+	triggers    []string
+	fireErr     error
+	fireRes     hosted.FireResult
+	statuses    []hosted.RunStanding
+	reads       int
+	readsAtFire []int
 }
 
 func (f *fakeTeam) FireRemote(_ context.Context, remoteID, storyID, trigger string) (hosted.FireResult, error) {
 	f.fires = append(f.fires, remoteID+"|"+storyID)
 	f.triggers = append(f.triggers, trigger)
+	f.readsAtFire = append(f.readsAtFire, f.reads)
 	if trigger != teamTrigger {
 		return hosted.FireResult{}, &hosted.APIError{Status: 409, Code: "name a declared request trigger to start this remote"}
 	}
-	return hosted.FireResult{}, f.fireErr
+	if f.fireErr != nil {
+		return hosted.FireResult{}, f.fireErr
+	}
+	return f.fireRes, nil
 }
 
 func (f *fakeTeam) TeamRunStatus(context.Context, string, string) (hosted.RunStanding, error) {
@@ -485,5 +493,145 @@ func TestPlacementTeamReviewerBindingStillRefused(t *testing.T) {
 	_, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
 	if err == nil || !strings.Contains(err.Error(), "role=reviewer") {
 		t.Fatalf("err = %v, want the reviewer-role refusal", err)
+	}
+}
+
+// sty_0b062fb1: standings for the fire-then-pin tests.
+func running(node string) hosted.RunStanding {
+	return hosted.RunStanding{State: hosted.RunRunning, NodeID: node}
+}
+
+func concludedOn(node, outcome string) hosted.RunStanding {
+	return hosted.RunStanding{State: hosted.RunConcluded, NodeID: node, EndStatus: "ended", Outcome: outcome}
+}
+
+// progressOf captures the engine's progress lines.
+func progressOf(r *boundRig) *[]string {
+	var lines []string
+	r.SetProgress(func(msg string) { lines = append(lines, msg) })
+	return &lines
+}
+
+// sty_0b062fb1 AC1: the story already has a concluded run, but presenting the step
+// fires first (no standing read before it) and waits on the node that fire
+// started, taking its result rather than the earlier run's.
+func TestPlacementTeamFiresFirstAndWaitsOnItsOwnRun(t *testing.T) {
+	r, tm, _ := newTeamRig(t, "", running("nod_new"), concludedOn("nod_new", "accept"))
+	tm.fireRes = hosted.FireResult{TriggerID: "trg_new", Outcome: "started"}
+	lines := progressOf(r)
+	res, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err != nil {
+		t.Fatalf("DispatchExecutor: %v", err)
+	}
+	if len(tm.fires) != 1 || tm.readsAtFire[0] != 0 {
+		t.Fatalf("fires = %v, reads before the fire = %v; want one fire with no standing read before it", tm.fires, tm.readsAtFire)
+	}
+	if res.RunID != "nod_new" {
+		t.Errorf("run id = %q, want the fire's node nod_new", res.RunID)
+	}
+	if !strings.Contains(strings.Join(*lines, "\n"), "trg_new") {
+		t.Errorf("progress = %q, want it to name the wake trg_new", *lines)
+	}
+}
+
+// AC1: the incident. The story's earlier run concluded reject but its node is
+// still live, so the server answers the fire as a repeat naming that run. The
+// step fails saying no new run started; it never reports the old outcome as its
+// result, and it waits on nothing.
+func TestPlacementTeamRepeatAnswerIsNotTheStepsResult(t *testing.T) {
+	old := concludedOn("nod_old", "reject")
+	r, tm, _ := newTeamRig(t, "", old)
+	tm.fireRes = hosted.FireResult{Outcome: "started", Standing: &old}
+	res, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err == nil || !strings.Contains(err.Error(), "nod_old") || !strings.Contains(err.Error(), "started no new run") {
+		t.Fatalf("err = %v, want a failure naming nod_old and that no new run started", err)
+	}
+	if strings.Contains(err.Error(), "ended with outcome reject") || strings.Contains(err.Error(), "reject") {
+		t.Errorf("err = %v reports the earlier run's outcome as the step's result", err)
+	}
+	if len(tm.fires) != 1 || tm.reads != 0 || res.RunID != "" {
+		t.Errorf("fires = %v, reads = %d, run id = %q; want one fire, no wait and no run id", tm.fires, tm.reads, res.RunID)
+	}
+	if rows := r.telemetry("team_dispatch"); len(rows) != 1 || rows[0].data["outcome"] != "repeat" {
+		t.Errorf("team_dispatch rows = %+v, want one repeat", rows)
+	}
+}
+
+// AC1: once pinned, a standing naming another node is not taken.
+func TestPlacementTeamIgnoresAnotherNodeMidWait(t *testing.T) {
+	r, _, _ := newTeamRig(t, "", running("nod_new"), concludedOn("nod_other", "reject"), concludedOn("nod_new", "accept"))
+	res, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err != nil || res.RunID != "nod_new" {
+		t.Fatalf("res = %+v err = %v, want success on nod_new", res, err)
+	}
+}
+
+// AC2: a held wake is reported with its position, and the step waits on the run
+// it sees start after the hold.
+func TestPlacementTeamHeldWakeWaitsForItsRun(t *testing.T) {
+	q := hosted.RunStanding{State: hosted.RunQueued, Position: 2}
+	r, _, _ := newTeamRig(t, "", q, q, running("nod_new"), concludedOn("nod_new", "accept"))
+	r.teamRunner.(*fakeTeam).fireRes = hosted.FireResult{Pending: true, Position: 2, TriggerID: "trg_h", Outcome: "pending"}
+	lines := progressOf(r)
+	res, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err != nil || res.RunID != "nod_new" {
+		t.Fatalf("res = %+v err = %v, want success on nod_new", res, err)
+	}
+	got := strings.Join(*lines, "\n")
+	if !strings.Contains(got, "held") || !strings.Contains(got, "position 2") || !strings.Contains(got, "trg_h") {
+		t.Errorf("progress = %q, want the hold reported with trg_h at position 2", got)
+	}
+}
+
+// AC2: a held wake that leaves the queue without a run this step saw start — a
+// refusal on drain, after which the standing falls back to the story's newest
+// ended run, or to none — fails naming the wake, never taking that run's outcome.
+func TestPlacementTeamHeldWakeThatNeverStartsIsNotGivenAnEarlierRun(t *testing.T) {
+	q := hosted.RunStanding{State: hosted.RunQueued, Position: 1}
+	for name, after := range map[string]hosted.RunStanding{
+		"settled to an earlier run": concludedOn("nod_old", "reject"),
+		"gone":                      {State: hosted.RunNone},
+	} {
+		r, _, _ := newTeamRig(t, "", q, after)
+		r.teamRunner.(*fakeTeam).fireRes = hosted.FireResult{Pending: true, Position: 1, TriggerID: "trg_h"}
+		res, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+		if err == nil || !strings.Contains(err.Error(), "left the queue without starting a run") || !strings.Contains(err.Error(), "trg_h") {
+			t.Errorf("%s: err = %v, want the held wake trg_h reported as never started", name, err)
+			continue
+		}
+		if strings.Contains(err.Error(), "reject") || res.RunID == "nod_old" {
+			t.Errorf("%s: err = %v run id %q; the earlier run's outcome was taken", name, err, res.RunID)
+		}
+		if rows := r.telemetry("team_dispatch"); len(rows) != 1 || rows[0].data["outcome"] != "held_unstarted" {
+			t.Errorf("%s: team_dispatch rows = %+v, want one held_unstarted", name, rows)
+		}
+	}
+}
+
+// AC2: a wake held to the deadline says it is still held, naming no earlier run.
+func TestPlacementTeamHeldWakeDeadline(t *testing.T) {
+	r, _, _ := newTeamRig(t, "1s", hosted.RunStanding{State: hosted.RunQueued, Position: 3})
+	r.teamRunner.(*fakeTeam).fireRes = hosted.FireResult{Pending: true, Position: 3, TriggerID: "trg_h"}
+	_, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err == nil || !strings.Contains(err.Error(), "held") || !strings.Contains(err.Error(), "trg_h") {
+		t.Fatalf("err = %v, want a timeout saying wake trg_h is still held", err)
+	}
+	if strings.Contains(err.Error(), "reject") || strings.Contains(err.Error(), "nod_") {
+		t.Errorf("err = %v names an earlier run", err)
+	}
+}
+
+// AC2: a 202 that carries a standing is a repeat (the story's run is the one
+// queued), not a hold for this wake.
+func TestPlacementTeamHeldRepeatIsARepeat(t *testing.T) {
+	q := hosted.RunStanding{State: hosted.RunQueued, Position: 1}
+	r, tm, _ := newTeamRig(t, "", q)
+	tm.fireRes = hosted.FireResult{Pending: true, Position: 1, Outcome: "pending", Standing: &q}
+	_, err := r.DispatchExecutor(context.Background(), cloudItem(), "plan")
+	if err == nil || !strings.Contains(err.Error(), "started no new run") {
+		t.Fatalf("err = %v, want the repeat refusal", err)
+	}
+	if tm.reads != 0 {
+		t.Errorf("status reads = %d, want no wait on a repeat", tm.reads)
 	}
 }

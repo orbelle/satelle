@@ -1,3 +1,8 @@
+## [0.0.870] - 2026-11-03
+
+### Fixed
+- A step placed on a team remote always fires a new run when presented and waits on the run that fire started (by its trigger or node), never on an earlier run of the same story; a fire that is held (pending or limit_concurrent) is reported and waited on as such. Before, the step could read the story's run standing first and report an earlier concluded run as the new run's result. (sty_0b062fb1)
+
 ## [0.0.869] - 2026-11-03
 
 ### Added
