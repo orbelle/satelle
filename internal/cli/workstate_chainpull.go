@@ -178,9 +178,7 @@ func (c *chainPull) materialize(ctx context.Context, a *app.App, optIn map[strin
 		return nil
 	}
 	for _, it := range applied {
-		// A task's chain is read like a story's (sty_0810c2a3): its events, an
-		// archive among them, are published by the same compare-and-append.
-		if (it.Kind != workitem.KindStory && it.Kind != workitem.KindTask) || c.remote(it) {
+		if !chainKind(it.Kind) || c.remote(it) {
 			continue
 		}
 		if done, err := c.take(ctx, a, it.ID, out, now); done || err != nil {
@@ -211,13 +209,28 @@ func (c *chainPull) take(ctx context.Context, a *app.App, id string, out *storyO
 	return err != nil, err
 }
 
-// sweepTasks reads the hosted chain of every local task the pass did not read
-// whose saved head is not its local tip (sty_0810c2a3). A task archived here on
-// a chain that never took its hosted events — an earlier pull read no task
-// chain — is refused by every push as moved; reading it here brings the hosted
-// events in and moves the local-only ones after them, so the next push
-// publishes it. A task whose head is its tip, or whose chain forks here, is not
-// read.
+// chainKind reports whether a pull reads the hosted chain of an item of kind k.
+// A task's chain (sty_0810c2a3) and an execution's (sty_937fd6cc) are read like a
+// story's: their events, an archive or a cancel among them, are published by the
+// same compare-and-append.
+func chainKind(k workitem.Kind) bool {
+	return k == workitem.KindStory || k == workitem.KindTask || k == workitem.KindExecution
+}
+
+// rebasesOnFork reports whether k is a leaf no workflow drives — a task or an
+// execution — whose forked chain a pull rebases onto the hosted one (rebaseTask)
+// rather than leaving it out as a conflict.
+func rebasesOnFork(k workitem.Kind) bool {
+	return k == workitem.KindTask || k == workitem.KindExecution
+}
+
+// sweepTasks reads the hosted chain of every local task or execution the pass
+// did not read whose saved head is not its local tip (sty_0810c2a3,
+// sty_937fd6cc). One archived or cancelled here on a chain that never took its
+// hosted events — an earlier pull read no such chain — is refused by every push
+// as moved; reading it here brings the hosted events in and moves the local-only
+// ones after them, so the next push publishes it. One whose head is its tip, or
+// whose chain forks here, is not read.
 func (c *chainPull) sweepTasks(ctx context.Context, a *app.App, optIn map[string]bool, out *storyOutcome, now time.Time) error {
 	if c == nil || !optIn["ledger"] || c.unsupported {
 		return nil
@@ -237,7 +250,7 @@ func (c *chainPull) sweepTasks(ctx context.Context, a *app.App, optIn map[string
 		if err != nil {
 			return fmt.Errorf("read item %s: %w", id, err)
 		}
-		if it.Kind != workitem.KindTask {
+		if !rebasesOnFork(it.Kind) {
 			continue
 		}
 		local, err := a.Store.Ledger.StoryChain(ctx, id)
@@ -284,7 +297,7 @@ func (c *chainPull) materializeStory(ctx context.Context, a *app.App, rd chainRe
 	var unlinked unlinkedError
 	switch {
 	case errors.Is(perr, errTakeForked):
-		if isTask(ctx, a, id) {
+		if it, gerr := a.Store.Stories.Get(ctx, id); gerr == nil && rebasesOnFork(it.Kind) {
 			return c.rebaseTask(ctx, a, rd, id, local, events, latest, after, out, now)
 		}
 		c.forked(id, local, events, after, out)
@@ -396,12 +409,6 @@ func (c *chainPull) forked(id string, local []ledger.Entry, events []hosted.Chai
 		return
 	}
 	out.conflict(id, conflictChainForked)
-}
-
-// isTask reports whether id is a task in the local store.
-func isTask(ctx context.Context, a *app.App, id string) bool {
-	it, err := a.Store.Stories.Get(ctx, id)
-	return err == nil && it.Kind == workitem.KindTask
 }
 
 // redundantSeed returns the local-only events a task rebase drops rather than

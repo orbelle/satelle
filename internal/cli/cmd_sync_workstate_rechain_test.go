@@ -436,12 +436,15 @@ func hostedIDs(events []hosted.ChainEvent) []string {
 func TestPlanRechain(t *testing.T) {
 	a, b := ent("a", "", ledger.KindStoryCreated), ent("b", "a", ledger.KindComment)
 	seeds := seedEvents("v", "s", "b")
+	cancel := ent("t", "", ledger.KindStatusTransition)
+	cancel.Payload = json.RawMessage(`{"from":"backlog","to":"cancelled"}`)
 	tests := []struct {
 		name         string
 		local        []ledger.Entry
 		hosted       []hosted.ChainEvent
 		outcome      string
 		remove, take []string
+		replay       []string // checked when set
 		seeded       int
 		reconciled   int
 		hostedStatus string // what the hosted chain folds to
@@ -529,6 +532,24 @@ func TestPlanRechain(t *testing.T) {
 			outcome: rechainRefused, reason: "does not link at c",
 		},
 		{
+			// sty_937fd6cc AC2, exe_317cdf90's shape: a local backlog → cancelled on a
+			// root of its own over a hosted chain with no status event, which folds
+			// to no status. The empty fold is the chain's start: the move replays.
+			name:         "a status move over a hosted chain that folds to no status replays",
+			local:        relinked(ent("w", "", ledger.KindComment), cancel),
+			hosted:       hostedOf("a", "b"),
+			hostedStatus: "",
+			outcome:      rechainDo, take: []string{"a", "b"}, replay: []string{"w", "t"},
+		},
+		{
+			// The guard still holds when the hosted chain folds to a status.
+			name:         "a status move over a hosted chain that folds to another status is refused",
+			local:        relinked(ent("w", "", ledger.KindComment), cancel),
+			hosted:       hostedOf("a", "b"),
+			hostedStatus: "plan",
+			outcome:      rechainRefused, reason: "local status_transition t moves from backlog but the hosted chain folds to plan",
+		},
+		{
 			name:    "a local chain that forks",
 			local:   []ledger.Entry{a, b, ent("x", "a", ledger.KindComment)},
 			hosted:  hostedOf("a", "b"),
@@ -546,6 +567,9 @@ func TestPlanRechain(t *testing.T) {
 			}
 			if !slices.Equal(got.remove, tc.remove) || !slices.Equal(hostedIDs(got.take), tc.take) || got.seeded != tc.seeded || len(got.reconciled) != tc.reconciled {
 				t.Errorf("remove %v take %v seeded %d reconciled %d, want %v %v %d %d", got.remove, hostedIDs(got.take), got.seeded, len(got.reconciled), tc.remove, tc.take, tc.seeded, tc.reconciled)
+			}
+			if tc.replay != nil && !slices.Equal(got.replay, tc.replay) {
+				t.Errorf("replay %v, want %v", got.replay, tc.replay)
 			}
 			// Nothing that stays builds on an event that goes, so the ledger cannot
 			// refuse the removal.

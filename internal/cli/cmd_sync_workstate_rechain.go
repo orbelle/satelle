@@ -341,8 +341,8 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 // one chain from their own root, and are replayed after the hosted latest in that
 // order, a workflow_version included: only a seeded definition snapshot, SeedItem's
 // copy of a definition the hosted chain carries, is dropped. A replayed status move
-// must start from the status the hosted chain folds to; otherwise the story moved
-// elsewhere and is refused with both statuses.
+// must start from the status the hosted chain folds to, when it folds to one;
+// otherwise the story moved elsewhere and is refused with both statuses.
 func planReplay(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus func() (string, error)) (rechainPlan, bool) {
 	refuse := func(format string, args ...any) (rechainPlan, bool) {
 		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}, true
@@ -402,7 +402,12 @@ func planReplay(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus f
 			if err != nil {
 				return refuse("the hosted chain cannot be folded: %v", err)
 			}
-			if from := storyfold.TransitionFrom(e); from != folded {
+			// A hosted chain that folds to no status holds no status event: nothing
+			// moved the item from its start, so the local move's own from is that
+			// start (sty_937fd6cc — an execution or a task carries no status in its
+			// creation). It is not checked against a workflow's start state: the
+			// empty fold proves only that nobody moved it.
+			if from := storyfold.TransitionFrom(e); folded != "" && from != folded {
 				return refuse("local status_transition %s moves from %s but the hosted chain folds to %s", e.ID, from, folded)
 			}
 		}

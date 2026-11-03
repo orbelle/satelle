@@ -22,9 +22,25 @@ import (
 // returns the task and the hosted chain, now ahead of this checkout.
 func publishedTask(t *testing.T) (f *fakeWorkstateServer, server, repo, task string, hostedChain []string) {
 	t.Helper()
+	return publishedItem(t, workitem.KindTask)
+}
+
+// publishedItem is publishedTask for an item of kind: a task, or an execution of
+// a task created with it.
+func publishedItem(t *testing.T, kind workitem.Kind) (f *fakeWorkstateServer, server, repo, task string, hostedChain []string) {
+	t.Helper()
 	ts, f, repo := hostedModeRepo(t)
 	withRepoStore(t, func(db *store.DB) {
-		it, err := db.Stories.Create(context.Background(), workitem.CreateInput{Kind: workitem.KindTask, Title: "superseded"}, time.Now())
+		ctx := context.Background()
+		in := workitem.CreateInput{Kind: kind, Title: "superseded"}
+		if kind == workitem.KindExecution {
+			parent, err := db.Stories.Create(ctx, workitem.CreateInput{Kind: workitem.KindTask, Title: "the task it runs"}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.ParentID = parent.ID
+		}
+		it, err := db.Stories.Create(ctx, in, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,6 +155,23 @@ func TestPullMakesStaleArchivedTaskPublishable(t *testing.T) {
 // archive event appended on the local tip. It returns the archive event's id.
 func staleArchive(t *testing.T, server, repo, task string, keep int) string {
 	t.Helper()
+	return staleWrite(t, server, repo, task, keep, func(db *store.DB) string {
+		ctx := context.Background()
+		if _, err := db.Stories.Archive(ctx, task, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		e, err := db.Ledger.Append(ctx, ledger.AppendInput{StoryID: task, Kind: ledger.KindTaskUpdated, Actor: "satelle", Body: "archived"}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.ID
+	})
+}
+
+// staleWrite is staleArchive for any write: write appends it on the local tip
+// and returns its event's id.
+func staleWrite(t *testing.T, server, repo, task string, keep int, write func(db *store.DB) string) string {
+	t.Helper()
 	ctx := context.Background()
 	var archive string
 	withRepoStore(t, func(db *store.DB) {
@@ -153,14 +186,7 @@ func staleArchive(t *testing.T, server, repo, task string, keep int) string {
 		if err := db.Ledger.RemoveEvents(ctx, task, drop, func(ledger.Entry) bool { return true }); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Stories.Archive(ctx, task, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		e, err := db.Ledger.Append(ctx, ledger.AppendInput{StoryID: task, Kind: ledger.KindTaskUpdated, Actor: "satelle", Body: "archived"}, time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		archive = e.ID
+		archive = write(db)
 		stale, err := chainOrder(mustChain(t, db, task))
 		if err != nil {
 			t.Fatal(err)

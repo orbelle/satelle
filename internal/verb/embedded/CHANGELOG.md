@@ -1,3 +1,8 @@
+## [0.0.865] - 2026-11-03
+
+### Fixed
+- `satelle sync workstate pull` fetches execution chains as it does task and story chains, so an execution whose hosted chain is ahead becomes publishable after one pull, and `satelle sync workstate rechain` repairs an execution or task whose hosted chain folds to no status, treating the empty fold as the chain's start status. This clears the last conflicted item (an archived epic-review execution) from this repo's push. (sty_937fd6cc)
+
 ## [0.0.864] - 2026-11-03
 
 ### Breaking
