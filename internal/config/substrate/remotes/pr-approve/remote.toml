@@ -41,7 +41,8 @@ ref = "main"
 # these.
 GH_TOKEN = { provider = "github-app", permissions = { contents = "read", pull_requests = "write", statuses = "write" } }
 # The agent CLI's credential: a team value satelle holds in its own store,
-# granted to the remote. REPO: the name it is held under.
+# read because this accepted definition declares it (no grant step). REPO: the
+# name it is held under.
 CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
 
 # The sandbox reaches the GitHub API and the model API the agent CLI calls with
