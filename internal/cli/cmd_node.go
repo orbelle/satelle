@@ -33,6 +33,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/agentstep"
+	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/doctor"
@@ -537,7 +538,7 @@ func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heart
 	if push {
 		server := nodeServer()
 		hc := hosted.NewClient(server, hosted.NodeTokenStore{Server: server, Token: token}, nodeHTTP)
-		tr.Publish, tr.Fetch = nodePublish(cmd, hc, server, desc.Project), nodeChainFetch(cmd, hc, desc.Project)
+		tr.Publish, tr.Fetch = nodePublish(cmd, hc, server, desc.Project), nodeChainFetch(cmd, hc, server, desc.Project)
 	}
 	beat.Stop()
 	res, rerr := remotenode.RunTask(ctx, tr)
@@ -557,7 +558,14 @@ var errNodeNoProject = errors.New("the run descriptor names no project")
 // applier a trimmed story's fetch uses (applyHostedChain), so the rows the run
 // then appends take the hosted head as their base (sty_0d621eaf). A refusal that
 // stops a push (stopsPush) stops the run before any further read or write.
-func nodeChainFetch(cmd *cobra.Command, hc *hosted.Client, project string) func(context.Context, ...string) error {
+//
+// A story the node's store does not hold, as a fresh node holds none, is brought
+// in by the scoped pass `satelle sync workstate pull <id>` makes
+// (runScopedWorkstateSnapshot): its hosted row, then its hosted chain, the row
+// rebuilt from the chain's fold, so story verbs find it at its chain's head
+// status (sty_a291a081). One the hosted project does not hold either is
+// remotenode.ErrSubjectAbsent.
+func nodeChainFetch(cmd *cobra.Command, hc *hosted.Client, server, project string) func(context.Context, ...string) error {
 	return func(ctx context.Context, ids ...string) error {
 		if project == "" {
 			return errNodeNoProject
@@ -566,15 +574,35 @@ func nodeChainFetch(cmd *cobra.Command, hc *hosted.Client, project string) func(
 		if err != nil {
 			return err
 		}
-		conn, err := hc.OpenChain(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = conn.Close() }()
+		var conn *hosted.ChainConn
+		defer func() {
+			if conn != nil {
+				_ = conn.Close()
+			}
+		}()
 		var errs []error
 		for _, id := range ids {
 			if id == "" {
 				continue
+			}
+			_, gerr := a.Store.Stories.Get(ctx, id)
+			if errors.Is(gerr, workitem.ErrNotFound) {
+				if perr := nodePullStory(ctx, cmd, a, hc, server, project, id); perr != nil {
+					if stopsPush(perr) || errors.Is(perr, remotenode.ErrSubjectAbsent) {
+						return perr
+					}
+					errs = append(errs, perr)
+				}
+				continue
+			}
+			if gerr != nil {
+				errs = append(errs, gerr)
+				continue
+			}
+			if conn == nil {
+				if conn, err = hc.OpenChain(ctx); err != nil {
+					return err
+				}
 			}
 			events, _, ferr := conn.ReadStory(ctx, project, id, "")
 			if stopsPush(ferr) {
@@ -589,6 +617,23 @@ func nodeChainFetch(cmd *cobra.Command, hc *hosted.Client, project string) func(
 		}
 		return errors.Join(errs...)
 	}
+}
+
+// nodePullStory is the scoped pull of one story the node's store does not hold.
+// A refusal that stops a push is returned as remotenode.ErrRunRefused, a story
+// the server lacks as remotenode.ErrSubjectAbsent.
+func nodePullStory(ctx context.Context, cmd *cobra.Command, a *app.App, hc *hosted.Client, server, project, id string) error {
+	_, err := runScopedWorkstateSnapshot(ctx, a, cmd.ErrOrStderr(), hc, server, project,
+		map[string]bool{"stories": true, "ledger": true}, false, snapshotModePull,
+		scopeResolution{IDs: []string{id}, Set: scopeSet{id: true}})
+	var absent scopeAbsentError
+	switch {
+	case stopsPush(err):
+		return fmt.Errorf("%w: %w", remotenode.ErrRunRefused, err)
+	case errors.As(err, &absent):
+		return fmt.Errorf("%w: %s in project %s: %w", remotenode.ErrSubjectAbsent, id, project, err)
+	}
+	return err
 }
 
 // nodePublish is a task run's publish (remotenode.TaskRun.Publish): the push a

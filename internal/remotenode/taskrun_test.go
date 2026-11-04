@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -355,6 +356,37 @@ func TestRunTaskThatDoesNotFinishConcludesRejected(t *testing.T) {
 	}
 	if got := lines(log2.all()); !reflect.DeepEqual(got, []string{"queued//", "concluded//reject"}) {
 		t.Errorf("heartbeats = %v", got)
+	}
+}
+
+// sty_a291a081 AC3: a fetch of a subject the hosted project does not hold stops
+// the run before the execution is made or driven, returns the named error and
+// concludes reject with findings that name the story.
+func TestRunTaskStopsOnAnAbsentSubject(t *testing.T) {
+	e := newTaskEnv(t, false)
+	log := &statusLog{}
+	driven := false
+	tr := taskRun(e, executorOnly{step: func(workitem.Item) error { driven = true; return nil }}, log)
+	var fetched []string
+	tr.Fetch = func(_ context.Context, ids ...string) error {
+		fetched = append(fetched, ids...)
+		return fmt.Errorf("%w: sty_subject in project team-project", ErrSubjectAbsent)
+	}
+
+	res, err := RunTask(context.Background(), tr)
+	if !errors.Is(err, ErrSubjectAbsent) || res.Outcome != verb.OutcomeReject || res.Execution != "" {
+		t.Fatalf("result = %+v, %v, want the absent subject reported as reject with no execution", res, err)
+	}
+	if driven || len(e.executions()) != 0 || !reflect.DeepEqual(fetched, []string{"sty_subject"}) {
+		t.Errorf("driven = %v, executions = %d, fetched = %v: want only the subject fetched and nothing made", driven, len(e.executions()), fetched)
+	}
+	sent := log.all()
+	last := sent[len(sent)-1]
+	if got := lines(sent); !reflect.DeepEqual(got, []string{"queued//", "concluded//reject"}) {
+		t.Errorf("heartbeats = %v", got)
+	}
+	if !strings.Contains(last.Findings, ErrSubjectAbsent.Error()) || !strings.Contains(last.Findings, "sty_subject") {
+		t.Errorf("concluded findings = %q, want the named error and the story", last.Findings)
 	}
 }
 

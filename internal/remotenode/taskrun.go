@@ -90,7 +90,8 @@ type TaskRun struct {
 	// hosted head (sty_0d621eaf). It is called with the subject before the
 	// execution is made or driven, and with the execution before it is driven. A
 	// failed fetch is logged and the run goes on: local first, never blocked. A
-	// fetch satelle.dev refused (ErrRunRefused) stops the run there, and nothing of
+	// fetch satelle.dev refused (ErrRunRefused), or one for a story the hosted
+	// project does not hold (ErrSubjectAbsent), stops the run there, and nothing of
 	// it is published.
 	Fetch func(ctx context.Context, ids ...string) error
 	// ResendEvery, when set, replaces the heartbeat resend interval (a test's).
@@ -214,15 +215,20 @@ func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string
 // more: it refused the node token, or fenced the node out of the project.
 var ErrRunRefused = errors.New("satelle.dev refused the node's work state")
 
+// ErrSubjectAbsent marks a Fetch error for a story neither the node's store nor
+// the hosted project holds: every story verb the run makes on it would fail, so
+// the run stops before it is driven.
+var ErrSubjectAbsent = errors.New("the run's story is not in the hosted project")
+
 // fetch runs Fetch for id, logging a failure: the write that follows goes on with
-// what the node's store holds. A refusal (ErrRunRefused) is returned, and the run
-// stops on it.
+// what the node's store holds. A refusal (ErrRunRefused) or an absent story
+// (ErrSubjectAbsent) is returned, and the run stops on it.
 func (tr TaskRun) fetch(ctx context.Context, id string) error {
 	if tr.Fetch == nil || id == "" {
 		return nil
 	}
 	err := tr.Fetch(ctx, id)
-	if errors.Is(err, ErrRunRefused) {
+	if errors.Is(err, ErrRunRefused) || errors.Is(err, ErrSubjectAbsent) {
 		return err
 	}
 	if err != nil && tr.Drive.Out != nil {

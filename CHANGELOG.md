@@ -1,3 +1,9 @@
+## [0.0.889] - 2026-11-04
+
+### Fixed
+- A remote node now holds the story it was woken for. Before the run is driven, a story the node's store does not have (a fresh node has none) is brought in by the same scoped pull `satelle sync workstate pull <id>` makes: its hosted row, then its hosted chain, with the row rebuilt from the chain so its status is the chain head's. Before, the node fetched only the chain's ledger entries and never created the row, so `satelle story attach`, `doc` and `get` on the node failed with `workitem: not found`. satelle-server's cicd run on 0.0.887 released correctly and then could not attach its evidence. (sty_a291a081)
+- A story the hosted project does not hold either stops the node's run before the drive with `ErrSubjectAbsent` ("the run's story is not in the hosted project"), carried in the run's output and its concluded status, instead of driving and failing on the first story verb. (sty_a291a081)
+
 ## [0.0.888] - 2026-11-04
 
 ### Fixed

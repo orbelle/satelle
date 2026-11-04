@@ -129,6 +129,20 @@ func (s *nodeSync) seed(project, story string, rows ...ledger.Entry) error {
 	return nil
 }
 
+// seedRow stores a backlog story row for story in project, as a push would have.
+func (s *nodeSync) seedRow(project, story string) {
+	now := time.Now().UTC()
+	s.f.mu.Lock()
+	defer s.f.mu.Unlock()
+	if s.f.itemsByID[project] == nil {
+		s.f.itemsByID[project] = map[string]any{}
+	}
+	s.f.itemsByID[project][story] = map[string]any{
+		"id": story, "kind": "story", "status": "backlog", "title": "subject", "category": "chore",
+		"created_at": now.Format(time.RFC3339Nano), "updated_at": now.Format(time.RFC3339Nano),
+	}
+}
+
 // applies is every Apply request, in order.
 func (s *nodeSync) applies() []*syncpb.ApplyRequest {
 	s.f.mu.Lock()

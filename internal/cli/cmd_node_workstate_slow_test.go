@@ -182,15 +182,12 @@ func TestSlowNodeTaskWakePushBuildsOnHostedHead(t *testing.T) {
 			subjectRead.At, execRead.At, drive, push.At)
 	}
 
-	rows := r.sync.appended(t, subject)
+	rows := runRows(t, r, subject, kill)
 	if len(rows) != 1 || rows[0].Kind != ledger.KindExecutionLink {
 		t.Fatalf("subject rows pushed = %+v, want only this run's link row", rows)
 	}
-	if rows[0].BaseID != kill {
-		t.Errorf("link row base = %q, want the hosted head %q", rows[0].BaseID, kill)
-	}
-	if chain := r.sync.f.chain.stored(devtest.DefaultProject, subject); len(chain) != 3 || chain[2] != rows[0].ID {
-		t.Errorf("the subject's hosted chain is %v, want the two seeded and the link row %q", chain, rows[0].ID)
+	if chain := r.sync.f.chain.stored(devtest.DefaultProject, subject); len(chain) != 2+len(r.sync.appended(t, subject)) || chain[len(chain)-1] != rows[0].ID {
+		t.Errorf("the subject's hosted chain is %v, want the two seeded, then the pushed rows ending in the link row %q", chain, rows[0].ID)
 	}
 	noStaleBase(t, r)
 	if log := r.log.String(); !strings.Contains(log, "node: workstate: published to "+devtest.DefaultProject) {
@@ -341,7 +338,7 @@ func TestSlowNodeTaskWakeDoesNotRepushFetchedLink(t *testing.T) {
 	}
 	exec := executionOf(t, onePush(t, r))
 
-	rows := r.sync.appended(t, subject)
+	rows := runRows(t, r, subject, earlierID)
 	if len(rows) != 1 || rows[0].Kind != ledger.KindExecutionLink {
 		t.Fatalf("subject rows pushed = %+v, want exactly this run's link row", rows)
 	}
@@ -349,15 +346,13 @@ func TestSlowNodeTaskWakeDoesNotRepushFetchedLink(t *testing.T) {
 	if err := json.Unmarshal(rows[0].Payload, &p); err != nil || p.Execution != exec {
 		t.Errorf("the pushed link names execution %q (%v), want this run's %q", p.Execution, err, exec)
 	}
-	if rows[0].BaseID != earlierID {
-		t.Errorf("link row base = %q, want the earlier run's link %q", rows[0].BaseID, earlierID)
-	}
 	noStaleBase(t, r)
 }
 
 // sty_0d621eaf: a server with no Chain/Read does not block the run. The node says
-// the chain was not read, writes on what its store holds, concludes and still
-// pushes.
+// the chain was not read — the subject's in the words of the pull that brought its
+// row (sty_a291a081), the execution's in the fetch's — writes on what its store
+// holds, concludes and still pushes.
 func TestSlowNodeTaskWakeChainReadMissingStillPushes(t *testing.T) {
 	const subject = "sty_hosted04"
 	r := hostedSubjectRig(t, subject)
@@ -369,7 +364,7 @@ func TestSlowNodeTaskWakeChainReadMissingStillPushes(t *testing.T) {
 		t.Fatalf("node join ended with %v\nnode log:\n%s", err, r.log)
 	}
 	log := r.log.String()
-	for _, want := range []string{"the hosted chain of " + subject + " was not read before this write", hosted.ErrChainUnsupported.Error()} {
+	for _, want := range []string{"pulled stories keep the chain they have here", "was not read before this write: " + hosted.ErrChainUnsupported.Error()} {
 		if !strings.Contains(log, want) {
 			t.Errorf("the node's log does not say %q:\n%s", want, log)
 		}

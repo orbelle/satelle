@@ -191,6 +191,17 @@ func expandRemoteEpics(ctx context.Context, client *hosted.Client, project, serv
 // unknown field and answers with the whole project).
 var errScopeIgnored = errors.New("does not support story-scoped Snapshot")
 
+// scopeAbsentError is a scoped Snapshot whose answer lacks requested ids: the
+// server holds no such story.
+type scopeAbsentError struct {
+	ids    []string
+	server string
+}
+
+func (e scopeAbsentError) Error() string {
+	return fmt.Sprintf("story id(s) %s not found on %s; nothing applied", strings.Join(e.ids, ", "), e.server)
+}
+
 // runScopedWorkstateSnapshot pulls the resolved ids in pages and applies them
 // through the same apply and reconcile path as the full pass. It differs in what
 // it refuses and what it leaves alone: every page is held and checked first, so
@@ -245,7 +256,7 @@ func runScopedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer,
 			}
 		}
 		if len(absent) > 0 {
-			return nil, nil, fmt.Errorf("story id(s) %s not found on %s; nothing applied", strings.Join(absent, ", "), server)
+			return nil, nil, scopeAbsentError{ids: absent, server: server}
 		}
 		return pages, got, nil
 	}
