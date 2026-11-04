@@ -7,8 +7,12 @@
 #                                  surface: tag (surface:ui / surface:cli) plus a
 #                                  TYPE category (feature/fix/...). Category is
 #                                  TYPE, not a surface (satelle-story-classification).
+# empty — a story with no product content, used to prove a workflow or a remote
+#   (not "test", which is a story that writes tests). Owned by satelle; it has no
+#   done.toml table, so it takes the "*" spine, and stats and estimate
+#   comparables skip it.
 categories = [
   "feature", "improvement", "fix", "chore", "docs", "refactor", "test",
   "tooling", "infrastructure", "architecture", "substrate", "agents-repair",
-  "epic-parent", "parent",
+  "epic-parent", "parent", "empty",
 ]

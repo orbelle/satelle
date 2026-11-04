@@ -100,7 +100,7 @@ func ReadRepo(ctx context.Context, root string, w Window, opt Options) (Repo, er
 	var out Repo
 	done := map[string]bool{}
 	for _, it := range rv.Stories {
-		if it.Kind != workitem.KindStory || done[it.ID] {
+		if it.Kind != workitem.KindStory || done[it.ID] || it.Category == workitem.EmptyCategory {
 			continue
 		}
 		done[it.ID] = true

@@ -120,6 +120,11 @@ func FormatTriggers(decls []TriggerDecl) string {
 // does not select the execution's workflow, which is resolved by its kind.
 const RunCategory = "chore"
 
+// EmptyCategory is the category of a story with no product content, taken
+// through a workflow only to prove it or a remote. It has no route table of its
+// own, so it runs the "*" spine; stats and estimate comparables leave it out.
+const EmptyCategory = "empty"
+
 // MapInputs keeps the values a task declares: a name the task does not declare
 // is dropped, and a declared one with no value is left unset, so the create
 // refuses it only if the task requires it.

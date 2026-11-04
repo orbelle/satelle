@@ -156,6 +156,21 @@ only**, and never reject a value for being unknown.
  repo's satelle.toml `[tags.vocabulary]` names should carry the matching tag
  rather than omit it. Read the values from that config; never invent them.
 
+### Empty stories (category empty)
+
+A `category: empty` story has no product content; it exists to prove a
+workflow or a remote. Its emptiness is not grounds to object.
+
+- **Accept** an empty story whose criteria are minimal and trivially
+  satisfiable (e.g. "the story reaches its terminal state"), or absent. Its
+  behavior is that the story traverses the workflow, and the constitutional
+  goal it advances is proving the repo's workflow or remote. No product
+  content, no diff and no customer scenario is not a defect; alignment, scope
+  and route proportionality do not reject it for having nothing to build.
+- **Reject** an empty story whose body or criteria claim product behaviour (a
+  code, CLI, config or doc change), naming the category the work belongs in
+  (e.g. "use category feature").
+
 Fair gate, not perfectionist: a clear leaf story with a fitting category
 accepts. When numbered criteria are present, they must plausibly verify the goal.
 

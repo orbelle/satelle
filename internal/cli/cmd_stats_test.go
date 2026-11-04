@@ -277,6 +277,31 @@ func usdIs(c throughput.Cost, usd float64) bool {
 	return c.USD != nil && math.Abs(*c.USD-usd) < 1e-9
 }
 
+// TestStatsReadRepoSkipsEmptyCategory: a story of category empty that is
+// created and finished in the window is neither a finished item nor a created
+// one; a feature story beside it is both.
+func TestStatsReadRepoSkipsEmptyCategory(t *testing.T) {
+	t.Setenv("SATELLE_HOME", t.TempDir())
+	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
+	root := filepath.Join(t.TempDir(), "repo")
+	moves := []statsMove{{2, "backlog", "in_progress"}, {1, "in_progress", "done"}}
+	ids := seedStatsRepo(t, root, "",
+		statsStory{"feature", 3, moves},
+		statsStory{workitem.EmptyCategory, 3, moves},
+	)
+	r, err := throughput.ReadRepo(context.Background(), root,
+		throughput.Window{Since: ago(24), Until: statsClock}, throughput.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Items) != 1 || r.Items[0].ID != ids[0] {
+		t.Errorf("finished items = %+v, want only the feature story %s", r.Items, ids[0])
+	}
+	if len(r.Returns.Created) != 1 || r.Returns.Created[0].ID != ids[0] {
+		t.Errorf("created = %+v, want only the feature story %s", r.Returns.Created, ids[0])
+	}
+}
+
 func TestStatsRepoFlagAndSince(t *testing.T) {
 	_, beta, _ := statsFixture(t)
 	prev := statsFind

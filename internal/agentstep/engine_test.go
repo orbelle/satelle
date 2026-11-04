@@ -4490,6 +4490,29 @@ func TestCodedEstimateGate(t *testing.T) {
 	}
 }
 
+// TestCodedEstimateGateEmptyCategoryNeedsNoEstimate runs the embedded check on
+// the engine's real payload: a story of category empty enters in_progress with
+// no estimate tag; a feature story with the same tags is still rejected.
+func TestCodedEstimateGateEmptyCategoryNeedsNoEstimate(t *testing.T) {
+	body := estimateActualCheckBody(t)
+	g, _ := newEngine(t, `{"decision":"reject"}`, fakeDocs{skillBody: body, skillFound: true})
+	g.repoRoot = t.TempDir()
+	for _, c := range []struct {
+		category string
+		accept   bool
+	}{{workitem.EmptyCategory, true}, {"feature", false}} {
+		dec, err := g.runReviewer(context.Background(),
+			workitem.Item{ID: "sty_x", Kind: workitem.KindStory, Status: "plan", Category: c.category},
+			"in_progress", "satelle-estimate-actual-review", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !dec.Gated || dec.Accept != c.accept {
+			t.Errorf("category %q: decision = %+v, want gated accept=%v", c.category, dec, c.accept)
+		}
+	}
+}
+
 // TestCodedEstimateGateDonePrintsUnitAwareSummary asserts on the check's own
 // STDOUT (never dec.Notes, which on accept carries only the check's source,
 // see Engine.runCheck) — pinning AC5: the shipped check prints a legacy token

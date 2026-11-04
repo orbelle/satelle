@@ -21,7 +21,7 @@ func TestEmbeddedCategoryVocabulary(t *testing.T) {
 			t.Fatalf("EmbeddedDefaults must not seed categories.toml, got kind=%q name=%q", d.Kind, d.Name)
 		}
 	}
-	need := []string{"substrate", "epic-parent", "parent", "feature", "fix"}
+	need := []string{"substrate", "epic-parent", "parent", "feature", "fix", "empty"}
 	for _, n := range need {
 		if !listContainsFold(list, n) {
 			t.Errorf("embedded list missing mandatory %q: %v", n, list)

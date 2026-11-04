@@ -3,7 +3,7 @@ name: satelle-estimate-actual-review
 scope: system
 type: skill
 tags: [type:skill, type:reviewer, type:functional-check]
-description: CODED gate. Entering in_progress requires an estimate tag and judges each token estimate against comparable finished stories' measured actuals (`satelle story comparables`), naming the ids and ratio; rejects one outside the configured tolerance, accepts with a note when too few comparables exist. A dollar tag is no estimate. Entering done prints estimate beside token actuals; never rejects.
+description: CODED gate. Entering in_progress requires an estimate tag (category empty excepted) and judges each token estimate against comparable finished stories' measured actuals (`satelle story comparables`), naming the ids and ratio; rejects one outside the configured tolerance, accepts with a note when too few comparables exist. A dollar tag is no estimate. Entering done prints estimate beside token actuals; never rejects.
 ---
 
 # Estimate / actual gate (coded functional check)
@@ -31,7 +31,9 @@ is the thing it exists to stop.
 ## Entering `in_progress`
 
 Presence is required: an estimate tag in ANY unit above, or the edge is
-rejected with the command sequence to run. Then every token estimate
+rejected with the command sequence to run. A story of category `empty` (no
+product content, taken through the workflow only to prove it or a remote) is
+accepted with no estimate: it has nothing to estimate, and comparables skip it. Then every token estimate
 (`estimate-output`, `estimate-fresh-input`) is judged against the **measured
 actuals of comparable finished stories**:
 
@@ -172,6 +174,11 @@ compare_figure() {
 
 case "$to" in
  in_progress)
+ cat=$(printf '%s' "$IN" | grep -oE '"category":[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+ if [ "$cat" = empty ]; then
+ echo "category empty: no estimate required"
+ exit 0
+ fi
  units=""
  for tag in estimate-fresh-input estimate-output estimate-tokens estimate-minutes; do
  if tagval "$tag" >/dev/null; then units="$units $tag"; fi

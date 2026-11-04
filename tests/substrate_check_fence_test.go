@@ -94,6 +94,18 @@ var fenceFixtures = map[string][]fenceCase{
 			},
 		},
 		{
+			name:       "accept an empty story entering in_progress with no estimate",
+			stdin:      `{"story":{"id":"sty_est00030","category":"empty","tags":[]},"from":"plan","to":"in_progress"}`,
+			wantExit:   0,
+			wantStdout: "category empty: no estimate required",
+		},
+		{
+			name:       "reject a feature story entering in_progress with no estimate",
+			stdin:      `{"story":{"id":"sty_est00031","category":"feature","tags":[]},"from":"plan","to":"in_progress"}`,
+			wantExit:   1,
+			wantStdout: "no plan estimate",
+		},
+		{
 			// A dollar tag is not an estimate, even beside comparables.
 			name:       "reject an estimate-usd-only story",
 			stdin:      `{"story":{"id":"sty_est00010","tags":["estimate-usd:25"]},"from":"plan","to":"in_progress"}`,

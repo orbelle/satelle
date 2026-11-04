@@ -99,6 +99,28 @@ func TestComputeComparablesRankingAndFiltering(t *testing.T) {
 	}
 }
 
+// TestComputeComparablesSkipsEmptyCategory pins that a finished story of
+// category empty, measured actuals and all, is never a comparable — for an
+// empty story or any other.
+func TestComputeComparablesSkipsEmptyCategory(t *testing.T) {
+	db := wireActualWF(t)
+	ctx := context.Background()
+	self := mkComparable(t, db, "self", "plan", "feature", "", 0, "epic:e")
+	emptySelf := mkComparable(t, db, "empty self", "plan", workitem.EmptyCategory, "", 0, "epic:e")
+	feature := mkComparable(t, db, "feature done", "done", "feature", "", 5, "epic:e", "actual-output:300000")
+	mkComparable(t, db, "empty done", "done", workitem.EmptyCategory, "", 1, "epic:e", "actual-output:4000")
+
+	for _, s := range []workitem.Item{self, emptySelf} {
+		res, err := verb.ComputeComparables(ctx, s.ID, 0, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := comparableIDs(res); strings.Join(got, ",") != feature.ID {
+			t.Errorf("comparables for %s (%s) = %v, want only %s", s.ID, s.Category, got, feature.ID)
+		}
+	}
+}
+
 // TestComputeComparablesIgnorePrefixes pins that the shared-tag count ignores
 // nothing by default and only the prefixes the caller passes.
 func TestComputeComparablesIgnorePrefixes(t *testing.T) {

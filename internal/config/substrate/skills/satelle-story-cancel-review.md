@@ -32,6 +32,12 @@ as `id (status)`. Judge from the **payload** `children`, never from disk.
 The gate **refuses and names**; it never cancels children itself. Shelving a
 container is a deliberate cascade — resolve children first, then the parent.
 
+### Empty (category empty)
+
+A `category: empty` story proves a workflow or a remote, so it is often
+cancelled once it has. Its emptiness is not grounds to object: it needs no
+delivered work, no diff and no supersede, only the reason floor above.
+
 ### Every other category
 
 The floor, supersede, and sibling-bundling rules below apply unchanged.

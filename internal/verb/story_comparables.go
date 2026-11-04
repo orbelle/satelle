@@ -78,6 +78,8 @@ func storyComparables(ctx context.Context, raw json.RawMessage) (json.RawMessage
 //     workflow does not resolve is skipped rather than guessed at.
 //   - A container is excluded by having children (any item that is some
 //     story's parent): its actual is a family roll-up, not a comparable.
+//   - A story of category empty is excluded: it carries no product content,
+//     so its cost says nothing about a story that does.
 //   - Ranking: same category first, then count of tags shared with storyID
 //     (minus ignorePrefixes), then most recently updated, then id.
 //   - limit <= 0 returns every comparable.
@@ -121,7 +123,7 @@ func ComputeComparables(ctx context.Context, storyID string, limit int, ignorePr
 	}
 	var picked []ranked
 	for _, it := range all {
-		if it.ID == self.ID || parents[it.ID] {
+		if it.ID == self.ID || parents[it.ID] || it.Category == workitem.EmptyCategory {
 			continue
 		}
 		actuals := comparableActuals(it.Tags)

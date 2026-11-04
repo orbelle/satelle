@@ -1,3 +1,13 @@
+## [0.0.884] - 2026-11-04
+
+### Added
+- An `empty` story category for a story that carries no product content, used to prove a workflow or a remote end to end. It has no route of its own, so it takes the `*` route. The create review accepts an empty story whose criteria are minimal and trivially satisfiable, and still refuses one whose criteria claim product behaviour. The amend, cancel and blocked reviews do not object to an empty story's emptiness. `satelle stats` and the estimate comparables skip empty stories, and an empty story may enter in_progress without an estimate. A repo that keeps its own copies of satelle-story-create-review, -amend-review, -blocked-review, -cancel-review or satelle-estimate-actual-review under `.satelle/skills/` gets this only after `satelle restore`. (sty_42a41851)
+
+## [serve-v0.0.292] - 2026-11-04
+
+### Added
+- The service binary carries the `empty` category and its review rules from 0.0.884. (sty_42a41851)
+
 ## [0.0.883] - 2026-11-04
 
 ### Fixed

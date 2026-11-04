@@ -38,6 +38,11 @@ No reason on record at all — a bare block that would park the work item with
 nothing explaining why. On reject, ask for a one-line reason for the audit
 trail.
 
+## Empty stories (category empty)
+
+Parking a `category: empty` story needs the same recorded reason. Its emptiness
+is not grounds to object.
+
 
 ## Verdict
 

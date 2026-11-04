@@ -47,6 +47,12 @@ Judge the amendment in front of you against the story's own history, not against
 a maximal definition you would have written. When you reject, name the field and
 what would make the amendment acceptable.
 
+## Empty stories (category empty)
+
+Amending a `category: empty` story follows the rules above. Its emptiness is
+not grounds to object: trivially satisfiable criteria and no diff are what such
+a story is meant to have.
+
 
 ## Verdict
 
