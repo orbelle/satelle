@@ -1,0 +1,51 @@
+# satelle's own CI/CD remote, schema v1 (sty_8094a272): the CI/CD half of the
+# delivery path, the same shape as satelle-server's remotes/cicd. DEV runs
+# locally up to an outcome-reviewed story whose epic/<id> (or feat/<id>) branch
+# is pushed with its CHANGELOG entry under "## [Unreleased]". Each wake of this
+# remote runs one execution of tasks/tsk_release.md for the story it is handed:
+# from a writable clone of orbelle/satelle it runs
+# .satelle/remotes/satelle-cicd/release.sh, which stamps the release on the story
+# branch, opens the story's PR, approves it under the operator's gh token (the
+# PR's author; satelle pr approve posts the satelle/pr-approval status), merges
+# it, and waits for CI and the v<version> tag. Dogfood stays on the operator's
+# machine. A personal remote: owner_only in the satelle project of the owner's
+# personal workspace, so it reads the owner's personal secrets.
+version = 1
+name = "satelle-cicd"
+provider = "fly-sprite"
+satelle_version = "0.0.889"
+environment = "prd"
+
+[drive]
+kind = "task"
+task = "release"
+
+# The owner's personal secrets, which the node's satelle hands to its agent
+# bindings and so to the executor's shell: GH_TOKEN to clone, push, open, approve
+# and merge the PR and watch CI (the operator's identity, the PR's author); the
+# Claude subscription token for the bindings. They move to [env] when satelle
+# accepts it (sty_85c8e0d6, sty_fc50e4d0), as a change to this definition.
+[secrets.override]
+GH_TOKEN = "satelle:GITHUB_TOKEN"
+CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
+
+# gh for the PR and the CI watch; Go for scripts/check-serve-version.sh, which
+# derives the satelled watch set with go list. The Claude settings raise the
+# Bash tool's timeout to an hour: a release waits on two CI workflows.
+[setup]
+on_create = [
+  "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/gh_2.103.3_linux_amd64/bin/gh $HOME/.local/bin/gh",
+  "curl -fsSL https://dl.google.com/go/go1.27.0.linux-amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/go/bin/go $HOME/.local/bin/go && ln -sf $HOME/.local/share/go/bin/gofmt $HOME/.local/bin/gofmt",
+  "mkdir -p $HOME/.claude && printf '%s\\n' '{\"env\":{\"BASH_DEFAULT_TIMEOUT_MS\":\"3600000\",\"BASH_MAX_TIMEOUT_MS\":\"3600000\"}}' > $HOME/.claude/settings.json",
+  "satelle version",
+  "claude --version",
+  "gh --version",
+  "go version",
+  "git --version",
+]
+
+[network]
+allow = ["api.anthropic.com", "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "satelle.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+
+[lifecycle]
+scope = "run"

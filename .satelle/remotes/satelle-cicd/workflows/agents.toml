@@ -1,0 +1,29 @@
+# Agent bindings for satelle's CI/CD remote (sty_8094a272). A sprite has no
+# machine profiles, so the bundle names the commands. Claude runs the release
+# command, judges the run at the gates, and cold-reviews the story's PR for
+# satelle pr approve.
+
+# Runs the task's action on the execution route.
+[executor]
+role      = "agent"
+interface = "command"
+command   = "claude -p --output-format json --append-system-prompt {system} --allowedTools {tools} --model {model}"
+tools     = "Read,Bash,Grep,Glob"
+model     = "claude-opus-5-5"
+
+# The execution route's gates (satelle-task-validate-before-review / -after-review). Writes nothing.
+[reviewer]
+role      = "reviewer"
+interface = "command"
+command   = "claude -p --output-format json --disallowedTools Write,Edit,NotebookEdit --append-system-prompt {system} --allowedTools {tools} --model {model}"
+tools     = "Read,Grep,Glob"
+model     = "claude-opus-5-5"
+
+# satelle pr approve --binding pr-reviewer: the cold PR review reads the story's
+# criteria, the constitution and the diff through these satelle commands only.
+[pr-reviewer]
+role      = "reviewer"
+interface = "command"
+command   = "claude -p --output-format json --disallowedTools Write,Edit,NotebookEdit --append-system-prompt {system} --allowedTools {tools} --model {model}"
+tools     = "Read,Grep,Glob,Bash(satelle pr view:*),Bash(satelle pr diff:*),Bash(satelle doc get:*)"
+model     = "claude-opus-5-5"

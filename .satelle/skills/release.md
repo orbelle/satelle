@@ -51,7 +51,16 @@ done
 
 Record the real `test` and `release` conclusions and the tag; never record success over a red or unconcluded run. `test` failed: fix under this story and release again. `release` failed or no tag: surface it and stop.
 
-## 3. Dogfood the published release
+## 2b. Or release through the satelle-cicd remote
+
+When the operator releases on the remote instead of steps 1–2 (sty_8094a272):
+
+1. On the story branch, add the CHANGELOG entry under `## [Unreleased]` at the top (Added / Changed / Fixed bullets ending in the story id; no `.version` change, no embedded copy). Merge origin/main in so the branch contains it, commit, and push `epic/<id>` (or `feat/<id>`).
+2. Wake the remote: `fire_remote_trigger` on the satelle-cicd remote with its `release` request trigger and the story id. Its node runs `.satelle/remotes/satelle-cicd/release.sh`: it stamps `.version`, the satelled bump and the CHANGELOG heading, opens the story's PR, approves it under the operator's gh token through `satelle pr approve`, merges it, waits for `test`, `release` and the tag, and attaches `live-evidence`.
+3. Read the run once when it ends (`list_remote_nodes` with the remote and story), not on a timer. A `reject` names the script's exit and reason; fix under this story and wake it again.
+4. Then do sections 3 and 5 here, quoting the node's `live-evidence` for the CI and tag lines.
+
+
 
 Once the tag exists:
 
