@@ -1,0 +1,33 @@
+# The node's task run, overlaid by table name on satelle's embedded step.toml
+# (wfgovern.mergeRouteHalf): these two tables replace the embedded [run] and
+# [run-verified] whole, so every field is restated; every other step and the
+# embedded [[gate]] list stay as shipped. The only change is reject_budget = 2:
+# the release script's non-zero exit is deterministic, so a rejected edge is
+# retried once and then parks instead of spinning the unbudgeted 10 rounds
+# (nod_585ddf060ef1 spent ~8 minutes on an exit 4).
+
+[meta]
+name = "step"
+type = "workflow"
+scope = "project"
+tags = ["type:workflow"]
+description = "satelle-cicd's overlay on the embedded step catalogue: the task run's [run] and [run-verified] with reject_budget = 2; every other step and gate is the embedded default."
+
+[run]
+# Its gate validates the run BEFORE it begins.
+status = "in_progress"
+agent = "executor"
+reviewers = ["satelle-task-validate-before-review"]
+reviewer_agent = "reviewer"
+requires = ["raised"]
+reject_budget = 2
+
+[run-verified]
+# Its gate validates the run AFTER it has happened, which is what makes a run
+# verified rather than merely finished.
+status = "done"
+reviewers = ["satelle-task-validate-after-review"]
+reviewer_agent = "reviewer"
+terminal = true
+requires = ["run"]
+reject_budget = 2
