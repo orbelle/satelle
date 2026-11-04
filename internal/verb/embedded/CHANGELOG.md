@@ -1,3 +1,8 @@
+## [0.0.886] - 2026-11-04
+
+### Fixed
+- `TestReconcileRetriesFailedReseedBeforeInterval` no longer depends on a real-time context deadline. It drives the reconciler with a fake clock and a fake ingest it controls, so a loaded CI runner cannot fail it. Before, it failed CI for 0.0.884 and 0.0.885, so neither was tagged; this release carries both. It passed 50 and then 1000 runs under a load average of 43, and it still fails with the retry fix reverted. Test-only. (sty_bed7ee1e)
+
 ## [0.0.885] - 2026-11-04
 
 ### Fixed

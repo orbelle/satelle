@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,14 +15,25 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// ingestServer is a real mirror ingest endpoint over ms.
-func ingestServer(t *testing.T, ms *mirror.Store) *httptest.Server {
-	t.Helper()
-	mux := http.NewServeMux()
-	(&mirror.IngestHandler{Store: ms}).Mount(mux)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+// fakeIngest records each snapshot body it is posted and answers 200 before
+// the client sees anything, so the caller's outcome is the test's choice.
+type fakeIngest struct {
+	mu     sync.Mutex
+	bodies []string
+}
+
+func (f *fakeIngest) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	b, _ := io.ReadAll(req.Body)
+	f.mu.Lock()
+	f.bodies = append(f.bodies, string(b))
+	f.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (f *fakeIngest) posts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.bodies...)
 }
 
 func postStory(ctx context.Context, base, repoKey, id, status string) error {
@@ -39,52 +52,60 @@ func postStory(ctx context.Context, base, repoKey, id, status string) error {
 }
 
 // TestReconcileRetriesFailedReseedBeforeInterval: a reseed that times out is
-// logged as a failure and re-run on the retry tick, well inside the pass
-// interval; the retry lands in the mirror and logs the recovery.
+// logged as a failure and re-run by the retry pass once the retry delay has
+// passed, well inside the pass interval; the retry reaches ingest and logs the
+// recovery. The clock and the ingest response are the test's, so no real
+// deadline or scheduling decides the outcome.
 func TestReconcileRetriesFailedReseedBeforeInterval(t *testing.T) {
-	ms := openTestMirror(t)
-	srv := ingestServer(t, ms)
+	ingest := &fakeIngest{}
+	srv := httptest.NewServer(ingest)
+	t.Cleanup(srv.Close)
 
-	var mu sync.Mutex
+	start := time.Unix(0, 0)
+	now := start
 	var calls []time.Time
 	lines := &lineRecorder{}
 	rec := &Reconciler{
 		Interval:   time.Hour,
-		RetryDelay: 20 * time.Millisecond,
-		RetryTick:  5 * time.Millisecond,
+		RetryDelay: 30 * time.Second,
+		Now:        func() time.Time { return now },
+		Bound:      func(string) bool { return false },
 		Targets:    func(context.Context) []string { return []string{"/repo/x"} },
 		Log:        lines.log,
 		Reseed: func(ctx context.Context, path string) error {
-			mu.Lock()
-			calls = append(calls, time.Now())
-			n := len(calls)
-			mu.Unlock()
-			if n == 1 {
+			calls = append(calls, now)
+			if len(calls) == 1 {
 				return context.DeadlineExceeded
 			}
 			return postStory(ctx, srv.URL, "rk-x", "sty_x", "in_progress")
 		},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	start := time.Now()
-	done := make(chan struct{})
-	go func() { rec.Loop(ctx); close(done) }()
+	ctx := context.Background()
 
-	waitFor(t, waitBudget, func() bool { return storyStatus(t, ms, "rk-x", "sty_x") == "in_progress" })
-	cancel()
-	<-done
+	rec.pass(ctx)
+	if len(calls) != 1 {
+		t.Fatalf("reseed calls after the pass = %d, want 1", len(calls))
+	}
+	rec.retryPass(ctx)
+	now = start.Add(rec.RetryDelay - time.Nanosecond)
+	rec.retryPass(ctx)
+	if len(calls) != 1 {
+		t.Fatalf("reseed calls before the retry delay = %d, want 1", len(calls))
+	}
+	now = start.Add(rec.RetryDelay)
+	rec.retryPass(ctx)
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(calls) < 2 {
+	if len(calls) != 2 {
 		t.Fatalf("reseed calls = %d, want a retry after the failure", len(calls))
 	}
-	if gap := calls[1].Sub(calls[0]); gap < rec.RetryDelay || gap > time.Minute {
-		t.Errorf("retry ran %s after the failure, want at least the retry delay and far inside the %s interval", gap, rec.Interval)
+	if gap := calls[1].Sub(calls[0]); gap != rec.RetryDelay || gap >= rec.Interval {
+		t.Errorf("retry ran %s after the failure, want the %s retry delay, inside the %s interval", gap, rec.RetryDelay, rec.Interval)
 	}
-	if time.Since(start) >= rec.Interval {
-		t.Fatal("repair waited for the full interval")
+	if posts := ingest.posts(); len(posts) != 1 || !strings.Contains(posts[0], `"id":"sty_x"`) {
+		t.Errorf("ingest posts = %q, want one snapshot naming sty_x", posts)
+	}
+	if _, ok := rec.retry["/repo/x"]; ok {
+		t.Error("the recovered retry must clear its retry entry")
 	}
 	got := lines.snapshot()
 	if countLines(got, "mirror reconcile /repo/x: context deadline exceeded") != 1 {
