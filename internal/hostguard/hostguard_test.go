@@ -61,7 +61,7 @@ func TestIsRuntimeKeyAndIgnored(t *testing.T) {
 			t.Errorf("%q should not be a runtime key", n)
 		}
 	}
-	for _, n := range []string{"document-sync-state.json", "serve"} {
+	for _, n := range []string{"document-sync-state.json", "serve", "run"} {
 		if !Ignored(n) {
 			t.Errorf("%q should be ignored", n)
 		}
@@ -150,15 +150,16 @@ func TestCaptureAndDiff(t *testing.T) {
 		t.Fatalf("identical captures must not diff: %v", d)
 	}
 
-	// Churn a live satelled does on its own: ignored names and key-dir contents.
+	// Churn a live satelle process does on its own: ignored names and key-dir contents.
 	write(t, filepath.Join(r.SatelleHome, "document-sync-state.json"), `{"n":2}`)
+	write(t, filepath.Join(r.SatelleHome, "run", "healthz.json"), `{"ok":true}`)
 	write(t, filepath.Join(r.SatelleHome, "serve", "mirror.db-wal"), "w2")
 	write(t, filepath.Join(r.SatelleHome, "satelle-16882c39", "db-wal"), "w2")
 	write(t, filepath.Join(r.SatelleHome, "satelle-16882c39", "db-journal"), "j")
 	future := time.Now().Add(time.Hour)
 	_ = os.Chtimes(filepath.Join(r.BinDir, "satelle"), future, future)
 	if d := Diff(before, capture(t, r)); len(d) != 0 {
-		t.Fatalf("live-satelled churn and a touch must not diff: %v", d)
+		t.Fatalf("live-satelle churn and a touch must not diff: %v", d)
 	}
 
 	cases := []struct {

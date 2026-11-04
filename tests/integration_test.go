@@ -452,8 +452,9 @@ func hashTree(root string, preExistingKeys map[string]struct{}) map[string]strin
 		}
 		rel = filepath.ToSlash(rel)
 		top := strings.SplitN(rel, "/", 2)[0]
-		// Names a live satelled rewrites on its own (the document-sync cursor,
-		// the push-fed serve plane) — hostguard.Ignored owns the list.
+		// Names a live satelle process rewrites on its own (the document-sync
+		// cursor, the push-fed serve plane, the run/ healthz cache) —
+		// hostguard.Ignored owns the list.
 		if hostguard.Ignored(top) {
 			if fi.IsDir() && rel == top {
 				return filepath.SkipDir
@@ -987,6 +988,64 @@ func TestHostSurfaceCredentialWritesTrip(t *testing.T) {
 			}
 			if !strings.Contains(strings.Join(diffs, "\n"), credentialsFileName) {
 				t.Fatalf("diff must name %s: %v", credentialsFileName, diffs)
+			}
+		})
+	}
+}
+
+// TestHostSurfaceToleratesHealthzCache proves the guard skips the run/ healthz
+// cache that any host satelle CLI rewrites during the suite (sty_9c6fedb3 AC1),
+// while a suite write anywhere else under host SATELLE_HOME still trips it.
+func TestHostSurfaceToleratesHealthzCache(t *testing.T) {
+	const key = "satelle-16882c39"
+	seed := func(t *testing.T, withRun bool) hostRoots {
+		home := filepath.Join(t.TempDir(), ".satelle")
+		mustWrite(t, filepath.Join(home, "config.toml"), "a = 1\n")
+		mustWrite(t, filepath.Join(home, key, "db"), "d1")
+		if withRun {
+			mustWrite(t, filepath.Join(home, "run", "healthz.json"), `{"ok":true,"at":1}`)
+		}
+		return hostRoots{Roots: hostguard.Roots{SatelleHome: home}, preExistingKeys: map[string]struct{}{key: {}}}
+	}
+	refresh := func(t *testing.T, home string) {
+		mustWrite(t, filepath.Join(home, "run", "healthz.json"), `{"ok":true,"at":2}`)
+		mustWrite(t, filepath.Join(home, "run", ".healthz-123"), "tmp")
+	}
+	for _, tc := range []struct {
+		name    string
+		withRun bool
+	}{{"cache rewritten", true}, {"cache created", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := seed(t, tc.withRun)
+			before := captureHostSurfaceAt(r)
+			refresh(t, r.SatelleHome)
+			if diffs := diffHostSurface(before, captureHostSurfaceAt(r)); len(diffs) != 0 {
+				t.Fatalf("a host healthz cache refresh must not trip the guard: %v", diffs)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name, want string
+		write      func(t *testing.T, home string)
+	}{
+		{"stray top-level file", "stray.json", func(t *testing.T, home string) {
+			mustWrite(t, filepath.Join(home, "stray.json"), "{}")
+		}},
+		{"config.toml modified", "config.toml", func(t *testing.T, home string) {
+			mustWrite(t, filepath.Join(home, "config.toml"), "a = 2\n")
+		}},
+		{"new key dir", "x-0000abcd", func(t *testing.T, home string) {
+			mustWrite(t, filepath.Join(home, "x-0000abcd", "db"), "d")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := seed(t, true)
+			before := captureHostSurfaceAt(r)
+			refresh(t, r.SatelleHome)
+			tc.write(t, r.SatelleHome)
+			diffs := diffHostSurface(before, captureHostSurfaceAt(r))
+			if len(diffs) != 1 || !strings.Contains(diffs[0], tc.want) {
+				t.Fatalf("a suite write to host SATELLE_HOME must trip the guard and name %s alone: %v", tc.want, diffs)
 			}
 		})
 	}

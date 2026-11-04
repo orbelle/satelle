@@ -71,17 +71,21 @@ var runtimeKey = regexp.MustCompile(`^[^/]+-[0-9a-f]{8}$`)
 func IsRuntimeKey(name string) bool { return runtimeKey.MatchString(name) }
 
 // Ignored reports whether a top-level name under ~/.satelle is outside the
-// guard: a live satelled rewrites it independent of any suite, so fingerprinting
-// it would fail every clean run on a machine whose daemon is running.
+// guard: a live satelle process outside the suite rewrites it on its own, so
+// fingerprinting it would fail every clean run on a machine in use.
 //
-// A name joins this list only with evidence that a live satelled writes it on
-// its own, recorded here beside the list. Never add a suffix or mtime rule.
+// A name joins this list only with evidence that a live satelle process writes
+// it on its own, recorded here beside the list. Never add a suffix or mtime rule.
 //
 //   - document-sync-state.json: the live document-sync cursor.
 //   - serve: the push-fed serve plane (mirror.db and its WAL, server.log)
 //     (sty_80233c10).
+//   - run: the cross-process /healthz cache (cli.healthzCachePath, with its
+//     .healthz-* temp sibling) that every host satelle CLI rewrites within its
+//     TTL (sty_a003a459). run/ holds only that cache; durable state stored
+//     there would go unguarded, so revisit this entry before adding any.
 func Ignored(name string) bool {
-	return name == "document-sync-state.json" || name == "serve"
+	return name == "document-sync-state.json" || name == "serve" || name == "run"
 }
 
 // FingerprintFile returns "sha256:<hex>:<size>" for the file's content, or ""

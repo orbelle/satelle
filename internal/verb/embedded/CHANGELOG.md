@@ -1,3 +1,13 @@
+## [0.0.890] - 2026-11-05
+
+### Fixed
+- The integration suite's host-surface guard no longer fails on `~/.satelle/run/`, the cross-process `/healthz` cache that every satelle CLI on the host rewrites within its TTL (0.0.888). A suite run while the operator, a hook or another session used satelle failed `satelle-integration-check` with "host SATELLE_HOME: changed run/healthz.json" though every test passed. `run` joins `hostguard.Ignored` with its evidence recorded beside the list; every other path under the host's SATELLE_HOME, `~/.config/satelle`, the installed binaries and port 8787 stays guarded, and a test proves a stray write into the host's home still trips it. (sty_9c6fedb3)
+
+## [serve-v0.0.294] - 2026-11-05
+
+### Changed
+- The embedded pr-approve remote definition's comment says the agent credential is read because the accepted definition declares it, with no grant step; the definition's keys are unchanged. (sty_8094a272)
+
 ## [0.0.889] - 2026-11-04
 
 ### Fixed
