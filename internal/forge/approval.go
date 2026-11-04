@@ -23,9 +23,12 @@ type Approval struct {
 	OpenErr error
 	// Repo is owner/name of the repo the PR is on.
 	Repo string
-	// StoryID is the story whose PR is judged: the open PR whose head is
-	// EpicHead(StoryID).
+	// StoryID is the story whose PR is judged: the one open PR whose head is one
+	// of StoryHeads(StoryID, HeadPrefixes).
 	StoryID string
+	// HeadPrefixes are the branch prefixes a story's PR may be opened from
+	// ([forge] pr_heads); empty is EpicHead alone.
+	HeadPrefixes []string
 	// StatusContext names the commit status an accept posts.
 	StatusContext string
 	// Constitution reports whether the repo's constitution is installed where the
@@ -61,7 +64,8 @@ type Result struct {
 	PR       PR
 	// CriteriaHash is the hash of the criteria the review was judged against.
 	CriteriaHash string
-	// Review is the approving review, on accept.
+	// Review is the approving review, on accept; on a self-authored PR, the
+	// COMMENT review that stands in for it.
 	Review Review
 }
 
@@ -116,13 +120,9 @@ func (a Approval) run(ctx context.Context) Result {
 		}
 		return Result{Outcome: verb.OutcomeNoOp, Findings: why}
 	}
-	head := EpicHead(a.StoryID)
-	pr, err := a.Forge.PullRequestForHead(ctx, a.Repo, head)
-	if errors.Is(err, ErrNoPR) {
-		return reject(Result{}, fmt.Sprintf("no open PR on %s has head %s", a.Repo, head))
-	}
-	if err != nil {
-		return reject(Result{}, fmt.Sprintf("the PR with head %s on %s could not be read: %v", head, a.Repo, err))
+	pr, why := a.storyPR(ctx)
+	if why != "" {
+		return reject(Result{}, why)
 	}
 	res := Result{PR: pr}
 	crit, err := ParseCriteria(pr.Body, a.StoryID)
@@ -142,24 +142,76 @@ func (a Approval) run(ctx context.Context) Result {
 	if !v.Accept {
 		return reject(res, v.Findings)
 	}
-	rv, err := a.Forge.Approve(ctx, a.Repo, pr.Number, pr.HeadSHA, approvalBody(a.StoryID, crit.Hash))
-	if err != nil {
-		var moved *HeadMovedError
-		if errors.As(err, &moved) {
-			return reject(res, fmt.Sprintf("head moved: %v", err))
+	body := approvalBody(a.StoryID, crit.Hash)
+	status := Status{Context: a.StatusContext, State: StatusSuccess, Description: "approved: " + a.StoryID + " meets its acceptance criteria"}
+	rv, err := a.Forge.Approve(ctx, a.Repo, pr.Number, pr.HeadSHA, body)
+	var moved *HeadMovedError
+	switch {
+	case errors.As(err, &moved):
+		return reject(res, fmt.Sprintf("head moved: %v", err))
+	case errors.Is(err, ErrSelfApproval):
+		// The status is the approval of record; it goes first so a failed comment
+		// still leaves it on the judged head.
+		if err := a.Forge.SetStatus(ctx, a.Repo, pr.HeadSHA, status); err != nil {
+			return reject(res, fmt.Sprintf("the forge refused the author's own approving review, and the %s status could not be posted: %v", a.StatusContext, err))
 		}
+		note := fmt.Sprintf(" GitHub refuses an approving review from the PR's author, so this is recorded as a comment and the %s status.", a.StatusContext)
+		rv, err = a.Forge.Comment(ctx, a.Repo, pr.Number, pr.HeadSHA, body+note)
+		if err != nil {
+			return reject(res, fmt.Sprintf("the %s status was posted on the author's own PR, but the comment review could not be: %v", a.StatusContext, err))
+		}
+		res.Review = rv
+		return accepted(res, v.Findings, "self-authored PR: approved by commit status and a COMMENT review; the forge refused the author's own APPROVE")
+	case err != nil:
 		return reject(res, fmt.Sprintf("the approval could not be posted: %v", err))
 	}
 	res.Review = rv
-	status := Status{Context: a.StatusContext, State: StatusSuccess, Description: "approved: " + a.StoryID + " meets its acceptance criteria"}
 	if err := a.Forge.SetStatus(ctx, a.Repo, pr.HeadSHA, status); err != nil {
 		return reject(res, fmt.Sprintf("approved as review %d, but the %s status could not be posted: %v", rv.ID, a.StatusContext, err))
 	}
-	res.Outcome, res.Findings = verb.OutcomeAccept, v.Findings
-	if strings.TrimSpace(res.Findings) == "" {
+	return accepted(res, v.Findings, "")
+}
+
+// accepted is res accepted with the reviewer's findings, then note.
+func accepted(res Result, findings, note string) Result {
+	res.Outcome, res.Findings = verb.OutcomeAccept, strings.TrimSpace(findings)
+	if res.Findings == "" {
 		res.Findings = "the cold review accepted the PR"
 	}
+	if note != "" {
+		res.Findings += "\n\n" + note
+	}
 	return res
+}
+
+// storyPR is the one open PR whose head is one of the story's heads, or why
+// there is not exactly one.
+func (a Approval) storyPR(ctx context.Context) (PR, string) {
+	heads := StoryHeads(a.StoryID, a.HeadPrefixes)
+	var found []PR
+	for _, head := range heads {
+		pr, err := a.Forge.PullRequestForHead(ctx, a.Repo, head)
+		if errors.Is(err, ErrNoPR) {
+			continue
+		}
+		if err != nil {
+			return PR{}, fmt.Sprintf("the PR with head %s on %s could not be read: %v", head, a.Repo, err)
+		}
+		found = append(found, pr)
+	}
+	switch len(found) {
+	case 0:
+		return PR{}, fmt.Sprintf("no open PR on %s has head %s", a.Repo, strings.Join(heads, " or "))
+	case 1:
+		return found[0], ""
+	}
+	many := &ManyPRsError{Head: strings.Join(heads, " or "), Numbers: make([]int, len(found))}
+	refs := make([]string, len(found))
+	for i, pr := range found {
+		many.Numbers[i] = pr.Number
+		refs[i] = fmt.Sprintf("%s (%s)", pr.Ref(), pr.HeadRef)
+	}
+	return PR{}, fmt.Sprintf("%v: %s", many, strings.Join(refs, ", "))
 }
 
 // RepoConstitution is the principle the cold review reads the repo's

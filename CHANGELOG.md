@@ -1,3 +1,9 @@
+## [0.0.885] - 2026-11-04
+
+### Fixed
+- `satelle pr approve` records its approval as the `satelle/pr-approval` commit status even when the forge refuses the author's own approving review. On a PR opened by the approving login, GitHub answers an APPROVE review with 422, so before this no status was posted and the approved-PR gate blocked every story. The cold review's verdict is now posted as the status, with a COMMENT review instead of an APPROVE. This self-approval path is for validation and fast iteration; approval by a separate declared identity is sty_62f2b656. (sty_d6f4a0b3)
+- `satelle pr approve` finds a story's PR on a `feat/<id>` head as well as `epic/<id>`, using the prefixes in the repo's `[forge] pr_heads` (default epic/ and feat/). When more than one PR is open for a story, it refuses and names each one. (sty_d6f4a0b3)
+
 ## [0.0.884] - 2026-11-04
 
 ### Added

@@ -10,6 +10,9 @@ type ForgeConfig struct {
 	// Provider names the forge provider. Empty is DefaultForgeProvider, the one
 	// provider this build ships; ForgeProviderNone posts nothing, with a warning.
 	Provider string `toml:"provider"`
+	// PRHeads are the branch prefixes a story's PR is found on, each followed by
+	// the story id ("epic/", "feat/"). Empty is DefaultForgePRHeads.
+	PRHeads []string `toml:"pr_heads"`
 	// GitHub is the [forge.github] table.
 	GitHub ForgeGitHubConfig `toml:"github"`
 }
@@ -30,6 +33,25 @@ const (
 	// [forge.github] status_context is unset.
 	DefaultForgeStatusContext = "satelle/pr-approval"
 )
+
+// DefaultForgePRHeads are the branch prefixes an unset [forge] pr_heads finds a
+// story's PR on.
+var DefaultForgePRHeads = []string{"epic/", "feat/"}
+
+// ResolvedPRHeads are the branch prefixes a story's PR is found on: the
+// non-blank [forge] pr_heads entries, else DefaultForgePRHeads.
+func (f ForgeConfig) ResolvedPRHeads() []string {
+	var heads []string
+	for _, h := range f.PRHeads {
+		if h = strings.TrimSpace(h); h != "" {
+			heads = append(heads, h)
+		}
+	}
+	if len(heads) == 0 {
+		return append([]string(nil), DefaultForgePRHeads...)
+	}
+	return heads
+}
 
 // ResolvedProvider is the provider [forge] selects.
 func (f ForgeConfig) ResolvedProvider() string {
