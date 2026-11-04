@@ -3,7 +3,7 @@ name: satelle-code-ac-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate on in_progress → integration. Isolated read-only reviewer validates the engaged slice against numbered ACs, the executor's per-AC test mapping, and proof honesty (a named test that would pass on the engagement baseline cannot cover a fix AC); rejects a slice that adds user configuration to the binary. Verdict only; never runs the suite. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: The one code review on in_progress → integration (unit tests run beside it in satelle-build-unit-check). Isolated read-only reviewer validates the engaged slice against the story's BDD and numbered ACs, the executor's per-AC test mapping, proof honesty (a named test that would pass on the engagement baseline cannot cover a fix AC) and scope (the slice stays inside this story); rejects a slice that adds user configuration to the binary. Verdict only; never runs the suite. A re-presented edge follows [[satelle-reviewer-verdict]].
 ---
 
 # Code vs acceptance-criteria review (in_progress → integration)
@@ -73,6 +73,16 @@ Open each payload `docs` entry's `path` (`ac-evidence`, `plan`) for the evidence
    item bodies, documents or history the receiving seat can fetch itself,
    copied into its payload, whatever its size; bounding or batching that
    content is the same defect.
+
+8. **Scope.** This is the only code review on the edge, so it also judges
+   boundedness. Every changed path must be explained by this story's ACs, its
+   body, or mechanical collateral (its own tests and docs, a lockfile the change
+   regenerates). Reject work that satisfies another story, naming each
+   out-of-scope path and the story that should own it, and say to revert or
+   split it into that story. When untracked debris (scratch files, evidence
+   dumps) is part of the reason, end the notes with a last line exactly
+   `Fix: satelle story tidy <story.id> <path> ...` naming every such path. With
+   no engagement baseline, scope is not judged.
 
 Fair gate: judge ACs **as written**; do not add requirements the story never
 stated.

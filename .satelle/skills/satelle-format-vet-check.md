@@ -13,7 +13,7 @@ Rejects entry to `integration` when `gofmt -l` reports files or `go vet ./...` f
 ```check
 #!/usr/bin/env bash
 set -uo pipefail
-# Paths mirror integrate.md / build.md: internal, cmd, tests.
+# Paths: internal, cmd, tests.
 dirty=$(gofmt -l internal cmd tests 2>&1)
 gofmt_ec=$?
 if [ "$gofmt_ec" -ne 0 ]; then

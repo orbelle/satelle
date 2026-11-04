@@ -4,12 +4,12 @@ scope: project
 type: skill
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
-description: Functional-check gate on entry to release (and to landing for a chore): runs `make integration` and asserts the installed binary and live service are byte-identical before and after. This gate runs locally only. Deterministic, self-contained.
+description: Functional-check gate on entry to outcome, the outcome review's edge after integration (and to landing for a chore): runs `make integration` and asserts the installed binary and live service are byte-identical before and after. This gate runs locally only. Deterministic, self-contained.
 ---
 
-# Integration check (release-entry functional gate)
+# Integration check (outcome-entry functional gate)
 
-Runs `make integration` on entry to `release` (and to `landing` for a chore) — the suite's only local run — and asserts the installed binary and the live service are unchanged before and after. Verifies; installs and restarts nothing.
+Runs `make integration` on entry to `outcome`, before the outcome review and failing fast (and on entry to `landing` for a chore) — the suite's only local run — and asserts the installed binary and the live service are unchanged before and after. Verifies; installs and restarts nothing.
 
 ```check
 #!/usr/bin/env bash

@@ -67,19 +67,29 @@ reviewer_agent = "reviewer"
 requires = ["readied"]
 placement_tag = "placement:"
 
+# Code review and unit tests (in_progress → integration): one review judges the
+# diff against the story's BDD and numbered ACs, scope included, and the unit
+# suite runs here (satelle-build-unit-check, a [[gate]] on integration).
+# Nothing performs this step: the format-vet gate covers gofmt/vet.
 [integrated]
 status = "integration"
 reject_budget = 10
-agent = "executor"
-skills = ["integrate"]
-reviewers = [
-  "satelle-ac-evidence-check",
-  "satelle-code-ac-review",
-  "satelle-story-scope-review",
-]
+reviewers = ["satelle-ac-evidence-check", "satelle-code-ac-review"]
 reviewer_agent = "reviewer"
 parallel = 0
 requires = ["coded"]
+
+# Integration tests, then the outcome (integration → outcome): the integration
+# suite runs first and fails fast, then the outcome review judges, per AC, that
+# the integrated behaviour meets the story's BDD and ACs with integration-level
+# proof. Comes before the release (and, on the pr route, before the PR).
+[outcome-reviewed]
+status = "outcome"
+reject_budget = 10
+reviewers = ["satelle-integration-check", "satelle-outcome-review"]
+fail_fast = ["satelle-integration-check"]
+reviewer_agent = "reviewer"
+requires = ["integrated"]
 
 [released]
 status = "release"
@@ -88,7 +98,7 @@ agent = "executor"
 skills = ["release"]
 reviewers = ["satelle-integration-review"]
 reviewer_agent = "reviewer"
-requires = ["integrated"]
+requires = ["outcome-reviewed"]
 
 # The version-stamp check runs first, so the release review is not dispatched while the stamp is stale.
 [closed]
@@ -121,10 +131,10 @@ advise = { agent = "retrospective", skill = "satelle-lessons" }
 status = "pr_raising"
 agent = "executor"
 skills = ["raise-pr"]
-reviewers = ["satelle-integration-review", "satelle-integration-check"]
+reviewers = ["satelle-integration-review"]
 reviewer_agent = "reviewer"
 reject_budget = 10
-requires = ["integrated"]
+requires = ["outcome-reviewed"]
 
 # The team PR remote is woken for the story and its run is waited on; nothing performs locally.
 [pr-opened]
@@ -237,11 +247,6 @@ for = ["*", "chore", "pr"]
 skill = "satelle-build-unit-check"
 on = ["integration"]
 for = ["*", "chore", "pr"]
-
-[[gate]]
-skill = "satelle-integration-check"
-on = ["release"]
-for = ["*"]
 
 # The integration suite runs once, in this gate, so a chore runs it on entry to landing.
 [[gate]]

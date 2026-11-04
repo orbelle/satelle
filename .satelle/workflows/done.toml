@@ -9,11 +9,11 @@ description = "This repo's declaration of done: one table per story category lis
 # Tables not declared here ([execution], [task]) come from the embedded declaration.
 
 ["*"]
-obligations = ["raised", "readied", "coded", "integrated", "released", "closed"]
+obligations = ["raised", "readied", "coded", "integrated", "outcome-reviewed", "released", "closed"]
 park = { state = "blocked", gate = "satelle-story-blocked-review", advisor = "blocked-triage", advisor_skill = "satelle-story-blocked-triage" }
 cancel = { state = "cancelled", gate = "satelle-story-cancel-review" }
 recover = [
-  { step = "in_progress", from = ["integration", "release"] },
+  { step = "in_progress", from = ["integration", "outcome", "release"] },
   { step = "backlog", from = ["plan"] },
 ]
 
@@ -29,11 +29,11 @@ recover = [
 
 # A pr story is raised as a pull request and closed by the team PR remote's merge.
 [pr]
-obligations = ["raised", "readied", "coded", "integrated", "pr-raised", "pr-opened", "pr-concluded", "pr-merged"]
+obligations = ["raised", "readied", "coded", "integrated", "outcome-reviewed", "pr-raised", "pr-opened", "pr-concluded", "pr-merged"]
 park = { state = "blocked", gate = "satelle-story-blocked-review", advisor = "blocked-triage", advisor_skill = "satelle-story-blocked-triage" }
 cancel = { state = "cancelled", gate = "satelle-story-cancel-review" }
 recover = [
-  { step = "in_progress", from = ["integration", "pr_raising", "pr_open", "pr_concluded"] },
+  { step = "in_progress", from = ["integration", "outcome", "pr_raising", "pr_open", "pr_concluded"] },
   { step = "backlog", from = ["plan"] },
 ]
 
