@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/health"
+	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/hosted/syncpb"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/store"
+	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 // forkedFromHosted is a story this checkout pulled whole, after which another
@@ -264,6 +267,277 @@ func TestPushRecordsForkedStoryAsConflict(t *testing.T) {
 	out, _ = runRoot(t, "sync", "workstate", "rechain", "--dry-run", "--server", ts.URL)
 	if got := rechainOutcomes(t, out); len(got) != 2 {
 		t.Errorf("rechain without --conflicted reported %v, want both stories", got)
+	}
+}
+
+// legacyForked is the sty_6209b64c shape: a pulled story whose history forks at
+// the pulled tip, two events written on one base, with seeded stubs and a
+// status_reconcile to the hosted status at its local tip, and whose push was
+// refused and recorded in conflict. With hostedForks the server holds the fork
+// too, in its seq order evt_x, evt_y, evt_z, evt_x and evt_y both on the tip;
+// without, the hosted chain is one line and only the local copy of evt_y builds
+// on the tip. inserted is the order the three are written here.
+func legacyForked(t *testing.T, hostedForks bool, inserted ...string) (ts *httptest.Server, f *fakeWorkstateServer, id, repo string) {
+	t.Helper()
+	return legacyForkedTip(t, hostedForks, false, inserted...)
+}
+
+// legacyForkedTip is legacyForked; with snapshotHosted the seeded version and
+// snapshot are on the hosted chain too, after evt_z, and the local tip is a later
+// workflow_version and the status_reconcile it was written ahead of, older than
+// it, both carrying the new hash: sty_f61c09ec's shape in this repo.
+func legacyForkedTip(t *testing.T, hostedForks, snapshotHosted bool, inserted ...string) (ts *httptest.Server, f *fakeWorkstateServer, id, repo string) {
+	t.Helper()
+	ts, f, id, want, repo := publishedElsewhere(t)
+	if out, err := pullRaw(t, ts.URL); err != nil {
+		t.Fatalf("pull: %v\n%s", err, out)
+	}
+	tip, t0 := want[len(want)-1].ID, time.Now().UTC()
+	held := map[string]ledger.Entry{
+		"evt_x": localEvent(id, "evt_x", tip, ledger.KindComment, "x", t0.Add(1*time.Second)),
+		"evt_y": localMove(id, "evt_y", tip, "backlog", "plan", t0.Add(2*time.Second)),
+		"evt_z": localEvent(id, "evt_z", "evt_y", ledger.KindComment, "z", t0.Add(3*time.Second)),
+	}
+	hostedY := held["evt_y"]
+	if !hostedForks {
+		hostedY.BaseID = "evt_x"
+	}
+	version := localEvent(id, "evt_v", "evt_z", ledger.KindWorkflowVersion, "workflow version h", t0.Add(4*time.Second))
+	version.Actor, version.Refs = "satelle", json.RawMessage(`{"workflow_version":"`+id+`:h"}`)
+	snapshot := localEvent(id, "evt_s", "evt_v", ledger.KindDefinitionSnapshot, "definition snapshot seeded from the story row", t0.Add(5*time.Second))
+	snapshot.Actor, snapshot.Refs = "satelle", json.RawMessage(`{"definition_snapshot":"`+id+`"}`)
+	r := reconcile("evt_r", "status", "plan")
+	r.StoryID, r.BaseID, r.CreatedAt = id, "evt_s", t0.Add(6*time.Second)
+	seeded, tipEvents := []*syncpb.Event{hostedEvent(t, held["evt_x"]), hostedEvent(t, hostedY), hostedEvent(t, held["evt_z"])}, []ledger.Entry{version, snapshot, r}
+	if snapshotHosted {
+		version.WorkflowHash, snapshot.WorkflowHash = "h", "h"
+		later := localEvent(id, "evt_v2", "evt_s", ledger.KindWorkflowVersion, "workflow version h2", t0.Add(7*time.Second))
+		later.Actor, later.Refs, later.WorkflowHash = "satelle", json.RawMessage(`{"workflow_version":"`+id+`:h2"}`), "h2"
+		r.BaseID, r.WorkflowHash = "evt_v2", "h2"
+		seeded = append(seeded, hostedEvent(t, version), hostedEvent(t, snapshot))
+		tipEvents = []ledger.Entry{version, snapshot, later, r}
+	}
+	f.chain.seed("probe", id, seeded...)
+	local := slices.Clone(want)
+	for _, k := range inserted {
+		local = append(local, held[k])
+	}
+	setLocalChain(t, id, append(local, tipEvents...))
+	withRepoStore(t, func(db *store.DB) {
+		row, err := db.Stories.Get(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := verb.RebuildRow(context.Background(), db.Stories, db.Ledger, row, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if out, err := pushRaw(t, ts.URL); err == nil || !strings.Contains(out, "forks at "+tip) {
+		t.Fatalf("push of the forked story = %v\n%s, want it refused as forked at %s", err, out, tip)
+	}
+	if _, ok := storyConflicts(t, repo)[id]; !ok {
+		t.Fatalf("fixture: the refused push recorded no conflict for %s", id)
+	}
+	if local, hostedS, row := foldedStatuses(t, f, id); local != "plan" || hostedS != "plan" || row != "plan" {
+		t.Fatalf("fixture statuses: local fold %q, hosted fold %q, row %q, want plan", local, hostedS, row)
+	}
+	return ts, f, id, repo
+}
+
+// hostedChainOf is a story's chain as the fake server holds it, in its order.
+func hostedChainOf(f *fakeWorkstateServer, id string) []hosted.ChainEvent {
+	f.chain.mu.Lock()
+	defer f.chain.mu.Unlock()
+	var out []hosted.ChainEvent
+	for _, e := range f.chain.chains[chainKey("probe", id)] {
+		out = append(out, hosted.ChainEvent{ID: e.GetId(), BaseID: e.GetBaseId(), WorkflowVersion: e.GetWorkflowVersion(), Payload: e.GetPayload()})
+	}
+	return out
+}
+
+// foldedStatuses is what the story's local chain and its hosted chain fold to,
+// and its recorded status.
+func foldedStatuses(t *testing.T, f *fakeWorkstateServer, id string) (local, hostedS, row string) {
+	t.Helper()
+	events := hostedChainOf(f, id)
+	withRepoStore(t, func(db *store.DB) {
+		ctx := context.Background()
+		r, err := db.Stories.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chain, err := db.Ledger.StoryChain(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries := make([]ledger.Entry, 0, len(events))
+		for _, ev := range events {
+			e, err := ledgerEntryOf(id, ev)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries = append(entries, e)
+		}
+		local, hostedS, row = verb.FoldChain(ctx, r, chain).Status, verb.FoldChain(ctx, r, entries).Status, r.Status
+	})
+	return local, hostedS, row
+}
+
+// storedShape is a story's local events and bases in insertion order.
+func storedShape(t *testing.T, id string) []string {
+	t.Helper()
+	var events []ledger.Entry
+	withRepoStore(t, func(db *store.DB) {
+		var err error
+		if events, err = db.Ledger.StoryChain(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	})
+	return chainShape(events)
+}
+
+func hostedShape(events []hosted.ChainEvent) []string {
+	var out []string
+	for _, e := range events {
+		out = append(out, e.ID+"<-"+e.BaseID)
+	}
+	return out
+}
+
+// sty_6209b64c AC1, AC2: a fork deep in history both sides hold, with only
+// seeded stubs and a reconcile local-only, is repaired where it was refused: the
+// stubs are dropped, the local chain is the hosted chain in the server's order,
+// with the hosted latest written last so the next append builds on it, the
+// conflict is cleared, and no status moves.
+func TestRechainLegacyForkInHeldHistory(t *testing.T) {
+	ts, f, id, repo := legacyForked(t, true, "evt_y", "evt_z", "evt_x")
+	before := fullChain(t, id)
+
+	out, err := runRoot(t, "sync", "workstate", "rechain", "--dry-run", "--server", ts.URL)
+	if got := rechainOutcomes(t, out)[id]; err != nil || got != "rechain: remove 4 event(s) (2 seeded, 1 reconcile), take 1 hosted event(s)" {
+		t.Fatalf("rechain --dry-run = %v, %s reported %q\n%s, want the stubs dropped and the hosted latest retaken", err, id, got, out)
+	}
+	if got := fullChain(t, id); !slices.Equal(got, before) {
+		t.Fatalf("--dry-run changed the chain:\n%v\nwant\n%v", got, before)
+	}
+	if out, err := runRoot(t, "sync", "workstate", "rechain", "--server", ts.URL); err != nil || !strings.Contains(out, "rechained "+id) {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+
+	events := hostedChainOf(f, id)
+	db := openScopeDB(t)
+	stored, err := db.Ledger.StoryChain(context.Background(), id)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	order, err := heldOrder(stored, events)
+	if err != nil {
+		t.Fatalf("the chain after rechain cannot be ordered: %v", err)
+	}
+	if got, want := chainShape(order), hostedShape(events); !slices.Equal(got, want) {
+		t.Errorf("chain after rechain = %v, want the hosted chain in its order %v", got, want)
+	}
+	if last := stored[len(stored)-1].ID; last != "evt_z" {
+		t.Errorf("last event written here = %s, want the hosted latest evt_z", last)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after rechain = %v, want none", c)
+	}
+	if head := storyHeads(t, ts.URL, "probe", repo)[id]; head != "evt_z" {
+		t.Errorf("head after rechain = %q, want the hosted latest evt_z", head)
+	}
+	if local, hostedS, row := foldedStatuses(t, f, id); local != "plan" || hostedS != "plan" || row != "plan" {
+		t.Errorf("after rechain: local fold %q, hosted fold %q, row %q, want plan unchanged", local, hostedS, row)
+	}
+	if out, err := runRoot(t, "sync", "workstate", "rechain", "--dry-run", "--server", ts.URL); err != nil || strings.Contains(out, id) {
+		t.Errorf("a second rechain = %v\n%s, want the repaired story neither refused nor listed", err, out)
+	}
+	noAppendsAfterPush(t, ts, f, id)
+}
+
+// sty_6209b64c AC1, AC5: on a fork both sides hold whose seeded snapshot the
+// hosted chain already has, a later workflow_version and the status_reconcile
+// to the hosted status built on it are the only local-only events; both are
+// dropped, the version too, since nothing that stays carries its hash, and no
+// status moves.
+func TestRechainLegacyForkDropsTipVersionAndReconcile(t *testing.T) {
+	ts, f, id, repo := legacyForkedTip(t, true, true, "evt_y", "evt_z", "evt_x")
+
+	out, err := runRoot(t, "sync", "workstate", "rechain", "--dry-run", "--server", ts.URL)
+	if got := rechainOutcomes(t, out)[id]; err != nil || got != "rechain: remove 2 event(s) (1 seeded, 1 reconcile), take 0 hosted event(s)" {
+		t.Fatalf("rechain --dry-run = %v, %s reported %q\n%s, want the version and the reconcile dropped", err, id, got, out)
+	}
+	if out, err := runRoot(t, "sync", "workstate", "rechain", "--server", ts.URL); err != nil || !strings.Contains(out, "rechained "+id) {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	events := hostedChainOf(f, id)
+	var stored []ledger.Entry
+	withRepoStore(t, func(db *store.DB) {
+		if stored, err = db.Ledger.StoryChain(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	})
+	order, err := heldOrder(stored, events)
+	if err != nil {
+		t.Fatalf("the chain after rechain cannot be ordered: %v", err)
+	}
+	if got, want := chainShape(order), hostedShape(events); !slices.Equal(got, want) {
+		t.Errorf("chain after rechain = %v, want the hosted chain in its order %v", got, want)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after rechain = %v, want none", c)
+	}
+	if local, hostedS, row := foldedStatuses(t, f, id); local != "plan" || hostedS != "plan" || row != "plan" {
+		t.Errorf("after rechain: local fold %q, hosted fold %q, row %q, want plan unchanged", local, hostedS, row)
+	}
+	noAppendsAfterPush(t, ts, f, id)
+}
+
+// sty_6209b64c AC2: when only the local copy forks (its evt_y builds on the tip,
+// the server's on evt_x), the hosted chain is taken as it stands and the local
+// chain becomes it, one line, its status unchanged.
+func TestRechainLegacyForkOnlyLocal(t *testing.T) {
+	ts, f, id, repo := legacyForked(t, false, "evt_x", "evt_y", "evt_z")
+
+	out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL)
+	if got := rechainOutcomes(t, out)[id]; err != nil || got != "rechain: remove 5 event(s) (2 seeded, 1 reconcile), take 2 hosted event(s)" {
+		t.Fatalf("rechain = %v, %s reported %q\n%s, want evt_y and evt_z retaken and the stubs dropped", err, id, got, out)
+	}
+	if got, want := chainShape(localChain(t, id)), hostedShape(hostedChainOf(f, id)); !slices.Equal(got, want) {
+		t.Errorf("chain after rechain = %v, want the hosted chain %v", got, want)
+	}
+	if local, hostedS, row := foldedStatuses(t, f, id); local != "plan" || hostedS != "plan" || row != "plan" {
+		t.Errorf("after rechain: local fold %q, hosted fold %q, row %q, want plan unchanged", local, hostedS, row)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after rechain = %v, want none", c)
+	}
+	noAppendsAfterPush(t, ts, f, id)
+}
+
+// sty_6209b64c AC5: a forked history whose hosted chain folds to another status
+// than the story's recorded one is refused with both, its chain untouched, so a
+// repair never moves a status.
+func TestRechainLegacyForkRefusesStatusChange(t *testing.T) {
+	ts, f, id, _ := legacyForked(t, true, "evt_x", "evt_y", "evt_z")
+	withRepoStore(t, func(db *store.DB) {
+		if _, err := db.Stories.SetStatus(context.Background(), id, "in_progress", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	before := fullChain(t, id)
+
+	out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL)
+	if got := rechainOutcomes(t, out)[id]; err == nil || !strings.HasPrefix(got, "refuse: ") || !strings.Contains(got, "the hosted chain folds to plan but the story's status is in_progress") {
+		t.Fatalf("rechain = %v, %s reported %q\n%s, want it refused naming both statuses", err, id, got, out)
+	}
+	if got := fullChain(t, id); !slices.Equal(got, before) {
+		t.Errorf("a refused rechain changed the chain:\n%v\nwant\n%v", got, before)
+	}
+	if _, _, row := foldedStatuses(t, f, id); row != "in_progress" {
+		t.Errorf("status after a refused rechain = %q, want in_progress", row)
 	}
 }
 

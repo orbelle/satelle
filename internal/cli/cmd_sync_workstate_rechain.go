@@ -202,8 +202,17 @@ func readRechainCase(ctx context.Context, a *app.App, chain *chainPull, rd chain
 	if latest == "" || len(events) == 0 {
 		return refuse(false, "the hosted project holds no events of it")
 	}
-	c.plan = planRechain(local, events, func() (string, error) { return hostedStatus(ctx, a, id, events) })
+	c.plan = planRechain(local, events, func() (string, error) { return hostedStatus(ctx, a, id, events) }, func() string { return recordedStatus(ctx, a, id) })
 	return c
+}
+
+// recordedStatus is the story's recorded status; empty when it has no row.
+func recordedStatus(ctx context.Context, a *app.App, id string) string {
+	row, err := a.Store.Stories.Get(ctx, id)
+	if err != nil {
+		return ""
+	}
+	return row.Status
 }
 
 const (
@@ -284,7 +293,14 @@ func reconciledStatus(e ledger.Entry) (status string, ok bool) {
 // it, and is called only when one is there), or one the hosted chain holds. A
 // status_reconcile that set another status is refused with both statuses; any other
 // event is local work and the story is refused.
-func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus func() (string, error)) rechainPlan {
+//
+// A local chain that forks in history the hosted chain holds, from legacy
+// concurrent writes, is taken in the hosted chain's order (heldOrder,
+// sty_6209b64c). It is repaired only when the hosted chain folds to the story's
+// recorded status (rowStatus), so the repair moves no status, and the local copy
+// of the hosted latest is taken again when it is not the last event held here,
+// so the next local append builds on it.
+func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus func() (string, error), rowStatus func() string) rechainPlan {
 	refuse := func(format string, args ...any) rechainPlan {
 		return rechainPlan{outcome: rechainRefused, reason: fmt.Sprintf(format, args...)}
 	}
@@ -294,7 +310,9 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 	if plan, ok := planMerge(local, events, hostedStatus); ok {
 		return plan
 	}
-	order, err := chainOrder(local)
+	_, linear := chainOrder(local)
+	forked := linear != nil
+	order, err := heldOrder(local, events)
 	if err != nil {
 		return refuse("%v", err)
 	}
@@ -305,6 +323,14 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 	localOnly, reconciled := map[string]bool{}, map[string]bool{} // the seeded-or-work events the hosted chain lacks; the reconciles it lacks that set its status
 	var lacking, work []string                                    // the events the hosted chain lacks; of those, the ones that are not seeded
 	var folded string
+	if forked {
+		if folded, err = hostedStatus(); err != nil {
+			return refuse("the hosted chain cannot be folded: %v", err)
+		}
+		if row := rowStatus(); folded != row {
+			return refuse("%v, and the hosted chain folds to %s but the story's status is %s", linear, folded, row)
+		}
+	}
 	for _, e := range order {
 		if onHosted[e.ID] {
 			continue
@@ -329,7 +355,7 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 		}
 	}
 	if len(localOnly) > 0 {
-		if _, ok := storyfold.SeededEvents(order, localOnly); !ok {
+		if _, ok := storyfold.SeededEvents(order, localOnly); !ok && !droppedVersions(order, events, localOnly, reconciled) {
 			if len(work) == 0 {
 				work = lacking
 			}
@@ -348,10 +374,49 @@ func planRechain(local []ledger.Entry, events []hosted.ChainEvent, hostedStatus 
 			plan.seeded++
 		}
 	}
+	if latest := events[len(events)-1]; forked && len(plan.take) == 0 && lastKept(local, plan.remove) != latest.ID {
+		plan.remove = append(plan.remove, latest.ID)
+		plan.take = append(plan.take, latest)
+	}
 	if len(plan.remove) == 0 && len(plan.take) == 0 {
 		plan.outcome = rechainNothing
 	}
 	return plan
+}
+
+// droppedVersions reports whether the local-only events are only workflow_version
+// events whose hash no event that stays carries, a hosted one included: the
+// version the ledger put ahead of a status_reconcile the repair drops, on a story
+// whose seeded snapshot the hosted chain already holds (sty_6209b64c). Dropping
+// one loses no version an event that stays names.
+func droppedVersions(order []ledger.Entry, events []hosted.ChainEvent, localOnly, reconciled map[string]bool) bool {
+	dropped := map[string]bool{}
+	for _, e := range order {
+		if !localOnly[e.ID] {
+			continue
+		}
+		if !ledger.IsVersionEvent(e) || e.WorkflowHash == "" {
+			return false
+		}
+		dropped[e.WorkflowHash] = true
+	}
+	for _, e := range order {
+		if !localOnly[e.ID] && !reconciled[e.ID] && dropped[e.WorkflowHash] {
+			return false
+		}
+	}
+	return len(dropped) > 0 && !slices.ContainsFunc(events, func(ev hosted.ChainEvent) bool { return dropped[ev.WorkflowVersion] })
+}
+
+// lastKept is the last event of local, in insertion order, that remove leaves:
+// the one the ledger builds the next local append on.
+func lastKept(local []ledger.Entry, remove []string) string {
+	for i := len(local) - 1; i >= 0; i-- {
+		if !slices.Contains(remove, local[i].ID) {
+			return local[i].ID
+		}
+	}
+	return ""
 }
 
 // planReplay decides a story whose local-only events are real work on a root of
@@ -686,16 +751,27 @@ func matchingPrefix(order []ledger.Entry, events []hosted.ChainEvent) int {
 // divergent reports whether a story's local and hosted chains disagree at a place
 // both have: the fork a pull left. A story the hosted project holds nothing of, one
 // that is the hosted chain and then local events, and one that is only a start of
-// the hosted chain are not: a push or a pull is what moves them.
+// the hosted chain are not: a push or a pull is what moves them. A fork in held
+// history the hosted chain holds the same way is the hosted chain's own
+// (heldOrder); local events past it are still one line from the hosted latest.
 func divergent(local []ledger.Entry, events []hosted.ChainEvent) bool {
 	if len(events) == 0 || len(local) == 0 {
 		return false
 	}
-	order, err := chainOrder(local)
+	order, err := heldOrder(local, events)
 	if err != nil {
 		return true
 	}
-	return matchingPrefix(order, events) < min(len(order), len(events))
+	n := matchingPrefix(order, events)
+	if n < min(len(order), len(events)) {
+		return true
+	}
+	for i := max(n, 1); i < len(order); i++ {
+		if order[i].BaseID != order[i-1].ID {
+			return true
+		}
+	}
+	return false
 }
 
 // apply puts the story on its hosted chain, then moves its head to the hosted
@@ -727,7 +803,7 @@ func (c rechainCase) apply(ctx context.Context, a *app.App, chain *chainPull, no
 	if err != nil {
 		return fmt.Errorf("read the local chain: %w", err)
 	}
-	order, err := chainOrder(local)
+	order, err := heldOrder(local, c.events)
 	if err != nil {
 		return err
 	}

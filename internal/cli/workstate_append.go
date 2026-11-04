@@ -36,7 +36,11 @@ type storyAppend struct {
 	// (no head saved, or a rebuilt store) the hosted chain is read first, so no
 	// event the server already holds is sent again.
 	headKnown bool
-	err       error // the local chain cannot be sent as it is
+	// fork is set when the chain forks before its head and publishOrder ordered
+	// it: the push sends it only once the server is shown to hold every event
+	// before from.
+	fork *chainForkError
+	err  error // the local chain cannot be sent as it is
 }
 
 // base is the event the unpublished events build on; empty when none was published.
@@ -72,6 +76,24 @@ func planStoryAppends(ctx context.Context, a *app.App, scope scopeSet, heads map
 			return nil, fmt.Errorf("read the chain of %s: %w", id, err)
 		}
 		order, err := chainOrder(events)
+		var fork chainForkError
+		if errors.As(err, &fork) {
+			// A fork in the history before a head the server accepted is the legacy
+			// shape a rechain leaves (sty_6209b64c); with no head it stays refused.
+			if head := heads[id]; head != "" && slices.ContainsFunc(events, func(e ledger.Entry) bool { return e.ID == head }) {
+				forked, from, perr := publishOrder(events, head)
+				switch {
+				case perr != nil:
+					if !errors.As(perr, new(chainForkError)) {
+						perr = fmt.Errorf("%w: %v", fork, perr)
+					}
+					plan = append(plan, storyAppend{id: id, err: perr})
+				case from < len(forked):
+					plan = append(plan, storyAppend{id: id, order: forked, from: from, headKnown: true, fork: &fork})
+				}
+				continue
+			}
+		}
 		if err != nil {
 			plan = append(plan, storyAppend{id: id, err: err})
 			continue
@@ -118,6 +140,113 @@ func chainOrder(events []ledger.Entry) ([]ledger.Entry, error) {
 		return nil, fmt.Errorf("the local chain is broken: %d of %d events are not reached from its first event", len(events)-len(order), len(events))
 	}
 	return order, nil
+}
+
+// heldOrder is chainOrder for a story whose local chain forks in history the
+// hosted chain holds (sty_6209b64c): legacy concurrent writes left two events on
+// one base, on the server and here. The held events go in the hosted chain's
+// order, the server's, and the local-only ones after them by mergeOrder, none
+// before its base. A local-only event on a base neither is, a cycle, or a chain
+// broken some other way keeps chainOrder's error.
+func heldOrder(local []ledger.Entry, events []hosted.ChainEvent) ([]ledger.Entry, error) {
+	order, err := chainOrder(local)
+	if err == nil || !errors.As(err, new(chainForkError)) {
+		return order, err
+	}
+	byID := make(map[string]ledger.Entry, len(local))
+	for _, e := range local {
+		byID[e.ID] = e
+	}
+	out := make([]ledger.Entry, 0, len(local))
+	held := make(map[string]bool, len(events))
+	for _, ev := range events {
+		if e, ok := byID[ev.ID]; ok && !held[ev.ID] {
+			out = append(out, e)
+			held[ev.ID] = true
+		}
+	}
+	own := map[string]ledger.Entry{}
+	var ownOrder []ledger.Entry
+	for _, e := range local {
+		if !held[e.ID] {
+			own[e.ID] = e
+			ownOrder = append(ownOrder, e)
+		}
+	}
+	for _, e := range ownOrder {
+		if _, ok := own[e.BaseID]; !ok && !held[e.BaseID] {
+			return nil, err
+		}
+	}
+	merged := mergeOrder(ownOrder, own)
+	if len(merged) != len(ownOrder) {
+		return nil, err
+	}
+	return append(out, merged...), nil
+}
+
+// publishOrder orders a chain that forks before head, the last event the server
+// accepted from here: the events after head must be one line from it, and every
+// other event goes ahead of head by mergeOrder, none before its base. from is the
+// index of the first event after head, so the base a push sends is head. events
+// come in insertion order, and one written here after head that is not on its
+// line was never sent, so it is refused; so are a fork after head and an event on
+// a base the chain does not hold.
+func publishOrder(events []ledger.Entry, head string) ([]ledger.Entry, int, error) {
+	children := map[string][]ledger.Entry{}
+	var headEvent ledger.Entry
+	for _, e := range events {
+		children[e.BaseID] = append(children[e.BaseID], e)
+		if e.ID == head {
+			headEvent = e
+		}
+	}
+	if headEvent.ID == "" {
+		return nil, 0, fmt.Errorf("the local chain does not hold its head %s", head)
+	}
+	var tail []ledger.Entry
+	after := map[string]bool{head: true}
+	for cur := head; ; {
+		next := children[cur]
+		if len(next) == 0 {
+			break
+		}
+		if len(next) > 1 {
+			return nil, 0, chainForkError{base: cur, n: len(next)}
+		}
+		if after[next[0].ID] {
+			return nil, 0, fmt.Errorf("the local chain is broken: a cycle after %s", head)
+		}
+		tail = append(tail, next[0])
+		after[next[0].ID] = true
+		cur = next[0].ID
+	}
+	own := map[string]ledger.Entry{}
+	var ownOrder []ledger.Entry
+	pastHead := false
+	for _, e := range events {
+		switch {
+		case e.ID == head:
+			pastHead = true
+		case after[e.ID]:
+		case pastHead:
+			return nil, 0, fmt.Errorf("%s, written after %s, is not on the line from it", e.ID, head)
+		default:
+			own[e.ID] = e
+			ownOrder = append(ownOrder, e)
+		}
+	}
+	for _, e := range append(slices.Clone(ownOrder), headEvent) {
+		if _, ok := own[e.BaseID]; !ok && e.BaseID != "" {
+			return nil, 0, fmt.Errorf("the local chain is broken: %s builds on %s, which it does not hold", e.ID, e.BaseID)
+		}
+	}
+	prefix := mergeOrder(ownOrder, own)
+	if len(prefix) != len(ownOrder) {
+		return nil, 0, fmt.Errorf("the local chain is broken: %d of %d events before %s form a cycle", len(ownOrder)-len(prefix), len(ownOrder), head)
+	}
+	order := append(append(prefix, headEvent), tail...)
+	return order, len(prefix) + 1, nil
 }
 
 // chainForkError is chainOrder's answer for a chain two events build on one
@@ -246,6 +375,11 @@ func withoutStoryEntries(raws []json.RawMessage) []json.RawMessage {
 // by the resume above on the next one. A stale base
 // part-way through is handled as at the start, from the batch it refused.
 func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.ChainConn, project string, p storyAppend, heads *headSaver) error {
+	if p.fork != nil {
+		if err := forkPublished(ctx, w, a, conn, project, p); err != nil {
+			return err
+		}
+	}
 	from, resumed, rebased := p.from, false, false
 	if !p.headKnown {
 		latest, missing, err := hostedLatest(ctx, conn, project, p)
@@ -340,6 +474,36 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 	}
 	_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, nil, []string{p.id}, time.Now().UTC())
 	return nil
+}
+
+// forkPublished reads the hosted chain of a story publishOrder ordered and
+// refuses it, as the fork it is, unless the server holds every event before its
+// first unpublished one: publishOrder treats the events off the head's line as
+// published, which only the server can confirm.
+func forkPublished(ctx context.Context, w io.Writer, a *app.App, conn *hosted.ChainConn, project string, p storyAppend) error {
+	events, _, err := conn.ReadStory(ctx, project, p.id, "")
+	if errors.Is(err, hosted.ErrLoginRequired) {
+		return err
+	}
+	if err != nil {
+		err = fmt.Errorf("%w; the hosted chain cannot be read to confirm the history before %s: %v", *p.fork, p.base(), err)
+	} else {
+		onHosted := make(map[string]bool, len(events))
+		for _, e := range events {
+			onHosted[e.ID] = true
+		}
+		for _, e := range p.order[:p.from] {
+			if !onHosted[e.ID] {
+				err = fmt.Errorf("%w, and %s is not on the hosted chain", *p.fork, e.ID)
+				break
+			}
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(w, "the story %s was not published: %v\n", p.id, err)
+		_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, map[string]string{p.id: err.Error()}, nil, time.Now().UTC())
+	}
+	return err
 }
 
 // errUpToDate is appendStory's answer for a story the server already holds whole:

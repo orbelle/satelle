@@ -1,3 +1,9 @@
+## [0.0.880] - 2026-11-03
+
+### Fixed
+- `satelle sync workstate rechain` repairs a story whose history already forks in events both sides hold, left by legacy concurrent writes, where before it refused it ("the local chain forks at evt_…: 2 events build on it"). The held events are taken in the hosted chain's order, seeded stubs and a reconcile to the hosted status are dropped as for a linear chain (so is a later workflow_version, written ahead of that reconcile, whose hash no event that stays carries, when the seeded snapshot is already hosted), a local copy whose base differs from the hosted copy is retaken from the server, and the hosted latest is written last so the next local event builds on it. The repair is refused, naming both statuses, when the hosted chain folds to another status than the story's recorded one, so it never moves a status. (sty_6209b64c)
+- `satelle sync workstate push` publishes such a story after the repair, sending only the events after the head the server accepted, once the server is shown to hold every event before them. A fork after the head, or a local event written after it off its line, is still refused and recorded as a conflict. (sty_6209b64c)
+
 ## [0.0.879] - 2026-11-03
 
 ### Fixed

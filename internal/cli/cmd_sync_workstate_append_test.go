@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/hosted/syncpb"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/syncscope"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
@@ -1176,5 +1178,137 @@ func TestPushResumesPastAHeldEventRefusal(t *testing.T) {
 	}
 	if c := storyConflicts(t, repo); len(c) != 0 {
 		t.Errorf("conflicts = %v, want none", c)
+	}
+}
+
+// sty_6209b64c AC3: after rechain repairs a legacy-forked story, a local event
+// builds on the hosted latest, the push sends it in one Append on that base, and
+// a second push has nothing to send for the story.
+func TestPushPublishesLegacyForkedStoryAfterRechain(t *testing.T) {
+	ts, f, id, repo := legacyForked(t, true, "evt_x", "evt_y", "evt_z")
+	if out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL); err != nil {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	appendLocal(t, id, "after the repair")
+	shape := storedShape(t, id)
+	work, base, _ := strings.Cut(shape[len(shape)-1], "<-")
+	if base != "evt_z" {
+		t.Fatalf("the local append builds on %s, want the hosted latest evt_z", base)
+	}
+
+	before := len(f.chain.appendsFor(id))
+	out, err := pushRaw(t, ts.URL)
+	if err != nil || strings.Contains(out, "not published") {
+		t.Fatalf("push after rechain = %v\n%s", err, out)
+	}
+	sent := f.chain.appendsFor(id)[before:]
+	if len(sent) != 1 || sent[0].GetBaseId() != "evt_z" || !slices.Equal(eventIDs(sent[0].GetEvents()), []string{work}) {
+		t.Fatalf("the push sent %d Append(s) for %s, want one of [%s] on evt_z", len(sent), id, work)
+	}
+	if stored := f.chain.stored("probe", id); stored[len(stored)-1] != work {
+		t.Errorf("the server's latest = %s, want %s", stored[len(stored)-1], work)
+	}
+	if c := storyConflicts(t, repo); len(c) != 0 {
+		t.Errorf("conflicts after push = %v, want none", c)
+	}
+
+	before = len(f.chain.appendsFor(id))
+	if out, err := pushRaw(t, ts.URL); err != nil || strings.Contains(out, "not published") {
+		t.Fatalf("second push = %v\n%s", err, out)
+	}
+	if n := len(f.chain.appendsFor(id)) - before; n != 0 {
+		t.Errorf("the second push sent %d Append(s) for %s, want none", n, id)
+	}
+}
+
+// sty_6209b64c: a legacy-forked story whose local work, written after its head,
+// builds off the head's line is still refused as a fork and recorded in
+// conflict, never treated as published.
+func TestPushRefusesLegacyForkWithWorkOffTheHeadLine(t *testing.T) {
+	ts, f, id, repo := legacyForked(t, true, "evt_x", "evt_y", "evt_z")
+	if out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL); err != nil {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	withRepoStore(t, func(db *store.DB) {
+		if _, err := db.Ledger.Upsert(context.Background(), localEvent(id, "evt_off", "evt_x", ledger.KindComment, "off the line", time.Now().UTC()), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	before := len(f.chain.appendsFor(id))
+	out, err := pushRaw(t, ts.URL)
+	if err == nil || !strings.Contains(out, "the story "+id+" was not published") || !strings.Contains(out, "evt_off, written after evt_z, is not on the line from it") {
+		t.Fatalf("push = %v\n%s, want the story refused naming evt_off", err, out)
+	}
+	if n := len(f.chain.appendsFor(id)) - before; n != 0 {
+		t.Errorf("the push sent %d Append(s) for %s, want none", n, id)
+	}
+	if c, ok := storyConflicts(t, repo)[id]; !ok || !strings.Contains(c.Reason, "forks at") {
+		t.Errorf("conflict of %s = %+v (recorded %v), want the fork recorded", id, c, ok)
+	}
+}
+
+// sty_6209b64c: a legacy-forked story is sent from its head only when the server
+// holds every event before it; one it lacks refuses the story as a fork.
+func TestPushRefusesLegacyForkTheServerDoesNotHold(t *testing.T) {
+	ts, f, id, repo := legacyForked(t, true, "evt_x", "evt_y", "evt_z")
+	if out, err := runRoot(t, "sync", "workstate", "rechain", id, "--server", ts.URL); err != nil {
+		t.Fatalf("rechain = %v\n%s", err, out)
+	}
+	appendLocal(t, id, "after the repair")
+	f.chain.mu.Lock()
+	key := chainKey("probe", id)
+	f.chain.chains[key] = slices.DeleteFunc(f.chain.chains[key], func(e *syncpb.Event) bool { return e.GetId() == "evt_x" })
+	f.chain.mu.Unlock()
+
+	before := len(f.chain.appendsFor(id))
+	out, err := pushRaw(t, ts.URL)
+	if err == nil || !strings.Contains(out, "evt_x is not on the hosted chain") {
+		t.Fatalf("push = %v\n%s, want the story refused naming evt_x", err, out)
+	}
+	if n := len(f.chain.appendsFor(id)) - before; n != 0 {
+		t.Errorf("the push sent %d Append(s) for %s, want none", n, id)
+	}
+	if _, ok := storyConflicts(t, repo)[id]; !ok {
+		t.Errorf("no conflict recorded for %s", id)
+	}
+}
+
+// sty_6209b64c AC2: a fork before the head that only the local copy holds is
+// ordered by event time, none before its base, with the head last before the
+// events after it; a fork after the head, and an event written after the head
+// off its line, are refused.
+func TestPublishOrder(t *testing.T) {
+	t0 := time.Now().UTC()
+	at := func(e ledger.Entry, n int) ledger.Entry {
+		e.CreatedAt = t0.Add(time.Duration(n) * time.Second)
+		return e
+	}
+	created, a := at(ent("created", "", ledger.KindStoryCreated), 0), at(ent("a", "created", ledger.KindComment), 1)
+	x, y, n := at(ent("x", "a", ledger.KindComment), 3), at(ent("y", "a", ledger.KindComment), 2), at(ent("n", "x", ledger.KindComment), 4)
+
+	order, from, err := publishOrder([]ledger.Entry{created, a, y, x, n}, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := idsOf(order); !slices.Equal(got, []string{"created", "a", "y", "x", "n"}) || from != 4 {
+		t.Errorf("order %v from %d, want [created a y x n] from 4: y older than x, x last before n", got, from)
+	}
+	placed := map[string]bool{"": true}
+	for _, e := range order {
+		if !placed[e.BaseID] {
+			t.Errorf("%s is placed before its base %s", e.ID, e.BaseID)
+		}
+		placed[e.ID] = true
+	}
+
+	if _, _, err := publishOrder([]ledger.Entry{created, a, x, y, n}, "x"); err == nil || !strings.Contains(err.Error(), "y, written after x") {
+		t.Errorf("an event written after the head off its line = %v, want it refused", err)
+	}
+	if _, _, err := publishOrder([]ledger.Entry{created, a, x, y}, "a"); !errors.As(err, new(chainForkError)) {
+		t.Errorf("a fork after the head = %v, want a chainForkError", err)
+	}
+	if _, _, err := publishOrder([]ledger.Entry{created, a, y, at(ent("d", "nowhere", ledger.KindComment), 5), x}, "x"); err == nil {
+		t.Error("an event on a base the chain does not hold was ordered, want it refused")
 	}
 }

@@ -316,6 +316,12 @@ func reconcile(id, field, chain string) ledger.Entry {
 	return e
 }
 
+// hashed is e carrying the workflow hash h.
+func hashed(e ledger.Entry, h string) ledger.Entry {
+	e.WorkflowHash = h
+	return e
+}
+
 func hev(id, base string) hosted.ChainEvent { return hosted.ChainEvent{ID: id, BaseID: base} }
 
 func hostedOf(ids ...string) []hosted.ChainEvent {
@@ -411,6 +417,22 @@ func planRechainRows(t *testing.T) []planRechainRow {
 			hosted:       hostedOf("a", "b"),
 			hostedStatus: "done",
 			outcome:      rechainRefused, reason: "not only a seeded genesis: r (status_reconcile)",
+		},
+		{
+			// sty_6209b64c: the version written ahead of a reconcile to the hosted
+			// status, on a chain whose seeded snapshot is hosted, goes with it.
+			name:         "a version only a dropped reconcile carries",
+			local:        relinked(a, b, hashed(seeds[0], "h2"), hashed(reconcile("r", "status", "done"), "h2")),
+			hosted:       hostedOf("a", "b"),
+			hostedStatus: "done",
+			outcome:      rechainDo, remove: []string{"v", "r"}, seeded: 1, reconciled: 1,
+		},
+		{
+			name:         "a version a kept event carries is not dropped",
+			local:        relinked(a, hashed(b, "h2"), hashed(seeds[0], "h2"), hashed(reconcile("r", "status", "done"), "h2")),
+			hosted:       hostedOf("a", "b"),
+			hostedStatus: "done",
+			outcome:      rechainRefused, reason: "not only a seeded genesis: v (workflow_version)",
 		},
 		{
 			// The seeded pair sits after the first hosted events and a hosted event is
@@ -549,7 +571,7 @@ func TestPlanMergeDeclinesStubShapes(t *testing.T) {
 func TestPlanRechain(t *testing.T) {
 	for _, tc := range planRechainRows(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			got := planRechain(tc.local, tc.hosted, func() (string, error) { return tc.hostedStatus, nil })
+			got := planRechain(tc.local, tc.hosted, func() (string, error) { return tc.hostedStatus, nil }, func() string { return tc.hostedStatus })
 			if got.outcome != tc.outcome || !strings.Contains(got.reason, tc.reason) {
 				t.Fatalf("plan = %q %q, want %q containing %q", got.outcome, got.reason, tc.outcome, tc.reason)
 			}
@@ -605,6 +627,11 @@ func TestDivergent(t *testing.T) {
 		{"wrong base", []ledger.Entry{a, ent("b", "", ledger.KindComment)}, hostedOf("a", "b"), true},
 		{"head seed", relinked(seedEvents("v", "s", "")...), hostedOf("a", "b"), true},
 		{"mid-chain seed", relinked(spliced([]ledger.Entry{a}, seedEvents("v", "s", "a"), []ledger.Entry{b})...), hostedOf("a", "b"), true},
+		// sty_6209b64c: a fork both sides hold is the hosted chain's own.
+		{"fork both sides hold", []ledger.Entry{a, b, ent("c", "a", ledger.KindComment)}, []hosted.ChainEvent{hev("a", ""), hev("b", "a"), hev("c", "a")}, false},
+		{"fork both sides hold, then local work on the latest", []ledger.Entry{a, b, ent("c", "a", ledger.KindComment), ent("x", "c", ledger.KindComment)}, []hosted.ChainEvent{hev("a", ""), hev("b", "a"), hev("c", "a")}, false},
+		{"fork both sides hold, then local work off an older event", []ledger.Entry{a, b, ent("c", "a", ledger.KindComment), ent("x", "b", ledger.KindComment)}, []hosted.ChainEvent{hev("a", ""), hev("b", "a"), hev("c", "a")}, true},
+		{"local work off an older hosted event", []ledger.Entry{a, b, ent("x", "a", ledger.KindComment)}, hostedOf("a", "b"), true},
 	}
 	for _, tc := range tests {
 		if got := divergent(tc.local, tc.hosted); got != tc.want {
