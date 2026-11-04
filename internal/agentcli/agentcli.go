@@ -597,6 +597,10 @@ func (t templateRunner) Run(ctx context.Context, req Request) ([]byte, error) {
 	return runProcess(ctx, t.binary, reviewerArgs(t.binary, buildArgs(t.argTemplate, req), req), req)
 }
 
+// piRunClock reads the pi run window's start and end in RunUsage. Tests replace it
+// to place the window exactly; a test that does must not run in parallel.
+var piRunClock = time.Now
+
 // RunUsage implements UsageRunner for the command transport. Every adapter but pi
 // reports usage on stdout, so it is what runOnce's Run+UnwrapUsage fallback
 // returned. pi prints plain text and keeps its usage in its own session record, so
@@ -612,9 +616,9 @@ func (t templateRunner) RunUsage(ctx context.Context, req Request) ([]byte, Usag
 		usage.stampAdapter(adapterOf(t.binary, t.argTemplate))
 		return text, usage, nil
 	}
-	start := time.Now()
+	start := piRunClock()
 	out, err := t.Run(ctx, req)
-	return out, piRunUsage(req.Dir, start, time.Now()), err
+	return out, piRunUsage(req.Dir, start, piRunClock()), err
 }
 
 // stampAdapter records the harness behind a spawn on its usage. An unrecognised

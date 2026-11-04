@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Dispatched pi binding (sty_58a9bdc8): usage from pi's own session record, tool
@@ -218,23 +219,40 @@ func TestPiRunUsage_SessionCreationBoundary(t *testing.T) {
 }
 
 // writePiShim writes an executable named pi that, like pi, answers in plain text
-// and records one assistant row in its session file. The file path comes from
-// PI_TEST_SESSION_FILE so the test controls where "pi" writes.
-func writePiShim(t *testing.T, withSession bool) string {
+// and records one assistant row in its session file, the session header stamped
+// created and the row stamped at (HH:MM:SS.mmm on the piAt day). An empty created
+// writes no record. The file path comes from PI_TEST_SESSION_FILE so the test
+// controls where "pi" writes.
+func writePiShim(t *testing.T, created, at string) string {
 	t.Helper()
 	dir := t.TempDir()
 	shim := filepath.Join(dir, "pi")
-	body := "#!/bin/sh\nsleep 0.05\n"
-	if withSession {
-		// Like pi, the record opens with the session header, stamped when pi starts.
-		body += `printf '%s\n' "{\"type\":\"session\",\"version\":3,\"id\":\"dispatch-1\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\",\"cwd\":\"/x\"}" > "$PI_TEST_SESSION_FILE"` + "\n"
-		body += `printf '%s\n' "{\"type\":\"message\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\",\"message\":{\"role\":\"assistant\",\"model\":\"minimax/minimax-m3\",\"usage\":{\"input\":10,\"output\":20,\"cacheRead\":30,\"cacheWrite\":0,\"totalTokens\":60,\"cost\":{\"total\":0.5}}}}" >> "$PI_TEST_SESSION_FILE"` + "\n"
+	body := "#!/bin/sh\n"
+	if created != "" {
+		body += `printf '%s\n' '{"type":"session","version":3,"id":"dispatch-1","timestamp":"2026-09-30T` + created + `Z","cwd":"/x"}' > "$PI_TEST_SESSION_FILE"` + "\n"
+		body += `printf '%s\n' '{"type":"message","timestamp":"2026-09-30T` + at + `Z","message":{"role":"assistant","model":"minimax/minimax-m3","usage":{"input":10,"output":20,"cacheRead":30,"cacheWrite":0,"totalTokens":60,"cost":{"total":0.5}}}}' >> "$PI_TEST_SESSION_FILE"` + "\n"
 	}
 	body += "echo done\n"
 	if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return shim
+}
+
+// fixPiRunClock makes every pi run window open at start and close at end, so a
+// run's attribution never depends on real time.
+func fixPiRunClock(t *testing.T, start, end time.Time) {
+	t.Helper()
+	orig := piRunClock
+	t.Cleanup(func() { piRunClock = orig })
+	n := 0
+	piRunClock = func() time.Time {
+		n++
+		if n%2 == 1 {
+			return start
+		}
+		return end
+	}
 }
 
 // A pi command run through the dispatch path (RunnerFromCommand → UsageRunner) is
@@ -247,8 +265,9 @@ func TestPiCommandDispatchRecordsPiUsage(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(os.Getenv("PI_TEST_SESSION_FILE")), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	fixPiRunClock(t, piAt(t, "10:20:00.000"), piAt(t, "10:30:00.000"))
 
-	r, err := RunnerFromCommand(writePiShim(t, true) + " -p {payload}")
+	r, err := RunnerFromCommand(writePiShim(t, "10:20:00.000", "10:25:00.000") + " -p {payload}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +290,7 @@ func TestPiCommandDispatchRecordsPiUsage(t *testing.T) {
 	}
 
 	// The same command with a pi that wrote no session record.
-	r, err = RunnerFromCommand(writePiShim(t, false) + " -p {payload}")
+	r, err = RunnerFromCommand(writePiShim(t, "", "") + " -p {payload}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +306,20 @@ func TestPiCommandDispatchRecordsPiUsage(t *testing.T) {
 	}
 	if u.Adapter != HarnessPi {
 		t.Fatalf("unavailable usage adapter = %q, want %q", u.Adapter, HarnessPi)
+	}
+
+	// A session pi created before the run started is not the run's, though its row
+	// falls inside the window.
+	r, err = RunnerFromCommand(writePiShim(t, "10:19:00.000", "10:25:00.000") + " -p {payload}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, u, err = r.(UsageRunner).RunUsage(context.Background(), Request{Dir: repo, Payload: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Available || !strings.HasPrefix(u.UnavailableReason, "pi adapter: ") {
+		t.Fatalf("session created before the run start: usage = %+v, want a pi adapter unavailable", u)
 	}
 }
 

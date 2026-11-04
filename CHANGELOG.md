@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- `TestPiCommandDispatchRecordsPiUsage` no longer depends on real time. It drives the pi run window through a clock the test controls (a package-private seam in internal/agentcli) and session timestamps it fixes, instead of shell `date` against the wall clock, so a loaded CI runner cannot land the record outside the window. It failed the `test` job for 0.0.888 once; it passed 1000 runs under 32 parallel CPU burners on a 16-CPU machine, and still fails with the created-at-or-after-start rule reverted. Test-only, plus the clock seam. (sty_9f61a2c6)
+
 ## [0.0.894] - 2026-11-05
 
 ### Fixed
