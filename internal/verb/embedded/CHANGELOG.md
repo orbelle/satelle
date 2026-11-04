@@ -1,3 +1,9 @@
+## [0.0.887] - 2026-11-04
+
+### Changed
+- A remote node syncs its work state through the same calls a local satelle uses: gRPC Sync/Apply for push, the story-chain compare-and-append for story rows, and Sync/Snapshot plus the chain read for pulls. It presents its node token where a local satelle presents the member's credential, and names the project the run descriptor gives it. It no longer calls the node-only POST /api/v1/remote-nodes/{id}/workstate or builds a node batch. Run outputs travel on ApplyRequest.outputs with their execution, from both the node and a local push. Needs satelle-server 0.1.285 or later. (sty_ce11bbdb)
+- On the node token, an UNAUTHENTICATED answer (the node has ended) or NOT_FOUND (another project) from Chain/Read, Chain/Append or Sync/Apply stops the whole push at once with a named error (ErrNodeTokenRefused, ErrNodeProjectNotFound), with no further call and no retry. The client sends no origin of its own; the server stamps remote-node:<id>. (sty_ce11bbdb)
+
 ## [0.0.886] - 2026-11-04
 
 ### Fixed
