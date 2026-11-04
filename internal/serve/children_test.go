@@ -135,7 +135,7 @@ func TestViaCLIHelpersRunOneChildPerRepoAndKind(t *testing.T) {
 		{"push", func(ctx context.Context) error { return pushViaCLI(ctx, repo) }, false},
 		{"snapshot", func(ctx context.Context) error { return snapshotViaCLI(ctx, repo) }, false},
 		{"follow", func(ctx context.Context) error { return followViaCLI(ctx, repo) }, false},
-		{"reseed", func(ctx context.Context) error { return reseedViaCLI(ctx, repo) }, false},
+		{"reseed", func(ctx context.Context) error { return reseedViaCLI(ctx, repo, "") }, false},
 		{"substrate", func(ctx context.Context) error { return substratePushViaCLI(ctx, repo) }, false},
 		{"fetch", func(ctx context.Context) error { return fetchViaCLI(ctx, repo, "sty_1") }, true},
 	}

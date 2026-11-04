@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,7 +63,11 @@ func postUISnapshotContext(ctx context.Context, endpoint string, snap *mirror.Sn
 		// Surface a bounded body so slug-conflict 409 (sty_57d5ce25) and other
 		// ingest rejections print a clear remedy through workspace add.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		if msg := strings.TrimSpace(string(body)); msg != "" {
+		msg := strings.TrimSpace(string(body))
+		if resp.StatusCode == http.StatusConflict && strings.HasPrefix(msg, mirror.CodePartitionUnknown) {
+			return fmt.Errorf("ui push: %w: %s", errPartitionUnknown, msg)
+		}
+		if msg != "" {
 			return fmt.Errorf("ui push: server returned %s: %s", resp.Status, msg)
 		}
 		return fmt.Errorf("ui push: server returned %s", resp.Status)
@@ -70,12 +75,20 @@ func postUISnapshotContext(ctx context.Context, endpoint string, snap *mirror.Sn
 	return nil
 }
 
+// errPartitionUnknown is satelled refusing a delta drain because the repo's
+// partition has never had a full snapshot applied; the drain posts one.
+var errPartitionUnknown = errors.New(mirror.CodePartitionUnknown)
+
 // drainLedgerLimit is how many newest ledger events a light drain ships via
 // MergeKinds. Full snapshots still use 10k (sty_c5065d05).
 const drainLedgerLimit = 200
 
+// deltaSlack widens a delta drain's since bound so a row stamped in the same
+// clock tick as the invocation start is still sent.
+const deltaSlack = time.Second
+
 func buildUISnapshot(ctx context.Context, a *app.App) (*mirror.Snapshot, error) {
-	return buildUISnapshotOpts(ctx, a, false)
+	return buildUISnapshotOpts(ctx, a, false, time.Time{})
 }
 
 // buildUIDrainSnapshot is the end-of-verb light push (sty_3562c820): stories /
@@ -83,7 +96,7 @@ func buildUISnapshot(ctx context.Context, a *app.App) (*mirror.Snapshot, error) 
 // Doc and story-doc bodies are omitted so the payload fits uiDrainBudget; the
 // 5-minute reconcile (full snapshot via workspace add) remains the repair path.
 func buildUIDrainSnapshot(ctx context.Context, a *app.App) (*mirror.Snapshot, error) {
-	return buildUISnapshotOpts(ctx, a, true)
+	return buildUISnapshotOpts(ctx, a, true, time.Time{})
 }
 
 // partitionSlug is the landing slug a snapshot carries for a's partition. It names
@@ -97,7 +110,12 @@ func partitionSlug(a *app.App) string {
 	return config.RepoName(a.RepoRoot)
 }
 
-func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool) (*mirror.Snapshot, error) {
+// buildUISnapshotOpts builds the full body (drain false), the light drain
+// (drain true, since zero) or, with since set, the delta drain: only the story,
+// task and execution rows updated at or after since, and the waves of their
+// epics, as merge kinds (sty_a003a459). Rows are never deleted by a delta; the
+// reconcile reseed's full body is the repair.
+func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool, since time.Time) (*mirror.Snapshot, error) {
 	repoKey := config.RepoKey(a.RepoRoot)
 	snap := &mirror.Snapshot{RepoKey: repoKey, Slug: partitionSlug(a)}
 
@@ -105,7 +123,12 @@ func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool) (*mirror.S
 	if err != nil {
 		return nil, err
 	}
-	for _, it := range items {
+	delta := drain && !since.IsZero()
+	sent := items
+	if delta {
+		sent = changedSince(items, since.Add(-deltaSlack))
+	}
+	for _, it := range sent {
 		b, err := json.Marshal(it)
 		if err != nil {
 			return nil, err
@@ -201,7 +224,11 @@ func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool) (*mirror.S
 		}
 	}
 
-	snap.Waves = listWavesJSON(ctx, items)
+	if delta {
+		snap.Waves = listWavesJSON(ctx, epicParentsOf(items, sent))
+	} else {
+		snap.Waves = listWavesJSON(ctx, items)
+	}
 
 	if !drain {
 		// Settings blob — display rows the RO settings page renders.
@@ -238,13 +265,60 @@ func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool) (*mirror.S
 		}
 	}
 
-	if drain {
+	switch {
+	case delta:
+		// Seats replace: they are few and a released seat must vanish.
+		snap.Kinds = []string{"seat", "identity"}
+		snap.MergeKinds = []string{"story", "task", "execution", "wave", "ledger_event"}
+	case drain:
 		// Explicit partition set: omitted kinds stay untouched on the mirror.
 		snap.Kinds = []string{"story", "task", "execution", "seat", "wave", "identity"}
 		snap.MergeKinds = []string{"ledger_event"}
 	}
 
 	return snap, nil
+}
+
+// changedSince keeps the items updated at or after cut.
+func changedSince(items []workitem.Item, cut time.Time) []workitem.Item {
+	var out []workitem.Item
+	for _, it := range items {
+		if !it.UpdatedAt.Before(cut) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// epicParentsOf returns the epic-parents among items whose wave a change to
+// changed can move: a changed parent itself, and the parent of every epic theme
+// a changed story carries.
+func epicParentsOf(items, changed []workitem.Item) []workitem.Item {
+	themes := map[string]bool{}
+	ids := map[string]bool{}
+	for _, it := range changed {
+		if it.Kind != workitem.KindStory {
+			continue
+		}
+		ids[it.ID] = true
+		for _, t := range epicset.Themes(it) {
+			themes[t] = true
+		}
+	}
+	var out []workitem.Item
+	for _, it := range items {
+		if it.Kind != workitem.KindStory || !epicset.IsEpicParent(it) {
+			continue
+		}
+		moved := ids[it.ID]
+		for _, t := range epicset.Themes(it) {
+			moved = moved || themes[t]
+		}
+		if moved {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // listWavesJSON emits one wave row per epic-parent: the story-wave verb's own

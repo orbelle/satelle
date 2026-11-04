@@ -11,8 +11,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"strings"
 	"time"
 
@@ -178,29 +176,10 @@ func livenessPorts(cfg config.Config, repoRoot string) []int {
 // healthzOK is the dial+GET used by the serve probe; tests swap it.
 var healthzOK = defaultHealthzOK
 
+// defaultHealthzOK answers from the machine-wide /healthz cache
+// (cachedHealthz), probing only when no other process has within its TTL.
 func defaultHealthzOK(url string) bool {
-	client := &http.Client{Timeout: 500 * time.Millisecond}
-	// Quick dial first so a closed port fails fast.
-	host := strings.TrimPrefix(url, "http://")
-	if i := strings.Index(host, "/"); i >= 0 {
-		host = host[:i]
-	}
-	conn, err := net.DialTimeout("tcp", host, 250*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	resp, err := client.Get(url)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
-	buf := make([]byte, 64)
-	n, _ := resp.Body.Read(buf)
-	return strings.Contains(strings.ToLower(string(buf[:n])), "ok")
+	return cachedHealthz(url).OK
 }
 
 func formatAge(d time.Duration) string {

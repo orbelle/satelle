@@ -168,6 +168,7 @@ func openAppForCmd(cmd *cobra.Command) error {
 			repoKey:  config.RepoKey(a.RepoRoot),
 			app:      a,
 			origin:   ingestOrigin(cmd),
+			since:    time.Now(),
 		}
 		verb.AddChangeNotifier(drain.mark)
 	}

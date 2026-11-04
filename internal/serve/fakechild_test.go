@@ -19,6 +19,7 @@ import (
 //	SATELLE_TEST_LOCK     a directory made for the run; a second concurrent run
 //	                      that finds it appends "overlap" to calls
 //	SATELLE_TEST_ORIGINS  a file the run appends $SATELLE_INGEST_ORIGIN to
+//	SATELLE_TEST_ENDPOINTS a file the run appends $SATELLE_SERVER_ENDPOINT to
 type fakeCLI struct {
 	calls string
 }
@@ -33,6 +34,7 @@ func newFakeCLI(t *testing.T) *fakeCLI {
 	script := `#!/bin/sh
 echo "$*" >> "` + f.calls + `"
 if [ -n "$SATELLE_TEST_ORIGINS" ]; then echo "${SATELLE_INGEST_ORIGIN:-local}" >> "$SATELLE_TEST_ORIGINS"; fi
+if [ -n "$SATELLE_TEST_ENDPOINTS" ]; then echo "$* ${SATELLE_SERVER_ENDPOINT:-unset}" >> "$SATELLE_TEST_ENDPOINTS"; fi
 if [ -n "$SATELLE_TEST_LOCK" ]; then
   if mkdir "$SATELLE_TEST_LOCK" 2>/dev/null; then
     sleep "${SATELLE_TEST_SLEEP:-0}"

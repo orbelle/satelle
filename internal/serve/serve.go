@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +73,7 @@ func Run(ctx context.Context, opts Options) error {
 		Record:    recordSnapshotFunc(home),
 		PushOff:   config.MachinePushOff,
 		DirtyHome: home,
+		Endpoint:  selfEndpoint(addr, port),
 	}
 	// A local change both dirties the push and lifts a snapshot's conflict
 	// backoff for the repo (sty_0367d20c); a hosted-origin one does neither.
@@ -110,6 +112,16 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	return nil
+}
+
+// selfEndpoint is the base URL this service's own children reach it on: the
+// bound host, or loopback when it binds every interface.
+func selfEndpoint(addr string, port int) string {
+	host := strings.Trim(strings.TrimSpace(addr), "[]")
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // serverLogConfig is the rotation of satelled's log file.

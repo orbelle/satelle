@@ -15,6 +15,63 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
+// sty_a003a459 AC1: a merge-only snapshot for a partition only a change event
+// has touched is answered 409 partition_unknown and writes no rows; once a full
+// body has landed, the same merge body is applied.
+func TestIngestMergeOnlyNeedsSeededPartition(t *testing.T) {
+	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	mux := http.NewServeMux()
+	(&mirror.IngestHandler{Store: s}).Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	post := func(path string, v any) (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(v)
+		resp, err := http.Post(srv.URL+path, "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	if code, _ := post("/ingest/change", mirror.ChangeEvent{RepoKey: "rk-new", Topic: "stories"}); code != 200 {
+		t.Fatalf("change event: %d", code)
+	}
+	delta := mirror.Snapshot{
+		RepoKey:    "rk-new",
+		Kinds:      []string{"seat", "identity"},
+		MergeKinds: []string{"story", "task", "execution", "wave", "ledger_event"},
+		Stories:    []json.RawMessage{[]byte(`{"id":"sty_edit","title":"Edited"}`)},
+	}
+	code, body := post("/ingest/snapshot", delta)
+	if code != http.StatusConflict || !strings.HasPrefix(body, mirror.CodePartitionUnknown) {
+		t.Fatalf("delta to an unseeded partition: %d %q, want 409 %s", code, body, mirror.CodePartitionUnknown)
+	}
+	if n, _ := s.CountItems(t.Context(), "rk-new", "story"); n != 0 {
+		t.Fatalf("a refused delta wrote %d story row(s)", n)
+	}
+
+	full := mirror.Snapshot{RepoKey: "rk-new", Stories: []json.RawMessage{
+		[]byte(`{"id":"sty_edit","title":"Old"}`), []byte(`{"id":"sty_other","title":"Other"}`),
+	}}
+	if code, body := post("/ingest/snapshot", full); code != 200 {
+		t.Fatalf("full body: %d %s", code, body)
+	}
+	if code, body := post("/ingest/snapshot", delta); code != 200 {
+		t.Fatalf("delta after a full body: %d %s", code, body)
+	}
+	stories, _ := s.ListItems(t.Context(), "rk-new", "story")
+	if len(stories) != 2 || !strings.Contains(stories[0].Payload, "Edited") {
+		t.Fatalf("delta must upsert its row and keep the rest: %v", stories)
+	}
+}
+
 func TestIngestRemove(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {

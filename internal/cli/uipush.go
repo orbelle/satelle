@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -25,9 +26,12 @@ type uiDrain struct {
 	repoKey  string
 	app      *app.App
 	origin   mirror.IngestOrigin
-	topics   []string
-	seen     map[string]struct{}
-	once     sync.Once
+	// since is the invocation start: the snapshot carries only rows updated
+	// from then (sty_a003a459). Zero sends the light drain's whole story list.
+	since  time.Time
+	topics []string
+	seen   map[string]struct{}
+	once   sync.Once
 }
 
 // mark records a distinct topic. Safe for concurrent use; never performs I/O.
@@ -62,7 +66,8 @@ func markMirrorDirty(a *app.App) {
 // flush delivers pending change events then one snapshot under a single budget.
 // Idempotent (sync.Once). Fail-silent: never panics, never returns an error to
 // the verb path; a snapshot that does not land marks the repo dirty. No-op when
-// endpoint empty or nothing was marked.
+// endpoint empty or nothing was marked. A delta satelled refuses because the
+// partition was never seeded is followed by the full body, inside the budget.
 func (d *uiDrain) flush() {
 	if d == nil {
 		return
@@ -75,6 +80,7 @@ func (d *uiDrain) flush() {
 		repoKey := d.repoKey
 		a := d.app
 		origin := d.origin
+		since := d.since
 		d.mu.Unlock()
 		if endpoint == "" || len(topics) == 0 {
 			return
@@ -92,7 +98,7 @@ func (d *uiDrain) flush() {
 		if a == nil {
 			return
 		}
-		snap, err := buildUIDrainSnapshot(ctx, a)
+		snap, err := buildUISnapshotOpts(ctx, a, true, since)
 		if err != nil || snap == nil {
 			if err != nil {
 				markMirrorDirty(a)
@@ -100,7 +106,15 @@ func (d *uiDrain) flush() {
 			return
 		}
 		snap.Origin = origin
-		if err := postUISnapshotContext(ctx, endpoint, snap); err != nil {
+		err = postUISnapshotContext(ctx, endpoint, snap)
+		if errors.Is(err, errPartitionUnknown) {
+			var full *mirror.Snapshot
+			if full, err = buildUISnapshot(ctx, a); err == nil {
+				full.Origin = origin
+				err = postUISnapshotContext(ctx, endpoint, full)
+			}
+		}
+		if err != nil {
 			markMirrorDirty(a)
 		}
 	})

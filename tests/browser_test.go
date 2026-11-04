@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1665,16 +1666,17 @@ func setInput(sel, val string) chromedp.Action {
 
 // liveState is one page's window.__satelleLive snapshot: whether it holds an
 // /events stream (open, opens), leads the shared stream, runs the per-tab
-// fallback, and how many on-reconnect reconciles it has run.
+// fallback, and how many on-reconnect reconciles it has run. A hidden page
+// defers its reconcile and is marked stale until shown (sty_a003a459).
 type liveState struct {
-	Open, Leader, Fallback bool
-	Opens, Reconciles      int
+	Open, Leader, Fallback, Hidden, Stale bool
+	Opens, Reconciles                     int
 }
 
 func readLive(ctx context.Context) (liveState, error) {
 	var s liveState
 	err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){var l=window.__satelleLive||{};
-		return {open:!!l.open,leader:!!l.leader,fallback:!!l.fallback,opens:l.opens||0,reconciles:l.reconciles||0};})()`, &s))
+		return {open:!!l.open,leader:!!l.leader,fallback:!!l.fallback,hidden:document.hidden,stale:!!l.stale,opens:l.opens||0,reconciles:l.reconciles||0};})()`, &s))
 	return s, err
 }
 
@@ -1760,11 +1762,13 @@ func TestBrowserSharedLiveStream(t *testing.T) {
 		}
 	}
 
-	// AC2: a live trigger reaches every page through the relay.
+	// AC2: a live trigger reaches every page through the relay. A background
+	// tab is hidden and defers its refetch until shown (sty_a003a459), so each
+	// is brought to the front before its row is looked for.
 	createStory(t, repo, "SharedStreamStory", "")
 	for i, tab := range tabs {
 		wctx, cancel := context.WithTimeout(tab, testutil.WaitBudget)
-		err := chromedp.Run(wctx, chromedp.WaitVisible(`#panel-stories .row[data-title="sharedstreamstory"]`, chromedp.ByQuery))
+		err := chromedp.Run(wctx, page.BringToFront(), chromedp.WaitVisible(`#panel-stories .row[data-title="sharedstreamstory"]`, chromedp.ByQuery))
 		cancel()
 		if err != nil {
 			t.Fatalf("page %d (leader %d) never showed the story created after load: %v", i, leader, err)
@@ -1824,6 +1828,17 @@ func TestBrowserSharedLiveStream(t *testing.T) {
 				took = true
 				if s.Reconciles > before[i].Reconciles {
 					t.Logf("handover in %v: page took the lead, reopened /events and reconciled (%d → %d)", time.Since(t0), before[i].Reconciles, s.Reconciles)
+					return
+				}
+				if s.Hidden && s.Stale {
+					// A hidden new leader defers the reconcile; shown, it runs it.
+					if err := chromedp.Run(rest[i], page.BringToFront()); err != nil {
+						t.Fatalf("bring the new leader to the front: %v", err)
+					}
+					if !waitCond(t, rest[i], `window.__satelleLive.reconciles > `+strconv.Itoa(before[i].Reconciles), time.Second) {
+						t.Fatalf("a hidden page took the lead and was shown but never reconciled: %+v", s)
+					}
+					t.Logf("handover in %v: hidden page took the lead and reconciled on show", time.Since(t0))
 					return
 				}
 			}

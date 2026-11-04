@@ -66,9 +66,17 @@ func (s *Store) migrate() error {
 	// freshness without rewriting rows or ringing the SSE doorbell
 	// (sty_e6e467fe). Tolerated on an existing database: SQLite has no
 	// ADD COLUMN IF NOT EXISTS, so a duplicate-column error means it is present.
-	if _, err := s.db.Exec(`ALTER TABLE partitions ADD COLUMN snap_hash TEXT NOT NULL DEFAULT ''`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return err
+	// seeded is 1 once a body replacing the story kind has been applied, so a
+	// merge-only drain can tell a partition holding full state from one a topic
+	// POST merely created (sty_a003a459). Same duplicate-column tolerance.
+	for _, stmt := range []string{
+		`ALTER TABLE partitions ADD COLUMN snap_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE partitions ADD COLUMN seeded INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return err
+			}
 		}
 	}
 	return nil
@@ -160,6 +168,25 @@ func (s *Store) SnapshotHash(ctx context.Context, repoKey string) (string, error
 	return h, err
 }
 
+// PartitionSeeded reports whether a full story set has ever been applied to
+// repoKey. False for an unknown partition and for one only change events or
+// merge-only bodies have touched.
+func (s *Store) PartitionSeeded(ctx context.Context, repoKey string) (bool, error) {
+	var seeded int
+	err := s.db.QueryRowContext(ctx, `SELECT seeded FROM partitions WHERE repo_key = ?`, repoKey).Scan(&seeded)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return seeded == 1, err
+}
+
+// MarkSeeded records that repoKey holds a full story set: the unchanged-body
+// short-circuit applies nothing but has just confirmed one.
+func (s *Store) MarkSeeded(ctx context.Context, repoKey string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE partitions SET seeded = 1 WHERE repo_key = ?`, repoKey)
+	return err
+}
+
 // SetSnapshotHash records the digest of the snapshot body just applied.
 func (s *Store) SetSnapshotHash(ctx context.Context, repoKey, hash string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE partitions SET snap_hash = ? WHERE repo_key = ?`, hash, repoKey)
@@ -234,7 +261,8 @@ func isUniqueConstraint(err error) bool {
 
 // ApplySnapshot applies every replace (delete+insert) and merge (upsert) kind
 // inside one transaction so a mid-apply failure leaves the partition unchanged
-// (sty_3562c820 AC2). Callers pass only the kinds they authorise.
+// (sty_3562c820 AC2). Callers pass only the kinds they authorise. A replace of
+// the story kind marks the partition seeded in the same transaction.
 func (s *Store) ApplySnapshot(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error {
 	repoKey = strings.TrimSpace(repoKey)
 	if repoKey == "" {
@@ -260,6 +288,11 @@ INSERT INTO items (repo_key, kind, id, payload, updated_at) VALUES (?, ?, ?, ?, 
 				if isUniqueConstraint(err) {
 					return &CollisionError{Kind: kr.Kind, ID: it.ID}
 				}
+				return err
+			}
+		}
+		if kr.Kind == "story" {
+			if _, err := tx.ExecContext(ctx, `UPDATE partitions SET seeded = 1 WHERE repo_key = ?`, repoKey); err != nil {
 				return err
 			}
 		}

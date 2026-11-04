@@ -1,3 +1,17 @@
+## [0.0.888] - 2026-11-04
+
+### Fixed
+- A mutating CLI verb's end-of-run drain sends satelled only the story, task and execution rows that verb changed, as merge upserts, instead of the repo's full story list. satelled answers `409 partition_unknown` for a repo whose partition has never had a full snapshot applied (a new `seeded` flag that only a full replace sets), and then the drain posts one full snapshot. A failed post still marks the repo dirty, and `satelle workspace add` still posts the full body. Before, every drain on a 500-story repo posted all 500 rows, several hundred times an hour. (sty_a003a459)
+- `/healthz` answers are cached for 10 s in a file under the global dir and shared across CLI processes, so repeated `satelle status --line` and hook runs send one probe. A reseed child that satelled spawns gets its endpoint through `SATELLE_SERVER_ENDPOINT` and probes nothing. (sty_a003a459)
+
+## [serve-v0.0.293] - 2026-11-04
+
+### Fixed
+- satelled's reconcile pass no longer spawns `satelle sync config push --snapshot-only` children. Substrate is git-owned, so they served nothing. `workspace add`, `sync documents push --snapshot-only` and `sync pull --fast-forward-only` still run on every pass. (sty_a003a459)
+- satelled tracks whether each repo's partition has been seeded and answers a change drain for an unseeded repo with `409 partition_unknown`, so the CLI sends the one full snapshot it needs. (sty_a003a459)
+- The board defers live refetches while its tab is hidden and runs one reconcile when the tab becomes visible again. (sty_a003a459)
+- A load benchmark (`SATELLE_LOAD=1 go test ./tests -run TestSatelledSteadyLoadFitsBudget`) starts a real satelled, registers 26 initialised repos and edits six of them every 3 s for longer than one reconcile interval. It asserts steady CPU under 10% of one core and RSS under 300 MB. It measured 5.53% and 83.1 MB, against about one core and 800 MB at peak on 0.0.291. The 5-minute full reseed of every repo remains; sty_a8b3d872 takes it on. (sty_a003a459)
+
 ## [0.0.887] - 2026-11-04
 
 ### Changed

@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,25 +35,104 @@ func resolveServerEndpointEnv() (endpoint string, disabled bool, set bool) {
 // matches. Missing header when wantInstance is set is a mismatch (fail closed
 // for auto-bootstrap — foreign or pre-identity serves are not adopted).
 func healthzInstanceOK(url, wantInstance string) bool {
+	a := cachedHealthz(url)
+	if !a.OK || wantInstance == "" {
+		return a.OK
+	}
+	return a.Instance != "" && a.Instance == wantInstance
+}
+
+// healthzCacheTTL is how long one /healthz answer serves every later CLI
+// process on the machine. The statusline and each hook run are separate
+// processes that each probed satelled once (sty_a003a459).
+const healthzCacheTTL = 10 * time.Second
+
+// healthzNow is the cache's clock; tests move it past the TTL.
+var healthzNow = time.Now
+
+// healthzAnswer is one /healthz answer as the cache file records it.
+type healthzAnswer struct {
+	OK       bool      `json:"ok"`
+	Instance string    `json:"instance,omitempty"`
+	At       time.Time `json:"at"`
+}
+
+// healthzCachePath is the machine-local cache file, or "" when the global dir
+// cannot be resolved (the probe then runs live).
+func healthzCachePath() (path string) {
+	defer func() {
+		if recover() != nil {
+			path = ""
+		}
+	}()
+	return filepath.Join(config.GlobalDir(), "run", "healthz.json")
+}
+
+// cachedHealthz returns url's /healthz answer: one another process recorded
+// within healthzCacheTTL, else a live probe, recorded for the next process. A
+// probe that got no HTTP answer is not recorded, so a service that has just
+// started is seen at once. Best-effort: any cache failure falls back to live.
+func cachedHealthz(url string) healthzAnswer {
+	path := healthzCachePath()
+	entries := map[string]healthzAnswer{}
+	now := healthzNow()
+	fresh := func(a healthzAnswer) bool { age := now.Sub(a.At); return age >= 0 && age < healthzCacheTTL }
+	if path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			_ = json.Unmarshal(b, &entries)
+		}
+		if a, ok := entries[url]; ok && fresh(a) {
+			return a
+		}
+	}
+	a, answered := probeHealthz(url)
+	if !answered || path == "" {
+		return a
+	}
+	a.At = now
+	entries[url] = a
+	for k, v := range entries {
+		if !fresh(v) {
+			delete(entries, k)
+		}
+	}
+	if b, err := json.Marshal(entries); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
+		if tmp, err := os.CreateTemp(filepath.Dir(path), ".healthz-*"); err == nil {
+			_, werr := tmp.Write(b)
+			if cerr := tmp.Close(); werr != nil || cerr != nil || os.Rename(tmp.Name(), path) != nil {
+				_ = os.Remove(tmp.Name())
+			}
+		}
+	}
+	return a
+}
+
+// probeHealthz GETs url once. answered is false when no HTTP response came
+// back; a closed port fails fast on the dial.
+func probeHealthz(url string) (a healthzAnswer, answered bool) {
+	host := strings.TrimPrefix(url, "http://")
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	conn, err := net.DialTimeout("tcp", host, 250*time.Millisecond)
+	if err != nil {
+		return a, false
+	}
+	_ = conn.Close()
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	resp, err := client.Get(url)
 	if err != nil {
-		return false
+		return a, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return a, true
 	}
 	buf := make([]byte, 64)
 	n, _ := resp.Body.Read(buf)
-	if !strings.Contains(strings.ToLower(string(buf[:n])), "ok") {
-		return false
-	}
-	if wantInstance == "" {
-		return true
-	}
-	got := strings.TrimSpace(resp.Header.Get(HeaderSatelleInstance))
-	return got != "" && got == wantInstance
+	a.OK = strings.Contains(strings.ToLower(string(buf[:n])), "ok")
+	a.Instance = strings.TrimSpace(resp.Header.Get(HeaderSatelleInstance))
+	return a, true
 }
 
 // seedSkipNotice is the operator/test-facing message when registration

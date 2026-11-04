@@ -35,6 +35,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -82,6 +83,11 @@ type Reconciler struct {
 	Targets func(ctx context.Context) []string
 	// Reseed re-requests one repo's snapshot; nil means reseedViaCLI.
 	Reseed func(ctx context.Context, repoPath string) error
+	// Endpoint is this service's own base URL. reseedViaCLI hands it to the
+	// child as config.EnvServerEndpoint, so the child posts here without first
+	// probing /healthz to find the service that spawned it. Empty leaves the
+	// child to discover the endpoint itself.
+	Endpoint string
 	// Bound reports whether the repo at a path names its hosted project; nil means
 	// config.RepoBoundAt. An unbound repo syncs nothing, so neither Snapshot nor
 	// Follow runs for it (sty_0dc600e1).
@@ -98,7 +104,7 @@ type Reconciler struct {
 	// appends drive, and the push sends only the rows this machine authored; the
 	// periodic whole-repo push sent a stale machine's state (sty_0dc600e1).
 	Follow func(ctx context.Context, repoPath string) error
-	// SubstratePush execs the CLI config and documents push verbs
+	// SubstratePush execs the CLI documents push and fast-forward pull verbs
 	// (substratepush.go); nil means substratePushViaCLI. Always invoked (opt-in,
 	// binding and refusal are the verbs' decisions). Its outcome
 	// is logged on its own streak and never reaches Record, which persists the
@@ -389,10 +395,7 @@ func (r *Reconciler) retryPass(ctx context.Context) {
 		}
 	}
 	sort.Strings(paths)
-	reseed := r.Reseed
-	if reseed == nil {
-		reseed = reseedViaCLI
-	}
+	reseed := r.reseed()
 	for _, path := range paths {
 		if ctx.Err() != nil {
 			return
@@ -437,10 +440,7 @@ func (r *Reconciler) pass(ctx context.Context) {
 	if r.Targets == nil {
 		return
 	}
-	reseed := r.Reseed
-	if reseed == nil {
-		reseed = reseedViaCLI
-	}
+	reseed := r.reseed()
 	snapshot := r.Snapshot
 	if snapshot == nil {
 		if r.Reseed == nil {
@@ -543,6 +543,14 @@ func (r *Reconciler) pass(ctx context.Context) {
 			delete(r.retry, path)
 		}
 	}
+}
+
+// reseed is Reseed, or reseedViaCLI pointed at Endpoint.
+func (r *Reconciler) reseed() func(context.Context, string) error {
+	if r.Reseed != nil {
+		return r.Reseed
+	}
+	return func(ctx context.Context, path string) error { return reseedViaCLI(ctx, path, r.Endpoint) }
 }
 
 // report turns one reseed outcome into at most one log line. A repo is reported
@@ -662,10 +670,16 @@ func storeExists(globalDir, repoPath string) bool {
 // builds the full snapshot and posts it to the ingest endpoint, so reconcile
 // needs no second code path and no new transport. Its ingest is stamped hosted
 // origin (mirror.EnvIngestOrigin): it only re-reads the store, and as local it
-// would set off a push for every target on every pass (sty_0367d20c).
-func reseedViaCLI(ctx context.Context, repoPath string) error {
+// would set off a push for every target on every pass (sty_0367d20c). A
+// non-empty endpoint is set as config.EnvServerEndpoint, which the child takes
+// without a /healthz probe (sty_a003a459).
+func reseedViaCLI(ctx context.Context, repoPath, endpoint string) error {
+	env := reseedEnv
+	if endpoint != "" {
+		env = append(slices.Clip(reseedEnv), config.EnvServerEndpoint+"="+endpoint)
+	}
 	return gated(ctx, repoPath, kindReseed, false, func(bin string) error {
-		_, err := execVerb(ctx, bin, repoPath, reseedEnv, "workspace", "add")
+		_, err := execVerb(ctx, bin, repoPath, env, "workspace", "add")
 		return err
 	})
 }

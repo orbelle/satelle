@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -25,6 +26,11 @@ const (
 	// pull, snapshot, rehydrate or align.
 	OriginHosted IngestOrigin = "hosted"
 )
+
+// CodePartitionUnknown leads the 409 body answering a merge-only snapshot for
+// a partition that has never had a full story set applied: the sender posts a
+// full body instead (sty_a003a459).
+const CodePartitionUnknown = "partition_unknown"
 
 // EnvIngestOrigin, set to OriginHosted, stamps a CLI verb's ingest hosted
 // whatever the verb: satelled sets it on its reseed child, whose
@@ -73,7 +79,9 @@ type Snapshot struct {
 	// Kinds is the explicit set of partitions this body authoritatively replaces
 	// (delete+insert). Empty means full snapshot: all standard kinds.
 	Kinds []string `json:"kinds,omitempty"`
-	// MergeKinds are applied as upsert-without-delete (ledger is append-only).
+	// MergeKinds are applied as upsert-without-delete: ledger_event (append-only)
+	// and the story, task, execution and wave rows a delta drain changed. A body
+	// with merge kinds that does not replace story needs a seeded partition.
 	MergeKinds []string `json:"merge_kinds,omitempty"`
 	// Origin is where the reported store change came from; see IngestOrigin.
 	Origin IngestOrigin `json:"origin,omitempty"`
@@ -266,6 +274,9 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !partial {
 		if prev, err := h.Store.SnapshotHash(ctx, snap.RepoKey); err == nil && prev != "" && prev == digest {
 			err := h.Store.MarkFresh(ctx, snap.RepoKey, now)
+			if err == nil {
+				err = h.Store.MarkSeeded(ctx, snap.RepoKey)
+			}
 			lap(&tm.apply)
 			if err != nil {
 				fail(err.Error(), http.StatusInternalServerError)
@@ -279,6 +290,22 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "unchanged": true})
+			return
+		}
+	}
+	// A merge-only body is a delta: it is only correct on top of a full story
+	// set. A partition a topic POST created holds none, so the sender is told to
+	// post the full body and nothing is applied.
+	if partial && len(snap.MergeKinds) > 0 && !slices.Contains(snap.Kinds, "story") {
+		seeded, err := h.Store.PartitionSeeded(ctx, snap.RepoKey)
+		if err != nil {
+			lap(&tm.apply)
+			fail(err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !seeded {
+			lap(&tm.apply)
+			fail(CodePartitionUnknown+": partition "+snap.RepoKey+" has no full snapshot; post one", http.StatusConflict)
 			return
 		}
 	}
@@ -370,21 +397,23 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 		}
 		return false
 	}
-	// When full (no Kinds), ledger is a replace. When light, ledger is merge-only.
+	// When full (no Kinds), every kind is a replace. When light, ledger and the
+	// per-row kinds a delta drain carries (sty_a003a459) may be merge-only.
 	full := len(snap.Kinds) == 0 && len(snap.MergeKinds) == 0
+	merges := func(kind string) bool { return !full && mergeOK(kind) }
 	candidates := []struct {
 		kind  string
 		rows  []ItemRow
 		merge bool
 	}{
-		{"story", rawToRows(snap.Stories, "id"), false},
-		{"task", rawToRows(snap.Tasks, "id"), false},
-		{"execution", rawToRows(snap.Executions, "id"), false},
+		{"story", rawToRows(snap.Stories, "id"), merges("story")},
+		{"task", rawToRows(snap.Tasks, "id"), merges("task")},
+		{"execution", rawToRows(snap.Executions, "id"), merges("execution")},
 		{"doc", docRows(snap.Docs), false},
-		{"ledger_event", rawToRows(snap.LedgerEvents, "id"), !full && mergeOK("ledger_event")},
+		{"ledger_event", rawToRows(snap.LedgerEvents, "id"), merges("ledger_event")},
 		{"story_doc", rawToRows(snap.StoryDocs, "id"), false},
 		{"seat", rawToRows(snap.Seats, "id"), false},
-		{"wave", rawToRows(snap.Waves, "container"), false},
+		{"wave", rawToRows(snap.Waves, "container"), merges("wave")},
 	}
 	for _, c := range candidates {
 		if c.merge {

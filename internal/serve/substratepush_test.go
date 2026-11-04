@@ -11,15 +11,15 @@ import (
 	"testing"
 )
 
-// The substrate push leg (sty_a66e1846): each reconcile pass execs the config and
-// documents push verbs after the work-state push.
+// The substrate push leg (sty_a66e1846): each reconcile pass execs the documents
+// push and the fast-forward pull. Config areas are git-owned, so no pass pushes
+// them (sty_a003a459).
 
-// The loop runs exactly these verbs in this order — the two pushes, then the
+// The loop runs exactly these verbs in this order — the documents push, then the
 // fast-forward pull (sty_0fa4f732) — and never deploys, reconciles, rehydrates,
 // forces or prunes. The pull is the only one that pulls, and only by fast-forward.
 func TestSubstratePushArgvIsFixed(t *testing.T) {
 	want := [][]string{
-		{"sync", "config", "push", "--snapshot-only"},
 		{"sync", "documents", "push", "--snapshot-only"},
 		{"sync", "pull", "--fast-forward-only"},
 	}
@@ -51,7 +51,7 @@ func TestSubstratePushViaCLIExecsEachVerbInTheRepo(t *testing.T) {
 	bin := t.TempDir()
 	log := filepath.Join(t.TempDir(), "calls.log")
 	script := "#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> " + log + "\n" +
-		"case \"$2\" in config) echo 'skills: behind' >&2; exit 3;; esac\n"
+		"case \"$2\" in documents) echo 'documents: behind' >&2; exit 3;; esac\n"
 	if err := os.WriteFile(filepath.Join(bin, "satelle"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -59,16 +59,15 @@ func TestSubstratePushViaCLIExecsEachVerbInTheRepo(t *testing.T) {
 	repo := t.TempDir()
 
 	err := substratePushViaCLI(context.Background(), repo)
-	if err == nil || !strings.Contains(err.Error(), "skills: behind") {
-		t.Fatalf("the config refusal did not surface: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "documents: behind") {
+		t.Fatalf("the documents refusal did not surface: %v", err)
 	}
 	raw, rerr := os.ReadFile(log)
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
 	resolved, _ := filepath.EvalSymlinks(repo)
-	want := resolved + "|sync config push --snapshot-only\n" + resolved + "|sync documents push --snapshot-only\n" +
-		resolved + "|sync pull --fast-forward-only\n"
+	want := resolved + "|sync documents push --snapshot-only\n" + resolved + "|sync pull --fast-forward-only\n"
 	if got := string(raw); got != want {
 		t.Fatalf("exec'd calls:\n%s\nwant:\n%s", got, want)
 	}

@@ -508,8 +508,9 @@ func min(a, b int) int {
 // per host, so app.js shares ONE /events stream across every open page
 // (sty_1ea8202b): the Web Lock leader holds it and relays it over a
 // BroadcastChannel. A timer costs none of that — but only while it stays a timer.
-// It also pins sty_1ea8202b AC6: the per-tab visibility gating is gone, not
-// kept as a second path beside the shared stream.
+// It also pins sty_1ea8202b AC6: visibility never opens or closes a stream, so
+// there is no per-tab path beside the shared one. The one visibility listener
+// only runs the deferred reconcile of a page that was hidden (sty_a003a459).
 func TestAppJSTickerAddsNoConnection(t *testing.T) {
 	js, err := staticFS.ReadFile("static/app.js")
 	if err != nil {
@@ -524,8 +525,16 @@ func TestAppJSTickerAddsNoConnection(t *testing.T) {
 			t.Errorf("the shared live stream must coordinate pages through %s", want)
 		}
 	}
-	if strings.Contains(src, "visibilitychange") {
-		t.Error("the per-tab visibility gating must be deleted (no dual paths beside the shared stream)")
+	if n := strings.Count(src, "visibilitychange"); n > 1 {
+		t.Errorf("want at most 1 visibilitychange listener (the deferred reconcile), got %d", n)
+	}
+	if _, after, ok := strings.Cut(src, `"visibilitychange"`); ok {
+		handler, _, _ := strings.Cut(after, "});")
+		for _, stream := range []string{"openStream", "closeStream", "EventSource", ".close()"} {
+			if strings.Contains(handler, stream) {
+				t.Errorf("the visibility listener touches the stream (%s): no per-tab stream path beside the shared one", stream)
+			}
+		}
 	}
 	// The ticker re-renders from the DOM; it must not fetch to learn the time.
 	if strings.Contains(src, "renderRelTimes") && strings.Contains(src, "fetch(\"fragment/time") {

@@ -21,7 +21,7 @@ func TestReseedChildCarriesTheHostedIngestOrigin(t *testing.T) {
 	origins := filepath.Join(t.TempDir(), "origins")
 	t.Setenv("SATELLE_TEST_ORIGINS", origins)
 	t.Setenv(mirror.EnvIngestOrigin, "") // not inherited from the test's own env
-	if err := reseedViaCLI(context.Background(), t.TempDir()); err != nil {
+	if err := reseedViaCLI(context.Background(), t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(origins)

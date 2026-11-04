@@ -550,11 +550,21 @@
         .catch(function () {});
     }, 250) : null;
 
-    var live = window.__satelleLive = { open: false, opens: 0, leader: false, fallback: false, reconciles: 0 };
+    var live = window.__satelleLive = { open: false, opens: 0, leader: false, fallback: false, reconciles: 0, triggers: 0, stale: false };
+
+    // A hidden page fetches nothing (sty_a003a459): a trigger or reconcile only
+    // marks it stale, and one reconcile runs when it is shown again. The leader
+    // keeps its stream and keeps relaying to the followers.
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden || !live.stale) return;
+      live.stale = false;
+      reconcile();
+    });
 
     // reconcile pulls fresh state after ANY connection gap (an SSE reconnect, or
     // a new leader's stream after a handover) so nothing is missed meanwhile.
     function reconcile() {
+      if (document.hidden) { live.stale = true; return; }
       live.reconciles++;
       if (isProjects) { if (refreshProjects) refreshProjects(); return; }
       if (isLogs) { if (refreshLogs) refreshLogs(); return; }
@@ -566,6 +576,8 @@
     // topic, whether ev is this page's own SSE event or the leader's relayed
     // {t:"trigger", data} message.
     function handleTrigger(ev) {
+      live.triggers++;
+      if (document.hidden) { live.stale = true; return; }
       if (refetch[ev.data]) refetch[ev.data]();
       (DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); });
       if (refreshDetail && ev.data === detailTopic) refreshDetail();
