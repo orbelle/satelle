@@ -48,3 +48,22 @@ the operator.
 A change that only makes sense because of how this repo works (its
 `.version`, `install.sh`, GitHub Actions, release flow, deploy mechanics)
 belongs in `.satelle/`, never in the binary.
+
+## Git and the forge are a step's work
+
+The binary takes no git or forge action: no commit, push, merge, branch, tag,
+clone, pull request, review or status. Those are a step skill's actions, which
+the agent performs under the step's configuration. The binary stays a small
+mechanism that runs the user's configuration through its reviewers and gates;
+a plan that moves process into it is refused at plan review
+(satelle-binary-scope-review). The binary's existing git use is debt,
+inventoried with a decision per call in sty_042c7fa3.
+
+## Secrets arrive as environment
+
+A secret reaches a script or an agent only through its environment, set when
+the process starts: on a remote, satelle.dev resolves the definition's `[env]`
+and the launcher writes it into the node's environment; locally, a binding's
+secrets are passed into the agent CLI's environment. A script reads the
+variable. satelle never substitutes a secret into text it returns to an agent,
+so a value never enters an agent's context, transcript, the ledger or a commit.

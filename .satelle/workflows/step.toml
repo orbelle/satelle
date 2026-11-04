@@ -26,6 +26,7 @@ lane_tag = "lane:"
 advise = { agent = "orchestrator", skill = "satelle-workflow-advisor" }
 
 # A story's readiness: the planner checks the premise and plans while the story is in backlog, and the reviewers judge that plan.
+# satelle-binary-scope-review keeps git, forge actions and process logic out of the binary (satelle-mechanism-vs-substrate).
 [readied]
 status = "plan"
 agent = "planner"
@@ -33,7 +34,7 @@ skills = ["plan"]
 propose = true
 mark = "ready"
 reject_budget = 10
-reviewers = ["satelle-story-architecture-review"]
+reviewers = ["satelle-story-architecture-review", "satelle-binary-scope-review"]
 reviewer_agent = "reviewer"
 parallel = 2
 reviewer_carry = "until_accept"

@@ -25,6 +25,9 @@ type GitHub struct {
 	// ReviewerLogin is the author every review posted to the fake is recorded
 	// under: the App the minted token belongs to.
 	ReviewerLogin string
+	// FailEvent, when set, is a review event ("APPROVE", "COMMENT") every post of
+	// which the fake answers 500, recording nothing.
+	FailEvent string
 
 	srv *httptest.Server
 
@@ -45,6 +48,9 @@ type PR struct {
 	HeadSHA string
 	Body    string
 	Diff    string
+	// Author is the login that opened the PR; an APPROVE posted while it is
+	// ReviewerLogin is refused with 422, as GitHub refuses the PR's own author.
+	Author string
 }
 
 // PostedReview is a review a caller posted.
@@ -289,9 +295,20 @@ func (g *GitHub) postReview(w http.ResponseWriter, r *http.Request, repo, num, t
 		return
 	}
 	g.mu.Lock()
-	if _, ok := g.prs[prKey(repo, n)]; !ok {
+	p, ok := g.prs[prKey(repo, n)]
+	if !ok {
 		g.mu.Unlock()
 		reply(w, http.StatusNotFound, `{"message":"Not Found"}`)
+		return
+	}
+	if g.FailEvent != "" && in.Event == g.FailEvent {
+		g.mu.Unlock()
+		reply(w, http.StatusInternalServerError, `{"message":"Server Error"}`)
+		return
+	}
+	if in.Event == "APPROVE" && p.Author != "" && p.Author == g.ReviewerLogin {
+		g.mu.Unlock()
+		reply(w, http.StatusUnprocessableEntity, `{"message":"Unprocessable Entity","errors":["Can not approve your own pull request"]}`)
 		return
 	}
 	rv := PostedReview{ID: int64(1000 + len(g.reviews)), Repo: repo, Number: n, CommitID: in.CommitID, Event: in.Event, Body: in.Body, Token: token}

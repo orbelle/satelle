@@ -139,20 +139,22 @@ reviewer judges, read through the configured forge with the run's token.`,
 	approve := &cobra.Command{
 		Use:   "approve",
 		Short: "Cold-review a story's PR and, on accept, approve its exact head",
-		Long: `Find the open PR whose head is epic/<story>, check its body carries the
-story's criteria block and that the repo's constitution (principle
-repo-constitution) is installed, have the satelle-pr-review skill judge it cold from
-pointers alone, and only on accept post an APPROVE review on the exact head it
-judged plus a commit status ([forge.github] status_context). A head that moved
-since the review is not approved. The outcome and findings are recorded on
---execution's run-output doc.`,
+		Long: `Find the one open PR whose head is epic/<story> or feat/<story> ([forge]
+pr_heads), check its body carries the story's criteria block and that the repo's
+constitution (principle repo-constitution) is installed, have the
+satelle-pr-review skill judge it cold from pointers alone, and only on accept
+post an APPROVE review on the exact head it judged plus a commit status
+([forge.github] status_context). When the forge refuses the PR author's own
+approving review, the status is posted with a COMMENT review instead. A head
+that moved since the review is not approved. The outcome and findings are
+recorded on --execution's run-output doc.`,
 		Args:        cobra.NoArgs,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPRApprove(cmd, repo, approveStory, execution, binding)
 		},
 	}
-	approve.Flags().StringVar(&approveStory, "story", "", "the story whose PR (head epic/<story>) is approved")
+	approve.Flags().StringVar(&approveStory, "story", "", "the story whose PR (head epic/<story> or feat/<story>, per [forge] pr_heads) is approved")
 	approve.Flags().StringVar(&execution, "execution", "", "the execution the outcome and findings are recorded on")
 	approve.Flags().StringVar(&binding, "binding", "reviewer", "the agents.toml binding the cold review runs under")
 	_ = approve.MarkFlagRequired("story")
@@ -176,8 +178,9 @@ func runPRApprove(cmd *cobra.Command, repoFlag, story, execution, binding string
 		return err
 	}
 	a := forge.Approval{
-		Repo: target.repo, StoryID: story, StatusContext: process.Forge.ResolvedStatusContext(),
-		Constitution: forge.ConstitutionInstalled,
+		Repo: target.repo, StoryID: story, HeadPrefixes: process.Forge.ResolvedPRHeads(),
+		StatusContext: process.Forge.ResolvedStatusContext(),
+		Constitution:  forge.ConstitutionInstalled,
 		Review: func(ctx context.Context, req forge.ReviewRequest) (forge.Verdict, error) {
 			if prReview != nil {
 				return prReview(ctx, cmd, binding, req)

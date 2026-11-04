@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -123,8 +124,27 @@ func (c *Client) Diff(ctx context.Context, repo string, n int) (string, error) {
 }
 
 // Approve re-reads PR n's head and, only when it is still sha, records an
-// APPROVE review on commit sha.
+// APPROVE review on commit sha. GitHub's 422 refusing the PR's own author is
+// returned wrapping forge.ErrSelfApproval.
 func (c *Client) Approve(ctx context.Context, repo string, n int, sha, body string) (forge.Review, error) {
+	rv, err := c.postReview(ctx, repo, n, sha, "APPROVE", body)
+	var api *APIError
+	if errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity &&
+		strings.Contains(strings.ToLower(api.Message), "approve your own pull request") {
+		return forge.Review{}, fmt.Errorf("%w: %v", forge.ErrSelfApproval, err)
+	}
+	return rv, err
+}
+
+// Comment re-reads PR n's head and, only when it is still sha, records a
+// COMMENT review on commit sha.
+func (c *Client) Comment(ctx context.Context, repo string, n int, sha, body string) (forge.Review, error) {
+	return c.postReview(ctx, repo, n, sha, "COMMENT", body)
+}
+
+// postReview posts a review with event on commit sha of PR n, after checking
+// the PR's head is still sha.
+func (c *Client) postReview(ctx context.Context, repo string, n int, sha, event, body string) (forge.Review, error) {
 	now, err := c.PullRequest(ctx, repo, n)
 	if err != nil {
 		return forge.Review{}, err
@@ -140,7 +160,7 @@ func (c *Client) Approve(ctx context.Context, repo string, n int, sha, body stri
 			Login string `json:"login"`
 		} `json:"user"`
 	}
-	in := map[string]string{"commit_id": sha, "event": "APPROVE", "body": body}
+	in := map[string]string{"commit_id": sha, "event": event, "body": body}
 	if err := c.do(ctx, http.MethodPost, pullPath(repo, n)+"/reviews", "", in, &out); err != nil {
 		return forge.Review{}, err
 	}
@@ -156,7 +176,8 @@ func (c *Client) SetStatus(ctx context.Context, repo, sha string, s forge.Status
 func pullPath(repo string, n int) string { return "/repos/" + repo + "/pulls/" + strconv.Itoa(n) }
 
 // APIError is a call GitHub answered with a status other than 2xx. Its text
-// carries the method, path, status and GitHub's message, never the token.
+// carries the method, path, status and GitHub's message (with its errors
+// entries), never the token.
 type APIError struct {
 	Method, Path string
 	Status       int
@@ -202,11 +223,15 @@ func (c *Client) do(ctx context.Context, method, path, accept string, in, out an
 	}
 	if resp.StatusCode/100 != 2 {
 		var msg struct {
-			Message string `json:"message"`
+			Message string            `json:"message"`
+			Errors  []json.RawMessage `json:"errors"`
 		}
 		_ = json.Unmarshal(raw, &msg)
 		if msg.Message == "" {
 			msg.Message = http.StatusText(resp.StatusCode)
+		}
+		if details := errorDetails(msg.Errors); details != "" {
+			msg.Message += ": " + details
 		}
 		p, _, _ := strings.Cut(path, "?")
 		return &APIError{Method: method, Path: p, Status: resp.StatusCode, Message: msg.Message}
@@ -223,4 +248,24 @@ func (c *Client) do(ctx context.Context, method, path, accept string, in, out an
 		}
 		return nil
 	}
+}
+
+// errorDetails joins the entries of an error answer's errors array, each a
+// string or an object with a message.
+func errorDetails(entries []json.RawMessage) string {
+	var parts []string
+	for _, e := range entries {
+		var s string
+		if json.Unmarshal(e, &s) == nil {
+			parts = append(parts, s)
+			continue
+		}
+		var o struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(e, &o) == nil && o.Message != "" {
+			parts = append(parts, o.Message)
+		}
+	}
+	return strings.Join(parts, "; ")
 }

@@ -3,6 +3,9 @@ package github_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/forge"
@@ -77,6 +80,61 @@ func TestGitHubRefusesToApproveAMovedHead(t *testing.T) {
 	}
 	if gh.Posts() != 0 {
 		t.Errorf("posts = %d, want none", gh.Posts())
+	}
+}
+
+// GitHub's 422 refusing the PR's own author is ErrSelfApproval and records
+// nothing; Comment then records a COMMENT review on the exact head.
+func TestGitHubSelfApprovalIsErrSelfApprovalAndCommentStillPosts(t *testing.T) {
+	gh := devtest.NewGitHub(t)
+	gh.Mint(token, repo)
+	gh.AddPR(devtest.PR{Repo: repo, Number: 7, HeadRef: "feat/sty_x", HeadSHA: head, Author: gh.ReviewerLogin})
+	f := open(t, gh)
+	ctx := context.Background()
+
+	_, err := f.Approve(ctx, repo, 7, head, "approved")
+	if !errors.Is(err, forge.ErrSelfApproval) || !strings.Contains(err.Error(), "Can not approve your own pull request") {
+		t.Fatalf("Approve on an own PR = %v, want ErrSelfApproval carrying GitHub's text", err)
+	}
+	if gh.Posts() != 0 {
+		t.Fatalf("posts after the refused approval = %d, want none", gh.Posts())
+	}
+	rv, err := f.Comment(ctx, repo, 7, head, "approved by status")
+	if err != nil || rv.CommitID != head {
+		t.Fatalf("Comment = %+v, %v", rv, err)
+	}
+	if r := gh.Reviews(); len(r) != 1 || r[0].Event != "COMMENT" || r[0].CommitID != head || r[0].Body != "approved by status" {
+		t.Errorf("reviews = %+v, want one COMMENT on %s", r, head)
+	}
+	gh.SetHead(repo, 7, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	var moved *forge.HeadMovedError
+	if _, err := f.Comment(ctx, repo, 7, head, "x"); !errors.As(err, &moved) || len(gh.Reviews()) != 1 {
+		t.Errorf("Comment on a moved head = %v (reviews %d), want a HeadMovedError and no post", err, len(gh.Reviews()))
+	}
+}
+
+// A 422 for any other reason is not ErrSelfApproval; GitHub's object-form
+// errors entries reach the message.
+func TestGitHubOtherUnprocessableIsNotSelfApproval(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"number":7,"head":{"ref":"epic/sty_x","sha":"` + head + `"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"message":"Pull request review thread is outdated"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	f, err := forge.Open(github.Name, forge.Config{APIURL: srv.URL, Token: token, HTTP: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.Approve(context.Background(), repo, 7, head, "approved")
+	var api *github.APIError
+	if errors.Is(err, forge.ErrSelfApproval) || !errors.As(err, &api) || api.Status != 422 ||
+		!strings.Contains(api.Message, "Pull request review thread is outdated") {
+		t.Fatalf("Approve on another 422 = %v, want a plain 422 APIError carrying its errors entry", err)
 	}
 }
 

@@ -68,14 +68,22 @@ type Forge interface {
 	Diff(ctx context.Context, repo string, n int) (string, error)
 	// Approve records an approving review of PR n on commit sha, and only on it:
 	// when the PR's head is no longer sha it posts nothing and returns a
-	// *HeadMovedError.
+	// *HeadMovedError. When the forge refuses because the token's user authored
+	// the PR, the error wraps ErrSelfApproval.
 	Approve(ctx context.Context, repo string, n int, sha, body string) (Review, error)
+	// Comment records a COMMENT review of PR n on commit sha, under the same head
+	// guard as Approve.
+	Comment(ctx context.Context, repo string, n int, sha, body string) (Review, error)
 	// SetStatus posts s on commit sha of repo.
 	SetStatus(ctx context.Context, repo, sha string, s Status) error
 }
 
 // ErrNoPR is PullRequestForHead's answer when no open PR has the head.
 var ErrNoPR = errors.New("no open PR")
+
+// ErrSelfApproval is what Approve's error wraps when the forge refuses an
+// approving review because the token's user authored the PR.
+var ErrSelfApproval = errors.New("the forge refuses an approving review from the PR's author")
 
 // ManyPRsError is PullRequestForHead's answer when more than one open PR has the
 // head, so the PR to judge is not known.
@@ -159,6 +167,22 @@ func SplitRef(ref string) (repo string, n int, err error) {
 	return repo, n, nil
 }
 
+// EpicHeadPrefix is the branch prefix a story's worktree is cut on.
+const EpicHeadPrefix = "epic/"
+
 // EpicHead is the branch a story's PR is opened from: epic/<story id>, the
 // branch convention a story's worktree is cut on.
-func EpicHead(storyID string) string { return "epic/" + storyID }
+func EpicHead(storyID string) string { return EpicHeadPrefix + storyID }
+
+// StoryHeads are the branches a story's PR may be opened from: each prefix
+// followed by the story id, in order. No prefixes is EpicHead alone.
+func StoryHeads(storyID string, prefixes []string) []string {
+	if len(prefixes) == 0 {
+		return []string{EpicHead(storyID)}
+	}
+	heads := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		heads[i] = p + storyID
+	}
+	return heads
+}

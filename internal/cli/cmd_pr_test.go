@@ -326,3 +326,112 @@ func TestPRApproveRejectPostsNothingAndRecordsTheFindings(t *testing.T) {
 		t.Errorf("run-output doc = %s, want reject with the findings", doc)
 	}
 }
+
+// A PR opened by the token's own user: the forge refuses the APPROVE, so the
+// status is posted on the judged head with a COMMENT review carrying the
+// approval body, and the run accepts noting the self-authored PR.
+func TestPRApproveOnASelfAuthoredPRPostsTheStatusAndACommentAndAccepts(t *testing.T) {
+	story, body := criteriaBody(t)
+	n := newPRNode(t, story, true)
+	n.gh.AddPR(devtest.PR{Repo: prRepo, Number: prNumber, HeadRef: forge.EpicHead(story), HeadSHA: prHead, Body: body, Author: n.gh.ReviewerLogin})
+	stubReview(t, forge.Verdict{Accept: true, Findings: "every criterion met"}, nil)
+
+	n.approve(t, story)
+
+	statuses := n.gh.Statuses()
+	if len(statuses) != 1 || statuses[0].SHA != prHead || statuses[0].Context != "satelle/pr-approval" || statuses[0].State != forge.StatusSuccess {
+		t.Errorf("statuses = %+v, want one success under satelle/pr-approval on %s", statuses, prHead)
+	}
+	reviews := n.gh.Reviews()
+	if len(reviews) != 1 || reviews[0].Event != "COMMENT" || reviews[0].CommitID != prHead ||
+		!strings.Contains(reviews[0].Body, "acceptance criteria of "+story) {
+		t.Errorf("reviews = %+v, want one COMMENT on %s carrying the approval body and no APPROVE", reviews, prHead)
+	}
+	doc := n.runOutput(t)
+	for _, want := range []string{"outcome: accept", "every criterion met", "self-authored"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("run-output doc lacks %q:\n%s", want, doc)
+		}
+	}
+}
+
+// A review failure other than the author's own refusal still rejects, posting
+// neither a status nor a review.
+func TestPRApproveOtherReviewFailureRejects(t *testing.T) {
+	story, body := criteriaBody(t)
+	n := newPRNode(t, story, true)
+	n.addPR(story, body)
+	n.gh.FailEvent = "APPROVE"
+	stubReview(t, forge.Verdict{Accept: true, Findings: "ok"}, nil)
+
+	n.approve(t, story)
+
+	if p := n.gh.Posts(); p != 0 {
+		t.Errorf("forge posts = %d (reviews %+v, statuses %+v), want none", p, n.gh.Reviews(), n.gh.Statuses())
+	}
+	doc := n.runOutput(t)
+	for _, want := range []string{"outcome: reject", "the approval could not be posted", "500"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("run-output doc lacks %q:\n%s", want, doc)
+		}
+	}
+}
+
+// A story's PR opened from feat/<story> is found and approved under the default
+// [forge] pr_heads.
+func TestPRApproveFindsTheStoryPROnAFeatHead(t *testing.T) {
+	story, body := criteriaBody(t)
+	n := newPRNode(t, story, true)
+	n.gh.AddPR(devtest.PR{Repo: prRepo, Number: prNumber, HeadRef: "feat/" + story, HeadSHA: prHead, Body: body})
+	stubReview(t, forge.Verdict{Accept: true, Findings: "ok"}, nil)
+
+	n.approve(t, story)
+
+	if r := n.gh.Reviews(); len(r) != 1 || r[0].Event != "APPROVE" || r[0].Number != prNumber {
+		t.Errorf("reviews = %+v, want one APPROVE on #%d", r, prNumber)
+	}
+	if doc := n.runOutput(t); !strings.Contains(doc, "outcome: accept") {
+		t.Errorf("run-output doc = %s, want accept", doc)
+	}
+}
+
+// [forge] pr_heads narrowed to feat/ does not find a PR on epic/<story>.
+func TestPRApproveHeadsFollowTheRepoConfig(t *testing.T) {
+	story, body := criteriaBody(t)
+	n := newPRNode(t, story, true)
+	writeRepoFile(t, n.repo, ".satelle/satelle.toml", "[review]\ngate_create = false\n\n[forge]\npr_heads = [\"feat/\"]\n")
+	n.addPR(story, body)
+	calls := stubReview(t, forge.Verdict{Accept: true}, nil)
+
+	n.approve(t, story)
+
+	doc := n.runOutput(t)
+	if !strings.Contains(doc, "outcome: reject") || !strings.Contains(doc, "no open PR on "+prRepo+" has head feat/"+story) {
+		t.Errorf("run-output doc = %s, want reject naming only feat/%s", doc, story)
+	}
+	if *calls != 0 || n.gh.Posts() != 0 {
+		t.Errorf("reviews dispatched = %d, forge posts = %d; want none", *calls, n.gh.Posts())
+	}
+}
+
+// Open PRs on both epic/<story> and feat/<story> is ambiguous: a reject naming
+// both, with no review and no post.
+func TestPRApproveTwoPRsForOneStoryRejectsNamingBoth(t *testing.T) {
+	story, body := criteriaBody(t)
+	n := newPRNode(t, story, true)
+	n.addPR(story, body)
+	n.gh.AddPR(devtest.PR{Repo: prRepo, Number: prNumber + 1, HeadRef: "feat/" + story, HeadSHA: prHead, Body: body})
+	calls := stubReview(t, forge.Verdict{Accept: true}, nil)
+
+	n.approve(t, story)
+
+	doc := n.runOutput(t)
+	for _, want := range []string{"outcome: reject", "ambiguous", prRepo + "#42 (epic/" + story + ")", prRepo + "#43 (feat/" + story + ")"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("run-output doc lacks %q:\n%s", want, doc)
+		}
+	}
+	if *calls != 0 || n.gh.Posts() != 0 {
+		t.Errorf("reviews dispatched = %d, forge posts = %d; want none", *calls, n.gh.Posts())
+	}
+}
