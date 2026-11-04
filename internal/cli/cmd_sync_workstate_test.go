@@ -158,8 +158,14 @@ func newFakeWorkstateServerWith(t *testing.T, routes func(mux *http.ServeMux, f 
 // gRPC (SetTestGRPCDial is not safe for t.Parallel).
 func attachTestGRPC(t *testing.T, srv syncpb.SyncServer, extra ...func(*grpc.Server)) {
 	t.Helper()
+	attachTestGRPCWith(t, nil, srv, extra...)
+}
+
+// attachTestGRPCWith is attachTestGRPC with server options (an interceptor).
+func attachTestGRPCWith(t *testing.T, opts []grpc.ServerOption, srv syncpb.SyncServer, extra ...func(*grpc.Server)) {
+	t.Helper()
 	lis := bufconn.Listen(1 << 20)
-	gs := grpc.NewServer()
+	gs := grpc.NewServer(opts...)
 	syncpb.RegisterSyncServer(gs, srv)
 	for _, register := range extra {
 		register(gs)
@@ -181,10 +187,10 @@ func attachTestGRPC(t *testing.T, srv syncpb.SyncServer, extra ...func(*grpc.Ser
 }
 
 // attachFakeWorkstateGRPC serves Sync against the same maps push/pull tests use.
-func attachFakeWorkstateGRPC(t *testing.T, f *fakeWorkstateServer) {
+func attachFakeWorkstateGRPC(t *testing.T, f *fakeWorkstateServer, opts ...grpc.ServerOption) {
 	t.Helper()
 	f.chain = newFakeChain(f)
-	attachTestGRPC(t, &fakeWorkstateGRPC{f: f}, func(gs *grpc.Server) { syncpb.RegisterChainServer(gs, f.chain) })
+	attachTestGRPCWith(t, opts, &fakeWorkstateGRPC{f: f}, func(gs *grpc.Server) { syncpb.RegisterChainServer(gs, f.chain) })
 }
 
 type fakeWorkstateGRPC struct {
@@ -234,7 +240,7 @@ func (s *fakeWorkstateGRPC) Apply(ctx context.Context, req *syncpb.ApplyRequest)
 		}
 	}
 	s.f.posts[key] = append(s.f.posts[key], map[string]any{"items": items, "ledger": ledger})
-	return &syncpb.ApplyResponse{Items: int32(len(req.GetItems())), Ledger: int32(len(req.GetLedger()))}, nil
+	return &syncpb.ApplyResponse{Items: int32(len(req.GetItems())), Ledger: int32(len(req.GetLedger())), Outputs: int32(len(req.GetOutputs()))}, nil
 }
 
 func (s *fakeWorkstateGRPC) Snapshot(ctx context.Context, req *syncpb.SnapshotRequest) (*syncpb.SnapshotResponse, error) {

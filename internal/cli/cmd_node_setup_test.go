@@ -194,8 +194,8 @@ func TestNodeJoinFailingSetupFailsTheStartAndReportsIt(t *testing.T) {
 	if r.relay.Attempts() != 0 {
 		t.Error("the node joined the relay after a failed setup")
 	}
-	if n := len(fake.Pushed()); n != 0 {
-		t.Errorf("workstate pushes = %d, want none", n)
+	if calls := r.sync.rec.all(); len(calls) != 0 {
+		t.Errorf("work-state RPCs = %+v, want none", calls)
 	}
 	if fake.ChannelKey() != nil {
 		t.Error("the node published a channel key after a failed setup")

@@ -452,8 +452,9 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 			return err
 		}
 	}
+	batch.Outputs = outputsOf(batch.Items, batch.Outputs)
 
-	if len(batch.Items) == 0 && len(batch.Ledger) == 0 && len(plan) == 0 {
+	if len(batch.Items) == 0 && len(batch.Ledger) == 0 && len(batch.Outputs) == 0 && len(plan) == 0 {
 		if hadCursor && !full {
 			fmt.Fprintf(out, "Work-state up to date on %s — no records changed since the last push.\n", server)
 			recordWorkstatePush(a.RepoRoot, true, "", syncScope.String())
@@ -524,6 +525,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		if len(withheld) > 0 {
 			held = withheld
 			batch.Items, batch.Ledger, earliestHeld = withoutHeld(held, batch.Items, batch.Ledger, ledgerRows)
+			batch.Outputs = outputsOf(batch.Items, batch.Outputs)
 			lmark = ledgerMarkBeforeHold(startMark, held, ledgerRows)
 			if !earliestHeld.IsZero() {
 				maxItems = itemsCursorBefore(batch.Items, earliestHeld, cursor.ItemsUpdatedAt)
@@ -545,7 +547,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		fmt.Fprintf(out, "Published the events of %d stor(y/ies) to project %q on %s.\n", published, project, server)
 	}
 	if appendErr != nil {
-		if errors.Is(appendErr, hosted.ErrLoginRequired) {
+		if stopsPush(appendErr) {
 			recordWorkstatePush(a.RepoRoot, false, appendErr.Error(), syncScope.String())
 			return appendErr
 		}
@@ -557,7 +559,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 			}
 		}()
 	}
-	if held != nil && len(batch.Items) == 0 && len(batch.Ledger) == 0 {
+	if held != nil && len(batch.Items) == 0 && len(batch.Ledger) == 0 && len(batch.Outputs) == 0 {
 		fmt.Fprintln(out, "No work-state rows to push after holding unpushed stories.")
 		recordOK()
 		return nil
@@ -569,51 +571,55 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 	if len(batch.Items) > 0 && earliestHeld.IsZero() && !hostedMode {
 		maxItems = maxItemUpdatedAt(batch.Items)
 	}
-	var totalItems, totalLedger int
-	apply := func(items, ledgerRaw []json.RawMessage) error {
+	var totalItems, totalLedger, totalOutputs int
+	apply := func(items, ledgerRaw []json.RawMessage, outputs []hosted.WorkstateOutput) error {
 		if items == nil {
 			items = []json.RawMessage{}
 		}
 		if ledgerRaw == nil {
 			ledgerRaw = []json.RawMessage{}
 		}
-		res, perr := client.Apply(cmd.Context(), project, hosted.WorkstateIngest{Items: items, Ledger: ledgerRaw})
+		res, perr := client.Apply(cmd.Context(), project, hosted.WorkstateIngest{Items: items, Ledger: ledgerRaw, Outputs: outputs})
 		if perr != nil {
 			recordWorkstatePush(a.RepoRoot, false, perr.Error(), syncScope.String())
-			if errors.Is(perr, hosted.ErrLoginRequired) {
+			if stopsPush(perr) {
 				return perr
 			}
 			return fmt.Errorf("apply workstate: %w", perr)
 		}
 		totalItems += res.Items
 		totalLedger += res.Ledger
+		totalOutputs += res.Outputs
 		return nil
 	}
 	// Story rows were sent as events, so the ledger cursor still moves past them.
-	if len(batch.Items) == 0 && len(batch.Ledger) == 0 && !storyRowsDropped {
+	if len(batch.Items) == 0 && len(batch.Ledger) == 0 && len(batch.Outputs) == 0 && !storyRowsDropped {
 		fmt.Fprintln(out, "No work-state rows to push after the story events.")
 		return nil
 	}
 	type partial struct {
-		items  []json.RawMessage
-		ledger []json.RawMessage
+		items   []json.RawMessage
+		ledger  []json.RawMessage
+		outputs []hosted.WorkstateOutput
 	}
 	var parts []partial
 	switch {
-	case len(batch.Items) == 0 && len(batch.Ledger) == 0:
+	case len(batch.Items) == 0 && len(batch.Ledger) == 0 && len(batch.Outputs) == 0:
 		// Only story rows were due and they went as events.
 	case len(batch.Items) <= workstateItemChunk && len(batch.Ledger) <= workstateLedgerChunk:
-		parts = []partial{{items: batch.Items, ledger: batch.Ledger}}
+		parts = []partial{{items: batch.Items, ledger: batch.Ledger, outputs: batch.Outputs}}
 	default:
+		// An output rides the part that carries its execution: the server takes an
+		// output only beside its execution or once the execution is in the project.
 		for _, c := range chunkRaw(batch.Items, workstateItemChunk) {
-			parts = append(parts, partial{items: c})
+			parts = append(parts, partial{items: c, outputs: outputsOf(c, batch.Outputs)})
 		}
 		for _, c := range chunkRaw(batch.Ledger, workstateLedgerChunk) {
 			parts = append(parts, partial{ledger: c})
 		}
 	}
 	for _, p := range parts {
-		if err := apply(p.items, p.ledger); err != nil {
+		if err := apply(p.items, p.ledger, p.outputs); err != nil {
 			return err
 		}
 		if hostedMode {
@@ -623,8 +629,8 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		}
 	}
 	if scope != nil {
-		fmt.Fprintf(out, "scoped push to project %q on %s: %d item(s), %d ledger entr(y/ies).\n",
-			project, server, totalItems, totalLedger)
+		fmt.Fprintf(out, "scoped push to project %q on %s: %d item(s), %d ledger entr(y/ies), %d output(s).\n",
+			project, server, totalItems, totalLedger, totalOutputs)
 	} else {
 		// Advance cursor only after full success.
 		next := hosted.WorkstateCursor{
@@ -637,8 +643,8 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		if err := hosted.SaveWorkstateCursor(server, project, repoRoot, next); err != nil {
 			return fmt.Errorf("save workstate cursor: %w", err)
 		}
-		fmt.Fprintf(out, "Pushed work-state to project %q on %s: %d item(s), %d ledger entr(y/ies).\n",
-			project, server, totalItems, totalLedger)
+		fmt.Fprintf(out, "Pushed work-state to project %q on %s: %d item(s), %d ledger entr(y/ies), %d output(s).\n",
+			project, server, totalItems, totalLedger, totalOutputs)
 	}
 	if codeHeld > 0 {
 		fmt.Fprintf(out, "%d stor(y/ies) held until their code is on the remote.\n", codeHeld)
@@ -653,6 +659,26 @@ func recordWorkstatePush(repoPath string, success bool, reason, scope string) {
 
 func recordWorkstateHeld(repoPath string, held map[string]string) {
 	_ = syncstate.RecordPushHeld(config.GlobalDir(), repoPath, held)
+}
+
+// outputsOf keeps the outputs whose execution is among items: an output leaves
+// with its execution, so one held back, or already pushed, takes its output
+// with it.
+func outputsOf(items []json.RawMessage, outputs []hosted.WorkstateOutput) []hosted.WorkstateOutput {
+	if len(outputs) == 0 {
+		return outputs
+	}
+	in := make(map[string]bool, len(items))
+	for _, raw := range items {
+		in[rawItemID(raw)] = true
+	}
+	kept := outputs[:0:0]
+	for _, o := range outputs {
+		if in[o.Execution] {
+			kept = append(kept, o)
+		}
+	}
+	return kept
 }
 
 func chunkRaw(in []json.RawMessage, size int) [][]json.RawMessage {
@@ -1393,12 +1419,17 @@ func collectWorkstateSince(ctx context.Context, a *app.App, optIn map[string]boo
 	return batch, maxItems, mark, err
 }
 
+// errRunOutputTooLarge is a run-output doc over what Sync/Apply accepts: it would
+// refuse the whole batch, so the push stops before any call.
+var errRunOutputTooLarge = fmt.Errorf("run output exceeds the %d MiB Sync/Apply accepts", hosted.MaxRunOutputBytes>>20)
+
 // collectWorkstateRows is collectWorkstateSince plus, for each collected ledger
 // row in batch order, who owns it and where it sits — what the unpushed-code
 // hold needs to cut the ledger cursor ahead of a held row (sty_7361569a).
 //
 // A non-nil scope keeps only the items whose own id it names and the ledger rows
 // of the stories it names (sty_991b6900); nil collects everything past the cursor.
+// Each collected execution's run-output doc rides in the batch's Outputs.
 func collectWorkstateRows(ctx context.Context, a *app.App, optIn map[string]bool, cursor hosted.WorkstateCursor, scope scopeSet) (hosted.WorkstateIngest, time.Time, ledgerMark, []ledgerRowMeta, error) {
 	var rows []ledgerRowMeta
 	var batch hosted.WorkstateIngest
@@ -1431,6 +1462,15 @@ func collectWorkstateRows(ctx context.Context, a *app.App, optIn map[string]bool
 				batch.Items = append(batch.Items, raw)
 				if it.UpdatedAt.After(maxItems) {
 					maxItems = it.UpdatedAt
+				}
+				if kind != workitem.KindExecution {
+					continue
+				}
+				if name, body, ok := verb.RunOutputDoc(it); ok {
+					if len(body) > hosted.MaxRunOutputBytes {
+						return fmt.Errorf("%s of %s: %w", name, it.ID, errRunOutputTooLarge)
+					}
+					batch.Outputs = append(batch.Outputs, hosted.WorkstateOutput{Execution: it.ID, Name: name, Body: body})
 				}
 			}
 			if len(items) < workstateItemChunk {

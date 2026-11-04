@@ -904,15 +904,32 @@ components:
           items:
             type: object
             additionalProperties: true
+        outputs:
+          type: array
+          description: >-
+            Run-output documents of executions in the batch or the project. A
+            body over 1 MiB, or an unknown execution, refuses the batch.
+          items:
+            type: object
+            required: [execution, name, body]
+            properties:
+              execution:
+                type: string
+              name:
+                type: string
+              body:
+                type: string
 
     WorkstateIngestResult:
       type: object
       required: [items, ledger]
-      description: Counts of upserted rows from a work-state ingest.
+      description: Counts of upserted rows and written run outputs from a work-state ingest.
       properties:
         items:
           type: integer
         ledger:
+          type: integer
+        outputs:
           type: integer
 
     WorkstateItem:

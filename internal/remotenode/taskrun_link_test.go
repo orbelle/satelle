@@ -3,6 +3,8 @@ package remotenode
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -63,34 +65,51 @@ func TestRunTaskWithNoSubjectWritesNoExecutionLink(t *testing.T) {
 	}
 }
 
-// pushLog records the batches a run pushes; err is what every push answers.
-type pushLog struct {
-	batches []NodeWorkstate
-	err     error
-}
-
-func (l *pushLog) PushWorkstate(_ context.Context, w NodeWorkstate) (PushWorkstateReply, error) {
-	l.batches = append(l.batches, w)
-	return PushWorkstateReply{}, l.err
-}
-
-// The run is pushed once, after its link row is written, and a refused push does
-// not change the run's outcome.
+// The run is published once, after its link row is written, and a refused
+// publish does not change the run's outcome.
 func TestRunTaskPushesAfterTheLinkRowAndSurvivesARefusedPush(t *testing.T) {
 	e := newTaskEnv(t, false)
 	ctx := context.Background()
-	push := &pushLog{err: context.DeadlineExceeded}
+	published := 0
 	tr := taskRun(e, executorOnly{}, &statusLog{})
-	tr.Pusher = push
-	tr.Batch = func(ctx context.Context, exec workitem.Item, subject string) (NodeWorkstate, error) {
+	tr.Publish = func(ctx context.Context, exec workitem.Item, subject string) (PublishReport, error) {
+		published++
 		rows, _ := e.db.Ledger.ListByStory(ctx, subject, ledger.KindExecutionLink)
 		if len(rows) != 1 || subject != "sty_subject" {
-			t.Errorf("at push: link rows = %d, subject = %q, want the link row written first", len(rows), subject)
+			t.Errorf("at publish: link rows = %d, subject = %q, want the link row written first", len(rows), subject)
 		}
-		return NodeWorkstate{}, nil
+		return PublishReport{}, context.DeadlineExceeded
 	}
 	res, err := RunTask(ctx, tr)
-	if err != nil || len(push.batches) != 1 || res.Outcome != verb.OutcomePerformed {
-		t.Fatalf("result = %+v, err = %v, pushes = %d, want performed after exactly one push", res, err, len(push.batches))
+	if err != nil || published != 1 || res.Outcome != verb.OutcomePerformed {
+		t.Fatalf("result = %+v, err = %v, publishes = %d, want performed after exactly one publish", res, err, published)
+	}
+}
+
+// A fetch satelle.dev refused (ErrRunRefused) stops the run before its execution
+// is made: nothing is written, nothing published, and the run concludes rejected.
+func TestRunTaskStopsOnARefusedFetch(t *testing.T) {
+	e := newTaskEnv(t, false)
+	ctx := context.Background()
+	var fetched []string
+	published := 0
+	tr := taskRun(e, executorOnly{}, &statusLog{})
+	tr.Fetch = func(_ context.Context, ids ...string) error {
+		fetched = append(fetched, ids...)
+		return fmt.Errorf("%w: node token refused", ErrRunRefused)
+	}
+	tr.Publish = func(context.Context, workitem.Item, string) (PublishReport, error) {
+		published++
+		return PublishReport{}, nil
+	}
+	res, err := RunTask(ctx, tr)
+	if !errors.Is(err, ErrRunRefused) || res.Execution != "" || res.Outcome != verb.OutcomeReject {
+		t.Fatalf("result = %+v, err = %v, want a rejected run with no execution and the refusal", res, err)
+	}
+	if len(fetched) != 1 || fetched[0] != "sty_subject" || published != 0 {
+		t.Errorf("fetched %v, published %d times, want only the subject's fetch and no publish", fetched, published)
+	}
+	if rows, _ := e.db.Ledger.ListByStory(ctx, "sty_subject", ledger.KindExecutionLink); len(rows) != 0 {
+		t.Errorf("link rows = %d after a refused fetch, want none", len(rows))
 	}
 }

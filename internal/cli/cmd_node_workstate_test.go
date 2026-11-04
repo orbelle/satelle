@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"strings"
 	"testing"
-	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/hosted/syncpb"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
@@ -29,96 +31,48 @@ func recordingPerformers() *taskPerformers {
 
 // hostedSubjectRig is a task rig whose wake names a story of the team workspace
 // that the node's store does not hold, as a real node's does not: its rows are on
-// the fake's hosted chain only, chained from an empty base.
+// the node project's hosted chain only, chained from an empty base.
 func hostedSubjectRig(t *testing.T, id string, rows ...ledger.Entry) *nodeRig {
 	t.Helper()
 	r, _ := taskRig(t, "nightly-sweep", true)
-	seeded := hostedRows(t, id, rows...)
+	if err := r.sync.seed(devtest.DefaultProject, id, rows...); err != nil {
+		t.Fatal(err)
+	}
 	r.fakeSetup = func(f *devtest.Node) {
 		f.Run = map[string]string{"mode": "node", "story_id": id, "trigger": "nightly", "trigger_source": "schedule"}
 		f.LostAfterSeconds = 3
-		f.SeedChain(id, seeded...)
 	}
 	return r
 }
 
-// hostedRows chains rows on story id from an empty base, in the encoding a push
-// sends.
-func hostedRows(t *testing.T, id string, rows ...ledger.Entry) []json.RawMessage {
+// onePush is the one Sync/Apply the node made, failing the test unless it made
+// exactly one.
+func onePush(t *testing.T, r *nodeRig) *syncpb.ApplyRequest {
 	t.Helper()
-	var out []json.RawMessage
-	base := ""
-	for _, e := range rows {
-		if e.ID == "" {
-			e.ID = ledger.NewID()
-		}
-		if e.CreatedAt.IsZero() {
-			e.CreatedAt = time.Now().UTC()
-		}
-		e.StoryID, e.BaseID = id, base
-		raw, err := marshalWorkstateLedger(e)
-		if err != nil {
+	applies := r.sync.applies()
+	if len(applies) != 1 {
+		t.Fatalf("the node made %d Sync/Apply calls, want one\nnode log:\n%s", len(applies), r.log)
+	}
+	return applies[0]
+}
+
+// executionOf is the id of the one execution an Apply carries.
+func executionOf(t *testing.T, req *syncpb.ApplyRequest) string {
+	t.Helper()
+	var ids []string
+	for _, it := range req.GetItems() {
+		var item struct{ ID, Kind string }
+		if err := json.Unmarshal(it.GetRecord(), &item); err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, raw)
-		base = e.ID
-	}
-	return out
-}
-
-// pushedRow is what a test reads of a pushed ledger row.
-type pushedRow struct {
-	ID      string          `json:"id"`
-	StoryID string          `json:"story_id"`
-	Kind    string          `json:"kind"`
-	BaseID  string          `json:"base_id"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-// rowsOn is the ledger rows of b on story, in batch order.
-func rowsOn(t *testing.T, b devtest.Batch, story string) []pushedRow {
-	t.Helper()
-	var out []pushedRow
-	for _, raw := range b.Ledger {
-		var r pushedRow
-		if err := json.Unmarshal(raw, &r); err != nil {
-			t.Fatal(err)
-		}
-		if r.StoryID == story {
-			out = append(out, r)
+		if item.Kind == string(workitem.KindExecution) {
+			ids = append(ids, item.ID)
 		}
 	}
-	return out
-}
-
-// onePush is the one batch the fake accepted, failing the test unless the node
-// made exactly one push and it was accepted.
-func onePush(t *testing.T, r *nodeRig, fake *devtest.Node) devtest.Batch {
-	t.Helper()
-	var statuses []int
-	for _, c := range fake.Calls() {
-		if c.Method == http.MethodPost && strings.HasSuffix(c.Path, "/workstate") {
-			statuses = append(statuses, c.Status)
-		}
+	if len(ids) != 1 {
+		t.Fatalf("executions applied = %v, want exactly one", ids)
 	}
-	pushed := fake.Pushed()
-	if len(statuses) != 1 || statuses[0] != http.StatusOK || len(pushed) != 1 {
-		t.Fatalf("workstate pushes answered %v, accepted %d, want one accepted push\nnode log:\n%s", statuses, len(pushed), r.log)
-	}
-	return pushed[0]
-}
-
-// executionOf is the id of the execution a batch carries.
-func executionOf(t *testing.T, b devtest.Batch) string {
-	t.Helper()
-	if len(b.Items) != 1 {
-		t.Fatalf("items = %d, want exactly the execution", len(b.Items))
-	}
-	var item struct{ ID string }
-	if err := json.Unmarshal(b.Items[0], &item); err != nil || item.ID == "" {
-		t.Fatalf("item = %s (%v), want an execution", b.Items[0], err)
-	}
-	return item.ID
+	return ids[0]
 }
 
 // noStaleBase fails the test when the node's log carries a stale-base refusal.
@@ -141,33 +95,137 @@ func TestNodeTaskWakeStoppedRunEmptyHostedHead(t *testing.T) {
 
 	w := r.wake(t)
 	_ = waitJoin(t, w.joined) // the run did not finish; its push is what is judged
-	b := onePush(t, r, w.fake)
+	onePush(t, r)
 
-	rows := rowsOn(t, b, subject)
+	rows := r.sync.appended(t, subject)
 	if len(rows) != 2 || rows[0].Kind != ledger.KindExecutionStopped || rows[1].Kind != ledger.KindExecutionLink {
 		t.Fatalf("subject rows pushed = %+v, want execution_stopped then execution_link", rows)
 	}
 	if rows[0].BaseID != "" || rows[1].BaseID != rows[0].ID {
 		t.Errorf("bases = %q, %q, want the empty head then the alert %q", rows[0].BaseID, rows[1].BaseID, rows[0].ID)
 	}
-	if n := len(w.fake.Chain(subject)); n != 2 {
+	if n := len(r.sync.f.chain.stored(devtest.DefaultProject, subject)); n != 2 {
 		t.Errorf("the subject's hosted chain has %d rows, want the alert and the link", n)
 	}
 	noStaleBase(t, r)
 }
 
-// hostedRow is a hosted chain event as the node's chain route carries its row: the
-// event's payload with the event's id, story and base.
-func hostedRow(t *testing.T, ev *syncpb.Event) json.RawMessage {
-	t.Helper()
-	var row map[string]any
-	if err := json.Unmarshal(ev.GetPayload(), &row); err != nil {
-		t.Fatal(err)
+// sty_ce11bbdb AC1, AC3: a node syncs its work state through the RPCs a local
+// satelle uses, to the project its run descriptor names, with its node token as
+// the bearer and nothing else changed: the pre-write read is Chain/Read, the
+// story rows go by Chain/Append, the execution and its run output by Sync/Apply.
+// No call carries a location, no row an origin, and no work state goes over the
+// node's HTTP API.
+func TestNodeTaskWakeSyncsLikeALocalSatelle(t *testing.T) {
+	const project = "acme-team"
+	r, subject := taskRig(t, "nightly-sweep", true)
+	setup := r.fakeSetup
+	r.fakeSetup = func(f *devtest.Node) {
+		setup(f)
+		f.Project = project
 	}
-	row["id"], row["story_id"], row["base_id"] = ev.GetId(), ev.GetStoryId(), ev.GetBaseId()
-	raw, err := json.Marshal(row)
-	if err != nil {
-		t.Fatal(err)
+	useTaskNode(t, recordingPerformers(), 0)
+
+	w := r.wake(t)
+	if err := waitJoin(t, w.joined); err != nil {
+		t.Fatalf("join: %v\nnode log:\n%s", err, r.log)
 	}
-	return raw
+
+	calls := r.sync.rec.all()
+	seen := map[string]int{}
+	for _, c := range calls {
+		seen[c.Method]++
+		if c.Project != project || c.Auth != "Bearer "+w.spec.Token || c.Location != "" {
+			t.Errorf("call %+v, want project %s, the node token as bearer and no location", c, project)
+		}
+	}
+	for m := range seen {
+		if m != "Read" && m != "Append" && m != "Apply" {
+			t.Errorf("the node called %s; want only Chain/Read, Chain/Append and Sync/Apply", m)
+		}
+	}
+	if seen["Read"] == 0 || seen["Append"] == 0 || seen["Apply"] != 1 {
+		t.Fatalf("calls = %+v, want reads, appends and one apply\nnode log:\n%s", calls, r.log)
+	}
+	if calls[0].Method != "Read" || calls[0].Story != subject.ID() {
+		t.Errorf("first call = %+v, want the pre-write read of the subject %s", calls[0], subject.ID())
+	}
+	for _, c := range w.fake.Calls() {
+		if strings.Contains(c.Path, "/workstate") || strings.Contains(c.Path, "/stories/") {
+			t.Errorf("work state went over the node API: %s %s", c.Method, c.Path)
+		}
+	}
+
+	apply := onePush(t, r)
+	exec := executionOf(t, apply)
+	if outs := apply.GetOutputs(); len(outs) != 1 || outs[0].GetExecution() != exec || !strings.Contains(string(outs[0].GetBody()), "swept the lot") {
+		t.Errorf("outputs = %v, want the run output of %s", outs, exec)
+	}
+	for _, it := range apply.GetItems() {
+		if it.GetOrigin() != "" {
+			t.Errorf("item carries origin %q", it.GetOrigin())
+		}
+	}
+	for _, e := range apply.GetLedger() {
+		if e.GetOrigin() != "" {
+			t.Errorf("ledger row carries origin %q", e.GetOrigin())
+		}
+	}
+	links := 0
+	for _, row := range r.sync.appended(t, subject.ID()) {
+		if row.Kind == ledger.KindExecutionLink {
+			links++
+		}
+	}
+	if links != 1 {
+		t.Errorf("execution_link rows appended to the subject = %d, want 1", links)
+	}
+	for _, req := range r.sync.appends() {
+		for _, ev := range req.GetEvents() {
+			var payload map[string]any
+			if err := json.Unmarshal(ev.GetPayload(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := payload["origin"]; ok {
+				t.Errorf("appended event %s carries an origin", ev.GetId())
+			}
+		}
+	}
+	if log := r.log.String(); !strings.Contains(log, "published to "+project) {
+		t.Errorf("the node's log does not report the publish to %s:\n%s", project, log)
+	}
+}
+
+// sty_ce11bbdb AC3: the pre-write read refused as the node token's (ended or
+// killed node) or as another project's stops the run with the named error, after
+// that one RPC: nothing is retried, refreshed, recorded or pushed.
+func TestNodeTaskWakeRefusedReadStopsTheRun(t *testing.T) {
+	for _, tc := range []struct {
+		code codes.Code
+		want error
+	}{
+		{codes.Unauthenticated, hosted.ErrNodeTokenRefused},
+		{codes.NotFound, hosted.ErrNodeProjectNotFound},
+	} {
+		t.Run(tc.code.String(), func(t *testing.T) {
+			r, _ := taskRig(t, "nightly-sweep", true)
+			r.sync.rec.refuse = func(rpcCall) error { return status.Error(tc.code, "refused") }
+			useTaskNode(t, recordingPerformers(), 0)
+
+			w := r.wake(t)
+			err := waitJoin(t, w.joined)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("join = %v, want %v\nnode log:\n%s", err, tc.want, r.log)
+			}
+			if errors.Is(err, hosted.ErrLoginRequired) {
+				t.Errorf("join = %v, a node refusal read as a login refusal", err)
+			}
+			if calls := r.sync.rec.all(); len(calls) != 1 || calls[0].Method != "Read" {
+				t.Errorf("calls = %+v, want the one refused read", calls)
+			}
+			if strings.Contains(r.log.String(), "published to") {
+				t.Errorf("the node published after a refused read:\n%s", r.log)
+			}
+		})
+	}
 }

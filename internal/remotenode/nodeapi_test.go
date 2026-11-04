@@ -46,16 +46,17 @@ func TestDefinitionIsFetchedWithTheNodeToken(t *testing.T) {
 	}
 }
 
-// The run descriptor is read from GET .../run with the node token, and a heartbeat
-// goes out as PUT .../status carrying only the fields it sets, the reply's
-// lost_after_seconds coming back.
+// The run descriptor, the project the node syncs to among it, is read from GET
+// .../run with the node token, and a heartbeat goes out as PUT .../status carrying
+// only the fields it sets, the reply's lost_after_seconds coming back.
 func TestRunAndStatusUseTheNodeRoutes(t *testing.T) {
 	fake, client, _ := newFake(t)
 	fake.Run = map[string]string{"mode": "node", "story_id": "sty_1", "trigger": "nightly", "trigger_source": "schedule"}
+	fake.Project = "acme-team"
 	fake.LostAfterSeconds = 90
 
 	d, err := client.Run(context.Background())
-	if err != nil || d != (RunDescriptor{Mode: "node", StoryID: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}) {
+	if err != nil || d != (RunDescriptor{Mode: "node", Project: "acme-team", StoryID: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}) {
 		t.Fatalf("Run = %+v, %v", d, err)
 	}
 	reply, err := client.Status(context.Background(), NodeStatus{State: StateRunning, StoryID: "sty_1", RunState: runstatus.Queued})

@@ -156,7 +156,7 @@ func taskRig(t *testing.T, task string, withTaskFile bool) (*nodeRig, *subjectSt
 	if withTaskFile {
 		r.bundle["tasks/tsk_"+task+".md"] = nodeTaskFile
 	}
-	subject := &subjectStory{}
+	subject := &subjectStory{sync: r.sync}
 	r.fakeSetup = func(f *devtest.Node) {
 		subject.fake = f
 		f.Run = subject
@@ -167,13 +167,14 @@ func taskRig(t *testing.T, task string, withTaskFile bool) (*nodeRig, *subjectSt
 
 // subjectStory is the story a wake names: a real story in the node's own store,
 // made when the node reads its run, so the test can show the run leaves it alone.
-// Its rows are on the fake's hosted chain too, as a story of the team workspace's
-// are. Its JSON is the run descriptor the fake serves.
+// Its rows are on the node's project's hosted chain too, as a story of the team
+// workspace's are. Its JSON is the run descriptor the fake serves.
 type subjectStory struct {
 	mu   sync.Mutex
 	item workitem.Item
 	err  error
 	fake *devtest.Node
+	sync *nodeSync
 }
 
 func (s *subjectStory) MarshalJSON() ([]byte, error) {
@@ -183,8 +184,8 @@ func (s *subjectStory) MarshalJSON() ([]byte, error) {
 		s.err = dispatchInto(context.Background(), "story-create", map[string]any{
 			"title": "subject", "body": "the story a task wake names, which the run must not move", "category": "chore",
 		}, &s.item)
-		if s.err == nil && s.fake != nil {
-			s.err = seedHostedRows(s.fake, s.item.ID)
+		if s.err == nil && s.fake != nil && s.sync != nil {
+			s.err = seedHostedRows(s.sync, s.fake.ProjectName(), s.item.ID)
 		}
 	}
 	if s.err != nil {
@@ -193,10 +194,10 @@ func (s *subjectStory) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]string{"mode": "node", "story_id": s.item.ID, "trigger": "nightly", "trigger_source": "schedule"})
 }
 
-// seedHostedRows puts every ledger row the node's store holds of id on the fake's
+// seedHostedRows puts every ledger row the node's store holds of id on project's
 // hosted chain of id, in chain order (ledger-list orders by time), in the
 // encoding a push sends.
-func seedHostedRows(fake *devtest.Node, id string) error {
+func seedHostedRows(s *nodeSync, project, id string) error {
 	var rows []ledger.Entry
 	if err := dispatchInto(context.Background(), "ledger-list", map[string]any{"story_id": id}, &rows); err != nil {
 		return err
@@ -205,14 +206,11 @@ func seedHostedRows(fake *devtest.Node, id string) error {
 	for _, e := range rows {
 		next[e.BaseID] = e
 	}
+	var ordered []ledger.Entry
 	for e, ok := next[""]; ok; e, ok = next[e.ID] {
-		raw, err := marshalWorkstateLedger(e)
-		if err != nil {
-			return err
-		}
-		fake.SeedChain(id, raw)
+		ordered = append(ordered, e)
 	}
-	return nil
+	return s.seed(project, id, ordered...)
 }
 
 // ID is the subject's id, "" until the node has read its run.

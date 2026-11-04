@@ -38,8 +38,8 @@ func TestLedgerEntryJSONMatchesREST(t *testing.T) {
 }
 
 func TestApplyResponseJSONMatchesREST(t *testing.T) {
-	h := hosted.WorkstateIngestResult{Items: 2, Ledger: 1}
-	r := api.ApplyResponse{Items: 2, Ledger: 1}
+	h := hosted.WorkstateIngestResult{Items: 2, Ledger: 1, Outputs: 1}
+	r := api.ApplyResponse{Items: 2, Ledger: 1, Outputs: 1}
 	assertByteIdenticalJSON(t, h, r)
 }
 

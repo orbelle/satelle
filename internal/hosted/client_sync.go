@@ -85,7 +85,7 @@ func (c *Client) Apply(ctx context.Context, project string, batch WorkstateInges
 	if err != nil {
 		return WorkstateIngestResult{}, c.mapSyncErr("Apply", err)
 	}
-	return WorkstateIngestResult{Items: int(out.GetItems()), Ledger: int(out.GetLedger())}, nil
+	return WorkstateIngestResult{Items: int(out.GetItems()), Ledger: int(out.GetLedger()), Outputs: int(out.GetOutputs())}, nil
 }
 
 // SnapshotOptions steers one Snapshot pass. SinceToken is the sync_token of a
@@ -223,6 +223,9 @@ func ingestToApplyRequest(project string, batch WorkstateIngest) (*syncpb.ApplyR
 		}
 		req.Ledger = append(req.Ledger, e)
 	}
+	for _, o := range batch.Outputs {
+		req.Outputs = append(req.Outputs, &syncpb.RunOutput{Execution: o.Execution, Name: o.Name, Body: []byte(o.Body)})
+	}
 	return req, nil
 }
 
@@ -333,6 +336,9 @@ func (c *Client) withGRPCAuth(ctx context.Context, fn func(ctx context.Context) 
 	if cred.IsSession() {
 		return ErrSessionTokenRefused
 	}
+	if cred.IsNode() {
+		return ErrNodeTokenRefused
+	}
 	// The refresh goes to the provider token endpoint stored with the
 	// credential, over HTTP — never to the satelle server's Sync.Refresh.
 	rotated, rErr := c.refreshAndPersist(ctx, cred)
@@ -371,12 +377,16 @@ func (c *Client) callCtx(ctx context.Context, token string) context.Context {
 	return c.withLocation(withBearer(ctx, token))
 }
 
-// mapSyncErr is mapGRPCErr with the session-token reading of NotFound: under a
-// session token the project is outside the token's scope.
+// mapSyncErr is mapGRPCErr with the token readings of NotFound: under a session
+// token the project is outside the token's scope, and under a node token it is
+// not the node's project.
 func (c *Client) mapSyncErr(op string, err error) error {
 	if status.Code(err) == codes.NotFound {
 		if scope := c.sessionScopeErr(); scope != nil {
 			return scope
+		}
+		if project := c.nodeProjectErr(op); project != nil {
+			return project
 		}
 	}
 	return mapGRPCErr(op, err)
@@ -384,7 +394,7 @@ func (c *Client) mapSyncErr(op string, err error) error {
 
 func mapGRPCErr(op string, err error) error {
 	var unknown *UnknownSubjectError
-	if err == nil || errors.Is(err, ErrLoginRequired) || errors.As(err, &unknown) {
+	if err == nil || errors.Is(err, ErrLoginRequired) || errors.Is(err, ErrNodeTokenRefused) || errors.As(err, &unknown) {
 		return err
 	}
 	if st, ok := status.FromError(err); ok {

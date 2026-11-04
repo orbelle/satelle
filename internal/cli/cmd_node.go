@@ -269,7 +269,7 @@ func runNodeJoin(cmd *cobra.Command, root, relay, session, token string) error {
 		// between the release and the end call leaves the node silent, listed lost.
 		release := spriteHold(ctx, cmd, session)
 		defer release()
-		err := runTaskWake(ctx, cmd, beat, client, root, session, def)
+		err := runTaskWake(ctx, cmd, beat, client, root, session, token, def)
 		endAfterJob(beat, endNode, release)
 		return err
 	}
@@ -513,26 +513,31 @@ func logNodeReady(log io.Writer, report remotenode.Report) {
 // cannot be prepared is reported as a failed start; a run that cannot be made or
 // driven is returned, having already reported itself concluded as rejected. A
 // node at a pull-only root (refusePullOnly) runs its task and pushes no workstate.
+//
+// The node syncs its work state as a local satelle does, to the project its run
+// descriptor names, over Sync and Chain with the node token as the credential
+// (hosted.NodeTokenStore). It has no bound checkout, so it sends no location.
 func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heartbeat, client *remotenode.NodeClient,
-	root, session string, def remotedef.Definition) error {
+	root, session, token string, def remotedef.Definition) error {
 	opts, desc, err := prepareTaskWake(ctx, cmd, client)
 	if err != nil {
 		reportNodeStartFailure(ctx, cmd, client, beat, err)
 		return err
 	}
-	var pusher remotenode.WorkstatePusher = client
+	push := true
 	if err := refusePullOnly(root); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "workstate push skipped: %v\n", err)
-		pusher = nil
+		push = false
 	}
 	tr := remotenode.TaskRun{
 		Def: def, Desc: desc, NodeID: session, Client: client, Drive: opts, ResendEvery: nodeStatusResend,
 	}
 	// A node that pushes reads the hosted chains it writes to first, so its rows
 	// build on the hosted head; one that pushes nothing has no head to build on.
-	if pusher != nil {
-		held := nodeHeldRows{}
-		tr.Pusher, tr.Batch, tr.Fetch = pusher, nodeWorkstateBatch(cmd, held), nodeChainFetch(cmd, client, held)
+	if push {
+		server := nodeServer()
+		hc := hosted.NewClient(server, hosted.NodeTokenStore{Server: server, Token: token}, nodeHTTP)
+		tr.Publish, tr.Fetch = nodePublish(cmd, hc, server, desc.Project), nodeChainFetch(cmd, hc, desc.Project)
 	}
 	beat.Stop()
 	res, rerr := remotenode.RunTask(ctx, tr)
@@ -542,37 +547,41 @@ func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heart
 	return nil
 }
 
-// nodeHeldRows is, for one task wake, the id of every hosted ledger row the
-// node's pre-write fetch applied. They are already on satelle.dev and none is the
-// run's, so its push leaves them out: a fetched execution_link of an earlier run
-// is not pushed again.
-type nodeHeldRows map[string]bool
+// errNodeNoProject: the run descriptor names no project, so the node has nowhere
+// to sync its work state to.
+var errNodeNoProject = errors.New("the run descriptor names no project")
 
 // nodeChainFetch is a task run's pre-write fetch (remotenode.TaskRun.Fetch): for
-// each id it reads the hosted chain under the node token and applies it to the
-// node's store through the same applier a trimmed story's fetch uses
-// (applyHostedChain), so the rows the run then appends take the hosted head as
-// their base (sty_0d621eaf). The node holds no login and binds no project, so it
-// reads through its node API, not the user's chain client, and saves no head: its
-// push carries each row's base. Every row it applies is held.
-func nodeChainFetch(cmd *cobra.Command, client *remotenode.NodeClient, held nodeHeldRows) func(context.Context, ...string) error {
+// each id it reads the hosted chain through the chain read a local satelle uses
+// (ChainConn.ReadStory) and applies it to the node's store through the same
+// applier a trimmed story's fetch uses (applyHostedChain), so the rows the run
+// then appends take the hosted head as their base (sty_0d621eaf). A refusal that
+// stops a push (stopsPush) stops the run before any further read or write.
+func nodeChainFetch(cmd *cobra.Command, hc *hosted.Client, project string) func(context.Context, ...string) error {
 	return func(ctx context.Context, ids ...string) error {
+		if project == "" {
+			return errNodeNoProject
+		}
 		a, err := appFrom(cmd)
 		if err != nil {
 			return err
 		}
+		conn, err := hc.OpenChain(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close() }()
 		var errs []error
 		for _, id := range ids {
 			if id == "" {
 				continue
 			}
-			events, _, ferr := client.StoryChain(ctx, id)
+			events, _, ferr := conn.ReadStory(ctx, project, id, "")
+			if stopsPush(ferr) {
+				return fmt.Errorf("%w: %w", remotenode.ErrRunRefused, ferr)
+			}
 			if ferr == nil {
-				var applied []string
-				applied, ferr = applyHostedChain(ctx, a, id, events)
-				for _, row := range applied {
-					held[row] = true
-				}
+				_, ferr = applyHostedChain(ctx, a, id, events)
 			}
 			if ferr != nil {
 				errs = append(errs, ferr)
@@ -582,37 +591,49 @@ func nodeChainFetch(cmd *cobra.Command, client *remotenode.NodeClient, held node
 	}
 }
 
-// nodeWorkstateBatch collects what a task run pushes to the team workspace: the
-// execution, the ledger rows of the execution and of the subject that the run
-// wrote (its link row, and the drive's execution_stopped alert when the run ended
-// short), in the order they were written, and the execution's run-output doc. A
-// row the pre-write fetch brought from satelle.dev (held) is not pushed. It reads
-// only the node's own store and holds no credential; the node token that sends it
-// is the NodeClient's.
-func nodeWorkstateBatch(cmd *cobra.Command, held nodeHeldRows) func(context.Context, workitem.Item, string) (remotenode.NodeWorkstate, error) {
-	return func(ctx context.Context, exec workitem.Item, subject string) (remotenode.NodeWorkstate, error) {
+// nodePublish is a task run's publish (remotenode.TaskRun.Publish): the push a
+// local `satelle sync workstate push` scoped to the execution and its subject
+// makes, through the same collector (collectWorkstateRows), the same story
+// appends (planStoryAppends, publishStoryEvents) and the same Sync/Apply, with
+// the node token as the credential. A refusal that stops a push (stopsPush) is
+// returned before anything else is sent.
+func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project string) func(context.Context, workitem.Item, string) (remotenode.PublishReport, error) {
+	return func(ctx context.Context, exec workitem.Item, subject string) (remotenode.PublishReport, error) {
+		rep := remotenode.PublishReport{Project: project}
+		if project == "" {
+			return rep, errNodeNoProject
+		}
 		a, err := appFrom(cmd)
 		if err != nil {
-			return remotenode.NodeWorkstate{}, err
+			return rep, err
 		}
 		scope := scopeSet{exec.ID: true}
 		if subject != "" {
 			scope[subject] = true
 		}
-		rows, _, _, meta, err := collectWorkstateRows(ctx, a, map[string]bool{"executions": true, "ledger": true}, hosted.WorkstateCursor{}, scope)
+		batch, _, _, _, err := collectWorkstateRows(ctx, a, workstateOptIn(config.PersonalScope), hosted.WorkstateCursor{}, scope)
 		if err != nil {
-			return remotenode.NodeWorkstate{}, err
+			return rep, err
 		}
-		batch := remotenode.NodeWorkstate{Items: rows.Items, Ledger: []json.RawMessage{}, Outputs: []remotenode.RunOutput{}}
-		for i, raw := range rows.Ledger {
-			if !held[meta[i].id] {
-				batch.Ledger = append(batch.Ledger, raw)
-			}
+		cursor, err := hosted.LoadWorkstateCursor(server, project, a.RepoRoot)
+		if err != nil {
+			return rep, fmt.Errorf("load workstate cursor: %w", err)
 		}
-		if name, body, ok := verb.RunOutputDoc(exec); ok {
-			batch.Outputs = append(batch.Outputs, remotenode.RunOutput{Execution: exec.ID, Name: name, Body: body})
+		plan, err := planStoryAppends(ctx, a, scope, cursor.StoryHeads)
+		if err != nil {
+			return rep, err
 		}
-		return batch, nil
+		var appendErr error
+		rep.Stories, appendErr = publishStoryEvents(ctx, cmd.ErrOrStderr(), a, hc, server, project, plan, nil)
+		if stopsPush(appendErr) {
+			return rep, appendErr
+		}
+		res, err := hc.Apply(ctx, project, hosted.WorkstateIngest{Items: batch.Items, Ledger: withoutStoryEntries(batch.Ledger), Outputs: batch.Outputs})
+		if err != nil {
+			return rep, fmt.Errorf("apply workstate: %w", err)
+		}
+		rep.Items, rep.Ledger, rep.Outputs = res.Items, res.Ledger, res.Outputs
+		return rep, appendErr
 	}
 }
 

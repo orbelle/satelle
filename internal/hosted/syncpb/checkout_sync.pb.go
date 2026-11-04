@@ -46,6 +46,7 @@ type ApplyRequest struct {
 	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	Items         []*WorkItem            `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
 	Ledger        []*LedgerEntry         `protobuf:"bytes,3,rep,name=ledger,proto3" json:"ledger,omitempty"`
+	Outputs       []*RunOutput           `protobuf:"bytes,4,rep,name=outputs,proto3" json:"outputs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -101,10 +102,18 @@ func (x *ApplyRequest) GetLedger() []*LedgerEntry {
 	return nil
 }
 
+func (x *ApplyRequest) GetOutputs() []*RunOutput {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
 type ApplyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         int32                  `protobuf:"varint,1,opt,name=items,proto3" json:"items,omitempty"`
 	Ledger        int32                  `protobuf:"varint,2,opt,name=ledger,proto3" json:"ledger,omitempty"`
+	Outputs       int32                  `protobuf:"varint,3,opt,name=outputs,proto3" json:"outputs,omitempty"` // outputs written
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -153,6 +162,77 @@ func (x *ApplyResponse) GetLedger() int32 {
 	return 0
 }
 
+func (x *ApplyResponse) GetOutputs() int32 {
+	if x != nil {
+		return x.Outputs
+	}
+	return 0
+}
+
+// Run outputs (satelle-server sty_0256bfe4): the run-output documents of
+// executions in the batch or already in the project. Each needs an execution
+// and a name. A body over 1 MiB, or an unknown execution, is INVALID_ARGUMENT
+// and nothing of the batch is stored.
+type RunOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Execution     string                 `protobuf:"bytes,1,opt,name=execution,proto3" json:"execution,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Body          []byte                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunOutput) Reset() {
+	*x = RunOutput{}
+	mi := &file_checkout_sync_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunOutput) ProtoMessage() {}
+
+func (x *RunOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_checkout_sync_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunOutput.ProtoReflect.Descriptor instead.
+func (*RunOutput) Descriptor() ([]byte, []int) {
+	return file_checkout_sync_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunOutput) GetExecution() string {
+	if x != nil {
+		return x.Execution
+	}
+	return ""
+}
+
+func (x *RunOutput) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RunOutput) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
 // Paging and since-cursors (field numbers shared with satelle-server
 // sty_8d5f91d0; this repo sty_70ba9615).
 // page_size 0 keeps the unpaged contract: the whole result in one message.
@@ -183,7 +263,7 @@ type SnapshotRequest struct {
 
 func (x *SnapshotRequest) Reset() {
 	*x = SnapshotRequest{}
-	mi := &file_checkout_sync_proto_msgTypes[2]
+	mi := &file_checkout_sync_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -195,7 +275,7 @@ func (x *SnapshotRequest) String() string {
 func (*SnapshotRequest) ProtoMessage() {}
 
 func (x *SnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[2]
+	mi := &file_checkout_sync_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -208,7 +288,7 @@ func (x *SnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotRequest.ProtoReflect.Descriptor instead.
 func (*SnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{2}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SnapshotRequest) GetProject() string {
@@ -265,7 +345,7 @@ type SnapshotResponse struct {
 
 func (x *SnapshotResponse) Reset() {
 	*x = SnapshotResponse{}
-	mi := &file_checkout_sync_proto_msgTypes[3]
+	mi := &file_checkout_sync_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +357,7 @@ func (x *SnapshotResponse) String() string {
 func (*SnapshotResponse) ProtoMessage() {}
 
 func (x *SnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[3]
+	mi := &file_checkout_sync_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +370,7 @@ func (x *SnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotResponse.ProtoReflect.Descriptor instead.
 func (*SnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{3}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SnapshotResponse) GetItems() []*WorkItem {
@@ -336,7 +416,7 @@ type WorkItem struct {
 
 func (x *WorkItem) Reset() {
 	*x = WorkItem{}
-	mi := &file_checkout_sync_proto_msgTypes[4]
+	mi := &file_checkout_sync_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -348,7 +428,7 @@ func (x *WorkItem) String() string {
 func (*WorkItem) ProtoMessage() {}
 
 func (x *WorkItem) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[4]
+	mi := &file_checkout_sync_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -361,7 +441,7 @@ func (x *WorkItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkItem.ProtoReflect.Descriptor instead.
 func (*WorkItem) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{4}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WorkItem) GetId() string {
@@ -427,7 +507,7 @@ type LedgerEntry struct {
 
 func (x *LedgerEntry) Reset() {
 	*x = LedgerEntry{}
-	mi := &file_checkout_sync_proto_msgTypes[5]
+	mi := &file_checkout_sync_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +519,7 @@ func (x *LedgerEntry) String() string {
 func (*LedgerEntry) ProtoMessage() {}
 
 func (x *LedgerEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[5]
+	mi := &file_checkout_sync_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +532,7 @@ func (x *LedgerEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LedgerEntry.ProtoReflect.Descriptor instead.
 func (*LedgerEntry) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{5}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LedgerEntry) GetId() string {
@@ -506,7 +586,7 @@ type RefreshRequest struct {
 
 func (x *RefreshRequest) Reset() {
 	*x = RefreshRequest{}
-	mi := &file_checkout_sync_proto_msgTypes[6]
+	mi := &file_checkout_sync_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -518,7 +598,7 @@ func (x *RefreshRequest) String() string {
 func (*RefreshRequest) ProtoMessage() {}
 
 func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[6]
+	mi := &file_checkout_sync_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -531,7 +611,7 @@ func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshRequest.ProtoReflect.Descriptor instead.
 func (*RefreshRequest) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{6}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RefreshRequest) GetRefreshToken() string {
@@ -552,7 +632,7 @@ type RefreshResponse struct {
 
 func (x *RefreshResponse) Reset() {
 	*x = RefreshResponse{}
-	mi := &file_checkout_sync_proto_msgTypes[7]
+	mi := &file_checkout_sync_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -564,7 +644,7 @@ func (x *RefreshResponse) String() string {
 func (*RefreshResponse) ProtoMessage() {}
 
 func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_checkout_sync_proto_msgTypes[7]
+	mi := &file_checkout_sync_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -577,7 +657,7 @@ func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshResponse.ProtoReflect.Descriptor instead.
 func (*RefreshResponse) Descriptor() ([]byte, []int) {
-	return file_checkout_sync_proto_rawDescGZIP(), []int{7}
+	return file_checkout_sync_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RefreshResponse) GetAccessToken() string {
@@ -605,14 +685,20 @@ var File_checkout_sync_proto protoreflect.FileDescriptor
 
 const file_checkout_sync_proto_rawDesc = "" +
 	"\n" +
-	"\x13checkout_sync.proto\x12\x0fsatelle.sync.v1\"\x8f\x01\n" +
+	"\x13checkout_sync.proto\x12\x0fsatelle.sync.v1\"\xc5\x01\n" +
 	"\fApplyRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12/\n" +
 	"\x05items\x18\x02 \x03(\v2\x19.satelle.sync.v1.WorkItemR\x05items\x124\n" +
-	"\x06ledger\x18\x03 \x03(\v2\x1c.satelle.sync.v1.LedgerEntryR\x06ledger\"=\n" +
+	"\x06ledger\x18\x03 \x03(\v2\x1c.satelle.sync.v1.LedgerEntryR\x06ledger\x124\n" +
+	"\aoutputs\x18\x04 \x03(\v2\x1a.satelle.sync.v1.RunOutputR\aoutputs\"W\n" +
 	"\rApplyResponse\x12\x14\n" +
 	"\x05items\x18\x01 \x01(\x05R\x05items\x12\x16\n" +
-	"\x06ledger\x18\x02 \x01(\x05R\x06ledger\"\xb9\x01\n" +
+	"\x06ledger\x18\x02 \x01(\x05R\x06ledger\x12\x18\n" +
+	"\aoutputs\x18\x03 \x01(\x05R\aoutputs\"Q\n" +
+	"\tRunOutput\x12\x1c\n" +
+	"\texecution\x18\x01 \x01(\tR\texecution\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\"\xb9\x01\n" +
 	"\x0fSnapshotRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1b\n" +
@@ -668,33 +754,35 @@ func file_checkout_sync_proto_rawDescGZIP() []byte {
 	return file_checkout_sync_proto_rawDescData
 }
 
-var file_checkout_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_checkout_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_checkout_sync_proto_goTypes = []any{
 	(*ApplyRequest)(nil),     // 0: satelle.sync.v1.ApplyRequest
 	(*ApplyResponse)(nil),    // 1: satelle.sync.v1.ApplyResponse
-	(*SnapshotRequest)(nil),  // 2: satelle.sync.v1.SnapshotRequest
-	(*SnapshotResponse)(nil), // 3: satelle.sync.v1.SnapshotResponse
-	(*WorkItem)(nil),         // 4: satelle.sync.v1.WorkItem
-	(*LedgerEntry)(nil),      // 5: satelle.sync.v1.LedgerEntry
-	(*RefreshRequest)(nil),   // 6: satelle.sync.v1.RefreshRequest
-	(*RefreshResponse)(nil),  // 7: satelle.sync.v1.RefreshResponse
+	(*RunOutput)(nil),        // 2: satelle.sync.v1.RunOutput
+	(*SnapshotRequest)(nil),  // 3: satelle.sync.v1.SnapshotRequest
+	(*SnapshotResponse)(nil), // 4: satelle.sync.v1.SnapshotResponse
+	(*WorkItem)(nil),         // 5: satelle.sync.v1.WorkItem
+	(*LedgerEntry)(nil),      // 6: satelle.sync.v1.LedgerEntry
+	(*RefreshRequest)(nil),   // 7: satelle.sync.v1.RefreshRequest
+	(*RefreshResponse)(nil),  // 8: satelle.sync.v1.RefreshResponse
 }
 var file_checkout_sync_proto_depIdxs = []int32{
-	4, // 0: satelle.sync.v1.ApplyRequest.items:type_name -> satelle.sync.v1.WorkItem
-	5, // 1: satelle.sync.v1.ApplyRequest.ledger:type_name -> satelle.sync.v1.LedgerEntry
-	4, // 2: satelle.sync.v1.SnapshotResponse.items:type_name -> satelle.sync.v1.WorkItem
-	5, // 3: satelle.sync.v1.SnapshotResponse.ledger:type_name -> satelle.sync.v1.LedgerEntry
-	0, // 4: satelle.sync.v1.Sync.Apply:input_type -> satelle.sync.v1.ApplyRequest
-	2, // 5: satelle.sync.v1.Sync.Snapshot:input_type -> satelle.sync.v1.SnapshotRequest
-	6, // 6: satelle.sync.v1.Sync.Refresh:input_type -> satelle.sync.v1.RefreshRequest
-	1, // 7: satelle.sync.v1.Sync.Apply:output_type -> satelle.sync.v1.ApplyResponse
-	3, // 8: satelle.sync.v1.Sync.Snapshot:output_type -> satelle.sync.v1.SnapshotResponse
-	7, // 9: satelle.sync.v1.Sync.Refresh:output_type -> satelle.sync.v1.RefreshResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 0: satelle.sync.v1.ApplyRequest.items:type_name -> satelle.sync.v1.WorkItem
+	6, // 1: satelle.sync.v1.ApplyRequest.ledger:type_name -> satelle.sync.v1.LedgerEntry
+	2, // 2: satelle.sync.v1.ApplyRequest.outputs:type_name -> satelle.sync.v1.RunOutput
+	5, // 3: satelle.sync.v1.SnapshotResponse.items:type_name -> satelle.sync.v1.WorkItem
+	6, // 4: satelle.sync.v1.SnapshotResponse.ledger:type_name -> satelle.sync.v1.LedgerEntry
+	0, // 5: satelle.sync.v1.Sync.Apply:input_type -> satelle.sync.v1.ApplyRequest
+	3, // 6: satelle.sync.v1.Sync.Snapshot:input_type -> satelle.sync.v1.SnapshotRequest
+	7, // 7: satelle.sync.v1.Sync.Refresh:input_type -> satelle.sync.v1.RefreshRequest
+	1, // 8: satelle.sync.v1.Sync.Apply:output_type -> satelle.sync.v1.ApplyResponse
+	4, // 9: satelle.sync.v1.Sync.Snapshot:output_type -> satelle.sync.v1.SnapshotResponse
+	8, // 10: satelle.sync.v1.Sync.Refresh:output_type -> satelle.sync.v1.RefreshResponse
+	8, // [8:11] is the sub-list for method output_type
+	5, // [5:8] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_checkout_sync_proto_init() }
@@ -708,7 +796,7 @@ func file_checkout_sync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_checkout_sync_proto_rawDesc), len(file_checkout_sync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

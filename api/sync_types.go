@@ -14,13 +14,23 @@ type ApplyRequest struct {
 	Project string        `json:"project"`
 	Items   []WorkItem    `json:"items"`
 	Ledger  []LedgerEntry `json:"ledger"`
+	Outputs []RunOutput   `json:"outputs,omitempty"`
+}
+
+// RunOutput is one run-output document of an execution in the batch or the
+// project. A body over 1 MiB, or an unknown execution, refuses the batch.
+type RunOutput struct {
+	Execution string `json:"execution"`
+	Name      string `json:"name"`
+	Body      []byte `json:"body"`
 }
 
 // ApplyResponse is the Sync.Apply result: counts of upserted rows. JSON keys
 // match WorkstateIngestResult so the gRPC and REST write surfaces cannot drift.
 type ApplyResponse struct {
-	Items  int `json:"items"`
-	Ledger int `json:"ledger"`
+	Items   int `json:"items"`
+	Ledger  int `json:"ledger"`
+	Outputs int `json:"outputs"`
 }
 
 // SnapshotRequest is the Sync.Snapshot input. Kind optionally filters items

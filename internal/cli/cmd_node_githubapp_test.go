@@ -182,7 +182,7 @@ func assertTokenNowhere(t *testing.T, r *nodeRig, fake *devtest.Node) {
 			return nil
 		})
 	}
-	for _, v := range []any{fake.Statuses(), fake.Pushed()} {
+	for _, v := range []any{fake.Statuses(), r.sync.applies(), r.sync.appends()} {
 		raw, _ := json.Marshal(v)
 		if bytes.Contains(raw, needle) {
 			t.Errorf("a record sent to the server carries the token: %s", raw)

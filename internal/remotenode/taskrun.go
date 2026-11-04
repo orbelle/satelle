@@ -15,6 +15,7 @@ package remotenode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -60,9 +61,11 @@ type StatusSender interface {
 	Status(ctx context.Context, s NodeStatus) (StatusReply, error)
 }
 
-// WorkstatePusher is the push of a finished run; *NodeClient is the real one.
-type WorkstatePusher interface {
-	PushWorkstate(ctx context.Context, w NodeWorkstate) (PushWorkstateReply, error)
+// PublishReport is what a run's publish sent: the project and how many stories'
+// events, items, ledger rows and run outputs the server took.
+type PublishReport struct {
+	Project                         string
+	Stories, Items, Ledger, Outputs int
 }
 
 // TaskRun is what RunTask needs.
@@ -78,16 +81,17 @@ type TaskRun struct {
 	// Drive is how the execution is driven: the performers, a rework relay, the
 	// log. Its OnMove is called as well as the node's own.
 	Drive drive.Options
-	// Pusher and Batch push the run to the team workspace once it has concluded:
-	// Batch collects the execution, its ledger rows (the subject's link row among
-	// them) and its run output. Either nil is no push.
-	Pusher WorkstatePusher
-	Batch  func(ctx context.Context, exec workitem.Item, subject string) (NodeWorkstate, error)
+	// Publish pushes the run to the node's project once it has concluded: the
+	// execution, its ledger rows (the subject's link row among them) and its run
+	// output, through the push a local satelle makes. Nil is no push.
+	Publish func(ctx context.Context, exec workitem.Item, subject string) (PublishReport, error)
 	// Fetch, when set, brings the hosted chain of each id into the node's store
 	// before the run writes to it, so those writes, and so the push, build on the
 	// hosted head (sty_0d621eaf). It is called with the subject before the
 	// execution is made or driven, and with the execution before it is driven. A
-	// failed fetch is logged and the run goes on: local first, never blocked.
+	// failed fetch is logged and the run goes on: local first, never blocked. A
+	// fetch satelle.dev refused (ErrRunRefused) stops the run there, and nothing of
+	// it is published.
 	Fetch func(ctx context.Context, ids ...string) error
 	// ResendEvery, when set, replaces the heartbeat resend interval (a test's).
 	ResendEvery time.Duration
@@ -120,13 +124,17 @@ func RunTask(ctx context.Context, tr TaskRun) (TaskRunResult, error) {
 	var res TaskRunResult
 	var exec workitem.Item
 	err := func() error {
+		if err := tr.fetch(ctx, tr.Desc.StoryID); err != nil {
+			return err
+		}
 		var err error
-		tr.fetch(ctx, tr.Desc.StoryID)
 		if exec, err = executionFor(ctx, tr); err != nil {
 			return err
 		}
 		res.Execution = exec.ID
-		tr.fetch(ctx, exec.ID)
+		if err := tr.fetch(ctx, exec.ID); err != nil {
+			return err
+		}
 		opts := tr.Drive
 		onMove := opts.OnMove
 		opts.OnMove = func(m drive.Move) {
@@ -156,7 +164,7 @@ func RunTask(ctx context.Context, tr TaskRun) (TaskRunResult, error) {
 	if res.Findings == "" && res.Outcome == verb.OutcomeReject {
 		res.Findings = stopFindings(err, res.Drive)
 	}
-	if exec.ID != "" {
+	if exec.ID != "" && !errors.Is(err, ErrRunRefused) {
 		tr.record(ctx, exec, res.Outcome)
 	}
 	rep.conclude(ctx, res.Outcome, res.Findings)
@@ -188,33 +196,39 @@ func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string
 	if err := tr.linkSubject(ctx, exec, outcome); err != nil {
 		logf("execution link", err)
 	}
-	if tr.Pusher == nil || tr.Batch == nil {
+	if tr.Publish == nil {
 		return
 	}
-	batch, err := tr.Batch(ctx, exec, tr.Desc.StoryID)
-	var reply PushWorkstateReply
-	if err == nil {
-		reply, err = tr.Pusher.PushWorkstate(ctx, batch)
-	}
+	rep, err := tr.Publish(ctx, exec, tr.Desc.StoryID)
 	if err != nil {
 		logf("workstate", err)
 		return
 	}
 	if tr.Drive.Out != nil {
-		fmt.Fprintf(tr.Drive.Out, "node: workstate: published to %s: %d item(s), %d ledger row(s), %d output(s)\n",
-			reply.Project, reply.Items, reply.Ledger, reply.Outputs)
+		fmt.Fprintf(tr.Drive.Out, "node: workstate: published to %s: the events of %d stor(y/ies), %d item(s), %d ledger row(s), %d output(s)\n",
+			rep.Project, rep.Stories, rep.Items, rep.Ledger, rep.Outputs)
 	}
 }
 
+// ErrRunRefused marks a Fetch error after which satelle.dev may be asked nothing
+// more: it refused the node token, or fenced the node out of the project.
+var ErrRunRefused = errors.New("satelle.dev refused the node's work state")
+
 // fetch runs Fetch for id, logging a failure: the write that follows goes on with
-// what the node's store holds.
-func (tr TaskRun) fetch(ctx context.Context, id string) {
+// what the node's store holds. A refusal (ErrRunRefused) is returned, and the run
+// stops on it.
+func (tr TaskRun) fetch(ctx context.Context, id string) error {
 	if tr.Fetch == nil || id == "" {
-		return
+		return nil
 	}
-	if err := tr.Fetch(ctx, id); err != nil && tr.Drive.Out != nil {
+	err := tr.Fetch(ctx, id)
+	if errors.Is(err, ErrRunRefused) {
+		return err
+	}
+	if err != nil && tr.Drive.Out != nil {
 		fmt.Fprintf(tr.Drive.Out, "node: workstate: the hosted chain of %s was not read before this write: %v\n", id, err)
 	}
+	return nil
 }
 
 // linkSubject appends the execution_link row on the wake's subject story, once per

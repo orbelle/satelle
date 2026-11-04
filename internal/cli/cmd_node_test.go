@@ -142,6 +142,8 @@ type nodeRig struct {
 	// fakeSetup, when set, configures the satelle.dev fake as serve creates it,
 	// before the node asks it anything.
 	fakeSetup func(*devtest.Node)
+	// sync is the Sync and Chain services the node's work state reaches.
+	sync *nodeSync
 
 	// joinCtx is the context every join in this rig runs under, and joins counts
 	// the joins still running. A node redials a dropped relay for its resume window,
@@ -176,7 +178,9 @@ func newNodeRig(t *testing.T) *nodeRig {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	// The node is a fresh machine: nothing of this repo's, nor of the developer's.
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("SATELLE_HOME", t.TempDir())
 	t.Setenv("SATELLE_CONFIG", "")
 	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
@@ -203,6 +207,7 @@ func newNodeRig(t *testing.T) *nodeRig {
 	// The fixture's setup names a host-only command the test node does not
 	// have; a rig starts without one, and a test that wants one sets it.
 	r.setSetup(nil, nil)
+	r.sync = newNodeSync(t)
 	// Registered last, so it runs first: before the relay closes its connections
 	// (which a node would answer by redialling), before the temp directories the
 	// node works in go, and before the seams above are put back.

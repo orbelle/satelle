@@ -70,6 +70,55 @@ func (c *Client) sessionScopeErr() error {
 	return nil
 }
 
+// nodeTokenType marks a Credential as a remote node's token: the bearer the
+// launcher handed `satelle node join`, accepted on Sync and Chain for the node's
+// project and life. Like the session token it is never refreshed or persisted.
+const nodeTokenType = "node"
+
+// IsNode reports whether the credential is a remote node's token.
+func (c Credential) IsNode() bool { return c.TokenType == nodeTokenType }
+
+// ErrNodeTokenRefused is returned at once when the server answers
+// Unauthenticated to a node token: the node has ended or was killed. It is
+// never refreshed, and it does not match ErrLoginRequired, since a node cannot
+// log in.
+var ErrNodeTokenRefused = errors.New("hosted: the node token was refused: the node has ended or was killed")
+
+// ErrNodeProjectNotFound is the NotFound reading under a node token: the
+// project named is not the node's.
+var ErrNodeProjectNotFound = errors.New("hosted: the project is not this node's project")
+
+// nodeProjectErr is the error for a NotFound when the client is acting under a
+// node token, or nil when it is not.
+func (c *Client) nodeProjectErr(op string) error {
+	if cred, err := c.store.Load(c.server); err == nil && cred.IsNode() {
+		return fmt.Errorf("hosted: grpc %s: %w", op, ErrNodeProjectNotFound)
+	}
+	return nil
+}
+
+// NodeTokenStore is the Store of a remote node: it serves the node token for
+// Server and nothing else. Save and Delete are no-ops, so no refresh or stamp
+// path can persist the token.
+type NodeTokenStore struct {
+	Server, Token string
+}
+
+// Load returns the node credential for Server; any other server has none.
+func (s NodeTokenStore) Load(serverURL string) (Credential, error) {
+	server := normalizeServerURL(serverURL)
+	if s.Token == "" || server != normalizeServerURL(s.Server) {
+		return Credential{}, ErrNoCredential
+	}
+	return Credential{ServerURL: server, AccessToken: s.Token, TokenType: nodeTokenType}, nil
+}
+
+// Save is a no-op: a node token is never persisted.
+func (NodeTokenStore) Save(Credential) error { return nil }
+
+// Delete is a no-op: there is nothing stored.
+func (NodeTokenStore) Delete(string) error { return nil }
+
 // EnvStore is the default Store: SATELLE_TOKEN when set, else the per-user file
 // store. While the session token is active Save and Delete are no-ops, so a
 // stamp or refresh path can never persist it.

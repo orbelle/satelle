@@ -103,18 +103,29 @@ type DocumentChanges struct {
 	Cursor string       `json:"cursor"`
 }
 
-// WorkstateIngest is a local→server batch of stories/executions (items) and
-// ledger entries, carried by gRPC Sync/Apply. The server stamps origin=cli-sync;
-// the client never supplies origin.
+// WorkstateIngest is a local→server batch of stories/executions (items),
+// ledger entries and the run-output documents of executions, carried by gRPC
+// Sync/Apply. The server stamps origin; the client never supplies it.
 type WorkstateIngest struct {
-	Items  []json.RawMessage `json:"items"`
-	Ledger []json.RawMessage `json:"ledger"`
+	Items   []json.RawMessage `json:"items"`
+	Ledger  []json.RawMessage `json:"ledger"`
+	Outputs []WorkstateOutput `json:"outputs,omitempty"`
 }
 
-// WorkstateIngestResult is the Apply response: counts of upserted rows.
+// WorkstateOutput is one run-output document of an execution in the batch or
+// the project: its file name and text.
+type WorkstateOutput struct {
+	Execution string `json:"execution"`
+	Name      string `json:"name"`
+	Body      string `json:"body"`
+}
+
+// WorkstateIngestResult is the Apply response: counts of upserted rows and
+// written run outputs.
 type WorkstateIngestResult struct {
-	Items  int `json:"items"`
-	Ledger int `json:"ledger"`
+	Items   int `json:"items"`
+	Ledger  int `json:"ledger"`
+	Outputs int `json:"outputs"`
 }
 
 // WorkstateItem is one mirrored work-state row from Sync/Snapshot.

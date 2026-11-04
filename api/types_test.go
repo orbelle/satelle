@@ -51,8 +51,8 @@ func TestJSONKeyIdentity(t *testing.T) {
 		assertByteIdenticalJSON(t, h, r)
 	})
 	t.Run("WorkstateIngestResult", func(t *testing.T) {
-		h := hosted.WorkstateIngestResult{Items: 2, Ledger: 1}
-		r := api.WorkstateIngestResult{Items: 2, Ledger: 1}
+		h := hosted.WorkstateIngestResult{Items: 2, Ledger: 1, Outputs: 1}
+		r := api.WorkstateIngestResult{Items: 2, Ledger: 1, Outputs: 1}
 		assertByteIdenticalJSON(t, h, r)
 	})
 	t.Run("PublishedItem", func(t *testing.T) {

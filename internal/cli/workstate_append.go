@@ -279,10 +279,19 @@ func chainEvents(entries []ledger.Entry) ([]hosted.ChainEvent, error) {
 	return out, nil
 }
 
+// stopsPush reports an error that ends a push at once, before any further call:
+// no usable credential, or a node token the server refused or fenced out of the
+// project. Nothing sent after it could be accepted.
+func stopsPush(err error) bool {
+	return errors.Is(err, hosted.ErrLoginRequired) || errors.Is(err, hosted.ErrNodeTokenRefused) ||
+		errors.Is(err, hosted.ErrNodeProjectNotFound)
+}
+
 // publishStoryEvents appends each planned story that is not withheld and returns
 // how many stories it published. A story the server refused or that cannot be sent
 // is reported on w and does not stop the others; the returned error counts and
-// names them so the push exits non-zero and says which.
+// names them so the push exits non-zero and says which. An error that stops the
+// push (stopsPush) is returned as it came, and no further story is sent.
 func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *hosted.Client, server, project string, plan []storyAppend, held map[string]string) (published int, err error) {
 	var conn *hosted.ChainConn
 	heads := &headSaver{server: server, project: project, root: a.RepoRoot, pending: map[string]string{}}
@@ -325,7 +334,7 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 		sent++
 		err := appendStory(ctx, w, a, conn, project, p, heads)
 		switch {
-		case errors.Is(err, hosted.ErrLoginRequired):
+		case stopsPush(err):
 			return published, err
 		case errors.Is(err, errUpToDate):
 		case err != nil:
@@ -437,7 +446,7 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 		// starts a fork of its own, which is `sync workstate rechain`'s to repair.
 		if i < 0 && from > 0 && !resumed && !rebased {
 			order, at, rerr := rebaseStory(ctx, a, conn, project, p.id, p.order, from)
-			if errors.Is(rerr, hosted.ErrLoginRequired) {
+			if stopsPush(rerr) {
 				return rerr
 			}
 			rebaseErr = rerr
@@ -482,7 +491,7 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 // published, which only the server can confirm.
 func forkPublished(ctx context.Context, w io.Writer, a *app.App, conn *hosted.ChainConn, project string, p storyAppend) error {
 	events, _, err := conn.ReadStory(ctx, project, p.id, "")
-	if errors.Is(err, hosted.ErrLoginRequired) {
+	if stopsPush(err) {
 		return err
 	}
 	if err != nil {
@@ -545,7 +554,7 @@ func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, projec
 		base = order[from-1].ID
 	}
 	remote, latest, err := conn.ReadStory(ctx, project, storyID, base)
-	if err != nil && base != "" && !errors.Is(err, hosted.ErrChainUnsupported) && !errors.Is(err, hosted.ErrLoginRequired) {
+	if err != nil && base != "" && !errors.Is(err, hosted.ErrChainUnsupported) && !stopsPush(err) {
 		remote, latest, err = conn.ReadStory(ctx, project, storyID, "")
 	}
 	if err != nil {
