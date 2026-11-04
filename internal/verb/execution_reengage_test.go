@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -66,6 +67,52 @@ func newRunningExecution(t *testing.T) workitem.Item {
 		t.Fatalf("execution status = %q, want in_progress", run.Status)
 	}
 	return run
+}
+
+// TestExecutionMoveIntoPerformingStateTakesLease (sty_931026b3 AC1/AC4): moving
+// an execution into its performing state, by either verb, takes a live lease so
+// the gates see the run as engaged; the lease never occupies the story seat, and
+// the move into done frees it.
+func TestExecutionMoveIntoPerformingStateTakesLease(t *testing.T) {
+	ctx := context.Background()
+	for _, v := range []string{"execution-set", "story-set"} {
+		t.Run(v, func(t *testing.T) {
+			db := wireWithWorkflowsStore(t, executionRunWF)
+			var task, run workitem.Item
+			json.Unmarshal(call(t, "task-create", map[string]any{"title": "Release"}), &task)
+			json.Unmarshal(call(t, "execution-create", map[string]any{"title": "release run", "parent_id": task.ID}), &run)
+			if _, err := db.Leases.Get(ctx, run.ID); err == nil {
+				t.Fatalf("a backlog execution must hold no lease")
+			}
+
+			json.Unmarshal(call(t, v, map[string]any{"id": run.ID, "status": "in_progress"}), &run)
+			if run.Status != "in_progress" {
+				t.Fatalf("status = %q, want in_progress", run.Status)
+			}
+			l, err := db.Leases.Get(ctx, run.ID)
+			if err != nil || !lease.Alive(l, time.Now().UTC()) {
+				t.Fatalf("no live lease for %s after the move into in_progress: %v", run.ID, err)
+			}
+			if l.StorySeat {
+				t.Fatalf("an execution's lease must not occupy the story seat")
+			}
+
+			json.Unmarshal(call(t, v, map[string]any{"id": run.ID, "status": "done"}), &run)
+			if run.Status != "done" {
+				t.Fatalf("status = %q, want done", run.Status)
+			}
+			if _, err := db.Leases.Get(ctx, run.ID); err == nil {
+				t.Fatalf("the move into done must release the lease for %s", run.ID)
+			}
+			seats, err := verb.Dispatch(ctx, "story-seat-list", nil)
+			if err != nil {
+				t.Fatalf("story-seat-list: %v", err)
+			}
+			if strings.Contains(string(seats), run.ID) {
+				t.Fatalf("seat list still names %s after close: %s", run.ID, seats)
+			}
+		})
+	}
 }
 
 // TestSameStatusSetSeatsAnExecutionWhoseSeatWasDropped (sty_7f93ae45 AC1/AC3):

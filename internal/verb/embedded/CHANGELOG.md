@@ -1,3 +1,8 @@
+## [0.0.882] - 2026-11-04
+
+### Fixed
+- A task execution at a performing state of its workflow counts as engaged for the commit gate, so the pushes its action declares pass. For example, a release task at in_progress can run `git push origin --delete story/<id>` and push its release tag. Before 0.0.882 the gate refused them with "refusing to commit/push with no engaged story", which stopped id4me's release task after its merges. The execution takes a lease when it moves into a performing state and releases it when it closes. The lease does not occupy the story seat, so a story can still be engaged beside it, and `satelle story seat` lists no holder once the execution is done. A tree with no engaged story or execution is still refused. Closing or cancelling an execution is not held by the dirty-tree close guard, so satelle's own runs (e.g. substrate review) still close. (sty_931026b3)
+
 ## [0.0.881] - 2026-11-04
 
 ### Fixed

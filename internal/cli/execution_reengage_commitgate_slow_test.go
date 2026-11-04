@@ -11,6 +11,65 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
+// TestSlowExecutionAtInProgressPassesCommitGate (sty_931026b3 AC2/AC3): a release
+// run's execution moved into in_progress is the only engaged item in the tree,
+// and the branch-delete and tag pushes its action declares pass the commit gate.
+// With no story or execution performing — before the move and after its close —
+// the same pushes are refused as unengaged.
+func TestSlowExecutionAtInProgressPassesCommitGate(t *testing.T) {
+	repo := tempRepo(t)
+	t.Chdir(repo)
+	writeRoute(t, filepath.Join(repo, ".satelle", "workflows"), execRouteDone, execRouteStep)
+	writeFile(t, repo, ".satelle/satelle.toml",
+		"[review]\ngate_create = false\n\n[gate.command_allow]\npush = [\"in_progress\"]\n")
+	gitInitCommit(t, repo)
+	if out, err := runRoot(t, "reindex"); err != nil {
+		t.Fatalf("reindex: %v\n%s", err, out)
+	}
+	t.Setenv(config.SessionEnv, execRunSession)
+	stubWorktree(t, repo)
+
+	out, err := runRoot(t, "task", "create", "--title", "release")
+	if err != nil {
+		t.Fatalf("task create: %v\n%s", err, out)
+	}
+	task := idOf(t, out)
+	out, err = runRoot(t, "execution", "create", "--title", "release run", "--parent", task)
+	if err != nil {
+		t.Fatalf("execution create: %v\n%s", err, out)
+	}
+	exe := idOf(t, out)
+
+	pushes := []string{"git push origin --delete story/sty_x", "git push origin refs/tags/v0.0.1"}
+	refused := func(when string) {
+		t.Helper()
+		for _, push := range pushes {
+			out, err := runRootIn(t, execRunBash(push), "hook", "commitgate")
+			if err == nil || !strings.Contains(out, "refusing to commit/push with no engaged story") {
+				t.Fatalf("%s: %q must be refused as unengaged: %v\n%s", when, push, err, out)
+			}
+		}
+	}
+
+	refused("control, execution at backlog")
+
+	if out, err := runRoot(t, "execution", "set", exe, "--status", "in_progress"); err != nil {
+		t.Fatalf("execution engage: %v\n%s", err, out)
+	}
+	for _, push := range pushes {
+		if out, err := runRootIn(t, execRunBash(push), "hook", "commitgate"); err != nil || strings.Contains(out, "deny") {
+			t.Fatalf("with %s at in_progress, %q must be admitted: %v\n%s", exe, push, err, out)
+		}
+	}
+
+	// The tree's uncommitted work is the worked story's; it never holds the run's close.
+	writeFile(t, repo, "wip.go", "package wip\n")
+	if out, err := runRoot(t, "execution", "set", exe, "--status", "done"); err != nil {
+		t.Fatalf("execution close: %v\n%s", err, out)
+	}
+	refused("after the execution's close")
+}
+
 // TestSlowReengagedExecutionPushAttributedToItOverASameTreeStory (AC1/AC2): the run
 // seats a story in the main tree (at plan), then its execution — whose seat was
 // dropped — is re-engaged with `story set <exe> --status in_progress` from the

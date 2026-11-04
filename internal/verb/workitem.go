@@ -651,10 +651,10 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// sameStatusReengage also acquires (sty_4f74d01f) without running gate/dispatch.
 	acquiredThisCall := false
 	settled := true // non-transitioning / non-lease paths never need abort release
-	// An execution takes a lease only by the same-status re-engage
-	// (sty_7f93ae45); its moves keep the path they had, so a run's close is not
-	// newly held by the dirty-close guard or a stop request.
-	leaseOnMove := transitioning && (current.Kind == workitem.KindStory || current.Kind == workitem.KindTask)
+	// Every leasable kind leases on its moves, an execution included: its lease
+	// is how the edit and commit gates see a run at its performing state as
+	// engaged (sty_931026b3).
+	leaseOnMove := transitioning && current.Kind.Leasable()
 	if leaseOnMove || sameStatusReengage {
 		// Step-edge stop arbitration (AC5): a pending stop request refuses forward
 		// engaging moves; park/terminal remain open.
@@ -665,9 +665,13 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			// A close releases the seat that permits committing the slice: refuse it
 			// while this story's own tree holds gated uncommitted changes. Before the
 			// lease, the abort guard, the gate and the dispatch, so a refusal changes
-			// nothing.
-			if err := refuseDirtyClose(ctx, current, *req.Status); err != nil {
-				return nil, err
+			// nothing. A run's close or cancel is never held: satelle ends its own
+			// runs (substrate review, task runs) in a tree whose changes belong to
+			// the story being worked there.
+			if current.Kind != workitem.KindExecution {
+				if err := refuseDirtyClose(ctx, current, *req.Status); err != nil {
+					return nil, err
+				}
 			}
 		}
 		// Assignee notice (sty_8ccaa906, sty_40853d02): an assignment says who is
