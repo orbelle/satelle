@@ -507,6 +507,55 @@ func TestWaveCrossRepoDependencyNeedsEveryContainerTerminal(t *testing.T) {
 	}
 }
 
+// A done lane:trunk story released to trunk itself, so it satisfies the edge even
+// under an open container; an untagged done sibling under the same open epic still
+// holds its dependant.
+func TestWaveCrossRepoLaneTrunkDoneUnderOpenContainerSatisfies(t *testing.T) {
+	t.Setenv("SATELLE_HOME", t.TempDir())
+	var openEpic, trunk, epicBranch string
+	root := mkSibling(t, sibName, waveWF("parallel"), func(db *store.DB) {
+		openEpic = sibStory(t, db, workitem.CreateInput{Category: "epic-parent", Status: "ready", Tags: []string{"epic:open"}})
+		trunk = sibStory(t, db, workitem.CreateInput{Category: "fix", Status: "done", Tags: []string{"epic:open", "lane:trunk"}})
+		epicBranch = sibStory(t, db, workitem.CreateInput{Category: "fix", Status: "done", Tags: []string{"epic:open"}})
+	})
+	epic := siblingEpic(t, map[string][]string{sibName: {root}})
+	onTrunk := waveChild(t, "depends-on:"+sibName+"/"+trunk)
+	held := waveChild(t, "depends-on:"+sibName+"/"+epicBranch)
+
+	res, err := wave(t, epic.ID)
+	if err != nil {
+		t.Fatalf("wave: %v", err)
+	}
+	if !reflect.DeepEqual(res.Runnable, []string{onTrunk.ID}) {
+		t.Errorf("runnable = %v, want only the child of the lane:trunk story (%s)", res.Runnable, onTrunk.ID)
+	}
+	if b := waitingOn(t, res, held); b.Status != "done; container "+openEpic+" open" {
+		t.Errorf("untagged sibling: waiting_on = %+v, want its open container %s named", b, openEpic)
+	}
+}
+
+// A local done target satisfies its edge under an open container, lane:trunk or not.
+func TestWaveLocalLaneTrunkDoneUnderOpenContainerSatisfies(t *testing.T) {
+	wireWithWorkflows(t, waveWF("parallel"))
+	epic := waveEpic(t)
+	trunk := waveChild(t, "lane:trunk")
+	closeChild(t, trunk.ID)
+	plain := waveChild(t)
+	closeChild(t, plain.ID)
+	onTrunk := waveChild(t, "depends-on:"+trunk.ID)
+	onPlain := waveChild(t, "depends-on:"+plain.ID)
+
+	res, err := wave(t, epic.ID)
+	if err != nil {
+		t.Fatalf("wave: %v", err)
+	}
+	want := []string{onTrunk.ID, onPlain.ID}
+	sort.Strings(want)
+	if !reflect.DeepEqual(res.Runnable, want) {
+		t.Errorf("runnable = %v, want %v: the epic %s is open and both targets are done", res.Runnable, want, epic.ID)
+	}
+}
+
 // AC5/AC6: a done sibling story whose parent_id names no story cannot be judged
 // finished — its container is unknown — so the edge is unresolved, never satisfied.
 func TestWaveCrossRepoDependencyMissingContainerIsUnresolved(t *testing.T) {

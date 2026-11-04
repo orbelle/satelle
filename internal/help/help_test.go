@@ -820,6 +820,8 @@ func TestEpicWaveDocumentsCrossRepoDependsOn(t *testing.T) {
 		"**its own",                   // satisfied by the other repo's route...
 		"container",                   // ...and every container above the story
 		"(done; container <id> open)",
+		"A done story tagged `lane:trunk` is the exception: it released to trunk itself,",
+		"so it satisfies the edge whatever its containers' state.",
 		"**Unresolved is a blocker.**",
 		"unresolved: <why>",
 		"read-only",

@@ -66,7 +66,9 @@ name the web partition shows. It is not the hosted project slug.
 - **Satisfied** only when the other repo's story is terminal on **its own
   route** and every **container** above it — its `parent_id` chain and the
   epic-parent of each `epic:<theme>` it carries — is terminal too. A child's done
-  does not carry the release; the container's close does. Otherwise the child is
+  does not carry the release; the container's close does.
+  A done story tagged `lane:trunk` is the exception: it released to trunk itself,
+  so it satisfies the edge whatever its containers' state. Otherwise the child is
   omitted, and the line reads `<repo>/<id> (<status>)`, or
   `<repo>/<id> (done; container <id> open)` when the story is done under an open
   container. A cancelled story is called out as cancelled, as for a local one.

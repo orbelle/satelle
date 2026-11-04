@@ -1,3 +1,13 @@
+## [0.0.883] - 2026-11-04
+
+### Fixed
+- A depends-on naming a done story tagged `lane:trunk` is satisfied even while that story's epic is still open, for dependencies in the same repo and across repos. A lane:trunk child releases to trunk itself, so its done carries the release. Before, `satelle story wave` held every dependant until the whole container closed ("waiting on <repo>/<id> (done; container <id> open)"), which kept sty_ce11bbdb waiting on satelle-server's sty_0256bfe4 although it was live in satelle-server 0.1.285. A done child without lane:trunk under an open container still holds its dependants. `satelle help epic-wave` states the exception. (sty_5e105cdb)
+
+## [serve-v0.0.291] - 2026-11-04
+
+### Fixed
+- The service binary carries the lane:trunk depends-on rule of 0.0.883. (sty_5e105cdb)
+
 ## [0.0.882] - 2026-11-04
 
 ### Fixed

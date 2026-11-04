@@ -118,9 +118,14 @@ func (r *siblingReader) view(ctx context.Context, repo, id string) siblingView {
 	return v
 }
 
+// laneTrunkTag marks a story that releases to trunk itself rather than through its
+// epic's branch — the literal the release skills key on.
+const laneTrunkTag = "lane:trunk"
+
 // state is the wave state of story id in repo, judged on that repo's own route. A
 // finished story satisfies the edge only when every container above it is
-// finished too — a child's done does not carry the release, the epic's close does.
+// finished too — a child's done does not carry the release, the epic's close does —
+// unless it is tagged lane:trunk, which carries its own release to trunk.
 // Anything that cannot be read is unresolved, which blocks.
 func (r *siblingReader) state(ctx context.Context, repo, id string) waveState {
 	v := r.view(ctx, repo, id)
@@ -135,7 +140,7 @@ func (r *siblingReader) state(ctx context.Context, repo, id string) waveState {
 	if !own.Known {
 		return unresolved("no route governs %s/%s (status %s)", repo, id, item.Status)
 	}
-	if !own.Done {
+	if !own.Done || slices.Contains(item.Tags, laneTrunkTag) {
 		return own
 	}
 	open, reason := openContainerAbove(v.rv, item)
