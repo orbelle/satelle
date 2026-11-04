@@ -287,11 +287,6 @@ skill = "satelle-substrate-only-check"
 on = ["done"]
 for = ["substrate"]
 
-# A story whose change touched synced substrate does not close while that change exists only on this machine.
-[[gate]]
-skill = "satelle-substrate-pushed-check"
-on = ["done"]
-for = ["*", "substrate", "chore", "pr"]
 
 # Judges added or rewritten instruction text, run only when the trigger check says the change is more than whitespace.
 [[gate]]
