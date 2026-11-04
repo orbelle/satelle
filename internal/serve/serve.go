@@ -67,10 +67,11 @@ func Run(ctx context.Context, opts Options) error {
 	// Repair loop for pushes that never landed (sty_e6e467fe). Runs beside the
 	// server, off the request path, and stops with ctx.
 	rec := &Reconciler{
-		Targets: mirrorTargets(ms, home),
-		Log:     logLine,
-		Record:  recordSnapshotFunc(home),
-		PushOff: config.MachinePushOff,
+		Targets:   mirrorTargets(ms, home),
+		Log:       logLine,
+		Record:    recordSnapshotFunc(home),
+		PushOff:   config.MachinePushOff,
+		DirtyHome: home,
 	}
 	// A local change both dirties the push and lifts a snapshot's conflict
 	// backoff for the repo (sty_0367d20c); a hosted-origin one does neither.
@@ -82,6 +83,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), onIngest)
 	webSrv.FetchStory = fetchViaCLI
+	webSrv.Ingest.Log = logLine
 	publishLogs = func() { webSrv.Publish("logs") }
 	handler := pprofLocal(web.RequestLog(webSrv.Handler, serverLog, serverLogConfig, publishLogs))
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/app"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/push"
 )
@@ -46,9 +47,22 @@ func (d *uiDrain) mark(topic string) {
 	d.topics = append(d.topics, topic)
 }
 
+// markMirrorDirty records that a's latest state did not reach the mirror, so
+// satelled's retry tick reseeds the repo within seconds (mirror.DirtyDir). One
+// local file write: no retry and no wait on the verb path. Best-effort.
+func markMirrorDirty(a *app.App) {
+	if a == nil {
+		return
+	}
+	// GlobalDir panics in a test with no isolated home; a mark is never worth that.
+	defer func() { _ = recover() }()
+	_ = mirror.MarkDirty(config.GlobalDir(), config.CanonicalRepoRoot(a.RepoRoot))
+}
+
 // flush delivers pending change events then one snapshot under a single budget.
 // Idempotent (sync.Once). Fail-silent: never panics, never returns an error to
-// the verb path. No-op when endpoint empty or nothing was marked.
+// the verb path; a snapshot that does not land marks the repo dirty. No-op when
+// endpoint empty or nothing was marked.
 func (d *uiDrain) flush() {
 	if d == nil {
 		return
@@ -80,9 +94,14 @@ func (d *uiDrain) flush() {
 		}
 		snap, err := buildUIDrainSnapshot(ctx, a)
 		if err != nil || snap == nil {
+			if err != nil {
+				markMirrorDirty(a)
+			}
 			return
 		}
 		snap.Origin = origin
-		_ = postUISnapshotContext(ctx, endpoint, snap)
+		if err := postUISnapshotContext(ctx, endpoint, snap); err != nil {
+			markMirrorDirty(a)
+		}
 	})
 }

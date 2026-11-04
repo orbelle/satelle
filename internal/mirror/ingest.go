@@ -105,6 +105,51 @@ type IngestHandler struct {
 	Store    *Store
 	OnChange func(topic string)
 	OnIngest func(repoKey string, origin IngestOrigin)
+	// Log receives one line per snapshot ingest that fails or takes longer than
+	// slowIngest, with its size and phase timings. nil discards.
+	Log func(format string, args ...any)
+
+	// apply replaces Store.ApplySnapshot; nil means the store. Set only by
+	// in-package tests, which cannot otherwise slow or fail the detached apply.
+	apply func(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error
+}
+
+// slowIngest is the snapshot ingest duration past which Log is written even
+// when the ingest succeeds.
+const slowIngest = time.Second
+
+// ingestTiming is one snapshot ingest's size and phase timings for Log.
+type ingestTiming struct {
+	start                 time.Time
+	bytes                 int
+	snap                  Snapshot
+	read, apply, onIngest time.Duration
+	err                   string
+}
+
+func (h *IngestHandler) logIngest(t *ingestTiming) {
+	if h.Log == nil {
+		return
+	}
+	total := time.Since(t.start)
+	if t.err == "" && total <= slowIngest {
+		return
+	}
+	s := t.snap
+	line := fmt.Sprintf("ingest snapshot %s: bytes=%d stories=%d tasks=%d executions=%d docs=%d ledger=%d story_docs=%d seats=%d read=%s apply=%s on_ingest=%s total=%s",
+		s.RepoKey, t.bytes, len(s.Stories), len(s.Tasks), len(s.Executions), len(s.Docs), len(s.LedgerEvents), len(s.StoryDocs), len(s.Seats),
+		t.read, t.apply, t.onIngest, total)
+	if t.err != "" {
+		line += " err=" + t.err
+	}
+	h.Log("%s", line)
+}
+
+func (h *IngestHandler) applySnapshot(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error {
+	if h.apply != nil {
+		return h.apply(ctx, repoKey, replace, merge, now)
+	}
+	return h.Store.ApplySnapshot(ctx, repoKey, replace, merge, now)
 }
 
 // Mount registers ingest routes on mux.
@@ -179,18 +224,35 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	tm := &ingestTiming{start: time.Now()}
+	defer h.logIngest(tm)
+	phase := tm.start
+	lap := func(d *time.Duration) {
+		now := time.Now()
+		*d += now.Sub(phase)
+		phase = now
+	}
+	fail := func(msg string, code int) {
+		tm.err = msg
+		http.Error(w, msg, code)
+	}
 	body, err := io.ReadAll(r.Body)
+	tm.bytes = len(body)
 	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
+		lap(&tm.read)
+		fail("read body", http.StatusBadRequest)
 		return
 	}
 	var snap Snapshot
-	if err := json.Unmarshal(body, &snap); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
+	err = json.Unmarshal(body, &snap)
+	lap(&tm.read)
+	if err != nil {
+		fail("bad json", http.StatusBadRequest)
 		return
 	}
+	tm.snap = snap
 	if strings.TrimSpace(snap.RepoKey) == "" {
-		http.Error(w, "repo_key required", http.StatusBadRequest)
+		fail("repo_key required", http.StatusBadRequest)
 		return
 	}
 	now := time.Now()
@@ -203,14 +265,17 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	digest := snapshotDigest(body)
 	if !partial {
 		if prev, err := h.Store.SnapshotHash(ctx, snap.RepoKey); err == nil && prev != "" && prev == digest {
-			if err := h.Store.MarkFresh(ctx, snap.RepoKey, now); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			err := h.Store.MarkFresh(ctx, snap.RepoKey, now)
+			lap(&tm.apply)
+			if err != nil {
+				fail(err.Error(), http.StatusInternalServerError)
 				return
 			}
 			// Unchanged bytes can still coincide with a hosted-side gap; the
 			// push is a cursor no-op when there is nothing to send (sty_c526753a).
 			if h.OnIngest != nil {
 				h.OnIngest(snap.RepoKey, snap.Origin)
+				lap(&tm.onIngest)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "unchanged": true})
@@ -221,16 +286,21 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	// Empty slug skips — the UI falls back to unique repo_key.
 	if slug := strings.TrimSpace(snap.Slug); slug != "" {
 		if existing, ok, err := h.Store.FindBySlug(ctx, slug); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			lap(&tm.apply)
+			fail(err.Error(), http.StatusInternalServerError)
 			return
 		} else if ok && existing.RepoKey != snap.RepoKey {
+			lap(&tm.apply)
 			msg := slugConflictMessage(h.Store, ctx, slug, existing.RepoKey, snap.RepoKey)
-			http.Error(w, msg, http.StatusConflict)
+			fail(msg, http.StatusConflict)
 			return
 		}
 	}
+	// TouchPartition does not move updated_at: freshness is claimed below, only
+	// once the apply has committed, so a push that fails cannot clear staleness.
 	if _, err := h.Store.TouchPartition(ctx, snap.RepoKey, snap.Slug, now); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		lap(&tm.apply)
+		fail(err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -239,8 +309,9 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	// (or failing) the single tx must not be cut short by the drain budget.
 	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), applySnapshotTimeout)
 	defer cancel()
-	if err := h.Store.ApplySnapshot(applyCtx, snap.RepoKey, replace, merge, now); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.applySnapshot(applyCtx, snap.RepoKey, replace, merge, now); err != nil {
+		lap(&tm.apply)
+		fail(err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Only full bodies may set snap_hash. Partial applies clear it so the next
@@ -250,7 +321,14 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		hash = ""
 	}
 	if err := h.Store.SetSnapshotHash(ctx, snap.RepoKey, hash); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		lap(&tm.apply)
+		fail(err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = h.Store.MarkFresh(ctx, snap.RepoKey, now)
+	lap(&tm.apply)
+	if err != nil {
+		fail(err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Doorbell only after a committed apply so viewers never refetch a failed push.
@@ -262,6 +340,7 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.OnIngest != nil {
 		h.OnIngest(snap.RepoKey, snap.Origin)
+		lap(&tm.onIngest)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})

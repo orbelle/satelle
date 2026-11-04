@@ -35,6 +35,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,11 +52,29 @@ const reconcileTimeout = 2 * time.Minute
 // doubles per repeat up to pushBackoffCap (sty_0367d20c).
 const syncBackoffBase = time.Minute
 
+// Retry cadence for a repo whose reseed failed or whose CLI push was marked
+// dirty: the retry tick checks for due work, and a failed reseed waits
+// defaultRetryDelay, doubling to the pass interval.
+const (
+	defaultRetryDelay = 30 * time.Second
+	defaultRetryTick  = 10 * time.Second
+)
+
 // Reconciler re-requests a snapshot for each mirrored partition on an interval.
 // Every collaborator is injectable so tests drive it without a real binary.
 type Reconciler struct {
 	// Interval between passes; zero means mirror.DefaultReconcileInterval.
 	Interval time.Duration
+	// RetryDelay is the first wait before a failed reseed is re-run on the
+	// retry tick; it doubles per consecutive failure up to Interval. Zero means
+	// defaultRetryDelay.
+	RetryDelay time.Duration
+	// RetryTick is how often due retries and dirty repos are checked; zero
+	// means defaultRetryTick.
+	RetryTick time.Duration
+	// DirtyHome is the machine home whose mirror.DirtyDir the CLI marks when a
+	// push fails; the retry tick reseeds each marked target. Empty disables it.
+	DirtyHome string
 	// Timeout bounds a single re-seed; zero means reconcileTimeout.
 	Timeout time.Duration
 	// Targets lists the repo paths to re-request, newest resolution each pass so
@@ -113,6 +132,15 @@ type Reconciler struct {
 	// follows holds, per repo, the done channel of its running Follow. Only
 	// pass() touches the map; the Follow goroutine only closes its channel.
 	follows map[string]chan struct{}
+	// retry holds, per repo whose reseed last failed, when the retry tick may
+	// re-run it. Loop's goroutine only, like failing.
+	retry map[string]*retryState
+}
+
+// retryState is one failing repo's next retry and the delay that armed it.
+type retryState struct {
+	at    time.Time
+	delay time.Duration
 }
 
 // following reports whether the repo's Follow is still running.
@@ -235,6 +263,39 @@ func (r *Reconciler) interval() time.Duration {
 	return mirror.DefaultReconcileInterval
 }
 
+func (r *Reconciler) retryDelay() time.Duration {
+	if r.RetryDelay > 0 {
+		return r.RetryDelay
+	}
+	return defaultRetryDelay
+}
+
+func (r *Reconciler) retryTick() time.Duration {
+	if r.RetryTick > 0 {
+		return r.RetryTick
+	}
+	return defaultRetryTick
+}
+
+// schedule arms or clears path's retry from one reseed outcome.
+func (r *Reconciler) schedule(path string, err error) {
+	if err == nil {
+		delete(r.retry, path)
+		return
+	}
+	if r.retry == nil {
+		r.retry = map[string]*retryState{}
+	}
+	d := r.retryDelay()
+	if prev := r.retry[path]; prev != nil {
+		d = prev.delay * 2
+	}
+	if d > r.interval() {
+		d = r.interval()
+	}
+	r.retry[path] = &retryState{at: r.now().Add(d), delay: d}
+}
+
 func (r *Reconciler) timeout() time.Duration {
 	if r.Timeout > 0 {
 		return r.Timeout
@@ -262,13 +323,99 @@ func (r *Reconciler) Loop(ctx context.Context) {
 	r.pass(ctx)
 	t := time.NewTicker(r.interval())
 	defer t.Stop()
+	retry := time.NewTicker(r.retryTick())
+	defer retry.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			r.pass(ctx)
+		case <-retry.C:
+			r.retryPass(ctx)
 		}
+	}
+}
+
+// retryPass reseeds, between full passes, every target whose failed reseed is
+// due a retry and every target the CLI marked dirty after a push that did not
+// land, so a dropped status change or dispatch start reaches the page within
+// seconds. A dirty repo still backing off from a failed retry waits for it.
+// A mark for a path that is no longer a target is dropped: the retry never
+// seeds a store the full pass would not.
+func (r *Reconciler) retryPass(ctx context.Context) {
+	now := r.now()
+	due := map[string]bool{}
+	for path, st := range r.retry {
+		if !now.Before(st.at) {
+			due[path] = true
+		}
+	}
+	var dirty map[string]bool
+	if r.DirtyHome != "" {
+		if marked := mirror.DirtyRepos(r.DirtyHome); len(marked) > 0 {
+			dirty = map[string]bool{}
+			for _, path := range marked {
+				dirty[path] = true
+			}
+		}
+	}
+	if len(due) == 0 && len(dirty) == 0 {
+		return
+	}
+	if r.Targets == nil {
+		return
+	}
+	targets := map[string]bool{}
+	for _, path := range r.Targets(ctx) {
+		targets[path] = true
+	}
+	for path := range dirty {
+		if !targets[path] {
+			_ = mirror.ClearDirty(r.DirtyHome, path)
+			continue
+		}
+		if st := r.retry[path]; st != nil && now.Before(st.at) {
+			continue
+		}
+		due[path] = true
+	}
+	paths := make([]string, 0, len(due))
+	for path := range due {
+		if targets[path] {
+			paths = append(paths, path)
+		} else {
+			delete(r.retry, path)
+		}
+	}
+	sort.Strings(paths)
+	reseed := r.Reseed
+	if reseed == nil {
+		reseed = reseedViaCLI
+	}
+	for _, path := range paths {
+		if ctx.Err() != nil {
+			return
+		}
+		if dirty[path] {
+			_ = mirror.ClearDirty(r.DirtyHome, path)
+		}
+		runCtx, cancel := context.WithTimeout(ctx, r.timeout())
+		err := reseed(runCtx, path)
+		cancel()
+		if errors.Is(err, errChildBusy) {
+			// Another child holds the repo and may have read it before the
+			// change; keep the mark so the next tick reseeds after it.
+			if dirty[path] {
+				_ = mirror.MarkDirty(r.DirtyHome, path)
+			}
+			continue
+		}
+		if err != nil && dirty[path] {
+			_ = mirror.MarkDirty(r.DirtyHome, path)
+		}
+		r.report(path, err)
+		r.logf("sync retry %s: %s", path, okOrError(err))
 	}
 }
 
@@ -391,6 +538,11 @@ func (r *Reconciler) pass(ctx context.Context) {
 			delete(r.failing, path)
 		}
 	}
+	for path := range r.retry {
+		if !seen[path] {
+			delete(r.retry, path)
+		}
+	}
 }
 
 // report turns one reseed outcome into at most one log line. A repo is reported
@@ -401,6 +553,7 @@ func (r *Reconciler) pass(ctx context.Context) {
 // It never touches whether the reseed ran — suppression is about the log line
 // only. A repo whose line is suppressed is still re-seeded on every pass.
 func (r *Reconciler) report(path string, err error) {
+	r.schedule(path, err)
 	if r.Record != nil {
 		reason := ""
 		if err != nil {

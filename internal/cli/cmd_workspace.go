@@ -16,7 +16,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
@@ -210,11 +213,32 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := postUISnapshot(ep, snap); err != nil {
-		return err
+		return postTrimmedAfterTimeout(cmd.Context(), a, ep, snap, err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "workspace add: ok repo_key=%s stories=%d tasks=%d → %s/ingest/snapshot\n",
 		snap.RepoKey, len(snap.Stories), len(snap.Tasks), strings.TrimRight(ep, "/"))
 	return nil
+}
+
+// postTrimmedAfterTimeout handles a failed full snapshot POST. When it timed out,
+// the light drain snapshot (no doc bodies) is posted so the page still gets the
+// current stories and seats; the full body's error is still returned, so the
+// reconciler logs the failure and retries the full snapshot. Any other failure
+// (a slug-conflict 409, a refused ingest) is returned as it is.
+func postTrimmedAfterTimeout(ctx context.Context, a *app.App, ep string, full *mirror.Snapshot, fullErr error) error {
+	var ne net.Error
+	if !errors.Is(fullErr, context.DeadlineExceeded) && !(errors.As(fullErr, &ne) && ne.Timeout()) {
+		return fullErr
+	}
+	light, err := buildUIDrainSnapshot(ctx, a)
+	if err == nil {
+		light.Origin = full.Origin
+		err = postUISnapshot(ep, light)
+	}
+	if err != nil {
+		return fmt.Errorf("full snapshot timed out; trimmed snapshot also failed (%v): %w", err, fullErr)
+	}
+	return fmt.Errorf("full snapshot timed out; posted trimmed snapshot: %w", fullErr)
 }
 
 // resolveSeedEndpoint returns the serve base URL to seed against.

@@ -82,12 +82,10 @@ type pageData struct {
 	// LastIngest is when this partition's state was last confirmed against the
 	// repo, rendered as elapsed time so the page never presents an unrepaired
 	// frame as current (sty_e6e467fe, presented per sty_226a661e).
-	//
-	// There is deliberately no Stale companion. It existed to switch a badge on
-	// past mirror.StaleAfter; the elapsed time is shown unconditionally now, so
-	// a boolean here would be computed and never read — which reads to the next
-	// person as though a threshold still governs what is displayed.
 	LastIngest time.Time
+	// Stale is set when LastIngest is older than mirror.StaleAfter (or absent);
+	// the header then shows the stale marker beside the elapsed time.
+	Stale bool
 	// SyncLastSuccess / SyncReason are recorded hosted-push state (sty_30696eeb).
 	SyncLastSuccess time.Time
 	SyncReason      string

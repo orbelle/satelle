@@ -111,20 +111,20 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// TouchPartition ensures a partition row exists and bumps seq.
+// TouchPartition ensures a partition row exists and bumps seq. It never moves
+// updated_at — that is the last CONFIRMED ingest, written by MarkFresh once a
+// snapshot has committed — so a new row starts with none and reads as stale.
 func (s *Store) TouchPartition(ctx context.Context, repoKey, slug string, now time.Time) (seq int64, err error) {
 	repoKey = strings.TrimSpace(repoKey)
 	if repoKey == "" {
 		return 0, fmt.Errorf("mirror: empty repo_key")
 	}
-	at := now.UTC().Format(time.RFC3339Nano)
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO partitions (repo_key, slug, seq, updated_at) VALUES (?, ?, 1, ?)
+INSERT INTO partitions (repo_key, slug, seq, updated_at) VALUES (?, ?, 1, '')
 ON CONFLICT(repo_key) DO UPDATE SET
   seq = seq + 1,
-  slug = CASE WHEN excluded.slug != '' THEN excluded.slug ELSE partitions.slug END,
-  updated_at = excluded.updated_at
-`, repoKey, slug, at)
+  slug = CASE WHEN excluded.slug != '' THEN excluded.slug ELSE partitions.slug END
+`, repoKey, slug)
 	if err != nil {
 		return 0, err
 	}
@@ -136,7 +136,8 @@ ON CONFLICT(repo_key) DO UPDATE SET
 // claiming anything changed: updated_at moves so the staleness badge clears,
 // seq does not, so no viewer is told to re-render (sty_e6e467fe). Used by the
 // reconcile path when the re-requested snapshot is byte-identical to the one
-// already stored. No-op success for an unknown repo_key.
+// already stored, and after every snapshot apply that commits. No-op success
+// for an unknown repo_key.
 func (s *Store) MarkFresh(ctx context.Context, repoKey string, now time.Time) error {
 	repoKey = strings.TrimSpace(repoKey)
 	if repoKey == "" {

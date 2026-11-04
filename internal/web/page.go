@@ -8,6 +8,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
 // basePath is the URL prefix this server is mounted under, empty for the
@@ -60,7 +61,9 @@ var tmplFuncs = template.FuncMap{
 		return t.UTC().Format(time.RFC3339)
 	},
 	"reltime": func(t time.Time) string { return relTime(t, time.Now()) },
-	"lower":   strings.ToLower,
+	// staleafter names mirror.StaleAfter for the stale marker's hover text.
+	"staleafter": func() string { return fmt.Sprintf("%d min", int(mirror.StaleAfter.Minutes())) },
+	"lower":      strings.ToLower,
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
 	},
@@ -250,7 +253,13 @@ const templatesSrc = `
 {{/* freshness: project-header presentation. "local: updated" is a sibling of
      the <time>, never inside it — the app.js ticker rewrites only
      time.rel-time text (sty_226a661e, sty_8104248a). */}}
-{{define "freshness"}}local: updated {{template "freshnessBare" .}}{{end}}
+{{define "freshness"}}local: updated {{template "freshnessBare" .}}{{template "stalemark" .}}{{end}}
+
+{{/* stalemark: shown only when the partition has had no confirmed snapshot
+     for longer than mirror.StaleAfter (.Stale), so a frame the serving tier
+     could not repair never reads as current. Beside the <time>, never inside
+     it, so the ticker leaves it alone. */}}
+{{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="No confirmed snapshot for over {{staleafter}}">stale · {{reltime .LastIngest}}</span>{{end}}{{end}}
 
 {{/* syncstate: hosted workstate plane on the project header (sty_8104248a).
      "pushed" stays outside time.rel-time so the ticker cannot strip it.

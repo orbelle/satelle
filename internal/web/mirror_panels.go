@@ -39,13 +39,6 @@ func mirrorIdentity(ctx context.Context, s *mirror.Store, repoKey string) mirror
 	return id
 }
 
-// partitionFreshness reports when this partition was last confirmed against its
-// repo (sty_e6e467fe). An unknown partition returns the zero time: the page then
-// says it has no confirmation at all, which is the honest reading.
-//
-// It no longer returns a stale BOOLEAN. The view renders elapsed time on every
-// surface unconditionally (sty_226a661e), so nothing consumes a threshold —
-// mirror.Partition.Stale remains for callers that genuinely branch on it.
 // syncHeldVM is one story the last push held until its code is on the remote.
 type syncHeldVM struct {
 	ID     string
@@ -95,13 +88,17 @@ func displayedSyncLogPath() string {
 	return mirror.ServerLogPath(home)
 }
 
-func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) time.Time {
+// partitionFreshness reports when this partition was last confirmed against its
+// repo (sty_e6e467fe) and whether that is longer ago than mirror.StaleAfter. An
+// unknown partition returns the zero time and stale: the page then says it has
+// no confirmation at all, which is the honest reading.
+func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) (last time.Time, stale bool) {
 	p, ok, err := s.GetPartition(ctx, repoKey)
 	if err != nil || !ok {
-		return time.Time{}
+		return time.Time{}, true
 	}
-	last, _ := p.LastIngest()
-	return last.Local()
+	last, _ = p.LastIngest()
+	return last.Local(), p.Stale(time.Now())
 }
 
 // mirrorLoadPanels assembles pageData exclusively from mirror kinds (no repo DB).
@@ -186,10 +183,12 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
+	lastIngest, stale := partitionFreshness(ctx, s, repoKey)
 	return pageData{
 		RepoRoot:        repoRoot,
 		ProjectName:     projectName,
-		LastIngest:      partitionFreshness(ctx, s, repoKey),
+		LastIngest:      lastIngest,
+		Stale:           stale,
 		SyncLastSuccess: syncSt.PushLastSuccess,
 		SyncReason:      syncSt.PushReason,
 		SyncLocal:       syncSt.Scope == "local",

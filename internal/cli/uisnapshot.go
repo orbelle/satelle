@@ -27,10 +27,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
-// postUISnapshot POSTs snap to endpoint/ingest/snapshot with a 30s budget.
+// uiSnapshotBudget bounds one workspace add snapshot POST (a package var so
+// tests can shorten it).
+var uiSnapshotBudget = 30 * time.Second
+
+// postUISnapshot POSTs snap to endpoint/ingest/snapshot under uiSnapshotBudget.
 // Used by workspace add (fail-visible; large snapshots OK).
 func postUISnapshot(endpoint string, snap *mirror.Snapshot) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), uiSnapshotBudget)
 	defer cancel()
 	return postUISnapshotContext(ctx, endpoint, snap)
 }

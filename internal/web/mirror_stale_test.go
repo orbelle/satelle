@@ -13,30 +13,33 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// TestFreshnessShownForEveryPartition replaces TestStaleMirrorSaysSo. That test
-// asserted the red badge from sty_e6e467fe was PRESENT on an unreconciled
-// partition and ABSENT on a fresh one — which is the behaviour sty_226a661e
-// deliberately reverses, so it is inverted here rather than amended.
-//
-// What must still hold is the thing the badge existed for: a view that was not
-// confirmed recently is never indistinguishable from one that was. The elapsed
-// time now says it on EVERY row, continuously, instead of a binary flag that
-// appeared only past StaleAfter.
+// seedFresh creates a partition whose last confirmed ingest is at.
+func seedFresh(t *testing.T, s *mirror.Store, repoKey, slug string, at time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.TouchPartition(ctx, repoKey, slug, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkFresh(ctx, repoKey, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestFreshnessShownForEveryPartition: a view that was not confirmed recently
+// is never indistinguishable from one that was. The elapsed time says it on
+// EVERY row (sty_226a661e), and a partition past StaleAfter also carries the
+// stale marker, on the landing row and the project header, while one inside it
+// carries none.
 func TestFreshnessShownForEveryPartition(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	ctx := context.Background()
-
 	stale := time.Now().UTC().Add(-mirror.StaleAfter - time.Hour)
-	if _, err := s.TouchPartition(ctx, "rk-stale", "stale-repo", stale); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.TouchPartition(ctx, "rk-fresh", "fresh-repo", time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
+	seedFresh(t, s, "rk-stale", "stale-repo", stale)
+	// Just inside the threshold: the other side of it.
+	seedFresh(t, s, "rk-fresh", "fresh-repo", time.Now().UTC().Add(-mirror.StaleAfter+time.Minute))
 
 	srv := httptest.NewServer(NewMirror(s).Handler)
 	t.Cleanup(srv.Close)
@@ -44,11 +47,12 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 	stamp := stale.Local().Format("2006-01-02 15:04")
 	landing := get(t, srv.URL+"/")
 
-	// AC2: the badge is gone, from markup and from wording.
-	for _, gone := range []string{"stale-flag", "stale · last update"} {
-		if strings.Contains(landing, gone) {
-			t.Errorf("the landing still renders %q:\n%s", gone, landing)
-		}
+	// The stale marker is on the stale row only, naming the age.
+	if n := strings.Count(landing, `class="stale-flag"`); n != 1 {
+		t.Errorf("want exactly one stale marker on the landing, got %d:\n%s", n, landing)
+	}
+	if !strings.Contains(landing, `>stale · 1 hr ago</span>`) {
+		t.Errorf("the stale marker must name the age:\n%s", landing)
 	}
 	// AC1: a column, and a stamp on EVERY row — not only the stale one. Two
 	// partitions were seeded, so two rel-times; the old badge would have been 1.
@@ -71,18 +75,17 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 	if !strings.Contains(landing, ">1 hr ago</time>") {
 		t.Errorf("the stale partition should read %q:\n%s", "1 hr ago", landing)
 	}
-	// …and the fresh one is distinguishable from it, which is what the binary
-	// badge could not do below its threshold.
-	if !strings.Contains(landing, ">just now</time>") {
-		t.Errorf("the freshly confirmed partition should read %q:\n%s", "just now", landing)
+	// …and the fresh one is distinguishable from it below the threshold.
+	if !strings.Contains(landing, ">14 mins ago</time>") {
+		t.Errorf("the partition inside the threshold should read %q:\n%s", "14 mins ago", landing)
 	}
 
-	// AC2, second surface: one fact, one presentation. Both project pages show
-	// the freshness inline; neither shows a badge.
-	for _, slug := range []string{"stale-repo", "fresh-repo"} {
+	// Second surface: both project pages show the freshness inline; only the
+	// stale one shows the marker.
+	for slug, wantStale := range map[string]bool{"stale-repo": true, "fresh-repo": false} {
 		page := get(t, srv.URL+"/r/"+slug+"/")
-		if strings.Contains(page, "stale-flag") {
-			t.Errorf("%s project page still renders the badge:\n%s", slug, page)
+		if got := strings.Contains(page, `class="stale-flag"`); got != wantStale {
+			t.Errorf("%s project page stale marker = %v, want %v", slug, got, wantStale)
 		}
 		if !strings.Contains(page, `class="rel-time"`) {
 			t.Errorf("%s project page must show when it was last updated:\n%s", slug, page)
@@ -99,9 +102,7 @@ func TestFreshnessFragmentCarriesTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if _, err := s.TouchPartition(context.Background(), "rk", "repo", time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
+	seedFresh(t, s, "rk", "repo", time.Now().UTC())
 	srv := httptest.NewServer(NewMirror(s).Handler)
 	t.Cleanup(srv.Close)
 

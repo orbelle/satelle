@@ -40,7 +40,9 @@ func buildSeatSnapshot(ctx context.Context, a *app.App) (*mirror.Snapshot, error
 
 // pushSeatSnapshot posts a seat-only snapshot to endpoint, best-effort, under
 // midDispatchPushBudget. a/endpoint nil-checked so an unwired mirror (no
-// `satelle serve`, or no global config) is silently inert.
+// `satelle serve`, or no global config) is silently inert. A push that does not
+// land marks the repo dirty, so a dispatch start or end still reaches the page
+// on satelled's retry tick.
 func pushSeatSnapshot(a *app.App, endpoint string) {
 	if a == nil || endpoint == "" {
 		return
@@ -49,9 +51,14 @@ func pushSeatSnapshot(a *app.App, endpoint string) {
 	defer cancel()
 	snap, err := buildSeatSnapshot(ctx, a)
 	if err != nil || snap == nil {
+		if err != nil {
+			markMirrorDirty(a)
+		}
 		return
 	}
-	_ = postUISnapshotContext(ctx, endpoint, snap)
+	if err := postUISnapshotContext(ctx, endpoint, snap); err != nil {
+		markMirrorDirty(a)
+	}
 }
 
 // activityDetailSink is the SetActivityDetail callback body, extracted so it

@@ -272,7 +272,11 @@ func pushMirrorAfterWorkstate(ctx context.Context, a *app.App, upserted int) err
 		return nil
 	}
 	snap.Origin = mirror.OriginHosted
-	return postUISnapshotContext(pushCtx, ep, snap)
+	if err := postUISnapshotContext(pushCtx, ep, snap); err != nil {
+		markMirrorDirty(a)
+		return err
+	}
+	return nil
 }
 
 // Chunk sizes for work-state push (package vars so tests can shrink them).

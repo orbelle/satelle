@@ -315,9 +315,11 @@ header.app h1 .dot { color: var(--accent); }
 /* rel-time: how long ago this view was last confirmed against the repository.
    Deliberately NOT alarm-coloured — it renders on every row, so a fail tint
    would be permanent red on a routine condition, which trains the eye to
-   ignore red. It is metadata, styled as metadata (sty_226a661e, replacing the
-   .stale-flag chip from sty_e6e467fe). */
+   ignore red. It is metadata, styled as metadata (sty_226a661e). */
 .rel-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* stale-flag: only past mirror.StaleAfter with no confirmed snapshot, so it is
+   rare and warn-toned, never the fail red of a push error. */
+.stale-flag { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail { color: var(--fail); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-local, .sync-ok { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail-body { color: var(--fail); font-size: 12px; margin-top: 4px; max-width: 72rem; }

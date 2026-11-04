@@ -1,3 +1,19 @@
+## [0.0.881] - 2026-11-04
+
+### Fixed
+- A CLI change whose board update fails no longer leaves the local board stale. A drain or seat push that fails or times out now marks the repo, and satelled's retry reseeds that repo's board from a full snapshot and clears the mark. Before, the error was dropped, so a status or tag change could stay off the page until the next 5-minute reconcile. (sty_ab0b3e3f)
+
+### Changed
+- When a full board snapshot from `satelle workspace add` or the reconciler times out, satelle posts a trimmed snapshot instead of dropping the update, and reports that it did. (sty_ab0b3e3f)
+
+## [serve-v0.0.290] - 2026-11-04
+
+### Fixed
+- satelled retries a failed board push with logging, reseeds every repo a failed CLI push marked, and logs each snapshot ingest's timing. A snapshot whose apply fails no longer marks the partition as fresh. (sty_ab0b3e3f)
+
+### Changed
+- The board shows a `stale · <age>` marker on a project's header and its landing row when the project has had no confirmed snapshot for 15 minutes. Change events alone (`/ingest/change`) no longer count as fresh, so a repo fed only by change events now shows as stale after 15 minutes. (sty_ab0b3e3f)
+
 ## [0.0.880] - 2026-11-03
 
 ### Fixed

@@ -35,7 +35,9 @@ type MirrorServer struct {
 	// mirror holds no event of calls it, then reads the mirror again. satelled
 	// sets it; nil leaves the page to what the mirror holds.
 	FetchStory func(ctx context.Context, repoRoot, id string) error
-	hub        *hub
+	// Ingest is the mounted ingest handler; satelled sets its Log before serving.
+	Ingest *mirror.IngestHandler
+	hub    *hub
 }
 
 // partitionVM is one workspace row on the mirror landing. Counts mirror the
@@ -51,10 +53,10 @@ type partitionVM struct {
 	Docs      int
 	// LastIngest carries the same freshness signal as the project page, so a
 	// partition the serving tier could not reconcile is visible on the landing
-	// too (sty_e6e467fe) — as elapsed time on every row, not a threshold badge
-	// on some of them (sty_226a661e). See pageData.LastIngest for why there is
-	// no Stale field beside it.
+	// too (sty_e6e467fe) — as elapsed time on every row (sty_226a661e), plus the
+	// stale marker on a row past mirror.StaleAfter.
 	LastIngest time.Time
+	Stale      bool
 	// SyncLastSuccess / SyncReason are recorded hosted-push state
 	// (sty_30696eeb). Empty reason = no standing failure.
 	SyncLastSuccess time.Time
@@ -123,8 +125,8 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /theme", getTheme)
 	// POST /theme removed (only ingest mutates). Theme persists client-side.
 
-	ing := &mirror.IngestHandler{Store: m, OnChange: h.publish, OnIngest: onIngest}
-	ing.Mount(mux)
+	s.Ingest = &mirror.IngestHandler{Store: m, OnChange: h.publish, OnIngest: onIngest}
+	s.Ingest.Mount(mux)
 
 	// Workspace landing (order:3) and project surface under /r/{slug}/ (order:2).
 	mux.HandleFunc("GET /{$}", s.landing)
@@ -270,6 +272,7 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 			Stories: len(stories), Backlog: backlog,
 			Tasks: len(tasks), Workflows: workflows, Docs: len(docs),
 			LastIngest:      lastIngest.Local(),
+			Stale:           p.Stale(time.Now()),
 			SyncLastSuccess: st.PushLastSuccess,
 			SyncReason:      st.PushReason,
 			SyncLocal:       st.Scope == "local",
@@ -662,7 +665,7 @@ const mirrorWorkspaceSrc = `
              Project cell and pushed the name around (sty_226a661e). Landing
              shows local ingest only; a standing fail is a tag, not a log
              dump (sty_a447695e). */}}
-        <td class="updated-cell">{{template "freshnessBare" .}}{{template "syncfailtag" .}}</td>
+        <td class="updated-cell">{{template "freshnessBare" .}}{{template "stalemark" .}}{{template "syncfailtag" .}}</td>
       </tr>{{end}}
     </tbody>
   </table>
