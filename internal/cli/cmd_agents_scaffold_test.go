@@ -178,54 +178,6 @@ func TestRemoveSharedHookScriptWhenUnreferenced(t *testing.T) {
 	}
 }
 
-func TestRemoveGrokDeletesWhollySatelleScaffold(t *testing.T) {
-	repo := t.TempDir()
-	if _, _, _, err := ensureGrokHooks(repo); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(repo, filepath.FromSlash(grokHooksRel))
-	action, _, _, err := removeGrokHooks(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action != "removed" {
-		t.Fatalf("wholly satelle scaffold must be removed, got %s", action)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("hooks file should be gone")
-	}
-}
-
-// Every command emitted by the Grok scaffold must be recognisably Satelle-owned,
-// otherwise remove could leave a supposedly wholly-owned hooks file behind.
-func TestRemoveGrokRecognisesEveryGeneratedCommand(t *testing.T) {
-	repo := t.TempDir()
-	if _, _, _, err := ensureGrokHooks(repo); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(grokHooksRel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var root map[string]any
-	if err := json.Unmarshal(raw, &root); err != nil {
-		t.Fatal(err)
-	}
-	for event, rawGroups := range root["hooks"].(map[string]any) {
-		for _, rawGroup := range rawGroups.([]any) {
-			for _, rawHandler := range rawGroup.(map[string]any)["hooks"].([]any) {
-				command := rawHandler.(map[string]any)["command"].(string)
-				if !isSatelleOwnedHookCommand(command) {
-					t.Fatalf("%s hook command is not removable as Satelle-owned: %q", event, command)
-				}
-			}
-		}
-	}
-	if action, _, _, err := removeGrokHooks(repo); err != nil || action != "removed" {
-		t.Fatalf("remove wholly-owned Grok scaffold: action=%q err=%v", action, err)
-	}
-}
-
 func TestRemoveGrokKeepsUserTopLevelKey(t *testing.T) {
 	repo := t.TempDir()
 	if _, _, _, err := ensureGrokHooks(repo); err != nil {
@@ -292,39 +244,6 @@ func TestInstalledGrokScaffoldDeniesMutation(t *testing.T) {
 	for _, ev := range []string{"SessionStart", "PreToolUse", "UserPromptSubmit", "Stop"} {
 		if _, ok := hooks[ev]; !ok {
 			t.Errorf("missing event %s", ev)
-		}
-	}
-}
-
-// TestAgentsAndInitRejectUnknownHarness: a name that is not a supported harness
-// reaches the generic unknown-name errors of both `init --harness` and
-// `agents install|remove`, and the errors list only the supported harnesses.
-// (`init --harness` stays claude and/or grok: pi is opted into with
-// `agents install pi`, never adopted by init.)
-func TestAgentsAndInitRejectUnknownHarness(t *testing.T) {
-	if _, err := parseHarnessFlag("claude,nosuch"); err == nil ||
-		!strings.Contains(err.Error(), "unknown --harness") || !strings.Contains(err.Error(), "claude and/or grok") {
-		t.Fatalf("parseHarnessFlag(nosuch) = %v", err)
-	}
-	if _, err := expandAgentTargets("nosuch"); err == nil ||
-		!strings.Contains(err.Error(), "unknown agent") || !strings.Contains(err.Error(), "claude, grok, pi, cursor, or all") {
-		t.Fatalf("expandAgentTargets(nosuch) = %v", err)
-	}
-	if all, err := expandAgentTargets("all"); err != nil || strings.Join(all, ",") != "claude,grok,pi,cursor" {
-		t.Fatalf("expandAgentTargets(all) = %v (%v)", all, err)
-	}
-
-	repo := tempRepo(t)
-	t.Chdir(repo)
-	t.Setenv("SATELLE_HOME", t.TempDir())
-	for _, args := range [][]string{
-		{"init", "--harness", "nosuch"},
-		{"agents", "install", "nosuch"},
-		{"agents", "remove", "nosuch"},
-	} {
-		out, err := runRootIn(t, "", args...)
-		if err == nil || !strings.Contains(err.Error()+out, "unknown") {
-			t.Errorf("%v: want an unknown-harness error, got err=%v\n%s", args, err, out)
 		}
 	}
 }

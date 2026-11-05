@@ -3,11 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -150,114 +148,4 @@ func entryIDs(m map[string]ledger.Entry) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// TestTwoMachineStoryArrivesWithTransitionsAndChangeRecords pins sty_4a31e1ed
-// AC5: a story driven to done on machine A, with a push landing inside a gate
-// window, shows on machine B after a pull with the same status_transition rows
-// (every from→to, same ids) and change_record rows (same ids, same head_sha).
-func TestTwoMachineStoryArrivesWithTransitionsAndChangeRecords(t *testing.T) {
-	withVerbWiring(t)
-	ts, _ := newFakeWorkstateServer(t)
-	seedCred(t, ts.URL)
-	t.Setenv("SATELLE_HOME", t.TempDir())
-	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
-
-	a := newMachine(t, true)
-	b := newMachine(t, false)
-
-	// Machine A: wire the verb layer to its store, in its (git) tree.
-	cwd, _ := os.Getwd()
-	if err := os.Chdir(a.repo); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	wfDir := filepath.Join(t.TempDir(), "workflows")
-	if err := os.MkdirAll(wfDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range twoMachineRoute {
-		if err := os.WriteFile(filepath.Join(wfDir, name+".toml"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := a.db.DocIndex.Sync(context.Background(), map[string]string{"workflows": wfDir}, time.Now()); err != nil {
-		t.Fatalf("sync workflows: %v", err)
-	}
-	verb.SetWorkItemStore(a.db.Stories)
-	verb.SetLedgerStore(a.db.Ledger)
-	verb.SetTxRunner(a.db.InTx)
-	verb.SetDocIndexStore(a.db.DocIndex)
-	verb.SetLeaseStore(a.db.Leases)
-	verb.SetStoryDir(filepath.Join(a.repo, "stories"))
-	// Only the gater is wired: this test drives the verb layer on its own
-	// stores, with no reviewer engine behind the other seams.
-	verb.SetTransitionGater(pushInGateGater{t: t, m: a, server: ts.URL})
-
-	dispatch := func(name string, req map[string]any) workitem.Item {
-		t.Helper()
-		raw, _ := json.Marshal(req)
-		resp, err := verb.Dispatch(context.Background(), name, raw)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		var it workitem.Item
-		if err := json.Unmarshal(resp, &it); err != nil {
-			t.Fatalf("%s: decode: %v", name, err)
-		}
-		return it
-	}
-	it := dispatch("story-create", map[string]any{
-		"title": "two machines", "body": "goal", "acceptance_criteria": "1. ok",
-		"category": "feature", "tags": []string{"workflow:cr-wf"},
-	})
-	a.push(t, ts.URL) // an early push, so the cursor is live before the gated edge
-	it = dispatch("story-set", map[string]any{"id": it.ID, "status": "in_progress"})
-	it = dispatch("story-set", map[string]any{"id": it.ID, "status": "done"})
-	if it.Status != "done" {
-		t.Fatalf("machine A story is %s, want done", it.Status)
-	}
-	a.push(t, ts.URL)
-
-	wantTransitions := ledgerRowsOf(t, a, it.ID, ledger.KindStatusTransition)
-	wantChanges := ledgerRowsOf(t, a, it.ID, ledger.KindChangeRecord)
-	if len(wantTransitions) < 2 || len(wantChanges) < 2 {
-		t.Fatalf("machine A recorded %d transitions and %d change records, want >=2 each",
-			len(wantTransitions), len(wantChanges))
-	}
-
-	b.pull(t, ts.URL)
-
-	gotItem, err := b.db.Stories.Get(context.Background(), it.ID)
-	if err != nil || gotItem.Status != "done" {
-		t.Fatalf("machine B story = %+v, %v; want status done", gotItem, err)
-	}
-	gotTransitions := ledgerRowsOf(t, b, it.ID, ledger.KindStatusTransition)
-	if got, want := entryIDs(gotTransitions), entryIDs(wantTransitions); !slices.Equal(got, want) {
-		t.Errorf("status_transition ids on B = %v, want %v", got, want)
-	}
-	for id, w := range wantTransitions {
-		if g, ok := gotTransitions[id]; ok && g.Body != w.Body {
-			t.Errorf("transition %s on B reads %q, A has %q", id, g.Body, w.Body)
-		}
-	}
-	gotChanges := ledgerRowsOf(t, b, it.ID, ledger.KindChangeRecord)
-	if got, want := entryIDs(gotChanges), entryIDs(wantChanges); !slices.Equal(got, want) {
-		t.Errorf("change_record ids on B = %v, want %v", got, want)
-	}
-	head := func(e ledger.Entry) string {
-		var p struct {
-			HeadSHA string `json:"head_sha"`
-		}
-		_ = json.Unmarshal(e.Payload, &p)
-		return p.HeadSHA
-	}
-	for id, w := range wantChanges {
-		if head(w) == "" {
-			t.Errorf("change_record %s on A carries no head_sha", id)
-		}
-		if g, ok := gotChanges[id]; ok && head(g) != head(w) {
-			t.Errorf("change_record %s head_sha on B = %q, A has %q", id, head(g), head(w))
-		}
-	}
 }

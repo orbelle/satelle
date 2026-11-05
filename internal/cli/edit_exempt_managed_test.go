@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -68,35 +67,6 @@ func TestManagedEditExemptGlobsAreNarrow(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("needed .gitignore set missing dump pattern %q: %v", g, need)
-		}
-	}
-}
-
-// TestSeededExemptionsAgreeWithSubstrateOnlyCheck is the AC4 guard: the embedded
-// satelle-substrate-only-check names the same managed footprint in its allow
-// regex. Two answers about what the binary deploys is the defect this story
-// exists to close, so the agreement is enforced rather than eyeballed.
-func TestSeededExemptionsAgreeWithSubstrateOnlyCheck(t *testing.T) {
-	var body string
-	for _, d := range config.EmbeddedDefaults() {
-		if d.Kind == "skills" && d.Name == "satelle-substrate-only-check" {
-			body = d.Body
-			break
-		}
-	}
-	if body == "" {
-		t.Fatal("embedded satelle-substrate-only-check not found")
-	}
-	m := regexp.MustCompile(`(?m)^allow='([^']+)'`).FindStringSubmatch(body)
-	if m == nil {
-		t.Fatal("satelle-substrate-only-check has no allow='…' line to compare against")
-	}
-	allow := m[1]
-	for _, entry := range managedEditExemptEntries {
-		// The regex escapes the leading dot and anchors the file form with $.
-		esc := strings.ReplaceAll(entry, ".", `\.`)
-		if !strings.Contains(allow, esc) {
-			t.Errorf("substrate-only allow list %q omits managed footprint %q — the binary must give one answer about what it deploys", allow, entry)
 		}
 	}
 }

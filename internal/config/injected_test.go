@@ -7,35 +7,6 @@ import (
 	"testing"
 )
 
-// sty_58a7bdfe AC5: [validate.injected.budget] is removed. A satelle.toml or
-// satelle.local.toml carrying it fails to load naming the table and the heal.
-func TestInjectedBudgetTableRefusedAtLoad(t *testing.T) {
-	for _, tc := range []struct{ name, file, body string }{
-		{"committed table", ConfigName, "[validate.injected.budget]\ndriver = 100\n"},
-		{"committed inline", ConfigName, "[validate.injected]\nbudget = { driver = 100 }\n"},
-		{"local overlay", LocalConfigName, "[validate.injected.budget]\nreviewer = 9000\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte("[instruction_review]\nextra_paths = []\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			path := filepath.Join(dir, tc.file)
-			prior, _ := os.ReadFile(path)
-			if err := os.WriteFile(path, append(prior, []byte("\n"+tc.body)...), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			_, _, err := Load(filepath.Join(dir, ConfigName))
-			if err == nil {
-				t.Fatal("a [validate.injected.budget] table must fail to load")
-			}
-			if !strings.Contains(err.Error(), RemovedInjectedBudgetTable) || !strings.Contains(err.Error(), "satelle init") {
-				t.Errorf("refusal must name the table and satelle init, got %v", err)
-			}
-		})
-	}
-}
-
 // A [validate.injected] table with no budget still loads.
 func TestInjectedTableWithoutBudgetLoads(t *testing.T) {
 	dir := t.TempDir()

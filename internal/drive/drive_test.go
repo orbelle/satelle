@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/agentstep"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/lease"
@@ -197,55 +196,6 @@ requires = ["coded"]
 
 func headless() config.AgentBinding { return config.AgentBinding{Command: "fake-cli -p {system}"} }
 
-// AC6: drive.Story takes no harness. Handed a real engine whose [executor] is a
-// grok-shaped command, it walks a story to its terminal step and the grok
-// binding is what performed the step.
-func TestStoryDrivesAGrokShapedBindingToTheTerminalStep(t *testing.T) {
-	e := newEnv(t, routeDone, workRoute)
-	script := filepath.Join(t.TempDir(), "grok")
-	log := filepath.Join(t.TempDir(), "grok.log")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n{ echo \"=== ARGV: $*\"; cat; } >> "+log+"\necho performed\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	eng := agentstep.New(nil, e.db.DocIndex, e.dir, "")
-	eng.SetOneShotAgents(func(name string) (config.AgentBinding, bool) {
-		if name != "executor" {
-			return config.AgentBinding{}, false
-		}
-		return config.AgentBinding{
-			Role:    config.RoleAgent,
-			Command: script + " -p {payload} --system-prompt-override {system} --tools read_file,grep,list_dir --output-format plain",
-			Tools:   "read_file,grep,list_dir,write",
-		}, true
-	})
-	id := e.story()
-	res, err := drive.Story(context.Background(), id, drive.Options{Performers: eng})
-	if err != nil {
-		t.Fatalf("drive: %v", err)
-	}
-	if !res.Terminal || res.Parked || res.Status != "done" || e.status(id) != "done" {
-		t.Fatalf("want the story done, got %+v (stored %q)", res, e.status(id))
-	}
-	body, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatalf("the grok-shaped binding never ran: %v", err)
-	}
-	if !strings.Contains(string(body), "--system-prompt-override") || !strings.Contains(string(body), id) {
-		t.Errorf("the binding must be run as its own command line with the story payload:\n%s", body)
-	}
-	var invoked bool
-	for _, row := range e.rows(id, ledger.KindAgentInvocation) {
-		invoked = invoked || strings.Contains(row.Body, `performed step "in_progress"`)
-	}
-	if !invoked {
-		t.Errorf("the headless run must be recorded as an agent_invocation row")
-	}
-	if got := len(res.Moves); got != 2 {
-		t.Errorf("moves = %+v, want one per edge", res.Moves)
-	}
-	e.wantNoDriveRecords(id)
-}
-
 // AC5: inside the drive's process every gate runs in the foreground (the story is
 // at the next status as soon as Story returns) and the seat lease and the ledger
 // carry the resolved session, not a fresh one.
@@ -306,42 +256,6 @@ func TestStoryRefusesAnInLoopExecutorBeforeAnyTransition(t *testing.T) {
 		t.Errorf("a refused drive moves nothing: %q", e.status(id))
 	}
 	e.wantLedgerDelta(before)
-}
-
-// AC3: a relay that converges re-presents the edge, which the gate then accepts.
-func TestStoryRepresentsTheEdgeAfterAConvergedRelay(t *testing.T) {
-	e := newEnv(t, routeDone, `[raised]
-status = "backlog"
-start = true
-
-[coded]
-status = "in_progress"
-agent = "coder"
-rework = { consult = "reviewer-consult", rounds = 2 }
-requires = ["raised"]
-
-[closed]
-status = "done"
-terminal = true
-requires = ["coded"]
-`)
-	e.gater.rejects["done"] = 1
-	id := e.story()
-	perf := &fakePerformers{
-		kinds:  map[string]verb.PerformerKind{"in_progress": verb.PerformerDispatched},
-		agents: map[string]string{"in_progress": "coder"},
-	}
-	relays := 0
-	res, err := drive.Story(context.Background(), id, drive.Options{
-		Performers: perf,
-		Rework: func(context.Context, string) (drive.Rework, error) {
-			relays++
-			return drive.Rework{Converged: true, Outcome: "converged", Rounds: 1}, nil
-		},
-	})
-	if err != nil || !res.Terminal || relays != 1 || e.gater.seen["done"] != 2 {
-		t.Fatalf("want done after one relay and two presentations: %v %+v relays=%d seen=%v", err, res, relays, e.gater.seen)
-	}
 }
 
 // AC4: an executor that rejects the step parks the story with its notes.

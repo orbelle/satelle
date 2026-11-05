@@ -3,11 +3,8 @@ package cli
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
-
-	"github.com/spf13/pflag"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/doctor"
@@ -76,20 +73,4 @@ func nodeAllocFindings(rep doctor.Report, sev health.Severity) []health.Finding 
 		}
 	}
 	return out
-}
-
-// AC10: no help text says a push or pull redacts agent configuration.
-func TestSyncHelpTextDoesNotDescribeRedaction(t *testing.T) {
-	root := NewRootCmd()
-	for _, path := range [][]string{{"sync", "bindings", "push"}, {"sync", "bindings", "pull"}, {"sync", "bindings"}, {"sync", "config", "push"}, {"publish", "push"}} {
-		c, _, err := root.Find(path)
-		if err != nil || c == nil || c.Name() != path[len(path)-1] {
-			t.Fatalf("command %v not found: %v", path, err)
-		}
-		text := c.Short + "\n" + c.Long
-		c.Flags().VisitAll(func(f *pflag.Flag) { text += "\n" + f.Usage })
-		if strings.Contains(strings.ToLower(text), "redact") {
-			t.Errorf("satelle %s help still describes redaction:\n%s", strings.Join(path, " "), text)
-		}
-	}
 }

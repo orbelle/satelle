@@ -71,7 +71,8 @@ func groupMembers(pgid int) int {
 		}
 		s := string(b)
 		rest := strings.Fields(s[strings.LastIndexByte(s, ')')+1:]) // state ppid pgrp ...
-		if len(rest) > 2 && rest[2] == strconv.Itoa(pgid) {
+		// A zombie is not live: a sandbox whose pid 1 does not reap leaves one.
+		if len(rest) > 2 && rest[0] != "Z" && rest[2] == strconv.Itoa(pgid) {
 			n++
 		}
 	}

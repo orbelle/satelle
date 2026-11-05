@@ -506,7 +506,7 @@ one engaged in a performing state — that is what the edit gate enforces.
 
 Reach for create/set to drive the lifecycle, get/list to read, attach/doc/docs
 to carry evidence, and route to see the steps and every verdict so far. The
-category chosen at create selects the route; see satelle help create-story.`
+category chosen at create selects the route; see satelle help workflows.`
 }
 
 func groupCreateLong(group string) string {

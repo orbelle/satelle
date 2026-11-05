@@ -84,6 +84,7 @@ func scrubAmbientHarnessEnv() {
 }
 
 func TestMain(m *testing.M) {
+	_ = os.Unsetenv("SATELLE_TOKEN") // hermetic: never act as a signed-in hosted session
 	// Resolve host roots BEFORE isolating SATELLE_HOME, then snapshot those fixed
 	// paths before and after the suite. Re-resolving via getenv after Setenv would
 	// measure the sandbox and false-trip (or hide real host pollution).

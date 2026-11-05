@@ -22,12 +22,6 @@ func TestReadOnlyGrantProblems(t *testing.T) {
 		{"unknown adapter", "myagent -p", "command", "Read", false, []ToolClass{""}},
 		{"in-loop", "in-loop", "", "", true, []ToolClass{""}},
 		{"empty command", "", "", "Read", false, []ToolClass{""}},
-		{"cursor reviewer is forced to ask", "cursor-agent -p --output-format json", "command", "", false, nil},
-		{"cursor reviewer asking to write", "cursor-agent -p --mode agent", "command", "", false, []ToolClass{""}},
-		{"cursor performer asking for ask", "cursor-agent -p --mode ask", "command", "Write", true, nil},
-		{"cursor performer not forced", "cursor-agent -p", "command", "", true, []ToolClass{""}},
-		{"cursor performer on acp", "cursor-agent acp", "acp", "", true, []ToolClass{""}},
-		{"cursor reviewer on acp", "cursor-agent acp", "acp", "", false, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

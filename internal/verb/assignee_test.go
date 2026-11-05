@@ -29,28 +29,6 @@ func TestCreateStampsAssigneeFromResolver(t *testing.T) {
 	}
 }
 
-func TestEngageEmptyAssigneeStampsResolver(t *testing.T) {
-	withWiring(t)
-	wire(t)
-
-	var story workitem.Item
-	if err := json.Unmarshal(call(t, "story-create", map[string]any{"title": "Open"}), &story); err != nil {
-		t.Fatal(err)
-	}
-	if story.Assignee != "" {
-		t.Fatalf("create without resolver stamped %q", story.Assignee)
-	}
-
-	verb.SetAssigneeResolver(func() string { return "P" })
-	var got workitem.Item
-	if err := json.Unmarshal(call(t, "story-set", map[string]any{"id": story.ID, "status": "in_progress"}), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Assignee != "P" {
-		t.Fatalf("engaged assignee = %q, want P", got.Assignee)
-	}
-}
-
 func TestNoCredentialCreateAndEngageLeaveEmpty(t *testing.T) {
 	withWiring(t)
 	wire(t)

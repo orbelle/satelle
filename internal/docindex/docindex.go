@@ -168,25 +168,6 @@ func (s *Store) SyncRoots(ctx context.Context, roots Roots, now time.Time) (Sync
 	var res SyncResult
 	for _, kind := range sortedKeys(dirs) {
 		dir := dirs[kind]
-		tierDir := roots.TierDir(kind)
-		// Documents are normalised to the OKF standard BEFORE the skip-unchanged
-		// check, so a frontmatter-less or type-less concept file is back-filled
-		// with OKF frontmatter (required `type` + recommended fields) even when it
-		// was indexed by an earlier build. Idempotent; reserved index.md/log.md and
-		// already-conformant docs are left untouched.
-		for _, d := range []string{dir, tierDir} {
-			if d == "" {
-				continue
-			}
-			if kind == "documents" {
-				normalizeOKFDir(d)
-			} else if t := authoredType(kind); t != "" {
-				// Authored substrate (skills/workflows/principles) is normalised to the
-				// OKF `type` key BEFORE the skip-unchanged check, migrating a legacy
-				// `kind:` and back-filling a missing one — idempotently, in place.
-				normalizeTypeDir(d, t)
-			}
-		}
 		onDisk, err := roots.kindFiles(kind)
 		if err != nil {
 			return res, fmt.Errorf("docindex: scan %s: %w", dir, err)
@@ -220,14 +201,6 @@ func (s *Store) SyncRoots(ctx context.Context, roots Roots, now time.Time) (Sync
 				}
 				res.Pruned++
 			}
-		}
-	}
-	// Regenerate the documents bundle-root index.md (OKF progressive disclosure)
-	// from the now-current index. Best-effort: an index write failure must not
-	// fail the whole sync.
-	if dir, ok := dirs["documents"]; ok {
-		if docs, err := s.List(ctx, "documents"); err == nil {
-			_ = s.writeOKFIndex(dir, docs)
 		}
 	}
 	return res, nil

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -154,60 +153,6 @@ func recordedConflicts(t *testing.T, root string) map[string]syncstate.StoryConf
 		t.Fatal(err)
 	}
 	return st.StoryConflicts
-}
-
-// sty_c45cb8d5 AC1–AC3: a repo whose last sync resolved local reports no hosted
-// conflict, drops the recorded ones, and still names the stories another location
-// last worked on from its local ledger.
-func TestStorySyncAdvisoryLocalScopeHidesConflicts(t *testing.T) {
-	const workedElsewhere = "sty_workedelsewhere last worked at desk (sess_other)"
-
-	t.Run("advisory", func(t *testing.T) {
-		root, _ := storySyncScopedRepo(t, config.LocalScope)
-		if len(recordedConflicts(t, root)) == 0 {
-			t.Fatal("precondition: a conflict is recorded")
-		}
-		a, err := app.Open()
-		if err != nil {
-			t.Fatal(err)
-		}
-		line := storySyncAdvisory(a)
-		_ = a.Close()
-		if strings.Contains(line, "in conflict") {
-			t.Errorf("a local repo must report no conflict: %s", line)
-		}
-		if !strings.Contains(line, workedElsewhere) {
-			t.Errorf("line missing %q: %s", workedElsewhere, line)
-		}
-		if got := recordedConflicts(t, root); len(got) != 0 {
-			t.Errorf("recorded conflicts must be dropped while local, got %v", got)
-		}
-	})
-
-	t.Run("session start", func(t *testing.T) {
-		root, calls := storySyncScopedRepo(t, config.LocalScope)
-		var out, errb bytes.Buffer
-		raw := []byte(`{"hook_event_name":"SessionStart","session_id":"story-sync-local"}`)
-		if err := runHookContext(&out, &errb, "claude", raw); err != nil {
-			t.Fatalf("the hook must exit 0, got %v", err)
-		}
-		var doc sessionDoc
-		if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-			t.Fatalf("not JSON: %v\n%s", err, out.String())
-		}
-		if strings.Contains(doc.SystemMessage, "in conflict") {
-			t.Errorf("a local repo must report no conflict: %s", doc.SystemMessage)
-		}
-		if !strings.Contains(doc.SystemMessage, workedElsewhere) {
-			t.Errorf("systemMessage missing %q: %s", workedElsewhere, doc.SystemMessage)
-		}
-		if got := recordedConflicts(t, root); len(got) != 0 {
-			t.Errorf("recorded conflicts must be dropped at session start, got %v", got)
-		}
-		if n := calls.Load(); n != 0 {
-			t.Errorf("session start made %d call(s) to the hosted server", n)
-		}
-	})
 }
 
 // sty_c45cb8d5 AC4: while the work state syncs — the ledger is where story

@@ -114,52 +114,6 @@ func TestBuildUISnapshotEmitsAllKinds(t *testing.T) {
 	}
 }
 
-// TestBuildUISnapshotDocsCarryModTimeAndProvenance when docs are indexed.
-func TestBuildUISnapshotDocsCarryModTimeAndProvenance(t *testing.T) {
-	t.Setenv("SATELLE_HOME", t.TempDir())
-	repo := t.TempDir()
-	dataDir := filepath.Join(repo, ".satelle")
-	wfDir := filepath.Join(dataDir, "workflows")
-	if err := os.MkdirAll(wfDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := "---\nname: toy-wf\ntype: workflow\napplies_to: [\"*\"]\n---\n\n# toy\n"
-	if err := os.WriteFile(filepath.Join(wfDir, "toy-wf.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	db, err := store.Open(filepath.Join(t.TempDir(), "satelle.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	ctx := context.Background()
-	if db.DocIndex != nil {
-		if _, err := db.DocIndex.Sync(ctx, map[string]string{"workflows": wfDir}, time.Now().UTC()); err != nil {
-			t.Fatalf("doc sync: %v", err)
-		}
-	}
-
-	a := &app.App{Config: config.Config{}, RepoRoot: repo, Store: db}
-	snap, err := buildUISnapshot(ctx, a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snap.Docs) == 0 {
-		t.Fatal("expected indexed workflow docs in snapshot after Sync")
-	}
-	var doc map[string]any
-	if err := json.Unmarshal(snap.Docs[0], &doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"name", "mod_time", "provenance", "source"} {
-		if doc[k] == nil || doc[k] == "" {
-			t.Errorf("doc missing %s: %v", k, doc)
-		}
-	}
-}
-
 // TestBuildUIDrainSnapshotIsLight (sty_3562c820): the end-of-verb drain ships
 // only panel kinds + merge ledger, omits doc/story-doc bodies, and is far
 // smaller than the full reconcile snapshot. Full path still has no Kinds.

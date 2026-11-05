@@ -3,7 +3,6 @@ package doctor
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/health"
 	"github.com/bobmcallan/satelle/internal/testutil"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
 )
 
 // unreadableWorkflows lays out a data dir whose workflows path is a regular
@@ -60,28 +58,6 @@ func TestBothLoadersAgreeOnAnUnreadableWorkflowsDir(t *testing.T) {
 	}
 	if len(fromStore) != 1 || len(fromDisk) != 1 {
 		t.Fatalf("each loader must return only the sentinel, got %d and %d docs", len(fromStore), len(fromDisk))
-	}
-}
-
-// GoverningWorkflows must not overlay the embedded workflows beside the
-// sentinel: every RouteSourceOf/RouteGovernsErr input then carries the unreadable
-// state, whichever loader built it.
-func TestGoverningWorkflowsWithholdsTheEmbeddedOverlayWhenUnreadable(t *testing.T) {
-	dataDir, wfPath := unreadableWorkflows(t)
-	docs := GoverningWorkflows(dataDir)
-	if len(docs) != 1 || !docs[0].IsUnreadable() {
-		t.Fatalf("GoverningWorkflows = %+v; want only the unreadable sentinel", docs)
-	}
-	rs := wfgovern.RouteSourceOf(docs)
-	if rs.Present() || !errors.Is(rs.Err(), wfgovern.ErrAuthoredProcessUnreadable) {
-		t.Fatalf("RouteSourceOf must carry the unreadable state, got present=%v err=%v", rs.Present(), rs.Err())
-	}
-	if !strings.Contains(rs.Err().Error(), wfPath) {
-		t.Errorf("the state must name %s: %v", wfPath, rs.Err())
-	}
-	// Absent is unchanged: nothing authored, so the embedded defaults overlay.
-	if absent := GoverningWorkflows(t.TempDir()); len(absent) == 0 || absent[0].IsUnreadable() {
-		t.Errorf("an absent dir must keep the embedded overlay, got %+v", absent)
 	}
 }
 

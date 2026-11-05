@@ -285,35 +285,6 @@ func TestHookContextInjectsNothingInUngovernedRepo(t *testing.T) {
 	}
 }
 
-// TestHookContextEmitsExactlyOneAvailabilityLine (AC2, AC8): one line, at the
-// head, and the rest of the injection is untouched — so per-session cost grows
-// by that line and nothing else.
-func TestHookContextEmitsExactlyOneAvailabilityLine(t *testing.T) {
-	hookRepo(t)
-	writeGlobalPort(t, 9911)
-	stubHealthz(t, true)
-
-	content := hookContent(t)
-	if content == "" {
-		t.Fatal("hook injected nothing")
-	}
-	want := webAvailability{Port: 9911, Live: true, Resolved: true}.hookLine()
-	if !strings.HasPrefix(content, want+"\n\n") {
-		t.Fatalf("availability line must head the injection, got:\n%s", content)
-	}
-	if n := strings.Count(content, "satelle web service:"); n != 1 {
-		t.Fatalf("want exactly one availability line, got %d in:\n%s", n, content)
-	}
-	rest := strings.TrimPrefix(content, want+"\n\n")
-	if strings.TrimSpace(rest) == "" {
-		t.Fatal("the other sections must still be injected")
-	}
-	// Growth is one line of content plus its blank separator — no block, no table.
-	if got, base := countNonBlank(content), countNonBlank(rest); got != base+1 {
-		t.Fatalf("non-blank line growth = %d, want 1", got-base)
-	}
-}
-
 func countNonBlank(s string) int {
 	n := 0
 	for _, l := range strings.Split(s, "\n") {
@@ -338,28 +309,6 @@ func TestHookContextReportsNotAnswering(t *testing.T) {
 	}
 	if strings.Contains(content, "— live") {
 		t.Fatalf("must not claim live, got:\n%s", content)
-	}
-}
-
-// TestHookContextFailsOpenOnUnknownAvailability (AC5): an unreadable global
-// config never fabricates "available", the hook still returns nil, and the other
-// sections still ride.
-func TestHookContextFailsOpenOnUnknownAvailability(t *testing.T) {
-	hookRepo(t)
-	if err := os.WriteFile(config.GlobalConfigPath(), []byte("[service\nport = "), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	stubHealthz(t, true) // would say live if consulted
-
-	content := hookContent(t)
-	if !strings.Contains(content, "availability unknown") {
-		t.Fatalf("want a plain unknown, got:\n%s", content)
-	}
-	if strings.Contains(content, "— live") {
-		t.Fatalf("must not fabricate live, got:\n%s", content)
-	}
-	if strings.TrimSpace(strings.TrimPrefix(content, "satelle web service: availability unknown (global config unreadable)")) == "" {
-		t.Fatal("the other sections must still be injected")
 	}
 }
 

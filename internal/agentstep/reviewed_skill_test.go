@@ -1,7 +1,6 @@
 package agentstep
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,84 +64,6 @@ func embeddedPrincipleDocs() fakeDocs {
 	return fakeDocs{extraPrinciples: ps}
 }
 
-// TestEmbeddedReviewerSkillsQuotationComparison (AC3) walks the embedded skill
-// root, which every checkout has. A skill is in the set when its frontmatter
-// tags include type:reviewer, do not include type:functional-check, and the
-// body has no ```check fence. The verdict rules live once, in the shared
-// principle: no selected skill body restates them, yet the judging prompt each
-// is composed into carries all of them.
-func TestEmbeddedReviewerSkillsQuotationComparison(t *testing.T) {
-	root := moduleRoot(t)
-	selected := quotationReviewerPaths(t, filepath.Join(root, "internal", "config", "substrate", "skills"))
-	assertOutsideReviewerSet(t, selected)
-
-	verdict := ReviewerVerdictDoc(context.Background(), embeddedPrincipleDocs())
-	if verdict == "" {
-		t.Fatalf("embedded principle %s must resolve", config.ReviewerVerdictPrinciple)
-	}
-	assertQuotationRules(t, "principle "+config.ReviewerVerdictPrinciple, verdict)
-	for _, path := range selected {
-		assertDelegatesVerdictRules(t, path, verdict)
-	}
-	for _, name := range []string{"satelle-story-scope-review.md", "satelle-story-done-review.md"} {
-		var hits []string
-		for _, path := range selected {
-			if filepath.Base(path) == name {
-				hits = append(hits, path)
-			}
-		}
-		if len(hits) != 1 {
-			t.Errorf("%s must be selected once under the embedded skills root, got %v", name, hits)
-		}
-	}
-	assertNoLeftoverPhrases(t, root, embeddedSkillsRel)
-}
-
-// TestOverrideReviewerSkillsQuotationComparison (AC7) holds the repo's live
-// override skills to the same single-source rule as the embedded ones: the
-// verdict rules live in the shared principle and no override restates them.
-// .satelle/ is gitignored operator substrate, so a clean checkout and CI do not
-// have it and the test skips.
-func TestOverrideReviewerSkillsQuotationComparison(t *testing.T) {
-	root := moduleRoot(t)
-	dir := filepath.Join(root, ".satelle", "skills")
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		t.Skip(".satelle/skills is gitignored operator substrate; not present in this checkout")
-	} else if err != nil {
-		t.Fatal(err)
-	}
-	selected := quotationReviewerPaths(t, dir)
-	assertOutsideReviewerSet(t, selected)
-	assertFunctionalOverrides(t, dir, []string{"satelle-story-deploy-review.md", "satelle-story-integration-review.md"}, selected)
-	if _, err := os.Stat(filepath.Join(dir, "satelle-integration-review.md")); err != nil {
-		t.Fatal(err)
-	}
-	var sawIntegration bool
-	for _, path := range selected {
-		if filepath.Base(path) == "satelle-integration-review.md" {
-			sawIntegration = true
-		}
-	}
-	if !sawIntegration {
-		t.Error("satelle-integration-review is type:reviewer only and must delegate to " + config.ReviewerVerdictPrinciple)
-	}
-	for _, name := range []string{"satelle-story-scope-review.md", "satelle-story-done-review.md"} {
-		for _, path := range selected {
-			if filepath.Base(path) == name {
-				t.Errorf("%s must be edited only under the embedded skills root, got %s", name, path)
-			}
-		}
-	}
-	verdict := ReviewerVerdictDoc(context.Background(), embeddedPrincipleDocs())
-	if verdict == "" {
-		t.Fatalf("embedded principle %s must resolve", config.ReviewerVerdictPrinciple)
-	}
-	for _, path := range selected {
-		assertDelegatesVerdictRules(t, path, verdict)
-	}
-	assertNoLeftoverPhrases(t, root, overrideSkillsRel)
-}
-
 // recordingTB counts the errors a check reports instead of failing the test, so
 // a check can be shown to flag a bad skill.
 type recordingTB struct {
@@ -152,39 +73,6 @@ type recordingTB struct {
 
 func (r *recordingTB) Errorf(format string, args ...any) {
 	r.errs = append(r.errs, fmt.Sprintf(format, args...))
-}
-
-// TestAssertDelegatesVerdictRules proves the shared single-source check fails a
-// skill that restates the verdict rules and passes one that delegates them.
-func TestAssertDelegatesVerdictRules(t *testing.T) {
-	verdict := ReviewerVerdictDoc(context.Background(), embeddedPrincipleDocs())
-	if verdict == "" {
-		t.Fatalf("embedded principle %s must resolve", config.ReviewerVerdictPrinciple)
-	}
-	skill := func(extra string) string {
-		return "---\nname: tmp-review\ntags: [type:reviewer]\n" +
-			"description: A temporary reviewer. A re-presented edge follows [[" + config.ReviewerVerdictPrinciple + "]]\n---\n\n" +
-			"# Review\n\nReply `{\"verdict\": \"accept\", \"reviewed\": \"<quoted words>\"}`.\n" + extra
-	}
-	run := func(body string) []string {
-		path := filepath.Join(t.TempDir(), "tmp-review.md")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		rec := &recordingTB{TB: t}
-		assertDelegatesVerdictRules(rec, path, verdict)
-		return rec.errs
-	}
-	t.Run("restating override is flagged", func(t *testing.T) {
-		if errs := run(skill("\nQuotation comparison governs a re-presented edge.\n")); len(errs) == 0 {
-			t.Error("a skill restating the verdict rules must be reported")
-		}
-	})
-	t.Run("delegating override passes", func(t *testing.T) {
-		if errs := run(skill("")); len(errs) != 0 {
-			t.Errorf("a delegating skill must pass, got %v", errs)
-		}
-	})
 }
 
 // assertFunctionalOverrides holds each named functional-check override under

@@ -19,7 +19,7 @@ BUILD_TIME  := $(shell awk '$$1=="satelle.build:" {print $$2}' .version)
 LDFLAGS     := -X $(PKG).Name=satelle -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)
 SERVE_LDFLAGS := -X $(PKG).Name=satelled -X $(PKG).Version=$(SERVE_VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)
 
-.PHONY: build install uninstall test integration judgment planner-bench check-serve-version
+.PHONY: build install uninstall test integration judgment check-serve-version
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/satelle
@@ -145,17 +145,3 @@ operator-check:
 judgment:
 	$(CREDGUARD) go test -tags llm ./tests/llm/...
 
-# Opt-in live planner study: the controlled matrix declared in
-# tests/plannerbench/study.json. Costs tokens and writes durable per-sample
-# evidence plus report.md under tests/plannerbench/out/. Bindings whose binary is
-# not on PATH are skipped with a recorded reason rather than dropped.
-planner-bench: build
-	SATELLE_BIN=$(CURDIR)/$(BIN) SATELLE_PLANNER_BENCH=1 $(CREDGUARD) go test -tags plannerbench ./tests/plannerbench/ -count=1 -timeout 90m -v
-
-# planner-report re-renders report.md/report.json from the durable run records
-# already under tests/plannerbench/out/runs. Pure and token-free: same records in,
-# same report out. Use it after an interrupted study, or to re-read a study
-# without paying for it again.
-.PHONY: planner-report
-planner-report:
-	SATELLE_PLANNER_REPORT=1 $(CREDGUARD) go test -tags plannerbench ./tests/plannerbench/ -run TestRegenerateReportFromDurableEvidence -count=1 -v

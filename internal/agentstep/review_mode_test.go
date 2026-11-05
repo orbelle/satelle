@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
@@ -345,32 +344,6 @@ func TestReviewMode_PartialVerdictIsNeverCarried(t *testing.T) {
 		if !partial && dispatched != 0 {
 			t.Errorf("a complete accept with an unchanged quotation is still carried, got %d sessions", dispatched)
 		}
-	}
-}
-
-// AC4: the rule a judging dispatch carries tells the seat a partial prior verdict
-// leaves the remainder unjudged.
-func TestReviewMode_JudgingDispatchCarriesThePartialPriorRule(t *testing.T) {
-	r := &modeRunner{}
-	g := modeEngine(t, `fail_fast = ["rev-a"]`, "", r, "rev-a")
-	modeGate(t, g)
-	seen := r.seenFor("rev-a")
-	if len(seen) != 1 {
-		t.Fatalf("dispatched %d times", len(seen))
-	}
-	for _, want := range []string{
-		"partial prior verdict",
-		"`partial: true`",
-		"stopped_at",
-		"the whole remainder of the material as a first review would",
-		"Never carry or re-issue a partial verdict as an accept",
-	} {
-		if !strings.Contains(seen[0].system, want) {
-			t.Errorf("the judging prompt lacks %q", want)
-		}
-	}
-	if body := ReviewerVerdictDoc(context.Background(), embeddedPrincipleDocs()); !strings.Contains(body, "partial prior verdict") {
-		t.Errorf("%s does not state the partial-prior rule", config.ReviewerVerdictPrinciple)
 	}
 }
 

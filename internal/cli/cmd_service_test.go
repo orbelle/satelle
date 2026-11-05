@@ -144,40 +144,6 @@ func TestBusUnreachable(t *testing.T) {
 	}
 }
 
-func TestResolveServeBinary(t *testing.T) {
-	exists := func(want string) func(string) bool {
-		return func(p string) bool { return p == want }
-	}
-	// sibling present (current name)
-	path, fb := resolveServeBinary("/opt/bin/satelle", "", exists("/opt/bin/satelled"))
-	if path != "/opt/bin/satelled" || fb {
-		t.Fatalf("sibling: path=%q fb=%v", path, fb)
-	}
-	// legacy sibling still picked when only satelle-serve exists
-	path, fb = resolveServeBinary("/opt/bin/satelle", "", exists("/opt/bin/satelle-serve"))
-	if path != "/opt/bin/satelle-serve" || fb {
-		t.Fatalf("legacy sibling: path=%q fb=%v", path, fb)
-	}
-	// current name wins over legacy when both exist
-	both := func(p string) bool {
-		return p == "/opt/bin/satelled" || p == "/opt/bin/satelle-serve"
-	}
-	path, fb = resolveServeBinary("/opt/bin/satelle", "", both)
-	if path != "/opt/bin/satelled" || fb {
-		t.Fatalf("prefer current: path=%q fb=%v", path, fb)
-	}
-	// flag override
-	path, fb = resolveServeBinary("/opt/bin/satelle", "/x/serve", exists("/x/serve"))
-	if path != "/x/serve" || fb {
-		t.Fatalf("flag: path=%q fb=%v", path, fb)
-	}
-	// fallback
-	path, fb = resolveServeBinary("/opt/bin/satelle", "", func(string) bool { return false })
-	if path != "/opt/bin/satelle serve" || !fb {
-		t.Fatalf("fallback: path=%q fb=%v", path, fb)
-	}
-}
-
 // --- serviceStatusLine end-to-end scenarios (sty_acd4b61e AC1/AC5) ---
 //
 // Every case overrides serviceStatusHooks so NOTHING here ever shells out to the

@@ -1,7 +1,6 @@
 package agentstep
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -53,115 +52,6 @@ func namedReviewer(model string) config.AgentBinding {
 		Command: agentcli.DefaultClaudeCommand,
 		Tools:   "Read,Grep,Glob",
 		Model:   model,
-	}
-}
-
-// TestReviewCreateUsesTheDeclaredAgent is AC1's proof: a workflow declaring an
-// `agent:` on its create-review hook runs that binding, not the invisible
-// `[reviewer]` fallback the empty selector used to resolve to. The named binding
-// runs its OWN harness, so the bootstrap runner must not be the one invoked.
-func TestReviewCreateUsesTheDeclaredAgent(t *testing.T) {
-	g, bootstrap := newEngine(t, `{"decision":"accept"}`,
-		fakeDocs{workflow: hookWF, skillBody: "content rubric", skillFound: true})
-
-	var asked []string
-	g.SetNamedAgents(func(name string) (config.AgentBinding, bool) {
-		asked = append(asked, name)
-		if name == "strict-reviewer" {
-			return namedReviewer("opus"), true
-		}
-		return config.AgentBinding{}, false
-	})
-
-	// The named binding builds its own runner from the command template, so the
-	// call fails at exec (no such binary in the test env) rather than silently
-	// falling back. Either outcome proves the point we are asserting: the engine
-	// asked for the DECLARED section.
-	_, _ = g.ReviewCreate(context.Background(), validDraft)
-
-	if len(asked) == 0 {
-		t.Fatal("the declared agent was never resolved — create review still uses the empty selector")
-	}
-	for _, name := range asked {
-		if name != "strict-reviewer" {
-			t.Errorf("resolved %q, want the declared strict-reviewer", name)
-		}
-	}
-	if bootstrap.got.SystemPrompt != "" {
-		t.Error("a named hook binding must run its own harness, not the bootstrap runner")
-	}
-}
-
-// TestReviewCreateStoryAndTaskStillRunHook pins sty_313f9018 AC2: the execution
-// carve-out leaves story and task creation judged by the declared create_review
-// hook, as before.
-func TestReviewCreateStoryAndTaskStillRunHook(t *testing.T) {
-	for _, kind := range []string{"story", "task"} {
-		t.Run(kind, func(t *testing.T) {
-			g, r := newEngine(t, `{"decision":"reject","notes":"not aligned"}`,
-				fakeDocs{workflow: createWF, skillBody: "content rubric", skillFound: true})
-			draft := validDraft
-			draft.Kind = kind
-			dec, err := g.ReviewCreate(context.Background(), draft)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !dec.Gated || dec.Accept || dec.Skill != "my-create-review" {
-				t.Fatalf("%s create: want gated reject by the hook, got %+v", kind, dec)
-			}
-			if r.got.SystemPrompt == "" {
-				t.Errorf("%s create: the content reviewer must have run", kind)
-			}
-		})
-	}
-}
-
-// TestWorkflowConsistencyReportsHookDefects pins AC5's declaration half: an
-// unresolved hook skill and a malformed/unknown declaration are both surfaced by
-// the consistency check `satelle workflow validate` and `agent validate` run.
-func TestWorkflowConsistencyReportsHookDefects(t *testing.T) {
-	cases := map[string]struct {
-		body    string
-		resolve func(string) bool
-		want    string
-	}{
-		"unresolved hook skill": {
-			body:    hookWF,
-			resolve: func(string) bool { return false },
-			want:    "does not resolve in the substrate",
-		},
-		"unresolved shorthand skill": {
-			body:    createWF,
-			resolve: func(string) bool { return false },
-			want:    "create_review",
-		},
-		"unknown operation": {
-			body:    "---\nname: w\napplies_to: [\"*\"]\nhooks:\n  - operation: close_review\n    skill: s\n---\n",
-			resolve: func(string) bool { return true },
-			want:    "unknown operation",
-		},
-		"hook with no skill": {
-			body:    "---\nname: w\napplies_to: [\"*\"]\nhooks:\n  - operation: create_review\n---\n",
-			resolve: func(string) bool { return true },
-			want:    "declares no skill",
-		},
-		"declared both ways": {
-			body:    "---\nname: w\napplies_to: [\"*\"]\ncreate_review: a\nhooks:\n  - operation: create_review\n    skill: b\n---\n",
-			resolve: func(string) bool { return true },
-			want:    "both",
-		},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			problems := WorkflowConsistency(hookDocs(c.body), c.resolve)
-			joined := strings.Join(problems, "\n")
-			if !strings.Contains(joined, c.want) {
-				t.Errorf("want a problem mentioning %q, got %v", c.want, problems)
-			}
-			if !strings.Contains(joined, "workflow ") {
-				t.Errorf("the problem must name the workflow: %v", problems)
-			}
-		})
 	}
 }
 

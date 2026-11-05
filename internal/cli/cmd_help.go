@@ -1,5 +1,5 @@
 // `satelle help` renders the embedded help topics to the terminal — the
-// create-story path and the reviewer checks (sty_82c456a0). With no argument it
+// CLI contract (workflows, gates, agents). With no argument it
 // lists the topics; with a topic name it prints that guide. The same topics back
 // the web `/help` page (internal/help is the shared source). This is distinct
 // from cobra's per-command `--help`: it documents the process, not the flags.
@@ -25,7 +25,7 @@ func init() {
 func newHelpCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "help [topic]",
-		Short: "Read process guides (create-story path, reviewer checks)",
+		Short: "Read satelle's guides (workflows, gates, agents)",
 		Long: `help renders satelle's process guides. Run with no argument to list the
 topics, or pass a topic name to print that guide. These document the process
 (how a story flows and what each reviewer checks); for command flags use

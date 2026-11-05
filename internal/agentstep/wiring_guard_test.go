@@ -147,7 +147,6 @@ var guardAdapters = []struct {
 	{"claude", "claude -p {system}", []string{"harness claude", ".claude/settings.json"}},
 	{"grok", "grok -p {system}", []string{"harness grok", ".grok/hooks/satelle.json"}},
 	{"pi", "/usr/local/bin/pi -p {system}", []string{"harness pi", ".pi/extensions/satelle.ts"}},
-	{"cursor", "cursor-agent -p {system}", []string{"harness cursor", ".cursor/hooks.json"}},
 	{"unknown", "mybot -p {system}", []string{"harness unknown", `executable "mybot"`, "no gate wiring declared"}},
 }
 
@@ -262,46 +261,6 @@ func TestWiringGuardChecksTheWrapperTheWiringCalls(t *testing.T) {
 	r = newGuardRig(t, linked, "claude -p {system}", config.Config{})
 	if err := r.dispatch(); err != nil {
 		t.Fatalf("with the wrapper present: %v", err)
-	}
-}
-
-// sty_7d098d50 AC10: a cursor dispatch into a worktree needs .cursor/hooks.json
-// AND the wrapper its entries name; a complete tree passes. The file is cursor's
-// flat hooks.json, so the wrapper reference is a command string inside it.
-func TestWiringGuardCursorNeedsHooksFileAndWrapper(t *testing.T) {
-	_, linked := mainAndLinked(t)
-	command := "cursor-agent -p {system}"
-
-	// Nothing: refused, naming cursor and the file.
-	r := newGuardRig(t, linked, command, config.Config{})
-	err := r.dispatch()
-	if err == nil || !strings.Contains(err.Error(), "harness cursor") || !strings.Contains(err.Error(), ".cursor/hooks.json") {
-		t.Fatalf("a tree without .cursor/hooks.json must be refused naming cursor, got %v", err)
-	}
-
-	// The file, but not the wrapper its gate entry calls: refused, naming the wrapper.
-	holder, _ := filepath.EvalSymlinks(t.TempDir())
-	wrapper := filepath.Join(holder, ".satelle", "hooks", "satelle-hook.sh")
-	writeIn(t, linked, ".cursor/hooks.json",
-		`{"version":1,"hooks":{"preToolUse":[{"command":"sh `+wrapper+` gate cursor"},{"command":"sh `+wrapper+` commitgate cursor"}],`+
-			`"sessionStart":[{"command":"PATH=$HOME/.local/bin:$PATH satelle hook context --harness cursor"}]}}`)
-	r = newGuardRig(t, linked, command, config.Config{})
-	err = r.dispatch()
-	if err == nil || !strings.Contains(err.Error(), wrapper) || !strings.Contains(err.Error(), "harness cursor") {
-		t.Fatalf("a missing wrapper must be named in a cursor refusal, got %v", err)
-	}
-	if r.started() != 0 {
-		t.Error("the performer started with a missing wrapper")
-	}
-
-	// The complete tree passes, silently.
-	writeIn(t, holder, ".satelle/hooks/satelle-hook.sh", "#!/bin/sh\n")
-	r = newGuardRig(t, linked, command, config.Config{})
-	if err := r.dispatch(); err != nil {
-		t.Fatalf("a complete cursor tree: %v", err)
-	}
-	if r.warn.Len() != 0 || r.ungatedRows() != 0 {
-		t.Errorf("a complete tree must be silent, got %q %v", r.warn.String(), *r.rows)
 	}
 }
 

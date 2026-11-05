@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,52 +31,6 @@ func piBindingsOf(t *testing.T, ext []byte) []piBinding {
 		t.Fatalf("bindings block is not JSON: %v", err)
 	}
 	return got
-}
-
-// AC1: `agents install pi` writes the extension, and it names all five hooks.
-func TestAgentsInstallPi_WritesExtension(t *testing.T) {
-	repo := tempRepo(t)
-	t.Chdir(repo)
-	out, err := runRootIn(t, "", "agents", "install", "pi")
-	if err != nil {
-		t.Fatalf("agents install pi: %v\n%s", err, out)
-	}
-	// No launcher script is written; the skip is named under the adapter.
-	if !strings.Contains(out, "created pi scaffold") || strings.Contains(out, "launcher →") ||
-		!strings.Contains(out, "no satelle launcher for pi") {
-		t.Errorf("pi has a scaffold and no launcher: %s", out)
-	}
-	raw, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(piExtensionRel)))
-	if err != nil {
-		t.Fatalf("extension not written: %v", err)
-	}
-	if !strings.Contains(string(raw), piOwnedMarker) {
-		t.Errorf("extension lacks the satelle-owned marker")
-	}
-	wrapper := filepath.Join(repo, filepath.FromSlash(satelleHookScriptRel))
-	if st, err := os.Stat(wrapper); err != nil || st.Mode()&0o111 == 0 {
-		t.Errorf("the wrapper the extension calls must exist and be executable: %v", err)
-	}
-	if !strings.Contains(string(raw), filepath.ToSlash(wrapper)) {
-		t.Errorf("extension must call the wrapper by absolute path %s", wrapper)
-	}
-	forms := map[string]string{}
-	for _, b := range piBindingsOf(t, raw) {
-		forms[b.Verb] = b.Form
-	}
-	for verb, form := range map[string]string{
-		"gate": piFormWrapper, "commitgate": piFormWrapper,
-		"context": piFormDirect, "prompt": piFormDirect, "stopcheck": piFormDirect,
-	} {
-		if forms[verb] != form {
-			t.Errorf("hook %q bound as %q, want %q", verb, forms[verb], form)
-		}
-	}
-	// Idempotent: a second install converges.
-	out, err = runRootIn(t, "", "agents", "install", "pi")
-	if err != nil || !strings.Contains(out, "unchanged pi scaffold") {
-		t.Errorf("second install should be unchanged: %v\n%s", err, out)
-	}
 }
 
 // AC7: install then remove leaves nothing in the pi config dir; a foreign
@@ -403,84 +356,6 @@ func TestHookGate_PiHarness_AllowsEngagedEdit(t *testing.T) {
 	stopcheckRepo(t, seatMine)
 	if out, err := runRootIn(t, piHookEvent("Edit", "file_path", "internal/foo.go"), "hook", "gate", "--harness", "pi"); err != nil {
 		t.Fatalf("an engaged story's edit must be allowed: %v\n%s", err, out)
-	}
-}
-
-// AC4: commit/push is held to commitgate — allowed when engaged, refused when
-// not, refused into a foreign tree, and refused by a step-scoped git policy.
-func TestHookCommitgate_PiHarness(t *testing.T) {
-	commit := func(t *testing.T, command string) (string, error) {
-		return runRootIn(t, piHookEvent("Bash", "command", command), "hook", "commitgate", "--harness", "pi")
-	}
-	t.Run("engaged commit allowed", func(t *testing.T) {
-		stopcheckRepo(t, seatMine)
-		if out, err := commit(t, "git commit -m x"); err != nil {
-			t.Fatalf("engaged commit refused: %v\n%s", err, out)
-		}
-	})
-	t.Run("no story refused", func(t *testing.T) {
-		stopcheckRepo(t, seatNone)
-		out, err := commit(t, "git commit -m x")
-		if err == nil || !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "no engaged story") {
-			t.Fatalf("ungated commit must be refused with the commit rule: %v\n%s", err, out)
-		}
-	})
-	t.Run("foreign tree refused", func(t *testing.T) {
-		fenceTempRootsElsewhere(t)
-		stopcheckRepo(t, seatMine)
-		foreign := t.TempDir()
-		if o, err := exec.Command("git", "-C", foreign, "init", "-q").CombinedOutput(); err != nil {
-			t.Fatalf("git init: %v\n%s", err, o)
-		}
-		out, err := commit(t, "git -C "+foreign+" commit -m x")
-		if err == nil || !strings.Contains(out, `"permissionDecision":"deny"`) {
-			t.Fatalf("a commit into another working tree must be refused: %v\n%s", err, out)
-		}
-		if !strings.Contains(out, "allow_outside_tree_edits") {
-			t.Errorf("the refusal should name the escape hatch: %s", out)
-		}
-	})
-	t.Run("step-scoped git policy refuses push", func(t *testing.T) {
-		repo, _ := stopcheckRepo(t, seatMine)
-		cfg := "[review]\ngate_create = false\n\n[gate]\nedit_exempt_paths = [\".satelle/\"]\n\n[gate.command_allow]\npush = [\"release\"]\n"
-		if err := os.WriteFile(filepath.Join(repo, ".satelle", "satelle.toml"), []byte(cfg), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		out, err := commit(t, "git push origin main")
-		if err == nil || !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "release") {
-			t.Fatalf("push at in_progress must be refused by the step policy: %v\n%s", err, out)
-		}
-		if out, err := commit(t, "git commit -m x"); err != nil {
-			t.Errorf("the policy scopes push only; commit stays allowed: %v\n%s", err, out)
-		}
-	})
-}
-
-// AC5 (Go side): the context and prompt hooks answer a pi caller with the
-// injected context and the edits-require-a-story reminder.
-func TestHookContextAndPrompt_PiHarness(t *testing.T) {
-	stopcheckRepo(t, seatNone)
-	out, err := runRootIn(t, `{"hook_event_name":"SessionStart","source":"startup"}`, "hook", "context", "--harness", "pi")
-	if err != nil {
-		t.Fatalf("hook context: %v\n%s", err, out)
-	}
-	var ctxOut agentcli.HookContextOut
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &ctxOut); err != nil {
-		t.Fatalf("context output is not the additionalContext envelope: %v\n%s", err, out)
-	}
-	if !strings.Contains(ctxOut.HookSpecificOutput.AdditionalContext, "principles") {
-		t.Errorf("session context missing the principles pointer: %q", ctxOut.HookSpecificOutput.AdditionalContext)
-	}
-	out, err = runRootIn(t, `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`, "hook", "prompt", "--harness", "pi")
-	if err != nil {
-		t.Fatalf("hook prompt: %v\n%s", err, out)
-	}
-	var promptOut agentcli.HookContextOut
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &promptOut); err != nil {
-		t.Fatalf("prompt output is not the additionalContext envelope: %v\n%s", err, out)
-	}
-	if !strings.Contains(promptOut.HookSpecificOutput.AdditionalContext, "edits require an ENGAGED story") {
-		t.Errorf("prompt reminder missing the edits-require-a-story rule: %q", promptOut.HookSpecificOutput.AdditionalContext)
 	}
 }
 

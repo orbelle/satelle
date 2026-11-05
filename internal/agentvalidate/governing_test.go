@@ -6,7 +6,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -110,56 +109,5 @@ func TestValidateGoverning_BindingChecksStayUnscoped(t *testing.T) {
 	substrate := workitem.Item{ID: "sty_sub", Kind: workitem.KindStory, Category: "substrate"}
 	if r := ValidateGoverning(agents, nil, governingWF(true), substrate); r.OK() {
 		t.Error("an unresolved binding variable must still refuse a scoped check")
-	}
-}
-
-// A repo route with no [substrate] table and a broken * lane still leaves the
-// shipped agents-repair lane, overlaid from the binary, free of those seats: an
-// agents-repair story is not refused for them, while a substrate story, which
-// falls to *, still is (sty_32431a16 AC1, AC2).
-func TestValidateGoverning_AgentsRepairLaneIsShipped(t *testing.T) {
-	// The binary wires the shipped route as the overlay baseline (store's init);
-	// this package does not import store, so the test wires it.
-	prev := wfgovern.EmbeddedRoute
-	wfgovern.EmbeddedRoute = func(name string) string {
-		for _, d := range config.EmbeddedDefaults() {
-			if d.Kind == "workflows" && d.Name == name {
-				return d.Body
-			}
-		}
-		return ""
-	}
-	t.Cleanup(func() { wfgovern.EmbeddedRoute = prev })
-	agents := governingAgents()
-	wf := routeDocs(`["*"]
-obligations = ["raised", "planned", "coded", "closed"]
-`, `[raised]
-status = "backlog"
-start = true
-
-[planned]
-status = "plan"
-agent = "planner"
-skills = ["plan"]
-requires = ["raised"]
-
-[coded]
-status = "in_progress"
-agent = "coder"
-skills = ["coder"]
-requires = ["planned"]
-
-[closed]
-status = "done"
-terminal = true
-requires = ["coded"]
-`)
-	repair := workitem.Item{ID: "sty_fix", Kind: workitem.KindStory, Category: "agents-repair"}
-	if r := ValidateGoverning(agents, nil, wf, repair); findingWith(r.Problems, "no context channel") != "" || !r.OK() {
-		t.Fatalf("agents-repair story on the shipped lane: want OK, got problems=%v", r.Problems)
-	}
-	substrate := workitem.Item{ID: "sty_sub", Kind: workitem.KindStory, Category: "substrate"}
-	if r := ValidateGoverning(agents, nil, wf, substrate); findingWith(r.Problems, "no context channel") == "" || r.OK() {
-		t.Errorf("substrate story governed by *: want its channel problem, got %v", r.Problems)
 	}
 }

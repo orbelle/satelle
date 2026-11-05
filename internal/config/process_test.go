@@ -49,41 +49,6 @@ func TestLoadProcessReturnsPathOnError(t *testing.T) {
 	}
 }
 
-func TestLoadInvokingProcessMainTreeRuleAppliesInWorktree(t *testing.T) {
-	main, _ := linkedWorktreeOf(t)
-	writeSatelleToml(t, main, ConfigName, `
-[[gate.command_rule]]
-pattern = "a b"
-action = "deny"
-message = "m"
-`)
-	cfg, _, _, _, err := LoadInvokingProcess()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Gate.CommandRules) != 1 {
-		t.Fatalf("rules = %+v", cfg.Gate.CommandRules)
-	}
-}
-
-func TestLoadInvokingProcessMalformedMainTreeRuleNamesMainTreePath(t *testing.T) {
-	main, _ := linkedWorktreeOf(t)
-	mainCfg := writeSatelleToml(t, main, ConfigName, `
-[[gate.command_rule]]
-pattern = "a b"
-action = "block"
-message = "m"
-`)
-	_, _, _, path, err := LoadInvokingProcess()
-	var cre *CommandRuleError
-	if !errors.As(err, &cre) || cre.Index != 0 || cre.Field != "action" {
-		t.Fatalf("err = %v, want a *CommandRuleError for rule 0 field action", err)
-	}
-	if !sameResolvedPath(cre.Path, mainCfg) || !sameResolvedPath(path, mainCfg) {
-		t.Fatalf("path = %q (error %q), want the main tree's %q", path, cre.Path, mainCfg)
-	}
-}
-
 func TestLoadInvokingProcessLocationParseErrorReturnsLocationPath(t *testing.T) {
 	t.Setenv("SATELLE_CONFIG", "")
 	root := t.TempDir()

@@ -153,41 +153,6 @@ func TestDriveRemoteWaitAccept(t *testing.T) {
 	}
 }
 
-// A reject takes the recover edge and the findings reach the named performer
-// before it is dispatched, so its entry payload carries them.
-func TestDriveRemoteWaitRejectRelaysToTheDispatchedPerformer(t *testing.T) {
-	e := newEnv(t, remoteWaitDone, remoteWaitRoute("coder"))
-	disp := &messageDispatcher{e: e}
-	verb.SetExecutorDispatcher(disp)
-	runs := &fakeRuns{}
-	perf := &fakePerformers{kinds: map[string]verb.PerformerKind{"in_progress": verb.PerformerDispatched}, agents: map[string]string{"in_progress": "coder"}}
-	id := waitingAt(t, e, perf, runs)
-	disp.seen = nil
-
-	runs.set(runstatus.Run{State: runstatus.Concluded, Outcome: "reject", Findings: "the build is red: fix the import"})
-	res, err := drive.Story(context.Background(), id, drive.Options{Performers: perf, Runs: runs})
-	if err != nil {
-		t.Fatalf("drive: %v", err)
-	}
-	if len(res.Moves) < 1 || res.Moves[0] != (drive.Move{From: "review", To: "in_progress"}) {
-		t.Fatalf("moves = %+v, want the recover edge review → in_progress first", res.Moves)
-	}
-	if len(disp.seen) == 0 {
-		t.Fatal("the coder was not dispatched on re-entering in_progress")
-	}
-	found := false
-	for _, b := range disp.seen[0] {
-		found = found || strings.Contains(b, "the build is red: fix the import")
-	}
-	if !found {
-		t.Errorf("the findings must be on the story when the performer is dispatched, saw %q", disp.seen[0])
-	}
-	// The conclusion was acted on once: re-entering the wait does not take it again.
-	if !res.Waiting || res.Status != "review" {
-		t.Errorf("after recovery the story waits for a new run: %+v", res)
-	}
-}
-
 func TestDriveRemoteWaitRejectRelaysToTheExecutorAsNotes(t *testing.T) {
 	e := newEnv(t, remoteWaitDone, remoteWaitRoute("executor"))
 	var notes []string

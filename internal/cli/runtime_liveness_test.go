@@ -92,28 +92,6 @@ func holdersGone(t *testing.T) {
 	t.Cleanup(func() { lease.PidAlive = prev })
 }
 
-// TestMigrateHelpDocumentsSplitBrainRecovery (AC4).
-func TestMigrateHelpDocumentsSplitBrainRecovery(t *testing.T) {
-	if !strings.Contains(migrateSplitBrainHelp, "satelle story seat") {
-		t.Error("split-brain help must name satelle story seat")
-	}
-	if !strings.Contains(migrateSplitBrainHelp, "through the workflow") {
-		t.Error("split-brain help must tell operators to re-drive through gates")
-	}
-	// Command Long embeds the const.
-	root := NewRootCmd()
-	cmd, _, err := root.Find([]string{"migrate"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(cmd.Long, migrateSplitBrainHelp) {
-		t.Error("satelle migrate Long must embed migrateSplitBrainHelp")
-	}
-	if !strings.Contains(cmd.Long, "--allow-live") && !strings.Contains(cmd.Long, "LIVE RUNTIME") {
-		t.Error("Long should document live-runtime refusal")
-	}
-}
-
 // TestProbeServeViaHealthz: serve probe returns a holder when /healthz is ok.
 func TestProbeServeViaHealthz(t *testing.T) {
 	t.Setenv("SATELLE_HOME", t.TempDir())

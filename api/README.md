@@ -3,12 +3,11 @@
 Conformance specification for the satelle hosted server interface. The CLI
 publishes this; servers in any language implement it with their own types
 (verified by contract tests on the server side). No shared Go module exists
-— the [OpenAPI spec](openapi.yaml) is the canonical definition of the REST
-surface. The [checkout-sync proto](checkout_sync.proto) is the canonical
+— the [checkout-sync proto](checkout_sync.proto) is the canonical
 definition of the gRPC Sync service. satelle-server copies that proto
-verbatim; it is not implemented in this repo. The same holds for the
-[message-board proto](board.proto) (`service Board`: `Post`, `Fetch`, `Mark`),
-generated into `internal/hosted/boardpb`.
+verbatim; it is not implemented in this repo. (The REST OpenAPI spec and the
+message-board proto were removed in the rebuild; every remaining REST call is
+to be replaced by gRPC — see REBUILD.md, Wire changes.)
 
 ## Auth conventions
 

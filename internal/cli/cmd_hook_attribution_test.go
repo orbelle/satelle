@@ -237,50 +237,6 @@ func TestEditGateUnstampedLiveSeatPlusSeatlessStory(t *testing.T) {
 	}
 }
 
-// TestCommitgateUnstampedSeveralPerformingReportsAmbiguity (sty_fbbb4aee AC2):
-// git commit from an unstamped session facing several performing stories is told
-// so, not sent to engage another story.
-func TestCommitgateUnstampedSeveralPerformingReportsAmbiguity(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		twoSeats   bool
-		wantLive   string
-		wantSeatNo string
-	}{
-		{name: "two live seats", twoSeats: true, wantLive: "seat: live"},
-		{name: "one live seat plus a seatless story", twoSeats: false, wantLive: "seat: live", wantSeatNo: "seat: none"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			db, create := attributionRepo(t)
-			stubWorktree(t, "/w/other")
-			a := create("a", "in_progress")
-			b := create("b", "in_progress")
-			if tc.twoSeats {
-				seatStory(t, db, a, "in_progress", "/w/a", "sess-a")
-				seatStory(t, db, b, "in_progress", "/w/b", "sess-b")
-			} else {
-				b = create("c", "ready")
-				seatStory(t, db, a, "in_progress", "/w/a", "sess-a")
-			}
-			out, err := runRootIn(t, bashEvent("git commit -m x"), "hook", "commitgate")
-			if err == nil {
-				t.Fatalf("expected commitgate deny:\n%s", out)
-			}
-			for _, want := range []string{"more than one performing story, no session stamped", a.ID, tc.wantLive} {
-				if !strings.Contains(out, want) {
-					t.Errorf("missing %q in: %s", want, out)
-				}
-			}
-			if tc.wantSeatNo != "" && (!strings.Contains(out, b.ID) || !strings.Contains(out, tc.wantSeatNo)) {
-				t.Errorf("must list the seatless story %s with %q: %s", b.ID, tc.wantSeatNo, out)
-			}
-			if denyReasonContains(out, noEngagedStoryCommitReason) || strings.Contains(out, "Engage in a SEPARATE") {
-				t.Errorf("an ambiguous session must not be told to engage a story: %s", out)
-			}
-		})
-	}
-}
-
 func attributedReasonOrFail(t *testing.T, live, dropped []seatInfo, sid, tree string) string {
 	t.Helper()
 	got, ok := attributedDenyReason(live, dropped, sid, tree)

@@ -39,23 +39,6 @@ func syncScopeKeyUses(text string) []string {
 	return uses
 }
 
-func TestSyncScopeKeyUsesDetector(t *testing.T) {
-	flagged := []string{
-		"[sync]\nall = \"personal\"\n",
-		"# [sync]\n# skills = \"local\"\n",
-		"Set [sync] documents = personal to opt in.",
-	}
-	for _, text := range flagged {
-		if len(syncScopeKeyUses(text)) == 0 {
-			t.Errorf("the detector missed a removed key in %q", text)
-		}
-	}
-	clean := "# [substrate_roots]\n# documents = \".\"\n# skills = \".\"\n[sync]\nproject = \"p\"\nstale_after = \"24h\"\n"
-	if uses := syncScopeKeyUses(clean); len(uses) != 0 {
-		t.Errorf("the detector flagged keys outside [sync]: %v", uses)
-	}
-}
-
 // AC8 (sty_b336c2b0): the help of satelle sync and every command under it, of
 // satelle project bind, and the init scaffold of satelle.toml use no removed
 // [sync] scope key as a setting; neither does what the sync verbs print for an

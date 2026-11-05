@@ -253,37 +253,6 @@ func TestPiHandler_EngagedEditAllowed(t *testing.T) {
 	}
 }
 
-// AC4: a bash commit or push is held to commitgate through the wrapper.
-func TestPiHandler_BashHeldToCommitgate(t *testing.T) {
-	r := newPiRig(t)
-	r.canDeny("commitgate", commitDenyReason("git commit -m x"))
-	out := r.drive(true,
-		toolStep("bash", map[string]any{"command": "git commit -m x"}),
-		toolStep("read", map[string]any{"path": "internal/foo.go"}),
-	)
-	if reason, ok := blocked(out.Results[0]); !ok || reason != commitDenyReason("git commit -m x") {
-		t.Fatalf("refused commit must block with satelle's reason: %+v", out.Results[0])
-	}
-	if out.Results[1].Result != nil {
-		t.Fatalf("a tool the gates do not govern must pass untouched: %+v", out.Results[1])
-	}
-	if got := r.argv(); len(got) != 1 || got[0] != "hook commitgate --harness pi" {
-		t.Fatalf("only the bash call reaches satelle, as commitgate; argv = %v", got)
-	}
-	var ev map[string]any
-	_ = json.Unmarshal([]byte(r.stdin()[0]), &ev)
-	ti, _ := ev["tool_input"].(map[string]any)
-	if ev["tool_name"] != "Bash" || ti["command"] != "git commit -m x" {
-		t.Fatalf("bash event not normalised: %v", ev)
-	}
-
-	r.can("commitgate", "", 0)
-	out = r.drive(true, toolStep("bash", map[string]any{"command": "git commit -m x"}))
-	if out.Results[0].Result != nil {
-		t.Fatalf("an engaged commit must pass: %+v", out.Results[0])
-	}
-}
-
 // AC5: SessionStart context and the next prompt's reminder both reach the model,
 // through DIRECT commands — the wrapper is deleted so it cannot be what carried them.
 func TestPiHandler_SessionContextAndPromptReminder(t *testing.T) {

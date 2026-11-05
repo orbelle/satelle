@@ -84,23 +84,3 @@ func TestCheckAllEmptyRegistry(t *testing.T) {
 		t.Errorf("an empty registry yields no reports, got %+v", reports)
 	}
 }
-
-// TestJSONPayloadShape pins AC8's machine-readable contract: stable ids, the
-// summary, and the exit code all present and unmarshalable.
-func TestJSONPayloadShape(t *testing.T) {
-	root := newFixtureRepo(t, fixtureOpts{workflowAdd: "[[meta.hooks]]\noperation = \"create_review\"\nskill = \"s\"\nagent = \"nobody\"\n"})
-	r := check(t, root)
-
-	var buf strings.Builder
-	if err := RenderJSON(&buf, []Report{r}); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		`"exit_code": 1`, `"healthy": 0`, `"unhealthy": 1`,
-		`"id": "` + health.IDHookAlloc + `"`, `"severity": "error"`, `"remediation"`,
-	} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("payload missing %q:\n%s", want, buf.String())
-		}
-	}
-}

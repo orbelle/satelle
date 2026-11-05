@@ -4,50 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
 )
-
-// TestWorkflowShowEmbeddedStarLaneIsInLoop (sty_462603f0): the shipped route the
-// binary carries — no repo overrides — has the driving session perform
-// in_progress and declares no rework relay.
-func TestWorkflowShowEmbeddedStarLaneIsInLoop(t *testing.T) {
-	var rs wfgovern.RouteSource
-	for _, d := range config.EmbeddedDefaults() {
-		if d.Kind != "workflows" {
-			continue
-		}
-		switch d.Name {
-		case "done":
-			rs.Done = d.Body
-		case "step":
-			rs.Step = d.Body
-		}
-	}
-	var b strings.Builder
-	if err := renderWorkflowRoute(&b, rs, "*", nil); err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	out := b.String()
-	i := strings.Index(out, ". in_progress")
-	if i < 0 {
-		t.Fatalf("no in_progress step in:\n%s", out)
-	}
-	rest := out[i:]
-	line := ""
-	for _, ln := range strings.Split(rest, "\n") {
-		if strings.Contains(ln, "performer:") {
-			line = ln
-			break
-		}
-	}
-	if !strings.Contains(line, "performer:  executor") {
-		t.Errorf("in_progress performer is not executor: %q", line)
-	}
-	if strings.Contains(out, "rework") {
-		t.Errorf("shipped * lane must show no rework:\n%s", out)
-	}
-}
 
 // `satelle workflow show <category>` renders the DERIVED route (sty_a989764d).
 // These drive renderWorkflowRoute directly — it takes the route SOURCE rather

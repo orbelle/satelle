@@ -2,15 +2,12 @@ package cli
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
@@ -84,48 +81,6 @@ func TestLocalOnlyKeepsTheWholeStoreAndCallsNoServer(t *testing.T) {
 			}
 			if n := hostedCalls(f, &stray); n != calls {
 				t.Errorf("a local-only checkout made %d hosted call(s)", n-calls)
-			}
-		})
-	}
-}
-
-// sty_0dc600e1 AC6: satelle init binds a checkout that synced under its directory
-// slug with no [sync] project, and leaves one with no saved hosted state unbound.
-func TestInitBindsACheckoutThatSyncedUnderItsSlug(t *testing.T) {
-	unbound := strings.Replace(hostedToml, "project = \"probe\"\n", "", 1)
-	for name, saved := range map[string]bool{"saved state": true, "no saved state": false} {
-		t.Run(name, func(t *testing.T) {
-			ts, _ := newFakeWorkstateServer(t)
-			repo := workstateRepo(t, unbound)
-			if err := config.SaveGlobalHostedServer(ts.URL); err != nil {
-				t.Fatal(err)
-			}
-			cfgPath := filepath.Join(repo, config.DefaultDataDir, config.ConfigName)
-			cfg, _, err := config.Load(cfgPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			slug := config.ResolveBoundProject(cfg, repo)
-			if saved {
-				if err := hosted.SaveStoryHeads(ts.URL, slug, repo, map[string]string{"sty_x": "evt_x"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			out, err := runRoot(t, "init")
-			if err != nil {
-				t.Fatalf("init: %v\n%s", err, out)
-			}
-			cfg, _, err = config.Load(cfgPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := cfg.SyncProject()
-			switch {
-			case saved && got != slug:
-				raw, _ := os.ReadFile(cfgPath)
-				t.Errorf("[sync] project = %q, want the slug %q it synced under:\n%s\n%s", got, slug, raw, out)
-			case !saved && got != "":
-				t.Errorf("a checkout with no saved hosted state was bound to %q", got)
 			}
 		})
 	}

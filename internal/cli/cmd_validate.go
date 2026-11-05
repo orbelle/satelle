@@ -279,10 +279,6 @@ func validateAuthoredFiles(out io.Writer, kind, dir, nameFilter string, resolve 
 		validated++
 		var problems []string
 		switch kind {
-		case "documents":
-			if err := docindex.OKFConformance(name, string(body)); err != nil {
-				problems = []string{err.Error()}
-			}
 		case "tasks":
 			problems = structure.CheckTask(string(body))
 		default:

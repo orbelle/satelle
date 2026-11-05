@@ -42,6 +42,7 @@ machine).`,
 	syncCmd.AddCommand(&cobra.Command{
 		Use:         "scopes",
 		Short:       "Print the resolved sync scope",
+		Long:        "Print the sync scope this repo resolves to: which work state push and pull carry.",
 		Annotations: needsStore(),
 		RunE:        runSyncScopes,
 	})
@@ -55,6 +56,7 @@ func newSyncPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "push",
 		Short:       "Publish this machine's work state (items, ledger, attachments)",
+		Long:        "Publish this machine's work state (items, ledger, attachments) to the bound hosted project.",
 		Args:        cobra.NoArgs,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,6 +92,7 @@ func newSyncPullCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:         "pull",
 		Short:       "Bring in the hosted work state (items, ledger, attachments)",
+		Long:        "Bring in the hosted project's work state (items, ledger, attachments) and apply it locally.",
 		Args:        cobra.NoArgs,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {

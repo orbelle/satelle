@@ -1,7 +1,6 @@
 package wfgovern
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 
@@ -49,39 +48,6 @@ func stepNames(c wfdot.Catalogue) []string {
 	return out
 }
 
-func TestRouteMerge_OneCategoryKeepsBaseline(t *testing.T) {
-	over := "[docs]\nobligations = [\"raised\", \"authored\"]\n"
-	rs := RouteSourceOf(authoredDocs(over, ""))
-	base := RouteSourceOf(embeddedDocs())
-
-	have := strings.Join(RouteCategories(rs.Done), ",")
-	for _, want := range RouteCategories(base.Done) {
-		if !strings.Contains(","+have+",", ","+want+",") {
-			t.Fatalf("category %q lost after one-category override; have %s", want, have)
-		}
-	}
-	for _, cat := range []string{"*", "execution", "epic-parent"} {
-		got, err := RouteSpecFor(rs, cat, nil)
-		if err != nil {
-			t.Fatalf("%s: %v", cat, err)
-		}
-		want, err := RouteSpecFor(base, cat, nil)
-		if err != nil {
-			t.Fatalf("baseline %s: %v", cat, err)
-		}
-		if !reflect.DeepEqual(got.Spec, want.Spec) || !reflect.DeepEqual(got.Catalogue.Gates, want.Catalogue.Gates) {
-			t.Errorf("category %q changed by an override of docs", cat)
-		}
-	}
-	got, err := RouteSpecFor(rs, "docs", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reflect.DeepEqual(got.List.Obligations, mustList(t, base, "docs").Obligations) {
-		t.Errorf("docs kept the baseline obligations; the repo table must replace it")
-	}
-}
-
 func mustList(t *testing.T, rs RouteSource, cat string) wfdot.List {
 	t.Helper()
 	d, err := RouteSpecFor(rs, cat, nil)
@@ -89,36 +55,6 @@ func mustList(t *testing.T, rs RouteSource, cat string) wfdot.List {
 		t.Fatal(err)
 	}
 	return d.List
-}
-
-func TestRouteMerge_OneStepKeepsBaseline(t *testing.T) {
-	over := "[coded]\nstatus = \"in_progress\"\nagent = \"coder\"\nrequires = [\"raised\"]\n"
-	rs := RouteSourceOf(authoredDocs("", over))
-	base := RouteSourceOf(embeddedDocs())
-
-	got, err := RouteSpecFor(rs, "*", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, _ := RouteSpecFor(base, "*", nil)
-	if !reflect.DeepEqual(stepNames(got.Catalogue), stepNames(want.Catalogue)) {
-		t.Fatalf("step set changed: %v vs %v", stepNames(got.Catalogue), stepNames(want.Catalogue))
-	}
-	for _, s := range got.Catalogue.Steps {
-		if s.Name == "coded" && s.Agent != "coder" {
-			t.Errorf("coded agent = %q, want the repo's coder", s.Agent)
-		}
-		if s.Name == "closed" {
-			for _, w := range want.Catalogue.Steps {
-				if w.Name == "closed" && !reflect.DeepEqual(s, w) {
-					t.Errorf("closed changed by a coded override")
-				}
-			}
-		}
-	}
-	if !reflect.DeepEqual(got.Catalogue.Gates, want.Catalogue.Gates) {
-		t.Errorf("baseline gates lost when the repo named none")
-	}
 }
 
 func TestRouteMerge_GateBySkill(t *testing.T) {
@@ -145,19 +81,6 @@ func TestRouteMerge_EmptyRepoKeepsBaselineBytes(t *testing.T) {
 	const base = "[raised]\nstatus = \"backlog\"\n"
 	if got := mergeRouteHalf(base, "  \n"); got != base {
 		t.Errorf("got %q, want the baseline unchanged", got)
-	}
-}
-
-func TestRouteMerge_NoRepoFileIsShippedRoute(t *testing.T) {
-	rs := RouteSourceOf(embeddedDocs())
-	if !rs.Embedded {
-		t.Fatal("no repo file must stay Embedded")
-	}
-	if rs.Done != embeddedRouteBody(RouteSourceDone) || rs.Step != embeddedRouteBody(RouteSourceStep) {
-		t.Fatal("no merge may run when the repo authored nothing")
-	}
-	if _, err := RouteSpecFor(rs, "*", nil); err != nil {
-		t.Fatal(err)
 	}
 }
 

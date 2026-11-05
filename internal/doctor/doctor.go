@@ -233,13 +233,6 @@ func Check(ctx context.Context, o Opts) Report {
 	// refuse is surfaced before an upgrade turns it into a refused gate.
 	rep.Findings = append(rep.Findings, checkReviewerIsolation(av.Grants)...)
 
-	// 5b. Leftover machine-scope keys in repo files (config.MachineScopeStrays
-	// owns the rule; doctor only surfaces it — sty_21a7d16d AC4).
-	for _, s := range config.MachineScopeStrays(dataDir) {
-		rep.Findings = append(rep.Findings, health.Warn(health.IDConfigStray, "Stray machine-scope key",
-			s.Warning()).About(s.File).WithRemediation("run `satelle migrate --yes`"))
-	}
-
 	// 5b'. The substrate lock opt-out (sty_992cffc6): reported only when the
 	// operator wrote lock_substrate_paths = [] — an absent key is the default
 	// lock and says nothing.
@@ -410,10 +403,6 @@ func checkAuthoredDir(kind, dir string, resolve func(string) bool) health.Findin
 		}
 		var problems []string
 		switch kind {
-		case "documents":
-			if derr := docindex.OKFConformance(name, string(body)); derr != nil {
-				problems = []string{derr.Error()}
-			}
 		case "tasks":
 			problems = structure.CheckTask(string(body))
 		default:

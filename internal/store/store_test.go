@@ -6,11 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -297,85 +295,5 @@ func TestLedgerAppendAndList(t *testing.T) {
 	// Unfiltered list is refused.
 	if _, err := db.Ledger.List(ctx, ledger.ListFilter{}); err == nil {
 		t.Error("unfiltered list should be refused")
-	}
-}
-
-// TestNoDriftingDocsPrincipleOverlayAndShadow: opened through Open, so the
-// production embedded-default wiring is what is exercised. With no file on disk
-// the shipped principle resolves and lists once; a same-named authored file
-// shadows it, still listed once (sty_9fa1023d).
-func TestNoDriftingDocsPrincipleOverlayAndShadow(t *testing.T) {
-	const name = "satelle-no-drifting-docs"
-	ctx := context.Background()
-	root := t.TempDir()
-	db, err := Open(filepath.Join(root, ".satelle", "satelle.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	dir := filepath.Join(root, ".satelle", "principles")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dirs := map[string]string{"principles": dir}
-
-	var shipped string
-	for _, d := range config.EmbeddedDefaults() {
-		if d.Kind == "principles" && d.Name == name {
-			shipped = d.Body
-		}
-	}
-	if shipped == "" {
-		t.Fatalf("%s is not in the embedded defaults", name)
-	}
-
-	// listed returns the body of every listed doc named name.
-	listed := func() []string {
-		t.Helper()
-		docs, err := db.DocIndex.List(ctx, "principles")
-		if err != nil {
-			t.Fatalf("List: %v", err)
-		}
-		var bodies []string
-		for _, d := range docs {
-			if d.Name == name {
-				bodies = append(bodies, d.Body)
-			}
-		}
-		return bodies
-	}
-
-	// Overlay: nothing on disk, so the shipped bytes resolve and list once.
-	if _, err := db.DocIndex.Sync(ctx, dirs, time.Now().UTC()); err != nil {
-		t.Fatalf("Sync (empty): %v", err)
-	}
-	got, err := db.DocIndex.Get(ctx, "principles", name)
-	if err != nil {
-		t.Fatalf("Get overlay: %v", err)
-	}
-	if got.Body != shipped {
-		t.Errorf("overlay Get body is not the shipped principle")
-	}
-	if bodies := listed(); len(bodies) != 1 || bodies[0] != shipped {
-		t.Errorf("overlay List = %d entries, want the shipped principle once", len(bodies))
-	}
-
-	// Shadow: an authored file of the same name wins, and is listed once.
-	const authored = "---\nname: satelle-no-drifting-docs\ntype: principle\ntags: [type:principle]\napplies_to: [\"*\"]\ndescription: operator override\n---\n\n# operator body\n\nOPERATOR-OVERRIDE\n"
-	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(authored), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.DocIndex.Sync(ctx, dirs, time.Now().UTC()); err != nil {
-		t.Fatalf("Sync (authored): %v", err)
-	}
-	got, err = db.DocIndex.Get(ctx, "principles", name)
-	if err != nil {
-		t.Fatalf("Get shadow: %v", err)
-	}
-	if !strings.Contains(got.Body, "OPERATOR-OVERRIDE") || got.Body == shipped {
-		t.Errorf("authored file did not shadow the shipped principle: %q", got.Body)
-	}
-	if bodies := listed(); len(bodies) != 1 || !strings.Contains(bodies[0], "OPERATOR-OVERRIDE") {
-		t.Errorf("shadow List = %d entries, want the authored principle once", len(bodies))
 	}
 }

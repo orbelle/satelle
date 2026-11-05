@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/drive"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/verb"
 )
 
@@ -66,30 +65,6 @@ func wantWaitingAtTheWaitStep(t *testing.T, res drive.Result) {
 	if !res.Waiting || res.Parked || res.Terminal || res.Status != "awaiting_release" || res.Reason == "" {
 		t.Fatalf("the drive must stop waiting (not parked, not terminal) at the wait step, got %+v", res)
 	}
-}
-
-// A drive walks the story into the wait step and stops there: it does not move
-// past it, and the stop is reported as waiting, not parked.
-func TestStoryStopsWaitingAtAWaitStep(t *testing.T) {
-	inLocalRepo(t)
-	e := newEnv(t, waitDone, waitRoute)
-	id := e.story()
-	perf := &fakePerformers{kinds: map[string]verb.PerformerKind{"in_progress": verb.PerformerExecutor}, executor: headless()}
-	res, err := drive.Story(context.Background(), id, drive.Options{Performers: perf})
-	if err != nil {
-		t.Fatalf("drive: %v", err)
-	}
-	wantWaitingAtTheWaitStep(t, res)
-	if got := e.status(id); got != "awaiting_release" {
-		t.Fatalf("stored status = %q, want the wait step", got)
-	}
-	if len(res.Moves) != 2 || res.Moves[1].To != "awaiting_release" {
-		t.Fatalf("moves = %+v, want backlog → in_progress → awaiting_release", res.Moves)
-	}
-	if len(e.rows(id, ledger.KindQueueEnqueued)) != 1 {
-		t.Error("entering the wait step through a drive queues the story")
-	}
-	e.wantNoDriveRecords(id)
 }
 
 // A drive started on a story already resting at the wait step reports it as

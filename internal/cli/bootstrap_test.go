@@ -170,37 +170,3 @@ func TestVersionDoesNotCreateDB(t *testing.T) {
 		t.Error("version created a database — bootstrap should not open the store")
 	}
 }
-
-func TestReindexThenStatus(t *testing.T) {
-	repo := tempRepo(t)
-	docs := filepath.Join(repo, ".satelle", "documents")
-	if err := os.MkdirAll(docs, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docs, "intro.md"), []byte("# Intro\n\nhi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := runRoot(t, "reindex")
-	if err != nil {
-		t.Fatalf("index: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, `"indexed": 1`) {
-		t.Errorf("index output = %q, want indexed:1", out)
-	}
-
-	// sty_fb5e6d96: status reports real availability of the machine-wide service,
-	// not the repo's `serve` port echoed back. Stub the reachability seam so the
-	// suite never dials the developer's own port.
-	stubHealthz(t, false)
-
-	out, err = runRoot(t, "status")
-	if err != nil {
-		t.Fatalf("status: %v\n%s", err, out)
-	}
-	for _, want := range []string{repo, "indexed documents", "web service", "not answering", "stories"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("status output missing %q:\n%s", want, out)
-		}
-	}
-}

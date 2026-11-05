@@ -149,33 +149,10 @@ type Config struct {
 	// only the leftover-file sweep (sty_e7aaf8b1). Kept separate from
 	// [gate] because it runs at session close, not the PreToolUse hook.
 	Dispatch DispatchConfig `toml:"dispatch"`
-	// InstructionReview names the extra instruction paths the shipped trigger
-	// skill counts (sty_012394c0). See InstructionReviewConfig.
-	InstructionReview InstructionReviewConfig `toml:"instruction_review"`
-	// Validate tunes what `satelle validate` reports beyond structure — today the
-	// injected-context size and its warn-only budgets. See ValidateConfig.
-	Validate ValidateConfig `toml:"validate"`
 	// Worktree declares what a worktree opened for a story needs
 	// (sty_804c566b): the gitignored paths it carries from the main tree and the
 	// branch and location templates. See WorktreeConfig.
 	Worktree WorktreeConfig `toml:"worktree"`
-	// Trunk declares the start-of-work trunk check (sty_9f3e51d1): whether it
-	// runs at engage, and which states it refuses on. See TrunkConfig.
-	Trunk TrunkConfig `toml:"trunk"`
-	// Release declares the metadata a recorded release may carry beyond its
-	// commit and release identifier (`satelle story release-record`). See
-	// ReleaseConfig.
-	Release ReleaseConfig `toml:"release"`
-	// Forge selects the forge provider PR reads, reviews and commit statuses go
-	// through, and names the approval's status context. See ForgeConfig.
-	Forge ForgeConfig `toml:"forge"`
-}
-
-// ReleaseConfig is the [release] table. Fields lists the extra metadata keys a
-// release record may carry (--field k=v); a key outside it is refused. Empty =
-// any key is accepted. The binary names no field of its own.
-type ReleaseConfig struct {
-	Fields []string `toml:"fields"`
 }
 
 // IsAgentCaller detects a dispatched or in-loop agent process by environment:
@@ -394,14 +371,11 @@ type GateConfig struct {
 	// [gate] lock_substrate_paths is deliberately NOT a field: an absent key
 	// (default lock) and `= []` (opt-out) decode alike here, so the lock reads
 	// the raw file through ParseLockSubstratePaths.
-	AllowOutsideTreeEdits  bool                `toml:"allow_outside_tree_edits"`
-	CommandAllow           map[string][]string `toml:"command_allow"`
-	CommandRules           []CommandRule       `toml:"command_rule"`
-	CommandPolicies        []CommandPolicy     `toml:"command_policy"`
-	NoImplementModels      []string            `toml:"no_implement_models"`
-	NoImplementMessage     string              `toml:"no_implement_message"`
-	NoImplementExemptPaths []string            `toml:"no_implement_exempt_paths"`
-	NoImplementExemptGlobs []string            `toml:"no_implement_exempt_globs"`
+	AllowOutsideTreeEdits  bool     `toml:"allow_outside_tree_edits"`
+	NoImplementModels      []string `toml:"no_implement_models"`
+	NoImplementMessage     string   `toml:"no_implement_message"`
+	NoImplementExemptPaths []string `toml:"no_implement_exempt_paths"`
+	NoImplementExemptGlobs []string `toml:"no_implement_exempt_globs"`
 	// Handoff chooses whether a gate-running verb called by an agent (or with no
 	// terminal) returns a handle and delivers its verdict later, instead of
 	// holding the foreground until the reviewer finishes. One of GateHandoffAuto
@@ -449,61 +423,6 @@ func ValidateGateHandoff(c Config, path string) error {
 	}
 }
 
-// Command rule actions for [[gate.command_rule]] (sty_a74551d6). The set is
-// CLOSED. satelle ships no rule: the repo authors every one.
-const (
-	// CommandRuleDeny refuses a matching command before it runs.
-	CommandRuleDeny = "deny"
-	// CommandRuleWarn lets a matching command run and tells the agent why it was
-	// flagged, where the harness can deliver that.
-	CommandRuleWarn = "warn"
-)
-
-// CommandRule is one repo-authored judgement of an agent's shell command line.
-// Pattern is a whitespace-split argv prefix; see CommandRuleToken for the token
-// forms (a word, *, **, **/NAME as the first token, and *TEXT*). Allow lists the story statuses or workflow step names at which the
-// command passes; empty means no status or step lets it pass. Message is shown
-// to the agent. The first matching rule, in file order, wins.
-type CommandRule struct {
-	Pattern string   `toml:"pattern"`
-	Action  string   `toml:"action"`
-	Allow   []string `toml:"allow"`
-	Message string   `toml:"message"`
-	// Tokens is Pattern classified once by ValidateGateCommandRules, so the hook
-	// does not parse it on every command. Never read from TOML.
-	Tokens []CommandRuleToken `toml:"-"`
-	// Source names the subscription a rule came from; empty for a rule the repo
-	// authored. Never read from TOML.
-	Source string `toml:"-"`
-}
-
-// Compiled is the rule's classified pattern: the one load validated, or a parse
-// into buf for a rule built without validation.
-func (r CommandRule) Compiled(buf []CommandRuleToken) ([]CommandRuleToken, error) {
-	if r.Tokens != nil {
-		return r.Tokens, nil
-	}
-	return AppendCommandRuleTokens(buf[:0], r.Pattern)
-}
-
-// CommandRuleError is a [[gate.command_rule]] that load refused. It names the
-// file, the rule index and the field, and never the value, so a hook can show
-// it to an agent without echoing a rule's text. Index is -1 when the problem is
-// a key no field decodes.
-type CommandRuleError struct {
-	Path   string
-	Index  int
-	Field  string
-	Reason string
-}
-
-func (e *CommandRuleError) Error() string {
-	if e.Index < 0 {
-		return fmt.Sprintf("config: %s: [[gate.command_rule]] key %s: %s", e.Path, e.Field, e.Reason)
-	}
-	return fmt.Sprintf("config: %s: [[gate.command_rule]] rule %d field %s: %s", e.Path, e.Index, e.Field, e.Reason)
-}
-
 // ParseError is a TOML syntax error in a config file. A hook that cannot tell
 // whether the file declared command rules fails closed on it.
 type ParseError struct {
@@ -513,148 +432,6 @@ type ParseError struct {
 
 func (e *ParseError) Error() string { return fmt.Sprintf("config: parse %s: %v", e.Path, e.Err) }
 func (e *ParseError) Unwrap() error { return e.Err }
-
-// CommandRuleKind is how one pattern token compares with argv.
-type CommandRuleKind int
-
-const (
-	// CommandRuleWord matches a token equal to Text.
-	CommandRuleWord CommandRuleKind = iota
-	// CommandRuleAny is "*": any one token.
-	CommandRuleAny
-	// CommandRuleRun is "**": any number of tokens, none included.
-	CommandRuleRun
-	// CommandRuleProgram is "**/NAME", first token only: argv[0] whose text
-	// after its last "/" is Text, however the program was invoked.
-	CommandRuleProgram
-	// CommandRuleContains is "*TEXT*": one token holding Text.
-	CommandRuleContains
-)
-
-// CommandRuleToken is one classified token of a rule pattern.
-type CommandRuleToken struct {
-	Kind CommandRuleKind
-	Text string
-}
-
-// ParseCommandRulePattern classifies a rule pattern's whitespace-split tokens.
-// It is the one grammar: validation and matching both read it. The error is a
-// reason only, never the pattern text.
-func ParseCommandRulePattern(pattern string) ([]CommandRuleToken, error) {
-	return AppendCommandRuleTokens(nil, pattern)
-}
-
-var (
-	errRuleSyntax   = errors.New("tokens must be plain words or wildcards, with no shell syntax or quotes")
-	errRuleProgPos  = errors.New("**/NAME is allowed only as the first token")
-	errRuleProgName = errors.New("**/NAME needs a program name with no / or *")
-	errRuleWildcard = errors.New("a token holding * must be exactly *, **, **/NAME or *TEXT*")
-)
-
-// AppendCommandRuleTokens is ParseCommandRulePattern into dst, so a caller with
-// a stack buffer classifies a pattern without allocating.
-func AppendCommandRuleTokens(dst []CommandRuleToken, pattern string) ([]CommandRuleToken, error) {
-	start := -1
-	for i := 0; i <= len(pattern); i++ {
-		if i < len(pattern) && pattern[i] != ' ' && (pattern[i] < '\t' || pattern[i] > '\r') {
-			if start < 0 {
-				start = i
-			}
-			continue
-		}
-		if start < 0 {
-			continue
-		}
-		f := pattern[start:i]
-		start = -1
-		for j := 0; j < len(f); j++ {
-			if commandRuleMeta[f[j]] {
-				return nil, errRuleSyntax
-			}
-		}
-		switch {
-		case f == "*":
-			dst = append(dst, CommandRuleToken{Kind: CommandRuleAny})
-		case f == "**":
-			dst = append(dst, CommandRuleToken{Kind: CommandRuleRun})
-		case strings.HasPrefix(f, "**/"):
-			name := f[len("**/"):]
-			if len(dst) != 0 {
-				return nil, errRuleProgPos
-			}
-			if name == "" || strings.ContainsAny(name, "/*") {
-				return nil, errRuleProgName
-			}
-			dst = append(dst, CommandRuleToken{Kind: CommandRuleProgram, Text: name})
-		case !strings.Contains(f, "*"):
-			dst = append(dst, CommandRuleToken{Kind: CommandRuleWord, Text: f})
-		case len(f) > 2 && f[0] == '*' && f[len(f)-1] == '*' && !strings.Contains(f[1:len(f)-1], "*"):
-			dst = append(dst, CommandRuleToken{Kind: CommandRuleContains, Text: f[1 : len(f)-1]})
-		default:
-			return nil, errRuleWildcard
-		}
-	}
-	return dst, nil
-}
-
-// commandRuleMetaChars are shell syntax a pattern token may not hold: a rule
-// matches the argv tokens of one simple command, never shell syntax.
-const commandRuleMetaChars = ";&|<>()$`\\\"'"
-
-// commandRuleMeta is commandRuleMetaChars as a byte table, so classifying a
-// token on the hook path is one pass with no set built per call.
-var commandRuleMeta = func() (m [256]bool) {
-	for i := 0; i < len(commandRuleMetaChars); i++ {
-		m[commandRuleMetaChars[i]] = true
-	}
-	return m
-}()
-
-// ValidateGateCommandRules refuses a malformed [[gate.command_rule]] with a
-// *CommandRuleError. It checks closed sets only and holds no workflow
-// knowledge, so a stale allow name is doctor's finding, not a hook failure.
-// path names the file that declared the rules.
-func ValidateGateCommandRules(c Config, path string) error {
-	bad := func(i int, field, reason string) error {
-		return &CommandRuleError{Path: path, Index: i, Field: field, Reason: reason}
-	}
-	for i, r := range c.Gate.CommandRules {
-		toks, err := ParseCommandRulePattern(r.Pattern)
-		if err != nil {
-			return bad(i, "pattern", err.Error())
-		}
-		if len(toks) == 0 {
-			return bad(i, "pattern", "must not be empty")
-		}
-		c.Gate.CommandRules[i].Tokens = toks
-		switch r.Action {
-		case CommandRuleDeny, CommandRuleWarn:
-		default:
-			return bad(i, "action", fmt.Sprintf("must be %q or %q", CommandRuleDeny, CommandRuleWarn))
-		}
-		if strings.TrimSpace(r.Message) == "" {
-			return bad(i, "message", "must not be empty")
-		}
-		for _, a := range r.Allow {
-			if strings.TrimSpace(a) == "" {
-				return bad(i, "allow", "entries must not be empty")
-			}
-		}
-	}
-	return nil
-}
-
-// undecodedCommandRuleKeys refuses a key under [[gate.command_rule]] that no
-// field decodes, so a misspelled "alow" cannot silently turn a rule into a
-// deny-everywhere one.
-func undecodedCommandRuleKeys(md toml.MetaData, path string) error {
-	for _, k := range md.Undecoded() {
-		if len(k) >= 3 && k[0] == "gate" && k[1] == "command_rule" {
-			return &CommandRuleError{Path: path, Index: -1, Field: strings.Join(k[2:], "."), Reason: "unknown key"}
-		}
-	}
-	return nil
-}
 
 // Seat concurrency modes for [engagement] parallel (sty_c098dc2d). The set is
 // CLOSED — Load refuses anything else, naming these three.
@@ -928,17 +705,10 @@ func Load(explicitPath string) (Config, string, error) {
 	if err := undecodedGovernedKeys(md, path); err != nil {
 		return Config{}, path, err
 	}
-	if err := undecodedCommandRuleKeys(md, path); err != nil {
-		return Config{}, path, err
-	}
-	if err := undecodedCommandPolicyKeys(md, path); err != nil {
-		return Config{}, path, err
-	}
 	// Overlay the gitignored per-user satelle.local.toml beside the committed
 	// file; its set fields win. Decoding over the populated cfg leaves absent
 	// fields untouched. An absent overlay is not an error.
 	localPath := filepath.Join(filepath.Dir(path), LocalConfigName)
-	rulePath, policyPath := path, path
 	if lb, lerr := os.ReadFile(localPath); lerr == nil {
 		lmd, derr := toml.Decode(string(lb), &cfg)
 		if derr != nil {
@@ -946,18 +716,6 @@ func Load(explicitPath string) (Config, string, error) {
 		}
 		if err := undecodedGovernedKeys(lmd, localPath); err != nil {
 			return Config{}, localPath, err
-		}
-		if err := undecodedCommandRuleKeys(lmd, localPath); err != nil {
-			return Config{}, localPath, err
-		}
-		if err := undecodedCommandPolicyKeys(lmd, localPath); err != nil {
-			return Config{}, localPath, err
-		}
-		if lmd.IsDefined("gate", "command_policy") {
-			policyPath = localPath
-		}
-		if lmd.IsDefined("gate", "command_rule") {
-			rulePath = localPath
 		}
 	} else if !errors.Is(lerr, os.ErrNotExist) {
 		return Config{}, path, fmt.Errorf("config: read %s: %w", localPath, lerr)
@@ -970,16 +728,7 @@ func Load(explicitPath string) (Config, string, error) {
 	if err := ValidateGateHandoff(cfg, path); err != nil {
 		return Config{}, path, err
 	}
-	if err := ValidateGateCommandRules(cfg, rulePath); err != nil {
-		return Config{}, rulePath, err
-	}
-	if err := ValidateGateCommandPolicies(cfg, policyPath); err != nil {
-		return Config{}, policyPath, err
-	}
 	if err := validateWorktree(cfg, path); err != nil {
-		return Config{}, path, err
-	}
-	if err := validateTrunk(cfg, path); err != nil {
 		return Config{}, path, err
 	}
 	if err := validateHarness(cfg, path); err != nil {

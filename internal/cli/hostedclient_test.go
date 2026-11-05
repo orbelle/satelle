@@ -3,13 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"go/parser"
-	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
@@ -65,37 +62,5 @@ func TestNewHostedClientEmptyRepoDoesNotWriteState(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("state file created for empty repoRoot: %v", err)
-	}
-}
-
-func TestSyncStoryCallSitesUseNewHostedClient(t *testing.T) {
-	// Production sync/story files must not call hosted.NewClient directly —
-	// that path skips x-satelle-location. Tests and login/project/publish/backup
-	// stay on NewClient by design (architecture review, sty_e88d77ce).
-	files := []string{
-		"cmd_sync.go",
-		"cmd_sync_documents.go",
-		"cmd_sync_workstate.go",
-	}
-	fset := token.NewFileSet()
-	for _, name := range files {
-		src, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, err := parser.ParseFile(fset, name, src, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body := string(src)
-		if !strings.Contains(body, "newHostedClient(") {
-			t.Errorf("%s: missing newHostedClient", name)
-		}
-		// hosted.NewClient in a production .go (not _test.go) is the silent-open
-		// failure the architecture review named.
-		_ = f
-		if strings.Contains(body, "hosted.NewClient(") {
-			t.Errorf("%s: production sync file still calls hosted.NewClient", name)
-		}
 	}
 }

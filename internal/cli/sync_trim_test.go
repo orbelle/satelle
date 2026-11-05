@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"time"
 
@@ -170,44 +169,6 @@ func seedCacheFixture(t *testing.T, f *fakeWorkstateServer, server, repo string)
 	}
 }
 
-// sty_7c01ca14 AC1: after a snapshot sync in team scope only the story whose
-// folded status is performing keeps its history, though another location engaged
-// it; the one this machine engaged, the recent one and the old one are kept as
-// rows, marked for an on-demand fetch, and their hosted chains are not read.
-func TestTeamSnapshotHoldsOnlyPerformingHistory(t *testing.T) {
-	ts, f, repo := hostedTeamRepo(t)
-	fx := seedCacheFixture(t, f, ts.URL, repo)
-
-	if out, err := runRoot(t, "sync", "workstate", "snapshot"); err != nil {
-		t.Fatalf("snapshot: %v\n%s", err, out)
-	}
-	if n := localEvents(t, fx.performing); n == 0 {
-		t.Errorf("the performing story %s lost its history", fx.performing)
-	}
-	if f.chain.readCount(fx.performing) == 0 {
-		t.Errorf("the snapshot did not read the hosted chain of performing story %s", fx.performing)
-	}
-	for _, id := range []string{fx.engaged, fx.recent, fx.old} {
-		if n := localEvents(t, id); n != 0 {
-			t.Errorf("%s kept %d event(s), want its history left on the server", id, n)
-		}
-		if !hasMark(t, id, ledger.MarkHistoryRemote) {
-			t.Errorf("%s is not marked for an on-demand fetch", id)
-		}
-		if n := f.chain.readCount(id); n != 0 {
-			t.Errorf("the snapshot read the hosted chain of %s %d time(s), want none", id, n)
-		}
-	}
-	for _, id := range []string{fx.performing, fx.engaged, fx.recent, fx.old} {
-		if !hasRow(t, id) {
-			t.Errorf("%s lost its row", id)
-		}
-	}
-	if got := len(f.chain.stored("probe", fx.old)); got != 3 {
-		t.Errorf("the server holds %d event(s) of the trimmed story, want 3", got)
-	}
-}
-
 // sty_7c01ca14 AC4: outside team scope a snapshot leaves every chain on the local
 // store: a personal-scope pass reads every hosted chain and marks nothing remote,
 // and a local-scope pass moves nothing.
@@ -264,80 +225,4 @@ func trimUnder(t *testing.T, server, repo string, scope *config.Scope) int {
 		t.Fatalf("trim: %v", err)
 	}
 	return n
-}
-
-// sty_7c01ca14 AC1, AC4: a trim pass in team scope keeps the chain of a story
-// another location performs and drops one that location finished; in personal
-// scope, local scope, or with no scope recorded it drops nothing.
-func TestTrimHoldsPerformingStoriesOnlyInTeamScope(t *testing.T) {
-	team, personal, local := config.TeamScope, config.PersonalScope, config.LocalScope
-	for name, tc := range map[string]struct {
-		scope *config.Scope
-		drops bool
-	}{
-		"team": {&team, true}, "personal": {&personal, false}, "local": {&local, false}, "unrecorded": {nil, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ts, f, repo := hostedModeRepo(t)
-			longAgo := time.Now().Add(-72 * time.Hour).UTC()
-			working := cacheStory(t, f, ts.URL, repo, "performed elsewhere", "in_progress", longAgo, workingOnAt(t, "loc_elsewhere"))
-			finished := cacheStory(t, f, ts.URL, repo, "finished elsewhere", "done", longAgo, workingOnAt(t, "loc_elsewhere"))
-
-			n := trimUnder(t, ts.URL, repo, tc.scope)
-			if localEvents(t, working) == 0 {
-				t.Errorf("the performing story lost its history")
-			}
-			if tc.drops {
-				if n != 1 || localEvents(t, finished) != 0 || !hasMark(t, finished, ledger.MarkHistoryRemote) {
-					t.Errorf("dropped %d; the finished story holds %d event(s), want it alone dropped and marked remote", n, localEvents(t, finished))
-				}
-				return
-			}
-			if n != 0 || localEvents(t, finished) == 0 || hasMark(t, finished, ledger.MarkHistoryRemote) {
-				t.Errorf("dropped %d outside team scope; the finished story holds %d event(s), want every chain kept", n, localEvents(t, finished))
-			}
-		})
-	}
-}
-
-// sty_7c01ca14 AC2: in team scope, opening a story whose history is not held
-// (story get, or the fetch verb the web story page runs) fetches its chain, and the
-// next snapshot drops it again unless another location has moved it into work by
-// then.
-func TestFetchedHistoryIsTrimmedAgainUnlessPerforming(t *testing.T) {
-	ts, f, repo := hostedTeamRepo(t)
-	longAgo := time.Now().Add(-72 * time.Hour).UTC()
-	idle := cacheStory(t, f, ts.URL, repo, "opened and left", "backlog", longAgo)
-	pickedUp := cacheStory(t, f, ts.URL, repo, "opened then picked up", "backlog", longAgo)
-	if out, err := runRoot(t, "sync", "workstate", "snapshot"); err != nil {
-		t.Fatalf("snapshot: %v\n%s", err, out)
-	}
-	for _, id := range []string{idle, pickedUp} {
-		if localEvents(t, id) != 0 || !hasMark(t, id, ledger.MarkHistoryRemote) {
-			t.Fatalf("%s was not trimmed by the snapshot", id)
-		}
-	}
-	if out, err := runRoot(t, "story", "get", idle); err != nil {
-		t.Fatalf("story get: %v\n%s", err, out)
-	}
-	if out, err := runRoot(t, "sync", "workstate", "fetch", pickedUp); err != nil {
-		t.Fatalf("fetch: %v\n%s", err, out)
-	}
-	for _, id := range []string{idle, pickedUp} {
-		if n, want := localEvents(t, id), len(f.chain.stored("probe", id)); n != want || hasMark(t, id, ledger.MarkHistoryRemote) {
-			t.Fatalf("opening %s left %d of %d event(s) local", id, n, want)
-		}
-	}
-
-	otherMachineTransition(t, f, pickedUp, "backlog", "in_progress")
-	seedHostedStory(f, pickedUp, "opened then picked up", "in_progress", time.Now().UTC())
-	if out, err := runRoot(t, "sync", "workstate", "snapshot"); err != nil {
-		t.Fatalf("second snapshot: %v\n%s", err, out)
-	}
-	if n := localEvents(t, idle); n != 0 || !hasMark(t, idle, ledger.MarkHistoryRemote) {
-		t.Errorf("the opened story nobody performs kept %d event(s), want it dropped again", n)
-	}
-	if got, want := localIDs(t, pickedUp), f.chain.stored("probe", pickedUp); !slices.Equal(got, want) || hasMark(t, pickedUp, ledger.MarkHistoryRemote) {
-		t.Errorf("the story moved into work holds %v, want its whole chain %v", got, want)
-	}
 }

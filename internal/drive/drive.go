@@ -516,9 +516,11 @@ func (d *driver) preflight(ctx context.Context, item workitem.Item) error {
 // set when the story was parked instead.
 func (d *driver) advance(ctx context.Context, item workitem.Item, next string) (workitem.Item, error) {
 	from := item.Status
-	limit := 0
-	if st, ok := d.route.Spec.StateNamed(next); ok && st.RejectBudget < 1 {
-		limit = unbudgetedPresentations
+	// The edge is presented at most its step's reject_budget times (or
+	// unbudgetedPresentations when it declares none), then the story parks.
+	limit := unbudgetedPresentations
+	if st, ok := d.route.Spec.StateNamed(next); ok && st.RejectBudget > 0 {
+		limit = st.RejectBudget
 	}
 	for attempt := 1; ; attempt++ {
 		fmt.Fprintf(d.out, "drive: %s presenting %s → %s\n", d.id, from, next)
@@ -539,7 +541,7 @@ func (d *driver) advance(ctx context.Context, item workitem.Item, next string) (
 				}
 				step, performer := d.blame(ctx, item, next, skill)
 				return item, d.park(ctx, item, step, performer, fmt.Sprintf(
-					"the %s → %s edge was rejected %d times and its step declares no reject_budget; last objection: %s",
+					"the %s → %s edge was rejected %d times; last objection: %s",
 					from, next, attempt, rejected.Notes()))
 			}
 			if err := d.answerRejection(ctx, item, next, rejected.Notes()); err != nil {

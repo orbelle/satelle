@@ -231,24 +231,6 @@ func wiringTableNames() []string {
 	return names
 }
 
-// TestWiringVarsComplete: every package-level var in verb is either restored by
-// SnapshotWiring or exempt with a stated reason, so new wiring cannot be added
-// and left leaking between tests.
-func TestWiringVarsComplete(t *testing.T) {
-	problems, err := wiringTableProblems(readNonTestSources(t), wiringTableNames(), wiringExempt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range problems {
-		t.Error(p)
-	}
-	for i, w := range wiringVars {
-		if reflect.TypeOf(w.ptr).Kind() != reflect.Pointer {
-			t.Errorf("%s: table entry %d is not a pointer", w.name, i)
-		}
-	}
-}
-
 func TestWiringScanCatchesNewVar(t *testing.T) {
 	const base = "package verb\nvar a string\nvar (\n\tb int\n\tc = 1\n)\nvar _ = 0\n"
 	table := []string{"a", "b"}

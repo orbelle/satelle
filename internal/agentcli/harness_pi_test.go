@@ -108,7 +108,7 @@ func TestClaudeAndGrokRowsAreUnchanged(t *testing.T) {
 			t.Errorf("%s CompletionNotification = %v, want wired", tc.harness, got)
 		}
 	}
-	if n := len(HarnessFactsTable()); n != 4 {
-		t.Errorf("HarnessFactsTable has %d rows, want 4 (claude, grok, pi, cursor)", n)
+	if n := len(HarnessFactsTable()); n != 3 {
+		t.Errorf("HarnessFactsTable has %d rows, want 3 (claude, grok, pi)", n)
 	}
 }

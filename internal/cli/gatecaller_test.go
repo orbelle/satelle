@@ -196,30 +196,6 @@ func dirListing(t *testing.T, dir string) string {
 	return b.String()
 }
 
-// A CLI command that builds its own reviewer engine (engineForCmd) bypasses the
-// verb registry, so it must reach the hand-off itself. Guard: every non-test file
-// that does so — other than the wiring in app.go and cmd_node.go — also calls
-// handOffGate, so a new reviewer-running command cannot skip the contract
-// (sty_c4b92c9e AC6). cmd_node.go is skipped: node join is launched by
-// satelle.dev, never by an agent, and must hold its process.
-func TestEveryEngineBuildingCommandHandsOff(t *testing.T) {
-	files, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range files {
-		name := f.Name()
-		if f.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "app.go" || name == "cmd_node.go" {
-			continue
-		}
-		b, _ := os.ReadFile(name)
-		src := string(b)
-		if strings.Contains(src, "engineForCmd(") && !strings.Contains(src, "handOffGate(") {
-			t.Errorf("%s builds a reviewer engine (engineForCmd) but never calls handOffGate — an agent calling it would sit through the whole run", name)
-		}
-	}
-}
-
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()

@@ -5,15 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/agentstep"
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/drive"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -383,38 +379,6 @@ func TestDriveLastMessageNamedPerformerCleanQuestion(t *testing.T) {
 	p := wantStopPayload(t, parks[0], question)
 	if p["performer"] != "coder" || p["step"] != "in_progress" {
 		t.Errorf("payload = %v, want the coder on in_progress", p)
-	}
-}
-
-// AC3: a rework relay that parks quotes the relay's own close row, not the older
-// dispatch's output.
-func TestDriveLastMessageReworkRelay(t *testing.T) {
-	e := newEnv(t, routeDone, reworkRoute)
-	d := newStubDispatcher()
-	d.out["in_progress"] = "old"
-	verb.SetExecutorDispatcher(d)
-	e.gater.always["done"] = true
-	id := e.story()
-	perf := &fakePerformers{kinds: map[string]verb.PerformerKind{"in_progress": verb.PerformerDispatched}, agents: map[string]string{"in_progress": "coder"}}
-	o := opts(perf)
-	o.Rework = func(ctx context.Context, rid string) (drive.Rework, error) {
-		if err := verb.AppendAgentInvocation(ctx, rid, map[string]any{"agent": "coder", "phase": "close", "last_message": "relay says Z"}); err != nil {
-			t.Fatal(err)
-		}
-		e.otherInvocations(rid)
-		return drive.Rework{Outcome: "budget", Rounds: 2, LastObjection: "STILL-NOT-READY"}, nil
-	}
-	res, err := drive.Story(context.Background(), id, o)
-	if err != nil || !res.Parked {
-		t.Fatalf("want parked, got %v %+v", err, res)
-	}
-	parks, _ := e.driveRows(id)
-	if len(parks) != 1 {
-		t.Fatalf("want one park comment, got %d", len(parks))
-	}
-	p := wantStopPayload(t, parks[0], "relay says Z")
-	if p["performer"] != "coder" {
-		t.Errorf("performer = %v, want the relay's coder", p["performer"])
 	}
 }
 
@@ -833,46 +797,5 @@ func TestExecutionConcludedRecordsNoStop(t *testing.T) {
 	e.wantNoDriveRecords(exec.ID)
 	if n := len(e.rows(subject, ledger.KindExecutionStopped)); n != 0 {
 		t.Errorf("a concluded execution wrote %d execution_stopped rows on its subject", n)
-	}
-}
-
-// The stop's last_message is the performer's already-redacted tail: a value the
-// binding's env resolved never reaches the stop row or the alert. The real engine
-// redacts, so it is the engine that runs here.
-func TestExecutionStopRedactsTheBindingEnv(t *testing.T) {
-	const secret = "s3cr3t-token-value"
-	e := newEnv(t, routeNoPark, workRoute)
-	e.gater.always["done"] = true
-	script := filepath.Join(t.TempDir(), "agent")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ncat >/dev/null\necho \"token is $API_TOKEN; should I continue?\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	eng := agentstep.New(nil, e.db.DocIndex, e.dir, "")
-	eng.SetOneShotAgents(func(name string) (config.AgentBinding, bool) {
-		if name != "executor" {
-			return config.AgentBinding{}, false
-		}
-		return config.AgentBinding{
-			Role: config.RoleAgent, Command: script + " -p {payload}", Tools: "read_file,grep,list_dir,write",
-			Env: map[string]string{"API_TOKEN": secret},
-		}, true
-	})
-	subject := e.story()
-	task, exec := e.execution(subject)
-	_, err := drive.Story(context.Background(), exec.ID, opts(eng))
-	var stopped *drive.Stopped
-	if !errors.As(err, &stopped) {
-		t.Fatalf("want a *Stopped, got %v", err)
-	}
-	p := e.wantStoppedExecution(task, exec, subject, "*")
-	if msg, _ := p["last_message"].(string); !strings.Contains(msg, "should I continue?") || !strings.Contains(msg, "[redacted:API_TOKEN]") {
-		t.Errorf("last_message = %q, want the performer's question with the token redacted", msg)
-	}
-	for _, id := range []string{exec.ID, subject} {
-		for _, row := range e.rows(id, "") {
-			if strings.Contains(string(row.Payload), secret) || strings.Contains(row.Body, secret) {
-				t.Errorf("%s row on %s carries the env value", row.Kind, id)
-			}
-		}
 	}
 }

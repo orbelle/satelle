@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -32,30 +31,6 @@ func TestGitignoreHasSetting(t *testing.T) {
 				t.Errorf("gitignoreHasSetting(%q) = %v, want %v", tc.text, got, tc.want)
 			}
 		})
-	}
-}
-
-// TestGitignoreHelpDescribesAddOnly (sty_dbc0be85 AC6): init and migrate help
-// describe the add-only behaviour, not a rewrite of the block.
-func TestGitignoreHelpDescribesAddOnly(t *testing.T) {
-	for _, name := range []string{"init", "migrate"} {
-		var long string
-		for _, c := range NewRootCmd().Commands() {
-			if c.Name() == name {
-				long = c.Long
-			}
-		}
-		if long == "" {
-			t.Fatalf("%s command missing", name)
-		}
-		for _, banned := range []string{"rewritten between its markers", "rewrite the managed .gitignore block"} {
-			if strings.Contains(long, banned) {
-				t.Errorf("%s help still claims %q", name, banned)
-			}
-		}
-		if !strings.Contains(long, "missing") {
-			t.Errorf("%s help must say only missing entries are added:\n%s", name, long)
-		}
 	}
 }
 

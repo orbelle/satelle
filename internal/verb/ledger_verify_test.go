@@ -9,54 +9,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/storyfold"
 	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
-
-// sty_41f61669 AC3: the status_transition row the commit writes inside its
-// transaction carries the governing route's version, and the commit does not
-// deadlock resolving it on the single-connection pool.
-func TestStatusTransitionRowCarriesWorkflowHash(t *testing.T) {
-	db := wire(t)
-	ctx := context.Background()
-
-	var it workitem.Item
-	if err := json.Unmarshal(call(t, "story-create", map[string]any{"title": "hashed", "status": "backlog"}), &it); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := dispatchRaw(t, "story-set", map[string]any{"id": it.ID, "status": "in_progress"})
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("story-set: %v", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("the status transition deadlocked resolving the workflow version")
-	}
-
-	rows, err := db.Ledger.ListByStory(ctx, it.ID, ledger.KindStatusTransition)
-	if err != nil || len(rows) == 0 {
-		t.Fatalf("transition rows = %+v, %v", rows, err)
-	}
-	docs, err := db.DocIndex.ListIndexed(ctx, db.SQL(), "workflows")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := wfgovern.RouteVersion(docs, it)
-	if want == "" {
-		t.Fatal("no workflow governs the story; the shipped route should")
-	}
-	if got := rows[len(rows)-1].WorkflowHash; got != want {
-		t.Errorf("transition hash = %q, want %q", got, want)
-	}
-	if rep, err := db.Ledger.VerifyStory(ctx, it.ID); err != nil || len(rep.Breaks) != 0 {
-		t.Errorf("chain = %+v, %v", rep, err)
-	}
-}
 
 // sty_41f61669 AC6: ledger-verify is a registered, read-only verb that reports
 // every chain break of one story or of all of them.

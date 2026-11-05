@@ -88,25 +88,3 @@ func TestNoCrossImports(t *testing.T) {
 		}
 	}
 }
-
-// TestWorkstateRESTPathsGone verifies the retired REST workstate routes are
-// not republished (sty_f85fac97). Schemas stay — they describe Sync shapes.
-func TestWorkstateRESTPathsGone(t *testing.T) {
-	yamlBytes, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatalf("read openapi.yaml: %v", err)
-	}
-	yaml := string(yamlBytes)
-	for _, route := range []string{
-		"/api/v1/projects/{project}/workstate:",
-		"/api/v1/projects/{project}/workstate/items:",
-		"/api/v1/projects/{project}/workstate/ledger:",
-		"ingestWorkstate",
-		"listWorkstateItems",
-		"listWorkstateLedger",
-	} {
-		if strings.Contains(yaml, route) {
-			t.Errorf("openapi.yaml still publishes retired REST workstate %q", route)
-		}
-	}
-}

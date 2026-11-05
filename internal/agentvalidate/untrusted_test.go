@@ -132,53 +132,6 @@ func runSeatCases(t *testing.T, seat string, cases []seatCase) {
 	}
 }
 
-func TestUntrustedStep_Performer(t *testing.T) {
-	runSeatCases(t, "perf", []seatCase{
-		{"pi read-only", piSeat, nil},
-		{"pi shell edit write", config.AgentBinding{Command: piCmd, Tools: "read,bash,edit,write"},
-			[]string{"grant admits shell tool bash", "grant admits write tool write", "grant admits edit tool edit"}},
-		{"pi without --tools", config.AgentBinding{Command: "pi -p --provider openrouter --model {model} {payload}", Tools: "read,grep"},
-			[]string{"adapter pi/command cannot hold it read-only"}},
-		{"claude satelle cli", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Bash(satelle:*)"},
-			[]string{"grant admits shell tool Bash(satelle:*)"}},
-		{"claude read-only with Read has a channel", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Read,Grep,Glob"}, nil},
-		{"claude read-only has no channel", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Grep,Glob"},
-			[]string{"no read-only context channel for adapter claude"}},
-		{"claude every class", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Bash(satelle:*),Task,WebFetch,mcp__x__y,Write,Edit,Mystery"},
-			[]string{"shell tool", "subprocess tool Task", "network tool WebFetch", "mcp tool mcp__x__y", "write tool Write", "edit tool Edit", "unknown tool Mystery"}},
-		{"grok read-only", config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,grep,list_dir"}, nil},
-		{"grok shell and network", config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,run_terminal_command,web_fetch"},
-			[]string{"shell tool run_terminal_command", "network tool web_fetch"}},
-		{"cursor in ask mode", config.AgentBinding{Command: cursorCmd + " --mode ask"}, nil},
-		{"cursor performer is not forced to ask", config.AgentBinding{Command: cursorCmd},
-			[]string{"a performer template must carry --mode ask itself"}},
-		{"cursor writing mode", config.AgentBinding{Command: cursorCmd + " --mode agent"},
-			[]string{"--mode agent"}},
-		{"unknown adapter", config.AgentBinding{Command: "myagent --tools {tools}", Tools: "Read"},
-			[]string{"no adapter knows how to trim or deny tools"}},
-		{"in-loop", config.AgentBinding{Command: "in-loop"},
-			[]string{"command in-loop is performed by the driving session"}},
-		{"cloud", config.AgentBinding{Interface: config.InterfaceCloud, Command: "claude -p {system}", Tools: "Read"},
-			[]string{"interface=cloud returns a branch"}},
-	})
-}
-
-func TestUntrustedStep_Reviewer(t *testing.T) {
-	runSeatCases(t, "rev", []seatCase{
-		{"pi read-only", piSeat, nil},
-		{"pi bash", config.AgentBinding{Command: piCmd, Tools: "read,bash"}, []string{"shell tool bash"}},
-		{"claude read-only", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Read,Grep,Glob,LS"}, nil},
-		{"claude every class", config.AgentBinding{Command: agentcli.DefaultClaudeCommand, Tools: "Bash(satelle:*),Edit,Write,WebFetch,WebSearch,Task,mcp__x__y"},
-			[]string{"shell tool Bash(satelle:*)", "subprocess tool Task", "network tool WebFetch, WebSearch", "mcp tool mcp__x__y", "write tool Write", "edit tool Edit"}},
-		{"grok read-only", config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,grep,list_dir"}, nil},
-		{"grok shell", config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,run_terminal_command"},
-			[]string{"shell tool run_terminal_command"}},
-		{"cursor held to ask by satelle", config.AgentBinding{Command: cursorCmd}, nil},
-		{"cursor acp", config.AgentBinding{Interface: config.InterfaceACP, Command: "cursor-agent acp"}, nil},
-		{"cursor writing mode", config.AgentBinding{Command: cursorCmd + " --mode agent"}, []string{"--mode agent"}},
-	})
-}
-
 // A panel's seats are the step's reviewer seats: each is judged.
 func TestUntrustedStep_PanelSeats(t *testing.T) {
 	steps := strings.Replace(untrustedSteps("untrusted_input = true"), `reviewer_agent = "rev"`, `panel = ["rev", "rev2"]`+"\n"+`combine = "fold"`, -1)

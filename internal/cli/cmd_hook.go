@@ -1488,11 +1488,6 @@ func commandAllowDenyWith(policy map[string][]string, subs []string, storyStatus
 	return "", false
 }
 
-// loadCommandAllow returns the opt-in [gate.command_allow] map (nil/empty = off).
-func loadCommandAllow() map[string][]string {
-	return commandAllowFrom(loadGateProcess())
-}
-
 // gateProcess is one load of the invoking process config. LoadInvokingProcess
 // resolves the canonical repo root through `git rev-parse`, so a hook call loads
 // it once and every check in that call reads this value (sty_a74551d6 AC5).
@@ -1578,19 +1573,6 @@ func (g *gateStore) seat(sessionID string) (seatInfo, bool, error) {
 	}
 	info, engaged, _, serr := resolveSeatsOn(a, false, sessionID, "")
 	return info, engaged, serr
-}
-
-func commandAllowFrom(gp gateProcess) map[string][]string {
-	proc, err := gp.proc, gp.err
-	if err != nil || len(proc.Gate.CommandAllow) == 0 {
-		return nil
-	}
-	// Normalize keys to lowercase for lookup.
-	out := make(map[string][]string, len(proc.Gate.CommandAllow))
-	for k, v := range proc.Gate.CommandAllow {
-		out[strings.ToLower(strings.TrimSpace(k))] = v
-	}
-	return out
 }
 
 // allowOutsideTreeEdits reports whether [gate] allow_outside_tree_edits is true.

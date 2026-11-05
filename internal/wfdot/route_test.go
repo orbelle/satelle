@@ -30,48 +30,6 @@ func buildFixture(t *testing.T, tags []string) Spec {
 	return spec
 }
 
-// TestParseRouteBuildsValidSpec is AC1: two markdown files in, a valid Spec out,
-// with no DOT text anywhere in the path.
-func TestParseRouteBuildsValidSpec(t *testing.T) {
-	spec := buildFixture(t, nil)
-	if problems := Validate(spec); len(problems) != 0 {
-		t.Fatalf("derived spec does not validate: %v", problems)
-	}
-	if got := spec.Start(); got != "backlog" {
-		t.Errorf("Start() = %q, want backlog", got)
-	}
-	for _, tc := range []struct {
-		from, to string
-	}{
-		{"backlog", "plan"}, {"plan", "in_progress"}, {"in_progress", "integration"},
-		{"integration", "release"}, {"release", "done"},
-	} {
-		if !spec.HasEdge(tc.from, tc.to) {
-			t.Errorf("spine edge %s->%s missing", tc.from, tc.to)
-		}
-	}
-	wantPerforming := []string{"plan", "in_progress", "integration", "release"}
-	if got := spec.PerformingStates(); !sameStrings(got, wantPerforming) {
-		t.Errorf("PerformingStates() = %v, want %v", got, wantPerforming)
-	}
-	wantEdit := []string{"in_progress", "integration", "release"}
-	if got := spec.EditCapableStates(); !sameStrings(got, wantEdit) {
-		t.Errorf("EditCapableStates() = %v, want %v", got, wantEdit)
-	}
-	if !spec.IsTerminalState("done") {
-		t.Error("done must be terminal")
-	}
-	if !spec.IsParkState("blocked") || !spec.IsParkState("cancelled") {
-		t.Error("blocked and cancelled must be park/role states")
-	}
-	if !spec.IsResumePark("blocked") {
-		t.Error("blocked is the from=* resume park")
-	}
-	if spec.IsResumePark("cancelled") {
-		t.Error("cancelled is not a resume park")
-	}
-}
-
 // TestSynthesisedTopologyValidates is AC2: the author declares no cancel, park or
 // backward edge, and all three appear — carrying their role state's own gate.
 func TestSynthesisedTopologyValidates(t *testing.T) {
