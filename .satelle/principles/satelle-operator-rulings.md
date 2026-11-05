@@ -27,9 +27,12 @@ itself reviewed (see *Directives are reviewed*).
   status checks are not.
 - **Local first.** satelle runs solo and local; team-of-one and team (with
   satelle.dev) are modes on top. Every satelle ↔ satelle-server call is gRPC.
-- **Breaking changes are allowed, with an upgrade path.** The users are the
+- **Breaking changes are pushed; old versions are defunct.** v1 is a clean
+  rewrite, in satelle and satelle-server alike: no backward compatibility in the
+  wire (no REST beside gRPC), storage or configuration. The users are the
   operator and a few testers; satelle provides the way across (`satelle
-  upgrade`), and the previous install is backed up before a swap.
+  upgrade`), client and server ship together, and the previous install is
+  backed up before a swap.
 - **Dogfood.** satelle is built with satelle: every change is a story driven
   through this repo's workflow on the rebuild branch, released locally, then
   used.
