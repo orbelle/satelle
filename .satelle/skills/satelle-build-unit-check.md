@@ -1,7 +1,7 @@
 ---
 name: satelle-build-unit-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
 description: Functional-check gate on entry to integration: `go build ./...` then `go test ./...`. Rejects naming which failed, with the compiler or test output. Formatting is satelle-format-vet-check's job. Deterministic, zero LLM tokens, self-contained.

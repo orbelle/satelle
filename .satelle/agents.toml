@@ -1,0 +1,22 @@
+# This repo's agent bindings. A workflow names which binding performs a state
+# or judges a gate. A judge's grant must be read-only and its adapter must
+# enforce grants.
+
+# The interactive session performs coding; nothing is dispatched.
+[agents.executor]
+command = "session"
+
+[agents.planner]
+command = "claude"
+model = "opus"
+effort = "high"
+tools = ["Read", "Grep", "Glob", "Bash(satelle story attach:*)", "Bash(satelle story get:*)"]
+
+[agents.reviewer]
+command = "claude"
+model = "sonnet"
+tools = ["Read", "Grep", "Glob"]
+
+[agents.reviewer-alt]
+command = "grok"
+tools = ["Read", "Grep", "Glob"]

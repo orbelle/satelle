@@ -33,8 +33,17 @@ action.
    syncing state, dispatching agents, reading state a gate or the configuration
    needs. A read-only fact may come from git; prefer the single read-only git
    adapter named in the principle's debt note.
-4. **Existing debt.** A plan that only touches code already listed as debt is
-   not rejected for that debt; reject only what the plan adds.
+4. **No exemption.** A plan that adds to or extends process already in Go is
+   rejected like a new one: existing debt is never a reason to accept more.
+5. **Name what each Go change decides.** For every planned change under
+   `internal/` or `cmd/`, the notes say in one line what the change decides
+   (e.g. "decides the gate order from configuration"). A change whose decision
+   names a state, step, skill, seat, category or tag of this repo's workflow is
+   process: reject it.
+
+This reviewer runs first on plan → in_progress and fails fast. It runs again on
+in_progress → integration, where it judges the diff (`satelle story diff
+"$SATELLE_ITEM"` and the changed files) instead of the plan.
 
 Every finding names the planned file, the action or logic, and where it
 belongs. Judge the plan as written; do not design the change.
@@ -42,5 +51,5 @@ belongs. Judge the plan as written; do not design the change.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```

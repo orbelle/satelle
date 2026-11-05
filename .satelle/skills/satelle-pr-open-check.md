@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-open-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on the pr route's hand-off (pr_raising → pr_open). Passes when the story carries a pr:<n> tag whose pull request is OPEN on base main from head branch epic/<id>, and the local epic/<id>, origin/epic/<id> and the PR head are one commit. Verifies, never performs. Without gh it rejects.
 ---

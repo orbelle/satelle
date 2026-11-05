@@ -1,0 +1,158 @@
+# This repo's route for a story: plan, code, integrate, judge the outcome.
+# Merging and releasing completed work is a task (see release.toml), not a step.
+name = "delivery"
+
+[states.backlog]
+start = true
+
+[states.plan]
+performer = { agent = "planner", skill = "plan" }
+
+[states.in_progress]
+performer = { agent = "executor", skill = "coder" }
+
+[states.integration]
+
+[states.assessment]
+
+[states.blocked]
+park = true
+resumes = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+# ---- gates ----
+
+# sty_7c477116: rejects any plan that adds or extends process in Go, with no
+# exemption; first in its group so it fails fast; judges the diff again before
+# integration.
+[gates.binary-scope]
+skill = "satelle-binary-scope-review"
+agent = "reviewer"
+
+[gates.architecture]
+skill = "satelle-story-architecture-review"
+agent = "reviewer"
+
+[gates.plan-review]
+skill = "satelle-story-plan-review"
+panel = ["reviewer", "reviewer-alt"]
+combine = "all"
+carry = true
+
+[gates.definition-unchanged]
+skill = "satelle-definition-unchanged-check"
+
+[gates.format-vet]
+skill = "satelle-format-vet-check"
+paths = ["**/*.go"]
+carry = true
+
+[gates.build-unit]
+skill = "satelle-build-unit-check"
+paths = ["**/*.go", "go.mod", "go.sum"]
+carry = true
+
+[gates.instruction-change]
+skill = "satelle-instruction-change-review"
+agent = "reviewer"
+trigger = "satelle-instruction-change-trigger"
+
+[gates.workflow-change]
+skill = "satelle-workflow-change-review"
+agent = "reviewer"
+trigger = "satelle-workflow-change-trigger"
+
+[gates.ac-evidence]
+skill = "satelle-ac-evidence-check"
+
+[gates.code-ac]
+skill = "satelle-code-ac-review"
+agent = "reviewer"
+carry = true
+
+[gates.integration-check]
+skill = "satelle-integration-check"
+
+[gates.outcome-review]
+skill = "satelle-outcome-review"
+agent = "reviewer"
+
+[gates.done-review]
+skill = "satelle-story-done-review"
+agent = "reviewer"
+
+[gates.blocked-review]
+skill = "satelle-story-blocked-review"
+agent = "reviewer"
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer"
+
+# ---- transitions ----
+
+[[transition]]
+from = ["backlog"]
+to = "plan"
+
+[[transition]]
+from = ["plan"]
+to = "in_progress"
+groups = [
+  { mode = "sequential", gates = ["binary-scope", "architecture", "plan-review"] },
+]
+
+[[transition]]
+from = ["in_progress"]
+to = "integration"
+groups = [
+  { mode = "sequential", gates = ["definition-unchanged", "binary-scope"] },
+]
+
+[[transition]]
+from = ["integration"]
+to = "assessment"
+groups = [
+  { mode = "sequential", gates = ["format-vet", "build-unit"] },
+  { mode = "parallel", gates = ["ac-evidence", "code-ac", "instruction-change", "workflow-change"] },
+]
+
+[[transition]]
+from = ["assessment"]
+to = "done"
+groups = [
+  { mode = "sequential", gates = ["integration-check", "outcome-review", "done-review"] },
+]
+
+# Rework: back to coding from any judging state, and back to planning.
+[[transition]]
+from = ["integration", "assessment"]
+to = "in_progress"
+
+[[transition]]
+from = ["in_progress"]
+to = "plan"
+
+[[transition]]
+from = ["*"]
+to = "blocked"
+groups = [{ mode = "sequential", gates = ["blocked-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+
+[[transition]]
+from = ["*"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]

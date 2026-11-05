@@ -1,7 +1,7 @@
 ---
 name: satelle-version-stamp-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check for release close (release → done), ordered before satelle-story-release-review — rejects unless `.version` on HEAD carries a satelle.version and a satelle.build stamp that both differ from the story's engagement baseline, with the stamp in the release skill's format. Skips an epic child whose parent owns the bump, unless the child is tagged lane:trunk. Deterministic, no LLM; self-contained.
 ---

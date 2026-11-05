@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-merged-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on the pr route's close (pr_open → done). Passes when the story's pr:<n> pull request is MERGED into main. The team PR remote performs the merge and release; this gate only verifies the world. Without gh it rejects.
 ---

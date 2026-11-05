@@ -90,5 +90,5 @@ stated.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```

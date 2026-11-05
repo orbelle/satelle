@@ -1,7 +1,7 @@
 ---
 name: satelle-changelog-entry-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate for release close (release → done) — rejects if CHANGELOG.md has no level-2 entry for the satelle.version on HEAD. Deterministic, no LLM; self-contained.
 ---

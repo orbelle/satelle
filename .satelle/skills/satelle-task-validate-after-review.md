@@ -50,7 +50,7 @@ VERIFICATION as written, not extra requirements you would have liked.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```
 
 A reject carries a brief actionable `notes` string (may be empty on accept);

@@ -31,7 +31,7 @@ func parseUsage(cost, ledger string) Usage {
 Expected verdict:
 
 ```json
-{"decision": "reject", "notes": "artifact.usage: parseUsage's ledger branch returns Available:true with a zero Total when parseLedgerTotal finds no match, so unreported usage surfaces as a measured zero, violating the never-numeric-zero criterion. The unavailable branch below it is compliant but does not excuse the violating one."}
+{"verdict": "reject", "notes": "artifact.usage: parseUsage's ledger branch returns Available:true with a zero Total when parseLedgerTotal finds no match, so unreported usage surfaces as a measured zero, violating the never-numeric-zero criterion. The unavailable branch below it is compliant but does not excuse the violating one."}
 ```
 
 Rationale: a reviewer scanning for *a* compliant path (the final `return
@@ -58,7 +58,7 @@ func parseUsage(cost, ledger string) Usage {
 Expected verdict:
 
 ```json
-{"decision": "accept", "notes": "artifact.usage: every return path either reports a parsed, available total or Available:false; no path can produce an available zero."}
+{"verdict": "accept", "notes": "artifact.usage: every return path either reports a parsed, available total or Available:false; no path can produce an available zero."}
 ```
 
 Rationale: the ledger branch now only reports `Available: true` when
@@ -80,7 +80,7 @@ func parseUsage(cost, ledger string) Usage {
 Expected verdict:
 
 ```json
-{"decision": "reject", "notes": "artifact.usage: the criterion's surface (every path that can produce a Usage value) is not enumerable from the presented tree — the implementation is delegated to an unread vendored dependency. Insufficient evidence to falsify; not accepted on the absence of a visible violation."}
+{"verdict": "reject", "notes": "artifact.usage: the criterion's surface (every path that can produce a Usage value) is not enumerable from the presented tree — the implementation is delegated to an unread vendored dependency. Insufficient evidence to falsify; not accepted on the absence of a visible violation."}
 ```
 
 Rationale: no path is visibly wrong, but none is visibly right either. A

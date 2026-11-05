@@ -45,6 +45,6 @@ not run the suite to judge it.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```
 

@@ -1,7 +1,7 @@
 ---
 name: satelle-dogfood-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on entry to done: the released version is actually installed, serving, and under a persistent supervisor, judged from the live process's exe identity. Never runs `satelle update` itself — the executor deploys, this gate confirms.
 ---

@@ -1,0 +1,56 @@
+# A container: its children carry the work. It may not close while a child is
+# open; that rule is the children-closed check, not Go.
+name = "epic"
+
+[states.backlog]
+start = true
+
+[states.underway]
+
+[states.blocked]
+park = true
+resumes = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.children-closed]
+skill = "satelle-children-closed-check"
+
+[gates.done-review]
+skill = "satelle-story-done-review"
+agent = "reviewer"
+
+[gates.blocked-review]
+skill = "satelle-story-blocked-review"
+agent = "reviewer"
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer"
+
+[[transition]]
+from = ["backlog"]
+to = "underway"
+
+[[transition]]
+from = ["underway"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["children-closed", "done-review"] }]
+
+[[transition]]
+from = ["*"]
+to = "blocked"
+groups = [{ mode = "sequential", gates = ["blocked-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+
+[[transition]]
+from = ["*", "blocked"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["children-closed", "cancel-review"] }]

@@ -1,7 +1,7 @@
 ---
 name: satelle-ci-published-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on entry to done: the CI runs for HEAD's actual SHA concluded successfully and the tag for the version in .version exists. Verifies the world, not the executor's summary. Never pushes or publishes.
 ---

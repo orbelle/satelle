@@ -71,5 +71,5 @@ First pass (no `prior_verdicts`): raise every blocking finding at once, numbered
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```

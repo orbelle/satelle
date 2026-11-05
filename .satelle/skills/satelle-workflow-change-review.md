@@ -30,7 +30,7 @@ mentions and no plan claiming workflow edits **is** the n/a signal.
 
 - **No workflow touch** → accept immediately:
  ```json
- {"decision": "accept", "notes": "workflow: n/a", "reviewed": "<exact words this verdict rests on>"}
+ {"verdict": "accept", "notes": "workflow: n/a", "reviewed": "<exact words this verdict rests on>"}
  ```
  Never reject for missing evidence of a surface the slice never claimed.
 
@@ -89,5 +89,5 @@ Fair gate: judge the change as written, not perfectionism.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```

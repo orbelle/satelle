@@ -46,7 +46,7 @@ Honour a payload `waivers` entry only when its actor is `developer` and its `che
 Accept only when criterion `0` accepts, section 1 (or 2) and section 3 hold (a waived check holds), and every AC is accepted or `unmet`. Otherwise reject naming the gap — the check name when a named check fails. One JSON object carrying the `criteria` entries; `waived` only when a waiver is honoured:
 
 ```json
-{"decision": "accept", "notes": "plan-adherence: 4/4 — deviations: none", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "plan-adherence: 4/4 — deviations: none", "reviewed": "<exact words this verdict rests on>"}
 ```
 
 See [[satelle-done-is-last]].

@@ -1,7 +1,7 @@
 ---
 name: satelle-definition-unchanged-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check on plan → in_progress — rejects when the story's definition was edited after readiness (backlog → plan) was accepted, so no reviewer ever judged that edit. When the accepted plan authored a `## Acceptance criteria` section, the story must carry exactly the lines under it — as the route's apply_criteria applied them. Deterministic, zero LLM; the binary only enumerates the edits.
 ---

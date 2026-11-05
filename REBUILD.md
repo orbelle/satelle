@@ -796,7 +796,21 @@ transition, no names in Go:
 
 ## Audit
 
-(Phase B.)
+Command: `scripts/audit-literals.sh`. It collects every workflow name, state,
+gate, skill, agent binding, and rule category and tag from this repo's
+`.satelle/`, then greps every non-test Go file under `internal/` and `cmd/` for
+each one as a quoted literal. A short allowlist covers words that coincide with
+mechanism, each one reviewed: `"done"` as a shell keyword in hook/bashscan.go and
+as the relay's end-of-stream message, and `"cancelled"` as a pi RPC protocol key.
+
+B2 result (2026-11-05):
+
+```
+names checked: 77
+no Go string literal names this repo's workflow
+```
+
+It is re-run at B4.
 
 ## Progress
 
@@ -821,6 +835,73 @@ when it can.
     used into `.satelle/`.
   - Non-test Go 180k → 103k lines; unit tests 279k → 118k + tests/ 28k.
 
+- **B2 (kernel), commits b09d402..HEAD.**
+  - The fresh kernel (ledger, cache, item, workflow, agent, gate, gitfacts,
+    kernel, hook) replaces verb, agentstep, agentcli, wfdot, wfgovern, wfroute,
+    storyfold, workitem, lease, drive, docindex, agentvalidate, agentartifact,
+    doctor, structure, health, testutil, app, store, worktree, runstatus,
+    syncscope and the old ledger. `internal/cli` is rewritten as a thin layer
+    over `kernel`.
+  - Commands: `init [--hooks]`, `validate`, `status`, `help`, `version`,
+    `story create|get|list|set|attach|attachments|route|diff|seat|release|perform`,
+    `task create|get|list|set|run`, `execution get|list`,
+    `ledger append|list|verify|rebuild`, `workflow show`,
+    `hook gate|context|prompt|stopcheck`, `agents install|remove`, `login`,
+    `logout`, `whoami`, `service *` (the unit runs `satelled`), `workspace *`,
+    `runtime *`, `logs`.
+  - satelled no longer execs the CLI (`serve/deps_test.go` enforces it).
+  - This repo's `.satelle/` is on the new schema and validates. Workflows:
+    `delivery` (default), `chore`, `epic`, `runbook` (executions) and `standing`
+    (tasks). The plan-stage reviewer `binary-scope` runs first on
+    plan → in_progress (fail-fast), again on in_progress → integration over the
+    diff, and its skill states "no exemption".
+  - Check skills are `type: check`. A script starting with `#!` runs as a
+    file; the transition is passed in the environment and as JSON on stdin.
+  - Verdict JSON key is `verdict`.
+  - `satelle init` in an empty git directory, then `story create` and
+    `story set --status done`, walks backlog → done; `ledger verify` passes.
+  - The audit script `scripts/audit-literals.sh` passes (see Audit).
+  - Non-test Go is 27k lines.
+
+### Choices made in B2 (contract silent)
+
+- **Item ids** are `<prefix>_<8 hex>`. The prefix is `[items] prefix.<kind>`,
+  else the kind's first three letters (a new story is `sto_…`). No migration.
+- **Storage.**
+  - The ledger and cache live in the home-keyed runtime dir
+    (`~/.satelle/<repo-key>`), so the worktrees of one repo share one ledger.
+  - One store-wide append lock.
+- **Session and seats.**
+  - `SATELLE_SESSION` wins over the hook payload's session id.
+  - A seat at `local:<tree>` matches only that worktree.
+  - Any non-terminal state may take a seat; the edit gate requires the state
+    to have a performer.
+- **Edit gate order:**
+  1. temp dirs and paths in no tree: allowed;
+  2. another repo's tree: denied (the fence);
+  3. `locked_paths`: denied;
+  4. `edit_exempt_paths`: allowed;
+  5. otherwise a seat is required.
+  An invalid configuration still allows edits under `.satelle/` so it can be
+  repaired.
+- **Adapters.**
+  - Only claude, pi, grok and session.
+  - A performer with Bash can only run on claude, because pi and grok cannot
+    express a scoped deny.
+  - Remote and cloud placements return an error until B3.
+- **Gate options.**
+  - A rule's category/tag/kind are ANDed.
+  - A gate is relevant when both its `paths` and its `trigger` agree.
+  - Carry uses the latest non-skipped result on the same from → to with equal
+    coverage.
+  - A panel records one result.
+- **Item kinds** `story`, `task` and `execution` are kernel vocabulary. A
+  workflow, state or gate of this repo is never named after one, so the
+  literal audit stays meaningful.
+- **Command rules are gone.** This repo's "Fly.io is operator-only" command
+  rules have no replacement in the interactive session. A dispatched binding
+  can carry `deny = ["Bash(fly:*)"]`.
+
 ### Deviations to repair
 
 - `satelle update` was deleted in B1, but ruling Q-update keeps it slimmed. It is
@@ -830,16 +911,17 @@ when it can.
 
 ### Next
 
-- **B2.** The fresh kernel packages are written on the local branch
-  `claude/satelle-rebuild-kernel` (worktree `/home/user/satelle-kernel`, commits
-  a216c31..d68d43f, about 4k non-test lines: kledger, cache, item, workflow,
-  agent, gate, gitfacts, kernel and the init template). The remaining step is to
-  merge them in, rename `kledger` to `ledger` (replacing the old ledger), rewire
-  the CLI onto `kernel`, delete verb, agentstep, wfdot, wfgovern, storyfold,
-  workitem, lease, drive, docindex and the old ledger, write the edit gate on
-  seats, and move this repo's `.satelle/` onto the new schema.
-- **B3.** The protos are drafted (chain.v2 and satelle.v1; see the B3 notes below
-  once committed).
+- **B3.** Write the protos into `api/` (drafts in this session: `satelle.chain.v2`
+  and `satelle.v1`, with Account, Project, Workspace, Location, Item,
+  Attachment, Remote, Node and Relay services) and generate them with buf.
+  Rewrite `hosted` as gRPC clients with fake servers. Bring back
+  `sync push|pull|status`, `project *`, `node join` and remote fire on the new
+  ledger. Remotes: the docker-local provider, the sprite adapter and cloud
+  seats behind placement.
+- **B4.** satelled pages on the kernel (the story detail page shows route,
+  verdicts and attachments). The CLI pushes snapshots from the new cache.
+  Restore `settings` and a slimmed `update`. Rewrite the integration suite
+  (`tests/` holds only `tests/llm`). Re-run the audit.
 
 ### Kernel design (B2) — choices where the contract was silent
 

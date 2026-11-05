@@ -1,7 +1,7 @@
 ---
 name: satelle-chore-landed-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on a chore's close (landing → done). Passes when the story changed no tracked file; otherwise requires those files committed, HEAD on origin/main, and the test workflow green for HEAD. No .version, changelog, release tag or dogfood requirement. Verifies, never performs.
 ---

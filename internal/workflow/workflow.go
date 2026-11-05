@@ -170,6 +170,12 @@ func (w *Workflow) stateNames() []string {
 	return names
 }
 
+// IsTerminal reports whether s is a terminal state of the workflow.
+func (w *Workflow) IsTerminal(s string) bool {
+	st, ok := w.States[s]
+	return ok && st.Terminal
+}
+
 // open reports whether s is a state "*" stands for: neither terminal nor park.
 func (w *Workflow) open(s string) bool {
 	st, ok := w.States[s]

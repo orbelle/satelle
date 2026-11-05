@@ -1,7 +1,7 @@
 ---
 name: satelle-ac-evidence-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check on in_progress → integration — rejects when the story has no ac-evidence attachment. Deterministic, zero LLM tokens; runs before satelle-code-ac-review so a missing attachment does not spend a reviewer turn.
 ---

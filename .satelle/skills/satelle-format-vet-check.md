@@ -1,7 +1,7 @@
 ---
 name: satelle-format-vet-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check gate on in_progress → integration — rejects if gofmt -l reports dirty files under internal/cmd/tests or go vet ./... fails. Deterministic, zero LLM tokens; self-contained per satelle-reviewer-self-contained.
 ---

@@ -1,0 +1,13 @@
+# A task is a standing definition: it names its input selection and is run with
+# `satelle task run`. It does not move through steps of its own.
+name = "standing"
+
+[states.defined]
+start = true
+
+[states.retired]
+terminal = true
+
+[[transition]]
+from = ["defined"]
+to = "retired"

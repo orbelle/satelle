@@ -1,7 +1,7 @@
 ---
 name: satelle-integration-check
 scope: project
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
 description: Functional-check gate on entry to outcome, the outcome review's edge after integration (and to landing for a chore): runs `make integration` and asserts the installed binary and live service are byte-identical before and after. This gate runs locally only. Deterministic, self-contained.

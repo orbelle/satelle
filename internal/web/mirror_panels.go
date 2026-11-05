@@ -502,7 +502,7 @@ func docAnchor(name string) string {
 }
 
 // attachedQuotedNameRe finds quoted runs in a story_doc_attached body
-// (`attached plan document "plan"` / binary bodies with the filename quoted).
+// (`attached <type> document "<name>"` / binary bodies with the filename quoted).
 var attachedQuotedNameRe = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
 
 // attachedDocRef resolves the document name/type for a story_doc_attached

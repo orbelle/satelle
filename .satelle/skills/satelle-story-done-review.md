@@ -63,7 +63,7 @@ spec.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```
 
 For a non-parent story add the `criteria` entries from the steps above.

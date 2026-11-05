@@ -1,7 +1,7 @@
 ---
 name: satelle-instruction-change-trigger
 scope: system
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: The `when` precondition for satelle-instruction-change-review. Exits 0 when the story's change set adds or rewrites instruction text (a new file, or at least THRESHOLD changed words) in skills, principles or the constitution; exits 1 for a whitespace, punctuation or typo-only change. Deterministic and self-contained; the rule is this script, so a repo overrides the skill to change it.
 ---

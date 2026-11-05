@@ -1,0 +1,37 @@
+# A run of a task (an execution): perform the task's skill over the items it
+# took, then judge the result. Merging and releasing completed work is a task
+# whose executions follow this route.
+name = "runbook"
+
+[states.backlog]
+start = true
+
+[states.in_progress]
+performer = { agent = "executor", skill = "task-run" }
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.validate-before]
+skill = "satelle-task-validate-before-review"
+
+[gates.validate-after]
+skill = "satelle-task-validate-after-review"
+agent = "reviewer"
+
+[[transition]]
+from = ["backlog"]
+to = "in_progress"
+groups = [{ mode = "sequential", gates = ["validate-before"] }]
+
+[[transition]]
+from = ["in_progress"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["validate-after"] }]
+
+[[transition]]
+from = ["*"]
+to = "cancelled"

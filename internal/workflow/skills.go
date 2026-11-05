@@ -14,7 +14,7 @@ import (
 const TypeCheck = "check"
 
 // Skill is one skills/<name>.md: frontmatter, the markdown body, and for a
-// check the script of its first ```sh block.
+// check the script of its first ```sh (or ```check) block.
 type Skill struct {
 	Name   string
 	Path   string
@@ -52,7 +52,7 @@ func ParseSkill(name, text string) (Skill, error) {
 	}
 	s.Script = firstShellBlock(s.Body)
 	if s.IsCheck() && strings.TrimSpace(s.Script) == "" {
-		return s, fmt.Errorf("skill %s: a check needs a ```sh block", name)
+		return s, fmt.Errorf("skill %s: a check needs a ```sh or ```check block", name)
 	}
 	return s, nil
 }
@@ -66,7 +66,7 @@ func firstShellBlock(body string) string {
 		line := sc.Text()
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case !in && trimmed == "```sh":
+		case !in && (trimmed == "```sh" || trimmed == "```check"):
 			in = true
 		case in && strings.HasPrefix(trimmed, "```"):
 			return strings.Join(lines, "\n") + "\n"

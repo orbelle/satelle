@@ -1,7 +1,7 @@
 ---
 name: satelle-task-validate-before-review
 scope: system
-type: skill
+type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 description: CODED entry gate for a task EXECUTION (backlog → in_progress): self-contained functional check judging STRUCTURE only — the run names a parent task header that exists and is structurally valid. Completion is the close gate's job (satelle-task-validate-after-review). Pushes back when a run isn't ready to begin.
 ---

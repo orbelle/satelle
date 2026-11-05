@@ -1,0 +1,88 @@
+# A chore: code and land without a plan stage.
+name = "chore"
+
+[states.backlog]
+start = true
+
+[states.in_progress]
+performer = { agent = "executor", skill = "coder" }
+
+[states.integration]
+
+[states.blocked]
+park = true
+resumes = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.binary-scope]
+skill = "satelle-binary-scope-review"
+agent = "reviewer"
+
+[gates.format-vet]
+skill = "satelle-format-vet-check"
+paths = ["**/*.go"]
+carry = true
+
+[gates.build-unit]
+skill = "satelle-build-unit-check"
+paths = ["**/*.go", "go.mod", "go.sum"]
+carry = true
+
+[gates.code-ac]
+skill = "satelle-code-ac-review"
+agent = "reviewer"
+carry = true
+
+[gates.integration-check]
+skill = "satelle-integration-check"
+
+[gates.chore-landed]
+skill = "satelle-chore-landed-check"
+
+[gates.blocked-review]
+skill = "satelle-story-blocked-review"
+agent = "reviewer"
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer"
+
+[[transition]]
+from = ["backlog"]
+to = "in_progress"
+
+[[transition]]
+from = ["in_progress"]
+to = "integration"
+groups = [
+  { mode = "sequential", gates = ["binary-scope", "format-vet", "build-unit"] },
+  { mode = "parallel", gates = ["code-ac"] },
+]
+
+[[transition]]
+from = ["integration"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["integration-check", "chore-landed"] }]
+
+[[transition]]
+from = ["integration"]
+to = "in_progress"
+
+[[transition]]
+from = ["*"]
+to = "blocked"
+groups = [{ mode = "sequential", gates = ["blocked-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+
+[[transition]]
+from = ["*", "blocked"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]

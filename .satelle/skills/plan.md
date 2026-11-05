@@ -42,7 +42,7 @@ criteria from what you proved, then plan them.
      and naming the file or symbol that contradicts it:
 
      ```json
-     {"decision": "reject", "notes": "the incorrect content, and why it is wrong"}
+     {"verdict": "reject", "notes": "the incorrect content, and why it is wrong"}
      ```
 
      That parks the story as `blocked` with your notes on the timeline.

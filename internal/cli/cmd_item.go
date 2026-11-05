@@ -274,6 +274,7 @@ func printItem(w io.Writer, it item.Item) {
 func itemListCmd(kind string) *cobra.Command {
 	var q cache.Query
 	var asJSON *bool
+	var onlyOpen bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: fmt.Sprintf("List %s items", kind),
@@ -288,6 +289,15 @@ func itemListCmd(kind string) *cobra.Command {
 			items, err := k.List(q)
 			if err != nil {
 				return err
+			}
+			if onlyOpen {
+				kept := items[:0]
+				for _, it := range items {
+					if w := k.Workflows[it.Workflow]; w == nil || !w.IsTerminal(it.Status) {
+						kept = append(kept, it)
+					}
+				}
+				items = kept
 			}
 			if *asJSON {
 				if items == nil {
@@ -307,6 +317,7 @@ func itemListCmd(kind string) *cobra.Command {
 	fl.StringVar(&q.Category, "category", "", "only this category")
 	fl.StringVar(&q.Parent, "parent", "", "only children of this item")
 	fl.StringVar(&q.Workflow, "workflow", "", "only items under this workflow")
+	fl.BoolVar(&onlyOpen, "open", false, "only items not in a terminal state of their workflow")
 	asJSON = jsonFlag(cmd)
 	return cmd
 }

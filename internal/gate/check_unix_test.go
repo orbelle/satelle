@@ -47,3 +47,14 @@ func TestRunCheckBoundsAndTimeout(t *testing.T) {
 		t.Fatalf("timeout: %v %v %v", ok, err, time.Since(start))
 	}
 }
+
+func TestRunCheckShebangReadsPayload(t *testing.T) {
+	script := "#!/bin/sh\ncat\n"
+	ok, notes, err := RunCheck(context.Background(), script, t.TempDir(), CheckEnv{Item: "itm_1", From: "a", To: "b"}, 0)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v notes=%q", ok, err, notes)
+	}
+	if !strings.Contains(notes, `"id":"itm_1"`) || !strings.Contains(notes, `"to":"b"`) {
+		t.Fatalf("payload not on stdin: %q", notes)
+	}
+}

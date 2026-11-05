@@ -133,7 +133,7 @@ section does not apply; [[satelle-reviewer-verdict]] governs the stop and
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>", "criteria": [{"criterion": 1, "status": "accept", "finding": "", "reviewed": "<exact words this entry rests on>"}]}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>", "criteria": [{"criterion": 1, "status": "accept", "finding": "", "reviewed": "<exact words this entry rests on>"}]}
 ```
 
 Return one `criteria` entry per acceptance criterion you judged

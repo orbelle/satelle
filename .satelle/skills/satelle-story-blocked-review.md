@@ -47,7 +47,7 @@ is not grounds to object.
 ## Verdict
 
 ```json
-{"decision": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
 ```
 
 On reject, `notes` names what is missing (may be empty on accept); `decision`
