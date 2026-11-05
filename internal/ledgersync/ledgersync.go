@@ -381,66 +381,95 @@ func (s *Syncer) Pull(ctx context.Context) (PullResult, error) {
 		if !ledger.ValidItem(id) {
 			continue
 		}
-		rh := heads[id]
-		local, err := s.Ledger.Read(id)
-		if err != nil {
+		if err := s.pullItem(ctx, id, heads[id], st, &res); err != nil {
+			_ = s.saveState(st)
 			return res, err
 		}
-		if indexOf(local, rh) >= 0 { // already held (the local chain may be ahead)
-			if st.Heads[id] == "" || indexOf(local, st.Heads[id]) < indexOf(local, rh) {
-				st.Heads[id] = rh
-			}
-			continue
+	}
+	if err := s.saveState(st); err != nil {
+		return res, err
+	}
+	return res, s.Cache.Sync(s.Ledger)
+}
+
+// pullItem imports one item's remote events the local ledger lacks. rh is the
+// remote head when known ("" reads whatever follows the local tail).
+func (s *Syncer) pullItem(ctx context.Context, id, rh string, st State, res *PullResult) error {
+	local, err := s.Ledger.Read(id)
+	if err != nil {
+		return err
+	}
+	if rh != "" && indexOf(local, rh) >= 0 { // already held (the local chain may be ahead)
+		if st.Heads[id] == "" || indexOf(local, st.Heads[id]) < indexOf(local, rh) {
+			st.Heads[id] = rh
 		}
-		after := ""
-		if len(local) > 0 {
-			after = local[len(local)-1].Hash
-		}
-		resp, err := s.Client.Chain.Read(ctx, &chainpb.ReadRequest{Project: s.Project, ItemId: id, AfterHash: after})
-		var remote []ledger.Event
-		switch {
-		case err == nil:
-			remote = wire.FromProtos(resp.GetEvents())
-		case after != "" && hosted.IsNotFound(err):
-			// The local head is not on the server: the local chain has unpushed
-			// events or diverged. Read the whole chain and compare.
-			full, err := s.readRemote(ctx, id, "")
-			if err != nil {
-				return res, err
-			}
-			n := common(local, full)
-			if n < len(local) {
-				res.Conflicts = append(res.Conflicts, Conflict{Item: id, Common: n, LocalOnly: local[n:], RemoteOnly: full[n:]})
-				continue
-			}
-			remote = full[n:]
-		default:
-			return res, hosted.Describe("Chain.Read "+id, err)
-		}
-		chain := append(append([]ledger.Event(nil), local...), remote...)
-		if err := ledger.VerifyChain(id, chain); err != nil {
-			return res, fmt.Errorf("pull %s: the server's chain does not verify: %w", id, err)
-		}
-		added, err := s.Ledger.Import(chain)
+		return nil
+	}
+	after := ""
+	if len(local) > 0 {
+		after = local[len(local)-1].Hash
+	}
+	resp, err := s.Client.Chain.Read(ctx, &chainpb.ReadRequest{Project: s.Project, ItemId: id, AfterHash: after})
+	var remote []ledger.Event
+	switch {
+	case err == nil:
+		remote = wire.FromProtos(resp.GetEvents())
+	case after != "" && hosted.IsNotFound(err):
+		// The local head is not on the server: the local chain has unpushed
+		// events or diverged. Read the whole chain and compare.
+		full, err := s.readRemote(ctx, id, "")
 		if err != nil {
-			return res, fmt.Errorf("pull %s: %w", id, err)
+			return err
 		}
-		if added > 0 {
-			res.Items = append(res.Items, id)
-			res.Events += added
+		n := common(local, full)
+		if n < len(local) {
+			res.Conflicts = append(res.Conflicts, Conflict{Item: id, Common: n, LocalOnly: local[n:], RemoteOnly: full[n:]})
+			return nil
 		}
-		st.Heads[id] = rh
-		for _, a := range item.FoldAttachments(remote) {
-			got, err := s.fetchAttachment(ctx, id, a)
-			if err != nil {
-				_ = s.saveState(st)
-				return res, err
-			}
-			if got {
-				res.Attachments++
-			}
-			st.Attachments[attKey(id, a.SHA256, a.Name)] = true
+		remote = full[n:]
+	default:
+		return hosted.Describe("Chain.Read "+id, err)
+	}
+	chain := append(append([]ledger.Event(nil), local...), remote...)
+	if err := ledger.VerifyChain(id, chain); err != nil {
+		return fmt.Errorf("pull %s: the server's chain does not verify: %w", id, err)
+	}
+	added, err := s.Ledger.Import(chain)
+	if err != nil {
+		return fmt.Errorf("pull %s: %w", id, err)
+	}
+	if added > 0 {
+		res.Items = append(res.Items, id)
+		res.Events += added
+	}
+	if rh == "" && len(chain) > 0 {
+		rh = chain[len(chain)-1].Hash
+	}
+	st.Heads[id] = rh
+	for _, a := range item.FoldAttachments(remote) {
+		got, err := s.fetchAttachment(ctx, id, a)
+		if err != nil {
+			return err
 		}
+		if got {
+			res.Attachments++
+		}
+		st.Attachments[attKey(id, a.SHA256, a.Name)] = true
+	}
+	return nil
+}
+
+// PullItem imports one item's chain (and its attachment bodies) from the
+// server, as a node does for the item it was woken for.
+func (s *Syncer) PullItem(ctx context.Context, id string) (PullResult, error) {
+	var res PullResult
+	st, err := s.LoadState()
+	if err != nil {
+		return res, err
+	}
+	if err := s.pullItem(ctx, id, "", st, &res); err != nil {
+		_ = s.saveState(st)
+		return res, err
 	}
 	if err := s.saveState(st); err != nil {
 		return res, err

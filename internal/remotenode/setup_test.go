@@ -20,7 +20,7 @@ func TestRunSetupRunsEachCommandInOrder(t *testing.T) {
 		"echo first >> order; cat > stdin-1",
 		"echo second >> order; pwd > cwd",
 	}
-	if err := RunSetup(context.Background(), dir, SetupOnCreate, cmds, time.Minute, nil); err != nil {
+	if err := RunSetup(context.Background(), dir, SetupOnCreate, cmds, nil, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "order")); string(got) != "first\nsecond\n" {
@@ -38,7 +38,7 @@ func TestRunSetupRunsEachCommandInOrder(t *testing.T) {
 func TestRunSetupStopsAtTheFailingCommand(t *testing.T) {
 	dir := t.TempDir()
 	cmds := []string{"echo one >> ran", "exit 3", "echo three >> ran"}
-	err := RunSetup(context.Background(), dir, SetupPostStart, cmds, time.Minute, nil)
+	err := RunSetup(context.Background(), dir, SetupPostStart, cmds, nil, time.Minute, nil)
 	var se *SetupError
 	if !errors.As(err, &se) || se.Phase != SetupPostStart || se.Index != 2 || se.Reason != "exit status 3" {
 		t.Fatalf("err = %v, want SetupError post_start 2 with exit status 3", err)
@@ -53,7 +53,7 @@ func TestRunSetupStopsAtTheFailingCommand(t *testing.T) {
 
 func TestRunSetupTimesOut(t *testing.T) {
 	start := time.Now()
-	err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, []string{"sleep 5"}, 50*time.Millisecond, nil)
+	err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, []string{"sleep 5"}, nil, 50*time.Millisecond, nil)
 	var se *SetupError
 	if !errors.As(err, &se) || se.Index != 1 || !strings.HasPrefix(se.Reason, "timed out") {
 		t.Fatalf("err = %v, want a timeout at command 1", err)
@@ -71,7 +71,7 @@ func TestSetupErrorHoldsNeitherCommandNorOutput(t *testing.T) {
 		"/nonexistent/ARGV-SENTINEL",
 		" ",
 	} {
-		err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, []string{c}, time.Minute, &log)
+		err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, []string{c}, nil, time.Minute, &log)
 		if err == nil {
 			t.Fatalf("%q: want a failure", c)
 		}
@@ -88,7 +88,7 @@ func TestSetupErrorHoldsNeitherCommandNorOutput(t *testing.T) {
 
 func TestRunSetupWithNoCommandsRunsNothing(t *testing.T) {
 	for _, cmds := range [][]string{nil, {}} {
-		if err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, cmds, time.Minute, nil); err != nil {
+		if err := RunSetup(context.Background(), t.TempDir(), SetupOnCreate, cmds, nil, time.Minute, nil); err != nil {
 			t.Errorf("RunSetup(%v) = %v, want nil", cmds, err)
 		}
 	}

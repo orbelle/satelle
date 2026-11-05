@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -33,10 +34,10 @@ func (e *SetupError) Error() string {
 // RunSetup runs each of a [setup] phase's commands in order in dir, each one
 // string through `sh -c`, with no stdin, each bounded by timeout, and stops at
 // the first that fails. The commands' output goes to out (the node's own log)
-// and nowhere else. The environment is the node's own.
-func RunSetup(ctx context.Context, dir, phase string, cmds []string, timeout time.Duration, out io.Writer) error {
+// and nowhere else. The environment is the node's own plus env.
+func RunSetup(ctx context.Context, dir, phase string, cmds []string, env []string, timeout time.Duration, out io.Writer) error {
 	for i, c := range cmds {
-		if reason := runSetupCommand(ctx, dir, c, timeout, out); reason != "" {
+		if reason := runSetupCommand(ctx, dir, c, env, timeout, out); reason != "" {
 			return &SetupError{Phase: phase, Index: i + 1, Reason: reason}
 		}
 	}
@@ -45,7 +46,7 @@ func RunSetup(ctx context.Context, dir, phase string, cmds []string, timeout tim
 
 // runSetupCommand runs one command and returns why it failed, "" when it did not.
 // The reason is a fixed classification, never the command or the raw exec error.
-func runSetupCommand(ctx context.Context, dir, command string, timeout time.Duration, out io.Writer) string {
+func runSetupCommand(ctx context.Context, dir, command string, env []string, timeout time.Duration, out io.Writer) string {
 	if strings.TrimSpace(command) == "" {
 		return "empty command"
 	}
@@ -53,6 +54,7 @@ func runSetupCommand(ctx context.Context, dir, command string, timeout time.Dura
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "sh", "-c", command)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdin = nil
 	if out != nil {
 		cmd.Stdout, cmd.Stderr = out, out

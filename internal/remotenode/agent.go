@@ -8,19 +8,22 @@ const AgentJob = "agent"
 
 // AgentRequest is the body of an AgentJob request.
 //
-// Binding and SystemPrompt carry a performed step (sty_7028d996): Binding names
-// the node's own agents.toml binding that performs it, SystemPrompt is the step's
-// composed system prompt and Text the step's payload. Both are empty for a plain
-// message, which the node answers with its default binding and prompt as before.
+// Binding names the node's own agents.toml binding that performs the step
+// (empty: the run's binding), SystemPrompt is the step's skill and Text the
+// work.
 type AgentRequest struct {
 	Text         string `json:"text"`
 	Binding      string `json:"binding,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
-// AgentReply is the body of an AgentJob reply.
+// AgentReply is the body of an AgentJob reply: the performer's answer and
+// what it cost.
 type AgentReply struct {
-	Text string `json:"text"`
+	Text      string `json:"text"`
+	Model     string `json:"model,omitempty"`
+	TokensIn  int    `json:"tokens_in,omitempty"`
+	TokensOut int    `json:"tokens_out,omitempty"`
 }
 
 // DecodeAgentReply reads an AgentJob reply body.

@@ -48,6 +48,41 @@ func (s *Server) AddNode(n *Node) {
 	s.nodes[n.ID] = n
 }
 
+// SetNodeDefinition stores the definition bundle a node (one StartNode made,
+// say) fetches.
+func (s *Server) SetNodeDefinition(id string, bundle []byte, version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := s.nodes[id]; n != nil {
+		n.Bundle, n.Version = append([]byte(nil), bundle...), version
+	}
+}
+
+// NodeToken is a node's token ("" for none).
+func (s *Server) NodeToken(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := s.nodes[id]; n != nil {
+		return n.Token
+	}
+	return ""
+}
+
+// NodeEnded reports whether a node ended (EndNode or RevokeNode).
+func (s *Server) NodeEnded(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.nodes[id]
+	return n != nil && n.ended
+}
+
+// SetItemRun sets what GetItemRun answers for remote and item.
+func (s *Server) SetItemRun(remote, item string, run *satellepb.ItemRun) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runs[remote+"|"+item] = proto.Clone(run).(*satellepb.ItemRun)
+}
+
 // RevokeNode ends a node's token.
 func (s *Server) RevokeNode(id string) {
 	s.mu.Lock()

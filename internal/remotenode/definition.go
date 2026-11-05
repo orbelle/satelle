@@ -19,17 +19,30 @@ const DefinitionFile = "remote.toml"
 // format, a path that is not plain and relative, a missing remote.toml or one
 // the node cannot read installs nothing.
 func InstallDefinition(dataDir string, bundle []byte) (remotedef.Definition, error) {
-	entries, err := filebundle.Decode(bundle, nil)
+	def, overlay, err := ReadBundle(bundle)
 	if err != nil {
 		return remotedef.Definition{}, err
 	}
+	return def, writeOverlay(dataDir, overlay)
+}
+
+// fileEntry is one overlay file of a bundle.
+type fileEntry = filebundle.Entry
+
+// ReadBundle decodes a definition bundle: its remote.toml, read and validated,
+// and every other file as the overlay. Nothing is written.
+func ReadBundle(bundle []byte) (remotedef.Definition, []fileEntry, error) {
+	entries, err := filebundle.Decode(bundle, nil)
+	if err != nil {
+		return remotedef.Definition{}, nil, err
+	}
 	var def remotedef.Definition
 	var haveDef bool
-	var overlay []filebundle.Entry
+	var overlay []fileEntry
 	for _, e := range entries {
 		if e.Path == DefinitionFile {
 			if def, err = remotedef.Parse([]byte(e.Content)); err != nil {
-				return remotedef.Definition{}, err
+				return remotedef.Definition{}, nil, err
 			}
 			haveDef = true
 			continue
@@ -37,10 +50,15 @@ func InstallDefinition(dataDir string, bundle []byte) (remotedef.Definition, err
 		overlay = append(overlay, e)
 	}
 	if !haveDef {
-		return remotedef.Definition{}, fmt.Errorf("the bundle has no %s", DefinitionFile)
+		return remotedef.Definition{}, nil, fmt.Errorf("the bundle has no %s", DefinitionFile)
 	}
-	if err := filebundle.Write(dataDir, overlay, true, nil); err != nil {
-		return remotedef.Definition{}, err
+	return def, overlay, nil
+}
+
+// writeOverlay writes the overlay files into dataDir, leaving every other file.
+func writeOverlay(dataDir string, overlay []fileEntry) error {
+	if len(overlay) == 0 {
+		return nil
 	}
-	return def, nil
+	return filebundle.Write(dataDir, overlay, true, nil)
 }

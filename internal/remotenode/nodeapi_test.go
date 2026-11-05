@@ -73,14 +73,14 @@ func TestRunAndStatusUseTheNodeService(t *testing.T) {
 	node.LostAfterSeconds = 90
 
 	d, err := client.Run(context.Background())
-	if err != nil || d != (RunDescriptor{Mode: "node", Project: "acme-team", StoryID: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}) {
+	if err != nil || d != (RunDescriptor{Mode: "node", Project: "acme-team", ItemID: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}) {
 		t.Fatalf("Run = %+v, %v", d, err)
 	}
-	reply, err := client.Status(context.Background(), NodeStatus{State: StateRunning, StoryID: "sty_1", RunState: "queued"})
+	reply, err := client.Status(context.Background(), NodeStatus{State: StateRunning, ItemID: "sty_1", RunState: "queued"})
 	if err != nil || reply.LostAfterSeconds != 90 {
 		t.Fatalf("Status = %+v, %v", reply, err)
 	}
-	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: "concluded", Outcome: "reject", Findings: "fix it"}); err != nil {
+	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: "concluded", Verdict: "reject", Notes: "fix it"}); err != nil {
 		t.Fatal(err)
 	}
 	st := srv.NodeStatuses(testNodeID)
@@ -107,7 +107,7 @@ func TestSecretReads(t *testing.T) {
 	node.Secrets["GH_TOKEN"] = "ghs_minted"
 	node.Secrets["PLAIN"] = secretValue
 	node.SecretExpiry = map[string]time.Time{"GH_TOKEN": exp}
-	node.Refuse = map[string][2]string{"OWNER": {SecretRefusedGitHubAppOwnerRun, "owner run"}}
+	node.Refuse = map[string][2]string{"OWNER": {"owner_run", "owner run"}}
 
 	v, got, err := client.SecretWithExpiry(context.Background(), "GH_TOKEN")
 	if err != nil || v != "ghs_minted" || !got.Equal(exp) {
@@ -118,7 +118,7 @@ func TestSecretReads(t *testing.T) {
 	}
 	_, _, err = client.SecretWithExpiry(context.Background(), "OWNER")
 	var refusal *SecretRefusal
-	if !errors.As(err, &refusal) || refusal.Code != SecretRefusedGitHubAppOwnerRun {
+	if !errors.As(err, &refusal) || refusal.Code != "owner_run" {
 		t.Errorf("owner-run read = %v", err)
 	}
 }

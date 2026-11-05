@@ -118,11 +118,6 @@ func (c *NodeClient) Definition(ctx context.Context) (bundle []byte, version str
 	return d.GetBundle(), d.GetVersion(), nil
 }
 
-// SecretRefusedGitHubAppOwnerRun is satelle.dev's code for a github-app secret
-// read by a local owner run: an installation token is minted only for a woken
-// remote run, so the owner's own run is refused it explicitly.
-const SecretRefusedGitHubAppOwnerRun = "github_app_owner_run"
-
 // Secret reads one secret's value. A key satelle.dev refuses (not declared by the
 // definition, or not granted to it) is a *SecretRefusal.
 func (c *NodeClient) Secret(ctx context.Context, key string) (string, error) {
@@ -132,8 +127,7 @@ func (c *NodeClient) Secret(ctx context.Context, key string) (string, error) {
 
 // SecretWithExpiry is Secret with the time the value expires, which satelle.dev
 // sends for a value it minted for the run (a github-app installation token); it is
-// the zero time for a value that does not expire. An expiry that is not RFC 3339
-// is a malformed answer.
+// the zero time for a value that does not expire.
 func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, time.Time, error) {
 	var sec *satellepb.Secret
 	err := c.call("NodeService.ReadSecret", func() (err error) {
@@ -157,15 +151,14 @@ func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, 
 	return sec.GetValue(), expires, nil
 }
 
-// RunDescriptor is what NodeService.GetRun tells a node about its run. StoryID
-// is the item the node was woken for, Trigger the declared trigger that woke it
-// and TriggerSource how (mcp, api, status or schedule); a node started by hand
-// carries none of the three. Project is the node's project, the one its work
-// state is synced to.
+// RunDescriptor is what NodeService.GetRun tells a node about its run: the
+// mode (ModeItem, ModeTask, ModePerformer), the project its work state is
+// synced to, the item it was woken for, the binding a performer node runs, and
+// what woke it (Trigger, TriggerSource), carried for the report.
 type RunDescriptor struct {
 	Mode          string
 	Project       string
-	StoryID       string
+	ItemID        string
 	Binding       string
 	Trigger       string
 	TriggerSource string
@@ -181,13 +174,18 @@ func (c *NodeClient) Run(ctx context.Context) (RunDescriptor, error) {
 	if err != nil {
 		return RunDescriptor{}, fmt.Errorf("run: %w", err)
 	}
-	return RunDescriptor{Mode: d.GetMode(), Project: d.GetProject(), StoryID: d.GetItemId(), Binding: d.GetBinding(),
+	return RunDescriptor{Mode: d.GetMode(), Project: d.GetProject(), ItemID: d.GetItemId(), Binding: d.GetBinding(),
 		Trigger: d.GetTrigger(), TriggerSource: d.GetTriggerSource()}, nil
 }
 
-// ModePerformer is the run mode of a node a starter asked satelle.dev for to
-// perform one step of its item over the paired channel.
-const ModePerformer = "performer"
+// Run modes. An item node drives one item along its workflow; a task node runs
+// a task once and drives the execution it creates; a performer node performs
+// one step of an item for the starter over the paired channel.
+const (
+	ModeItem      = "item"
+	ModeTask      = "task"
+	ModePerformer = "performer"
+)
 
 // PublishChannelKey publishes the node's channel public key so the starter that
 // asked for this node can pin it before it trusts a message. The key is
@@ -203,23 +201,30 @@ func (c *NodeClient) PublishChannelKey(ctx context.Context, pub []byte) error {
 	return nil
 }
 
-// StateRunning is the heartbeat state a node is reported under.
-const StateRunning = "running"
+// Node and run states a heartbeat reports.
+const (
+	StateRunning   = "running"
+	StateConcluded = "concluded"
+)
 
-// NodeStatus is the node's heartbeat (NodeService.ReportStatus). Outcome and
-// Findings go with RunState concluded, as the verdict and its notes.
+// NodeStatus is the node's heartbeat (NodeService.ReportStatus). Verdict and
+// Notes go with State and RunState concluded. Progress is the node's last
+// progress line and SetupLog a bounded tail of its setup output.
 type NodeStatus struct {
-	State    string `json:"state"`
-	StoryID  string `json:"story_id,omitempty"`
-	Step     string `json:"step,omitempty"`
-	RunState string `json:"run_state,omitempty"`
-	Outcome  string `json:"outcome,omitempty"`
-	Findings string `json:"findings,omitempty"`
+	State    string
+	ItemID   string
+	Step     string
+	RunState string
+	Progress string
+	SetupLog string
+	Verdict  string
+	Notes    string
 }
 
-// StatusReply is what the server says back to a heartbeat that the node uses:
-// LostAfterSeconds is how long it may go unheard before the server lists it lost.
+// StatusReply is what the server says back to a heartbeat: Stop asks the node
+// to stop, LostAfterSeconds is how long it may go unheard.
 type StatusReply struct {
+	Stop             bool
 	LostAfterSeconds int
 }
 
@@ -228,15 +233,15 @@ func (c *NodeClient) Status(ctx context.Context, s NodeStatus) (StatusReply, err
 	var r *satellepb.ReportStatusResponse
 	err := c.call("NodeService.ReportStatus", func() (err error) {
 		r, err = c.client.Nodes.ReportStatus(ctx, &satellepb.ReportStatusRequest{
-			NodeId: c.nodeID, State: s.State, ItemId: s.StoryID, Step: s.Step, RunState: s.RunState,
-			Verdict: s.Outcome, Notes: s.Findings,
+			NodeId: c.nodeID, State: s.State, ItemId: s.ItemID, Step: s.Step, RunState: s.RunState,
+			Progress: s.Progress, SetupLog: s.SetupLog, Verdict: s.Verdict, Notes: s.Notes,
 		})
 		return err
 	})
 	if err != nil {
 		return StatusReply{}, fmt.Errorf("status: %w", err)
 	}
-	return StatusReply{LostAfterSeconds: int(r.GetLostAfterSeconds())}, nil
+	return StatusReply{Stop: r.GetStop(), LostAfterSeconds: int(r.GetLostAfterSeconds())}, nil
 }
 
 // End tells satelle.dev the node's run is over, which revokes the node token. It
