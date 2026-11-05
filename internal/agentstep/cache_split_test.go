@@ -136,53 +136,6 @@ Do the planning work.`
 	}
 }
 
-// TestRetrospectCarriesCacheSplit pins Retrospect's result: the retrospective
-// dispatch's cache split rides on the returned DispatchResult.
-func TestRetrospectCarriesCacheSplit(t *testing.T) {
-	docs := fakeDocs{skillBody: "retro rubric", skillFound: true}
-	env := cacheEnvelope(t, "PROPOSALS FILED: none", "glm-4.6", 41, 17, 23)
-	g, _ := newEngine(t, env, docs)
-	r := &fakeRunner{out: env}
-	g.SetNamedAgents(func(name string) (config.AgentBinding, bool) {
-		if name != "retrospective" {
-			return config.AgentBinding{}, false
-		}
-		return config.AgentBinding{Command: "fake -p {system}", Tools: "Read,Bash(satelle:*)", Model: "glm-4.6"}, true
-	})
-	g.newRunner = func(string, string) (agentcli.Runner, error) { return r, nil }
-	res, err := g.Retrospect(context.Background(), workitem.Item{ID: "sty_1", Title: "T", Status: "done"}, verb.RetrospectSpec{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.TokensInFresh != 41 || res.TokensCacheWrite != 17 || res.TokensCacheRead != 23 {
-		t.Fatalf("cache split = fresh=%d write=%d read=%d, want 41/17/23",
-			res.TokensInFresh, res.TokensCacheWrite, res.TokensCacheRead)
-	}
-	if len(res.Models) != 1 || res.Models[0].TokensCacheWrite != 17 || res.Models[0].TokensCacheRead != 23 {
-		t.Fatalf("per-model cache split = %+v, want write=17 read=23", res.Models)
-	}
-}
-
-// TestSummariseCarriesCacheSplit pins Summarise's result: the step
-// summariser's cache split rides on the returned SummaryResult.
-func TestSummariseCarriesCacheSplit(t *testing.T) {
-	docs := fakeDocs{workflow: summaryWorkflow, skillBody: "summarise rubric", skillFound: true}
-	env := cacheEnvelope(t, "the step recap", "claude-haiku-4-5", 41, 17, 23)
-	r := &fakeRunner{out: env}
-	g := New(r, docs, "/repo", "haiku")
-	got, err := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.TokensInFresh != 41 || got.TokensCacheWrite != 17 || got.TokensCacheRead != 23 {
-		t.Fatalf("cache split = fresh=%d write=%d read=%d, want 41/17/23",
-			got.TokensInFresh, got.TokensCacheWrite, got.TokensCacheRead)
-	}
-	if len(got.Models) != 1 || got.Models[0].TokensCacheWrite != 17 || got.Models[0].TokensCacheRead != 23 {
-		t.Fatalf("per-model cache split = %+v, want write=17 read=23", got.Models)
-	}
-}
-
 // envelopeAttemptCache is envelopeAttempt (model_resolved_test.go) with a
 // fresh/cache-write/cache-read split on the top-level usage, so an attempt
 // test can pin recordArtifactAttempt's own copy of the split (attempt.go)

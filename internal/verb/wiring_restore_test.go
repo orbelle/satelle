@@ -42,14 +42,6 @@ type stubExecutorDispatcher struct {
 	ExecutorDispatcher
 	n int
 }
-type stubRetrospector struct {
-	Retrospector
-	n int
-}
-type stubStepSummariser struct {
-	StepSummariser
-	n int
-}
 
 // wiringCase drives one exported Set*/Clear*/Add* function. A Set* or Add* case
 // calls the function from a clean slate and expects the named variables to

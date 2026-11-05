@@ -3,7 +3,6 @@ package agentstep
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
@@ -16,46 +15,6 @@ import (
 // recorded exactly like a gate verdict.
 
 const summaryRO = "Read,Grep,Glob"
-
-func summariseWith(t *testing.T, iface, command, tools string) (*[]telemetryRec, string, error) {
-	t.Helper()
-	runner, err := agentcli.RunnerFromBinding(iface, command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	docs := fakeDocs{workflow: summaryWorkflow, skillBody: "summarise rubric", skillFound: true}
-	g := New(runner, docs, t.TempDir(), "")
-	g.SetReviewerTools(tools)
-	var warn bytes.Buffer
-	g.SetWarnWriter(&warn)
-	recs := captureTelemetry(g)
-	_, serr := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	return recs, warn.String(), serr
-}
-
-// A stock claude summariser still runs, once, and its result carries the offered
-// tools it was trimmed to.
-func TestSummarise_StockClaudeRunsAndRecordsOfferedTools(t *testing.T) {
-	path, marker := startCounter(t, "claude-shim", "the recap")
-	command := strings.Replace(agentcli.DefaultClaudeCommand, "claude ", path+" ", 1)
-	runner, err := agentcli.RunnerFromBinding("command", command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	docs := fakeDocs{workflow: summaryWorkflow, skillBody: "summarise rubric", skillFound: true}
-	g := New(runner, docs, t.TempDir(), "")
-	g.SetReviewerTools(summaryRO)
-	got, serr := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	if serr != nil {
-		t.Fatalf("stock claude summariser refused: %v", serr)
-	}
-	if n := starts(marker); n != 1 {
-		t.Fatalf("start count = %d, want 1", n)
-	}
-	if got.OfferedToolCount == nil || *got.OfferedToolCount != 3 || got.OfferedToolsSource != agentcli.OfferedSourceFlag {
-		t.Fatalf("offered tools = %v source %q, want 3 from the flag", got.OfferedToolCount, got.OfferedToolsSource)
-	}
-}
 
 type liveReviewer struct {
 	opens  int

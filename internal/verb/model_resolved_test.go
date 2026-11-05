@@ -269,37 +269,6 @@ func (modelSourceSummariser) Summarise(context.Context, workitem.Item, string, s
 }
 func (modelSourceSummariser) MandatorySummary(context.Context, workitem.Item) bool { return true }
 
-// TestSummariserInvocationRowCarriesModelSource pins the step summariser's OWN
-// agent_invocation row (summariserInvocationPayload, workitem.go:1555 — Agent
-// "reviewer", written whenever the recap carries a Command): model_source
-// round-trips through a real ledger.Store and ledger.EventTelemetry
-// (sty_7069bced AC5) — driven through `story-resummarise`, which shares
-// recordStepSummary's write path with the post-transition summariser.
-func TestSummariserInvocationRowCarriesModelSource(t *testing.T) {
-	withWiring(t)
-	db := wire(t)
-	verb.SetStepSummariser(modelSourceSummariser{})
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x", "acceptance_criteria": "1. ok"}), &it)
-	call(t, "story-resummarise", map[string]any{"id": it.ID, "from": "plan", "to": "in_progress"})
-
-	entries, err := db.Ledger.ListByStory(context.Background(), it.ID, ledger.KindAgentInvocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("want 1 agent_invocation row, got %d: %+v", len(entries), entries)
-	}
-	tel := ledger.EventTelemetry(entries[0])
-	if tel.ModelResolved != "claude-sonnet-5" {
-		t.Errorf("EventTelemetry.ModelResolved = %q, want claude-sonnet-5", tel.ModelResolved)
-	}
-	if tel.ModelSource != "creator" {
-		t.Errorf("EventTelemetry.ModelSource = %q, want creator", tel.ModelSource)
-	}
-}
-
 // byteSummariser is a StepSummariser whose result carries a billable
 // invocation with known system-prompt/payload byte counts.
 type byteSummariser struct {
@@ -313,46 +282,6 @@ func (b byteSummariser) Summarise(context.Context, workitem.Item, string, string
 	}, nil
 }
 func (byteSummariser) MandatorySummary(context.Context, workitem.Item) bool { return true }
-
-// TestSummariserInvocationRowCarriesPromptByteCounts pins sty_363eaf55 AC3:
-// the step summariser's OWN agent_invocation row (summariserInvocationPayload,
-// workitem.go:1575) records the byte LENGTHS of the system prompt and payload
-// satelle sent — never the text itself.
-func TestSummariserInvocationRowCarriesPromptByteCounts(t *testing.T) {
-	withWiring(t)
-	db := wire(t)
-	const fakeSystemPrompt = "## You are the step summariser — recap only, never mutate"
-	const fakePayload = `{"story":{"id":"sty_1"},"from":"plan","to":"in_progress"}`
-	verb.SetStepSummariser(byteSummariser{systemPromptBytes: len(fakeSystemPrompt), payloadBytes: len(fakePayload)})
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x", "acceptance_criteria": "1. ok"}), &it)
-	call(t, "story-resummarise", map[string]any{"id": it.ID, "from": "plan", "to": "in_progress"})
-
-	entries, err := db.Ledger.ListByStory(context.Background(), it.ID, ledger.KindAgentInvocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("want 1 agent_invocation row, got %d: %+v", len(entries), entries)
-	}
-	if strings.Contains(string(entries[0].Payload), fakeSystemPrompt) || strings.Contains(string(entries[0].Payload), fakePayload) {
-		t.Fatalf("ledger row must never carry prompt/payload TEXT, only byte counts: %s", entries[0].Payload)
-	}
-	var row struct {
-		SystemPromptBytes int `json:"system_prompt_bytes"`
-		PayloadBytes      int `json:"payload_bytes"`
-	}
-	if err := json.Unmarshal(entries[0].Payload, &row); err != nil {
-		t.Fatal(err)
-	}
-	if row.SystemPromptBytes != len(fakeSystemPrompt) {
-		t.Errorf("system_prompt_bytes = %d, want %d", row.SystemPromptBytes, len(fakeSystemPrompt))
-	}
-	if row.PayloadBytes != len(fakePayload) {
-		t.Errorf("payload_bytes = %d, want %d", row.PayloadBytes, len(fakePayload))
-	}
-}
 
 // TestReviewVerdictRowCarriesModelCacheSplit pins reviewerPayload's per-model
 // cache split (sty_363eaf55): the single-reviewer synthesis at workitem.go
@@ -532,43 +461,6 @@ func (cacheSplitSummariser) Summarise(context.Context, workitem.Item, string, st
 	}, nil
 }
 func (cacheSplitSummariser) MandatorySummary(context.Context, workitem.Item) bool { return true }
-
-// TestSummariserInvocationRowCarriesCacheSplit pins
-// summariserInvocationPayload's cache split (sty_363eaf55): the step
-// summariser's own agent_invocation row must carry tokens_in_fresh/
-// tokens_cache_write/tokens_cache_read, top-level and per-model.
-func TestSummariserInvocationRowCarriesCacheSplit(t *testing.T) {
-	withWiring(t)
-	db := wire(t)
-	verb.SetStepSummariser(cacheSplitSummariser{})
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x", "acceptance_criteria": "1. ok"}), &it)
-	call(t, "story-resummarise", map[string]any{"id": it.ID, "from": "plan", "to": "in_progress"})
-
-	entries, err := db.Ledger.ListByStory(context.Background(), it.ID, ledger.KindAgentInvocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("want 1 agent_invocation row, got %d: %+v", len(entries), entries)
-	}
-	var row struct {
-		TokensInFresh    int               `json:"tokens_in_fresh"`
-		TokensCacheWrite int               `json:"tokens_cache_write"`
-		TokensCacheRead  int               `json:"tokens_cache_read"`
-		Models           []verb.ModelUsage `json:"model_usage"`
-	}
-	if err := json.Unmarshal(entries[0].Payload, &row); err != nil {
-		t.Fatal(err)
-	}
-	if row.TokensInFresh != 41 || row.TokensCacheWrite != 17 || row.TokensCacheRead != 23 {
-		t.Fatalf("cache split = fresh=%d write=%d read=%d, want 41/17/23", row.TokensInFresh, row.TokensCacheWrite, row.TokensCacheRead)
-	}
-	if len(row.Models) != 1 || row.Models[0].TokensCacheWrite != 17 || row.Models[0].TokensCacheRead != 23 {
-		t.Fatalf("model_usage cache split = %+v, want write=17 read=23", row.Models)
-	}
-}
 
 // TestReviewVerdictRowCarriesAliasWhenUnresolved pins AC6: when the gate
 // reports a configured alias but no resolved id, review_accept/review_reject

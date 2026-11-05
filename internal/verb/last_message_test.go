@@ -222,38 +222,6 @@ func TestRecordStepPerformanceAppliesTheEvidenceSettingAndRecordsTheStream(t *te
 	}
 }
 
-// AC2: a transition, a reviewer's and a summariser's rows carry no last_message.
-func TestTransitionAndReviewerRowsHaveNoLastMessage(t *testing.T) {
-	withWiring(t)
-	db := wire(t)
-	verb.SetTransitionGater(stubGater{dec: verb.GateDecision{
-		Gated: true, Accept: true, Skill: "satelle-story-done-review", Command: "fake-reviewer", Context: "satelle-story-done-review",
-		Reviewers: []verb.ReviewerVerdict{{Skill: "satelle-story-done-review", Accept: true, Command: "fake-reviewer", Context: "satelle-story-done-review"}},
-	}})
-	verb.SetStepSummariser(&invokingSummariser{})
-	it := newStoryAt(t, "in_progress")
-	if _, err := dispatchRaw(t, "story-set", map[string]any{"id": it.ID, "status": "done"}); err != nil {
-		t.Fatal(err)
-	}
-	var transitions, reviewers, summarisers int
-	for _, row := range rowsOf(t, db, it.ID, "") {
-		if _, ok := lastMessageOf(t, row); ok && row.Payload != nil {
-			t.Errorf("%s row (actor %s) carries last_message: %s", row.Kind, row.Actor, row.Payload)
-		}
-		switch {
-		case row.Kind == ledger.KindStatusTransition:
-			transitions++
-		case row.Kind == ledger.KindAgentInvocation && strings.Contains(row.Body, "invoked reviewer"):
-			reviewers++
-		case row.Kind == ledger.KindAgentInvocation && strings.Contains(row.Body, "invoked summariser"):
-			summarisers++
-		}
-	}
-	if transitions == 0 || reviewers == 0 || summarisers == 0 {
-		t.Fatalf("the story must have written a transition, a reviewer and a summariser row, got %d, %d, %d", transitions, reviewers, summarisers)
-	}
-}
-
 // invokingSummariser returns a summary that billed a summariser invocation.
 type invokingSummariser struct{}
 

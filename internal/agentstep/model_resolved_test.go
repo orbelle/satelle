@@ -290,30 +290,6 @@ Judge premise.`
 	}
 }
 
-// TestSummarise_ModelResolved pins AC5's summariser coverage: the step
-// summariser's own agent_invocation carries its resolved model.
-func TestSummarise_ModelResolved(t *testing.T) {
-	docs := fakeDocs{workflow: summaryWorkflow, skillBody: "summarise rubric", skillFound: true}
-	r := &fakeRunner{out: modelEnvelopeText(t, "the step recap", "claude-haiku-4-5")}
-	g := New(r, docs, "/repo", "haiku")
-	got, err := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Text != "the step recap" {
-		t.Fatalf("want the recap text, got %q", got.Text)
-	}
-	if got.Model != "haiku" {
-		t.Errorf("Model (alias) = %q, want haiku", got.Model)
-	}
-	if got.ModelResolved != "claude-haiku-4-5" {
-		t.Errorf("ModelResolved = %q, want claude-haiku-4-5", got.ModelResolved)
-	}
-	if len(got.Models) != 1 || got.Models[0].ID != "claude-haiku-4-5" {
-		t.Errorf("Models = %+v", got.Models)
-	}
-}
-
 // envelopeAttempt wraps a valid artifact draft in a command-transport envelope
 // carrying modelUsage — reusing attempt_test.go's validAttempt for the inner
 // artifact shape, so recordArtifactAttempt's telemetry can be checked for the

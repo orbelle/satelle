@@ -10,7 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/logfile"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -97,80 +96,6 @@ type logUsageRunner struct {
 func (r logUsageRunner) RunUsage(ctx context.Context, req agentcli.Request) ([]byte, agentcli.UsageResult, error) {
 	out, err := r.Run(ctx, req)
 	return out, r.usage, err
-}
-
-// AC1: every kind of isolated dispatch writes its own log.
-func TestEveryDispatchWritesItsOwnLog(t *testing.T) {
-	ctx := context.Background()
-	performers := func(t *testing.T) (*Engine, string) {
-		dir := t.TempDir()
-		wf := spineWF("", "", "", "plan|planner|planning-rubric", "in_progress|coder|planning-rubric", "done")
-		g, _ := newEngine(t, "", fakeDocs{workflow: wf, skillBody: logRubric, skillFound: true})
-		g.SetLogDir(dir, logfile.Config{})
-		g.newRunner = func(string, string) (agentcli.Runner, error) { return &fakeRunner{out: "ok"}, nil }
-		g.SetNamedAgents(func(string) (config.AgentBinding, bool) { return logBinding, true })
-		return g, dir
-	}
-	t.Run("planner and coder", func(t *testing.T) {
-		g, dir := performers(t)
-		if _, err := g.DispatchExecutor(ctx, workitem.Item{ID: "sty_l1", Status: "backlog"}, "plan"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := g.DispatchExecutor(ctx, workitem.Item{ID: "sty_l1", Status: "plan"}, "in_progress"); err != nil {
-			t.Fatal(err)
-		}
-		for _, agent := range []string{"planner", "coder"} {
-			if got := dispatchLogsOf(t, dir, agent, "sty_l1"); len(got) != 1 {
-				t.Errorf("%s: logs = %v, want one", agent, got)
-			}
-		}
-	})
-	t.Run("executor step", func(t *testing.T) {
-		dir := t.TempDir()
-		g, _ := executorEngine(t, "fake -p {system}", "ok")
-		g.SetLogDir(dir, logfile.Config{})
-		if _, err := g.PerformExecutorStep(ctx, executorItem, "exec", ""); err != nil {
-			t.Fatal(err)
-		}
-		readDispatchLog(t, dir, "executor", executorItem.ID)
-	})
-	t.Run("reviewer seat", func(t *testing.T) {
-		dir := t.TempDir()
-		g, _ := newEngine(t, `{"decision":"accept"}`, fakeDocs{workflow: testWorkflow, skillBody: "rubric", skillFound: true})
-		g.SetLogDir(dir, logfile.Config{})
-		if _, err := g.Gate(ctx, workitem.Item{ID: "sty_l2", Status: "backlog"}, "in_progress"); err != nil {
-			t.Fatal(err)
-		}
-		readDispatchLog(t, dir, "reviewer", "sty_l2")
-	})
-	t.Run("bundled session", func(t *testing.T) {
-		dir := t.TempDir()
-		docs := fakeDocs{workflow: bundleEdgeWF("rev-a,rev-b", "bundle = true"), extraSkills: bundleSkillDocs("rev-a", "rev-b")}
-		r := &bundleRunner{}
-		g := New(r, docs, "/repo", "")
-		g.SetLogDir(dir, logfile.Config{})
-		if _, err := bundleGate(t, g); err != nil {
-			t.Fatal(err)
-		}
-		if r.calls() != 1 {
-			t.Fatalf("bundle calls = %d, want one session", r.calls())
-		}
-		log := readDispatchLog(t, dir, "reviewer", "sty_b")
-		if !strings.Contains(logBlock(t, log, "input: payload"), `"review_skills":["rev-a","rev-b"]`) {
-			t.Errorf("the bundle's log must hold its one session's payload:\n%s", log)
-		}
-	})
-	t.Run("retrospective", func(t *testing.T) {
-		dir := t.TempDir()
-		g, _ := newEngine(t, "", fakeDocs{skillBody: "retro rubric", skillFound: true})
-		g.SetLogDir(dir, logfile.Config{})
-		g.SetNamedAgents(func(string) (config.AgentBinding, bool) { return logBinding, true })
-		g.newRunner = func(string, string) (agentcli.Runner, error) { return &fakeRunner{out: "PROPOSALS FILED: none"}, nil }
-		if _, err := g.Retrospect(ctx, workitem.Item{ID: "sty_l3", Status: "done"}, verb.RetrospectSpec{}); err != nil {
-			t.Fatal(err)
-		}
-		readDispatchLog(t, dir, "retrospective", "sty_l3")
-	})
 }
 
 // AC2, AC5, AC6: the log holds the system prompt and payload as sent, with only

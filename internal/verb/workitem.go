@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -35,7 +34,6 @@ func init() {
 	}
 	// Estimate/actual are story-only: an agent records the plan estimate at
 	// begin-work and the actual cost at close, scoped to the story.
-	Register(&Verb{Name: "story-resummarise", Description: "Re-run the step summariser for one edge to close a missing-summary gap", Invoke: storyResummarise, DispatchesReviewer: dispatchesOnResummarise})
 	// Restamp is story-only too: tasks/executions are unstamped by design
 	// (sty_3800ac23 / sty_ef08ce2a) — they resolve their workflow at gate time.
 }
@@ -618,7 +616,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// Gate the transition through the isolated reviewer, if one is wired and the
 	// edge is governed by a reviewer skill. A reject blocks the whole set and
 	// pushes the reviewer's notes back to the executor; an ungated edge enacts.
-	gatedAccepted := false
 	//
 	// Propose (sty_5262592e): a destination step that declares `propose` runs
 	// its performer BEFORE the entry gates, on the source status, so the gates
@@ -640,14 +637,8 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if attempt == "" {
 			attempt = ledger.NewAttemptID()
 		}
-		round, gerr := recordGateRound(ctx, current, *req.Status, attempt, now)
-		if gerr != nil {
-			return gerr
-		}
-		if len(round.Reviewers) > 0 {
-			gatedAccepted = true
-		}
-		return nil
+		_, gerr := recordGateRound(ctx, current, *req.Status, attempt, now)
+		return gerr
 	}
 
 	// A workflow node may allocate the TARGET state to a NAMED isolated agent
@@ -843,15 +834,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if engaging, ok := storyStatusIsEngaging(ctx, it, *req.Status); ok && engaging {
 			recordEngageSessionModel(ctx, it.ID)
 		}
-		// After a GATED transition is enacted, the read-only summariser recaps the
-		// step into a step_summary row — but ONLY where the active workflow declares
-		// a step-summary node (transparent opt-in; sty_9a139c78). The transition
-		// already committed, so a mandatory-summary failure is surfaced on the
-		// ledger (it records the gap, it does not revert the step).
-		if gatedAccepted && stepSummariser != nil {
-			result, serr := stepSummariser.Summarise(ctx, it, current.Status, *req.Status)
-			recordStepSummary(ctx, it, current.Status, *req.Status, result, serr, commitNow)
-		}
 	} else if !foldable(it) {
 		ledgerKind := ledger.KindStoryUpdated
 		if it.Kind == workitem.KindTask || it.Kind == workitem.KindExecution {
@@ -921,131 +903,6 @@ func runAfterTagCASGet(ctx context.Context, id, statusAtGet string) {
 	if afterTagCASGetHook != nil {
 		afterTagCASGetHook(ctx, id, statusAtGet)
 	}
-}
-
-// recordStepSummary writes the outcome of a step-summary run to the ledger, and on
-// success deposits the step-summary-<from>-<to> DOC the pull-context chain reads
-// (sty_47d31300). A failure records the gap only — an enacted transition is never
-// reverted for a best-effort recap. Shared by the post-transition summariser and
-// `satelle story resummarise` (sty_a1151fb0), so the write path is single-sourced.
-// When result carries a billable invocation (Command/TokensTotal set), an
-// agent_invocation row is also written so the summariser's own cost — a
-// documented gap (sty_a699ad14) — folds into `satelle story cost` (sty_b73c3236).
-func recordStepSummary(ctx context.Context, item workitem.Item, from, to string, result SummaryResult, serr error, now time.Time) {
-	switch {
-	case serr != nil:
-		appendLedgerEntry(ctx, item.ID, ledger.KindStepSummary, "reviewer",
-			"step summary failed: "+serr.Error(),
-			transitionPayload(from, to, ""), now)
-	case result.Text != "":
-		appendLedgerEntry(ctx, item.ID, ledger.KindStepSummary, "reviewer", result.Text,
-			transitionPayload(from, to, ""), now)
-		if result.Command != "" {
-			appendLedgerEntry(ctx, item.ID, ledger.KindAgentInvocation, "reviewer",
-				fmt.Sprintf("invoked summariser (%s) for %s→%s with @skill:%s", result.Command, from, to, result.Context),
-				summariserInvocationPayload(from, to, result), now)
-		}
-		if _, _, derr := writeAttachedDoc(ctx, item,
-			fmt.Sprintf("step-summary-%s-%s", from, to), "step-summary", result.Text, now); derr != nil {
-			appendLedgerEntry(ctx, item.ID, ledger.KindStepSummary, "reviewer",
-				"step summary doc deposit failed: "+derr.Error(),
-				transitionPayload(from, to, ""), now)
-		}
-	}
-}
-
-// stepSummaryDocExists reports whether the step-summary-<from>-<to> doc is present
-// on disk — the pull-context artifact, distinct from the ledger row (a killed run
-// writes a "failed" row but NO doc).
-func stepSummaryDocExists(item workitem.Item, from, to string) bool {
-	dir := attachmentDir(item)
-	if dir == "" {
-		return false
-	}
-	file := safeName(fmt.Sprintf("step-summary-%s-%s", from, to))
-	_, err := os.Stat(filepath.Join(dir, file))
-	return err == nil
-}
-
-// surfaceMissingSummaries records a NON-BLOCKING warning when a story reaches done
-// with a step-summary that was attempted (a KindStepSummary ledger row exists for the
-// edge) but whose DOC is absent — a hole in the pull-context chain (sty_a1151fb0).
-// Each gap names its edge and the exact remediation that re-runs just that summary.
-func surfaceMissingSummaries(ctx context.Context, item workitem.Item, now time.Time) {
-	ls, err := requireLedger()
-	if err != nil {
-		return
-	}
-	entries, err := ls.ListByStory(ctx, item.ID, ledger.KindStepSummary)
-	if err != nil {
-		return
-	}
-	seen := map[string]bool{}
-	var gaps [][2]string
-	for _, e := range entries {
-		var p struct {
-			From string `json:"from"`
-			To   string `json:"to"`
-		}
-		if json.Unmarshal(e.Payload, &p) != nil || p.From == "" || p.To == "" {
-			continue
-		}
-		key := p.From + "\x00" + p.To
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		if !stepSummaryDocExists(item, p.From, p.To) {
-			gaps = append(gaps, [2]string{p.From, p.To})
-		}
-	}
-	if len(gaps) == 0 {
-		return
-	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%s reached done with %d missing step-summary doc(s) — the pull-context chain is holed. Re-run each:", item.ID, len(gaps)))
-	for _, g := range gaps {
-		b.WriteString(fmt.Sprintf("\n  satelle story resummarise %s --from %s --to %s", item.ID, g[0], g[1]))
-	}
-	appendLedgerEntry(ctx, item.ID, ledger.KindStepSummary, "executor", b.String(), nil, now)
-}
-
-// storyResummarise re-runs the step summariser for exactly one edge and records the
-// result (the remediation surfaceMissingSummaries names). It closes a hole left by a
-// transient summariser kill without re-driving the whole transition (sty_a1151fb0).
-func storyResummarise(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if stepSummariser == nil {
-		return nil, fmt.Errorf("verb: no step summariser is wired")
-	}
-	store, err := requireWorkItem()
-	if err != nil {
-		return nil, err
-	}
-	var req struct {
-		ID   string `json:"id"`
-		From string `json:"from"`
-		To   string `json:"to"`
-	}
-	if err := decode(raw, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" || req.From == "" || req.To == "" {
-		return nil, fmt.Errorf("verb: resummarise requires id, --from, and --to")
-	}
-	it, err := store.Get(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	result, serr := stepSummariser.Summarise(ctx, it, req.From, req.To)
-	now := time.Now()
-	recordStepSummary(ctx, it, req.From, req.To, result, serr, now)
-	if serr != nil {
-		return nil, fmt.Errorf("resummarise %s→%s failed: %w", req.From, req.To, serr)
-	}
-	if result.Text == "" {
-		return nil, fmt.Errorf("resummarise %s→%s produced no summary (the workflow may not declare a step-summary node)", req.From, req.To)
-	}
-	return json.Marshal(map[string]any{"story_id": it.ID, "from": req.From, "to": req.To, "resummarised": true})
 }
 
 // applyTagMutation applies remove then add against existing tags (sty_033d4611).
@@ -1744,58 +1601,6 @@ func invocationPayload(from, to, attempt string, rv ReviewerVerdict) json.RawMes
 		ToolIsolation: rv.ToolIsolation,
 		BundleID:      rv.BundleID, BundleSkills: rv.BundleSkills,
 		Seat: rv.Seat, Outcome: rv.Outcome}
-	b, err := json.Marshal(p)
-	if err != nil {
-		return nil
-	}
-	return b
-}
-
-// summariserInvocationPayload stamps the step summariser's OWN agent_invocation
-// row — the same shape invocationPayload uses for a reviewer verdict, so the
-// summariser's token/wall-time cost rolls into `satelle story cost` identically
-// (closing the documented gap, sty_a699ad14 / sty_b73c3236).
-func summariserInvocationPayload(from, to string, result SummaryResult) json.RawMessage {
-	p := struct {
-		From           string       `json:"from"`
-		To             string       `json:"to"`
-		Agent          string       `json:"agent"`
-		Skill          string       `json:"skill,omitempty"`
-		Command        string       `json:"command,omitempty"`
-		Context        string       `json:"context,omitempty"`
-		Model          string       `json:"model,omitempty"`
-		ModelResolved  string       `json:"model_resolved,omitempty"`
-		ModelSource    string       `json:"model_source,omitempty"`
-		Models         []ModelUsage `json:"model_usage,omitempty"`
-		TokensIn       int          `json:"tokens_in,omitempty"`
-		TokensOut      int          `json:"tokens_out,omitempty"`
-		TokensTotal    int          `json:"tokens_total,omitempty"`
-		DurationMs     int64        `json:"duration_ms,omitempty"`
-		UsageAvailable bool         `json:"usage_available"` // unconditional — tri-state (sty_56aae77a)
-		// TokensInFresh/TokensCacheWrite/TokensCacheRead split TokensIn (sty_363eaf55).
-		TokensInFresh    int `json:"tokens_in_fresh,omitempty"`
-		TokensCacheWrite int `json:"tokens_cache_write,omitempty"`
-		TokensCacheRead  int `json:"tokens_cache_read,omitempty"`
-		UsageNote
-		CostUSD               *float64 `json:"cost_usd,omitempty"`
-		CostUnavailableReason string   `json:"cost_unavailable_reason,omitempty"`
-		// SystemPromptBytes/PayloadBytes: byte lengths satelle sent, never content.
-		SystemPromptBytes int `json:"system_prompt_bytes,omitempty"`
-		PayloadBytes      int `json:"payload_bytes,omitempty"`
-		// ToolIsolation: offered tool count/source and the adapter limitation
-		// (sty_ef3efb51).
-		ToolIsolation
-		// StepSummary marks this as the summariser's row, not a gate seat's, so
-		// the review-rounds view does not count it as a presentation.
-		StepSummary bool `json:"step_summary"`
-	}{From: from, To: to, StepSummary: true, Agent: "reviewer", Skill: result.Context, Command: result.Command, Context: result.Context, Model: result.Model,
-		ModelResolved: result.ModelResolved, ModelSource: result.ModelSource, Models: result.Models,
-		TokensIn: result.TokensIn, TokensOut: result.TokensOut, TokensTotal: result.TokensTotal, DurationMs: result.DurationMs,
-		UsageAvailable: result.UsageAvailable,
-		TokensInFresh:  result.TokensInFresh, TokensCacheWrite: result.TokensCacheWrite, TokensCacheRead: result.TokensCacheRead, UsageNote: result.UsageNote,
-		CostUSD: result.CostUSD, CostUnavailableReason: result.CostUnavailableReason,
-		SystemPromptBytes: result.SystemPromptBytes, PayloadBytes: result.PayloadBytes,
-		ToolIsolation: result.ToolIsolation}
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil

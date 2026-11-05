@@ -46,8 +46,6 @@ var wiringVars = []wiringVar{
 	{"amendReviewer", &amendReviewer},
 	{"workflowResolver", &workflowResolver},
 	{"executorDispatcher", &executorDispatcher},
-	{"retrospector", &retrospector},
-	{"stepSummariser", &stepSummariser},
 	{"afterTagCASGetHook", &afterTagCASGetHook},
 	// Seams with a non-zero production default: restore puts the prior value
 	// back, never nil, so the default survives.

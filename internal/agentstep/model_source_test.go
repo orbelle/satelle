@@ -690,26 +690,6 @@ func TestGate_InheritedInLoopModelSource(t *testing.T) {
 	}
 }
 
-// TestSummarise_CreatorModelSource pins the summariser path: the step-summary
-// binding (default [reviewer], no model=, a {model} slot) resolves the
-// story-creating session's model when neither orchestrator nor in-loop is
-// known, and the source rides on the SummaryResult.
-func TestSummarise_CreatorModelSource(t *testing.T) {
-	docs := fakeDocs{workflow: summaryWorkflow, skillBody: "summarise rubric", skillFound: true}
-	g, _ := newEngine(t, "the step recap", docs)
-	g.SetReviewerBinding(config.AgentBinding{Command: "fake --model {model}", Tools: "Read,Grep,Glob"})
-	g.SetSessionModelsResolver(func(context.Context, string) (inLoop, creator config.SessionModel) {
-		return config.SessionModel{}, config.SessionModel{Model: "claude-haiku-4-5", Executable: "fake"}
-	})
-	got, err := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Model != "claude-haiku-4-5" || got.ModelSource != config.ModelSourceCreator {
-		t.Fatalf("got = model=%q source=%q, want claude-haiku-4-5/creator", got.Model, got.ModelSource)
-	}
-}
-
 // TestOpenSessionAsWithModelRecordsLiveInvocationRows pins 4.2: a live
 // session ledgers its own open (model_resolved=unavailable — nothing has run
 // yet) and close (model_resolved from the session's last EventUsage) as real

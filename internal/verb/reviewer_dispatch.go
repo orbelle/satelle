@@ -76,7 +76,7 @@ func dispatchesOnStatusChange(req json.RawMessage) bool {
 	if !requestsStatus(req) {
 		return false
 	}
-	return transitionGater != nil || executorDispatcher != nil || stepSummariser != nil
+	return transitionGater != nil || executorDispatcher != nil
 }
 
 // requestsDefinitionEdit reports whether a set request names a definition field.
@@ -99,9 +99,3 @@ func dispatchesOnGatedCreate(json.RawMessage) bool { return createReviewer != ni
 
 // dispatchesOnAmend is story-amend's predicate: an amendment is always judged.
 func dispatchesOnAmend(json.RawMessage) bool { return amendReviewer != nil }
-
-// dispatchesOnResummarise is story-resummarise's predicate.
-func dispatchesOnResummarise(json.RawMessage) bool { return stepSummariser != nil }
-
-// dispatchesOnRetrospect is story-retrospect's predicate.
-func dispatchesOnRetrospect(json.RawMessage) bool { return retrospector != nil }

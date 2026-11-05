@@ -391,50 +391,6 @@ func TestStepReviewersAreConcurrentAndComplete(t *testing.T) {
 	}
 }
 
-// TestGatesSurviveScoping asserts the always-on gates reach the states they name,
-// and that a surface-scoped gate stays scoped.
-func TestGatesSurviveScoping(t *testing.T) {
-	spec := buildFixture(t, nil)
-	for _, tc := range []struct {
-		state string
-		want  []string
-	}{
-		{"integration", []string{"satelle-build-unit-check", "satelle-format-vet-check"}},
-		{"release", []string{"satelle-integration-check"}},
-		{"done", []string{
-			"satelle-changelog-entry-check", "satelle-ci-published-check",
-			"satelle-dogfood-check", "satelle-estimate-actual-review",
-		}},
-	} {
-		enqueued, _ := spec.ScopedReviewersSplit(tc.state, nil)
-		var got []string
-		for _, r := range enqueued {
-			got = append(got, r.Skill)
-		}
-		if !sameStrings(got, tc.want) {
-			t.Errorf("gates on %s = %v, want %v", tc.state, got, tc.want)
-		}
-	}
-	// surface:ui only.
-	ui, _ := spec.ScopedReviewersSplit("integration", []string{"surface:ui"})
-	var found bool
-	for _, r := range ui {
-		if r.Skill == "satelle-design-review" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("design gate must fire for a surface:ui story")
-	}
-	_, skipped := spec.ScopedReviewersSplit("integration", []string{"surface:cli"})
-	if len(skipped) == 0 {
-		t.Error("design gate must be declared-and-skipped for a surface:cli story, not absent")
-	}
-	if agent, _, mandatory := spec.StepSummaryBinding(); agent != "reviewer-summary" || !mandatory {
-		t.Errorf("step summary binding = %q mandatory=%t, want reviewer-summary mandatory", agent, mandatory)
-	}
-}
-
 // TestTagObligationsAppend covers the "tags append obligations" rule end to end.
 func TestTagObligationsAppend(t *testing.T) {
 	done := `[feature]

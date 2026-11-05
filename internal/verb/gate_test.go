@@ -3,8 +3,6 @@ package verb_test
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -134,102 +132,6 @@ func TestStorySetUngatedTransitionEnacts(t *testing.T) {
 	}
 }
 
-func TestGatedTransitionRecordsStepSummary(t *testing.T) {
-	withWiring(t)
-	wire(t)
-	dir := filepath.Join(t.TempDir(), ".satelle", "stories")
-	verb.SetStoryDir(dir)
-	verb.SetTransitionGater(stubGater{dec: verb.GateDecision{Gated: true, Accept: true, Skill: "satelle-story-done-review"}})
-	sum := &summariserStub{out: "Moved to done after the criteria were met."}
-	verb.SetStepSummariser(sum)
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x", "status": "in_progress"}), &it)
-	call(t, "story-set", map[string]any{"id": it.ID, "status": "done"})
-
-	if sum.calls != 1 {
-		t.Fatalf("summariser ran %d times, want 1 (after the gated transition)", sum.calls)
-	}
-	var entries []ledger.Entry
-	json.Unmarshal(call(t, "ledger-list", map[string]any{"story_id": it.ID, "kind": ledger.KindStepSummary}), &entries)
-	if len(entries) != 1 || entries[0].Body != sum.out {
-		t.Fatalf("expected one step_summary row with the prose, got %+v", entries)
-	}
-	// The summary is ALSO deposited as an attached step-summary doc, so a later
-	// dispatched agent can PULL it via story docs/doc (the pull-context contract,
-	// sty_47d31300).
-	b, err := os.ReadFile(filepath.Join(dir, it.ID, "step-summary-in_progress-done.md"))
-	if err != nil {
-		t.Fatalf("step-summary doc not deposited: %v", err)
-	}
-	if !strings.Contains(string(b), sum.out) || !strings.Contains(string(b), "type: step-summary") {
-		t.Errorf("step-summary doc missing prose or type frontmatter:\n%s", b)
-	}
-}
-
-func TestPullContextChainResolvesPriorSummaries(t *testing.T) {
-	withWiring(t)
-	// AC4/AC5 (sty_47d31300): the pull-context contract rests on the mandatory
-	// step-summary chain. After two gated transitions, a dispatched agent can
-	// reconstruct context via the SAME verbs the CLI pull commands dispatch to —
-	// story-get (record), story-doc-list + story-doc-get (prior step summaries),
-	// ledger-list (the step_summary rows).
-	wire(t)
-	dir := filepath.Join(t.TempDir(), ".satelle", "stories")
-	verb.SetStoryDir(dir)
-	verb.SetTransitionGater(stubGater{dec: verb.GateDecision{Gated: true, Accept: true, Skill: "s"}})
-	verb.SetStepSummariser(edgeSummariser{})
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x", "status": "backlog"}), &it)
-	call(t, "story-set", map[string]any{"id": it.ID, "status": "in_progress"})
-	call(t, "story-set", map[string]any{"id": it.ID, "status": "done"})
-
-	// story-get resolves the record by id.
-	var got workitem.Item
-	json.Unmarshal(call(t, "story-get", map[string]any{"id": it.ID}), &got)
-	if got.ID != it.ID {
-		t.Fatalf("story-get: want %s, got %s", it.ID, got.ID)
-	}
-
-	// story-doc-list lists BOTH step-summary docs.
-	type docRef struct {
-		Name, Type, Body string
-	}
-	var docs []docRef
-	json.Unmarshal(call(t, "story-doc-list", map[string]any{"story_id": it.ID}), &docs)
-	want := map[string]bool{"step-summary-backlog-in_progress": false, "step-summary-in_progress-done": false}
-	for _, d := range docs {
-		if _, ok := want[d.Name]; ok {
-			want[d.Name] = true
-			if d.Type != "step-summary" {
-				t.Errorf("doc %s type = %q, want step-summary", d.Name, d.Type)
-			}
-		}
-	}
-	for name, seen := range want {
-		if !seen {
-			t.Errorf("story-doc-list missing prior step summary %q", name)
-		}
-	}
-
-	// story-doc-get returns each summary body.
-	for edge, tofrom := range map[string]string{"step-summary-backlog-in_progress": "backlog → in_progress", "step-summary-in_progress-done": "in_progress → done"} {
-		var d docRef
-		json.Unmarshal(call(t, "story-doc-get", map[string]any{"story_id": it.ID, "name": edge}), &d)
-		if !strings.Contains(d.Body, "summary of "+tofrom) {
-			t.Errorf("story-doc-get %s body missing the edge summary:\n%s", edge, d.Body)
-		}
-	}
-
-	// ledger-list filtered to step_summary returns both rows.
-	var entries []ledger.Entry
-	json.Unmarshal(call(t, "ledger-list", map[string]any{"story_id": it.ID, "kind": ledger.KindStepSummary}), &entries)
-	if len(entries) != 2 {
-		t.Fatalf("want 2 step_summary ledger rows (one per gated transition), got %d", len(entries))
-	}
-}
-
 func TestGatedTransitionRecordsAgentInvocation(t *testing.T) {
 	withWiring(t)
 	wire(t)
@@ -329,24 +231,6 @@ func TestFunctionalCheckRecordsNoInvocation(t *testing.T) {
 	json.Unmarshal(call(t, "ledger-list", map[string]any{"story_id": it.ID, "kind": ledger.KindAgentInvocation}), &entries)
 	if len(entries) != 0 {
 		t.Errorf("functional check should record no agent_invocation, got %d", len(entries))
-	}
-}
-
-func TestUngatedTransitionSkipsSummariser(t *testing.T) {
-	withWiring(t)
-	wire(t)
-	// No transition gater → ungated edge → summariser must not run.
-	sum := &summariserStub{out: "should not run"}
-	verb.SetStepSummariser(sum)
-
-	var it workitem.Item
-	// DOT-legal statuses (sty_ebd3d666).
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "x"}), &it)
-	call(t, "story-set", map[string]any{"id": it.ID, "status": "in_progress"})
-	call(t, "story-set", map[string]any{"id": it.ID, "status": "done"})
-
-	if sum.calls != 0 {
-		t.Errorf("summariser ran on an ungated transition (%d calls)", sum.calls)
 	}
 }
 

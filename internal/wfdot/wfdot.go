@@ -17,19 +17,6 @@ import (
 	"strings"
 )
 
-// DefaultDoneGate is satelle's conventional close gate. It is no longer MANDATED
-// by Validate (sty_9a139c78): the done gate is whatever the route's terminal
-// step declares, transparently — a route may name it, name another, or omit it
-// entirely ("if the user breaks the process, so be it"). The name remains the
-// convention init seeds and the docs reference.
-const DefaultDoneGate = "satelle-story-done-review"
-
-// StepSummarySkill is the conventional step-review/summary skill. A route opts
-// into per-transition step summaries by declaring a `## gate` section for it
-// (transparently, in step.toml), optionally marked `mandatory: true`. There is no
-// hidden always-on summariser — the route declares it (sty_9a139c78).
-const StepSummarySkill = "satelle-step-summary"
-
 // Validate checks a parsed workflow Spec for structural soundness, returning
 // human-readable problems (empty = valid):
 //   - at least one state;
@@ -411,28 +398,6 @@ func (s Spec) ObligationStep(obligation string) (State, bool) {
 	return State{}, false
 }
 
-// StepSummary reports whether the workflow declares a step-summary node (a node
-// whose gate skill is StepSummarySkill) and whether it is marked mandatory. The
-// summariser runs only when declared — there is no hidden always-on summariser
-// (sty_9a139c78).
-func (s Spec) StepSummary() (declared, mandatory bool) {
-	_, d, m := s.StepSummaryBinding()
-	return d, m
-}
-
-// StepSummaryBinding is StepSummary plus the agents.toml section named on the
-// step node (agent=<name>). Empty agent means the default [reviewer] binding.
-// Named role=reviewer bindings are supported so high-frequency step recaps can
-// use a cheap summariser without burning the deep judgment model.
-func (s Spec) StepSummaryBinding() (agent string, declared, mandatory bool) {
-	for _, st := range s.States {
-		if st.Skill == StepSummarySkill {
-			return st.Agent, true, st.Mandatory
-		}
-	}
-	return "", false, false
-}
-
 // ScopedReviewer is one edge-less always-on gate: its skill and optional gate
 // binding section name (agent=<name>). Agent empty means [reviewer] (sty_a476a2f8).
 type ScopedReviewer struct {
@@ -477,9 +442,6 @@ func (s Spec) ScopedReviewersSplit(toStatus string, tags []string) (enqueued, sk
 		switch st.Agent {
 		case "executor", "planner", "coder":
 			continue // performer / augmentation, not a gate
-		}
-		if st.Skill == StepSummarySkill {
-			continue
 		}
 		if !(containsStr(st.On, "*") || containsStr(st.On, toStatus)) {
 			continue
@@ -576,9 +538,6 @@ func (s Spec) doneReachable() map[string]bool {
 // (sty_8ee40f94). Known performer tokens match agentvalidate's scoped-gate skip
 // list: executor, planner, coder.
 func (st State) IsPerforming() bool {
-	if st.IsSummariser() {
-		return false
-	}
 	if st.Agent == "" || st.Agent == "reviewer" {
 		return false
 	}
@@ -593,14 +552,6 @@ func (st State) IsPerforming() bool {
 		}
 	}
 	return true
-}
-
-// IsSummariser reports whether this is the edge-less step-summary declaration —
-// a post-transition narrator, never a lifecycle status, whatever binding its
-// agent= allocates. Keyed on skill (wfdot.StepSummarySkill), not a binding name,
-// so repo-authored cheap summarisers stay repo-agnostic (sty_8ee40f94).
-func (st State) IsSummariser() bool {
-	return st.Skill == StepSummarySkill
 }
 
 // IsAugmentation reports whether this is an edge-less executor augmentation node
@@ -726,11 +677,6 @@ func (s Spec) isEngaging(st State) bool {
 	}
 	// Reviewer role: not engaged (cancel sinks, park/resume nodes, edge-less gates).
 	if st.Agent == "reviewer" {
-		return false
-	}
-	// Step-summary declaration: narrator only, never an in-flight status
-	// (even when agent= names a non-literal reviewer binding — sty_8ee40f94).
-	if st.IsSummariser() {
 		return false
 	}
 	// Scoped named judges (on= + skill, agent not a performer token) are gates,

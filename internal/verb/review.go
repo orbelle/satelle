@@ -665,29 +665,6 @@ var executorDispatcher ExecutorDispatcher
 // SetExecutorDispatcher wires the named-agent dispatch. Pass nil to disable.
 func SetExecutorDispatcher(d ExecutorDispatcher) { executorDispatcher = d }
 
-// Retrospector dispatches the retrospective agent over a finished story to emit
-// improvement proposals (sty_b53730e2). Implemented in internal/agentstep; verb
-// holds only the seam.
-type Retrospector interface {
-	Retrospect(ctx context.Context, item workitem.Item, spec RetrospectSpec) (DispatchResult, error)
-}
-
-// RetrospectSpec is what `story retrospect` asks the dispatcher to run. Agent and
-// Skill come from the advise declaration on the item's route (wfroute.AdvisorsFrom)
-// — the verb holds the route, the dispatcher only runs what it is handed — and
-// either left empty falls back to the dispatcher's built-in retrospective.
-// Model is `story retrospect --model` (sty_7069bced).
-type RetrospectSpec struct {
-	Agent string
-	Skill string
-	Model string
-}
-
-var retrospector Retrospector
-
-// SetRetrospector wires the retrospective dispatcher. Pass nil to disable.
-func SetRetrospector(r Retrospector) { retrospector = r }
-
 // SummaryResult is the step summariser's read-only recap plus the cost of the
 // isolated agent invocation that produced it (sty_a699ad14): Command/Context/
 // Model/tokens/duration mirror a reviewer's ReviewerVerdict so the same
@@ -722,22 +699,6 @@ type SummaryResult struct {
 	// ToolIsolation is what the summariser's harness offered (sty_ef3efb51).
 	ToolIsolation
 }
-
-// StepSummariser produces a read-only prose recap of an enacted transition,
-// recorded as a step_summary ledger row. Implemented in internal/agentstep.
-type StepSummariser interface {
-	Summarise(ctx context.Context, item workitem.Item, from, to string) (SummaryResult, error)
-	// MandatorySummary reports whether item's active workflow declares a MANDATORY
-	// step-summary node — the gate for surfacing a missing-summary gap at done
-	// (sty_a1151fb0).
-	MandatorySummary(ctx context.Context, item workitem.Item) bool
-}
-
-// stepSummariser runs after a gated transition is enacted. Nil disables it.
-var stepSummariser StepSummariser
-
-// SetStepSummariser wires the per-transition summariser. Pass nil to disable.
-func SetStepSummariser(s StepSummariser) { stepSummariser = s }
 
 // FindingProgress is the fact of how a re-presented performer's output stands
 // against the blocking findings it was offered (sty_73224b86): Offered lists

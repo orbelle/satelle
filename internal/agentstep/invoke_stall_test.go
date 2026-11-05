@@ -13,7 +13,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -108,44 +107,6 @@ func TestProgressingAgentNotKilled(t *testing.T) {
 	}
 	if r.events == 0 {
 		t.Fatal("fake agent never got to emit an event — test is not exercising the watchdog")
-	}
-}
-
-// TestRetrospectHonorsNoImplicitCheckTimeoutCap (AC1, integration round-2 fix):
-// Retrospect used to pass g.checkTimeout (defaultCheckTimeout, a
-// functional-check bound out of this story's scope) as its hard ceiling, so a
-// progressing retrospective could be cut off at 20m even with no operator
-// timeout set. It must resolve its own bound the same way DispatchExecutor
-// does — binding.TimeoutDuration(g.agentTimeout) / g.idleTimeoutFor — so a
-// small g.checkTimeout never reaches it.
-//
-// time-subject: the check timeout (50ms) and the idle window (500ms) are the
-// subject. Slowness cannot fail it: a slower run only stretches the 200ms runner
-// further past the 50ms bound it must ignore, and 500ms idle is wide against 20ms events.
-func TestRetrospectHonorsNoImplicitCheckTimeoutCap(t *testing.T) {
-	r := &progressingRunner{interval: 20 * time.Millisecond, duration: 200 * time.Millisecond, out: "DONE"}
-	g := New(r, fakeDocs{}, "/repo", "")
-	g.newRunner = func(string, string) (agentcli.Runner, error) { return r, nil }
-	g.checkTimeout = 50 * time.Millisecond // functional-check bound — must NOT reach the retrospective
-	g.agentTimeout = 0                     // no hard ceiling configured
-	g.idleTimeout = 500 * time.Millisecond // wide enough that the progressing runner never idles out
-	g.SetNamedAgents(func(name string) (config.AgentBinding, bool) {
-		if name != retrospectAgent {
-			return config.AgentBinding{}, false
-		}
-		return config.AgentBinding{Command: "claude", Tools: "Bash(satelle:*)", Principles: config.PrinciplesNone}, true
-	})
-
-	start := time.Now()
-	res, err := g.Retrospect(context.Background(), workitem.Item{ID: "sty_1", Status: "done"}, verb.RetrospectSpec{})
-	if err != nil {
-		t.Fatalf("Retrospect must not be cut by g.checkTimeout: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed < r.duration {
-		t.Errorf("Retrospect returned before the fake agent finished: elapsed %v, want >= %v", elapsed, r.duration)
-	}
-	if !res.Dispatched {
-		t.Fatal("res.Dispatched = false, want true")
 	}
 }
 

@@ -305,17 +305,12 @@ func openAppForCmd(cmd *cobra.Command) error {
 				return agentsCfg.ResolveBusyTimeout(b, config.DefaultBusyTimeout)
 			})
 			verb.SetExecutorDispatcher(rev)
-			// The retrospective dispatcher (sty_b53730e2): `satelle story retrospect`
-			// runs the [retrospective] agent over a finished story to file proposals.
-			verb.SetRetrospector(rev)
 			// The amendment gate (sty_81aa4d8f): `satelle story amend` runs the
 			// skill the workflow's amend_review hook declares. Always wired — a repo
 			// that declares no such hook still refuses the amendment (the engine
 			// returns ungated and the verb treats an unjudged amendment as refused),
 			// so wiring it never lifts a freeze on its own.
 			verb.SetAmendReviewer(rev)
-			// The summariser recaps gated transitions; inert until gating is active.
-			verb.SetStepSummariser(rev)
 			// Create-gating is opt-in per repo (satelle.toml [review] gate_create):
 			// the rubric ships embedded, but enforcing it is the operator's choice.
 			// Always set (or clear) so a prior command that left the package-global
