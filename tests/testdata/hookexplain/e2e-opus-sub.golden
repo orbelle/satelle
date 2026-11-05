@@ -1,7 +1,0 @@
-transcript: $SESS/session/subagents/agent-1.jsonl
-key:        tool_use_id
-model:      claude-opus-4-6
-matched:    (none)
-exempt:     (none)
-decision:   allow
-reason:     caller model does not match no_implement_models

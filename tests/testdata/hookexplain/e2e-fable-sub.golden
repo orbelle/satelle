@@ -1,7 +1,0 @@
-transcript: $SESS/session/subagents/agent-1.jsonl
-key:        tool_use_id
-model:      claude-fable-5
-matched:    claude-fable*
-exempt:     (none)
-decision:   deny
-reason:     configured deny text
