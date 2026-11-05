@@ -64,8 +64,6 @@ type Result struct {
 	PR       PR
 	// CriteriaHash is the hash of the criteria the review was judged against.
 	CriteriaHash string
-	// Stories are the story ids a release PR's body lists.
-	Stories []string
 	// Review is the approving review, on accept; on a self-authored PR, the
 	// COMMENT review that stands in for it.
 	Review Review
@@ -82,16 +80,13 @@ func (r Result) Record() string {
 	if r.CriteriaHash != "" {
 		fmt.Fprintf(&b, "Criteria: %s\n", r.CriteriaHash)
 	}
-	if len(r.Stories) > 0 {
-		fmt.Fprintf(&b, "Stories: %s\n", strings.Join(r.Stories, " "))
-	}
 	if r.Review.ID != 0 {
 		fmt.Fprintf(&b, "Review: %d by %s on %s\n", r.Review.ID, r.Review.Author, r.Review.CommitID)
 	}
 	return strings.TrimSpace(b.String())
 }
 
-// runner is an approval RunApproval runs: an Approval or a ReleaseApproval.
+// runner is an approval RunApproval runs: an Approval.
 type runner interface {
 	run(ctx context.Context) Result
 }

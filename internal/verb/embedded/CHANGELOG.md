@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Removed
+- `satelle pr approve --release` is removed. A batch release PR's acceptance rules belong to the release step that opens it (authored substrate, run with `gh`), not to the binary: `pr approve` now takes `--story` only, and `--story` is required. `internal/forge` no longer carries the release approval or the forge reads only it used (commit statuses, comparisons, commit files, a PR's base commit). (sty_fb81fa6e)
+- `[forge] release_heads` and `[forge] release_files` are no longer read, and no `.version` or changelog path is compiled in as a release rule. A `satelle.toml` that still sets them loads; the keys are ignored. satelle-remotes' cicd-next was handed the rules for its own release step (sty_fb81fa6e, supersedes sty_b4fb38da).
+
 ## [0.0.895] - 2026-11-05
 
 ### Fixed

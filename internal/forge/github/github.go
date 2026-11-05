@@ -72,13 +72,10 @@ type pull struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
 	} `json:"head"`
-	Base struct {
-		SHA string `json:"sha"`
-	} `json:"base"`
 }
 
 func (p pull) pr(repo string) forge.PR {
-	return forge.PR{Repo: repo, Number: p.Number, HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseSHA: p.Base.SHA, Body: p.Body, URL: p.HTMLURL}
+	return forge.PR{Repo: repo, Number: p.Number, HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, Body: p.Body, URL: p.HTMLURL}
 }
 
 // PullRequestForHead lists the open PRs whose head is owner:head.
@@ -177,99 +174,8 @@ func (c *Client) SetStatus(ctx context.Context, repo, sha string, s forge.Status
 	return c.do(ctx, http.MethodPost, "/repos/"+repo+"/statuses/"+sha, "", in, nil)
 }
 
-// CommitStatuses reads commit sha's combined status: the latest status of each
-// context.
-func (c *Client) CommitStatuses(ctx context.Context, repo, sha string) ([]forge.Status, error) {
-	var out struct {
-		Statuses []struct {
-			Context     string `json:"context"`
-			State       string `json:"state"`
-			Description string `json:"description"`
-		} `json:"statuses"`
-	}
-	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+sha+"/status?per_page=100", "", nil, &out); err != nil {
-		return nil, err
-	}
-	st := make([]forge.Status, len(out.Statuses))
-	for i, s := range out.Statuses {
-		st[i] = forge.Status{Context: s.Context, State: s.State, Description: s.Description}
-	}
-	return st, nil
-}
-
-// Compare reads the comparison of head with base. GitHub lists at most
-// filesCap files and fewer commits than total_commits when the range is large;
-// either is reported as Truncated.
-func (c *Client) Compare(ctx context.Context, repo, base, head string) (forge.Comparison, error) {
-	var out struct {
-		Status       string       `json:"status"`
-		TotalCommits int          `json:"total_commits"`
-		Commits      []commitJSON `json:"commits"`
-		Files        []fileJSON   `json:"files"`
-	}
-	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/compare/"+base+"..."+head, "", nil, &out); err != nil {
-		return forge.Comparison{}, err
-	}
-	cmp := forge.Comparison{Status: out.Status, Files: paths(out.Files),
-		Truncated: out.TotalCommits > len(out.Commits) || len(out.Files) >= filesCap}
-	for _, cm := range out.Commits {
-		cmp.Commits = append(cmp.Commits, cm.commit())
-	}
-	return cmp, nil
-}
-
-// CommitFiles reads the files commit sha changes against its first parent.
-func (c *Client) CommitFiles(ctx context.Context, repo, sha string) ([]string, bool, error) {
-	var out struct {
-		Files []fileJSON `json:"files"`
-	}
-	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+sha, "", nil, &out); err != nil {
-		return nil, false, err
-	}
-	return paths(out.Files), len(out.Files) >= filesCap, nil
-}
-
-const (
-	// filesCap is the most files GitHub lists for one commit or comparison
-	// answer; a list that long may have been cut.
-	filesCap = 300
-	// descriptionCap is the longest commit status description GitHub accepts.
-	descriptionCap = 140
-)
-
-// commitJSON is the part of a commit the provider reads.
-type commitJSON struct {
-	SHA     string `json:"sha"`
-	Parents []struct {
-		SHA string `json:"sha"`
-	} `json:"parents"`
-}
-
-func (c commitJSON) commit() forge.Commit {
-	cm := forge.Commit{SHA: c.SHA}
-	for _, p := range c.Parents {
-		cm.Parents = append(cm.Parents, p.SHA)
-	}
-	return cm
-}
-
-// fileJSON is a changed file; a rename carries its old name too.
-type fileJSON struct {
-	Filename         string `json:"filename"`
-	PreviousFilename string `json:"previous_filename"`
-}
-
-// paths are the files' names, a rename's old name beside its new one.
-func paths(files []fileJSON) []string {
-	var out []string
-	for _, f := range files {
-		out = append(out, f.Filename)
-		if f.PreviousFilename != "" && f.PreviousFilename != f.Filename {
-			out = append(out, f.PreviousFilename)
-		}
-	}
-	return out
-}
+// descriptionCap is the longest commit status description GitHub accepts.
+const descriptionCap = 140
 
 // cut is s at most n runes long.
 func cut(s string, n int) string {

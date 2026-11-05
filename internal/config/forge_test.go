@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -31,34 +33,31 @@ func TestForgePRHeadsResolve(t *testing.T) {
 	}
 }
 
-// [forge] release_heads and release_files override the release PR's head
-// prefixes and the paths it may change; unset or blank is release/ and the
-// version stamp with the changelogs.
-func TestForgeReleaseKeysResolve(t *testing.T) {
-	for _, tc := range []struct {
-		name, toml   string
-		heads, files []string
-	}{
-		{"unset", "[forge]\n", []string{"release/"}, []string{".version", "CHANGELOG.md", "internal/verb/embedded/CHANGELOG.md"}},
-		{"set", "[forge]\nrelease_heads = [\" rel/ \", \"\"]\nrelease_files = [\"VERSION\", \"docs/*.md\"]\n", []string{"rel/"}, []string{"VERSION", "docs/*.md"}},
-		{"all blank", "[forge]\nrelease_heads = [\" \"]\nrelease_files = [\"\"]\n", []string{"release/"}, []string{".version", "CHANGELOG.md", "internal/verb/embedded/CHANGELOG.md"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var c Config
-			if _, err := toml.Decode(tc.toml, &c); err != nil {
-				t.Fatal(err)
-			}
-			if got := c.Forge.ResolvedReleaseHeads(); !reflect.DeepEqual(got, tc.heads) {
-				t.Errorf("ResolvedReleaseHeads = %q, want %q", got, tc.heads)
-			}
-			if got := c.Forge.ResolvedReleaseFiles(); !reflect.DeepEqual(got, tc.files) {
-				t.Errorf("ResolvedReleaseFiles = %q, want %q", got, tc.files)
-			}
-		})
-	}
+// A config that still sets the retired [forge] release_heads and release_files
+// loads: the keys are ignored and the rest of [forge] resolves as before.
+func TestForgeConfigIgnoresRetiredReleaseKeys(t *testing.T) {
+	const text = "[forge]\nprovider = \"github\"\nrelease_heads = [\"release/\"]\nrelease_files = [\".version\"]\n"
 	var c Config
-	c.Forge.ResolvedReleaseFiles()[0] = "mutated"
-	if DefaultForgeReleaseFiles[0] != ".version" {
-		t.Errorf("ResolvedReleaseFiles returned the default slice itself")
+	if _, err := toml.Decode(text, &c); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), ".satelle", "satelle.toml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load of a config with the retired release keys: %v", err)
+	}
+	for name, f := range map[string]ForgeConfig{"decoded": c.Forge, "loaded": loaded.Forge} {
+		if got := f.ResolvedProvider(); got != "github" {
+			t.Errorf("%s: ResolvedProvider = %q, want github", name, got)
+		}
+		if got := f.ResolvedPRHeads(); !reflect.DeepEqual(got, DefaultForgePRHeads) {
+			t.Errorf("%s: ResolvedPRHeads = %q, want %q", name, got, DefaultForgePRHeads)
+		}
 	}
 }

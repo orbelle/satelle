@@ -3,7 +3,6 @@ package github_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,55 +149,6 @@ func TestGitHubPRLookupRefusals(t *testing.T) {
 	var api *github.APIError
 	if _, err := f.PullRequestForHead(context.Background(), "acme/other", "epic/sty_x"); !errors.As(err, &api) || api.Status != 404 {
 		t.Errorf("unscoped repo: %v, want a 404 APIError", err)
-	}
-}
-
-// A release approval's reads: a PR's base commit, a commit's latest status per
-// context, a comparison's status, commits and files, and a commit's files, each
-// flagged truncated at GitHub's file cap.
-func TestGitHubReadsCommitsComparisonsAndStatuses(t *testing.T) {
-	gh := devtest.NewGitHub(t)
-	gh.Mint(token, repo)
-	base, story, merge := strings.Repeat("b", 40), strings.Repeat("c", 40), strings.Repeat("d", 40)
-	gh.AddCommit(repo, base, nil, "README.md")
-	gh.AddCommit(repo, story, []string{base}, "x.go")
-	gh.AddCommit(repo, merge, []string{base, story}, "x.go")
-	gh.AddPR(devtest.PR{Repo: repo, Number: 7, HeadRef: "release/1", HeadSHA: merge, BaseSHA: base})
-	gh.SeedStatus(repo, story, "satelle/pr-approval", forge.StatusPending)
-	gh.SeedStatus(repo, story, "satelle/pr-approval", forge.StatusSuccess)
-	f := open(t, gh)
-	ctx := context.Background()
-
-	if pr, err := f.PullRequest(ctx, repo, 7); err != nil || pr.BaseSHA != base {
-		t.Errorf("PullRequest = %+v, %v, want base %s", pr, err, base)
-	}
-	st, err := f.CommitStatuses(ctx, repo, story)
-	if err != nil || len(st) != 1 || st[0].Context != "satelle/pr-approval" || st[0].State != forge.StatusSuccess {
-		t.Errorf("CommitStatuses = %+v, %v, want the latest success", st, err)
-	}
-	c, err := f.Compare(ctx, repo, base, merge)
-	if err != nil || c.Status != forge.CompareAhead || c.Truncated || len(c.Commits) != 2 ||
-		c.Commits[1].SHA != merge || len(c.Commits[1].Parents) != 2 || c.Commits[1].Parents[1] != story || len(c.Files) != 1 || c.Files[0] != "x.go" {
-		t.Errorf("Compare(base, merge) = %+v, %v", c, err)
-	}
-	if c, err := f.Compare(ctx, repo, merge, story); err != nil || c.Status != forge.CompareBehind {
-		t.Errorf("Compare(merge, story) = %+v, %v, want behind", c, err)
-	}
-	if files, trunc, err := f.CommitFiles(ctx, repo, merge); err != nil || trunc || len(files) != 1 || files[0] != "x.go" {
-		t.Errorf("CommitFiles = %v, %v, %v", files, trunc, err)
-	}
-
-	many := make([]string, 300)
-	for i := range many {
-		many[i] = fmt.Sprintf("gen/f%03d.go", i)
-	}
-	big := strings.Repeat("e", 40)
-	gh.AddCommit(repo, big, []string{base}, many...)
-	if _, trunc, err := f.CommitFiles(ctx, repo, big); err != nil || !trunc {
-		t.Errorf("CommitFiles of 300 files: truncated %v, %v; want truncated", trunc, err)
-	}
-	if c, err := f.Compare(ctx, repo, base, big); err != nil || !c.Truncated {
-		t.Errorf("Compare over 300 files = truncated %v, %v; want truncated", c.Truncated, err)
 	}
 }
 

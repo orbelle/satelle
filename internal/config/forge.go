@@ -13,12 +13,6 @@ type ForgeConfig struct {
 	// PRHeads are the branch prefixes a story's PR is found on, each followed by
 	// the story id ("epic/", "feat/"). Empty is DefaultForgePRHeads.
 	PRHeads []string `toml:"pr_heads"`
-	// ReleaseHeads are the branch prefixes a batch release PR is opened from
-	// ("release/"). Empty is DefaultForgeReleaseHeads.
-	ReleaseHeads []string `toml:"release_heads"`
-	// ReleaseFiles are the path globs (path.Match) a release PR may change beyond
-	// the story PRs it merges. Empty is DefaultForgeReleaseFiles.
-	ReleaseFiles []string `toml:"release_files"`
 	// GitHub is the [forge.github] table.
 	GitHub ForgeGitHubConfig `toml:"github"`
 }
@@ -44,30 +38,9 @@ const (
 // story's PR on.
 var DefaultForgePRHeads = []string{"epic/", "feat/"}
 
-// DefaultForgeReleaseHeads are the branch prefixes an unset [forge]
-// release_heads finds a release PR on.
-var DefaultForgeReleaseHeads = []string{"release/"}
-
-// DefaultForgeReleaseFiles are the paths an unset [forge] release_files lets a
-// release PR change beyond its stories: the version stamp and the changelogs.
-var DefaultForgeReleaseFiles = []string{".version", "CHANGELOG.md", "internal/verb/embedded/CHANGELOG.md"}
-
 // ResolvedPRHeads are the branch prefixes a story's PR is found on: the
 // non-blank [forge] pr_heads entries, else DefaultForgePRHeads.
 func (f ForgeConfig) ResolvedPRHeads() []string { return nonBlank(f.PRHeads, DefaultForgePRHeads) }
-
-// ResolvedReleaseHeads are the branch prefixes a release PR is opened from: the
-// non-blank [forge] release_heads entries, else DefaultForgeReleaseHeads.
-func (f ForgeConfig) ResolvedReleaseHeads() []string {
-	return nonBlank(f.ReleaseHeads, DefaultForgeReleaseHeads)
-}
-
-// ResolvedReleaseFiles are the path globs a release PR may change beyond its
-// stories: the non-blank [forge] release_files entries, else
-// DefaultForgeReleaseFiles.
-func (f ForgeConfig) ResolvedReleaseFiles() []string {
-	return nonBlank(f.ReleaseFiles, DefaultForgeReleaseFiles)
-}
 
 // nonBlank is the trimmed non-blank entries of list, else a copy of def.
 func nonBlank(list, def []string) []string {
