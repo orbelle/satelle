@@ -4,13 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/syncstate"
-	"github.com/bobmcallan/satelle/internal/wfdot"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/workitem"
 	"maps"
 	"net/url"
 	"os"
@@ -119,46 +114,8 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
-	byKind := map[string][]docindex.Doc{}
-	prov, src := map[string]string{}, map[string]string{}
-	for _, d := range docs {
-		byKind[d.Kind] = append(byKind[d.Kind], d.Doc)
-		key := d.Kind + "\x00" + d.Name
-		if d.Provenance != "" {
-			prov[key] = d.Provenance
-		}
-		if d.Source != "" {
-			src[key] = d.Source
-		}
-	}
-	kinds := make([]kindGroup, 0, len(config.AuthoredKinds))
-	for _, k := range config.AuthoredKinds {
-		dd := byKind[k]
-		rows := make([]docRowVM, 0, len(dd))
-		for _, d := range dd {
-			key := d.Kind + "\x00" + d.Name
-			rows = append(rows, docRowVM{
-				Name: d.Name, Headline: d.Headline, ModTime: d.ModTime,
-				Provenance: prov[key], Source: src[key],
-			})
-		}
-		kinds = append(kinds, kindGroup{Kind: k, Docs: rows})
-	}
-
-	backlog := 0
-	for _, st := range stories {
-		if st.Status == workitem.StatusBacklog {
-			backlog++
-		}
-	}
-
-	entriesByStory, _ := decodeLedgerByStory(ctx, s, repoKey)
-	liveSeat, _ := decodeLiveSeats(ctx, s, repoKey)
 	engagedIDs, _ := decodeEngagedStorySeats(ctx, s, repoKey)
 	dispatches, _ := decodeDispatchSeats(ctx, s, repoKey)
-	gateSeats, _ := decodeGateSeats(ctx, s, repoKey)
-	catStepOf := categoryStepOf(byKind["workflows"])
-	specOf := categorySpecOf(byKind["workflows"])
 
 	projectName := id.ProjectName
 	if projectName == "" {
@@ -174,7 +131,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if syncSt.PushReason != "" {
 		logPath = displayedSyncLogPath()
 	}
-	storyRows := attachStagesFrom(entriesByStory, stories, liveSeat, dispatches, gateSeats, catStepOf, specOf)
+	storyRows := itemRows(stories, dispatches)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
@@ -190,14 +147,11 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncLogPath:     logPath,
 		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
-		BacklogCount:    backlog,
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
-		Tasks:           attachStagesFrom(entriesByStory, tasks, liveSeat, dispatches, gateSeats, catStepOf, specOf),
-		Activity:        activityRows(storyRows, attachStagesFrom(entriesByStory, executions, liveSeat, dispatches, gateSeats, catStepOf, specOf), specOf),
-		DocKinds:        kinds,
+		Tasks:           itemRows(tasks, dispatches),
+		Activity:        activityRows(itemRows(executions, dispatches)),
 		DocCount:        len(docs),
-		Workflows:       workflowRows(byKind["workflows"], prov, src),
 		Uptime:          formatUptime(time.Since(serverStart)),
 		Theme:           "", // client localStorage only on the mirror
 		TopBar:          mirrorTopBar("", id.FooterEmail),
@@ -220,45 +174,29 @@ func hostedView(h *mirror.HostedMeta) (map[string]bool, *hostedLinksVM) {
 	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
 }
 
-// activityRows is the Activity panel: the story rows and execution rows that are
-// under way — out of backlog and not finished by the route that governs each
-// (an execution resolves by its kind, wfgovern.WorkflowCategory) — so a running
-// task execution is visible beside the stories (sty_c356ed4f).
-func activityRows(stories, executions []rowVM, specOf func(category string) wfdot.Spec) []rowVM {
-	out := []rowVM{}
-	for _, rows := range [][]rowVM{stories, executions} {
-		for _, r := range rows {
-			if r.Status == workitem.StatusBacklog || finished(specOf(wfgovern.WorkflowCategory(r.Item)), r.Status) {
-				continue
-			}
-			out = append(out, r)
-		}
-	}
-	return out
+// activityRows is the Activity panel: executions that are recorded. Which
+// states are under way is the workflow's; the kernel pages of B4 read it.
+func activityRows(executions []rowVM) []rowVM {
+	return append([]rowVM{}, executions...)
 }
 
-// attachStagesFrom is the mirror-side stage attach: ledger rows already loaded.
-// gateSeats holds each story's gate activity while its exit gates are running.
-func attachStagesFrom(entriesByStory map[string][]ledger.Entry, items []workitem.Item, liveSeat map[string]bool, dispatches map[string]*dispatchVM, gateSeats map[string]*seatGateVM, catStepOf func(category, state string) int, specOf func(category string) wfdot.Spec) []rowVM {
+// itemRows is one row per item with its running dispatch, if any.
+func itemRows(items []Item, dispatches map[string]*dispatchVM) []rowVM {
 	out := make([]rowVM, len(items))
 	for i, it := range items {
-		stepOf := func(s string) int { return catStepOf(it.Category, s) }
-		spec := specOf(it.Category)
-		stages := buildStages(entriesByStory[it.ID], it.Status, liveSeat[it.ID], stepOf, spec, it.Tags, gateSeats[it.ID])
-		stages = applyPerforming(stages, it.Status, dispatches[it.ID], stageRoute(spec, it.Tags))
-		out[i] = rowVM{Item: it, Stages: stages, Dispatch: dispatches[it.ID]}
+		out[i] = rowVM{Item: it, Dispatch: dispatches[it.ID]}
 	}
 	return out
 }
 
-func decodeItems(ctx context.Context, s *mirror.Store, repoKey, kind string) ([]workitem.Item, error) {
+func decodeItems(ctx context.Context, s *mirror.Store, repoKey, kind string) ([]Item, error) {
 	rows, err := s.ListItems(ctx, repoKey, kind)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]workitem.Item, 0, len(rows))
+	out := make([]Item, 0, len(rows))
 	for _, r := range rows {
-		var it workitem.Item
+		var it Item
 		if err := json.Unmarshal([]byte(r.Payload), &it); err != nil {
 			continue
 		}
@@ -271,11 +209,7 @@ func decodeItems(ctx context.Context, s *mirror.Store, repoKey, kind string) ([]
 }
 
 // mirrorDoc is a doc payload with optional provenance/source from the snapshot.
-type mirrorDoc struct {
-	docindex.Doc
-	Provenance string `json:"provenance"`
-	Source     string `json:"source"`
-}
+type mirrorDoc = docEntry
 
 func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorDoc, error) {
 	rows, err := s.ListItems(ctx, repoKey, "doc")
@@ -296,14 +230,14 @@ func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorD
 	return out, nil
 }
 
-func decodeLedgerByStory(ctx context.Context, s *mirror.Store, repoKey string) (map[string][]ledger.Entry, error) {
+func decodeLedgerByStory(ctx context.Context, s *mirror.Store, repoKey string) (map[string][]Entry, error) {
 	rows, err := s.ListItems(ctx, repoKey, "ledger_event")
 	if err != nil {
 		return nil, err
 	}
-	out := map[string][]ledger.Entry{}
+	out := map[string][]Entry{}
 	for _, r := range rows {
-		var e ledger.Entry
+		var e Entry
 		if err := json.Unmarshal([]byte(r.Payload), &e); err != nil {
 			continue
 		}
@@ -318,33 +252,8 @@ func decodeLedgerByStory(ctx context.Context, s *mirror.Store, repoKey string) (
 	// ListAll is newest-first under the export budget (sty_c5065d05);
 	// ReplaceKind order is not guaranteed — sort each story's strip by CreatedAt.
 	for sid, es := range out {
-		ledger.SortEntries(es)
+		sortEntries(es)
 		out[sid] = es
-	}
-	return out, nil
-}
-
-func decodeLiveSeats(ctx context.Context, s *mirror.Store, repoKey string) (map[string]bool, error) {
-	rows, err := s.ListItems(ctx, repoKey, "seat")
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]bool{}
-	for _, r := range rows {
-		var seat struct {
-			ID       string `json:"id"`
-			InFlight bool   `json:"in_flight"`
-			Stale    bool   `json:"stale"`
-		}
-		if err := json.Unmarshal([]byte(r.Payload), &seat); err != nil {
-			continue
-		}
-		if seat.ID == "" {
-			seat.ID = r.ID
-		}
-		if seat.InFlight && !seat.Stale {
-			out[seat.ID] = true
-		}
 	}
 	return out, nil
 }
@@ -373,40 +282,6 @@ type seatPayload struct {
 	ActivityTotal  int  `json:"activity_total,omitempty"`
 	ActivityPassed int  `json:"activity_passed,omitempty"`
 	ActivityFailed int  `json:"activity_failed,omitempty"`
-}
-
-// gateActivity is the seat's running gate round, or nil when the seat is not in
-// flight, is stale, or is stamped by anything but a gate round (a performer's
-// dispatch runs before the gates and is not them running). A seat pushed by a
-// binary that predates the stamp carries no ActivityGates and reads as nil.
-func gateActivity(seat seatPayload) *seatGateVM {
-	if !seat.InFlight || seat.Stale || !seat.ActivityGates || seat.ActivityTotal <= 0 {
-		return nil
-	}
-	return &seatGateVM{Total: seat.ActivityTotal, Passed: seat.ActivityPassed, Failed: seat.ActivityFailed}
-}
-
-// decodeGateSeats builds the id → running gate round map for every seat whose
-// exit gates are running.
-func decodeGateSeats(ctx context.Context, s *mirror.Store, repoKey string) (map[string]*seatGateVM, error) {
-	rows, err := s.ListItems(ctx, repoKey, "seat")
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]*seatGateVM{}
-	for _, r := range rows {
-		var seat seatPayload
-		if err := json.Unmarshal([]byte(r.Payload), &seat); err != nil {
-			continue
-		}
-		if seat.ID == "" {
-			seat.ID = r.ID
-		}
-		if g := gateActivity(seat); g != nil {
-			out[seat.ID] = g
-		}
-	}
-	return out, nil
 }
 
 // dispatchVM is the web story row's running indicator (sty_752c4ef2 AC6):
@@ -523,7 +398,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	if err != nil {
 		return detailData{}, mirror.IdentityMeta{}, err
 	}
-	var item workitem.Item
+	var item Item
 	if err := json.Unmarshal([]byte(payload), &item); err != nil {
 		return detailData{}, mirror.IdentityMeta{}, err
 	}
@@ -531,12 +406,9 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		item.ID = id
 	}
 
-	// Story docs from mirror story_doc kind (id = story_id/name). The route
-	// document is lifted out of the list into its own section — it is the story's
-	// route and the reasoning behind every outcome, not one attachment among many.
-	// Built before the timeline so story_doc_attached events can resolve hrefs.
+	// Story docs from mirror story_doc kind (id = story_id/name), built before
+	// the timeline so attachment events can resolve hrefs.
 	var docs []storyDocVM
-	var route *storyDocVM
 	presentDocs := map[string]bool{}
 	if sdocs, err := s.ListItems(ctx, repoKey, "story_doc"); err == nil {
 		prefix := id + "/"
@@ -557,17 +429,9 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 			if name == "" {
 				name = filepath.Base(r.ID)
 			}
-			if group == "task" && (strings.HasPrefix(name, "exe_") || strings.HasPrefix(name, "output-")) {
-				continue
-			}
 			vm := storyDocVM{
 				Name: name, Type: ref.Type, Anchor: docAnchor(name),
 				HTML: renderMarkdown(ref.Body),
-			}
-			if name == routeDocName {
-				route = &vm
-				presentDocs[routeDocName] = true
-				continue
 			}
 			docs = append(docs, vm)
 			presentDocs[name] = true
@@ -612,15 +476,10 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 
 	idMeta := mirrorIdentity(ctx, s, repoKey)
 	return detailData{
-		Item: item, Events: evs, Route: route, Docs: docs, Executions: executions,
+		Item: item, Events: evs, Docs: docs, Executions: executions,
 		TopBar: mirrorTopBar("", idMeta.FooterEmail),
 	}, idMeta, nil
 }
-
-// routeDocName is the name verb.RouteDocName writes the route document under.
-// Duplicated rather than imported: internal/serve must link neither verb nor the
-// rest of the repo-writing stack (internal/serve/deps_test.go).
-const routeDocName = "route"
 
 // docAnchor returns the fragment id for a story document (doc-<slug>).
 func docAnchor(name string) string {
@@ -649,7 +508,7 @@ var attachedQuotedNameRe = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
 // attachedDocRef resolves the document name/type for a story_doc_attached
 // ledger entry: prefer the structured payload, fall back to parsing the body
 // so pre-payload ledger rows still render a named timeline item.
-func attachedDocRef(e ledger.Entry) (name, typ string) {
+func attachedDocRef(e Entry) (name, typ string) {
 	if len(e.Payload) > 0 && string(e.Payload) != "{}" {
 		var p struct {
 			Name string `json:"name"`

@@ -10,7 +10,6 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -203,81 +202,15 @@ func sanitiseBasename(s string) string {
 	return out
 }
 
-// RuntimeResolution is the result of ResolveRuntimeDir: the absolute runtime
-// directory and whether it is the pre-migration legacy layout under data_dir.
-type RuntimeResolution struct {
-	Dir    string // absolute path holding satelle.db, logs/, backups/, stories/
-	Legacy bool   // true when Dir is still <data_dir> because migration has not run
+// RuntimeDir is where repoRoot's runtime state lives: the ledger, blobs, the
+// cache and logs, under GlobalDir()/<RepoKey>. Worktrees of one repository
+// share it, so they share one ledger.
+func RuntimeDir(repoRoot string) string {
+	return filepath.Join(GlobalDir(), RepoKey(repoRoot))
 }
 
-// ResolveRuntimeDir returns where runtime state lives for repoRoot.
-//
-// Policy (sty_4660bbe1):
-//   - An explicit `db` override wins: runtime dir is the parent of that path.
-//   - Prefer an existing home-keyed dir: first the current RepoKey (git-aware),
-//     then the path-only key (so a tree that was inited non-git and later gained
-//     a .git keeps its original ledger).
-//   - Else, if a legacy <data_dir>/satelle.db exists, return the legacy dir with
-//     Legacy=true so open keeps working and callers can emit a deprecation note
-//     (no silent move — migrate is an explicit command).
-//   - Else (fresh repo) return the home-keyed path under the current RepoKey.
-//
-// data_dir overrides do NOT relocate runtime; they only relocate authored substrate.
-func (c Config) ResolveRuntimeDir(repoRoot string) RuntimeResolution {
-	if p := strings.TrimSpace(c.DB); p != "" {
-		db := resolveUnder(repoRoot, p)
-		return RuntimeResolution{Dir: filepath.Dir(db), Legacy: false}
-	}
-
-	primary := filepath.Join(GlobalDir(), RepoKey(repoRoot))
-	if fileExists(filepath.Join(primary, DefaultDBName)) {
-		return RuntimeResolution{Dir: primary, Legacy: false}
-	}
-	// Continuity across "init then git init": path-key DB created before .git.
-	pathKey := filepath.Join(GlobalDir(), pathRepoKey(repoRoot))
-	if pathKey != primary && fileExists(filepath.Join(pathKey, DefaultDBName)) {
-		return RuntimeResolution{Dir: pathKey, Legacy: false}
-	}
-
-	legacyDir := c.ResolveDataDir(repoRoot)
-	legacyDB := filepath.Join(legacyDir, DefaultDBName)
-	if fileExists(legacyDB) {
-		return RuntimeResolution{Dir: legacyDir, Legacy: true}
-	}
-	return RuntimeResolution{Dir: primary, Legacy: false}
-}
-
-// ResolveRuntimeDB returns the absolute path of the per-repo sqlite database under
-// the resolved runtime dir. An explicit `db` config still wins via ResolveRuntimeDir.
-func (c Config) ResolveRuntimeDB(repoRoot string) string {
-	return filepath.Join(c.ResolveRuntimeDir(repoRoot).Dir, DefaultDBName)
-}
-
-// ResolveLogsDir is the sole storage path for this repo's runtime logs
-// (~/.satelle/<repo-key>/logs). The in-repo .satelle/logs pointer is not
-// storage; it is a symlink to this directory.
-func (c Config) ResolveLogsDir(repoRoot string) string {
-	return filepath.Join(c.ResolveRuntimeDir(repoRoot).Dir, "logs")
-}
-
-// LegacyRuntimeNote is the one-line deprecation message when a repo still has
-// its database under the authored data dir. Empty when not legacy.
-func (c Config) LegacyRuntimeNote(repoRoot string) string {
-	res := c.ResolveRuntimeDir(repoRoot)
-	if !res.Legacy {
-		return ""
-	}
-	target := filepath.Join(GlobalDir(), RepoKey(repoRoot))
-	return fmt.Sprintf(
-		"satelle: runtime state still under %s — run `satelle runtime migrate` to move it to %s (see decision-substrate-planes-local-first)",
-		res.Dir, target)
-}
-
-// fileExists reports a regular file (or any non-dir node) at path.
-func fileExists(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && !st.IsDir()
-}
+// LogsDir is repoRoot's runtime logs directory.
+func LogsDir(repoRoot string) string { return filepath.Join(RuntimeDir(repoRoot), "logs") }
 
 // RuntimeKeyDirPattern matches a home-keyed runtime directory name
 // (`<sanitised-basename>-<sha256[:8]>`). Shared by CLI list and the

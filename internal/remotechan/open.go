@@ -15,7 +15,6 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 // ErrRelayRefused is returned when the relay answers the upgrade with a status
@@ -62,10 +61,24 @@ func (f LauncherFunc) Launch(ctx context.Context, spec LaunchSpec) ([]byte, erro
 	return f(ctx, spec)
 }
 
-// Recorder is where refused enrollments are written: the evidence ledger's
-// Append, which *ledger.Store satisfies.
+// Event kinds the channel records.
+const (
+	KindRemoteEnrollRefused       = "remote_enroll_refused"
+	KindRemoteChannelResumed      = "remote_channel_resumed"
+	KindRemoteChannelResumeFailed = "remote_channel_resume_failed"
+)
+
+// Record is one channel event for a Recorder.
+type Record struct {
+	Kind    string
+	Actor   string
+	Body    string
+	Payload json.RawMessage
+}
+
+// Recorder is where channel events (refused enrollments, resumes) are written.
 type Recorder interface {
-	Append(ctx context.Context, in ledger.AppendInput, now time.Time) (ledger.Entry, error)
+	Record(ctx context.Context, r Record, now time.Time) error
 }
 
 type options struct {
@@ -366,8 +379,8 @@ func (o *options) refused(ctx context.Context, session, reason string, cause err
 		return cause
 	}
 	payload, _ := json.Marshal(map[string]string{"session": session, "reason": reason})
-	_, err := o.rec.Append(ctx, ledger.AppendInput{
-		Kind: ledger.KindRemoteEnrollRefused, Actor: "remotechan", Body: reason, Payload: payload,
+	err := o.rec.Record(ctx, Record{
+		Kind: KindRemoteEnrollRefused, Actor: "remotechan", Body: reason, Payload: payload,
 	}, o.clock.Now())
 	if err != nil {
 		return errors.Join(cause, fmt.Errorf("remotechan: record refused enrollment: %w", err))

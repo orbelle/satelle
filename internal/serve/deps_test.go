@@ -1,31 +1,36 @@
 package serve
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestReconcilerKeepsServeOffTheRepoDB proves AC5 of sty_e6e467fe and AC7 of
-// sty_c526753a: the serving tier re-requests state and forwards workstate by
-// exec'ing the CLI, so it must still link none of the repo-writing stack
-// (including internal/hosted). The per-repo database keeps its single reader
-// and the mirror stays a read-only view.
-func TestReconcilerKeepsServeOffTheRepoDB(t *testing.T) {
+// satelled is decoupled from the CLI: it links none of the CLI or the kernel's
+// repo-writing stack, and it never execs a satelle verb.
+func TestServeStaysOffTheCLI(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list -deps: %v\n%s", err, out)
 	}
-	deps := string(out)
-	for _, f := range []string{
-		"github.com/bobmcallan/satelle/internal/app",
-		"github.com/bobmcallan/satelle/internal/store",
-		"github.com/bobmcallan/satelle/internal/cli",
-		"github.com/bobmcallan/satelle/internal/verb",
-		"github.com/bobmcallan/satelle/internal/hosted",
-	} {
-		if strings.Contains(deps, f) {
+	for _, f := range []string{"internal/cli", "internal/kernel", "internal/hosted"} {
+		if strings.Contains(string(out), "github.com/bobmcallan/satelle/"+f+"\n") {
 			t.Errorf("internal/serve must not depend on %s", f)
+		}
+	}
+	files, _ := filepath.Glob("*.go")
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), `"os/exec"`) {
+			t.Errorf("%s imports os/exec: satelled does not exec the CLI", f)
 		}
 	}
 }

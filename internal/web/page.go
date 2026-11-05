@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
@@ -73,21 +72,10 @@ var tmplFuncs = template.FuncMap{
 	// neutral process event (story_created, status_transition, estimate/step rows,
 	// …) returns "" and keeps the default accent dot. Outcome is derived here,
 	// server-side, from the event kind alone. (sty_f19d2ec4)
-	"evdot": func(kind any) string {
-		switch fmt.Sprint(kind) {
-		case ledger.KindReviewAccept:
-			return "tl-pass"
-		case ledger.KindReviewReject:
-			return "tl-fail"
-		case ledger.KindGateSkipped:
-			// Deliberately NOT a pass: the edge advanced with no verdict because
-			// its gate skill did not resolve (sty_d59ec6a9). It must not read as
-			// green in the timeline.
-			return "tl-fail"
-		default:
-			return ""
-		}
-	},
+	// evdot maps a timeline event to the dot's outcome class. The kernel's
+	// pages (B4) colour by the gate result in the payload; the kind alone
+	// names no outcome.
+	"evdot": func(kind any) string { return "" },
 	// tagchip renders a tag chip. A key:value tag (e.g. epic:summariser) renders
 	// as a kv chip distinguishing key from value; a bare tag renders plain. No
 	// schema change — kv is a parsed string convention.

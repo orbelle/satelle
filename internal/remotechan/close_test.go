@@ -7,7 +7,6 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotechan/relaytest"
 )
 
@@ -94,7 +93,7 @@ func TestPeerCloseEndsWithoutResume(t *testing.T) {
 	if !errors.Is(err, ErrClosed) || errors.Is(err, ErrResumeExpired) || errors.Is(err, ErrResumeRefused) {
 		t.Errorf("remote Err = %v, want an ordinary end (ErrClosed), not a failed resume", err)
 	}
-	for _, kind := range []string{ledger.KindRemoteChannelResumed, ledger.KindRemoteChannelResumeFailed} {
+	for _, kind := range []string{KindRemoteChannelResumed, KindRemoteChannelResumeFailed} {
 		if n := rec.count(kind); n != 0 {
 			t.Errorf("%d %s rows, want none: the end entered resume", n, kind)
 		}

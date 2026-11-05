@@ -8,12 +8,11 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func withLocationState(t *testing.T) string {
 	t.Helper()
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	path := filepath.Join(dir, "satelle", "location-state.json")

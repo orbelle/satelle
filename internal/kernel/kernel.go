@@ -14,7 +14,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -31,7 +31,7 @@ type Kernel struct {
 	Root       string // the .satelle directory
 	Dir        string // the working tree checks and agents run in
 	Settings   Settings
-	Ledger     *kledger.Store
+	Ledger     *ledger.Store
 	Cache      *cache.Cache
 	Workflows  map[string]*workflow.Workflow
 	Rules      workflow.Rules
@@ -67,7 +67,7 @@ func Open(o Options) (*Kernel, error) {
 	if o.Dir == "" {
 		o.Dir = filepath.Dir(filepath.Clean(o.Root))
 	}
-	led, err := kledger.Open(o.Runtime)
+	led, err := ledger.Open(o.Runtime)
 	if err != nil {
 		return nil, err
 	}

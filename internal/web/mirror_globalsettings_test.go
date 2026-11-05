@@ -14,11 +14,10 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func TestGlobalSettingsGETAndLoopbackPOST(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +83,7 @@ func TestGlobalSettingsGETAndLoopbackPOST(t *testing.T) {
 }
 
 func TestGlobalSettingsAcceptsMultipartFormData(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +124,7 @@ func TestGlobalSettingsAcceptsMultipartFormData(t *testing.T) {
 }
 
 func TestGlobalSettingsRejectsInvalidURL(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +142,7 @@ func TestGlobalSettingsRejectsInvalidURL(t *testing.T) {
 }
 
 func TestGlobalSettingsRejectsNonLoopback(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +171,7 @@ func TestGlobalSettingsRejectsNonLoopback(t *testing.T) {
 }
 
 func TestProjectSettingsLinksGlobalSettings(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)

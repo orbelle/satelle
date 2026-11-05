@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 // Event kinds the folds read. Every other kind is carried, never read.
@@ -112,7 +112,7 @@ func (f Fields) Apply(it *Item) {
 
 // Fold replays an item's chain. It fails when the chain does not start with
 // item.created.
-func Fold(events []kledger.Event) (Item, error) {
+func Fold(events []ledger.Event) (Item, error) {
 	var it Item
 	for i, e := range events {
 		switch e.Kind {
@@ -155,7 +155,7 @@ func Fold(events []kledger.Event) (Item, error) {
 
 // PriorStatus returns the status the item held before it entered its current
 // one (the from of the last transition), "" when it never moved.
-func PriorStatus(events []kledger.Event) string {
+func PriorStatus(events []ledger.Event) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].Kind == KindTransitioned {
 			var m Move

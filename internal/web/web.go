@@ -9,17 +9,11 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/wfdot"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // serverStart marks when the web service process came up.
@@ -129,7 +123,7 @@ type topBar struct {
 }
 
 type rowVM struct {
-	workitem.Item
+	Item
 	// Stages are the stages the story has completed plus the one it is in, in
 	// the order it reached them (PROGRESS cell).
 	Stages []stageVM
@@ -170,7 +164,7 @@ type seatRowVM struct {
 }
 
 type detailData struct {
-	Item   workitem.Item
+	Item   Item
 	Events []eventVM
 	// Route is the story's route DOCUMENT — the plan half plus every resolved
 	// step's outcome, exactly as verb.recordRoute wrote it (sty_39e2d9df). Nil
@@ -210,7 +204,7 @@ type chipVM struct {
 }
 
 type eventVM struct {
-	ledger.Entry
+	Entry
 	Chips   []chipVM
 	DocName string // set for story_doc_attached — names the document on the timeline
 	DocType string
@@ -260,20 +254,6 @@ type settingsData struct {
 	MirrorRO bool
 }
 
-func settingsRows(cfg config.Config) []settingsRowVM {
-	var rows []settingsRowVM
-	lastSect := "\x00"
-	for _, s := range config.Settings {
-		vm := settingsRowVM{FieldID: s.FieldID(), Label: s.Label, Help: s.Help, Value: config.SettingDisplay(cfg, s)}
-		if s.Section != lastSect {
-			vm.SectHead = sectionLabel(s.Section)
-			lastSect = s.Section
-		}
-		rows = append(rows, vm)
-	}
-	return rows
-}
-
 func sectionLabel(s string) string {
 	if s == "" {
 		return "General"
@@ -281,189 +261,29 @@ func sectionLabel(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:] // "hosted" → "Hosted", "gate" → "Gate"
 }
 
-// spineDepths numbers the states on a shortest start→done path, which is what
-// the status lights count. It takes a wfdot.Spec — the one lifecycle type the
-// web layer knows — so no second parse or second shape exists here (sty_085e1a5a).
-func spineDepths(spec wfdot.Spec) map[string]int {
-	adj := map[string][]string{}
-	radj := map[string][]string{}
-	indeg := map[string]int{}
-	for _, s := range spec.States {
-		if _, ok := indeg[s.Name]; !ok {
-			indeg[s.Name] = 0
-		}
+func eventChips(e Entry) []chipVM {
+	var p struct {
+		Result     string `json:"result"`
+		DurationMS int64  `json:"duration_ms"`
+		TokensIn   int    `json:"tokens_in"`
+		TokensOut  int    `json:"tokens_out"`
+		Model      string `json:"model"`
 	}
-	for _, t := range spec.Transitions {
-		adj[t.From] = append(adj[t.From], t.To)
-		radj[t.To] = append(radj[t.To], t.From)
-		indeg[t.To]++
+	if len(e.Payload) == 0 || json.Unmarshal(e.Payload, &p) != nil {
+		return nil
 	}
-	// Success terminal: prefer a state literally named "done"; else the first
-	// terminal (no outgoing edges).
-	done := ""
-	for _, s := range spec.States {
-		if s.Name == "done" {
-			done = s.Name
-			break
-		}
-	}
-	if done == "" {
-		for _, s := range spec.States {
-			if len(adj[s.Name]) == 0 {
-				done = s.Name
-				break
-			}
-		}
-	}
-	if done == "" {
-		return map[string]int{}
-	}
-	// Start states = no incoming edges (deterministic order).
-	var starts []string
-	for name, d := range indeg {
-		if d == 0 {
-			starts = append(starts, name)
-		}
-	}
-	sort.Strings(starts)
-	dStart := bfsDist(adj, starts)         // forward distance from the start(s)
-	dDone := bfsDist(radj, []string{done}) // distance to `done` (reverse BFS)
-	total, ok := dStart[done]
-	if !ok {
-		return map[string]int{} // start cannot reach done
-	}
-	// A state is a spine STEP when it lies on a shortest start→done path:
-	// dStart + dDone == total. This admits the forward chain (in_progress,
-	// commit_push, committed, done) and excludes both unreachable terminals
-	// (cancelled) and rejoining detours (blocked) — and a back edge never lowers
-	// any dStart, so the recovery loop leaves the numbering intact. The start(s)
-	// (depth 0) are omitted.
-	out := map[string]int{}
-	for name, ds := range dStart {
-		if ds < 1 {
-			continue
-		}
-		if dd, ok := dDone[name]; ok && ds+dd == total {
-			out[name] = ds
-		}
-	}
-	return out
-}
-
-func bfsDist(adj map[string][]string, starts []string) map[string]int {
-	dist := map[string]int{}
-	var q []string
-	for _, s := range starts {
-		if _, seen := dist[s]; !seen {
-			dist[s] = 0
-			q = append(q, s)
-		}
-	}
-	for len(q) > 0 {
-		n := q[0]
-		q = q[1:]
-		for _, m := range adj[n] {
-			if _, seen := dist[m]; !seen {
-				dist[m] = dist[n] + 1
-				q = append(q, m)
-			}
-		}
-	}
-	return dist
-}
-
-func categoryStepOf(docs []docindex.Doc) func(category, state string) int {
-	// Spine depths per category from workflow applies_to frontmatter. Prefer a
-	// category-specific workflow, then wildcard (*), then the longest spine.
-	// Mirrors agentstep precedence without importing agentstep (serve-binary
-	// link isolation, sty_80233c10).
-	var longest map[string]int
-	byCat := map[string]map[string]int{}
-	var wild map[string]int
-	// A DERIVED route numbers a story by its own CATEGORY, so it is expanded per
-	// declared category rather than per file — done.toml and step.toml are two halves
-	// of one route, not two workflows (sty_9835070d).
-	if rs := wfgovern.RouteSourceOf(docs); rs.Present() {
-		for _, cat := range wfgovern.RouteCategories(rs.Done) {
-			if _, governs, _ := wfgovern.RouteGovernsErr(docs, cat); !governs {
-				continue // an authored workflow outranks the shipped route here
-			}
-			depths := spineDepths(routeSpecFor(docs, cat))
-			if len(depths) == 0 {
-				continue
-			}
-			if len(depths) > len(longest) {
-				longest = depths
-			}
-			if cat == wfdotWildcard {
-				if len(depths) > len(wild) {
-					wild = depths
-				}
-				continue
-			}
-			if _, ok := byCat[cat]; !ok {
-				byCat[cat] = depths
-			}
-		}
-	}
-	for _, d := range wfgovern.LifecycleWorkflows(docs) {
-		applies := frontmatterList(d.Body, "applies_to")
-		// No DOT front end (sty_d953c5d8): a workflow-kind doc that is not half of
-		// the route carries no lifecycle, so it contributes no depths.
-		var spec wfdot.Spec
-		depths := spineDepths(spec)
-		if len(depths) > len(longest) {
-			longest = depths
-		}
-		isWild := len(applies) == 0
-		for _, a := range applies {
-			if a == "*" {
-				isWild = true
-				continue
-			}
-			if _, ok := byCat[a]; !ok {
-				byCat[a] = depths
-			}
-		}
-		if isWild && len(depths) > len(wild) {
-			wild = depths
-		}
-	}
-	return func(category, state string) int {
-		if d, ok := byCat[category]; ok {
-			return d[state]
-		}
-		if len(wild) > 0 {
-			return wild[state]
-		}
-		return longest[state]
-	}
-}
-
-func eventChips(e ledger.Entry) []chipVM {
-	tel := ledger.EventTelemetry(e)
 	var chips []chipVM
-	if tel.Outcome != "" {
-		chips = append(chips, chipVM{Type: "outcome", Label: tel.Outcome})
+	if p.Result != "" {
+		chips = append(chips, chipVM{Type: "outcome", Label: p.Result})
 	}
-	if tel.DurationMs > 0 {
-		chips = append(chips, chipVM{Type: "walltime", Label: humanMs(tel.DurationMs)})
+	if p.DurationMS > 0 {
+		chips = append(chips, chipVM{Type: "walltime", Label: humanMs(p.DurationMS)})
 	}
-	// Only show a token chip when usage was measured (sty_56aae77a). Unreported
-	// must not surface as a confident 0.
-	if tel.UsageAvailable && tel.TokensTotal > 0 {
-		chips = append(chips, chipVM{Type: "tokens", Label: humanTokens(tel.TokensTotal) + " tok"})
+	if n := p.TokensIn + p.TokensOut; n > 0 {
+		chips = append(chips, chipVM{Type: "tokens", Label: humanTokens(n) + " tok"})
 	}
-	// A verdict row (review_accept/review_reject) or an agent_invocation row
-	// always names a model — even a legacy row with neither the alias nor the
-	// resolved id renders "unknown" rather than no chip at all, matching
-	// `satelle story cost`'s unconditional Model column (cmd_workitem.go)
-	// (sty_87b86044). The agent-name fallback for a model-less row is gone —
-	// an agent name is not a model.
-	isVerdict := tel.Outcome == "accept" || tel.Outcome == "reject"
-	isInvocation := e.Kind == ledger.KindAgentInvocation && !ledger.IsToolPermissionRow(e)
-	if isVerdict || isInvocation {
-		chips = append(chips, chipVM{Type: "model", Label: ledger.ModelLabel(tel.Model, tel.ModelResolved)})
+	if p.Model != "" {
+		chips = append(chips, chipVM{Type: "model", Label: p.Model})
 	}
 	return chips
 }
@@ -511,19 +331,4 @@ func newTopBar(active string) topBar {
 
 func httpError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusInternalServerError)
-}
-
-// wfdotWildcard is the done.toml section that governs every category with none of
-// its own — the route-source spelling of applies_to ["*"].
-const wfdotWildcard = wfdot.WildcardCategory
-
-// routeSpecFor builds one category's derived-route Spec through the shared front
-// door. An empty Spec on failure: the status lights are a read surface and must
-// degrade, never refuse (sty_9835070d).
-func routeSpecFor(docs []docindex.Doc, category string) wfdot.Spec {
-	spec, _, _, err := wfgovern.SpecFor(docs, workitem.Item{Kind: workitem.KindStory, Category: category})
-	if err != nil {
-		return wfdot.Spec{}
-	}
-	return spec
 }

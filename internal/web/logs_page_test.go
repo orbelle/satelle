@@ -13,7 +13,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/logfile"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func TestLogsNavOnLandingAndProject(t *testing.T) {
@@ -255,7 +254,7 @@ func TestPublishLogsReachesEvents(t *testing.T) {
 		got <- "eof"
 	}()
 	// Publish until the subscriber has registered and receives it.
-	deadline := time.Now().Add(testutil.WaitBudget)
+	deadline := time.Now().Add(waitBudget)
 	for time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond) // poll tick
 		ms.Publish("logs")
@@ -296,7 +295,7 @@ func TestAppJSLogsUsesSingleEventSource(t *testing.T) {
 
 func newLogsFixture(t *testing.T) *MirrorServer {
 	t.Helper()
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)

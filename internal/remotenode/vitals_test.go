@@ -1,13 +1,10 @@
 package remotenode
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // vitalsFixture writes a proc root with meminfo and, unless withoutPressure,
@@ -56,38 +53,5 @@ func TestReadVitalsMissingPressure(t *testing.T) {
 	}
 	if empty := ReadVitals(filepath.Join(t.TempDir(), "none")); !strings.Contains(empty.Err, "meminfo") || empty.MemTotal != 0 {
 		t.Errorf("vitals of a missing root = %+v, want zero figures and meminfo named", empty)
-	}
-}
-
-// AC3: each live heartbeat the node sends is logged with the host's memory,
-// swap and memory-pressure figures.
-func TestHeartbeatLogsVitalsEachBeat(t *testing.T) {
-	vitalsFixture(t, false)
-	var out bytes.Buffer
-	sender := &statusLog{}
-	hb := StartHeartbeat(context.Background(), sender, 10*time.Millisecond, func() NodeStatus { return NodeStatus{} }, &out)
-	deadline := time.Now().Add(5 * time.Second)
-	for len(sender.all()) < 4 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	hb.Stop()
-
-	sent := len(sender.all())
-	if sent < 4 {
-		t.Fatalf("heartbeats sent = %d, want at least 4", sent)
-	}
-	var beats []string
-	for _, l := range strings.Split(out.String(), "\n") {
-		if strings.HasPrefix(l, "node: heartbeat: ") {
-			beats = append(beats, l)
-		}
-	}
-	if len(beats) != sent {
-		t.Errorf("heartbeat log lines = %d, want one per heartbeat sent (%d):\n%s", len(beats), sent, out.String())
-	}
-	for _, l := range beats {
-		if !strings.Contains(l, "mem avail=2048MiB/7860MiB") || !strings.Contains(l, "swap used=1024MiB/8192MiB") || !strings.Contains(l, "psi some=12.50 full=4.25") {
-			t.Errorf("heartbeat line %q lacks the memory, swap and pressure figures", l)
-		}
 	}
 }

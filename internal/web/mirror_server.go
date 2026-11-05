@@ -13,10 +13,8 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/help"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // MirrorServer is the push-fed read-only UI (sty_dbdadfa0 + epic:mirror-ui-parity).
@@ -250,11 +248,6 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 		tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
 		docs, _ := decodeDocs(ctx, s.Store, p.RepoKey)
 		backlog, workflows := 0, 0
-		for _, st := range stories {
-			if st.Status == workitem.StatusBacklog {
-				backlog++
-			}
-		}
 		for _, d := range docs {
 			if d.Kind == "workflows" {
 				workflows++
@@ -466,40 +459,10 @@ func (s *MirrorServer) loadDetail(ctx context.Context, repoKey, group, id string
 	return d, nil
 }
 
+// workflowFragment answers 404: the workflow panel is rebuilt on the kernel
+// in B4.
 func (s *MirrorServer) workflowFragment(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	name := r.PathValue("name")
-	repoKey, err := s.resolveSlug(r.Context(), slug)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	doc, err := findDoc(r.Context(), s.Store, repoKey, "workflows", name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	// The route comes through the ONE front door (wfgovern.SpecFor via
-	// workflowRoute) — the panel implements no precedence of its own.
-	var all []docindex.Doc
-	if docs, err := decodeDocs(r.Context(), s.Store, repoKey); err == nil {
-		for _, d := range docs {
-			if d.Kind == "workflows" {
-				all = append(all, d.Doc)
-			}
-		}
-	}
-	applies := frontmatterList(doc.Body, "applies_to")
-	mirrorRender(w, "workflowDetail", s.projectBase(slug), workflowDetailVM{
-		Name:       doc.Name,
-		Headline:   doc.Headline,
-		Scope:      workflowScope(doc.Doc),
-		AppliesTo:  applies,
-		Route:      workflowRoute(all, doc.Doc, panelCategory(applies), nil),
-		Body:       strings.TrimSpace(stripDocFrontmatter(doc.Body)),
-		Provenance: doc.Provenance,
-		Source:     doc.Source,
-	})
+	http.NotFound(w, r)
 }
 
 func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {

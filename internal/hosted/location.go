@@ -8,7 +8,6 @@ package hosted
 // calls. Unbound repos never touch this file.
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/worktree"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 )
 
 // LocationHeader is the REST header / gRPC metadata key a bound checkout sends.
@@ -288,7 +287,7 @@ const nameSeparator = " · "
 func SessionName(repoRoot, engagedID string) string {
 	parts := []string{ShortHost(), config.RepoName(repoRoot)}
 	wt := ""
-	if worktree.IsLinked(context.Background(), repoRoot) {
+	if (gitfacts.Repo{Dir: repoRoot}).IsLinked() {
 		wt = filepath.Base(locationRepoKey(repoRoot))
 		parts = append(parts, wt)
 	}

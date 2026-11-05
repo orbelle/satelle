@@ -1,7 +1,0 @@
-transcript: (none)
-key:        payload_model
-model:      claude-fable-5
-matched:    (none)
-exempt:     no_implement_exempt_paths
-decision:   skip
-reason:     model check skipped: target matches no_implement_exempt_paths

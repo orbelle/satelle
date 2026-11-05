@@ -1,7 +1,0 @@
-transcript: (none)
-key:        (unresolved)
-model:      (none)
-matched:    (none)
-exempt:     (none)
-decision:   skip
-reason:     model check skipped: no caller model resolvable from this payload

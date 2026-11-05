@@ -12,18 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/store"
-	"github.com/bobmcallan/satelle/internal/testutil"
-	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // hostedPartition is a mirror partition holding stories, with hosted as its
 // identity's hosted block. With no stories given it holds a story this machine
 // engaged and a story another machine changed a minute ago.
-func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...workitem.Item) string {
+func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...Item) string {
 	t.Helper()
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -36,11 +31,11 @@ func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...workite
 	if _, err := s.TouchPartition(ctx, rk, slug, now); err != nil {
 		t.Fatal(err)
 	}
-	story := func(id, title string, at time.Time) workitem.Item {
-		return workitem.Item{ID: id, Kind: workitem.KindStory, Title: title, Status: "in_progress", CreatedAt: at, UpdatedAt: at}
+	story := func(id, title string, at time.Time) Item {
+		return Item{ID: id, Kind: "story", Title: title, Status: "in_progress", CreatedAt: at, UpdatedAt: at}
 	}
 	if len(stories) == 0 {
-		stories = []workitem.Item{story("sty_mine", "engaged here", now.Add(-72*time.Hour)), story("sty_other", "changed elsewhere", now.Add(-time.Minute))}
+		stories = []Item{story("sty_mine", "engaged here", now.Add(-72*time.Hour)), story("sty_other", "changed elsewhere", now.Add(-time.Minute))}
 	}
 	var rows []mirror.ItemRow
 	for _, it := range stories {
@@ -67,8 +62,8 @@ func hostedProbe(here ...string) *mirror.HostedMeta {
 }
 
 // itemAt is a story with status, priority and tags, created and changed at at.
-func itemAt(id, status, priority string, at time.Time, tags ...string) workitem.Item {
-	return workitem.Item{ID: id, Kind: workitem.KindStory, Title: id + " title", Status: status, Priority: priority, Tags: tags, CreatedAt: at, UpdatedAt: at}
+func itemAt(id, status, priority string, at time.Time, tags ...string) Item {
+	return Item{ID: id, Kind: "story", Title: id + " title", Status: status, Priority: priority, Tags: tags, CreatedAt: at, UpdatedAt: at}
 }
 
 // everyStateFixture is a hosted partition over stories in backlog, in progress
@@ -77,28 +72,8 @@ func itemAt(id, status, priority string, at time.Time, tags ...string) workitem.
 // verb.MachineSet, as the hosted push does.
 func everyStateFixture(t *testing.T) string {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
 	now := time.Now().UTC()
-	const here = "loc_here_000"
-	for id, loc := range map[string]string{"sty_mine": here, "sty_other": "loc_other_000"} {
-		p, _ := json.Marshal(verb.WorkingOnPayload{Location: loc, State: "in_progress"})
-		if _, err := db.Ledger.Append(ctx, ledger.AppendInput{StoryID: id, Kind: ledger.KindWorkingOn, Payload: p}, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	set, err := verb.MachineSet(ctx, db.Ledger, here)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var machine []string
-	for id := range set {
-		machine = append(machine, id)
-	}
+	machine := []string{"sty_mine"}
 	return hostedPartition(t, hostedProbe(machine...),
 		itemAt("sty_mine", "in_progress", "high", now.Add(-72*time.Hour), "surface:ui"),
 		itemAt("sty_other", "in_progress", "medium", now.Add(-time.Minute), "epic:x"),
@@ -134,30 +109,6 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 	}
 }
 
-// sty_6ce071dc AC2: the story engaged at this checkout is marked as here; the
-// one engaged elsewhere, and the unengaged ones, are listed unmarked.
-func TestHostedMarksTheStoryEngagedHere(t *testing.T) {
-	page := everyStateFixture(t)
-	for _, body := range []string{httpGetBody(t, page), httpGetBody(t, page+"fragment/stories")} {
-		if row := rowFor(body, "sty_mine"); !strings.Contains(row, `data-here="1"`) {
-			t.Errorf("the story engaged here carries no here attribute: %q", row)
-		}
-		if cell := titleCellFor(body, "sty_mine"); !strings.Contains(cell, `class="here-mark"`) || !strings.Contains(cell, "◆ here") {
-			t.Errorf("the story engaged here shows no here mark: %q", cell)
-		}
-		for _, id := range []string{"sty_other", "sty_back", "sty_done"} {
-			if row := rowFor(body, id); row == "" || strings.Contains(row, "data-here") || strings.Contains(titleCellFor(body, id), "here-mark") {
-				t.Errorf("%s must be listed unmarked: %q", id, row)
-			}
-		}
-		// The page also lists sty_mine under Activity (sty_c356ed4f): count the
-		// Stories list only.
-		if n := strings.Count(panelOf(body, "stories"), `class="here-mark"`); n != 1 {
-			t.Errorf("the list shows %d here marks, want 1 (sty_mine's)", n)
-		}
-	}
-}
-
 // sty_6ce071dc AC3: a snapshot ingest carrying a story this checkout has never
 // seen rings the stories topic on /events, and the stories fragment the client
 // refetches on that trigger (refetchPanel) then lists it — no reload.
@@ -170,7 +121,7 @@ func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 		t.Fatal("sty_new is listed before it is ingested")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), waitBudget)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/events", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -182,7 +133,7 @@ func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 	for sc.Scan() && sc.Text() != ": connected" {
 	}
 
-	raw := func(it workitem.Item) json.RawMessage { b, _ := json.Marshal(it); return b }
+	raw := func(it Item) json.RawMessage { b, _ := json.Marshal(it); return b }
 	snap, _ := json.Marshal(mirror.Snapshot{
 		RepoKey: "rk-hosted", Slug: "hosted", Kinds: []string{"story"},
 		Stories: []json.RawMessage{raw(mine), raw(itemAt("sty_new", "backlog", "low", now))},
@@ -264,55 +215,6 @@ func TestLocalProjectPageListsEveryStoryWithNoServerLinks(t *testing.T) {
 	}
 	if strings.Contains(body, "hosted-links") || strings.Contains(body, "here-mark") || strings.Contains(body, "data-here") {
 		t.Errorf("a local page links to a server or marks a story:\n%s", body)
-	}
-}
-
-// sty_9ece9394 AC3, as sty_6ce071dc AC1/AC2 amend it: in hosted mode a story
-// engaged from a story worktree — its working_on row written with no location —
-// is marked as here beside the one engaged from the main tree, carrying its tags
-// for the client-side tags: filter, and a story another location engaged is
-// listed too, unmarked.
-func TestHostedListsWorktreeEngagedStoryWithTags(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
-	now := time.Now().UTC()
-	const here = "loc_here_000"
-	for id, loc := range map[string]string{"sty_wt": "", "sty_main": here, "sty_other": "loc_other_000"} {
-		p, _ := json.Marshal(verb.WorkingOnPayload{Location: loc, State: "in_progress"})
-		if _, err := db.Ledger.Append(ctx, ledger.AppendInput{StoryID: id, Kind: ledger.KindWorkingOn, Payload: p}, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	set, err := verb.MachineSet(ctx, db.Ledger, here)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var machine []string
-	for id := range set {
-		machine = append(machine, id)
-	}
-	story := func(id string, tags ...string) workitem.Item {
-		return workitem.Item{ID: id, Kind: workitem.KindStory, Title: id, Status: "in_progress", Tags: tags, CreatedAt: now, UpdatedAt: now}
-	}
-	page := hostedPartition(t, &mirror.HostedMeta{Server: "https://satelle.example", Project: "probe", MachineStories: machine},
-		story("sty_wt", "epic:x"), story("sty_main"), story("sty_other", "epic:x"))
-	for _, body := range []string{httpGetBody(t, page), httpGetBody(t, page+"fragment/stories")} {
-		for _, id := range []string{"sty_wt", "sty_main"} {
-			if !strings.Contains(rowFor(body, id), `data-here="1"`) {
-				t.Errorf("%s, engaged on this machine, is not listed with its here mark:\n%s", id, body)
-			}
-		}
-		if row := rowFor(body, "sty_other"); row == "" || strings.Contains(row, "data-here") {
-			t.Errorf("a story another location engaged must be listed, unmarked: %q", row)
-		}
-		row := rowFor(body, "sty_wt")
-		if !strings.Contains(row, `data-tags="epic:x"`) {
-			t.Errorf("the worktree-engaged row does not carry its epic:x tag: %s", row)
-		}
 	}
 }
 

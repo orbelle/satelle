@@ -16,7 +16,6 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 // Resume (sty_ee78148f): a relay restart closes every session. Both ends of a
@@ -27,14 +26,14 @@ import (
 // resume rows without depending on a database taking two writers at once.
 type memRecorder struct {
 	mu   sync.Mutex
-	rows []ledger.AppendInput
+	rows []Record
 }
 
-func (m *memRecorder) Append(_ context.Context, in ledger.AppendInput, _ time.Time) (ledger.Entry, error) {
+func (m *memRecorder) Record(_ context.Context, in Record, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rows = append(m.rows, in)
-	return ledger.Entry{}, nil
+	return nil
 }
 
 // payloads are the payloads of the rows of kind.
@@ -172,7 +171,7 @@ func TestResumeAfterRelayRestart(t *testing.T) {
 	mark := len(h.clock.tickLog())
 
 	h.relay.Restart()
-	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(KindRemoteChannelResumed) >= 2 })
 
 	if got := h.relay.Upgrades(); got < before+2 {
 		t.Errorf("upgrades = %d, want both ends to have redialled (at least %d)", got, before+2)
@@ -186,7 +185,7 @@ func TestResumeAfterRelayRestart(t *testing.T) {
 	}
 	exchange(t, local, remote)
 	roles := map[any]bool{}
-	for _, p := range rec.payloads(ledger.KindRemoteChannelResumed) {
+	for _, p := range rec.payloads(KindRemoteChannelResumed) {
 		roles[p["role"]] = true
 		if p["session"] != "nod_restart" {
 			t.Errorf("resume row session = %v", p["session"])
@@ -251,7 +250,7 @@ func TestResumeBackoffIntervals(t *testing.T) {
 	upMark, upBefore := len(h.clock.tickLog()), h.relay.Upgrades()
 	h.relay.Up()
 	h.clock.Advance(2 * intervals[len(intervals)-1]) // both 8s waits are registered: each end redials once
-	h.awaitResume(t, upMark, upBefore, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.awaitResume(t, upMark, upBefore, "both ends resumed", func() bool { return rec.count(KindRemoteChannelResumed) >= 2 })
 	exchange(t, local, remote)
 }
 
@@ -276,7 +275,7 @@ func TestResumeExpires(t *testing.T) {
 			t.Errorf("%s Send = %v, want ErrClosed", name, err)
 		}
 	}
-	rows := rec.payloads(ledger.KindRemoteChannelResumeFailed)
+	rows := rec.payloads(KindRemoteChannelResumeFailed)
 	if len(rows) != 2 || rows[0]["reason"] != "expired" || rows[1]["reason"] != "expired" {
 		t.Errorf("resume_failed rows = %v, want two expired", rows)
 	}
@@ -462,7 +461,7 @@ func TestResumeFailsOpenJobOnce(t *testing.T) {
 	mark, before := len(h.clock.tickLog()), h.relay.Upgrades()
 
 	h.relay.Restart()
-	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(ledger.KindRemoteChannelResumed) >= 2 })
+	h.awaitResume(t, mark, before, "both ends resumed", func() bool { return rec.count(KindRemoteChannelResumed) >= 2 })
 
 	select {
 	case l := <-local.Lost():
@@ -606,11 +605,11 @@ func TestResumeRefusalNotRetried(t *testing.T) {
 			if got := h.relay.Attempts(); got != after {
 				t.Errorf("attempts went from %d to %d after the refusal: it was retried", after, got)
 			}
-			rows := rec.payloads(ledger.KindRemoteChannelResumeFailed)
+			rows := rec.payloads(KindRemoteChannelResumeFailed)
 			if len(rows) != 2 || rows[0]["reason"] != "refused" || rows[1]["reason"] != "refused" {
 				t.Errorf("resume_failed rows = %v, want two refused", rows)
 			}
-			if n := rec.count(ledger.KindRemoteChannelResumed); n != 0 {
+			if n := rec.count(KindRemoteChannelResumed); n != 0 {
 				t.Errorf("%d resumed rows for a refused session", n)
 			}
 		})

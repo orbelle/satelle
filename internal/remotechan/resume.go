@@ -12,7 +12,6 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 // A relay that restarts closes every session and keeps none. The two ends of a
@@ -200,13 +199,13 @@ func (s *Session) swap(conn *websocket.Conn, send *sealer, recv *opener, attempt
 	close(s.gate)
 	s.gate = nil
 	s.wmu.Unlock()
-	s.record(ledger.KindRemoteChannelResumed, "", attempts)
+	s.record(KindRemoteChannelResumed, "", attempts)
 	return true
 }
 
 // giveUp ends the session with err after recording why.
 func (s *Session) giveUp(reason string, attempts int, err error) {
-	s.record(ledger.KindRemoteChannelResumeFailed, reason, attempts)
+	s.record(KindRemoteChannelResumeFailed, reason, attempts)
 	s.finish(err)
 }
 
@@ -223,7 +222,7 @@ func (s *Session) record(kind, reason string, attempts int) {
 	payload, _ := json.Marshal(p)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 5*time.Second)
 	defer cancel()
-	_, _ = s.res.rec.Append(ctx, ledger.AppendInput{Kind: kind, Actor: "remotechan", Body: reason, Payload: payload}, s.clock.Now())
+	_ = s.res.rec.Record(ctx, Record{Kind: kind, Actor: "remotechan", Body: reason, Payload: payload}, s.clock.Now())
 }
 
 // trackJob adds or removes a sending-end job from the set a resume cuts off.

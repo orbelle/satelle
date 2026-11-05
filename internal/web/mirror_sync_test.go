@@ -10,11 +10,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/syncstate"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func TestLandingRendersStandingSyncFailure(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +79,7 @@ func updatedCell(t *testing.T, body string) string {
 }
 
 func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +118,7 @@ func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
 }
 
 func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +153,7 @@ func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
 }
 
 func TestProjectPageNamesBothTimes(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +188,7 @@ func TestProjectPageNamesBothTimes(t *testing.T) {
 }
 
 func TestLandingRendersLocalOnly(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +221,7 @@ func TestLandingRendersLocalOnly(t *testing.T) {
 }
 
 func TestLandingOmitsSyncMarkerWhenNoState(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +244,7 @@ func TestLandingOmitsSyncMarkerWhenNoState(t *testing.T) {
 // writes, and renders path (sty_3df5f95a).
 func renderLocalAfter(t *testing.T, path string, record func(home, repo string) error) string {
 	t.Helper()
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -315,7 +314,7 @@ func TestLandingLocalHidesStaleFailure(t *testing.T) {
 // the recorded push state record writes.
 func projectPageWithSync(t *testing.T, record func(repo string)) string {
 	t.Helper()
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -54,37 +53,9 @@ func Run(ctx context.Context, opts Options) error {
 			publishLogs()
 		}
 	})
-	// Hook must be installed before Listen: an ingest on the first accepted
-	// connection has to find Notify already wired (sty_c526753a).
-	home := config.GlobalDir()
-	pusher := &Pusher{
-		Resolve:    resolvePushPath(ms, home),
-		Keys:       pushKeys(ms),
-		Log:        logLine,
-		Record:     recordPushFunc(home),
-		PushOff:    config.MachinePushOff,
-		Conflicted: conflictedFunc(home),
-	}
-	// Repair loop for pushes that never landed (sty_e6e467fe). Runs beside the
-	// server, off the request path, and stops with ctx.
-	rec := &Reconciler{
-		Targets:   mirrorTargets(ms, home),
-		Log:       logLine,
-		Record:    recordSnapshotFunc(home),
-		PushOff:   config.MachinePushOff,
-		DirtyHome: home,
-		Endpoint:  selfEndpoint(addr, port),
-	}
-	// A local change both dirties the push and lifts a snapshot's conflict
-	// backoff for the repo (sty_0367d20c); a hosted-origin one does neither.
-	onIngest := func(repoKey string, origin mirror.IngestOrigin) {
-		pusher.OnIngest(repoKey, origin)
-		if origin != mirror.OriginHosted {
-			rec.Touch(repoKey)
-		}
-	}
-	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), onIngest)
-	webSrv.FetchStory = fetchViaCLI
+	// satelled does not exec the CLI: the CLI pushes what it needs. Hosted
+	// push and the snapshot repair loop are rebuilt in B3/B4.
+	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), nil)
 	webSrv.Ingest.Log = logLine
 	publishLogs = func() { webSrv.Publish("logs") }
 	handler := pprofLocal(web.RequestLog(webSrv.Handler, serverLog, serverLogConfig, publishLogs))
@@ -97,31 +68,16 @@ func Run(ctx context.Context, opts Options) error {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	// Bind before serving so the repair loop's first pass — which re-requests
-	// snapshots through this very endpoint — cannot race the listener.
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err
 	}
-
-	go rec.Loop(ctx)
-	go pusher.Run(ctx)
 
 	fmt.Printf("satelled (push-fed mirror) http://%s  mirror=%s  (Ctrl-C to stop)\n", listenAddr, mirrorPath)
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
-}
-
-// selfEndpoint is the base URL this service's own children reach it on: the
-// bound host, or loopback when it binds every interface.
-func selfEndpoint(addr string, port int) string {
-	host := strings.Trim(strings.TrimSpace(addr), "[]")
-	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
-		host = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // serverLogConfig is the rotation of satelled's log file.

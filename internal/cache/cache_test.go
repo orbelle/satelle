@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/item"
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 func ptr[T any](v T) *T { return &v }
 
 type snapshot struct {
 	Items  []item.Item
-	Events []kledger.Event
+	Events []ledger.Event
 	Seats  []item.Seat
 	Atts   []item.Attachment
 }
@@ -32,7 +32,7 @@ func snap(t *testing.T, c *Cache) snapshot {
 
 func TestSyncQueryRebuild(t *testing.T) {
 	dir := t.TempDir()
-	l, _ := kledger.Open(dir)
+	l, _ := ledger.Open(dir)
 	c, err := Open(filepath.Join(dir, "cache.db"))
 	if err != nil {
 		t.Fatal(err)

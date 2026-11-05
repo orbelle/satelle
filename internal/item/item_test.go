@@ -4,13 +4,13 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 func ptr[T any](v T) *T { return &v }
 
 func TestFold(t *testing.T) {
-	s, _ := kledger.Open(t.TempDir())
+	s, _ := ledger.Open(t.TempDir())
 	s.Append("itm_1", KindCreated, "me", Fields{Kind: ptr("note"), Title: ptr("a"), Status: ptr("s0"), Tags: ptr([]string{"x"}), Workflow: ptr("w")})
 	s.Append("itm_1", "free.kind", "me", map[string]int{"n": 1})
 	s.Append("itm_1", KindUpdated, "me", Fields{Title: ptr("b"), Status: ptr("ignored"), Criteria: ptr([]string{"c1"})})
@@ -35,7 +35,7 @@ func TestFold(t *testing.T) {
 }
 
 func TestSeatsAndAttachments(t *testing.T) {
-	s, _ := kledger.Open(t.TempDir())
+	s, _ := ledger.Open(t.TempDir())
 	s.Append("i", KindCreated, "me", Fields{Title: ptr("t")})
 	s.Append("i", KindSeatBound, "me", Seat{Session: "s1", Location: "local:/a", Base: "abc"})
 	s.Append("i", KindSeatBound, "me", Seat{Session: "s2", Location: "cloud:x"})

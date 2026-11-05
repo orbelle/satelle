@@ -6,15 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // TestTagchipRendersKVAndBare verifies the under-title chips: a key:value tag
 // renders as a kv chip distinguishing key from value, a bare tag stays plain.
 func TestTagchipRendersKVAndBare(t *testing.T) {
 	now := time.Now()
-	it := workitem.Item{
-		ID: "sty_1", Kind: workitem.KindStory, Title: "x", Status: "open", Category: "feature",
+	it := Item{
+		ID: "sty_1", Kind: "story", Title: "x", Status: "open", Category: "feature",
 		Tags: []string{"ui", "epic:summariser"}, CreatedAt: now, UpdatedAt: now,
 	}
 	var buf bytes.Buffer

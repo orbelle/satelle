@@ -1,7 +1,0 @@
-transcript: (none)
-key:        payload_model
-model:      claude-fable-5
-matched:    claude-fable*
-exempt:     (none)
-decision:   deny
-reason:     configured deny text

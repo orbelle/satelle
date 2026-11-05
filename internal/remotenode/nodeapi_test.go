@@ -12,7 +12,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
-	"github.com/bobmcallan/satelle/internal/runstatus"
 )
 
 const (
@@ -59,11 +58,11 @@ func TestRunAndStatusUseTheNodeRoutes(t *testing.T) {
 	if err != nil || d != (RunDescriptor{Mode: "node", Project: "acme-team", StoryID: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}) {
 		t.Fatalf("Run = %+v, %v", d, err)
 	}
-	reply, err := client.Status(context.Background(), NodeStatus{State: StateRunning, StoryID: "sty_1", RunState: runstatus.Queued})
+	reply, err := client.Status(context.Background(), NodeStatus{State: StateRunning, StoryID: "sty_1", RunState: "queued"})
 	if err != nil || reply.LostAfterSeconds != 90 {
 		t.Fatalf("Status = %+v, %v", reply, err)
 	}
-	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: runstatus.Concluded, Outcome: "no-op"}); err != nil {
+	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: "concluded", Outcome: "no-op"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,7 +90,7 @@ func TestStatusResendsWithoutFindingsWhenTheServerRefusesThem(t *testing.T) {
 	fake, client, _ := newFake(t)
 	fake.RefuseFindings = true
 
-	_, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: runstatus.Concluded, Outcome: "reject", Findings: "fix the import"})
+	_, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: "concluded", Outcome: "reject", Findings: "fix the import"})
 	if err != nil {
 		t.Fatalf("Status = %v, want the second report to succeed", err)
 	}
@@ -105,7 +104,7 @@ func TestStatusResendsWithoutFindingsWhenTheServerRefusesThem(t *testing.T) {
 
 	// A refusal of a report with no findings is not retried.
 	before := fake.Count(http.MethodPut, "/status")
-	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: runstatus.Running}); err != nil {
+	if _, err := client.Status(context.Background(), NodeStatus{State: StateRunning, RunState: "running"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := fake.Count(http.MethodPut, "/status"); n != before+1 {

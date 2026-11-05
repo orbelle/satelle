@@ -155,3 +155,17 @@ func stripLeadingHeading(src string) string {
 	}
 	return strings.Join(lines[i:], "\n")
 }
+
+// stripDocFrontmatter returns body with any leading YAML frontmatter removed.
+func stripDocFrontmatter(body string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return body
+	}
+	for j := 1; j < len(lines); j++ {
+		if strings.TrimSpace(lines[j]) == "---" {
+			return strings.TrimLeft(strings.Join(lines[j+1:], "\n"), "\n")
+		}
+	}
+	return body
+}

@@ -54,7 +54,6 @@ func ServerEndpointEnv() (endpoint string, disabled bool, set bool) {
 // GlobalConfig is the machine-wide config at ~/.satelle/config.toml.
 type GlobalConfig struct {
 	Service   ServiceConfig      `toml:"service"`
-	Agent     AgentConfig        `toml:"agent"`
 	Workspace WorkspaceConfig    `toml:"workspace"`
 	UI        UIConfig           `toml:"ui"`
 	Hosted    GlobalHostedConfig `toml:"hosted"`
@@ -141,26 +140,6 @@ func (w *WorkspaceConfig) RemoveRepo(path string) bool {
 	}
 	w.Repos = out
 	return found
-}
-
-// DefaultAgentCLI is the agent CLI the reviewer/summariser shell out to when
-// none is selected — claude, whose flag surface satelle's runner mirrors.
-const DefaultAgentCLI = "claude"
-
-// AgentConfig selects the headless agent CLI the quality-management spine uses
-// for isolated reviews/summaries. Set once at install (`satelle agent`).
-type AgentConfig struct {
-	// CLI is the agent CLI identifier (claude | grok). Empty resolves to
-	// DefaultAgentCLI.
-	CLI string `toml:"cli"`
-}
-
-// ResolveCLI returns the selected agent CLI, defaulting when unset.
-func (a AgentConfig) ResolveCLI() string {
-	if c := strings.TrimSpace(a.CLI); c != "" {
-		return c
-	}
-	return DefaultAgentCLI
 }
 
 // ServiceConfig configures the background web service (`satelle service` /
@@ -303,7 +282,7 @@ func SaveGlobal(gc GlobalConfig) error {
 		}
 		repos = "[" + strings.Join(quoted, ", ") + "]"
 	}
-	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo, gc.Agent.ResolveCLI(), repos, gc.UI.Theme, gc.Hosted.ResolveServer())
+	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo, repos, gc.UI.Theme, gc.Hosted.ResolveServer())
 	body += renderHostedPush(gc.Hosted.Push)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -373,11 +352,6 @@ endpoint = %q
 # 'service install' for the unit/status line. Not "the repo satelled serves"
 # — the mirror holds N partitions.
 repo = %q
-
-[agent]
-# the headless agent CLI the reviewer/summariser shell out to (claude | grok).
-# Set by 'satelle agent set <cli>' / 'satelle agent detect'.
-cli = %q
 
 [workspace]
 # connected repo paths the /workspace view aggregates (per-repo DBs stay the

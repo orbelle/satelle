@@ -11,11 +11,10 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/help"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 func TestHelpPageRendersFormattedTopics(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)

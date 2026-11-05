@@ -13,7 +13,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -29,7 +29,7 @@ const ExecutionKind = "execution"
 // Location prefixes of a seat.
 var seatLocations = []string{"local:", "remote:", "cloud:"}
 
-func (k *Kernel) append(id, kind, actor string, payload any) (kledger.Event, error) {
+func (k *Kernel) append(id, kind, actor string, payload any) (ledger.Event, error) {
 	e, err := k.Ledger.Append(id, kind, actor, payload)
 	if err != nil {
 		return e, err
@@ -52,8 +52,8 @@ func (k *Kernel) Get(id string) (item.Item, error) {
 	return it, err
 }
 
-func (k *Kernel) load(id string) (item.Item, []kledger.Event, error) {
-	if !kledger.ValidItem(id) {
+func (k *Kernel) load(id string) (item.Item, []ledger.Event, error) {
+	if !ledger.ValidItem(id) {
 		return item.Item{}, nil, fmt.Errorf("invalid item id %q", id)
 	}
 	events, err := k.Ledger.Read(id)
@@ -120,7 +120,7 @@ func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
 		}
 	}
 	prefix := k.prefix(draft.Kind)
-	if !kledger.ValidItem(prefix + "_x") {
+	if !ledger.ValidItem(prefix + "_x") {
 		return draft, fmt.Errorf("id prefix %q for kind %q is not usable in an id", prefix, draft.Kind)
 	}
 	for {
@@ -242,7 +242,7 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 
 // base is the commit an item's work is judged from: the latest bound seat's
 // base, else the commit at create.
-func (k *Kernel) base(it item.Item, events []kledger.Event) string {
+func (k *Kernel) base(it item.Item, events []ledger.Event) string {
 	seats := item.FoldSeats(events)
 	for i := len(seats) - 1; i >= 0; i-- {
 		if seats[i].Base != "" {
@@ -261,7 +261,7 @@ func (k *Kernel) diff(base string, paths []string) (string, error) {
 
 // coverage hashes what a gate judges: the item's body, criteria and
 // attachments, and the diff of the gate's paths since base.
-func (k *Kernel) coverage(it item.Item, events []kledger.Event, base string, paths []string) (string, error) {
+func (k *Kernel) coverage(it item.Item, events []ledger.Event, base string, paths []string) (string, error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00", it.Body, strings.Join(it.Criteria, "\x1f"))
 	for _, a := range item.FoldAttachments(events) {

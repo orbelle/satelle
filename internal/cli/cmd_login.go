@@ -1,418 +1,144 @@
 package cli
 
-// `satelle login` / `logout` / `whoami` — the client half of the hosted-server
-// auth (sty_2fc93374). login runs an OAuth 2.1 + PKCE loopback flow, persists the
-// tokens to the per-user credential store, records the server in the GLOBAL config
-// (~/.satelle/config.toml) so one sign-in serves every repo (sty_53ccf845), and
-// prints the signed-in identity. None of these commands touch the local DB, so
-// they carry no store annotation and work in a fresh clone.
-//
-// --workspace (epic:scoped-sync, order:4) records the user's ACTIVE hosted
-// workspace for scoped sync. The default login writes nothing — the personal
-// workspace is the resolver's zero-config default; --workspace <name> selects a
-// team workspace and records the choice in the gitignored satelle.local.toml
-// overlay (a per-developer value, never the team-committed satelle.toml).
-
 import (
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/spf13/cobra"
 )
 
-// defaultCallbackPort is the fixed loopback port `satelle login` listens on, so
-// its redirect URI (http://127.0.0.1:53682/callback) can be registered exactly
-// with an authorization server that does not honour any-port loopback.
+// defaultCallbackPort is the loopback port of the registered OAuth redirect.
 const defaultCallbackPort = 53682
 
-func init() {
-	var (
-		serverArg    string
-		workspaceArg string
-		noBrowser    bool
-		timeout      time.Duration
-		callbackPort int
-	)
+// resolveServer is the --server flag, else the machine's [hosted] server.
+func resolveServer(flag string) (string, error) {
+	if s := strings.TrimRight(strings.TrimSpace(flag), "/"); s != "" {
+		return s, nil
+	}
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return "", err
+	}
+	if s := gc.Hosted.ResolveServer(); s != "" {
+		return s, nil
+	}
+	return "", errors.New("no hosted server configured; pass --server <url> (it is recorded machine-wide)")
+}
 
-	login := &cobra.Command{
+func loginCmd() *cobra.Command {
+	var server string
+	var noBrowser bool
+	var timeout time.Duration
+	var port int
+	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate to the hosted satelle-server (OAuth 2.1 + PKCE)",
-		Long: `login runs a browser-based OAuth 2.1 + PKCE flow against the hosted
-satelle-server, stores the access + refresh tokens in the per-user credential
-store ($XDG_CONFIG_HOME/satelle/credentials.toml), records the server URL in the
-machine-wide global config (~/.satelle/config.toml) so one sign-in serves every
-repo, and prints your identity.
-
---workspace <name> records your active workspace for scoped sync (personal by
-default; a team-workspace name selects it). The selection is written to the
-gitignored per-user .satelle/satelle.local.toml, not the team-committed
-satelle.toml.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogin(cmd, serverArg, workspaceArg, noBrowser, timeout, callbackPort)
-		},
-	}
-	login.Flags().IntVar(&callbackPort, "callback-port", defaultCallbackPort, "Loopback port for the browser callback (0 picks a free port). The default is the registered redirect URI.")
-	login.Flags().StringVar(&serverArg, "server", "", "Hosted server URL (recorded in the global config; overrides the configured server).")
-	login.Flags().StringVar(&workspaceArg, "workspace", "", "Record the active workspace (a team-workspace name, or id) for scoped sync; default is personal.")
-	login.Flags().BoolVar(&noBrowser, "no-browser", false, "Print the authorize URL instead of opening a browser.")
-	login.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "How long to wait for the browser approval.")
-	register(login)
-
-	var (
-		logoutServer    string
-		logoutNoBrowser bool
-		pruneLoopback   bool
-	)
-	logout := &cobra.Command{
-		Use:   "logout",
-		Short: "Clear stored hosted-server credentials",
-		Long: `Clear the stored hosted-server credentials on this machine.
-
-Local work is unaffected, and nothing already synced is withdrawn: this forgets
-a credential, it does not revoke anything server-side.
-
-The local credential is always deleted. If its access token carries a session
-id, logout then opens (--no-browser prints) the server's /logout page so the
-sign-in provider's browser session ends too; otherwise it says that session may
-still be signed in.
-
---prune-loopback instead removes the stale loopback credentials test runs left
-in the store, and nothing else.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if pruneLoopback {
-				if strings.TrimSpace(logoutServer) != "" {
-					return fmt.Errorf("--prune-loopback cannot be combined with --server")
-				}
-				return runLogoutPruneLoopback(cmd)
-			}
-			open := hosted.OpenBrowser
-			if logoutNoBrowser {
-				open = nil
-			}
-			return runLogout(cmd, logoutServer, open)
-		},
-	}
-	logout.Flags().StringVar(&logoutServer, "server", "", "Hosted server URL (overrides the configured machine hosted server).")
-	logout.Flags().BoolVar(&logoutNoBrowser, "no-browser", false, "Print the provider sign-out URL instead of opening a browser.")
-	logout.Flags().BoolVar(&pruneLoopback, "prune-loopback", false, "Remove only stored credentials for loopback hosts (127.0.0.0/8, ::1, localhost) that have no created_at and no email (left by test runs); real logins and non-loopback entries are kept.")
-	register(logout)
-
-	var whoamiServer string
-	whoami := &cobra.Command{
-		Use:   "whoami",
-		Short: "Print the hosted-server principal (GET /api/v1/me)",
-		Long: `Print who the stored credential authenticates as on the hosted server.
-
-Reach for it when a hosted command is refused: it separates "not logged in" from
-"logged in as the wrong principal", which the refusal alone often does not. It
-asks the server, so it needs the network.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWhoami(cmd, whoamiServer)
-		},
-	}
-	whoami.Flags().StringVar(&whoamiServer, "server", "", "Hosted server URL (overrides the configured machine hosted server).")
-	register(whoami)
-}
-
-// resolveServer picks the server: the flag wins, else the machine
-// ~/.satelle/config.toml [hosted] server, else DefaultHostedServer. Repo
-// satelle.toml is not a source.
-func resolveServer(flagServer string) string {
-	cfg, _, err := config.Load("")
-	if err != nil && !errors.Is(err, config.ErrNotFound) {
-		// A malformed repo config still lets --server (or global) drive login.
-		cfg = config.Config{}
-	}
-	if s := strings.TrimSpace(flagServer); s != "" {
-		return strings.TrimRight(s, "/")
-	}
-	return config.ResolveHostedServer(cfg)
-}
-
-// recordLoginBinding persists the post-authentication binding: the server goes to
-// the GLOBAL config (one sign-in serves every repo). Tokens are handled
-// separately by the credential store. Factored out so the persistence is
-// unit-testable without the browser OAuth flow.
-func recordLoginBinding(server string) error {
-	if err := config.SaveGlobalHostedServer(server); err != nil {
-		return fmt.Errorf("record hosted server in the global config: %w", err)
-	}
-	return nil
-}
-
-// repoConfigPath returns the committed .satelle/satelle.toml path for the CWD (""
-// outside a repo). The active-workspace selection is recorded in the per-user
-// satelle.local.toml that sits BESIDE this path; an empty result means the login
-// is out-of-repo and records nothing.
-func repoConfigPath() string {
-	_, path, err := config.Load("")
-	if err != nil {
-		return ""
-	}
-	return path
-}
-
-// recordActiveWorkspace writes the active-workspace selection to the gitignored
-// satelle.local.toml overlay beside the committed config — NOT the team
-// satelle.toml — because the active workspace is a per-developer choice (the
-// personal default, or a team workspace the developer elects). A committed
-// [hosted] workspace in satelle.toml stays a hand-authored TEAM DEFAULT the
-// overlay overrides per-key. An empty cfgPath (out-of-repo login) records
-// nothing, preserving fresh-clone portability. Factored out so the write is
-// unit-testable without the OAuth flow.
-func recordActiveWorkspace(cfgPath, name string) error {
-	if strings.TrimSpace(cfgPath) == "" {
-		return nil // out-of-repo login authenticates without recording
-	}
-	localPath := filepath.Join(filepath.Dir(cfgPath), config.LocalConfigName)
-	edit := config.BoundWorkspaceEdit(name)
-	if err := config.SaveConfigValues(localPath, []config.KeyEdit{edit}); err != nil {
-		return fmt.Errorf("record active workspace: %w", err)
-	}
-	return nil
-}
-
-// matchWorkspace resolves a --workspace argument against the fetched list: an
-// exact NAME match wins, then an exact ID match (the unambiguous fallback). The
-// server returns no slug, so name is the primary handle a user types.
-func matchWorkspace(workspaces []hosted.Workspace, arg string) (hosted.Workspace, bool) {
-	for _, ws := range workspaces {
-		if ws.Name == arg {
-			return ws, true
-		}
-	}
-	for _, ws := range workspaces {
-		if ws.ID == arg {
-			return ws, true
-		}
-	}
-	return hosted.Workspace{}, false
-}
-
-// workspaceNotFound builds the clear, human error for an unresolvable
-// --workspace argument, listing the available workspaces as "name (kind)" pairs.
-// It is built from the parsed list, never the raw server body, so a response
-// detail cannot leak (AC4).
-func workspaceNotFound(arg string, workspaces []hosted.Workspace) error {
-	if len(workspaces) == 0 {
-		return fmt.Errorf("workspace %q not found — the account has no workspaces", arg)
-	}
-	parts := make([]string, len(workspaces))
-	for i, ws := range workspaces {
-		parts[i] = fmt.Sprintf("%s (%s)", ws.Name, ws.Kind)
-	}
-	return fmt.Errorf("workspace %q not found — available: %s (re-run login with one of these, or drop --workspace for your personal workspace)", arg, strings.Join(parts, ", "))
-}
-
-func runLogin(cmd *cobra.Command, serverArg, workspaceArg string, noBrowser bool, timeout time.Duration, callbackPort int) error {
-	server := resolveServer(serverArg)
-	if server == "" {
-		return fmt.Errorf("no hosted server configured — pass --server <url> (it is recorded globally for every repo)")
-	}
-	out := cmd.OutOrStdout()
-
-	opts := hosted.LoginOptions{Timeout: timeout, Out: out, Port: callbackPort}
-	if !noBrowser {
-		opts.OpenBrowser = hosted.OpenBrowser
-	}
-
-	cred, err := hosted.Login(cmd.Context(), nil, server, opts)
-	if err != nil {
-		return err
-	}
-
-	store := hosted.FileStore{}
-	if err := store.Save(cred); err != nil {
-		return err
-	}
-	// Record the binding: server → global config (one sign-in serves every repo).
-	// Tokens stay in the per-user store.
-	if err := recordLoginBinding(server); err != nil {
-		return err
-	}
-
-	client := hosted.NewClient(server, store, nil)
-
-	// Resolve the active workspace (--workspace). Done AFTER auth so a fetch
-	// failure or an unknown name surfaces AFTER tokens+server are saved, as a
-	// clear retryable error — never a raw body (AC4). Default login (no flag)
-	// writes nothing: personal is the resolver's zero-config default.
-	activeWorkspace := ""
-	if ws := strings.TrimSpace(workspaceArg); ws != "" {
-		workspaces, werr := client.Workspaces(cmd.Context())
-		if werr != nil {
-			return fmt.Errorf("resolve workspace %q: %w", ws, werr)
-		}
-		selected, ok := matchWorkspace(workspaces, ws)
-		if !ok {
-			return workspaceNotFound(ws, workspaces)
-		}
-		if cfgPath := repoConfigPath(); cfgPath != "" {
-			if err := recordActiveWorkspace(cfgPath, selected.Name); err != nil {
+		Short: "Sign in to a hosted satelle-server (OAuth 2.1 + PKCE)",
+		Long: `login runs the browser OAuth flow against the hosted server, stores the
+tokens in the per-user credential store ($XDG_CONFIG_HOME/satelle) and records
+the server in ~/.satelle/config.toml so one sign-in serves every repo.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srv, err := resolveServer(server)
+			if err != nil {
 				return err
 			}
-			activeWorkspace = selected.Name
-			fmt.Fprintf(out, "Active workspace set to %s.\n", selected.Name)
-		} else {
-			// Out-of-repo: auth succeeded but there is no .satelle/satelle.toml
-			// to record the selection in — re-run inside a repo to bind it.
-			fmt.Fprintf(out, "Resolved workspace %s, but no .satelle/satelle.toml here to record it in — re-run inside a repo to bind it.\n", selected.Name)
-		}
+			out := cmd.OutOrStdout()
+			opts := hosted.LoginOptions{Timeout: timeout, Out: out, Port: port}
+			if !noBrowser {
+				opts.OpenBrowser = hosted.OpenBrowser
+			}
+			cred, err := hosted.Login(cmd.Context(), nil, srv, opts)
+			if err != nil {
+				return err
+			}
+			store := hosted.FileStore{}
+			if err := store.Save(cred); err != nil {
+				return err
+			}
+			if err := config.SaveGlobalHostedServer(srv); err != nil {
+				return err
+			}
+			who, err := hosted.NewClient(srv, store, nil).Me(cmd.Context())
+			if err != nil {
+				var unknown *hosted.UnknownSubjectError
+				if errors.As(err, &unknown) {
+					return unknown
+				}
+				fmt.Fprintf(out, "Signed in to %s (could not fetch identity: %v)\n", srv, err)
+				return nil
+			}
+			if fresh, err := store.Load(srv); err == nil {
+				fresh.DisplayName, fresh.Email, fresh.PrincipalID = who.DisplayName, who.Email, who.ID
+				_ = store.Save(fresh)
+			}
+			printPrincipal(cmd, srv, who)
+			return nil
+		},
 	}
-
-	// Fetch and print the signed-in identity, and persist it into the credential
-	// so the web UI resolves identity locally with no render-time fetch
-	// (sty_467c6944). A failed identity fetch does not fail the login.
-	who, err := client.Me(cmd.Context())
-	if err != nil {
-		// First contact with an account that has not signed in at the server's
-		// own site: show the server's message and fail, rather than a vague
-		// "could not fetch identity". The tokens are already saved, so the
-		// retry after signing up needs no new browser round trip.
-		var unknown *hosted.UnknownSubjectError
-		if errors.As(err, &unknown) {
-			return unknown
-		}
-		if activeWorkspace != "" {
-			fmt.Fprintf(out, "Signed in to %s (active workspace %s; could not fetch identity: %v)\n", server, activeWorkspace, err)
-		} else {
-			fmt.Fprintf(out, "Signed in to %s (could not fetch identity: %v)\n", server, err)
-		}
-		return nil
-	}
-	if fresh, lErr := store.Load(server); lErr == nil {
-		fresh.DisplayName, fresh.Email, fresh.PrincipalID = who.DisplayName, who.Email, who.ID
-		_ = store.Save(fresh)
-	}
-	printPrincipal(cmd, server, who, activeWorkspace)
-	return nil
+	cmd.Flags().StringVar(&server, "server", "", "hosted server URL (recorded machine-wide)")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "print the authorize URL instead of opening a browser")
+	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "how long to wait for the browser approval")
+	cmd.Flags().IntVar(&port, "callback-port", defaultCallbackPort, "loopback port for the browser callback (0 picks a free port)")
+	return cmd
 }
 
-// providerSessionStillOpen is printed whenever logout cannot end the provider
-// session itself.
-const providerSessionStillOpen = "Local tokens were deleted, but the provider session may still be signed in."
-
-// runLogout deletes the local credential, then ends the provider session
-// through the server's /logout page named by the access token's sid claim.
-// open launches that URL; nil (--no-browser) prints it instead. The local
-// delete always happens first and never depends on the browser step.
-func runLogout(cmd *cobra.Command, serverArg string, open func(string) error) error {
-	server := resolveServer(serverArg)
-	if server == "" {
-		return fmt.Errorf("no hosted server configured — pass --server <url>")
+func logoutCmd() *cobra.Command {
+	var server string
+	cmd := &cobra.Command{
+		Use:   "logout",
+		Short: "Forget the stored hosted-server credential on this machine",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srv, err := resolveServer(server)
+			if err != nil {
+				return err
+			}
+			if err := (hosted.FileStore{}).Delete(srv); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Logged out of %s.\n", srv)
+			if hosted.SessionToken() != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s is still set; the session token remains active.\n", hosted.SessionTokenEnv)
+			}
+			return nil
+		},
 	}
-	store := hosted.FileStore{}
-	cred, _ := store.Load(server)
-	if err := store.Delete(server); err != nil {
-		return err
-	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Logged out of %s.\n", server)
-	if hosted.SessionToken() != "" {
-		fmt.Fprintf(out, "%s is still set — the session token remains active.\n", hosted.SessionTokenEnv)
-	}
-	sid := cred.SessionID()
-	if sid == "" {
-		fmt.Fprintln(out, providerSessionStillOpen)
-		return nil
-	}
-	logoutURL := server + "/logout?session_id=" + url.QueryEscape(sid)
-	if open == nil {
-		fmt.Fprintf(out, "Open this URL to end the provider session:\n\n  %s\n\n%s\n", logoutURL, providerSessionStillOpen)
-		return nil
-	}
-	if err := open(logoutURL); err != nil {
-		fmt.Fprintf(out, "Could not open a browser (%v). Open this URL to end the provider session:\n\n  %s\n\n%s\n", err, logoutURL, providerSessionStillOpen)
-		return nil
-	}
-	fmt.Fprintf(out, "Opened %s to end the provider session.\n", logoutURL)
-	return nil
+	cmd.Flags().StringVar(&server, "server", "", "hosted server URL")
+	return cmd
 }
 
-// runLogoutPruneLoopback drops the stamp-less loopback credentials test servers
-// left behind and reports each removed URL and the count (sty_18403814).
-func runLogoutPruneLoopback(cmd *cobra.Command) error {
-	removed, err := (hosted.FileStore{}).PruneLoopback()
-	if err != nil {
-		return err
+func whoamiCmd() *cobra.Command {
+	var server string
+	cmd := &cobra.Command{
+		Use:   "whoami",
+		Short: "Print who the stored credential signs in as",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srv, err := resolveServer(server)
+			if err != nil {
+				return err
+			}
+			who, err := hosted.NewClient(srv, hosted.DefaultStore(), nil).Me(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("whoami: %w", err)
+			}
+			printPrincipal(cmd, srv, who)
+			return nil
+		},
 	}
-	out := cmd.OutOrStdout()
-	for _, u := range removed {
-		fmt.Fprintf(out, "removed %s\n", u)
-	}
-	fmt.Fprintf(out, "removed %d loopback test credential(s)\n", len(removed))
-	return nil
+	cmd.Flags().StringVar(&server, "server", "", "hosted server URL")
+	return cmd
 }
 
-func runWhoami(cmd *cobra.Command, serverArg string) error {
-	server := resolveServer(serverArg)
-	if server == "" {
-		return fmt.Errorf("no hosted server configured — pass --server <url>")
-	}
-	store := hosted.DefaultStore()
-	if cred, lerr := store.Load(server); lerr == nil && cred.IsSession() {
-		return runWhoamiSession(cmd, server, store)
-	}
-	who, err := hosted.NewClient(server, store, nil).Me(cmd.Context())
-	if err != nil {
-		if errors.Is(err, hosted.ErrLoginRequired) {
-			return err
-		}
-		return fmt.Errorf("whoami: %w", err)
-	}
-	printPrincipal(cmd, server, who, resolveWhoamiWorkspace())
-	return nil
-}
-
-// runWhoamiSession is whoami under a SATELLE_TOKEN session token. GET
-// /api/v1/me refuses a session token, so the user is learned from the
-// session-allowed location registration and cached; it is re-resolved on every
-// call. When it cannot be (the server refuses, or none is reachable) it says so
-// and exits non-zero rather than printing a stale or blank identity.
-func runWhoamiSession(cmd *cobra.Command, server string, store hosted.Store) error {
-	root := ""
-	if p := repoConfigPath(); p != "" {
-		root = config.RepoRootFromConfigPath(p)
-	}
-	if root == "" {
-		root, _ = os.Getwd()
-	}
-	client := hosted.NewClient(server, store, nil)
-	id, err := hosted.ResolveSessionPrincipal(cmd.Context(), client, root, server)
-	if err != nil {
-		return fmt.Errorf("%s: %w", sessionUnresolved, err)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "acting via session token on %s as user %s\n", server, id)
-	return nil
-}
-
-// resolveWhoamiWorkspace loads the repo config (best-effort) and resolves the
-// active workspace so whoami surfaces the scoped-sync destination alongside the
-// identity. Empty when there is no repo config (out-of-repo whoami prints none).
-func resolveWhoamiWorkspace() string {
-	cfg, _, err := config.Load("")
-	if err != nil {
-		return ""
-	}
-	return cfg.ResolveActiveWorkspace().Name
-}
-
-func printPrincipal(cmd *cobra.Command, server string, p hosted.Principal, activeWorkspace string) {
+func printPrincipal(cmd *cobra.Command, server string, p hosted.Principal) {
 	name := p.DisplayName
 	if name == "" {
 		name = p.Email
 	}
-	out := cmd.OutOrStdout()
-	if activeWorkspace != "" {
-		fmt.Fprintf(out, "Signed in to %s as %s <%s> (role %s, workspace %s)\n", server, name, p.Email, p.Role, activeWorkspace)
-		return
-	}
-	fmt.Fprintf(out, "Signed in to %s as %s <%s> (role %s)\n", server, name, p.Email, p.Role)
+	fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s <%s> (role %s)\n", server, name, p.Email, p.Role)
 }

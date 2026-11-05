@@ -3,159 +3,234 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/verb"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// omissionNotice is the one stderr line `ledger list` prints when its limit left
-// older rows out. Every number comes from the store's Window; when the matched
-// total exceeds what one read can return, raising --limit cannot reach the rest,
-// so the hint is to narrow with --kind.
-func omissionNotice(w ledger.Window) string {
-	hint := fmt.Sprintf("use --limit %d to see them", w.Total)
-	if w.Total > w.Max {
-		hint = fmt.Sprintf("use --limit %d for more, or narrow with --kind", w.Max)
+func ledgerCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ledger",
+		Short: "Read, append to, verify and rebuild the ledger",
+		Long: `The ledger is satelle's history of record: one append-only, hash-chained
+JSONL file per item under the runtime directory. The sqlite cache is rebuilt
+from it.`,
 	}
-	return fmt.Sprintf("ledger: showing the newest %d of %d rows; %d older rows omitted — %s",
-		w.Limit, w.Total, w.Omitted, hint)
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd())
+	return cmd
 }
 
-func init() {
-	ledgerCmd := &cobra.Command{Use: "ledger", Short: "Append to and read the evidence ledger",
-		Long: `The evidence ledger: what happened, appended in order and never rewritten.
-
-Gate verdicts, agent invocations and their cost, change records, suite runs. Use
-list to read it and append to add an entry; record-run and cite-run carry one
-verification run across stories so a sibling need not re-run the suite.`}
-
-	var aStory, aProject, aKind, aActor, aBody string
-	appendCmd := &cobra.Command{
-		Use:   "append",
-		Short: "Append an entry to the ledger",
-		Long: `Append one entry to the evidence ledger.
-
-Append-only: there is no edit and no delete, because a record its writer can
-revise is not evidence. For a story-scoped telemetry event prefer satelle story
-log, which types the data and attaches it to the story.`,
-		Annotations: needsStore(),
+func ledgerAppendCmd() *cobra.Command {
+	var kind, payload string
+	cmd := &cobra.Command{
+		Use:   "append <item> --kind K [--payload JSON]",
+		Short: "Append an event to an item's chain (carried, never read by satelle)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := map[string]any{"kind": aKind}
-			putIf(req, "story_id", aStory)
-			putIf(req, "project_id", aProject)
-			putIf(req, "actor", aActor)
-			putIf(req, "body", aBody)
-			return dispatch(cmd, "ledger-append", req)
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			if _, err := k.Get(args[0]); err != nil {
+				return err
+			}
+			if strings.TrimSpace(kind) == "" {
+				return fmt.Errorf("--kind is required")
+			}
+			var p any
+			if payload != "" {
+				var raw json.RawMessage
+				if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+					return fmt.Errorf("--payload is not JSON: %w", err)
+				}
+				p = raw
+			}
+			e, err := k.Ledger.Append(args[0], kind, actor(), p)
+			if err != nil {
+				return err
+			}
+			if err := k.Cache.SyncItem(k.Ledger, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", e.ID, e.Item, e.Kind)
+			return nil
 		},
 	}
-	appendCmd.Flags().StringVar(&aStory, "story", "", "story id correlation")
-	appendCmd.Flags().StringVar(&aProject, "project", "", "project id correlation")
-	appendCmd.Flags().StringVar(&aKind, "kind", "", "entry kind (required)")
-	appendCmd.Flags().StringVar(&aActor, "actor", "", "actor")
-	appendCmd.Flags().StringVar(&aBody, "body", "", "entry body")
-	_ = appendCmd.MarkFlagRequired("kind")
+	cmd.Flags().StringVar(&kind, "kind", "", "event kind")
+	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload")
+	return cmd
+}
 
-	var lStory, lProject, lKind string
-	var lLimit int
-	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List ledger entries (filter by story, project, or kind)",
-		Long: `Read the ledger, filtered by story, project or kind.
-
-This is where a gate's FULL output lives: the route document shows the verdict
-and its reasoning and points here for everything the reviewer actually wrote.
-Reach for it when the summary is not enough.`,
-		Annotations: needsStore(),
+func ledgerListCmd() *cobra.Command {
+	var kind string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "list [item]",
+		Short: "List events: one item's chain, or every item's by time",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := map[string]any{}
-			putIf(req, "story_id", lStory)
-			putIf(req, "project_id", lProject)
-			putIf(req, "kind", lKind)
-			if lLimit > 0 {
-				req["limit"] = lLimit
-			}
-			req["window"] = true
-			body, err := json.Marshal(req)
-			if err != nil {
-				return fmt.Errorf("encode request: %w", err)
-			}
-			resp, err := verb.Dispatch(cmd.Context(), "ledger-list", body)
+			k, _, err := openKernel()
 			if err != nil {
 				return err
 			}
-			var w struct {
-				Entries json.RawMessage `json:"entries"`
-				ledger.Window
+			defer k.Close()
+			id := ""
+			if len(args) == 1 {
+				id = args[0]
 			}
-			if err := json.Unmarshal(resp, &w); err != nil {
-				return fmt.Errorf("ledger list: decode: %w", err)
-			}
-			if err := renderResponse(cmd, "ledger-list", lStory, w.Entries); err != nil {
+			events, err := k.Cache.Events(id, kind)
+			if err != nil {
 				return err
 			}
-			if w.Omitted > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), omissionNotice(w.Window))
+			if *asJSON {
+				if events == nil {
+					events = []ledger.Event{}
+				}
+				return writeJSON(cmd.OutOrStdout(), events)
+			}
+			for _, e := range events {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-14s %-20s %-12s %s\n",
+					e.At.Local().Format("2006-01-02 15:04:05"), e.Item, e.Kind, e.Actor, compact(e.Payload))
 			}
 			return nil
 		},
 	}
-	listCmd.Flags().StringVar(&lStory, "story", "", "filter by story id")
-	listCmd.Flags().StringVar(&lProject, "project", "", "filter by project id")
-	listCmd.Flags().StringVar(&lKind, "kind", "", "filter by kind")
-	listCmd.Flags().IntVar(&lLimit, "limit", 0, fmt.Sprintf(
-		"max rows, newest window, oldest first (default %d, max %d)", ledger.DefaultListLimit, ledger.MaxListLimit))
+	cmd.Flags().StringVar(&kind, "kind", "", "only this kind")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
 
-	var vStory string
-	verifyCmd := &cobra.Command{
+// compact is a payload on one line, cut to a readable length.
+func compact(p json.RawMessage) string {
+	s := strings.Join(strings.Fields(string(p)), " ")
+	if len(s) > 160 {
+		s = s[:157] + "..."
+	}
+	return s
+}
+
+func ledgerVerifyCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "verify",
-		Short: "Verify a story's event chain (every story with no --story)",
-		Long: `Check that each story's ledger events form one chain: every event's base_id
-names an earlier event of the same story, the story has exactly one root, and no
-two events share a base unless a chain_fork entry names them.
-
-It also replays each story's transitions, each against the workflow version its
-own event recorded (the story's workflow_version events archive them), and
-reports a transition whose edge that version does not declare.
-
-Prints one line per break (<story> <event> <kind>: <detail>) and exits non-zero
-when any is found; otherwise prints "chain ok" with the counts and exits 0.
-Read-only: a broken chain is reported, never repaired.`,
-		Annotations: needsStore(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			req := map[string]any{}
-			putIf(req, "story_id", vStory)
-			body, err := json.Marshal(req)
-			if err != nil {
-				return fmt.Errorf("encode request: %w", err)
-			}
-			resp, err := verb.Dispatch(cmd.Context(), "ledger-verify", body)
+		Short: "Verify every item's hash chain",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			k, _, err := openKernel()
 			if err != nil {
 				return err
 			}
-			var rep verb.LedgerVerifyReport
-			if err := json.Unmarshal(resp, &rep); err != nil {
-				return fmt.Errorf("ledger verify: decode: %w", err)
+			defer k.Close()
+			if err := k.Ledger.Verify(); err != nil {
+				return err
 			}
-			out := cmd.OutOrStdout()
-			if len(rep.Breaks) == 0 && len(rep.ReplayBreaks) == 0 {
-				fmt.Fprintf(out, "chain ok (%d stories, %d events)\n", rep.Stories, rep.Events)
-				return nil
+			items, err := k.Ledger.Items()
+			if err != nil {
+				return err
 			}
-			for _, b := range rep.Breaks {
-				fmt.Fprintf(out, "%s %s %s: %s\n", b.StoryID, b.EventID, b.Kind, b.Detail)
-			}
-			for _, b := range rep.ReplayBreaks {
-				fmt.Fprintf(out, "%s %s replay_%s: %s → %s under workflow %s: %s\n", b.StoryID, b.EventID, b.Reason, b.From, b.To, b.WorkflowHash, b.Detail)
-			}
-			return &ExitError{Code: 1, Quiet: true,
-				Err: fmt.Errorf("ledger verify: %d chain break(s), %d replay break(s) in %d stories, %d events",
-					len(rep.Breaks), len(rep.ReplayBreaks), rep.Stories, rep.Events)}
+			fmt.Fprintf(cmd.OutOrStdout(), "ledger verified: %d chains intact\n", len(items))
+			return nil
 		},
 	}
-	verifyCmd.Flags().StringVar(&vStory, "story", "", "verify one story's chain (default: every story)")
+}
 
-	ledgerCmd.AddCommand(appendCmd, listCmd, verifyCmd)
-	register(ledgerCmd)
+func ledgerRebuildCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rebuild",
+		Short: "Drop the cache and rebuild it from the ledger",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			if err := k.Cache.Rebuild(k.Ledger); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "cache rebuilt from the ledger")
+			return nil
+		},
+	}
+}
+
+func workflowCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "workflow", Short: "Show the configured workflows"}
+	var asJSON *bool
+	show := &cobra.Command{
+		Use:   "show [name]",
+		Short: "Show a workflow's states, transitions and gates (default: the default workflow)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			name := k.Rules.Default
+			if len(args) == 1 {
+				name = args[0]
+			}
+			w, ok := k.Workflows[name]
+			if !ok {
+				names := make([]string, 0, len(k.Workflows))
+				for n := range k.Workflows {
+					names = append(names, n)
+				}
+				sort.Strings(names)
+				return fmt.Errorf("no workflow %q (have: %s)", name, strings.Join(names, ", "))
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), workflowJSON(w))
+			}
+			v := buildRoute(w, item.Item{Workflow: w.Name}, nil)
+			v.Item = w.File
+			out := cmd.OutOrStdout()
+			printRoute(out, v)
+			if len(w.Gates) > 0 {
+				fmt.Fprintln(out, "\ngates")
+				for _, n := range sortedGateNames(w) {
+					g := w.Gates[n]
+					judges := strings.Join(g.Judges(), ", ")
+					if judges == "" {
+						judges = "check"
+					}
+					fmt.Fprintf(out, "  %-24s skill %-20s by %s", n, g.Skill, judges)
+					if len(g.Paths) > 0 {
+						fmt.Fprintf(out, "  paths %s", strings.Join(g.Paths, " "))
+					}
+					if g.Trigger != "" {
+						fmt.Fprintf(out, "  trigger %s", g.Trigger)
+					}
+					if g.Carry {
+						fmt.Fprint(out, "  carry")
+					}
+					fmt.Fprintln(out)
+				}
+			}
+			return nil
+		},
+	}
+	asJSON = jsonFlag(show)
+	cmd.AddCommand(show)
+	return cmd
+}
+
+func sortedGateNames(w *workflow.Workflow) []string {
+	out := make([]string, 0, len(w.Gates))
+	for n := range w.Gates {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// workflowJSON is a workflow in the shape its TOML has.
+func workflowJSON(w *workflow.Workflow) map[string]any {
+	return map[string]any{"name": w.Name, "file": w.File, "states": w.States, "gates": w.Gates, "transitions": w.Transitions}
 }

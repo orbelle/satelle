@@ -2,7 +2,6 @@ package remotechan
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotechan/relaytest"
 )
 
@@ -215,7 +213,7 @@ type harness struct {
 	idp    *idp
 	clock  *fakeClock
 	tokens *TokenBook
-	ledger *ledger.Store
+	ledger *memRecorder
 }
 
 const harnessServer = "https://satelle.test"
@@ -232,15 +230,7 @@ func newHarness(t *testing.T, signedIn bool) *harness {
 	}
 	h.client = hosted.NewClient(harnessServer, h.store, nil)
 
-	db, err := sql.Open("sqlite", "file:remotechan-"+t.Name()+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := ledger.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	h.ledger = ledger.New(db)
+	h.ledger = &memRecorder{}
 	return h
 }
 
@@ -251,17 +241,14 @@ func (h *harness) opts() []Option {
 // refusals reads the recorded enrollment refusals back as their reasons.
 func (h *harness) refusals(t *testing.T) []string {
 	t.Helper()
-	rows, err := h.ledger.List(context.Background(), ledger.ListFilter{Kind: ledger.KindRemoteEnrollRefused})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var out []string
-	for _, e := range rows {
-		var p struct{ Session, Reason string }
-		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Session == "" {
-			t.Fatalf("refusal payload %s: %v", e.Payload, err)
+	for _, p := range h.ledger.payloads(KindRemoteEnrollRefused) {
+		s, _ := p["session"].(string)
+		r, _ := p["reason"].(string)
+		if s == "" {
+			t.Fatalf("refusal payload %v has no session", p)
 		}
-		out = append(out, p.Reason)
+		out = append(out, r)
 	}
 	return out
 }

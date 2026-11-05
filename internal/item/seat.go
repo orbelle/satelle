@@ -3,7 +3,7 @@ package item
 import (
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
 // Seat binds a session at a location to an item. Base is the commit the seat
@@ -34,7 +34,7 @@ type Attachment struct {
 
 // FoldSeats returns the seats still bound at the end of the chain, in bind
 // order. Binding the same session again replaces its seat.
-func FoldSeats(events []kledger.Event) []Seat {
+func FoldSeats(events []ledger.Event) []Seat {
 	var seats []Seat
 	drop := func(session string) {
 		out := seats[:0]
@@ -66,7 +66,7 @@ func FoldSeats(events []kledger.Event) []Seat {
 }
 
 // FoldAttachments returns every attachment on the chain in order.
-func FoldAttachments(events []kledger.Event) []Attachment {
+func FoldAttachments(events []ledger.Event) []Attachment {
 	var out []Attachment
 	for _, e := range events {
 		if e.Kind != KindAttachmentAdd {

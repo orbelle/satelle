@@ -1,5 +1,0 @@
-[feature]
-obligations = ["raised", "planned", "coded", "integrated", "released", "closed"]
-park = { state = "blocked", gate = "satelle-story-blocked-review", advisor = "blocked-triage", advisor_skill = "satelle-story-blocked-triage" }
-cancel = { state = "cancelled", gate = "satelle-story-cancel-review" }
-recover = { step = "in_progress", from = ["integration", "release"] }

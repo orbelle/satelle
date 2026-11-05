@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 const testSessionToken = "sat_pat_session_secret_value"
@@ -25,7 +24,7 @@ const testSessionToken = "sat_pat_session_secret_value"
 // SATELLE_TOKEN, and returns the EnvStore plus the credentials file path.
 func sessionEnv(t *testing.T, server string) (Store, string) {
 	t.Helper()
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	credPath, err := CredentialsPath()
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +60,7 @@ func TestEnvStoreSessionOverridesFileAndNeverPersists(t *testing.T) {
 }
 
 func TestEnvStoreUnsetDelegatesToFile(t *testing.T) {
-	testutil.IsolateHome(t)
+	isolateHome(t)
 	t.Setenv(SessionTokenEnv, "")
 	credPath, _ := CredentialsPath()
 	file := FileStore{Path: credPath}

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/item"
-	"github.com/bobmcallan/satelle/internal/kledger"
+	"github.com/bobmcallan/satelle/internal/ledger"
 
 	_ "modernc.org/sqlite"
 )
@@ -82,7 +82,7 @@ func (c *Cache) Close() error { return c.db.Close() }
 
 // Sync ingests every chain tail the cache has not seen. An item with new
 // events is re-folded from its whole chain.
-func (c *Cache) Sync(l *kledger.Store) error {
+func (c *Cache) Sync(l *ledger.Store) error {
 	items, err := l.Items()
 	if err != nil {
 		return err
@@ -96,9 +96,9 @@ func (c *Cache) Sync(l *kledger.Store) error {
 }
 
 // SyncItem ingests one item's unseen tail.
-func (c *Cache) SyncItem(l *kledger.Store, id string) error { return c.syncItem(l, id) }
+func (c *Cache) SyncItem(l *ledger.Store, id string) error { return c.syncItem(l, id) }
 
-func (c *Cache) syncItem(l *kledger.Store, id string) error {
+func (c *Cache) syncItem(l *ledger.Store, id string) error {
 	var offset int64
 	err := c.db.QueryRow(`SELECT offset FROM files WHERE item = ?`, id).Scan(&offset)
 	if err != nil && err != sql.ErrNoRows {
@@ -156,7 +156,7 @@ func (c *Cache) syncItem(l *kledger.Store, id string) error {
 	return tx.Commit()
 }
 
-func writeFolds(tx *sql.Tx, id string, all []kledger.Event) error {
+func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 	for _, t := range []string{"item_tags", "seats", "attachments"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE item = ?`, id); err != nil {
 			return err
@@ -195,7 +195,7 @@ func writeFolds(tx *sql.Tx, id string, all []kledger.Event) error {
 }
 
 // Rebuild drops every cached row and ingests the whole ledger again.
-func (c *Cache) Rebuild(l *kledger.Store) error {
+func (c *Cache) Rebuild(l *ledger.Store) error {
 	for _, t := range tables {
 		if _, err := c.db.Exec(`DELETE FROM ` + t); err != nil {
 			return err
@@ -273,7 +273,7 @@ func (c *Cache) Item(id string) (it item.Item, ok bool, err error) {
 
 // Events returns the indexed events of item (all items when ""), optionally of
 // one kind: one item's in chain order, all items' by time.
-func (c *Cache) Events(itemID, kind string) ([]kledger.Event, error) {
+func (c *Cache) Events(itemID, kind string) ([]ledger.Event, error) {
 	var where []string
 	var args []any
 	if itemID != "" {
@@ -295,9 +295,9 @@ func (c *Cache) Events(itemID, kind string) ([]kledger.Event, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []kledger.Event
+	var out []ledger.Event
 	for rows.Next() {
-		var e kledger.Event
+		var e ledger.Event
 		var at, payload string
 		if err := rows.Scan(&e.ID, &e.Item, &e.Kind, &at, &e.Actor, &payload, &e.Prev, &e.Hash); err != nil {
 			return nil, err
