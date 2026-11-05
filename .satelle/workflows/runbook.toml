@@ -20,7 +20,7 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [[transition]]
 from = ["backlog"]

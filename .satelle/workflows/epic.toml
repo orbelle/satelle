@@ -22,15 +22,15 @@ skill = "satelle-children-closed-check"
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [[transition]]
 from = ["backlog"]

@@ -21,7 +21,7 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.format-vet]
 skill = "satelle-format-vet-check"
@@ -35,7 +35,7 @@ carry = true
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 carry = true
 
 [gates.integration-check]
@@ -46,11 +46,11 @@ skill = "satelle-chore-landed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [[transition]]
 from = ["backlog"]

@@ -43,7 +43,7 @@ agent = "reviewer-alt"
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
@@ -68,12 +68,12 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 trigger = "satelle-instruction-change-trigger"
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 trigger = "satelle-workflow-change-trigger"
 
 [gates.ac-evidence]
@@ -89,19 +89,19 @@ skill = "satelle-integration-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 # ---- transitions ----
 
