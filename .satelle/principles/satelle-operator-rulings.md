@@ -36,8 +36,10 @@ itself reviewed (see *Directives are reviewed*).
 - **A clean, efficient codebase.** No redundant artifacts, functions, files,
   skills, scripts or tests: what nothing reaches is deleted, not kept "in
   case". The one exception is the story ledger of the operator's other repos,
-  which `satelle upgrade` migrates into v1; satelle, satelle-server and
-  satelle-delivery start clean (their old backlog is irrelevant to the rewrite).
+  which `satelle upgrade` migrates into v1; satelle, satelle-server,
+  satelle-delivery and satelle-server-infra start clean (their old backlog is
+  irrelevant to the rewrite; satelle-server-infra is migrated by the
+  satelle-server session with a backlog of 0).
 - **Dogfood.** satelle is built with satelle: every change is a story driven
   through this repo's workflow on the rebuild branch, released locally, then
   used.
