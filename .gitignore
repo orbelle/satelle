@@ -1,12 +1,11 @@
-# Harness / agent local dirs — operator-owned. The one tracked file under
-# .claude/ is settings.local.json: the Claude cloud-session hook carrier
-# (scripts/claude-cloud-hook.sh). A file inside an ignored directory cannot be
-# re-included, so the directory is ignored by contents (.claude/*).
+# Harness / agent local dirs — operator-owned, never tracked.
 .claude/*
-!.claude/settings.local.json
 .grok/
 .cursor/
 .pi/
+AGENTS.md
+CLAUDE.md
+.claude/settings*.json
 
 # satelle process substrate (.satelle/) is tracked: workflows, skills,
 # principles, constitution, satelle.toml, task definitions and documents.
