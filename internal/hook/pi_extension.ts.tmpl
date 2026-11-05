@@ -1,0 +1,110 @@
+// satelle-owned: pi extension — written by `satelle agents install pi`; removed by `satelle agents remove pi`.
+//
+// pi has no hook config file, so this extension maps pi's events onto the same
+// `satelle hook <verb>` handlers the claude and grok hook files call. Nothing is
+// decided here: it carries a claude-shaped event in and a pi-shaped result out.
+// A tool call satelle denies is blocked; a satelle that cannot run blocks edits
+// and shell commands too (fail closed), and never wedges the other events.
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
+
+const VERBS: Record<string, string> = __SATELLE_VERBS__;
+const HARNESS: string = __SATELLE_HARNESS__;
+const TOOL: Record<string, string> = { edit: "Edit", write: "Write", bash: "Bash" };
+
+interface Run {
+	ok: boolean;
+	code: number | null;
+	stdout: string;
+	why: string;
+}
+
+function run(verb: string, payload: Record<string, unknown>, cwd: string): Promise<Run> {
+	return new Promise((resolve) => {
+		let stdout = "";
+		let stderr = "";
+		let child;
+		try {
+			child = spawn("satelle", ["hook", verb, "--harness", HARNESS], { cwd, stdio: ["pipe", "pipe", "pipe"] });
+		} catch (e) {
+			resolve({ ok: false, code: null, stdout, why: String(e) });
+			return;
+		}
+		const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+		child.stdout.on("data", (d) => (stdout += d));
+		child.stderr.on("data", (d) => (stderr += d));
+		child.on("error", (e) => {
+			clearTimeout(timer);
+			resolve({ ok: false, code: null, stdout, why: String(e) });
+		});
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			resolve({ ok: code === 0, code, stdout, why: stderr.trim() || `exit ${code}` });
+		});
+		child.stdin.on("error", () => {});
+		child.stdin.end(JSON.stringify(payload));
+	});
+}
+
+function base(name: string, ctx: any): Record<string, unknown> {
+	const ev: Record<string, unknown> = { hook_event_name: name, cwd: workdir(ctx) };
+	try {
+		const id = ctx?.sessionManager?.getSessionId?.();
+		if (id) ev.session_id = String(id);
+	} catch {}
+	return ev;
+}
+
+function workdir(ctx: any): string {
+	return typeof ctx?.cwd === "string" && ctx.cwd ? ctx.cwd : process.cwd();
+}
+
+function parse(text: string): any {
+	try {
+		return text.trim() ? JSON.parse(text) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function contextOf(r: Run): string {
+	const add = r.ok ? parse(r.stdout)?.hookSpecificOutput?.additionalContext : undefined;
+	return typeof add === "string" ? add : "";
+}
+
+export default function (pi: ExtensionAPI) {
+	let sessionContext = "";
+
+	pi.on("tool_call", async (event: any, ctx: any) => {
+		const name = String(event?.toolName ?? "");
+		const tool = TOOL[name];
+		if (!tool) return undefined;
+		const input = event?.input ?? {};
+		const toolInput = tool === "Bash" ? { command: input.command } : { file_path: input.path ?? input.file_path };
+		const r = await run(VERBS.gate, { ...base("PreToolUse", ctx), tool_name: tool, tool_input: toolInput }, workdir(ctx));
+		const hso = parse(r.stdout)?.hookSpecificOutput;
+		if (hso?.permissionDecision === "deny") return { block: true, reason: String(hso.permissionDecisionReason ?? "satelle: denied") };
+		if (r.ok) return undefined;
+		return { block: true, reason: `satelle hook gate could not run (${r.why}); this is not a policy decision. Check: which satelle; satelle validate.` };
+	});
+
+	pi.on("session_start", async (_event: any, ctx: any) => {
+		sessionContext = contextOf(await run(VERBS.context, { ...base("SessionStart", ctx), source: "startup" }, workdir(ctx)));
+	});
+
+	pi.on("before_agent_start", async (event: any, ctx: any) => {
+		const parts = [sessionContext, contextOf(await run(VERBS.prompt, { ...base("UserPromptSubmit", ctx), prompt: String(event?.prompt ?? "") }, workdir(ctx)))].filter((s) => s.trim());
+		if (parts.length === 0) return undefined;
+		return { systemPrompt: `${event?.systemPrompt ?? ""}\n\n${parts.join("\n\n")}` };
+	});
+
+	pi.on("agent_settled", async (_event: any, ctx: any) => {
+		const r = await run(VERBS.stopcheck, base("Stop", ctx), workdir(ctx));
+		const doc = r.ok ? parse(r.stdout) : undefined;
+		if (doc?.decision === "block") {
+			try {
+				pi.sendUserMessage(String(doc.reason ?? "satelle: stop refused"));
+			} catch {}
+		}
+	});
+}

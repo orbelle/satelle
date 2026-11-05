@@ -72,3 +72,21 @@ func (r Repo) Dirty() (bool, error) {
 	out, err := r.git("status", "--porcelain")
 	return strings.TrimSpace(out) != "", err
 }
+
+// CommonDir returns the absolute git common directory: the main repository's
+// .git for every linked worktree of it.
+func (r Repo) CommonDir() (string, error) {
+	out, err := r.git("rev-parse", "--path-format=absolute", "--git-common-dir")
+	return strings.TrimSpace(out), err
+}
+
+// IsLinked reports whether the tree is a linked worktree (its git dir is not
+// the common dir).
+func (r Repo) IsLinked() bool {
+	out, err := r.git("rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return false
+	}
+	f := strings.Fields(out)
+	return len(f) == 2 && f[0] != f[1]
+}
