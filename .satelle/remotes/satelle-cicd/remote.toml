@@ -29,16 +29,23 @@ task = "release"
 GH_TOKEN = "satelle:GITHUB_TOKEN"
 OPENROUTER_API_KEY = "satelle:OPENROUTER_API_KEY"
 
-# pi (from its GitHub release, as satelle-server's smoke remote installs it) for
-# the bindings; gh for the PR and the CI watch; Go for
+# The first line holds a Sprites task so the VM does not warm-pause in a quiet
+# stretch (release.sh waits on CI): with no heartbeat the node is declared lost
+# (nod_859d2073cc74, nod_50febea9e82d). satelle-server's workaround until its
+# sty_d77543a5 ships; it talks to the local unix socket, so it needs no egress.
+# Then pi (from its GitHub release, as satelle-server's smoke remote installs it)
+# for the bindings; gh for the PR and the CI watch; Go for
 # scripts/check-serve-version.sh, which derives the satelled watch set with go list.
+# `command -v pi` names the pi the bindings run: a sprite's base image may carry
+# its own pi ahead of ~/.local/bin on PATH.
 [setup]
 on_create = [
+  "nohup sh -c 'while :; do curl -s --unix-socket /.sprite/api.sock -H \"Content-Type: application/json\" -X PUT http://sprite/v1/tasks/satelle-node -d \"{\\\"expire\\\":\\\"5m\\\"}\" >/dev/null 2>&1; sleep 60; done' >/dev/null 2>&1 &",
   "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/pi/pi $HOME/.local/bin/pi",
   "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/gh_2.103.3_linux_amd64/bin/gh $HOME/.local/bin/gh",
   "curl -fsSL https://dl.google.com/go/go1.27.0.linux-amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/go/bin/go $HOME/.local/bin/go && ln -sf $HOME/.local/share/go/bin/gofmt $HOME/.local/bin/gofmt",
   "satelle version",
-  "pi --version",
+  "command -v pi && pi --version",
   "gh --version",
   "go version",
   "git --version",
