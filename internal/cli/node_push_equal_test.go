@@ -14,6 +14,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -53,8 +54,15 @@ func seedNodeRun(t *testing.T) nodeRun {
 }
 
 // runNodePublish runs nodePublish for run over the store of the current repo,
-// with hc as its client.
+// with hc as its client, as node nod_eq.
 func runNodePublish(t *testing.T, hc *hosted.Client, server, project string, run nodeRun) (string, error) {
+	t.Helper()
+	_, log, err := runNodePublishReport(t, hc, server, project, "nod_eq", run)
+	return log, err
+}
+
+// runNodePublishReport is runNodePublish as node nodeID, with the report.
+func runNodePublishReport(t *testing.T, hc *hosted.Client, server, project, nodeID string, run nodeRun) (remotenode.PublishReport, string, error) {
 	t.Helper()
 	restore, _ := verb.SnapshotWiring()
 	defer restore()
@@ -71,8 +79,8 @@ func runNodePublish(t *testing.T, hc *hosted.Client, server, project string, run
 	if err := dispatchInto(context.Background(), "story-get", map[string]any{"id": run.exec}, &exec); err != nil {
 		t.Fatal(err)
 	}
-	_, err := nodePublish(cmd, hc, server, project)(context.Background(), exec, run.subject)
-	return log.String(), err
+	rep, err := nodePublish(cmd, hc, server, project, nodeID)(context.Background(), exec, run.subject)
+	return rep, log.String(), err
 }
 
 // nodeClient is a client acting under the node token, as the node builds it.

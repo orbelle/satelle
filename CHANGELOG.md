@@ -1,3 +1,9 @@
+## [0.0.891] - 2026-11-05
+
+### Fixed
+- A story document attached on a remote node now reaches satelle.dev. The node's end-of-run push runs the same attachments leg a local `satelle sync workstate push` runs (`pushStoryAttachments`, unchanged), through a node-token client that PUTs each file to `/api/v1/remote-nodes/{id}/documents/stories/<id>/<file>.md` (satelle-server 0.1.291) with the same path and content hash. The push's log line counts the attachments. Before, the node pushed items, ledger and outputs only, so a remote's attached evidence (live-evidence, run proofs) was lost with its host while `story attach` reported success. (sty_2d567c7f)
+- An attachment satelle.dev refuses is named in the run's concluded findings with its story and document (and files left unsent after a refusal are named too), never silently dropped. (sty_2d567c7f)
+
 ## [0.0.890] - 2026-11-05
 
 ### Fixed

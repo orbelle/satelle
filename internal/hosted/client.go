@@ -96,6 +96,19 @@ type Client struct {
 	// dialGRPC, if set, opens the Sync connection (tests inject bufconn).
 	// Nil uses grpc.NewClient against grpcTarget(server).
 	dialGRPC func(ctx context.Context, target string) (*grpc.ClientConn, error)
+	// nodeID, set by ForNode, sends PushDocumentFile to the node's documents
+	// route rather than the project's member route.
+	nodeID string
+}
+
+// ForNode returns a copy of c whose PushDocumentFile writes through the remote
+// node's documents route, /api/v1/remote-nodes/{nodeID}/documents/{path}, where
+// the server derives the project from the node token and fences the path to the
+// run's story. Every other call is c's own.
+func (c *Client) ForNode(nodeID string) *Client {
+	cp := *c
+	cp.nodeID = nodeID
+	return &cp
 }
 
 // SetLocation attaches a checkout identity. Empty clears it. Invalid ids are

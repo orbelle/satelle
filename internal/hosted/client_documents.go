@@ -50,6 +50,12 @@ func documentFileRoute(project, path string) string {
 	return docFileRoute(documentsManifestRoute(project), path)
 }
 
+// nodeDocumentFileRoute is a remote node's per-path write route (satelle-server
+// sty_8daf5634), authorised by the node token.
+func nodeDocumentFileRoute(nodeID, path string) string {
+	return docFileRoute("/api/v1/remote-nodes/"+url.PathEscape(nodeID)+"/documents", path)
+}
+
 // docFileRoute is the per-path route under a documents root, escaping each path
 // segment so a path with odd characters round-trips while the slashes that
 // structure it survive.
@@ -108,9 +114,15 @@ func (c *Client) listDocumentChanges(ctx context.Context, root, since string) (D
 // PushDocumentFile PUTs one file's verbatim bytes to
 // /api/v1/projects/{project}/documents/{path}. Created distinguishes a new head
 // (HTTP 201) from an idempotent re-push of the current head (HTTP 200). A 409
-// yields ErrDocumentConflict; a missing credential yields ErrLoginRequired.
+// yields ErrDocumentConflict; a missing credential yields ErrLoginRequired. A
+// client made by ForNode PUTs to the node's documents route instead and ignores
+// project, which the server reads from the node token.
 func (c *Client) PushDocumentFile(ctx context.Context, project, path string, content []byte) (ConfigPushResult, error) {
-	return c.putDocument(ctx, documentFileRoute(project, path), path, content)
+	route := documentFileRoute(project, path)
+	if c.nodeID != "" {
+		route = nodeDocumentFileRoute(c.nodeID, path)
+	}
+	return c.putDocument(ctx, route, path, content)
 }
 
 // PushWorkspaceDocumentFile is PushDocumentFile to

@@ -12,16 +12,19 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -538,7 +541,7 @@ func runTaskWake(ctx context.Context, cmd *cobra.Command, beat *remotenode.Heart
 	if push {
 		server := nodeServer()
 		hc := hosted.NewClient(server, hosted.NodeTokenStore{Server: server, Token: token}, nodeHTTP)
-		tr.Publish, tr.Fetch = nodePublish(cmd, hc, server, desc.Project), nodeChainFetch(cmd, hc, server, desc.Project)
+		tr.Publish, tr.Fetch = nodePublish(cmd, hc, server, desc.Project, session), nodeChainFetch(cmd, hc, server, desc.Project)
 	}
 	beat.Stop()
 	res, rerr := remotenode.RunTask(ctx, tr)
@@ -641,10 +644,14 @@ func nodePullStory(ctx context.Context, cmd *cobra.Command, a *app.App, hc *host
 // makes, through the same collector (collectWorkstateRows), the same story
 // appends (planStoryAppends, publishStoryEvents) and the same Sync/Apply, with
 // the node token as the credential. A refusal that stops a push (stopsPush) is
-// returned before anything else is sent.
-func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project string) func(context.Context, workitem.Item, string) (remotenode.PublishReport, error) {
-	return func(ctx context.Context, exec workitem.Item, subject string) (remotenode.PublishReport, error) {
-		rep := remotenode.PublishReport{Project: project}
+// returned before any further row is sent.
+//
+// Its story attachments go as a local push's do (pushStoryAttachments), through
+// node nodeID's documents route, on every exit once the store is open: the files
+// owe nothing to the rows (sty_2d567c7f).
+func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project, nodeID string) func(context.Context, workitem.Item, string) (remotenode.PublishReport, error) {
+	return func(ctx context.Context, exec workitem.Item, subject string) (rep remotenode.PublishReport, err error) {
+		rep.Project = project
 		if project == "" {
 			return rep, errNodeNoProject
 		}
@@ -656,6 +663,9 @@ func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project string) 
 		if subject != "" {
 			scope[subject] = true
 		}
+		defer func() {
+			rep.Attachments, rep.AttachmentFailures = nodePushAttachments(ctx, cmd, a, hc.ForNode(nodeID), server, project, scope)
+		}()
 		batch, _, _, _, err := collectWorkstateRows(ctx, a, workstateOptIn(config.PersonalScope), hosted.WorkstateCursor{}, scope)
 		if err != nil {
 			return rep, err
@@ -680,6 +690,86 @@ func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project string) 
 		rep.Items, rep.Ledger, rep.Outputs = res.Items, res.Ledger, res.Outputs
 		return rep, appendErr
 	}
+}
+
+// nodePushAttachments runs the attachment leg a local push runs, unchanged, with
+// node as its client, and reports what it confirmed: the files the uploaded-state
+// record now holds at their current content that it did not before, and every
+// other markdown attachment of a story in scope, as "story <id> document <file>:
+// <reason>". The reason is the leg's own failure line for that file, else what it
+// said otherwise, else that the file was not sent. Like the local leg it cannot
+// fail the publish; a panic in it is reported as every file's reason.
+func nodePushAttachments(ctx context.Context, cmd *cobra.Command, a *app.App, node *hosted.Client, server, project string, scope scopeSet) (uploaded int, failures []string) {
+	before, _ := hosted.LoadUploadedAttachments(server, project, a.RepoRoot)
+	var errs bytes.Buffer
+	errw := io.MultiWriter(cmd.ErrOrStderr(), &errs)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(errw, "attachments: %v\n", r)
+			}
+		}()
+		pushStoryAttachments(ctx, cmd.OutOrStdout(), errw, a, config.PersonalScope, workstateOptIn(config.PersonalScope),
+			func() *hosted.Client { return node }, server, project, scope)
+	}()
+	after, lerr := hosted.LoadUploadedAttachments(server, project, a.RepoRoot)
+	fileErrs, other := attachmentUploadErrors(errs.String())
+	if lerr != nil {
+		other = append(other, fmt.Sprintf("read uploaded state: %v", lerr))
+	}
+	fallback := "not sent (held with its story, or the upload stopped after an earlier refusal)"
+	if len(other) > 0 {
+		fallback = strings.Join(other, "; ")
+	}
+	for _, id := range slices.Sorted(maps.Keys(scope)) {
+		if !isLocalStory(ctx, a, id) {
+			continue
+		}
+		files, _, ferr := verb.StoryAttachmentFiles(id)
+		if ferr != nil {
+			failures = append(failures, fmt.Sprintf("story %s documents: %v", id, ferr))
+			continue
+		}
+		for _, f := range files {
+			path, sha := attachmentPath(id, f.Name), contentSHA(f.Content)
+			key := attachmentKey(path)
+			switch {
+			case after[key] == sha && before[key] != sha:
+				uploaded++
+			case after[key] == sha:
+			default:
+				reason, ok := fileErrs[path]
+				if !ok {
+					reason = fallback
+				}
+				failures = append(failures, fmt.Sprintf("story %s document %s: %s", id, f.Name, reason))
+			}
+		}
+	}
+	return uploaded, failures
+}
+
+// attachmentUploadFailed opens the line attachmentDest.upload writes for a file
+// the personal collection refused: "attachment upload failed <path>: <err>".
+const attachmentUploadFailed = "attachment upload failed "
+
+// attachmentUploadErrors reads what the attachment leg wrote to its error stream:
+// each refused file's error by its hosted path, and every other line.
+func attachmentUploadErrors(text string) (byPath map[string]string, other []string) {
+	byPath = map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if line == "" {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, attachmentUploadFailed); ok {
+			if path, reason, ok := strings.Cut(rest, ": "); ok {
+				byPath[path] = reason
+				continue
+			}
+		}
+		other = append(other, line)
+	}
+	return byPath, other
 }
 
 // prepareTaskWake reads the wake's subject and builds how its execution is driven.

@@ -390,6 +390,45 @@ func TestRunTaskStopsOnAnAbsentSubject(t *testing.T) {
 	}
 }
 
+// sty_2d567c7f AC1, AC3: the publish's log line counts the attachments, and an
+// attachment the publish reports refused is in the concluded findings, naming the
+// story and the document, whether or not the rest of the publish failed. The
+// outcome is the run's, not the refusal's.
+func TestRunTaskReportsPublishedAndRefusedAttachments(t *testing.T) {
+	const refused = "story sty_subject document b-second.md: hosted: PUT x: 403 Forbidden"
+	for _, tc := range []struct {
+		name     string
+		pubErr   error
+		wantLine string
+	}{
+		{"publish ok", nil, "1 output(s), 1 attachment(s)"},
+		{"publish failed", errors.New("apply workstate: boom"), "node: workstate: 1 attachment(s) uploaded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTaskEnv(t, false)
+			log := &statusLog{}
+			var out strings.Builder
+			tr := taskRun(e, executorOnly{}, log)
+			tr.Drive.Out = &out
+			tr.Publish = func(context.Context, workitem.Item, string) (PublishReport, error) {
+				return PublishReport{Project: "probe", Outputs: 1, Attachments: 1, AttachmentFailures: []string{refused}}, tc.pubErr
+			}
+			res, err := RunTask(context.Background(), tr)
+			if err != nil || res.Outcome != verb.OutcomePerformed {
+				t.Fatalf("result = %+v, %v, want performed: a refused document does not change the outcome", res, err)
+			}
+			if !strings.Contains(out.String(), tc.wantLine) {
+				t.Errorf("node log = %q, want %q", out.String(), tc.wantLine)
+			}
+			sent := log.all()
+			last := sent[len(sent)-1]
+			if last.RunState != runstatus.Concluded || last.Outcome != verb.OutcomePerformed || !strings.Contains(last.Findings, refused) {
+				t.Errorf("concluded = %+v, want performed with findings naming %q", last, refused)
+			}
+		})
+	}
+}
+
 // The resend interval is a third of the window the server reports it waits before
 // listing the node lost, the default (itself under the server's 90s) when the
 // server reports none, and a test's override over both.
