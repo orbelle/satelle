@@ -253,8 +253,14 @@ if ! gh run watch "$run" -R "$repo" --exit-status >/dev/null 2>&1; then
 fi
 test_url="$(gh run view "$run" -R "$repo" --json url -q .url)"
 
+# The release workflow creates a draft first; its URL names an untagged draft
+# until it is published, so only a published release ends the wait.
 start=$SECONDS
-while ! gh release view "v$version" -R "$repo" --json url -q .url >"$tmp/tag.txt" 2>/dev/null; do
+while :; do
+  gh release view "v$version" -R "$repo" --json isDraft,url -q 'select(.isDraft | not) | .url' >"$tmp/tag.txt" 2>/dev/null || true
+  if [ -s "$tmp/tag.txt" ]; then
+    break
+  fi
   failed="$(gh run list -R "$repo" --commit "$merge_sha" --workflow release.yml --json conclusion -q '[.[] | select(.conclusion=="failure")] | length' 2>/dev/null || echo 0)"
   if [ "${failed:-0}" != 0 ]; then
     echo "release run failed for $merge_sha; no v$version tag" >&2
