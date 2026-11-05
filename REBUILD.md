@@ -199,11 +199,421 @@ start after the rebuild, as a test of the new process.
 
 ## Inventory
 
+Phase A inventory (2026-11-05, from v0.0.896 at `55e292f`). Each verdict was made
+by reading the package's main files and types. Line counts are non-test Go.
+"Kept" means the package stays and is cut down to the kernel. The process that
+must still leave each kept package is listed under **Cuts inside kept
+packages** below the table. "Moved" means its content leaves the binary, or
+merges into another package.
+
+### Packages under `internal/`
+
 | package / command | kept · deleted · moved | why (which kernel item, or why not) |
 |---|---|---|
+| `workitem` (1.3k) | kept | **1**. `Item` struct, sqlite `Store` Create/Get/List/Update with `ExpectStatus` CAS, Upsert for sync, `Marshal`/`Parse`. |
+| `ledger` (2.8k) | kept, format rewritten | **6**. Today: `evidence` table, id-linked `base_id` chain (**not** hash-chained; `chain.go VerifyChain`), `workflow_hash` stamped on every row, about 65 hard-coded `Kind*` constants (ledger.go:25–341). Many of those kinds are named after steps or features: `readiness_accept`, `step_summary`, `trunk_publish`, `release_record`, `suite_run`, `queue_enqueued`, `fix_claim`, `gate_waiver`, `substrate_*`, `driver_usage`, `drive-stopped`. The rewrite keeps Append/List/StoryChain/Verify and the sync primitives (`Upsert`, `ListInsertedAfter`, `RebaseEvents`, marks), adds content hashing, and uses a generic `{item, kind, payload}` event. |
+| `storyfold` (0.8k) | kept | **6**. `Fold` derives the item row from its chain (pure); `Route{Park,Final}` is generic. |
+| `store` (0.2k) | kept | **1/6**. Opens sqlite (WAL, single writer), `InTx`, `OpenReadOnly`. |
+| `oplog` | deleted | Flat `logs/operations.log` mirror of mutations; the ledger is the source of truth. Importers: `verb/wiring.go`, `cli/app.go`. |
+| `arbor` | deleted | Dead: slog wrapper with zero importers (verified). |
+| `app` (0.3k) | kept | **11/8**. Bootstrap: load config, refuse without `.satelle/` (`ErrNotInitialised`), open the store, runtime marker. |
+| `workspace` (0.25k) | deleted | Read-only cross-repo aggregation for `stats`/`throughput` and cross-repo `depends-on:` (`verb/dependson_sibling.go`). The satelled workspace view is push-fed and does not import it. |
+| `verb` (22.7k, 83 files) | kept, heavily cut | **1, 2, 3, 4, 6, 7**. Kernel files, about 8.4k lines, stripped further: `verb.go`, `helpers.go`, `wiring.go`, `workitem.go` (`workItemSetCore`, the transition state machine: CAS → `runGate` → `recordGateRound` → `performStep` → tx writes row + transition event → lease settle), `review.go` (the `TransitionGater`/`ExecutorDispatcher`/`PerformerResolver` seams, `GateDecision`/`ReviewerVerdict`), `readiness_round.go` (`recordGateRound`, `dispatchPerformer`), `reviewer_dispatch.go`, `rejection.go`, `transition_edge.go`, `foldstate.go`, `ledger.go`, `single_story.go` (engagement lease), `seat.go`, `storydocs*.go`/`storymd.go` (attachments), `skill_delivery.go`, `sessionmodels.go` (performer model, needed for the reviewer≠performer rule), `working_on.go`, `storyhistory.go`. About 14.3k lines are process and are deleted whole; the list follows under Cuts. |
+| `drive` (0.9k) | kept | **4/9**. Headless walk of an item along its route (`successor()`, `park()` via `verb.ResumeParkName`); remote nodes run it. It names no state. |
+| `wfroute` (0.6k) | kept, slimmed | **2**. Renders a route from `wfdot.Spec` without naming states. satelled's web (`web/workflow.go`, `web/stages.go`) consumes it. |
+| `gatehandle` (1.0k) | deleted | Not kernel: detaches a gate run and delivers the verdict later through the Stop hook (`Claim`, `forward.go` cross-repo, `resume.go`). Gates run synchronously. Importers to change: `config/session.go`, `cli/gate{caller,deliver,resume,xrepo}.go`. |
+| `wfhook` (0.4k) | deleted | Its whole content is the lifecycle hooks `create_review`/`amend_review` plus `DefaultAgent="reviewer"`. Kernel gates sit on transitions only. |
+| `agentstep` (13.6k) | kept, heavily cut | **3, 4, 5**. Gate: `Gate`/`gateEdge` (engine.go:1876/1943), `runCheck` (:5124, the deterministic script check), `parseDecision` (:5417). Performer: `resolvePerformer` (:2455), `DispatchExecutor` (:2625). Agent: `Invoke` (invoke.go), `isolateReviewer` (isolation.go:36), `defaultTools="Read,Grep,Glob"`. About 60 resolver seams on `Engine` serve non-kernel features. |
+| `agentcli` (9.5k) | kept, cut | **5/7**. Tool-grant enforcement (`ClassifyTool`, `ReviewerPermissionPolicy` isolation.go:371, `ReadOnlyEnforced`), thin harness adapters (`HarnessHooks`, deny shapes in hook_output.go), Runner and command templates (agentcli.go:66/73, claude `--disallowedTools Write,Edit,NotebookEdit,Bash`), grok, pi RPC. |
+| `agentinstall` (0.7k) | deleted | Launcher scripts under `$SATELLE_HOME/agents/bin` (session-name convenience). `cursor_hooks.go` (405 lines) is all cursor. |
+| `agentvalidate` (1.7k) | kept, cut | **11/5**. Binding checks (`checkBinding` :1123), reviewer ceiling (`ceilingProblem`), `reviewerEnforced` (:1434). This is where the reviewer≠performer-model rule belongs; it does not exist anywhere today. |
+| `agentartifact` (0.8k) | kept, cut | **4/1**. Performer output contract (`output_*` frontmatter keys, artifact.go:73) and attachment validation. |
+| `sessionconfig` (0.3k) | deleted | Config digests stored as a `config-bundle` attachment: provenance, not kernel. It still names the `documents` kind (:41). |
+| `hostguard` (0.3k) | deleted | Test infrastructure for `scripts/credfp` only. |
+| `lease` (1.3k) | kept | **7**. Records which agent holds an item's seat, the "allocated to the editing agent" half of the edit gate (`AcquireWith` :486); it names no state. |
+| `worktree` (0.65k) | moved | Read-only facts (`TopLevel`, `CommonDir`, `IsLinked`, `Head`, `Dirty`, `OnRemote`, `CurrentBranch`, `Ignored`) become the **one read-only git adapter**. Write actions are deleted: `Open` (`git worktree add -b`), `Fetch`, `AddExcludes`, `CollectBranch` (merge/--ff-only/--abort), `PushedBranch`, `Carry`. |
+| `procgroup` | kept | **5**. Agent process group kill (Setpgid + group SIGKILL); pure mechanism. |
+| `runstatus` | kept | **9**. Remote run states queued/running/concluded/stopped; a leaf. |
+| `logfile` | kept | Rotating append writer for satelled and dispatch logs (**5/8**). |
+| `logsread` | kept | **5**. Dispatch-log naming and reading (dispatch evidence). |
+| `buildinfo` | kept | **10/8**. Version identity of satelle and satelled. |
+| `testutil` (0.35k) | kept, rewritten | Test support. `route.go baselineGateSkills={"satelle-step-summary","satelle-estimate-actual-review"}` names skills; `trunkrepos.go` serves trunk tests. |
+| `fsmove` | deleted | Used only by the agentstep leftover sweep and `story tidy`, both bloat. |
+| `filebundle` | kept | **9**. Ships a definition bundle to a node (remotenode/substrate.go:34–57). |
+| `textdiff` | deleted | Used only by substrate reconcile (`cmd_sync_reconcile.go:339`, `verb/substratediff.go:78`). |
+| `semver` | deleted | Used only by release, changelog and update (`verb/changelog.go`, `cmd_update.go`, `release_advisory.go`). |
+| `config` (12.1k + embedded `substrate/`) | kept, cut hard | **5, 7, 8, 11**. Kernel core: `Config`/`Load` (config.go:1168), agents.go (`AgentBinding`, `AgentsConfig`), resolveagents.go, globalagents.go, vars.go, agentstransport.go, modelselect.go, harness.go, grok.go, session.go, instance.go, hosted.go, global.go, sync.go, workspace.go, runtime.go, scratchpath.go, glob.go, satelleignore.go. |
+| `config/substrate` (embedded, 72 files, 5,665 lines) | moved | **Not kernel: embedded default process.** It holds 36 skills, 20 principles, 2 workflows, 6 tasks, the `pr-approve` remote, and the tomls `agents.toml` (10 seats), `categories.toml` (15 names), `harness.toml` (with cursor), `condense.toml`, `doctor.toml` and `fix_lane.toml`. Whatever this repo's `.satelle/` still uses moves there (list under Open questions, Q-embedded); the rest is deleted. |
+| `substrate` (0.17k) | deleted | Classifies docs as default/edited/authored against the embedded defaults; it has no purpose once nothing is embedded. |
+| `substratereview` (1.6k + 26 md) | deleted | The `satelle substrate review` audit. Process: `ApplyCategory="substrate"`, park default `"blocked"` (evidence.go:291), `d.Name=="step"` (inventory.go:176). It may be re-authored as a skill/task in `.satelle/`. |
+| `wfdot` (3.0k) | kept | **2, 3, 4**. `ParseDone`/`ParseSteps` (route_parse.go:387/548, strict decoding), `BuildRoute`/`assemble` (route.go), Spec predicates (`Start`, `IsTerminalState`, `IsParkState`, `IsFinal`, `AdvanceOptions`, `NonTerminalEngagingStates`). It holds by-name leaks (see Cuts) and is to be rewritten onto the kernel schema. |
+| `wfequiv` (0.4k) | deleted | Migration instrument for retiring DOT; zero importers (verified). |
+| `wfgovern` (1.2k) | kept, shrunk | **2**. `SpecFor`/`RouteFor`/`RouteSpecFor` (spec.go:148–297) pick and resolve the governing route for an item. |
+| `structure` (0.5k) | kept, shrunk | **11/3**. Config validation; `CheckFence`/`CheckCommand` extract a skill's script block (fence.go:12/40) for deterministic checks. |
+| `help` (67 lines + 21 md) | kept | **10**. Generic embed with List/Get. Topics are trimmed to the CLI contract (see Cuts). |
+| `docindex` (1.8k) | moved | **Documents leave.** It is a sqlite index plus watcher over authored markdown, and OKF normalisation rewrites files in place (okf.go:209). The kernel needs only frontmatter parsing (`Frontmatter`, `FrontmatterBody`, `MetaTables` in frontmatter.go), which moves into `config`; the rest is deleted. |
+| `docstory` (0.16k) | deleted | Auto-raised "system stories" about failing documents; `Qualifies` hard-codes `StatusDone`/`StatusCancelled`. |
+| `doctor` (2.2k) | moved | Merged into `satelle validate` (**11**). It keeps `checkBinaries` (:340) and `checkReviewerIsolation` (:391) (**5**); the drift, tier, sync-health, context and live-probe checks are deleted. |
+| `health` (0.3k) | kept, shrunk | **11**. Finding vocabulary (`Severity`, `Finding`). About 30 of its 61 `ID*` constants belong to removed features. |
+| `tasktrigger` (0.1k) | deleted | Schedule/count triggers that create and drive task executions. Not kernel (but see the tasks question). |
+| `hosted` (7.5k) | kept, rewritten onto gRPC | **8/9**. Single client for satelle.dev: client.go, client_sync.go (gRPC Sync), client_chain.go (gRPC Chain), oauth/discovery/credstore (login), session.go (`SATELLE_TOKEN`), location.go, client_apierror.go (`SignedDo`, node transport). Every REST method becomes gRPC (see Wire changes). |
+| `hosted/boardpb` | deleted | Generated stubs for `api/board.proto`. No client code calls them. |
+| `push` (0.14k) | kept | **8**. CLI→satelled change doorbell (`POST /ingest/change`, fire-and-forget, 500ms). |
+| `mirror` (1.1k) | kept | **8**. satelled's store (sqlite partitions/items/docs under `~/.satelle/serve`) and ingest (`/ingest/change`, `/ingest/snapshot`, `/ingest/remove`). |
+| `serve` (1.8k) | kept | **8**. satelled runtime: `Run`, `Pusher` (hostedpush.go), `Reconciler`, `children.go` (execs sibling `satelle` verbs). |
+| `web` (4.5k) | kept | **8**. satelled web UI; its interface is maintained (see the boundary list). |
+| `board` (0.3k) | deleted | Folds `agent_message`/`message_mark` rows into message states. It is on the bloat list, and agent messaging is not kernel. |
+| `snapsync` (2.2k) | kept, provisional | **8**, if `.satelle` config sync stays (Q-config-sync). Snapshot records and a three-way plan; it names no area itself. |
+| `syncstate` (0.5k) | kept | **8**. Durable sync outcome in `~/.satelle/<key>/workstate-sync.json`, shared by satelled, doctor and web. |
+| `syncscope` (0.13k) | kept | **8**. Single owner of local/personal/team scope (`Resolve` → Me, GetProject, Workspaces). |
+| `subsync` (0.3k) | kept with snapsync | **8**. Byte-exact restore and write-aside of synced config files. |
+| `remotenode` (2.8k, + devtest, gittest) | kept | **9**. Node half of the node contract: protocol.go (envelope, `Report`), remote.go (controller `Attach`/`Run`), serve.go (`Node.Serve`), nodeapi.go (`NodeClient`), fetch.go (read-only fenced clone; push URL set to `refused://`), setup.go (`RunSetup`), substrate.go (`InstallDefinition`), taskrun.go (heartbeat/conclude), vitals.go, swap.go. |
+| `remotechan` (2.1k) | kept | **9**. Sealed performer channel: X25519+HKDF+AES-GCM over a WebSocket relay (open.go:518 `dialRelay`), enrolment tokens, job heartbeats, resume. It names no process. |
+| `remotedef` (1.2k) | kept | **9**. remote.toml v1 schema (`Definition`, remotedef.go:31), `Parse`/`Validate` (mirrors the server's validator), secrets hand-off file. |
+| `remotesign` (0.1k) | deleted | Dead: Ed25519 request signer with zero importers (verified); nodes authenticate with a bearer node token. |
+| `secretref` (0.17k) | deleted | Resolves `infisical://` through the infisical CLI, a backend remotedef already calls retired. Call sites to remove: agentstep/engine.go:1065, scratch.go:114. |
+| `forge` (+`forge/github`) (0.85k) | deleted | **Forge actions in Go**: `Forge.Approve/Comment/SetStatus/PullRequestForHead`; `RepoConstitution="repo-constitution"`; GitHub REST. |
+| `release` | deleted | Self-update download (`Repo="bobmcallan/satelle"`); only `satelle update` imports it. |
+| `releasestate` | deleted | Release-check cache for `update` and the SessionStart release advisory. |
+| `trunk` (0.8k) | deleted | **Git writes plus a step-named command**: `git merge --no-edit` (publish.go:143), `git push <remote> HEAD:refs/heads/<trunk>` (:185), `merge --ff-only` (trunk.go:254). Read-only `HasRemote`/`RemoteTrunkRef` go into the git adapter if a caller remains. |
+| `fixlane` (0.5k) | deleted | A policy exception to the edit gate with hard-coded refusal classes (fixlane.go:34–48). |
+| `waiver` (0.17k) | deleted | `gate_waiver` rows. The gate machinery only injects them as reviewer material (agentstep/reviewer_prep.go); verdict logic never reads them. |
+| `placement` (0.3k) | deleted | Epic-parallel, pin and cloud placement; hard-codes `"executor"`/`"reviewer"` (placement.go:153). A plain "binding placement = remote" setting stays as an agents.toml field read by agentstep (**9**). |
+| `epicset` (0.2k) | deleted | `ParentCategory="epic-parent"`, `TagPrefix="epic:"`: a category and a tag in Go. Kernel 1's parent/child is `parent_id`. It has 23 importers to change, including the satelled web (Q-satelled-ui). |
+| `throughput` (1.6k) | deleted | `satelle stats`; phases split at a `pr_step` state. |
+| `reviewscore` (1.5k) | deleted | Reviewer-binding benchmark; also delete `agentstep/judgecase.go` and `tests/reviewcorpus`. |
+| `costview` (2.9k) | deleted | Pricing, cost bands, gate-wait phases. It has 22 importers to change, including the satelled web cost panel (Q-satelled-ui). |
+| `ctxaudit` (0.6k) | deleted | Wikilink, ref and duplicate-guidance audit over substrate, documents and the embedded defaults. |
+| `condense` (0.7k) | deleted | Fits resident docs into a context budget for SessionStart injection, using embedded `condense.toml`. The ledger and sync do not use it. |
+| `compact` (1.9k) | deleted | CLI output folding. The one kernel touch, `compact.CompressLog` bounding a deterministic check's output (agentstep/engine.go:5165), becomes a few lines of head/tail inside agentstep. |
+| `retrieve` (0.3k) | deleted | CCR blob store (sqlite tables migrated at `store.Open`). Not synced. |
+
+### Commands (`internal/cli`, 51.4k lines; `cmd/satelle`, `cmd/satelled`)
+
+| package / command | kept · deleted · moved | why (which kernel item, or why not) |
+|---|---|---|
+| `cmd/satelle`, `cmd/satelled` | kept | **8/10**. satelled's flags `--addr`, `--port`, `--version` are maintained. |
+| `story create/get/list/set` | kept | **1** (+**2/3** on `set --status`, which goes through `dispatchResponse`→`handOffGate`). |
+| `story attach/doc/docs` | kept | **1/3**. Story attachments stay. |
+| `story route` | kept | **2**. The item's route and its verdicts so far. |
+| `story diff` | kept, thin | **7/3**. Files changed since the engagement baseline, read through the git adapter. This repo's skills use `--recorded` (raise-pr, land, chore-landed, version-stamp, workflow-change-trigger). |
+| `story seat`, `seat release` | kept | **7**. |
+| `story drive` | kept | **4/9**. Headless dispatch; `node join` reuses it for task wakes. |
+| `story rework`, `ready`, `wave`, `queue`(+`withdraw`), `worktree`, `release-record`, `amend`, `archive`/`unarchive`, `estimate`, `actual`, `comparables`, `cost`, `backfill-driver`, `resummarise`, `retrospect`, `message`/`messages`/`message-mark`, `proof`, `definition-edits`, `reconcile`, `recover`, `stop-request`, `tidy`/`untidy`, `waive`, `session`, `sync`, `lessons`, `restamp` | deleted | Process or bloat. rework hard-codes the READY/NOT READY relay contract in Go (cmd_story_rework.go:383–409). ready, wave and queue are epic, readiness and merge-queue process. worktree and release-record are git and release steps. estimate…retrospect are costview, the summariser and the retrospective. proof is a Go-test-name parser. waive is the waiver package. tidy is debris moves. restamp is category re-laning. |
+| `story log` | moved | Duplicates `ledger append`. |
+| `task create/get/list/set` | kept, provisional | Q-tasks. Remote nodes run "a work item or task". |
+| `task archive/validate/trigger` | deleted | Document-shape check, file moves, scheduler (`tasktrigger`). |
+| `execution create/get/list/set` | kept, provisional | Q-tasks. |
+| `execution record` | deleted | Writes an OKF document under the task folder (documents); `story attach` replaces it. |
+| `ledger append/list/verify` | kept | **6**. |
+| `ledger record-run/cite-run/citation` | deleted | Suite-run citation for this repo's integration gates; `green\|red`; git HEAD/dirty checks. |
+| `hook gate`, `hook stopcheck`, `hook prompt`, `hook context` | kept, thin | **7**. Generic core: `evaluateSeat` (cmd_hook.go:1301), `editPermitted` (:1470), per-harness deny envelope, `[gate] edit_exempt_paths/globs`, temp-dir exemption, dirty-tree stop check. The rest of cmd_hook.go's 3.9k lines goes (see Cuts). |
+| `hook commitgate` | deleted (merged into `gate`) | Git commit/push policing (:472–479), `[gate.command_allow] push=["release"]`, fused-engage detection, `[[gate.command_rule]]`. A tree-mutating Bash command is judged by the same edit predicate inside `gate`. |
+| `hook explain`, `turnend`, `resume` | deleted | explain only serves the `no_implement` model rule. turnend and resume wake the detached gate (gatehandle). |
+| `init` | kept, rewritten | **11**. Today (cmd_init.go:386–763) it writes no workflow file: the route is the embedded `step.toml`/`done.toml`. It also runs about 15 heals and migrations, scaffolds a constitution, documents, principles and launchers, edits `~/.grok/config.toml`, and **spawns `satelle sync push`** (a network write). Target: `.satelle/`, a minimal `satelle.toml`, `workflows/<name>.toml` with `backlog → done` and no gates, harness hooks, then validate. |
+| `validate` (+ `workflow validate`, `skill validate`, `agent validate`) | kept, one command | **11** (+**2/3/5**). A single deterministic check of workflows, agents and the skills gates reference; a broken configuration refuses to run. |
+| `doctor` | moved | Into `validate` (**11**), keeping the binary-on-PATH and reviewer-isolation checks. |
+| `status` | kept, thin | **10/11**. Orientation. `--line` (claude statusline), doc counts and the legacy residue line go. |
+| `help`, `version` | kept | **10**. |
+| `workflow show` | kept | **2**. |
+| `workflow list/create`, `skill create`, `principle create/validate` | deleted | Markdown authoring and category ordering; users edit the files themselves. |
+| `agents install/remove` | kept, thin | **7**. Harness hooks for claude, grok and pi. Cursor and the `$SATELLE_HOME/agents/bin` launchers go. |
+| `agent show/set/detect/recheck/migrate/profiles push\|restore` | deleted | A machine-wide reviewer-CLI selection that duplicates the agents catalog (**5** puts presets in config). recheck exists for cursor. profiles is REST `/api/v1/me/files`. |
+| `sync` (+`push`, `pull`, `status`, `scopes`, `rehydrate`, `config push/deploy`, `workstate push/pull/snapshot/fetch/follow`) | kept | **8**. These verbs are also satelled's exec interface (serve/children.go). |
+| `sync documents …`, `sync bindings`, `sync workstate rechain` | deleted | Documents leave. bindings publishes agents.toml to the team catalog. rechain is chain-fork repair (981 lines), which the rewritten ledger replaces. satelled currently execs `sync workstate rechain --conflicted` and `sync documents push --snapshot-only` (Q-satelled-exec). |
+| `login`, `logout`, `whoami` | kept | **8**. |
+| `project bind/create/list/show/pull-only` | kept | **8**. The embedded-default seed and team-tier write-down go. |
+| `settings` (+`server`) | kept | **8/11**. Legacy `web_port`/`sync.server` keys go. |
+| `service install/uninstall/status/restart` | kept | **8**. satelled's service entry point is maintained. |
+| `serve` | kept (alias), Q-serve | The help calls it a deprecated alias of `satelled`, but `service install` falls back to it, so it is part of satelled's entry points. |
+| `workspace add/list/remove/partitions/prune` | kept | **8**. Feeds satelled's mirror ingest; satelled itself execs `workspace add`. |
+| `runtime path/list/reap` | kept | **8**. Runtime plane under `~/.satelle/<key>`. |
+| `runtime migrate` | deleted | Compat for the legacy in-repo layout. |
+| `logs` | kept | Runtime logs. The `.satelle/logs` symlink pointer goes. |
+| `node join` (hidden) | kept | **9**. |
+| `team path`, `publish *`, `policy *` | deleted | Team substrate tier, team catalog (a future marketplace) and subscribed command-rule lists. All are REST (see Wire changes). |
+| `pr *`, `trunk *`, `changelog`, `fix *`, `review *`, `retrieve`, `stats`, `board`, `reindex`, `doc *`, `substrate *`, `rebase`, `restore`, `migrate` | deleted | Named after steps or forge actions (pr, trunk, changelog). Exception lane (fix). Bloat (review, retrieve, stats, board). Documents (reindex, doc). Embedded default process (substrate, rebase, restore). Backward compatibility (migrate). |
+| `update` | deleted, Q-update | Self-update from GitHub releases is distribution, not kernel. It also restarts satelled. |
+| `session name` | deleted | Cosmetic launcher label; the launchers go too. |
+| CLI support files: bashscan.go (2.0k) | kept, cut | **7**. Keep mutation-target extraction (tokenizer, segments, cd/`-C`, redirect/tee/rm/mv/cp/sed -i). Cut git commit/push detection (:389–520, :764–830), `foreignSatelleVerb` (:1516) and the substrate-lock refs (:1364–1515). |
+| containment.go | kept, Q-fence | **7**. Foreign-tree fence. |
+| harness_pi.go, harness_hooks.go | kept, thin | **7**. |
+| harness_cursor.go, hook_unmatched.go, harness_claude_statusline.go, harness_claude_no_implement.go, hook_noimplement.go | deleted | Cursor; compat statusline heal; model-glob rule (tool grants are the mechanism). |
+| substratelock.go, fixlane_*.go, tool_trace.go, command_rules.go, policy_advisory.go, release_advisory.go, drift.go, scaffold_drift.go, embedded_provenance.go, substrate_*.go, principle_heal.go, init_analysis.go, init_foreign_tools.go, validate_injected.go, wikilink.go, placement.go, adoptions.go, team_writedown.go, local_binary.go, project_seed.go (embedded seed), cmd_sync_tier.go, workstate_unpushed.go, workstate_reconcile.go, reworkloop.go, sessionledger.go, advisor_prompt.go, gatexrepo.go, gateresume.go | deleted | Each is process, compat or embedded defaults. substratelock hard-codes the categories `"substrate"`/`"agents-repair"` (:24, :30). advisor_prompt names `satelle-workflow-advisor`. workstate_unpushed is a hold-until-on-remote policy. workstate_reconcile matches trunk commit subjects. |
+| gatecaller.go, gatedeliver.go, gate_detach_*.go, child_*.go, dispatch.go | kept, shrunk | **3**. Synchronous gate call and its CLI result. Harness-timed detach (grok 15s) goes with gatehandle. |
+| remote_placement.go, remote_run.go | kept, Q-team-remote | **9**. FireRemote, StartPerformerNode, the run-standing poll. |
+| uipush.go, uisnapshot.go, middispatchpush.go, web_availability.go, server_endpoint.go | kept | **8**. The satelled ingest client. |
+
+### Cuts inside kept packages
+
+- **verb**
+  - Literals to cut:
+    - `*req.Status == "done"` (workitem.go:1139).
+    - The create default `workitem.StatusBacklog` (:236, :282), which should be the configured start state.
+    - `dispatchPayload("done","retrospect",…)` (:1729).
+    - `"cancelled"/"canceled"` (engage_validate.go:87).
+    - 24 `"executor"`/`"reviewer"` actor literals.
+    - `agentcli.HarnessCursor` (readiness.go:311, driver_usage.go:299).
+  - Processes inside workitem.go:
+    - The step summariser, retrospector, category→`workflow:` stamping and category vocabulary.
+    - The readiness mark refusal, `refuseSecondEngagingStory` and `refuseUnreadiedEpic`.
+    - `checkTrunkAtEngage` (git fetch + fast-forward).
+    - `applyPlannedCriteria` (keep only as config-named `apply_criteria` with no Go default).
+    - The queue/wait states, `propose` ordering, `markReady`/`epicAdvice` and the open-epic-children refusals.
+    - `refuseDirtyClose` (git status).
+    - `recordChangeSet`/`maybeRecordEngagementBaseline` (keep the baseline only via the read-only adapter).
+    - `recordDriverUsage`/`recordActual` and `recordRoute` (route doc).
+  - In review.go: CreateReviewer, AmendReviewer, Retrospector, StepSummariser, CloudDispatch, answer_progress, `Waived`, panel/Combine/Bundle, ReviewMode, about 20 cost fields.
+  - Files deleted whole:
+    - amend, readiness, readiness_ready, performer_changes, priorverdicts, criteria (Q-criteria).
+    - epic_close, epic_proposal, engage_wave, wave, dependson*, storymembers, after_children, container_wait.
+    - queue, release, changelog (+`embedded/CHANGELOG.md`), trunkcheck, worktree_trunk, worktree, changerecord, engagement, storyproof, storytidy, suiterun*, codestate.
+    - substratediff, substrateseed, doc, process, processofrecord, storyokf, storyroute (`RouteDocName="route"`, `"## Outcomes"`), storyremoteruns.
+    - story_cost, story_actual, story_comparables, gate_value, gatewait, driver_usage*.
+    - recover, storyretention, taskarchive, storyarchive, tagvocab, retrieve, messages, board, engagement_mode (epic seat keys), edit_gate (create-review on edit).
+    - wiring_restore.go moves to `_test`.
+- **agentstep**
+  - Skill literals:
+    - `summariserSkill="satelle-step-summary"` (engine.go:4301).
+    - `structureSkill="satelle-story-review"` (:4298).
+    - `retrospectAgent/Skill` (:2967).
+    - `engagementSkillCheck="satelle-workflow-skill-check"` (:3765).
+    - `cloudPerformerSkill="satelle-cloud-performer"` (cloud.go:37).
+    - judgecase.go.
+  - State literals: `Status: "backlog"` (:4574/4579), `toStatus=="cancelled"` (:3782).
+  - Agent-name meaning: `to.Agent=="reviewer"` (:1904); the executor switch (:2480–2483, :3646, :3843; executor_step.go; reviewer_prep.go); message address `"executor"` (:1610).
+  - Git in cloud.go: `worktree.CollectBranch` merge, the `git push -u` hint, the `Satelle-Nonce` trailer.
+  - Features beyond gate/performer, all cut:
+    - Gates: panels/combine, reviewer_carry, bundles, fail-fast mode, per-criterion verdicts, findings/answers, waivers, deferrals, plan citations, skill-evidence fold, route drift, park-resume extras.
+    - Dispatch: cloud/team remotes, placement.Decide, attempt/repair/escalate, the leftover sweep, live consult sessions, secondary failover, the summariser, Retrospect, ReviewCreate/ReviewAmend (`structure.Story`, BDD shape).
+    - judgecase.go; the compact/retrieve offload; secretref.
+  - Prompt-text permissions (a kernel 5 breach, to be replaced with grants):
+    - `executorCharter` "Do NOT change the item's status" (invoke.go:1643) and `consultCharter` (:1657). A performer holding `Bash(satelle:*)` can still run `story set`.
+    - `isolateReviewer` "never refuses" (isolation.go:21–37), and `isolation="operator-attested"` silences it. Reviewer read-only is therefore not enforced and must become a hard refusal.
+  - Compat: the obsolete in-repo `.satelle/stories/` text (invoke.go:1524/1547), the scalar tools/model fallbacks (:466–475), and the "payload `docs` for the plan and step summaries" text (:1512).
+- **agentcli**
+  - Cursor, removed entirely:
+    - Files: cursor_seat.go, cursor_session.go, driver_usage_cursor.go and their tests/testdata.
+    - Identifiers: `CursorCommand` (agentcli.go:100), `HarnessCursor` (harness_detect.go:15 + env markers).
+    - Branches: acp.go (`cursor/ask_question`, `cursor/create_plan`), `unwrapCursor`, captured.go, driver_usage.go, harness_facts.go, harness_hooks.go `NoToolMatcher`, hook_output.go `SilentStopAllow`, isolation.go, stop_resume.go, stream.go.
+  - Also cut:
+    - `CommitMatcher` "commitgate" in `HookSpec`.
+    - The claude `--cloud` launcher (cloud.go).
+    - Driver usage readers (driver_usage*, claude_transcript.go, session_locate.go).
+    - capabilities.go, tool_vocab.go (keep if grant translation across adapters is needed), adapt_command.go.
+    - Live consult sessions.
+  - Q-acp: grok ACP cannot be held to a grant (isolation.go:829).
+- **agentvalidate**: cut the seat-name switches (`"executor","planner","coder"` :633, `"orchestrator"` :369–376, executor/reviewer :330/354/473/551/572/1149/1204, untrusted.go:53–74); the panel/bundle/advisor/rework/wfhook/placement checks; and the `{max_turns}` compat (:1170). Add the reviewer≠performer-model rule.
+- **agentartifact**: cut the attempt policy, evidence.go, answers.go and changes.go (the ops report for this repo's `ready` step).
+- **lease**: cut the `Migrate` ALTER chain and `in_flight_at` backfill (store.go:311–421); the epic seat key/co-hold (`SeatKey`, `TreeScoped`, `Exclusive`) unless kept generic; and the activity columns not used by satelled.
+- **buildinfo**: cut `LegacyDaemonName="satelle-serve"` and `LegacyDaemonVersionKey`.
+- **workitem**
+  - Cut the `StatusBacklog/InProgress/Done/Cancelled` constants (workitem.go:36–43; used in verb, cli, web, throughput, docstory, and as store.go defaults :167/:246).
+  - Cut the `UPDATE … status='backlog' WHERE status='open'` migration and the ALTER shims.
+  - Cut the legacy `kind:` read in markdown.go and `Holdable`.
+  - triggers.go/inputs.go and `RunCategory="chore"` (triggers.go:121) go with Q-tasks.
+  - Q-fields: `Priority`, `Category`, `Archived`, `Kind{task,execution}`.
+- **storyfold**: cut seed.go (`definition_snapshot` for pre-fold chains), `ReplayNoVersion`/legacy graph, and reduce the fold to the generic event set.
+- **store**: cut `EmbeddedDefaultDocs`/`embeddedWorkflowBody` (sets `wfgovern.EmbeddedRoute`), retrieve wiring, the `storyfold.Seed` call, `workflowVersion()`'s `WorkflowSource{Done,Step,Legacy}` (this repo's two-file format carried into the ledger) and the `DocIndex` documents.
+- **ledger**
+  - Cut `Migrate.addColumns`/`linkLegacyChains`, `IsReservedKind` (waiver, queue) and typed payloads (`QueueEnqueuedPayload`, `RemoteRunPayload.Step`, `ExecutionLinkPayload`).
+  - rounds.go (`CountRejectedRounds`, `ReadinessHolds(planDoc)`) moves to a gate-side reader of generic verdict events.
+  - Cut event_telemetry.go cost extraction and tool_permission.go legacy rows.
+  - `Actor` stops being a role word.
+- **app**: cut `LegacyRuntimeNote`, `PlaneConstitution`, the documents/principles roots on `DocIndex`, `installConfigStamp`, and the per-command setters for trunk, release, tag vocabulary, worktree and engagement mode, plus the waiver/docs/messages resolvers (cli/app.go:94–300, 560–790).
+- **config**
+  - Seat names as struct fields: `AgentsConfig.Executor`/`.Reviewer` (`toml:"executor"`/`"reviewer"`, agents.go:1062). Name switches at agents.go:302/805/847/851/1178–1185, agentstransport.go:96–97/317–324, resolveagents.go:288–291/589 (`"ready-reviewer"`)/604, vars.go:56–61. Session roles `"in-loop"`, `"orchestrator"`, `"creator"` (session.go:66/110).
+  - Skill names: `OperatingPrinciple="satelle-agent-goals"`, `ReviewerVerdictPrinciple="satelle-reviewer-verdict"` (embed.go:36/43), retired.go.
+  - `ParallelEpic="epic"` (config.go:929).
+  - forge.go (`DefaultForgeProvider`, `pr_heads {"epic/","feat/"}`, `satelle/pr-approval`).
+  - Files to cut:
+    - trunk.go, fixlane.go, condense.go, pricing.go, categories.go, doctor.go, injected.go.
+    - worktree.go/worktree_of.go (branch `epic/{id}`), processhealth.go, projecttier.go, team.go (kimi paths), substratelock.go, command_policy.go.
+    - Compat: embed.go, baselineagents.go, stamp.go, migrate.go (`MigrateAgents`), removed_budget.go, strays.go.
+  - Fields and tables to cut: `RemovedSyncScopeKeys`, `LegacyAgentsKey`, `Gate.CommandAllow`, `NoImplement*`, `Handoff`, `ReleaseConfig`, `OutputConfig` (~300 lines), `DispatchConfig.leftovers`, the `"documents"` sync area (sync.go:336/560/713/829) and `AuthoredKinds` "documents".
+  - Add strict unknown-key refusal for satelle.toml (today only `[worktree]`/`[harness.*]` refuse, harness.go:211).
+- **wfdot**
+  - Cut `"done"` as the required terminal (wfdot.go:81) and the `doneReachable` seed (:538/546).
+  - Cut the agent names `"reviewer","executor","planner","coder"` (:478/582/589/638/678/728), including `IsEditCapableState` = `st.Agent=="executor"`.
+  - Cut `StepSummarySkill="satelle-step-summary"` (:31/603) and `DefaultDoneGate` (:25).
+  - Park is detected by agent=="reviewer" on synthesised nodes (route.go:662/673; `IsParkState` :781); replace it with an explicit configured park flag plus `resumes`.
+  - Process step keys: pr_step, waits_on_children/ready_children/after_children/schedule, mark/propose/apply_changes (`ChangeOps`), placement_tag/delivery_heading/lane_tag/remote_agent/local_tags, answer_progress, rework, advise, untrusted_input, review_mode.
+  - Compat: `LegacyScheduleSteps`, removed budget refusers, DOT vocabulary, `applies_to` augmentation rules.
+- **wfgovern**: cut the `RouteSourceDone="done"`/`RouteSourceStep="step"` file names, `DerivedRouteName`, `mergeRouteHalf` overlay onto the embedded route, `OrderedWorkflows` tiers, `WorkflowCategory`, `IsFilePairStamp`/`LegacyMarkdownRoute`/`LegacyHash`, `WaitsOnOpenChildren` (epicset), routedrift.go, and the docindex input type.
+- **structure**: cut the `Story()` category hint, the `-review` suffix heuristic, `CheckTask` (Q-tasks), `checkPrinciple`, `deprecatedActorKeyword` and the DOT helpers.
+- **health**: drop the IDs for removed features (team.*, scaffold.*, breaking.*, config.stray, gate.substrate.unlocked, repo.substrate.untracked, sync.substrate_*, story.status.drift, context.*, live.version_drift, command_rule.allow).
+- **help**
+  - Keep and rewrite: workflows, reviewer-checks, agent-dispatch (1,661 lines → gates/performers/agents), global-agents, substrate (→ configuration), session, session-token, projects.
+  - Delete: create-story, create-review, epic-wave, trunk, fix-lane, compact-output, retrieve, cost-pricing, worktree, workflow-convert, command-rules, doctor (folds into validate), principles (Q-principles).
+- **hosted**: delete client_documents.go, the document and attachment cursors in docsync_state.go, boardpb, client_me.go, client_publish.go, the `personalWorkspaceName="personal"` sentinel, and the "older server" compat branches (client.go:46/155/570, credstore.go:54).
+- **push / mirror**
+  - Cut topic/entity `docs`/`doc` for the documents kind (Q-satelled-docs), the `wave` kind (ingest.go:416) and the ALTER migrations (store.go:60–80).
+  - The `doc` kind also carries workflows, which the web reads for stage rails (mirror_panels.go:164), so only the documents kind can go.
+- **serve**: cut the `sync documents push --snapshot-only` leg (substratepush.go:36) and the `rechain --conflicted` exec (Q-satelled-exec).
+- **web**
+  - Cut `StatusBacklog` (mirror_panels.go:154/236, mirror_server.go:254), `StatusDone/StatusCancelled` (stages.go:98) and "prefer a state named done" (web.go:410–416).
+  - Cut epicset waves/members (mirror_panels.go:637–800), the costview panels, category→workflow routing (`wfgovern.WorkflowCategory`), the legacy "attached plan document" body parse (:932), the board panel and the documents panel (Q-satelled-ui).
+- **syncstate**: cut `PushHeld` (hold until code is on the git remote), the substrate areas if snapsync goes, and policy.go.
+- **snapsync**: cut defaults.go (unedited embedded defaults) and the documents area.
+- **remotenode**
+  - Cut taskrun.go `RunCategory="chore"`, the `remote-node:` tag, the "wake of … on …" title and actor `"remote-node"`.
+  - Cut `Report.Workflows` "done.toml merged over the embedded default" (protocol.go:73) and the hard-coded `SubstrateDirs` layout.
+  - Cut the Status 400 retry shim (nodeapi.go:251), devtest/github.go (a fake GitHub PR API) and cmd_node.go's `"executor"`/`"reviewer"` (:994–997, 1130–1139) and `doneCategories`/`wfdot.ParseDone` (:1054).
+  - **Sprites**: the keep-alive is in both the definition (first `on_create` line) and Go (`spritehold.go SpriteHold`, started at cmd_node.go:341). Delete the definition line, and move `SpriteHold` and the pi symlink line into a sprite adapter.
+  - **No docker-local provider exists** (`remotedef.Providers=[fly-sprite]`; no `docker` anywhere in Go). It must be built as the reference adapter.
+- **remotedef**: cut `oldKeys` (18 pre-v1 keys, validate.go:147), the infisical refusal (:363), `EnvDefinition`/`FromEnvValue`/`GitHubAppKey`/`RepoSlug` (only `satelle pr` uses them) and `TaskIDPrefix` (Q-tasks). Add `docker-local` to `Providers`.
+- **hook/edit gate (cli)**
+  - The in-loop performer must come from config, not the literal `executor` (context_harness.go:80/126; wfdot `IsEditCapableState`).
+  - Cut the deny text that hard-codes states and agents: `--status plan` at cmd_hook.go:2048/2449/2456/2473/3428/3854; `agent=executor` and `story rework` at :2262/2274; `hookPromptReminder`.
+  - Cut `denyIfNoImplement`, `fixLaneEdit`, `substrateLockGate`, `recordToolTrace`, the relay-marker branch and `RecordCursorStop` (:3598).
+  - Cut the context injection of `principles:session`, constitution, condense and every advisory (`runHookContext` :2719–2800).
+  - Q-multiseat: `pickSessionSeatFor`/`sessionSeatsUnmatched` (about 400 lines).
+
+### Not packages, but in scope
+
+- `api/board.proto` + `hosted/boardpb`: deleted. This is a satelle-server service with no caller, and the proto's header says "This repo … does not serve it". **It is not satelled's API**, despite the contract's wording; see Q-board.
+- `api/openapi.yaml`, `api/README.md` REST section: deleted once every call is gRPC.
+- `.satelle/documents/` (this repo): deleted (documents leave).
+- `tests/` (215 Go files, 35.7k lines): rewritten per the contract. `tests/reviewcorpus` and `tests/plannerbench` are deleted.
+- `scripts/`: credfp/credguard/hostguard and skipcheck are judged in Phase B. Release scripts (`build-version.sh`, `check-serve-version.sh`, `install.sh`) are distribution, not Go process.
 
 ## Wire changes for satelle-server
 
+### satelled's maintained interface (found; not changed)
+
+satelled serves **plain HTTP only**: no gRPC, no Connect. The surface is:
+
+- **Binary** `satelled`
+  - Flags: `--addr` (default `[service] addr`), `--port` (default `[service] port` or 8787), `--version` (prints `satelled <ver> (commit <c>, built <t>)`).
+  - Behaviour: SIGINT/SIGTERM, then a 5s graceful stop.
+  - Files: mirror DB at `~/.satelle/serve/`, log at `~/.satelle/serve/server.log`.
+  - Startup line: `satelled (push-fed mirror) http://…`.
+- **HTTP routes** (web/mirror_server.go:105–156, mirror/ingest.go:164–167, serve/serve.go)
+  - `GET /static/`, `/favicon.ico`, `/healthz` (body `ok`, header `X-Satelle-Instance`), `/events` (SSE; topics stories/tasks/docs/logs), `/theme`, `/{$}`, `/workspace`, `/fragment/projects`.
+  - `GET /r/{slug}/{$}`.
+  - `GET /r/{slug}/fragment/{stories,tasks,activity,docs,engagement}`.
+  - `GET /r/{slug}/fragment/{story,task,execution}/{id}`, `GET /r/{slug}/fragment/workflow/{name}`.
+  - `GET /r/{slug}/{story,task,execution}/{id}`, `GET /r/{slug}/doc/{kind}/{name}`, `GET /r/{slug}/help`, `GET /r/{slug}/settings`.
+  - `GET|POST /settings/global` (loopback only).
+  - `GET /logs`, `GET /fragment/logs`.
+  - `/debug/pprof/*` (loopback only).
+- **Ingest** (POST only; anything else gets 405)
+  - `POST /ingest/change`: `{repo_key, topic, entity, at, origin}`.
+  - `POST /ingest/snapshot`: `{repo_key, slug, stories, tasks, executions, docs, ledger_events, story_docs, seats, waves, settings, identity, kinds, merge_kinds, origin}`. Answers 409 `partition_unknown`, or 409 on a slug conflict.
+  - `POST /ingest/remove`: `{repo_key}`.
+  - Callers: push/publisher.go, cli/uisnapshot.go, cli/cmd_workspace.go.
+  - The endpoint comes from `[service] endpoint` (default `http://127.0.0.1:8787`); `SATELLE_SERVER_ENDPOINT` overrides it, and `none` disables it.
+- **satelled → CLI exec contract** (serve/children.go). satelled runs the sibling `satelle` with:
+  - `sync workstate push`
+  - `sync workstate rechain --conflicted`
+  - `sync workstate snapshot|follow|fetch <id>`
+  - `workspace add` (with `SATELLE_SERVER_ENDPOINT` and `SATELLE_INGEST_ORIGIN=hosted`)
+  - `sync documents push --snapshot-only`
+  - `sync pull --fast-forward-only`
+- **CLI entry points**
+  - `satelle service install|uninstall|status|restart`. Install flags: `--port`, `--addr`, `--repo`, `--serve-bin`, `--system`. The unit is `satelle.service` with `ExecStart=<satelled> --addr A --port P`, falling back to `satelle serve`.
+  - `satelle serve` (`--addr`, `--port`; hidden `--no-watch`, `--base-path`).
+  - `satelle workspace add|remove|list|partitions|prune`.
+
+Parts of that surface the contract's other rules would remove (documents, epics, cost) are listed under Q-satelled-docs and Q-satelled-ui. They are not decided here.
+
+### Already gRPC (may change with the generic ledger)
+
+| service/method | caller | note |
+|---|---|---|
+| `satelle.sync.v1.Sync/Apply` | hosted/client_sync.go ← cli/cmd_sync_workstate.go:582, cmd_node.go:703 | Pushes items, ledger rows and RunOutputs. Payloads change with the generic ledger. |
+| `Sync/Snapshot` | client_sync.go ← workstate_scope.go, cmd_sync_tier.go, workstate_snapshot_pass.go | Paged pull. |
+| `Sync/Refresh` | never called | Delete it, or revive it as the token refresh (Q-oauth). |
+| `satelle.chain.v1.Chain/Append`, `Read`, `Subscribe` | hosted/client_chain.go ← storyfetch.go, workstate_append.go, workstate_chainpull.go, cmd_sync_workstate_follow.go, cmd_node.go | Compare-and-append on `base_id`; the event carries `workflow_version` and an opaque payload. **To be rewritten**: the event becomes `{id, item_id, kind, payload, prev_hash, hash}`; `workflow_version` drops. The proto's "CLI calls Append only" note is stale (Read and Subscribe are used). |
+
+### REST / plain HTTP today → gRPC replacement
+
+All calls go through `hosted.Client.doAuthed`/`getJSON` (bearer token; retried once on 401 after an OAuth refresh), or through `SignedDo` (node token, no retry). Service names are proposals; the satelle-server rebuild implements them.
+
+| today (method path) | calling file:function | replaced by |
+|---|---|---|
+| GET `/api/v1/me` | hosted/client.go `Me` ← cli/cmd_login.go (login, whoami), syncscope.go:75 | `satelle.v1.AccountService/GetMe` |
+| GET `/api/v1/projects` | client.go `ListProjects` ← cmd_project.go:296 | `satelle.v1.ProjectService/ListProjects` |
+| GET `/api/v1/projects/{p}` | client.go `GetProject` ← syncscope.go:80, project_seed.go:38, sync_holder.go:128, substrate_holding.go:51 | `ProjectService/GetProject` |
+| POST `/api/v1/projects` | client.go `CreateProject` ← cmd_project.go:275 | `ProjectService/CreateProject` |
+| GET `/api/v1/workspaces` | client.go `Workspaces`/`ActiveWorkspaceID` ← cmd_login.go, syncscope.go:91, workstate_attachments.go | `satelle.v1.WorkspaceService/ListWorkspaces` |
+| POST `/api/v1/locations` | client_locations.go `RegisterLocationPrincipal` ← `EnsureLocationRegistered`, session_identity.go | `satelle.v1.LocationService/RegisterLocation` (returns the principal id for session tokens) |
+| GET `/api/v1/projects/{p}/config` | client.go `ConfigManifest` ← cmd_sync.go:591/1004, cmd_sync_snapshot.go:272/492, cmd_sync_status.go:309 | `satelle.v1.ConfigService/ListConfigFiles` (Q-config-sync) |
+| PUT `/api/v1/projects/{p}/config/{path}` | client.go `PushConfigFile` ← cmd_sync.go:677, cmd_sync_snapshot.go:55/83 | `ConfigService/PutConfigFile` |
+| GET `/api/v1/projects/{p}/config/{path}[?version=N]` | client.go `ConfigFileContent` ← cmd_sync_snapshot.go:47/75, sync_holder.go:164, cmd_sync.go:1058, cmd_sync_tier.go:32 | `ConfigService/GetConfigFile` |
+| GET `/api/v1/projects/{p}/documents?since=` | client_documents.go `ListDocumentChanges` ← cmd_sync_documents.go:150/281, cmd_sync_snapshot.go:94, workstate_attachments.go:302 | **REMOVED** (documents). Attachments move to `satelle.v1.AttachmentService/ListAttachmentChanges` |
+| PUT `/api/v1/projects/{p}/documents/{path}` | `PushDocumentFile` ← cmd_sync_documents.go:164, cmd_sync_snapshot.go:110, workstate_attachments.go:161, substrate_backup.go:158 | **REMOVED**. Attachments → `AttachmentService/PutAttachment` (keyed by project, item_id, name); the substrate backup is deleted |
+| GET `/api/v1/projects/{p}/documents/{path}` | `DocumentFileContent` ← cmd_sync_documents.go:319, cmd_sync_snapshot.go:102, workstate_attachments.go:305 | **REMOVED**. Attachments → `AttachmentService/GetAttachment` |
+| PUT `/api/v1/remote-nodes/{n}/documents/{path}` | `PushDocumentFile` (node mode) ← cmd_node.go `nodePushAttachments` | **REMOVED**. → `AttachmentService/PutAttachment` on the node token |
+| GET `/api/v1/workspaces/{ws}/documents?since=`, GET/PUT `…/documents/{path}` | `ListWorkspaceDocumentChanges`, `PushWorkspaceDocumentFile`, `WorkspaceDocumentFileContent` ← workstate_attachments.go:171/314/317 | **REMOVED**. Team attachment copies → `AttachmentService` with a workspace scope |
+| GET `/api/v1/me/files`, PUT/GET `/api/v1/me/files/{path}` | client_me.go ← cmd_agent_profiles_backup.go:103/126 (`agent profiles`) | **REMOVED** with `agent profiles` (no replacement) |
+| GET `/api/v1/workspaces/{ws}/published`, PUT/GET `…/published/{path}` | client_publish.go ← cmd_publish.go, cmd_sync_bindings.go:168/203, cmd_policy.go:184 | **REMOVED** with `publish`, `sync bindings` and `policy` (future marketplace) |
+| POST `/api/v1/remotes/{id}/fire` | client_remote_fire.go `FireRemote` ← remote_placement.go:25, agentstep/team.go:108 | `satelle.v1.RemoteService/FireRemote` (Q-team-remote) |
+| GET `/api/v1/remotes/{id}/stories/{sty}/run` | `TeamRunStatus` ← remote_placement.go:29, remote_run.go:46, agentstep/team.go:142 | `RemoteService/GetItemRun` |
+| POST `/api/v1/remotes/{id}/nodes` | client_remote_nodes.go `StartPerformerNode` ← remote_placement.go:37 | `RemoteService/StartNode` |
+| GET `/api/v1/remote-nodes/{n}` | `GetRemoteNode` ← remote_placement.go:42 | `satelle.v1.NodeService/GetNode` (channel public key) |
+| GET `/api/v1/remote-nodes/{n}/definition` (ETag = sha256, `X-Satelle-Definition-Version`) | remotenode/nodeapi.go `Definition` ← cmd_node.go `installNodeDefinition` | `NodeService/GetDefinition` (digest and version become fields) |
+| POST `/api/v1/remote-nodes/{n}/secrets/{key}` | nodeapi.go `SecretWithExpiry` ← cmd_node.go `loadNodeSecrets` | `NodeService/ReadSecret` (value, expires_at, refusal code) |
+| GET `/api/v1/remote-nodes/{n}/run` | nodeapi.go `Run` ← cmd_node.go:285/493/841 | `NodeService/GetRun` |
+| PUT `/api/v1/remote-nodes/{n}/channel-key` | nodeapi.go `PublishChannelKey` ← cmd_node.go:290 | `NodeService/PublishChannelKey` |
+| PUT `/api/v1/remote-nodes/{n}/status` (heartbeat; conclude = `run_state=concluded`) | nodeapi.go `Status` ← remotenode/taskrun.go | `NodeService/ReportStatus` (drop the retry-without-findings shim) |
+| POST `/api/v1/remote-nodes/{n}/end` | nodeapi.go `End` ← cmd_node.go:163 | `NodeService/EndNode` |
+| WebSocket `{relay_url}/{session}?role=local\|remote` | remotechan/open.go:518 `dialRelay` | `satelle.v1.RelayService/Connect` (bidi stream), Q-relay |
+| GET `/.well-known/oauth-protected-resource/api`, AS metadata (`/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`), browser `/oauth/authorize` + loopback callback, POST `/oauth/token` | hosted/discovery.go, oauth.go `postToken` | Q-oauth: the browser redirect cannot be gRPC; the token exchange and refresh could be `satelle.v1.AuthService/ExchangeCode`/`RefreshToken` |
+| browser `{server}/logout?session_id=` | cmd_login.go `runLogout` (opens a browser; satelle makes no HTTP call) | unchanged (Q-oauth) |
+
+Not satelle-server, so not wire changes: GitHub releases (`update`, deleted), GitHub REST (`forge`, deleted), arbitrary policy URLs (`policy`, deleted), and the Sprites unix-socket keep-alive (moves into the sprite adapter).
+
+Server routes in `api/openapi.yaml` the client never calls: `/api/v1/projects/{p}/config-rollback` and `POST /api/v1/me/tokens` (minted server-side).
+
+### Removed document wire (summary for satelle-server)
+
+Every `/documents` route on the project, workspace and remote-node scopes is removed from satelle's side. Story attachments, which travel over those routes today as `stories/<id>/<file>`, move to a new `AttachmentService`. The `documents` sync area, `documents.snapshot.json` snapshot records and the substrate backup PUTs are removed.
+
+### Ledger and node protocol (to be specified in Phase B)
+
+- The chain event format changes as described above, with `api/story_chain.proto` rewritten.
+- `api/checkout_sync.proto` payloads (`WorkItem`, `LedgerEntry`) carry the generic event.
+- The node join/report/conclude moves from the six REST routes to `NodeService`.
+
 ## Open questions for the operator
 
+Each is a ruling the contract does not make. The inventory records a lean; Phase B does not decide it.
+
+1. **Q-tasks.** Do tasks and executions survive as work-item kinds? Kernel 1 names only stories; the remote contract says "a work item or task". Affects `task`/`execution` commands, workitem `Kind`, `triggers.go`, `RunCategory="chore"`, `TaskIDPrefix`, and remotenode taskrun. Lean: one item type with a free `kind`, no Go meaning.
+2. **Q-transitions.** Kernel 2 says states and transitions are read from config. Today transitions are *derived* (topological sort of `requires`, plus synthesised park/cancel/recover edges in wfdot/route.go). Should the kernel schema author transitions explicitly (lean), or keep the derived route?
+3. **Q-category.** Category → route lane selection (done.toml per-category tables, `ListFor`, `WildcardCategory`) is not in kernel 2. Drop it (one workflow per repo, or a workflow chosen by a configured tag), or keep a generic `applies_to`?
+4. **Q-fields.** Kernel 1 lists id, title, body, AC, status, tags, parent/child. Keep `priority`, `category`, `archived`, `assignee`?
+5. **Q-criteria.** Are per-criterion verdicts (verb/criteria.go, agentstep/criteria.go) part of "verdict = accept/reject plus notes"?
+6. **Q-executor.** `[executor]` (the in-loop session) and `[reviewer]` (default gate seat) are struct fields and built-in meanings in config, agentstep, wfdot and the hook. Lean: the agents catalog is a free map, and the in-loop/performing binding is named by the workflow.
+7. **Q-principles.** Do principles and `principles:session` injection (hook context, `sessionPrinciples`, constitution) survive? Not in kernel 1–11. Lean: they leave Go; a harness can inject a configured file list.
+8. **Q-summariser.** The step summariser and retrospective are hard-wired skills. Lean: they become ordinary performers or gates in this repo's config.
+9. **Q-multiseat.** Does the edit gate need multiple seats per session/worktree (cli `pickSessionSeatFor` etc., lease `SeatKey`/`TreeScoped`)?
+10. **Q-fence.** Is the foreign-tree fence (cli/containment.go) part of the kernel edit gate? Should a generic "locked paths while performing" rule replace the category-based substrate lock?
+11. **Q-command-rule.** Should `[[gate.command_rule]]` survive as generic config, given that kernel 5 enforces through tool grants?
+12. **Q-acp.** Grok's ACP mode cannot be held to a tool grant (agentcli/isolation.go:829). Drop ACP, or keep grok command mode only?
+13. **Q-gate-async.** Do long gates need detached delivery (gatehandle, turnend/resume) at all? Lean: no, gates run synchronously.
+14. **Q-update.** Is `satelle update` (self-update, which also restarts satelled) kernel?
+15. **Q-serve.** `satelle serve` is a deprecated alias, but the `service install` unit falls back to it. Is it part of satelled's maintained entry points?
+16. **Q-satelled-exec.** satelled execs `sync workstate rechain --conflicted` and `sync documents push --snapshot-only` (serve/children.go). Removing rechain (ledger rewrite) and documents changes that de-facto interface. Allowed, or keep stub verbs?
+17. **Q-satelled-docs.** Removing documents touches satelled's maintained interface: `GET /r/{slug}/doc/{kind}/{name}`, `/fragment/docs`, the Snapshot `docs` field and the `docs` SSE topic. The same `doc` kind also carries workflows, which the board needs. Partial cut (documents kind only), or re-source workflows?
+18. **Q-satelled-ui.** The web UI renders epic waves/members (epicset), cost/band/driver rows (costview) and the message board. Are those panels part of the maintained interface? If not, the UI switches to `parent_id` children and drops cost and board.
+19. **Q-board.** The contract names `api/board.proto` as satelled's API. It is in fact an unserved satelle-server message-board service with no caller. Confirm it is deleted.
+20. **Q-config-sync.** Is `.satelle` config sync (ConfigService + snapsync + subsync, `sync config push/deploy`, `sync pull`) part of kernel 8, or only work state (items + ledger + attachments)?
+21. **Q-team.** Team substrate tier (`team path`, team_writedown, project tier holder): part of sync, or deleted (lean)?
+22. **Q-team-remote.** Is team-remote placement (FireRemote, TeamRunStatus, `remote_wait`, cloud performer) kernel 9, or only "start a node for an item"?
+23. **Q-relay.** Must the remote channel's WebSocket relay become a gRPC bidi stream? It is byte forwarding, not an API call.
+24. **Q-oauth.** "All communication is gRPC" collides with OAuth: the browser authorize redirect, RFC 8414/PRM discovery, and a token endpoint that may belong to an external IdP. Is OAuth exempt?
+25. **Q-remotedef-keys.** The contract lists the remote schema as provider, drive, secrets, setup, network, lifecycle. Go also has `machine`, `identity`, `repo`, `trigger`, `environment`, `satelle_version`. Keep which?
+26. **Q-lease-state.** "Stateless CLI" against a local sqlite lease table and a row cache. Should seat allocation and item rows be pure folds of the ledger?
+27. **Q-provenance.** Should per-invocation config provenance (sessionconfig digests, `workflow_hash` on events) carry over into the generic ledger?
+28. **Q-embedded.** This repo's route names skills and seats that exist **only** in the embedded substrate. They must be copied into `.satelle/` when embedding goes, or dropped from the route:
+    - Skills: ready, satelle-step-summary, satelle-panel-all-accept, satelle-workflow-advisor, satelle-docs-only-check, satelle-substrate-only-check, satelle-epic-branch-check, satelle-epic-retrospective, satelle-estimate-actual-review, satelle-instruction-change-review, satelle-instruction-change-trigger, satelle-workflow-change-review, satelle-story-create-review, satelle-story-amend-review, satelle-story-plan-review, satelle-story-done-review, satelle-story-blocked-review, satelle-story-blocked-triage, satelle-story-cancel-review, satelle-task-validate-before-review, satelle-task-validate-after-review.
+    - Seat: `orchestrator`.
+    - Session principle: `satelle-agent-goals`.
+    - Phase B will copy what the rewritten config still references. Confirm whether that is wanted, or whether this repo's route should be simplified at the same time.
+29. **Q-skill-refs.** This repo's skills call commands being deleted, for example `story definition-edits` (satelle-definition-unchanged-check.md:42) and waivers (satelle-story-release-review.md). Phase B rewrites those skills onto `ledger list`; flag any skill you would rather keep frozen.
+
 ## Audit
+
+(Phase B.)
