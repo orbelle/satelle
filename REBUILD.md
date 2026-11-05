@@ -581,39 +581,223 @@ Every `/documents` route on the project, workspace and remote-node scopes is rem
 Each is a ruling the contract does not make. The inventory records a lean; Phase B does not decide it.
 
 1. **Q-tasks.** Do tasks and executions survive as work-item kinds? Kernel 1 names only stories; the remote contract says "a work item or task". Affects `task`/`execution` commands, workitem `Kind`, `triggers.go`, `RunCategory="chore"`, `TaskIDPrefix`, and remotenode taskrun. Lean: one item type with a free `kind`, no Go meaning.
+    **Ruled:** kept as item kinds; a task names an input selection and a run records the items it took; `satelle task run`; no triggers. (Operator rulings)
 2. **Q-transitions.** Kernel 2 says states and transitions are read from config. Today transitions are *derived* (topological sort of `requires`, plus synthesised park/cancel/recover edges in wfdot/route.go). Should the kernel schema author transitions explicitly (lean), or keep the derived route?
+    **Ruled:** explicit transitions in configuration. (Operator rulings)
 3. **Q-category.** Category → route lane selection (done.toml per-category tables, `ListFor`, `WildcardCategory`) is not in kernel 2. Drop it (one workflow per repo, or a workflow chosen by a configured tag), or keep a generic `applies_to`?
+    **Ruled:** configured selection rules on category or tags, first match else default. (Operator rulings)
 4. **Q-fields.** Kernel 1 lists id, title, body, AC, status, tags, parent/child. Keep `priority`, `category`, `archived`, `assignee`?
+    **Ruled:** keep category, kind, workflow; `assignee` carried, no behaviour; `priority` becomes a tag; `archived` goes. (Operator rulings)
 5. **Q-criteria.** Are per-criterion verdicts (verb/criteria.go, agentstep/criteria.go) part of "verdict = accept/reject plus notes"?
+    **Ruled:** no; accept/reject plus notes. (Operator rulings)
 6. **Q-executor.** `[executor]` (the in-loop session) and `[reviewer]` (default gate seat) are struct fields and built-in meanings in config, agentstep, wfdot and the hook. Lean: the agents catalog is a free map, and the in-loop/performing binding is named by the workflow.
+    **Ruled:** free agents map; the workflow names the binding. (Operator rulings)
 7. **Q-principles.** Do principles and `principles:session` injection (hook context, `sessionPrinciples`, constitution) survive? Not in kernel 1–11. Lean: they leave Go; a harness can inject a configured file list.
+    **Ruled:** principles leave Go; a configured file list the hook injects. (Operator rulings)
 8. **Q-summariser.** The step summariser and retrospective are hard-wired skills. Lean: they become ordinary performers or gates in this repo's config.
+    **Ruled:** ordinary performers or gates in this repo's config. (Operator rulings)
 9. **Q-multiseat.** Does the edit gate need multiple seats per session/worktree (cli `pickSessionSeatFor` etc., lease `SeatKey`/`TreeScoped`)?
+    **Ruled:** seats stay as session-at-location bindings, no concurrency cap. (Operator rulings)
 10. **Q-fence.** Is the foreign-tree fence (cli/containment.go) part of the kernel edit gate? Should a generic "locked paths while performing" rule replace the category-based substrate lock?
+    **Ruled:** fence stays; one generic `locked_paths` replaces the substrate lock. (Operator rulings)
 11. **Q-command-rule.** Should `[[gate.command_rule]]` survive as generic config, given that kernel 5 enforces through tool grants?
+    **Ruled:** command rules go. (Operator rulings)
 12. **Q-acp.** Grok's ACP mode cannot be held to a tool grant (agentcli/isolation.go:829). Drop ACP, or keep grok command mode only?
+    **Ruled:** grok ACP goes; grok in command mode; validate refuses a read-only seat on an adapter that cannot enforce grants. (Operator rulings)
 13. **Q-gate-async.** Do long gates need detached delivery (gatehandle, turnend/resume) at all? Lean: no, gates run synchronously.
+    **Ruled:** synchronous; a harness timeout becomes an open question. (Operator rulings)
 14. **Q-update.** Is `satelle update` (self-update, which also restarts satelled) kernel?
+    **Ruled:** stays, slimmed. (Operator rulings)
 15. **Q-serve.** `satelle serve` is a deprecated alias, but the `service install` unit falls back to it. Is it part of satelled's maintained entry points?
+    **Ruled:** the alias goes; the unit calls `satelled`. (Operator rulings)
 16. **Q-satelled-exec.** satelled execs `sync workstate rechain --conflicted` and `sync documents push --snapshot-only` (serve/children.go). Removing rechain (ledger rewrite) and documents changes that de-facto interface. Allowed, or keep stub verbs?
+    **Ruled:** satelled does not exec satelle verbs; the CLI pushes. (Operator rulings)
 17. **Q-satelled-docs.** Removing documents touches satelled's maintained interface: `GET /r/{slug}/doc/{kind}/{name}`, `/fragment/docs`, the Snapshot `docs` field and the `docs` SSE topic. The same `doc` kind also carries workflows, which the board needs. Partial cut (documents kind only), or re-source workflows?
+    **Ruled:** repo documents and their panels go; attached documents come from the ledger. (Operator rulings)
 18. **Q-satelled-ui.** The web UI renders epic waves/members (epicset), cost/band/driver rows (costview) and the message board. Are those panels part of the maintained interface? If not, the UI switches to `parent_id` children and drops cost and board.
+    **Ruled:** epic waves, cost and board panels go; story detail shows route, verdicts and attachments. (Operator rulings)
 19. **Q-board.** The contract names `api/board.proto` as satelled's API. It is in fact an unserved satelle-server message-board service with no caller. Confirm it is deleted.
+    **Ruled:** deleted. (Operator rulings)
 20. **Q-config-sync.** Is `.satelle` config sync (ConfigService + snapsync + subsync, `sync config push/deploy`, `sync pull`) part of kernel 8, or only work state (items + ledger + attachments)?
+    **Ruled:** config sync deleted; sync carries items, ledger and attachments. (Operator rulings)
 21. **Q-team.** Team substrate tier (`team path`, team_writedown, project tier holder): part of sync, or deleted (lean)?
+    **Ruled:** deleted. (Operator rulings)
 22. **Q-team-remote.** Is team-remote placement (FireRemote, TeamRunStatus, `remote_wait`, cloud performer) kernel 9, or only "start a node for an item"?
+    **Ruled:** fire for an item or task, node reports back, remote placement, and the cloud seat stay. (Operator rulings)
 23. **Q-relay.** Must the remote channel's WebSocket relay become a gRPC bidi stream? It is byte forwarding, not an API call.
+    **Ruled:** gRPC bidi stream. (Operator rulings)
 24. **Q-oauth.** "All communication is gRPC" collides with OAuth: the browser authorize redirect, RFC 8414/PRM discovery, and a token endpoint that may belong to an external IdP. Is OAuth exempt?
+    **Ruled:** OAuth browser, discovery and token endpoints are exempt. (Operator rulings)
 25. **Q-remotedef-keys.** The contract lists the remote schema as provider, drive, secrets, setup, network, lifecycle. Go also has `machine`, `identity`, `repo`, `trigger`, `environment`, `satelle_version`. Keep which?
+    **Ruled:** keep provider, machine, repo, drive, secrets, setup, network, lifecycle, satelle_version. (Operator rulings)
 26. **Q-lease-state.** "Stateless CLI" against a local sqlite lease table and a row cache. Should seat allocation and item rows be pure folds of the ledger?
+    **Ruled:** the ledger is the record; sqlite is a cache rebuilt from it. (Operator rulings)
 27. **Q-provenance.** Should per-invocation config provenance (sessionconfig digests, `workflow_hash` on events) carry over into the generic ledger?
+    **Ruled:** `workflow_hash` drops. (Operator rulings)
 28. **Q-embedded.** This repo's route names skills and seats that exist **only** in the embedded substrate. They must be copied into `.satelle/` when embedding goes, or dropped from the route:
+    **Ruled:** copy only what the route still uses; drop summary, estimate and epic-retrospective. (Operator rulings)
     - Skills: ready, satelle-step-summary, satelle-panel-all-accept, satelle-workflow-advisor, satelle-docs-only-check, satelle-substrate-only-check, satelle-epic-branch-check, satelle-epic-retrospective, satelle-estimate-actual-review, satelle-instruction-change-review, satelle-instruction-change-trigger, satelle-workflow-change-review, satelle-story-create-review, satelle-story-amend-review, satelle-story-plan-review, satelle-story-done-review, satelle-story-blocked-review, satelle-story-blocked-triage, satelle-story-cancel-review, satelle-task-validate-before-review, satelle-task-validate-after-review.
     - Seat: `orchestrator`.
     - Session principle: `satelle-agent-goals`.
     - Phase B will copy what the rewritten config still references. Confirm whether that is wanted, or whether this repo's route should be simplified at the same time.
 29. **Q-skill-refs.** This repo's skills call commands being deleted, for example `story definition-edits` (satelle-definition-unchanged-check.md:42) and waivers (satelle-story-release-review.md). Phase B rewrites those skills onto `ledger list`; flag any skill you would rather keep frozen.
+    **Ruled:** rewrite onto `ledger list`. (Operator rulings)
+
+## Operator rulings
+
+Ruled 2026-11-05. These answer the inventory's open questions. Where a ruling and
+the contract above disagree, the ruling wins.
+
+### Positioning
+
+- **satelle is local and solo-developer first.** Team behaviour is the commercial
+  upgrade and lives in satelle-server. satelle carries team fields through sync
+  but gives them no behaviour. Several developers may work on the same story at
+  once; satelle does not care.
+
+### Work items and workflows
+
+- **Q-tasks.** A task is a **repeating workflow that takes inputs**: a selection
+  of items (for example, every open story) over which it runs a structured
+  review or plan. A run of a task is an execution with its own route and
+  ledger. Tasks and executions stay as item kinds, with no kind-specific Go
+  beyond "a task names its input selection; a run records which items it took".
+  Merging and releasing completed work is a task, not a story step. **satelle
+  does not control when tasks run**: it runs one when asked (`satelle task run`);
+  repeating it is external (cron, a satelle-server remote, or a routine).
+  `tasktrigger` and `RunCategory="chore"`-style literals go.
+- **Q-category and epics.** A workflow is selected by **configured rules that
+  match an item's category or tags**: for example `category = "substrate"`,
+  `"bug"`, `"feature"`, or the tag `epic` / `epic:parent`. The rules, names and
+  their order live in configuration; Go only evaluates "first rule that matches,
+  else the default". `epicset`'s hard-coded `epic-parent`/`epic:` go.
+- **Containers (epics).** "A container may not close while its children are
+  open" is a **deterministic check gate in configuration** (a script that lists
+  the item's children through the CLI), not a Go step key. `waits_on_children`
+  and friends go.
+- **Q-transitions.** Transitions are written out explicitly in configuration.
+- **Q-fields.** Kept: id, title, body, acceptance criteria, status, tags,
+  parent, kind, category, workflow. `assignee` is carried through sync for
+  satelle-server and has no behaviour in satelle. `priority` becomes a tag.
+  `archived` goes.
+- **Q-criteria.** A verdict is accept/reject plus notes.
+
+### Gates: order, fail-fast, parallel, relevance (tokenomics)
+
+Gates are optimised for round trips and tokens. Generic configuration on a
+transition, no names in Go:
+
+- **Order and mode.** A transition's gates run in a configured order, either
+  sequentially with **fail-fast** (the first reject stops the round) or as a
+  **parallel** group; a transition may mix ordered groups.
+- **Relevance.** A gate runs only when something relevant to it changed: a
+  configured condition (changed paths matching globs, or a deterministic trigger
+  script) decides; an irrelevant gate is recorded as skipped on the ledger, never
+  silently.
+- **Carry.** On a re-presented transition, a gate that already accepted is not
+  re-run unless what it covers changed since its accept.
+- **Panels.** One skill judged by several bindings (for example, different
+  models) with a configured combine rule (all accept) stays, as a generic gate
+  option.
+- Record per gate run: tokens, duration, result, so the cost of a route is
+  visible (a ledger event, not a cost-band feature).
+
+### Engagement (seats and location)
+
+- **Q-multiseat / seats.** Seats stay, but **not as a concurrency limit**. That
+  limit was imposed for sequential development because the default route ran
+  from backlog to release with no separate merge-and-release step. No cap on how
+  many items a session engages or how many sessions work one item.
+- A seat binds **a session at a location** to an item in a performing state; the
+  edit gate reads it. **Location is part of the seat**: local worktree, a remote
+  node, or a cloud session (claude.ai/code). A workflow's binding may place a
+  step on a remote or cloud seat; its edits are judged by the same gates when
+  its work comes back. `lease` shrinks to this.
+
+### Agents and harnesses
+
+- **Q-executor.** The agents catalog is a free map; the workflow names which
+  binding performs or judges each step.
+- **Q-acp.** Claude, pi and grok are all supported, each through a thin adapter
+  chosen by the binding's `command`. **Grok ACP goes**; grok runs in command
+  mode. Any adapter that cannot enforce a binding's tool grants may not back a
+  reviewer: `validate` refuses a read-only seat on it.
+- **Reviewer read-only is enforced, not attested.** `isolateReviewer` refuses;
+  `isolation="operator-attested"` goes. Performer limits ("do not change the
+  item's status") are enforced by grants, not prompt text. This lands first in
+  Phase B.
+- **Q-principles, Q-summariser.** Principles leave Go (a configured list of
+  files the hook injects). The summariser and retrospective become ordinary
+  performers or gates in this repo's config.
+
+### Documents and the ledger
+
+- **Repo documents go** (`.satelle/documents`, its index and sync).
+- **Documents in the ledger are very important.** A story's attached documents
+  (plan, evidence, output, summaries) are recorded on the ledger, synced to
+  satelle.dev over gRPC (`AttachmentService`), and shown in satelled. Treat them
+  as kernel, with tests.
+- **The ledger is the history of record; sqlite is a cache** rebuilt from it.
+  "Stateless" means no process in the binary, not no storage (Q-lease-state).
+- **Q-provenance.** `workflow_hash` drops from events.
+
+### Sync and satelle.dev
+
+- **Q-config-sync.** Delete config sync. `.satelle/` is in git; sync carries
+  work state only: items, ledger, attachments.
+- satelle logs in to satelle.dev to enable the remote ledger; login stays.
+- **Q-team, Q-board.** Team substrate tier and the board client are deleted.
+- **Q-oauth.** OAuth's browser authorize, discovery and token endpoints are
+  exempt from the gRPC rule. Everything else to satelle-server is gRPC.
+- **Q-relay.** The remote channel relay becomes a gRPC bidi stream.
+
+### satelled
+
+- satelled stays in this repo, local first. Its **routes, ingest endpoints and
+  CLI entry points are maintained**; its **pages align to the kernel**: the
+  story list and actions pages are good and stay; the story detail page is
+  improved (route, verdicts, attached documents from the ledger); panels for
+  removed features (epic waves, cost, board, repo documents) go (Q-satelled-ui,
+  Q-satelled-docs).
+- **Real-time, filterable view of every story** is the point: satelled keeps its
+  own sqlite index fed by CLI push. It is **decoupled from the CLI**: it does
+  not exec `satelle` verbs back (Q-satelled-exec); the CLI pushes what it needs.
+- **Windows is a secondary priority** (the operator cannot test it). In this
+  rebuild only: keep Linux-only calls in small platform files, and cross-compile
+  for windows/amd64 at each milestone (`GOOS=windows go build ./...`). No Windows
+  service work.
+- **Q-serve.** The `satelle serve` alias goes; the unit calls `satelled`.
+
+### Remotes
+
+- **Q-team-remote.** Kept: fire a remote for an item or a task, the node runs and
+  reports back, and "this binding runs on a remote" as a placement. **The cloud
+  seat (a claude.ai/code session performing a step) stays** as a location type
+  behind the same placement seam, with its branch collected back and judged by
+  the local gates; drop only its process literals (`satelle-cloud-performer`
+  skill name in Go, nonce trailer conventions not read by the kernel).
+- **Q-remotedef-keys.** Keep provider, machine, repo, drive, secrets, setup,
+  network, lifecycle, satelle_version. Drop identity and trigger unless a kept
+  feature reads them.
+- Build the **docker-local** provider as the reference; move `SpriteHold` and the
+  pi symlink into the sprite adapter.
+
+### Other
+
+- **Q-gate-async.** Gates run synchronously. If a long gate hits a harness
+  timeout, record it as an open question rather than rebuilding gatehandle.
+- **Q-update.** `satelle update` stays, slimmed.
+- **Q-command-rule, Q-fence.** Command rules go (grants). The foreign-tree fence
+  stays; one generic `locked_paths` setting replaces the category substrate
+  lock.
+- **Q-embedded, Q-skill-refs.** Copy into `.satelle/` only the skills and seats
+  this repo's route still uses; drop the summary, estimate and epic-retrospective
+  ones. Rewrite skills that call deleted commands onto `ledger list`.
 
 ## Audit
 
 (Phase B.)
+
+## Progress
+
+(Phase B, started 2026-11-05.)
