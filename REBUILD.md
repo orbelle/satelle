@@ -17,11 +17,11 @@ workflow has?** If yes, it is process and does not belong in the binary.
 
 The kernel below is why satelle exists, and it worked. Complexity killed it.
 
-| | v0.0.122 (2026-07-05) | now (v0.0.896) |
-|---|---|---|
-| internal packages | 19 | 76 |
-| Go, non-test | ~18k lines | ~180k lines |
-| Go tests | ~20k lines | ~279k lines |
+| | v0.0.122 (2026-07-05) | now (v0.0.896) | after the rebuild |
+|---|---|---|---|
+| internal packages | 19 | 76 | 30 |
+| Go, non-test | ~18k lines | ~180k lines | ~30k lines (~25k hand-written; 5.4k is generated protobuf) |
+| Go tests | ~20k lines | ~279k lines | ~14k lines (unit and the `tests/` integration suite) |
 
 Growth has been about 1.4k lines a day with no plateau. v0.0.122's package set
 (`agentcli agentstep app arbor buildinfo cli config docindex help hosted ledger
@@ -699,6 +699,34 @@ Each is a ruling the contract does not make. The inventory records a lean; Phase
 29. **Q-skill-refs.** This repo's skills call commands being deleted, for example `story definition-edits` (satelle-definition-unchanged-check.md:42) and waivers (satelle-story-release-review.md). Phase B rewrites those skills onto `ledger list`; flag any skill you would rather keep frozen.
     **Ruled:** rewrite onto `ledger list`. (Operator rulings)
 
+### Phase B open questions
+
+These came up in Phase B and are not decided here.
+
+30. **Q-grok-tools.** The grok adapter's write/shell tool names (`write_file`,
+    `run_terminal_cmd`) are guesses. Reviewers on grok use only the read tools
+    (`read_file`, `grep`, `list_dir`), which are confirmed from the old preset.
+    Confirm the write/shell names against grok before a grok performer is
+    configured.
+31. **Q-fly-rule.** Command rules are gone (ruling Q-command-rule). This repo's
+    "Fly.io is operator-only" rules have no equivalent for the interactive
+    session, because grants bind only dispatched agents. Is a binding
+    `deny = ["Bash(fly:*)"]` enough, or should `locked_paths` gain a command
+    form?
+32. **Q-cloud-launch.** The cloud seat has no launcher. satelle records a
+    `cloud:` seat and `story collect` brings the branch back for the local
+    gates, but starting the claude.ai/code session is done by hand. Should
+    satelle launch it, and through what?
+33. **Q-node-docker-e2e.** The docker-local test starts a container and walks a
+    story inside it. A full `node join` against a server from inside a
+    container was not exercised, because the fake server listens on host
+    loopback. Should that run against a server reachable from the container?
+34. **Q-identity.** satelled's top bar shows no email, because the CLI pushes an
+    empty identity unless logged in. Push the `whoami` identity when logged in?
+35. **Q-gate-timeout.** Gates run synchronously (ruling Q-gate-async). No
+    harness timeout was observed in this sandbox. Measure long gates
+    (build/test checks) under real claude/pi/grok hooks before closing this.
+
 ## Operator rulings
 
 Ruled 2026-11-05. These answer the inventory's open questions. Where a ruling and
@@ -866,7 +894,15 @@ names checked: 77
 no Go string literal names this repo's workflow
 ```
 
-It is re-run at B4.
+B4 result (2026-11-05, final, after satelled and the integration suite):
+
+```
+$ scripts/audit-literals.sh
+names checked: 77
+no Go string literal names this repo's workflow
+```
+
+CI runs the audit (`.github/workflows/test.yml`).
 
 ## Progress
 
@@ -984,19 +1020,43 @@ when it can.
     CLI is present but there is no daemon. A fake-docker argv test always runs.
   - Non-test Go, excluding generated code, is 24k lines.
 
+- **B4 (satelled, tests, audit), commits b7ecea7..3ccab8c.**
+  - satelled runs on the kernel and never execs the CLI. Its routes and ingest
+    endpoints still answer, and an old snapshot is still accepted.
+  - `internal/uipush` pushes every ledger write, including a sync pull and a
+    refused transition, as a change plus a merge snapshot, falling back to a
+    full snapshot. It pushes only to this home's satelled.
+  - The story detail page shows the fields, the route drawn from the pushed
+    workflow (current state, park and terminal marked, next transitions),
+    every verdict grouped by presentation (result, binding, tokens, duration,
+    notes) and the attached documents (markdown rendered).
+  - The epic waves, cost, board and repo documents panels are gone.
+  - The integration suite under `tests/` drives the real binaries:
+    - init → backlog → done;
+    - a user workflow with a fake claude covering every gate option, park and
+      resume;
+    - validate refusals, the reviewer≠performer rule, the edit gate,
+      attachments and task runs;
+    - sync between two homes through the fake server;
+    - satelled pages;
+    - docker-local, which is skipped here because the sandbox has no docker
+      daemon.
+  - `satelle update` (slimmed) and `satelle settings` are back.
+  - CI runs build, vet, the windows cross-build, tests, the audit and gofmt.
+  - All gates pass at the final commit.
+
 ### Deviations to repair
 
-- `satelle update` was deleted in B1, but ruling Q-update keeps it slimmed. It is
-  rebuilt in B4 (a minimal GitHub-release self-update).
-- `story route` and `story diff` were deleted with their files; they return on
-  the B2 kernel (the route from the ledger, the diff through the git adapter).
+- `satelle update` was deleted in B1 against ruling Q-update; it was rebuilt
+  slimmed in B4. `story route` and `story diff` were deleted in B1 and returned
+  in B2. Both are repaired.
 
 ### Next
 
-- **B4.** satelled pages on the kernel (the story detail page shows route,
-  verdicts and attachments). The CLI pushes snapshots from the new cache.
-  Restore `settings` and a slimmed `update`. Rewrite the integration suite
-  (`tests/` holds only `tests/llm`). Re-run the audit.
+Phase B is complete. What is left is for the operator: the open questions under
+"Phase B open questions", resetting the in-flight and backlog stories to the
+start (the stores are archived, not migrated), and merging this branch together
+with satelle-server's rebuild.
 
 ### Kernel design (B2) — choices where the contract was silent
 
