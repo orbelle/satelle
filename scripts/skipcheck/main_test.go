@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
 const pkg = "example.com/m/p"
@@ -305,15 +307,6 @@ func TestScratchProbe(t *testing.T) {
 	}
 }
 
-// gitIn runs git in dir for a -tree fixture.
-func gitIn(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	ident := []string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}
-	if out, err := exec.Command("git", append(append([]string{"-C", dir}, ident...), args...)...).CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
 // treeRepo is a git repo with one committed file, for the -tree guard.
 func treeRepo(t *testing.T) string {
 	t.Helper()
@@ -321,12 +314,12 @@ func treeRepo(t *testing.T) string {
 		t.Skip("git not on PATH")
 	}
 	dir := t.TempDir()
-	gitIn(t, dir, "init", "-q")
+	gittest.Git(t, dir, "init", "-q")
 	if err := os.WriteFile(filepath.Join(dir, "kept.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, dir, "add", "kept.go")
-	gitIn(t, dir, "commit", "-q", "-m", "add")
+	gittest.Git(t, dir, "add", "kept.go")
+	gittest.Git(t, dir, "commit", "-q", "-m", "add")
 	return dir
 }
 

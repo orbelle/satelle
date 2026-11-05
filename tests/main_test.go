@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -79,11 +80,12 @@ func newSandbox(t *testing.T) *sandbox {
 		"XDG_DATA_HOME":           filepath.Join(home, "xdg", "data"),
 		"XDG_STATE_HOME":          filepath.Join(home, "xdg", "state"),
 		"SATELLE_SERVER_ENDPOINT": "none",
-		"GIT_AUTHOR_NAME":         "t", "GIT_AUTHOR_EMAIL": "t@t",
-		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
-		"GIT_CONFIG_NOSYSTEM": "1",
-		"USER":                "tester",
+		"USER":                    "tester",
 	}}
+	for _, kv := range gittest.Env() {
+		k, v, _ := strings.Cut(kv, "=")
+		s.env[k] = v
+	}
 	s.git("init", "-q")
 	s.git("commit", "-q", "--allow-empty", "-m", "init")
 	return s

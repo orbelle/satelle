@@ -3,13 +3,12 @@ package remotenode
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/remotedef"
-	"github.com/bobmcallan/satelle/internal/remotenode/gittest"
 )
 
 // testDefName is the name a test's definition goes by in a refusal.
@@ -44,9 +43,8 @@ func TestFetchReposOverHTTPSIsReadOnly(t *testing.T) {
 
 	// A push refuses, and the served repository is untouched.
 	gittest.Git(t, clone, "commit", "-q", "--allow-empty", "-m", "local change")
-	cmd := exec.Command("git", "push", "origin", "HEAD:refs/heads/pushed")
-	cmd.Dir = clone
-	cmd.Env = append(os.Environ(), g.Env...)
+	cmd := gittest.Command(t, clone, "push", "origin", "HEAD:refs/heads/pushed")
+	cmd.Env = append(cmd.Env, g.Env...)
 	out, perr := cmd.CombinedOutput()
 	if perr == nil {
 		t.Fatalf("a push from the node's clone must fail:\n%s", out)
@@ -149,9 +147,8 @@ func TestFetchedCloneRefusesALaterFetch(t *testing.T) {
 		t.Fatalf("FetchRepos: %v", err)
 	}
 	clone := filepath.Join(dir, "tool")
-	cmd := exec.Command("git", "fetch", "origin", "v1")
-	cmd.Dir = clone
-	cmd.Env = append(os.Environ(), g.Env...)
+	cmd := gittest.Command(t, clone, "fetch", "origin", "v1")
+	cmd.Env = append(cmd.Env, g.Env...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("a later fetch from the node's clone must fail:\n%s", out)

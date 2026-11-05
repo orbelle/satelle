@@ -2,10 +2,10 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
@@ -54,36 +54,25 @@ func TestRemoteNeedsABinding(t *testing.T) {
 	}
 }
 
-func gitIn(t *testing.T, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // story collect records a branch read-only: its commit and merge base land on
 // the ledger and the repository is unchanged.
 func TestStoryCollectRecordsTheBranch(t *testing.T) {
 	newMachine(t)
 	id := createID(t, "story", "create", "--title", "cloud work")
-	gitIn(t, "checkout", "-q", "-b", "cloud/x")
+	gittest.Git(t, "", "checkout", "-q", "-b", "cloud/x")
 	if err := os.WriteFile("work.txt", []byte("w\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, "add", "work.txt")
-	gitIn(t, "commit", "-q", "-m", "work")
-	tip := gitIn(t, "rev-parse", "HEAD")
-	gitIn(t, "checkout", "-q", "-")
-	before := gitIn(t, "for-each-ref")
+	gittest.Git(t, "", "add", "work.txt")
+	gittest.Git(t, "", "commit", "-q", "-m", "work")
+	tip := gittest.Git(t, "", "rev-parse", "HEAD")
+	gittest.Git(t, "", "checkout", "-q", "-")
+	before := gittest.Git(t, "", "for-each-ref")
 	out := must(t, "story", "collect", id, "--branch", "cloud/x")
 	if !strings.Contains(out, "collected cloud/x at "+tip[:12]) {
 		t.Fatalf("collect = %q", out)
 	}
-	if gitIn(t, "for-each-ref") != before {
+	if gittest.Git(t, "", "for-each-ref") != before {
 		t.Fatal("collect changed the refs")
 	}
 	if out := must(t, "ledger", "list", id); !strings.Contains(out, kernel.KindBranchCollected) {

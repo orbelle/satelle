@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
 // Stable substrings the gate prints for remote-baseline refusals (sty_da6c3874).
@@ -28,17 +30,6 @@ func requireGitAndGo(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH")
 	}
-}
-
-func gitInDir(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s (in %s): %v\n%s", strings.Join(args, " "), dir, err, out)
-	}
-	return strings.TrimSpace(string(out))
 }
 
 func gateIn(t *testing.T, dir string, env []string, args ...string) (exit int, out string) {
@@ -80,12 +71,12 @@ func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 	}
 
 	bare = filepath.Join(t.TempDir(), "origin.git")
-	if out, err := exec.Command("git", "init", "--bare", "-b", "main", bare).CombinedOutput(); err != nil {
+	if out, err := gittest.Command(t, "", "init", "--bare", "-b", "main", bare).CombinedOutput(); err != nil {
 		// Older git without init -b: init then point HEAD at main.
-		if out2, err2 := exec.Command("git", "init", "--bare", bare).CombinedOutput(); err2 != nil {
+		if out2, err2 := gittest.Command(t, "", "init", "--bare", bare).CombinedOutput(); err2 != nil {
 			t.Fatalf("git init --bare: %v\n%s\n(fallback after -b failed: %v\n%s)", err2, out2, err, out)
 		}
-		gitInDir(t, bare, "symbolic-ref", "HEAD", "refs/heads/main")
+		gittest.Git(t, bare, "symbolic-ref", "HEAD", "refs/heads/main")
 	}
 
 	seed := filepath.Join(t.TempDir(), "seed")
@@ -103,43 +94,43 @@ func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 		t.Fatal(err)
 	}
 
-	gitInDir(t, seed, "-c", "user.name=test", "-c", "user.email=test@example.com", "init", "-b", "main")
-	gitInDir(t, seed, "-c", "user.name=test", "-c", "user.email=test@example.com", "add", ".")
-	gitInDir(t, seed, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "seed")
-	gitInDir(t, seed, "tag", "serve-v0.0.1")
-	gitInDir(t, seed, "remote", "add", "origin", bare)
-	gitInDir(t, seed, "push", "-u", "origin", "main")
-	gitInDir(t, seed, "push", "origin", "serve-v0.0.1")
+	gittest.Git(t, seed, "init", "-b", "main")
+	gittest.Git(t, seed, "add", ".")
+	gittest.Git(t, seed, "commit", "-m", "seed")
+	gittest.Git(t, seed, "tag", "serve-v0.0.1")
+	gittest.Git(t, seed, "remote", "add", "origin", bare)
+	gittest.Git(t, seed, "push", "-u", "origin", "main")
+	gittest.Git(t, seed, "push", "origin", "serve-v0.0.1")
 
 	if stale {
 		// Push a newer serve tag from a throwaway clone; seed (and the fixture
 		// cloned from it) keep only serve-v0.0.1 locally.
 		advParent := t.TempDir()
 		adv := filepath.Join(advParent, "adv")
-		gitInDir(t, advParent, "clone", bare, adv)
-		gitInDir(t, adv, "checkout", "main")
+		gittest.Git(t, advParent, "clone", bare, adv)
+		gittest.Git(t, adv, "checkout", "main")
 		writeFile(t, filepath.Join(adv, "cmd", "satelled", "extra.go"), "package main\n\nvar _ = 1\n")
 		writeFile(t, filepath.Join(adv, ".version"), "satelled.version: 0.0.2\n")
-		gitInDir(t, adv, "-c", "user.name=test", "-c", "user.email=test@example.com", "add", ".")
-		gitInDir(t, adv, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "advance")
-		gitInDir(t, adv, "tag", "serve-v0.0.2")
-		gitInDir(t, adv, "push", "origin", "main")
-		gitInDir(t, adv, "push", "origin", "serve-v0.0.2")
+		gittest.Git(t, adv, "add", ".")
+		gittest.Git(t, adv, "commit", "-m", "advance")
+		gittest.Git(t, adv, "tag", "serve-v0.0.2")
+		gittest.Git(t, adv, "push", "origin", "main")
+		gittest.Git(t, adv, "push", "origin", "serve-v0.0.2")
 	}
 
 	// Clone the seed worktree so local tags stay at serve-v0.0.1 even when the
 	// bare remote has advanced (a direct clone of bare would fetch the new tag).
 	fixParent := t.TempDir()
 	repo = filepath.Join(fixParent, "fixture")
-	gitInDir(t, fixParent, "clone", seed, repo)
-	gitInDir(t, repo, "remote", "set-url", "origin", bare)
+	gittest.Git(t, fixParent, "clone", seed, repo)
+	gittest.Git(t, repo, "remote", "set-url", "origin", bare)
 
 	if stale {
-		remoteTags := gitInDir(t, repo, "ls-remote", "--tags", "--refs", "origin", "serve-v*")
+		remoteTags := gittest.Git(t, repo, "ls-remote", "--tags", "--refs", "origin", "serve-v*")
 		if !strings.Contains(remoteTags, "serve-v0.0.2") {
 			t.Fatalf("expected remote to have serve-v0.0.2, got:\n%s", remoteTags)
 		}
-		localTags := gitInDir(t, repo, "tag", "-l", "serve-v*")
+		localTags := gittest.Git(t, repo, "tag", "-l", "serve-v*")
 		if strings.Contains(localTags, "serve-v0.0.2") {
 			t.Fatalf("fixture local tags unexpectedly include serve-v0.0.2:\n%s", localTags)
 		}
@@ -167,8 +158,8 @@ func TestServeGateRefusesStaleBaseline(t *testing.T) {
 func TestServeGateNormalVerdictAfterFetch(t *testing.T) {
 	repo, _ := buildServeGateFixture(t, true)
 
-	gitInDir(t, repo, "fetch", "--tags", "origin")
-	gitInDir(t, repo, "reset", "--hard", "origin/main")
+	gittest.Git(t, repo, "fetch", "--tags", "origin")
+	gittest.Git(t, repo, "reset", "--hard", "origin/main")
 
 	code, out := gateIn(t, repo, nil)
 	if code != 0 {
@@ -184,12 +175,12 @@ func TestServeGateNormalVerdictAfterFetch(t *testing.T) {
 
 func TestServeGateBumpDemandedWhenTagsAgree(t *testing.T) {
 	repo, _ := buildServeGateFixture(t, true)
-	gitInDir(t, repo, "fetch", "--tags", "origin")
-	gitInDir(t, repo, "reset", "--hard", "origin/main")
+	gittest.Git(t, repo, "fetch", "--tags", "origin")
+	gittest.Git(t, repo, "reset", "--hard", "origin/main")
 
 	writeFile(t, filepath.Join(repo, "cmd", "satelled", "bump_probe.go"), "package main\n\nvar probe = 1\n")
-	gitInDir(t, repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "add", "cmd/satelled/bump_probe.go")
-	gitInDir(t, repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "probe without bump")
+	gittest.Git(t, repo, "add", "cmd/satelled/bump_probe.go")
+	gittest.Git(t, repo, "commit", "-m", "probe without bump")
 
 	code, out := gateIn(t, repo, nil)
 	if code == 0 {

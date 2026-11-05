@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
 // The serve-version gate (scripts/check-serve-version.sh) demands a
@@ -141,14 +143,10 @@ func TestServeGateWatchesInternalServe(t *testing.T) {
 	}
 }
 
-// gitTestIdent is the identity and signing override every commit these tests
-// make carries, so they need no configured git user.
-var gitTestIdent = []string{"-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}
-
 // commitAll commits every change in dir under the test identity.
 func commitAll(t *testing.T, dir, msg string) {
 	t.Helper()
-	gitInDir(t, dir, append(append([]string{}, gitTestIdent...), "commit", "-a", "-m", msg)...)
+	gittest.Git(t, dir, "commit", "-a", "-m", msg)
 }
 
 // overlayGateScript writes root's working-tree gate script into dir and commits
@@ -166,7 +164,7 @@ func overlayGateScript(t *testing.T, root, dir string) {
 	if err := os.Chmod(dst, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if gitInDir(t, dir, "status", "--porcelain") != "" {
+	if gittest.Git(t, dir, "status", "--porcelain") != "" {
 		commitAll(t, dir, "overlay the gate script")
 	}
 }
@@ -181,9 +179,9 @@ func privateClone(t *testing.T, src string) string {
 	t.Helper()
 	parent := t.TempDir()
 	clone := filepath.Join(parent, "clone")
-	gitInDir(t, parent, "clone", "--quiet", "--no-local", src, clone)
+	gittest.Git(t, parent, "clone", "--quiet", "--no-local", src, clone)
 	overlayGateScript(t, src, clone)
-	gitInDir(t, clone, "tag", "serve-v999999.0.0")
+	gittest.Git(t, clone, "tag", "serve-v999999.0.0")
 	return clone
 }
 
@@ -201,7 +199,7 @@ func probeServeGate(t *testing.T, src string, srcEnv []string) int {
 	// test would report a hole that is not there — or worse, miss one that is.
 	// That is not hypothetical: it is how this test first failed CI, on a default
 	// shallow, tagless checkout. Refuse to conclude anything instead.
-	if gitInDir(t, src, "tag", "-l", "serve-v*") == "" {
+	if gittest.Git(t, src, "tag", "-l", "serve-v*") == "" {
 		t.Skip("no serve-v* tag in this clone — the gate has no baseline, so planting a file proves nothing")
 	}
 	// sty_da6c3874: a stale or unverifiable remote baseline fails the gate before
@@ -279,12 +277,12 @@ func TestServeGateProbeRunsWhenServeBumped(t *testing.T) {
 	root := repoRoot(t)
 	parent := t.TempDir()
 	src := filepath.Join(parent, "src")
-	gitInDir(t, parent, "clone", "--quiet", "--no-local", root, src)
+	gittest.Git(t, parent, "clone", "--quiet", "--no-local", root, src)
 	overlayGateScript(t, root, src)
-	for _, tag := range strings.Fields(gitInDir(t, src, "tag", "-l", "serve-v*")) {
-		gitInDir(t, src, "tag", "-d", tag)
+	for _, tag := range strings.Fields(gittest.Git(t, src, "tag", "-l", "serve-v*")) {
+		gittest.Git(t, src, "tag", "-d", tag)
 	}
-	gitInDir(t, src, "tag", "serve-v0.0.1")
+	gittest.Git(t, src, "tag", "serve-v0.0.1")
 
 	versionPath := filepath.Join(src, ".version")
 	body, err := os.ReadFile(versionPath)

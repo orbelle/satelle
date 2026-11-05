@@ -5,13 +5,13 @@ package kernel
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -210,43 +210,33 @@ func TestPerformPlacedInTheCloud(t *testing.T) {
 	}
 }
 
-func git(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=a@b", "-c", "user.name=a", "-c", "commit.gpgsign=false"}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v: %s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // A cloud step's branch is collected read-only: its commit and merge base are
 // recorded, the work tree and refs are untouched, and the gates judge the
 // branch's diff.
 func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	dir := t.TempDir()
-	git(t, dir, "init", "-q", "-b", "main")
+	gittest.Git(t, dir, "init", "-q", "-b", "main")
 	write(t, filepath.Join(dir, "README"), "r\n")
-	git(t, dir, "add", "-A")
-	git(t, dir, "commit", "-q", "-m", "init")
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-q", "-m", "init")
 	k, d := lineKernel(t, "cloud", dir)
 	if _, ok := k.Git.(gitfacts.Repo); !ok {
 		t.Fatalf("git = %T", k.Git)
 	}
-	git(t, dir, "add", "-A")
-	git(t, dir, "commit", "-q", "-m", "config")
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-q", "-m", "config")
 	it := newItem(t, k)
 	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	base := git(t, dir, "rev-parse", "HEAD")
-	git(t, dir, "checkout", "-q", "-b", "cloud/work")
+	base := gittest.Git(t, dir, "rev-parse", "HEAD")
+	gittest.Git(t, dir, "checkout", "-q", "-b", "cloud/work")
 	write(t, filepath.Join(dir, "x.go"), "package x\n")
-	git(t, dir, "add", "x.go")
-	git(t, dir, "commit", "-q", "-m", "work")
-	tip := git(t, dir, "rev-parse", "HEAD")
-	git(t, dir, "checkout", "-q", "main")
-	refsBefore := git(t, dir, "for-each-ref")
+	gittest.Git(t, dir, "add", "x.go")
+	gittest.Git(t, dir, "commit", "-q", "-m", "work")
+	tip := gittest.Git(t, dir, "rev-parse", "HEAD")
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	refsBefore := gittest.Git(t, dir, "for-each-ref")
 
 	c, err := k.Collect(it.ID, "cloud/work", "ada")
 	if err != nil {
@@ -255,7 +245,7 @@ func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	if c.Commit != tip || c.Base != base || c.Branch != "cloud/work" {
 		t.Fatalf("collected = %+v, want commit %s base %s", c, tip, base)
 	}
-	if git(t, dir, "for-each-ref") != refsBefore || git(t, dir, "rev-parse", "HEAD") != base {
+	if gittest.Git(t, dir, "for-each-ref") != refsBefore || gittest.Git(t, dir, "rev-parse", "HEAD") != base {
 		t.Fatal("collect changed the repository")
 	}
 	if _, err := k.Collect(it.ID, "no-such-branch", "ada"); err == nil {

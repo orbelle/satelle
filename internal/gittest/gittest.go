@@ -1,7 +1,10 @@
-// Package gittest is test support: a local smart-HTTP git server over TLS —
-// git's own http-backend behind net/http/cgi — serving bare repositories, so
-// a test can fetch over https with no network beyond loopback. It is not used by
-// anything but tests.
+// Package gittest is the test suite's one git helper. Every test that runs git
+// does so through Git or Command, and every package whose code under test runs
+// git calls Main from its TestMain, so git never reads the developer's own
+// global or system configuration (an ignore file excluding .satelle/, a
+// signing key, an identity). It also serves a local smart-HTTP git server over
+// TLS — git's own http-backend behind net/http/cgi — so a test can fetch over
+// https with no network beyond loopback. It is not used by anything but tests.
 package gittest
 
 import (
@@ -32,12 +35,52 @@ type Server struct {
 	root, base string // the served project root and the server's URL
 }
 
-// Git runs git in dir with a fixed identity and returns its trimmed output.
+// Env is the one list of variables that isolate a test's git from the host:
+// no system or global configuration, core.excludesFile pinned to the null
+// device (git otherwise falls back to $XDG_CONFIG_HOME/git/ignore even with no
+// global config), and a fixed identity, since a nulled global config has none.
+// GIT_CONFIG_GLOBAL needs git 2.32 and GIT_CONFIG_COUNT 2.31; older git ignores
+// both, which is no worse than not isolating.
+func Env() []string {
+	return []string{
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.excludesFile",
+		"GIT_CONFIG_VALUE_0=" + os.DevNull,
+		"GIT_AUTHOR_NAME=t",
+		"GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL=t@t",
+	}
+}
+
+// Command is an isolated git command in dir ("" is the current directory),
+// for a caller that must inspect a failure or add variables.
+func Command(t testing.TB, dir string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), Env()...)
+	return cmd
+}
+
+// Main isolates every git the test binary starts, including git run by the
+// code under test, then runs the tests: func TestMain(m *testing.M) {
+// os.Exit(gittest.Main(m)) }.
+func Main(m *testing.M) int {
+	for _, kv := range Env() {
+		k, v, _ := strings.Cut(kv, "=")
+		os.Setenv(k, v)
+	}
+	return m.Run()
+}
+
+// Git runs an isolated git in dir and returns its trimmed output, failing the
+// test on error.
 func Git(t testing.TB, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false"}, args...)...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	out, err := Command(t, dir, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
@@ -73,7 +116,7 @@ func New(t testing.TB) *Server {
 
 	srv := httptest.NewTLSServer(&cgi.Handler{
 		Path: backend, Root: "/git",
-		Env:        []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_HTTP_MAX_REQUEST_BUFFER=100M"},
+		Env:        append([]string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_HTTP_MAX_REQUEST_BUFFER=100M"}, Env()...),
 		InheritEnv: []string{"PATH", "HOME"},
 	})
 	t.Cleanup(srv.Close)
@@ -82,7 +125,7 @@ func New(t testing.TB) *Server {
 	write(t, s.CAFile, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})))
 	s.root, s.base = root, srv.URL
 	s.URL = srv.URL + "/git/tool.git"
-	s.Env = []string{"GIT_SSL_CAINFO=" + s.CAFile, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
+	s.Env = append(Env(), "GIT_SSL_CAINFO="+s.CAFile)
 	return s
 }
 

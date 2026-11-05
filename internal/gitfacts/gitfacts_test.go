@@ -6,27 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-func run(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
-	}
-}
+	"github.com/bobmcallan/satelle/internal/gittest"
+)
 
 func TestFacts(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
 	dir := t.TempDir()
-	run(t, dir, "init", "-q")
+	gittest.Git(t, dir, "init", "-q")
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1\n"), 0o644)
-	run(t, dir, "add", ".")
-	run(t, dir, "commit", "-qm", "one")
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "one")
 	r := Repo{Dir: dir}
 	head, err := r.Head()
 	if err != nil || len(head) != 40 {

@@ -2,20 +2,12 @@ package hook
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-func git(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
+	"github.com/bobmcallan/satelle/internal/gittest"
+)
 
 // newRepo is a git repo with one commit.
 func newRepo(t *testing.T) string {
@@ -24,8 +16,8 @@ func newRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	git(t, dir, "init", "-q")
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
+	gittest.Git(t, dir, "init", "-q")
+	gittest.Git(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
 	return dir
 }
 
@@ -33,7 +25,7 @@ func TestEditGateTable(t *testing.T) {
 	root := newRepo(t)
 	foreign := newRepo(t)
 	linked := filepath.Join(t.TempDir(), "wt")
-	git(t, root, "worktree", "add", "-q", linked)
+	gittest.Git(t, root, "worktree", "add", "-q", linked)
 	linked, _ = filepath.EvalSymlinks(linked)
 	plain, _ := filepath.EvalSymlinks(t.TempDir()) // in no working tree
 	temp, _ := filepath.EvalSymlinks(t.TempDir())  // the configured temp root
