@@ -90,6 +90,11 @@ carry = true
 [gates.integration-check]
 skill = "satelle-integration-check"
 
+# Done includes pushed (operator, 2026-11-06): the session pushes the branch
+# before presenting done; this verifies HEAD is on origin.
+[gates.pushed]
+skill = "satelle-pushed-check"
+
 [gates.outcome-review]
 skill = "satelle-outcome-review"
 agent = "reviewer-alt"
@@ -138,7 +143,7 @@ groups = [
 from = ["assessment"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["integration-check"] },
+  { mode = "sequential", gates = ["integration-check", "pushed"] },
 ]
 
 # Rework: back to coding from any judging state, and back to planning.
