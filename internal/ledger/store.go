@@ -115,9 +115,11 @@ func (s *Store) AppendRaw(e Event) error {
 	})
 }
 
-// Import merges a chain from elsewhere: events already present (same hash at
-// the same position) are skipped, the rest are appended with AppendRaw. A chain
-// that diverges from the local one is refused.
+// Import merges chains from elsewhere (a pull): events already present (same
+// hash at the same position) are skipped, the rest are appended with
+// AppendRaw, which checks each hash and that it links to the local tail. A
+// chain that diverges from the local one is refused before anything of that
+// item is written past the point of divergence.
 func (s *Store) Import(events []Event) (added int, err error) {
 	have := map[string][]Event{}
 	seen := map[string]int{}
@@ -176,6 +178,15 @@ func (s *Store) withLock(fn func() error) error {
 	}
 	defer unlockFile(f)
 	return fn()
+}
+
+// Head returns the hash of the last event on item's chain, "" when it has
+// none.
+func (s *Store) Head(item string) (string, error) {
+	if !ValidItem(item) {
+		return "", fmt.Errorf("ledger: invalid item id %q", item)
+	}
+	return s.tailHash(item)
 }
 
 // tailHash returns the hash of the last event on item's chain, "" when empty.

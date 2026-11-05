@@ -1,0 +1,114 @@
+// Generic item ledger (rebuild of satelle.chain.v1). satelle-server owns the
+// storage; satelle owns the format. The server checks only the envelope: the
+// event belongs to the item, its prev_hash is the item's current head, and its
+// hash is the canonical hash defined below. It never interprets kind or payload.
+//
+// Canonical hash (Go reference: satelle internal/ledger Canonical and HashOf).
+// hash = lower-case hex sha256 over the canonical bytes of the event without
+// its hash. The canonical bytes are one JSON object with exactly the keys
+//   "actor", "at", "id", "item", "kind", "payload", "prev"
+// in that (sorted) order, no insignificant whitespace and no trailing newline:
+//   - "id", "item" (= item_id), "kind", "actor" are JSON strings;
+//   - "at" is the time in UTC formatted as Go's RFC3339Nano
+//     ("2006-01-02T15:04:05.999999999Z07:00"): trailing zeros of the fraction
+//     are dropped and a whole second has no fraction, e.g.
+//     "2026-11-05T09:23:00Z", "2026-11-05T09:23:00.5Z";
+//   - "payload" is the payload JSON value itself (not a string), re-encoded
+//     with object keys sorted at every depth, numbers kept as written, and no
+//     insignificant whitespace. An EMPTY payload (zero bytes or only
+//     whitespace) hashes as JSON null: "payload":null;
+//   - "prev" is prev_hash, "" for an item's first event.
+// Strings are encoded as Go's encoding/json does with HTML escaping off: '"'
+// and '\' are escaped, \n \r \t \b \f use short escapes, other control
+// characters and U+2028/U+2029 use \u00XX / \u2028 / \u2029, and everything else
+// (including '<', '>', '&' and non-ASCII) is written as raw UTF-8.
+// Example: {"actor":"ada","at":"2026-11-05T09:23:00Z","id":"e1","item":"sto_1a2b3c4d","kind":"item.created","payload":{"a":1,"b":[true,null]},"prev":""}
+syntax = "proto3";
+
+package satelle.chain.v2;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/bobmcallan/satelle/internal/wire/chainpb;chainpb";
+
+service Chain {
+  // Append stores events when prev_hash is the item's head ("" for a new item).
+  // A stale head stores nothing and returns FAILED_PRECONDITION with a StaleHead
+  // detail. A retry of an applied Append is stale too; its missing events then
+  // carry the retried ids.
+  rpc Append(AppendRequest) returns (AppendResponse);
+  // Read returns an item's events in chain order, all or those after after_hash.
+  rpc Read(ReadRequest) returns (ReadResponse);
+  // Heads lists every item's head hash in the project, paged, so a client can
+  // find items it has not seen (pull) without reading every chain.
+  rpc Heads(HeadsRequest) returns (HeadsResponse);
+  // Subscribe streams every event appended in the project after the call
+  // starts; resume maps an item id to the hash the client last saw.
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+}
+
+message Event {
+  string id = 1;
+  string item_id = 2;
+  string kind = 3;
+  string actor = 4;
+  google.protobuf.Timestamp at = 5;
+  bytes payload = 6; // a JSON value; empty means none (hashes as null)
+  string prev_hash = 7;
+  string hash = 8;
+  int64 seq = 9;     // set by the server, from 1
+}
+
+message AppendRequest {
+  string project = 1;
+  string item_id = 2;
+  string prev_hash = 3;
+  repeated Event events = 4;
+}
+
+message AppendResponse {
+  string head_hash = 1;
+  repeated Event appended = 2;
+}
+
+message StaleHead {
+  string head_hash = 1;
+  repeated Event missing = 2; // bounded; read the rest with Read
+  int64 missing_count = 3;
+}
+
+message ReadRequest {
+  string project = 1;
+  string item_id = 2;
+  string after_hash = 3;
+}
+
+message ReadResponse {
+  repeated Event events = 1;
+}
+
+message HeadsRequest {
+  string project = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ItemHead {
+  string item_id = 1;
+  string head_hash = 2;
+  int64 seq = 3;
+}
+
+message HeadsResponse {
+  repeated ItemHead heads = 1;
+  string next_page_token = 2;
+}
+
+message SubscribeRequest {
+  string project = 1;
+  map<string, string> resume = 2;
+}
+
+message SubscribeResponse {
+  Event event = 1;
+}

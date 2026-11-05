@@ -1,0 +1,280 @@
+// satelle.v1: every call satelle (CLI, satelled, remote node) makes to
+// satelle-server, except OAuth's browser authorize, discovery and token
+// endpoints (operator ruling Q-oauth). Authentication is gRPC metadata:
+// "authorization: Bearer <access token>" for a user or session token, or
+// "authorization: Bearer <node token>" for a remote node. Errors use gRPC status
+// codes: UNAUTHENTICATED (log in again), PERMISSION_DENIED, NOT_FOUND,
+// FAILED_PRECONDITION (with a google.rpc.ErrorInfo reason where named below).
+syntax = "proto3";
+
+package satelle.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/bobmcallan/satelle/internal/wire/satellepb;satellepb";
+
+// ---- account, projects, workspaces, locations (was /api/v1/me, /projects,
+// /workspaces, /locations) ----
+
+service AccountService {
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  string role = 4;
+}
+
+service ProjectService {
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc GetProject(GetProjectRequest) returns (Project);
+  rpc CreateProject(CreateProjectRequest) returns (Project);
+}
+
+message Project {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string role = 4;
+  string team_id = 5; // carried; no behaviour in satelle
+}
+
+message ListProjectsRequest {}
+message ListProjectsResponse { repeated Project projects = 1; }
+message GetProjectRequest { string project = 1; } // id or slug
+message CreateProjectRequest {
+  string slug = 1;
+  string name = 2;
+  string workspace_id = 3;
+}
+
+service WorkspaceService {
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+}
+
+message Workspace {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+}
+message ListWorkspacesRequest {}
+message ListWorkspacesResponse { repeated Workspace workspaces = 1; }
+
+service LocationService {
+  // RegisterLocation records a machine/worktree location for the caller and
+  // returns the principal id session tokens are minted for.
+  rpc RegisterLocation(RegisterLocationRequest) returns (RegisterLocationResponse);
+}
+message RegisterLocationRequest {
+  string location = 1;
+  string hostname = 2;
+}
+message RegisterLocationResponse { string user_id = 1; }
+
+// ---- items index (was satelle.sync.v1.Sync/Apply; Snapshot and Refresh are
+// removed: pull reads Chain.Heads and Chain.Read; the token refresh is the
+// OAuth token endpoint) ----
+
+service ItemService {
+  // PutItems upserts folded item summaries so the server can list and filter
+  // without folding chains. The chain stays the record.
+  rpc PutItems(PutItemsRequest) returns (PutItemsResponse);
+}
+
+message Item {
+  string id = 1;
+  string kind = 2;
+  string title = 3;
+  string status = 4;
+  string workflow = 5;
+  string parent = 6;
+  string category = 7;
+  repeated string tags = 8;
+  string assignee = 9; // carried for satelle-server; no behaviour in satelle
+  string head_hash = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  bytes record = 12; // the full folded item as JSON
+}
+message PutItemsRequest {
+  string project = 1;
+  repeated Item items = 2;
+}
+message PutItemsResponse { int32 stored = 1; }
+
+// ---- attachments (replaces every /documents route; story attachments are
+// recorded on the ledger as attachment.added {name, sha256, size, media_type}
+// and their bytes travel here) ----
+
+service AttachmentService {
+  // PutAttachment stores a body under (project, item_id, name). Idempotent on
+  // sha256: the same body twice is one write.
+  rpc PutAttachment(PutAttachmentRequest) returns (PutAttachmentResponse);
+  rpc GetAttachment(GetAttachmentRequest) returns (Attachment);
+  // ListAttachmentChanges pages attachments stored after since_token.
+  rpc ListAttachmentChanges(ListAttachmentChangesRequest) returns (ListAttachmentChangesResponse);
+}
+
+message Attachment {
+  string project = 1;
+  string item_id = 2;
+  string name = 3;
+  string sha256 = 4;
+  int64 size = 5;
+  string media_type = 6;
+  bytes body = 7; // empty in listings
+  google.protobuf.Timestamp stored_at = 8;
+}
+message PutAttachmentRequest { Attachment attachment = 1; }
+message PutAttachmentResponse {
+  bool created = 1;
+  string sha256 = 2;
+}
+message GetAttachmentRequest {
+  string project = 1;
+  string item_id = 2;
+  string name = 3;
+  string sha256 = 4; // optional: a specific version
+}
+message ListAttachmentChangesRequest {
+  string project = 1;
+  string since_token = 2;
+  int32 page_size = 3;
+}
+message ListAttachmentChangesResponse {
+  repeated Attachment attachments = 1;
+  string next_token = 2;
+}
+
+// ---- remotes (was /api/v1/remotes/...) ----
+
+service RemoteService {
+  // FireRemote starts (or queues) a run of a remote for an item or a task.
+  rpc FireRemote(FireRemoteRequest) returns (FireRemoteResponse);
+  // GetItemRun reports the standing of the latest run of a remote for an item.
+  rpc GetItemRun(GetItemRunRequest) returns (ItemRun);
+  // StartNode starts a node that performs one binding for one item (placement
+  // "remote:<id>"); the local side opens the relay to it.
+  rpc StartNode(StartNodeRequest) returns (StartNodeResponse);
+}
+
+message FireRemoteRequest {
+  string remote_id = 1;
+  string project = 2;
+  string item_id = 3;
+}
+message FireRemoteResponse {
+  string run_id = 1;
+  bool pending = 2; // queued behind another run
+  int32 position = 3;
+  string outcome = 4;
+  string detail = 5;
+}
+message GetItemRunRequest {
+  string remote_id = 1;
+  string item_id = 2;
+}
+message ItemRun {
+  string state = 1; // queued | running | concluded | stopped
+  string node_id = 2;
+  string verdict = 3; // accept | reject, when concluded
+  string notes = 4;
+  string reason = 5;
+}
+message StartNodeRequest {
+  string remote_id = 1;
+  string project = 2;
+  string item_id = 3;
+  string binding = 4;
+}
+message StartNodeResponse { string node_id = 1; }
+
+// ---- the node contract (was /api/v1/remote-nodes/{n}/...); a node
+// authenticates with its node token ----
+
+service NodeService {
+  rpc GetNode(GetNodeRequest) returns (Node);
+  rpc GetDefinition(GetDefinitionRequest) returns (Definition);
+  rpc ReadSecret(ReadSecretRequest) returns (Secret);
+  rpc GetRun(GetRunRequest) returns (RunDescriptor);
+  rpc PublishChannelKey(PublishChannelKeyRequest) returns (PublishChannelKeyResponse);
+  // ReportStatus is the heartbeat; state "concluded" with a verdict concludes.
+  rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
+  rpc EndNode(EndNodeRequest) returns (EndNodeResponse);
+}
+
+message GetNodeRequest { string node_id = 1; }
+message Node {
+  string node_id = 1;
+  bytes channel_public_key = 2; // X25519, empty until published
+  string state = 3;
+}
+message GetDefinitionRequest {
+  string node_id = 1;
+  string if_none_match = 2; // a digest the node already holds
+}
+message Definition {
+  string digest = 1;  // sha256 of the bundle
+  string version = 2;
+  bool not_modified = 3;
+  bytes bundle = 4;   // the remote definition bundle (remote.toml and files)
+}
+message ReadSecretRequest {
+  string node_id = 1;
+  string key = 2;
+}
+message Secret {
+  string value = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  string refusal = 3;        // a code, set instead of value when the server refuses
+  string refusal_reason = 4; // the server's reason for the refusal
+}
+message GetRunRequest { string node_id = 1; }
+message RunDescriptor {
+  string mode = 1; // "item" | "task" | "performer"
+  string project = 2;
+  string item_id = 3;
+  string binding = 4;
+  string trigger = 5;        // the declared trigger that woke the node, if any
+  string trigger_source = 6; // how it was woken: mcp | api | status | schedule
+}
+message PublishChannelKeyRequest {
+  string node_id = 1;
+  bytes public_key = 2;
+}
+message PublishChannelKeyResponse {}
+message ReportStatusRequest {
+  string node_id = 1;
+  string state = 2;     // running | concluded | stopped
+  string item_id = 3;
+  string progress = 4;  // free text: the node's last setup/progress line
+  string verdict = 5;   // accept | reject, with state concluded
+  string notes = 6;
+  string setup_log = 7; // bounded tail of setup output
+  string step = 8;      // what the node is doing: working | waiting
+  string run_state = 9; // the item run's state: queued | running | concluded
+}
+message ReportStatusResponse {
+  bool stop = 1;                // the server asks the node to stop
+  int32 lost_after_seconds = 2; // how long the node may go unheard
+}
+message EndNodeRequest { string node_id = 1; }
+message EndNodeResponse {}
+
+// ---- relay (was a WebSocket {relay_url}/{session}?role=local|remote) ----
+
+service RelayService {
+  // Connect joins one side of a sealed performer channel. The first frame names
+  // the session and role; after it, frames carry opaque sealed bytes the server
+  // forwards to the other side unchanged and in order.
+  rpc Connect(stream RelayFrame) returns (stream RelayFrame);
+}
+
+message RelayFrame {
+  string session = 1; // first frame only
+  string role = 2;    // first frame only: local | remote
+  bytes data = 3;
+}
