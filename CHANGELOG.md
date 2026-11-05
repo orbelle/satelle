@@ -1,3 +1,7 @@
+## 0.0.0-trial
+
+- Trial release for sty_f74ff616 (closed unmerged).
+
 ## [0.0.891] - 2026-11-05
 
 ### Fixed
