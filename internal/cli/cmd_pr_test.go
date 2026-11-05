@@ -435,3 +435,90 @@ func TestPRApproveTwoPRsForOneStoryRejectsNamingBoth(t *testing.T) {
 		t.Errorf("reviews dispatched = %d, forge posts = %d; want none", *calls, n.gh.Posts())
 	}
 }
+
+// addRelease serves a batch release on the node's fake: story sty_rel's PR #11
+// on epic/sty_rel, approved on its head, merged into release/0.2.0 with a
+// version bump, as PR #20 whose body lists the story and its PR.
+func (n *prNode) addRelease(releaseHead string) (head string) {
+	sha := func(s string) string { return s + strings.Repeat("0", 40-len(s)) }
+	n.gh.AddCommit(prRepo, sha("b0"), nil, "README.md")
+	n.gh.AddCommit(prRepo, sha("a1"), []string{sha("b0")}, "x/a.go")
+	n.gh.AddCommit(prRepo, sha("m1"), []string{sha("b0"), sha("a1")}, "x/a.go")
+	n.gh.AddCommit(prRepo, sha("v1"), []string{sha("m1")}, ".version", "CHANGELOG.md")
+	n.gh.AddPR(devtest.PR{Repo: prRepo, Number: 11, HeadRef: forge.EpicHead("sty_rel"), HeadSHA: sha("a1"), BaseSHA: sha("b0")})
+	n.gh.SeedStatus(prRepo, sha("a1"), "satelle/pr-approval", forge.StatusSuccess)
+	n.gh.AddPR(devtest.PR{Repo: prRepo, Number: 20, HeadRef: releaseHead, HeadSHA: sha("v1"), BaseSHA: sha("b0"),
+		Body: "Release 0.2.0\n\nStories: sty_rel\n- https://github.com/" + prRepo + "/pull/11\n"})
+	return sha("v1")
+}
+
+// AC1, AC6: `pr approve --release` approves a release PR mechanically, with no
+// cold review, and records the outcome, the PR ref, the judged head and the
+// story ids on --execution's run-output doc; a PR on a non-release head is
+// refused naming the head, and that reject is recorded too.
+func TestPRApproveReleaseRecordsTheOutcomeOnTheExecution(t *testing.T) {
+	n := newPRNode(t, "sty_rel", true)
+	head := n.addRelease("release/0.2.0")
+	calls := stubReview(t, forge.Verdict{Accept: true}, nil)
+
+	out, err := runRoot(t, "pr", "approve", "--release", prRepo+"#20", "--execution", n.exe)
+	if err != nil {
+		t.Fatalf("pr approve --release: %v\n%s", err, out)
+	}
+	if *calls != 0 {
+		t.Errorf("cold reviews dispatched = %d, want none", *calls)
+	}
+	if st := n.gh.Statuses(); len(st) != 1 || st[0].SHA != head || st[0].Context != "satelle/pr-approval" || st[0].State != forge.StatusSuccess {
+		t.Errorf("statuses = %+v, want one satelle/pr-approval success on %s", st, head)
+	}
+	doc := n.runOutput(t)
+	for _, want := range []string{"outcome: accept", "PR: " + prRepo + "#20 at " + head, "Stories: sty_rel"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("run-output doc lacks %q:\n%s", want, doc)
+		}
+	}
+	if !strings.Contains(out, `"outcome": "accept"`) || !strings.Contains(out, head) {
+		t.Errorf("output = %s, want accept on %s", out, head)
+	}
+
+	n = newPRNode(t, "sty_rel", true)
+	n.addRelease("feat/not-a-release")
+	if out, err := runRoot(t, "pr", "approve", "--release", "20", "--repo", prRepo, "--execution", n.exe); err != nil {
+		t.Fatalf("pr approve --release 20: %v\n%s", err, out)
+	}
+	doc = n.runOutput(t)
+	for _, want := range []string{"outcome: reject", "head feat/not-a-release", "not a release PR", "PR: " + prRepo + "#20"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("run-output doc lacks %q:\n%s", want, doc)
+		}
+	}
+	if n.gh.Posts() != 0 {
+		t.Errorf("posts on a non-release PR = %d, want none", n.gh.Posts())
+	}
+}
+
+// --story and --release name different approvals: both, or neither, is refused,
+// and a --release ref on another repo than --repo is refused.
+func TestPRApproveReleaseFlagRefusals(t *testing.T) {
+	n := newPRNode(t, "sty_rel", true)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"both", []string{"--story", "sty_rel", "--release", "20"}, "none of the others can be"},
+		{"neither", nil, "at least one of the flags"},
+		{"other repo", []string{"--release", "acme/x#20", "--repo", prRepo}, "is on acme/x, but --repo is " + prRepo},
+		{"not a number", []string{"--release", "latest", "--repo", prRepo}, "is not <owner/name>#<number> or <number>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runRoot(t, append([]string{"pr", "approve", "--execution", n.exe}, tc.args...)...)
+			if err == nil || !strings.Contains(err.Error()+out, tc.want) {
+				t.Errorf("pr approve %v = %v\n%s; want an error naming %q", tc.args, err, out, tc.want)
+			}
+		})
+	}
+	if n.gh.Posts() != 0 {
+		t.Errorf("posts = %d, want none", n.gh.Posts())
+	}
+}

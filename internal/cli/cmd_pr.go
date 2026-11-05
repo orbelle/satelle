@@ -2,7 +2,8 @@
 // (internal/forge). `pr body` renders the story's criteria block for the PR body,
 // the one way a story's criteria reach a remote node that holds no story; `pr
 // view` and `pr diff` are what the cold reviewer reads with; `pr approve` is the
-// action of the embedded task tsk_pr-approve.
+// action of the embedded task tsk_pr-approve, and with --release the mechanical
+// approval of a batch release PR.
 package cli
 
 import (
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -135,29 +137,38 @@ reviewer judges, read through the configured forge with the run's token.`,
 		},
 	}
 
-	var approveStory, execution, binding string
+	var approveStory, release, execution, binding string
 	approve := &cobra.Command{
 		Use:   "approve",
-		Short: "Cold-review a story's PR and, on accept, approve its exact head",
-		Long: `Find the one open PR whose head is epic/<story> or feat/<story> ([forge]
-pr_heads), check its body carries the story's criteria block and that the repo's
-constitution (principle repo-constitution) is installed, have the
-satelle-pr-review skill judge it cold from pointers alone, and only on accept
-post an APPROVE review on the exact head it judged plus a commit status
-([forge.github] status_context). When the forge refuses the PR author's own
-approving review, the status is posted with a COMMENT review instead. A head
-that moved since the review is not approved. The outcome and findings are
-recorded on --execution's run-output doc.`,
+		Short: "Cold-review a story's PR (or check a release PR) and, on accept, approve its exact head",
+		Long: `--story: find the story's open PR (head per [forge] pr_heads), check its
+body carries the criteria block and the repo constitution is installed, and have
+satelle-pr-review judge it cold.
+
+--release <owner/name>#<n> (or <n> with --repo): approve a batch release PR
+mechanically, with no review. Its head needs a [forge] release_heads prefix and
+its body a "Stories: <id> …" line then each story PR's URL. Each story PR must
+carry the status on its own head, an ancestor of the release head; beyond them
+only [forge] release_files may change.
+
+On accept: an APPROVE (a COMMENT on the author's own PR) and a [forge.github]
+status_context status on the exact head judged; a moved head is refused. The
+outcome is recorded on --execution.`,
 		Args:        cobra.NoArgs,
 		Annotations: needsStore(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if release != "" {
+				return runPRReleaseApprove(cmd, repo, release, execution)
+			}
 			return runPRApprove(cmd, repo, approveStory, execution, binding)
 		},
 	}
 	approve.Flags().StringVar(&approveStory, "story", "", "the story whose PR (head epic/<story> or feat/<story>, per [forge] pr_heads) is approved")
+	approve.Flags().StringVar(&release, "release", "", "the batch release PR, <owner/name>#<n> or <n> with --repo, approved mechanically")
 	approve.Flags().StringVar(&execution, "execution", "", "the execution the outcome and findings are recorded on")
 	approve.Flags().StringVar(&binding, "binding", "reviewer", "the agents.toml binding the cold review runs under")
-	_ = approve.MarkFlagRequired("story")
+	approve.MarkFlagsMutuallyExclusive("story", "release")
+	approve.MarkFlagsOneRequired("story", "release")
 	_ = approve.MarkFlagRequired("execution")
 
 	pr.AddCommand(body, view, diff, approve)
@@ -188,24 +199,87 @@ func runPRApprove(cmd *cobra.Command, repoFlag, story, execution, binding string
 			return coldReview(ctx, cmd, binding, req)
 		},
 	}
-	switch f, ferr := target.open(process.Forge.ResolvedProvider()); {
-	case ferr == nil:
-		a.Forge = f
-	case errors.Is(ferr, forge.ErrNoProvider):
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: pr approve: %v\n", ferr) // no forge: posts nothing
-	default:
-		a.OpenErr = ferr
-	}
+	a.Forge, a.OpenErr = openApprovalForge(cmd, target, process.Forge.ResolvedProvider())
 	res, err := forge.RunApproval(cmd.Context(), a, execution)
 	if err != nil {
 		return err
 	}
+	printApproval(cmd, res)
+	return nil
+}
+
+// runPRReleaseApprove is `pr approve --release`: the mechanical approval of the
+// batch release PR ref names (forge.ReleaseApproval), recorded and printed as a
+// story approval is.
+func runPRReleaseApprove(cmd *cobra.Command, repoFlag, ref, execution string) error {
+	process, _, _, _, err := config.LoadInvokingProcess()
+	if err != nil {
+		return err
+	}
+	repo, n, err := releaseRef(ref, repoFlag)
+	if err != nil {
+		return err
+	}
+	target, err := resolvePRTarget(repo)
+	if err != nil {
+		return err
+	}
+	a := forge.ReleaseApproval{
+		Repo: target.repo, Number: n,
+		ReleaseHeads: process.Forge.ResolvedReleaseHeads(), PRHeads: process.Forge.ResolvedPRHeads(),
+		ReleaseFiles: process.Forge.ResolvedReleaseFiles(), StatusContext: process.Forge.ResolvedStatusContext(),
+	}
+	a.Forge, a.OpenErr = openApprovalForge(cmd, target, process.Forge.ResolvedProvider())
+	res, err := forge.RunApproval(cmd.Context(), a, execution)
+	if err != nil {
+		return err
+	}
+	printApproval(cmd, res)
+	return nil
+}
+
+// releaseRef is the release PR --release names: <owner/name>#<n>, which must
+// agree with --repo when both are given, or a bare <n> on --repo (or the node
+// definition's single [[repo]]).
+func releaseRef(ref, repoFlag string) (repo string, n int, err error) {
+	repoFlag = strings.TrimSpace(repoFlag)
+	if strings.Contains(ref, "#") {
+		if repo, n, err = forge.SplitRef(ref); err != nil {
+			return "", 0, err
+		}
+		if repoFlag != "" && repoFlag != repo {
+			return "", 0, fmt.Errorf("pr approve: --release %s is on %s, but --repo is %s", ref, repo, repoFlag)
+		}
+		return repo, n, nil
+	}
+	if n, err = strconv.Atoi(strings.TrimSpace(ref)); err != nil || n <= 0 {
+		return "", 0, fmt.Errorf("pr approve: --release %q is not <owner/name>#<number> or <number>", ref)
+	}
+	return repoFlag, n, nil
+}
+
+// openApprovalForge opens the provider for an approval: no provider is a nil
+// forge with a warning (the approval's no-op), and a provider that cannot be
+// opened is the error the approval rejects with.
+func openApprovalForge(cmd *cobra.Command, target prTarget, provider string) (forge.Forge, error) {
+	f, err := target.open(provider)
+	switch {
+	case errors.Is(err, forge.ErrNoProvider):
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: pr approve: %v\n", err) // no forge: posts nothing
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return f, nil
+}
+
+// printApproval prints an approval's result as JSON.
+func printApproval(cmd *cobra.Command, res forge.Result) {
 	out, _ := json.MarshalIndent(map[string]any{
 		"outcome": res.Outcome, "findings": res.Findings, "pr": prRefOrEmpty(res.PR),
 		"head": res.PR.HeadSHA, "criteria": res.CriteriaHash, "review_id": res.Review.ID, "review_author": res.Review.Author,
 	}, "", "  ")
 	fmt.Fprintln(cmd.OutOrStdout(), string(out))
-	return nil
 }
 
 func prRefOrEmpty(p forge.PR) string {

@@ -1,3 +1,16 @@
+## [0.0.892] - 2026-11-05
+
+### Added
+- `satelle pr approve --release <owner/name>#<n>` (or `--release <n>` with `--repo`) approves a batch release PR mechanically, with no cold review. It refuses a head that matches no `[forge] release_heads` prefix (default `release/`). It reads the body's `Stories: <id> <id> …` line and the story PR URLs after it, and refuses, naming each story, when a story has no listed PR on one of its `[forge] pr_heads` branches or that PR's head lacks `satelle/pr-approval` success. It refuses when a story head is not an ancestor of the release head, and when the release head changes any path beyond the story heads, their merge commits and `[forge] release_files` (default `.version`, `CHANGELOG.md`, `internal/verb/embedded/CHANGELOG.md`), naming the path. On success it posts the approval and the status on the exact head it judged, refuses if the head moved, and records the outcome on `--execution`. (sty_f74ff616)
+
+### Changed
+- A GitHub commit-status description is cut to GitHub's 140-character limit, since a release approval names every story id. (sty_f74ff616)
+
+## [serve-v0.0.295] - 2026-11-05
+
+### Changed
+- satelled picks up the new `[forge] release_heads` and `[forge] release_files` keys in the shared forge config; it serves nothing new. (sty_f74ff616)
+
 ## [0.0.891] - 2026-11-05
 
 ### Fixed

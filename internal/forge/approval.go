@@ -64,6 +64,8 @@ type Result struct {
 	PR       PR
 	// CriteriaHash is the hash of the criteria the review was judged against.
 	CriteriaHash string
+	// Stories are the story ids a release PR's body lists.
+	Stories []string
 	// Review is the approving review, on accept; on a self-authored PR, the
 	// COMMENT review that stands in for it.
 	Review Review
@@ -80,17 +82,25 @@ func (r Result) Record() string {
 	if r.CriteriaHash != "" {
 		fmt.Fprintf(&b, "Criteria: %s\n", r.CriteriaHash)
 	}
+	if len(r.Stories) > 0 {
+		fmt.Fprintf(&b, "Stories: %s\n", strings.Join(r.Stories, " "))
+	}
 	if r.Review.ID != 0 {
 		fmt.Fprintf(&b, "Review: %d by %s on %s\n", r.Review.ID, r.Review.Author, r.Review.CommitID)
 	}
 	return strings.TrimSpace(b.String())
 }
 
+// runner is an approval RunApproval runs: an Approval or a ReleaseApproval.
+type runner interface {
+	run(ctx context.Context) Result
+}
+
 // RunApproval runs a and records its outcome and findings on execution execID's
 // run-output doc (the record a task run's outcome is read from). An empty execID
 // records nothing. The error is a record that could not be written; every other
 // failure is the result's reject.
-func RunApproval(ctx context.Context, a Approval, execID string) (Result, error) {
+func RunApproval(ctx context.Context, a runner, execID string) (Result, error) {
 	res := a.run(ctx)
 	if execID == "" {
 		return res, nil
@@ -105,20 +115,32 @@ func RunApproval(ctx context.Context, a Approval, execID string) (Result, error)
 	return res, nil
 }
 
-func (a Approval) run(ctx context.Context) Result {
-	reject := func(res Result, why string) Result {
-		res.Outcome, res.Findings = verb.OutcomeReject, why
-		return res
+// reject is res rejected for why.
+func reject(res Result, why string) Result {
+	res.Outcome, res.Findings = verb.OutcomeReject, why
+	return res
+}
+
+// unopened is how an approval ends before it reads the forge: a reject when
+// the provider could not be opened, a no-op with a warning when none is
+// configured. stop is false when the forge is there to read.
+func unopened(f Forge, openErr error, warn io.Writer) (res Result, stop bool) {
+	if openErr != nil {
+		return reject(Result{}, fmt.Sprintf("the forge could not be opened: %v", openErr)), true
 	}
-	if a.OpenErr != nil {
-		return reject(Result{}, fmt.Sprintf("the forge could not be opened: %v", a.OpenErr))
-	}
-	if a.Forge == nil {
+	if f == nil {
 		why := "no forge provider is configured: the PR was not read and nothing was posted"
-		if a.Warn != nil {
-			fmt.Fprintf(a.Warn, "warning: %s\n", why)
+		if warn != nil {
+			fmt.Fprintf(warn, "warning: %s\n", why)
 		}
-		return Result{Outcome: verb.OutcomeNoOp, Findings: why}
+		return Result{Outcome: verb.OutcomeNoOp, Findings: why}, true
+	}
+	return Result{}, false
+}
+
+func (a Approval) run(ctx context.Context) Result {
+	if res, stop := unopened(a.Forge, a.OpenErr, a.Warn); stop {
+		return res
 	}
 	pr, why := a.storyPR(ctx)
 	if why != "" {
@@ -144,7 +166,16 @@ func (a Approval) run(ctx context.Context) Result {
 	}
 	body := approvalBody(a.StoryID, crit.Hash)
 	status := Status{Context: a.StatusContext, State: StatusSuccess, Description: "approved: " + a.StoryID + " meets its acceptance criteria"}
-	rv, err := a.Forge.Approve(ctx, a.Repo, pr.Number, pr.HeadSHA, body)
+	return post(ctx, a.Forge, a.Repo, res, body, status, v.Findings)
+}
+
+// post approves res.PR on repo with body on the exact head it was judged at,
+// then posts status there, and accepts with findings. A head that moved since is
+// a reject; when the forge refuses the PR author's own approving review, the
+// status is posted with a COMMENT review instead.
+func post(ctx context.Context, f Forge, repo string, res Result, body string, status Status, findings string) Result {
+	pr := res.PR
+	rv, err := f.Approve(ctx, repo, pr.Number, pr.HeadSHA, body)
 	var moved *HeadMovedError
 	switch {
 	case errors.As(err, &moved):
@@ -152,24 +183,24 @@ func (a Approval) run(ctx context.Context) Result {
 	case errors.Is(err, ErrSelfApproval):
 		// The status is the approval of record; it goes first so a failed comment
 		// still leaves it on the judged head.
-		if err := a.Forge.SetStatus(ctx, a.Repo, pr.HeadSHA, status); err != nil {
-			return reject(res, fmt.Sprintf("the forge refused the author's own approving review, and the %s status could not be posted: %v", a.StatusContext, err))
+		if err := f.SetStatus(ctx, repo, pr.HeadSHA, status); err != nil {
+			return reject(res, fmt.Sprintf("the forge refused the author's own approving review, and the %s status could not be posted: %v", status.Context, err))
 		}
-		note := fmt.Sprintf(" GitHub refuses an approving review from the PR's author, so this is recorded as a comment and the %s status.", a.StatusContext)
-		rv, err = a.Forge.Comment(ctx, a.Repo, pr.Number, pr.HeadSHA, body+note)
+		note := fmt.Sprintf(" GitHub refuses an approving review from the PR's author, so this is recorded as a comment and the %s status.", status.Context)
+		rv, err = f.Comment(ctx, repo, pr.Number, pr.HeadSHA, body+note)
 		if err != nil {
-			return reject(res, fmt.Sprintf("the %s status was posted on the author's own PR, but the comment review could not be: %v", a.StatusContext, err))
+			return reject(res, fmt.Sprintf("the %s status was posted on the author's own PR, but the comment review could not be: %v", status.Context, err))
 		}
 		res.Review = rv
-		return accepted(res, v.Findings, "self-authored PR: approved by commit status and a COMMENT review; the forge refused the author's own APPROVE")
+		return accepted(res, findings, "self-authored PR: approved by commit status and a COMMENT review; the forge refused the author's own APPROVE")
 	case err != nil:
 		return reject(res, fmt.Sprintf("the approval could not be posted: %v", err))
 	}
 	res.Review = rv
-	if err := a.Forge.SetStatus(ctx, a.Repo, pr.HeadSHA, status); err != nil {
-		return reject(res, fmt.Sprintf("approved as review %d, but the %s status could not be posted: %v", rv.ID, a.StatusContext, err))
+	if err := f.SetStatus(ctx, repo, pr.HeadSHA, status); err != nil {
+		return reject(res, fmt.Sprintf("approved as review %d, but the %s status could not be posted: %v", rv.ID, status.Context, err))
 	}
-	return accepted(res, v.Findings, "")
+	return accepted(res, findings, "")
 }
 
 // accepted is res accepted with the reviewer's findings, then note.

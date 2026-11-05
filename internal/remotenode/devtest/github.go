@@ -13,7 +13,8 @@ import (
 
 // GitHub is a stand-in for the part of the GitHub API a github-app installation
 // token is judged by, and the pull requests, reviews and commit statuses a PR
-// approval reads and posts, for tests. GET /repos/{owner}/{name} answers 200 for
+// approval reads and posts, with the commits, comparisons and combined statuses a
+// release approval reads, for tests. GET /repos/{owner}/{name} answers 200 for
 // a token whose repo set holds owner/name, 404 for one that does not (GitHub
 // hides a repo the token cannot read), and 401 for a token it never minted or has
 // revoked; every /repos/{owner}/{name}/… route is fenced the same way. DELETE
@@ -37,7 +38,24 @@ type GitHub struct {
 	prs      map[string]*PR // "owner/name#n" → PR
 	reviews  []PostedReview
 	statuses []PostedStatus
+	commits  map[string]*commit // "owner/name@sha" → commit
+	seq      int
+	seeded   []PostedStatus
 }
+
+// commit is a commit the fake serves.
+type commit struct {
+	sha     string
+	parents []string
+	files   []string
+	seq     int
+}
+
+// The caps GitHub lists a commit's or a comparison's commits and files under.
+const (
+	filesCap   = 300
+	commitsCap = 250
+)
 
 // PR is a pull request the fake serves.
 type PR struct {
@@ -46,6 +64,8 @@ type PR struct {
 	State   string // "open" when empty
 	HeadRef string
 	HeadSHA string
+	// BaseSHA is the tip of the branch the PR merges into.
+	BaseSHA string
 	Body    string
 	Diff    string
 	// Author is the login that opened the PR; an APPROVE posted while it is
@@ -76,7 +96,7 @@ type PostedStatus struct {
 // NewGitHub starts the fake for the life of t.
 func NewGitHub(t testing.TB) *GitHub {
 	t.Helper()
-	g := &GitHub{tokens: map[string]map[string]bool{}, revoked: map[string]bool{}, prs: map[string]*PR{}, ReviewerLogin: "satelle-reviewer[bot]"}
+	g := &GitHub{tokens: map[string]map[string]bool{}, revoked: map[string]bool{}, prs: map[string]*PR{}, commits: map[string]*commit{}, ReviewerLogin: "satelle-reviewer[bot]"}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.serve))
 	g.URL = g.srv.URL
 	t.Cleanup(g.srv.Close)
@@ -139,6 +159,23 @@ func (g *GitHub) SetBody(repo string, n int, body string) {
 	if p := g.prs[prKey(repo, n)]; p != nil {
 		p.Body = body
 	}
+}
+
+// AddCommit serves commit sha of repo with parents (first parent first) and
+// the files it changes against its first parent.
+func (g *GitHub) AddCommit(repo, sha string, parents []string, files ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.seq++
+	g.commits[repo+"@"+sha] = &commit{sha: sha, parents: append([]string(nil), parents...), files: append([]string(nil), files...), seq: g.seq}
+}
+
+// SeedStatus puts a status on commit sha of repo that no caller posted, as a
+// status posted before the test began; Statuses and Posts do not count it.
+func (g *GitHub) SeedStatus(repo, sha, context, state string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.seeded = append(g.seeded, PostedStatus{Repo: repo, SHA: sha, State: state, Context: context})
 }
 
 // Reviews are the reviews posted, in order.
@@ -216,6 +253,12 @@ func (g *GitHub) serve(w http.ResponseWriter, r *http.Request) {
 		g.postReview(w, r, repo, sub[1], token)
 	case len(sub) == 2 && sub[0] == "statuses" && r.Method == http.MethodPost:
 		g.postStatus(w, r, repo, sub[1], token)
+	case len(sub) == 3 && sub[0] == "commits" && sub[2] == "status" && r.Method == http.MethodGet:
+		g.combinedStatus(w, repo, sub[1])
+	case len(sub) == 2 && sub[0] == "commits" && r.Method == http.MethodGet:
+		g.getCommit(w, repo, sub[1])
+	case len(sub) == 2 && sub[0] == "compare" && r.Method == http.MethodGet:
+		g.compare(w, repo, sub[1])
 	default:
 		reply(w, http.StatusNotFound, `{"message":"Not Found"}`)
 	}
@@ -226,7 +269,125 @@ func pullJSON(p PR) map[string]any {
 		"number": p.Number, "state": p.State, "body": p.Body,
 		"html_url": "https://github.com/" + p.Repo + "/pull/" + strconv.Itoa(p.Number),
 		"head":     map[string]any{"ref": p.HeadRef, "sha": p.HeadSHA},
+		"base":     map[string]any{"sha": p.BaseSHA},
 	}
+}
+
+// combinedStatus answers GET /repos/{repo}/commits/{sha}/status: the latest
+// status of each context, seeded or posted.
+func (g *GitHub) combinedStatus(w http.ResponseWriter, repo, sha string) {
+	g.mu.Lock()
+	all := append(append([]PostedStatus(nil), g.seeded...), g.statuses...)
+	g.mu.Unlock()
+	seen := map[string]bool{}
+	out := []map[string]any{}
+	for i := len(all) - 1; i >= 0; i-- {
+		s := all[i]
+		if s.Repo != repo || s.SHA != sha || seen[s.Context] {
+			continue
+		}
+		seen[s.Context] = true
+		out = append(out, map[string]any{"context": s.Context, "state": s.State, "description": s.Description})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sha": sha, "statuses": out})
+}
+
+func commitJSON(c *commit) map[string]any {
+	parents := []map[string]any{}
+	for _, p := range c.parents {
+		parents = append(parents, map[string]any{"sha": p})
+	}
+	return map[string]any{"sha": c.sha, "parents": parents}
+}
+
+func filesJSON(paths []string) []map[string]any {
+	if len(paths) > filesCap {
+		paths = paths[:filesCap]
+	}
+	out := []map[string]any{}
+	for _, p := range paths {
+		out = append(out, map[string]any{"filename": p})
+	}
+	return out
+}
+
+// getCommit answers GET /repos/{repo}/commits/{sha}: its parents and, as
+// GitHub lists them, at most filesCap of the files it changes.
+func (g *GitHub) getCommit(w http.ResponseWriter, repo, sha string) {
+	g.mu.Lock()
+	c, ok := g.commits[repo+"@"+sha]
+	g.mu.Unlock()
+	if !ok {
+		reply(w, http.StatusNotFound, `{"message":"No commit found for SHA: `+sha+`"}`)
+		return
+	}
+	out := commitJSON(c)
+	out["files"] = filesJSON(c.files)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// reach is the set of commits of repo reachable from sha, sha included.
+// The caller holds g.mu.
+func (g *GitHub) reach(repo, sha string) map[string]bool {
+	seen := map[string]bool{}
+	for todo := []string{sha}; len(todo) > 0; {
+		s := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		if c := g.commits[repo+"@"+s]; c != nil {
+			todo = append(todo, c.parents...)
+		}
+	}
+	return seen
+}
+
+// compare answers GET /repos/{repo}/compare/{base}...{head}: head's status
+// relative to base, the commits reachable from head and not from base (at most
+// commitsCap of total_commits), and at most filesCap of the files they change.
+func (g *GitHub) compare(w http.ResponseWriter, repo, basehead string) {
+	base, head, ok := strings.Cut(basehead, "...")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !ok || g.commits[repo+"@"+base] == nil || g.commits[repo+"@"+head] == nil {
+		reply(w, http.StatusNotFound, `{"message":"Not Found"}`)
+		return
+	}
+	fromHead, fromBase := g.reach(repo, head), g.reach(repo, base)
+	status := "diverged"
+	switch {
+	case base == head:
+		status = "identical"
+	case fromHead[base]:
+		status = "ahead"
+	case fromBase[head]:
+		status = "behind"
+	}
+	var span []*commit
+	for s := range fromHead {
+		if c := g.commits[repo+"@"+s]; c != nil && !fromBase[s] {
+			span = append(span, c)
+		}
+	}
+	sort.Slice(span, func(i, j int) bool { return span[i].seq < span[j].seq })
+	changed := map[string]bool{}
+	var files []string
+	commits := []map[string]any{}
+	for i, c := range span {
+		for _, f := range c.files {
+			if !changed[f] {
+				changed[f] = true
+				files = append(files, f)
+			}
+		}
+		if i < commitsCap {
+			commits = append(commits, commitJSON(c))
+		}
+	}
+	sort.Strings(files)
+	writeJSON(w, http.StatusOK, map[string]any{"status": status, "total_commits": len(span), "commits": commits, "files": filesJSON(files)})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

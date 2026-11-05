@@ -25,6 +25,9 @@ type PR struct {
 	// HeadRef is the branch the PR merges from; HeadSHA the commit at its tip.
 	HeadRef string
 	HeadSHA string
+	// BaseSHA is the commit at the tip of the branch the PR merges into, as the
+	// forge last computed it.
+	BaseSHA string
 	Body    string
 	URL     string
 }
@@ -57,6 +60,36 @@ const (
 	StatusError   = "error"
 )
 
+// Commit is one commit as the forge reports it.
+type Commit struct {
+	SHA string
+	// Parents are the commit's parents, first parent first; more than one is a
+	// merge.
+	Parents []string
+}
+
+// Comparison is how a head commit compares with a base commit.
+type Comparison struct {
+	// Status is head relative to base: CompareAhead, CompareBehind,
+	// CompareDiverged or CompareIdentical.
+	Status string
+	// Commits are the commits reachable from head and not from base.
+	Commits []Commit
+	// Files are the paths changed between base and head (both sides of a
+	// rename).
+	Files []string
+	// Truncated says the forge did not list every commit or every file.
+	Truncated bool
+}
+
+// The statuses a Comparison may carry.
+const (
+	CompareAhead     = "ahead"
+	CompareBehind    = "behind"
+	CompareDiverged  = "diverged"
+	CompareIdentical = "identical"
+)
+
 // Forge is what a provider answers.
 type Forge interface {
 	// PullRequestForHead is the one open PR on repo whose head branch is head:
@@ -76,6 +109,14 @@ type Forge interface {
 	Comment(ctx context.Context, repo string, n int, sha, body string) (Review, error)
 	// SetStatus posts s on commit sha of repo.
 	SetStatus(ctx context.Context, repo, sha string, s Status) error
+	// CommitStatuses are the statuses on commit sha of repo, the latest of each
+	// context.
+	CommitStatuses(ctx context.Context, repo, sha string) ([]Status, error)
+	// Compare is how commit head compares with commit base on repo.
+	Compare(ctx context.Context, repo, base, head string) (Comparison, error)
+	// CommitFiles are the paths commit sha changes against its first parent
+	// (both sides of a rename); truncated says the forge did not list them all.
+	CommitFiles(ctx context.Context, repo, sha string) (files []string, truncated bool, err error)
 }
 
 // ErrNoPR is PullRequestForHead's answer when no open PR has the head.
