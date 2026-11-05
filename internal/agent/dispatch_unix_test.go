@@ -64,18 +64,32 @@ func TestDispatchClaude(t *testing.T) {
 	}
 }
 
+// grok reads its prompt from --prompt-file: a prompt of any size dispatches
+// (one argv element is capped at 128 KiB on Linux), arrives byte for byte,
+// never appears in argv, and the file is removed after the run.
 func TestDispatchGrok(t *testing.T) {
-	bin, argvFile, _ := fake(t, "grok", "echo '{\"text\":\"{\\\"verdict\\\":\\\"accept\\\"}\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}'\n")
+	bin, argvFile, _ := fake(t, "grok", `prev=
+for a in "$@"; do [ "$prev" = "--prompt-file" ] && cp "$a" "`+"${0%/*}"+`/prompt" && printf '%s' "$a" > "`+"${0%/*}"+`/promptpath"; prev=$a; done
+echo '{"text":"{\"verdict\":\"accept\"}","usage":{"input_tokens":1,"output_tokens":2}}'
+`)
+	dir := filepath.Dir(bin)
 	b := Binding{Name: "r", Command: bin, Tools: []string{"Read", "Grep"}}
-	res, err := Runner{}.Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: "judge this"})
+	prompt := strings.Repeat("judge this record line\n", 300<<10/23) // ~300 KiB
+	res, err := Runner{}.Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: prompt})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Text != `{"verdict":"accept"}` || res.TokensOut != 2 {
 		t.Fatalf("result %+v", res)
 	}
-	if !strings.Contains(read(t, argvFile), "judge this\n") {
-		t.Fatal("prompt not in argv")
+	if got := read(t, filepath.Join(dir, "prompt")); got != prompt {
+		t.Fatalf("the fake read %d bytes from --prompt-file, want %d", len(got), len(prompt))
+	}
+	if strings.Contains(read(t, argvFile), "judge this record line") {
+		t.Fatal("the prompt is in argv")
+	}
+	if _, err := os.Stat(read(t, filepath.Join(dir, "promptpath"))); !os.IsNotExist(err) {
+		t.Fatal("the prompt file outlived the run")
 	}
 }
 

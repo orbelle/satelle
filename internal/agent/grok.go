@@ -4,13 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 )
 
-// grok runs grok in command mode: `grok -p <prompt> --output-format json` with
-// --tools naming grok's own tools for the grant and --deny for each deny.
+// grok runs grok in command mode: `grok --prompt-file <file> --output-format
+// json` with --tools naming grok's own tools for the grant and --deny for each
+// deny. The prompt goes in a file, never argv: a judge prompt carries the
+// record and the diff and can exceed Linux's 128 KiB limit on one argument.
 type grok struct{}
+
+// grokPromptFile stands for the run's prompt file in an argv built outside a
+// run (validation, tests).
+const grokPromptFile = "<prompt file>"
 
 func (grok) Name() string         { return PresetGrok }
 func (grok) EnforcesGrants() bool { return true }
@@ -68,7 +75,11 @@ func (grok) Argv(req Request) ([]string, error) {
 		return nil, err
 	}
 	argv := append([]string{bin}, extra...)
-	argv = append(argv, "-p", req.Prompt, "--output-format", "json", "--always-approve", "--no-subagents")
+	pf := req.promptFile
+	if pf == "" {
+		pf = grokPromptFile
+	}
+	argv = append(argv, "--prompt-file", pf, "--output-format", "json", "--always-approve", "--no-subagents")
 	if b.Model != "" {
 		argv = append(argv, "-m", b.Model)
 	}
@@ -86,6 +97,19 @@ func (grok) Argv(req Request) ([]string, error) {
 }
 
 func (g grok) Run(ctx context.Context, req Request) (Result, error) {
+	f, err := os.CreateTemp("", "satelle-grok-prompt-*")
+	if err != nil {
+		return Result{}, err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(req.Prompt); err != nil {
+		f.Close()
+		return Result{}, err
+	}
+	if err := f.Close(); err != nil {
+		return Result{}, err
+	}
+	req.promptFile = f.Name()
 	argv, err := g.Argv(req)
 	if err != nil {
 		return Result{}, err

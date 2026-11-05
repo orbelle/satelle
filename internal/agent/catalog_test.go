@@ -89,7 +89,7 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(argv, " "); !strings.Contains(got, "-p do") || !strings.Contains(got, "--tools read_file,grep") || !strings.Contains(got, "--deny write_file") {
+	if got := strings.Join(argv, " "); !strings.Contains(got, "--prompt-file <prompt file>") || strings.Contains(got, " do ") || !strings.Contains(got, "--tools read_file,grep") || !strings.Contains(got, "--deny write_file") {
 		t.Fatalf("grok argv %s", got)
 	}
 }
@@ -105,5 +105,26 @@ func TestParseEnvelopes(t *testing.T) {
 	res, err = parseGrok([]byte(`{"text":"hi","usage":{"input_tokens":6435,"cache_read_input_tokens":512,"output_tokens":24},"modelUsage":{"grok-b":{"outputTokens":24}}}`))
 	if err != nil || res.Text != "hi" || res.TokensIn != 6947 || res.TokensOut != 24 || res.Model != "grok-b" {
 		t.Fatalf("grok %+v %v", res, err)
+	}
+}
+
+// No adapter carries the prompt in argv: claude reads it on stdin, pi over
+// RPC, grok from a file. (One argv element is capped at 128 KiB on Linux.)
+func TestNoAdapterPutsThePromptInArgv(t *testing.T) {
+	const prompt = "UNIQUE-PROMPT-TEXT"
+	for _, c := range []struct {
+		name string
+		a    interface {
+			Argv(Request) ([]string, error)
+		}
+		cmd string
+	}{{"claude", claude{}, "claude"}, {"pi", pi{}, "pi"}, {"grok", grok{}, "grok"}} {
+		argv, err := c.a.Argv(Request{Binding: Binding{Command: c.cmd, Tools: []string{"Read"}}, Prompt: prompt, System: "skill"})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if strings.Contains(strings.Join(argv, "\x00"), prompt) {
+			t.Errorf("%s puts the prompt in argv: %q", c.name, argv)
+		}
 	}
 }

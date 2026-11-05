@@ -21,6 +21,10 @@ type Request struct {
 	Deny    []string // denied beyond the binding's own deny list
 	Dir     string   // working directory
 	Env     []string // extra KEY=VALUE entries
+
+	// promptFile is where an adapter that reads its prompt from a file (grok)
+	// finds it for this run; set by that adapter's Run.
+	promptFile string
 }
 
 func (r Request) denies() []string { return append(append([]string{}, r.Binding.Deny...), r.Deny...) }
