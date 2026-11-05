@@ -16,7 +16,7 @@ var testSkills = map[string]Skill{
 }
 
 func skillOf(n string) (Skill, bool) { s, ok := testSkills[n]; return s, ok }
-func agentOf(n string) bool         { return n == "a1" || n == "a2" }
+func agentOf(n string) bool          { return n == "a1" || n == "a2" }
 
 func parse(t *testing.T, body string) (*Workflow, error) {
 	t.Helper()
