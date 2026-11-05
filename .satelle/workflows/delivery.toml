@@ -49,8 +49,11 @@ agent = "reviewer-alt"
 skill = "satelle-story-plan-review"
 # Quality over speed (operator, 2026-11-06): grok found the one real plan flaw
 # on sto_0586c449, so it judges plans beside Gemini; both must accept.
-panel = ["reviewer-alt", "reviewer-grok"]
-combine = "all"
+# Interim until sto_cdf94c34 (judges get attachments): Gemini on pi reads only
+# the repo, so it cannot see an attached plan and rejects every plan as missing
+# (sto_fa7df85b, 2026-11-06). grok judges plans alone until then; restore
+# panel = ["reviewer-alt", "reviewer-grok"], combine = "all" when it lands.
+agent = "reviewer-grok"
 carry = true
 
 [gates.definition-unchanged]
