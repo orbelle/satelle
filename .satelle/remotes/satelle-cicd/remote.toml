@@ -13,7 +13,7 @@
 version = 1
 name = "satelle-cicd"
 provider = "fly-sprite"
-satelle_version = "0.0.889"
+satelle_version = "0.0.891"
 environment = "prd"
 
 [drive]

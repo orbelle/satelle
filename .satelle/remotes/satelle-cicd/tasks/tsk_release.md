@@ -23,7 +23,7 @@ cp .satelle/remotes/satelle-cicd/release.sh "$W/release.sh" &&
 SATELLE_NODE_DIR="$N" bash "$W/release.sh" "$SATELLE_INPUT_STORY_ID" >"$W/out.txt" 2>&1; echo "exit=$?" >>"$W/out.txt"; cat "$W/out.txt"
 ```
 
-The script runs every satelle command (the PR body, `satelle pr approve`, the live-evidence attach) from the node's own directory, where the node holds the story (satelle 0.0.889). Then record the command's full output (it ends with `exit=<n>`) as this execution's run-output doc with satelle itself: pipe it to `satelle execution record <this execution's exe_ id> --outcome <performed when exit=0, else reject>`. The exe_ id is the one satelle names when it delivers this step's inputs. Never print GH_TOKEN or any secret value, and never run git push, gh, or edit a file yourself: the script does the release.
+The script runs every satelle command (the PR body, `satelle pr approve`, the live-evidence attach) from the node's own directory, where the node holds the story (satelle 0.0.891). Then record the command's full output (it ends with `exit=<n>`) as this execution's run-output doc with satelle itself: pipe it to `satelle execution record <this execution's exe_ id> --outcome <performed when exit=0, else reject>`. The exe_ id is the one satelle names when it delivers this step's inputs. Never print GH_TOKEN or any secret value, and never run git push, gh, or edit a file yourself: the script does the release.
 
 ## Verification
 The run-output doc records the script's output and `exit=0` with outcome `performed`, including the live-evidence lines (version, branch, PR, approval, merge commit, test and release runs, tag). Any other exit records outcome `reject` with that output; a non-zero exit is deterministic, so it is not retried.
