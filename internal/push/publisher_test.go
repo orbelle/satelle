@@ -63,7 +63,7 @@ func TestPublisherPostsEvent(t *testing.T) {
 	p.Notify("stories")
 	select {
 	case <-done:
-	case <-time.After(10*time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timeout waiting for POST")
 	}
 	if got.RepoKey != "satelle-deadbeef" || got.Topic != "stories" || got.Entity != "story" {
@@ -100,20 +100,20 @@ func TestPublisherFailSilentUnreachable(t *testing.T) {
 	}()
 	select {
 	case <-returned:
-	case <-time.After(10*time.Second):
+	case <-time.After(10 * time.Second):
 		close(release)
 		t.Fatal("Notify blocked on the HTTP attempt — must be fire-and-forget")
 	}
 	select {
 	case <-entered:
-	case <-time.After(10*time.Second):
+	case <-time.After(10 * time.Second):
 		close(release)
 		t.Fatal("the publisher never attempted the POST")
 	}
 	close(release)
 	select {
 	case <-finished:
-	case <-time.After(10*time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("the failed attempt never completed")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 // TestTagchipRendersKVAndBare verifies the under-title chips: a key:value tag

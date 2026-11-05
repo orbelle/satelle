@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
 )
 
 // AC4: /debug/pprof is served to a loopback client and is a 404 for any other,
