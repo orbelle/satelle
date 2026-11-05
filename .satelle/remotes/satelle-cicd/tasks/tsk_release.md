@@ -13,7 +13,7 @@ updated: 2026-11-04T00:00:00Z
 # Release one finished satelle story through its PR
 
 ## Action
-Release the story named by the story_id input (`$SATELLE_INPUT_STORY_ID`): its `epic/<id>` or `feat/<id>` branch is pushed to origin, passed its review gates locally, and carries its CHANGELOG entry under `## [Unreleased]`. Run exactly this in your shell, as one command with a Bash timeout of 3600000 ms (the release waits on two CI workflows), and change nothing else:
+Release the story named by the story_id input (`$SATELLE_INPUT_STORY_ID`): its `epic/<id>` or `feat/<id>` branch is pushed to origin, passed its review gates locally, and carries its CHANGELOG entry under `## [Unreleased]`. Run exactly this in your shell, as one command with no timeout, or one of at least 3600 seconds (the release waits on two CI workflows), and change nothing else:
 
 ```sh
 N="$PWD"; W="$(mktemp -d)"

@@ -1,29 +1,33 @@
 # Agent bindings for satelle's CI/CD remote (sty_8094a272). A sprite has no
-# machine profiles, so the bundle names the commands. Claude runs the release
-# command, judges the run at the gates, and cold-reviews the story's PR for
-# satelle pr approve.
+# machine profiles, so the bundle names the commands. Every seat runs pi on
+# Claude Opus 5.5 through OpenRouter (per-token, so a release never waits on the
+# Claude subscription's 5-hour limit): it runs the release command, judges the
+# run at the gates, and cold-reviews the story's PR for satelle pr approve.
 
 # Runs the task's action on the execution route.
 [executor]
 role      = "agent"
 interface = "command"
-command   = "claude -p --output-format json --append-system-prompt {system} --allowedTools {tools} --model {model}"
-tools     = "Read,Bash,Grep,Glob"
-model     = "claude-opus-5-5"
+command   = "pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files --no-mcp --no-themes --append-system-prompt {system} --tools {tools} --model {model} {payload}"
+tools     = "read,bash,grep,find,ls"
+model     = "openrouter/anthropic/claude-opus-5.5"
 
 # The execution route's gates (satelle-task-validate-before-review / -after-review). Writes nothing.
 [reviewer]
 role      = "reviewer"
 interface = "command"
-command   = "claude -p --output-format json --disallowedTools Write,Edit,NotebookEdit --append-system-prompt {system} --allowedTools {tools} --model {model}"
-tools     = "Read,Grep,Glob"
-model     = "claude-opus-5-5"
+command   = "pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files --no-mcp --no-themes --system-prompt {system} --tools {tools} --model {model} {payload}"
+tools     = "read,grep,find,ls"
+model     = "openrouter/anthropic/claude-opus-5.5"
 
 # satelle pr approve --binding pr-reviewer: the cold PR review reads the story's
-# criteria, the constitution and the diff through these satelle commands only.
+# criteria, the constitution and the diff by running satelle pr view, satelle pr
+# diff and satelle doc get, so it needs pi's bash tool. pi cannot narrow bash to
+# those commands as Claude's Bash(satelle pr view:*) grants did; its prompt names
+# them, and it holds no write or edit tool.
 [pr-reviewer]
 role      = "reviewer"
 interface = "command"
-command   = "claude -p --output-format json --disallowedTools Write,Edit,NotebookEdit --append-system-prompt {system} --allowedTools {tools} --model {model}"
-tools     = "Read,Grep,Glob,Bash(satelle pr view:*),Bash(satelle pr diff:*),Bash(satelle doc get:*)"
-model     = "claude-opus-5-5"
+command   = "pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files --no-mcp --no-themes --system-prompt {system} --tools {tools} --model {model} {payload}"
+tools     = "read,bash,grep,find,ls"
+model     = "openrouter/anthropic/claude-opus-5.5"

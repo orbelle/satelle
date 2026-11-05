@@ -23,29 +23,29 @@ task = "release"
 # The owner's personal secrets, which the node's satelle hands to its agent
 # bindings and so to the executor's shell: GH_TOKEN to clone, push, open, approve
 # and merge the PR and watch CI (the operator's identity, the PR's author); the
-# Claude subscription token for the bindings. They move to [env] when satelle
-# accepts it (sty_85c8e0d6, sty_fc50e4d0), as a change to this definition.
+# OpenRouter key for the pi bindings. They move to [env] when satelle accepts it
+# (sty_85c8e0d6, sty_fc50e4d0), as a change to this definition.
 [secrets.override]
 GH_TOKEN = "satelle:GITHUB_TOKEN"
-CLAUDE_CODE_OAUTH_TOKEN = "satelle:CLAUDE_CODE_OAUTH_TOKEN"
+OPENROUTER_API_KEY = "satelle:OPENROUTER_API_KEY"
 
-# gh for the PR and the CI watch; Go for scripts/check-serve-version.sh, which
-# derives the satelled watch set with go list. The Claude settings raise the
-# Bash tool's timeout to an hour: a release waits on two CI workflows.
+# pi (from its GitHub release, as satelle-server's smoke remote installs it) for
+# the bindings; gh for the PR and the CI watch; Go for
+# scripts/check-serve-version.sh, which derives the satelled watch set with go list.
 [setup]
 on_create = [
+  "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/pi/pi $HOME/.local/bin/pi",
   "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/gh_2.103.3_linux_amd64/bin/gh $HOME/.local/bin/gh",
   "curl -fsSL https://dl.google.com/go/go1.27.0.linux-amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/go/bin/go $HOME/.local/bin/go && ln -sf $HOME/.local/share/go/bin/gofmt $HOME/.local/bin/gofmt",
-  "mkdir -p $HOME/.claude && printf '%s\\n' '{\"env\":{\"BASH_DEFAULT_TIMEOUT_MS\":\"3600000\",\"BASH_MAX_TIMEOUT_MS\":\"3600000\"}}' > $HOME/.claude/settings.json",
   "satelle version",
-  "claude --version",
+  "pi --version",
   "gh --version",
   "go version",
   "git --version",
 ]
 
 [network]
-allow = ["api.anthropic.com", "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "satelle.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+allow = ["openrouter.ai", "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "satelle.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
 
 [lifecycle]
 scope = "run"
