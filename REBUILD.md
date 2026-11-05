@@ -1146,7 +1146,10 @@ mechanism, not process: `item.created`, `item.updated`, `item.transitioned`,
 `gate.run` (`transition`, `gate`, `binding`, `result` accept/reject/skipped/
 carried, `notes`, `tokens_in`, `tokens_out`, `duration_ms`, `coverage`),
 `performer.run`, `seat.bound`, `seat.released`, `attachment.added`, `task.run`.
-Any other kind may be appended by `ledger append` and is carried, never read.
+A performer answer ending in an `{"artifact":{name,type,body}}` object also
+appends `attachment.added` named by the artifact (media type
+`text/markdown; type=<type>`); a malformed artifact fails the run and attaches
+nothing (sto_42f9cae5). Any other kind may be appended by `ledger append` and is carried, never read.
 
 **Items.** Fields: id, kind, title, body, criteria, status, tags, parent,
 category, workflow, assignee (carried for sync; no behaviour). The workflow is

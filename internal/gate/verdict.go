@@ -3,6 +3,8 @@ package gate
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/agent"
 )
 
 // Verdict is what a judge returns: accept or reject, with notes.
@@ -14,20 +16,16 @@ type Verdict struct {
 // ParseVerdict finds the last JSON object in text whose verdict is accept or
 // reject. Without one the verdict is a reject whose notes say why.
 func ParseVerdict(text string) Verdict {
-	var found *Verdict
-	for i := strings.IndexByte(text, '{'); i >= 0; {
-		var v Verdict
-		if json.NewDecoder(strings.NewReader(text[i:])).Decode(&v) == nil && (v.Verdict == Accept || v.Verdict == Reject) {
-			found = &v
+	var v Verdict
+	if _, ok := agent.LastObject(text, func(raw json.RawMessage) bool {
+		var c Verdict
+		if json.Unmarshal(raw, &c) != nil || (c.Verdict != Accept && c.Verdict != Reject) {
+			return false
 		}
-		next := strings.IndexByte(text[i+1:], '{')
-		if next < 0 {
-			break
-		}
-		i += next + 1
-	}
-	if found != nil {
-		return *found
+		v = c
+		return true
+	}); ok {
+		return v
 	}
 	snippet := strings.TrimSpace(text)
 	if len(snippet) > 500 {

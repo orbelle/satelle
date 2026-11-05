@@ -361,6 +361,9 @@ type PerformerRun struct {
 // state performed by the session is refused: the session does that work. A
 // binding placed remote:<id> runs on a node of that remote (k.Remote); one
 // placed in the cloud starts a cloud session (k.Cloud) seated at cloud:<url>.
+// An answer ending in an {"artifact":{name,type,body}} object also attaches
+// that document to the item under the artifact's name; a malformed artifact
+// fails the run and attaches nothing.
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {
 	it, err := k.Get(id)
 	if err != nil {
@@ -394,6 +397,10 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	default:
 		res, runErr = k.Dispatcher.Dispatch(ctx, agent.Perform, req)
 	}
+	var art *agent.Artifact
+	if runErr == nil {
+		art, runErr = agent.ParseArtifact(res.Text)
+	}
 	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: st.Performer.Skill, Model: res.Model,
 		TokensIn: res.TokensIn, TokensOut: res.TokensOut, DurationMS: time.Since(start).Milliseconds(), Location: loc}
 	if runErr != nil {
@@ -406,6 +413,11 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	}
 	if _, err := k.append(id, KindPerformerRun, actor, rec); err != nil {
 		return res, err
+	}
+	if art != nil && runErr == nil {
+		if _, err := k.Attach(id, art.Name, []byte(art.Body), art.MediaType(), actor); err != nil {
+			return res, err
+		}
 	}
 	return res, runErr
 }
