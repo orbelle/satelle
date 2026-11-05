@@ -47,7 +47,10 @@ agent = "reviewer"
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
-agent = "reviewer-alt"
+# Quality over speed (operator, 2026-11-06): grok found the one real plan flaw
+# on sto_0586c449, so it judges plans beside Gemini; both must accept.
+panel = ["reviewer-alt", "reviewer-grok"]
+combine = "all"
 carry = true
 
 [gates.definition-unchanged]
