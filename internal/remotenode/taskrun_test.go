@@ -429,6 +429,33 @@ func TestRunTaskReportsPublishedAndRefusedAttachments(t *testing.T) {
 	}
 }
 
+// sty_6ac9a6f1 AC2: a story the publish reports not published is in the concluded
+// findings, naming the story and the events, with no rechain advice; the outcome
+// is the run's.
+func TestRunTaskReportsUnpublishedStoriesInTheFindings(t *testing.T) {
+	const unpublished = "sty_subject: moved since evt_a: re-read and decide (server is at evt_s, 1 event(s) not seen); not rebased: the node's status move evt_mine conflicts with another status move on the server; unseen events: evt_s status_transition"
+	e := newTaskEnv(t, false)
+	log := &statusLog{}
+	var out strings.Builder
+	tr := taskRun(e, executorOnly{}, log)
+	tr.Drive.Out = &out
+	tr.Publish = func(context.Context, workitem.Item, string) (PublishReport, error) {
+		return PublishReport{Project: "probe", Unpublished: []string{unpublished}}, errors.New("1 stor(y/ies) not published (sty_subject)")
+	}
+	res, err := RunTask(context.Background(), tr)
+	if err != nil || res.Outcome != verb.OutcomePerformed {
+		t.Fatalf("result = %+v, %v, want performed: an unpublished story does not change the outcome", res, err)
+	}
+	sent := log.all()
+	last := sent[len(sent)-1]
+	if last.RunState != runstatus.Concluded || !strings.Contains(last.Findings, "stories not published: "+unpublished) {
+		t.Errorf("concluded = %+v, want findings naming %q", last, unpublished)
+	}
+	if strings.Contains(last.Findings, "rechain") || strings.Contains(out.String(), "rechain") {
+		t.Errorf("rechain advice reached the node's findings or log:\n%s\n%s", last.Findings, out.String())
+	}
+}
+
 // The resend interval is a third of the window the server reports it waits before
 // listing the node lost, the default (itself under the server's 90s) when the
 // server reports none, and a test's override over both.

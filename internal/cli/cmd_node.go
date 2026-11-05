@@ -644,7 +644,10 @@ func nodePullStory(ctx context.Context, cmd *cobra.Command, a *app.App, hc *host
 // makes, through the same collector (collectWorkstateRows), the same story
 // appends (planStoryAppends, publishStoryEvents) and the same Sync/Apply, with
 // the node token as the credential. A refusal that stops a push (stopsPush) is
-// returned before any further row is sent.
+// returned before any further row is sent. Each story's base is read from its
+// hosted chain just before the push (nodeHostedHeads), and the node rebases its
+// own rows on a head that moved; a story it still cannot publish is reported in
+// the report's Unpublished, with no rechain advice.
 //
 // Its story attachments go as a local push's do (pushStoryAttachments), through
 // node nodeID's documents route, on every exit once the store is open: the files
@@ -674,14 +677,28 @@ func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project, nodeID 
 		if err != nil {
 			return rep, fmt.Errorf("load workstate cursor: %w", err)
 		}
-		plan, err := planStoryAppends(ctx, a, scope, cursor.StoryHeads)
+		heads, err := nodeHostedHeads(ctx, a, hc, project, scope, cursor.StoryHeads)
 		if err != nil {
 			return rep, err
+		}
+		plan, err := planStoryAppends(ctx, a, scope, heads)
+		if err != nil {
+			return rep, err
+		}
+		for i := range plan {
+			plan[i].nodeOwned = true
 		}
 		var appendErr error
 		rep.Stories, appendErr = publishStoryEvents(ctx, cmd.ErrOrStderr(), a, hc, server, project, plan, nil)
 		if stopsPush(appendErr) {
 			return rep, appendErr
+		}
+		// Nobody can rechain a node that has ended: what it could not publish is
+		// the run's to report, without the remediation a local push prints.
+		var unpublished *unpublishedError
+		if errors.As(appendErr, &unpublished) {
+			rep.Unpublished = unpublished.stories()
+			appendErr = errors.New(unpublished.count())
 		}
 		res, err := hc.Apply(ctx, project, hosted.WorkstateIngest{Items: batch.Items, Ledger: withoutStoryEntries(batch.Ledger), Outputs: batch.Outputs})
 		if err != nil {
@@ -690,6 +707,51 @@ func nodePublish(cmd *cobra.Command, hc *hosted.Client, server, project, nodeID 
 		rep.Items, rep.Ledger, rep.Outputs = res.Items, res.Ledger, res.Outputs
 		return rep, appendErr
 	}
+}
+
+// nodeHostedHeads is saved with the head of each story in scope set to the last
+// local event its hosted chain confirms (hostedBase), read just before the push
+// (sty_6ac9a6f1): the head the pre-run fetch saved may be missing, or behind
+// events satelle.dev appended during the run, and the push then plans on what it
+// read. A story the server holds none of, a local chain that forks, or a read
+// that fails keeps the saved head; a refusal that stops a push is returned.
+func nodeHostedHeads(ctx context.Context, a *app.App, hc *hosted.Client, project string, scope scopeSet, saved map[string]string) (map[string]string, error) {
+	heads := maps.Clone(saved)
+	if heads == nil {
+		heads = map[string]string{}
+	}
+	var conn *hosted.ChainConn
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
+	for _, id := range slices.Sorted(maps.Keys(scope)) {
+		events, err := a.Store.Ledger.StoryChain(ctx, id)
+		if err != nil || len(events) == 0 {
+			continue
+		}
+		order, err := chainOrder(events)
+		if err != nil {
+			continue
+		}
+		if conn == nil {
+			if conn, err = hc.OpenChain(ctx); err != nil {
+				if stopsPush(err) {
+					return nil, err
+				}
+				return heads, nil
+			}
+		}
+		head, _, _, err := hostedBase(ctx, conn, project, id, order)
+		switch {
+		case stopsPush(err):
+			return nil, err
+		case err == nil && head != "":
+			heads[id] = head
+		}
+	}
+	return heads, nil
 }
 
 // nodePushAttachments runs the attachment leg a local push runs, unchanged, with

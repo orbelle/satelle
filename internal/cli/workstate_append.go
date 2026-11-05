@@ -40,7 +40,11 @@ type storyAppend struct {
 	// it: the push sends it only once the server is shown to hold every event
 	// before from.
 	fork *chainForkError
-	err  error // the local chain cannot be sent as it is
+	// nodeOwned is set by a node's push (nodePublish): its unpublished events
+	// are the node's own, so a rebase checks status only over them, as `sync
+	// workstate rechain` checks its own rows (refuseMovedElsewhere).
+	nodeOwned bool
+	err       error // the local chain cannot be sent as it is
 }
 
 // base is the event the unpublished events build on; empty when none was published.
@@ -306,7 +310,7 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 			err = serr
 		}
 	}()
-	var failed []string
+	unpublished := &unpublishedError{errs: map[string]error{}}
 	sent := 0
 	for _, p := range plan {
 		if _, withheld := held[p.id]; withheld {
@@ -319,7 +323,7 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 			if errors.As(p.err, new(chainForkError)) {
 				_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, map[string]string{p.id: p.err.Error()}, nil, time.Now().UTC())
 			}
-			failed = append(failed, p.id)
+			unpublished.add(p.id, p.err)
 			continue
 		}
 		if conn == nil {
@@ -338,7 +342,7 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 			return published, err
 		case errors.Is(err, errUpToDate):
 		case err != nil:
-			failed = append(failed, p.id)
+			unpublished.add(p.id, err)
 		default:
 			published++
 		}
@@ -346,10 +350,86 @@ func publishStoryEvents(ctx context.Context, w io.Writer, a *app.App, client *ho
 			_ = heads.flush(io.Discard) // kept pending on failure; the final flush reports it
 		}
 	}
-	if len(failed) > 0 {
-		return published, fmt.Errorf("%d stor(y/ies) not published (%s) — see the reasons on stderr; fix: %s", len(failed), strings.Join(failed, ", "), health.RechainRemediation)
+	if len(unpublished.ids) > 0 {
+		return published, unpublished
 	}
 	return published, nil
+}
+
+// unpublishedError is publishStoryEvents' answer when stories were not
+// published: their ids in push order and each one's error. Its text is the
+// push's, the rechain remediation included.
+type unpublishedError struct {
+	ids  []string
+	errs map[string]error
+}
+
+func (e *unpublishedError) add(id string, err error) {
+	e.ids = append(e.ids, id)
+	e.errs[id] = err
+}
+
+func (e *unpublishedError) Error() string {
+	return fmt.Sprintf("%s — see the reasons on stderr; fix: %s", e.count(), health.RechainRemediation)
+}
+
+// count is "N stor(y/ies) not published (ids)".
+func (e *unpublishedError) count() string {
+	return fmt.Sprintf("%d stor(y/ies) not published (%s)", len(e.ids), strings.Join(e.ids, ", "))
+}
+
+// stories is one line per story not published: "<id>: <reason>", with "; unseen
+// events: <id> <kind>, …" for a story the server moved on whose events were read.
+func (e *unpublishedError) stories() []string {
+	out := make([]string, 0, len(e.ids))
+	for _, id := range e.ids {
+		err := e.errs[id]
+		line := fmt.Sprintf("%s: %v", id, err)
+		var moved *movedError
+		if errors.As(err, &moved) {
+			line = id + ": " + moved.reason
+			if len(moved.unseen) > 0 {
+				line += "; unseen events: " + strings.Join(moved.unseen, ", ")
+			}
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// movedError is appendStory's answer for a story the server moved on that it did
+// not publish: the reason it reported and recorded, and the server's events this
+// checkout had not seen, as "<id> <kind>", when they were read.
+type movedError struct {
+	err    error
+	reason string
+	unseen []string
+}
+
+func (e *movedError) Error() string { return e.err.Error() }
+func (e *movedError) Unwrap() error { return e.err }
+
+// eventLabels names entries as "<id> <kind>".
+func eventLabels(entries []ledger.Entry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.ID+" "+e.Kind)
+	}
+	return out
+}
+
+// chainEventLabels is eventLabels for hosted events; one whose payload does not
+// parse is named by its id alone.
+func chainEventLabels(storyID string, events []hosted.ChainEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, ev := range events {
+		label := ev.ID
+		if e, err := ledgerEntryOf(storyID, ev); err == nil {
+			label += " " + e.Kind
+		}
+		out = append(out, label)
+	}
+	return out
 }
 
 // withoutStoryEntries drops the ledger entries that belong to a story: those go by
@@ -402,7 +482,7 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 		default:
 			i := slices.IndexFunc(p.order, func(e ledger.Entry) bool { return e.ID == latest })
 			if i < 0 {
-				return reportMoved(w, a, &hosted.StaleBaseError{StoryID: p.id, Base: p.base(), LatestID: latest, Missing: missing})
+				return reportMoved(w, a, &hosted.StaleBaseError{StoryID: p.id, Base: p.base(), LatestID: latest, Missing: len(missing)}, chainEventLabels(p.id, missing))
 			}
 			heads.set(p.id, latest)
 			if i+1 == len(p.order) {
@@ -445,7 +525,7 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 		// A story nothing was published from here is no rebase: its local chain
 		// starts a fork of its own, which is `sync workstate rechain`'s to repair.
 		if i < 0 && from > 0 && !resumed && !rebased {
-			order, at, rerr := rebaseStory(ctx, a, conn, project, p.id, p.order, from)
+			order, at, rerr := rebaseStory(ctx, a, conn, project, p.id, p.order, from, p.nodeOwned)
 			if stopsPush(rerr) {
 				return rerr
 			}
@@ -468,7 +548,12 @@ func appendStory(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Chai
 			}
 			fmt.Fprintf(w, "the story %s %s\n", p.id, reason)
 			_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, map[string]string{p.id: reason}, nil, time.Now().UTC())
-			return err
+			moved := &movedError{err: err, reason: reason}
+			var elsewhere *movedElsewhereError
+			if errors.As(rebaseErr, &elsewhere) {
+				moved.unseen = eventLabels(elsewhere.events)
+			}
+			return moved
 		}
 		fmt.Fprintf(w, "the story %s is already published up to %s: resuming from it\n", p.id, stale.LatestID)
 		heads.set(p.id, stale.LatestID)
@@ -519,36 +604,58 @@ func forkPublished(ctx context.Context, w io.Writer, a *app.App, conn *hosted.Ch
 // nothing was sent, and nothing failed.
 var errUpToDate = errors.New("already published")
 
-// hostedLatest reads the story's hosted chain: its latest event, and how many of
-// its events the local chain does not hold.
-func hostedLatest(ctx context.Context, conn *hosted.ChainConn, project string, p storyAppend) (latest string, missing int, err error) {
-	events, latest, err := conn.ReadStory(ctx, project, p.id, "")
+// hostedLatest reads the story's hosted chain: its latest event, and its events
+// the local chain does not hold.
+func hostedLatest(ctx context.Context, conn *hosted.ChainConn, project string, p storyAppend) (latest string, missing []hosted.ChainEvent, err error) {
+	_, missing, latest, err = hostedBase(ctx, conn, project, p.id, p.order)
+	return latest, missing, err
+}
+
+// hostedBase reads the story's hosted chain once and returns head, the last event
+// of order the server confirms (every event of order up to it is on the hosted
+// chain; empty when the first is not), the hosted events order does not hold,
+// and the hosted latest.
+func hostedBase(ctx context.Context, conn *hosted.ChainConn, project, storyID string, order []ledger.Entry) (head string, missing []hosted.ChainEvent, latest string, err error) {
+	events, latest, err := conn.ReadStory(ctx, project, storyID, "")
 	if err != nil {
-		return "", 0, err
+		return "", nil, "", err
 	}
+	onHosted := make(map[string]bool, len(events))
 	for _, e := range events {
-		if !slices.ContainsFunc(p.order, func(l ledger.Entry) bool { return l.ID == e.ID }) {
-			missing++
+		onHosted[e.ID] = true
+	}
+	local := make(map[string]bool, len(order))
+	confirmed := true
+	for _, e := range order {
+		local[e.ID] = true
+		if confirmed = confirmed && onHosted[e.ID]; confirmed {
+			head = e.ID
 		}
 	}
-	return latest, missing, nil
+	for _, e := range events {
+		if !local[e.ID] {
+			missing = append(missing, e)
+		}
+	}
+	return head, missing, latest, nil
 }
 
 // reportMoved tells the agent the story moved on the server and records the
-// conflict; it returns stale so a caller can hand it back as the story's error.
-func reportMoved(w io.Writer, a *app.App, stale *hosted.StaleBaseError) error {
+// conflict; it returns stale, with the reason and the unseen events, so a caller
+// can hand it back as the story's error.
+func reportMoved(w io.Writer, a *app.App, stale *hosted.StaleBaseError, unseen []string) error {
 	reason := fmt.Sprintf("moved since %s: re-read and decide (server is at %s, %d event(s) not seen)", stale.Since(), stale.LatestID, stale.Missing)
 	fmt.Fprintf(w, "the story %s %s\n", stale.StoryID, reason)
 	_ = syncstate.RecordStoryConflicts(config.GlobalDir(), a.RepoRoot, map[string]string{stale.StoryID: reason}, nil, time.Now().UTC())
-	return stale
+	return &movedError{err: stale, reason: reason, unseen: unseen}
 }
 
 // rebaseStory reads the server's events after order[from-1] that this checkout has
 // not seen, applies them, and moves order[from:] (the unpublished events) after
 // them. It returns the new local chain and the index of its first unpublished
 // event. A base the server does not know is read again from the start, keeping
-// only the events not already held.
-func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, project, storyID string, order []ledger.Entry, from int) ([]ledger.Entry, int, error) {
+// only the events not already held. nodeOwned is storyAppend's.
+func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, project, storyID string, order []ledger.Entry, from int, nodeOwned bool) ([]ledger.Entry, int, error) {
 	base := ""
 	if from > 0 {
 		base = order[from-1].ID
@@ -581,7 +688,7 @@ func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, projec
 	if seen[0].BaseID != base {
 		return nil, 0, fmt.Errorf("the server's chain does not build on %s, the last event published from here", forkLabel(base))
 	}
-	if err := refuseMovedElsewhere(a, seen); err != nil {
+	if err := refuseMovedElsewhere(a, seen, order[from:], nodeOwned); err != nil {
 		return nil, 0, err
 	}
 	unpublished := make([]string, 0, len(order)-from)
@@ -610,16 +717,39 @@ func rebaseStory(ctx context.Context, a *app.App, conn *hosted.ChainConn, projec
 // refusal names the other location's latest working_on presence when the events
 // carry one; that presence is advisory and decides nothing here — the status move
 // does.
-func refuseMovedElsewhere(a *app.App, seen []ledger.Entry) error {
-	if !slices.ContainsFunc(seen, func(e ledger.Entry) bool { return e.Kind == ledger.KindStatusTransition }) {
+//
+// A node's push (nodeOwned) checks status over its own unpublished events, own,
+// as `sync workstate rechain` does (sty_6ac9a6f1): a node that has ended cannot
+// be rechained, and rows that move no status fold no second driver's move, so it
+// is refused only when one of own is itself a status move.
+func refuseMovedElsewhere(a *app.App, seen, own []ledger.Entry, nodeOwned bool) error {
+	isStatusMove := func(e ledger.Entry) bool { return e.Kind == ledger.KindStatusTransition }
+	if !slices.ContainsFunc(seen, isStatusMove) {
 		return nil
 	}
+	if nodeOwned {
+		i := slices.IndexFunc(own, isStatusMove)
+		if i < 0 {
+			return nil
+		}
+		return &movedElsewhereError{msg: fmt.Sprintf("the node's status move %s conflicts with another status move on the server", own[i].ID), events: seen}
+	}
+	msg := "another location moved its status"
 	self, _ := thisLocation(a)
 	if r, ok := presenceIn(seen, self); ok {
-		return fmt.Errorf("another location moved its status: %s", presenceText(r))
+		msg += ": " + presenceText(r)
 	}
-	return errors.New("another location moved its status")
+	return &movedElsewhereError{msg: msg, events: seen}
 }
+
+// movedElsewhereError is refuseMovedElsewhere's refusal, with the server's events
+// this checkout had not seen.
+type movedElsewhereError struct {
+	msg    string
+	events []ledger.Entry
+}
+
+func (e *movedElsewhereError) Error() string { return e.msg }
 
 // rebuildRebased brings a rebased story's row under its new chain.
 func rebuildRebased(ctx context.Context, a *app.App, storyID string) error {

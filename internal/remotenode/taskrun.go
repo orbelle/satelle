@@ -65,10 +65,13 @@ type StatusSender interface {
 // PublishReport is what a run's publish sent: the project and how many stories'
 // events, items, ledger rows, run outputs and story attachments the server took,
 // and each attachment it did not take, as "story <id> document <file>: <reason>".
+// Unpublished is each story whose events it did not publish, as "<id>: <reason>",
+// naming the server's events the node had not seen when it read them.
 type PublishReport struct {
 	Project                                      string
 	Stories, Items, Ledger, Outputs, Attachments int
 	AttachmentFailures                           []string
+	Unpublished                                  []string
 }
 
 // TaskRun is what RunTask needs.
@@ -169,8 +172,12 @@ func RunTask(ctx context.Context, tr TaskRun) (TaskRunResult, error) {
 		res.Findings = stopFindings(err, res.Drive)
 	}
 	if exec.ID != "" && !errors.Is(err, ErrRunRefused) {
-		if refused := tr.record(ctx, exec, res.Outcome); len(refused) > 0 {
-			res.Findings = joinFindings(res.Findings, agentcli.RedactSecrets("attachments refused: "+strings.Join(refused, "; ")))
+		pub := tr.record(ctx, exec, res.Outcome)
+		if len(pub.AttachmentFailures) > 0 {
+			res.Findings = joinFindings(res.Findings, agentcli.RedactSecrets("attachments refused: "+strings.Join(pub.AttachmentFailures, "; ")))
+		}
+		if len(pub.Unpublished) > 0 {
+			res.Findings = joinFindings(res.Findings, agentcli.RedactSecrets("stories not published: "+strings.Join(pub.Unpublished, "; ")))
 		}
 	}
 	rep.conclude(ctx, res.Outcome, res.Findings)
@@ -201,9 +208,9 @@ func joinFindings(findings, more string) string {
 // record writes the run's link row on the subject and pushes the run, before the
 // concluded heartbeat so the server holds the rows when it lists the run
 // concluded. Neither failing changes the run's outcome; each is logged. It
-// returns the attachments the publish reported refused, whether or not the rest of
-// the publish failed, for the concluded findings.
-func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string) []string {
+// returns the publish's report, whether or not the publish failed, so the
+// attachments and stories it did not take reach the concluded findings.
+func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string) PublishReport {
 	logf := func(what string, err error) {
 		if tr.Drive.Out != nil {
 			fmt.Fprintf(tr.Drive.Out, "node: %s: %v\n", what, err)
@@ -213,7 +220,7 @@ func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string
 		logf("execution link", err)
 	}
 	if tr.Publish == nil {
-		return nil
+		return PublishReport{}
 	}
 	rep, err := tr.Publish(ctx, exec, tr.Desc.StoryID)
 	if err != nil {
@@ -221,13 +228,13 @@ func (tr TaskRun) record(ctx context.Context, exec workitem.Item, outcome string
 		if tr.Drive.Out != nil {
 			fmt.Fprintf(tr.Drive.Out, "node: workstate: %d attachment(s) uploaded\n", rep.Attachments)
 		}
-		return rep.AttachmentFailures
+		return rep
 	}
 	if tr.Drive.Out != nil {
 		fmt.Fprintf(tr.Drive.Out, "node: workstate: published to %s: the events of %d stor(y/ies), %d item(s), %d ledger row(s), %d output(s), %d attachment(s)\n",
 			rep.Project, rep.Stories, rep.Items, rep.Ledger, rep.Outputs, rep.Attachments)
 	}
-	return rep.AttachmentFailures
+	return rep
 }
 
 // ErrRunRefused marks a Fetch error after which satelle.dev may be asked nothing
