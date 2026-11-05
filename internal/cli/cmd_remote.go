@@ -261,6 +261,8 @@ func withRemote(k *kernel.Kernel, r repo) (func(), error) {
 	if err != nil {
 		return func() {}, err
 	}
-	k.Remote = remotenode.Placer{Client: c, Project: b.Project}
+	k.Remote = remotenode.Placer{Client: c, Project: b.Project,
+		Sync: &ledgersync.Syncer{Client: c, Project: b.Project, Ledger: k.Ledger, Cache: k.Cache,
+			StatePath: filepath.Join(r.Runtime, syncStateFile)}}
 	return func() { c.Close() }, nil
 }

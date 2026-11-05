@@ -226,9 +226,21 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 		Coverage:        func(paths []string) (string, error) { return k.coverage(it, events, sp, paths) },
 		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
 	}
+	// A judge reads the item's record; checks need none. The folder is
+	// written after the changed paths are computed, and is gitignored.
+	if k.judged(w, tr) {
+		rec, err := k.record(it, events, true)
+		if err != nil {
+			return res, err
+		}
+		defer rec.Close()
+		run.Record = rec.Section
+	}
 	results, pass := run.Execute(ctx)
 	res.Gates = results
+	attempt := item.NewID("att")
 	for _, r := range results {
+		r.Attempt = attempt
 		if _, err := k.append(id, gate.KindRun, actor, r); err != nil {
 			return res, err
 		}
@@ -365,7 +377,7 @@ type PerformerRun struct {
 // that document to the item under the artifact's name; a malformed artifact
 // fails the run and attaches nothing.
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {
-	it, err := k.Get(id)
+	it, events, err := k.load(id)
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -381,7 +393,26 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	if agent.IsSession(b) {
 		return agent.Result{}, fmt.Errorf("state %q is performed by the session (agent %q), not dispatched", it.Status, b.Name)
 	}
-	req := agent.Request{Binding: b, System: k.Skills[st.Performer.Skill].Body, Prompt: renderItem(it), Dir: k.Dir}
+	prompt := renderItem(it) + rejections(it, events)
+	// The record: a remote node builds its own; a detached run cannot read
+	// this machine, so it gets the inline part only.
+	switch p := b.Placement; {
+	case strings.HasPrefix(p, agent.PlaceRemote):
+	case p == agent.PlaceCloud:
+		rec, err := k.record(it, events, false)
+		if err != nil {
+			return agent.Result{}, err
+		}
+		prompt += rec.Section
+	default:
+		rec, err := k.record(it, events, true)
+		if err != nil {
+			return agent.Result{}, err
+		}
+		defer rec.Close()
+		prompt += rec.Section
+	}
+	req := agent.Request{Binding: b, System: k.Skills[st.Performer.Skill].Body, Prompt: prompt, Dir: k.Dir}
 	start := time.Now()
 	var res agent.Result
 	var runErr error
@@ -471,6 +502,56 @@ func renderItem(it item.Item) string {
 		b.WriteString("\nAcceptance criteria:\n")
 		for i, c := range it.Criteria {
 			fmt.Fprintf(&b, "%d. %s\n", i+1, c)
+		}
+	}
+	return b.String()
+}
+
+// judged reports whether any gate of tr is judged by an agent (not a check).
+func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
+	for _, g := range tr.Groups {
+		for _, name := range g.Gates {
+			if !k.Skills[w.Gates[name].Skill].IsCheck() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rejections lists the gates that rejected the newest attempt to leave the
+// item's current state since it last entered it, with their notes bounded;
+// "" when that attempt did not reject or there is none.
+func rejections(it item.Item, events []ledger.Event) string {
+	start := 0
+	for i, e := range events {
+		if e.Kind == item.KindTransitioned {
+			start = i + 1
+		}
+	}
+	var runs []gate.Result
+	for _, e := range events[start:] {
+		var r gate.Result
+		if e.Kind == gate.KindRun && e.Decode(&r) == nil && r.Attempt != "" && gate.FromOf(r.Transition) == it.Status {
+			runs = append(runs, r)
+		}
+	}
+	if len(runs) == 0 {
+		return ""
+	}
+	latest := runs[len(runs)-1].Attempt
+	var b strings.Builder
+	for _, r := range runs {
+		if r.Attempt != latest || r.Result != gate.Reject {
+			continue
+		}
+		if b.Len() == 0 {
+			fmt.Fprintf(&b, "\nThe latest attempt to leave %q was rejected; address these findings:\n", it.Status)
+		}
+		notes, n := clip(r.Notes, RejectNotesMax)
+		fmt.Fprintf(&b, "- gate %s (%s) on %s:\n%s\n", r.Gate, r.Binding, r.Transition, notes)
+		if n < len(r.Notes) {
+			fmt.Fprintf(&b, "[shown %d of %d bytes of notes]\n", n, len(r.Notes))
 		}
 	}
 	return b.String()

@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -79,7 +81,7 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 			t.Errorf("ledger of %s differs\na: %v\nb: %v", id, chain, hb[id])
 		}
 	}
-	if out := b.must("story", "get", s1.ID, "--attachment", "plan.md"); out != "# the plan\n" {
+	if out := b.must("story", "attachment", s1.ID, "plan.md"); out != "# the plan\n" {
 		t.Errorf("pulled attachment = %q", out)
 	}
 	b.must("ledger", "verify")
@@ -105,4 +107,57 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 		t.Errorf("server chain has %d events, want b's %d", got, len(hb[s1.ID])+1)
 	}
 	a.must("ledger", "verify")
+}
+
+// Every version of every attachment survives a push and a pull, each body
+// identical by sha256 and readable by its sha on the other machine.
+func TestSyncCarriesEveryAttachmentVersion(t *testing.T) {
+	t.Parallel()
+	srv := fakeserver.Start(t, syncToken)
+	a := signedIn(t)
+	a.must("project", "create", "versions", "--bind", "--server", srv.URL)
+	s := a.create("story", "--title", "versioned")
+	bodies := []struct{ name, body string }{
+		{"plan", "# plan v1\n"}, {"plan", "# plan v2\n"}, {"plan", "# plan v3, the newest\n"},
+		{"evidence", "\x00\x01binary\xff evidence"}, {"notes.md", "notes\n"},
+	}
+	for _, x := range bodies {
+		if r := a.exec(satelleBin, x.body, "story", "attach", s.ID, "--name", x.name, "--file", "-"); r.code != 0 {
+			t.Fatalf("attach %s: %s%s", x.name, r.out, r.err)
+		}
+	}
+	a.must("sync", "push")
+
+	b := signedIn(t)
+	b.must("project", "bind", "versions", "--server", srv.URL)
+	b.must("sync", "pull")
+
+	var atts []item.Attachment
+	a.mustJSON(&atts, "story", "attachments", s.ID)
+	if len(atts) != len(bodies) {
+		t.Fatalf("a has %d attachment versions", len(atts))
+	}
+	added := map[string]bool{}
+	for _, e := range b.ledger(s.ID, "attachment.added") {
+		var p struct {
+			SHA256 string `json:"sha256"`
+		}
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		added[p.SHA256] = true
+	}
+	for i, at := range atts {
+		got := b.must("story", "attachment", s.ID, at.Name, "--sha", at.SHA256)
+		sum := sha256.Sum256([]byte(got))
+		if hex.EncodeToString(sum[:]) != at.SHA256 || got != bodies[i].body {
+			t.Errorf("%s v%d on b differs from a", at.Name, i)
+		}
+		if !added[at.SHA256] {
+			t.Errorf("b's ledger has no attachment.added for %s", at.SHA256)
+		}
+	}
+	if got := b.must("story", "attachment", s.ID, "plan"); got != "# plan v3, the newest\n" {
+		t.Errorf("newest plan on b = %q", got)
+	}
 }

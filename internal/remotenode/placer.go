@@ -8,6 +8,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/ledgersync"
 	"github.com/bobmcallan/satelle/internal/remotechan"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -28,12 +29,22 @@ type Placer struct {
 	// DefaultReadyTimeout.
 	ReadyTimeout time.Duration
 	ChanOpts     []remotechan.Option
+	// Sync pushes the item before its node starts, so the node pulls the
+	// item and its attachments and builds the record from its own ledger.
+	Sync *ledgersync.Syncer
 }
 
-// StartNode asks for a node of remote to perform binding for item.
+// StartNode pushes the item, then asks for a node of remote to perform
+// binding for it.
 func (p Placer) StartNode(ctx context.Context, remote, itemID, binding string) (string, error) {
 	if p.Client == nil || p.Project == "" {
 		return "", errors.New("a remote placement needs a bound project (satelle project bind)")
+	}
+	if p.Sync == nil {
+		return "", errors.New("a remote placement pushes the item first; no ledger to push")
+	}
+	if _, err := p.Sync.PushItem(ctx, itemID); err != nil {
+		return "", fmt.Errorf("pushing %s before its node starts: %w", itemID, err)
 	}
 	r, err := p.Client.Remotes.StartNode(ctx, &satellepb.StartNodeRequest{RemoteId: remote, Project: p.Project, ItemId: itemID, Binding: binding})
 	if err != nil {

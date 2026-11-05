@@ -40,10 +40,19 @@ type Result struct {
 	TokensOut  int    `json:"tokens_out"`
 	DurationMS int64  `json:"duration_ms"`
 	Coverage   string `json:"coverage,omitempty"`
+	// Attempt names the presentation this result belongs to: every gate of
+	// one Transition call shares it.
+	Attempt string `json:"attempt,omitempty"`
 }
 
 // TransitionKey names a move for carry and the ledger.
 func TransitionKey(from, to string) string { return from + "->" + to }
+
+// FromOf is the from-state of a TransitionKey.
+func FromOf(key string) string {
+	from, _, _ := strings.Cut(key, "->")
+	return from
+}
 
 // Run is one presentation of a transition.
 type Run struct {
@@ -67,6 +76,9 @@ type Run struct {
 	// ReviewerDiffers refuses a judge on the from-state performer's model.
 	ReviewerDiffers bool
 	CheckTimeout    time.Duration
+	// Record is the item's record section (attachments and children) for the
+	// judge prompt; "" adds nothing.
+	Record string
 }
 
 // Execute runs the groups and returns the results in run order and whether
@@ -301,6 +313,7 @@ func (r Run) prompt(g workflow.Gate) (string, error) {
 			fmt.Fprintf(&b, "\nDiff:\n%s\n", d)
 		}
 	}
+	b.WriteString(r.Record)
 	b.WriteString("\nAnswer with your judgement, ending with one JSON object: {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}\n")
 	return b.String(), nil
 }

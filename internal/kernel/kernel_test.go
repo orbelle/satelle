@@ -135,3 +135,15 @@ to = "z"
 		}
 	}
 }
+
+// init writes the ignore for run-time record folders.
+func TestInitWritesTheRunsIgnore(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil || !strings.Contains(string(b), "runs/") {
+		t.Fatalf(".satelle/.gitignore = %q, %v", b, err)
+	}
+}

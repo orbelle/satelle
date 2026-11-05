@@ -1,6 +1,15 @@
 ## [Unreleased]
 
+### Added
+- Every performer and judge run on this machine (and on a remote node, from its own ledger) gets the item's record: the newest version of each attachment and its children in a read-only folder under `.satelle/runs/` (gitignored), named in the prompt and removed after the run, with small bodies inlined (16 KiB each, 64 KiB in all, every cut marked). A detached run gets the record inline only. (sto_cdf94c34)
+- A performer re-run is told which gates rejected the latest attempt to leave its state, with their notes; every `gate.run` records its presentation's `attempt`. (sto_cdf94c34)
+- `satelle story attachment <id> <name> [--sha S]` prints any version of an attachment byte for byte. (sto_cdf94c34)
+
+### Removed
+- `satelle story get --attachment`; use `satelle story attachment`. (sto_cdf94c34)
+
 ### Changed
+- A step placed on a remote node pushes its item and attachments first, and the node pulls them before it runs. (sto_cdf94c34)
 - satelle and satelled are v1 (`.version`: `satelle.version` and `satelled.version` 1.0.0). `satelle.build` is an RFC 3339 UTC datetime (`YYYY-MM-DDTHH:MM:SSZ`); the version-stamp check and the release skill read and write that format. (sto_fa7df85b)
 - `satelle version`, `satelle --version`, `satelled --version` and satelled's top bar show one build identity line: `<name> <version> (commit <c>, built <t>)`. A make-built dev build keeps `+<commit>[-dirty]` and is stamped with the time it was built. (sto_fa7df85b)
 - satelled's `/healthz` answers JSON: `status`, `name`, `version`, `commit`, `build_time`. (sto_fa7df85b)

@@ -26,6 +26,9 @@ type fakeDispatcher struct {
 	mu      sync.Mutex
 	answers map[string]string
 	calls   []string
+	reqs    []agent.Request
+	// onDispatch runs inside Dispatch, while the run's record folder exists.
+	onDispatch func(role agent.Role, req agent.Request)
 }
 
 func (f *fakeDispatcher) set(name, text string) { f.mu.Lock(); f.answers[name] = text; f.mu.Unlock() }
@@ -34,6 +37,10 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, string(role)+":"+req.Binding.Name)
+	f.reqs = append(f.reqs, req)
+	if f.onDispatch != nil {
+		f.onDispatch(role, req)
+	}
 	text, ok := f.answers[req.Binding.Name]
 	if !ok {
 		return agent.Result{}, errors.New("no answer")

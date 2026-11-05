@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed template
+//go:embed all:template
 var template embed.FS
 
 // Init writes the starter configuration into root (the .satelle directory),

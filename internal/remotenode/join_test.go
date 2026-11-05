@@ -77,6 +77,20 @@ type answers struct {
 	calls []string
 	reqs  []agent.Request
 	text  map[string]string
+	// seen is each dispatch's attachments/plan read from the record folder
+	// its prompt names, while the run is in progress; folders are those paths.
+	seen    map[string]string
+	folders []string
+}
+
+// recordFolder is the record folder a prompt names, or "".
+func recordFolder(prompt string) string {
+	i := strings.Index(prompt, kernel.RecordLead)
+	if i < 0 {
+		return ""
+	}
+	rest := prompt[i+len(kernel.RecordLead):]
+	return rest[:strings.Index(rest, ":\n")]
 }
 
 func (a *answers) Dispatch(_ context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
@@ -84,6 +98,15 @@ func (a *answers) Dispatch(_ context.Context, role agent.Role, req agent.Request
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, string(role)+":"+req.Binding.Name)
 	a.reqs = append(a.reqs, req)
+	if dir := recordFolder(req.Prompt); dir != "" {
+		a.folders = append(a.folders, dir)
+		if b, err := os.ReadFile(filepath.Join(dir, "attachments", "plan")); err == nil {
+			if a.seen == nil {
+				a.seen = map[string]string{}
+			}
+			a.seen[string(role)+":"+req.Binding.Name] = string(b)
+		}
+	}
 	if t, ok := a.text[req.Binding.Name]; ok {
 		return agent.Result{Text: t, Model: "m", TokensIn: 5, TokensOut: 7}, nil
 	}
@@ -155,6 +178,10 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	if _, err := l.k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	plan := strings.Repeat("plan line\n", 2048) + "the last line of the remote plan\n"
+	if _, err := l.k.Attach(it.ID, "plan", []byte(plan), "text/markdown", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := l.syncer(t).Push(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +201,21 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	}
 	if strings.Join(d.calls, " ") != "perform:doer judge:r1" {
 		t.Fatalf("dispatched %v", d.calls)
+	}
+	// The node built the record from its own pulled ledger, in its own tree,
+	// for the performer and the judge, and removed it after each run.
+	for _, who := range []string{"perform:doer", "judge:r1"} {
+		if d.seen[who] != plan {
+			t.Errorf("%s read %d bytes of the plan from the node's record, want %d", who, len(d.seen[who]), len(plan))
+		}
+	}
+	for _, f := range d.folders {
+		if !strings.HasPrefix(f, dir) || !strings.Contains(f, filepath.Join(".satelle", "runs")) {
+			t.Errorf("record folder %s is not under the node's tree %s", f, dir)
+		}
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("record folder %s was left behind", f)
+		}
 	}
 	if env := strings.Join(d.reqs[0].Env, " "); env != "NOTE="+nodeSecret {
 		t.Fatalf("the performer's env = %q, want the run's secrets", env)
@@ -235,10 +277,17 @@ func TestJoinRunsATask(t *testing.T) {
 	}
 	l.srv.AddNode(&fakeserver.Node{ID: "nod_t", Token: "node-tok", Bundle: nodeBundle(t), Version: "v1",
 		Secrets: map[string]string{"NOTE": nodeSecret}, Run: &satellepb.RunDescriptor{Mode: ModeTask, Project: l.project, ItemId: task.ID}})
-	d := &answers{text: map[string]string{"doer": "did it", "r1": `{"verdict":"accept","notes":"fine"}`}}
+	// The performer hands back an artifact, attached to the execution on the
+	// node; the judge then reads it from the node's own record.
+	d := &answers{text: map[string]string{
+		"doer": `did it {"artifact":{"name":"plan","type":"evidence","body":"execution evidence\n"}}`,
+		"r1":   `{"verdict":"accept","notes":"fine"}`}}
 	out, err := Join(context.Background(), JoinOptions{Server: l.srv.URL, NodeID: "nod_t", Token: "node-tok", Dir: t.TempDir(), Dispatcher: d})
 	if err != nil || out.Verdict != kernel.VerdictAccept {
 		t.Fatalf("Join = %+v, %v", out, err)
+	}
+	if d.seen["judge:r1"] != "execution evidence\n" {
+		t.Errorf("the judge read %q from the node's record, want the execution's evidence", d.seen["judge:r1"])
 	}
 	exec := strings.SplitN(out.Notes, ":", 2)[0]
 	if events := l.srv.Events(l.project, exec); len(events) == 0 {
@@ -300,12 +349,16 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	if _, err := l.k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	plan := strings.Repeat("placed plan\n", 1500) + "the last line of the placed plan\n"
+	if _, err := l.k.Attach(it.ID, "plan", []byte(plan), "text/markdown", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	d := &answers{text: map[string]string{"doer": "done remotely"}}
 	files := map[string]string{"remote.toml": performerDefinition}
 	for p, b := range lineConfig {
 		files[p] = b
 	}
-	p := &startingPlacer{Placer: Placer{Client: l.client, Project: l.project}, t: t, srv: l.srv, bundle: bundleOf(t, files), d: d, done: make(chan error, 1)}
+	p := &startingPlacer{Placer: Placer{Client: l.client, Project: l.project, Sync: l.syncer(t)}, t: t, srv: l.srv, bundle: bundleOf(t, files), d: d, done: make(chan error, 1)}
 	l.k.Remote = p
 	res, err := l.k.Perform(context.Background(), it.ID, "ada")
 	if err != nil {
@@ -329,6 +382,30 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("starter calls %q lack %q", got, want)
 		}
+	}
+	// The starter pushed the item and its attachment before the node
+	// started; the node pulled it and built the record from its own ledger.
+	start := strings.Index(got, "StartNode")
+	for _, want := range []string{"Append", "PutAttachment"} {
+		if i := strings.Index(got, want); i < 0 || i > start {
+			t.Errorf("starter calls %q: %s does not come before StartNode", got, want)
+		}
+	}
+	if d.seen["perform:doer"] != plan {
+		t.Errorf("the node's performer read %d bytes of the plan from its record, want %d", len(d.seen["perform:doer"]), len(plan))
+	}
+	for _, f := range d.folders {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("record folder %s was left behind", f)
+		}
+	}
+}
+
+// A placement with no ledger to push refuses to start a node.
+func TestPlacementWithoutSyncRefuses(t *testing.T) {
+	_, err := Placer{Client: &hosted.Client{}, Project: "prj"}.StartNode(context.Background(), "ci", "sto_1", "doer")
+	if err == nil || !strings.Contains(err.Error(), "pushes the item first") {
+		t.Fatalf("StartNode without Sync = %v", err)
 	}
 }
 

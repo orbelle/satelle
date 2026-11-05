@@ -256,7 +256,7 @@ func TestAttachmentsAndContext(t *testing.T) {
 	if out := must(t, "story", "attachments", id); !strings.Contains(out, "plan") {
 		t.Errorf("attachments:\n%s", out)
 	}
-	if out := must(t, "story", "get", id, "--attachment", "plan"); out != "# plan\n" {
+	if out := must(t, "story", "attachment", id, "plan"); out != "# plan\n" {
 		t.Errorf("attachment body %q", out)
 	}
 	out, err := run(t, `{"session_id":"abc"}`, "hook", "context")

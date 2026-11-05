@@ -357,8 +357,7 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	if j.run.ItemID == "" || j.run.Project == "" {
 		return Outcome{}, fmt.Errorf("the %s run names no item or project", j.run.Mode)
 	}
-	sync := &ledgersync.Syncer{Client: j.nc.Hosted(), Project: j.run.Project, Ledger: k.Ledger, Cache: k.Cache,
-		StatePath: filepath.Join(j.o.Dir, "runtime", "sync-state.json")}
+	sync := j.syncer(k)
 	if _, err := sync.PullItem(ctx, j.run.ItemID); err != nil {
 		return Outcome{}, err
 	}
@@ -387,9 +386,22 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	return Outcome{Verdict: res.Verdict, Notes: j.redacted(fmt.Sprintf("%s: %s", target, res.Notes))}, nil
 }
 
-// perform serves a performer node: publish the channel key, join the relay,
-// and run each step the starter sends with the node's own binding.
+// syncer is the node's syncer for its run's project.
+func (j *joiner) syncer(k *kernel.Kernel) *ledgersync.Syncer {
+	return &ledgersync.Syncer{Client: j.nc.Hosted(), Project: j.run.Project, Ledger: k.Ledger, Cache: k.Cache,
+		StatePath: filepath.Join(j.o.Dir, "runtime", "sync-state.json")}
+}
+
+// perform serves a performer node: pull the run's item, publish the channel
+// key, join the relay, and run each step the starter sends with the node's
+// own binding, its prompt followed by the item's record built from the
+// node's own ledger.
 func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree string, report Report) (Outcome, error) {
+	if j.run.ItemID != "" && j.run.Project != "" {
+		if _, err := j.syncer(k).PullItem(ctx, j.run.ItemID); err != nil {
+			return Outcome{}, err
+		}
+	}
 	id, err := remotechan.NewIdentity()
 	if err != nil {
 		return Outcome{}, err
@@ -416,8 +428,15 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 		if !ok {
 			return nil, fmt.Errorf("binding %q is not in the node's agents", name)
 		}
+		var rec kernel.Record
+		if j.run.ItemID != "" {
+			if rec, err = k.OpenRecord(j.run.ItemID); err != nil {
+				return nil, err
+			}
+			defer rec.Close()
+		}
 		j.say("performing with %s", name)
-		res, err := k.Dispatcher.Dispatch(ctx, agent.Perform, agent.Request{Binding: b, System: req.SystemPrompt, Prompt: req.Text, Dir: tree})
+		res, err := k.Dispatcher.Dispatch(ctx, agent.Perform, agent.Request{Binding: b, System: req.SystemPrompt, Prompt: req.Text + rec.Section, Dir: tree})
 		if err != nil {
 			return nil, err
 		}

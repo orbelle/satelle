@@ -43,7 +43,7 @@ skill = "satelle-integration-check"
 
 # Done includes pushed (operator, 2026-11-06). Replaces chore-landed, which
 # required origin/main and a green CI run; GitHub now runs no tests.
-[gates.pushed]
+[gates.on-origin]
 skill = "satelle-pushed-check"
 
 [gates.blocked-review]
@@ -69,7 +69,7 @@ groups = [
 [[transition]]
 from = ["integration"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["integration-check", "pushed"] }]
+groups = [{ mode = "sequential", gates = ["integration-check", "on-origin"] }]
 
 [[transition]]
 from = ["integration"]

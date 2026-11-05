@@ -192,6 +192,40 @@ func (s *Syncer) Push(ctx context.Context) (PushResult, error) {
 	return res, err
 }
 
+// PushItem pushes one item's chain and its attachments, so a step placed on
+// a remote node finds it on the server. A diverged chain is an error.
+func (s *Syncer) PushItem(ctx context.Context, id string) (PushResult, error) {
+	var res PushResult
+	st, err := s.LoadState()
+	if err != nil {
+		return res, err
+	}
+	n, conflict, err := s.pushItem(ctx, id, st)
+	if err != nil {
+		_ = s.saveState(st)
+		return res, err
+	}
+	if conflict != nil {
+		_ = s.saveState(st)
+		return res, fmt.Errorf("%s diverged from the server; run satelle sync pull", id)
+	}
+	if err := s.saveState(st); err != nil {
+		return res, err
+	}
+	if n > 0 {
+		res.Items, res.Events = []string{id}, n
+		if err := s.putItems(ctx, res.Items); err != nil {
+			return res, err
+		}
+	}
+	a, err := s.pushAttachments(ctx, []string{id}, st, nil)
+	res.Attachments = a
+	if serr := s.saveState(st); err == nil {
+		err = serr
+	}
+	return res, err
+}
+
 // pushItem appends item's unpushed events. It returns how many it appended,
 // or the conflict when the remote chain diverged.
 func (s *Syncer) pushItem(ctx context.Context, id string, st State) (int, *Conflict, error) {

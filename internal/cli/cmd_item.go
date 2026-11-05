@@ -28,7 +28,7 @@ func itemCmd(kind string, writable bool) *cobra.Command {
 	}
 	switch kind {
 	case "story":
-		cmd.AddCommand(attachCmd(kind), attachmentsCmd(kind), routeCmd(kind), diffCmd(kind),
+		cmd.AddCommand(attachCmd(kind), attachmentsCmd(kind), attachmentCmd(kind), routeCmd(kind), diffCmd(kind),
 			seatCmd(kind), releaseCmd(kind), performCmd(kind), collectCmd(kind))
 	case "task":
 		cmd.AddCommand(taskRunCmd())
@@ -195,7 +195,6 @@ func itemCreateCmd(kind string) *cobra.Command {
 
 func itemGetCmd(kind string) *cobra.Command {
 	var asJSON *bool
-	var attachment string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: fmt.Sprintf("Show a %s", kind),
@@ -211,14 +210,6 @@ func itemGetCmd(kind string) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			if attachment != "" {
-				body, err := attachmentBody(k, it.ID, attachment)
-				if err != nil {
-					return err
-				}
-				_, err = out.Write(body)
-				return err
-			}
 			atts, err := k.Cache.Attachments(it.ID)
 			if err != nil {
 				return err
@@ -245,7 +236,6 @@ func itemGetCmd(kind string) *cobra.Command {
 		},
 	}
 	asJSON = jsonFlag(cmd)
-	cmd.Flags().StringVar(&attachment, "attachment", "", "print the named attachment's body")
 	return cmd
 }
 
@@ -497,18 +487,35 @@ func attachmentsCmd(kind string) *cobra.Command {
 	return cmd
 }
 
-// attachmentBody returns the body of the latest attachment named name.
-func attachmentBody(k *kernel.Kernel, id, name string) ([]byte, error) {
-	atts, err := k.Cache.Attachments(id)
-	if err != nil {
-		return nil, err
+// attachmentCmd prints one version of an attachment's body, byte for byte.
+func attachmentCmd(kind string) *cobra.Command {
+	var sha string
+	cmd := &cobra.Command{
+		Use:   "attachment <id> <name>",
+		Short: "Print an attachment's body (the newest version, or --sha)",
+		Long: `attachment prints the body of an item's attachment exactly as stored: the
+newest version of the name, or the version whose sha256 is --sha (the full
+sha256 or a unique hex prefix of at least 7 characters).`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			if _, err := getItem(k, kind, args[0]); err != nil {
+				return err
+			}
+			_, body, err := k.AttachmentBody(args[0], args[1], sha)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(body)
+			return err
+		},
 	}
-	for i := len(atts) - 1; i >= 0; i-- {
-		if atts[i].Name == name {
-			return k.Ledger.GetBlob(atts[i].SHA256)
-		}
-	}
-	return nil, fmt.Errorf("%s has no attachment named %q", id, name)
+	cmd.Flags().StringVar(&sha, "sha", "", "the version: its sha256 or a unique prefix of at least 7 hex characters")
+	return cmd
 }
 
 func seatCmd(kind string) *cobra.Command {

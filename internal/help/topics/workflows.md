@@ -53,6 +53,22 @@ A state may carry a performer, an agent plus a skill:
 `session` is the interactive session itself: nothing is dispatched, and the
 session does the work under the edit gate.
 
+### What a performer and a judge receive
+
+Each dispatched performer gets its skill and the item (title, body, criteria).
+When the latest attempt to leave the item's state was rejected, the prompt also
+lists each rejecting gate with its notes (8 KiB each), so a re-run can address
+them. Each judge gets the item, the change it judges, and the same record.
+
+The record is the newest version of each attachment and the item's children.
+Before a run on this machine (and on a remote node, from its own ledger)
+satelle writes it to a read-only folder under `.satelle/runs/` (gitignored),
+names every file in the prompt, and removes it after the run; small bodies are
+also inlined, up to 16 KiB each and 64 KiB in all, newest first, each cut
+marked with the bytes shown and the file to read. A detached run gets the
+record inline only. The session reads any version itself with
+`satelle story attachment <id> <name> [--sha S]`.
+
 ## Agents
 
 `.satelle/agents.toml` is a free catalog of bindings:

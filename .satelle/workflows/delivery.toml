@@ -48,12 +48,10 @@ agent = "reviewer-alt"
 [gates.plan-review]
 skill = "satelle-story-plan-review"
 # Quality over speed (operator, 2026-11-06): grok found the one real plan flaw
-# on sto_0586c449, so it judges plans beside Gemini; both must accept.
-# Interim until sto_cdf94c34 (judges get attachments): Gemini on pi reads only
-# the repo, so it cannot see an attached plan and rejects every plan as missing
-# (sto_fa7df85b, 2026-11-06). grok judges plans alone until then; restore
-# panel = ["reviewer-alt", "reviewer-grok"], combine = "all" when it lands.
-agent = "reviewer-grok"
+# on sto_0586c449, so it judges plans beside Gemini; both must accept. Judges
+# read the attached plan from the item's record folder (sto_cdf94c34).
+panel = ["reviewer-alt", "reviewer-grok"]
+combine = "all"
 carry = true
 
 [gates.definition-unchanged]
@@ -92,7 +90,7 @@ skill = "satelle-integration-check"
 
 # Done includes pushed (operator, 2026-11-06): the session pushes the branch
 # before presenting done; this verifies HEAD is on origin.
-[gates.pushed]
+[gates.on-origin]
 skill = "satelle-pushed-check"
 
 [gates.outcome-review]
@@ -143,7 +141,7 @@ groups = [
 from = ["assessment"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["integration-check", "pushed"] },
+  { mode = "sequential", gates = ["integration-check", "on-origin"] },
 ]
 
 # Rework: back to coding from any judging state, and back to planning.

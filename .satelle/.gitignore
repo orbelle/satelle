@@ -1,0 +1,2 @@
+# Run-time state, never committed: each run's read-only record folder.
+runs/

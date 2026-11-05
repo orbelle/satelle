@@ -5,6 +5,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,10 +186,49 @@ func TestPerformPlacedOnARemoteRunsOnItsNode(t *testing.T) {
 	}
 }
 
-type fakeCloud struct{}
+type fakeCloud struct{ got *agent.Request }
 
-func (fakeCloud) Launch(context.Context, item.Item, agent.Request) (string, error) {
+func (c fakeCloud) Launch(_ context.Context, _ item.Item, req agent.Request) (string, error) {
+	if c.got != nil {
+		*c.got = req
+	}
 	return "https://claude.ai/code/session_x", nil
+}
+
+// A detached (cloud) run cannot read this machine: its prompt carries the
+// record inline, bounded, and names no local path; no folder is written.
+func TestPerformPlacedInTheCloudCarriesTheRecordInline(t *testing.T) {
+	k, _ := lineKernel(t, "cloud", "")
+	it := newItem(t, k)
+	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Repeat("abcdefghij", 2048) // 20480 bytes
+	if _, err := k.Attach(it.ID, "plan", []byte(body), "text/markdown", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a child"), Parent: &it.ID}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	var got agent.Request
+	k.Cloud = fakeCloud{got: &got}
+	if _, err := k.Perform(context.Background(), it.ID, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	p := got.Prompt
+	for _, want := range []string{"The item's record (attachments and children), inline:", body[:InlineBodyMax], "[shown 16384 of 20480 bytes]", "a child"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the detached prompt lacks %.60q", want)
+		}
+	}
+	for _, bad := range []string{RecordLead, ".satelle/runs", k.Root, k.Dir} {
+		if strings.Contains(p, bad) {
+			t.Errorf("the detached prompt names a local path: %q", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, runsDir)); !os.IsNotExist(err) {
+		t.Errorf("a detached run wrote a record folder: %v", err)
+	}
 }
 
 func TestPerformPlacedInTheCloud(t *testing.T) {
