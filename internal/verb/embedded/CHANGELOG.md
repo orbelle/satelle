@@ -1,3 +1,9 @@
+## [0.0.894] - 2026-11-05
+
+### Fixed
+- A remote node publishes its run's story even when satelle.dev appended to that story's chain during the run. Before its end-of-run push the node re-reads the hosted chain of each story it appends to and rebases its own rows on that head, as `satelle sync workstate rechain` does, so events satelle.dev appended mid-run (a status move, a finding, an execution link) never refuse the push. Before, the node reported "the story moved since its start" and left the story unpublished with a rechain remedy no one on the node could run. (sty_6ac9a6f1)
+- A node refuses only its own status move against a status move satelle.dev recorded during the run. That story is the one it leaves unpublished, and the run's concluded findings name it with the reason and the unseen events. (sty_6ac9a6f1)
+
 ## [0.0.893] - 2026-11-05
 
 ### Fixed
