@@ -264,40 +264,26 @@ model: reviewer premise, DOT workflows, isolated fresh-context review).
 ## Development
 
 ```sh
-go test ./...           # unit + package tests (local; CI does not run them)
-make integration        # black-box CLI + browser end-to-end (local only)
+go test ./...           # every package, the integration suite under tests/ included
+make test               # the same under credguard and a hermetic HOME (STRICT=1 optional)
+make integration        # only the integration suite
 ```
 
-The integration suite (in `tests/`, behind the `integration` build tag) runs
-against a real binary and **drives the web front end in headless Chrome**
-(chromedp) — tab switching, inline expand, live filtering, and realtime updates
-are all asserted in a real browser, not eyeballed. It needs a Chrome/Chromium
-binary (`SATELLE_CHROME` overrides the path); it **runs locally only**, not in
-GitHub CI, because it needs a browser and the running binary. `make integration`
-builds satelle once and passes it via `SATELLE_BIN` (point that at any binary to
-test it directly). Releases are cut by `.github/workflows/release.yml` when a
-CLI or serve version in `.version` has no matching tag yet (`vX` / `serve-vY`);
-each artifact is published independently. CI (`test.yml`) runs gofmt, vet, build and the no-cgo static build only; the unit and
-integration suites run locally (`make test` / `make integration`, `STRICT=1` optional).
+The integration suite (`tests/`) builds `satelle` and `satelled` once and drives
+them as a user would, each test in its own home and fresh git repo: `init` and a
+walk to done, a user-defined workflow judged by a fake `claude` on `PATH`, the
+edit gate, attachments, task runs, sync between two homes over the in-process
+fake satelle-server, satelled's pages, and a docker-local node (skipped without
+a docker daemon and a small local image). No test reaches past loopback.
 
-satelle dogfoods itself — this repo is set up with `satelle init`, and its
-remaining build phases are tracked as stories in the local database.
+CI (`test.yml`) runs build, vet, the windows cross-build, `make test`, the
+literal audit (`scripts/audit-literals.sh`), gofmt and the no-cgo static build.
+Releases are cut by `.github/workflows/release.yml` when a CLI or serve version
+in `.version` has no matching tag yet (`vX` / `serve-vY`); `satelle update`
+installs them.
 
-## Testing
-
-| Where | What |
-|-------|------|
-| **GitHub CI** (`test` workflow) | `go build`, `go vet`, `gofmt`, and a no-cgo static build of every main under `cmd/` (no test suites) |
-| **Local** | `make test` — unit + package tests; `make integration` — integration + browser e2e under `tests/` (`-tags integration`); needs a real Chrome and drives the built binary |
-| **Judgment** (`make judgment`) | Opt-in LLM rubric fixtures under `tests/llm/` (`-tags llm`). **Costs tokens**, calls a live model, not hermetic — run at release time or on demand, never in default CI. Nondeterminism-tolerant (best of three). The human half of this tier is the re-runnable audit tasks (`tsk_substrate-audit`, `tsk_reviewer-objective-audit`, `tsk_context-audit`). |
-| **Planner transport** (`make planner-bench`) | Opt-in live planner comparison under `tests/plannerbench/` (`-tags plannerbench`). **Costs tokens**, never CI. Writes schema-versioned per-run JSON, redacted raw results, attached artifacts, per-criterion findings, usage provenance, and Markdown summaries; infrastructure or under-sample failures exit non-zero while artifact-quality failures remain data. See `tests/plannerbench/EVIDENCE.md`. |
-
-Unit, integration and e2e suites are intentionally **not** in GitHub CI (cost; the
-integration suite also needs browser/binary fixtures). Run them locally before a
-release step when the workflow requires it. Property
-tests over the embedded substrate (`internal/config/substrate_*_test.go`) and
-coded-check golden tables (`tests/substrate_check_fence_test.go`) stay in the
-hermetic default path.
+`make judgment` runs the opt-in LLM rubric fixtures under `tests/llm/`
+(`-tags llm`). They cost tokens and call a live model; never in default CI.
 
 ## License
 

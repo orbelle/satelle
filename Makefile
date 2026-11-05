@@ -63,82 +63,35 @@ CREDGUARD := sh scripts/credguard.sh --
 # through TESTFLAGS. credguard stays OUTSIDE it so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 
-# STRICT=1 is the strict local mode (sty_53c3f311; CI runs only the unit suite, as plain `make test`, sty_a1f860b4):
-# unit tests run repeated and shuffled (-count=3 -shuffle=on) to expose order and
-# repetition leaks, integration tests shuffled, and both run through scripts/skipcheck, which fails the run on a skip
-# that is not on scripts/skip-allow.txt. skipcheck runs go test as its own child
-# (no pipe, so no pipefail hazard under /bin/sh) and keeps its exit status. With
-# STRICT unset every variable below is empty and the recipes are as before.
-#
-# The unit run repeats every test three times and internal/cli is almost entirely
-# serial (t.Setenv/t.Chdir rule out t.Parallel), so its package total is long and a
-# machine 3x slower than a typical dev machine would cross Go's default 10m package
-# timeout without any test hanging (sty_3f2a5c78). UNIT_STRICTFLAGS therefore sets
-# an explicit -timeout, and UNIT_SKIPCHECK adds a per-test stall deadline
-# (UNIT_STALL) so a test that really hangs is still named long before it. The
-# deadline is unit-only: the integration suite has tests with their own, longer
-# budgets and keeps the plain SKIPCHECK.
-#
-# The unit run also passes -tree ., so a test that writes into the source tree
-# fails the run by file name: packages run in parallel, and a file planted in the
-# tree races every source-walking test elsewhere (sty_6b98ba1f). The integration
-# run builds into the tree and is not guarded.
+# STRICT=1 is the strict local mode (sty_53c3f311): tests run repeated and
+# shuffled (-count=3 -shuffle=on) to expose order and repetition leaks, through
+# scripts/skipcheck, which fails the run on a skip that is not on
+# scripts/skip-allow.txt and names a test that stalls past STALL. With STRICT
+# unset every variable below is empty. -tree . fails the run when a test writes
+# into the source tree.
 STRICT ?=
 ifeq ($(STRICT),1)
-UNIT_STALL := 5m
-SKIPCHECK := go run ./scripts/skipcheck -allow scripts/skip-allow.txt --
-UNIT_SKIPCHECK := go run ./scripts/skipcheck -allow scripts/skip-allow.txt -stall $(UNIT_STALL) -tree . --
-UNIT_STRICTFLAGS := -json -count=3 -shuffle=on -timeout 30m
-INTEG_STRICTFLAGS := -json -shuffle=on
+STALL := 5m
+SKIPCHECK := go run ./scripts/skipcheck -allow scripts/skip-allow.txt -stall $(STALL) -tree . --
+STRICTFLAGS := -json -count=3 -shuffle=on -timeout 30m
 endif
 
-# TESTJSON=<file> (and TESTJSON_SLOW=<file> for test-cli-slow) writes the run's
-# go test -json stream to that file instead of the terminal. CI sets both, uploads
-# them and prints each package's time and its slowest tests from them, so a
-# package's drift toward go test's 10m default shows in the log before it fails a
-# release (sty_210df6c3). A plain redirect keeps go test's own exit status.
+# TESTJSON=<file> writes the run's go test -json stream to that file instead of
+# the terminal; CI uploads it and prints package times from it.
 TESTJSON ?=
-TESTJSON_SLOW ?=
 ifneq ($(TESTJSON),)
-UNIT_JSON := -json
-UNIT_JSONOUT := > $(TESTJSON)
-endif
-ifneq ($(TESTJSON_SLOW),)
-SLOW_JSON := -json
-SLOW_JSONOUT := > $(TESTJSON_SLOW)
+JSONFLAG := -json
+JSONOUT := > $(TESTJSON)
 endif
 
+# test runs every package, the integration suite under tests/ included: it
+# builds satelle and satelled once and drives them in throwaway homes.
 test:
-	$(CREDGUARD) $(HERMETIC) $(UNIT_SKIPCHECK) go test $(UNIT_STRICTFLAGS) $(UNIT_JSON) $(TESTFLAGS) ./... $(UNIT_JSONOUT)
+	$(CREDGUARD) $(HERMETIC) $(SKIPCHECK) go test $(STRICTFLAGS) $(JSONFLAG) $(TESTFLAGS) ./... $(JSONOUT)
 
-# test-cli-slow runs the internal/cli tests split out behind the `clislow` build
-# tag: the slowest of a package that is almost entirely serial, moved whole into
-# *_slow_test.go files and named TestSlow*, so the internal/cli package in `make
-# test` stays well inside go test's 10m default (sty_210df6c3). The tag compiles
-# the untagged test files too, so shared helpers resolve; -run runs only the moved
-# tests. A plain `go test ./...` skips them, as it skips the integration tag; CI
-# runs this target as its own step.
-.PHONY: test-cli-slow
-test-cli-slow:
-	$(CREDGUARD) $(HERMETIC) $(UNIT_SKIPCHECK) go test $(UNIT_STRICTFLAGS) $(SLOW_JSON) -tags clislow -run '^TestSlow' $(TESTFLAGS) ./internal/cli/ $(SLOW_JSONOUT)
-
-# integration builds the binary once, then drives it from ./tests via SATELLE_BIN
-# (no per-test rebuild). Run by hand with: SATELLE_BIN=$(command -v satelle) go test -tags integration ./tests/...
-# Stamp BASE_VERSION (plain .version), not the +sha/-dirty make-install form: the
-# suite asserts release behaviour (deployed.version, drift gates) against the
-# version under test, and a dirty working tree must not demote the test binary
-# into isDevVersion (sty_022929ef).
+# integration runs only the integration suite under tests/.
 integration:
-	go build -ldflags "-X $(PKG).Name=satelle -X $(PKG).Version=$(BASE_VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)" -o $(BIN) ./cmd/satelle
-	go build -ldflags "-X $(PKG).Name=satelled -X $(PKG).Version=$(BASE_SERVE_VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)" -o $(SERVE_BIN) ./cmd/satelled
-	SATELLE_BIN=$(CURDIR)/$(BIN) $(CREDGUARD) $(HERMETIC) $(SKIPCHECK) go test -tags integration $(INTEG_STRICTFLAGS) $(TESTFLAGS) ./tests/...
-
-# operator-check: the few checks of the operator's REAL reviewer/profile config.
-# Opt-in and deliberately NOT hermetic: they read the operator's ~/.satelle
-# catalog (via hostRootsAtStart in tests/) and pass only on a configured machine.
-.PHONY: operator-check
-operator-check:
-	go test -tags 'integration operatorconfig' -run 'Operator|RepoReviewerModel' ./tests/...
+	$(CREDGUARD) $(HERMETIC) go test $(TESTFLAGS) ./tests/
 
 # judgment: opt-in LLM rubric fixtures (sty_6830e78e). Costs tokens, not hermetic,
 # never in default CI. See README ## Testing.

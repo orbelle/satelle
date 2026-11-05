@@ -20,42 +20,34 @@ jobs:
         run: go build ./...
       - name: vet
         run: go vet ./...
-      - name: unit tests
-        # The hermetic unit suite (credguard + scripts/hermetic.sh + go test ./...),
-        # plain mode: STRICT=1 stays local-only (sty_a1f860b4).
-        run: make test TESTJSON=$RUNNER_TEMP/unit.json
-      - name: slow cli tests
-        # The internal/cli tests behind the clislow tag, split out so neither step
-        # nears go test's 10m package default (sty_210df6c3).
-        if: ${{ !cancelled() }}
-        run: make test-cli-slow TESTJSON_SLOW=$RUNNER_TEMP/cli-slow.json
+      - name: windows cross-build
+        run: GOOS=windows GOARCH=amd64 go build ./...
+      - name: tests
+        # go test ./... under credguard and scripts/hermetic.sh. It includes the
+        # integration suite under tests/, which builds satelle and satelled once
+        # and drives them in throwaway homes (docker-local skips without a daemon).
+        run: make test TESTJSON=$RUNNER_TEMP/test.json
       - name: test timings
-        # Each package's time and the 40 slowest internal/cli tests, from the -json
-        # streams above; then the output of every test that failed or never
-        # finished (the streams replace the plain go test log).
+        # Each package's time, then the output of every test that failed or never
+        # finished (the -json stream replaces the plain go test log).
         if: ${{ !cancelled() }}
         run: |
-          for f in "$RUNNER_TEMP/unit.json" "$RUNNER_TEMP/cli-slow.json"; do
-            [ -s "$f" ] || { echo "== $f: missing or empty"; continue; }
-            echo "== $f: package times"
-            jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail")) | "\(.Action)\t\(.Elapsed)s\t\(.Package)"' "$f"
-            echo "== $f: slowest internal/cli tests (s)"
-            jq -r 'select(.Package == "github.com/bobmcallan/satelle/internal/cli" and .Test != null and (.Test | contains("/") | not) and (.Action == "pass" or .Action == "fail")) | "\(.Elapsed)\t\(.Action)\t\(.Test)"' "$f" | sort -rn | head -40
-            echo "== $f: output of failed or unfinished tests"
-            jq -rn 'reduce inputs as $e ({}; (($e.Package // $e.ImportPath // "") + " " + ($e.Test // "")) as $k
-              | if $e.Action == "output" or $e.Action == "build-output" then .[$k] += ($e.Output // "")
-                elif $e.Action == "pass" or $e.Action == "skip" then del(.[$k])
-                else . end) | to_entries[] | .value' "$f"
-          done
+          f="$RUNNER_TEMP/test.json"
+          [ -s "$f" ] || { echo "== $f: missing or empty"; exit 0; }
+          jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail")) | "\(.Action)\t\(.Elapsed)s\t\(.Package)"' "$f"
+          jq -rn 'reduce inputs as $e ({}; (($e.Package // $e.ImportPath // "") + " " + ($e.Test // "")) as $k
+            | if $e.Action == "output" or $e.Action == "build-output" then .[$k] += ($e.Output // "")
+              elif $e.Action == "pass" or $e.Action == "skip" then del(.[$k])
+              else . end) | to_entries[] | .value' "$f"
       - name: upload test timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-json
-          path: |
-            ${{ runner.temp }}/unit.json
-            ${{ runner.temp }}/cli-slow.json
+          path: ${{ runner.temp }}/test.json
           if-no-files-found: ignore
+      - name: audit literals
+        run: bash scripts/audit-literals.sh
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

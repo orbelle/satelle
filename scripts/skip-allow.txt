@@ -1,31 +1,19 @@
 # Reviewed allowlist for scripts/skipcheck (sty_53c3f311).
 #
-# `make test STRICT=1` and `make integration STRICT=1` fail on any test or
-# subtest that skips unless it is listed here. One entry per line:
+# `make test STRICT=1` fails on any test or subtest that skips unless it is
+# listed here. One entry per line:
 #
 #   <package import path> <TestName[/subtest]> <reason>
 #
 # The reason is required. Matching is exact on package and test name; there are
 # no globs and skip text is never matched. List only skips a strict run
 # actually produces, and add an entry only after reviewing why the skip is
-# acceptable there. The browser e2e tests (tests/) are deliberately NOT listed:
-# a strict run needs Chrome, so a missing Chrome must fail the run.
+# acceptable there.
 
-# .satelle/ is gitignored operator substrate, so a CI checkout has none of it.
-github.com/bobmcallan/satelle/internal/agentstep TestDispatchedSeatInlinesDiagnosisPrinciple repo-local principle under gitignored .satelle/ is absent from a CI checkout
-github.com/bobmcallan/satelle/internal/agentstep TestOverrideReviewerSkillsQuotationComparison repo-local skills under gitignored .satelle/skills are absent from a CI checkout
-github.com/bobmcallan/satelle/internal/cli TestHookContext_DiagnosisPrincipleInlined repo-local principle under gitignored .satelle/ is absent from a CI checkout
-github.com/bobmcallan/satelle/internal/cli TestRenderAlwaysContent_realSubstrateFitsClaudeLimit repo-local constitution under gitignored .satelle/ is absent from a CI checkout
-github.com/bobmcallan/satelle/internal/cli TestRepoRouteCarriesTheInstructionGateOnEveryEditableLane repo-local route under gitignored .satelle/workflows is absent from a CI checkout
+# A shallow or tagless clone has no serve-v* baseline for the serve gate.
+github.com/bobmcallan/satelle/cmd/satelled TestServeGateSeesNewFiles a clone without a verified serve-v* tag gives the gate no baseline
 
-# `go test` builds a dev version, and a dev build never gates on breaking drift.
-github.com/bobmcallan/satelle/internal/cli TestCheckBreakingDriftBreakingRange go test builds a dev version, which never gates; the decision is covered by TestBreakingDriftDecision
-
-# Opt-in live runs that spend real money or tokens; never enabled on CI.
-github.com/bobmcallan/satelle/internal/agentstep TestParityLive live parity run is opt-in (SATELLE_PARITY=1) and spends real money
-github.com/bobmcallan/satelle/internal/remotechan TestRelayInteropProduction opt-in run against the production relay (SATELLE_RELAY_INTEROP=1) needs a real sign-in and the network; never enabled on CI
-github.com/bobmcallan/satelle/internal/cli TestLiveRetire opt-in run against satelle.dev (SATELLE_LIVE_SERVER, SATELLE_LIVE_PROJECT, SATELLE_TOKEN) registers and retires a real remote; never enabled on CI
-github.com/bobmcallan/satelle/internal/cli TestRemoteLivePublishListFetch opt-in run against satelle.dev (SATELLE_LIVE_SERVER, SATELLE_LIVE_WORKSPACE) publishes a permanent team artifact; never enabled on CI
-github.com/bobmcallan/satelle/internal/cli TestRemoteTriggerLive opt-in run against satelle.dev (SATELLE_LIVE_SERVER, SATELLE_LIVE_REMOTE, SATELLE_TOKEN) fires a real remote's triggers; never enabled on CI
-github.com/bobmcallan/satelle/internal/remotenode TestLiveSecretReadPersonal opt-in run against satelle.dev (SATELLE_LIVE_SERVER, SATELLE_LIVE_PROJECT, SATELLE_TOKEN) registers a throwaway remote, key, secret and run, and removes them; never enabled on CI
-github.com/bobmcallan/satelle/internal/remotenode TestLiveSecretReadTeam opt-in run against satelle.dev (adds SATELLE_LIVE_WORKSPACE) pushes a throwaway team secret into a team workspace and removes it; never enabled on CI
+# docker-local against a real daemon; never pulls an image.
+github.com/bobmcallan/satelle/internal/remote/provider TestDockerLocalRunsTheDefinition needs a running docker daemon and a small local image; the fake-docker argv tests always run
+github.com/bobmcallan/satelle/internal/remote/provider TestDockerLocalFailedSetupLeavesTheMachineToInspect needs a running docker daemon and a small local image
+github.com/bobmcallan/satelle/tests TestRemoteNodeOnDockerLocal needs a running docker daemon and a small local image
