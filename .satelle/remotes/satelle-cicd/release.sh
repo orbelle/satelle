@@ -4,7 +4,7 @@
 # passed its gates locally and its epic/<id> (or feat/<id>) branch is pushed,
 # contains origin/main, and carries its CHANGELOG entry under "## [Unreleased]".
 #
-#   SATELLE_NODE_DIR=<node dir> release.sh <story id>
+#   SATELLE_NODE_DIR=<node dir> SATELLE_RELEASE_EXECUTION=<exe id> release.sh <story id>
 #
 # It stamps the release on the story branch (.version patch bump, the satelled
 # bump scripts/check-serve-version.sh asks for, the CHANGELOG heading and its
@@ -15,6 +15,10 @@
 # v<version> tag, and attaches live-evidence to the story. Dogfood is the
 # operator's machine's, after the tag.
 #
+# A re-run after a refusal resumes: when the branch tip is already this
+# script's `release: <version> (<id>)` commit and v<version> is not tagged, it
+# keeps that stamp and the open PR instead of stamping again.
+#
 # Every satelle command runs from SATELLE_NODE_DIR, where the node holds the
 # story; git and gh run in the clone. Git and forge actions live here, in the
 # substrate, never in the binary (satelle-mechanism-vs-substrate).
@@ -22,6 +26,7 @@
 # Seams (environment):
 #   GH_TOKEN                  read by git through a credential helper and by gh
 #   SATELLE_NODE_DIR          the node's satelle directory (required)
+#   SATELLE_RELEASE_EXECUTION the run's exe_ id, which `pr approve` records on (required)
 #   SATELLE_RELEASE_REPO      owner/name (orbelle/satelle)
 #   SATELLE_RELEASE_CI_WAIT   seconds to wait for the test run to be listed (900)
 #   SATELLE_RELEASE_DISPATCH  seconds before a missing push run is dispatched (180)
@@ -37,8 +42,9 @@ set +x
 
 id="${1:-}"
 node_dir="${SATELLE_NODE_DIR:-}"
-if [ -z "$id" ] || [ -z "$node_dir" ]; then
-  echo "usage: SATELLE_NODE_DIR=<node dir> $0 <story id>" >&2
+execution="${SATELLE_RELEASE_EXECUTION:-}"
+if [ -z "$id" ] || [ -z "$node_dir" ] || ! [[ "$execution" =~ ^exe_[0-9a-f]+$ ]]; then
+  echo "usage: SATELLE_NODE_DIR=<node dir> SATELLE_RELEASE_EXECUTION=<exe id> $0 <story id>" >&2
   exit 2
 fi
 
@@ -96,6 +102,24 @@ if [ ! -f "$bundle_constitution" ] || ! diff -q <(body_of .satelle/constitution.
   exit 2
 fi
 
+# A tip that is this script's own release commit for the story, not yet
+# tagged, is a refused run's stamp: resume from it.
+resumed=""
+if [[ "$(git log -1 --format=%s)" =~ ^release:\ ([0-9]+\.[0-9]+\.[0-9]+)\ \("$id"\)$ ]]; then
+  version="${BASH_REMATCH[1]}"
+  if [ "$(sed -n 's/^satelle\.version: //p' .version)" = "$version" ] &&
+     awk '/^## \[/{print; exit}' CHANGELOG.md | grep -qF "## [$version]" &&
+     ! git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+    resumed=yes
+    serve=""
+    if git show --format= --name-only HEAD | grep -qx .version && git diff HEAD~1 HEAD -- .version | grep -q '^+satelled\.version: '; then
+      serve="$(sed -n 's/^satelled\.version: //p' .version)"
+    fi
+    echo "resuming the release of $version from $(git rev-parse --short HEAD) on $branch"
+  fi
+fi
+
+if [ -z "$resumed" ]; then
 if ! awk '/^## \[/{print; exit}' CHANGELOG.md | grep -q '^## \[Unreleased\]'; then
   echo "CHANGELOG.md's first entry on $branch is not '## [Unreleased]'; the story's entry must be there" >&2
   exit 2
@@ -152,12 +176,13 @@ fi
 
 git add .version CHANGELOG.md internal/verb/embedded/CHANGELOG.md
 git commit -q -m "release: $version ($id)"
-sha="$(git rev-parse HEAD)"
 
 if ! git push -q origin "HEAD:refs/heads/$branch"; then
   echo "push of $branch refused; nothing further ran" >&2
   exit 4
 fi
+fi
+sha="$(git rev-parse HEAD)"
 
 entry="$(awk '/^## \[/{h++} h==1{print}' CHANGELOG.md)"
 pr="$(gh pr list -R "$repo" --head "$branch" --state open --json number -q '.[0].number' || true)"
@@ -178,11 +203,12 @@ pr_url="$(gh pr view "$pr" -R "$repo" --json url -q .url)"
 
 # The approval: satelle pr approve cold-reviews the exact head and, on accept,
 # posts the status under GH_TOKEN. The merge below trusts only that status.
-if ! on_node pr approve --story "$id" --repo "$repo" --binding pr-reviewer >"$tmp/approve.txt" 2>&1; then
+if ! on_node pr approve --story "$id" --repo "$repo" --binding pr-reviewer --execution "$execution" >"$tmp/approve.txt" 2>&1; then
   cat "$tmp/approve.txt" >&2
   echo "satelle pr approve did not approve $pr_url at $sha; nothing merged" >&2
   exit 8
 fi
+cat "$tmp/approve.txt"
 approval="$(gh api "repos/$repo/commits/$sha/status" -q ".statuses[] | select(.context==\"$status_context\") | .state" | head -n 1)"
 if [ "$approval" != success ]; then
   echo "$status_context on $sha is '${approval:-absent}', not success; nothing merged" >&2
