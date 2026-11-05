@@ -68,6 +68,13 @@ func NewNodeClient(server, nodeID, token string) (*NodeClient, error) {
 // Close closes the connection.
 func (c *NodeClient) Close() error { return c.client.Close() }
 
+// Hosted is the node's gRPC client: every service, authenticated by the node
+// token (the relay, the chain and attachments use it).
+func (c *NodeClient) Hosted() *hosted.Client { return c.client }
+
+// NodeID is the node this client speaks for.
+func (c *NodeClient) NodeID() string { return c.nodeID }
+
 // call runs one NodeService call unless the token has already been refused. A
 // refusal of the token is remembered, so nothing further is asked.
 func (c *NodeClient) call(route string, fn func() error) error {

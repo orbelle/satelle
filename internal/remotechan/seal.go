@@ -12,12 +12,13 @@ import (
 	"fmt"
 )
 
-// The frame types on the relay. A relay sees these three and nothing else: the
-// two key halves of the handshake, and sealed data.
+// The frame types on the relay. A relay sees these and nothing else: the two
+// key halves of the handshake, sealed data, and a bare refusal.
 const (
 	frameHelloRemote byte = 1 // remote → local: remote's ephemeral public key
 	frameHelloLocal  byte = 2 // local → remote: local's ephemeral public key
 	frameData        byte = 3 // either way: type | seq(8, big-endian) | AES-256-GCM ciphertext
+	frameRefused     byte = 4 // local → remote, alone: the remote's enrollment did not open under the pinned key
 )
 
 const (

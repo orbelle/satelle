@@ -50,6 +50,7 @@ type Server struct {
 	runs     map[string]*satellepb.ItemRun // remote|item → run
 	nodes    map[string]*Node
 	relays   map[string]*relayPair
+	streams  map[*relayStream]bool
 	nextID   int
 }
 
@@ -63,15 +64,16 @@ type Call struct {
 func Start(t testing.TB, tokens ...string) *Server {
 	t.Helper()
 	s := &Server{
-		tokens: map[string]bool{},
-		me:     &satellepb.GetMeResponse{Id: "usr_1", Email: "ada@example.com", DisplayName: "Ada", Role: "member"},
-		spaces: []*satellepb.Workspace{{Id: "wsp_personal", Kind: "personal", Name: "personal"}},
-		chains: map[string]map[string][]*chainpb.Event{},
-		subs:   map[*subscriber]bool{},
-		items:  map[string]map[string]*satellepb.Item{},
-		runs:   map[string]*satellepb.ItemRun{},
-		nodes:  map[string]*Node{},
-		relays: map[string]*relayPair{},
+		tokens:  map[string]bool{},
+		me:      &satellepb.GetMeResponse{Id: "usr_1", Email: "ada@example.com", DisplayName: "Ada", Role: "member"},
+		spaces:  []*satellepb.Workspace{{Id: "wsp_personal", Kind: "personal", Name: "personal"}},
+		chains:  map[string]map[string][]*chainpb.Event{},
+		subs:    map[*subscriber]bool{},
+		items:   map[string]map[string]*satellepb.Item{},
+		runs:    map[string]*satellepb.ItemRun{},
+		nodes:   map[string]*Node{},
+		relays:  map[string]*relayPair{},
+		streams: map[*relayStream]bool{},
 	}
 	for _, tok := range tokens {
 		s.tokens[tok] = true

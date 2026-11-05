@@ -1,45 +1,39 @@
 // Package remotechan is the sealed channel between local satelle and an agent on
-// a remote it started. Both ends dial OUT to a relay (wss on 443) and neither
-// listens, so a corporate network needs no extra rule. The relay pairs the two
-// ends by session id and forwards bytes; it cannot read them.
+// a remote node. Both ends dial OUT to satelle.v1.RelayService/Connect (a gRPC
+// bidi stream on 443) and neither listens. The relay pairs the two ends by
+// session id and forwards opaque bytes; it cannot read them.
 //
 // # Relay contract (what the satelle-server relay must do)
 //
-// A relay serves GET <relayURL>/<session>?role=local|remote as a WebSocket
-// upgrade. The local end sends "Authorization: Bearer <satelle.dev access
-// token>"; the relay answers 401 for a bearer it does not accept, and the local
-// end then refreshes through hosted.Client.WithBearer and retries once. The
-// remote end sends "Authorization: Bearer <node token>", the token satelle.dev
-// gave the node it started; the relay answers 401 for one it does not accept and
-// admits an accepted remote into its session whether or not a local end is
-// waiting. The remote still proves itself to the local end, with its pinned key
-// and the enrollment token, not to the relay. Every binary message from one end
-// is forwarded unchanged to the other; the relay never needs to parse one.
+// Connect's first frame names the session and the role (local or remote); every
+// frame after it carries one channel frame in data, forwarded to the other end
+// unchanged and in order. The local end authenticates with the user's bearer;
+// the remote with its node token, and the relay admits an accepted remote
+// whether or not a local end is waiting. The remote still proves itself to the
+// local end with its pinned key, not to the relay.
 //
-// A relay restart closes every session and keeps none. The two ends of a
-// server-minted session (AttachServerSession, Join) therefore redial the same
-// session id with backoff, for at most ResumeWindow, and handshake again; the
-// relay admits either end first. A going-away or abnormal close, or a network
-// error, is a restart; a 4401 close, a bad_session or slot_taken answer, or a
-// 401, 403, 404 or 409 on the upgrade is a refusal and is never retried (see
-// classifyClose). A job open at the drop is failed, not resumed.
+// A relay restart ends every stream and keeps none. The two ends therefore
+// redial the same session with backoff, for at most ResumeWindow, and
+// handshake again; the relay admits either end first. UNAVAILABLE, ABORTED,
+// RESOURCE_EXHAUSTED, INTERNAL or a network error is a restart;
+// UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, ALREADY_EXISTS,
+// FAILED_PRECONDITION or INVALID_ARGUMENT is a refusal and is never retried
+// (see classifyClose). A job open at the drop is failed, not resumed.
 //
-// # Wire protocol
+// # Channel protocol
 //
-// Binary messages only. remote → local: [1][remote ephemeral X25519 public
-// key]; local → remote: [2][local ephemeral public key]; then both ways
-// [3][seq, 8 bytes][AES-256-GCM ciphertext]. The keys come from HKDF-SHA256
-// over the ephemeral–ephemeral DH and the local ephemeral–node-static DH, the
-// latter against the key local satelle pinned at launch (seal.go). Everything
-// after the two key halves is sealed, including the enrollment token and the
-// heartbeats; the relay and any proxy see only types, lengths and sequence
-// numbers.
+// remote → local: [1][remote ephemeral X25519 public key]; local → remote:
+// [2][local ephemeral public key]; then both ways [3][seq, 8 bytes][AES-256-GCM
+// ciphertext]. The keys come from HKDF-SHA256 over the ephemeral–ephemeral DH
+// and the local ephemeral–node-static DH, the latter against the key local
+// satelle pinned (seal.go). Everything after the two key halves is sealed; the
+// relay sees only types, lengths and sequence numbers.
 //
-// Enrollment: the remote's first sealed message is {t:enroll, token}. Local
-// satelle opens it (a failure means the remote does not hold the pinned key:
-// ErrKeyMismatch), redeems the token (single use, EnrollTTL), and answers
-// {t:admit} or {t:refuse}. Nothing the remote sends before it is admitted is
-// delivered to the caller.
+// Admission: the remote's first sealed message is {t:enroll}. Local satelle
+// opens it (a failure means the remote does not hold the pinned key:
+// ErrKeyMismatch) and answers {t:admit}. Nothing the remote sends before it is
+// admitted is delivered. An end that closes sends a sealed {t:bye} first, so the
+// other end ends too rather than waiting on a restart.
 package remotechan
 
 import (
@@ -49,8 +43,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-
-	"github.com/coder/websocket"
 )
 
 // maxFrameBytes bounds one relay message in either direction.
@@ -81,6 +73,7 @@ const (
 	msgData      = "msg"
 	msgHeartbeat = "hb"
 	msgDone      = "done"
+	msgBye       = "bye"
 )
 
 // appMsg is what a sealed frame carries. Only the relay's view of it — a
@@ -89,7 +82,6 @@ type appMsg struct {
 	T      string `json:"t"`
 	Job    string `json:"job,omitempty"`
 	Body   []byte `json:"body,omitempty"`
-	Token  string `json:"token,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -107,7 +99,7 @@ var ErrClosed = errors.New("remotechan: session closed")
 // concurrent use.
 type Session struct {
 	role  Role
-	conn  atomic.Pointer[websocket.Conn] // swapped under wmu by a resume
+	conn  atomic.Pointer[conn] // swapped under wmu by a resume
 	clock Clock
 	res   *resumer // nil: the session ends with its connection
 
@@ -136,8 +128,7 @@ type Session struct {
 // outlives the ctx of the call that opened it (a per-call timeout must not end
 // it); Close ends it. res, when set, lets it redial the same session after the
 // relay drops the connection.
-func newSession(ctx context.Context, role Role, conn *websocket.Conn, send *sealer, recv *opener, clock Clock, res *resumer) *Session {
-	conn.SetReadLimit(maxFrameBytes)
+func newSession(ctx context.Context, role Role, c *conn, send *sealer, recv *opener, clock Clock, res *resumer) *Session {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s := &Session{
 		role: role, clock: clock, ctx: ctx, cancel: cancel, res: res,
@@ -145,7 +136,7 @@ func newSession(ctx context.Context, role Role, conn *websocket.Conn, send *seal
 		inbox: make(chan Message, 64), jobs: newJobTable(), lost: make(chan JobLost, 16),
 		open: map[*Job]struct{}{}, done: make(chan struct{}),
 	}
-	s.conn.Store(conn)
+	s.conn.Store(c)
 	go s.readLoop()
 	go s.monitor()
 	return s
@@ -200,14 +191,20 @@ func (s *Session) Err() error {
 	}
 }
 
-// Close ends the session. The normal close frame is written while the read loop's
-// context is still live: cancelling that context first makes the library drop the
-// socket with no frame, which the relay passes on as a vanished end and the other
-// end takes for a relay restart, redialling for up to ResumeWindow.
+// Close ends the session: it tells the other end with a sealed bye, then
+// closes the stream. It is safe to call more than once.
 func (s *Session) Close() error {
-	s.closing.Store(true)
-	err := s.conn.Load().Close(websocket.StatusNormalClosure, "")
+	if !s.closing.CompareAndSwap(false, true) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, closeGrace)
+	err := s.sendApp(ctx, appMsg{T: msgBye})
+	cancel()
+	s.conn.Load().Close()
 	s.finish(ErrClosed)
+	if errors.Is(err, ErrClosed) {
+		err = nil
+	}
 	return err
 }
 
@@ -247,7 +244,7 @@ func (s *Session) sendApp(ctx context.Context, m appMsg) error {
 				return ctx.Err()
 			}
 		}
-		err := s.conn.Load().Write(ctx, websocket.MessageBinary, s.send.seal(plain))
+		err := s.conn.Load().Write(ctx, s.send.seal(plain))
 		s.wmu.Unlock()
 		return err
 	}
@@ -268,9 +265,9 @@ func (s *Session) readLoop() {
 // the session itself ended (a bad frame, or its ctx); a non-nil one is the
 // connection's own failure.
 func (s *Session) readFrames() error {
-	conn := s.conn.Load()
+	c := s.conn.Load()
 	for {
-		_, frame, err := conn.Read(s.ctx)
+		frame, err := c.Read(s.ctx)
 		if err != nil {
 			return err
 		}
@@ -280,13 +277,13 @@ func (s *Session) readFrames() error {
 		plain, err := s.recv.open(frame)
 		if err != nil {
 			s.finish(err)
-			conn.Close(websocket.StatusPolicyViolation, "bad frame")
+			c.CloseNow()
 			return nil
 		}
 		var m appMsg
 		if json.Unmarshal(plain, &m) != nil {
 			s.finish(fmt.Errorf("%w: malformed message", ErrFrame))
-			conn.Close(websocket.StatusPolicyViolation, "bad message")
+			c.CloseNow()
 			return nil
 		}
 		switch m.T {
@@ -300,6 +297,11 @@ func (s *Session) readFrames() error {
 			s.jobs.beat(m.Job, s.clock.Now())
 		case msgDone:
 			s.jobs.done(m.Job)
+		case msgBye:
+			s.closing.Store(true)
+			c.CloseNow()
+			s.finish(fmt.Errorf("%w: the other end closed", ErrClosed))
+			return nil
 		}
 	}
 }

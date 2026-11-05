@@ -5,18 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
-	"github.com/coder/websocket"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
-// A relay that restarts closes every session and keeps none. The two ends of a
-// server-minted session therefore redial the same session id and handshake again
-// (a fresh key exchange, the same pinned node key), for at most ResumeWindow.
+// A relay that restarts ends every stream and keeps none. The two ends of a
+// session therefore redial the same session id and handshake again (a fresh key
+// exchange, the same pinned node key), for at most ResumeWindow.
 const (
 	// ResumeWindow is how long an end keeps redialling before it gives up.
 	ResumeWindow = 2 * time.Minute
@@ -30,7 +29,7 @@ const (
 
 var (
 	// ErrResumeRefused ends a session whose redial the relay refused (signed out,
-	// a session it does not know, a slot another user holds): retrying cannot help.
+	// a revoked node token, a session it does not know): retrying cannot help.
 	ErrResumeRefused = errors.New("remotechan: the relay refused the redial")
 	// ErrResumeExpired ends a session that could not redial within ResumeWindow.
 	ErrResumeExpired = errors.New("remotechan: the relay did not come back within the resume window")
@@ -42,7 +41,7 @@ type resumer struct {
 	session string
 	window  time.Duration
 	rec     Recorder
-	redial  func(ctx context.Context) (*websocket.Conn, *sealer, *opener, error)
+	redial  func(ctx context.Context) (*conn, *sealer, *opener, error)
 }
 
 type closeClass int
@@ -53,54 +52,30 @@ const (
 	closeRefusal                   // the relay said no: do not redial
 )
 
-// statusRefusedByRelay is the close code the relay sends a local end whose
-// satelle.dev sign-in is no longer valid.
-const statusRefusedByRelay websocket.StatusCode = 4401
-
-// classifyClose says what a connection error means for the session. A restart
-// (going away, an abnormal close, a network error) is worth redialling; a
-// refusal (signed out, bad_session, slot_taken) never is; anything else ends the
-// session as it always did.
+// classifyClose says what a stream error means for the session. A restart
+// (the relay unavailable or gone) is worth redialling; a refusal (signed out, a
+// token or session the relay does not accept) never is; anything else ends the
+// session.
 func classifyClose(err error) closeClass {
-	var rs *RelayStatusError
 	switch {
-	case errors.As(err, &rs):
-		return rs.class()
-	case errors.Is(err, hosted.ErrLoginRequired), errors.Is(err, hosted.ErrSessionTokenRefused):
+	case errors.Is(err, hosted.ErrLoginRequired), errors.Is(err, hosted.ErrSessionTokenRefused), errors.Is(err, hosted.ErrNodeTokenRefused):
 		return closeRefusal
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
-		errors.Is(err, ErrFrame), errors.Is(err, ErrKeyMismatch), errors.Is(err, ErrEnrollRefused), errors.Is(err, errOpen):
+		errors.Is(err, ErrFrame), errors.Is(err, ErrKeyMismatch), errors.Is(err, ErrEnrollRefused), errors.Is(err, errOpen),
+		errors.Is(err, ErrClosed):
 		return closeOther
-	}
-	var ce websocket.CloseError
-	if errors.As(err, &ce) && refusalText(ce.Reason) {
-		return closeRefusal
-	}
-	switch websocket.CloseStatus(err) {
-	case -1: // no close frame: the network, or EOF
+	case errors.Is(err, errStreamEnded):
 		return closeRestart
-	case websocket.StatusGoingAway, websocket.StatusAbnormalClosure, websocket.StatusInternalError,
-		websocket.StatusServiceRestart, websocket.StatusTryAgainLater:
-		return closeRestart
-	case statusRefusedByRelay, websocket.StatusPolicyViolation:
-		return closeRefusal
 	}
-	return closeOther
-}
-
-func refusalText(s string) bool {
-	return strings.Contains(s, "bad_session") || strings.Contains(s, "slot_taken")
-}
-
-// Refusal reports whether the relay's answer to the upgrade says no for good.
-func (e *RelayStatusError) Refusal() bool { return e.class() == closeRefusal }
-
-func (e *RelayStatusError) class() closeClass {
-	switch {
-	case e.Status == http.StatusUnauthorized, e.Status == http.StatusForbidden,
-		e.Status == http.StatusNotFound, e.Status == http.StatusConflict, refusalText(e.Body):
+	st, ok := status.FromError(err)
+	if !ok {
+		return closeRestart // a network error
+	}
+	switch st.Code() {
+	case codes.Unauthenticated, codes.PermissionDenied, codes.NotFound, codes.AlreadyExists,
+		codes.FailedPrecondition, codes.InvalidArgument:
 		return closeRefusal
-	case e.Status >= 500, e.Status == http.StatusTooManyRequests, e.Status == http.StatusRequestTimeout:
+	case codes.Unavailable, codes.Aborted, codes.ResourceExhausted, codes.Internal, codes.Unknown:
 		return closeRestart
 	}
 	return closeOther
@@ -184,18 +159,17 @@ func (s *Session) backoff(n int) bool {
 }
 
 // swap installs a redialled connection and lets blocked writers through.
-func (s *Session) swap(conn *websocket.Conn, send *sealer, recv *opener, attempts int) bool {
-	conn.SetReadLimit(maxFrameBytes)
+func (s *Session) swap(c *conn, send *sealer, recv *opener, attempts int) bool {
 	s.wmu.Lock()
 	select {
 	case <-s.done:
 		s.wmu.Unlock()
-		conn.CloseNow()
+		c.CloseNow()
 		return false
 	default:
 	}
 	s.send, s.recv = send, recv
-	s.conn.Store(conn)
+	s.conn.Store(c)
 	close(s.gate)
 	s.gate = nil
 	s.wmu.Unlock()

@@ -4,322 +4,298 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"slices"
-	"sort"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// AC1: a reused, expired or unminted token is refused at the channel and each
-// refusal is recorded once.
-func TestEnrollmentRefusalsAreRecorded(t *testing.T) {
-	h := newHarness(t, true)
-	_, _, first := h.connect(t) // consumes the first token from the shared book
-
-	id, _ := NewIdentity()
-	open := func(present func(LaunchSpec) string) (joined, error) {
-		l, res, _ := h.launcher(t, id, id.Public(), present)
-		_, err := Open(testCtx(t), h.client, h.relay.URL(), l, h.opts()...)
-		return <-res, err
-	}
-
-	remote, err := open(func(LaunchSpec) string { return first.Token })
-	if !errors.Is(err, ErrTokenUsed) || !errors.Is(remote.err, ErrEnrollRefused) {
-		t.Fatalf("reused token: local %v, remote %v; want ErrTokenUsed and ErrEnrollRefused", err, remote.err)
-	}
-	if remote.s != nil {
-		t.Error("a remote with a reused token was admitted")
-	}
-
-	_, err = open(func(LaunchSpec) string { return "never-minted" })
-	if !errors.Is(err, ErrTokenUnknown) {
-		t.Fatalf("unminted token: local %v, want ErrTokenUnknown", err)
-	}
-
-	_, err = open(func(s LaunchSpec) string {
-		h.clock.Advance(EnrollTTL + time.Second)
-		return s.Token
-	})
-	if !errors.Is(err, ErrTokenExpired) {
-		t.Fatalf("expired token: local %v, want ErrTokenExpired", err)
-	}
-
-	// Rows stamped with the same fake instant have no defined order: compare sets.
-	got := h.refusals(t)
-	sort.Strings(got)
-	if want := []string{"token_expired", "token_unknown", "token_used"}; !slices.Equal(got, want) {
-		t.Fatalf("recorded refusals = %v, want exactly one each of %v", got, want)
-	}
+// rig is a fake satelle-server with a signed-in local client and one node.
+type rig struct {
+	srv         *fakeserver.Server
+	local, node *hosted.Client
+	session     string
+	id          *Identity
 }
 
-// AC1: the token is minted per start and consumed by the enrollment.
-func TestOpenMintsOneTokenAndConsumesIt(t *testing.T) {
-	h := newHarness(t, true)
-	_, _, spec := h.connect(t)
-	if spec.Token == "" || spec.Session == "" || spec.RelayURL != h.relay.URL() {
-		t.Fatalf("launch spec = %+v", spec)
+func newRig(t *testing.T) *rig {
+	t.Helper()
+	srv := fakeserver.Start(t, "user-tok")
+	srv.AddNode(&fakeserver.Node{ID: "nod_1", Token: "node-tok"})
+	dial := func(tok string) *hosted.Client {
+		c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: tok}, hosted.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
 	}
-	if h.tokens.Outstanding() != 0 {
-		t.Errorf("Outstanding = %d after enrollment, want 0", h.tokens.Outstanding())
+	id, err := NewIdentity()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := h.tokens.Redeem(spec.Token); !errors.Is(err, ErrTokenUsed) {
-		t.Errorf("redeeming the enrolled token again = %v, want ErrTokenUsed", err)
-	}
-	if len(h.refusals(t)) != 0 {
-		t.Errorf("a clean enrollment recorded refusals: %v", h.refusals(t))
-	}
+	return &rig{srv: srv, local: dial("user-tok"), node: dial("node-tok"), session: "nod_1", id: id}
 }
 
-// AC2: the key read at launch is the key pinned; a different key is refused and
-// nothing the impostor sent is delivered.
-func TestSubstitutedKeyRefused(t *testing.T) {
-	h := newHarness(t, true)
-	real, _ := NewIdentity()
-	impostor, _ := NewIdentity()
-	l, res, _ := h.launcher(t, impostor, real.Public(), func(s LaunchSpec) string { return s.Token })
+func keyOf(pub []byte) func(context.Context) ([]byte, error) {
+	return func(context.Context) ([]byte, error) { return pub, nil }
+}
 
-	s, err := Open(testCtx(t), h.client, h.relay.URL(), l, h.opts()...)
-	if !errors.Is(err, ErrKeyMismatch) || s != nil {
-		t.Fatalf("Open = %v, %v; want ErrKeyMismatch and no session", s, err)
-	}
-	if r := <-res; r.err == nil || r.s != nil {
-		t.Fatalf("impostor Join = %v, %v; want an error and no session", r.s, r.err)
-	}
-	// The relay forwarded the impostor's key half and its (unreadable) enrollment;
-	// local answered with its own key half and nothing else — no admission.
-	var fromLocal int
-	for _, f := range h.relay.Frames() {
-		if f.From == "local" {
-			fromLocal++
+type joined struct {
+	s   *Session
+	err error
+}
+
+// pair attaches local and joins the node concurrently.
+func (r *rig) pair(t *testing.T, pinned []byte, opts ...Option) (*Session, *Session, error, error) {
+	t.Helper()
+	ctx := testCtx(t)
+	ch := make(chan joined, 1)
+	go func() {
+		s, err := Join(ctx, r.node.Relay, r.session, r.id, opts...)
+		ch <- joined{s, err}
+	}()
+	local, lerr := Attach(ctx, r.local.Relay, r.session, keyOf(pinned), opts...)
+	j := <-ch
+	for _, s := range []*Session{local, j.s} {
+		if s != nil {
+			t.Cleanup(func() { _ = s.Close() })
 		}
 	}
-	if fromLocal != 1 {
-		t.Errorf("local sent %d frames, want 1 (its key half only)", fromLocal)
-	}
-	if got := h.refusals(t); len(got) != 1 || got[0] != "key_mismatch" {
-		t.Errorf("recorded refusals = %v, want [key_mismatch]", got)
-	}
-	// The token was never redeemed by the impostor, so it is still outstanding.
-	if h.tokens.Outstanding() != 1 {
-		t.Errorf("Outstanding = %d, want the unspent token", h.tokens.Outstanding())
-	}
+	return local, j.s, lerr, j.err
 }
 
-func TestPinnedKeyAccepted(t *testing.T) {
-	h := newHarness(t, true)
-	local, remote, _ := h.connect(t)
-	if local.Role() != RoleLocal || remote.Role() != RoleRemote {
-		t.Fatalf("roles = %v, %v", local.Role(), remote.Role())
-	}
+type memRecorder struct {
+	mu   sync.Mutex
+	recs []Record
 }
 
-// AC3: every byte the relay forwards is free of the payload, the enrollment
-// token and the message field names, and both ends read the payloads exactly.
-func TestRelaySeesNoPlaintext(t *testing.T) {
-	h := newHarness(t, true)
-	local, remote, spec := h.connect(t)
+func (m *memRecorder) Record(_ context.Context, r Record, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recs = append(m.recs, r)
+	return nil
+}
+
+func (m *memRecorder) count(kind string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, r := range m.recs {
+		if r.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+func exchange(t *testing.T, local, remote *Session, msg string) {
+	t.Helper()
 	ctx := testCtx(t)
-
-	const marker = "ZEBRA-MARKER-7f3a91"
-	toRemote := []byte(`{"secret":"` + marker + `-to-remote","cmd":"deploy"}`)
-	toLocal := []byte(`{"secret":"` + marker + `-to-local","result":"ok"}`)
-	if err := local.Send(ctx, "job-1", toRemote); err != nil {
+	if err := local.Send(ctx, "j1", []byte(msg+" to node")); err != nil {
 		t.Fatal(err)
 	}
-	if err := remote.Send(ctx, "job-1", toLocal); err != nil {
+	if m, err := remote.Recv(ctx); err != nil || string(m.Body) != msg+" to node" || m.Job != "j1" {
+		t.Fatalf("remote got %+v, %v", m, err)
+	}
+	if err := remote.Send(ctx, "j1", []byte(msg+" to local")); err != nil {
 		t.Fatal(err)
 	}
-	gotRemote, err := remote.Recv(ctx)
-	if err != nil || !bytes.Equal(gotRemote.Body, toRemote) || gotRemote.Job != "job-1" {
-		t.Fatalf("remote received %+v, %v", gotRemote, err)
+	if m, err := local.Recv(ctx); err != nil || string(m.Body) != msg+" to local" {
+		t.Fatalf("local got %+v, %v", m, err)
 	}
-	gotLocal, err := local.Recv(ctx)
-	if err != nil || !bytes.Equal(gotLocal.Body, toLocal) || gotLocal.Job != "job-1" {
-		t.Fatalf("local received %+v, %v", gotLocal, err)
-	}
+}
 
-	frames := h.relay.Frames()
-	var fromLocal, fromRemote int
+// The two ends pair through RelayService/Connect, and the relay forwards only
+// sealed bytes.
+func TestPairOverGRPCRelay(t *testing.T) {
+	r := newRig(t)
+	local, remote, lerr, rerr := r.pair(t, r.id.Public())
+	if lerr != nil || rerr != nil {
+		t.Fatalf("attach %v, join %v", lerr, rerr)
+	}
+	exchange(t, local, remote, "secret-payload")
+	frames := r.srv.RelayFrames(r.session)
+	if len(frames) < 4 {
+		t.Fatalf("relay forwarded %d frames", len(frames))
+	}
 	for _, f := range frames {
-		switch f.From {
-		case "local":
-			fromLocal++
-		case "remote":
-			fromRemote++
-		}
-		for _, clear := range []string{
-			marker, spec.Token, "secret", "cmd", "deploy", "result", "job-1",
-			`"t"`, "enroll", "admit", "token", "body", `"job"`,
-		} {
-			if bytes.Contains(f.Data, []byte(clear)) {
-				t.Errorf("relay saw %q in clear in a frame from %s: %x", clear, f.From, f.Data)
-			}
+		if bytes.Contains(f, []byte("secret-payload")) || bytes.Contains(f, []byte("enroll")) {
+			t.Fatalf("the relay saw plaintext: %q", f)
 		}
 	}
-	// local: key half + admit + data; remote: key half + enroll + data.
-	if fromLocal < 3 || fromRemote < 3 {
-		t.Errorf("relay tapped %d local and %d remote frames; the check saw too little", fromLocal, fromRemote)
+	var methods []string
+	for _, c := range r.srv.Calls() {
+		methods = append(methods, c.Method)
+	}
+	if !strings.Contains(strings.Join(methods, " "), "/satelle.v1.RelayService/Connect") {
+		t.Fatalf("calls = %v", methods)
 	}
 }
 
-// Frames out of sequence (a replay, or a dropped frame) end the session.
-func TestReplayedFrameEndsTheSession(t *testing.T) {
-	h := newHarness(t, true)
-	local, remote, _ := h.connect(t)
-	ctx := testCtx(t)
-	if err := local.Send(ctx, "", []byte("one")); err != nil {
+func TestSubstitutedKeyRefused(t *testing.T) {
+	r := newRig(t)
+	other, _ := NewIdentity()
+	rec := &memRecorder{}
+	_, _, lerr, rerr := r.pair(t, other.Public(), WithRecorder(rec))
+	if !errors.Is(lerr, ErrKeyMismatch) || !errors.Is(rerr, ErrEnrollRefused) {
+		t.Fatalf("attach = %v, join = %v; want ErrKeyMismatch, ErrEnrollRefused", lerr, rerr)
+	}
+	if rec.count(KindRemoteEnrollRefused) != 1 {
+		t.Fatalf("refusal not recorded: %+v", rec.recs)
+	}
+}
+
+// jumpClock's every reading is an hour on, and its ticks are always due.
+type jumpClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *jumpClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(time.Hour)
+	return c.now
+}
+
+func (c *jumpClock) Tick(time.Duration) (<-chan time.Time, func()) {
+	ch := make(chan time.Time)
+	close(ch)
+	return ch, func() {}
+}
+
+func TestUnpublishedKeyRefused(t *testing.T) {
+	r := newRig(t)
+	rec := &memRecorder{}
+	_, err := Attach(testCtx(t), r.local.Relay, r.session, keyOf(nil), WithClock(&jumpClock{}), WithRecorder(rec))
+	if !errors.Is(err, ErrKeyUnpublished) || rec.count(KindRemoteEnrollRefused) != 1 {
+		t.Fatalf("attach = %v, records %+v", err, rec.recs)
+	}
+}
+
+func TestRefusedNodeTokenIsNotRetried(t *testing.T) {
+	r := newRig(t)
+	bad, err := hosted.Dial(r.srv.URL, hosted.NodeTokenStore{Server: r.srv.URL, Token: "wrong"}, hosted.Options{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := remote.Recv(ctx); err != nil {
+	defer bad.Close()
+	_, err = Join(testCtx(t), bad.Relay, r.session, r.id)
+	if status.Code(errors.Unwrap(errors.Unwrap(err))) != codes.Unauthenticated && !strings.Contains(err.Error(), "Unauthenticated") {
+		t.Fatalf("join = %v, want UNAUTHENTICATED", err)
+	}
+	if classifyClose(status.Error(codes.Unauthenticated, "x")) != closeRefusal {
+		t.Fatal("UNAUTHENTICATED is not a refusal")
+	}
+}
+
+// Close tells the other end, which ends without redialling.
+func TestCloseEndsTheOtherEnd(t *testing.T) {
+	r := newRig(t)
+	local, remote, lerr, rerr := r.pair(t, r.id.Public())
+	if lerr != nil || rerr != nil {
+		t.Fatalf("attach %v, join %v", lerr, rerr)
+	}
+	if err := local.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// Replay the frame sealed at seq 1 by rewinding the sender and sending again.
-	local.wmu.Lock()
-	local.send.seq--
-	local.wmu.Unlock()
-	_ = local.Send(ctx, "", []byte("one"))
 	select {
 	case <-remote.Done():
-	case <-ctx.Done():
-		t.Fatal("remote kept a session that was fed a replayed frame")
+	case <-time.After(hangBound):
+		t.Fatal("the remote did not end")
 	}
-	if !errors.Is(remote.Err(), ErrFrame) {
-		t.Errorf("remote.Err = %v, want ErrFrame", remote.Err())
-	}
-}
-
-// AC6: signed out, Open refuses with the sign-in it needs and touches nothing.
-func TestOpenRequiresSignIn(t *testing.T) {
-	h := newHarness(t, false)
-	launched := false
-	l := LauncherFunc(func(context.Context, LaunchSpec) ([]byte, error) { launched = true; return nil, nil })
-	_, err := Open(testCtx(t), h.client, h.relay.URL(), l, h.opts()...)
-	if !errors.Is(err, hosted.ErrLoginRequired) || !strings.Contains(err.Error(), "satelle login") {
-		t.Fatalf("Open = %v, want ErrLoginRequired naming satelle login", err)
-	}
-	if h.relay.Attempts() != 0 {
-		t.Errorf("relay saw %d connection attempts, want 0", h.relay.Attempts())
-	}
-	if launched || h.tokens.Outstanding() != 0 {
-		t.Errorf("launched=%v outstanding tokens=%d; a signed-out Open must mint and launch nothing", launched, h.tokens.Outstanding())
+	if !errors.Is(remote.Err(), ErrClosed) {
+		t.Fatalf("remote ended with %v", remote.Err())
 	}
 }
 
-func TestSignedInBearerReachesRelay(t *testing.T) {
-	h := newHarness(t, true)
-	h.connect(t)
-	if got := h.relay.Bearers(); len(got) != 1 || got[0] != "access-1" {
-		t.Fatalf("relay bearers = %v, want [access-1]", got)
+// A relay restart drops both streams; both ends redial the same session,
+// handshake again and carry traffic.
+func TestResumeAfterRelayRestart(t *testing.T) {
+	r := newRig(t)
+	rec := &memRecorder{}
+	local, remote, lerr, rerr := r.pair(t, r.id.Public(), WithRecorder(rec), WithResumeWindow(time.Minute))
+	if lerr != nil || rerr != nil {
+		t.Fatalf("attach %v, join %v", lerr, rerr)
+	}
+	exchange(t, local, remote, "before")
+	r.srv.DropRelays()
+	eventually(t, "both ends resumed", func() bool { return rec.count(KindRemoteChannelResumed) >= 2 })
+	exchange(t, local, remote, "after")
+}
+
+func TestJobThatNeverBeatsIsLost(t *testing.T) {
+	r := newRig(t)
+	clock := newFakeClock()
+	local, _, lerr, rerr := r.pair(t, r.id.Public(), WithClock(clock))
+	if lerr != nil || rerr != nil {
+		t.Fatalf("attach %v, join %v", lerr, rerr)
+	}
+	clock.waitTickers(t, 2)
+	local.Expect("silent")
+	for i := 0; i < int((LostAfter+HeartbeatInterval)/HeartbeatInterval); i++ {
+		clock.Advance(HeartbeatInterval)
+	}
+	select {
+	case l := <-local.Lost():
+		if l.Job != "silent" {
+			t.Fatalf("lost = %+v", l)
+		}
+	case <-time.After(hangBound):
+		t.Fatal("a job that never beat was not reported lost")
 	}
 }
 
-// AC6: a stale bearer goes through hosted's one refresh path and the retried
-// upgrade carries the rotated token.
-func TestRelayBearerRefreshSucceeds(t *testing.T) {
-	h := newHarness(t, true)
-	h.relay.RejectBearers(1)
-	h.connect(t)
-	if got := h.relay.Bearers(); len(got) != 2 || got[0] != "access-1" || got[1] != "access-2" {
-		t.Fatalf("relay bearers = %v, want the stale then the rotated token", got)
+func TestJobTableReportsEachLossOnce(t *testing.T) {
+	tab := newJobTable()
+	t0 := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
+	tab.beat("a", t0)
+	if got := tab.lost(t0.Add(LostAfter)); len(got) != 0 {
+		t.Fatalf("lost at exactly LostAfter = %v, want none", got)
 	}
-	if h.idp.refreshes() != 1 {
-		t.Errorf("refreshes = %d, want 1", h.idp.refreshes())
+	if got := tab.lost(t0.Add(LostAfter + time.Nanosecond)); len(got) != 1 || got[0].Job != "a" {
+		t.Fatalf("lost past LostAfter = %v", got)
 	}
-	if c, _ := h.store.Load(harnessServer); c.AccessToken != "access-2" || c.RefreshToken != "refresh-2" {
-		t.Errorf("rotated credential not persisted: %+v", c)
+	if got := tab.lost(t0.Add(time.Hour)); len(got) != 0 {
+		t.Fatalf("a loss reported twice: %v", got)
 	}
 }
 
-func TestRelayBearerRefreshFails(t *testing.T) {
-	h := newHarness(t, true)
-	h.relay.RejectBearers(1)
-	h.idp.deny = true
-	launched := false
-	l := LauncherFunc(func(context.Context, LaunchSpec) ([]byte, error) { launched = true; return nil, nil })
-	_, err := Open(testCtx(t), h.client, h.relay.URL(), l, h.opts()...)
-	if !errors.Is(err, hosted.ErrLoginRequired) || !strings.Contains(err.Error(), "satelle login") {
-		t.Fatalf("Open = %v, want ErrLoginRequired naming satelle login", err)
+// The channel only dials out: no production file can listen.
+func TestProductionCodeNeverListens(t *testing.T) {
+	banned := map[string]map[string]bool{
+		"net":  {"Listen": true, "ListenTCP": true, "ListenUnix": true, "ListenPacket": true},
+		"http": {"ListenAndServe": true, "Serve": true},
+		"grpc": {"NewServer": true},
 	}
-	if h.relay.Attempts() != 1 {
-		t.Errorf("upgrade attempted %d times, want exactly once", h.relay.Attempts())
-	}
-	if launched || h.tokens.Outstanding() != 0 {
-		t.Errorf("launched=%v outstanding=%d after a failed sign-in", launched, h.tokens.Outstanding())
-	}
-}
-
-// A relay that keeps answering 401 after the refresh is a relay refusal, not a loop.
-func TestRelayStill401AfterRefreshIsRefused(t *testing.T) {
-	h := newHarness(t, true)
-	h.relay.RejectBearers(2)
-	_, err := Open(testCtx(t), h.client, h.relay.URL(), LauncherFunc(func(context.Context, LaunchSpec) ([]byte, error) {
-		t.Fatal("launched after the relay refused")
-		return nil, nil
-	}), h.opts()...)
-	if !errors.Is(err, ErrRelayRefused) || !strings.Contains(err.Error(), "401") {
-		t.Fatalf("Open = %v, want ErrRelayRefused (HTTP 401)", err)
-	}
-	if h.relay.Attempts() != 2 {
-		t.Errorf("attempts = %d, want the upgrade and one retry", h.relay.Attempts())
-	}
-}
-
-// The launched remote's upgrade can reach the relay before it has recorded the
-// local end whose 101 it just wrote; Open still pairs with it.
-func TestOpenPairsWhenRemoteArrivesDuringLocalRegistration(t *testing.T) {
-	h := newHarness(t, true)
-	h.relay.HoldLocalUntilRemote()
-	local, remote, _ := h.connect(t)
-	ctx := testCtx(t)
-	if err := local.Send(ctx, "", []byte("one")); err != nil {
-		t.Fatalf("local Send: %v", err)
-	}
-	if m, err := remote.Recv(ctx); err != nil || string(m.Body) != "one" {
-		t.Fatalf("remote Recv = %q, %v; want one", m.Body, err)
-	}
-}
-
-// AC9: the remote's upgrade carries the node token as its bearer.
-func TestJoinCarriesTheNodeTokenAsBearer(t *testing.T) {
-	h := newHarness(t, true)
-	_, _, spec := h.connect(t)
-	if got := h.relay.RemoteBearers(); len(got) != 1 || got[0] != spec.Token {
-		t.Fatalf("remote bearers = %v, want [%s]", got, spec.Token)
-	}
-}
-
-// AC9: a remote is admitted into its session with no local end waiting.
-func TestJoinIsAdmittedWithoutAWaitingLocal(t *testing.T) {
-	h := newHarness(t, true)
-	id, _ := NewIdentity()
-	ctx, cancel := context.WithCancel(testCtx(t))
-	done := make(chan error, 1)
-	go func() {
-		_, err := Join(ctx, h.relay.URL(), "no-local-yet", id, "node-token", h.opts()...)
-		done <- err
-	}()
-	eventually(t, "the relay to admit the remote", func() bool { return h.relay.Upgrades() == 1 })
-	if got := h.relay.RemoteBearers(); len(got) != 1 || got[0] != "node-token" {
-		t.Errorf("remote bearers = %v, want [node-token]", got)
-	}
-	cancel()
-	if err := <-done; err == nil {
-		t.Error("Join without a local end must not return a session")
-	}
-}
-
-// AC9: a relay that does not accept the node token answers 401, and Join says so
-// as a status a caller can tell from any other refusal.
-func TestJoinRefusedTokenIsA401(t *testing.T) {
-	h := newHarness(t, true)
-	h.relay.RejectRemoteBearers(1)
-	id, _ := NewIdentity()
-	_, err := Join(testCtx(t), h.relay.URL(), "s", id, "node-token", h.opts()...)
-	var rs *RelayStatusError
-	if !errors.Is(err, ErrRelayRefused) || !errors.As(err, &rs) || rs.Status != 401 || !strings.Contains(err.Error(), "401") {
-		t.Fatalf("Join = %v, want ErrRelayRefused with status 401", err)
+	files, _ := filepath.Glob("*.go")
+	fset := token.NewFileSet()
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, ok := sel.X.(*ast.Ident); ok && banned[x.Name][sel.Sel.Name] {
+					t.Errorf("%s: %s.%s — the channel only dials out", fset.Position(sel.Pos()), x.Name, sel.Sel.Name)
+				}
+			}
+			return true
+		})
 	}
 }

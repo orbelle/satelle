@@ -248,7 +248,13 @@ type relay struct {
 
 // relayPair joins the local and remote ends of one session.
 type relayPair struct {
-	ends map[string]chan []byte // role → frames for that role
+	ends   map[string]chan []byte // role → frames for that role
+	frames [][]byte               // every data frame forwarded, in order
+}
+
+// relayStream is one live Connect, ended by DropRelays.
+type relayStream struct {
+	cancel context.CancelCauseFunc
 }
 
 func (s *Server) pair(session string) *relayPair {
@@ -262,9 +268,77 @@ func (s *Server) pair(session string) *relayPair {
 	return p
 }
 
-// Connect forwards each side's data frames to the other, in order.
+// RelayFrames is every data frame the relay forwarded for session, in order.
+func (s *Server) RelayFrames(session string) [][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p := s.relays[session]; p != nil {
+		return append([][]byte(nil), p.frames...)
+	}
+	return nil
+}
+
+// RelayStreams is how many Connect streams are live.
+func (s *Server) RelayStreams() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.streams)
+}
+
+// DropRelays ends every live Connect with UNAVAILABLE and forgets every
+// session, as a relay restart does.
+func (s *Server) DropRelays() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for st := range s.streams {
+		st.cancel(status.Error(codes.Unavailable, "relay restarting"))
+	}
+	s.relays = map[string]*relayPair{}
+}
+
+// Connect forwards each side's data frames to the other, in order. A side that
+// stops sending (EOF) ends its own stream; the other side stays.
 func (r relay) Connect(stream grpc.BidiStreamingServer[satellepb.RelayFrame, satellepb.RelayFrame]) error {
-	first, err := stream.Recv()
+	ctx, cancel := context.WithCancelCause(stream.Context())
+	defer cancel(nil)
+	st := &relayStream{cancel: cancel}
+	r.s.mu.Lock()
+	r.s.streams[st] = true
+	r.s.mu.Unlock()
+	defer func() {
+		r.s.mu.Lock()
+		delete(r.s.streams, st)
+		r.s.mu.Unlock()
+	}()
+
+	type recvd struct {
+		f   *satellepb.RelayFrame
+		err error
+	}
+	in := make(chan recvd)
+	go func() {
+		for {
+			f, err := stream.Recv()
+			select {
+			case in <- recvd{f, err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	next := func() (*satellepb.RelayFrame, error) {
+		select {
+		case m := <-in:
+			return m.f, m.err
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	}
+
+	first, err := next()
 	if err != nil {
 		return err
 	}
@@ -277,7 +351,6 @@ func (r relay) Connect(stream grpc.BidiStreamingServer[satellepb.RelayFrame, sat
 		other = "local"
 	}
 	p := r.s.pair(first.GetSession())
-	ctx := stream.Context()
 	go func() {
 		for {
 			select {
@@ -290,21 +363,29 @@ func (r relay) Connect(stream grpc.BidiStreamingServer[satellepb.RelayFrame, sat
 			}
 		}
 	}()
+	forward := func(b []byte) {
+		r.s.mu.Lock()
+		p.frames = append(p.frames, b)
+		r.s.mu.Unlock()
+		select {
+		case p.ends[other] <- b:
+		case <-ctx.Done():
+		}
+	}
 	if len(first.GetData()) > 0 {
-		p.ends[other] <- first.GetData()
+		forward(first.GetData())
 	}
 	for {
-		f, err := stream.Recv()
+		f, err := next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
+			if c := context.Cause(ctx); c != nil && ctx.Err() != nil {
+				return c
+			}
 			return err
 		}
-		select {
-		case p.ends[other] <- f.GetData():
-		case <-ctx.Done():
-			return nil
-		}
+		forward(f.GetData())
 	}
 }
