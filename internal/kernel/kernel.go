@@ -39,7 +39,11 @@ type Kernel struct {
 	Agents     agent.Catalog
 	Git        Git // nil outside a git work tree
 	Dispatcher agent.Dispatcher
-	Now        func() time.Time
+	// Remote performs steps placed remote:<id>; nil refuses them.
+	Remote RemotePerformer
+	// Cloud starts steps placed in the cloud; nil says how to start one by hand.
+	Cloud CloudLauncher
+	Now   func() time.Time
 	// CheckTimeout bounds each check script; zero is gate.DefaultCheckTimeout.
 	CheckTimeout time.Duration
 }

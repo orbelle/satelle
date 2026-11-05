@@ -27,7 +27,7 @@ const (
 const ExecutionKind = "execution"
 
 // Location prefixes of a seat.
-var seatLocations = []string{"local:", "remote:", "cloud:"}
+var seatLocations = []string{LocationLocal, LocationRemote, LocationCloud}
 
 func (k *Kernel) append(id, kind, actor string, payload any) (ledger.Event, error) {
 	e, err := k.Ledger.Append(id, kind, actor, payload)
@@ -199,10 +199,14 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	if err != nil {
 		return res, err
 	}
-	base := k.base(it, events)
+	sp := span{}
+	if k.Git != nil {
+		sp = k.spanOf(it, events)
+	}
+	base := sp.base
 	var changed []string
 	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
-		if changed, err = k.Git.ChangedPaths(base); err != nil {
+		if changed, err = k.changed(sp); err != nil {
 			return res, err
 		}
 	}
@@ -219,8 +223,8 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 		Dir: k.Dir, Base: base, Changed: changed, Prior: prior,
 		ReviewerDiffers: k.Settings.Rules.ReviewerDiffersFromPerformer,
 		CheckTimeout:    k.CheckTimeout,
-		Coverage:        func(paths []string) (string, error) { return k.coverage(it, events, base, paths) },
-		Diff:            func(paths []string) (string, error) { return k.diff(base, paths) },
+		Coverage:        func(paths []string) (string, error) { return k.coverage(it, events, sp, paths) },
+		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
 	}
 	results, pass := run.Execute(ctx)
 	res.Gates = results
@@ -252,22 +256,15 @@ func (k *Kernel) base(it item.Item, events []ledger.Event) string {
 	return it.Base
 }
 
-func (k *Kernel) diff(base string, paths []string) (string, error) {
-	if k.Git == nil || base == "" {
-		return "", nil
-	}
-	return k.Git.Diff(base, paths)
-}
-
 // coverage hashes what a gate judges: the item's body, criteria and
-// attachments, and the diff of the gate's paths since base.
-func (k *Kernel) coverage(it item.Item, events []ledger.Event, base string, paths []string) (string, error) {
+// attachments, and the diff of the gate's paths over the span judged.
+func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (string, error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00", it.Body, strings.Join(it.Criteria, "\x1f"))
 	for _, a := range item.FoldAttachments(events) {
 		fmt.Fprintf(h, "%s=%s\x00", a.Name, a.SHA256)
 	}
-	d, err := k.diff(base, paths)
+	d, err := k.diffSpan(sp, paths)
 	if err != nil {
 		return "", err
 	}
@@ -355,10 +352,15 @@ type PerformerRun struct {
 	DurationMS int64  `json:"duration_ms"`
 	Output     string `json:"output,omitempty"` // blob sha256 of the performer's answer
 	Error      string `json:"error,omitempty"`
+	// Location is where the step ran when it was not dispatched here:
+	// remote:<node> or cloud:<url>.
+	Location string `json:"location,omitempty"`
 }
 
 // Perform dispatches the current state's performer and records the run. A
-// state performed by the session is refused: the session does that work.
+// state performed by the session is refused: the session does that work. A
+// binding placed remote:<id> runs on a node of that remote (k.Remote); one
+// placed in the cloud starts a cloud session (k.Cloud) seated at cloud:<url>.
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {
 	it, err := k.Get(id)
 	if err != nil {
@@ -378,9 +380,22 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	}
 	req := agent.Request{Binding: b, System: k.Skills[st.Performer.Skill].Body, Prompt: renderItem(it), Dir: k.Dir}
 	start := time.Now()
-	res, runErr := k.Dispatcher.Dispatch(ctx, agent.Perform, req)
+	var res agent.Result
+	var runErr error
+	var loc string
+	switch p := b.Placement; {
+	case strings.HasPrefix(p, agent.PlaceRemote):
+		res, loc, runErr = k.performRemote(ctx, it, strings.TrimPrefix(p, agent.PlaceRemote), req, actor)
+	case p == agent.PlaceCloud:
+		res, loc, runErr = k.performCloud(ctx, it, req, actor)
+		if errors.Is(runErr, ErrCloudByHand) {
+			return res, runErr
+		}
+	default:
+		res, runErr = k.Dispatcher.Dispatch(ctx, agent.Perform, req)
+	}
 	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: st.Performer.Skill, Model: res.Model,
-		TokensIn: res.TokensIn, TokensOut: res.TokensOut, DurationMS: time.Since(start).Milliseconds()}
+		TokensIn: res.TokensIn, TokensOut: res.TokensOut, DurationMS: time.Since(start).Milliseconds(), Location: loc}
 	if runErr != nil {
 		rec.Error = runErr.Error()
 	}

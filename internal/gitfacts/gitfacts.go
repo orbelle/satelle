@@ -90,3 +90,48 @@ func (r Repo) IsLinked() bool {
 	f := strings.Fields(out)
 	return len(f) == 2 && f[0] != f[1]
 }
+
+// Resolve returns the commit ref names: the ref itself, else the branch of
+// that name on origin. An error when neither names a commit.
+func (r Repo) Resolve(ref string) (string, error) {
+	var last error
+	for _, cand := range []string{ref, "refs/remotes/origin/" + ref} {
+		out, err := r.git("rev-parse", "--verify", "--quiet", "--end-of-options", cand+"^{commit}")
+		if err == nil && strings.TrimSpace(out) != "" {
+			return strings.TrimSpace(out), nil
+		}
+		last = err
+	}
+	if last == nil {
+		last = fmt.Errorf("no commit")
+	}
+	return "", fmt.Errorf("resolve %s: %w", ref, last)
+}
+
+// MergeBase returns the best common ancestor of a and b.
+func (r Repo) MergeBase(a, b string) (string, error) {
+	out, err := r.git("merge-base", a, b)
+	return strings.TrimSpace(out), err
+}
+
+// ChangedBetween lists the paths that differ between two commits, sorted.
+func (r Repo) ChangedBetween(base, head string) ([]string, error) {
+	out, err := r.git("diff", "--name-only", "--no-renames", base, head, "--")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(out, "\n") {
+		if p = strings.TrimSpace(p); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// DiffBetween returns `git diff base head -- paths` (every path when paths is
+// empty).
+func (r Repo) DiffBetween(base, head string, paths []string) (string, error) {
+	return r.git(append([]string{"diff", "--no-color", "--no-ext-diff", base, head, "--"}, paths...)...)
+}
