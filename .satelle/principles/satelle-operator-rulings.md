@@ -33,9 +33,14 @@ itself reviewed (see *Directives are reviewed*).
   claude.ai/code session to take load off the machine and run stories in
   parallel; its work comes back as a pushed branch to the local gates. Merge,
   test and push are always local.
+- **Development splits in two: DEV, then CI/CD.** DEV takes a story from the
+  backlog to an approved pull request; CI/CD is a task over approved items that
+  merges, tests and releases. The agent merges and releases. There are two
+  environments, dev (local) and prod; there is no staging, so local testing is
+  the staging and matters.
 - **GitHub holds the code and shows gate status; it runs no tests.** Tests run
-  in the local gates; their results are published to GitHub as commit statuses
-  by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
+  locally first and then on sprites as part of CI/CD; their results are
+  published to GitHub as commit statuses by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
   through satelle-server to team subscriptions.
 - **Breaking changes are pushed; old versions are defunct.** v1 is a clean
   rewrite, in satelle and satelle-server alike: no backward compatibility in the
