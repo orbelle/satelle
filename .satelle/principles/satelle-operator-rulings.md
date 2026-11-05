@@ -27,8 +27,15 @@ itself reviewed (see *Directives are reviewed*).
   status checks are not.
 - **Local first.** satelle runs solo and local; team (with satelle.dev) is the
   mode on top. A team is a team of one or many; both work alike for now, and a
-  multi-user team will need its own requirements and code when wanted. Every
-  satelle ↔ satelle-server call is gRPC.
+  multi-user team will need its own requirements and code when wanted.
+- **Every interface is gRPC unless HTTP is absolutely required.** satelle ↔
+  satelle-server and the CLI ↔ satelled alike. HTTP stays only for browser
+  pages and assets, OAuth sign-in, /healthz, MCP (streamable HTTP by spec) and
+  webhook delivery.
+- **Apply the rulings; don't ask what they already answer.** When a question is
+  settled by these rulings (no redundant code, align to the new direction, gRPC,
+  breaking changes pushed), decide it and record the decision. Raise only what
+  the rulings leave open.
 - **Steps may run in the cloud; landing is local.** A step can run in a
   claude.ai/code session to take load off the machine and run stories in
   parallel; its work comes back as a pushed branch to the local gates. Merge,
