@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,4 +124,76 @@ func TestSubstrateTrackingFindings(t *testing.T) {
 			t.Errorf("no git repo, no finding: %+v", fs)
 		}
 	})
+}
+
+// withoutLine returns text with the line l removed, failing when it is absent.
+func withoutLine(t *testing.T, text, l string) string {
+	t.Helper()
+	out := strings.Replace(text, "\n"+l+"\n", "\n", 1)
+	if out == text {
+		t.Fatalf("test premise: %q is in .gitignore:\n%s", l, text)
+	}
+	return out
+}
+
+// TestGitignoreConvergeFindings (sty_9e85f8fe AC1): a repo whose .gitignore
+// lacks the run-output line gets one finding naming it and `satelle init`, and
+// none once init has healed it.
+func TestGitignoreConvergeFindings(t *testing.T) {
+	repo, _ := substrateRepo(t, "", "")
+	if _, err := ensureGitignore(repo); err != nil {
+		t.Fatal(err)
+	}
+	if fs := gitignoreConvergeFindings(repo); len(fs) != 0 {
+		t.Fatalf("a converged .gitignore has no finding: %+v", fs)
+	}
+	path := filepath.Join(repo, ".gitignore")
+	raw, _ := os.ReadFile(path)
+	writeFile(t, repo, ".gitignore", withoutLine(t, string(raw), ".satelle/tasks/*/output-exe_*.md"))
+
+	fs := gitignoreConvergeFindings(repo)
+	if len(fs) != 1 {
+		t.Fatalf("want one finding, got %+v", fs)
+	}
+	if f := fs[0]; f.ID != health.IDScaffoldStale || !strings.Contains(f.Detail, ".satelle/tasks/*/output-exe_*.md") ||
+		!strings.Contains(f.Remediation, "satelle init") {
+		t.Errorf("the finding must name the missing line and satelle init: %+v", f)
+	}
+
+	if _, err := ensureGitignore(repo); err != nil {
+		t.Fatal(err)
+	}
+	if fs := gitignoreConvergeFindings(repo); len(fs) != 0 {
+		t.Errorf("init heals the finding: %+v", fs)
+	}
+
+	t.Run("not a git repo", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, ".satelle/satelle.toml", "# x\n")
+		if fs := gitignoreConvergeFindings(dir); len(fs) != 0 {
+			t.Errorf("no git repo, no finding: %+v", fs)
+		}
+	})
+}
+
+// TestDoctorReportsGitignoreNeedsInit (sty_9e85f8fe AC1): `satelle doctor` in a
+// repo whose .gitignore lacks the run-output line reports it as needing init.
+func TestDoctorReportsGitignoreNeedsInit(t *testing.T) {
+	isolateGitExcludes(t, "")
+	repo := gitInitRepo(t, t.TempDir())
+	if err := runInitTest(t, io.Discard, repo); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	t.Chdir(repo)
+	if out, _ := runRoot(t, "doctor"); strings.Contains(out, ".gitignore managed block not current") {
+		t.Fatalf("a freshly initialised repo needs no init:\n%s", out)
+	}
+	raw, _ := os.ReadFile(filepath.Join(repo, ".gitignore"))
+	writeFile(t, repo, ".gitignore", withoutLine(t, string(raw), ".satelle/tasks/*/output-exe_*.md"))
+	out, _ := runRoot(t, "doctor")
+	for _, want := range []string{".gitignore managed block not current", ".satelle/tasks/*/output-exe_*.md", "satelle init"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor must report the missing line as needing init, missing %q:\n%s", want, out)
+		}
+	}
 }

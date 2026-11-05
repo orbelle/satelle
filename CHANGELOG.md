@@ -1,3 +1,8 @@
+## [0.0.893] - 2026-11-05
+
+### Fixed
+- Recording a task execution's run output no longer leaves an untracked file in a repo's tree. satelle's managed gitignore block now ignores `.satelle/tasks/*/output-exe_*.md` beside `.satelle/tasks/*/exe_*.md`. Before, one `satelle execution record` (locally or on a remote node) dirtied main, and `satelle story worktree` then refused every new story with "trunk dirty tree on main". Run `satelle init` to add the line; `satelle doctor` names a repo whose gitignore lacks it. (sty_9e85f8fe)
+
 ## [0.0.892] - 2026-11-05
 
 ### Added

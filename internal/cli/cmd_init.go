@@ -2582,8 +2582,9 @@ var satelleTrackedSubstrateIgnores = []string{
 	".satelle/workflows/agents.local.toml",
 	// the repo-local pinned binary (satelle update --local)
 	".satelle/satelle",
-	// task execution records
+	// task execution records and their run-output docs
 	".satelle/tasks/*/exe_*.md",
+	".satelle/tasks/*/output-exe_*.md",
 }
 
 // gitignoreNeeded is the one statement of what satelle needs in the repo's

@@ -19,6 +19,7 @@
 .satelle/deployed.version
 .satelle/*.local.toml
 .satelle/tasks/*/exe_*.md
+.satelle/tasks/*/output-exe_*.md
 
 # Built binaries — leading `/` is required so only the *named path* is ignored.
 # A bare `satelled` would also match cmd/satelled/ and hide the source.

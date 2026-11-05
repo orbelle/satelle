@@ -176,6 +176,7 @@ var wantTrackedSubstrateLines = []string{
 	".satelle/workflows/agents.local.toml",
 	".satelle/satelle",
 	".satelle/tasks/*/exe_*.md",
+	".satelle/tasks/*/output-exe_*.md",
 }
 
 // gitIgnores reports whether git ignores rel in repo under its full rule set.
@@ -213,6 +214,26 @@ func isolateGitExcludes(t *testing.T, excludes string) (excludesPath string) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
 	return excludesPath
+}
+
+// TestInitIgnoresTaskRunOutput (sty_9e85f8fe AC1): after init a task's
+// run-output doc is ignored beside its exe_ record, while the task header
+// stays tracked.
+func TestInitIgnoresTaskRunOutput(t *testing.T) {
+	isolateGitExcludes(t, "")
+	repo := gitInitRepo(t, t.TempDir())
+	if err := runInitTest(t, io.Discard, repo); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	for rel, want := range map[string]bool{
+		".satelle/tasks/tsk_x/output-exe_y.md": true,
+		".satelle/tasks/tsk_x/exe_y.md":        true,
+		".satelle/tasks/tsk_x/tsk_x.md":        false,
+	} {
+		if got := gitIgnores(t, repo, rel); got != want {
+			t.Errorf("git ignores %s = %v, want %v", rel, got, want)
+		}
+	}
 }
 
 // TestInitWritesTrackedSubstrateBlock (sty_45bf867b AC1): on a fresh repo init
