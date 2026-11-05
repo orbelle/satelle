@@ -1,0 +1,12 @@
+# The default workflow: two states, no gates. Edit or replace it; it is yours.
+name = "default"
+
+[states.backlog]
+start = true
+
+[states.done]
+terminal = true
+
+[[transition]]
+from = ["backlog"]
+to = "done"

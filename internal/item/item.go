@@ -53,6 +53,7 @@ type Item struct {
 	Workflow  string     `json:"workflow"`
 	Assignee  string     `json:"assignee,omitempty"`
 	Inputs    *Selection `json:"inputs,omitempty"`
+	Base      string     `json:"base,omitempty"` // the commit the item was created at
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 }
@@ -72,6 +73,7 @@ type Fields struct {
 	Workflow *string    `json:"workflow,omitempty"`
 	Assignee *string    `json:"assignee,omitempty"`
 	Inputs   *Selection `json:"inputs,omitempty"`
+	Base     *string    `json:"base,omitempty"`
 }
 
 // Move is the payload of item.transitioned.
@@ -95,6 +97,7 @@ func (f Fields) Apply(it *Item) {
 	set(&it.Category, f.Category)
 	set(&it.Workflow, f.Workflow)
 	set(&it.Assignee, f.Assignee)
+	set(&it.Base, f.Base)
 	if f.Criteria != nil {
 		it.Criteria = slices.Clone(*f.Criteria)
 	}

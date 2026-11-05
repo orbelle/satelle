@@ -1,0 +1,13 @@
+# satelle.toml — this repo's satelle settings. An unknown key refuses to run.
+
+[workflows]
+# The workflow an item gets when no rule matches.
+default = "default"
+# Rules are tried in order; the first whose conditions all match wins.
+# [[workflows.rule]]
+# workflow = "default"
+# category = "bug"        # and/or tag = "...", kind = "..."
+
+[rules]
+# A judge may not run the same model as the performer whose work it judges.
+reviewer_differs_from_performer = false

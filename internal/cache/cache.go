@@ -22,7 +22,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS files (item TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS items (
 	id TEXT PRIMARY KEY, kind TEXT, title TEXT, body TEXT, criteria TEXT, status TEXT,
-	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignee TEXT, inputs TEXT,
+	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignee TEXT, inputs TEXT, base TEXT,
 	created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS item_tags (item TEXT NOT NULL, tag TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS item_tags_tag ON item_tags(tag);
@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS attachments (
 	item TEXT, name TEXT, sha256 TEXT, size INTEGER, media_type TEXT, at TEXT, actor TEXT);
 CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 `
+
+// schemaVersion changes whenever schema does; a cache of another version is
+// dropped and rebuilt from the ledger on its next Sync.
+const schemaVersion = 1
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
@@ -53,7 +57,20 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("cache: open %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("cache: %w", err)
+	}
+	if version != schemaVersion {
+		for _, t := range tables {
+			if _, err := db.Exec(`DROP TABLE IF EXISTS ` + t); err != nil {
+				db.Close()
+				return nil, fmt.Errorf("cache: %w", err)
+			}
+		}
+	}
+	if _, err := db.Exec(schema + fmt.Sprintf("PRAGMA user_version = %d;", schemaVersion)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("cache: schema: %w", err)
 	}
@@ -153,9 +170,9 @@ func writeFolds(tx *sql.Tx, id string, all []kledger.Event) error {
 			b, _ := json.Marshal(it.Inputs)
 			inputs = string(b)
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			it.ID, it.Kind, it.Title, it.Body, string(criteria), it.Status, string(tags), it.Parent,
-			it.Category, it.Workflow, it.Assignee, inputs, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
+			it.Category, it.Workflow, it.Assignee, inputs, it.Base, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
 			return err
 		}
 		for _, tag := range it.Tags {
@@ -216,7 +233,7 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 	add("parent = ?", q.Parent)
 	add("workflow = ?", q.Workflow)
 	add("id IN (SELECT item FROM item_tags WHERE tag = ?)", q.Tag)
-	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignee, inputs, created_at, updated_at FROM items`
+	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignee, inputs, base, created_at, updated_at FROM items`
 	if len(where) > 0 {
 		sqlText += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -230,7 +247,7 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 		var it item.Item
 		var criteria, tags, inputs, created, updated string
 		if err := rows.Scan(&it.ID, &it.Kind, &it.Title, &it.Body, &criteria, &it.Status, &tags, &it.Parent,
-			&it.Category, &it.Workflow, &it.Assignee, &inputs, &created, &updated); err != nil {
+			&it.Category, &it.Workflow, &it.Assignee, &inputs, &it.Base, &created, &updated); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(criteria), &it.Criteria)
