@@ -33,6 +33,11 @@ itself reviewed (see *Directives are reviewed*).
   operator and a few testers; satelle provides the way across (`satelle
   upgrade`), client and server ship together, and the previous install is
   backed up before a swap.
+- **A clean, efficient codebase.** No redundant artifacts, functions, files,
+  skills, scripts or tests: what nothing reaches is deleted, not kept "in
+  case". The one exception is the story ledger of the operator's other repos,
+  which `satelle upgrade` migrates into v1; satelle, satelle-server and
+  satelle-delivery start clean (their old backlog is irrelevant to the rewrite).
 - **Dogfood.** satelle is built with satelle: every change is a story driven
   through this repo's workflow on the rebuild branch, released locally, then
   used.
