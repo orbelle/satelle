@@ -1,0 +1,9 @@
+# agents.toml — the bindings a workflow names to perform states and judge gates.
+#
+# [agents.reviewer]
+# command = "claude"            # claude | pi | grok | session, or a path to one
+# model = "..."
+# effort = "..."
+# tools = ["Read", "Grep", "Glob"]   # a judge's grant must be read-only
+# deny = []
+# placement = "local"           # local | remote:<id> | cloud
