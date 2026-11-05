@@ -576,6 +576,62 @@ Every `/documents` route on the project, workspace and remote-node scopes is rem
 - `api/checkout_sync.proto` payloads (`WorkItem`, `LedgerEntry`) carry the generic event.
 - The node join/report/conclude moves from the six REST routes to `NodeService`.
 
+### Phase B wire (implemented; satelle-server implements the other side)
+
+Protos: `api/satelle/chain/v2/chain.proto` (service `satelle.chain.v2.Chain`) and
+`api/satelle/v1/satelle.proto` (`satelle.v1` services AccountService,
+ProjectService, WorkspaceService, LocationService, ItemService,
+AttachmentService, RemoteService, NodeService, RelayService). Generated Go:
+`internal/wire/{chainpb,satellepb}`. Auth is gRPC metadata
+`authorization: Bearer <token>` (user, session or node token); a stored login is
+refreshed once on UNAUTHENTICATED through the OAuth token endpoint. The
+in-memory reference of the server side is `internal/wire/fakeserver`.
+
+| before | after |
+|---|---|
+| `satelle.sync.v1.Sync/Apply` | `satelle.chain.v2.Chain/Append` (events) + `satelle.v1.ItemService/PutItems` (folded item summaries for listing) |
+| `Sync/Snapshot` | `Chain/Heads` (paged item heads) + `Chain/Read` |
+| `Sync/Refresh` | removed (refresh is the OAuth token endpoint) |
+| `satelle.chain.v1.Chain/{Append,Read,Subscribe}` | `satelle.chain.v2.Chain/{Append,Read,Subscribe}`: event `{id, item_id, kind, actor, at, payload, prev_hash, hash, seq}`; compare-and-append on `prev_hash` (was `base_id`), refusal detail `StaleHead` (was `StaleBase`); `workflow_version` dropped; the canonical hash is specified in the proto and pinned by `internal/ledger/canonical_test.go` |
+| GET `/api/v1/me` | `AccountService/GetMe` |
+| GET/POST `/api/v1/projects`, GET `/api/v1/projects/{p}` | `ProjectService/{ListProjects,CreateProject,GetProject}` |
+| GET `/api/v1/workspaces` | `WorkspaceService/ListWorkspaces` |
+| POST `/api/v1/locations` | `LocationService/RegisterLocation` |
+| `/api/v1/projects/{p}/config*` | **removed** (no config sync, ruling Q-config-sync) |
+| every `/documents` route (project, workspace, remote-node) | **removed**; story attachments use `AttachmentService/{PutAttachment,GetAttachment,ListAttachmentChanges}` keyed by (project, item_id, name, sha256) |
+| `/api/v1/me/files*`, `/api/v1/workspaces/{ws}/published*` | **removed** |
+| POST `/api/v1/remotes/{id}/fire` | `RemoteService/FireRemote` |
+| GET `/api/v1/remotes/{id}/stories/{s}/run` | `RemoteService/GetItemRun` |
+| POST `/api/v1/remotes/{id}/nodes` | `RemoteService/StartNode` |
+| GET `/api/v1/remote-nodes/{n}` | `NodeService/GetNode` |
+| GET `…/definition` (ETag, version header) | `NodeService/GetDefinition` (`digest`, `version`, `not_modified` fields) |
+| POST `…/secrets/{key}` | `NodeService/ReadSecret` (`value`, `expires_at`, `refusal`, `refusal_reason`) |
+| GET `…/run` | `NodeService/GetRun` |
+| PUT `…/channel-key` | `NodeService/PublishChannelKey` |
+| PUT `…/status` (heartbeat; conclude) | `NodeService/ReportStatus` (the retry-without-findings shim is gone; `lost_after_seconds` in the answer) |
+| POST `…/end` | `NodeService/EndNode` |
+| WebSocket `{relay_url}/{session}?role=` | `RelayService/Connect` (bidi; first frame names session and role) |
+| OAuth discovery, browser authorize, `/oauth/token` | unchanged HTTP (exempt, ruling Q-oauth) |
+
+Behaviour the server must match:
+
+- **Relay.** One side's EOF ends only that side's stream. The sealed channel
+  sends a sealed bye on close, and on a key mismatch it answers with a bare
+  refusal frame. The relay forwards both as opaque bytes.
+- **Remote definition schema** (the server's validator mirrors
+  `internal/remotedef`). Keys are provider, machine, repo, drive, secrets,
+  setup, network, lifecycle and satelle_version. `environment`, `identity` and
+  `trigger` are dropped. The item drive kind is `item` (was `story`). Providers
+  are `docker-local` and `fly-sprite`. The server still starts sprites; the
+  sprite keep-alive and the pi symlink live in satelle's sprite adapter, not in
+  the definition.
+- **Nodes.** A node is admitted by its published channel key; the local-mint
+  token book is gone. The node token reaches `satelle node join` only through
+  `SATELLE_NODE_TOKEN`.
+- **Cloud seat.** No server call. `satelle story collect <id> --branch B`
+  records `branch.collected {branch, commit, base}` on the ledger, and the
+  item's gates judge base..commit.
+
 ## Open questions for the operator
 
 Each is a ruling the contract does not make. The inventory records a lean; Phase B does not decide it.
@@ -902,6 +958,32 @@ when it can.
   rules have no replacement in the interactive session. A dispatched binding
   can carry `deny = ["Bash(fly:*)"]`.
 
+- **B3 (wire and remotes), commits f1b0ee7..cf11e51.**
+  - Every call to satelle-server is gRPC (table under "Phase B wire"), except
+    the OAuth endpoints.
+  - `internal/hosted` is a gRPC client.
+  - `internal/wire/fakeserver` implements every service in memory, and tests
+    use it.
+  - `sync push|pull|status`: compare-and-append and no automatic rechain; a
+    conflict prints the diverging events. Attachments travel through
+    AttachmentService.
+  - `project *`, `login`, `logout` and `whoami` are back.
+  - The relay is `RelayService/Connect`; WebSocket, `coder/websocket` and
+    chromedp are gone.
+  - Node contract (`satelle node join`) over NodeService.
+  - Provider seam `internal/remote/provider`:
+    - `docker-local` is the reference: all docker calls are in one file, and a
+      container is inspectable with `docker exec`.
+    - `fly-sprite` holds SpriteHold and the pi link.
+  - Placement:
+    - `remote:<id>` goes through StartNode plus the relay.
+    - `cloud` uses a `cloud:` seat plus `story collect`.
+    - `kernel.Drive` is the headless walk.
+  - `remote fire|status` commands.
+  - The docker-local integration test is skipped in this sandbox: the docker
+    CLI is present but there is no daemon. A fake-docker argv test always runs.
+  - Non-test Go, excluding generated code, is 24k lines.
+
 ### Deviations to repair
 
 - `satelle update` was deleted in B1, but ruling Q-update keeps it slimmed. It is
@@ -911,13 +993,6 @@ when it can.
 
 ### Next
 
-- **B3.** Write the protos into `api/` (drafts in this session: `satelle.chain.v2`
-  and `satelle.v1`, with Account, Project, Workspace, Location, Item,
-  Attachment, Remote, Node and Relay services) and generate them with buf.
-  Rewrite `hosted` as gRPC clients with fake servers. Bring back
-  `sync push|pull|status`, `project *`, `node join` and remote fire on the new
-  ledger. Remotes: the docker-local provider, the sprite adapter and cloud
-  seats behind placement.
 - **B4.** satelled pages on the kernel (the story detail page shows route,
   verdicts and attachments). The CLI pushes snapshots from the new cache.
   Restore `settings` and a slimmed `update`. Rewrite the integration suite
