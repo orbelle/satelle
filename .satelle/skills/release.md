@@ -18,7 +18,7 @@ Take this path only when all hold: a step in `.satelle/workflows/step.toml` sets
 
 1. `make check-serve-version`, on every release. Non-zero: bump `satelled.version` and add a `## [serve-v<x>]` CHANGELOG entry. "Baseline is stale": `git fetch --tags origin` and re-run. "Cannot verify": restore connectivity; never release on an unverified baseline. The script owns the serve-path set (`bash scripts/check-serve-version.sh --paths`); do not judge it from the diff.
 2. `gofmt -s -w internal/ cmd/ tests/`, then stage only the story's files — never `git add -A`; confirm with `git diff --cached --stat`.
-3. Bump `.version`: the patch of `satelle.version`; `satelled.version` when step 1 asked; `satelle.build` = `date -u +"%Y-%m-%d-%H-%M-%S"`.
+3. Bump `.version`: the patch of `satelle.version`; `satelled.version` when step 1 asked; `satelle.build` = `date -u +"%Y-%m-%dT%H:%M:%SZ"`.
 4. Add `## [<new ver>] - <YYYY-MM-DD>` at the top of `CHANGELOG.md`, with Added / Changed / Fixed bullets ending in the story id.
    - A breaking change goes under `### Breaking`, written as the remediation: what broke and the exact command that heals it. The drift gate prints these bullets verbatim to repos stamped before this release.
    - Add `- init-heals: <what init does>` only when `satelle init` alone performs every migration the entry names. Never when any step is manual: the marker makes ordinary commands refuse until init runs.

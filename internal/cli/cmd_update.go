@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -116,10 +115,11 @@ func updateDaemon(ctx context.Context, out io.Writer, path string) error {
 	return nil
 }
 
-// daemonVersion asks satelled for its version; "unknown" when it cannot say.
+// daemonVersion is the version field of satelled's identity line; "unknown" when it
+// cannot say.
 func daemonVersion(ctx context.Context, path string) string {
-	b, err := exec.CommandContext(ctx, path, "--version").Output()
-	if f := strings.Fields(string(b)); err == nil && len(f) >= 2 {
+	line, err := daemonIdentity(ctx, path)
+	if f := strings.Fields(line); err == nil && len(f) >= 2 {
 		return f[1]
 	}
 	return "unknown"

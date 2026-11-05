@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -76,13 +80,20 @@ ExecStart runs satelled. Port and address are machine settings in
 				fmt.Fprintf(out, "unit      %s (%s)\n", unitPath(), unitState())
 				fmt.Fprintf(out, "config    %s (port %d, addr %s)\n", config.GlobalConfigPath(), gc.Service.ResolvePort(), gc.Service.ResolveAddr())
 				ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
-				client := http.Client{Timeout: 2 * time.Second}
-				if resp, err := client.Get(ep); err == nil {
-					resp.Body.Close()
-					fmt.Fprintf(out, "satelled  answering at %s (%s)\n", ep, resp.Status)
-				} else {
-					fmt.Fprintf(out, "satelled  not answering at %s\n", ep)
+				path := ""
+				if body, err := os.ReadFile(unitPath()); err == nil {
+					path = unitDaemon(string(body))
 				}
+				if path == "" {
+					path = resolveDaemon("")
+				}
+				ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+				defer cancel()
+				installed, err := daemonIdentity(ctx, path)
+				if err != nil {
+					installed = fmt.Sprintf("unknown (%v)", err)
+				}
+				reportDaemon(out, &http.Client{Timeout: 2 * time.Second}, ep, installed, path)
 				return nil
 			},
 		})
@@ -121,6 +132,54 @@ RestartSec=2
 [Install]
 WantedBy=default.target
 `, daemon, addr, port)
+}
+
+// unitDaemon is the binary a unit body's ExecStart runs (renderUnit's format),
+// or "" when there is none.
+func unitDaemon(unit string) string {
+	for _, line := range strings.Split(unit, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart="); ok {
+			if f := strings.Fields(rest); len(f) > 0 {
+				return f[0]
+			}
+		}
+	}
+	return ""
+}
+
+// daemonIdentity is the identity line the satelled binary at path prints
+// (buildinfo.Info.String).
+func daemonIdentity(ctx context.Context, path string) (string, error) {
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// reportDaemon prints whether satelled answers at ep, the build it runs (from
+// /healthz), the installed binary's build, and a warning when they differ: a
+// running satelled left behind after an install keeps serving the old build
+// until it is restarted.
+func reportDaemon(out io.Writer, client *http.Client, ep, installed, path string) {
+	resp, err := client.Get(ep)
+	if err != nil {
+		fmt.Fprintf(out, "satelled  not answering at %s\n", ep)
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Fprintf(out, "satelled  answering at %s (%s)\n", ep, resp.Status)
+	running := "unknown (this satelled reports no build identity on /healthz)"
+	var info buildinfo.Info
+	if json.NewDecoder(resp.Body).Decode(&info) == nil && info.Version != "" {
+		running = info.String()
+	}
+	fmt.Fprintf(out, "running   %s\n", running)
+	fmt.Fprintf(out, "installed %s [%s]\n", installed, path)
+	fmt.Fprintf(out, "satelle   %s\n", buildinfo.Resolve().String())
+	if running != installed {
+		fmt.Fprintf(out, "warning   the running satelled (%s) differs from the installed one (%s); run 'satelle service restart'\n", running, installed)
+	}
 }
 
 func unitPath() string {

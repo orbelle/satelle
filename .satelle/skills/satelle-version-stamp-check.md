@@ -9,7 +9,7 @@ description: Functional-check for release close (release → done), ordered befo
 # Version-stamp check (release close gate)
 
 **Functional-check** on `release → done`. The release skill bumps
-`satelle.version` and sets `satelle.build` to `date -u +"%Y-%m-%d-%H-%M-%S"`.
+`satelle.version` and sets `satelle.build` to an RFC 3339 UTC datetime, `date -u +"%Y-%m-%dT%H:%M:%SZ"`.
 A missed stamp strands a released binary that reports a stale build. This check
 judges that fact from the file, before the release review is dispatched.
 
@@ -59,8 +59,8 @@ if [ -z "$CLI" ] || [ -z "$BUILD" ]; then
   echo "HEAD .version lacks satelle.version or satelle.build"
   exit 1
 fi
-if ! printf '%s' "$BUILD" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}$'; then
-  echo "satelle.build '$BUILD' is not in the release skill's format (date -u +%Y-%m-%d-%H-%M-%S)"
+if ! printf '%s' "$BUILD" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'; then
+  echo "satelle.build '$BUILD' is not in the release skill's format (date -u +%Y-%m-%dT%H:%M:%SZ)"
   exit 1
 fi
 
@@ -99,7 +99,7 @@ if [ "$CLI" = "$ref_cli" ]; then
   exit 1
 fi
 if [ "$BUILD" = "$ref_build" ]; then
-  echo "satelle.build $BUILD is unchanged since $refname — set it to date -u +\"%Y-%m-%d-%H-%M-%S\" in the release commit"
+  echo "satelle.build $BUILD is unchanged since $refname — set it to date -u +\"%Y-%m-%dT%H:%M:%SZ\" in the release commit"
   exit 1
 fi
 echo "version $ref_cli -> $CLI, build stamp $ref_build -> $BUILD (against $refname)"

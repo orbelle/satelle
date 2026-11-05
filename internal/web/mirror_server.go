@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net"
@@ -106,11 +107,14 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 
 	s := &MirrorServer{Store: m, InstanceID: instanceID, hub: h, LogPath: displayedSyncLogPath()}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Type", "application/json")
 		if s.InstanceID != "" {
 			w.Header().Set("X-Satelle-Instance", s.InstanceID)
 		}
-		fmt.Fprintln(w, "ok")
+		_ = json.NewEncoder(w).Encode(struct {
+			Status string `json:"status"`
+			buildinfo.Info
+		}{"ok", buildinfo.Resolve()})
 	})
 	mux.HandleFunc("GET /events", h.serveEvents)
 	mux.HandleFunc("GET /theme", getTheme)

@@ -63,3 +63,16 @@ func TestResolveFrom_DevNoVCS(t *testing.T) {
 		t.Errorf("no-VCS dev build: got %+v, want %+v", got, want)
 	}
 }
+
+// String is the one identity line: name, version (dev marker kept), commit
+// shortened to 12, build time.
+func TestInfoString(t *testing.T) {
+	rel := Info{Name: "satelle", Version: "1.0.0", Commit: "0123456789abcdef0123456789abcdef01234567", BuildTime: "2026-11-06T09:30:00Z"}
+	if got, want := rel.String(), "satelle 1.0.0 (commit 0123456789ab, built 2026-11-06T09:30:00Z)"; got != want {
+		t.Errorf("release String() = %q, want %q", got, want)
+	}
+	dev := Info{Name: "satelled", Version: "1.0.0+0123456789ab-dirty", Commit: "0123456789ab", BuildTime: "2026-11-06T09:30:00Z"}
+	if got, want := dev.String(), "satelled 1.0.0+0123456789ab-dirty (commit 0123456789ab, built 2026-11-06T09:30:00Z)"; got != want {
+		t.Errorf("dev String() = %q, want %q", got, want)
+	}
+}

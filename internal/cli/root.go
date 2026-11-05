@@ -50,11 +50,11 @@ func NewRootCmd() *cobra.Command {
 agents live as configuration under .satelle/; satelle runs them and records
 every event on an append-only ledger. Start with 'satelle init' and
 'satelle help'.`,
-		Version:       buildinfo.Version,
+		Version:       buildinfo.Resolve().String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.SetVersionTemplate("satelle {{.Version}}\n")
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(
 		initCmd(), validateCmd(), statusCmd(), versionCmd(),
 		itemCmd("story", true), itemCmd("task", true), itemCmd("execution", false),
@@ -91,7 +91,7 @@ func versionCmd() *cobra.Command {
 		Short: "Print the satelle version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "satelle %s\n", buildinfo.Version)
+			fmt.Fprintln(cmd.OutOrStdout(), buildinfo.Resolve().String())
 			return nil
 		},
 	}

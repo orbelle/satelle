@@ -1,13 +1,11 @@
 // Package buildinfo holds satelle's build identity — the version, commit,
-// and build time stamped into the binary at release time via -ldflags.
-//
-// It is deliberately dependency-free and decoupled from the CLI so the
-// version surface can be wired through the verb registry later (build order
-// step 4) without moving the stamped vars: the version verb will read the
-// same Resolve() this package exposes.
+// and build time stamped into the binary via -ldflags. Info.String is the one
+// line every surface shows (satelle version, satelled --version, satelled's
+// header, service status), so it is plain which build is running.
 package buildinfo
 
 import (
+	"fmt"
 	"runtime/debug"
 	"strings"
 )
@@ -32,6 +30,18 @@ type Info struct {
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildTime string `json:"build_time"`
+}
+
+// String is the build identity line: "<name> <version> (commit <c>, built
+// <t>)". The commit is shortened to 12 characters (CI stamps the full SHA); a
+// dev build's version keeps its +<commit>[-dirty] marker. A bare `go build`
+// reports the VCS commit time as its build time.
+func (i Info) String() string {
+	c := i.Commit
+	if len(c) > 12 {
+		c = c[:12]
+	}
+	return fmt.Sprintf("%s %s (commit %s, built %s)", i.Name, i.Version, c, i.BuildTime)
 }
 
 // Build info — overridden via -ldflags at release time. These are the

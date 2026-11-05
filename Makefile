@@ -6,16 +6,18 @@ INSTALL_DIR := $(PREFIX)/bin
 # Build identity from .version — CLI and serve carry independent version numbers
 # (sty_19ff03f4); commit SHA and build stamp are shared (one commit → both artifacts).
 # scripts/build-version.sh appends +<sha>[-dirty] when HEAD is not the tagged
-# release commit or the tree is dirty, so isDevVersion treats make-built
-# unreleased binaries as dev builds (sty_022929ef). CI release.yml stamps its
-# own ldflags and never calls this script — published assets stay plain.
+# release commit or the tree is dirty, so a make-built unreleased binary reports
+# itself as a dev build. CI release.yml stamps its own ldflags and never calls
+# this script — published assets stay plain.
 PKG         := github.com/bobmcallan/satelle/internal/buildinfo
 BASE_VERSION := $(shell awk '$$1=="satelle.version:" {print $$2}' .version)
 BASE_SERVE_VERSION := $(shell awk '$$1=="satelled.version:" {print $$2}' .version)
 VERSION     := $(shell bash scripts/build-version.sh $(BASE_VERSION))
 SERVE_VERSION := $(shell bash scripts/build-version.sh $(BASE_SERVE_VERSION) serve-v)
 COMMIT      := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo none)
-BUILD_TIME  := $(shell awk '$$1=="satelle.build:" {print $$2}' .version)
+# A clean build of the tagged release keeps .version's stamp (reproducible); any
+# other build is stamped with the time it was built, so it shows which build runs.
+BUILD_TIME  := $(if $(filter $(BASE_VERSION),$(VERSION)),$(shell awk '$$1=="satelle.build:" {print $$2}' .version),$(shell date -u +%Y-%m-%dT%H:%M:%SZ))
 LDFLAGS     := -X $(PKG).Name=satelle -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)
 SERVE_LDFLAGS := -X $(PKG).Name=satelled -X $(PKG).Version=$(SERVE_VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildTime=$(BUILD_TIME)
 

@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Changed
+- satelle and satelled are v1 (`.version`: `satelle.version` and `satelled.version` 1.0.0). `satelle.build` is an RFC 3339 UTC datetime (`YYYY-MM-DDTHH:MM:SSZ`); the version-stamp check and the release skill read and write that format. (sto_fa7df85b)
+- `satelle version`, `satelle --version`, `satelled --version` and satelled's top bar show one build identity line: `<name> <version> (commit <c>, built <t>)`. A make-built dev build keeps `+<commit>[-dirty]` and is stamped with the time it was built. (sto_fa7df85b)
+- satelled's `/healthz` answers JSON: `status`, `name`, `version`, `commit`, `build_time`. (sto_fa7df85b)
+- `satelle service status` reports the running satelled's build (from `/healthz`) beside the installed one its unit runs, and warns when they differ: run `satelle service restart`. (sto_fa7df85b)
+
 ## [0.0.896] - 2026-11-05
 
 ### Removed

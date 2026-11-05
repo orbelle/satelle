@@ -24,6 +24,9 @@ source: `make install` (builds both `satelle` and `satelled`).
 CLI and daemon carry **independent versions** in `.version`
 (`satelle.version` / `satelled.version`). GitHub tags are `vX` for the CLI
 (always `releases/latest`) and `serve-vY` for the UI binary (not latest).
+`satelle version`, `satelled --version`, satelled's top bar and its `/healthz`
+show `<name> <version> (commit, built)`; `satelle.build` is RFC 3339 UTC, and
+`satelle service status` warns when the running satelled is not the installed one.
 
 Already installed? `satelle update` self-updates the CLI and refreshes
 `satelled` from its own channel, then restarts the background service.

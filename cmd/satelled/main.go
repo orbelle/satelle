@@ -26,8 +26,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		info := buildinfo.Resolve()
-		fmt.Printf("%s %s (commit %s, built %s)\n", info.Name, info.Version, info.Commit, info.BuildTime)
+		fmt.Println(buildinfo.Resolve().String())
 		os.Exit(0)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

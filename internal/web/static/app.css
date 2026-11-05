@@ -154,6 +154,7 @@ button.tagchip:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .topbar-inner { width: var(--content-w); max-width: var(--content-max); margin: 0 auto;
   padding: 12px 24px; display: flex; align-items: center; gap: 8px; }
 .topbar-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.topbar-build { font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted, #888); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; }
 /* Navbar nav row (sty_523f93b3): the DS SiteHeader links, sitting inside the
    right-aligned controls cluster before the account + theme toggle. Ink default,
    accent when active (aria-current), chip-fill on hover (text-decoration:none to
