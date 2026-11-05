@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -276,6 +277,10 @@ func testBinVersion(t *testing.T, e estate) string {
 	return f[1]
 }
 
+// releaseVersion matches a stamped release; an [Unreleased] entry carried by a
+// branch until the release remote stamps it never does.
+var releaseVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
 // newestNonBreakingStamp is the newest shipped release below binVer whose range
 // up to binVer crosses no ### Breaking release, read from the embedded changelog.
 func newestNonBreakingStamp(t *testing.T, e estate, binVer string) string {
@@ -296,6 +301,9 @@ func newestNonBreakingStamp(t *testing.T, e estate, binVer string) string {
 	for _, en := range log.Entries { // newest first
 		if strings.HasPrefix(en.Version, "serve-") {
 			continue // the service binary's own releases
+		}
+		if !releaseVersion.MatchString(en.Version) {
+			continue
 		}
 		if en.Version != binVer {
 			return en.Version
