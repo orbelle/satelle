@@ -201,7 +201,7 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	}
 	base := k.base(it, events)
 	var changed []string
-	if k.Git != nil && base != "" {
+	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
 		if changed, err = k.Git.ChangedPaths(base); err != nil {
 			return res, err
 		}
