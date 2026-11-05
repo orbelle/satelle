@@ -3,19 +3,16 @@
 // fetches with its own node token, and Parse is the only reader of its
 // remote.toml.
 //
-// The format and its rules are satelle-server's internal/remotedef: this package
-// mirrors its keys, rules and finding paths (satelle-server 0.1.265, commit
-// 02e27f8) so a node refuses exactly what the server refuses. v1 is the only
-// shape. A definition in the earlier shape is refused, each old key named with
-// its v1 replacement, and there is no second reader for it.
+// The keys are provider, machine, repo, drive, secrets, setup, network,
+// lifecycle and satelle_version (with version and name). satelle-server
+// validates the same schema, so a node refuses exactly what the server refuses.
+// v1 is closed: any other key is a finding.
 //
 // The definition is data. Nothing here runs a command, opens a file or holds a
 // credential, and no finding carries a submitted value.
 package remotedef
 
 import (
-	"encoding/json"
-	"fmt"
 	"maps"
 	"net/url"
 	"path"
@@ -38,18 +35,10 @@ type Definition struct {
 	Provider Provider `toml:"provider" json:"provider"`
 	// SatelleVersion pins the satelle the node runs (MAJOR.MINOR.PATCH).
 	SatelleVersion string `toml:"satelle_version" json:"satelle_version"`
-	// Environment is the vault environment the definition's secrets resolve in
-	// (such as dev, stg or prd). It is required when [secrets] declares a name or
-	// a satelle: override. The client checks its form; the server also checks it
-	// against the workspace's environments and takes it from the stored
-	// definition, never from the node.
-	Environment string `toml:"environment" json:"environment,omitempty"`
 	// Machine is the workload's machine, carried to the node unchanged.
 	Machine Machine `toml:"machine" json:"machine,omitzero"`
 	// Setup is what the node runs as it comes up.
 	Setup Setup `toml:"setup" json:"setup,omitzero"`
-	// Identity is who the remote acts as: validated and carried, not acted on.
-	Identity Identity `toml:"identity" json:"identity,omitzero"`
 	// Secrets are the keys the node reads; a value never appears.
 	Secrets Secrets `toml:"secrets" json:"secrets,omitzero"`
 	// Repos are fetched onto the node read-only, each at its ref: the checkout
@@ -58,8 +47,6 @@ type Definition struct {
 	Network Network `toml:"network" json:"network,omitzero"`
 	// Lifecycle is how long a node lives and how many may live at once.
 	Lifecycle Lifecycle `toml:"lifecycle" json:"lifecycle,omitzero"`
-	// Trigger is the event that starts a node; nil starts one only on request.
-	Trigger *Trigger `toml:"trigger" json:"trigger,omitempty"`
 	// Drive says what drives the node.
 	Drive Drive `toml:"drive" json:"drive,omitzero"`
 }
@@ -67,12 +54,15 @@ type Definition struct {
 // Provider is a platform that hosts a node.
 type Provider string
 
-// ProviderFlySprite hosts the node on a Fly sprite.
-const ProviderFlySprite Provider = "fly-sprite"
+// The providers. docker-local is the reference: the definition runs as a local
+// container. fly-sprite starts the same image on a Fly sprite.
+const (
+	ProviderDockerLocal Provider = "docker-local"
+	ProviderFlySprite   Provider = "fly-sprite"
+)
 
-// Providers lists every Provider. The server maps each to a runner catalog
-// type; a node checks only that the provider is one of them.
-var Providers = []Provider{ProviderFlySprite}
+// Providers lists every Provider.
+var Providers = []Provider{ProviderDockerLocal, ProviderFlySprite}
 
 // Machine is the [machine] table: workload data, validated at machine.<key> and
 // carried to the node unchanged. Swap is a size: digits then K, M or G; the node
@@ -93,21 +83,10 @@ type Setup struct {
 	PostStart []string `toml:"post_start" json:"post_start,omitempty"`
 }
 
-// Identity is the [identity] table. Principal is who the remote acts as; it is
-// validated and carried, not yet acted on.
-type Identity struct {
-	Principal string `toml:"principal" json:"principal,omitempty"`
-}
-
 // SecretsProviderSatelle is the secrets backend [secrets] names resolve from:
 // satelle-vault's own sealed store. Omitting secrets.provider means the same, and
 // it is the only explicit value accepted.
 const SecretsProviderSatelle = "satelle"
-
-// retiredSecretsProviderInfisical is the backend satelle-vault retired (satelle-
-// server sty_02359fe3); a definition that still names it is refused with the
-// replacement.
-const retiredSecretsProviderInfisical = "infisical"
 
 // Secrets is the [secrets] table. Each of Names is a key resolved server-side
 // from the secrets backend. Override maps a key the node reads to another
@@ -179,18 +158,6 @@ func (d Definition) SecretEntries() []SecretEntry {
 	return out
 }
 
-// GitHubAppKey is the key of the definition's first github-app override, in key
-// order, when its host is host ("" matches any): the variable a run's GitHub
-// token is held in. ok is false when the definition declares none.
-func (d Definition) GitHubAppKey(host string) (key string, ok bool) {
-	for _, e := range d.SecretEntries() {
-		if e.Source == SourceRunToken && (host == "" || strings.EqualFold(host, DefaultGitHubHost)) {
-			return e.Key, true
-		}
-	}
-	return "", false
-}
-
 // parseOverride reads one override value into its entry; ok is false for a value
 // in neither form.
 func parseOverride(key string, v OverrideValue) (SecretEntry, bool) {
@@ -255,15 +222,6 @@ type Lifecycle struct {
 	KeepWarm    *int           `toml:"keep_warm" json:"keep_warm,omitempty"`
 }
 
-// Trigger is the [trigger] table. On is "story.status:<status>", a story
-// entering <status>. A definition with no [trigger] starts a node only on request.
-type Trigger struct {
-	On string `toml:"on" json:"on"`
-}
-
-// TriggerOnStatusPrefix opens a trigger that fires on a story entering a status.
-const TriggerOnStatusPrefix = "story.status:"
-
 // DriveKind is what drives a remote.
 type DriveKind string
 
@@ -271,23 +229,18 @@ type DriveKind string
 const (
 	// DriveTask: each wake runs one execution of the task Drive.Task names.
 	DriveTask DriveKind = "task"
-	// DriveStory: a node is woken for one story and drives it.
-	DriveStory DriveKind = "story"
+	// DriveItem: a node is woken for one work item and drives it.
+	DriveItem DriveKind = "item"
 )
 
 // DriveKinds lists every DriveKind.
-var DriveKinds = []DriveKind{DriveTask, DriveStory}
+var DriveKinds = []DriveKind{DriveTask, DriveItem}
 
 // KeepsWarm reports whether [lifecycle] keep_warm is accepted for this drive
-// kind: a task node waits for work, a story node is woken for one story.
+// kind: a task node waits for work, an item node is woken for one item.
 func (k DriveKind) KeepsWarm() bool { return k == DriveTask }
 
-// TaskIDPrefix prefixes a task's bare name to make its item id, the convention
-// verb.SyncTasks ingests task files under (tasks/tsk_<name>.md).
-const TaskIDPrefix = "tsk_"
-
-// Drive is the [drive] table. Task is the bare name of the task a task-kind wake
-// runs, not its item id.
+// Drive is the [drive] table. Task names the task item a task-kind wake runs.
 type Drive struct {
 	Kind DriveKind `toml:"kind" json:"kind,omitempty"`
 	Task string    `toml:"task" json:"task,omitempty"`
@@ -295,9 +248,6 @@ type Drive struct {
 
 // RunsTask reports whether a wake of the remote runs a task.
 func (d Definition) RunsTask() bool { return d.Drive.Kind == DriveTask }
-
-// TaskID is the item id of the task a wake runs: TaskIDPrefix + Drive.Task.
-func (d Definition) TaskID() string { return TaskIDPrefix + d.Drive.Task }
 
 // Allow is the egress allowlist the definition declares.
 func (d Definition) Allow() []string { return d.Network.Allow }
@@ -310,40 +260,4 @@ func RepoName(repoURL string) string {
 		return ""
 	}
 	return strings.TrimSuffix(path.Base(strings.TrimRight(u.Path, "/")), ".git")
-}
-
-// RepoSlug is a repo URL's host and owner/name path: github.com and
-// orbelle/satelle for https://github.com/orbelle/satelle.git. ok is false for a
-// URL that is not host/owner/name.
-func RepoSlug(repoURL string) (host, slug string, ok bool) {
-	u, err := url.Parse(strings.TrimSpace(repoURL))
-	if err != nil || u.Hostname() == "" {
-		return "", "", false
-	}
-	p := strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
-	if strings.Count(p, "/") != 1 || strings.HasPrefix(p, "/") || strings.HasSuffix(p, "/") {
-		return "", "", false
-	}
-	return u.Hostname(), p, true
-}
-
-// EnvDefinition is the environment variable a node's join sets, for the life of
-// the fire, to the definition it read (EnvValue), so a command the run starts —
-// `satelle pr` on a PR-approval remote — knows the repo and the credential the
-// remote declares. It carries key names, never a secret's value.
-const EnvDefinition = "SATELLE_NODE_DEFINITION"
-
-// EnvValue is d as EnvDefinition carries it.
-func (d Definition) EnvValue() (string, error) {
-	b, err := json.Marshal(d)
-	return string(b), err
-}
-
-// FromEnvValue reads a definition EnvValue wrote.
-func FromEnvValue(v string) (Definition, error) {
-	var d Definition
-	if err := json.Unmarshal([]byte(v), &d); err != nil {
-		return Definition{}, fmt.Errorf("%s: %w", EnvDefinition, err)
-	}
-	return d, nil
 }

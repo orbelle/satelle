@@ -1,11 +1,9 @@
-# A schema v1 story-drive definition: the fixture the node join tests serve
-# (internal/cli) and the bundle tests install (internal/remotenode). Its shape is
-# satelle-server's internal/remotedef at 02e27f8. A test adds [setup] commands
-# and [secrets.override] entries to it as it needs them.
+# A schema v1 item-drive definition: the fixture the node tests install
+# (internal/remotenode). A test adds [setup] commands and [secrets.override]
+# entries to it as it needs them.
 version = 1
 provider = "fly-sprite"
 satelle_version = "0.0.702"
-environment = "prd"
 
 [secrets]
 names = ["CLAUDE_CODE_OAUTH_TOKEN"]
@@ -21,4 +19,4 @@ allow = ["api.example.com", "*.example.org"]
 on_create = ["host-cli setup"]
 
 [drive]
-kind = "story"
+kind = "item"

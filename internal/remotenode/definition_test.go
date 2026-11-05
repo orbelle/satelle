@@ -12,7 +12,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/filebundle"
 )
 
-// fixtureRemoteToml is the v1 story definition in the remotedef package's
+// fixtureRemoteToml is the v1 item definition in the remotedef package's
 // testdata; every bundle here carries it as its remote.toml.
 func fixtureRemoteToml(t *testing.T) string {
 	t.Helper()
@@ -23,17 +23,13 @@ func fixtureRemoteToml(t *testing.T) string {
 	return string(raw)
 }
 
-// definitionFiles is a small definition: a remote.toml and one file in each of the
-// SubstrateDirs.
+// definitionFiles is a small definition: a remote.toml and an overlay.
 func definitionFiles(t *testing.T) map[string]string {
 	return map[string]string{
-		"remote.toml":                  fixtureRemoteToml(t),
-		"workflows/done.toml":          "done",
-		"workflows/step.toml":          "step",
-		"workflows/agents.toml":        "agents",
-		"skills/remote-work.md":        "skill",
-		"principles/remote-conduct.md": "principle",
-		"tasks/tsk_nightly-sweep.md":   "task",
+		"remote.toml":           fixtureRemoteToml(t),
+		"workflows/remote.toml": "workflow",
+		"skills/remote-work.md": "skill",
+		"agents.toml":           "agents",
 	}
 }
 
@@ -91,24 +87,20 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// AC1: the substrate dirs become exactly the definition's, nothing a fresh init
-// scaffolded survives beside them, the data dir's other files stay, and remote.toml
-// is read but not installed.
-func TestInstallDefinitionReplacesTheSubstrateDirs(t *testing.T) {
+// The bundle's files overlay the data dir, the data dir's other files stay,
+// and remote.toml is read but not installed.
+func TestInstallDefinitionOverlaysTheDataDir(t *testing.T) {
 	files := definitionFiles(t)
 	dataDir := t.TempDir()
 	writeFiles(t, dataDir, map[string]string{
-		"workflows/stale.toml": "scaffolded",
-		"skills/old.md":        "scaffolded",
-		"config/keep.toml":     "not substrate",
+		"skills/remote-work.md": "the repo's",
+		"satelle.toml":          "kept",
 	})
-
 	def, err := InstallDefinition(dataDir, bundleOf(t, files))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	want := map[string]string{"config/keep.toml": "not substrate"}
+	want := map[string]string{"satelle.toml": "kept"}
 	for rel, body := range files {
 		if rel != DefinitionFile {
 			want[rel] = body
@@ -147,13 +139,12 @@ func TestInstallDefinitionRefusesAndInstallsNothing(t *testing.T) {
 		{"another format", []byte(`{"format":2,"files":[]}`), "unknown bundle format 2"},
 		{"not a bundle", []byte(`<html>`), "invalid character"},
 		{"path escapes", bundleOf(t, with("../x", "x")), "escapes"},
-		{"path outside the roots", bundleOf(t, with("notes/x.md", "x")), "outside the bundle's roots"},
-		{"a file where a root dir should be", bundleOf(t, with("workflows", "x")), "outside workflows, skills, principles, tasks"},
+		{"absolute path", bundleOf(t, with("/etc/x", "x")), "not a plain relative path"},
 		{"no remote.toml", bundleOf(t, without("remote.toml")), "no remote.toml"},
 		{"malformed remote.toml", bundleOf(t, with("remote.toml", "[[secret\nkey = 1")), "remote.toml"},
 		{"wrong-typed allow", bundleOf(t, with("remote.toml", "[network]\nallow = \"x\"\n")), "remote.toml"},
 		{"wrong-typed repo url", bundleOf(t, with("remote.toml", "[[repo]]\nurl = 3\n")), "remote.toml"},
-		{"old-shape remote.toml", bundleOf(t, with("remote.toml", "satelle_version = \"0.0.702\"\n[[secret]]\nkey = \"A\"\nfrom = \"env\"\n")), "secret[0]: [[secret]] was replaced in v1 by [secrets]"},
+		{"unknown key", bundleOf(t, with("remote.toml", "colour = \"x\"\n")), "colour: unknown key"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()

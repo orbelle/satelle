@@ -17,11 +17,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// The keys, rules, finding paths and messages below mirror satelle-server's
-// internal/remotedef/validate.go at 02e27f8 (satelle-server 0.1.265). The checks
-// that need server state are not run here: the runner catalog, remote_id
-// visibility and whether each secret is held. The one rule the client adds is
-// keep_warm never above max_nodes (checkLifecycle).
+// The checks that need server state are not run here: remote visibility and
+// whether each secret is held.
 
 // Severities a Finding carries. Only an error makes a definition invalid.
 const (
@@ -38,9 +35,7 @@ type Finding struct {
 }
 
 // Validate checks a remote.toml body against schema v1 and returns every
-// finding, in the order the checks run, so one defect never hides another. A
-// definition in the earlier shape is refused at each old key with the v1 key
-// that replaced it.
+// finding, in the order the checks run, so one defect never hides another.
 func Validate(body []byte) []Finding {
 	_, findings := check(body)
 	return findings
@@ -65,8 +60,8 @@ func (v *validator) fail(key, msg string) {
 
 // check judges remote.toml's own text and returns the decoded definition with
 // the findings: the credential rule, its shape against the v1 type (every key
-// outside v1 and every value of the wrong type is a finding at its path, an
-// earlier-shape key naming its v1 replacement), then each v1 rule.
+// outside v1 and every value of the wrong type is a finding at its path), then
+// each v1 rule.
 func check(body []byte) (Definition, []Finding) {
 	v := &validator{}
 	var raw map[string]any
@@ -78,7 +73,7 @@ func check(body []byte) (Definition, []Finding) {
 		raw = map[string]any{}
 	}
 	_, hadVersion := raw["version"]
-	// The credential rule reads the definition as written, old and unknown keys
+	// The credential rule reads the definition as written, unknown keys
 	// included, so a literal credential is named wherever it sits.
 	v.checkCredentials(raw)
 	// A key of the wrong type is named here and dropped from raw, so the rest of
@@ -109,11 +104,7 @@ func check(body []byte) (Definition, []Finding) {
 	v.checkProvider(def)
 	v.checkMachine(def.Machine, sub(raw, "machine"))
 	v.checkSetup(def.Setup)
-	if _, ok := raw["identity"]; ok && strings.TrimSpace(def.Identity.Principal) == "" {
-		v.fail("identity.principal", "required when [identity] is present: who the remote acts as")
-	}
 	v.checkSecrets(def)
-	v.checkEnvironment(def)
 	v.checkRepos(def)
 	for i, h := range def.Network.Allow {
 		if !hostPattern.MatchString(h) {
@@ -121,7 +112,6 @@ func check(body []byte) (Definition, []Finding) {
 		}
 	}
 	v.checkLifecycle(def.Lifecycle, def.Drive.Kind)
-	v.checkTrigger(def.Trigger)
 	v.checkDrive(def.Drive)
 	return def, v.out
 }
@@ -143,34 +133,6 @@ func sub(raw map[string]any, key string) map[string]any {
 	m, _ := raw[key].(map[string]any)
 	return m
 }
-
-// oldKeys are the keys of the earlier definition shape, each with what replaced
-// it in v1 or that v1 removed it: satelle-server's map, verbatim. A finding on
-// one names its path and this message; lifecycle and trigger changed type in v1,
-// so they are named here when they hold the old type.
-var oldKeys = map[string]string{
-	"remote_id":          "was removed in v1, with no replacement: a remote is bound to its definition path by connect",
-	"wake_key":           "was removed in v1, with no replacement: a runner-backed remote is woken by starting a node",
-	"spend_cap_usd":      "was removed in v1, with no replacement: a trigger's params.spend_cap_usd caps a run",
-	"lifecycle":          `the earlier lifecycle string is refused: v1 uses the [lifecycle] table, scope = "run" or "job"`,
-	"secret":             "[[secret]] was replaced in v1 by [secrets]: list backend keys in names, and a github-app or satelle:<name> value in [secrets.override]",
-	"runner":             `[runner] was replaced in v1 by provider = "fly-sprite"`,
-	"host.bootstrap":     "was replaced in v1 by [setup] on_create and post_start, each a list of commands",
-	"host.name":          "was replaced in v1 by name",
-	"host.story_command": "was removed in v1, with no replacement: a story node drives the story it is woken for",
-	"host.env":           "was removed in v1, with no replacement",
-	"identity.key":       "was replaced in v1 by identity.principal",
-	"identity.oidc":      "was replaced in v1 by identity.principal",
-	"keepalive":          "was removed in v1, with no replacement",
-	"segment":            "was removed in v1, with no replacement",
-	"trigger":            `the earlier [[trigger]] array is refused: v1 declares one [trigger] table, on = "story.status:<status>"`,
-	"preflight":          "was removed in v1, with no replacement",
-	"step":               "was removed in v1, with no replacement",
-	"mcp":                "was removed in v1, with no replacement",
-}
-
-// oldTables are earlier-shape tables whose keys are named one by one.
-var oldTables = map[string]bool{"host": true}
 
 // tomlFields maps the toml keys of struct type t to their field types.
 func tomlFields(t reflect.Type) map[string]reflect.Type {
@@ -203,32 +165,8 @@ func (v *validator) shapeTable(at string, m map[string]any, t reflect.Type) {
 	}
 }
 
-// unknown reports a key v1 does not carry: an earlier-shape key with what
-// replaced it, an array of them once per element, anything else as unknown.
-func (v *validator) unknown(key string, val any) {
-	if t, ok := val.(map[string]any); ok && oldTables[key] && len(t) > 0 {
-		for _, k := range sortedKeys(t) {
-			v.unknown(key+"."+k, t[k])
-		}
-		return
-	}
-	msg, old := oldKeys[key]
-	if !old {
-		parent, _, _ := strings.Cut(key, ".")
-		if !oldTables[parent] {
-			v.fail(key, "unknown key")
-			return
-		}
-		msg = "was removed in v1, with no replacement"
-	}
-	if tables, ok := val.([]map[string]any); ok && len(tables) > 0 {
-		for i := range tables {
-			v.fail(fmt.Sprintf("%s[%d]", key, i), msg)
-		}
-		return
-	}
-	v.fail(key, msg)
-}
+// unknown reports a key v1 does not carry.
+func (v *validator) unknown(key string, _ any) { v.fail(key, "unknown key") }
 
 // shape holds one raw value at key to type t, and reports whether it fits. An
 // interface type is judged by its owner (an override, in checkSecrets).
@@ -237,9 +175,6 @@ func (v *validator) shape(key string, raw any, t reflect.Type) bool {
 		t = t.Elem()
 	}
 	mismatch := func(msg string) bool {
-		if old, ok := oldKeys[key]; ok {
-			msg = old
-		}
 		v.fail(key, msg)
 		return false
 	}
@@ -304,8 +239,7 @@ func providerNames() []string {
 	return out
 }
 
-// checkProvider holds provider to one of Providers. The server also checks the
-// provider's runner type against its catalog; a node has no catalog.
+// checkProvider holds provider to one of Providers.
 func (v *validator) checkProvider(def Definition) {
 	switch {
 	case def.Provider == "":
@@ -353,15 +287,13 @@ var keyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 func validKey(k string) bool { return keyPattern.MatchString(k) }
 
 // checkSecrets judges [secrets]: the backend provider (omitted or "satelle", the
-// satelle vault; the retired "infisical" is refused naming the replacement), each
-// name a well-formed key listed once, and each override a well-formed key not
-// also a name, holding "satelle:<name>" or a github-app table.
+// satelle vault), each name a well-formed key listed once, and each override a
+// well-formed key not also a name, holding "satelle:<name>" or a github-app
+// table.
 func (v *validator) checkSecrets(def Definition) {
 	s := def.Secrets
 	switch s.Provider {
 	case "", SecretsProviderSatelle:
-	case retiredSecretsProviderInfisical:
-		v.fail("secrets.provider", `"`+retiredSecretsProviderInfisical+`" is retired: [secrets] names resolve from the satelle vault; omit secrets.provider or set it to "`+SecretsProviderSatelle+`"`)
 	default:
 		v.fail("secrets.provider", `is not "`+SecretsProviderSatelle+`", the one secrets backend (the satelle vault)`)
 	}
@@ -387,26 +319,6 @@ func (v *validator) checkSecrets(def Definition) {
 			v.fail(at, "is also listed in secrets.names; a key comes from one source")
 		}
 		v.checkOverride(at, s.Override[k], def)
-	}
-}
-
-// checkEnvironment holds environment to a vault environment name and requires it
-// when the definition reads a value from the vault: a [secrets] name or a
-// satelle: override. A github-app override is minted, not held, so it needs none.
-// The server also checks the name against the workspace's environments.
-func (v *validator) checkEnvironment(def Definition) {
-	if def.Environment != "" {
-		if !environmentPattern.MatchString(def.Environment) {
-			v.fail("environment", "must be lower-case letters, digits or -, starting with a letter, at most 32 characters")
-		}
-		return
-	}
-	needs := len(def.Secrets.Names) > 0
-	for _, e := range def.SecretEntries() {
-		needs = needs || e.Source == SourceSatelle
-	}
-	if needs {
-		v.fail("environment", "required when [secrets] declares a name or a satelle: override: the vault environment its values resolve in")
 	}
 }
 
@@ -442,12 +354,10 @@ func (v *validator) checkOverride(at string, val OverrideValue, def Definition) 
 	}
 }
 
-// hasRepoOn reports whether any repo is an owner/name repository on host. The
-// server normalises the host through its gitcred package; github.com is the one
-// host a github-app override mints for, compared case-insensitively here.
+// hasRepoOn reports whether any repo is on host, compared case-insensitively.
 func hasRepoOn(repos []Repo, host string) bool {
 	for _, r := range repos {
-		if h, _, ok := RepoSlug(r.URL); ok && strings.EqualFold(h, host) {
+		if u, ok := httpsURL(r.URL); ok && strings.EqualFold(u.Hostname(), host) {
 			return true
 		}
 	}
@@ -505,27 +415,6 @@ func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
 	}
 }
 
-// maxStatusLen bounds the status a trigger names.
-const maxStatusLen = 100
-
-// checkTrigger holds [trigger] on to "story.status:<status>"; any other value is
-// refused.
-func (v *validator) checkTrigger(t *Trigger) {
-	if t == nil {
-		return
-	}
-	on := t.On
-	status, isStatus := strings.CutPrefix(on, TriggerOnStatusPrefix)
-	switch {
-	case strings.TrimSpace(on) == "":
-		v.fail("trigger.on", "required: story.status:<status>, the event that starts a node")
-	case !isStatus:
-		v.fail("trigger.on", "must be story.status:<status>")
-	case status == "" || len(status) > maxStatusLen || strings.ContainsAny(status, " \t\r\n"):
-		v.fail("trigger.on", fmt.Sprintf("must name a status of 1 to %d characters with no whitespace after story.status:", maxStatusLen))
-	}
-}
-
 // checkDrive holds [drive] to a known kind and a task for the task kind only.
 func (v *validator) checkDrive(d Drive) {
 	switch {
@@ -577,8 +466,6 @@ var (
 	hostPattern = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 	// repoNamePattern is a directory name a clone can safely have.
 	repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	// environmentPattern is a vault environment name, such as dev, stg or prd.
-	environmentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 )
 
 // httpsURL parses raw as an https URL with a host; ok is false for anything else.
@@ -643,9 +530,7 @@ func (v *validator) checkCredentials(raw map[string]any) {
 				walk(fmt.Sprintf("%s[%d]", path, i), key, item)
 			}
 		default:
-			// An earlier-shape key (wake_key, identity.key) held a name, not a
-			// value, and is refused by its own finding.
-			if _, old := oldKeys[path]; !old && secretishKey(key) && carriesValue(val) {
+			if secretishKey(key) && carriesValue(val) {
 				v.fail(path, "credential-shaped key holds a literal value; hold a ${VAR} reference, or declare the secret in [secrets]")
 			}
 		}

@@ -14,7 +14,6 @@ version = 1
 name = "satelle-cicd"
 provider = "fly-sprite"
 satelle_version = "0.0.891"
-environment = "prd"
 
 [drive]
 kind = "task"
@@ -29,20 +28,14 @@ task = "release"
 GH_TOKEN = "satelle:GITHUB_TOKEN"
 OPENROUTER_API_KEY = "satelle:OPENROUTER_API_KEY"
 
-# The first line holds a Sprites task so the VM does not warm-pause in a quiet
-# stretch (release.sh waits on CI): with no heartbeat the node is declared lost
-# (nod_859d2073cc74, nod_50febea9e82d). satelle-server's workaround until its
-# sty_d77543a5 ships; it talks to the local unix socket, so it needs no egress.
-# Then pi (from its GitHub release, as satelle-server's smoke remote installs it)
-# for the bindings; gh for the PR and the CI watch; Go for
-# scripts/check-serve-version.sh, which derives the satelled watch set with go list.
-# A sprite's base image puts its own pi 1.4.0 first on PATH at
-# ~/.pi/agent/bin (nod_bf06a34391e2), so the pi line links 1.5.0 there too;
-# `command -v pi` proves which pi the bindings run.
+# pi (from its GitHub release) for the bindings; gh for the PR and the CI watch;
+# Go for scripts/check-serve-version.sh, which derives the satelled watch set
+# with go list. Keeping a sprite awake and putting this pi ahead of a sprite's
+# own are the fly-sprite adapter's business (internal/remote/provider), not
+# this definition's. `command -v pi` proves which pi the bindings run.
 [setup]
 on_create = [
-  "nohup sh -c 'while :; do curl -s --unix-socket /.sprite/api.sock -H \"Content-Type: application/json\" -X PUT http://sprite/v1/tasks/satelle-node -d \"{\\\"expire\\\":\\\"5m\\\"}\" >/dev/null 2>&1; sleep 60; done' >/dev/null 2>&1 &",
-  "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/pi/pi $HOME/.local/bin/pi && mkdir -p $HOME/.pi/agent/bin && ln -sf $HOME/.local/share/pi/pi $HOME/.pi/agent/bin/pi",
+  "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/pi/pi $HOME/.local/bin/pi",
   "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/gh_2.103.3_linux_amd64/bin/gh $HOME/.local/bin/gh",
   "curl -fsSL https://dl.google.com/go/go1.27.0.linux-amd64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/go/bin/go $HOME/.local/bin/go && ln -sf $HOME/.local/share/go/bin/gofmt $HOME/.local/bin/gofmt",
   "satelle version",
