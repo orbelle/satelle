@@ -2005,9 +2005,6 @@ func TestDispatchExecutorRunsNamedBinding(t *testing.T) {
 	if !strings.Contains(r.got.SystemPrompt, "alignment rubric") {
 		t.Errorf("node rubric missing from the system prompt:\n%s", r.got.SystemPrompt)
 	}
-	if !strings.Contains(r.got.SystemPrompt, "Do NOT change the item's status") {
-		t.Errorf("executor charter missing:\n%s", r.got.SystemPrompt)
-	}
 	if !strings.Contains(r.got.Payload, "Align the stories") {
 		t.Errorf("item payload missing from stdin: %q", r.got.Payload)
 	}
@@ -2056,7 +2053,7 @@ func TestDispatchExecutorRecordsSystemPromptAndPayloadBytes(t *testing.T) {
 // same work-item JSON on argv and on stdin (sty_5cf4a1fb / sty_cc35cd0b).
 func TestDispatchExecutorDualPayloadArgvAndStdin(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "harness.sh")
+	script := filepath.Join(dir, "claude-harness.sh")
 	// $1 is {payload}; stdin is the dual channel. Echo both for the test to compare.
 	body := "#!/bin/sh\nprintf 'ARGV:%s\\nSTDIN:' \"$1\"\ncat\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
@@ -5333,7 +5330,7 @@ func TestAgentFailureRecordsBoundedCause_CommandTransport(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "failing-agent")
+			path := filepath.Join(t.TempDir(), "claude-failing-agent")
 			script := "#!/bin/sh\ncat > /dev/null\nprintf '%s' '" + tc.stderr + "' >&2\nexit " + fmt.Sprint(tc.exit) + "\n"
 			if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 				t.Fatal(err)

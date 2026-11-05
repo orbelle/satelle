@@ -42,6 +42,9 @@ func newACPRunner(command string) (Runner, error) {
 			return nil, fmt.Errorf("agentcli: interface=acp command must not contain placeholder %s — system/payload/tools/effort ride the ACP session, not argv", tok)
 		}
 	}
+	if adapterOf(fields[0], fields[1:]) == HarnessGrok {
+		return nil, fmt.Errorf("agentcli: interface=acp is not supported for grok (it cannot be held to a tool grant); use grok on the command transport")
+	}
 	if adapterOf(fields[0], fields[1:]) == HarnessCursor {
 		if err := cursorACPProblem(fields[1:]); err != nil {
 			return nil, err
@@ -251,6 +254,9 @@ type acpSession struct {
 }
 
 func openACPSession(ctx context.Context, a acpRunner, req Request, pol PermissionPolicy) (Session, error) {
+	if err := checkDeny(a.binary, a.args, InterfaceACP, req); err != nil {
+		return nil, err
+	}
 	if pol == nil {
 		pol = acpPolicyFor(req)
 	}

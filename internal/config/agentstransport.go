@@ -387,7 +387,6 @@ func bindingTable(b AgentBinding) map[string]any {
 	set("busy_timeout", b.BusyTimeout)
 	set("effort", b.Effort)
 	set("secondary", b.Secondary)
-	set("isolation", b.Isolation)
 	set("auth", b.Auth)
 	set("collect_doc", b.CollectDoc)
 	set("placement", b.Placement)

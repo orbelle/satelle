@@ -294,9 +294,6 @@ func (g GlobalAgentsConfig) validate() error {
 		if err := checkBindingInterface(GlobalAgentsLabel, section, b); err != nil {
 			return err
 		}
-		if err := checkBindingIsolation(GlobalAgentsLabel, section, b); err != nil {
-			return err
-		}
 		if err := checkBindingAuth(GlobalAgentsLabel, section, b); err != nil {
 			return err
 		}
@@ -407,15 +404,6 @@ func checkBindingInterface(file, section string, b AgentBinding) error {
 func checkCollectDoc(file, section string, b AgentBinding) error {
 	if strings.TrimSpace(b.CollectDoc) != "" {
 		return fmt.Errorf("%s [%s] collect_doc %q: only an interface=%s binding collects a document", file, section, b.CollectDoc, InterfaceCloud)
-	}
-	return nil
-}
-
-// checkBindingIsolation is the shared isolation= check (see checkBindingInterface):
-// empty or "operator-attested", nothing else.
-func checkBindingIsolation(file, section string, b AgentBinding) error {
-	if raw := strings.TrimSpace(b.Isolation); raw != "" && !b.OperatorAttested() {
-		return fmt.Errorf("%s [%s] isolation %q: want %q", file, section, raw, IsolationOperatorAttested)
 	}
 	return nil
 }

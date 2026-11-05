@@ -553,7 +553,7 @@ func TestCommandTransportHonorsWatchdog(t *testing.T) {
 // invents: agentcli stamps it on EventStart from cmd.Process.Pid.
 func TestActivityDetailCarriesRealSubprocessPid(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "quick-agent.sh")
+	script := filepath.Join(dir, "claude-quick-agent.sh")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

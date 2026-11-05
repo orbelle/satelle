@@ -59,8 +59,7 @@ func piEffectiveTools(args []string) (tools []string, restricted bool) {
 // piPreflight is preflight's pi case: pi is trimmed by its own --tools /
 // --exclude-tools flags, so the effective set (piEffectiveTools) is judged against
 // the grant exactly as the other adapters' --tools list is, on the command and
-// pi-rpc transports alike. The gaps name pi; the operator-attested
-// acknowledgement is not offered, because pi is recognised.
+// pi-rpc transports alike. The gaps name pi.
 func piPreflight(iface, label string, args []string, grant string) []IsolationGap {
 	if iface != InterfaceCommand && iface != InterfacePiRPC {
 		return []IsolationGap{{Adapter: label,

@@ -33,49 +33,6 @@ func summariseWith(t *testing.T, iface, command, tools string) (*[]telemetryRec,
 	return recs, warn.String(), serr
 }
 
-// An unsupported summariser binding runs (sty_2d5e583a AC1): the process starts,
-// one warning names the adapter and the gap, and the ledger records the warned
-// event. It is never refused.
-func TestSummarise_UnsupportedBindingRunsWithWarning(t *testing.T) {
-	cases := []struct {
-		name, iface, binary, args, wantAdapter string
-	}{
-		{"grok acp stock spawn", "acp", "grok-shim", "agent stdio", "grok/acp"},
-		{"grok command always-approve, no --tools", "command", "grok-shim", "-p {payload} --always-approve", "grok/command"},
-		{"grok command always-approve, blank --tools", "command", "grok-shim", "-p {payload} --always-approve --tools=", "grok/command"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var command, marker string
-			if tc.iface != "command" {
-				command = namedPeer(t, tc.iface, tc.binary) + " " + tc.args
-			} else {
-				var path string
-				path, marker = startCounter(t, tc.binary, "the recap")
-				command = path + " " + tc.args
-			}
-			recs, warn, err := summariseWith(t, tc.iface, command, summaryRO)
-			if err != nil {
-				t.Fatalf("an unsupported summariser binding was refused: %v", err)
-			}
-			if marker != "" {
-				if n := starts(marker); n != 1 {
-					t.Fatalf("summariser started %d process(es), want 1", n)
-				}
-			}
-			if n := strings.Count(warn, "warning:"); n != 1 || !strings.Contains(warn, tc.wantAdapter) || !strings.Contains(warn, "tools not held to the grant") {
-				t.Errorf("want one warning naming %q and the gap, got %q", tc.wantAdapter, warn)
-			}
-			if countKind(*recs, "reviewer-isolation-warned") != 1 {
-				t.Errorf("want one reviewer-isolation-warned event: %+v", *recs)
-			}
-			if countKind(*recs, "reviewer-isolation-refused") != 0 {
-				t.Errorf("a refused event was emitted: %+v", *recs)
-			}
-		})
-	}
-}
-
 // A stock claude summariser still runs, once, and its result carries the offered
 // tools it was trimmed to.
 func TestSummarise_StockClaudeRunsAndRecordsOfferedTools(t *testing.T) {
@@ -136,46 +93,6 @@ func openConsult(t *testing.T, iface, command, tools string, caller agentcli.Per
 		_ = sess.Close()
 	}
 	return lr, err
-}
-
-// An unsupported consult binding opens its session (sty_2d5e583a AC1): one
-// warning names the adapter and the gap, the ledger records the warned event and
-// the open row carries the limitation. The session stays read-only.
-func TestOpenSession_UnsupportedReviewerConsultOpensWithWarning(t *testing.T) {
-	cases := []struct {
-		name, iface, command, tools, wantAdapter string
-	}{
-		{"grok acp stock spawn", "acp", "grok agent stdio", summaryRO, "grok/acp"},
-		{"grok acp always-approve", "acp", "grok agent --always-approve stdio", summaryRO, "grok/acp"},
-		{"claude stream bypass + scoped grant", "stream", "claude -p --tools {tools} --permission-mode bypassPermissions", summaryRO + ",Bash(satelle:*)", "claude/stream"},
-		{"unrecognised harness", "acp", "mystery-cli serve", summaryRO, "unknown/acp"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			lr, err := openConsult(t, tc.iface, tc.command, tc.tools, nil)
-			if err != nil {
-				t.Fatalf("an unsupported consult binding was refused: %v", err)
-			}
-			if lr.opens != 1 || !lr.req.ReadOnly {
-				t.Fatalf("opens = %d, ReadOnly = %v; want one read-only open", lr.opens, lr.req.ReadOnly)
-			}
-			if n := strings.Count(lr.warn.String(), "warning:"); n != 1 || !strings.Contains(lr.warn.String(), tc.wantAdapter) {
-				t.Errorf("want one warning naming %q, got %q", tc.wantAdapter, lr.warn.String())
-			}
-			if countKind(*lr.events, "reviewer-isolation-warned") != 1 || countKind(*lr.events, "reviewer-isolation-refused") != 0 {
-				t.Errorf("want one warned and no refused event: %+v", *lr.events)
-			}
-			var open map[string]any
-			for _, r := range lr.rows {
-				if r["phase"] == "open" {
-					open = r
-				}
-			}
-			if open == nil || open["isolation_limitation"] == nil || open["offered_tools_source"] == nil {
-				t.Errorf("the open row must record the limitation and offered-tools source: %+v", open)
-			}
-		})
-	}
 }
 
 // A stock claude stream consult still opens: the request is read-only, the open

@@ -257,53 +257,6 @@ func TestAgentDispatchTopic(t *testing.T) {
 	}
 }
 
-// TestAgentDispatchTopicModelSelection (sty_7069bced / epic:model-selection
-// order:3 AC7): the precedence, the step/agent
-// override syntax, and the cli-default fallback must all be teachable from
-// deployed docs alone.
-// TestAgentDispatchTopicListsEveryWarnedIsolationConfig (sty_2d5e583a AC5): the
-// "Reviewer tool isolation" section lists every configuration that runs with a
-// warning, its gap and its fix, states the breach rule and the attestation, and
-// no longer claims a refusal.
-func TestAgentDispatchTopicListsEveryWarnedIsolationConfig(t *testing.T) {
-	top, ok := Get("agent-dispatch")
-	if !ok {
-		t.Fatal("agent-dispatch topic not found")
-	}
-	start := strings.Index(top.Body, "### Reviewer tool isolation")
-	end := strings.Index(top.Body, "### What each harness reports")
-	if start < 0 || end < start {
-		t.Fatal("agent-dispatch topic lost its Reviewer tool isolation section")
-	}
-	section := top.Body[start:end]
-	for _, want := range []string{
-		"Warned, never blocked",
-		"grok ACP",
-		"no adapter recognises",
-		"`--always-approve`",
-		"`--dangerously-skip-permissions`",
-		"no ask mode",
-		"tools not held to the grant",
-		"usage accounting not to standard",
-		"scoped grant not enforced",
-		"reviewer-isolation-breach",
-		"never aborts",
-		"isolation = \"operator-attested\"",
-		"INFO",
-		"WARN",
-		"fix",
-	} {
-		if !strings.Contains(section, want) {
-			t.Errorf("Reviewer tool isolation section missing %q", want)
-		}
-	}
-	for _, ban := range []string{"is refused", "refused before", "will refuse", "is not dispatched", "refusal stands"} {
-		if strings.Contains(section, ban) {
-			t.Errorf("Reviewer tool isolation section still claims a refusal: %q", ban)
-		}
-	}
-}
-
 // TestAgentDispatchTopicDocumentsApplyChanges (sty_af0b1761 AC7): the contract of
 // a read-only performer reporting changes is taught by the topic alone — the
 // declaration, that it requires propose, the ops, the tag prefixes and the

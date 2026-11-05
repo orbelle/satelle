@@ -14,8 +14,8 @@ import (
 // acpAdapters are the spawn configurations that drive the one shared ACP
 // client: the binary's name is what selects the adapter.
 var acpAdapters = []struct{ name, binary string }{
-	{"cursor", "cursor-agent"},
-	{"grok", "grok"},
+	{"claude", "claude-acp"},
+	{"generic", "acp-peer"},
 }
 
 // writeAdapterPeer writes a fake ACP peer named binary (so adapterOf picks the
@@ -200,80 +200,6 @@ func TestACPClient_AdvertisesOnlyServedCapabilities(t *testing.T) {
 				if _, served := acpServedMethods[capMethods[capName]]; on && !served {
 					t.Errorf("capability %s advertised true but %s has no handler", capName, capMethods[capName])
 				}
-			}
-		})
-	}
-}
-
-// AC4 + AC3: cursor/ask_question gets Cursor's defined skip outcome, not the
-// generic ask reply, for each adapter's runner configuration.
-func TestACPClient_CursorAskQuestionGetsCursorShape(t *testing.T) {
-	for _, ad := range acpAdapters {
-		t.Run(ad.name, func(t *testing.T) {
-			extra := `
-        send({"jsonrpc":"2.0","id":61,"method":"cursor/ask_question","params":{"toolCallId":"call_1","title":"Need input","questions":[{"id":"q1","prompt":"Which mode should I use?","options":[{"id":"agent","label":"Agent"},{"id":"plan","label":"Plan"}],"allowMultiple":False}]}})
-        resp = read()
-        res = (resp or {}).get("result", {})
-        if resp is None or resp.get("id") != 61 or set(res.keys()) != {"outcome"} or res["outcome"].get("outcome") != "skipped" or "no user is available" not in res["outcome"].get("reason", ""):
-            send({"jsonrpc":"2.0","id":mid,"error":{"code":1,"message":"expected cursor skipped outcome, got %s" % (resp,)}})
-            continue
-`
-			bin, _ := writeAdapterPeer(t, ad.binary, extra)
-			denied := runAdapterPeer(t, bin)
-			if len(denied) != 1 || denied[0].Tool != "cursor/ask_question" || denied[0].Text != "Which mode should I use?" || denied[0].Meta[EventMetaResponse] != "auto-answered" {
-				t.Fatalf("events = %+v, want one auto-answered cursor/ask_question", denied)
-			}
-		})
-	}
-}
-
-// AC5 + AC3: the recorded cursor/create_plan request gets Cursor's defined
-// rejection, not "method not found".
-func TestACPClient_CursorCreatePlanIsRejected(t *testing.T) {
-	var capture struct {
-		Frames []struct {
-			Msg struct {
-				ID     *int64          `json:"id"`
-				Method string          `json:"method"`
-				Params json.RawMessage `json:"params"`
-			} `json:"msg"`
-		} `json:"frames"`
-	}
-	raw, err := os.ReadFile("testdata/cursor/17-acp-plan.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &capture); err != nil {
-		t.Fatal(err)
-	}
-	var params json.RawMessage
-	var title string
-	for _, f := range capture.Frames {
-		if f.Msg.Method == "cursor/create_plan" {
-			params = f.Msg.Params
-			var p struct {
-				Name string `json:"name"`
-			}
-			_ = json.Unmarshal(params, &p)
-			title = p.Name
-		}
-	}
-	if params == nil || title == "" {
-		t.Fatal("capture 17 carries no cursor/create_plan request")
-	}
-	for _, ad := range acpAdapters {
-		t.Run(ad.name, func(t *testing.T) {
-			extra := "\n        send({\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"cursor/create_plan\",\"params\":json.loads(r'''" + string(params) + `''')})
-        resp = read()
-        res = (resp or {}).get("result", {})
-        if resp is None or resp.get("id") != 62 or "error" in resp or set(res.keys()) != {"outcome"} or res["outcome"].get("outcome") != "rejected" or not res["outcome"].get("reason"):
-            send({"jsonrpc":"2.0","id":mid,"error":{"code":1,"message":"expected cursor rejected outcome, got %s" % (resp,)}})
-            continue
-`
-			bin, _ := writeAdapterPeer(t, ad.binary, extra)
-			denied := runAdapterPeer(t, bin)
-			if len(denied) != 1 || denied[0].Tool != "cursor/create_plan" || denied[0].Text != title || denied[0].Meta[EventMetaResponse] != "auto-answered" {
-				t.Fatalf("events = %+v, want one auto-answered cursor/create_plan titled %q", denied, title)
 			}
 		})
 	}

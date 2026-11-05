@@ -149,7 +149,6 @@ func RenderGrantSources(w io.Writer, indent string, g agentvalidate.Grant) {
 		"role":         g.Role,
 		"principles":   g.Principles,
 		"secondary":    g.Secondary,
-		"isolation":    g.Isolation,
 	}
 	fields := make([]string, 0, len(g.Sources))
 	for f := range g.Sources {

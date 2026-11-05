@@ -19,62 +19,38 @@ type reviewerDispatch struct {
 }
 
 // isolateReviewer is the ONE reviewer tool-isolation path (sty_ef3efb51): every
-// role=reviewer dispatch — a gate verdict, the step summariser and a live
-// consult session — goes through it before any process starts. It never refuses
-// (sty_2d5e583a): a binding no adapter path can keep inside its grant runs, with
-// the gap shown once on stderr, recorded on the ledger and described on the
-// agent_invocation row. It marks req read-only so the adapter trims what the
-// harness offers and denies a tool outside the grant by name where it can, and
-// hooks the runtime observations (a peer with no ask mode, a tool that ran
-// outside the grant) into the same ledger and warning.
-//
-// attest is the binding's isolation = "operator-attested" acknowledgement: it
-// downgrades the configured-gap warning to an info note (nothing on stderr; the
-// ledger still records the limitation). The returned bool reports that the
-// attestation — not an adapter — admitted an unrecognised harness, in which case
-// no offered-tool count is ever recorded.
-func (g *Engine) isolateReviewer(ctx context.Context, d reviewerDispatch, runner agentcli.Runner, attest bool, req *agentcli.Request) (verb.ToolIsolation, bool) {
+// role=reviewer dispatch goes through it before any process starts. It REFUSES
+// (returns an error, and no process starts) when the runner cannot keep the
+// reviewer inside its read-only grant: any preflight gap, an unrecognised
+// harness, or a grant naming a write-capable tool (agentcli.ReviewerProblem).
+// Otherwise it marks req read-only so the adapter trims what the harness offers
+// and denies a tool outside the grant by name, and returns a guard: a runtime
+// observation of a tool outside the grant (or a peer that cannot be forced to
+// ask) makes guard.err non-nil, and the caller fails the verdict.
+func (g *Engine) isolateReviewer(ctx context.Context, d reviewerDispatch, runner agentcli.Runner, req *agentcli.Request) (verb.ToolIsolation, *isolationGuard, error) {
 	req.ReadOnly = true
 	actor := d.Actor
 	if actor == "" {
 		actor = "reviewer"
 	}
-	gaps := agentcli.PreflightRunner(runner, req.AllowedTools)
-	attestedUnknown := attest && agentcli.UnrecognisedRunner(runner)
-	var iso verb.ToolIsolation
-	if attestedUnknown {
-		iso = toolIsolation(agentcli.AttestedIsolation(d.Section))
-	} else {
-		iso = toolIsolation(agentcli.DescribeReviewer(runner, *req))
-	}
-	if len(gaps) > 0 {
-		summary := agentcli.GapSummary(gaps)
-		if !attestedUnknown {
-			limit := fmt.Sprintf("binding %q (%s): %s", d.Section, gaps[0].Adapter, summary)
-			if iso.IsolationLimitation != "" {
-				limit += " | " + iso.IsolationLimitation
-			}
-			iso.IsolationLimitation = limit
-		}
-		if iso.OfferedToolsSource == "" {
-			iso.OfferedToolsSource = "unavailable: " + gaps[0].Adapter + " offered tools are not verified"
-		}
-		g.telemetryEvent(ctx, d.StoryID, actor, "reviewer-isolation-warned", map[string]any{
-			"skill": d.Skill, "step": d.Step, "agent": d.Section, "adapter": gaps[0].Adapter,
-			"gap": summary, "fix": agentcli.GapFix(gaps), "acknowledged": attest,
+	if err := agentcli.ReviewerProblem(runner, req.AllowedTools); err != nil {
+		g.telemetryEvent(ctx, d.StoryID, actor, "reviewer-isolation-refused", map[string]any{
+			"skill": d.Skill, "step": d.Step, "agent": d.Section, "reason": err.Error(),
 		})
-		if !attest {
-			g.warnf("satelle: warning: reviewer binding %q (%s): %s — fix: %s", d.Section, gaps[0].Adapter, summary, agentcli.GapFix(gaps))
-		}
+		return verb.ToolIsolation{}, nil, fmt.Errorf("reviewer binding %q refused: %w", d.Section, err)
 	}
+	iso := toolIsolation(agentcli.DescribeReviewer(runner, *req))
 
-	var mu sync.Mutex
+	guard := &isolationGuard{}
 	seen := map[string]bool{}
 	req.OnIsolation = func(n agentcli.IsolationNote) {
-		mu.Lock()
+		guard.mu.Lock()
 		dup := seen[n.Detail]
 		seen[n.Detail] = true
-		mu.Unlock()
+		if guard.first == nil {
+			guard.first = fmt.Errorf("reviewer binding %q (%s) left its read-only grant: %s", d.Section, n.Adapter, n.Detail)
+		}
+		guard.mu.Unlock()
 		if dup {
 			return
 		}
@@ -85,14 +61,26 @@ func (g *Engine) isolateReviewer(ctx context.Context, d reviewerDispatch, runner
 		g.telemetryEvent(ctx, d.StoryID, actor, kind, map[string]any{
 			"skill": d.Skill, "step": d.Step, "agent": d.Section, "adapter": n.Adapter, "detail": n.Detail,
 		})
-		// An observed breach is behaviour, not a configured gap, so attestation
-		// never silences it. A runtime gap only warns when the binding had no
-		// configured gap already warning of the same limitation.
-		if n.Breach || (len(gaps) == 0 && !attest) {
-			g.warnf("satelle: warning: reviewer binding %q (%s): %s", d.Section, n.Adapter, n.Detail)
-		}
+		g.warnf("satelle: reviewer binding %q (%s): %s — verdict failed", d.Section, n.Adapter, n.Detail)
 	}
-	return iso, attestedUnknown
+	return iso, guard, nil
+}
+
+// isolationGuard collects the first runtime isolation observation of one
+// reviewer run. A nil guard never fails.
+type isolationGuard struct {
+	mu    sync.Mutex
+	first error
+}
+
+// err is the first observation, or nil.
+func (g *isolationGuard) err() error {
+	if g == nil {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.first
 }
 
 // warnf writes one warning line to the engine's warning writer (stderr by default).

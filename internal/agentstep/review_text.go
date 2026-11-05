@@ -101,9 +101,12 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 	}
 	built.Redact = resolved
 	res.SystemPromptBytes, res.PayloadBytes = len(built.SystemPrompt), len(built.Payload)
-	g.isolateReviewer(ctx, reviewerDispatch{
+	_, guard, ierr := g.isolateReviewer(ctx, reviewerDispatch{
 		Actor: section, Skill: req.Skill, Step: "doctor", Section: section,
-	}, runner, binding.OperatorAttested(), &built)
+	}, runner, &built)
+	if ierr != nil {
+		return res, ierr
+	}
 
 	idle, err := g.idleTimeoutFor(section, binding)
 	if err != nil {
@@ -114,6 +117,9 @@ func (g *Engine) ReviewText(ctx context.Context, req ReviewTextRequest) (ReviewT
 		return res, fmt.Errorf("[%s] busy_timeout: %w", section, err)
 	}
 	out, _, rerr := g.runOnceBusy(ctx, runner, built, g.agentTimeout, idle, busy)
+	if gerr := guard.err(); gerr != nil {
+		return res, gerr
+	}
 	if rerr != nil {
 		var se *StallError
 		if errors.As(rerr, &se) {

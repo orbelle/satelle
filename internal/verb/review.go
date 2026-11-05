@@ -315,7 +315,7 @@ func (e *GateFailure) Unwrap() error { return e.Err }
 // rendered — never the length of the grant.
 type ToolIsolation struct {
 	OfferedToolCount *int `json:"offered_tool_count,omitempty"`
-	// OfferedToolsSource is "flag", "harness", "operator-attested" (no count), or
+	// OfferedToolsSource is "flag", "harness", or
 	// "unavailable: <adapter reason>".
 	OfferedToolsSource string `json:"offered_tools_source,omitempty"`
 	// IsolationLimitation is an adapter-named limitation (prompt trim / skills

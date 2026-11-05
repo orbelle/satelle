@@ -350,9 +350,6 @@ func TestCursorDescriptionsAndPreflight(t *testing.T) {
 	if gaps := PreflightRunner(r, "Read"); len(gaps) != 0 {
 		t.Errorf("a cursor reviewer held by ask mode has no isolation gap: %+v", gaps)
 	}
-	if UnrecognisedRunner(r) {
-		t.Error("cursor is a recognised adapter")
-	}
 
 	bad, err := RunnerFromCommand("cursor-agent -p --output-format json --mode agent")
 	if err != nil {

@@ -67,7 +67,6 @@ type AdapterCapabilities struct {
 func CapabilityTable() []AdapterCapabilities {
 	const notLive = "interface=command is one-shot only"
 	const noGrokHookModel = "grok's hook payload carries no model, so the in-loop tier is unknown"
-	const grokACPNoTrim = "grok agent stdio has no tool-list flag and reports no permission mode, so a grok acp reviewer runs with a warning that its tools are not held to the grant"
 	rows := []AdapterCapabilities{
 		{
 			Adapter: "claude command", Usage: yes(), CacheSplit: yes(), ResolvedModel: yes(),
@@ -80,12 +79,6 @@ func CapabilityTable() []AdapterCapabilities {
 		{
 			Adapter: "grok command", Usage: yes(), CacheSplit: yes(), ResolvedModel: yes(),
 			ModelInheritance: no(noGrokHookModel), LiveSession: no(notLive), ToolTrim: yes(), OfferedTools: yes(),
-		},
-		{
-			Adapter: "grok acp", Usage: yes(), CacheSplit: yes(), ResolvedModel: yes(),
-			ModelInheritance: no(noGrokHookModel), LiveSession: yes(),
-			ToolTrim:     no(grokACPNoTrim),
-			OfferedTools: no("grok agent stdio neither trims nor reports offered tools"),
 		},
 		{
 			Adapter: piRPCLabel, Usage: yes(), CacheSplit: yes(), ResolvedModel: yes(),

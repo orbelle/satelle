@@ -180,6 +180,11 @@ type Request struct {
 	// tool that ran outside the grant without asking. It only reports — the run
 	// continues and its verdict stands. It may be called from a reader goroutine.
 	OnIsolation func(IsolationNote)
+	// DeniedTools are tools the run must never use, in claude's rule syntax
+	// (Bash(satelle story set:*)). The adapter translates them into the
+	// harness's deny flag; an adapter that cannot express a deny refuses the
+	// run (deny.go).
+	DeniedTools []string
 }
 
 // CaptureMode selects which ACP agent_message_chunk text is returned as the
@@ -587,6 +592,9 @@ func (t templateRunner) Command() string {
 }
 
 func (t templateRunner) Run(ctx context.Context, req Request) ([]byte, error) {
+	if err := checkDeny(t.binary, t.argTemplate, InterfaceCommand, req); err != nil {
+		return nil, err
+	}
 	if adapterOf(t.binary, t.argTemplate) == HarnessCursor {
 		args, creq, err := cursorSpawn(buildArgs(t.argTemplate, req), req)
 		if err != nil {

@@ -379,7 +379,7 @@ func TestBundle_SeatKeyDecidesWhoShares(t *testing.T) {
 		{"same settings, different binding", "seat-b", func(b config.AgentBinding) config.AgentBinding { return b }, 2},
 		{"different model", "seat-b", func(b config.AgentBinding) config.AgentBinding { b.Model = "haiku"; return b }, 2},
 		{"different effort", "seat-b", func(b config.AgentBinding) config.AgentBinding { b.Effort = "low"; return b }, 2},
-		{"different tool grant", "seat-b", func(b config.AgentBinding) config.AgentBinding { b.Tools = "Read,Grep,Glob,Bash(satelle:*)"; return b }, 2},
+		{"different tool grant", "seat-b", func(b config.AgentBinding) config.AgentBinding { b.Tools = "Read,Grep"; return b }, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

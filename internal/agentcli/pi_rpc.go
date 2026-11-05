@@ -124,6 +124,9 @@ func (p piRPCRunner) RunUsage(ctx context.Context, req Request) ([]byte, UsageRe
 		return nil, piRPCUsageUnavailable("the run ended before pi reported its session stats", run.turns), err
 	}
 
+	if err := checkDeny(p.binary, p.args, InterfacePiRPC, req); err != nil {
+		return fail(err)
+	}
 	cmd := exec.Command(p.binary, p.spawnArgs(req)...)
 	if req.Dir != "" {
 		cmd.Dir = req.Dir

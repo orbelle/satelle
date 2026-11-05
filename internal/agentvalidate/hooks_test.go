@@ -169,48 +169,6 @@ func TestValidateChecksHooksEvenWhenTheDotDoesNotParse(t *testing.T) {
 	}
 }
 
-// TestValidateHookCeilingIsOwnedByTheBindingCheck pins the severity split this
-// package settled on, applied to a hook's section. checkBinding is the single
-// owner of the reviewer permission ceiling: a PROVABLE escape (an ACP reviewer with
-// no tools= grant evidence) is a hard problem, while a merely unexpressed ceiling stays a warning
-// because ReadOnly is a heuristic. checkHooks deliberately does not re-decide it
-// — re-checking the same heuristic at a harsher severity would hard-fail every
-// repo whose reviewer template the heuristic cannot classify.
-func TestValidateHookCeilingIsOwnedByTheBindingCheck(t *testing.T) {
-	doc := wfWithHook("hooks:\n  - operation: create_review\n    skill: s\n    agent: judge\n")
-
-	// Provable escape → hard problem, naming the section the hook allocates.
-	danger := healthyAgents()
-	danger.Agents = map[string]config.AgentBinding{
-		"judge": {Role: config.RoleReviewer, Interface: "acp", Command: "nosuch acp-serve"},
-	}
-	r := Validate(danger, nil, []docindex.Doc{doc})
-	if r.OK() {
-		t.Fatal("a hook binding with no ceiling evidence must be refused")
-	}
-	if joined := strings.Join(r.Problems, "\n"); !strings.Contains(joined, "judge") || !strings.Contains(joined, "requires tools=") {
-		t.Errorf("problem should name the section and the escape: %v", r.Problems)
-	}
-
-	// Unclassifiable ceiling (an adapter no table names, so agentcli cannot hold
-	// it read-only) → warning, not a hard failure.
-	loose := healthyAgents()
-	loose.Agents = map[string]config.AgentBinding{
-		"judge": {
-			Role:    config.RoleReviewer,
-			Command: "mystery-agent -p --system {system} --tools {tools}",
-			Tools:   "Read,Grep,Glob",
-		},
-	}
-	lr := Validate(loose, nil, []docindex.Doc{doc})
-	if !lr.OK() {
-		t.Fatalf("a heuristically-unexpressed ceiling must stay advisory: %v", lr.Problems)
-	}
-	if !strings.Contains(strings.Join(lr.Warnings, "\n"), "read-only ceiling") {
-		t.Errorf("it must still WARN: %v", lr.Warnings)
-	}
-}
-
 // TestValidateHookAllocationResolvesThroughAProfile ties AC1 to sty_c7dfeedf: a
 // hook allocated to a binding that resolves through a machine-wide profile is
 // checked and reported on the RESOLVED binding.

@@ -62,9 +62,7 @@ type Grant struct {
 	BusyTimeout string
 	// Placement is where the binding's work runs (sty_7028d996): "local",
 	// "remote" or "team:<path>". Advisory — the loaders refuse any other value.
-	Placement string
-	// Isolation is the raw isolation= (sty_ef3efb51): "operator-attested" or empty.
-	Isolation         string
+	Placement         string
 	Tools             string
 	Model             string
 	Effort            string // optional reasoning effort (sty_657f77b9)
@@ -1166,7 +1164,6 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 		Timeout:           b.Timeout,
 		IdleTimeout:       b.IdleTimeout,
 		BusyTimeout:       b.BusyTimeout,
-		Isolation:         b.Isolation,
 		Placement:         b.PlacementLabel(),
 		InjectsPrinciples: b.InjectsPrinciples(),
 		Role:              role,
@@ -1268,6 +1265,22 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 			g.Notes += "; " + note
 		}
 		return g, problems, warnings, fs
+	}
+
+	// A reviewer is read-only by tool grant, enforced: an adapter that cannot
+	// hold it to its grant, or a grant naming a write-capable tool, is refused
+	// here exactly as the dispatch refuses it (agentstep.isolateReviewer).
+	if role == config.RoleReviewer && !config.IsInLoopCommand(cmd) {
+		grant := b.Tools
+		if grant == "" {
+			grant = config.DefaultReviewerTools
+		}
+		if bad := agentcli.WriteCapableGrant(grant); len(bad) > 0 {
+			ceilingProblem(fmt.Sprintf("agents.toml [%s] is role=reviewer but its grant admits write-capable tools %s", section, strings.Join(bad, ", ")))
+		} else if gaps := agentcli.PreflightReviewer(iface, cmd, grant); len(gaps) > 0 {
+			ceilingProblem(fmt.Sprintf("agents.toml [%s] is role=reviewer on an adapter that cannot enforce its grant (%s): %s — fix: %s",
+				section, gaps[0].Adapter, agentcli.GapSummary(gaps), agentcli.GapFix(gaps)))
+		}
 	}
 
 	fields := strings.Fields(cmd)

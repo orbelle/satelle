@@ -687,11 +687,24 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 	// runs), then mark the request so the adapter trims what the harness offers
 	// and every live transport denies a tool outside the grant by name.
 	var isolation verb.ToolIsolation
-	var attested bool // operator-attested reviewer on an unrecognised harness: never a count
+	var guard *isolationGuard
 	if expect.judges() {
-		isolation, attested = g.isolateReviewer(ctx, reviewerDispatch{
+		var ierr error
+		isolation, guard, ierr = g.isolateReviewer(ctx, reviewerDispatch{
 			StoryID: req.StoryID, Actor: req.Actor, Skill: req.Skill, Step: req.Step, Section: section,
-		}, runner, binding.OperatorAttested(), &agentReq)
+		}, runner, &agentReq)
+		if ierr != nil {
+			finishScratch(scratchDir, false)
+			return InvokeResult{Err: ierr, Command: cmdStr}
+		}
+	} else {
+		// Performer limits are grants, not prompt text: a performer may not move
+		// the item it performs. An adapter that cannot express the deny refuses.
+		if derr := agentcli.DenyProblem(runner); derr != nil {
+			finishScratch(scratchDir, false)
+			return InvokeResult{Err: fmt.Errorf("performer binding %q refused: %w", section, derr), Command: cmdStr}
+		}
+		agentReq.DeniedTools = append([]string(nil), agentcli.PerformerDeniedTools...)
 	}
 	// A judging reviewer that was handed files must be able to open them.
 	// An empty read class skips the runner; the edge does not accept.
@@ -744,6 +757,10 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		}
 	default: // ExpectVerdict, ExpectVerdicts
 		res = g.invokeVerdict(ctx, req, runner, agentReq, cmdStr, timeout, idle, busy, tally)
+		if gerr := guard.err(); gerr != nil {
+			// A tool outside the read-only grant was observed: the verdict fails.
+			res.Decision, res.Decisions, res.Err = nil, nil, gerr
+		}
 	}
 	// The run's turns and tool calls, on every outcome: a failed attempt
 	// measured them too. A judging run records them; a decision carries them
@@ -778,7 +795,7 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 	reported := harnessTools
 	eventMu.Unlock()
 	if expect.judges() {
-		if reported != nil && !attested {
+		if reported != nil {
 			// The harness's own report wins over the rendered allow-list.
 			n := agentcli.OfferedToolCount(reported)
 			isolation.OfferedToolCount, isolation.OfferedToolsSource = &n, agentcli.OfferedSourceHarness
@@ -1643,8 +1660,7 @@ func payloadInputs(payload any) map[string]any {
 func executorCharter(agent, step, workflow string) string {
 	return fmt.Sprintf("## You are the isolated satelle executor agent %q "+
 		"performing step %q of the workflow %q\n\n"+
-		"Perform the step's work in this repository. Do NOT change the item's status "+
-		"— the workflow's gates govern every advance. ", agent, step, workflow) +
+		"Perform the step's work in this repository. ", agent, step, workflow) +
 		isolatedAgentBriefing
 }
 
@@ -1658,8 +1674,7 @@ func consultCharter(binding, role, status string) string {
 	return fmt.Sprintf("## You are the %q binding %q, CONSULTED on this story at status %q\n\n"+
 		"You are consulting, NOT judging. Your reply is CONTEXT, not a verdict: the "+
 		"reviewer that judges this edge still runs cold and one-shot over the payload "+
-		"satelle builds, and its verdict alone advances the stage. Do NOT run "+
-		"`satelle story set` and do NOT change the item's status. Stay centered on the "+
+		"satelle builds, and its verdict alone advances the stage. Stay centered on the "+
 		"story's acceptance criteria — the conversation is context, never a criterion. ",
 		role, binding, status) + isolatedAgentBriefing
 }

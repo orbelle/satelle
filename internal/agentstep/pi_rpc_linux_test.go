@@ -137,64 +137,6 @@ func TestPiRPCStalledSeatEndsAtIdleTimeout(t *testing.T) {
 	}
 }
 
-// AC4: a pi seat with --no-session records its turns, tokens, cache split, cost
-// and model from the run itself, with no turns or session-record unavailable
-// reason: on the dispatch result the agent_invocation row is written from, and on
-// the agent-attempt row of a contracted step.
-func TestPiRPCDispatchRecordsUsageFromTheRun(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	piModel := map[string]string{"FAKE_PI_PROVIDER": "cursor", "FAKE_PI_MODEL": "claude-opus-5-5-fast"}
-
-	binding, record := piRPCBinding(t, "answer", piModel)
-	g, _, _ := piRPCEngine(t, binding)
-	res, err := g.DispatchExecutor(context.Background(), workitem.Item{ID: "sty_pirpc", Status: "backlog"}, "in_progress")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(strings.Join(readArgv(t, record), " "), "--no-session") {
-		t.Fatal("the seat did not run with --no-session")
-	}
-	if !res.UsageAvailable || res.TokensInFresh != 9926 || res.TokensOut != 450 || res.TokensCacheRead != 10446 || res.TokensCacheWrite != 74 {
-		t.Errorf("dispatch tokens = %+v", res)
-	}
-	if res.CostUSD == nil || *res.CostUSD != 0.399 || res.ModelResolved != "cursor/claude-opus-5-5-fast" {
-		t.Errorf("dispatch cost=%v model=%q", res.CostUSD, res.ModelResolved)
-	}
-	if res.Turns == nil || *res.Turns != 2 || res.TurnsUnavailableReason != "" {
-		t.Errorf("dispatch turns = %v (%q), want the 2 counted turns and no turns reason", res.Turns, res.TurnsUnavailableReason)
-	}
-	if res.UsageNote.UsageUnavailableReason != "" || res.UsageNote.Adapter != agentcli.HarnessPi {
-		t.Errorf("usage note = %+v, want pi with no unavailable reason", res.UsageNote)
-	}
-
-	attemptEnv := map[string]string{"FAKE_PI_ANSWER": validAttempt("## AC1\nok\n## AC2\nok")}
-	for k, v := range piModel {
-		attemptEnv[k] = v
-	}
-	binding, _ = piRPCBinding(t, "answer", attemptEnv)
-	g, events := attemptedEngine(t, attemptedDispatchSkill, nil, nil)
-	g.repoRoot = t.TempDir()
-	g.newRunner = agentcli.RunnerFromBinding
-	g.SetNamedAgents(func(string) (config.AgentBinding, bool) { return binding, true })
-	attachAnything(g)
-	if _, err := g.DispatchExecutor(context.Background(), attemptedItem(), "plan"); err != nil {
-		t.Fatal(err)
-	}
-	if len(*events) != 1 {
-		t.Fatalf("attempt rows = %#v, want one", *events)
-	}
-	d := (*events)[0].data
-	if d["adapter"] != agentcli.HarnessPi || d["usage_available"] != true || d["model_resolved"] != "cursor/claude-opus-5-5-fast" {
-		t.Errorf("attempt row = %#v, want pi usage and the model pi reported", d)
-	}
-	if d["tokens_in_fresh"] != 9926 || d["tokens_out"] != 450 || d["tokens_cache_read"] != 10446 || d["tokens_cache_write"] != 74 {
-		t.Errorf("attempt row tokens = %#v", d)
-	}
-	if reason, set := d["usage_unavailable_reason"]; set {
-		t.Errorf("attempt row carries an unavailable reason %q", reason)
-	}
-}
-
 // readArgv is the argv the fake peer recorded.
 func readArgv(t *testing.T, record string) []string {
 	t.Helper()

@@ -52,13 +52,6 @@ func TestPiIsRecognisedAdapter(t *testing.T) {
 		if UnrecognisedCommand(command) {
 			t.Errorf("UnrecognisedCommand(%q) must be false for pi", command)
 		}
-		r, err := RunnerFromCommand(command + " -p")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if UnrecognisedRunner(r) {
-			t.Errorf("UnrecognisedRunner(%q) must be false for pi", command)
-		}
 	}
 	for _, command := range []string{"pip install", "pimento", "/usr/bin/pidgin -p"} {
 		if got := AdapterName(command); got != HarnessUnknown {

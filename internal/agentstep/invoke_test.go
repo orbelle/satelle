@@ -24,7 +24,7 @@ func TestCharterSourcesRenderBothRoles(t *testing.T) {
 		}
 	}
 	ec := executorCharter("planner", "plan", "satelle-project-workflow")
-	for _, want := range []string{"planner", "plan", "satelle-project-workflow", "Do NOT change the item's status"} {
+	for _, want := range []string{"planner", "plan", "satelle-project-workflow"} {
 		if !strings.Contains(ec, want) {
 			t.Errorf("executor charter missing %q: %q", want, ec)
 		}

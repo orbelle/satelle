@@ -3241,10 +3241,19 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 			finishScratch(scratchDir, false)
 			return nil, rerr
 		}
-		isolation, _ = g.isolateReviewer(ctx, reviewerDispatch{
+		var ierr error
+		isolation, _, ierr = g.isolateReviewer(ctx, reviewerDispatch{
 			StoryID: item.ID, Actor: name, Skill: "live-session", Step: item.Status, Section: name,
-		}, runner, binding.OperatorAttested(), &req)
+		}, runner, &req)
+		if ierr != nil {
+			finishScratch(scratchDir, false)
+			return nil, ierr
+		}
 		pol = agentcli.ReviewerSessionPolicy(req.AllowedTools, pol)
+	} else {
+		// Performer limits are grants, not prompt text (see Invoke): the live
+		// transport translates the deny, or refuses to open.
+		req.DeniedTools = append([]string(nil), agentcli.PerformerDeniedTools...)
 	}
 	// A live session ledgers its own open as an agent_invocation row
 	// (sty_7069bced 4.2): the model chosen and why, so a live dispatch is as
@@ -4430,9 +4439,12 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 	req.Redact = g.scrubValues(nil, resolved)
 	// Reviewer tool isolation (sty_ef3efb51): the summariser is a role=reviewer
 	// dispatch, so it takes the same warn / trim / describe path as a gate verdict.
-	isolation, _ := g.isolateReviewer(ctx, reviewerDispatch{
+	isolation, guard, ierr := g.isolateReviewer(ctx, reviewerDispatch{
 		StoryID: item.ID, Actor: section, Skill: summariserSkill, Step: to, Section: section,
-	}, runner, binding.OperatorAttested(), &req)
+	}, runner, &req)
+	if ierr != nil {
+		return soft("step summary refused: %v", ierr)
+	}
 	g.emitActivity(item.ID, "summary", 1, 1)
 	g.emitProgress("summarising step %s→%s via [%s] (may take a minute)…", from, to, section)
 	// Retry the SAME transient a reviewer retries (a rate-limited/killed/empty
@@ -4482,6 +4494,9 @@ func (g *Engine) Summarise(ctx context.Context, item workitem.Item, from, to str
 				"cause": causeOf(rerr),
 			})
 			continue // transient — retry
+		}
+		if gerr := guard.err(); gerr != nil {
+			return soft("step summary failed: %v", gerr)
 		}
 		if s := strings.TrimSpace(string(out)); s != "" {
 			// The summariser's own token/wall-time cost (sty_a699ad14, a documented

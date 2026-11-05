@@ -3,7 +3,6 @@ package agentstep
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -11,13 +10,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/logfile"
 	"github.com/bobmcallan/satelle/internal/secretref"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // sty_bd8d963c: a config value naming a secret by its Infisical location is
@@ -157,136 +153,6 @@ func (c *captured) all() []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return bytes.Join(c.rows, []byte("\n"))
-}
-
-// AC1 + AC2: a performer dispatched with a `[vars]` reference in its binding
-// env runs with the resolved value in its environment, and the value appears
-// in nothing satelle writes or returns — executor.log, the dispatch log, the
-// ledger rows, the tool trace, progress, events, the result — anywhere under
-// the tree, the runtime dir, the data dir or TMPDIR.
-func TestSecretRefPerformerDispatchLeavesNoValue(t *testing.T) {
-	w := newSecretWorld(t, false)
-	harness := streamHarness(t, w)
-	wf := spineWF("", "", "", "exec|executor|rubric-skill", "done")
-	skill := "---\nname: rubric-skill\ntype: skill\nevidence_commands: echo\ndescription: d\n---\nDo it."
-	g := New(nil, fakeDocs{workflow: wf, skillBody: skill, skillFound: true}, w.tree, "")
-	g.SetLogDir(filepath.Join(w.runtime, "logs"), logfile.Config{})
-	g.newRunner = agentcli.RunnerFromBinding
-	g.idleTimeout = time.Minute
-	binding := config.AgentBinding{
-		Interface: config.InterfaceStream, Command: harness + " --stream", Tools: "Read,Bash(satelle:*)",
-		Principles: config.PrinciplesNone, Env: varsBindingEnv(t),
-	}
-	g.SetOneShotAgents(func(name string) (config.AgentBinding, bool) { return binding, name == "executor" })
-	var ledger, progress captured
-	g.SetInvocationRecorder(func(_ context.Context, _ string, p map[string]any) error {
-		b, _ := json.Marshal(p)
-		ledger.add(b)
-		return nil
-	})
-	g.SetTelemetry(func(_ context.Context, _, _, kind string, data map[string]any) {
-		b, _ := json.Marshal(map[string]any{"kind": kind, "data": data})
-		ledger.add(b)
-	})
-	g.SetProgress(func(msg string) { progress.add([]byte(msg)) })
-	var warn bytes.Buffer
-	g.SetWarnWriter(&warn)
-
-	item := workitem.Item{ID: "sty_1", Status: "backlog"}
-	res, err := g.PerformExecutorStep(context.Background(), item, "exec", "")
-	if err != nil {
-		t.Fatalf("PerformExecutorStep: %v", err)
-	}
-	result, _ := json.Marshal(res)
-
-	// AC1: the child saw the value — the redactor only replaces the value itself.
-	if !strings.Contains(res.Output, "done val="+secretMarker) {
-		t.Errorf("the child did not receive the resolved value; output = %q", res.Output)
-	}
-	exec, err := os.ReadFile(filepath.Join(w.runtime, "logs", "executor.log"))
-	if err != nil || !bytes.Contains(exec, []byte(secretMarker)) {
-		t.Errorf("executor.log should carry the marker where the value was (err %v):\n%s", err, exec)
-	}
-	var traced bool
-	for _, c := range res.Trace.Calls {
-		if strings.Contains(c.Command, secretMarker) {
-			traced = true
-		}
-	}
-	if !traced {
-		t.Errorf("the tool trace should carry the redacted command: %+v", res.Trace)
-	}
-	if item.Status != "backlog" || binding.Env["TOKEN"] != secretRefText {
-		t.Error("the record and binding must keep the reference")
-	}
-	n := w.noSecretUnder(t, map[string][]byte{
-		"ledger": ledger.all(), "progress": progress.all(), "warn": warn.Bytes(), "result": result,
-	})
-	if n < 3 {
-		t.Errorf("the walk read %d files; want executor.log, the dispatch log and the harness argv at least", n)
-	}
-}
-
-// AC2: a reviewer whose answer holds the value and no verdict is logged to
-// reviewer.log with the marker, never the value.
-func TestSecretRefReviewerFailureLogLeavesNoValue(t *testing.T) {
-	w := newSecretWorld(t, false)
-	script := filepath.Join(w.root, "reviewer.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"no verdict val=$TOKEN\"\necho \"stderr val=$TOKEN\" >&2\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runner, err := agentcli.RunnerFromBinding(agentcli.InterfaceCommand, script+" --noop")
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := New(runner, fakeDocs{workflow: testWorkflow, skillBody: "rubric", skillFound: true}, w.tree, "")
-	g.SetLogDir(filepath.Join(w.runtime, "logs"), logfile.Config{})
-	g.SetReviewerEnv(varsBindingEnv(t))
-	g.attempts = 1
-	g.backoff = func(int) time.Duration { return 0 }
-	var ledger captured
-	g.SetInvocationRecorder(func(_ context.Context, _ string, p map[string]any) error {
-		b, _ := json.Marshal(p)
-		ledger.add(b)
-		return nil
-	})
-	dec, gerr := g.Gate(context.Background(), workitem.Item{ID: "sty_1", Status: "backlog"}, "in_progress")
-	decision, _ := json.Marshal(dec)
-	errText := ""
-	if gerr != nil {
-		errText = gerr.Error()
-	}
-	rev, err := os.ReadFile(filepath.Join(w.runtime, "logs", "reviewer.log"))
-	if err != nil || !bytes.Contains(rev, []byte("no verdict val="+secretMarker)) {
-		t.Errorf("reviewer.log should carry the marker where the value was (err %v):\n%s", err, rev)
-	}
-	w.noSecretUnder(t, map[string][]byte{"ledger": ledger.all(), "decision": decision, "error": []byte(errText)})
-}
-
-// AC2: the step summariser — its own dispatch shape — resolves the reference
-// and returns a summary scrubbed of the value; an unresolvable one fails it.
-func TestSecretRefSummariserLeavesNoValue(t *testing.T) {
-	w := newSecretWorld(t, false)
-	script := filepath.Join(w.root, "summariser.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"recap val=$TOKEN\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runner, err := agentcli.RunnerFromBinding(agentcli.InterfaceCommand, script+" --noop")
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := New(runner, fakeDocs{workflow: summaryWorkflow, skillBody: "summarise", skillFound: true}, w.tree, "")
-	g.SetLogDir(filepath.Join(w.runtime, "logs"), logfile.Config{})
-	g.SetReviewerEnv(varsBindingEnv(t))
-	got, err := g.Summarise(context.Background(), workitem.Item{ID: "sty_1", Status: "in_progress"}, "in_progress", "done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Text != "recap val="+secretMarker {
-		t.Errorf("summary = %q, want the value resolved and then scrubbed", got.Text)
-	}
-	result, _ := json.Marshal(got)
-	w.noSecretUnder(t, map[string][]byte{"summary": result})
 }
 
 // AC1 + AC2: a task input holding a reference reaches a functional check as

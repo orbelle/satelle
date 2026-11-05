@@ -424,7 +424,7 @@ func TestPreflightRunner_PiToolRestriction(t *testing.T) {
 	// A recognised adapter: never the unknown-adapter gap, and no attestation offer.
 	for _, command := range []string{"pi -p {payload}", "pi -p --tools read,bash {payload}"} {
 		for _, g := range gapFor(command, piReadOnlyGrant) {
-			if strings.Contains(g.What, "no adapter knows") || strings.Contains(g.Fix, "operator-attested") || strings.HasPrefix(g.Adapter, "unknown") {
+			if strings.Contains(g.What, "no adapter knows") || strings.HasPrefix(g.Adapter, "unknown") {
 				t.Errorf("%q: gap %+v is the unknown-adapter gap", command, g)
 			}
 		}

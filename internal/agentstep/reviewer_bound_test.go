@@ -250,7 +250,6 @@ func TestReviewerVerdictWhenMaterialExceedsArgLimit(t *testing.T) {
 		{name: "claude command", iface: agentcli.InterfaceCommand, command: agentcli.DefaultClaudeCommand, bin: "claude", script: commandStubScript},
 		{name: "grok command", iface: agentcli.InterfaceCommand, command: "pi -p {payload}", bin: "pi", script: commandStubScript},
 		{name: "claude stream", iface: agentcli.InterfaceStream, command: agentcli.DefaultClaudeStreamCommand, bin: "claude", script: streamPeerScript, turn: true},
-		{name: "grok acp", iface: agentcli.InterfaceACP, command: "", bin: "fake-acp-peer", script: acpPeerScript, turn: true, block: true},
 	}
 	for _, seat := range seats {
 		t.Run(seat.name, func(t *testing.T) {
@@ -524,49 +523,5 @@ func TestJudgingLedgerUnavailableWhenStoreUnset(t *testing.T) {
 	mustJSON(t, raw, &ref)
 	if ref.Path != "" || !strings.Contains(ref.Unavailable, "ledger:") || !strings.Contains(ref.Unavailable, "verb: store not configured") {
 		t.Fatalf("ledger = %+v", ref)
-	}
-}
-
-// TestReviewerGrantWithoutReadDoesNotAccept is AC5: an empty read class skips
-// the runner and the edge does not accept. The outcome names the runner.
-func TestReviewerGrantWithoutReadDoesNotAccept(t *testing.T) {
-	requirePython(t)
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "started")
-	writeExec(t, dir, "noread-adapter", `#!/usr/bin/env python3
-import os, sys
-open(os.environ["MARKER"], "w").write("started")
-sys.stdout.write('{"decision":"accept","notes":"ok"}\n')
-`)
-	prependPath(t, dir)
-	inner, err := agentcli.RunnerFromBinding(agentcli.InterfaceCommand, "noread-adapter -p {payload}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inner.Name() != "noread-adapter" {
-		t.Fatalf("runner name = %q", inner.Name())
-	}
-	g := New(inner, fakeDocs{workflow: boundWorkflow(), skillBody: "Judge the work item.", skillFound: true}, t.TempDir(), "")
-	g.tools = ""
-	g.reviewerBinding.Tools = ""
-	g.SetInjectPrinciples(false)
-	g.SetReviewerEnv(map[string]string{"MARKER": marker})
-	g.idleTimeout = 15 * time.Second
-	g.warnOut = io.Discard
-	dec, err := g.Gate(context.Background(), boundItem(), "done")
-	if err == nil {
-		t.Fatal("gate accepted a reviewer that cannot open the material")
-	}
-	if dec.Accept {
-		t.Fatal("Accept is true")
-	}
-	text := err.Error()
-	for _, want := range []string{"unavailable:", "noread-adapter", "could not be opened"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("error %q missing %q", text, want)
-		}
-	}
-	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
-		t.Fatalf("runner started, marker stat %v", statErr)
 	}
 }

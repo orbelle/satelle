@@ -271,7 +271,7 @@ func TestInvokeModelListStaysOnOtherFailures(t *testing.T) {
 		req := verdictRequest(b, r)
 		req.Payload, req.Material = transitionPayload{From: "a", To: "b"}, &reviewerMaterial{}
 		res := g.Invoke(context.Background(), req)
-		if res.Err == nil || !strings.Contains(res.Err.Error(), "admits no read tool") {
+		if res.Err == nil || !strings.Contains(res.Err.Error(), "write-capable") {
 			t.Fatalf("want the grant refusal, got %v", res.Err)
 		}
 		assertNoMove(t, r, rows, 0)

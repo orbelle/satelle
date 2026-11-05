@@ -101,6 +101,9 @@ func openStreamSession(ctx context.Context, s streamRunner, req Request, pol Per
 	if pol == nil {
 		pol = defaultPermissionPolicy(toolsAllowMutators(req.AllowedTools))
 	}
+	if err := checkDeny(s.binary, s.args, InterfaceStream, req); err != nil {
+		return nil, err
+	}
 	args := reviewerArgs(s.binary, buildArgs(s.args, req), req)
 	cmd := exec.CommandContext(ctx, s.binary, args...)
 	if req.Dir != "" {

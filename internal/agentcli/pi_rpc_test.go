@@ -175,9 +175,6 @@ func TestPiRPCReviewerIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if UnrecognisedRunner(r) {
-		t.Error("a pi-rpc runner is a recognised adapter")
-	}
 	iso := DescribeReviewer(r, Request{ReadOnly: true, AllowedTools: "read,grep,find,ls"})
 	if iso.OfferedSource != OfferedSourceFlag || strings.Join(iso.OfferedTools, ",") != "read,grep,find,ls" {
 		t.Errorf("isolation = %+v, want the --tools list", iso)

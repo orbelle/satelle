@@ -531,9 +531,8 @@ func baseNames(grant string) []string {
 // --- preflight -------------------------------------------------------------
 
 // IsolationGap is one way a reviewer binding cannot be held to its tool grant.
-// It is a warning, never a refusal (sty_2d5e583a): the configuration runs, and the
-// gap is shown at dispatch, recorded on the ledger and reported by doctor. The
-// wording is provider-local; the engine and doctor only render it.
+// Any gap refuses the reviewer dispatch (ReviewerProblem). The wording is
+// provider-local; the engine and doctor only render it.
 type IsolationGap struct {
 	// Adapter is "<provider>/<transport>", e.g. "grok/acp".
 	Adapter string
@@ -580,13 +579,11 @@ func GapFix(gaps []IsolationGap) string {
 // noAskMode is the runtime gap for an ACP peer that reports no permission mode.
 const noAskMode = "the peer reports no permission mode and cannot be forced to ask, so a tool outside the grant could run without a permission request"
 
-const fixAttest = `acknowledge it with isolation = "operator-attested" on the binding`
-
 const fixGrokCommand = "use the grok command transport with --tools equal to the grant"
 
 // PreflightRunner reports the ways a reviewer dispatch cannot be held inside its
 // grant. It is pure over the runner's own configuration and runs before the
-// process starts; a nil result means nothing to warn about. It never refuses. A
+// process starts; a nil result means the adapter holds the grant. A
 // Runner satelle did not build (a test double) launches no harness and has no
 // gaps.
 func PreflightRunner(r Runner, grant string) []IsolationGap {
@@ -601,23 +598,6 @@ func PreflightRunner(r Runner, grant string) []IsolationGap {
 		return preflight(InterfacePiRPC, v.binary, v.args, grant)
 	}
 	return nil
-}
-
-// UnrecognisedRunner reports whether r's harness is one no adapter recognises, so
-// an operator-attested declaration is what acknowledges it (and the ledger records
-// that source instead of a count).
-func UnrecognisedRunner(r Runner) bool {
-	switch v := r.(type) {
-	case templateRunner:
-		return adapterOf(v.binary, v.argTemplate) == HarnessUnknown
-	case streamRunner:
-		return adapterOf(v.binary, v.args) == HarnessUnknown
-	case acpRunner:
-		return adapterOf(v.binary, v.args) == HarnessUnknown
-	case piRPCRunner:
-		return false
-	}
-	return false
 }
 
 // UnrecognisedCommand is UnrecognisedRunner over a binding's raw command (what
@@ -649,7 +629,7 @@ func preflight(iface, binary string, args []string, grant string) []IsolationGap
 	adapter := adapterOf(binary, args)
 	label := adapter + "/" + iface
 	gap := func(what, fix string) []IsolationGap {
-		return []IsolationGap{{Adapter: label, What: what, Fix: fix + ", or " + fixAttest}}
+		return []IsolationGap{{Adapter: label, What: what, Fix: fix}}
 	}
 	if adapter == HarnessUnknown {
 		return gap(fmt.Sprintf("tools not held to the grant (no adapter knows how to trim or deny tools for %q)", filepath.Base(binary)),
@@ -671,7 +651,7 @@ func preflight(iface, binary string, args []string, grant string) []IsolationGap
 			// option and `grok agent stdio` has no ask flag, while the user's own
 			// grok config may set always-approve. satelle can neither confirm nor
 			// force ask mode, so no permission deny is guaranteed to run.
-			fix := fixGrokCommand + ", or " + fixAttest
+			fix := fixGrokCommand
 			return []IsolationGap{
 				{Adapter: label, What: "tools not held to the grant (grok agent stdio cannot trim the offered tools and reports no permission mode, so it cannot be forced to ask)", Fix: fix},
 				{Adapter: label, What: "usage accounting not to standard (this transport reports no offered-tool figure and may report no usage)", Fix: fix},
@@ -772,6 +752,7 @@ func scopedOnlyOffered(grant string, offered []string) []string {
 // (under -p an ask the allow-list does not pre-approve is denied). Any other
 // request, and any other adapter, is returned unchanged.
 func reviewerArgs(binary string, args []string, req Request) []string {
+	args = denyArgs(binary, args, req)
 	if !req.ReadOnly || adapterOf(binary, args) != HarnessClaude {
 		return args
 	}
@@ -792,23 +773,7 @@ func reviewerArgs(binary string, args []string, req Request) []string {
 const (
 	OfferedSourceFlag    = "flag"    // the --tools allow-list the adapter rendered
 	OfferedSourceHarness = "harness" // the harness's own report (claude system/init tools)
-	// OfferedSourceAttested: no adapter knows the harness; the operator declared
-	// isolation = "operator-attested" — it offers nothing outside the grant. No
-	// count is ever recorded for it.
-	OfferedSourceAttested = "operator-attested"
 )
-
-// AttestedIsolation is the ledger description of an operator-attested reviewer
-// binding: the source is the attestation, the limitation names the binding, and
-// there is never an offered-tool count.
-func AttestedIsolation(binding string) ReviewerIsolation {
-	return ReviewerIsolation{
-		Adapter:       HarnessUnknown,
-		OfferedSource: OfferedSourceAttested,
-		Limitation: fmt.Sprintf("binding %q: no adapter recognises this harness; the operator attests (isolation = %q) that it offers no tool outside the grant, so satelle neither trims nor verifies the offered tools",
-			binding, OfferedSourceAttested),
-	}
-}
 
 // ReviewerIsolation describes what one reviewer spawn offers, for the ledger.
 type ReviewerIsolation struct {

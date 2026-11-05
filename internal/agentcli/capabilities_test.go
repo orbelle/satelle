@@ -50,7 +50,7 @@ func liveOpenable(adapter string) bool {
 // The table names the adapters satelle supports, each once, and every cell is
 // either available (no reason) or unavailable with a reason.
 func TestCapabilityTable_ShapeIsExplicit(t *testing.T) {
-	want := []string{"claude command", "claude stream", "grok command", "grok acp", "pi pi-rpc"}
+	want := []string{"claude command", "claude stream", "grok command", "pi pi-rpc"}
 	table := CapabilityTable()
 	if len(table) != len(want) {
 		t.Fatalf("table has %d rows, want %d", len(table), len(want))

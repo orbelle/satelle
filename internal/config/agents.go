@@ -368,13 +368,6 @@ type AgentBinding struct {
 	// field; role is identity and must not disagree. A profile may itself set
 	// profile= to extend another, with cycles refused at load. See ResolveAgents.
 	Profile string `toml:"profile"`
-	// Isolation is the operator's declaration about a REVIEWER binding's tool
-	// isolation (sty_ef3efb51). The only value is IsolationOperatorAttested: the
-	// command offers no tool outside the binding's grant (a script, or a harness
-	// satelle has no adapter for). Without it a reviewer no adapter recognises is
-	// refused before it starts. It has no effect on a claude or grok binding — the
-	// adapter decides those. Any other value fails at load.
-	Isolation string `toml:"isolation"`
 	// Auth declares how this binding is paid for and authorised: "subscription"
 	// (the user's logged-in CLI), "api_key" (a per-call API key) or "org" (an
 	// organisation account). It is declared, never detected — sniffing the CLI
@@ -404,9 +397,6 @@ type AgentBinding struct {
 	// before it fires. Present but blank fails at load.
 	Trigger string `toml:"trigger"`
 }
-
-// IsolationOperatorAttested is the one valid isolation= value.
-const IsolationOperatorAttested = "operator-attested"
 
 // The auth= values a binding may declare, and what a binding that declares none
 // (or a ledger row written before auth existed) resolves to.
@@ -455,11 +445,6 @@ func (b AgentBinding) ResolvedAuth() string {
 		return a
 	}
 	return AuthUnrecorded
-}
-
-// OperatorAttested reports whether the binding declares isolation = "operator-attested".
-func (b AgentBinding) OperatorAttested() bool {
-	return strings.EqualFold(strings.TrimSpace(b.Isolation), IsolationOperatorAttested)
 }
 
 // AgentsDefaults is the optional [defaults] table in agents.toml (sty_5bf61f89).
@@ -1393,9 +1378,6 @@ func (a AgentsConfig) validateTimeouts() error {
 // command / the shipped live order).
 func (a AgentsConfig) validateInterfaces() error {
 	check := func(section string, b AgentBinding) error {
-		if err := checkBindingIsolation(AgentsConfigName, section, b); err != nil {
-			return err
-		}
 		if err := checkBindingAuth(AgentsConfigName, section, b); err != nil {
 			return err
 		}

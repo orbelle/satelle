@@ -378,37 +378,28 @@ func checkBinaries(grants []agentvalidate.Grant) health.Findings {
 	return out
 }
 
-// checkReviewerIsolation reports once per role=reviewer binding — a gate reviewer,
-// the step summariser and the rework consultant alike, since all three dispatch
-// through the one isolation path — whose command the dispatch preflight
-// (agentcli.PreflightReviewer) cannot hold to its grant: it skips permission
-// requests without a tool allow-list inside its grant, or no adapter can deny an
-// out-of-grant tool (a grok acp reviewer, an unrecognised harness). Such a binding
-// RUNS (sty_2d5e583a): it is a WARN naming the binding, the gap and the fix.
-// isolation = "operator-attested" on the binding acknowledges the gap and
-// downgrades it to INFO. The stock grok command preset carries a --tools
-// allow-list equal to the grant and reports nothing.
+// checkReviewerIsolation reports once per role=reviewer binding whose command
+// the dispatch preflight (agentcli.PreflightReviewer) cannot hold to its
+// read-only grant, or whose grant names a write-capable tool. Such a binding is
+// REFUSED at dispatch, so it is an error here.
 func checkReviewerIsolation(grants []agentvalidate.Grant) health.Findings {
 	var out health.Findings
 	for _, g := range grants {
 		if g.Role != config.RoleReviewer || g.Backend == "in-loop" || g.Backend == "invalid" {
 			continue
 		}
+		if bad := agentcli.WriteCapableGrant(g.Tools); len(bad) > 0 {
+			out = append(out, health.Error(health.IDReviewerIsolation, "Reviewer tool isolation",
+				fmt.Sprintf("reviewer binding %q grants write-capable tools %s; it is refused at every dispatch", g.Name, strings.Join(bad, ", "))).
+				About(g.Name).WithRemediation("for ["+g.Name+"]: grant read-only tools only"))
+			continue
+		}
 		gaps := agentcli.PreflightReviewer(g.Interface, g.Command, g.Tools)
 		if len(gaps) == 0 {
 			continue
 		}
-		attested := strings.EqualFold(strings.TrimSpace(g.Isolation), config.IsolationOperatorAttested)
-		summary := agentcli.GapSummary(gaps)
-		if attested {
-			out = append(out, health.Info(health.IDReviewerIsolation, "Reviewer tool isolation acknowledged",
-				fmt.Sprintf("reviewer binding %q (%s) is operator-attested (isolation = %q): %s — it runs with the limitation recorded on the ledger and no dispatch warning; it must offer no tool outside the grant %q",
-					g.Name, gaps[0].Adapter, config.IsolationOperatorAttested, summary, g.Tools)).
-				About(g.Name))
-			continue
-		}
-		out = append(out, health.Warn(health.IDReviewerIsolation, "Reviewer tool isolation",
-			fmt.Sprintf("reviewer binding %q (%s) runs with a warning at every dispatch: %s", g.Name, gaps[0].Adapter, summary)).
+		out = append(out, health.Error(health.IDReviewerIsolation, "Reviewer tool isolation",
+			fmt.Sprintf("reviewer binding %q (%s) is refused at every dispatch: %s", g.Name, gaps[0].Adapter, agentcli.GapSummary(gaps))).
 			About(g.Name).WithRemediation("for ["+g.Name+"]: "+agentcli.GapFix(gaps)))
 	}
 	return out

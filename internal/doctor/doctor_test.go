@@ -24,7 +24,7 @@ command = "in-loop"
 
 [reviewer]
 role    = "reviewer"
-command = "sh -c --disallowedTools Write,Edit {system} {tools} {model}"
+command = "claude -p --disallowedTools Write,Edit {system} {tools} {model}"
 tools   = "Read,Grep,Glob"
 `
 
@@ -232,7 +232,7 @@ func TestDefectMatrix(t *testing.T) {
 			name: "missing profile reference",
 			opts: fixtureOpts{
 				agents:  healthyAgentsTOML + "\n[judge]\nprofile = \"absent-profile\"\n",
-				catalog: "[profiles.present]\nrole = \"reviewer\"\ncommand = \"sh -c {system}\"\n",
+				catalog: "[profiles.present]\nrole = \"reviewer\"\ncommand = \"claude -p {system}\"\n",
 			},
 			want: health.IDAgentsProfileBroken,
 		},
@@ -241,7 +241,7 @@ func TestDefectMatrix(t *testing.T) {
 			// so this is reported and never blocking.
 			name: "missing executable",
 			opts: fixtureOpts{agents: healthyAgentsTOML +
-				"\n[judge]\nrole = \"reviewer\"\ncommand = \"definitely-not-installed-cli --disallowedTools Write {system}\"\ntools = \"Read\"\n"},
+				"\n[judge]\nrole = \"reviewer\"\ncommand = \"claude-definitely-not-installed --disallowedTools Write {system}\"\ntools = \"Read\"\n"},
 			want:     health.IDBinaryMissing,
 			advisory: true,
 		},
@@ -293,7 +293,7 @@ park = { state = "blocked", agent = "reviewer", gate = "satelle-story-blocked-re
 		{
 			name: "unresolved env var",
 			opts: fixtureOpts{agents: healthyAgentsTOML +
-				"\n[judge]\nrole = \"reviewer\"\ncommand = \"sh -c --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${NOWHERE_DEFINED}\" }\n"},
+				"\n[judge]\nrole = \"reviewer\"\ncommand = \"claude -p --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${NOWHERE_DEFINED}\" }\n"},
 			want: health.IDEnvUnresolved,
 		},
 		{
@@ -472,7 +472,7 @@ func TestEnvValuesAreNeverCarried(t *testing.T) {
 	const secret = "sk-doctor-must-not-carry-this"
 	root := newFixtureRepo(t, fixtureOpts{
 		agents: healthyAgentsTOML +
-			"\n[judge]\nrole = \"reviewer\"\ncommand = \"sh -c --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${DOCTOR_SECRET}\", PLAIN = \"" + secret + "\" }\n",
+			"\n[judge]\nrole = \"reviewer\"\ncommand = \"claude -p --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${DOCTOR_SECRET}\", PLAIN = \"" + secret + "\" }\n",
 	})
 	// Define the var so it resolves — the value must STILL never appear.
 	if err := os.WriteFile(filepath.Join(root, ".satelle", "satelle.toml"),
@@ -512,7 +512,7 @@ func TestEnvValuesAreNeverCarried(t *testing.T) {
 func TestUnresolvedEnvKeyIsNamedNotValued(t *testing.T) {
 	root := newFixtureRepo(t, fixtureOpts{
 		agents: healthyAgentsTOML +
-			"\n[judge]\nrole = \"reviewer\"\ncommand = \"sh -c --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${NOWHERE}\" }\n",
+			"\n[judge]\nrole = \"reviewer\"\ncommand = \"claude -p --disallowedTools Write {system}\"\ntools = \"Read\"\nenv = { TOKEN = \"${NOWHERE}\" }\n",
 	})
 	r := check(t, root)
 	if r.Env["judge"][0].Resolved {
@@ -536,7 +536,7 @@ func TestProvenanceReachesTheReport(t *testing.T) {
 	root := newFixtureRepo(t, fixtureOpts{
 		agents: "[executor]\nrole = \"agent\"\ncommand = \"in-loop\"\n\n[reviewer]\nprofile = \"catalog-judge\"\nmodel = \"repo-pinned\"\n",
 		catalog: "[profiles.catalog-judge]\nrole = \"reviewer\"\n" +
-			"command = \"sh -c --disallowedTools Write,Edit {system} {tools} {model}\"\ntools = \"Read,Grep,Glob\"\nmodel = \"profile-model\"\n",
+			"command = \"claude -p --disallowedTools Write,Edit {system} {tools} {model}\"\ntools = \"Read,Grep,Glob\"\nmodel = \"profile-model\"\n",
 	})
 	r := check(t, root)
 	if !r.OK {

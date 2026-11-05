@@ -192,109 +192,6 @@ requires = ["coded"]
 	}
 }
 
-// TestValidate_StepSummaryNamedReviewer (sty_8ee40f94): step-summary may allocate
-// a named role=reviewer (cheap summariser); not a performer, not orphaned.
-func TestValidate_StepSummaryNamedReviewer(t *testing.T) {
-	agents := config.AgentsConfig{
-		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file,grep,list_dir", Model: "opus"},
-		Agents: map[string]config.AgentBinding{
-			"reviewer-summary": {
-				Command: "grok agent stdio", Role: "reviewer", Interface: "acp",
-				Tools: "read_file,grep,list_dir", Model: "grok-4.5", Effort: "low",
-			},
-		},
-	}
-	wfNamed := routeDocs(
-		`["*"]
-obligations = ["raised", "coded", "closed"]
-`,
-		`[raised]
-status = "backlog"
-start = true
-
-[coded]
-status = "in_progress"
-agent = "executor"
-requires = ["raised"]
-
-[closed]
-status = "done"
-terminal = true
-requires = ["coded"]
-
-[[gate]]
-skill = "satelle-step-summary"
-agent = "reviewer-summary"
-mandatory = true
-`)
-	r := Validate(agents, nil, wfNamed)
-	if !r.OK() {
-		t.Fatalf("named step-summary reviewer must pass: %v", r.Problems)
-	}
-	for _, w := range r.Warnings {
-		if strings.Contains(w, "reviewer-summary") && strings.Contains(w, "orphaned") {
-			t.Errorf("reviewer-summary must not be orphaned: %s", w)
-		}
-	}
-	found := false
-	for _, g := range r.Gates {
-		if g.Skill == "satelle-step-summary" {
-			found = true
-			if g.Agent != "reviewer-summary" || g.EffectiveModel != "grok-4.5" {
-				t.Errorf("step gate = %+v, want reviewer-summary/grok-4.5", g)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected Gates row for step-summary node")
-	}
-
-	// role=agent on step-summary fails closed.
-	agentsBad := agents
-	agentsBad.Agents = map[string]config.AgentBinding{
-		"reviewer-summary": {Command: "fake", Role: "agent", Tools: "Read", Model: "x"},
-	}
-	rBad := Validate(agentsBad, nil, wfNamed)
-	if rBad.OK() {
-		t.Fatal("role=agent on step-summary must fail")
-	}
-
-	// Missing binding fails closed.
-	agentsMiss := config.AgentsConfig{
-		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: "read_file", Model: "opus"},
-	}
-	rMiss := Validate(agentsMiss, nil, wfNamed)
-	if rMiss.OK() {
-		t.Fatal("missing binding on step-summary must fail")
-	}
-
-	// The plain agent=reviewer summariser stays green.
-	wfLegacy := routeDocs(
-		`["*"]
-obligations = ["raised", "closed"]
-`,
-		`[raised]
-status = "backlog"
-start = true
-
-[closed]
-status = "done"
-terminal = true
-requires = ["raised"]
-
-[[gate]]
-skill = "satelle-step-summary"
-agent = "reviewer"
-mandatory = true
-`)
-	rLeg := Validate(agents, nil, wfLegacy)
-	if !rLeg.OK() {
-		t.Fatalf("legacy agent=reviewer step must pass: %v", rLeg.Problems)
-	}
-}
-
 func TestValidate_BrokenBinding(t *testing.T) {
 	agents := config.AgentsConfig{
 		Executor: config.AgentBinding{Command: "in-loop"},
@@ -393,25 +290,6 @@ func TestValidate_MissingSystemPlaceholder(t *testing.T) {
 		if strings.Contains(p, "{system}") {
 			t.Errorf("DefaultClaudeCommand must not flag {system}: %s", p)
 		}
-	}
-}
-
-// TestValidate_ReviewerNoCeiling (sty_21db3670 AC2): role=reviewer isolated
-// command with no read-only ceiling is a WARNING (not a hard problem).
-func TestValidate_ReviewerNoCeiling(t *testing.T) {
-	// Has {system}, grants Write/Edit, no --disallowedTools / --deny.
-	writable := "claude -p --append-system-prompt {system} --allowedTools Read,Write,Edit --model {model}"
-	agents := config.AgentsConfig{
-		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{Command: writable, Tools: "Read,Write,Edit", Role: "reviewer"},
-	}
-	r := Validate(agents, nil, nil)
-	if !r.OK() {
-		t.Fatalf("missing ceiling is a warning, not a problem: %v", r.Problems)
-	}
-	joined := strings.Join(r.Warnings, "\n")
-	if !strings.Contains(joined, "reviewer") || !strings.Contains(joined, "read-only ceiling") {
-		t.Errorf("expected ceiling warning naming reviewer:\n%s", joined)
 	}
 }
 
@@ -601,64 +479,6 @@ func TestValidate_BadTimeout(t *testing.T) {
 	}
 }
 
-func TestValidate_ACPInterface(t *testing.T) {
-	// Placeholders in acp command → FAIL.
-	agents := config.AgentsConfig{
-		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{
-			Interface: "acp",
-			Command:   "grok agent stdio {system}",
-			Tools:     "read_file,grep,list_dir",
-			Role:      "reviewer",
-			Model:     "grok-4.5",
-		},
-	}
-	r := Validate(agents, nil, nil)
-	if r.OK() {
-		t.Fatal("acp with {system} must fail validate")
-	}
-	joined := strings.Join(r.Problems, "\n")
-	if !strings.Contains(joined, "placeholder") && !strings.Contains(joined, "{system}") {
-		t.Errorf("problems should mention placeholder, got: %s", joined)
-	}
-
-	// Valid acp reviewer.
-	agents.Reviewer = config.AgentBinding{
-		Interface: "acp",
-		Command:   "grok agent stdio",
-		Tools:     "read_file,grep,list_dir",
-		Role:      "reviewer",
-		Model:     "grok-4.5",
-	}
-	r = Validate(agents, nil, nil)
-	if !r.OK() {
-		t.Fatalf("valid acp reviewer problems: %v", r.Problems)
-	}
-	var g Grant
-	for _, x := range r.Grants {
-		if x.Name == "reviewer" {
-			g = x
-		}
-	}
-	if g.Interface != "acp" || !strings.HasPrefix(g.Backend, "acp:") {
-		t.Errorf("grant = %+v, want interface=acp backend acp:*", g)
-	}
-	if !g.ReadOnly {
-		t.Error("acp reviewer with read-only tools should be ReadOnly")
-	}
-
-	// Existing command path still healthy with no interface key.
-	agents.Reviewer = config.AgentBinding{
-		Command: agentcli.DefaultGrokCommand,
-		Tools:   "read_file,grep,list_dir",
-		Model:   "grok-4.5",
-	}
-	r = Validate(agents, nil, nil)
-	if !r.OK() {
-		t.Fatalf("command default must still validate: %v", r.Problems)
-	}
-}
-
 func TestValidate_StreamInterface(t *testing.T) {
 	agents := config.AgentsConfig{
 		Executor: config.AgentBinding{Command: "in-loop"},
@@ -745,32 +565,6 @@ func TestValidate_GrantEffort(t *testing.T) {
 	}
 	if rev.Effort != "high" {
 		t.Fatalf("reviewer grant effort = %q, want high", rev.Effort)
-	}
-}
-
-// TestValidate_UnrecognisedFullCommandIsIsolated: a full command template whose
-// binary satelle has no adapter for is an operator command — its backend is
-// isolated:<name> and no provider-specific sandbox rule applies.
-func TestValidate_UnrecognisedFullCommandIsIsolated(t *testing.T) {
-	agents := config.AgentsConfig{
-		Executor: config.AgentBinding{Command: "in-loop"},
-		Reviewer: config.AgentBinding{
-			Command: "nosuch exec {system}",
-			Role:    "reviewer",
-		},
-	}
-	r := Validate(agents, nil, nil)
-	if !r.OK() {
-		t.Fatalf("unrecognised full command must not be a problem: %v", r.Problems)
-	}
-	var g Grant
-	for _, x := range r.Grants {
-		if x.Name == "reviewer" {
-			g = x
-		}
-	}
-	if g.Backend != "isolated:nosuch" {
-		t.Errorf("backend = %q, want isolated:nosuch", g.Backend)
 	}
 }
 
@@ -997,47 +791,6 @@ func TestValidate_EmptyProfileGrantStillRefusedWithAllLayers(t *testing.T) {
 	}
 	if w := findingWith(r.Warnings, "agents.local.toml or its profile"); w == "" {
 		t.Errorf("want the per-machine grant warning, got %v", r.Warnings)
-	}
-}
-
-// TestValidate_ReviewerShellGrantIsUnusedCapability — AC2/AC4: reviewers are fed
-// their documents in the transition payload, so a shell grant is never consulted.
-// Reported as a WARNING (report stays OK → exit 0) because keeping it is the
-// repo's call; it is a statement of fact, not a prohibition.
-func TestValidate_ReviewerShellGrantIsUnusedCapability(t *testing.T) {
-	mk := func(tools string) Report {
-		agents := config.AgentsConfig{
-			Executor: config.AgentBinding{Command: "in-loop"},
-			Reviewer: config.AgentBinding{Command: agentcli.DefaultGrokCommand, Tools: tools, Model: "grok-4.5", Role: "reviewer"},
-			Agents: map[string]config.AgentBinding{
-				"planner": {Command: agentcli.DefaultClaudeCommand, Tools: "Read,Grep,Glob,Bash(satelle:*)", Model: "opus"},
-			},
-		}
-		wfs := channelWF("planner")
-		return Validate(agents, nil, wfs)
-	}
-
-	r := mk("read_file,Bash(satelle:*)")
-	w := findingWith(r.Warnings, "grants shell")
-	if w == "" {
-		t.Fatalf("want unused-shell warning, got warnings=%v", r.Warnings)
-	}
-	if !strings.Contains(w, "reviewer") {
-		t.Errorf("warning must name the binding section: %s", w)
-	}
-	if !strings.Contains(w, "Bash(satelle:*)") {
-		t.Errorf("warning must name the offending token: %s", w)
-	}
-	if !r.OK() {
-		t.Error("an unused reviewer grant is advisory — the report must stay OK (exit 0)")
-	}
-	if p := findingWith(r.Problems, "grants shell"); p != "" {
-		t.Errorf("must not be a hard problem: %s", p)
-	}
-
-	// A reviewer with no shell grant is the correct shape — no finding (AC7).
-	if w := findingWith(mk("read_file,grep,list_dir").Warnings, "grants shell"); w != "" {
-		t.Errorf("clean reviewer must not warn: %s", w)
 	}
 }
 

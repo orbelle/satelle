@@ -188,32 +188,12 @@ func TestReviewerOfferedTools_GrokCommand(t *testing.T) {
 	}
 }
 
-// AC2 / AC5: grok acp cannot trim or report — no number, an adapter-named
-// source, and the limitation.
-func TestReviewerOfferedTools_GrokACPIsUnavailable(t *testing.T) {
-	r, err := RunnerFromBinding(InterfaceACP, "grok agent stdio")
-	if err != nil {
-		t.Fatal(err)
-	}
-	iso := DescribeReviewer(r, Request{ReadOnly: true, AllowedTools: roGrant})
-	if iso.OfferedTools != nil {
-		t.Fatalf("grok acp offered = %v, want no number", iso.OfferedTools)
-	}
-	if !strings.HasPrefix(iso.OfferedSource, "unavailable: grok agent stdio") {
-		t.Errorf("source = %q, want the adapter-named unavailable", iso.OfferedSource)
-	}
-	if !strings.Contains(iso.Limitation, "grok/acp") || !strings.Contains(iso.Limitation, "cannot trim the offered tools") {
-		t.Errorf("limitation = %q", iso.Limitation)
-	}
-}
-
 // The capability table's tool cells match what DescribeReviewer reports.
 func TestCapabilityTable_ToolCellsMatchCode(t *testing.T) {
 	spawn := map[string][2]string{
 		"claude command": {InterfaceCommand, DefaultClaudeCommand},
 		"claude stream":  {InterfaceStream, DefaultClaudeStreamCommand},
 		"grok command":   {InterfaceCommand, DefaultGrokCommand},
-		"grok acp":       {InterfaceACP, "grok agent stdio"},
 		"pi pi-rpc":      {InterfacePiRPC, PiRPCCommand},
 	}
 	for _, row := range CapabilityTable() {
@@ -329,9 +309,6 @@ func TestPreflightReviewer(t *testing.T) {
 		{name: "grok --tools {tools} with a real grant still counts as an allow-list", iface: "command",
 			command: "grok -p {payload} --tools {tools} --always-approve",
 			grant:   roGrant},
-		{name: "grok acp stock spawn (no permission mode, cannot be forced to ask)", iface: "acp", command: "grok agent stdio", grant: roGrant, warns: true, wantAdapter: "grok/acp"},
-		{name: "grok acp always-approve", iface: "acp", command: "grok agent --always-approve stdio", grant: roGrant, warns: true, wantAdapter: "grok/acp"},
-		{name: "grok acp yolo mode", iface: "acp", command: "grok agent --permission-mode yolo stdio", grant: roGrant, warns: true, wantAdapter: "grok/acp"},
 		{name: "claude bypass without --tools", iface: "command", command: "claude -p --dangerously-skip-permissions", grant: roGrant, warns: true, wantAdapter: "claude/command"},
 		{name: "claude bypassPermissions mode", iface: "stream", command: "claude -p --permission-mode bypassPermissions", grant: roGrant, warns: true, wantAdapter: "claude/stream"},
 		{name: "claude --tools wider than the grant", iface: "command", command: "claude -p --tools Read,Bash,Task", grant: roGrant, warns: true, wantAdapter: "claude/command"},
@@ -376,9 +353,6 @@ func TestPreflightReviewer(t *testing.T) {
 				}
 				if g.What == "" || g.Fix == "" {
 					t.Errorf("gap %+v must state the gap and its fix", g)
-				}
-				if !strings.Contains(g.Fix, "operator-attested") {
-					t.Errorf("fix %q must name the attestation that acknowledges the gap", g.Fix)
 				}
 			}
 		})
@@ -460,26 +434,6 @@ func TestReviewerArgs_PinsPermissionModeDefault(t *testing.T) {
 	}
 }
 
-// The grok acp gap names the adapter, both gaps and the fix (sty_2d5e583a AC2).
-func TestPreflightReviewer_GrokACPGaps(t *testing.T) {
-	gaps := PreflightReviewer("acp", "grok agent stdio", roGrant)
-	if len(gaps) != 2 {
-		t.Fatalf("want two gaps, got %+v", gaps)
-	}
-	summary := GapSummary(gaps)
-	for _, want := range []string{"tools not held to the grant", "usage accounting not to standard", "cannot be forced to ask"} {
-		if !strings.Contains(summary, want) {
-			t.Errorf("summary %q must contain %q", summary, want)
-		}
-	}
-	if fix := GapFix(gaps); !strings.Contains(fix, "grok command transport") || !strings.Contains(fix, "operator-attested") || strings.Count(fix, "operator-attested") != 1 {
-		t.Errorf("fix %q must name the command transport and the attestation once", fix)
-	}
-	if gaps[0].Adapter != "grok/acp" {
-		t.Errorf("adapter = %q, want grok/acp", gaps[0].Adapter)
-	}
-}
-
 // Every configuration the isolation warning covers is a gap whatever the operator
 // declares: attestation only changes how the gap is reported, so the preflight
 // takes no attested argument and an unrecognised harness is a gap too.
@@ -487,60 +441,12 @@ func TestPreflightReviewer_UnrecognisedHarnessIsAGap(t *testing.T) {
 	const unknownCmd = "verdict.sh -p {payload}"
 	for _, iface := range []string{"command", "stream", "acp"} {
 		gaps := PreflightReviewer(iface, unknownCmd, roGrant)
-		if len(gaps) != 1 || !strings.Contains(gaps[0].What, "tools not held to the grant") || !strings.Contains(gaps[0].Fix, "operator-attested") {
+		if len(gaps) != 1 || !strings.Contains(gaps[0].What, "tools not held to the grant") {
 			t.Errorf("%s: gaps = %+v", iface, gaps)
 		}
 	}
 	if !UnrecognisedCommand(unknownCmd) || UnrecognisedCommand("claude -p") || UnrecognisedCommand("grok agent stdio") || UnrecognisedCommand("in-loop") {
 		t.Error("UnrecognisedCommand must be true only for a harness no adapter knows")
-	}
-}
-
-// The attested ledger description never carries a count and names the binding.
-func TestAttestedIsolation(t *testing.T) {
-	iso := AttestedIsolation("judge")
-	if iso.OfferedTools != nil || iso.OfferedSource != OfferedSourceAttested {
-		t.Errorf("attested isolation = %+v, want source %q and no tool list", iso, OfferedSourceAttested)
-	}
-	if !strings.Contains(iso.Limitation, `"judge"`) || !strings.Contains(iso.Limitation, "operator attests") {
-		t.Errorf("limitation %q must name the binding and the attestation", iso.Limitation)
-	}
-}
-
-// sty_2d5e583a AC1: a binding with a gap still starts its process. PreflightRunner
-// reports the gap before the runner's first spawn and never stops it reaching Run.
-func TestPreflightRunner_GappedRunnerStillStarts(t *testing.T) {
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "started")
-	shim := filepath.Join(dir, "grok-shim")
-	if err := os.WriteFile(shim, []byte("#!/bin/sh\necho started >> "+marker+"\necho '{}'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dispatch := func(command string) ([]IsolationGap, error) {
-		r, err := RunnerFromBinding(InterfaceCommand, command)
-		if err != nil {
-			t.Fatal(err)
-		}
-		gaps := PreflightRunner(r, roGrant)
-		_, err = r.Run(context.Background(), Request{ReadOnly: true, AllowedTools: roGrant})
-		return gaps, err
-	}
-	gaps, err := dispatch(shim + " -p {payload} --always-approve")
-	if err != nil {
-		t.Fatalf("always-approve without an allow-list must run: %v", err)
-	}
-	if len(gaps) == 0 {
-		t.Fatal("always-approve without an allow-list must report a gap")
-	}
-	if b, _ := os.ReadFile(marker); strings.Count(string(b), "started") != 1 {
-		t.Fatalf("the gapped binding must start exactly once, marker = %q", b)
-	}
-	gaps, err = dispatch(shim + " -p {payload} --tools read_file,grep,list_dir --always-approve")
-	if err != nil || len(gaps) != 0 {
-		t.Fatalf("stock-shaped binding: gaps %+v, err %v", gaps, err)
-	}
-	if b, _ := os.ReadFile(marker); strings.Count(string(b), "started") != 2 {
-		t.Fatalf("both bindings must start, marker = %q", b)
 	}
 }
 

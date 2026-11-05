@@ -46,17 +46,20 @@ func TestRunnerFromBindingRejectsTypeSafe(t *testing.T) {
 }
 
 func TestRunnerFromBinding_ACPRejectsPlaceholders(t *testing.T) {
-	if _, err := RunnerFromBinding(InterfaceACP, "grok agent stdio {system}"); err == nil {
+	if _, err := RunnerFromBinding(InterfaceACP, "claude-acp stdio {system}"); err == nil {
 		t.Fatal("expected error for {system} in acp command")
 	}
-	if _, err := RunnerFromBinding(InterfaceACP, "grok"); err == nil {
+	if _, err := RunnerFromBinding(InterfaceACP, "claude-acp"); err == nil {
 		t.Fatal("expected error for bare token")
 	}
-	r, err := RunnerFromBinding(InterfaceACP, "grok agent stdio")
+	if _, err := RunnerFromBinding(InterfaceACP, "grok agent stdio"); err == nil {
+		t.Fatal("grok acp must be refused")
+	}
+	r, err := RunnerFromBinding(InterfaceACP, "claude-acp stdio")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Command() != "grok agent stdio" {
+	if r.Command() != "claude-acp stdio" {
 		t.Errorf("Command() = %q", r.Command())
 	}
 }
@@ -175,68 +178,6 @@ func TestACPRunner_FakePeerDecision(t *testing.T) {
 	}
 	if sink.Len() == 0 {
 		t.Error("expected Sink to receive progressive ACP lines")
-	}
-}
-
-// TestACPRunner_EffortInjection (sty_657f77b9 / sty_aa726901): Grok-shaped ACP
-// spawn gets --reasoning-effort on argv before stdio when Effort is set.
-// set_config_option is also accepted for reasoning_effort/effort.
-func TestACPRunner_EffortInjection(t *testing.T) {
-	peer := writeFakeACPPeer(t, "")
-	// Wrapper must be Grok-shaped (sty_aa726901 allowlist) so argv injection runs.
-	dir := t.TempDir()
-	argvLog := filepath.Join(dir, "argv.log")
-	wrap := filepath.Join(dir, "grok-agent-wrapper")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argvLog + "\nexec " + peer + " \"$@\"\n"
-	if err := os.WriteFile(wrap, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	r, err := RunnerFromBinding(InterfaceACP, wrap+" stdio")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := r.Run(context.Background(), Request{
-		SystemPrompt: "rubric",
-		Payload:      `{}`,
-		Effort:       "high",
-		Model:        "grok-4.5",
-	})
-	if err != nil {
-		t.Fatalf("Run with effort: %v", err)
-	}
-	if !strings.Contains(string(out), `"decision":"accept"`) {
-		t.Fatalf("stdout = %q", out)
-	}
-	b, err := os.ReadFile(argvLog)
-	if err != nil {
-		t.Fatalf("argv log: %v", err)
-	}
-	argv := string(b)
-	if !strings.Contains(argv, "--reasoning-effort") || !strings.Contains(argv, "high") {
-		t.Fatalf("spawn argv missing --reasoning-effort high:\n%s", argv)
-	}
-	// Before trailing stdio.
-	if !strings.Contains(argv, "--reasoning-effort\nhigh\nstdio") &&
-		!strings.Contains(argv, "--reasoning-effort high") {
-		// printf '%s\n' puts each arg on its own line
-		lines := strings.Split(strings.TrimSpace(argv), "\n")
-		found := false
-		for i := 0; i+1 < len(lines); i++ {
-			if lines[i] == "--reasoning-effort" && lines[i+1] == "high" {
-				// must appear before a stdio token later
-				for j := i + 2; j < len(lines); j++ {
-					if lines[j] == "stdio" {
-						found = true
-					}
-				}
-			}
-		}
-		if !found {
-			t.Fatalf("expected --reasoning-effort high before stdio in argv lines: %q", lines)
-		}
-	}
-	if strings.Contains(r.Command(), "reasoning-effort") {
-		t.Error("Command() evidence should not bake runtime effort")
 	}
 }
 
