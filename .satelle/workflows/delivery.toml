@@ -30,9 +30,16 @@ terminal = true
 # sty_7c477116: rejects any plan that adds or extends process in Go, with no
 # exemption; first in its group so it fails fast; judges the diff again before
 # integration.
+#
+# Reviewer backoff (operator, 2026-11-06): during the dogfood the model gates
+# run on one judge, the alt reviewer, and only binary-scope, plan-review and
+# code-ac are wired. Deterministic checks stay. Paused gates (architecture,
+# instruction-change, workflow-change, ac-evidence, outcome-review,
+# done-review) and the second plan-review judge come back one at a time, after
+# each run shows the current set holds.
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
@@ -40,8 +47,7 @@ agent = "reviewer"
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
-panel = ["reviewer", "reviewer-alt"]
-combine = "all"
+agent = "reviewer-alt"
 carry = true
 
 [gates.definition-unchanged]
@@ -72,7 +78,7 @@ skill = "satelle-ac-evidence-check"
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-agent = "reviewer"
+agent = "reviewer-alt"
 carry = true
 
 [gates.integration-check]
@@ -104,7 +110,7 @@ to = "plan"
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["binary-scope", "architecture", "plan-review"] },
+  { mode = "sequential", gates = ["binary-scope", "plan-review"] },
 ]
 
 [[transition]]
@@ -119,14 +125,14 @@ from = ["integration"]
 to = "assessment"
 groups = [
   { mode = "sequential", gates = ["format-vet", "build-unit"] },
-  { mode = "parallel", gates = ["ac-evidence", "code-ac", "instruction-change", "workflow-change"] },
+  { mode = "sequential", gates = ["code-ac"] },
 ]
 
 [[transition]]
 from = ["assessment"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["integration-check", "outcome-review", "done-review"] },
+  { mode = "sequential", gates = ["integration-check"] },
 ]
 
 # Rework: back to coding from any judging state, and back to planning.

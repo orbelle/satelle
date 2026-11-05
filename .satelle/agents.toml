@@ -17,6 +17,16 @@ command = "claude"
 model = "sonnet"
 tools = ["Read", "Grep", "Glob"]
 
+# The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash
+# on pi through the Cursor provider, the winner of the 2026-10-31 reviewer
+# bake-off (old store sty_6d552f51: every defect caught, no false blocker, ~1/13
+# of the runner-up's cost). grok judged the first run (sto_0586c449's plan).
 [agents.reviewer-alt]
+command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
+model = "cursor/gemini-3.8-flash"
+effort = "off"
+tools = ["Read", "Grep", "Glob"]
+
+[agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]
