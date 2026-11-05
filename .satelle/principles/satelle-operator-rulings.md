@@ -25,8 +25,18 @@ itself reviewed (see *Directives are reviewed*).
   process, configuration, scope or a ruling are judged against these rulings and
   the constitution; push back with reasons where they conflict. Questions and
   status checks are not.
-- **Local first.** satelle runs solo and local; team-of-one and team (with
-  satelle.dev) are modes on top. Every satelle ↔ satelle-server call is gRPC.
+- **Local first.** satelle runs solo and local; team (with satelle.dev) is the
+  mode on top. A team is a team of one or many; both work alike for now, and a
+  multi-user team will need its own requirements and code when wanted. Every
+  satelle ↔ satelle-server call is gRPC.
+- **Steps may run in the cloud; landing is local.** A step can run in a
+  claude.ai/code session to take load off the machine and run stories in
+  parallel; its work comes back as a pushed branch to the local gates. Merge,
+  test and push are always local.
+- **GitHub holds the code and shows gate status; it runs no tests.** Tests run
+  in the local gates; their results are published to GitHub as commit statuses
+  by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
+  through satelle-server to team subscriptions.
 - **Breaking changes are pushed; old versions are defunct.** v1 is a clean
   rewrite, in satelle and satelle-server alike: no backward compatibility in the
   wire (no REST beside gRPC), storage or configuration. The users are the
