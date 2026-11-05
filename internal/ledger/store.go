@@ -24,6 +24,9 @@ type Store struct {
 	dir string
 	// Now stamps appended events; nil means time.Now.
 	Now func() time.Time
+	// OnWrite, when set, is called with every event this store writes (an
+	// append, or an import from elsewhere), after it is on disk.
+	OnWrite func(Event)
 }
 
 var itemPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -164,7 +167,13 @@ func (s *Store) write(e Event) error {
 		f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if s.OnWrite != nil {
+		s.OnWrite(e)
+	}
+	return nil
 }
 
 func (s *Store) withLock(fn func() error) error {

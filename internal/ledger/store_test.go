@@ -135,3 +135,27 @@ func TestReadFromAndBlobs(t *testing.T) {
 		t.Fatal("bad blob id accepted")
 	}
 }
+
+func TestOnWriteSeesAppendsAndImports(t *testing.T) {
+	a, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	a.OnWrite = func(e Event) { seen = append(seen, e.Item+":"+e.Kind) }
+	e1, err := a.Append("it_1", "k.one", "x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.OnWrite = a.OnWrite
+	if _, err := b.Import([]Event{e1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(seen, ","); got != "it_1:k.one,it_1:k.one" {
+		t.Fatalf("OnWrite saw %q", got)
+	}
+}
