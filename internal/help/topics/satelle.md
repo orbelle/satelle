@@ -32,4 +32,4 @@ creates an execution recording which items it took. satelle runs a task when
 asked; repeating it is up to cron, a remote or a routine.
 
 Topics: `satelle help workflows`, `satelle help edit-gate`,
-`satelle help configuration`.
+`satelle help configuration`, `satelle help remotes`.

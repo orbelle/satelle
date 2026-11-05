@@ -29,7 +29,7 @@ func itemCmd(kind string, writable bool) *cobra.Command {
 	switch kind {
 	case "story":
 		cmd.AddCommand(attachCmd(kind), attachmentsCmd(kind), routeCmd(kind), diffCmd(kind),
-			seatCmd(kind), releaseCmd(kind), performCmd(kind))
+			seatCmd(kind), releaseCmd(kind), performCmd(kind), collectCmd(kind))
 	case "task":
 		cmd.AddCommand(taskRunCmd())
 	}
@@ -582,13 +582,21 @@ func performCmd(kind string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "perform <id>",
 		Short: "Dispatch the performer of the item's current state",
-		Args:  cobra.ExactArgs(1),
+		Long: `perform dispatches the performer of the item's current state where its binding
+is placed: here (local), on a node of a remote (remote:<id>, through the bound
+project), or in a cloud session (cloud), whose branch 'collect' records.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			k, _, err := openKernel()
+			k, r, err := openKernel()
 			if err != nil {
 				return err
 			}
 			defer k.Close()
+			release, err := withRemote(k, r)
+			if err != nil {
+				return err
+			}
+			defer release()
 			if _, err := getItem(k, kind, args[0]); err != nil {
 				return err
 			}
