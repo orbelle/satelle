@@ -1,4 +1,4 @@
-package remotenode
+package provider
 
 import (
 	"bytes"
@@ -8,15 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 )
 
 // AC1: on a sprite the hold PUTs a task with an expiry when the job starts,
 // renews it at less than half the expiry, and DELETEs it when released, after
 // which nothing more is sent.
 func TestSpriteHoldPutsRenewsAndDeletes(t *testing.T) {
-	api := devtest.NewSpriteAPI(t)
+	api := NewSpriteAPI(t)
 	var out bytes.Buffer
 	const expiry, every = 300 * time.Millisecond, 50 * time.Millisecond
 	release := SpriteHold{Socket: api.Socket, Name: "satelle-nod_A1", Expiry: expiry, Every: every, Out: &out}.Start(context.Background())
@@ -56,7 +54,7 @@ func TestSpriteHoldPutsRenewsAndDeletes(t *testing.T) {
 // AC1: a renewal interval at or past half the expiry is pulled inside it, and a
 // whole-minute expiry is sent in the Tasks API's minute form.
 func TestSpriteHoldClampsRenewalInsideHalfExpiry(t *testing.T) {
-	api := devtest.NewSpriteAPI(t)
+	api := NewSpriteAPI(t)
 	const expiry = 240 * time.Millisecond
 	release := SpriteHold{Socket: api.Socket, Name: "x", Expiry: expiry, Every: time.Hour}.Start(context.Background())
 	time.Sleep(250 * time.Millisecond)
@@ -88,7 +86,7 @@ func TestSpriteHoldWithoutSocketIsANoOp(t *testing.T) {
 
 // A refused hold is logged and never fails the job.
 func TestSpriteHoldLogsARefusedCall(t *testing.T) {
-	api := devtest.NewSpriteAPI(t)
+	api := NewSpriteAPI(t)
 	api.Refuse(http.StatusInternalServerError)
 	var out bytes.Buffer
 	SpriteHold{Socket: api.Socket, Name: "n", Out: &out}.Start(context.Background())()

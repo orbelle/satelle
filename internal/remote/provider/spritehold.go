@@ -1,4 +1,4 @@
-package remotenode
+package provider
 
 import (
 	"bytes"

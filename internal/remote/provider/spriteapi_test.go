@@ -1,6 +1,6 @@
-// Package devtest holds stand-ins for tests: the fake in-sprite API. Nothing
-// in the product imports it.
-package devtest
+// The fake in-sprite API the sprite hold tests serve.
+
+package provider
 
 import (
 	"io"
