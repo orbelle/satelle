@@ -13,17 +13,26 @@ package config
 // beyond the generic defaults stays in a repo's own substrate.
 
 import (
-	"embed"
 	"io/fs"
 	"path"
 	"strings"
 )
 
-// substrateFS holds the embedded default artifacts, filed by kind under
-// substrate/<kind>/<name>.md (e.g. substrate/workflows/done.toml).
-//
-//go:embed substrate
-var substrateFS embed.FS
+// substrateFS once held the embedded default process. The binary ships none
+// now (REBUILD: the embedded default process left the binary); the empty FS
+// keeps the load layer's shape until B2 replaces it.
+var substrateFS = emptyFS{}
+
+// emptyFS is an fs.FS with no files.
+type emptyFS struct{}
+
+func (emptyFS) Open(name string) (fs.File, error) {
+	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+}
+
+func (emptyFS) ReadFile(name string) ([]byte, error) {
+	return nil, &fs.PathError{Op: "read", Path: name, Err: fs.ErrNotExist}
+}
 
 // OperatingPrinciple is the one tight operating principle — injected at session
 // start (it ships carrying the principles:session residency marker) and

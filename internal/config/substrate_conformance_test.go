@@ -358,24 +358,6 @@ func wordCount(s string) int {
 	return n
 }
 
-// TestEmbeddedCorpusConformance is the Tier-1 property table over every
-// embedded artifact (sty_6830e78e AC1). New files join automatically.
-func TestEmbeddedCorpusConformance(t *testing.T) {
-	defs := EmbeddedDefaults()
-	if len(defs) == 0 {
-		t.Fatal("EmbeddedDefaults() returned nothing")
-	}
-	for _, d := range defs {
-		d := d
-		t.Run(d.Kind+"/"+d.Name, func(t *testing.T) {
-			probs := conformProblems(d.Kind, d.Name, d.Body)
-			for _, p := range probs {
-				t.Errorf("%s", p)
-			}
-		})
-	}
-}
-
 // TestConformanceRejectsNonConformantFixture proves synthetic bad artifacts fail
 // the rule engine without polluting the embed FS (sty_6830e78e AC1).
 func TestConformanceRejectsNonConformantFixture(t *testing.T) {

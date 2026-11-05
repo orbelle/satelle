@@ -23,39 +23,6 @@ func TestAbsentWiringPolicyDefaultsToRefuse(t *testing.T) {
 	}
 }
 
-func TestGateWiringResolution(t *testing.T) {
-	for harness, want := range map[string]string{
-		"claude": ".claude/settings.json",
-		"grok":   ".grok/hooks/satelle.json",
-		"pi":     ".pi/extensions/satelle.ts",
-		"cursor": ".cursor/hooks.json",
-	} {
-		got := (Config{}).GateWiring(harness)
-		if len(got) != 1 || got[0] != want {
-			t.Errorf("embedded GateWiring(%q) = %v, want [%s]", harness, got, want)
-		}
-	}
-	if got := (Config{}).GateWiring("unknown"); len(got) != 0 {
-		t.Errorf("unknown declares no wiring, got %v", got)
-	}
-	if got := (Config{}).GateWiring("mybot"); len(got) != 0 {
-		t.Errorf("an undeclared harness has no wiring and never falls through, got %v", got)
-	}
-	c := Config{Harness: map[string]HarnessConfig{
-		"claude":  {GateWiring: []string{"a/b"}},
-		"unknown": {GateWiring: []string{"u"}},
-	}}
-	if got := c.GateWiring("CLAUDE"); len(got) != 1 || got[0] != "a/b" {
-		t.Errorf("repo override = %v", got)
-	}
-	if got := c.GateWiring("unknown"); len(got) != 1 || got[0] != "u" {
-		t.Errorf("repo-declared unknown wiring = %v", got)
-	}
-	if got := c.GateWiring("grok"); len(got) != 1 || got[0] != ".grok/hooks/satelle.json" {
-		t.Errorf("an untouched harness keeps its embedded wiring, got %v", got)
-	}
-}
-
 // AC2: an unknown policy value, an unknown key under [worktree] or
 // [harness.<name>], or a malformed wiring entry is refused at Load naming the
 // field, and nothing under the repo is rewritten.

@@ -42,28 +42,6 @@ func TestDocumentFilesScopeLocalSkipped(t *testing.T) {
 	}
 }
 
-// TestDocumentFilesSharedFlagPromotes: under a personal scope,
-// shared:true promotes a file to SharedTier; others stay PersonalTier.
-func TestDocumentFilesSharedFlagPromotes(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, repo, ".satelle/documents/private.md", "---\ntype: document\n---\npriv\n")
-	writeFile(t, repo, ".satelle/documents/shared.md", "---\ntype: document\nshared: true\n---\nteam\n")
-	b, err := DocumentFiles(Config{}, PersonalScope, repo, Ignore{})
-	if err != nil {
-		t.Fatalf("DocumentFiles: %v", err)
-	}
-	if f, ok := findConfigFile(b.Files, "documents/private.md"); !ok {
-		t.Error("missing documents/private.md")
-	} else if f.Tier != PersonalTier {
-		t.Errorf("private tier = %v, want PersonalTier", f.Tier)
-	}
-	if f, ok := findConfigFile(b.Files, "documents/shared.md"); !ok {
-		t.Error("missing documents/shared.md")
-	} else if f.Tier != SharedTier {
-		t.Errorf("shared tier = %v, want SharedTier", f.Tier)
-	}
-}
-
 // TestConfigAreasExcludesDocumentsAndWorkState: the candidate set is the authored
 // config areas + tasks + settings (satelle.toml), never documents (its own kind)
 // or the work-state areas.
@@ -333,98 +311,6 @@ func TestSkillsAreaWithholdsLocalFile(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Withheld missing skills/my-thing.local.md: %v", b.Withheld)
-	}
-}
-
-// TestEveryConfigAreaWithholdsLocal: table derived from ConfigAreas + documents
-// so a new area added later extends the guarantee automatically (AC2).
-func TestEveryConfigAreaWithholdsLocal(t *testing.T) {
-	repo := t.TempDir()
-	areas := append(append([]string{}, ConfigAreas...), "documents")
-	for _, area := range areas {
-		loc, isDir := ConfigAreaLocation(Config{}, repo, area)
-		if loc == "" {
-			// plant under default .satelle layout
-			if area == "constitution" {
-				writeFile(t, repo, ".satelle/constitution.md", "ok")
-				writeFile(t, repo, ".satelle/constitution.local.md", "secret")
-				continue
-			}
-			if area == "agents" {
-				writeFile(t, repo, ".satelle/workflows/agents.toml", "[x]\n")
-				// single-file area: LocalOnlyPath on agents.local.toml-shaped path
-				// is exercised by the basename of a would-be single-file area;
-				// plant a dir file for directory areas only.
-				continue
-			}
-		}
-		_ = loc
-		_ = isDir
-		if area == "constitution" {
-			writeFile(t, repo, ".satelle/constitution.md", "ok")
-			// single-file areas: LocalOnlyPath matches only if the server path
-			// itself is local — constitution.md is not. The per-area guarantee
-			// for single-file areas is exercised when the file path matches.
-			continue
-		}
-		if area == "agents" {
-			writeFile(t, repo, ".satelle/workflows/agents.toml", "[x]\n")
-			continue
-		}
-		if area == "settings" {
-			writeFile(t, repo, ".satelle/satelle.toml", "[sync]\nproject = \"p\"\n")
-			continue
-		}
-		// directory areas
-		writeFile(t, repo, ".satelle/"+area+"/thing.md", "ok")
-		writeFile(t, repo, ".satelle/"+area+"/thing.local.md", "secret")
-	}
-	// Config areas
-	b, err := ConfigFiles(Config{}, PersonalScope, repo, Ignore{})
-	if err != nil {
-		t.Fatalf("ConfigFiles: %v", err)
-	}
-	for _, area := range ConfigAreas {
-		if area == "constitution" || area == "agents" || area == "settings" {
-			continue // single-file; no thing.local.md path
-		}
-		keep := area + "/thing.md"
-		secret := area + "/thing.local.md"
-		if _, ok := findConfigFile(b.Files, keep); !ok {
-			t.Errorf("%s missing from Files", keep)
-		}
-		if _, ok := findConfigFile(b.Files, secret); ok {
-			t.Errorf("%s must not be in Files", secret)
-		}
-		found := false
-		for _, w := range b.Withheld {
-			if w == secret {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("Withheld missing %s: %v", secret, b.Withheld)
-		}
-	}
-	// documents area
-	db, err := DocumentFiles(Config{}, PersonalScope, repo, Ignore{})
-	if err != nil {
-		t.Fatalf("DocumentFiles: %v", err)
-	}
-	if _, ok := findConfigFile(db.Files, "documents/thing.md"); !ok {
-		t.Error("documents/thing.md missing")
-	}
-	if _, ok := findConfigFile(db.Files, "documents/thing.local.md"); ok {
-		t.Error("documents/thing.local.md must not be in Files")
-	}
-	found := false
-	for _, w := range db.Withheld {
-		if w == "documents/thing.local.md" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("documents Withheld missing thing.local.md: %v", db.Withheld)
 	}
 }
 

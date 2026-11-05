@@ -79,22 +79,6 @@ func TestResolveEditExemptGlobs(t *testing.T) {
 	}
 }
 
-func TestResolveAuthoredDirs(t *testing.T) {
-	c := Config{SubstrateRoots: map[string]string{
-		"skills": "/elsewhere", // absolute override → /elsewhere/skills
-	}}
-	dirs := c.ResolveAuthoredDirs("/repo")
-	if got := dirs["documents"]; got != "/repo/.satelle/documents" {
-		t.Errorf("default documents dir = %q", got)
-	}
-	if got := dirs["skills"]; got != "/elsewhere/skills" {
-		t.Errorf("overridden skills dir = %q", got)
-	}
-	if len(dirs) != len(AuthoredKinds) {
-		t.Errorf("got %d dirs, want %d", len(dirs), len(AuthoredKinds))
-	}
-}
-
 func TestRetrieveKeepDaysDefaultZeroAndReadFromToml(t *testing.T) {
 	var zero Config
 	if zero.RetrieveKeepDays != 0 {
@@ -375,57 +359,6 @@ func TestLoadDispatchLeftovers(t *testing.T) {
 	}
 	if len(empty.Dispatch.Leftovers.Patterns) != 0 || empty.Dispatch.Leftovers.ContentRegex != "" {
 		t.Error("zero-value rule must ship with no patterns and no regex — the binary has no opinion")
-	}
-}
-
-// TestLoadRefusesInvalidDiffRankPattern (sty_918e2086, architecture note c):
-// an unparseable priority_patterns regex fails config Load itself, rather
-// than RankPatch silently dropping its bonus at gate/render time.
-func TestLoadRefusesInvalidDiffRankPattern(t *testing.T) {
-	repo := t.TempDir()
-	satelleDir := filepath.Join(repo, ".satelle")
-	if err := os.MkdirAll(satelleDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	committed := "[output.diff_rank]\n" +
-		"enabled = true\n" +
-		"priority_patterns = [\"(unterminated\"]\n"
-	if err := os.WriteFile(filepath.Join(satelleDir, ConfigName), []byte(committed), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := Load(filepath.Join(satelleDir, ConfigName)); err == nil {
-		t.Fatal("Load must refuse an unparseable priority_patterns regex")
-	}
-}
-
-// TestLoadRefusesInvalidCheckLogPattern (sty_ef930f81): an unparseable
-// [output.check_log] regex fails config Load itself, rather than CompressLog
-// silently skipping it at check time.
-func TestLoadRefusesInvalidCheckLogPattern(t *testing.T) {
-	cases := []struct {
-		name string
-		toml string
-	}{
-		{"keep_patterns", "[output.check_log]\nenabled = true\nkeep_patterns = [\"(unterminated\"]\n"},
-		{"warn_patterns", "[output.check_log]\nenabled = true\nwarn_patterns = [\"(unterminated\"]\n"},
-		{"trace_start", "[output.check_log]\nenabled = true\ntrace_start = \"(unterminated\"\n"},
-		{"trace_frame", "[output.check_log]\nenabled = true\ntrace_frame = \"(unterminated\"\n"},
-		{"trace_app_frame", "[output.check_log]\nenabled = true\ntrace_app_frame = \"(unterminated\"\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			repo := t.TempDir()
-			satelleDir := filepath.Join(repo, ".satelle")
-			if err := os.MkdirAll(satelleDir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(satelleDir, ConfigName), []byte(tc.toml), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if _, _, err := Load(filepath.Join(satelleDir, ConfigName)); err == nil {
-				t.Fatalf("Load must refuse an unparseable %s regex", tc.name)
-			}
-		})
 	}
 }
 

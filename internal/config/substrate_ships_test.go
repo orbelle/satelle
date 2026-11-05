@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -146,46 +145,6 @@ func shipsClaimProblems(kind, name, body string, states, skills map[string]bool,
 //     (sty_25064a6c).
 var shippedExecutorSkills = map[string]bool{
 	"ready": true,
-}
-
-func TestEmbeddedShipsSelfConsistent(t *testing.T) {
-	states := embeddedLifecycleStates()
-	skills := embeddedSkillNames()
-	if len(states) == 0 {
-		t.Fatal("no embedded lifecycle states parsed")
-	}
-	if len(skills) == 0 {
-		t.Fatal("no embedded skills")
-	}
-
-	// AC1: no skill named code; every embedded skill is a reviewer/system skill
-	// (prefixed satelle-), bar the named executor rubrics in shippedExecutorSkills.
-	// The satelle-skill-naming bare-verb exception applies to repo-authored
-	// rubrics, not the embed tree (sty_01f49dd5 architecture note).
-	if skills["code"] {
-		t.Error("embedded skill `code` must not ship (sty_01f49dd5)")
-	}
-	for name := range skills {
-		if shippedExecutorSkills[name] {
-			continue
-		}
-		if !strings.HasPrefix(name, "satelle-") {
-			t.Errorf("embedded skill %q has no satelle- prefix — embed tree ships only reviewer/system skills; repo-authored executor rubrics stay under .satelle/skills (satelle-skill-naming)", name)
-		}
-	}
-
-	var allProblems []string
-	for _, d := range EmbeddedDefaults() {
-		key := d.Kind + "/" + d.Name
-		probs := shipsClaimProblems(d.Kind, d.Name, d.Body, states, skills, shipsAllow[key])
-		for _, p := range probs {
-			allProblems = append(allProblems, key+": "+p)
-		}
-	}
-	if len(allProblems) > 0 {
-		sort.Strings(allProblems)
-		t.Errorf("embedded corpus claims non-shipping names:\n  %s", strings.Join(allProblems, "\n  "))
-	}
 }
 
 func TestShipsAllowListJustified(t *testing.T) {

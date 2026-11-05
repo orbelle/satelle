@@ -37,24 +37,6 @@ func TestRetiredStructureReviewers(t *testing.T) {
 	}
 }
 
-func TestRetiredSubstrateConsistentWithEmbedded(t *testing.T) {
-	live := map[string]bool{}
-	for _, d := range EmbeddedDefaults() {
-		live[d.Name] = true
-	}
-	for name, e := range RetiredSubstrate {
-		if live[name] {
-			t.Errorf("%q is both retired and a live embedded default", name)
-		}
-		if e.Replacement != "" && !live[e.Replacement] {
-			t.Errorf("%q replacement %q is not a live embedded default", name, e.Replacement)
-		}
-		if e.Version == "" {
-			t.Errorf("%q missing Version", name)
-		}
-	}
-}
-
 func TestFormatRetirementMessage(t *testing.T) {
 	rename := FormatRetirementMessage("satelle-dot-standard", RetiredSubstrate["satelle-dot-standard"])
 	if !strings.Contains(rename, "renamed to [[satelle-route-standard]]") || !strings.Contains(rename, "satelle migrate --yes") {

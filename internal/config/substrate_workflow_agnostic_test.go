@@ -3,7 +3,6 @@ package config
 import (
 	"regexp"
 	"strings"
-	"testing"
 )
 
 // The shipped route halves are the first process file a new operator ever reads
@@ -71,101 +70,6 @@ var formatTuition = map[string]string{
 	"self-contained on one": "same",
 }
 
-// TestEmbeddedStepTomlDocumentsRework pins sty_cec967b5 AC2 for the virtual
-// default: init does not seed step.toml on disk, so the comment lives in the
-// embedded catalogue and must name the three facts a fresh repo's agent needs.
-func TestEmbeddedStepTomlDocumentsRework(t *testing.T) {
-	_, step := embeddedRouteHalves()
-	if step == "" {
-		t.Fatal("the shipped step.toml is missing")
-	}
-	for _, want := range []string{
-		"rework = { consult",
-		"rounds",
-		"Absent means",
-		"cold",
-		"READY",
-		"satelle story rework",
-	} {
-		if !strings.Contains(step, want) {
-			t.Errorf("embedded step.toml missing rework doc %q", want)
-		}
-	}
-	if strings.Contains(step, "\nrework = {") {
-		t.Error("shipped step.toml must document rework in comments only — declare no live rework key")
-	}
-}
-
-func TestEmbeddedRouteSourcesCarryNoFormatTuition(t *testing.T) {
-	done, step := embeddedRouteHalves()
-	if done == "" || step == "" {
-		t.Fatal("the shipped route halves are missing")
-	}
-	for _, tc := range []struct{ file, body string }{{"done.toml", done}, {"step.toml", step}} {
-		t.Run(tc.file, func(t *testing.T) {
-			for token, why := range formatTuition {
-				if strings.Contains(tc.body, token) {
-					t.Errorf("carries format tuition %q (%s) — delete it; the format is TOML's to explain", token, why)
-				}
-			}
-		})
-	}
-}
-
-func TestEmbeddedRouteSourcesStateTheirModel(t *testing.T) {
-	done, step := embeddedRouteHalves()
-	if done == "" || step == "" {
-		t.Fatal("the shipped route halves are missing")
-	}
-
-	for _, tc := range []struct {
-		file, body string
-		minBanners int
-		// wantPreamble are the model rules TOML cannot express, which the file
-		// must therefore state before its first record.
-		wantPreamble []string
-	}{
-		{
-			file: "done.toml", body: done, minBanners: 2,
-			// A category table selects steps by naming their KEYS, and order is
-			// derived rather than authored — neither is visible in the syntax.
-			wantPreamble: []string{"KEYED BY THE CATEGORY", "step.toml", "ORDER is derived"},
-		},
-		{
-			file: "step.toml", body: step, minBanners: 3,
-			// The rule this epic exists to fix: the key is the identity, the
-			// `status` is a stage name, and stage names repeat by design.
-			wantPreamble: []string{"KEYED BY THE OBLIGATION", "STAGE NAME", "done.toml"},
-		},
-	} {
-		t.Run(tc.file, func(t *testing.T) {
-			pre := preambleOf(tc.body)
-			for _, want := range tc.wantPreamble {
-				if !strings.Contains(pre, want) {
-					t.Errorf("preamble does not state %q — TOML does not supply it, so the file must", want)
-				}
-			}
-			// Route-family banners group the records.
-			banners := 0
-			for _, c := range commentLines(tc.body) {
-				if strings.Contains(c, "===") {
-					banners++
-				}
-			}
-			if banners < tc.minBanners {
-				t.Errorf("%d banner comment lines, want at least %d — records must be grouped by route family",
-					banners, tc.minBanners)
-			}
-			// EVERY record carries provenance. This is the load-bearing assertion:
-			// it fails on a single un-commented table, so the treatment cannot be
-			// applied to most records and quietly skipped on one.
-			for _, name := range recordsMissingComment(tc.body) {
-				t.Errorf("record %q carries no comment — every table must name what it is for", name)
-			}
-		})
-	}
-}
-
 // recordsMissingComment returns the record tables with no comment line between
 // the table header and the record's first key. `[meta]` is the document header,
 // not a record.
@@ -209,36 +113,3 @@ func recordsMissingComment(body string) []string {
 }
 
 var storyID = regexp.MustCompile(`sty_[0-9a-f]{8}`)
-
-func TestEmbeddedRouteSourcesAreRepoAgnostic(t *testing.T) {
-	done, step := embeddedRouteHalves()
-	if done == "" || step == "" {
-		t.Fatal("the shipped route halves are missing")
-	}
-	// Each entry is banned for a stated reason; keep the list small and precise
-	// rather than sprawling, or it starts rejecting legitimate prose.
-	banned := map[string]string{
-		"this repo":       "the shipped defaults belong to EVERY repo; they cannot refer to one",
-		"this repository": "same",
-		"our ":            "first person implies an owning team",
-		"dogfood":         "a deploy practice of one repo, not a route concept",
-		"changelog":       "a release convention of one repo",
-		"gofmt":           "a language toolchain of one repo",
-		"go test":         "same",
-		"github":          "a hosting choice of one repo",
-	}
-	for _, tc := range []struct{ file, body string }{{"done.toml", done}, {"step.toml", step}} {
-		for _, line := range commentLines(tc.body) {
-			low := strings.ToLower(line)
-			for token, why := range banned {
-				if strings.Contains(low, token) {
-					t.Errorf("%s: comment carries repo-specific %q (%s):\n  %s", tc.file, token, why, line)
-				}
-			}
-			if m := storyID.FindString(line); m != "" {
-				t.Errorf("%s: comment carries story id %s — an id means nothing in another repo:\n  %s",
-					tc.file, m, line)
-			}
-		}
-	}
-}

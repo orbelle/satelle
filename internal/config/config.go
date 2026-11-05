@@ -54,7 +54,7 @@ const (
 // AuthoredKinds are the markdown-source-of-truth artifact kinds the directory
 // monitor watches and indexes. Each defaults to <repo>/.satelle/<kind> and is
 // individually relocatable via [substrate_roots] (may be outside .satelle/).
-var AuthoredKinds = []string{"documents", "workflows", "principles", "skills"}
+var AuthoredKinds = []string{"workflows", "principles", "skills"}
 
 // Config is the on-disk shape at .satelle/satelle.toml. Every field is
 // optional; the Resolve* methods supply defaults so the zero value is valid.
@@ -136,20 +136,11 @@ type Config struct {
 	// is free-form. The vocabulary is REPO CONFIG — the binary never hardcodes
 	// which namespaces or values exist.
 	Tags TagsConfig `toml:"tags"`
-	// Categories holds the optional controlled category vocabulary (sty_b2315e17).
-	// Default list ships embedded (substrate/config/categories.toml); satelle.toml
-	// may extend (extra) or replace (vocabulary). Enforce is off|warn|reject
-	// (default warn). Values are never a Go literal.
-	Categories CategoriesConfig `toml:"categories"`
 	// Harness holds per-harness [harness.<name>] tables — the SessionStart
 	// injection limit (sty_ce1a2733) and the session-context event plus its
 	// character clip. Embedded defaults live in substrate/config/harness.toml;
 	// a key here overrides them per harness.
 	Harness map[string]HarnessConfig `toml:"harness"`
-	// FixLane is the bound on the in-loop fix lane (sty_4b694872): the size
-	// ceiling and the path classes a claim may never touch. Embedded default in
-	// substrate/config/fix_lane.toml; see ResolveFixLane.
-	FixLane FixLaneConfig `toml:"fix_lane"`
 	// Attachments bounds binary story attachments (sty_40e5a305): max decoded
 	// size and the content-type allowlist. Defaults ship in code as mechanism
 	// bounds; a repo may override either in satelle.toml.
@@ -164,10 +155,6 @@ type Config struct {
 	// Validate tunes what `satelle validate` reports beyond structure — today the
 	// injected-context size and its warn-only budgets. See ValidateConfig.
 	Validate ValidateConfig `toml:"validate"`
-	// Doctor tunes the context audit `satelle doctor` runs (the verbatim
-	// duplication threshold). The default ships embedded in
-	// substrate/config/doctor.toml; see ResolveDuplicateMinWords.
-	Doctor DoctorConfig `toml:"doctor"`
 	// Worktree declares what a worktree opened for a story needs
 	// (sty_804c566b): the gitignored paths it carries from the main tree and the
 	// branch and location templates. See WorktreeConfig.

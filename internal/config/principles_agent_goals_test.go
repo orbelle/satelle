@@ -1,40 +1,8 @@
 package config
 
 import (
-	"strings"
 	"testing"
 )
-
-// TestEmbeddedAgentGoalsTellsTheOrchestratorToPlanTheEpicFirst (sty_c931cd90):
-// the shipped principle tells the orchestrator that, given an epic or a child of
-// an epic whose readiness does not hold, it runs the readiness round first and
-// unprompted, and that it owns each child's delivery. The text must sit under
-// "Driving an epic", the section an orchestrator reads before engaging children.
-func TestEmbeddedAgentGoalsTellsTheOrchestratorToPlanTheEpicFirst(t *testing.T) {
-	body := embeddedBody(t, "principles", "satelle-agent-goals")
-	_, section, found := strings.Cut(body, "## Driving an epic")
-	if !found {
-		t.Fatal("satelle-agent-goals has no 'Driving an epic' section")
-	}
-	// The section ends at the next heading.
-	if i := strings.Index(section, "\n## "); i >= 0 {
-		section = section[:i]
-	}
-	section = strings.Join(strings.Fields(section), " ")
-	for _, want := range []string{
-		"When you are given an epic, or a child of an epic whose readiness does not hold",
-		"run `satelle story ready <epic>` first",
-		"before engaging any child",
-		"without waiting to be told",
-		"You own each child's delivery",
-		"`in-loop`, `local` for a subagent, or `team:<path>`",
-		"`satelle story wave <epic>` prints it",
-	} {
-		if !strings.Contains(section, want) {
-			t.Errorf("satelle-agent-goals 'Driving an epic' does not state %q", want)
-		}
-	}
-}
 
 // ParsePin reads a child's placement pin in the placement vocabulary a binding
 // uses, plus in-loop. remote is binding configuration, never a pin.

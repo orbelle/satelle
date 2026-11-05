@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -86,14 +85,5 @@ func TestIsAgentsLayerPath(t *testing.T) {
 		if got := IsAgentsLayerPath(rel); got != want {
 			t.Errorf("IsAgentsLayerPath(%q) = %v, want %v", rel, got, want)
 		}
-	}
-}
-
-// The lane's close check carries the lock's pattern verbatim: the two halves of
-// the agents-repair fence must not drift apart.
-func TestAgentsLayerOnlyCheckCarriesTheLockPattern(t *testing.T) {
-	body := embeddedBody(t, "skills", "satelle-agents-layer-only-check")
-	if !strings.Contains(body, AgentsLayerPathPattern) {
-		t.Fatalf("satelle-agents-layer-only-check must carry %q verbatim", AgentsLayerPathPattern)
 	}
 }

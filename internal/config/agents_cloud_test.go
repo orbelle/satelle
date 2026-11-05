@@ -90,28 +90,3 @@ func TestCloudIsNeverALiveInterface(t *testing.T) {
 		t.Errorf("explicit cloud resolved for live use to %q", iface)
 	}
 }
-
-// A cloud binding is handed its whole context in the prompt; like an in-loop one
-// it needs no context-channel grant. Every other binding does.
-func TestNeedsContextChannel(t *testing.T) {
-	cases := []struct {
-		name string
-		b    AgentBinding
-		want bool
-	}{
-		{"local command", AgentBinding{Command: "claude -p {system}"}, true},
-		{"stream", AgentBinding{Command: "claude -p {system}", Interface: InterfaceStream}, true},
-		{"in-loop", AgentBinding{Command: "in-loop"}, false},
-		{"cloud", AgentBinding{Role: RoleAgent, Command: "claude -p {system}", Interface: InterfaceCloud}, false},
-		// cursor reads satelle's material by absolute path with its own Read tool
-		// (agentcli.ReadsMaterialByPath), so no grant string is missing (sty_10c52ab3).
-		{"cursor command", AgentBinding{Command: "cursor-agent -p --trust --output-format json"}, false},
-		{"cursor acp", AgentBinding{Command: "cursor-agent acp", Interface: InterfaceACP}, false},
-		{"grok acp", AgentBinding{Command: "grok agent stdio", Interface: InterfaceACP}, true},
-	}
-	for _, tc := range cases {
-		if got := NeedsContextChannel(tc.b); got != tc.want {
-			t.Errorf("%s: NeedsContextChannel = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}

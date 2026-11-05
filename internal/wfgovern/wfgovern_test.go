@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
@@ -159,61 +158,6 @@ func TestOrderedWorkflowsCaseInsensitive(t *testing.T) {
 	got := wfgovern.OrderedWorkflows(all, "substrate")
 	if len(got) == 0 || got[0].Name != "satelle-substrate-workflow" {
 		t.Fatalf("category substrate vs applies_to Substrate head = %v, want substrate workflow", names(got))
-	}
-}
-
-// TestEveryDefaultCategoryResolvesAWorkflow: every shipped default category
-// resolves a governing workflow; epic-parent/parent and substrate beat wildcard.
-func TestEveryDefaultCategoryResolvesAWorkflow(t *testing.T) {
-	parent := docindex.Doc{Name: "satelle-parent-workflow", Embedded: true,
-		Body: "---\napplies_to: [\"epic-parent\", \"parent\"]\n---\n"}
-	substrate := docindex.Doc{Name: "satelle-substrate-workflow", Embedded: true,
-		Body: "---\napplies_to: [\"substrate\"]\n---\n"}
-	baseline := docindex.Doc{Name: "satelle-baseline-workflow", Embedded: true,
-		Body: "---\napplies_to: [\"*\"]\n---\n"}
-	task := docindex.Doc{Name: "satelle-task-workflow", Embedded: true,
-		Body: "---\napplies_to: [\"execution\", \"task\"]\n---\n"}
-	all := []docindex.Doc{parent, substrate, baseline, task}
-
-	list := config.EmbeddedCategories()
-	if len(list) == 0 {
-		t.Fatal("embedded categories empty")
-	}
-	// task/execution are kinds, not story categories.
-	for _, ban := range []string{"task", "execution"} {
-		for _, c := range list {
-			if strings.EqualFold(c, ban) {
-				t.Errorf("category list must not include kind %q", ban)
-			}
-		}
-	}
-	for _, cat := range list {
-		got := wfgovern.OrderedWorkflows(all, cat)
-		if len(got) == 0 {
-			t.Errorf("category %q resolves no workflow", cat)
-			continue
-		}
-		switch strings.ToLower(cat) {
-		case "epic-parent", "parent":
-			if got[0].Name != "satelle-parent-workflow" {
-				t.Errorf("%q head = %s, want parent workflow", cat, got[0].Name)
-			}
-		case "substrate":
-			if got[0].Name != "satelle-substrate-workflow" {
-				t.Errorf("substrate head = %s, want substrate workflow", got[0].Name)
-			}
-		default:
-			if got[0].Name != "satelle-baseline-workflow" {
-				t.Errorf("%q head = %s, want baseline/wildcard", cat, got[0].Name)
-			}
-		}
-	}
-	// Kinds still resolve the task workflow.
-	for _, kind := range []string{"task", "execution"} {
-		got := wfgovern.OrderedWorkflows(all, kind)
-		if len(got) == 0 || got[0].Name != "satelle-task-workflow" {
-			t.Errorf("kind %q head = %v, want task workflow", kind, names(got))
-		}
 	}
 }
 

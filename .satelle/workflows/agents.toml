@@ -63,6 +63,11 @@ principles = "session"
 role       = "agent"
 principles = "session"
 
+# Orchestrates the route (copied from the embedded default when embedding left the binary).
+[orchestrator]
+role       = "agent"
+principles = "session"
+
 # The order an unset model follows, per executable.
 [model_order]
 claude = ["opus", "sonnet", "haiku"]

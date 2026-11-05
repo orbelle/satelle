@@ -1,9 +1,6 @@
 package config
 
 import (
-	"strings"
-	"testing"
-
 	"github.com/bobmcallan/satelle/internal/wfdot"
 )
 
@@ -13,38 +10,6 @@ import (
 // file; these helpers give them the same two answers (what states does the
 // shipped lifecycle have, what skills does it bind) off the route grammar, so
 // there is one place that knows the shipped representation.
-
-// sty_2b737ed5: the shipped route leaves `ready_children` absent, so readying an
-// epic here still readies each child; the choice is a repo's own configuration.
-func TestEmbeddedReadyStepReadiesChildren(t *testing.T) {
-	_, step := embeddedRouteHalves()
-	if strings.Contains(step, "\nready_children") {
-		t.Error("the shipped step.toml must leave ready_children absent")
-	}
-	cat, err := wfdot.ParseSteps(step)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, st := range cat.Steps {
-		if st.Provides == "ready" {
-			found = true
-			if !st.ReadiesChildren() {
-				t.Error("the shipped [ready] step must resolve ready_children to true")
-			}
-		}
-	}
-	if !found {
-		t.Fatal("the shipped route has no [ready] step")
-	}
-	spec, ok := embeddedRouteSpecs()["epic-parent"]
-	if !ok {
-		t.Fatal("no epic-parent route")
-	}
-	if st, ok := spec.StateNamed("ready"); !ok || !st.ReadyChildren {
-		t.Errorf("the epic-parent ready state must resolve ReadyChildren == true: %+v", st)
-	}
-}
 
 // embeddedRouteHalves returns the two shipped halves, empty when either is
 // absent.
@@ -121,98 +86,6 @@ func routeSourceSkillRefs(body string) []string {
 		}
 	}
 	return out
-}
-
-// TestEmbeddedRouteIsTheOnlyLifecycle pins the shipped representation (AC1 and
-// AC7 of sty_3795e7f6): the binary ships exactly the two route halves as
-// workflows, and neither is a DOT graph. It is the deterministic guard against
-// a graph creeping back into the embed tree.
-func TestEmbeddedRouteIsTheOnlyLifecycle(t *testing.T) {
-	var names []string
-	for _, d := range EmbeddedDefaults() {
-		if d.Kind != "workflows" {
-			continue
-		}
-		names = append(names, d.Name)
-		// Textual: there is no DOT parser left to ask, which is exactly why the
-		// guard has to stand on its own (sty_d953c5d8).
-		if strings.Contains(d.Body, "```dot") {
-			t.Errorf("embedded workflow %q carries a DOT graph — the shipped lifecycle is a derived route", d.Name)
-		}
-	}
-	if len(names) != 2 {
-		t.Fatalf("embedded workflows = %v, want exactly [done step]", names)
-	}
-	for _, want := range []string{"done", "step"} {
-		var found bool
-		for _, n := range names {
-			if n == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("embedded workflows %v are missing %q — one half is not a route", names, want)
-		}
-	}
-}
-
-// TestEmbeddedRouteBuildsForEveryDeclaredCategory: every `## <category>` section
-// derives a valid route. A section whose obligations nothing discharges is a
-// construction error the operator would only meet at the first transition.
-func TestEmbeddedRouteBuildsForEveryDeclaredCategory(t *testing.T) {
-	done, step := embeddedRouteHalves()
-	if done == "" {
-		t.Fatal("the binary ships no route source")
-	}
-	lists, err := wfdot.ParseDone(done)
-	if err != nil {
-		t.Fatalf("embedded done.md does not parse: %v", err)
-	}
-	if len(lists) == 0 {
-		t.Fatal("embedded done.md declares no category")
-	}
-	for _, l := range lists {
-		spec, err := wfdot.ParseRoute(done, step, l.Category, nil)
-		if err != nil {
-			t.Errorf("category %q does not derive: %v", l.Category, err)
-			continue
-		}
-		if problems := wfdot.Validate(spec); len(problems) != 0 {
-			t.Errorf("category %q does not validate: %v", l.Category, problems)
-		}
-		if start := spec.Start(); start != "backlog" {
-			t.Errorf("category %q starts at %q, want backlog", l.Category, start)
-		}
-	}
-}
-
-// TestEmbeddedRouteSkillsAllShip: every rubric the shipped route names resolves
-// to an embedded skill. A dangling @skill: in the DEFAULT lifecycle would block
-// a fresh repo with no substrate of its own.
-func TestEmbeddedRouteSkillsAllShip(t *testing.T) {
-	done, step := embeddedRouteHalves()
-	if done == "" {
-		t.Fatal("the binary ships no route source")
-	}
-	skills := map[string]bool{}
-	for _, d := range EmbeddedDefaults() {
-		if d.Kind == "skills" {
-			skills[d.Name] = true
-		}
-	}
-	refs := append(routeSourceSkillRefs(done), routeSourceSkillRefs(step)...)
-	refs = append(refs, fmScalarLine(splitLines(done), "create_review"))
-	if len(refs) == 0 {
-		t.Fatal("the shipped route binds no skills")
-	}
-	for _, sk := range refs {
-		if sk == "" {
-			continue
-		}
-		if !skills[sk] {
-			t.Errorf("the shipped route binds %q, which is not an embedded skill", sk)
-		}
-	}
 }
 
 // splitLines is the frontmatter slice fmScalarLine expects.
