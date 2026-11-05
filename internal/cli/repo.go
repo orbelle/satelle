@@ -54,6 +54,7 @@ func (r repo) open() (*kernel.Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
 	}
+	watchWrites(k, r)
 	return k, nil
 }
 

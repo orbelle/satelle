@@ -11,6 +11,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/uipush"
 )
 
 func workspaceCmd() *cobra.Command {
@@ -35,12 +36,13 @@ database.`,
 				}
 				if !gc.Workspace.AddRepo(path) {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s is already registered\n", path)
-					return nil
+				} else {
+					if err := config.SaveGlobal(gc); err != nil {
+						return err
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "registered %s (%d repos)\n", path, len(gc.Workspace.Repos))
 				}
-				if err := config.SaveGlobal(gc); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "registered %s (%d repos)\n", path, len(gc.Workspace.Repos))
+				seedUI(cmd, path)
 				return nil
 			},
 		},
@@ -134,7 +136,37 @@ database.`,
 	return cmd
 }
 
+// seedUI pushes a full snapshot of the repo at path to satelled.
+func seedUI(cmd *cobra.Command, path string) {
+	r, err := findRepo(path)
+	if err != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %v\n", err)
+		return
+	}
+	pushed := false
+	err = withUISource(r, func(c uipush.Client, src uipush.Source) error {
+		pushed = true
+		if err := c.Seed(cmd.Context(), src); err != nil {
+			return fmt.Errorf("satelled at %s: %w", c.Endpoint, err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "seeded satelled at %s\n", c.Endpoint)
+		return nil
+	})
+	switch {
+	case err != nil:
+		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %v (the next change pushes it once satelled runs)\n", err)
+	case !pushed:
+		fmt.Fprintln(cmd.OutOrStdout(), "not seeded: the push to satelled is disabled")
+	}
+}
+
+// dropPartition removes repoKey's partition through satelled's ingest, else
+// (satelled not running) from the mirror database directly.
 func dropPartition(cmd *cobra.Command, repoKey string) error {
+	if c, ok := uiClient(); ok && c.Remove(cmd.Context(), repoKey) == nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "dropped partition %s\n", repoKey)
+		return nil
+	}
 	ms, err := mirror.Open(mirror.DefaultPath(config.GlobalDir()))
 	if err != nil {
 		return err

@@ -132,10 +132,10 @@ type rowVM struct {
 }
 
 type docRowVM struct {
-	Name       string
-	Headline   string
-	ModTime    time.Time
-	Source     string
+	Name     string
+	Headline string
+	ModTime  time.Time
+	Source   string
 }
 
 type kindGroup struct {
@@ -175,12 +175,12 @@ type helpTopic struct {
 }
 
 type docPageData struct {
-	TopBar     topBar
-	Kind       string
-	Name       string
-	Headline   string
-	HTML       template.HTML
-	Source     string
+	TopBar   topBar
+	Kind     string
+	Name     string
+	Headline string
+	HTML     template.HTML
+	Source   string
 	// Workflow is set when the doc is a pushed workflow: the page draws it.
 	Workflow *routeVM
 }

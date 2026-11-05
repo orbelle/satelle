@@ -15,7 +15,7 @@ func TestServeStaysOffTheCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list -deps: %v\n%s", err, out)
 	}
-	for _, f := range []string{"internal/cli", "internal/kernel", "internal/hosted"} {
+	for _, f := range []string{"internal/cli", "internal/kernel", "internal/hosted", "internal/uipush"} {
 		if strings.Contains(string(out), "github.com/bobmcallan/satelle/"+f+"\n") {
 			t.Errorf("internal/serve must not depend on %s", f)
 		}

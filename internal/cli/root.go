@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,6 +70,9 @@ every event on an append-only ledger. Start with 'satelle init' and
 func Execute() error {
 	root := NewRootCmd()
 	err := root.Execute()
+	// satelled hears of every ledger write, whether the command succeeded or
+	// not (a refused transition still records its verdicts).
+	flushUI(context.Background())
 	if err != nil {
 		var ee *exitError
 		if !errors.As(err, &ee) || !ee.quiet {
