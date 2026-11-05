@@ -425,16 +425,10 @@ td.updated-cell { white-space: nowrap; }
   border: 1px solid color-mix(in srgb, var(--badge-c, var(--muted)) 42%, transparent);
   background: color-mix(in srgb, var(--badge-c, var(--muted)) 11%, transparent);
 }
-.badge.s-backlog     { --badge-c: #2ecc71; } /* mint green — reference: BACKLOG is a green pill */
-.badge.s-open        { --badge-c: #6366f1; } /* indigo */
-.badge.s-in_progress { --badge-c: #e0a200; } /* amber/gold — actively in work */
-.badge.s-integration { --badge-c: #4a6fa5; } /* slate blue — matches the 'fired' light */
-.badge.s-commit      { --badge-c: #8b5cf6; } /* violet */
-.badge.s-push        { --badge-c: #0ea5a4; } /* teal */
-.badge.s-committed   { --badge-c: #2563eb; } /* strong blue */
-.badge.s-done        { --badge-c: #16a34a; } /* deep green — distinct shade from backlog */
-.badge.s-blocked     { --badge-c: #e74c3c; } /* red — matches the 'fail' light */
-.badge.s-cancelled   { --badge-c: #b08aa6; } /* desaturated mauve — abandoned, but not an undifferentiated grey */
+.badge.st-start    { --badge-c: #6366f1; } /* the workflow's start state */
+.badge.st-active   { --badge-c: #e0a200; } /* any other open state */
+.badge.st-park     { --badge-c: #e74c3c; } /* a park state */
+.badge.st-terminal { --badge-c: #16a34a; } /* a terminal state */
 
 /* Inline expansion */
 tr.expansion > td { background: var(--expand-bg); padding: 0; }
@@ -448,20 +442,22 @@ tr.expansion > td { background: var(--expand-bg); padding: 0; }
 .detail-link { font-size: 12px; }
 .open-story { display: inline-block; margin-bottom: 12px; font-size: 12.5px; font-weight: 600; }
 
-/* Task runs (sty_30a917f8): a task's executions rendered as a native run list —
-   each run its own card with a status badge, timestamps, and recorded output. An
-   in-progress run is set apart by an amber left rail (matching the s-in_progress
-   badge colour) so an active run reads distinct from done/cancelled at a glance. */
-ol.run-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-ol.run-list li.run { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--panel); }
-li.run.run-s-in_progress { border-left-color: #e0a200; }
-li.run.run-s-done { border-left-color: #16a34a; }
-li.run.run-s-cancelled { border-left-color: var(--muted); }
-.run-head { display: flex; align-items: center; gap: 8px; }
-.run-id { font-family: var(--mono, monospace); font-size: 12.5px; }
-.run-meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
-.run-output { margin-top: 8px; font-size: 12px; }
-.run-noout { color: var(--muted); font-style: italic; font-size: 11.5px; margin-top: 6px; }
+/* Children and criteria on the detail. */
+ul.child-list, ul.criteria { margin: 0; padding-left: 18px; }
+ul.child-list li { margin: 2px 0; }
+
+/* Verdicts: every gate.run grouped by the transition presentation it judged. */
+ol.verdicts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+li.presentation { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--panel); }
+li.presentation.outcome-moved { border-left-color: var(--ok); }
+li.presentation.outcome-refused { border-left-color: var(--fail); }
+.pres-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.pres-outcome { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.verdict-table td, .verdict-table th { padding: 5px 8px; }
+tr.verdict.v-accept .verdict-result, tr.verdict.v-carried .verdict-result { color: var(--ok); }
+tr.verdict.v-reject .verdict-result { color: var(--fail); font-weight: 600; }
+tr.verdict.v-skipped .verdict-result { color: var(--muted); }
+pre.verdict-notes { white-space: pre-wrap; margin: 0; font-size: 12px; max-height: 18em; overflow: auto; }
 
 /* Ledger timeline */
 ol.timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
@@ -547,39 +543,21 @@ ul.doc-list li { border: 1px solid var(--line); border-radius: 8px; background: 
 .kind-h { font-size: 12px; color: var(--accent); font-weight: 650; margin: 18px 0 8px; text-transform: lowercase; }
 .empty { color: var(--muted); font-style: italic; padding: 10px; }
 
-/* --- workflow tab: the ROUTE (read-only, server-rendered) --- */
-/* The ordered steps to done — one row per step: the state, what it discharges,
-   who performs it under which rubrics, and the reviewers that gate entry. No
-   diagram: the route is the artifact, the same one `satelle story route` renders
-   (sty_085e1a5a). */
-.route { list-style: none; margin: 6px 0 10px; padding: 0; counter-reset: routestep; }
-.route-step { position: relative; padding: 9px 0 9px 30px; border-bottom: 1px solid var(--line); }
-.route-step:last-child { border-bottom: 0; }
-.route-step::before { counter-increment: routestep; content: counter(routestep);
-  position: absolute; left: 0; top: 11px; width: 19px; text-align: center;
-  font-family: var(--mono); font-size: 11px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px; line-height: 17px; }
-.route-step.terminal::before { border-color: var(--accent); color: var(--accent); }
-.route-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
-.route-oblig { color: var(--ink); font-size: 13px; }
-.route-perf, .route-gates, .route-advisor { display: flex; align-items: baseline;
-  gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: var(--muted); }
-.route-advisor { font-style: italic; }
-.route-label { text-transform: lowercase; letter-spacing: .03em; }
-.route-agent { font-family: var(--mono); color: var(--ink); }
-.route-skill { font-family: var(--mono); color: var(--accent); }
-.route-none { font-style: italic; }
-.route-bytag { opacity: .8; font-style: italic; }
-.route-exits { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
-.route-exit { display: inline-flex; align-items: baseline; gap: 6px; }
-/* The story's route DOCUMENT (plan half + appended outcomes) renders expanded,
-   not folded into a <details> among the other attachments. Full detail-column
-   width and the same card chrome as sibling pre.prose panels (sty_c3b1eb57) —
-   .doc-article's 760px measure stays for collapsed list attachments. */
-.route-doc { max-width: none; margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
-.route-doc > :first-child { margin-top: 0; }
-.route-doc > :last-child { margin-bottom: 0; }
+/* --- the ROUTE: a workflow's states in route order and its transitions,
+   drawn from the pushed workflow (read-only, server-rendered). --- */
+ol.route-line { list-style: none; margin: 6px 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 4px; align-items: center; }
+.route-state { display: inline-flex; align-items: baseline; gap: 5px; }
+.route-state + .route-state::before { content: "→"; color: var(--muted); margin-right: 4px; }
+.route-state.park::before { content: "·"; }
+.route-state.visited .wf-node { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.route-state.current .wf-node { border-color: var(--accent); border-width: 2px; font-weight: 650; }
+.route-state.park .wf-node { border-style: dotted; }
+.route-state.terminal .wf-node { border-color: var(--accent); border-style: dashed; }
+.route-flag { font-size: 10.5px; color: var(--muted); text-transform: lowercase; }
+.route-perf { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.route-transitions tr.next td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.gate-group { display: inline-flex; gap: 3px; margin-right: 8px; }
+.gate-group.mode-parallel { outline: 1px dashed var(--line); outline-offset: 2px; }
 
 .wf-node { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 11px;
   border: 1px solid var(--line); border-radius: 999px; background: var(--panel);

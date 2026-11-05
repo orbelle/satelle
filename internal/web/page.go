@@ -66,16 +66,32 @@ var tmplFuncs = template.FuncMap{
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
 	},
-	// evdot maps a ledger event kind to the timeline dot's outcome class, so the
-	// dot speaks the same colour language as the process/progress lights: a
-	// review_accept is a pass (green) dot, a review_reject a fail (red) dot. Every
-	// neutral process event (story_created, status_transition, estimate/step rows,
-	// …) returns "" and keeps the default accent dot. Outcome is derived here,
-	// server-side, from the event kind alone. (sty_f19d2ec4)
-	// evdot maps a timeline event to the dot's outcome class. The kernel's
-	// pages (B4) colour by the gate result in the payload; the kind alone
-	// names no outcome.
-	"evdot": func(kind any) string { return "" },
+	// evdot maps a timeline event to its dot's outcome class from the gate
+	// result in the payload: a reject is a fail dot, an accept or carry a pass
+	// dot; every other event keeps the default dot.
+	"evdot": func(ev eventVM) string {
+		for _, c := range ev.Chips {
+			if c.Type != "outcome" {
+				continue
+			}
+			if c.Label == mirror.GateReject {
+				return "tl-fail"
+			}
+			if c.Label == gateAccept || c.Label == gateCarried {
+				return "tl-pass"
+			}
+		}
+		return ""
+	},
+	// dict builds a map from alternating keys and values, for passing a small
+	// view to a shared template.
+	"dict": func(kv ...any) map[string]any {
+		m := map[string]any{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[fmt.Sprint(kv[i])] = kv[i+1]
+		}
+		return m
+	},
 	// tagchip renders a tag chip. A key:value tag (e.g. epic:summariser) renders
 	// as a kv chip distinguishing key from value; a bare tag renders plain. No
 	// schema change — kv is a parsed string convention.
@@ -125,6 +141,12 @@ var tmplFuncs = template.FuncMap{
 		return "stories"
 	},
 }
+
+// Gate results that pass (gate.Accept, gate.Carried).
+const (
+	gateAccept  = "accept"
+	gateCarried = "carried"
+)
 
 // relTime renders an elapsed duration as the phrase shown in a freshness stamp
 // (sty_226a661e). Buckets, thresholds and plural forms are MIRRORED in
@@ -298,26 +320,25 @@ const templatesSrc = `
          anchors are invalid HTML — browsers rewrite the DOM and the chip
          floats misaligned between Stories and Tasks (sty_01ba9482). */}}
     <span class="tab-cluster">
-      <a class="tab" role="tab" data-panel="stories" href="#stories"><span class="tab-label" data-text="Stories">Stories</span> <span class="n">{{len .Stories}}</span>{{if .BacklogCount}} <span class="n-backlog" title="stories in the open backlog">{{.BacklogCount}} backlog</span>{{end}}</a>
+      <a class="tab" role="tab" data-panel="stories" href="#stories"><span class="tab-label" data-text="Stories">Stories</span> <span class="n">{{len .Stories}}</span></a>
       {{template "engagementBadge" .}}
     </span>
     <a class="tab" role="tab" data-panel="activity" href="#activity"><span class="tab-label" data-text="Activity">Activity</span> <span class="n">{{len .Activity}}</span></a>
     <a class="tab" role="tab" data-panel="tasks" href="#tasks"><span class="tab-label" data-text="Tasks">Tasks</span> <span class="n">{{len .Tasks}}</span></a>
     <a class="tab" role="tab" data-panel="workflow" href="#workflow"><span class="tab-label" data-text="Workflow">Workflow</span> <span class="n">{{len .Workflows}}</span></a>
-    <a class="tab" role="tab" data-panel="docs" href="#docs"><span class="tab-label" data-text="Documents">Documents</span> <span class="n">{{.DocCount}}</span></a>
   </div>
 
   <section class="panel" data-topic="stories" id="panel-stories">
     {{with .Hosted}}<p class="hosted-links">On the server: <a href="{{.Project}}">all stories</a></p>{{end}}
     <div class="filterbar">
       <div class="filter-input">
-        <input type="text" placeholder="filter… e.g. status:open priority:high tags:epic:foo order:updated" aria-label="filter stories">
+        <input type="text" placeholder="filter… e.g. status:all workflow:name tags:key:value order:updated" aria-label="filter stories">
         <span class="filter-count" aria-live="polite"></span>
       </div>
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Priority</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
     </table>
   </section>
@@ -325,24 +346,24 @@ const templatesSrc = `
   <section class="panel" data-topic="activity" id="panel-activity">
     <div class="filterbar">
       <div class="filter-input">
-        <input type="text" placeholder="filter… e.g. kind:execution status:in_progress priority:high tags:epic:foo order:updated" aria-label="filter activity">
+        <input type="text" placeholder="filter… e.g. task:id status:all order:updated" aria-label="filter activity">
         <span class="filter-count" aria-live="polite"></span>
       </div>
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Priority</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Activity}}</tbody>
     </table>
   </section>
 
   <section class="panel" data-topic="tasks" id="panel-tasks">
     <div class="filterbar">
-      <input type="text" placeholder="filter… e.g. status:open priority:high order:title" aria-label="filter tasks">
+      <input type="text" placeholder="filter… e.g. status:all workflow:name order:title" aria-label="filter tasks">
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Priority</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Tasks}}</tbody>
     </table>
   </section>
@@ -353,17 +374,9 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>Name</th><th>Summary</th><th>Updated</th></tr></thead>
+      <thead><tr><th>Name</th><th>States</th><th>Source</th></tr></thead>
       <tbody data-rows>{{template "workflowRows" .Workflows}}</tbody>
     </table>
-  </section>
-
-  <section class="panel" data-topic="docs" id="panel-docs">
-    <div class="filterbar">
-      <input type="text" placeholder="filter authored docs…" aria-label="filter documents">
-      <div class="chips"></div>
-    </div>
-    <div data-rows>{{template "docsRows" .DocKinds}}</div>
   </section>
 
   {{template "footer"}}
@@ -377,160 +390,95 @@ const templatesSrc = `
      handles 0↔n. Count = non-stale story_seat rows. */}}
 {{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{end}}
 
-{{/* dispatchIndicator: the running indicator of one in-flight dispatch (nil → nothing).
-     One rendering for a story row and an epic's member row (sty_a42f4add). */}}
-{{define "dispatchIndicator"}}{{with .}}<div class="dispatch-indicator{{if .Warn}} dispatch-warn{{end}}" title="{{if .LastEvent}}last activity: {{.LastEvent}}{{end}}">{{.Agent}}{{if .Model}} ({{.Model}}){{end}} running · {{reltime .StartedAt}}{{if not .LastEventAt.IsZero}} · last activity {{reltime .LastEventAt}}{{if .LastEvent}}: {{.LastEvent}}{{end}}{{end}}</div>{{end}}{{end}}
-
-
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}</td>
-  <td><span class="badge s-{{.Status}}">{{.Status}}</span></td>
-  <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{with .Gates}}{{if .Gates}} <b class="gates tone-{{.Tone}}">{{.Gates}}</b>{{if .Live}}<b class="run live">/{{.Running}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}{{end}}{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}</span>{{end}}</td>
-  <td>{{if .Priority}}{{.Priority}}{{else}}—{{end}}</td>
+  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
+  <td>{{template "statebadge" .}}</td>
+  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
+  <td class="meta">{{if .Assignee}}{{.Assignee}}{{else}}—{{end}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
 
-{{define "docsRows"}}{{range .}}{{$k := .Kind}}<div class="kind-h">{{.Kind}}</div>{{if .Docs}}<div class="docgrid">{{range .Docs}}<a class="doc" href="doc/{{$k}}/{{.Name}}" data-search="{{printf "%s %s %s" .Name .Headline .Provenance | lower}}">
+{{/* statebadge: an item's status, classed by its workflow (start, terminal,
+     park or active), never by the state's name. */}}
+{{define "statebadge"}}<span class="badge{{with .StateClass}} st-{{.}}{{end}}">{{.Status}}</span>{{end}}
+
+{{define "docsRows"}}{{range .}}{{$k := .Kind}}<div class="kind-h">{{.Kind}}</div>{{if .Docs}}<div class="docgrid">{{range .Docs}}<a class="doc" href="doc/{{$k}}/{{.Name}}" data-search="{{printf "%s %s" .Name .Headline | lower}}">
   <div class="name">{{.Name}}</div>
-  {{if .Provenance}}<div class="wi-tags">{{tagchip (printf "provenance:%s" .Provenance)}}</div>{{end}}
   {{if .Headline}}<div class="head">{{.Headline}}</div>{{end}}
   {{if not .ModTime.IsZero}}<div class="updated">updated {{ftime .ModTime}}</div>{{end}}
-</a>{{end}}</div>{{else}}<div class="empty">none indexed — run <code>satelle reindex</code></div>{{end}}{{end}}{{end}}
+</a>{{end}}</div>{{else}}<div class="empty">none</div>{{end}}{{else}}<div class="empty">Repo documents are removed; workflows are on the Workflow tab.</div>{{end}}{{end}}
 
-{{define "workflowRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-search="{{printf "%s %s %s %s %s" .Name .Headline .Scope .Provenance (join .AppliesTo " ") | lower}}" data-expand-url="fragment/workflow/{{.ExpandName}}">
-  <td><div class="wi-title">{{.Name}}</div><div class="wi-tags">{{if .Provenance}}{{tagchip (printf "provenance:%s" .Provenance)}}{{end}}{{if .Scope}}{{tagchip (printf "scope:%s" .Scope)}}{{end}}{{range .AppliesTo}}{{tagchip (printf "applies_to:%s" .)}}{{end}}</div></td>
-  <td>{{.Headline}}</td>
-  <td class="updated">{{ftime .Updated}}</td>
-</tr>{{else}}<tr><td colspan="3" class="empty">none indexed — run <code>satelle reindex</code></td></tr>{{end}}{{end}}
+{{define "workflowRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-search="{{printf "%s %s" .Name .Source | lower}}" data-expand-url="fragment/workflow/{{.Name}}">
+  <td><div class="wi-title">{{.Name}}</div></td>
+  <td>{{.States}}</td>
+  <td class="meta mono">{{.Source}}</td>
+</tr>{{else}}<tr><td colspan="3" class="empty">none pushed — run <code>satelle workspace add</code></td></tr>{{end}}{{end}}
 
 {{define "workflowDetail"}}<div class="expbody">
-  <h4>{{.Name}}</h4>
-  {{if .Headline}}<div class="meta">{{.Headline}}</div>{{end}}
-  <div class="wi-tags">{{if .Provenance}}{{tagchip (printf "provenance:%s" .Provenance)}}{{end}}{{if .Scope}}{{tagchip (printf "scope:%s" .Scope)}}{{end}}{{range .AppliesTo}}{{tagchip (printf "applies_to:%s" .)}}{{end}}</div>
-  {{if .Source}}<div class="meta mono">source: {{.Source}}</div>{{end}}
-
-  <h4>Route</h4>
-  {{if .Route.Steps}}<div class="meta">the ordered steps to done — order is the workflow's, not the agent's</div>
-  <ol class="route">{{range .Route.Steps}}<li class="route-step{{if .Terminal}} terminal{{end}}" data-state="{{.Status}}">
-    <div class="route-head"><span class="wf-node{{if .Terminal}} terminal{{end}}">{{.Status}}</span>{{if .Obligation}}<span class="route-oblig">{{.Obligation}}</span>{{end}}</div>
-    <div class="route-perf">{{if .Skills}}<span class="route-agent">{{if .Agent}}{{.Agent}}{{else}}in-loop{{end}}</span> runs {{range .Skills}}<span class="route-skill">@skill:{{.}}</span>{{end}}{{else if .Terminal}}<span class="route-none">terminal</span>{{else if .Agent}}<span class="route-agent">{{.Agent}}</span>{{else}}<span class="route-none">not performed</span>{{end}}</div>
-    <div class="route-gates">{{if or .Reviewers .Skipped}}<span class="route-label">entry gated by</span>{{range .Reviewers}}<span class="wf-gate"{{if .ByTag}} title="on the route because the story carries {{join .ByTag " or "}}"{{else}} title="reviewer gate"{{end}}>{{.Skill}}{{if .ByTag}} <span class="route-bytag">by tag {{join .ByTag "|"}}</span>{{end}}</span>{{end}}{{range .Skipped}}<span class="wf-gate skipped" title="skipped — this story carries none of {{join .ByTag " or "}}">{{.Skill}} <span class="route-bytag">needs tag {{join .ByTag "|"}}</span></span>{{end}}{{else}}<span class="wf-gate ungated" title="no reviewer gates entry to this step">entry ungated</span>{{end}}</div>
-    {{with .Advisor}}<div class="route-advisor">advisor: <span class="route-agent">{{.Agent}}</span>{{if .Skill}} under <span class="route-skill">@skill:{{.Skill}}</span>{{end}} — the orchestrator consults it and records the advice; nothing dispatches it</div>{{end}}
-    {{with .Rework}}<div class="route-advisor">rework: consult <span class="route-agent">{{.Consult}}</span> for up to {{.Rounds}} round(s) — the orchestrator may open <code>satelle story rework</code>; the outcome is context, the entry gate still decides</div>{{end}}
-  </li>{{end}}</ol>
-  {{if .Route.Exits}}<div class="route-exits"><span class="route-label">exits (off-route)</span>{{range .Route.Exits}}<span class="route-exit"><span class="wf-node sm">{{.Status}}</span><span class="route-none">{{if .Park}}park — resumes to origin{{else}}terminal{{end}}</span>{{range .Gates}}<span class="wf-gate">{{.}}</span>{{end}}</span>{{end}}</div>{{end}}
-  {{else}}<div class="empty">no route — this workflow declares no path to a terminal success state</div>{{end}}
-
-  <h4>Definition</h4>
-  <pre class="prose">{{.Body}}</pre>
+  <a class="detail-link" href="doc/{{.Kind}}/{{.Name}}">Open workflow →</a>
+  {{with .Workflow}}{{template "route" .}}{{end}}
 </div>{{end}}
 
+{{/* route: a workflow drawn as pushed — its states in route order (current
+     highlighted, start, park and terminal marked, visited filled) and its
+     explicit transitions with their gate groups. */}}
+{{define "route"}}{{if .Missing}}<div class="empty">{{if .Workflow}}Workflow <code>{{.Workflow}}</code> was not pushed; run <code>satelle workspace add</code> to push it.{{else}}This item names no workflow.{{end}}</div>{{else}}
+  <ol class="route-line" aria-label="route of workflow {{.Workflow}}">{{range .States}}<li class="route-state{{if .Current}} current{{end}}{{if .Visited}} visited{{end}}{{if .Terminal}} terminal{{end}}{{if .Park}} park{{end}}{{if .Start}} start{{end}}"{{if .Current}} aria-current="step"{{end}}>
+    <span class="wf-node">{{.Name}}</span>{{if .Start}}<span class="route-flag">start</span>{{end}}{{if .Park}}<span class="route-flag">park{{if .Resumes}} · resumes{{end}}</span>{{end}}{{if .Terminal}}<span class="route-flag">terminal</span>{{end}}{{if .PerformerAgent}}<span class="route-perf" title="performer{{if .PerformerSkill}} under skill {{.PerformerSkill}}{{end}}">{{.PerformerAgent}}{{if .PerformerSkill}} · {{.PerformerSkill}}{{end}}</span>{{end}}
+  </li>{{end}}</ol>
+  <table class="panel-table route-transitions">
+    <thead><tr><th>From</th><th>To</th><th>Gates</th><th>Taken</th></tr></thead>
+    <tbody>{{range .Transitions}}<tr class="{{if .Next}}next{{end}}{{if .Taken}} taken{{end}}">
+      <td>{{join .From ", "}}</td>
+      <td>{{.To}}</td>
+      <td>{{range .Groups}}<span class="gate-group mode-{{.Mode}}" title="{{.Mode}}">{{range .Gates}}<span class="wf-gate">{{.}}</span>{{end}}</span>{{else}}<span class="wf-gate ungated">ungated</span>{{end}}</td>
+      <td>{{if .Taken}}{{.Taken}}×{{else}}—{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table>{{end}}{{end}}
+
 {{define "itemDetail"}}<div class="expbody">
-  {{$isTask := eq (printf "%s" .Item.Kind) "task"}}
   {{if not .Standalone}}<a class="detail-link open-story" href="{{.Item.Kind}}/{{.Item.ID}}">Open {{.Item.Kind}} →</a>{{end}}
   <dl>
-    <dt>Status</dt><dd><span class="badge s-{{.Item.Status}}">{{.Item.Status}}</span></dd>
-    {{if not $isTask}}<dt>Priority</dt><dd>{{if .Item.Priority}}{{.Item.Priority}}{{else}}—{{end}}</dd>
-    <dt>Category</dt><dd>{{if .Item.Category}}{{.Item.Category}}{{else}}—{{end}}</dd>{{end}}
-    {{if .Item.ParentID}}<dt>Parent</dt><dd><a href="story/{{.Item.ParentID}}">{{.Item.ParentID}}</a></dd>{{end}}
+    <dt>Status</dt><dd>{{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</dd>
+    <dt>Workflow</dt><dd>{{if .Item.Workflow}}{{.Item.Workflow}}{{else}}—{{end}}</dd>
+    {{if .Item.Category}}<dt>Category</dt><dd>{{.Item.Category}}</dd>{{end}}
+    {{if .Item.Assignee}}<dt>Assignee</dt><dd>{{.Item.Assignee}}</dd>{{end}}
+    {{if .Item.ParentID}}<dt>Parent</dt><dd>{{if .ParentKind}}<a href="{{.ParentKind}}/{{.Item.ParentID}}">{{.Item.ParentID}}</a>{{else}}{{.Item.ParentID}}{{end}}</dd>{{end}}
+    {{if .Children}}<dt>Children</dt><dd><ul class="child-list">{{range .Children}}<li><a href="{{.Kind}}/{{.ID}}">{{.ID}}</a> {{.Title}} <span class="badge">{{.Status}}</span></li>{{end}}</ul></dd>{{end}}
     {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip .}}{{end}}</dd>{{end}}
     <dt>Updated</dt><dd>{{ftime .Item.UpdatedAt}}</dd>
   </dl>
-  {{if .Item.Body}}<h4>{{if $isTask}}Work definition{{else}}Description{{end}}</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
-  {{if .Item.AcceptanceCriteria}}<h4>Acceptance criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
-  {{if $isTask}}<h4>Runs</h4>
-  {{if .Executions}}<ol class="run-list">{{range .Executions}}<li class="run run-s-{{.Status}}">
-    <div class="run-head"><span class="run-id">{{.ID}}</span> <span class="badge s-{{.Status}}">{{.Status}}</span></div>
-    <div class="run-meta">created {{ftime .CreatedAt}} · updated {{ftime .UpdatedAt}}</div>
-    {{if .Output}}<pre class="run-output prose">{{.Output}}</pre>{{else}}<div class="run-noout">no output recorded</div>{{end}}
-  </li>{{end}}</ol>{{else}}<div class="empty">No runs yet — create one with <code>satelle execution create --parent {{.Item.ID}}</code>.</div>{{end}}{{end}}
-  {{with .Route}}<h4>Route</h4>
-  <article class="doc-article route-doc" id="doc-route">{{.HTML}}</article>{{end}}
-  {{if .Docs}}<h4>Documents</h4>
-  <ul class="doc-list">{{range .Docs}}<li><details class="doc-item" id="{{.Anchor}}"><summary>{{.Name}}{{if .Type}} <span class="doc-item-type">{{.Type}}</span>{{end}}</summary><article class="doc-article">{{.HTML}}</article></details></li>{{end}}</ul>{{end}}
+  {{if .Item.Body}}<h4>Description</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
+  {{if .Item.Criteria}}<h4>Criteria</h4><ul class="criteria">{{range .Item.Criteria}}<li>{{.}}</li>{{end}}</ul>{{else if .Item.AcceptanceCriteria}}<h4>Criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
+  <h4>Route</h4>
+  <section class="route" data-workflow="{{.Route.Workflow}}">{{template "route" .Route}}</section>
+  <h4>Verdicts</h4>
+  {{if .Presentations}}<ol class="verdicts">{{range .Presentations}}<li class="presentation outcome-{{.Outcome}}">
+    <div class="pres-head"><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="pres-outcome">{{.Outcome}}</span> <span class="meta">{{ftime .At}}</span></div>
+    {{if .Verdicts}}<table class="panel-table verdict-table">
+      <thead><tr><th>Gate</th><th>Binding</th><th>Result</th><th>Tokens</th><th>Duration</th><th>Notes</th></tr></thead>
+      <tbody>{{range .Verdicts}}<tr class="verdict v-{{.Result}}">
+        <td>{{.Gate}}</td>
+        <td class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</td>
+        <td><span class="verdict-result">{{.Result}}</span></td>
+        <td class="meta">{{if or .TokensIn .TokensOut}}{{.TokensIn}} in · {{.TokensOut}} out{{else}}—{{end}}</td>
+        <td class="meta">{{if .Duration}}{{.Duration}}{{else}}—{{end}}</td>
+        <td>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</td>
+      </tr>{{end}}</tbody>
+    </table>{{else}}<div class="meta">no gate on this transition</div>{{end}}
+  </li>{{end}}</ol>{{else}}<div class="empty">No transition presented yet.</div>{{end}}
+  <h4>Attachments</h4>
+  {{if .Attachments}}<ul class="doc-list">{{range .Attachments}}<li><details class="doc-item" id="{{.Anchor}}"><summary>{{.Name}} <span class="doc-item-type">{{.MediaType}}</span> <span class="meta">{{.Size}} bytes{{if .Short}} · sha256 <code title="{{.SHA256}}">{{.Short}}</code>{{end}}{{if not .At.IsZero}} · {{ftime .At}}{{end}}</span></summary>{{if .HTML}}<article class="doc-article">{{.HTML}}</article>{{else if .Text}}<pre class="prose">{{.Text}}</pre>{{else if .BodyOmitted}}<div class="meta">body not pushed (over the push bound or not text)</div>{{else}}<div class="meta">no body</div>{{end}}</details></li>{{end}}</ul>{{else}}<div class="empty">No attachments.</div>{{end}}
   <h4>Timeline</h4>
-  {{if .Events}}<ol class="timeline">{{range .Events}}<li{{with evdot .Kind}} class="{{.}}"{{end}}>
+  {{if .Events}}<ol class="timeline">{{range .Events}}<li{{with evdot .}} class="{{.}}"{{end}}>
     <div class="ev-kind">{{.Kind}}</div>
-    <div class="ev-meta">{{ftime .CreatedAt}}{{if .Actor}} · {{.Actor}}{{end}}</div>
-    {{if .DocName}}<div class="ev-doc">{{if .DocHref}}<a href="{{.DocHref}}">{{.DocName}}{{if .DocType}} <span class="doc-item-type">{{.DocType}}</span>{{end}}</a>{{else}}{{.DocName}}{{if .DocType}} <span class="doc-item-type">{{.DocType}}</span>{{end}}{{end}}</div>{{end}}
+    <div class="ev-meta">{{ftime .At}}{{if .Actor}} · {{.Actor}}{{end}}</div>
+    {{if .DocName}}<div class="ev-doc">{{if .DocHref}}<a href="{{.DocHref}}">{{.DocName}}</a>{{else}}{{.DocName}}{{end}}</div>{{end}}
     {{if .Body}}<div class="ev-body">{{.Body}}</div>{{end}}
     {{if .Chips}}<div class="ev-chips">{{range .Chips}}<span class="chip chip-{{.Type}}">{{.Label}}</span>{{end}}</div>{{end}}
   </li>{{end}}</ol>{{else}}<div class="empty">No ledger events yet.</div>{{end}}
 </div>{{end}}
-
-{{define "workspace"}}<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>satelle · workspace</title>
-<script>(function(){try{var t=localStorage.getItem('satelle-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
-<base href="{{basehref}}">
-{{template "favicon"}}
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-{{template "topbar" .TopBar}}
-<div class="wrap">
-  <nav class="crumbs"><a href="/">workspace</a> <span class="sep">/</span> <span class="cur">items</span></nav>
-  <header class="app">
-    <h1>workspace</h1>
-    <div class="meta">{{len .Repos}} repos aggregated</div>
-  </header>
-  {{range .Repos}}<div class="meta ws-repo-line"><strong>{{.Name}}</strong> · {{.Path}}{{if .Err}} · unreadable: {{.Err}}{{else}} · {{len .Stories}} stories · {{len .Tasks}} tasks · {{len .Docs}} docs{{end}}</div>{{else}}<div class="empty">no repos registered — run <code>satelle workspace add</code></div>{{end}}
-  {{if gt .TotalStories 0}}<table class="panel-table">
-    <thead><tr><th>Project</th><th>ID</th><th>Title</th><th>Status</th></tr></thead>
-    <tbody>{{range .Repos}}{{$repo := .Name}}{{range .Stories}}<tr><td>{{$repo}}</td><td class="id">{{.ID}}</td><td>{{.Title}}</td><td><span class="badge s-{{.Status}}">{{.Status}}</span></td></tr>{{end}}{{end}}</tbody>
-  </table>{{end}}
-  {{template "footer"}}
-</div>
-<script src="/static/app.js"></script>
-</body>
-</html>{{end}}
-
-{{define "projects"}}<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>satelle · workspace</title>
-<script>(function(){try{var t=localStorage.getItem('satelle-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
-<base href="{{basehref}}">
-{{template "favicon"}}
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body data-page="projects">
-{{template "topbar" .TopBar}}
-<div class="wrap">
-  <nav class="crumbs"><span class="cur">workspace</span></nav>
-  <header class="app">
-    <h1>workspace</h1>
-    <div class="meta">{{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}} in the workspace · <a href="help">help →</a></div>
-  </header>
-  {{range .Projects}}<a class="proj-card" href="{{.URL}}">
-    <div class="proj-name">{{.Name}} <span class="proj-slug">/{{.Slug}}/</span></div>
-    <div class="meta">{{.Path}}</div>
-    <div class="meta">{{.Stories}} stories · {{.Tasks}} tasks · {{.Docs}} docs</div>
-  </a>{{else}}<div class="empty">no projects registered — run <code>satelle workspace add</code></div>{{end}}
-  {{range .Failed}}<div class="proj-card proj-failed">
-    <div class="proj-name">{{.Name}} <span class="badge s-blocked">not serving</span></div>
-    <div class="meta">{{.Path}}</div>
-    <div class="meta">{{.Err}}</div>
-  </div>{{end}}
-  <article class="doc-article landing-help">
-    <h2>Add a project</h2>
-    <p>Register any repo and it appears here within a few seconds, served at <code>/&lt;slug&gt;/</code> — live, no restart:</p>
-    <pre><code>satelle workspace add /path/to/repo</code></pre>
-    <p>Stop serving one with <code>satelle workspace remove &lt;path&gt;</code>; list them with <code>satelle workspace list</code>.</p>
-    <h2>Help &amp; updates</h2>
-    <p><a href="help">Process guides →</a> · keep the binary current with <code>satelle update</code> (<code>--check</code> to peek first).</p>
-  </article>
-  {{template "footer"}}
-</div>
-<script src="/static/app.js"></script>
-</body>
-</html>{{end}}
 
 {{define "help"}}<!doctype html>
 <html lang="en">
@@ -662,14 +610,14 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
 <body>
 {{template "topbar" .TopBar}}
 <div class="wrap">
-  <nav class="crumbs"><a href="{{basehref}}">project</a> <span class="sep">/</span> <a href="{{basehref}}#docs">docs</a> <span class="sep">/</span> <span class="cur">{{.Name}}</span></nav>
+  <nav class="crumbs"><a href="{{basehref}}">project</a> <span class="sep">/</span> <a href="{{basehref}}#workflow">{{.Kind}}</a> <span class="sep">/</span> <span class="cur">{{.Name}}</span></nav>
   <header class="app">
     <div class="kind-h">{{.Kind}}</div>
     <h1>{{.Name}}</h1>
     {{if .Headline}}<div class="meta">{{.Headline}}</div>{{end}}
-    {{if or .Provenance .Source}}<div class="wi-tags">{{if .Provenance}}{{tagchip (printf "provenance:%s" .Provenance)}}{{end}}</div>{{end}}
     {{if .Source}}<div class="meta mono">source: {{.Source}}</div>{{end}}
   </header>
+  {{with .Workflow}}<section class="route">{{template "route" .}}</section>{{end}}
   <article class="doc-article">{{.HTML}}</article>
   {{template "footer"}}
 </div>
@@ -695,7 +643,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
   <header class="app">
     <div class="kind-h">{{.Item.Kind}}</div>
     <h1>{{.Item.Title}}</h1>
-    <div class="meta">{{.Item.ID}}</div>
+    <div class="meta">{{.Item.ID}}{{if .Item.Workflow}} · {{.Item.Workflow}}{{end}} · {{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</div>
   </header>
   <div id="detail-live" data-kind="{{.Item.Kind}}" data-id="{{.Item.ID}}">{{template "itemDetail" .}}</div>
   {{template "footer"}}

@@ -28,27 +28,20 @@ type MirrorServer struct {
 	InstanceID string
 	// LogPath is the satelled server.log shown next to a standing push failure.
 	LogPath string
-	// FetchStory, when set, brings back the history of a story the checkout at
-	// repoRoot left on the server (sty_0dc600e1). A story page whose story the
-	// mirror holds no event of calls it, then reads the mirror again. satelled
-	// sets it; nil leaves the page to what the mirror holds.
-	FetchStory func(ctx context.Context, repoRoot, id string) error
 	// Ingest is the mounted ingest handler; satelled sets its Log before serving.
 	Ingest *mirror.IngestHandler
 	hub    *hub
 }
 
 // partitionVM is one workspace row on the mirror landing. Counts mirror the
-// project page tabs: Stories (+ backlog), Tasks, Workflow, Documents.
+// project page tabs: Stories, Tasks, Workflow.
 type partitionVM struct {
 	Slug      string
 	Name      string
 	Path      string
 	Stories   int
-	Backlog   int
 	Tasks     int
 	Workflows int
-	Docs      int
 	// LastIngest carries the same freshness signal as the project page, so a
 	// partition the serving tier could not reconcile is visible on the landing
 	// too (sty_e6e467fe) — as elapsed time on every row (sty_226a661e), plus the
@@ -223,8 +216,7 @@ func mirrorRender(w http.ResponseWriter, name, base string, data any) {
 	_, _ = buf.WriteTo(w)
 }
 
-// loadPartitions builds the landing row set. Counts match project-page tabs:
-// Stories (+ backlog), Tasks, Workflow, Documents (all mirror docs).
+// loadPartitions builds the landing row set. Counts match project-page tabs.
 func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, error) {
 	parts, err := s.Store.ListPartitions(ctx)
 	if err != nil {
@@ -247,12 +239,7 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 		stories, _ := decodeItems(ctx, s.Store, p.RepoKey, "story")
 		tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
 		docs, _ := decodeDocs(ctx, s.Store, p.RepoKey)
-		backlog, workflows := 0, 0
-		for _, d := range docs {
-			if d.Kind == "workflows" {
-				workflows++
-			}
-		}
+		workflows := len(workflowRows(docs))
 		total += len(stories)
 		lastIngest, _ := p.LastIngest()
 		st := loadPartitionSync(path)
@@ -262,8 +249,7 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 		}
 		pvm = append(pvm, partitionVM{
 			Slug: slug, Name: name, Path: path,
-			Stories: len(stories), Backlog: backlog,
-			Tasks: len(tasks), Workflows: workflows, Docs: len(docs),
+			Stories: len(stories), Tasks: len(tasks), Workflows: workflows,
 			LastIngest:      lastIngest.Local(),
 			Stale:           p.Stale(time.Now()),
 			SyncLastSuccess: st.PushLastSuccess,
@@ -413,7 +399,7 @@ func (s *MirrorServer) itemFragment(group string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		d, err := s.loadDetail(r.Context(), repoKey, group, id)
+		d, _, err := mirrorLoadDetail(r.Context(), s.Store, repoKey, group, id)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -431,7 +417,7 @@ func (s *MirrorServer) itemDetail(group string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		d, err := s.loadDetail(r.Context(), repoKey, group, id)
+		d, _, err := mirrorLoadDetail(r.Context(), s.Store, repoKey, group, id)
 		if err != nil {
 			http.Error(w, "not found: "+id, http.StatusNotFound)
 			return
@@ -441,30 +427,26 @@ func (s *MirrorServer) itemDetail(group string) http.HandlerFunc {
 	}
 }
 
-// loadDetail is mirrorLoadDetail, with the history of a story the mirror holds no
-// event of fetched first when s.FetchStory is set. A fetch that fails leaves the
-// page to what the mirror holds.
-func (s *MirrorServer) loadDetail(ctx context.Context, repoKey, group, id string) (detailData, error) {
-	d, _, err := mirrorLoadDetail(ctx, s.Store, repoKey, group, id)
-	if err != nil || group != "story" || len(d.Events) > 0 || s.FetchStory == nil {
-		return d, err
-	}
-	root := mirrorIdentity(ctx, s.Store, repoKey).RepoRoot
-	if root == "" || s.FetchStory(ctx, root, id) != nil {
-		return d, nil
-	}
-	if fetched, _, ferr := mirrorLoadDetail(ctx, s.Store, repoKey, group, id); ferr == nil {
-		return fetched, nil
-	}
-	return d, nil
-}
-
-// workflowFragment answers 404: the workflow panel is rebuilt on the kernel
-// in B4.
+// workflowFragment is a Workflow panel row's expansion: the workflow's route
+// as pushed, current state none.
 func (s *MirrorServer) workflowFragment(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
+	slug := r.PathValue("slug")
+	repoKey, err := s.resolveSlug(r.Context(), slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	doc, err := findDoc(r.Context(), s.Store, repoKey, mirror.DocKindWorkflows, r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	route := buildRoute(doc.Workflow, doc.Name, "", nil)
+	mirrorRender(w, "workflowDetail", s.projectBase(slug), docPageData{Kind: doc.Kind, Name: doc.Name, Source: doc.Source, Workflow: &route})
 }
 
+// docPage renders one pushed doc. Repo documents are a removed feature: a doc
+// the partition no longer holds answers 404; a workflow doc draws its route.
 func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	kind, name := r.PathValue("kind"), r.PathValue("name")
@@ -479,15 +461,21 @@ func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := mirrorIdentity(r.Context(), s.Store, repoKey)
-	mirrorRender(w, "docPage", s.projectBase(slug), docPageData{
-		TopBar:     mirrorTopBar("", id.FooterEmail),
-		Kind:       kind,
-		Name:       doc.Name,
-		Headline:   doc.Headline,
-		HTML:       renderMarkdown(doc.Body),
-		Provenance: doc.Provenance,
-		Source:     doc.Source,
-	})
+	data := docPageData{
+		TopBar:   mirrorTopBar("", id.FooterEmail),
+		Kind:     kind,
+		Name:     doc.Name,
+		Headline: doc.Headline,
+		Source:   doc.Source,
+	}
+	if doc.Workflow != nil {
+		route := buildRoute(doc.Workflow, doc.Name, "", nil)
+		data.Workflow = &route
+		data.HTML = template.HTML("<pre class=\"prose\">" + template.HTMLEscapeString(doc.Body) + "</pre>")
+	} else {
+		data.HTML = renderMarkdown(doc.Body)
+	}
+	mirrorRender(w, "docPage", s.projectBase(slug), data)
 }
 
 func (s *MirrorServer) helpPage(w http.ResponseWriter, r *http.Request) {
@@ -614,16 +602,15 @@ const mirrorWorkspaceSrc = `
   <div class="empty">No partitions yet — run <code>satelle workspace add</code> to seed the mirror (satelled listens at the machine <code>[service] endpoint</code>).</div>
   {{else}}
   <table class="panel-table">
-    <thead><tr><th>Project</th><th>Path</th><th>Stories</th><th>Tasks</th><th>Workflow</th><th>Documents</th><th>Updated</th></tr></thead>
+    <thead><tr><th>Project</th><th>Path</th><th>Stories</th><th>Tasks</th><th>Workflow</th><th>Updated</th></tr></thead>
     <tbody data-rows>{{range .Partitions}}
       <tr class="row" data-slug="{{.Slug}}">
         {{/* row-link + CSS ::after stretch the name <a> across the row (sty_be23ae50). */}}
         <td><a class="wi-title row-link" href="/r/{{.Slug}}/">{{.Name}}</a></td>
         <td class="meta mono">{{.Path}}</td>
-        <td class="n-stories"><span class="n">{{.Stories}}</span>{{if .Backlog}} <span class="n-backlog" title="stories in the open backlog">{{.Backlog}} backlog</span>{{end}}</td>
+        <td class="n-stories"><span class="n">{{.Stories}}</span></td>
         <td class="n-tasks"><span class="n">{{.Tasks}}</span></td>
         <td class="n-workflows"><span class="n">{{.Workflows}}</span></td>
-        <td class="n-docs"><span class="n">{{.Docs}}</span></td>
         {{/* Rightmost deliberately: this replaces a badge that sat INSIDE the
              Project cell and pushed the name around (sty_226a661e). Landing
              shows local ingest only; a standing fail is a tag, not a log

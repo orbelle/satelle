@@ -164,17 +164,16 @@ func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 }
 
 // sty_6ce071dc AC4: the client-side filter bar (applyFilter in app.js) matches
-// status:, priority: and tags: against each row's data-status, data-priority and
-// data-tags. Every row of the full hosted list — engaged here, elsewhere, or not
+// status: and tags: against each row's data-status and data-tags. Every row of the full hosted list — engaged here, elsewhere, or not
 // at all — carries those values exactly, and the page renders the filter bar, so
 // the filter reaches the whole list.
 func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 	page := everyStateFixture(t)
-	want := map[string][3]string{
-		"sty_mine":  {"in_progress", "high", "surface:ui"},
-		"sty_other": {"in_progress", "medium", "epic:x"},
-		"sty_back":  {"backlog", "critical", "epic:x,lane:trunk"},
-		"sty_done":  {"done", "low", "surface:ui"},
+	want := map[string][2]string{
+		"sty_mine":  {"in_progress", "surface:ui"},
+		"sty_other": {"in_progress", "epic:x"},
+		"sty_back":  {"backlog", "epic:x,lane:trunk"},
+		"sty_done":  {"done", "surface:ui"},
 	}
 	body := httpGetBody(t, page)
 	if !strings.Contains(body, `aria-label="filter stories"`) {
@@ -183,7 +182,7 @@ func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 	for _, b := range []string{body, httpGetBody(t, page+"fragment/stories")} {
 		for id, w := range want {
 			row := rowFor(b, id)
-			for _, attr := range []string{`data-status="` + w[0] + `"`, `data-priority="` + w[1] + `"`, `data-tags="` + w[2] + `"`} {
+			for _, attr := range []string{`data-status="` + w[0] + `"`, `data-tags="` + w[1] + `"`} {
 				if !strings.Contains(row, attr) {
 					t.Errorf("%s's row lacks %s for the filter: %q", id, attr, row)
 				}
@@ -194,7 +193,7 @@ func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, read := range []string{"dataset.status", "dataset.priority", "dataset.tags"} {
+	for _, read := range []string{"dataset.status", "dataset.terminal", "dataset.tags"} {
 		if !strings.Contains(string(js), read) {
 			t.Errorf("app.js no longer filters on %s", read)
 		}

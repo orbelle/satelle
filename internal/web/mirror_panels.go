@@ -10,10 +10,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,13 +107,12 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
-
 	docs, err := decodeDocs(ctx, s, repoKey)
 	if err != nil {
 		return pageData{}, id, err
 	}
-	engagedIDs, _ := decodeEngagedStorySeats(ctx, s, repoKey)
-	dispatches, _ := decodeDispatchSeats(ctx, s, repoKey)
+	workflows := workflowsOf(docs)
+	engagedIDs, _ := decodeEngagedItems(ctx, s, repoKey)
 
 	projectName := id.ProjectName
 	if projectName == "" {
@@ -131,7 +128,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if syncSt.PushReason != "" {
 		logPath = displayedSyncLogPath()
 	}
-	storyRows := itemRows(stories, dispatches)
+	storyRows := itemRows(stories, workflows)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
@@ -149,11 +146,11 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		Stories:         storyRows,
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
-		Tasks:           itemRows(tasks, dispatches),
-		Activity:        activityRows(itemRows(executions, dispatches)),
-		DocCount:        len(docs),
+		Tasks:           itemRows(tasks, workflows),
+		Activity:        itemRows(executions, workflows),
+		DocKinds:        docKinds(docs),
+		Workflows:       workflowRows(docs),
 		Uptime:          formatUptime(time.Since(serverStart)),
-		Theme:           "", // client localStorage only on the mirror
 		TopBar:          mirrorTopBar("", id.FooterEmail),
 		Hosted:          links,
 	}, id, nil
@@ -174,17 +171,11 @@ func hostedView(h *mirror.HostedMeta) (map[string]bool, *hostedLinksVM) {
 	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
 }
 
-// activityRows is the Activity panel: executions that are recorded. Which
-// states are under way is the workflow's; the kernel pages of B4 read it.
-func activityRows(executions []rowVM) []rowVM {
-	return append([]rowVM{}, executions...)
-}
-
-// itemRows is one row per item with its running dispatch, if any.
-func itemRows(items []Item, dispatches map[string]*dispatchVM) []rowVM {
+// itemRows is one row per item, its status classed by its workflow.
+func itemRows(items []Item, workflows map[string]*mirror.Workflow) []rowVM {
 	out := make([]rowVM, len(items))
 	for i, it := range items {
-		out[i] = rowVM{Item: it, Dispatch: dispatches[it.ID]}
+		out[i] = rowVM{Item: it, StateClass: stateClass(workflows[it.Workflow], it.Status)}
 	}
 	return out
 }
@@ -208,7 +199,7 @@ func decodeItems(ctx context.Context, s *mirror.Store, repoKey, kind string) ([]
 	return out, nil
 }
 
-// mirrorDoc is a doc payload with optional provenance/source from the snapshot.
+// mirrorDoc is a pushed doc row.
 type mirrorDoc = docEntry
 
 func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorDoc, error) {
@@ -230,154 +221,84 @@ func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorD
 	return out, nil
 }
 
-func decodeLedgerByStory(ctx context.Context, s *mirror.Store, repoKey string) (map[string][]Entry, error) {
+// workflowsOf indexes the pushed workflows by name.
+func workflowsOf(docs []mirrorDoc) map[string]*mirror.Workflow {
+	out := map[string]*mirror.Workflow{}
+	for _, d := range docs {
+		if d.Kind == mirror.DocKindWorkflows && d.Workflow != nil {
+			out[d.Name] = d.Workflow
+		}
+	}
+	return out
+}
+
+// workflowRows is the Workflow panel.
+func workflowRows(docs []mirrorDoc) []workflowRowVM {
+	var out []workflowRowVM
+	for _, d := range docs {
+		if d.Kind != mirror.DocKindWorkflows {
+			continue
+		}
+		vm := workflowRowVM{Name: d.Name, Source: d.Source, Updated: d.ModTime}
+		if d.Workflow != nil {
+			vm.States = len(d.Workflow.States)
+		}
+		out = append(out, vm)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// docKinds groups the pushed docs by kind for the docs fragment.
+func docKinds(docs []mirrorDoc) []kindGroup {
+	byKind := map[string][]docRowVM{}
+	for _, d := range docs {
+		byKind[d.Kind] = append(byKind[d.Kind], docRowVM{Name: d.Name, Headline: d.Headline, ModTime: d.ModTime, Source: d.Source})
+	}
+	var out []kindGroup
+	for _, k := range slices.Sorted(maps.Keys(byKind)) {
+		rows := byKind[k]
+		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+		out = append(out, kindGroup{Kind: k, Docs: rows})
+	}
+	return out
+}
+
+// decodeLedger returns the item's events oldest first ("" = every item's).
+func decodeLedger(ctx context.Context, s *mirror.Store, repoKey, itemID string) ([]Entry, error) {
 	rows, err := s.ListItems(ctx, repoKey, "ledger_event")
 	if err != nil {
 		return nil, err
 	}
-	out := map[string][]Entry{}
+	var out []Entry
 	for _, r := range rows {
 		var e Entry
 		if err := json.Unmarshal([]byte(r.Payload), &e); err != nil {
 			continue
 		}
+		e.Normalize()
 		if e.ID == "" {
 			e.ID = r.ID
 		}
-		if e.StoryID == "" {
+		if itemID != "" && e.Item != itemID {
 			continue
 		}
-		out[e.StoryID] = append(out[e.StoryID], e)
+		out = append(out, e)
 	}
-	// ListAll is newest-first under the export budget (sty_c5065d05);
-	// ReplaceKind order is not guaranteed — sort each story's strip by CreatedAt.
-	for sid, es := range out {
-		sortEntries(es)
-		out[sid] = es
-	}
+	sortEntries(out)
 	return out, nil
 }
 
-// seatPayload is the mirror seat row shape pushed by listSeatsJSON.
-type seatPayload struct {
-	ID        string `json:"id"`
-	StorySeat bool   `json:"story_seat"`
-	InFlight  bool   `json:"in_flight"`
-	Stale     bool   `json:"stale"`
-	// In-flight DISPATCH metadata (sty_752c4ef2 AC6) — omitted on the wire
-	// when no dispatch has stamped detail on this seat yet.
-	Agent             string    `json:"agent,omitempty"`
-	Model             string    `json:"model,omitempty"`
-	LastEvent         string    `json:"last_event,omitempty"`
-	LastEventAt       time.Time `json:"last_event_at,omitempty"`
-	ActivityStartedAt time.Time `json:"activity_started_at,omitempty"`
-	IdleTimeoutNs     int64     `json:"idle_timeout_ns,omitempty"`
-	// Activity is the seat's phase label; a performer dispatch stamps
-	// "dispatch:<step>" (agentstep emitActivity).
-	Activity string `json:"activity,omitempty"`
-	// A gate round's live tally (sty_216d5205), pushed by cli.listSeatsJSON:
-	// ActivityGates marks the stamp as a gate round's, ActivityTotal is its whole
-	// gate count, and ActivityPassed/ActivityFailed the gates returned so far.
-	ActivityGates  bool `json:"activity_gates,omitempty"`
-	ActivityTotal  int  `json:"activity_total,omitempty"`
-	ActivityPassed int  `json:"activity_passed,omitempty"`
-	ActivityFailed int  `json:"activity_failed,omitempty"`
-}
-
-// dispatchVM is the web story row's running indicator (sty_752c4ef2 AC6):
-// which agent/model dispatch is in flight, how long it has run, when it last
-// produced a real event, and whether idle time has crossed the warn
-// threshold (half of idle_timeout) — computed server-side so the template
-// stays presentation-only.
-type dispatchVM struct {
-	Agent       string
-	Model       string
-	LastEvent   string
-	LastEventAt time.Time
-	StartedAt   time.Time
-	Warn        bool
-	// Step is the workflow step the dispatched performer is working on, from
-	// the seat's "dispatch:<step>" activity label; empty for any other phase
-	// (a gate review, a summariser).
-	Step string
-}
-
-// buildDispatchIndicator returns the running indicator for an in-flight,
-// non-stale seat that has stamped agent/model detail, or nil when there is
-// nothing to show (not in flight, stale, or no dispatch detail yet — a
-// gate-only phase stamp with no ActivityDetail). Warn fires once idle time
-// (now - LastEventAt) passes half the seat's resolved idle_timeout; a seat
-// with no known idle_timeout (agents layer unresolved) never warns.
-func buildDispatchIndicator(seat seatPayload, now time.Time) *dispatchVM {
-	if !seat.InFlight || seat.Stale || seat.Agent == "" {
-		return nil
-	}
-	vm := &dispatchVM{
-		Agent: seat.Agent, Model: seat.Model, LastEvent: seat.LastEvent,
-		LastEventAt: seat.LastEventAt, StartedAt: seat.ActivityStartedAt,
-	}
-	if step, ok := strings.CutPrefix(seat.Activity, "dispatch:"); ok {
-		vm.Step = step
-	}
-	if seat.IdleTimeoutNs > 0 && !seat.LastEventAt.IsZero() {
-		idle := now.Sub(seat.LastEventAt)
-		vm.Warn = idle >= time.Duration(seat.IdleTimeoutNs)/2
-	}
-	return vm
-}
-
-// decodeDispatchSeats builds the id → running-indicator map for every
-// in-flight, non-stale seat carrying dispatch detail (sty_752c4ef2 AC6).
-func decodeDispatchSeats(ctx context.Context, s *mirror.Store, repoKey string) (map[string]*dispatchVM, error) {
+// decodeEngagedItems lists the items a seat is bound to, sorted. A legacy
+// seat row counts when it is a story seat that is not stale.
+func decodeEngagedItems(ctx context.Context, s *mirror.Store, repoKey string) ([]string, error) {
 	rows, err := s.ListItems(ctx, repoKey, "seat")
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
-	out := map[string]*dispatchVM{}
+	seats := make([]mirror.Seat, 0, len(rows))
 	for _, r := range rows {
-		var seat seatPayload
-		if err := json.Unmarshal([]byte(r.Payload), &seat); err != nil {
-			continue
-		}
-		if seat.ID == "" {
-			seat.ID = r.ID
-		}
-		if vm := buildDispatchIndicator(seat, now); vm != nil {
-			out[seat.ID] = vm
-		}
-	}
-	return out, nil
-}
-
-// engagedStorySeatIDs returns non-stale story seats (story_seat && !stale).
-// Distinct from decodeLiveSeats (in_flight && !stale) used only for progress
-// lights — a settled engaged lease still counts as engaged (sty_01ba9482).
-func engagedStorySeatIDs(seats []seatPayload) []string {
-	var ids []string
-	for _, seat := range seats {
-		if !seat.StorySeat || seat.Stale {
-			continue
-		}
-		id := strings.TrimSpace(seat.ID)
-		if id == "" {
-			continue
-		}
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-// decodeEngagedStorySeats lists non-stale story-seat holders for engagement chrome.
-func decodeEngagedStorySeats(ctx context.Context, s *mirror.Store, repoKey string) ([]string, error) {
-	rows, err := s.ListItems(ctx, repoKey, "seat")
-	if err != nil {
-		return nil, err
-	}
-	seats := make([]seatPayload, 0, len(rows))
-	for _, r := range rows {
-		var seat seatPayload
+		var seat mirror.Seat
 		if err := json.Unmarshal([]byte(r.Payload), &seat); err != nil {
 			continue
 		}
@@ -386,102 +307,116 @@ func decodeEngagedStorySeats(ctx context.Context, s *mirror.Store, repoKey strin
 		}
 		seats = append(seats, seat)
 	}
-	return engagedStorySeatIDs(seats), nil
+	return engagedItems(seats), nil
 }
 
-// mirrorLoadDetail builds the expand/detail VM from mirror kinds only.
+// engagedItems is the sorted set of items the seats are bound to.
+func engagedItems(seats []mirror.Seat) []string {
+	set := map[string]bool{}
+	for _, seat := range seats {
+		id := strings.TrimSpace(seat.Item)
+		if id == "" && seat.StorySeat && !seat.Stale {
+			id = strings.TrimSpace(seat.ID) // a legacy row: id is the item
+		}
+		if id != "" {
+			set[id] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// mirrorLoadDetail builds the detail VM from mirror kinds only: the item, its
+// route, its verdicts, its attachments, its children and its timeline.
 func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id string) (detailData, mirror.IdentityMeta, error) {
-	// group is the mirror kind: story, task, or a task execution (whose ledger
-	// carries its run's stages, sty_c356ed4f). Cost, messages and members are a
-	// story's alone.
 	payload, err := s.GetItem(ctx, repoKey, group, id)
 	if err != nil {
 		return detailData{}, mirror.IdentityMeta{}, err
 	}
-	var item Item
-	if err := json.Unmarshal([]byte(payload), &item); err != nil {
+	var it Item
+	if err := json.Unmarshal([]byte(payload), &it); err != nil {
 		return detailData{}, mirror.IdentityMeta{}, err
 	}
-	if item.ID == "" {
-		item.ID = id
+	if it.ID == "" {
+		it.ID = id
 	}
+	docs, _ := decodeDocs(ctx, s, repoKey)
+	workflows := workflowsOf(docs)
+	events, _ := decodeLedger(ctx, s, repoKey, id)
 
-	// Story docs from mirror story_doc kind (id = story_id/name), built before
-	// the timeline so attachment events can resolve hrefs.
-	var docs []storyDocVM
-	presentDocs := map[string]bool{}
-	if sdocs, err := s.ListItems(ctx, repoKey, "story_doc"); err == nil {
-		prefix := id + "/"
-		for _, r := range sdocs {
-			if !strings.HasPrefix(r.ID, prefix) && !strings.HasPrefix(r.ID, id+"_") {
-				// accept id = "storyID/name" form
-				if !strings.HasPrefix(r.ID, id) {
-					continue
+	var atts []attachmentVM
+	present := map[string]bool{}
+	if rows, err := s.ListItems(ctx, repoKey, "story_doc"); err == nil {
+		for _, r := range rows {
+			var a mirror.Attachment
+			if json.Unmarshal([]byte(r.Payload), &a) != nil {
+				continue
+			}
+			if a.Item == "" {
+				owner, name, _ := strings.Cut(r.ID, "/")
+				a.Item = owner
+				if a.Name == "" {
+					a.Name = name
 				}
 			}
-			var ref struct {
-				Name string `json:"name"`
-				Type string `json:"type"`
-				Body string `json:"body"`
+			if a.Item != id {
+				continue
 			}
-			_ = json.Unmarshal([]byte(r.Payload), &ref)
-			name := ref.Name
-			if name == "" {
-				name = filepath.Base(r.ID)
+			atts = append(atts, attachmentView(a))
+			present[a.Name] = true
+		}
+	}
+	sort.SliceStable(atts, func(i, j int) bool { return atts[i].At.Before(atts[j].At) })
+
+	var children []childLink
+	for _, kind := range []string{"story", "task", "execution"} {
+		items, _ := decodeItems(ctx, s, repoKey, kind)
+		for _, c := range items {
+			if c.ParentID == id {
+				children = append(children, childLink{ID: c.ID, Kind: c.Kind, Title: c.Title, Status: c.Status})
 			}
-			vm := storyDocVM{
-				Name: name, Type: ref.Type, Anchor: docAnchor(name),
-				HTML: renderMarkdown(ref.Body),
+		}
+	}
+	parentKind := ""
+	if it.ParentID != "" {
+		for _, kind := range []string{"story", "task", "execution"} {
+			if _, err := s.GetItem(ctx, repoKey, kind, it.ParentID); err == nil {
+				parentKind = kind
+				break
 			}
-			docs = append(docs, vm)
-			presentDocs[name] = true
 		}
 	}
 
-	entriesByStory, _ := decodeLedgerByStory(ctx, s, repoKey)
-
-	events := entriesByStory[id]
-	// Reverse for timeline (newest first) — same as loadDetail.
-	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
-		events[i], events[j] = events[j], events[i]
-	}
-	kindPath := group
+	// The timeline is newest first.
 	evs := make([]eventVM, len(events))
 	for i, e := range events {
 		ev := eventVM{Entry: e, Chips: eventChips(e)}
-		if e.Kind == "story_doc_attached" {
-			name, typ := attachedDocRef(e)
-			ev.DocName = name
-			ev.DocType = typ
-			if name != "" && presentDocs[name] {
-				ev.DocHref = kindPath + "/" + item.ID + "#" + docAnchor(name)
+		if e.Kind == mirror.EventAttachmentAdded {
+			var a struct{ Name string }
+			_ = json.Unmarshal(e.Payload, &a)
+			ev.DocName = a.Name
+			if present[a.Name] {
+				ev.DocHref = group + "/" + it.ID + "#" + docAnchor(a.Name)
 			}
 		}
-		evs[i] = ev
-	}
-
-	var executions []executionVM
-	if group == "task" {
-		if runs, err := decodeItems(ctx, s, repoKey, "execution"); err == nil {
-			for _, run := range runs {
-				if run.ParentID != id {
-					continue
-				}
-				executions = append(executions, executionVM{
-					ID: run.ID, Status: run.Status, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt,
-				})
-			}
-		}
+		evs[len(events)-1-i] = ev
 	}
 
 	idMeta := mirrorIdentity(ctx, s, repoKey)
+	route := buildRoute(workflows[it.Workflow], it.Workflow, it.Status, events)
 	return detailData{
-		Item: item, Events: evs, Docs: docs, Executions: executions,
-		TopBar: mirrorTopBar("", idMeta.FooterEmail),
+		Item:          it,
+		StateClass:    stateClass(workflows[it.Workflow], it.Status),
+		ParentKind:    parentKind,
+		Children:      children,
+		Route:         route,
+		Presentations: buildPresentations(events),
+		Attachments:   atts,
+		Events:        evs,
+		TopBar:        mirrorTopBar("", idMeta.FooterEmail),
 	}, idMeta, nil
 }
 
-// docAnchor returns the fragment id for a story document (doc-<slug>).
+// docAnchor returns the fragment id for an attached document (doc-<slug>).
 func docAnchor(name string) string {
 	var b strings.Builder
 	b.WriteString("doc-")
@@ -497,49 +432,7 @@ func docAnchor(name string) string {
 			prevDash = true
 		}
 	}
-	s := b.String()
-	return strings.TrimRight(s, "-")
-}
-
-// attachedQuotedNameRe finds quoted runs in a story_doc_attached body
-// (`attached <type> document "<name>"` / binary bodies with the filename quoted).
-var attachedQuotedNameRe = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
-
-// attachedDocRef resolves the document name/type for a story_doc_attached
-// ledger entry: prefer the structured payload, fall back to parsing the body
-// so pre-payload ledger rows still render a named timeline item.
-func attachedDocRef(e Entry) (name, typ string) {
-	if len(e.Payload) > 0 && string(e.Payload) != "{}" {
-		var p struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(e.Payload, &p) == nil {
-			name, typ = p.Name, p.Type
-		}
-	}
-	if name == "" {
-		if m := attachedQuotedNameRe.FindAllString(e.Body, -1); len(m) > 0 {
-			if u, err := strconv.Unquote(m[len(m)-1]); err == nil {
-				name = u
-			}
-		}
-	}
-	if typ == "" {
-		// "attached <type> document|binary \"…\""
-		body := strings.TrimSpace(e.Body)
-		if strings.HasPrefix(body, "attached ") {
-			rest := strings.TrimPrefix(body, "attached ")
-			fields := strings.Fields(rest)
-			if len(fields) >= 2 && (fields[1] == "document" || fields[1] == "binary") {
-				typ = fields[0]
-			}
-		}
-	}
-	if name == "" {
-		name = "(unknown)"
-	}
-	return name, typ
+	return strings.TrimRight(b.String(), "-")
 }
 
 // mirrorTopBar builds chrome for the push-fed surface: no auth forms; optional

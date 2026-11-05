@@ -2,7 +2,7 @@
 //
 //  * Tabs       — show one panel at a time; active tab in the URL hash.
 //  * Filter     — one shared component over every panel: a query box parsed into
-//                 removable chips (status:/priority:/category:/tags:|tag: + free
+//                 removable chips (status:/workflow:/category:/tags:|tag: + free
 //                 text) plus order:<field> client-side sort; status:active hides
 //                 terminal rows by default.
 //  * Expand     — click a row to fetch + reveal its detail + ledger timeline
@@ -12,10 +12,10 @@
 //                 and timeline update live. Detail pages live-refresh too.
 (function () {
   "use strict";
-  var TERMINAL = { done: 1, cancelled: 1 };
-  var PANELS = ["stories", "activity", "tasks", "workflow", "docs"];
-  // Panels of work items (status + priority + default sort). The workflow and
-  // docs panels are read-only catalogs: free-text filter only, no status/order
+  // A row's data-terminal comes from its pushed workflow; no state is named here.
+  var PANELS = ["stories", "activity", "tasks", "workflow"];
+  // Panels of work items (status + workflow + default sort). The workflow
+  // panel is a read-only catalog: free-text filter only, no status/order
   // default chips.
   function isItemPanel(panel) {
     var t = panel.dataset.topic;
@@ -23,10 +23,9 @@
   }
   // kind: tells a story row from a task execution row on the Activity panel;
   // task: narrows execution rows to one task's runs (sty_c356ed4f).
-  var FILTER_KEYS = { status: 1, priority: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
-  var ORDER_FIELDS = { updated: 1, created: 1, priority: 1, status: 1, title: 1, id: 1, order: 1 };
+  var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
+  var ORDER_FIELDS = { updated: 1, created: 1, status: 1, title: 1, id: 1, order: 1 };
   var DEFAULT_ORDER = "updated"; // applied when no explicit order: token (order:none opts out)
-  var PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
   // Capture ?expand=<id> before initFilters' replaceState drops it (sty_49666ca9).
   var pendingExpand = null;
@@ -111,16 +110,12 @@
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(val) === -1) return false;
       }
     }
-    if (!hasStatus && TERMINAL[row.dataset.status]) return false; // default status:active
+    if (!hasStatus && row.dataset.terminal === "1") return false; // default status:active
     var search = (row.dataset.search || "").toLowerCase();
     return parsed.free.every(function (term) { return search.indexOf(term) !== -1; });
   }
 
   function sortKey(row, field) {
-    if (field === "priority") {
-      var p = row.dataset.priority || "";
-      return String(p in PRIORITY_RANK ? PRIORITY_RANK[p] : 9);
-    }
     if (field === "title") return row.dataset.title || "";
     if (field === "id") return row.dataset.expandUrl || "";
     if (field === "order") {
@@ -415,7 +410,7 @@
   }
 
   // Panels with a rows fragment endpoint (the refetch targets); workflow has none.
-  var LIVE_TOPICS = ["stories", "activity", "tasks", "docs"];
+  var LIVE_TOPICS = ["stories", "activity", "tasks"];
   // A topic doorbell also refetches the panels derived from it: Activity lists
   // the stories and task executions under way, so it follows both.
   var DERIVED_TOPICS = { stories: ["activity"], tasks: ["activity"] };
@@ -433,7 +428,7 @@
   // silently freezes at its first-render value after the first SSE tick, with no
   // error anywhere — which is why "updated-cell" is here (sty_226a661e).
   function copyCellCounts(fromRow, toRow) {
-    ["n-stories", "n-tasks", "n-workflows", "n-docs", "updated-cell"].forEach(function (cls) {
+    ["n-stories", "n-tasks", "n-workflows", "updated-cell"].forEach(function (cls) {
       var src = fromRow.querySelector("." + cls);
       var dst = toRow.querySelector("." + cls);
       if (src && dst) dst.innerHTML = src.innerHTML;

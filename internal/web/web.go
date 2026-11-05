@@ -63,9 +63,8 @@ type pageData struct {
 	// EngagedStoryIDs lists those seat item ids (sorted); empty when count is 0.
 	EngagedStoryIDs []string
 	Tasks           []rowVM
-	Activity        []rowVM // stories and task executions under way: not backlog, not finished (sty_c356ed4f)
+	Activity        []rowVM // executions
 	DocKinds        []kindGroup
-	DocCount        int
 	Workflows       []workflowRowVM
 	Uptime          string
 	Theme           string
@@ -124,31 +123,18 @@ type topBar struct {
 
 type rowVM struct {
 	Item
-	// Stages are the stages the story has completed plus the one it is in, in
-	// the order it reached them (PROGRESS cell).
-	Stages []stageVM
-	// Dispatch is the running indicator for an in-flight dispatch (sty_752c4ef2
-	// AC6) — nil when nothing is in flight. Distinct from Stages: a stage
-	// records PAST gate outcomes, Dispatch narrates what is happening RIGHT NOW,
-	// so a refused earlier attempt's red count is never the only signal on a
-	// story a live agent is currently working.
-	Dispatch *dispatchVM
+	// StateClass is the status's class in the item's workflow: start,
+	// terminal, park or active ("" when the workflow was not pushed).
+	StateClass string
 	// Here marks a story engaged at this checkout in a hosted-mode partition. It
 	// is a mark on the row, never a filter (sty_6ce071dc).
 	Here bool
-}
-
-type lightPayload struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Skill string `json:"skill"`
 }
 
 type docRowVM struct {
 	Name       string
 	Headline   string
 	ModTime    time.Time
-	Provenance string // default | edited | authored; empty for free-form documents
 	Source     string
 }
 
@@ -157,45 +143,17 @@ type kindGroup struct {
 	Docs []docRowVM
 }
 
-type seatRowVM struct {
-	ID       string `json:"id"`
-	InFlight bool   `json:"in_flight"`
-	Stale    bool   `json:"stale"`
-}
-
 type detailData struct {
-	Item   Item
-	Events []eventVM
-	// Route is the story's route DOCUMENT — the plan half plus every resolved
-	// step's outcome, exactly as verb.recordRoute wrote it (sty_39e2d9df). Nil
-	// when the story has not transitioned yet: the web layer presents this
-	// artifact, it never re-derives one (sty_085e1a5a).
-	Route      *storyDocVM
-	Docs       []storyDocVM
-	Executions []executionVM // populated only for a TASK — its runs (sty_30a917f8)
-	TopBar     topBar
-	Standalone bool
-}
-
-type executionVM struct {
-	ID        string
-	Status    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Output    string // recorded run output (frontmatter stripped); "" when none
-}
-
-type storyDocRef struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Body string `json:"body,omitempty"`
-}
-
-type storyDocVM struct {
-	Name   string
-	Type   string
-	Anchor string // id="doc-<slug>" for hash-open from timeline links
-	HTML   template.HTML
+	Item          Item
+	StateClass    string
+	ParentKind    string // the kind of the parent item, "" when not pushed
+	Children      []childLink
+	Route         routeVM
+	Presentations []presentationVM
+	Attachments   []attachmentVM
+	Events        []eventVM // newest first
+	TopBar        topBar
+	Standalone    bool
 }
 
 type chipVM struct {
@@ -206,9 +164,8 @@ type chipVM struct {
 type eventVM struct {
 	Entry
 	Chips   []chipVM
-	DocName string // set for story_doc_attached — names the document on the timeline
-	DocType string
-	DocHref string // relative "story/<id>#doc-<slug>" when the doc is present; else empty
+	DocName string // set for an attachment event — names the document on the timeline
+	DocHref string // relative "<kind>/<id>#doc-<slug>" when the doc is present; else empty
 }
 
 type helpTopic struct {
@@ -223,8 +180,9 @@ type docPageData struct {
 	Name       string
 	Headline   string
 	HTML       template.HTML
-	Provenance string
 	Source     string
+	// Workflow is set when the doc is a pushed workflow: the page draws it.
+	Workflow *routeVM
 }
 
 type helpPageData struct {

@@ -1,0 +1,192 @@
+package mirror
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// The row shapes the CLI pushes inside a Snapshot (satelled's maintained
+// interface). Each is stored as the raw JSON it arrived as; these types are
+// what both sides marshal and read. Unknown fields are carried and ignored, and
+// the legacy aliases (story_id, created_at, type) of older pushers are read too.
+
+// Item is one row of Snapshot.Stories, Tasks or Executions: a folded work item.
+type Item struct {
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Title    string   `json:"title"`
+	Body     string   `json:"body,omitempty"`
+	Status   string   `json:"status"`
+	Criteria []string `json:"criteria,omitempty"`
+	// AcceptanceCriteria is the legacy one-string criteria; read when Criteria
+	// is empty.
+	AcceptanceCriteria string    `json:"acceptance_criteria,omitempty"`
+	Tags               []string  `json:"tags"`
+	ParentID           string    `json:"parent_id,omitempty"`
+	Category           string    `json:"category,omitempty"`
+	Workflow           string    `json:"workflow,omitempty"`
+	Assignee           string    `json:"assignee,omitempty"`
+	Priority           string    `json:"priority,omitempty"` // legacy; carried, not shown
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// Event is one row of Snapshot.LedgerEvents: a generic ledger event, keyed by
+// its id.
+type Event struct {
+	ID      string          `json:"id"`
+	Item    string          `json:"item"`
+	Kind    string          `json:"kind"`
+	At      time.Time       `json:"at"`
+	Actor   string          `json:"actor,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+	Prev    string          `json:"prev,omitempty"`
+	Hash    string          `json:"hash,omitempty"`
+	// Legacy aliases of older pushers.
+	StoryID   string    `json:"story_id,omitempty"`
+	Body      string    `json:"body,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+}
+
+// Normalize fills Item and At from the legacy aliases.
+func (e *Event) Normalize() {
+	if e.Item == "" {
+		e.Item = e.StoryID
+	}
+	if e.At.IsZero() {
+		e.At = e.CreatedAt
+	}
+}
+
+// Attachment is one row of Snapshot.StoryDocs: a document attached to an item.
+// Its id is "<item>/<name>". Body is set for a text attachment within the
+// pusher's bound; BodyOmitted says it was left out.
+type Attachment struct {
+	ID          string    `json:"id"`
+	Item        string    `json:"item"`
+	Name        string    `json:"name"`
+	MediaType   string    `json:"media_type,omitempty"`
+	Size        int64     `json:"size"`
+	SHA256      string    `json:"sha256,omitempty"`
+	At          time.Time `json:"at,omitzero"`
+	Actor       string    `json:"actor,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	BodyOmitted bool      `json:"body_omitted,omitempty"`
+	Type        string    `json:"type,omitempty"` // legacy media type
+}
+
+// Seat is one row of Snapshot.Seats: a session bound to an item. Its id is
+// "<item>/<session>".
+type Seat struct {
+	ID       string    `json:"id"`
+	Item     string    `json:"item"`
+	Session  string    `json:"session,omitempty"`
+	Location string    `json:"location,omitempty"`
+	Base     string    `json:"base,omitempty"`
+	BoundAt  time.Time `json:"bound_at,omitzero"`
+	// Legacy seat rows named the item by id and flagged story seats.
+	StorySeat bool `json:"story_seat,omitempty"`
+	Stale     bool `json:"stale,omitempty"`
+}
+
+// DocKindWorkflows is the Snapshot.Docs kind that carries a workflow.
+const DocKindWorkflows = "workflows"
+
+// Doc is one row of Snapshot.Docs. A workflow arrives as kind
+// DocKindWorkflows with its source in Body and its parsed form in Workflow, so
+// the web draws routes without knowing any name.
+type Doc struct {
+	Kind     string    `json:"kind"`
+	Name     string    `json:"name"`
+	Path     string    `json:"path,omitempty"`
+	Headline string    `json:"headline,omitempty"`
+	Body     string    `json:"body"`
+	ModTime  time.Time `json:"mod_time,omitzero"`
+	Source   string    `json:"source,omitempty"`
+	Workflow *Workflow `json:"workflow,omitempty"`
+}
+
+// Workflow is a workflow's states, gates and explicit transitions.
+type Workflow struct {
+	Name        string               `json:"name"`
+	States      []WorkflowState      `json:"states"`
+	Gates       []WorkflowGate       `json:"gates,omitempty"`
+	Transitions []WorkflowTransition `json:"transitions"`
+}
+
+// WorkflowState is one state; the flags are the schema's.
+type WorkflowState struct {
+	Name           string `json:"name"`
+	Start          bool   `json:"start,omitempty"`
+	Terminal       bool   `json:"terminal,omitempty"`
+	Park           bool   `json:"park,omitempty"`
+	Resumes        bool   `json:"resumes,omitempty"`
+	PerformerAgent string `json:"performer_agent,omitempty"`
+	PerformerSkill string `json:"performer_skill,omitempty"`
+}
+
+// WorkflowGate is one named gate.
+type WorkflowGate struct {
+	Name    string   `json:"name"`
+	Skill   string   `json:"skill,omitempty"`
+	Judges  []string `json:"judges,omitempty"`
+	Combine string   `json:"combine,omitempty"`
+	Paths   []string `json:"paths,omitempty"`
+	Trigger string   `json:"trigger,omitempty"`
+	Carry   bool     `json:"carry,omitempty"`
+}
+
+// WorkflowTransition is one explicit move and its gate groups, in order.
+type WorkflowTransition struct {
+	From   []string        `json:"from"`
+	To     string          `json:"to"`
+	Groups []WorkflowGroup `json:"groups,omitempty"`
+}
+
+// WorkflowGroup is a set of gates run in one mode.
+type WorkflowGroup struct {
+	Mode  string   `json:"mode"`
+	Gates []string `json:"gates"`
+}
+
+// Settings is Snapshot.Settings: the repo's configuration as rows.
+type Settings struct {
+	RepoRoot string       `json:"repo_root"`
+	Rows     []SettingRow `json:"rows"`
+}
+
+// SettingRow is one configuration key and its value.
+type SettingRow struct {
+	FieldID string `json:"field_id"`
+	Label   string `json:"label"`
+	Help    string `json:"help,omitempty"`
+	Value   string `json:"value"`
+	Section string `json:"section"`
+}
+
+// GateRun is the payload of a gate.run ledger event, as the web reads it.
+type GateRun struct {
+	Transition string `json:"transition"`
+	Gate       string `json:"gate"`
+	Binding    string `json:"binding,omitempty"`
+	Result     string `json:"result"`
+	Notes      string `json:"notes,omitempty"`
+	TokensIn   int    `json:"tokens_in"`
+	TokensOut  int    `json:"tokens_out"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// The kernel event kinds the web reads (gate.KindRun, item.KindTransitioned,
+// item.KindAttachmentAdd; uipush's tests pin them equal). Every other kind is
+// shown on the timeline as it is.
+const (
+	EventGateRun         = "gate.run"
+	EventTransitioned    = "item.transitioned"
+	EventAttachmentAdded = "attachment.added"
+	// GateReject is the gate.run result that refuses a transition
+	// (gate.Reject).
+	GateReject = "reject"
+	// TransitionSep joins from and to in a gate.run transition key
+	// (gate.TransitionKey).
+	TransitionSep = "->"
+)

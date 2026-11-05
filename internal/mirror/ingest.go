@@ -68,9 +68,8 @@ type Snapshot struct {
 	LedgerEvents []json.RawMessage `json:"ledger_events,omitempty"`
 	StoryDocs    []json.RawMessage `json:"story_docs,omitempty"` // id = story_id/name
 	Seats        []json.RawMessage `json:"seats,omitempty"`
-	// Waves carries, per epic-parent, the story-wave verb's own JSON response (or
-	// {"container": id, "error": text} when the verb refuses) — id = container.
-	// The web renders it and never recomputes the wave (sty_a42f4add).
+	// Waves is a removed feature's field: accepted from an older pusher and
+	// ignored.
 	Waves    []json.RawMessage `json:"waves,omitempty"`
 	Settings json.RawMessage   `json:"settings,omitempty"` // single settings blob
 	// Identity is the per-partition meta blob (project name, repo path, footer email).
@@ -80,7 +79,7 @@ type Snapshot struct {
 	// (delete+insert). Empty means full snapshot: all standard kinds.
 	Kinds []string `json:"kinds,omitempty"`
 	// MergeKinds are applied as upsert-without-delete: ledger_event (append-only)
-	// and the story, task, execution and wave rows a delta drain changed. A body
+	// and the story, task, execution and story_doc rows a delta push changed. A body
 	// with merge kinds that does not replace story needs a seeded partition.
 	MergeKinds []string `json:"merge_kinds,omitempty"`
 	// Origin is where the reported store change came from; see IngestOrigin.
@@ -411,9 +410,8 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 		{"execution", rawToRows(snap.Executions, "id"), merges("execution")},
 		{"doc", docRows(snap.Docs), false},
 		{"ledger_event", rawToRows(snap.LedgerEvents, "id"), merges("ledger_event")},
-		{"story_doc", rawToRows(snap.StoryDocs, "id"), false},
+		{"story_doc", rawToRows(snap.StoryDocs, "id"), merges("story_doc")},
 		{"seat", rawToRows(snap.Seats, "id"), false},
-		{"wave", rawToRows(snap.Waves, "container"), merges("wave")},
 	}
 	for _, c := range candidates {
 		if c.merge {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,10 +64,9 @@ func TestTimelineDotPaletteReused(t *testing.T) {
 	}
 }
 
-// sty_0dc600e1 AC2: the story page of a story the mirror holds no event of asks
-// FetchStory for its history in the checkout's repo root and renders what the
-// fetch brought; a story whose history is held is not fetched.
-func TestStoryPageFetchesHistoryItHoldsNoEventOf(t *testing.T) {
+// A ledger row of an older pusher (story_id, created_at, body) still lands on
+// its item's timeline.
+func TestTimelineReadsLegacyEventRows(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -76,46 +74,26 @@ func TestStoryPageFetchesHistoryItHoldsNoEventOf(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := context.Background()
 	now := time.Now().UTC()
-	rk, slug := "rk-fetch", "fetch"
+	rk, slug := "rk-legacy", "legacy"
 	if _, err := s.TouchPartition(ctx, rk, slug, now); err != nil {
 		t.Fatal(err)
 	}
-	row := func(id string) mirror.ItemRow {
-		b, _ := json.Marshal(Item{ID: id, Kind: "story", Title: id, Status: "backlog", CreatedAt: now, UpdatedAt: now})
-		return mirror.ItemRow{ID: id, Payload: string(b)}
-	}
-	event := func(id, story, body string) mirror.ItemRow {
-		b, _ := json.Marshal(map[string]any{"id": id, "story_id": story, "kind": "comment", "actor": "alice", "body": body, "created_at": now})
-		return mirror.ItemRow{ID: id, Payload: string(b)}
-	}
-	ident, _ := json.Marshal(mirror.IdentityMeta{ProjectName: slug, RepoRoot: "/repos/fetch"})
-	held := []mirror.ItemRow{event("evt_held", "sty_held", "held here")}
+	it, _ := json.Marshal(Item{ID: "sty_old", Kind: "story", Title: "old", Status: "s", CreatedAt: now, UpdatedAt: now})
+	ev, _ := json.Marshal(map[string]any{"id": "evt_1", "story_id": "sty_old", "kind": "comment", "actor": "alice", "body": "legacy body", "created_at": now})
 	for kind, rows := range map[string][]mirror.ItemRow{
-		"story":        {row("sty_remote"), row("sty_held")},
-		"ledger_event": held,
-		"identity":     {{ID: "meta", Payload: string(ident)}},
+		"story":        {{ID: "sty_old", Payload: string(it)}},
+		"ledger_event": {{ID: "evt_1", Payload: string(ev)}},
 	} {
 		if err := s.ReplaceKind(ctx, rk, kind, rows, now); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	srv := NewMirrorWithInstance(s, "test")
-	var calls []string
-	srv.FetchStory = func(ctx context.Context, root, id string) error {
-		calls = append(calls, root+" "+id)
-		return s.ReplaceKind(ctx, rk, "ledger_event", append(slices.Clone(held), event("evt_fetched", id, "fetched from the server")), now)
-	}
-	ts := httptest.NewServer(srv.Handler)
+	ts := httptest.NewServer(NewMirrorWithInstance(s, "test").Handler)
 	t.Cleanup(ts.Close)
-
-	if body := httpGetBody(t, ts.URL+"/r/"+slug+"/story/sty_remote"); !strings.Contains(body, "fetched from the server") {
-		t.Errorf("the story page did not render the fetched history:\n%s", body)
-	}
-	if body := httpGetBody(t, ts.URL+"/r/"+slug+"/story/sty_held"); !strings.Contains(body, "held here") {
-		t.Errorf("the held story's page lost its history:\n%s", body)
-	}
-	if want := []string{"/repos/fetch sty_remote"}; !slices.Equal(calls, want) {
-		t.Errorf("FetchStory calls = %v, want %v", calls, want)
+	body := httpGetBody(t, ts.URL+"/r/"+slug+"/story/sty_old")
+	for _, want := range []string{"legacy body", "alice", "comment"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("legacy event row: missing %q", want)
+		}
 	}
 }
