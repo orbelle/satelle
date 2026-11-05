@@ -152,7 +152,12 @@ const rigServer = "https://satelle.test"
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	r := &rig{t: t, relay: relaytest.New(t), clock: newFakeClock()}
-	r.client = hosted.NewClient(rigServer, &memStore{cred: hosted.Credential{ServerURL: rigServer, AccessToken: "access-1"}}, nil)
+	c, err := hosted.Dial(rigServer, &memStore{cred: hosted.Credential{ServerURL: rigServer, AccessToken: "access-1"}}, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	r.client = c
 	r.chanOpts = []remotechan.Option{remotechan.WithHTTPClient(r.relay.Client()), remotechan.WithClock(r.clock)}
 	return r
 }

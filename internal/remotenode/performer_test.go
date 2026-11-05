@@ -1,26 +1,24 @@
 package remotenode
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/remotechan"
-	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 )
 
 // A performer-mode node (sty_7028d996) publishes its channel key to satelle.dev,
 // and the starter pairs with it on the session the server minted, admitting only
 // that key.
 
-// The key goes out as PUT .../channel-key under the node token, standard base64,
-// and is write-once: a second write is refused and returned.
-func TestPublishChannelKeyUsesTheNodeRoute(t *testing.T) {
-	fake, client, _ := newFake(t)
+// The key goes out on PublishChannelKey under the node token and is
+// write-once: a second write is refused and returned.
+func TestPublishChannelKeyUsesTheNodeService(t *testing.T) {
+	srv, _, client, _ := newFake(t)
 	id, err := remotechan.NewIdentity()
 	if err != nil {
 		t.Fatal(err)
@@ -28,25 +26,23 @@ func TestPublishChannelKeyUsesTheNodeRoute(t *testing.T) {
 	if err := client.PublishChannelKey(context.Background(), id.Public()); err != nil {
 		t.Fatalf("PublishChannelKey: %v", err)
 	}
-	calls := fake.Calls()
-	if len(calls) != 1 || calls[0].Method != http.MethodPut || calls[0].Auth != "Bearer "+testNodeToken ||
-		calls[0].Path != "/api/v1/remote-nodes/"+testNodeID+"/channel-key" {
-		t.Fatalf("calls = %+v, want one PUT .../channel-key under the node token", calls)
+	calls := srv.Calls()
+	if len(calls) != 1 || calls[0].Method != "/satelle.v1.NodeService/PublishChannelKey" || calls[0].Auth != testNodeToken {
+		t.Fatalf("calls = %+v, want one PublishChannelKey under the node token", calls)
 	}
-	if got := base64.StdEncoding.EncodeToString(fake.ChannelKey()); got != base64.StdEncoding.EncodeToString(id.Public()) {
-		t.Errorf("published %q, want the node's public key", got)
+	if !bytes.Equal(srv.ChannelKey(testNodeID), id.Public()) {
+		t.Errorf("published key differs from the node's public key")
 	}
-
 	err = client.PublishChannelKey(context.Background(), id.Public())
 	if err == nil || !strings.Contains(err.Error(), "already_published") {
 		t.Errorf("second publish = %v, want the server's write-once refusal", err)
 	}
 }
 
-// A revoked token is the token's refusal, as for every other node route.
+// A revoked token is the token's refusal, as for every other node call.
 func TestPublishChannelKeyWithARevokedToken(t *testing.T) {
-	fake, client, _ := newFake(t)
-	fake.Revoke()
+	srv, _, client, _ := newFake(t)
+	srv.RevokeNode(testNodeID)
 	id, _ := remotechan.NewIdentity()
 	err := client.PublishChannelKey(context.Background(), id.Public())
 	if err == nil || !strings.Contains(err.Error(), "refused or revoked") {
@@ -60,8 +56,7 @@ func TestPublishChannelKeyWithARevokedToken(t *testing.T) {
 // node and is answered by it.
 func TestPerformerNodeIsPairedByItsPublishedKey(t *testing.T) {
 	r := newRig(t)
-	fake := devtest.NewNode(t, testNodeID, testNodeToken, bundleOf(t, definitionFiles(t)), "v7")
-	nc := NewNodeClient(fake.URL, testNodeID, testNodeToken, fake.Client())
+	srv, _, nc, _ := newFake(t)
 	id, err := remotechan.NewIdentity()
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +82,7 @@ func TestPerformerNodeIsPairedByItsPublishedKey(t *testing.T) {
 	att := make(chan attached, 1)
 	go func() {
 		s, err := remotechan.AttachServerSession(ctx, r.client, r.relay.URL(), testNodeID,
-			func(context.Context) ([]byte, error) { return fake.ChannelKey(), nil }, r.chanOpts...)
+			func(context.Context) ([]byte, error) { return srv.ChannelKey(testNodeID), nil }, r.chanOpts...)
 		att <- attached{s, err}
 	}()
 	eventually(t, "the starter on the relay", func() bool { return r.relay.Upgrades() >= 1 })

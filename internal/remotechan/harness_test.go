@@ -228,7 +228,12 @@ func newHarness(t *testing.T, signedIn bool) *harness {
 			TokenEndpoint: h.idp.ts.URL + "/token", ClientID: "client-abc", Resource: "https://api.example/",
 		})
 	}
-	h.client = hosted.NewClient(harnessServer, h.store, nil)
+	c, err := hosted.Dial(harnessServer, h.store, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	h.client = c
 
 	h.ledger = &memRecorder{}
 	return h

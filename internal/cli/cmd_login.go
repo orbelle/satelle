@@ -10,12 +10,14 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 // defaultCallbackPort is the loopback port of the registered OAuth redirect.
 const defaultCallbackPort = 53682
 
-// resolveServer is the --server flag, else the machine's [hosted] server.
+// resolveServer is the --server flag, else the machine's [hosted] server,
+// else hosted.DefaultServer.
 func resolveServer(flag string) (string, error) {
 	if s := strings.TrimRight(strings.TrimSpace(flag), "/"); s != "" {
 		return s, nil
@@ -27,7 +29,13 @@ func resolveServer(flag string) (string, error) {
 	if s := gc.Hosted.ResolveServer(); s != "" {
 		return s, nil
 	}
-	return "", errors.New("no hosted server configured; pass --server <url> (it is recorded machine-wide)")
+	return hosted.DefaultServer, nil
+}
+
+// dial opens a gRPC client to server with the default credential store
+// (SATELLE_TOKEN, else the stored login).
+func dial(server string) (*hosted.Client, error) {
+	return hosted.Dial(server, hosted.DefaultStore(), hosted.Options{})
 }
 
 func loginCmd() *cobra.Command {
@@ -37,10 +45,11 @@ func loginCmd() *cobra.Command {
 	var port int
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Sign in to a hosted satelle-server (OAuth 2.1 + PKCE)",
-		Long: `login runs the browser OAuth flow against the hosted server, stores the
-tokens in the per-user credential store ($XDG_CONFIG_HOME/satelle) and records
-the server in ~/.satelle/config.toml so one sign-in serves every repo.`,
+		Short: "Sign in to satelle-server (OAuth 2.1 + PKCE)",
+		Long: `login runs the browser OAuth flow against the server, stores the tokens in the
+per-user credential store ($XDG_CONFIG_HOME/satelle) and records the server
+in ~/.satelle/config.toml so one sign-in serves every repo. SATELLE_TOKEN, when
+set, is used instead of the stored login by every other command.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			srv, err := resolveServer(server)
@@ -63,24 +72,29 @@ the server in ~/.satelle/config.toml so one sign-in serves every repo.`,
 			if err := config.SaveGlobalHostedServer(srv); err != nil {
 				return err
 			}
-			who, err := hosted.NewClient(srv, store, nil).Me(cmd.Context())
+			c, err := hosted.Dial(srv, store, hosted.Options{})
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+			who, err := c.Account.GetMe(cmd.Context(), &satellepb.GetMeRequest{})
 			if err != nil {
 				var unknown *hosted.UnknownSubjectError
 				if errors.As(err, &unknown) {
 					return unknown
 				}
-				fmt.Fprintf(out, "Signed in to %s (could not fetch identity: %v)\n", srv, err)
+				fmt.Fprintf(out, "Signed in to %s (could not fetch identity: %v)\n", srv, hosted.Describe("AccountService.GetMe", err))
 				return nil
 			}
 			if fresh, err := store.Load(srv); err == nil {
-				fresh.DisplayName, fresh.Email, fresh.PrincipalID = who.DisplayName, who.Email, who.ID
+				fresh.DisplayName, fresh.Email, fresh.PrincipalID = who.GetDisplayName(), who.GetEmail(), who.GetId()
 				_ = store.Save(fresh)
 			}
 			printPrincipal(cmd, srv, who)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&server, "server", "", "hosted server URL (recorded machine-wide)")
+	cmd.Flags().StringVar(&server, "server", "", "server URL (recorded machine-wide)")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "print the authorize URL instead of opening a browser")
 	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "how long to wait for the browser approval")
 	cmd.Flags().IntVar(&port, "callback-port", defaultCallbackPort, "loopback port for the browser callback (0 picks a free port)")
@@ -91,7 +105,7 @@ func logoutCmd() *cobra.Command {
 	var server string
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Forget the stored hosted-server credential on this machine",
+		Short: "Forget the stored credential for the server on this machine",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			srv, err := resolveServer(server)
@@ -108,7 +122,7 @@ func logoutCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&server, "server", "", "hosted server URL")
+	cmd.Flags().StringVar(&server, "server", "", "server URL")
 	return cmd
 }
 
@@ -116,29 +130,34 @@ func whoamiCmd() *cobra.Command {
 	var server string
 	cmd := &cobra.Command{
 		Use:   "whoami",
-		Short: "Print who the stored credential signs in as",
+		Short: "Print who the credential signs in as",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			srv, err := resolveServer(server)
 			if err != nil {
 				return err
 			}
-			who, err := hosted.NewClient(srv, hosted.DefaultStore(), nil).Me(cmd.Context())
+			c, err := dial(srv)
 			if err != nil {
-				return fmt.Errorf("whoami: %w", err)
+				return err
+			}
+			defer c.Close()
+			who, err := c.Account.GetMe(cmd.Context(), &satellepb.GetMeRequest{})
+			if err != nil {
+				return hosted.Describe("whoami", err)
 			}
 			printPrincipal(cmd, srv, who)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&server, "server", "", "hosted server URL")
+	cmd.Flags().StringVar(&server, "server", "", "server URL")
 	return cmd
 }
 
-func printPrincipal(cmd *cobra.Command, server string, p hosted.Principal) {
-	name := p.DisplayName
+func printPrincipal(cmd *cobra.Command, server string, p *satellepb.GetMeResponse) {
+	name := p.GetDisplayName()
 	if name == "" {
-		name = p.Email
+		name = p.GetEmail()
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s <%s> (role %s)\n", server, name, p.Email, p.Role)
+	fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s <%s> (role %s)\n", server, name, p.GetEmail(), p.GetRole())
 }

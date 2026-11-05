@@ -1,3 +1,5 @@
+// Package devtest holds stand-ins for tests: the fake in-sprite API. Nothing
+// in the product imports it.
 package devtest
 
 import (

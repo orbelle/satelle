@@ -8,13 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
 // ErrRelayRefused is returned when the relay answers the upgrade with a status
@@ -34,6 +33,24 @@ func (e *RelayStatusError) Error() string {
 	return fmt.Sprintf("%s (HTTP %d)", ErrRelayRefused.Error(), e.Status)
 }
 func (e *RelayStatusError) Is(target error) bool { return target == ErrRelayRefused }
+
+// Bearer supplies the satelle.dev bearer for the relay dial: it runs attempt
+// with the bearer and, on a 401, once more after a refresh
+// (hosted.Client.WithBearer). A signed-out source returns
+// hosted.ErrLoginRequired before attempt runs.
+type Bearer interface {
+	WithBearer(ctx context.Context, attempt func(ctx context.Context, bearer string) (status int, body []byte, err error)) error
+}
+
+// maxAuthErrBodyBytes bounds the relay's refusal body that is read.
+const maxAuthErrBodyBytes = 4 << 10
+
+// boundAuthBody reads a bounded refusal body, then closes r.
+func boundAuthBody(r io.ReadCloser) []byte {
+	body, _ := io.ReadAll(io.LimitReader(r, maxAuthErrBodyBytes))
+	r.Close()
+	return body
+}
 
 // ErrEnrollRefused is returned to a remote that local satelle refused.
 var ErrEnrollRefused = errors.New("remotechan: enrollment refused")
@@ -135,7 +152,7 @@ func newOptions(opts []Option) *options {
 // Session is admitted and sealed. It lives until Close.
 //
 // Only dialing out: Open never listens.
-func Open(ctx context.Context, client *hosted.Client, relayURL string, launch Launcher, opts ...Option) (*Session, error) {
+func Open(ctx context.Context, client Bearer, relayURL string, launch Launcher, opts ...Option) (*Session, error) {
 	o := newOptions(opts)
 	session, err := newSessionID()
 	if err != nil {
@@ -163,7 +180,7 @@ func Open(ctx context.Context, client *hosted.Client, relayURL string, launch La
 
 // dialLocal dials the relay as local with the satelle.dev bearer, refreshing it
 // once on a 401. It is the one local dial, shared by Open and AttachServerSession.
-func dialLocal(ctx context.Context, client *hosted.Client, o *options, relayURL, session string) (*websocket.Conn, error) {
+func dialLocal(ctx context.Context, client Bearer, o *options, relayURL, session string) (*websocket.Conn, error) {
 	var conn *websocket.Conn
 	var status int
 	var refusal []byte
@@ -172,7 +189,7 @@ func dialLocal(ctx context.Context, client *hosted.Client, o *options, relayURL,
 		if err != nil {
 			if resp != nil {
 				status = resp.StatusCode
-				refusal = hosted.BoundAuthBody(resp.Body)
+				refusal = boundAuthBody(resp.Body)
 				return status, refusal, nil
 			}
 			return 0, nil, fmt.Errorf("remotechan: dial relay: %w", err)
@@ -217,7 +234,7 @@ const keyPollInterval = time.Second
 // explains, it redials the same session with backoff, for at most the resume
 // window, and handshakes again against the same pinned key (the key is not asked
 // for again).
-func AttachServerSession(ctx context.Context, client *hosted.Client, relayURL, session string, keyFn func(context.Context) ([]byte, error), opts ...Option) (*Session, error) {
+func AttachServerSession(ctx context.Context, client Bearer, relayURL, session string, keyFn func(context.Context) ([]byte, error), opts ...Option) (*Session, error) {
 	o := newOptions(opts)
 	conn, err := dialLocal(ctx, client, o, relayURL, session)
 	if err != nil {
@@ -435,7 +452,7 @@ func dialRemote(ctx context.Context, o *options, relayURL, session, token string
 	conn, resp, err := dialRelay(ctx, o.http, relayURL, session, RoleRemote, token)
 	if err != nil {
 		if resp != nil {
-			return nil, &RelayStatusError{Status: resp.StatusCode, Body: string(hosted.BoundAuthBody(resp.Body))}
+			return nil, &RelayStatusError{Status: resp.StatusCode, Body: string(boundAuthBody(resp.Body))}
 		}
 		return nil, fmt.Errorf("remotechan: dial relay: %w", err)
 	}

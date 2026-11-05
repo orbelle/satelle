@@ -11,7 +11,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 )
@@ -56,20 +55,6 @@ func (sessionRefusedError) Is(target error) bool { return target == ErrLoginRequ
 // Unauthenticated to a session token: it is never refreshed.
 var ErrSessionTokenRefused error = sessionRefusedError{}
 
-// errSessionScope is the 404 / NotFound reading under a session token: a token
-// reaches only its granted projects.
-var errSessionScope = errors.New("project not in this session token's scope")
-
-// sessionScopeErr is the error for a 404 / NotFound when the client is acting
-// under a session token (the project is outside the token), or nil when it is
-// not — the caller then keeps its own 404 handling.
-func (c *Client) sessionScopeErr() error {
-	if cred, err := c.store.Load(c.server); err == nil && cred.IsSession() {
-		return fmt.Errorf("hosted: %w", errSessionScope)
-	}
-	return nil
-}
-
 // nodeTokenType marks a Credential as a remote node's token: the bearer the
 // launcher handed `satelle node join`, accepted on Sync and Chain for the node's
 // project and life. Like the session token it is never refreshed or persisted.
@@ -83,19 +68,6 @@ func (c Credential) IsNode() bool { return c.TokenType == nodeTokenType }
 // never refreshed, and it does not match ErrLoginRequired, since a node cannot
 // log in.
 var ErrNodeTokenRefused = errors.New("hosted: the node token was refused: the node has ended or was killed")
-
-// ErrNodeProjectNotFound is the NotFound reading under a node token: the
-// project named is not the node's.
-var ErrNodeProjectNotFound = errors.New("hosted: the project is not this node's project")
-
-// nodeProjectErr is the error for a NotFound when the client is acting under a
-// node token, or nil when it is not.
-func (c *Client) nodeProjectErr(op string) error {
-	if cred, err := c.store.Load(c.server); err == nil && cred.IsNode() {
-		return fmt.Errorf("hosted: grpc %s: %w", op, ErrNodeProjectNotFound)
-	}
-	return nil
-}
 
 // NodeTokenStore is the Store of a remote node: it serves the node token for
 // Server and nothing else. Save and Delete are no-ops, so no refresh or stamp

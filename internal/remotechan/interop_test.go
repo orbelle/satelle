@@ -32,7 +32,11 @@ func TestRelayInteropProduction(t *testing.T) {
 	if s := os.Getenv("SATELLE_RELAY_INTEROP_SERVER"); s != "" {
 		server = s
 	}
-	client := hosted.NewClient(server, hosted.DefaultStore(), nil)
+	client, err := hosted.Dial(server, hosted.DefaultStore(), hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
 	relay := strings.TrimRight(server, "/") + "/relay"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
