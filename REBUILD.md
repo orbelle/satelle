@@ -800,4 +800,156 @@ transition, no names in Go:
 
 ## Progress
 
-(Phase B, started 2026-11-05.)
+Phase B, started 2026-11-05. Go stays at 1.27.0: go.dev is unreachable from the
+build sandbox, so the latest-release check (working rule 5) could not run; recheck
+when it can.
+
+### Done
+
+- **B1 (enforcement and deletion), commits 1e90624..cc4d435.**
+  - Reviewer read-only is a hard refusal (`agentcli/deny.go ReviewerProblem`,
+    applied in `agentstep/isolation.go isolateReviewer` before any process
+    starts); a tool breach observed at run time fails the verdict;
+    `operator-attested` is gone.
+  - Performers carry a denied-tools grant for `satelle story|task|execution set`
+    (`agentcli/deny.go PerformerDeniedTools`); an adapter that cannot express a
+    deny refuses. Grok ACP is refused; validate/doctor refuse a reviewer on an
+    adapter that cannot enforce grants.
+  - Every package, command and file marked deleted is gone, cursor included;
+    `internal/config/substrate` is gone after copying the 18 skills, the
+    `satelle-agent-goals` principle and the `orchestrator` seat this repo's route
+    used into `.satelle/`.
+  - Non-test Go 180k → 103k lines; unit tests 279k → 118k + tests/ 28k.
+
+### Deviations to repair
+
+- `satelle update` was deleted in B1, but ruling Q-update keeps it slimmed. It is
+  rebuilt in B4 (a minimal GitHub-release self-update).
+- `story route` and `story diff` were deleted with their files; they return on
+  the B2 kernel (the route from the ledger, the diff through the git adapter).
+
+### Next
+
+- **B2.** The fresh kernel packages are written on the local branch
+  `claude/satelle-rebuild-kernel` (worktree `/home/user/satelle-kernel`, commits
+  a216c31..d68d43f, about 4k non-test lines: kledger, cache, item, workflow,
+  agent, gate, gitfacts, kernel and the init template). The remaining step is to
+  merge them in, rename `kledger` to `ledger` (replacing the old ledger), rewire
+  the CLI onto `kernel`, delete verb, agentstep, wfdot, wfgovern, storyfold,
+  workitem, lease, drive, docindex and the old ledger, write the edit gate on
+  seats, and move this repo's `.satelle/` onto the new schema.
+- **B3.** The protos are drafted (chain.v2 and satelle.v1; see the B3 notes below
+  once committed).
+
+### Kernel design (B2) — choices where the contract was silent
+
+The B2 kernel is written fresh in small packages; verb, agentstep, wfdot,
+wfgovern, storyfold, workitem, lease, drive and the old ledger are replaced, not
+trimmed. Reused as mechanism: store (sqlite open), procgroup, logfile, logsread,
+buildinfo, the pi RPC adapter and claude/grok envelope parsing from agentcli,
+bashscan's mutation-target extraction, containment's fence.
+
+**Packages**
+
+| package | owns |
+|---|---|
+| `internal/ledger` | generic hash-chained events, the JSONL history of record, verify, blobs |
+| `internal/cache` | sqlite cache of items, events, seats, attachments; rebuilt from the ledger |
+| `internal/item` | the item fold (pure) and item ids |
+| `internal/workflow` | the workflow schema, parsing (strict), validation, selection rules |
+| `internal/agent` | the agents catalog, grants, adapters (claude, pi, grok, exec), dispatch |
+| `internal/gate` | running a transition's gate groups: order, fail-fast, parallel, relevance, carry, panels, checks |
+| `internal/kernel` | the operations: create, update, transition, attach, seat, release, task run, perform |
+| `internal/gitfacts` | the one read-only git adapter |
+| `internal/hook` | the edit gate and harness hook envelopes |
+| `internal/config` | `satelle.toml` (strict), paths, runtime dir, init template |
+| `internal/cli` | cobra commands, thin over `kernel` |
+
+**Configuration layout** (`.satelle/`, in git, owned by the user)
+
+- `satelle.toml` — strict: an unknown key refuses to run. Sections: `[workflows]`
+  (`default`, `[[workflows.rule]]` with `workflow` and one of `category`, `tag`,
+  `kind`), `[gate]` (`edit_exempt_paths`, `locked_paths`), `[hook]` (`inject` =
+  list of files the context hook prints), `[rules]`
+  (`reviewer_differs_from_performer`, bool), `[items]` (`prefix` map kind → id
+  prefix; default is the kind's first three letters), `[service]`, `[sync]`.
+- `agents.toml` — `[agents.<name>]`: `command` (a preset name `claude`, `pi`,
+  `grok`, or a full command template; `session` means the interactive session
+  performs and nothing is dispatched), `model`, `effort`, `tools` (grant list in
+  satelle's vocabulary: `Read Grep Glob Edit Write Bash Bash(<prefix>:*)`),
+  `deny` (extra denied tools), `placement` (`local` default, `remote:<id>`,
+  `cloud`). Read-only is derived: a binding that judges a gate must have a grant
+  of read tools only, and its adapter must enforce grants, else `validate`
+  refuses.
+- `workflows/<name>.toml` — one workflow per file:
+
+```toml
+name = "story"
+[states.backlog]
+start = true
+[states.plan]
+performer = { agent = "planner", skill = "plan" }
+[states.blocked]
+park = true
+resumes = true          # a transition to "@prior" returns to the parked-from state
+[states.done]
+terminal = true
+
+[gates.plan-review]
+skill = "plan-review"   # .satelle/skills/plan-review.md
+agent = "reviewer"      # or panel = ["reviewer", "reviewer-alt"], combine = "all"
+paths = ["**/*.go"]     # relevance: runs only if a changed path matches
+trigger = "go-changed"  # relevance: a check skill whose exit 0 means relevant
+carry = true            # an earlier accept with the same coverage is carried
+
+[[transition]]
+from = ["backlog"]      # "*" = any non-terminal, non-park state
+to = "plan"
+groups = [
+  { mode = "sequential", gates = ["binary-scope", "plan-review"] },  # fail-fast
+  { mode = "parallel", gates = ["a", "b"] },
+]
+```
+
+- `skills/<name>.md` — markdown with frontmatter. A skill whose frontmatter has
+  `type: check` is a deterministic check: its first fenced `sh` block runs with
+  `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO`, `SATELLE_BASE` in the
+  environment; exit 0 accepts, any other code rejects, output (bounded head and
+  tail) is the notes.
+
+**Ledger.** Event = `{id, item, kind, at, actor, payload, prev, hash}`; `hash` =
+sha256 over the canonical JSON of the event without `hash`; `prev` is the
+previous event's hash on the same item's chain ("" for the first). History of
+record: `<runtime>/ledger/<item>.jsonl`, append-only, one file per item, locked
+per append. Blobs (attachment bodies) live content-addressed in
+`<runtime>/blobs/<sha256>`. `ledger verify` walks every chain. The sqlite cache
+at `<runtime>/cache.db` keeps per-file offsets and ingests any tail it has not
+seen; `ledger rebuild` drops and rebuilds it. The kernel's own event kinds are
+mechanism, not process: `item.created`, `item.updated`, `item.transitioned`,
+`gate.run` (`transition`, `gate`, `binding`, `result` accept/reject/skipped/
+carried, `notes`, `tokens_in`, `tokens_out`, `duration_ms`, `coverage`),
+`performer.run`, `seat.bound`, `seat.released`, `attachment.added`, `task.run`.
+Any other kind may be appended by `ledger append` and is carried, never read.
+
+**Items.** Fields: id, kind, title, body, criteria, status, tags, parent,
+category, workflow, assignee (carried for sync; no behaviour). The workflow is
+chosen at create (explicit `--workflow`, else the first matching rule, else the
+default) and stamped on the item. Status starts at the workflow's start state.
+
+**Transitions.** `story set --status X` finds the explicit transition from the
+current state, runs its groups in order (sequential groups stop at the first
+reject; parallel groups run every gate), records every gate on the ledger
+(including skipped and carried), and appends `item.transitioned` only when all
+accept. Coverage for carry = sha256 of the item's body, criteria and
+attachments plus `git diff <base> -- <gate paths>`; base is the seat's commit,
+else HEAD at create.
+
+**Seats.** `seat.bound` = `{session, location, base}`; location is `local:<path>`,
+`remote:<node>` or `cloud:<url>`. No cap on seats. The edit gate allows an edit
+when the editing session holds a seat on an item whose current state has a
+performer and the seat's location is this worktree; `[gate] edit_exempt_paths`
+are always allowed and `locked_paths` are never allowed by a seat.
+
+**Tasks.** A task item carries `inputs` (a selection: `kind`, `status`, `tag`,
+`category`). `satelle task run <id>` creates an execution item (parent = the
+task) with `task.run` = the item ids taken, under the workflow the rules pick.
