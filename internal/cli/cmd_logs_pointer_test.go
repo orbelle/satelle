@@ -140,41 +140,6 @@ func TestInitReportsOwnSatelleIgnore(t *testing.T) {
 	}
 }
 
-func TestListLegacyResidueIgnoresLogsPointer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink")
-	}
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "real"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(dir, "real"), filepath.Join(dir, "logs")); err != nil {
-		t.Fatal(err)
-	}
-	got := listLegacyResidue(dir)
-	for _, n := range got {
-		if strings.HasPrefix(n, "logs") {
-			t.Fatalf("pointer reported as residue: %v", got)
-		}
-	}
-	if err := os.Remove(filepath.Join(dir, "logs")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "logs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	got = listLegacyResidue(dir)
-	found := false
-	for _, n := range got {
-		if n == "logs/" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("real logs dir must be residue: %v", got)
-	}
-}
-
 func TestScaffoldTomlNamesLogsLocationAndPointer(t *testing.T) {
 	if !strings.Contains(scaffoldToml, "~/.satelle/<repo-key>/logs") {
 		t.Error("seed must name runtime location")

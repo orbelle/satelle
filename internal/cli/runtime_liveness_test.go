@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
@@ -65,39 +64,6 @@ func liveLegacyFixture(t *testing.T) (home, repo, dataDir, legacyDB string, a *a
 	return home, repo, dataDir, legacyDB, a
 }
 
-// TestMigrateRefusesLiveLease (sty_5308eb60 AC1+AC2): a fresh-heartbeat lease
-// in the legacy DB causes migrate --yes to exit non-zero without creating the
-// home-keyed DB or removing residue.
-func TestMigrateRefusesLiveLease(t *testing.T) {
-	home, _, dataDir, legacyDB, a := liveLegacyFixture(t)
-	// Residue bait: logs/ under dataDir must survive a refused migrate.
-	if err := os.MkdirAll(filepath.Join(dataDir, "logs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var out strings.Builder
-	err := runMigrate(&out, a, true, false)
-	if err == nil {
-		t.Fatalf("expected refuse, got nil\n%s", out.String())
-	}
-	msg := err.Error()
-	for _, want := range []string{"LIVE", "sty_livetest", "local@test-host", "satelle story seat"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("refusal missing %q:\n%s", want, msg)
-		}
-	}
-	homeDB := filepath.Join(home, config.RepoKey(a.RepoRoot), config.DefaultDBName)
-	if fileExists(homeDB) {
-		t.Errorf("home-keyed DB must not be created on refuse: %s", homeDB)
-	}
-	if !fileExists(legacyDB) {
-		t.Error("legacy DB must remain on refuse")
-	}
-	if _, err := os.Stat(filepath.Join(dataDir, "logs")); err != nil {
-		t.Error("legacy residue must not be removed on refuse")
-	}
-}
-
 // TestRuntimeMigrateRefusesLiveLease covers the public runtime migrate entrypoint.
 func TestRuntimeMigrateRefusesLiveLease(t *testing.T) {
 	home, _, _, _, a := liveLegacyFixture(t)
@@ -124,56 +90,6 @@ func holdersGone(t *testing.T) {
 	prev := lease.PidAlive
 	lease.PidAlive = func(int) bool { return false }
 	t.Cleanup(func() { lease.PidAlive = prev })
-}
-
-// TestMigrateProceedsWhenLeaseStale: guard keys on liveness, not row presence.
-func TestMigrateProceedsWhenLeaseStale(t *testing.T) {
-	holdersGone(t)
-	home, _, dataDir, legacyDB, a := liveLegacyFixture(t)
-	// Freeze heartbeat past TTL.
-	db, err := store.Open(legacyDB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().UTC().Add(-lease.HeartbeatTTL - time.Minute)
-	if err := db.Leases.SetHeartbeat(context.Background(), "sty_livetest", old); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-
-	var out strings.Builder
-	if err := runMigrate(&out, a, true, false); err != nil {
-		t.Fatalf("stale lease must not refuse: %v\n%s", err, out.String())
-	}
-	homeDB := filepath.Join(home, config.RepoKey(a.RepoRoot), config.DefaultDBName)
-	if !fileExists(homeDB) {
-		t.Fatalf("home DB missing after migrate with stale lease\n%s", out.String())
-	}
-	// Residue removed once home exists.
-	if fileExists(legacyDB) {
-		t.Error("legacy DB should be removed as residue after successful migrate")
-	}
-	_ = dataDir
-}
-
-// TestMigrateAllowLiveWarnsAndProceeds (AC3): --allow-live proceeds and states risk.
-func TestMigrateAllowLiveWarnsAndProceeds(t *testing.T) {
-	home, _, _, _, a := liveLegacyFixture(t)
-	var out strings.Builder
-	if err := runMigrate(&out, a, true, true); err != nil {
-		t.Fatalf("allow-live should proceed: %v\n%s", err, out.String())
-	}
-	s := out.String()
-	for _, want := range []string{"--allow-live", "STRANDED", "sty_livetest"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("allow-live output missing %q:\n%s", want, s)
-		}
-	}
-	homeDB := filepath.Join(home, config.RepoKey(a.RepoRoot), config.DefaultDBName)
-	if !fileExists(homeDB) {
-		t.Error("home DB should exist after allow-live migrate")
-	}
 }
 
 // TestMigrateHelpDocumentsSplitBrainRecovery (AC4).

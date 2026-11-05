@@ -50,15 +50,6 @@ var FullHookEvents = []string{"SessionStart", "PreToolUse", "UserPromptSubmit", 
 // the claude shape, which is what every caller already defaulted to.
 func HarnessHooks(harness string) HookSpec {
 	switch harness {
-	case HarnessCursor:
-		// cursor's hooks.json is flat and matcher-less (sty_7d098d50): the gate
-		// and commitgate each see every tool call. It has no UserPromptSubmit
-		// (beforeSubmitPrompt is not dispatched in print mode) and no turn-end
-		// events; the file itself is written by agentinstall.RenderCursorHooks.
-		return HookSpec{
-			Events:        []string{"SessionStart", "PreToolUse", "Stop"},
-			NoToolMatcher: true,
-		}
 	case "grok":
 		return HookSpec{
 			GateMatcher:   "Edit|Write|MultiEdit|NotebookEdit|search_replace|write",

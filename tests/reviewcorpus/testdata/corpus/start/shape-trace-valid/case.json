@@ -1,9 +1,0 @@
-{
-  "id": "start-shape-trace-valid",
-  "rubric": "start",
-  "skill": "satelle-story-plan-review",
-  "label": "valid",
-  "story_id": "sty_2e629e93",
-  "expected_verdict": "accept",
-  "summary": "Story-shape rule 2, accept side. sty_2e629e93's criteria as amended and recorded: the code criteria are each proven by a fixture test at the code gate, and the post-release doctor --all evidence is an AC of the release step, judged at release→done. Pair: start-shape-trace-defect."
-}

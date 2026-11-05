@@ -1,7 +1,0 @@
-{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/SCRATCH/sb1","session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3","model":"Composer 2.5","permissionMode":"default"}
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with the single word PONG."}]},"session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3"}
-{"type":"thinking","subtype":"delta","text":"The user requested the","session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3","timestamp_ms":1791603307884}
-{"type":"thinking","subtype":"delta","text":" single word PONG.","session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3","timestamp_ms":1791603307887}
-{"type":"thinking","subtype":"completed","session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3","timestamp_ms":1791603307888}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"PONG"}]},"session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3"}
-{"type":"result","subtype":"success","duration_ms":2778,"duration_api_ms":2778,"is_error":false,"result":"PONG","session_id":"53e8e720-7e5e-4bfc-8d8b-269dd8047bb3","request_id":"b8cb02ce-596f-4deb-8c51-83c544e0afbf","usage":{"inputTokens":8814,"outputTokens":26,"cacheReadTokens":3864,"cacheWriteTokens":0}}

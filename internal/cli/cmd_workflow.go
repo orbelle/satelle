@@ -1,20 +1,10 @@
-// `satelle workflow list` surfaces the workflows that apply to a story category,
-// in selection-priority order — the list satelle offers an agent starting a
-// story. The head is the active/default workflow the engine enforces; a PROJECT
-// (repo) workflow overrides the embedded SYSTEM default, and a category-specific
-// workflow overrides a wildcard (applies_to ["*"]). Read-only.
+// `satelle workflow show` renders a workflow. Read-only.
 package cli
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/bobmcallan/satelle/internal/agentstep"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
 )
 
 func init() {
@@ -26,61 +16,7 @@ Read-only — a lifecycle is authored markdown and TOML under .satelle/workflows
 so this never edits it. For one story's actual route and its verdicts, use
 satelle story route.`}
 
-	var category string
-	list := &cobra.Command{
-		Use:   "list",
-		Short: "List workflows applicable to a story category, in selection-priority order",
-		Long: `list returns the workflows that apply to a story of the given category, ordered
-by selection priority (highest first): a category-specific match beats a wildcard
-(applies_to ["*"]), and a PROJECT (repo) workflow beats the embedded SYSTEM
-default. The head of the list is the active workflow the reviewer enforces.`,
-		Annotations: needsStore(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := appFrom(cmd)
-			if err != nil {
-				return err
-			}
-			ctx := context.Background()
-			docs, err := a.Store.DocIndex.List(ctx, "workflows")
-			if err != nil {
-				return err
-			}
-			out := make([]workflowChoice, 0, len(docs))
-			// A DERIVED route that GOVERNS heads the list and is the ACTIVE choice
-			// (sty_9835070d). The predicate is the front door's, not a second copy of
-			// it: an authored route beats every graph, the shipped route is order zero
-			// and yields to an authored graph (sty_3795e7f6).
-			rs, derived, rerr := wfgovern.RouteGovernsErr(docs, category)
-			if rerr != nil {
-				return rerr // an unreadable authored dir is reported, never listed as the embedded route
-			}
-			if derived {
-				out = append(out, workflowChoice{
-					Name:      wfgovern.DerivedRouteName,
-					Headline:  "derived route — done.toml + step.toml",
-					Scope:     "project",
-					AppliesTo: wfgovern.RouteCategories(rs.Done),
-					Active:    true,
-				})
-			}
-			for i, d := range agentstep.OrderedWorkflows(wfgovern.LifecycleWorkflows(docs), category) {
-				scope, applies := wfMeta(d.Body)
-				out = append(out, workflowChoice{
-					Name: d.Name, Headline: d.Headline, Scope: scope,
-					AppliesTo: applies, Embedded: d.Embedded, Active: !derived && i == 0,
-				})
-			}
-			b, err := json.MarshalIndent(out, "", "  ")
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), string(b))
-			return nil
-		},
-	}
-	list.Flags().StringVar(&category, "category", "", "story category to match (empty = wildcard workflows only)")
-
-	wf.AddCommand(list, workflowShowCmd(), authoredCreateCmd("workflows"), authoredValidateCmd("workflows"))
+	wf.AddCommand(workflowShowCmd())
 	register(wf)
 }
 

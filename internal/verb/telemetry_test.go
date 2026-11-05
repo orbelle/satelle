@@ -42,19 +42,6 @@ func TestStoryLogWritesTelemetryEvent(t *testing.T) {
 	}
 }
 
-// TestStoryLogRequiresKind: a missing --kind is refused, not silently dropped.
-func TestStoryLogRequiresKind(t *testing.T) {
-	wire(t)
-	var created struct {
-		ID string `json:"id"`
-	}
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "T"}), &created)
-
-	if _, err := verb.Dispatch(context.Background(), "story-log", mustJSON(t, map[string]any{"id": created.ID})); err == nil {
-		t.Error("story-log without kind should be refused")
-	}
-}
-
 // TestAppendTelemetryRefusesSecretKey and RefusesSecretValue pin AC4: a data
 // field that looks like a credential — by key name or by value shape — is
 // refused outright and never written to the ledger.

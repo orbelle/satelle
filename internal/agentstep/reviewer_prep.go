@@ -138,13 +138,6 @@ func (g *Engine) prepareReviewer(ctx context.Context, item workitem.Item, toStat
 	}
 	g.fillMessages(ctx, item.ID, gateAddrs, &tp, mat)
 	g.fillLedger(ctx, item.ID, mat)
-	g.fillMeasuredActual(ctx, item.ID, &tp)
-	// Route drift rides the payload ONLY when it exists, so a repo that names a
-	// drift gate has the enumeration without shelling for it, and every other
-	// reviewer's payload is byte-for-byte unchanged (sty_6e4f7fd8).
-	if d, drifted := g.routeDriftFor(ctx, item); drifted {
-		tp.RouteDrift = &d
-	}
 	if decorate != nil {
 		decorate(&tp)
 	}
@@ -304,7 +297,6 @@ type referencedPayload struct {
 	Amendment       *AmendmentState      `json:"amendment,omitempty"`
 	Diff            *referencedDiff      `json:"diff,omitempty"`
 	Messages        *pathRef             `json:"messages,omitempty"`
-	MeasuredActual  *verb.StoryActual    `json:"measured_actual,omitempty"`
 	CriteriaSource  string               `json:"criteria_source,omitempty"`
 	CriteriaState   []criterionState     `json:"criteria_state,omitempty"`
 	PeerFindings    []peerFinding        `json:"peer_findings,omitempty"`
@@ -362,7 +354,6 @@ func writeReviewerMaterial(scratch string, mat *reviewerMaterial, tp transitionP
 		RouteDrift:     tp.RouteDrift,
 		FindingAnswers: tp.FindingAnswers,
 		Amendment:      tp.Amendment,
-		MeasuredActual: tp.MeasuredActual,
 		CriteriaSource: tp.CriteriaSource,
 		CriteriaState:  tp.CriteriaState,
 		PeerFindings:   tp.PeerFindings,

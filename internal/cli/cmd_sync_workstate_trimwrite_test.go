@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"context"
-	"encoding/json"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,8 +9,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/store"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -167,77 +162,5 @@ requires = ["coded"]
 `)
 	if out, err := runRoot(t, "reindex"); err != nil {
 		t.Fatalf("reindex: %v\n%s", err, out)
-	}
-}
-
-// localCancel is the sty_9b3fefea local root: a reviewed backlog → cancelled
-// move written while the story's history was on the server, so its first event
-// builds on nothing.
-func localCancel(id string) []ledger.Entry {
-	ev := func(kind, actor, body, payload string) ledger.Entry {
-		return ledger.Entry{ID: ledger.NewID(), StoryID: id, Kind: kind, Actor: actor, Body: body, Payload: json.RawMessage(payload)}
-	}
-	version := ev(ledger.KindWorkflowVersion, "satelle", "workflow version", `{}`)
-	version.Refs = json.RawMessage(`{"workflow_version":"h"}`)
-	return relinked(
-		version,
-		ev(ledger.KindReviewAccept, "satelle-story-cancel-review", "accept", `{"to":"cancelled"}`),
-		ev(ledger.KindStatusTransition, "bob", "backlog → cancelled", `{"from":"backlog","to":"cancelled"}`),
-		ev(ledger.KindStepSummary, "summariser", "cancelled: superseded", `{"to":"cancelled"}`),
-	)
-}
-
-// forkedCancel reproduces sty_9b3fefea in team scope: a published backlog story is
-// trimmed, cancelled here on a local root, and its row says cancelled. fetched
-// runs `sync workstate fetch` after, as the field did, which links the hosted
-// chain onto the local root. Push refuses the story either way.
-func forkedCancel(t *testing.T, fetched bool) (ts *httptest.Server, f *fakeWorkstateServer, repo, id string, hosted, own []string) {
-	t.Helper()
-	ts, f, repo = hostedTeamRepo(t)
-	cancellableLifecycle(t, repo)
-	id = trimmedStories(t, f, ts.URL, repo, workitem.CreateInput{Title: "cancelled here"})[0]
-	hosted = f.chain.stored("probe", id)
-	root := localCancel(id)
-	setLocalChain(t, id, root)
-	own = idsOf(root)
-	// The cancel left the row as its verb does: rebuilt from the local chain.
-	withRepoStore(t, func(db *store.DB) {
-		ctx := context.Background()
-		row, err := db.Stories.Get(ctx, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if row, err = verb.RebuildRow(ctx, db.Stories, db.Ledger, row, time.Now()); err != nil || row.Status != "cancelled" {
-			t.Fatalf("rebuild after the local cancel: status %q, %v", row.Status, err)
-		}
-	})
-	if fetched {
-		if out, err := runRoot(t, "sync", "workstate", "fetch", id); err != nil {
-			t.Fatalf("fetch: %v\n%s", err, out)
-		}
-	}
-	// Moved when the store holds only the local root; withheld for drift once the
-	// fetch folds the chain back to backlog under the cancelled row.
-	if out, err := pushRaw(t, ts.URL); err == nil || !(strings.Contains(out, "moved since its start") || strings.Contains(out, "withheld "+id)) {
-		t.Fatalf("push of the forked story = %v\n%s, want it refused", err, out)
-	}
-	return ts, f, repo, id, hosted, own
-}
-
-// AC2's guard: a hosted chain that moved the story's status since the local root
-// was written is a concurrent move, and rechain refuses it with both statuses,
-// changing nothing.
-func TestRechainRefusesReplayOnMovedStatus(t *testing.T) {
-	ts, f, _, id, _, _ := forkedCancel(t, false)
-	otherMachineTransition(t, f, id, "backlog", "plan")
-	before := chainShape(localChain(t, id))
-	for _, args := range [][]string{{"--dry-run"}, {}} {
-		out, err := runRoot(t, append([]string{"sync", "workstate", "rechain", id, "--server", ts.URL}, args...)...)
-		if err == nil || !strings.Contains(out, "moves from backlog but the hosted chain folds to plan") {
-			t.Fatalf("rechain %v = %v\n%s, want it refused naming both statuses", args, err, out)
-		}
-		if got := chainShape(localChain(t, id)); !slices.Equal(got, before) {
-			t.Errorf("rechain %v changed the chain: %v, want %v", args, got, before)
-		}
 	}
 }

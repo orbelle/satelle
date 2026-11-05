@@ -40,45 +40,9 @@ type Opts struct {
 	// An empty DataDir is derived as <RepoRoot>/.satelle.
 	RepoRoot string
 	DataDir  string
-	// Live opts into bounded provider probes. Off by default: ordinary doctor
-	// spawns no provider and makes no network call.
-	Live bool
-	// LiveTimeout bounds one probe; zero means DefaultLiveTimeout.
-	LiveTimeout time.Duration
 	// GlobalDir is the machine home used to read recorded sync state.
 	// Empty means config.GlobalDir().
 	GlobalDir string
-	// ScaffoldDrift reports deployed-vs-canonical harness scaffold mismatches.
-	// INJECTED rather than imported: the canonical wrapper bodies live beside the
-	// code that writes them (internal/cli), and doctor must not import cli. Nil
-	// means the scaffold check is skipped — a caller that cannot supply the
-	// authority gets no scaffold findings rather than a wrong verdict.
-	ScaffoldDrift func(repoRoot string) health.Findings
-	// StatusDrift reports work-item rows whose status disagrees with the last
-	// status_transition. Injected: the detector lives in verb and needs a store;
-	// doctor does not open the database. Nil means the check is skipped.
-	StatusDrift func(repoRoot string) health.Findings
-	// BreakingDrift reports a repo whose deployed stamp is behind a CHANGELOG
-	// ### Breaking release. Injected for the same reason as ScaffoldDrift: the
-	// stamp reader and the drift classification live in internal/cli. Nil means
-	// the check is skipped.
-	BreakingDrift func(repoRoot string) health.Findings
-	// SubstrateTracking reports a repo whose .satelle/ process substrate is not
-	// tracked in git. Injected for the same reason as ScaffoldDrift: the managed
-	// .gitignore shape it names lives in internal/cli. Nil means the check is
-	// skipped.
-	SubstrateTracking func(repoRoot string) health.Findings
-	// ContextChecks reports on the context every agent actually receives — the
-	// SessionStart injection per bound harness, each dispatched seat, duplicated
-	// guidance and unresolved references (sty_a17afa15). Injected for the same
-	// reason as ScaffoldDrift: the renderers live in internal/cli. It makes no
-	// model or network call. Nil means the checks are skipped.
-	ContextChecks func(ctx context.Context, repoRoot, dataDir string) health.Findings
-	// ContextReview opts into the semantic half of the context audit: it spawns
-	// the repo's configured reviewer binding (a model call). Off by default, like
-	// Live. It runs ContextReviewer, and only when that is set.
-	ContextReview   bool
-	ContextReviewer func(ctx context.Context, repoRoot, dataDir string) health.Findings
 	// ExcludeMachineAgentLayers judges the agents layer as ANOTHER machine would
 	// load it: this machine's agents.local.toml and the synced agents.workspace.toml
 	// are left out of the resolution, so an allocation that resolves only through
@@ -159,7 +123,7 @@ func (o Opts) wiringConfig(dataDir string) config.Config {
 // report is worse than one reporting a defect.
 func Check(ctx context.Context, o Opts) Report {
 	dataDir := o.resolveDataDir()
-	rep := Report{Repo: o.RepoRoot, Live: o.Live}
+	rep := Report{Repo: o.RepoRoot}
 
 	// 1. The effective agents layer, resolved against the machine-wide catalog,
 	//    with every binding/allocation/hook rule owned by agentvalidate.
@@ -253,9 +217,6 @@ func Check(ctx context.Context, o Opts) Report {
 				WithRemediation("make the change in the main tree (it governs), or discard the worktree's copy"))
 		}
 	}
-	if o.Process != nil && strings.TrimSpace(o.ProcessRoot) != "" {
-		rep.Findings = append(rep.Findings, CheckProjectTier(*o.Process, o.ProcessRoot)...)
-	}
 	rep.Findings = dedupeFindings(rep.Findings)
 
 	// 3. Cross-workflow consistency — ambiguity, unresolved gate and HOOK skills.
@@ -265,32 +226,12 @@ func Check(ctx context.Context, o Opts) Report {
 			WithRemediation("fix the workflow's applies_to or the skill it names"))
 	}
 
-	// 3b. A command rule's allow list names states of the route (sty_a74551d6);
-	// config load cannot judge that, and the hook must not.
-	if o.Process != nil {
-		rep.Findings = append(rep.Findings, CheckCommandRuleAllowNames(*o.Process, governing)...)
-	}
-
 	// 4. Required binaries: every isolated binding's executable must be runnable.
 	rep.Findings = append(rep.Findings, checkBinaries(av.Grants)...)
 
 	// 4b. Reviewer tool isolation (sty_ef3efb51): a reviewer binding dispatch would
 	// refuse is surfaced before an upgrade turns it into a refused gate.
 	rep.Findings = append(rep.Findings, checkReviewerIsolation(av.Grants)...)
-
-	// 5. Hook scaffold integrity (injected authority; skipped when unavailable).
-	if o.ScaffoldDrift != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.ScaffoldDrift(o.RepoRoot)...)
-	}
-	if o.StatusDrift != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.StatusDrift(o.RepoRoot)...)
-	}
-	if o.BreakingDrift != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.BreakingDrift(o.RepoRoot)...)
-	}
-	if o.SubstrateTracking != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.SubstrateTracking(o.RepoRoot)...)
-	}
 
 	// 5b. Leftover machine-scope keys in repo files (config.MachineScopeStrays
 	// owns the rule; doctor only surfaces it — sty_21a7d16d AC4).
@@ -310,26 +251,6 @@ func Check(ctx context.Context, o Opts) Report {
 		globalDir = config.GlobalDir()
 	}
 	rep.Findings = append(rep.Findings, checkSyncHealth(o.RepoRoot, dataDir, globalDir, time.Now())...)
-	// 5c'. Substrate and documents against their last synced base and the last
-	// recorded hosted check (sty_7562055c). Offline: never contacts the server.
-	rep.Findings = append(rep.Findings, CheckSubstrateSync(o.RepoRoot, dataDir, globalDir, time.Now())...)
-
-	// 5d. The context every agent receives (deterministic; injected authority).
-	if o.ContextChecks != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.ContextChecks(ctx, o.RepoRoot, dataDir)...)
-	}
-
-	// 6. Live probes — opt-in, bounded, and never part of the deterministic pass.
-	if o.Live {
-		rep.Findings = append(rep.Findings, probeGrants(ctx, o, av.Grants)...)
-	}
-
-	// 7. The semantic context review — opt-in, because it spawns the repo's
-	// reviewer binding. Without the flag no agent is spawned.
-	if o.ContextReview && o.ContextReviewer != nil && strings.TrimSpace(o.RepoRoot) != "" {
-		rep.Findings = append(rep.Findings, o.ContextReviewer(ctx, o.RepoRoot, dataDir)...)
-	}
-
 	rep.OK = rep.Findings.OK()
 	return rep
 }

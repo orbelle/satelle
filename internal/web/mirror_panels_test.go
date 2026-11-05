@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/workitem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,12 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/costview"
-	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // TestMirrorLoadPanelsFromKindsOnly proves sty_400c022b AC2: pageData fields
@@ -685,122 +681,3 @@ status = "done"
 terminal = true
 requires = ["planned"]
 `
-
-// TestMirrorLoadDetailCostVM pins mirrorBuildCostVM through mirrorLoadDetail
-// (sty_b8542a3a AC5/AC7): a story detail carries the costview headline for its
-// own rows, the workflow-shaped clock (engage at in_progress, stop at done —
-// resolved from the mirror's own workflow docs, so the 1h span is workflow-
-// dependent), a family roll-up over its STORY children only (a task child and
-// an unrelated story never appear), and the cost is computed before the
-// timeline reversal so Events stay newest-first; a task detail has no Cost.
-func TestMirrorLoadDetailCostVM(t *testing.T) {
-	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-
-	ctx := context.Background()
-	now := time.Now().UTC()
-	base := now.Add(-3 * time.Hour)
-	rk := "rk-cost"
-	if _, err := s.TouchPartition(ctx, rk, "demo", now); err != nil {
-		t.Fatal(err)
-	}
-
-	story := func(id, parent string) workitem.Item {
-		return workitem.Item{ID: id, Kind: workitem.KindStory, Title: id, Status: "done", ParentID: parent, CreatedAt: base, UpdatedAt: now}
-	}
-	task := workitem.Item{ID: "tsk_child", Kind: workitem.KindTask, Title: "task", Status: "backlog", ParentID: "sty_p", CreatedAt: base, UpdatedAt: now}
-	row := func(v any, id string) mirror.ItemRow {
-		b, _ := json.Marshal(v)
-		return mirror.ItemRow{ID: id, Payload: string(b)}
-	}
-
-	inv := func(id, storyID string, at time.Time, cost float64, fresh, out int) mirror.ItemRow {
-		payload, _ := json.Marshal(map[string]any{
-			"from": "a", "to": "b", "agent": "coder", "usage_available": true,
-			"tokens_in_fresh": fresh, "tokens_out": out, "cost_usd": cost, "duration_ms": 1000,
-		})
-		return row(ledger.Entry{ID: id, StoryID: storyID, Kind: ledger.KindAgentInvocation, Payload: payload, CreatedAt: at}, id)
-	}
-	tr := func(id, storyID, from, to string, at time.Time) mirror.ItemRow {
-		payload, _ := json.Marshal(map[string]any{"from": from, "to": to})
-		return row(ledger.Entry{ID: id, StoryID: storyID, Kind: ledger.KindStatusTransition, Payload: payload, CreatedAt: at}, id)
-	}
-
-	for _, r := range []struct {
-		kind string
-		rows []mirror.ItemRow
-	}{
-		{"story", []mirror.ItemRow{
-			row(story("sty_p", ""), "sty_p"), row(story("sty_c", "sty_p"), "sty_c"), row(story("sty_u", ""), "sty_u"),
-		}},
-		{"task", []mirror.ItemRow{row(task, task.ID)}},
-		{"doc", []mirror.ItemRow{
-			row(mirrorDoc{Doc: docindex.Doc{Kind: "workflows", Name: "done", Body: costWFDone, Embedded: true}}, "workflows/done"),
-			row(mirrorDoc{Doc: docindex.Doc{Kind: "workflows", Name: "step", Body: costWFStep, Embedded: true}}, "workflows/step"),
-		}},
-		{"ledger_event", []mirror.ItemRow{
-			tr("evt_t1", "sty_p", "backlog", "in_progress", base),
-			tr("evt_t2", "sty_p", "in_progress", "done", base.Add(time.Hour)),
-			inv("evt_i1", "sty_p", base.Add(5*time.Minute), 1.5, 100, 20),
-			inv("evt_i2", "sty_c", base.Add(10*time.Minute), 2.0, 1000, 200),
-			inv("evt_i3", "sty_u", base.Add(10*time.Minute), 99.0, 7, 7),
-			// A task's invocation must not fold into the parent's family.
-			inv("evt_i4", "tsk_child", base.Add(10*time.Minute), 50.0, 5, 5),
-		}},
-	} {
-		if err := s.ReplaceKind(ctx, rk, r.kind, r.rows, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	d, _, err := mirrorLoadDetail(ctx, s, rk, "story", "sty_p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Cost == nil {
-		t.Fatal("a story detail must carry a Cost view")
-	}
-	c := d.Cost
-	if c.Band != costview.FormatCostBand(costview.Figures{UsageRows: 1, FreshInput: 100, Output: 20}) || c.FreshIn != "100" || c.Out != "20" {
-		t.Errorf("own Band/fresh/out = %q/%q/%q, want %s/100/20", c.Band, c.FreshIn, c.Out, costview.FormatCostBand(costview.Figures{UsageRows: 1, FreshInput: 100, Output: 20}))
-	}
-	if want := costview.FormatDuration(time.Hour.Milliseconds()); c.Elapsed != want {
-		t.Errorf("Elapsed = %q, want %q (workflow-shaped in_progress→done clock)", c.Elapsed, want)
-	}
-	if want := costview.FormatDuration(1000); c.AgentTime != want {
-		t.Errorf("AgentTime = %q, want %q (one 1s dispatch, elapsed not substituted)", c.AgentTime, want)
-	}
-	if len(c.Family) != 1 || c.Family[0].ID != "sty_c" {
-		t.Fatalf("Family = %+v, want only the story child sty_c (no task, no unrelated story)", c.Family)
-	}
-	if c.FamilyTotal == nil || c.FamilyTotal.Band != "low" || c.FamilyTotal.FreshIn != "1100" || c.FamilyTotal.Out != "220" {
-		t.Errorf("FamilyTotal = %+v, want low / 1100 fresh / 220 out", c.FamilyTotal)
-	}
-
-	// Cost is computed BEFORE the timeline reversal: events stay newest-first
-	// and the cost figures are unaffected by that in-place mutation.
-	if len(d.Events) < 2 || d.Events[0].ID != "evt_t2" {
-		t.Errorf("Events[0] = %+v, want the newest sty_p event evt_t2 first", d.Events)
-	}
-
-	// A childless story has a Cost but no family section.
-	leaf, _, err := mirrorLoadDetail(ctx, s, rk, "story", "sty_u")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if leaf.Cost == nil || leaf.Cost.FamilyTotal != nil || len(leaf.Cost.Family) != 0 {
-		t.Errorf("childless story Cost = %+v, want a headline and no family", leaf.Cost)
-	}
-
-	// A task never carries a Cost view (matches the CLI's story-only scope).
-	td, _, err := mirrorLoadDetail(ctx, s, rk, "task", task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if td.Cost != nil {
-		t.Errorf("task detail Cost = %+v, want nil", td.Cost)
-	}
-}

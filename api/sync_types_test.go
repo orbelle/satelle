@@ -65,15 +65,6 @@ func TestEverySyncProtoHasGeneratedOutput(t *testing.T) {
 	for _, p := range protos {
 		name := strings.TrimSuffix(p, ".proto")
 		dir := filepath.Join("..", "internal", "hosted", "syncpb")
-		if name == "board" {
-			if _, err := os.Stat(filepath.Join(dir, "board.pb.go")); err == nil {
-				t.Error("board.proto must not generate into syncpb")
-			}
-			if _, err := os.Stat(filepath.Join("..", "internal", "hosted", "boardpb", "board.pb.go")); err != nil {
-				t.Errorf("board.proto has no generated output in boardpb: %v", err)
-			}
-			continue
-		}
 		if _, err := os.Stat(filepath.Join(dir, name+".pb.go")); err != nil {
 			t.Errorf("%s has no generated output in syncpb: %v", p, err)
 		}

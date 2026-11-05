@@ -47,55 +47,6 @@ func render(t *testing.T, a *app.App, doc docindex.Doc, resolves func(string) bo
 	return buf.String()
 }
 
-// TestWorkflowShowRendersHookAllocation is AC4's named proof: every field the
-// acceptance criterion enumerates is asserted individually, so a dropped column
-// fails by name rather than silently disappearing from the view.
-func TestWorkflowShowRendersHookAllocation(t *testing.T) {
-	a := showFixture(t, `
-[reviewer]
-role    = "reviewer"
-command = "claude -p --disallowedTools Write,Edit --append-system-prompt {system} --model {model}"
-tools   = "Read,Grep,Glob"
-
-[strict-reviewer]
-profile = "catalog-judge"
-effort  = "high"
-`)
-	writeCatalog(t, `
-[profiles.catalog-judge]
-role    = "reviewer"
-command = "claude -p --disallowedTools Write,Edit --append-system-prompt {system} --model {model}"
-tools   = "Read,Grep,Glob"
-model   = "opus"
-`)
-	doc := showDoc("hooks:\n  - operation: create_review\n    skill: strict-create-review\n    agent: strict-reviewer\n")
-	out := render(t, a, doc, func(string) bool { return true })
-
-	agentsFile := filepath.Join(a.DataDir, config.AgentsConfigName)
-	for field, want := range map[string]string{
-		"operation":          "HOOK create_review (verdict)",
-		"skill":              "skill:      strict-create-review",
-		"logical agent":      "agent:      agent=strict-reviewer (declared in hooks)",
-		"resolved profile":   "binding:    local binding [strict-reviewer] over profile catalog-judge",
-		"interface":          "interface:  command (backend isolated:claude)",
-		"model":              "model:      opus",
-		"effort":             "effort:     high",
-		"permission ceiling": `ceiling:    read-only, tools="Read,Grep,Glob"`,
-		"agents source file": agentsFile,
-		"catalog source":     config.GlobalAgentsPath(),
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("%s missing — want %q in:\n%s", field, want, out)
-		}
-	}
-	// Workflow identity + graph shape ride the same view.
-	for _, want := range []string{"WORKFLOW w", "scope:      project", `applies_to: ["*"]`, "kind:       not a route source"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in:\n%s", want, out)
-		}
-	}
-}
-
 // TestWorkflowShowRendersShorthandProvenance pins AC2's display half: the scalar
 // form is shown as the DEFAULT allocation it is, and attributed to the shorthand
 // — an operator can tell a choice from a default.

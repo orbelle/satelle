@@ -7,8 +7,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -30,26 +28,6 @@ type passFixture struct {
 	taken, forked, edited string
 	wants                 map[string][]ledger.Entry
 	pageOnly              bool
-}
-
-func newPassFixture(t *testing.T, pageOnly bool) *passFixture {
-	t.Helper()
-	ts, f := newFakeWorkstateServerWith(t, func(mux *http.ServeMux, _ *fakeWorkstateServer) {
-		mux.HandleFunc("GET /api/v1/projects/{project}/config", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode([]any{})
-		})
-		// A personal scope syncs documents too: rehydrate's documents leg finds none.
-		mux.HandleFunc("GET /api/v1/projects/{project}/documents", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "cursor": ""})
-		})
-	})
-	ids, wants, repo := publishedStoriesOn(t, ts, f, nil, "taken", "forked", "edited")
-	if pageOnly {
-		at := time.Now().Add(time.Hour).UTC()
-		seedHostedFull(f, pageOnlyID, "Page only", "B", "1. x", "backlog", []string{"x"}, at)
-		seedHostedLedger(f, "led_pageonly01", pageOnlyID, ledger.KindStoryCreated, map[string]any{"source": "legacy"}, at)
-	}
-	return &passFixture{ts: ts, f: f, repo: repo, taken: ids[0], forked: ids[1], edited: ids[2], wants: wants, pageOnly: pageOnly}
 }
 
 // fork gives this checkout the forked story's hosted chain up to its creation and
@@ -134,21 +112,4 @@ func chainOf(t *testing.T, chain []ledger.Entry) []ledger.Entry {
 		t.Fatal(err)
 	}
 	return order
-}
-
-// sty_199ad82b AC2: with no chain service a rehydrate seeds nothing: a story the
-// server holds is left without events rather than given a genesis of the pull's.
-func TestRehydrateWithoutAChainServiceAppendsNothing(t *testing.T) {
-	fx := newPassFixture(t, true)
-	fx.f.chain.unreadable = true
-	before := fx.chains(t)
-
-	if out, err := runRoot(t, "sync", "rehydrate", "--server", fx.ts.URL, "--force"); err != nil {
-		t.Fatalf("rehydrate: %v\n%s", err, out)
-	}
-	after := fx.chains(t)
-	if got := after[fx.taken]; len(got) != 0 {
-		t.Errorf("chain of %s = %v, want none: the server could not be read", fx.taken, idsOf(got))
-	}
-	noPassEvents(t, "the rehydrate", fx.known(before), after)
 }

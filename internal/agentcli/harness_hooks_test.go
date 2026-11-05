@@ -18,16 +18,3 @@ func TestCommandFromHookEvent(t *testing.T) {
 		t.Errorf("bad event should yield empty command, got %q", got)
 	}
 }
-
-func TestHarnessHooksSurface(t *testing.T) {
-	if HarnessHooks("").GateMatcher != HarnessHooks(HarnessClaude).GateMatcher {
-		t.Error("an unknown harness must get the claude shape")
-	}
-	cursor := HarnessHooks(HarnessCursor)
-	if !cursor.NoToolMatcher || cursor.GateMatcher != "" || cursor.CommitMatcher != "" {
-		t.Errorf("cursor spec = %+v, want NoToolMatcher with no matchers", cursor)
-	}
-	if !HarnessHooks("pi").HasEvent("Stop") || HarnessHooks(HarnessCursor).HasEvent("UserPromptSubmit") {
-		t.Error("HasEvent disagrees with the per-harness event table")
-	}
-}

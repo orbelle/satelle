@@ -1,1 +1,0 @@
-{"cursor_agent_version":"2026.10.01-e373342","date":"2026-10-10T10:08:46Z","approvalMode":"unrestricted","argv":"cursor-agent -p --trust --force --mode plan --output-format stream-json --model composer-2.5 <ask>","ask":"Create a file named written.txt containing hello, then run the shell command: touch shell.txt . Do both; do not ask."}

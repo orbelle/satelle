@@ -9,17 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/bobmcallan/satelle/internal/agentartifact"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/costview"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/storyfold"
-	"github.com/bobmcallan/satelle/internal/trunk"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -38,14 +35,9 @@ func init() {
 	}
 	// Estimate/actual are story-only: an agent records the plan estimate at
 	// begin-work and the actual cost at close, scoped to the story.
-	Register(&Verb{Name: "story-estimate", Description: "Record a story's plan estimate (fresh-input/output, or legacy tokens/time)", Invoke: storyEstimate})
-	Register(&Verb{Name: "story-actual", Description: "Compute and record a story's actual cost from its ledger", Invoke: storyActual})
-	Register(&Verb{Name: "story-driver-backfill", Description: "Attribute a closed story's driver spend from the session record by its engage..close window, for rows a missing driver-usage reader left unavailable", Invoke: storyDriverBackfill})
 	Register(&Verb{Name: "story-resummarise", Description: "Re-run the step summariser for one edge to close a missing-summary gap", Invoke: storyResummarise, DispatchesReviewer: dispatchesOnResummarise})
-	Register(&Verb{Name: "story-retrospect", Description: "Run the retrospective agent over a finished story to file improvement proposals", Invoke: storyRetrospect, DispatchesReviewer: dispatchesOnRetrospect})
 	// Restamp is story-only too: tasks/executions are unstamped by design
 	// (sty_3800ac23 / sty_ef08ce2a) — they resolve their workflow at gate time.
-	Register(&Verb{Name: "story-restamp", Description: "Re-stamp a story's governing workflow (re-resolve by category, or an explicit workflow)", Invoke: storyRestamp})
 }
 
 // createReq is the request body for story-create / task-create.
@@ -145,7 +137,6 @@ type preparedCreate struct {
 	createDec  GateDecision // recorded on the ledger once the story has an id
 	createTo   string
 	stamped    string
-	trunkRep   trunk.Report // what the start-of-work trunk check found, if it ran
 	ledgerKind string
 	at         time.Time
 	inputs     map[string]any // an execution's typed input values, checked against its task
@@ -179,22 +170,6 @@ func prepareCreate(ctx context.Context, kind workitem.Kind, req createReq, origi
 		return nil, fmt.Errorf("--input applies only to an execution")
 	}
 
-	// Controlled tag vocabulary (sty_034d843c): validate + canonicalise BEFORE
-	// the create reviewer so a typo fails fast (no subprocess) and the
-	// reviewer sees the stored form. Unwired / empty vocab = no-op.
-	if canon, cerr := canonicaliseTags(req.Tags); cerr != nil {
-		return nil, cerr
-	} else {
-		req.Tags = canon
-	}
-	// Category vocabulary (sty_b2315e17): canonical casing always; hard-reject
-	// only when enforce=reject. Warn mode is surfaced on the CLI path.
-	if canon, cerr := canonicaliseCategory(req.Category); cerr != nil {
-		return nil, cerr
-	} else {
-		req.Category = canon
-	}
-
 	// Stamp the GOVERNING workflow on the story at create (sty_3800ac23): the
 	// chosen workflow is recorded as a workflow:<name> tag so gating reads the
 	// choice thereafter rather than re-deriving it by category. Independent of
@@ -215,14 +190,6 @@ func prepareCreate(ctx context.Context, kind workitem.Kind, req createReq, origi
 			p.stamped = wf
 			tags = append(tags, "workflow:"+wf)
 		}
-	}
-
-	// A story is never ready when it is created (sty_6e3ffa2f): only an accepted
-	// readiness round sets the route's readiness mark, so a create carrying it is
-	// refused before the reviewer runs or anything is stored.
-	draft := workitem.Item{Kind: kind, Category: req.Category, ParentID: req.ParentID, Tags: tags}
-	if err := refuseUnheldReadinessMark(ctx, draft, tags); err != nil {
-		return nil, err
 	}
 
 	// Required-structure gate: when a repo opts in, an isolated reviewer
@@ -260,18 +227,6 @@ func prepareCreate(ctx context.Context, kind workitem.Kind, req createReq, origi
 		}
 	}
 
-	// A proposal naming an epic that already closed is filed without that tag,
-	// with a body note naming the container (sty_9f4f8e12).
-	if kind == workitem.KindStory {
-		tags, req.Body = dropClosedEpicTags(ctx, req.Category, tags, req.Body)
-		// depends-on:<story id> must name a story in the same epic set. The
-		// check reads the FINAL tags; there is no id yet, so only the not-a-
-		// story and outside-the-set refusals can apply.
-		if err := checkDependsOn(ctx, store, "", req.ParentID, tags); err != nil {
-			return nil, err
-		}
-	}
-
 	// Single-story process rule (sty_c7149f8a): refuse creating a story already
 	// in an engaging status when another story occupies that seat. Default
 	// create status is backlog (not engaging) — no-op unless create opts a
@@ -290,20 +245,6 @@ func prepareCreate(ctx context.Context, kind workitem.Kind, req createReq, origi
 		}
 		if err := refuseSecondEngagingStory(ctx, "", status, provisional); err != nil {
 			return nil, err
-		}
-		// A child created straight into an engaging status needs its epic
-		// readied first (sty_a476b913), refused before the row exists.
-		if entry, ok := storyEntryState(ctx, provisional); ok {
-			if err := refuseUnreadiedEpic(ctx, provisional, entry, status); err != nil {
-				return nil, err
-			}
-		}
-		// Start-of-work trunk check (sty_9f3e51d1): before the story row, the
-		// lease and the baseline, so a refusal leaves nothing behind and the
-		// baseline records the fast-forwarded HEAD.
-		var terr error
-		if p.trunkRep, terr = checkTrunkAtEngage(ctx, provisional, status, fmt.Sprintf("create into %s", status)); terr != nil {
-			return nil, terr
 		}
 	}
 	p.req = req
@@ -363,7 +304,6 @@ func (p *preparedCreate) finish(ctx context.Context, it workitem.Item) (json.Raw
 		}
 		appendLedgerEntry(ctx, it.ID, p.ledgerKind, p.origin.Actor, fmt.Sprintf("created %s %q", kind, it.Title), createdPayload, now)
 	}
-	recordTrunkCheck(ctx, it.ID, p.trunkRep, now)
 	if kind == workitem.KindStory {
 		RecordSessionModel(ctx, it.ID, "", SessionModelRoleCreator, p.origin.Model, p.origin.ModelExe, p.origin.SessionID, p.origin.Reason)
 	}
@@ -371,10 +311,6 @@ func (p *preparedCreate) finish(ctx context.Context, it workitem.Item) (json.Raw
 		appendLedger(ctx, it.ID, ledger.KindWorkflowStamped,
 			fmt.Sprintf("governing workflow: %s", p.stamped), now)
 	}
-	// Create-straight-into-engaging: record engagement baseline (sty_da169e03).
-	maybeRecordEngagementBaseline(ctx, it, "", it.Status, now)
-	appendOpLog(string(kind)+"-create", it.ID,
-		fmt.Sprintf("status: %s; tags: [%s]", it.Status, strings.Join(it.Tags, ",")), now)
 	// A task/execution is authored substrate — materialise its file (the source
 	// of truth): a task header flat, an execution run under its task's folder
 	// (sty_c1f9e74c, sty_ef08ce2a). A no-op for stories.
@@ -476,8 +412,7 @@ type setReq struct {
 // worktree-divergence report (sty_d6e209aa) here, at the one seam every refusal
 // of the transition passes through, so no refusal site needs its own copy.
 func workItemSet(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	out, err := workItemSetCore(ctx, raw)
-	return out, annotateProcessRefusal(raw, err)
+	return workItemSetCore(ctx, raw)
 }
 
 func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -520,44 +455,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		merged := applyTagMutation(current.Tags, req.AddTags, req.RemoveTags)
 		req.Tags = &merged
 	}
-	// Controlled tag vocabulary (sty_034d843c): validate the FINAL effective set
-	// after add/remove merge or full-replace. Canonicalise so stored casing matches
-	// config (exact-equality list --tag keeps working). Unwired / empty = no-op.
-	if req.Tags != nil {
-		canon, cerr := canonicaliseTags(*req.Tags)
-		if cerr != nil {
-			return nil, cerr
-		}
-		req.Tags = &canon
-		// The readiness mark is set only by an accepted readiness round
-		// (sty_6e3ffa2f): the final set, whether merged or replaced, may not
-		// newly carry it while the story's readiness does not hold.
-		if err := refuseUnheldReadinessMark(ctx, current, canon); err != nil {
-			return nil, err
-		}
-		// depends-on:<story id> validation (the story-level epic edge): the final
-		// effective set must name stories in this story's epic set, with no
-		// self-edge and no cycle.
-		if current.Kind == workitem.KindStory {
-			parent := current.ParentID
-			if req.ParentID != nil {
-				parent = *req.ParentID
-			}
-			if err := checkDependsOn(ctx, store, current.ID, parent, canon); err != nil {
-				return nil, err
-			}
-		}
-	}
-	// Category vocabulary (sty_b2315e17): canonicalise BEFORE definition freeze so
-	// a casing-only --category change is not treated as a definition mutation.
-	if req.Category != nil {
-		canon, cerr := canonicaliseCategory(*req.Category)
-		if cerr != nil {
-			return nil, cerr
-		}
-		req.Category = &canon
-	}
-
 	// Definition freeze (sty_b572537f): once a STORY passes its workflow's freeze
 	// point, title/body/acceptance_criteria/category are immutable. The point is
 	// route configuration — the step that declares `freeze`, else the entry state
@@ -577,16 +474,8 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			}
 			if !editable {
 				return nil, fmt.Errorf(
-					"satelle: refusing to change frozen definition field(s) [%s] on engaged story %s (status %q; %s) — title/body/acceptance_criteria/category are immutable once a story passes that point; status/estimate/actual/tags/priority/attachments are unaffected. To CORRECT a wrong definition mid-flight, use `satelle story amend %s --reason …`, which is judged by the repo's amend gate and records the before/after on the ledger",
-					strings.Join(frozen, ", "), current.ID, current.Status, boundary, current.ID)
-			}
-			definitionEdits = amendFields(current, amendReq{
-				Title: req.Title, Body: req.Body, AcceptanceCriteria: req.AcceptanceCriteria, Category: req.Category,
-			})
-			// An edit still in the entry state is a new definition: the create
-			// gate judges it, before anything is written (sty_a8885220).
-			if err := runEditCreateGate(ctx, current, definitionEdits, now); err != nil {
-				return nil, err
+					"satelle: refusing to change frozen definition field(s) [%s] on engaged story %s (status %q; %s) — title/body/acceptance_criteria/category are immutable once a story passes that point; status/estimate/actual/tags/priority/attachments are unaffected.",
+					strings.Join(frozen, ", "), current.ID, current.Status, boundary)
 			}
 		}
 	}
@@ -618,16 +507,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if err := refuseSkippedStep(ctx, current, *req.Status); err != nil {
 			return nil, err
 		}
-		// Fail fast on an epic-parent close over open members, before a reviewer
-		// is paid for; the same check re-runs at the commit below.
-		if err := refuseOpenEpicChildren(ctx, current, *req.Status); err != nil {
-			return nil, err
-		}
-		// A container's merge-style step waits on its children's own obligation;
-		// refused here, before any gate is paid for or seat taken.
-		if err := refuseUndischargedChildren(ctx, current, *req.Status); err != nil {
-			return nil, err
-		}
 	}
 
 	// Engage precondition (sty_93eec36d): when a story leaves its workflow entry
@@ -656,24 +535,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// engaged (sty_931026b3).
 	leaseOnMove := transitioning && current.Kind.Leasable()
 	if leaseOnMove || sameStatusReengage {
-		// Step-edge stop arbitration (AC5): a pending stop request refuses forward
-		// engaging moves; park/terminal remain open.
-		if transitioning {
-			if err := stopRequestBlocksForward(ctx, current, *req.Status); err != nil {
-				return nil, err
-			}
-			// A close releases the seat that permits committing the slice: refuse it
-			// while this story's own tree holds gated uncommitted changes. Before the
-			// lease, the abort guard, the gate and the dispatch, so a refusal changes
-			// nothing. A run's close or cancel is never held: satelle ends its own
-			// runs (substrate review, task runs) in a tree whose changes belong to
-			// the story being worked there.
-			if current.Kind != workitem.KindExecution {
-				if err := refuseDirtyClose(ctx, current, *req.Status); err != nil {
-					return nil, err
-				}
-			}
-		}
 		// Assignee notice (sty_8ccaa906, sty_40853d02): an assignment says who is
 		// expected to work the story; it never blocks an engage. Non-engaging moves
 		// (park, cancel, field edits) say nothing.
@@ -758,64 +619,12 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// edge is governed by a reviewer skill. A reject blocks the whole set and
 	// pushes the reviewer's notes back to the executor; an ungated edge enacts.
 	gatedAccepted := false
-	// Verdicts carried past the gate block so the route document can append this
-	// step's outcome AFTER the transition commits (sty_39e2d9df). A local, not a
-	// signature change: the reasoning belongs on the same artifact as the route.
-	var routeVerdicts []ReviewerVerdict
-	var routeUnresolved []string
 	//
-	// Round budget (sty_5262592e): an edge whose destination step declares a
-	// reject_budget refuses another presentation once that many have been
-	// rejected — before any performer or reviewer is paid for. The count is a
-	// ledger enumeration; the budget and the wording of the ask are route data.
-	// Readiness reuse (sty_a32bd6a9): a presented readiness edge whose readiness was
-	// accepted and still holds runs neither its performer nor its reviewers, so no
-	// presentation is made and the round budget has nothing to refuse.
-	readinessReused := ""
-	if transitioning {
-		readinessReused = readinessReusable(ctx, current, *req.Status)
-	}
-	if transitioning {
-		if readinessReused == "" {
-			if err := refuseSpentRejectBudget(ctx, current, *req.Status); err != nil {
-				return nil, err
-			}
-		}
-		// Start-of-work trunk check (sty_9f3e51d1): on the first entry into an
-		// engaging state, with the seat held and before any performer or gate
-		// runs, so a fast-forward cannot race a reviewer and the baseline
-		// recorded at the commit below is the updated HEAD. A refusal returns
-		// here, so the abort guard frees the seat and the story stays put.
-		if _, err := checkTrunkAtEngage(ctx, current, *req.Status,
-			fmt.Sprintf("transition %s→%s", current.Status, *req.Status)); err != nil {
-			return nil, err
-		}
-		// Apply the accepted document's criteria (sty_4d9df9a0) while the
-		// definition is still editable, and rebind current so the performer and
-		// every reviewer below read the applied text, not the stale snapshot.
-		applied, err := applyPlannedCriteria(ctx, current, *req.Status, now)
-		if err != nil {
-			return nil, err
-		}
-		current = applied
-	}
-	// Entering a wait step queues the story at the branch and head sha its tree
-	// stands at. Read before the gates, so the entry names what they judged and an
-	// unreadable tree refuses before any reviewer is paid for; appended with the
-	// transition below.
-	var queued *ledger.QueueEnqueuedPayload
-	if transitioning && targetIsWaitState(ctx, current, *req.Status) {
-		entry, qerr := resolveQueueEntry(ctx, current, *req.Status)
-		if qerr != nil {
-			return nil, qerr
-		}
-		queued = &entry
-	}
 	// Propose (sty_5262592e): a destination step that declares `propose` runs
 	// its performer BEFORE the entry gates, on the source status, so the gates
 	// judge what the performer produced. The route declares the order; this only
 	// sequences the two calls below.
-	proposeFirst := transitioning && stepProposes(ctx, current, *req.Status)
+	proposeFirst := false
 	// One attempt id per presentation, stamped on every verdict row a gate run
 	// writes, so a rejected ROUND is countable however many reviewers ran. A
 	// readiness (propose) round creates it up front so its performer rows carry it
@@ -824,13 +633,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	if proposeFirst {
 		attempt = ledger.NewAttemptID()
 	}
-	// readinessMark is the tag an accepted readiness round puts on the story, once
-	// the transition has committed (sty_a32bd6a9); empty when none was accepted or
-	// the step declares no mark.
-	readinessMark := ""
-	// readinessAdvise is the advisors an accepted readiness round that was the
-	// repo's first on an epic-parent prompts the orchestrator to run.
-	var readinessAdvise []string
 	runGate := func() error {
 		if !(transitioning && transitionGater != nil) {
 			return nil
@@ -845,7 +647,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if len(round.Reviewers) > 0 {
 			gatedAccepted = true
 		}
-		routeVerdicts, routeUnresolved = round.Reviewers, round.Unresolved
 		return nil
 	}
 
@@ -893,32 +694,11 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 	// for a `propose` step — performer then gates, so the gate payload carries the
 	// artifact the performer just attached. A failure at either call leaves the
 	// story at its source status, and the deferred guard frees the seat.
-	if proposeFirst && readinessReused != "" {
-		// The readiness accepted in that attempt still holds: neither the performer
-		// nor the reviewers run again (sty_a32bd6a9).
-		recordReadinessReuse(ctx, current, current.Status, *req.Status, readinessReused)
-	} else if proposeFirst {
-		first := firstEpicReadiness(ctx, current)
-		if out, perr := performStep(); out != nil || perr != nil {
-			return out, perr
-		}
-		if gerr := runGate(); gerr != nil {
-			return nil, gerr
-		}
-		step, advisors, _ := destinationStep(ctx, current, *req.Status)
-		if recordReadinessAccept(ctx, current, current.Status, *req.Status, attempt, readinessEdge{To: *req.Status, Step: step}.name()) {
-			readinessMark = step.Mark
-			if first {
-				readinessAdvise = epicAdvice(*req.Status, advisors)
-			}
-		}
-	} else {
-		if gerr := runGate(); gerr != nil {
-			return nil, gerr
-		}
-		if out, perr := performStep(); out != nil || perr != nil {
-			return out, perr
-		}
+	if gerr := runGate(); gerr != nil {
+		return nil, gerr
+	}
+	if out, perr := performStep(); out != nil || perr != nil {
+		return out, perr
 	}
 
 	// Park origin (sty_f75286dc): stamp authoritative resume-to origin when
@@ -951,16 +731,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		// judged; a late write built on a stale read loses instead of clobbering.
 		ExpectStatus: &current.Status,
 	}
-	// The commit re-reads the epic set: gates and a performer ran since the first
-	// check, and a member may have been filed in that window (sty_9f4f8e12).
-	if transitioning {
-		if err := refuseOpenEpicChildren(ctx, current, *req.Status); err != nil {
-			return nil, err
-		}
-		if err := refuseUndischargedChildren(ctx, current, *req.Status); err != nil {
-			return nil, err
-		}
-	}
 	// Everything below is the commit. The gates and the dispatched step ran for
 	// minutes since `now` was taken, and rows attached live in that window
 	// (documents, session invocations) carry real wall-clock time. Stamp the
@@ -987,10 +757,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 				Body:    fmt.Sprintf("%s → %s", current.Status, *req.Status),
 				Payload: attemptPayload(current.Status, *req.Status, "", parkAttemptFrom(ctx)),
 			}, commitNow)
-			if aerr != nil || queued == nil {
-				return aerr
-			}
-			_, aerr = ledgerStore.WithTx(tx).Append(ctx, queueEnqueuedInput(*queued), commitNow)
 			return aerr
 		})
 		if err != nil {
@@ -1028,12 +794,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 				storyUpdatedPayloadFor(editor, definitionEdits, tagEdit), commitNow)
 		}
 	}
-	recordDefinitionEdits(ctx, it, definitionEdits, editor, commitNow)
-	// An accepted readiness round marks the story once it has committed, with the
-	// tag the step declares (sty_a32bd6a9). Best-effort: the round is on the ledger.
-	if readinessMark != "" {
-		_ = markReady(ctx, it.ID, readinessMark)
-	}
 	// Release the seat on transition into terminal (Msquare) or park (agent=reviewer).
 	// Force-release: exit is config-driven and must free the seat even when the
 	// exit CLI process is not the acquire-time owner (default owner is stable
@@ -1045,11 +805,7 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		// Engaging (or other non-exit) commit: settle lease state + clear in_flight.
 		engaging, ok := storyStatusIsEngaging(ctx, it, *req.Status)
 		if ok && engaging {
-			// A container waiting on open children took no lease
-			// (acquireEngagementLease, sty_56648ae5): there is no row to confirm.
-			if !waitsOnOpenChildrenAt(ctx, it, *req.Status) {
-				confirmEngagementLease(ctx, it.ID, *req.Status)
-			}
+			confirmEngagementLease(ctx, it.ID, *req.Status)
 			settled = true
 		} else {
 			// Non-engaging, non-exit target (a declared move back out of the
@@ -1074,14 +830,7 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			appendLedgerEntry(ctx, it.ID, ledger.KindStatusTransition, "executor",
 				fmt.Sprintf("%s → %s", current.Status, *req.Status),
 				attemptPayload(current.Status, *req.Status, "", parkAttemptFrom(ctx)), commitNow)
-			if queued != nil && ledgerStore != nil {
-				_, _ = ledgerStore.Append(ctx, queueEnqueuedInput(*queued), commitNow)
-			}
 		}
-		// First entry into an engaging state: record engagement baseline once
-		// (sty_da169e03). Enumerates git HEAD for later satelle story diff;
-		// never a verdict. Idempotent across park/resume.
-		maybeRecordEngagementBaseline(ctx, it, current.Status, *req.Status, commitNow)
 		// Every move into a performing state is visible on the ledger
 		// (sty_40853d02, sty_9c782f0e): one working_on row, after the transition
 		// that made it, whether or not the move took a seat. A move that did not
@@ -1094,35 +843,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if engaging, ok := storyStatusIsEngaging(ctx, it, *req.Status); ok && engaging {
 			recordEngageSessionModel(ctx, it.ID)
 		}
-		// Say once, on stderr, when the gates this story now runs under are not
-		// (or may not be) the repository's authored ones (sty_d6e209aa).
-		reportProcessAtEngage(ctx, it, current.Status, *req.Status)
-		// The driving session's measured usage at this transition (sty_81caa41b):
-		// a snapshot from the harness's own session record, delta-ed against the
-		// last snapshot for this session. Best-effort, like the change set below.
-		recordDriverUsage(ctx, it, current.Status, *req.Status, commitNow)
-		// On reaching a terminal state (by shape, never park — architecture
-		// revision A4, sty_8eae81ac), compute and persist the actual from the
-		// ledger, AFTER the driver-usage row above so it is included in the
-		// total. Right after the guarded write commits, never before it, so a
-		// transient failure here cannot poison the transition's own CAS
-		// (TestTransitionAppendFailureRollsBackRow). Best-effort: a computation
-		// failure is recorded, never reverts the already-enacted transition.
-		if targetIsTerminalStateOnly(ctx, it, *req.Status) {
-			if actualIt, aerr := recordActual(ctx, it, commitNow); aerr == nil {
-				it = actualIt
-			} else {
-				appendLedgerEntry(ctx, it.ID, ledger.KindActualRecorded, "executor",
-					"actual computation failed: "+aerr.Error(), nil, commitNow)
-			}
-		}
-		// Record the change set for the step just closed (sty_948ad5df).
-		// Enumeration only; best-effort; never blocks the transition.
-		recordChangeSet(ctx, it, current.Status, *req.Status, commitNow)
-		// Write the route forward (sty_39e2d9df): re-render the plan half so the
-		// "you are here" marker is current, and APPEND this step's verdicts and
-		// reviewer reasoning to the same artifact. Best-effort, like the change set.
-		recordRoute(ctx, it, current.Status, *req.Status, routeVerdicts, routeUnresolved, commitNow)
 		// After a GATED transition is enacted, the read-only summariser recaps the
 		// step into a step_summary row — but ONLY where the active workflow declares
 		// a step-summary node (transparent opt-in; sty_9a139c78). The transition
@@ -1131,13 +851,6 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		if gatedAccepted && stepSummariser != nil {
 			result, serr := stepSummariser.Summarise(ctx, it, current.Status, *req.Status)
 			recordStepSummary(ctx, it, current.Status, *req.Status, result, serr, commitNow)
-		}
-		// On reaching the terminal state, surface (NON-BLOCKING) any mandatory
-		// step-summary that never produced its doc — a silent hole in the pull-context
-		// chain a dispatched coder reads (sty_a1151fb0). The transition still stands;
-		// the gap is made loud + fixable, not reverted.
-		if *req.Status == "done" && stepSummariser != nil && stepSummariser.MandatorySummary(ctx, it) {
-			surfaceMissingSummaries(ctx, it, commitNow)
 		}
 	} else if !foldable(it) {
 		ledgerKind := ledger.KindStoryUpdated
@@ -1157,31 +870,12 @@ func workItemSetCore(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 			it = rebuilt
 		}
 	}
-	// Mirror the mutation to the flat operation log (sty_be257fef): the status
-	// transition and/or the tag before/after, so a read-only reviewer can verify a
-	// DB change (a sprint/order reconciliation, a status move) from a file.
-	detail := ""
-	if transitioning {
-		detail = fmt.Sprintf("status: %s -> %s", current.Status, *req.Status)
-	}
-	if td := tagsChanged(current.Tags, it.Tags); td != "" {
-		if detail != "" {
-			detail += "; "
-		}
-		detail += td
-	}
-	if detail != "" {
-		appendOpLog(string(it.Kind)+"-set", it.ID, detail, now)
-	}
 	// Keep the task/execution file (the source of truth) current; a no-op for
 	// stories (sty_c1f9e74c, sty_ef08ce2a).
 	if err := writeItemFile(it); err != nil {
 		return nil, fmt.Errorf("write item file: %w", err)
 	}
 	notifyChange(panelTopic(it.Kind))
-	if len(readinessAdvise) > 0 {
-		return json.Marshal(SetResult{Item: it, Advise: readinessAdvise})
-	}
 	return json.Marshal(it)
 }
 
@@ -1211,13 +905,6 @@ func staleWriteError(current workitem.Item, target *string, err error) error {
 		attempt, current.ID, err, current.ID)
 }
 
-// restampReq is the request body for story-restamp: the story id and an optional
-// explicit workflow name (empty re-resolves from the story's current category).
-type restampReq struct {
-	ID       string `json:"id"`
-	Workflow string `json:"workflow,omitempty"`
-}
-
 // afterTagCASGetHook runs after a tags-only writer (storyEstimate / recordActual
 // / storyRestamp) has Get'd the row and before it Update's with ExpectStatus. Tests inject a
 // SetStatus here to prove the CAS refuses when the row moved under the verb
@@ -1234,308 +921,6 @@ func runAfterTagCASGet(ctx context.Context, id, statusAtGet string) {
 	if afterTagCASGetHook != nil {
 		afterTagCASGetHook(ctx, id, statusAtGet)
 	}
-}
-
-// storyRestamp re-stamps the governing workflow on an existing story
-// (sty_ed3386cf) — the first-class replacement for a hand-edited tag list. It
-// re-resolves from the story's CURRENT category through the same seam create
-// uses (or stamps an explicit workflow), validates the target before enacting
-// (the workflow must resolve, and the story's current status must be a state it
-// declares), upserts the workflow: tag leaving every other tag intact, and
-// records the change on the ledger and the operation log. Stories only: a task
-// header has no running lifecycle and an execution resolves kind-awarely at gate
-// time — stamping either is exactly what the stamp design forbids.
-func storyRestamp(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	store, err := requireWorkItem()
-	if err != nil {
-		return nil, err
-	}
-	var req restampReq
-	if err := decode(raw, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, fmt.Errorf("verb: id required")
-	}
-	current, err := storyStateHealed(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	if current.Kind != workitem.KindStory {
-		return nil, fmt.Errorf("verb: restamp is story-only — a %s is not stamped (it resolves its workflow kind-awarely at gate time)", current.Kind)
-	}
-	if workflowResolver == nil {
-		return nil, fmt.Errorf("verb: no workflow resolver wired — cannot restamp")
-	}
-	target := req.Workflow
-	if target == "" {
-		var werr error
-		if target, werr = workflowResolver.WorkflowNameFor(ctx, current.Category); werr != nil {
-			return nil, werr
-		} else if target == "" {
-			return nil, fmt.Errorf("verb: no workflow governs category %q — pass --workflow", current.Category)
-		}
-	}
-	states, resolved, serr := workflowResolver.WorkflowStates(ctx, target)
-	if serr != nil {
-		return nil, serr
-	}
-	if !resolved {
-		return nil, fmt.Errorf("verb: workflow %q does not resolve in the substrate", target)
-	}
-	if len(states) > 0 && !containsState(states, current.Status) {
-		return nil, fmt.Errorf("verb: story status %q is not a state of workflow %q (states: %s) — re-stamp at a compatible point",
-			current.Status, target, strings.Join(states, ", "))
-	}
-	old := workflowStamp(current.Tags)
-	if old == target {
-		return json.Marshal(current) // already governed by the target — nothing to enact
-	}
-	merged := upsertKeyedTags(current.Tags, map[string]string{"workflow": target})
-	now := time.Now()
-	// Tags-only write with CAS (sty_38915987): refuse if the row moved under us
-	// rather than land adjacent to a silent status revert. Never sets status.
-	runAfterTagCASGet(ctx, req.ID, current.Status)
-	it, err := store.Update(ctx, req.ID, workitem.UpdateInput{
-		Tags: &merged, ExpectStatus: &current.Status,
-	}, now)
-	if err != nil {
-		return nil, err
-	}
-	appendTagChange(ctx, it.ID, current.Tags, it.Tags, "story-restamp", "executor", now)
-	oldLabel := old
-	if oldLabel == "" {
-		oldLabel = "(unstamped)"
-	}
-	appendLedger(ctx, it.ID, ledger.KindWorkflowStamped,
-		fmt.Sprintf("governing workflow re-stamped: %s -> %s", oldLabel, target), now)
-	if rebuilt, rerr := rebuildCache(ctx, it.ID); rerr == nil {
-		it = rebuilt
-	}
-	if td := tagsChanged(current.Tags, it.Tags); td != "" {
-		appendOpLog("story-restamp", it.ID, td, now)
-	}
-	notifyChange(panelTopic(it.Kind))
-	return json.Marshal(it)
-}
-
-// containsState reports whether states holds s.
-func containsState(states []string, s string) bool {
-	for _, st := range states {
-		if st == s {
-			return true
-		}
-	}
-	return false
-}
-
-// estimateReq is the request body for story-estimate: a plan estimate in
-// fresh-input + output tokens, or the legacy --tokens/--time units kept for
-// stories already written in them. A dollar figure is not an estimate and is
-// not a field here. Never accepted by story-actual: the actual is computed
-// from the ledger, never hand-entered — see actualReq.
-type estimateReq struct {
-	ID   string `json:"id"`
-	Time string `json:"time,omitempty"`
-	// Tokens is the legacy unit: a bare token count with no fresh/output split.
-	// Kept readable and writable, never converted into fresh_input — a different
-	// unit is never silently treated as this one.
-	Tokens     int    `json:"tokens,omitempty"`
-	FreshInput int    `json:"fresh_input,omitempty"`
-	Output     int    `json:"output,omitempty"`
-	Basis      string `json:"basis,omitempty"`
-}
-
-// storyEstimate records a story's plan estimate as tags —
-// estimate-fresh-input/estimate-output, and/or the legacy estimate-minutes/
-// estimate-tokens — preserving every other tag, and appends an
-// estimate_recorded ledger row carrying the same fields with their units.
-// A stored estimate-usd tag is left as stored; this verb does not write one.
-func storyEstimate(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	store, err := requireWorkItem()
-	if err != nil {
-		return nil, err
-	}
-	var req estimateReq
-	if err := decode(raw, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, fmt.Errorf("verb: id required")
-	}
-	if req.Tokens <= 0 && req.Time == "" && req.FreshInput <= 0 && req.Output <= 0 {
-		return nil, fmt.Errorf("verb: estimate requires at least one of --fresh-input/--output, --time, or the legacy --tokens")
-	}
-	current, err := storyStateHealed(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	kv := map[string]string{}
-	if req.Tokens > 0 {
-		kv["estimate-tokens"] = strconv.Itoa(req.Tokens) // legacy unit — never fresh_input
-	}
-	if req.Time != "" {
-		d, perr := parseCostDuration(req.Time)
-		if perr != nil {
-			return nil, perr
-		}
-		kv["estimate-minutes"] = strconv.Itoa(costview.WholeMinutes(d))
-	}
-	if req.FreshInput > 0 {
-		kv["estimate-fresh-input"] = strconv.Itoa(req.FreshInput)
-	}
-	if req.Output > 0 {
-		kv["estimate-output"] = strconv.Itoa(req.Output)
-	}
-	merged := upsertKeyedTags(current.Tags, kv)
-	now := time.Now()
-	// Tags-only write with CAS (sty_38915987): estimate never sets status, and
-	// refuses if the row moved under the Get→Update window.
-	runAfterTagCASGet(ctx, req.ID, current.Status)
-	it, err := store.Update(ctx, req.ID, workitem.UpdateInput{
-		Tags: &merged, ExpectStatus: &current.Status,
-	}, now)
-	if err != nil {
-		return nil, err
-	}
-	body := fmt.Sprintf("estimate recorded: %s", joinKeyedTags(kv))
-	if req.Basis != "" {
-		body += " (basis: " + req.Basis + ")"
-	}
-	payload, _ := json.Marshal(kv)
-	appendTagChange(ctx, it.ID, current.Tags, it.Tags, "story-estimate", "executor", now)
-	appendLedgerEntry(ctx, it.ID, ledger.KindEstimateRecorded, "executor", body, payload, now)
-	if rebuilt, rerr := rebuildCache(ctx, it.ID); rerr == nil {
-		it = rebuilt
-	}
-	appendOpLog("story-estimate", it.ID, body, now)
-	notifyChange(panelTopic(it.Kind))
-	return json.Marshal(it)
-}
-
-// actualReq is the request body for story-actual: the story id ALONE. Any
-// cost figure in the request is refused (sty_8eae81ac AC1) — the actual is
-// computed from the ledger (ComputeStoryActual), never hand-entered; a driver
-// or gate that used to pass --tokens/--time gets a clear refusal naming the
-// replacement instead of a silently ignored figure.
-type actualReq struct {
-	ID         string  `json:"id"`
-	Time       string  `json:"time,omitempty"`
-	Tokens     int     `json:"tokens,omitempty"`
-	USD        float64 `json:"usd,omitempty"`
-	FreshInput int     `json:"fresh_input,omitempty"`
-	Output     int     `json:"output,omitempty"`
-}
-
-// storyActual computes the story's actual from its ledger (ComputeStoryActual)
-// and writes it: actual-fresh-input/actual-output/actual-cache-read/
-// actual-cache-write, actual-cost (low/medium/high, only when tokens were
-// measured), actual-cost-unavailable-rows and actual-unsplit-input (each only
-// when non-zero), actual-minutes and — for the summary tag the close-out gate
-// greps — actual-tokens (fresh input + unsplit input + output + cache write;
-// cache read excluded, since it is reused context, not new work). Computed
-// keys replace a prior value of the same key (sty_218fb3a3 regression: a
-// computed figure always wins over a stale manual one). A stored actual-usd
-// tag is left as stored — this verb does not write one. Records the full
-// StoryActual as the actual_recorded ledger payload.
-func storyActual(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if _, err := requireWorkItem(); err != nil {
-		return nil, err
-	}
-	var req actualReq
-	if err := decode(raw, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, fmt.Errorf("verb: id required")
-	}
-	if req.Time != "" || req.Tokens > 0 || req.USD > 0 || req.FreshInput > 0 || req.Output > 0 {
-		return nil, fmt.Errorf("verb: actual is computed from the ledger — run `satelle story actual %s` with no figures", req.ID)
-	}
-	current, err := storyStateHealed(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	it, err := recordActual(ctx, current, time.Now())
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(it)
-}
-
-// recordActual computes current's actual from the ledger and writes the
-// actual-* tags plus the actual_recorded payload (sty_8eae81ac AC1/AC2/AC3).
-// Shared by the story-actual verb and the post-commit terminal-transition hook
-// (architecture revision A4) so an actual is written from exactly one place.
-func recordActual(ctx context.Context, current workitem.Item, at time.Time) (workitem.Item, error) {
-	store, err := requireWorkItem()
-	if err != nil {
-		return workitem.Item{}, err
-	}
-	actual, err := ComputeStoryActual(ctx, current.ID)
-	if err != nil {
-		return workitem.Item{}, err
-	}
-	tot := actual.Total
-	// The summary token tag records its sum even when no row measured usage.
-	tokens, _ := costview.ActualFor(costview.UnitTokens, tot)
-	kv := map[string]string{
-		"actual-output":      strconv.Itoa(tot.Output),
-		"actual-cache-read":  strconv.Itoa(tot.CacheRead),
-		"actual-cache-write": strconv.Itoa(tot.CacheWrite),
-		"actual-tokens":      strconv.Itoa(tokens),
-	}
-	// A story that never entered an engaging state has no span: "unavailable",
-	// never a bogus negative minute count (sty_b8542a3a rework).
-	if minutes, ok := costview.ActualFor(costview.UnitMinutes, tot); ok {
-		kv["actual-minutes"] = strconv.Itoa(minutes)
-	} else {
-		kv["actual-minutes"] = "unavailable"
-	}
-	// A band is written only when tokens were measured. CostBand is empty when
-	// no row reported usage; a measured zero is low. Dollars and elapsed time
-	// are not inputs. The display word "unavailable" is not a tag.
-	if band := tot.CostBand(); band != "" {
-		kv["actual-cost"] = band
-	}
-	if tot.CostUnavailableRows > 0 {
-		kv["actual-cost-unavailable-rows"] = strconv.Itoa(tot.CostUnavailableRows)
-	}
-	// actual-fresh-input is the split-only figure; when every input row was
-	// unsplit (no adapter-reported fresh/cache split at all) there is no split
-	// figure to report, so say so rather than showing a false zero.
-	if tot.FreshInput == 0 && tot.UnsplitTokens > 0 {
-		kv["actual-fresh-input"] = "unavailable"
-	} else {
-		kv["actual-fresh-input"] = strconv.Itoa(tot.FreshInput)
-	}
-	if tot.UnsplitTokens > 0 {
-		kv["actual-unsplit-input"] = strconv.Itoa(tot.UnsplitTokens)
-	}
-	merged := upsertKeyedTags(current.Tags, kv)
-	// No measured tokens means no band. upsertKeyedTags only replaces keys it
-	// is given, so a prior actual-cost tag would otherwise survive a re-record
-	// whose ledger no longer measured usage.
-	if _, wrote := kv["actual-cost"]; !wrote {
-		merged = dropKeyedTag(merged, "actual-cost")
-	}
-	runAfterTagCASGet(ctx, current.ID, current.Status)
-	it, err := store.Update(ctx, current.ID, workitem.UpdateInput{
-		Tags: &merged, ExpectStatus: &current.Status,
-	}, at)
-	if err != nil {
-		return workitem.Item{}, err
-	}
-	body := fmt.Sprintf("actual recorded: %s", joinKeyedTags(kv))
-	payload, _ := json.Marshal(actual)
-	appendTagChange(ctx, it.ID, current.Tags, it.Tags, "story-actual", "executor", at)
-	appendLedgerEntry(ctx, it.ID, ledger.KindActualRecorded, "executor", body, payload, at)
-	if rebuilt, rerr := rebuildCache(ctx, it.ID); rerr == nil {
-		it = rebuilt
-	}
-	appendOpLog("story-actual", it.ID, body, at)
-	notifyChange(panelTopic(it.Kind))
-	return it, nil
 }
 
 // recordStepSummary writes the outcome of a step-summary run to the ledger, and on
@@ -1623,8 +1008,6 @@ func surfaceMissingSummaries(ctx context.Context, item workitem.Item, now time.T
 		b.WriteString(fmt.Sprintf("\n  satelle story resummarise %s --from %s --to %s", item.ID, g[0], g[1]))
 	}
 	appendLedgerEntry(ctx, item.ID, ledger.KindStepSummary, "executor", b.String(), nil, now)
-	appendOpLog("story-summary-gap", item.ID, b.String(), now)
-	notifyChange(panelTopic(item.Kind))
 }
 
 // storyResummarise re-runs the step summariser for exactly one edge and records the
@@ -1663,114 +1046,6 @@ func storyResummarise(ctx context.Context, raw json.RawMessage) (json.RawMessage
 		return nil, fmt.Errorf("resummarise %s→%s produced no summary (the workflow may not declare a step-summary node)", req.From, req.To)
 	}
 	return json.Marshal(map[string]any{"story_id": it.ID, "from": req.From, "to": req.To, "resummarised": true})
-}
-
-// storyRetrospect dispatches the retrospective advisor over a finished story or
-// container (sty_b53730e2, sty_da018b06): the route's declared `advise` agent and
-// skill (retrospectSpecFor) read the story + its plan/summary/ledger (a container's
-// children too) and file improvement PROPOSALS as backlog stories. It changes no
-// item's status. The dispatch's token/wall-time cost is
-// recorded on an agent_invocation entry so `satelle story cost` rolls it up like
-// any other gate/step.
-// retrospectReq is the request body for story-retrospect. Model is
-// `satelle story retrospect --model` (sty_7069bced) — a per-dispatch override
-// recorded with source=agent.
-type retrospectReq struct {
-	ID    string `json:"id"`
-	Model string `json:"model,omitempty"`
-}
-
-// retrospectSpecFor reads the advisor the item's route declares at its current
-// step — `advise = { agent, skill }` as derived by wfroute.AdvisorsFrom — so the
-// route, not the binary, names what runs at close. A route that declares none
-// (or no governing route) leaves the spec empty and the dispatcher falls back to
-// its built-in retrospective.
-func retrospectSpecFor(ctx context.Context, it workitem.Item) RetrospectSpec {
-	d, _, ok := governingRoute(ctx, it)
-	if !ok {
-		return RetrospectSpec{}
-	}
-	for _, a := range d.Advisors {
-		if a.Step == it.Status && a.Agent != "" {
-			return RetrospectSpec{Agent: a.Agent, Skill: a.Skill}
-		}
-	}
-	return RetrospectSpec{}
-}
-
-func storyRetrospect(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if retrospector == nil {
-		return nil, fmt.Errorf("verb: no retrospective agent is wired")
-	}
-	store, err := requireWorkItem()
-	if err != nil {
-		return nil, err
-	}
-	var req retrospectReq
-	if err := decode(raw, &req); err != nil {
-		return nil, err
-	}
-	if req.ID == "" {
-		return nil, fmt.Errorf("verb: id required")
-	}
-	it, err := store.Get(ctx, req.ID)
-	if err != nil {
-		return nil, err
-	}
-	spec := retrospectSpecFor(ctx, it)
-	spec.Model = req.Model
-	res, rerr := retrospector.Retrospect(ctx, it, spec)
-	now := time.Now()
-	if res.Dispatched {
-		// Record the dispatch's cost/model on an agent_invocation entry, so the
-		// retrospective shows in `satelle story cost` beside the gates it reviews.
-		appendLedgerEntry(ctx, it.ID, ledger.KindAgentInvocation, "executor",
-			fmt.Sprintf("retrospective on %s (%s) with @skill:%s", it.ID, res.Model, res.Skill),
-			dispatchPayload("done", "retrospect", res, ""), now)
-	}
-	if rerr != nil {
-		return nil, rerr
-	}
-	// Omit token numbers when usage was not reported — a bare 0 looks measured
-	// (sty_56aae77a). Always stamp usage_available so clients can distinguish.
-	out := map[string]any{
-		"story_id":        it.ID,
-		"output":          res.Output,
-		"duration_ms":     res.DurationMs,
-		"usage_available": res.UsageAvailable,
-	}
-	if res.UsageAvailable {
-		out["tokens_total"] = res.TokensTotal
-	}
-	return json.Marshal(out)
-}
-
-// parseCostDuration parses the --time value shared by story estimate and story
-// actual. A bare number is read as MINUTES (sty_ef8a896b): the tag this writes
-// is literally <prefix>-minutes, so `--time 38` means what its author meant, and
-// time.ParseDuration's bare "missing unit in duration" cost a retry every time.
-// Anything else goes through time.ParseDuration, so 30m / 2h / 1h30m are
-// unchanged. A malformed or non-positive value is refused with an example of
-// each accepted shape.
-func parseCostDuration(s string) (time.Duration, error) {
-	trimmed := strings.TrimSpace(s)
-	invalid := func() error {
-		return fmt.Errorf(`verb: invalid --time %q: use a duration like 30m or 2h, or a bare number of minutes like 38`, s)
-	}
-	var d time.Duration
-	if mins, err := strconv.ParseFloat(trimmed, 64); err == nil {
-		d = time.Duration(mins * float64(time.Minute))
-	} else {
-		parsed, perr := time.ParseDuration(trimmed)
-		if perr != nil {
-			return 0, invalid()
-		}
-		d = parsed
-	}
-	if d <= 0 {
-		return 0, invalid()
-	}
-	return d, nil
 }
 
 // applyTagMutation applies remove then add against existing tags (sty_033d4611).
@@ -2004,13 +1279,6 @@ func recordLifecycleReview(ctx context.Context, storyID, operation, from, to str
 	appendLedgerEntry(ctx, storyID, ledger.KindReviewAccept, "reviewer",
 		fmt.Sprintf("accepted %s by %s: decision=accept notes=%s%s", operation, rv.Skill, rv.Notes, formatReasoningSuffix(rv.Reasoning)),
 		withOperation(reviewerPayload(from, to, rv, attempt), operation), now)
-}
-
-// appendOpLog mirrors a state-mutating verb to the flat-file operation log a
-// read-only reviewer can Read/Grep (sty_be257fef). Nil-safe via the Logger;
-// records METADATA only (op, ids, before/after of changed fields) — never bodies.
-func appendOpLog(op, storyID, detail string, now time.Time) {
-	opLog.Append(now, "executor", op, storyID, detail)
 }
 
 // definitionFieldsChanged lists which of the four definition fields the request

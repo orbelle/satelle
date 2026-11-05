@@ -4,7 +4,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/drive"
-	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -177,42 +175,6 @@ type subjectStory struct {
 	sync *nodeSync
 }
 
-func (s *subjectStory) MarshalJSON() ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.item.ID == "" && s.err == nil {
-		s.err = dispatchInto(context.Background(), "story-create", map[string]any{
-			"title": "subject", "body": "the story a task wake names, which the run must not move", "category": "chore",
-		}, &s.item)
-		if s.err == nil && s.fake != nil && s.sync != nil {
-			s.err = seedHostedRows(s.sync, s.fake.ProjectName(), s.item.ID)
-		}
-	}
-	if s.err != nil {
-		return nil, s.err
-	}
-	return json.Marshal(map[string]string{"mode": "node", "story_id": s.item.ID, "trigger": "nightly", "trigger_source": "schedule"})
-}
-
-// seedHostedRows puts every ledger row the node's store holds of id on project's
-// hosted chain of id, in chain order (ledger-list orders by time), in the
-// encoding a push sends.
-func seedHostedRows(s *nodeSync, project, id string) error {
-	var rows []ledger.Entry
-	if err := dispatchInto(context.Background(), "ledger-list", map[string]any{"story_id": id}, &rows); err != nil {
-		return err
-	}
-	next := make(map[string]ledger.Entry, len(rows))
-	for _, e := range rows {
-		next[e.BaseID] = e
-	}
-	var ordered []ledger.Entry
-	for e, ok := next[""]; ok; e, ok = next[e.ID] {
-		ordered = append(ordered, e)
-	}
-	return s.seed(project, id, ordered...)
-}
-
 // ID is the subject's id, "" until the node has read its run.
 func (s *subjectStory) ID() string {
 	s.mu.Lock()
@@ -225,18 +187,6 @@ func (s *subjectStory) Created() (id, status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.item.ID, s.item.Status
-}
-
-// Status is the subject's status in the node's store now, and what it was when the
-// wake's subject was made.
-func (s *subjectStory) Status() (now, created string, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var cur workitem.Item
-	if err := dispatchInto(context.Background(), "story-get", map[string]any{"id": s.item.ID}, &cur); err != nil {
-		return "", s.item.Status, err
-	}
-	return cur.Status, s.item.Status, nil
 }
 
 // runSteps is the heartbeats the fake received as run_state/step/outcome, with

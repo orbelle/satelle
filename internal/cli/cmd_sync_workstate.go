@@ -16,8 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -157,7 +155,6 @@ Story or epic ids scope it as for pull.`,
 	snap.Flags().BoolVar(&snapForce, "force", false, "Upsert hosted rows even when the local copy or ledger is newer.")
 	addOutcomeFlag(snap)
 	group.AddCommand(snap)
-	group.AddCommand(newSyncWorkstateRechainCmd())
 	group.AddCommand(newSyncWorkstateFetchCmd())
 	group.AddCommand(newSyncWorkstateFollowCmd())
 
@@ -349,7 +346,7 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		if sc.scoped() {
 			fmt.Fprintf(out, "  scoped to %d id(s): %s\n", len(sc.IDs), strings.Join(sc.IDs, ", "))
 		}
-		return dryRunHolds(cmd, a, optIn, out, server)
+		return nil
 	}
 
 	project, err := resolveBoundProject(a.Config, a.RepoRoot)
@@ -458,7 +455,6 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		if hadCursor && !full {
 			fmt.Fprintf(out, "Work-state up to date on %s — no records changed since the last push.\n", server)
 			recordWorkstatePush(a.RepoRoot, true, "", syncScope.String())
-			recordWorkstateHeld(a.RepoRoot, nil)
 			return nil
 		}
 		fmt.Fprintln(out, "No work-state rows to push (the work-state areas are empty).")
@@ -468,16 +464,8 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 	client = clientFor()
 	errw := cmd.ErrOrStderr()
 
-	// Hold a story whose code is not on the git remote (sty_7361569a). Held rows
-	// stay behind the cursors, so the next push re-checks and sends them.
-	holdOn, err := config.HoldUnpushed(a.Config)
-	if err != nil {
-		return err
-	}
 	var held map[string]string
-	var codeHolds map[string]string // held for unpushed code: recorded apart from failures
 	var earliestHeld time.Time
-	codeHeld := 0 // stories held for unpushed code, apart from those withheld for drift
 	// A story's cached row is validated against the fold of its ledger chain before
 	// any of its events leave (sty_d84be8bc). One that disagrees is withheld like a
 	// held story — its rows stay behind the cursors — and the push reports it and
@@ -504,21 +492,8 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 			}
 		}()
 	}
-	if holdOn || len(drift.held) > 0 {
-		res := holdResult{held: map[string]string{}, unavailable: map[string]string{}}
-		if holdOn {
-			var herr error
-			if res, herr = classifyHolds(cmd.Context(), a, batch.Items, classifyRows); herr != nil {
-				return herr
-			}
-			for _, l := range res.lines(verbose) {
-				fmt.Fprintln(out, l)
-			}
-		}
-		codeHeld = len(res.held)
-		codeHolds = res.held
-		outcome.Held = codeHeld
-		withheld := maps.Clone(res.held)
+	if len(drift.held) > 0 {
+		withheld := map[string]string{}
 		for id, why := range drift.held {
 			withheld[id] = why
 		}
@@ -531,11 +506,6 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 				maxItems = itemsCursorBefore(batch.Items, earliestHeld, cursor.ItemsUpdatedAt)
 			}
 		}
-	}
-	// A held story is in flight, not a failure: the project push records which are
-	// held apart from its failure reason (sty_c203fd62), replacing the last set.
-	if scope == nil {
-		recordWorkstateHeld(a.RepoRoot, codeHolds)
 	}
 
 	// Story events go by compare-and-append, never through Apply (sty_9bdf08c4).
@@ -646,19 +616,12 @@ func runSyncWorkstatePush(cmd *cobra.Command, serverArg string, dryRun, full, ve
 		fmt.Fprintf(out, "Pushed work-state to project %q on %s: %d item(s), %d ledger entr(y/ies), %d output(s).\n",
 			project, server, totalItems, totalLedger, totalOutputs)
 	}
-	if codeHeld > 0 {
-		fmt.Fprintf(out, "%d stor(y/ies) held until their code is on the remote.\n", codeHeld)
-	}
 	recordOK()
 	return nil
 }
 
 func recordWorkstatePush(repoPath string, success bool, reason, scope string) {
 	_ = syncstate.RecordPush(config.GlobalDir(), repoPath, success, reason, scope, time.Now())
-}
-
-func recordWorkstateHeld(repoPath string, held map[string]string) {
-	_ = syncstate.RecordPushHeld(config.GlobalDir(), repoPath, held)
 }
 
 // outputsOf keeps the outputs whose execution is among items: an output leaves
@@ -802,17 +765,6 @@ func runSyncWorkstatePull(cmd *cobra.Command, serverArg string, dryRun, force, v
 		project, server, rep.label(), nItems, nLedger)
 	if nKept > 0 {
 		fmt.Fprintf(out, "%d item(s) kept — local copy is newer than hosted\n", nKept)
-	}
-	if optIn["stories"] {
-		var ids []string
-		for _, hi := range rep.Hosted {
-			if hi.Kind == string(workitem.KindStory) {
-				ids = append(ids, hi.ID)
-			}
-		}
-		for _, line := range reconcilePulledStories(ctx, a, ids, verbose) {
-			fmt.Fprintln(out, line)
-		}
 	}
 	return nil
 }
@@ -1533,48 +1485,6 @@ func collectWorkstateRows(ctx context.Context, a *app.App, optIn map[string]bool
 		batch.Ledger = []json.RawMessage{}
 	}
 	return batch, maxItems, maxLedger, rows, nil
-}
-
-// dryRunHolds lists the stories a real push would hold, from the same live git
-// check. The cursor is read when the repo is bound so the list is what a push
-// would actually consider; otherwise every story is checked.
-func dryRunHolds(cmd *cobra.Command, a *app.App, optIn map[string]bool, out io.Writer, server string) error {
-	on, err := config.HoldUnpushed(a.Config)
-	if err != nil {
-		return err
-	}
-	if !on {
-		fmt.Fprintln(out, "Hold is off ([sync] hold_unpushed = false) — no story would be held.")
-		return nil
-	}
-	var cursor hosted.WorkstateCursor
-	if project, perr := resolveBoundProject(a.Config, a.RepoRoot); perr == nil {
-		if c, lerr := hosted.LoadWorkstateCursor(server, project, a.RepoRoot); lerr == nil {
-			cursor = c
-		}
-	}
-	if optIn["ledger"] {
-		if cursor, _, err = validateLedgerCursor(cmd.Context(), a, cursor); err != nil {
-			return err
-		}
-	}
-	batch, _, _, rows, err := collectWorkstateRows(cmd.Context(), a, optIn, cursor, nil)
-	if err != nil {
-		return err
-	}
-	batch.Items = filterItemsAfter(batch.Items, cursor.ItemsUpdatedAt)
-	res, err := classifyHolds(cmd.Context(), a, batch.Items, rows)
-	if err != nil {
-		return err
-	}
-	if len(res.held) == 0 && len(res.unavailable) == 0 {
-		fmt.Fprintln(out, "No story would be held.")
-		return nil
-	}
-	for _, l := range res.lines(true) {
-		fmt.Fprintln(out, l)
-	}
-	return nil
 }
 
 // marshalWorkstateItem encodes a work item with the promoted fields the server

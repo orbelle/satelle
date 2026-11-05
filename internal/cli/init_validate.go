@@ -35,8 +35,6 @@ func validateDeployment(out io.Writer, dataDir string) error {
 	fmt.Fprintln(out, "\nValidating the deployed system:")
 	failed := 0
 
-	repoRoot := filepath.Dir(dataDir)
-
 	// The retired actors.toml deserves its own instruction, and only init is in a
 	// position to give it (doctor reports the file as simply missing).
 	agentsPath, _ := config.AgentsPath(dataDir)
@@ -52,13 +50,6 @@ func validateDeployment(out io.Writer, dataDir string) error {
 	if systemFailed == 0 {
 		fmt.Fprintln(out, "PASS  agents layer, workflows, skills, principles, tasks")
 	}
-
-	// Substrate analysis: placement/residency/tag-axis (fatal), unedited
-	// constitution + config drift (advisory). Print advisory WARN lines even when
-	// fatals will fail the init, so they stay visible. This is the one check init
-	// owns — it judges what init itself just wrote.
-	defects := analyzeSubstrate(dataDir, repoRoot)
-	failed += reportSubstrateAnalysis(out, defects)
 
 	if failed > 0 {
 		return fmt.Errorf("init: the deployed system failed validation (%d problem(s)) — fix the reported files and re-run `satelle init`", failed)
@@ -80,8 +71,6 @@ func validateSystem(out io.Writer, dataDir string, forPush bool) (failed int) {
 	rep := doctor.Check(context.Background(), doctor.Opts{
 		RepoRoot:                  filepath.Dir(dataDir),
 		DataDir:                   dataDir,
-		ScaffoldDrift:             scaffoldFindings,
-		SubstrateTracking:         substrateTrackingFindings,
 		ExcludeMachineAgentLayers: forPush,
 	})
 	if !forPush {

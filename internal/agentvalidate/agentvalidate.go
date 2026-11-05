@@ -26,7 +26,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/structure"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 	"github.com/bobmcallan/satelle/internal/wfroute"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -532,12 +531,6 @@ func validateShipped(agents config.AgentsConfig, vars map[string]string, workflo
 	// pseudo-workflow per declared category, so every agent= the route names is
 	// validated exactly as an authored node's would be (sty_9835070d).
 	for _, doc := range expandRouteSources(workflows, scope) {
-		// Lifecycle hooks FIRST: they are frontmatter, so they must be checked even
-		// when the DOT below does not parse (sty_ede16f51).
-		r.tagged(health.IDHookAlloc, "Unusable lifecycle-hook allocation",
-			"declare an isolated role=\"reviewer\" binding for the hook's agent in .satelle/workflows/agents.toml",
-			health.SeverityError, checkHooks(doc.Doc, agents, revModel, usedNamed, &r)...)
-
 		// ADVISORS are a USAGE signal and nothing more (sty_338a53f8). A route that
 		// names an agent as its park advisor or a step's `advise` is allocating that
 		// binding just as surely as a node's agent= does, so it must not be reported
@@ -856,69 +849,6 @@ func NotLiveCapable(name string, b config.AgentBinding) string {
 		return fmt.Sprintf("[%s] interface=%s cannot open a session: %v", name, b.ResolvedInterface(), err)
 	}
 	return ""
-}
-
-// checkHooks validates one workflow's LIFECYCLE HOOK allocations and records a
-// GateAllocation per hook, so an operation that fires outside the status graph is
-// as inspectable and as checkable as a gated edge (sty_ede16f51).
-//
-// It owns the ALLOCATION half of hook validation — does the named binding exist
-// and can it produce a verdict. The DECLARATION half (unknown
-// operation, malformed entry, unresolved skill) belongs to
-// agentstep.WorkflowConsistency, which has the skill resolver this package
-// deliberately does not. `satelle agent validate` runs both, so one command still
-// covers the whole surface without either check reporting the other's findings
-// twice.
-func checkHooks(doc docindex.Doc, agents config.AgentsConfig, revModel string, usedNamed map[string]bool, r *Report) []string {
-	hooks, _ := wfhook.Parse(doc.Body)
-	var problems []string
-	for _, h := range hooks {
-		sec := strings.TrimSpace(h.Agent)
-		if sec == "" {
-			sec = wfhook.DefaultAgent
-		}
-		b := agents.ReviewerBinding()
-		bm := revModel
-		if sec != "reviewer" {
-			named, ok := agents.NamedBinding(sec)
-			if !ok {
-				problems = append(problems, fmt.Sprintf(
-					"workflow %q hook %s allocates agent=%s with no [%s] binding in agents.toml",
-					doc.Name, h.Operation, sec, sec))
-				continue
-			}
-			// A named binding a hook allocates is USED — never report it orphaned.
-			usedNamed[sec] = true
-			b, bm = named, named.Model
-		}
-		if h.Verdict {
-			// A verdict hook is a gate in everything but position, so it carries a
-			// gate's two mechanism requirements. Both are refused HERE, before a
-			// story is ever created, rather than only at invocation time.
-			if role := config.ResolvedRole(sec, b); role != config.RoleReviewer {
-				problems = append(problems, fmt.Sprintf(
-					"workflow %q hook %s allocates agent=%s with role=%q (want role=reviewer) — a verdict hook decides accept/reject and a named performer never does",
-					doc.Name, h.Operation, sec, role))
-			}
-			if config.IsInLoopCommand(b.CommandTemplate()) {
-				problems = append(problems, fmt.Sprintf(
-					"workflow %q hook %s allocates agent=%s with command=in-loop — it cannot produce an isolated verdict; the hook would be refused at invocation",
-					doc.Name, h.Operation, sec))
-			}
-			// The reviewer PERMISSION CEILING is deliberately NOT re-decided here.
-			// checkBinding already judges every section's ceiling: an unexpressed
-			// ceiling is a warning because ReadOnly is a heuristic. The
-			// hook's section is one of those sections, so it is already covered —
-			// re-checking it here would only re-decide the same heuristic at a
-			// harsher severity, and would hard-fail every repo whose reviewer
-			// template the heuristic cannot classify.
-		}
-		alloc := gateAlloc(doc.Name, "hook:"+h.Operation, h.Skill, sec, bm, "")
-		alloc.Operation = h.Operation
-		alloc.Source = h.Source
-		r.Gates = append(r.Gates, alloc)
-	}
-	return problems
 }
 
 // shellGrantExercised reports whether a section's shell grant is actually USED:
@@ -1307,18 +1237,10 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 			} else {
 				g.Notes += "; " + label + " spawn: " + runner.Command()
 			}
-			adapter := agentcli.AdapterName(cmd)
-			addNote(&g, agentcli.ToolsGrantNote(adapter))
-			// Ceiling: tools grant + client permission policy (not argv --deny) —
-			// unless the adapter itself holds a reviewer read-only (a forced mode).
-			enforced, enforceErr := reviewerEnforced(role, adapter, fields[1:], iface)
-			g.ReadOnly = enforced || (b.Tools != "" && !toolsGrantMutators(b.Tools))
+			// Ceiling: tools grant + client permission policy (not argv --deny).
+			g.ReadOnly = b.Tools != "" && !toolsGrantMutators(b.Tools)
 			if role == config.RoleReviewer {
-				if enforceErr != nil {
-					ceilingProblem(fmt.Sprintf("agents.toml [%s] %s: %v", section, label, enforceErr))
-				} else if enforced {
-					addNote(&g, agentcli.ReadOnlyCeilingNote(adapter))
-				} else if b.Tools == "" {
+				if b.Tools == "" {
 					ceilingProblem(fmt.Sprintf(
 						"agents.toml [%s] interface=%s role=reviewer requires tools= (grant evidence; %s ceiling is tools + client permission policy, not argv --deny)",
 						section, label, label))
@@ -1398,32 +1320,15 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 		// Placeholder completeness (sty_21db3670): buildArgs substitutes only
 		// tokens that equal {system} verbatim, so a multi-token isolated command
 		// without that token runs with no gate/skill rubric. Hard-fail.
-		adapter := agentcli.AdapterName(cmd)
-		switch agentcli.SystemDelivery(adapter) {
-		case agentcli.SystemOnStdin:
-			addNote(&g, "system: stdin")
-		default:
-			if !hasToken(fields, "{system}") {
-				bindingProblem(fmt.Sprintf(
-					"agents.toml [%s] command omits {system} as its own argv token — the gate/skill rubric is never appended and the agent runs without its rubric",
-					section))
-			}
-		}
-		addNote(&g, agentcli.ToolsGrantNote(adapter))
-		// An adapter that holds a reviewer read-only itself (a forced mode)
-		// answers for the ceiling; a template that defeats it is an error, not a
-		// heuristic miss.
-		enforced, enforceErr := reviewerEnforced(role, adapter, fields[1:], iface)
-		if enforceErr != nil {
-			ceilingProblem(fmt.Sprintf("agents.toml [%s] command: %v", section, enforceErr))
-		} else if enforced {
-			g.ReadOnly = true
-			addNote(&g, agentcli.ReadOnlyCeilingNote(adapter))
+		if !hasToken(fields, "{system}") {
+			bindingProblem(fmt.Sprintf(
+				"agents.toml [%s] command omits {system} as its own argv token — the gate/skill rubric is never appended and the agent runs without its rubric",
+				section))
 		}
 		// Reviewer read-only ceiling: advisory when role=reviewer but no ceiling
 		// is expressed (no --disallowedTools/--deny / read-only heuristic miss).
 		// Warn not fail — g.ReadOnly is a heuristic.
-		if role == config.RoleReviewer && !g.ReadOnly && enforceErr == nil {
+		if role == config.RoleReviewer && !g.ReadOnly {
 			ceilingWarn(fmt.Sprintf(
 				"agents.toml [%s] is role=reviewer with an isolated command that expresses no read-only ceiling (no --disallowedTools/--deny of mutators) — the reviewer could silently gain write; deny the mutators or use the default claude/grok template",
 				section))
@@ -1439,16 +1344,6 @@ func checkBinding(section string, b config.AgentBinding, vars map[string]string)
 		bindingProblem(fmt.Sprintf("agents.toml [%s] timeout: %v", section, err))
 	}
 	return g, problems, warnings, fs
-}
-
-// reviewerEnforced asks agentcli whether the adapter itself holds a reviewer
-// read-only (a forced mode), and why not when its template defeats that. A
-// performer is never held read-only, so only a reviewer is asked.
-func reviewerEnforced(role, adapter string, args []string, iface string) (bool, error) {
-	if role != config.RoleReviewer {
-		return false, nil
-	}
-	return agentcli.ReadOnlyEnforced(adapter, args, iface)
 }
 
 // addNote appends a validate note to the grant, "; "-separated. An empty note adds

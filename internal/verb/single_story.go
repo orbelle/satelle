@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,35 +38,8 @@ func acquireEngagementLease(ctx context.Context, item workitem.Item, targetStatu
 	if !engaging {
 		return false, false, nil
 	}
-	// A container idling at a waits_on_children step performs nothing, so it
-	// holds no seat (sty_56648ae5): its children engage from the driving tree.
-	// Release any seat the prior performing step left (this transition may be
-	// the one that finds it). Never acquiring keeps acquiredThisCall false, so
-	// release-on-abort is untouched. The create-path probe (no id, no children
-	// yet) never reaches this.
-	if item.ID != "" && waitsOnOpenChildrenAt(ctx, item, targetStatus) {
-		forceReleaseEngagementLease(ctx, item.ID)
-		return false, false, nil
-	}
-	// A child of a scheduled epic engages only if the wave returns it
-	// (sty_54004fbd). Checked before any seat is taken, so a refusal leaves
-	// nothing to release; seat mode and the tree rule still run below.
-	if err := refuseOffWave(ctx, item, targetStatus); err != nil {
-		return false, false, err
-	}
-	// ... and only once its epic has been readied (sty_a476b913): the epic's
-	// round sets the lanes and edges the child's route depends on.
-	if err := refuseUnreadiedEpic(ctx, item, item.Status, targetStatus); err != nil {
-		return false, false, err
-	}
 	ls, err := requireLease()
 	if err != nil {
-		// Under worktree the lease row's tree IS the arbitration, and the derived
-		// scan reads committed statuses and has no tree: refuse rather than admit
-		// every story on a rule that cannot see the one thing that keeps them apart.
-		if engagementParallel == config.ParallelWorktree {
-			return false, false, fmt.Errorf("satelle: refusing to engage %s (→ %s): [engagement] parallel = %q requires the lease store, which is not available", item.ID, targetStatus, config.ParallelWorktree)
-		}
 		// Lease store not wired (tests that only need status): fall back to the
 		// derived status scan so existing tests keep working until they wire leases.
 		return false, false, refuseSecondEngagingStoryDerived(ctx, item.ID, targetStatus, item)
@@ -102,14 +76,7 @@ func acquireEngagementLease(ctx context.Context, item workitem.Item, targetStatu
 	}
 	switch outcome {
 	case lease.OutcomeAcquired, lease.OutcomeStolen:
-		if outcome == lease.OutcomeStolen && holder != nil {
-			// AC5: the holder we just replaced never ran its own park/close
-			// snapshot — it was dead (stale heartbeat), which is exactly what
-			// "stolen" means. Record its final usage now, before it is gone
-			// from the lease table for good; storySeatList's own Reap sweep
-			// never sees a lease this call already overwrote.
-			recordDriverUsageOnReap(ctx, []lease.Lease{*holder}, time.Now().UTC())
-		}
+		_ = holder
 		_ = l
 		return true, false, nil
 	case lease.OutcomeInFlight:
@@ -387,11 +354,8 @@ func targetIsWaitState(ctx context.Context, item workitem.Item, status string) b
 // wrapper over wfgovern.ClockFor (sty_b8542a3a) so this classification has one
 // owner, shared with storyStatusIsEngaging and costview's own accumulation.
 func targetIsTerminalStateOnly(ctx context.Context, item workitem.Item, status string) bool {
-	clk, ok := clockFor(ctx, item)
-	if !ok {
-		return false
-	}
-	return clk.Terminal(status)
+	spec, _, _, ok := governingSpec(ctx, item)
+	return ok && spec.IsTerminalState(status)
 }
 
 // EndsEngagementForGood reports an exit the story does not resume from: a
@@ -548,9 +512,9 @@ func refuseSecondEngagingStory(ctx context.Context, excludeID, targetStatus stri
 // has one owner, shared with targetIsTerminalStateOnly and costview's own
 // accumulation.
 func storyStatusIsEngaging(ctx context.Context, item workitem.Item, status string) (engaging bool, ok bool) {
-	clk, ok := clockFor(ctx, item)
+	spec, _, _, ok := governingSpec(ctx, item)
 	if !ok {
 		return false, false
 	}
-	return clk.Engaging(status), true
+	return slices.Contains(spec.NonTerminalEngagingStates(), status), true
 }

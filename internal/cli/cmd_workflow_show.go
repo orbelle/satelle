@@ -21,18 +21,15 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/bobmcallan/satelle/internal/agentvalidate"
 	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 )
 
 func workflowShowCmd() *cobra.Command {
@@ -93,14 +90,9 @@ func showDerivedRoute(out io.Writer, a *app.App, category string, tags []string)
 		return fmt.Errorf("workflow show %q: %w", category, rerr)
 	}
 	if !ok {
-		return fmt.Errorf("workflow show %q: no workflow document of that name, and no derived route governs that category — see `satelle workflow list`", category)
+		return fmt.Errorf("workflow show %q: no workflow document of that name, and no derived route governs that category", category)
 	}
-	grants, _, _ := hookGrantIndex(a, a.PlaneDir())
-	placements := make(map[string]string, len(grants))
-	for name, g := range grants {
-		placements[name] = g.Placement
-	}
-	return renderWorkflowRouteWith(out, rs, category, tags, placements)
+	return renderWorkflowRouteWith(out, rs, category, tags, nil)
 }
 
 // renderWorkflowShow writes the whole view. Split from the cobra wiring — and
@@ -144,133 +136,7 @@ func renderWorkflowShow(out io.Writer, a *app.App, doc docindex.Doc, resolves fu
 		// carries one, so there is no graph to summarise (sty_d953c5d8).
 		fmt.Fprintln(out, "  kind:       not a route source — a lifecycle is done.toml + step.toml")
 	}
-
-	// The hook section — the reason this command exists.
-	hooks, problems := wfhook.Parse(doc.Body)
-	fmt.Fprintln(out, "Lifecycle hooks (fire outside the status graph):")
-	if len(hooks) == 0 {
-		fmt.Fprintln(out, "  (none declared — creation stays deterministic-only)")
-	}
-	grants, agentsFile, catalogFile := hookGrantIndex(a, dataDir)
-	for _, h := range hooks {
-		renderHook(out, h, grants, agentsFile, catalogFile, resolves)
-	}
-	for _, p := range problems {
-		fmt.Fprintf(out, "  PROBLEM %s\n", p)
-	}
 	return nil
-}
-
-// renderHook prints one hook's full allocation. Every field the operator needs
-// to answer "what will actually run, and where was it authored?" is on this
-// block; nothing is left to be inferred from another command's output.
-func renderHook(out io.Writer, h wfhook.Hook, grants map[string]agentvalidate.Grant, agentsFile, catalogFile string, resolves func(string) bool) {
-	kind := "advisory"
-	if h.Verdict {
-		kind = "verdict"
-	}
-	fmt.Fprintf(out, "  HOOK %s (%s)\n", h.Operation, kind)
-	if !wfhook.Known(h.Operation) {
-		fmt.Fprintf(out, "    operation:  UNKNOWN — this binary knows: %s\n", strings.Join(wfhook.Operations(), ", "))
-	}
-	skillNote := ""
-	if resolves != nil && !resolves(h.Skill) {
-		skillNote = "  UNRESOLVED in the substrate"
-	}
-	fmt.Fprintf(out, "    skill:      %s%s\n", h.Skill, skillNote)
-	fmt.Fprintf(out, "    agent:      %s\n", h.Describe())
-
-	g, ok := grants[h.Agent]
-	if !ok {
-		fmt.Fprintf(out, "    binding:    UNRESOLVED — agents.toml declares no [%s]\n", h.Agent)
-		fmt.Fprintf(out, "    sources:    %s\n", agentsFile)
-		return
-	}
-	fmt.Fprintf(out, "    binding:    %s\n", bindingOrigin(g, h.Agent))
-	fmt.Fprintf(out, "    interface:  %s (backend %s)\n", g.Interface, g.Backend)
-	fmt.Fprintf(out, "    placement:  %s\n", g.Placement)
-	fmt.Fprintf(out, "    model:      %s\n", orNone(g.Model))
-	fmt.Fprintf(out, "    effort:     %s\n", orNone(g.Effort))
-	fmt.Fprintf(out, "    ceiling:    %s\n", ceilingLabel(g))
-	fmt.Fprintf(out, "    sources:    %s\n", strings.Join(hookSourceFiles(g, agentsFile, catalogFile), ", "))
-}
-
-// bindingOrigin says whether the effective binding came from a machine-wide
-// profile or is purely local, naming the profile when there is one. It reads the
-// provenance the resolver already recorded rather than re-resolving anything.
-func bindingOrigin(g agentvalidate.Grant, section string) string {
-	profiles := map[string]bool{}
-	for _, src := range g.Sources {
-		for _, part := range strings.Split(src, "+") {
-			if name, ok := config.CatalogProfile(part); ok {
-				profiles[name] = true
-			}
-		}
-	}
-	if len(profiles) == 0 {
-		return fmt.Sprintf("local binding [%s]", section)
-	}
-	names := make([]string, 0, len(profiles))
-	for n := range profiles {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return fmt.Sprintf("local binding [%s] over profile %s", section, strings.Join(names, ", "))
-}
-
-// hookSourceFiles lists the files that contributed to the effective binding —
-// always the repo agents layer, plus the machine-wide catalog when a profile
-// supplied any field.
-func hookSourceFiles(g agentvalidate.Grant, agentsFile, catalogFile string) []string {
-	files := []string{agentsFile}
-	for _, src := range g.Sources {
-		if config.IsCatalogSource(src) {
-			return append(files, catalogFile)
-		}
-	}
-	return files
-}
-
-// hookGrantIndex resolves the effective agents layer and indexes each binding's
-// grant by section. A broken agents layer yields an empty index — every hook then
-// renders UNRESOLVED, which is the diagnosis this command is for.
-func hookGrantIndex(a *app.App, dataDir string) (map[string]agentvalidate.Grant, string, string) {
-	agentsFile, _ := config.AgentsPath(dataDir)
-	catalogFile := config.GlobalAgentsPath()
-	index := map[string]agentvalidate.Grant{}
-
-	layers, _ := config.LoadAgentLayers(dataDir)
-	if layers.RepoErr != nil {
-		return index, agentsFile, catalogFile
-	}
-	global, err := config.LoadGlobalAgents()
-	if err != nil {
-		global = config.GlobalAgentsConfig{}
-	}
-	// Workflows are passed as nil: this is a DISPLAY of binding facts, not a
-	// re-run of the allocation checks `agent validate` owns.
-	// Layered, so the baseline seats and the workspace and local layers that
-	// actually run are indexed too — a hook on a baseline seat is not UNRESOLVED.
-	// A layer that failed to load is the zero layer (LoadAgentLayers).
-	for _, g := range agentvalidate.ValidateEffectiveLayered(layers, global, a.PlaneConfig().Vars, nil, nil).Grants {
-		index[g.Name] = g
-	}
-	return index, agentsFile, catalogFile
-}
-
-// ceilingLabel renders the permission ceiling in the terms the agent model uses.
-func ceilingLabel(g agentvalidate.Grant) string {
-	base := "read-write (no ceiling expressed)"
-	if g.ReadOnly {
-		base = "read-only"
-	}
-	if g.Backend == "in-loop" {
-		base = "in-loop (full session grant — cannot produce an isolated verdict)"
-	}
-	if g.Tools != "" {
-		base += fmt.Sprintf(", tools=%q", g.Tools)
-	}
-	return base
 }
 
 // workflowSourceFile names where the workflow body came from: the repo file when

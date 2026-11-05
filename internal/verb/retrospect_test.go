@@ -59,28 +59,6 @@ func TestStoryRetrospectRecordsInvocation(t *testing.T) {
 	}
 }
 
-// TestStoryRetrospectPassesModelOverride (sty_7069bced / epic:model-selection
-// order:3): `satelle story retrospect --model` reaches the dispatcher as a
-// per-dispatch override, so AC3's agent-flag tier applies to retrospect too.
-func TestStoryRetrospectPassesModelOverride(t *testing.T) {
-	withWiring(t)
-	wire(t)
-	fake := &fakeRetro{res: verb.DispatchResult{Dispatched: true, Agent: "retrospective"}}
-	verb.SetRetrospector(fake)
-
-	var created struct {
-		ID string `json:"id"`
-	}
-	json.Unmarshal(call(t, "story-create", map[string]any{"title": "T", "body": "b", "acceptance": "1. x", "category": "feature"}), &created)
-
-	if _, err := verb.Dispatch(context.Background(), "story-retrospect", mustJSON(t, map[string]any{"id": created.ID, "model": "haiku"})); err != nil {
-		t.Fatalf("story-retrospect: %v", err)
-	}
-	if fake.gotModelCalls != 1 || fake.gotModel != "haiku" {
-		t.Fatalf("Retrospect called with model=%q (%d calls), want haiku once", fake.gotModel, fake.gotModelCalls)
-	}
-}
-
 // TestStoryRetrospectNoRetrospectorErrors: with no retrospective agent wired, the
 // verb refuses clearly rather than silently no-op.
 func TestStoryRetrospectNoRetrospectorErrors(t *testing.T) {

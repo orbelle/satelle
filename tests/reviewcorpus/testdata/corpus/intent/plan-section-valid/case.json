@@ -1,9 +1,0 @@
-{
-  "id": "intent-plan-section-valid",
-  "rubric": "intent",
-  "skill": "satelle-story-intent-review",
-  "label": "valid",
-  "story_id": "sty_a3a5397a",
-  "expected_verdict": "accept",
-  "summary": "Begin-work intent rule (satelle-story-intent-review) where a planner authored the criteria. The story carries no acceptance criteria of its own; the plan document's Acceptance criteria section lists numbered, testable items that meet the card's behaviour. The reviewer judges the plan's section, not the story's empty field. Pair: intent-plan-missing-defect, intent-plan-untestable-defect. Labelled synthetic case: the card and plan are an illustrative saved-searches story, not a recorded one; the rule it exercises is the one this story set."
-}

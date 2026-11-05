@@ -28,7 +28,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/hostguard"
 )
 
 // testBin is the satelle binary under test, resolved once by TestMain.

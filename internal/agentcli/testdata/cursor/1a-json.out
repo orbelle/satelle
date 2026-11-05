@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":3343,"duration_api_ms":3343,"result":"PONG","session_id":"cd331c14-e181-4645-87d8-489c16b9a290","request_id":"508ce03b-e44d-4e6c-8de8-6e9682ca8588","usage":{"inputTokens":8814,"outputTokens":32,"cacheReadTokens":3864,"cacheWriteTokens":0}}

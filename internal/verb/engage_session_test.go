@@ -8,11 +8,8 @@ package verb
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -21,20 +18,6 @@ type engageHarness struct {
 	t     *testing.T
 	db    *store.DB
 	lines []string
-}
-
-func newEngageHarness(t *testing.T, session string) *engageHarness {
-	t.Helper()
-	withWiring(t)
-	h := &engageHarness{t: t, db: wireDU(t)}
-	if session != "" {
-		t.Setenv(config.SessionEnv, session)
-		t.Setenv("CLAUDECODE", "1")
-	}
-	stubSnapshotter(t, agentcli.DriverSnapshot{Available: true, Model: "claude-opus-5-5",
-		FreshInputTokens: 100, CacheReadInputTokens: 50, CacheCreationInputTokens: 10, OutputTokens: 10, Turns: 1})
-	SetVerdictRecorder(func(s string) { h.lines = append(h.lines, s) })
-	return h
 }
 
 func (h *engageHarness) dispatch(name string, req map[string]any) workitem.Item {
@@ -62,29 +45,4 @@ func (h *engageHarness) set(id, status string) workitem.Item {
 		h.t.Fatalf("story-set %s → %s: status = %q", id, status, it.Status)
 	}
 	return it
-}
-
-func TestEngageGivesNoFreshSessionAdvice(t *testing.T) {
-	h := newEngageHarness(t, "sess-no-advice")
-	first := h.create("first story")
-	h.set(first.ID, "in_progress")
-	h.set(first.ID, "blocked")
-	second := h.create("second story")
-	h.lines = nil
-	h.set(second.ID, "in_progress") // asserts the engage succeeded
-
-	for _, id := range []string{first.ID, second.ID} {
-		rows, err := h.db.Ledger.ListByStory(context.Background(), id, "session_advisory")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(rows) != 0 {
-			t.Errorf("%s: session_advisory rows = %d, want none", id, len(rows))
-		}
-	}
-	for _, l := range h.lines {
-		if strings.Contains(l, "fresh session") || strings.Contains(l, "context_budget") {
-			t.Errorf("engage printed budget advice: %q", l)
-		}
-	}
 }

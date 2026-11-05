@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/verb"
@@ -54,26 +53,9 @@ type memLedger struct {
 	inv  []map[string]string
 }
 
-func (m *memLedger) WriteMessage(from, to, cc, body string) error {
-	m.msgs = append(m.msgs, verb.AgentMessage{From: from, To: to, Cc: cc, Body: body, CreatedAt: time.Now()})
-	return nil
-}
 func (m *memLedger) WriteInvocation(tool, kind, decision, decidedBy string) error {
 	m.inv = append(m.inv, map[string]string{"tool": tool, "kind": kind, "decision": decision, "by": decidedBy})
 	return nil
-}
-func (m *memLedger) ListMessagesSince(since time.Time, to string) ([]verb.AgentMessage, error) {
-	var out []verb.AgentMessage
-	for _, msg := range m.msgs {
-		if !since.IsZero() && !msg.CreatedAt.After(since) {
-			continue
-		}
-		if to != "" && msg.To != to && msg.To != "*" {
-			continue
-		}
-		out = append(out, msg)
-	}
-	return out, nil
 }
 
 func (m *memLedger) invocationKeys() map[string]bool {

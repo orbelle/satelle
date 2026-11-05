@@ -82,7 +82,7 @@ re-running 'satelle service install'.`,
 			}
 			bin, viaFallback := resolveServeBinary(self, serveBinFlag, nil)
 			if viaFallback {
-				fmt.Fprintln(out, "service: satelled not found next to this binary — unit will use `satelle serve` fallback; install satelled alongside for the dedicated artifact")
+				fmt.Fprintln(out, "service: satelled not found next to this binary — the unit uses satelled from PATH")
 			}
 
 			// Resolve settings: flags override the saved global config; repo
@@ -295,7 +295,7 @@ func runServiceRestart(out io.Writer, procRoot string) error {
 // the service itself is running fine; `satelle doctor --all` is where an operator
 // goes for the detail.
 func printRegisteredRepoHealth(out io.Writer) {
-	reports := doctor.CheckAll(context.Background(), doctor.Opts{ScaffoldDrift: scaffoldFindings})
+	reports := doctor.CheckAll(context.Background(), doctor.Opts{})
 	if len(reports) == 0 {
 		return
 	}
@@ -536,9 +536,8 @@ WantedBy=%s
 `, binPath, addr, port, wd, userLines, restartPolicy, wantedBy)
 }
 
-// resolveServeBinary picks the dedicated satelled binary (sibling of self
-// or --serve-bin), then the legacy satelle-serve sibling (compatibility
-// fallback, not a current name), then "<self> serve" (sty_80233c10 / sty_bd9de06d).
+// resolveServeBinary picks the satelled binary: --serve-bin, the sibling of
+// self, else satelled on PATH (REBUILD Q-serve: the unit calls satelled).
 // exists is injectable for tests; nil uses os.Stat.
 func resolveServeBinary(selfPath, flagOverride string, exists func(string) bool) (execPath string, viaFallback bool) {
 	if exists == nil {
@@ -557,13 +556,11 @@ func resolveServeBinary(selfPath, flagOverride string, exists func(string) bool)
 	if exists(sib) {
 		return sib, false
 	}
-	// Compatibility fallback — older installs still ship satelle-serve.
-	legacy := filepath.Join(dir, buildinfo.LegacyDaemonName)
-	if exists(legacy) {
-		return legacy, false
+	// Fallback: satelled from PATH (the unit calls satelled, never a satelle verb).
+	if p, err := exec.LookPath(buildinfo.DaemonName); err == nil {
+		return p, true
 	}
-	// Fallback: keep the CLI verb so old installs still work until re-install.
-	return selfPath + " serve", true
+	return buildinfo.DaemonName, true
 }
 
 // systemdUnit renders the per-user unit (WantedBy=default.target, runs as the

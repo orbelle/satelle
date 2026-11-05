@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -100,44 +98,5 @@ func TestPullRebuildsTheRowFromThePulledChain(t *testing.T) {
 	}
 	if d := localDrift(t); len(d) != 0 {
 		t.Errorf("drift after the pull: %+v", d)
-	}
-}
-
-// sty_199ad82b AC1: a forced pull lets the hosted copy win on the row over an edit
-// only this machine made, and makes no event to set it back: the chain is left as
-// it was and the disagreement is recorded in the sync state.
-func TestForcedPullLetsTheHostedCopyWinOnTheRowAndRecordsTheConflict(t *testing.T) {
-	ts, f := newFakeWorkstateServer(t)
-	seedCred(t, ts.URL)
-	repo := workstateRepo(t, holdOffToml)
-	id := createStoryID(t, "Original title")
-	if out, err := runRoot(t, "sync", "workstate", "push", "--server", ts.URL); err != nil {
-		t.Fatalf("push: %v\n%s", err, out)
-	}
-	_ = f
-	time.Sleep(10 * time.Millisecond) // time-subject: the local edit must be strictly newer than the pushed copy
-	if out, err := runRoot(t, "story", "set", id, "--title", "Local edit"); err != nil {
-		t.Fatalf("set: %v\n%s", err, out)
-	}
-	before := passChain(t, id)
-	if out, err := runRoot(t, "sync", "workstate", "pull", "--server", ts.URL, "--force"); err != nil {
-		t.Fatalf("forced pull: %v\n%s", err, out)
-	}
-	if row := passRow(t, id); row.Title != "Original title" {
-		t.Errorf("title = %q, want the hosted copy's", row.Title)
-	}
-	after := passChain(t, id)
-	sameEvents(t, "the forced pull", before, after)
-	for _, r := range after {
-		var p struct {
-			Source string `json:"source"`
-		}
-		_ = json.Unmarshal(r.Payload, &p)
-		if r.Kind == ledger.KindStoryUpdated && strings.Contains(p.Source, "--force") {
-			t.Errorf("the forced pull made %s to set the hosted copy back", r.ID)
-		}
-	}
-	if c := storyConflicts(t, repo)[id]; c.Reason != conflictForcedHostedWins {
-		t.Errorf("conflict = %+v, want %q recorded", c, conflictForcedHostedWins)
 	}
 }

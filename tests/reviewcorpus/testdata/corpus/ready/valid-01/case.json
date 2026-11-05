@@ -1,9 +1,0 @@
-{
-  "id": "ready-valid-01",
-  "rubric": "ready",
-  "skill": "satelle-story-ready-review",
-  "label": "valid",
-  "story_id": "sty_d1e20725",
-  "expected_verdict": "accept",
-  "summary": "Frozen from the real backlog->ready accept on the epic sty_d1e20725 (2026-09-24, evt_6475d1b0, notes='Prior reject cleared: sty_52a8cb4a owns parent AC2 (agent-dispatch capability table + explicit-unavailable test); order:1-14 present on all 14 children with no duplicates. Children cover the epic outcome; no AC contradictions found.'). change.diff continues from ready-defect-01's candidate: adds the AC2-owning child and fills in the four missing order tags."
-}

@@ -1,9 +1,0 @@
-{
-  "id": "start-shape-slice-valid",
-  "rubric": "start",
-  "skill": "satelle-story-plan-review",
-  "label": "valid",
-  "story_id": "sty_2e629e93",
-  "expected_verdict": "accept",
-  "summary": "Story-shape rule 3, accept side. sty_2e629e93's card and AC1-AC3 as recorded: the smallest slice that proves its behaviour (init --all --yes heals every repo behind a breaking stamp, and one init run re-stamps first), with the larger growth, satelle update running the heal itself, left to a later slice (sty_e0694a77) once this one has held. Pair: start-shape-slice-defect."
-}

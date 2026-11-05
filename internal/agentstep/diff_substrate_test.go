@@ -2,11 +2,9 @@ package agentstep
 
 import (
 	"context"
+	"github.com/bobmcallan/satelle/internal/workitem"
 	"strings"
 	"testing"
-
-	"github.com/bobmcallan/satelle/internal/retrieve"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // substrateDiff is the shape of what the reviewer resolver returns for a story
@@ -45,40 +43,5 @@ func TestSubstrateDiffRidesEveryJudgingGate(t *testing.T) {
 				t.Errorf("%s → %s: diff material missing %q:\n%s", edge.from, edge.to, want, diff)
 			}
 		}
-	}
-}
-
-// AC6: substrate content larger than diffPayloadCeiling goes through the same
-// ceiling and offload as a git patch — truncated behind a retrieve marker that
-// resolves to the cut bytes, never dropped and never failing the gate.
-func TestOversizedSubstratePatchIsOffloadedNotDropped(t *testing.T) {
-	store := newDiffOffloadStub()
-	huge := strings.Repeat("an instruction line that is rather long\n+", diffPayloadCeiling/20)
-	d := substrateDiff(huge)
-	if len(d.Patch) <= diffPayloadCeiling {
-		t.Fatalf("fixture patch is %d bytes, want over the %d ceiling", len(d.Patch), diffPayloadCeiling)
-	}
-	stdin := cappedGateStdin(t, testWorkflow, workitem.Item{ID: "sty_big_substrate", Status: "in_progress"}, "done", func(g *Engine) {
-		g.SetDiffOffloader(func(_ context.Context, _ string, content []byte) (string, error) {
-			return store.put(content), nil
-		})
-		g.SetDiffResolver(func(context.Context, string) *DiffState { return d })
-	})
-	probe := decodeDiffProbe(t, stdin)
-	if !probe.Diff.Truncated {
-		t.Error("an over-ceiling substrate patch must be marked truncated")
-	}
-	if !strings.Contains(probe.Diff.Patch, "# substrate (untracked; whole file shown)") {
-		t.Errorf("the leading bytes of the substrate section must survive:\n%.300s", probe.Diff.Patch)
-	}
-	if !retrieve.MarkerRE.MatchString(probe.Diff.Patch) {
-		t.Fatalf("the cut tail must sit behind a satelle retrieve marker:\n%.300s", probe.Diff.Patch)
-	}
-	hash, _, _, ok := retrieve.ParseMarkerKind(extractMarker(t, probe.Diff.Patch))
-	if !ok {
-		t.Fatal("marker did not parse")
-	}
-	if got := store.blobs[hash]; string(got) != d.Patch[diffPayloadCeiling:] {
-		t.Errorf("marker resolves to %d bytes, want the %d cut from the patch", len(got), len(d.Patch)-diffPayloadCeiling)
 	}
 }

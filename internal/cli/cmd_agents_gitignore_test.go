@@ -78,35 +78,3 @@ func TestAgentsInstallPiIgnoresScaffold(t *testing.T) {
 		t.Errorf("second install must report no .gitignore change:\n%s", out)
 	}
 }
-
-// sty_d15f6713 AC5: an operator's rule for .pi/, or .pi/ already tracked by
-// git, stands — install adds no .pi/ line.
-func TestAgentsInstallPiRespectsOperatorChoice(t *testing.T) {
-	t.Run("negation", func(t *testing.T) {
-		repo := gitignoreRepo(t, "node_modules/\n!.pi/\n")
-		if out, err := runRootIn(t, "", "agents", "install", "pi"); err != nil {
-			t.Fatalf("agents install pi: %v\n%s", err, out)
-		}
-		if hasLine(managedBlock(t, repo), ".pi/") {
-			t.Error("a .gitignore negation for .pi/ must stand")
-		}
-		raw, _ := os.ReadFile(filepath.Join(repo, ".gitignore"))
-		if !strings.Contains(string(raw), "\n!.pi/\n") {
-			t.Errorf("the operator's !.pi/ must be kept:\n%s", raw)
-		}
-	})
-	t.Run("tracked", func(t *testing.T) {
-		repo := gitignoreRepo(t, "node_modules/\n")
-		if _, _, _, err := scaffoldPiHooks(repo); err != nil {
-			t.Fatal(err)
-		}
-		gitIn(t, repo, "add", piExtensionRel)
-		gitIn(t, repo, "commit", "-qm", "track the pi extension")
-		if out, err := runRootIn(t, "", "agents", "install", "pi"); err != nil {
-			t.Fatalf("agents install pi: %v\n%s", err, out)
-		}
-		if hasLine(managedBlock(t, repo), ".pi/") {
-			t.Error("a .pi/ git already tracks must not be ignored")
-		}
-	})
-}

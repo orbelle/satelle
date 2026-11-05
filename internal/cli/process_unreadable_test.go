@@ -7,7 +7,6 @@ package cli
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,37 +25,10 @@ func isolateProcessEnv(t *testing.T) {
 	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
 }
 
-// gitMainTree makes an empty git repo with one commit and returns its root.
-func gitMainTree(t *testing.T, base string) string {
-	t.Helper()
-	main := filepath.Join(base, "proj")
-	if err := os.MkdirAll(main, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, main, "README.md", "x\n")
-	gitIn(t, main, "init", "-q")
-	gitIn(t, main, "config", "user.email", "t@example.com")
-	gitIn(t, main, "config", "user.name", "t")
-	gitIn(t, main, "add", "-A")
-	gitIn(t, main, "commit", "-q", "-m", "init")
-	return main
-}
-
 // alwaysPassSkill is a functional-check gate skill that always accepts, so a
 // transition under the embedded route runs with no agent CLI.
 func alwaysPassSkill(name string) string {
 	return "---\nname: " + name + "\ntype: skill\ndescription: always-pass functional check for a fixture\n---\n\n```check\ntrue\n```\n"
-}
-
-// overrideEmbeddedGates replaces the embedded route's judged gates with
-// functional checks (a same-named authored skill overrides its default).
-func overrideEmbeddedGates(t *testing.T, root, dataDir string) {
-	t.Helper()
-	for _, name := range []string{
-		"satelle-story-intent-review", "satelle-estimate-actual-review", "satelle-step-summary",
-	} {
-		writeFile(t, root, dataDir+"/skills/"+name+".md", alwaysPassSkill(name))
-	}
 }
 
 func idOf(t *testing.T, stdout string) string {

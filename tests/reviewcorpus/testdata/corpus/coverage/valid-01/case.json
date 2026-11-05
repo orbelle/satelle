@@ -1,9 +1,0 @@
-{
-  "id": "coverage-valid-01",
-  "rubric": "coverage",
-  "skill": "satelle-story-integration-coverage-review",
-  "label": "valid",
-  "story_id": "sty_7567f047",
-  "expected_verdict": "accept",
-  "summary": "Frozen from the real plan->in_progress accept on sty_7567f047 (2026-09-22, evt_21526414, notes='Every AC now has a named proof path in the revised plan. The one gap from attempt 1, AC5, is closed. [...] AC5: TestRelayDenyReason is a table with required and forbidden substrings for each branch. [...] An extra row checks that a resolved allocated binding never gets the executor text. TestUnmarkedDenyReasonUnchanged asserts that the hookDenyReason selector returns exactly editPermissionDenyReason when there is no marker.'). change.diff continues from coverage-defect-01's proof-path table: adds the AC5 test names the note cites."
-}

@@ -36,15 +36,6 @@ func dispatchResponse(cmd *cobra.Command, name string, req any) (json.RawMessage
 	// A story whose history this checkout left on the server is fetched first, so
 	// any event the verb appends builds on the hosted head (sty_00212637).
 	fetchBeforeWrite(cmd, requestStoryID(req))
-	// A verb that will run a reviewer holds its caller for minutes. Called by an
-	// agent it hands the run to a detached copy and answers with the verdict or a
-	// handle instead (sty_c4b92c9e); a person at a terminal runs it here, with
-	// progress, exactly as before.
-	if verb.DispatchesReviewer(name, body) {
-		if handled, herr := handOffGate(cmd, name, requestStoryID(req)); handled {
-			return nil, herr
-		}
-	}
 	resp, err := verb.Dispatch(cmd.Context(), name, body)
 	if err != nil {
 		return nil, err

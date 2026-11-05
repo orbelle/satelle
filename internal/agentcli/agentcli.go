@@ -92,13 +92,6 @@ const DefaultClaudeStreamCommand = "claude -p --input-format stream-json --outpu
 // not satelle's (sty_58a7bdfe).
 const DefaultGrokCommand = "grok -p {payload} --system-prompt-override {system} --tools read_file,grep,list_dir -m {model} --reasoning-effort {effort} --deny Write --deny Edit --deny search_replace --deny write --always-approve --output-format json --no-subagents"
 
-// CursorCommand is the cursor-agent command template (sty_10c52ab3). cursor has no
-// system-prompt flag and a positional prompt suppresses stdin, so the template
-// carries neither {system} nor {payload}: satelle writes the instructions and the
-// work item on stdin. --output-format json is the only envelope the command
-// transport reads. A reviewer is forced into --mode ask at spawn (cursor_seat.go).
-const CursorCommand = "cursor-agent -p --trust --output-format json --model {model}"
-
 // Request is one headless agent invocation.
 type Request struct {
 	SystemPrompt string // {system}: appended as the system prompt (the gate/skill body)
@@ -217,7 +210,7 @@ const (
 // input — they keep that meaning; no migration rewrites them.
 type UsageResult struct {
 	// Adapter names the harness that produced this usage (HarnessClaude,
-	// HarnessGrok, HarnessPi, HarnessCursor), stamped by agentcli from the binding's
+	// HarnessGrok, HarnessPi), stamped by agentcli from the binding's
 	// spawn so a ledger row names the adapter even when the usage is available.
 	// Empty when the spawn is unrecognised (HarnessUnknown is never recorded).
 	Adapter      string
@@ -323,9 +316,6 @@ type grokJSONEnvelope struct {
 //
 //   - Claude `--output-format json`: unwraps `.result` and captures `.usage`
 //   - Grok `--output-format json`: unwraps `.text` (usage zero when absent)
-//   - Cursor `--output-format json`: unwraps `.result` and maps the camelCase
-//     usage (fixture 1a; inputTokens includes the cache reads); a missing usage
-//     is a cursor-named unavailable and cost is always one
 //
 // Otherwise stdout is returned verbatim with Available false — plain-text
 // harnesses keep working and explicitly report unavailable cost. Duration is set by the
@@ -343,11 +333,6 @@ func UnwrapUsage(stdout []byte) ([]byte, UsageResult) {
 			return stdout, u
 		}
 		return stdout, UsageResult{}
-	}
-	// cursor first: its envelope has claude's type=result and result but camelCase
-	// usage, which the claude struct below would decode to a silent zero.
-	if text, u, ok := unwrapCursor(trimmed); ok {
-		return text, u
 	}
 	var claude claudeJSONEnvelope
 	// An error result (error_max_turns, …) has no `result` text but still reports
@@ -535,11 +520,6 @@ func RunnerFromCommand(command string) (Runner, error) {
 	if len(fields) == 1 {
 		return nil, fmt.Errorf("agentcli: bare CLI preset %q removed — write a full command template (see agentcli.DefaultClaudeCommand) or run satelle init to migrate", fields[0])
 	}
-	if adapterOf(fields[0], fields[1:]) == HarnessCursor {
-		if err := cursorTemplateProblem(fields[1:]); err != nil {
-			return nil, err
-		}
-	}
 	return templateRunner{binary: fields[0], argTemplate: fields[1:]}, nil
 }
 
@@ -594,13 +574,6 @@ func (t templateRunner) Command() string {
 func (t templateRunner) Run(ctx context.Context, req Request) ([]byte, error) {
 	if err := checkDeny(t.binary, t.argTemplate, InterfaceCommand, req); err != nil {
 		return nil, err
-	}
-	if adapterOf(t.binary, t.argTemplate) == HarnessCursor {
-		args, creq, err := cursorSpawn(buildArgs(t.argTemplate, req), req)
-		if err != nil {
-			return nil, err
-		}
-		return runProcess(ctx, t.binary, args, creq)
 	}
 	return runProcess(ctx, t.binary, reviewerArgs(t.binary, buildArgs(t.argTemplate, req), req), req)
 }

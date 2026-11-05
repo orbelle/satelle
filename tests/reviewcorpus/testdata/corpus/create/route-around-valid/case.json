@@ -1,9 +1,0 @@
-{
-  "id": "create-route-around-valid",
-  "rubric": "create",
-  "skill": "satelle-story-create-review",
-  "label": "valid",
-  "story_id": "sty_902140d6",
-  "expected_verdict": "accept",
-  "summary": "Illustrative counterpart to create-route-around-defect: the same agents-layer repair drafted as a story in the repo that owns the file, under the agents-repair category whose route may change .satelle/workflows/agents*.toml. Modelled on the rule sty_902140d6 adds to satelle-agent-goals, not a recorded accept."
-}

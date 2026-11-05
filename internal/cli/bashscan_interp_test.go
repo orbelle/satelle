@@ -5,7 +5,6 @@ package cli
 // recognised, and the lock-root scan matches whole tokens only.
 
 import (
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -201,38 +200,6 @@ func TestShellProgram(t *testing.T) {
 		if got, isOK := shellProgram(lastSegment(cmd, "/repo")); isOK {
 			t.Errorf("shellProgram(%q) = %q, true; want not ok", cmd, got)
 		}
-	}
-}
-
-// sty_ca667036 AC3: a read-only command with fd redirects, bare or inside a shell
-// -c wrapper, has no lock candidate and is no tree write; a wrapper that writes is.
-func TestFdRedirectsNoCandidateNoWrite(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("SATELLE_PROJECT_DIR", root)
-	cfg := lockConfig{root: root, lockPaths: []string{".satelle/"}}
-	for _, c := range []string{"git status 2>&1", "ls </dev/null", "echo hi >&2", "satelle story list 2>&1-"} {
-		for _, cmd := range []string{c, "bash -lc '" + c + "'"} {
-			if got := bashLockCandidates(cmd, cfg); len(got) != 0 {
-				t.Errorf("bashLockCandidates(%q) = %v, want none", cmd, got)
-			}
-			if bashMutatesTreeWith(cmd, inlineAnchor, inlineChecker) {
-				t.Errorf("bashMutatesTree(%q) = true, want false", cmd)
-			}
-		}
-	}
-	for _, cmd := range []string{
-		`bash -lc 'echo x > f'`,
-		`echo "open('src/a.go','w')" | bash -c python3`,
-		"bash -c python3 <<'EOF'\nopen('src/a.go','w')\nEOF",
-		`echo "open('src/a.go','w')" | python3`,
-		"python3 <<'EOF'\nopen('src/a.go','w')\nEOF",
-	} {
-		if !bashMutatesTreeWith(cmd, inlineAnchor, inlineChecker) {
-			t.Errorf("bashMutatesTree(%q) = false, want true", cmd)
-		}
-	}
-	if got := bashLockCandidates("bash -lc 'echo x > .satelle/x 2>&1'", cfg); !reflect.DeepEqual(got, []string{filepath.Join(root, ".satelle", "x")}) {
-		t.Errorf("a wrapped write keeps its one candidate, got %v", got)
 	}
 }
 

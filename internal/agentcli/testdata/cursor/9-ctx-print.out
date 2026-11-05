@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":3508,"duration_api_ms":3508,"result":"Hello — good to meet you. How can I help you today?\n\nCTX-OKAPI","session_id":"4e954756-5543-4521-8f0f-ef0acb2ca608","request_id":"b5197d3d-93aa-4a3a-8e66-a82e60d4d7d3","usage":{"inputTokens":8867,"outputTokens":66,"cacheReadTokens":3864,"cacheWriteTokens":0}}

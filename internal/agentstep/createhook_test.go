@@ -8,7 +8,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 )
 
 // hookDocs wraps a workflow body as the doc list WorkflowConsistency consumes.
@@ -90,36 +89,6 @@ func TestReviewCreateUsesTheDeclaredAgent(t *testing.T) {
 	}
 	if bootstrap.got.SystemPrompt != "" {
 		t.Error("a named hook binding must run its own harness, not the bootstrap runner")
-	}
-}
-
-// TestReviewCreateShorthandStillUsesTheDefaultReviewer pins AC2 at the engine:
-// the scalar form behaves exactly as before — the bootstrap `[reviewer]` runner
-// judges the draft — but now because the hook DECLARED that default, not because
-// an empty string fell through gateBinding.
-func TestReviewCreateShorthandStillUsesTheDefaultReviewer(t *testing.T) {
-	g, r := newEngine(t, `{"decision":"accept","notes":"aligned"}`,
-		fakeDocs{workflow: createWF, skillBody: "content rubric", skillFound: true})
-	g.SetNamedAgents(func(string) (config.AgentBinding, bool) {
-		t.Error("the shorthand must not resolve a named binding")
-		return config.AgentBinding{}, false
-	})
-
-	dec, err := g.ReviewCreate(context.Background(), validDraft)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !dec.Gated || !dec.Accept || dec.Skill != "my-create-review" {
-		t.Fatalf("want gated accept by the declared skill, got %+v", dec)
-	}
-	if r.got.SystemPrompt == "" {
-		t.Error("the default reviewer's runner must have judged the draft")
-	}
-
-	// And the declaration itself is inspectable, with its default attributed.
-	hook, ok := wfhook.For(doneHalf(createWF), wfhook.OpCreateReview)
-	if !ok || hook.Agent != wfhook.DefaultAgent || hook.AgentDeclared {
-		t.Errorf("shorthand hook = %+v", hook)
 	}
 }
 

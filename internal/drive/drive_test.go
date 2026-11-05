@@ -308,65 +308,6 @@ func TestStoryRefusesAnInLoopExecutorBeforeAnyTransition(t *testing.T) {
 	e.wantLedgerDelta(before)
 }
 
-// AC3: a relay that ends without agreement parks the story as blocked with its
-// last objection recorded, and the findings were relayed to the performer first.
-func TestStoryParksWhenTheDeclaredRelayEndsWithoutAgreement(t *testing.T) {
-	for _, outcome := range []string{"budget", "no_progress"} {
-		t.Run(outcome, func(t *testing.T) {
-			e := newEnv(t, routeDone, `[raised]
-status = "backlog"
-start = true
-
-[coded]
-status = "in_progress"
-agent = "coder"
-rework = { consult = "reviewer-consult", rounds = 2 }
-requires = ["raised"]
-
-[closed]
-status = "done"
-terminal = true
-requires = ["coded"]
-`)
-			e.gater.always["done"] = true
-			id := e.story()
-			perf := &fakePerformers{
-				kinds:  map[string]verb.PerformerKind{"in_progress": verb.PerformerDispatched},
-				agents: map[string]string{"in_progress": "coder"},
-			}
-			relays := 0
-			res, err := drive.Story(context.Background(), id, drive.Options{
-				Performers: perf,
-				Rework: func(_ context.Context, rid string) (drive.Rework, error) {
-					relays++
-					// The findings are already on the record for the relay to open on.
-					msgs := verb.EngagementMessages(context.Background(), rid)
-					if len(msgs) == 0 || msgs[len(msgs)-1].To != "coder" || !strings.Contains(msgs[len(msgs)-1].Body, "OBJECTION-1") {
-						t.Errorf("the rejection must be messaged to the coder before the relay runs: %+v", msgs)
-					}
-					return drive.Rework{Outcome: outcome, Rounds: 2, LastObjection: "STILL-NOT-READY"}, nil
-				},
-			})
-			if err != nil {
-				t.Fatalf("drive: %v", err)
-			}
-			if !res.Parked || res.Status != "blocked" || e.status(id) != "blocked" || relays != 1 {
-				t.Fatalf("want parked at blocked after one relay, got %+v (stored %q, relays %d)", res, e.status(id), relays)
-			}
-			if !strings.Contains(res.Reason, "STILL-NOT-READY") || !strings.Contains(res.Reason, outcome) {
-				t.Errorf("reason must carry the outcome and the last objection, got %q", res.Reason)
-			}
-			var onTimeline bool
-			for _, row := range e.rows(id, ledger.KindComment) {
-				onTimeline = onTimeline || strings.Contains(row.Body, "STILL-NOT-READY")
-			}
-			if !onTimeline {
-				t.Errorf("the objection must be recorded on the story's timeline")
-			}
-		})
-	}
-}
-
 // AC3: a relay that converges re-presents the edge, which the gate then accepts.
 func TestStoryRepresentsTheEdgeAfterAConvergedRelay(t *testing.T) {
 	e := newEnv(t, routeDone, `[raised]
@@ -400,29 +341,6 @@ requires = ["coded"]
 	})
 	if err != nil || !res.Terminal || relays != 1 || e.gater.seen["done"] != 2 {
 		t.Fatalf("want done after one relay and two presentations: %v %+v relays=%d seen=%v", err, res, relays, e.gater.seen)
-	}
-}
-
-// AC3: an executor-allocated step whose exit edge is rejected is performed again
-// with the reviewers' findings appended to its prompt, not messaged.
-func TestStoryRerunsTheExecutorWithTheFindingsOnARejectedExit(t *testing.T) {
-	e := newEnv(t, routeDone, workRoute)
-	e.gater.rejects["done"] = 1
-	id := e.story()
-	var notes []string
-	perf := &fakePerformers{
-		kinds: map[string]verb.PerformerKind{"in_progress": verb.PerformerExecutor}, executor: headless(),
-		onPerform: func(_ workitem.Item, _, n string) error { notes = append(notes, n); return nil },
-	}
-	res, err := drive.Story(context.Background(), id, drive.Options{Performers: perf})
-	if err != nil || !res.Terminal {
-		t.Fatalf("drive: %v %+v", err, res)
-	}
-	if len(notes) != 2 || notes[0] != "" || !strings.Contains(notes[1], "OBJECTION-1 to done") {
-		t.Errorf("the second run must carry the findings, the first none: %q", notes)
-	}
-	if msgs := verb.EngagementMessages(context.Background(), id); len(msgs) != 0 {
-		t.Errorf("an executor step gets its findings in the prompt, not as messages: %+v", msgs)
 	}
 }
 

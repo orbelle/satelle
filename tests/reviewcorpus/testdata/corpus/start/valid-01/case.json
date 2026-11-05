@@ -1,9 +1,0 @@
-{
-  "id": "start-valid-01",
-  "rubric": "start",
-  "skill": "satelle-story-plan-review",
-  "label": "valid",
-  "story_id": "sty_81caa41b",
-  "expected_verdict": "accept",
-  "summary": "Frozen from the real, currently-attached plan document for sty_81caa41b (fetched via `satelle story doc sty_81caa41b plan`), the R1-R4 revision that satelle-story-plan-review accepted (2026-09-27, evt_f7d66a07). change.diff shows the same AC5 section as start-defect-01, revised to add the sweep trigger (SweepDriverWindows across every session with an open or pending window, run from a lease steal/stale-seat reap, SessionStart, and story cost/session query) and the wall-time bound (the later of the record's last timestamp and the lease heartbeat), verbatim from the shipped plan."
-}

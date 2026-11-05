@@ -22,40 +22,19 @@ var wiringVars = []wiringVar{
 	{"ledgerStore", &ledgerStore},
 	{"docIndexStore", &docIndexStore},
 	{"leaseStore", &leaseStore},
-	{"retrieveStore", &retrieveStore},
 	{"txRunner", &txRunner},
-	{"opLog", &opLog},
 	{"changeNotifiers", &changeNotifiers},
 	// Directories and substrate roots.
 	{"storyDir", &storyDir},
 	{"dataDir", &dataDir},
 	{"backupsDir", &backupsDir},
 	{"taskDir", &taskDir},
-	{"authoredDirs", &authoredDirs},
-	{"substrateConfigDir", &substrateConfigDir},
-	{"worktreeCfg", &worktreeCfg},
-	{"worktreeRoot", &worktreeRoot},
-	{"worktreeWired", &worktreeWired},
-	{"trunkCfg", &trunkCfg},
-	{"trunkRepo", &trunkRepo},
-	{"trunkOut", &trunkOut}, // non-zero default (stderr): restore puts the prior writer back
-	{"applyOut", &applyOut}, // non-zero default (stderr): restore puts the prior writer back
 	// Config-derived policy.
-	{"tagVocabCfg", &tagVocabCfg},
-	{"tagVocabWired", &tagVocabWired},
-	{"releaseFields", &releaseFields},
 	{"agentsLayer", &agentsLayer},
 	{"agentsVars", &agentsVars},
 	{"agentsWired", &agentsWired},
-	{"engagementParallel", &engagementParallel},
-	{"storyKeepClosed", &storyKeepClosed},
-	{"storyKeepDays", &storyKeepDays},
-	{"retrieveKeepDays", &retrieveKeepDays},
 	{"attachMaxBytes", &attachMaxBytes},
 	{"attachAllowTypes", &attachAllowTypes},
-	{"changeRecordPatchLimit", &changeRecordPatchLimit},
-	{"changeRecordFileLimit", &changeRecordFileLimit},
-	{"processProbe", &processProbe},
 	// Resolvers, reviewers and hooks.
 	{"assigneeResolver", &assigneeResolver},
 	{"engageGuard", &engageGuard},
@@ -73,14 +52,6 @@ var wiringVars = []wiringVar{
 	// Seams with a non-zero production default: restore puts the prior value
 	// back, never nil, so the default survives.
 	{"verdictRecord", &verdictRecord},
-	{"dispatchLogsDir", &dispatchLogsDir},
-	{"changelogPath", &changelogPath},
-	{"embeddedChangelog", &embeddedChangelog}, // go:embed content; tests substitute a fixture
-	{"driverWindowReader", &driverWindowReader},
-	{"driverSnapshotter", &driverSnapshotter},
-	{"findRegistered", &findRegistered},   // cross-repo depends-on: the workspace registry lookup
-	{"currentRepoRoot", &currentRepoRoot}, // ... the invoking repo's root
-	{"loadSibling", &loadSibling},         // ... the read-only read of a sibling repo
 }
 
 // wiringExempt names every package-level variable that is NOT per-invocation

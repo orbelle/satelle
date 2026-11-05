@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/config"
 )
 
 // rateLimitStub answers every request with status and headers.
@@ -103,20 +101,5 @@ func TestHTTPGetBytesSendsNoAuthorization(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("httpGetBytes sent Authorization %q; only the GitHub API caller carries a token", got)
-	}
-}
-
-// A rate-limited policy URL is a third party's: its error must not suggest a
-// GitHub token that `policy refresh` never sends.
-func TestFetchPolicyRateLimitIsNeutral(t *testing.T) {
-	srv := rateLimitStub(t, http.StatusTooManyRequests, map[string]string{"Retry-After": "30"})
-	_, _, err := fetchPolicy(context.Background(), config.CommandPolicy{URL: srv.URL}, "")
-	if err == nil || !strings.Contains(err.Error(), "rate limited") {
-		t.Fatalf("want a rate limit error, got %v", err)
-	}
-	for _, banned := range []string{"GitHub", "GH_TOKEN", "GITHUB_TOKEN"} {
-		if strings.Contains(err.Error(), banned) {
-			t.Errorf("policy refresh error names %q: %v", banned, err)
-		}
 	}
 }

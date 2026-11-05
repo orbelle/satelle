@@ -2,12 +2,8 @@ package agentstep
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -33,35 +29,5 @@ func TestRunCheckKeepsRepoRootAndNamesStory(t *testing.T) {
 	}
 	if gotStory != "sty_wt" {
 		t.Errorf("check story = %q, want sty_wt", gotStory)
-	}
-}
-
-// execCheck exports the story to the check's environment and leaves the cwd
-// alone; with no story marked, the environment carries no gate context.
-func TestExecCheckExportsGateStory(t *testing.T) {
-	dir := t.TempDir()
-	want, _ := filepath.EvalSymlinks(dir)
-	script := `echo "story=${` + verb.GateStoryEnv + `:-none}"; pwd -P`
-
-	out, err := execCheck(withGateItem(context.Background(), workitem.Item{ID: "sty_wt"}), dir, script, "")
-	if err != nil {
-		t.Fatalf("execCheck: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "story=sty_wt") {
-		t.Errorf("check must see the gated story: %q", out)
-	}
-	if !strings.Contains(out, want) {
-		t.Errorf("check cwd must stay %q: %q", want, out)
-	}
-
-	if _, ok := os.LookupEnv(verb.GateStoryEnv); ok {
-		t.Skipf("%s set in the test environment", verb.GateStoryEnv)
-	}
-	out, err = execCheck(context.Background(), dir, script, "")
-	if err != nil {
-		t.Fatalf("execCheck: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "story=none") {
-		t.Errorf("an unmarked check must carry no gate context: %q", out)
 	}
 }

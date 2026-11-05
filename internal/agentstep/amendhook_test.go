@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -49,30 +48,6 @@ func TestReviewAmendWithoutADeclaredHookIsUngated(t *testing.T) {
 	}
 	if r.got.SystemPrompt != "" {
 		t.Error("no reviewer should have run")
-	}
-}
-
-// The declared skill judges the amendment, and its payload carries the
-// before/after plus the reason — without them the reviewer cannot tell a
-// correction from a weakening.
-func TestReviewAmendRunsTheDeclaredSkillWithTheBeforeAfter(t *testing.T) {
-	g, r := newEngine(t, `{"decision":"reject","notes":"this weakens AC2"}`,
-		fakeDocs{workflow: amendWF, skillBody: "amend rubric", skillFound: true})
-	dec, err := g.ReviewAmend(context.Background(), amendDraft)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !dec.Gated || dec.Accept || dec.Skill != "my-amend-review" || dec.Notes == "" {
-		t.Fatalf("want a gated reject by the declared skill, got %+v", dec)
-	}
-	for _, want := range []string{`"amendment"`, "false claim", "corrected claim", amendDraft.Reason} {
-		if !strings.Contains(r.got.Payload, want) {
-			t.Errorf("reviewer payload missing %q:\n%s", want, r.got.Payload)
-		}
-	}
-	// The hook is readable from the substrate, not a constant in Go.
-	if hook, ok := wfhook.For(doneHalf(amendWF), wfhook.OpAmendReview); !ok || hook.Skill != "my-amend-review" {
-		t.Errorf("amend hook = %+v (declared %v)", hook, ok)
 	}
 }
 

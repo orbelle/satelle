@@ -1,9 +1,0 @@
-{
-  "id": "start-dispatch-manifest-valid",
-  "rubric": "start",
-  "skill": "satelle-story-plan-review",
-  "label": "valid",
-  "story_id": "sty_08f747ad",
-  "expected_verdict": "accept",
-  "summary": "Dispatch-pointers rule, accept side. The same sty_08f747ad feature and judgement design, rewritten as the operator's note says it should have been: the plan names the receiving reviewer seat, its read grant and the satelle CLI, and sends it the instruction plus a manifest of item ids, on-disk paths and the retrieval commands (satelle doc get, satelle ledger list) instead of the items' text and history. Pair: start-dispatch-embed-defect."
-}

@@ -8,7 +8,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/health"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 )
 
 // wfWithHook builds a minimal workflow doc whose frontmatter carries the given
@@ -32,68 +31,6 @@ func healthyAgents() config.AgentsConfig {
 			Tools:   "Read,Grep,Glob",
 		},
 	}
-}
-
-// TestValidateSurfacesHookAllocations pins AC4's validate half: a declared hook
-// produces an inspectable allocation naming the operation, skill, section, that
-// section's effective model, and how it was declared — and the named section is
-// not then reported as an orphaned binding.
-func TestValidateSurfacesHookAllocations(t *testing.T) {
-	agents := healthyAgents()
-	agents.Agents = map[string]config.AgentBinding{
-		"strict-reviewer": {
-			Role:    config.RoleReviewer,
-			Command: agentcli.DefaultClaudeCommand,
-			Tools:   "Read,Grep,Glob",
-			Model:   "opus",
-		},
-	}
-	doc := wfWithHook("hooks:\n  - operation: create_review\n    skill: strict-create-review\n    agent: strict-reviewer\n")
-
-	r := Validate(agents, nil, []docindex.Doc{doc})
-	if !r.OK() {
-		t.Fatalf("healthy hook allocation must validate green: %v", r.Problems)
-	}
-	var found bool
-	for _, ga := range r.Gates {
-		if ga.Node != "hook:create_review" {
-			continue
-		}
-		found = true
-		if ga.Operation != wfhook.OpCreateReview || ga.Skill != "strict-create-review" ||
-			ga.Agent != "strict-reviewer" || ga.EffectiveModel != "opus" || ga.Source != wfhook.SourceHooks {
-			t.Errorf("hook allocation = %+v", ga)
-		}
-	}
-	if !found {
-		t.Fatalf("no hook allocation in %+v", r.Gates)
-	}
-	for _, w := range r.Warnings {
-		if strings.Contains(w, "orphaned") && strings.Contains(w, "strict-reviewer") {
-			t.Errorf("a binding a hook allocates must not be reported orphaned: %s", w)
-		}
-	}
-}
-
-// TestValidateShorthandHookAllocatesTheDefaultAgentWithProvenance pins AC2 at
-// the validation surface: the scalar form still resolves to [reviewer], but now
-// as a DECLARED allocation with its source recorded rather than an empty
-// selector nothing could inspect.
-func TestValidateShorthandHookAllocatesTheDefaultAgentWithProvenance(t *testing.T) {
-	doc := wfWithHook("create_review: satelle-story-create-review\n")
-	r := Validate(healthyAgents(), nil, []docindex.Doc{doc})
-	if !r.OK() {
-		t.Fatalf("the shorthand must stay green: %v", r.Problems)
-	}
-	for _, ga := range r.Gates {
-		if ga.Node == "hook:create_review" {
-			if ga.Agent != wfhook.DefaultAgent || ga.Source != wfhook.SourceShorthand {
-				t.Errorf("shorthand allocation = %+v", ga)
-			}
-			return
-		}
-	}
-	t.Fatalf("no hook allocation in %+v", r.Gates)
 }
 
 // TestValidateRefusesUnsafeHookAllocations pins AC5's allocation classes. Each

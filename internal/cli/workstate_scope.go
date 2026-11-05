@@ -11,15 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/app"
-	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -87,15 +84,9 @@ func resolveScope(ctx context.Context, a *app.App, ids []string, push bool) (sco
 			return res, fmt.Errorf("look up %s: %w", id, err)
 		}
 		set[id] = true
-		if !epicset.IsEpicParent(it) {
-			continue
-		}
-		members, err := epicset.Members(ctx, a.Store.Stories, it)
+		members, err := a.Store.Stories.List(ctx, workitem.ListFilter{ParentID: it.ID})
 		if err != nil {
-			return res, fmt.Errorf("resolve epic %s: %w", id, err)
-		}
-		if len(members) == 0 {
-			res.EmptyEpics = append(res.EmptyEpics, id)
+			return res, fmt.Errorf("resolve children of %s: %w", id, err)
 		}
 		for _, m := range members {
 			set[m.ID] = true
@@ -121,17 +112,6 @@ func emptyEpicNotice(w io.Writer, id string) {
 	fmt.Fprintf(w, "epic %s: container only; its members were not synced because none are in the local store — name the member story ids (satelle sync workstate pull <member-id>...) to sync them\n", id)
 }
 
-// remoteEpicNotice says a pulled epic container the local store lacked arrived
-// without members although the pull looked for them on the server: it holds
-// none, or the container carries no single epic:<theme> tag to find them by.
-func remoteEpicNotice(w io.Writer, id string, themed bool) {
-	if themed {
-		fmt.Fprintf(w, "epic %s: container only; the server holds no members of it\n", id)
-		return
-	}
-	fmt.Fprintf(w, "epic %s: container only; it carries no single %s<theme> tag, so its members cannot be found\n", id, epicset.TagPrefix)
-}
-
 // expandRemoteEpics widens sc by the members of every named epic the local store
 // lacked, read from the server's own items: a Missing id whose response shows an
 // epic-parent with exactly one epic:<theme> tag. It sends one unscoped Snapshot
@@ -140,50 +120,7 @@ func remoteEpicNotice(w io.Writer, id string, themed bool) {
 // alone); two epic-parents sharing a theme refuse. The returned scope is
 // unscoped (zero) when nothing was added, so the caller keeps its first fetch.
 func expandRemoteEpics(ctx context.Context, client *hosted.Client, project, server string, sc scopeResolution, got map[string]hosted.WorkstateItem) (scopeResolution, error) {
-	var epics []workitem.Item
-	for _, id := range slices.Sorted(maps.Keys(sc.Missing)) {
-		it, err := parseWorkstateItem(got[id])
-		if err == nil && epicset.IsEpicParent(it) && len(epicset.Themes(it)) == 1 {
-			epics = append(epics, it)
-		}
-	}
-	if len(epics) == 0 {
-		return scopeResolution{}, nil
-	}
-	var all []workitem.Item
-	_, err := client.Snapshot(ctx, project, "", hosted.SnapshotOptions{}, func(pg hosted.SnapshotPage) error {
-		for _, hi := range pg.Items {
-			if it, perr := parseWorkstateItem(hi); perr == nil {
-				all = append(all, it)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return scopeResolution{}, fmt.Errorf("find the members of %s on %s: %w; nothing applied", epics[0].ID, server, err)
-	}
-	set := maps.Clone(sc.Set)
-	added := false
-	for _, epic := range epics {
-		es, err := epicset.FromItems(all, epic)
-		if err != nil {
-			return scopeResolution{}, fmt.Errorf("epic %s: %w; nothing applied", epic.ID, err)
-		}
-		for _, m := range es.Children {
-			set[m.ID] = true
-			added = true
-		}
-	}
-	if !added {
-		return scopeResolution{}, nil
-	}
-	if len(set) > maxScopeIDs {
-		return scopeResolution{}, fmt.Errorf("scope resolves to %d ids; the server accepts at most %d; nothing applied", len(set), maxScopeIDs)
-	}
-	out := sc
-	out.Set = set
-	out.IDs = slices.Sorted(maps.Keys(set))
-	return out, nil
+	return scopeResolution{}, nil
 }
 
 // errScopeIgnored marks a Snapshot response carrying rows outside the requested
@@ -291,9 +228,6 @@ func runScopedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer,
 	}
 	for _, pg := range pages {
 		if err := p.apply(ctx, pg); err != nil {
-			if p.rep.Items+p.rep.Ledger > 0 {
-				_, _, _ = verb.SyncStoryBacklog(ctx, a.Store.Stories, time.Now().UTC())
-			}
 			return p.rep, err
 		}
 	}
@@ -307,30 +241,6 @@ func runScopedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer,
 		for _, id := range sc.IDs {
 			p.rep.Hosted = append(p.rep.Hosted, got[id])
 		}
-	}
-
-	// A container arrived without members. A container held locally takes its
-	// members from the local store; one the store lacked, in a pull, from the
-	// server (expandRemoteEpics). Say so rather than leave a silent half-sync.
-	notice := map[string]func(){}
-	for _, id := range sc.EmptyEpics {
-		notice[id] = func() { emptyEpicNotice(errw, id) }
-	}
-	for id := range sc.Missing {
-		it, perr := parseWorkstateItem(got[id])
-		if perr != nil || !epicset.IsEpicParent(it) {
-			continue
-		}
-		if members, merr := epicset.Members(ctx, a.Store.Stories, it); merr != nil || len(members) == 0 {
-			if sc.ExpandRemoteEpics {
-				notice[id] = func() { remoteEpicNotice(errw, id, len(epicset.Themes(it)) == 1) }
-			} else {
-				notice[id] = func() { emptyEpicNotice(errw, id) }
-			}
-		}
-	}
-	for _, id := range slices.Sorted(maps.Keys(notice)) {
-		notice[id]()
 	}
 	return p.rep, nil
 }

@@ -184,7 +184,6 @@ func storyLog(ctx context.Context, raw json.RawMessage) (json.RawMessage, error)
 	if err := AppendTelemetry(ctx, it.ID, "executor", req.Kind, req.Data); err != nil {
 		return nil, err
 	}
-	appendOpLog("story-log", it.ID, fmt.Sprintf("telemetry event %q recorded", req.Kind), time.Now())
 	notifyChange(panelTopic(it.Kind))
 	return json.Marshal(map[string]any{"story_id": it.ID, "kind": req.Kind, "recorded": true})
 }

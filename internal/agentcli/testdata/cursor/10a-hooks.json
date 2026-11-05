@@ -1,1 +1,0 @@
-{"version":1,"hooks":{"sessionStart":[{"command":"/SCRATCH/out/10a-hook.sh sessionStart"}],"preToolUse":[{"command":"/SCRATCH/out/10a-hook.sh preToolUse"}],"beforeShellExecution":[{"command":"/SCRATCH/out/10a-hook.sh beforeShellExecution"}]}}

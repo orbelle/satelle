@@ -1,1 +1,0 @@
-{"cursor_agent_version":"2026.10.01-e373342","date":"2026-10-10T06:24:29Z","argv":["cursor-agent","-p","--trust","--force","--output-format","stream-json","--model","composer-2.5","<ASK>"],"ask":"Edit README.md in place: replace the text 'line two' with 'line TWO'. Then delete the file other.txt. Do both; do not ask."}

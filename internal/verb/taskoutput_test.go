@@ -4,113 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/store"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
-
-// TestExecutionRecordWritesOKFOutput proves the in-loop capture path
-// (sty_890b86cb): `execution-record` writes a run's output as an OKF doc under
-// the parent task's folder, with OKF frontmatter (type + generated marker), and a
-// second run never overwrites the first.
-func TestExecutionRecordWritesOKFOutput(t *testing.T) {
-	_, taskDir := wireTasks(t)
-
-	var task workitem.Item
-	json.Unmarshal(call(t, "task-create", map[string]any{"title": "Runnable"}), &task)
-	var run1 workitem.Item
-	json.Unmarshal(call(t, "execution-create", map[string]any{"title": "r1", "parent_id": task.ID}), &run1)
-
-	var rec struct{ Execution, Path string }
-	json.Unmarshal(call(t, "execution-record", map[string]any{"id": run1.ID, "output": "did the thing; verified OK"}), &rec)
-
-	outPath := filepath.Join(taskDir, task.ID, "output-"+run1.ID+".md")
-	body, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatalf("run-output doc not written under the task folder: %v", err)
-	}
-	s := string(body)
-	for _, want := range []string{"type: task-execution-output", "generated: satelle", "execution: " + run1.ID, "did the thing; verified OK"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("run-output doc missing %q:\n%s", want, s)
-		}
-	}
-
-	// A second run records beside the first — per-run, no overwrite.
-	var run2 workitem.Item
-	json.Unmarshal(call(t, "execution-create", map[string]any{"title": "r2", "parent_id": task.ID}), &run2)
-	call(t, "execution-record", map[string]any{"id": run2.ID, "output": "second run output"})
-	if _, err := os.Stat(filepath.Join(taskDir, task.ID, "output-"+run2.ID+".md")); err != nil {
-		t.Errorf("second run's output not written: %v", err)
-	}
-	if again, _ := os.ReadFile(outPath); !strings.Contains(string(again), "did the thing") {
-		t.Error("second run overwrote the first run's output")
-	}
-}
-
-// The outcome a performer or validator records is written into the run-output
-// doc, read back from it, kept by a later record that carries none, and refused
-// when it is not one of the recordable outcomes.
-func TestExecutionRecordWritesTheOutcomeIntoTheRunOutputDoc(t *testing.T) {
-	_, taskDir := wireTasks(t)
-	var task, run workitem.Item
-	json.Unmarshal(call(t, "task-create", map[string]any{"title": "Runnable"}), &task)
-	json.Unmarshal(call(t, "execution-create", map[string]any{"title": "r1", "parent_id": task.ID}), &run)
-
-	if got := verb.RunOutcome(run); got != "" {
-		t.Fatalf("a run with no doc has outcome %q, want none", got)
-	}
-	call(t, "execution-record", map[string]any{"id": run.ID, "output": "nothing to do", "outcome": "no-op"})
-	if got := verb.RunOutcome(run); got != verb.OutcomeNoOp {
-		t.Fatalf("outcome = %q, want no-op", got)
-	}
-	doc, err := os.ReadFile(filepath.Join(taskDir, task.ID, "output-"+run.ID+".md"))
-	if err != nil || !strings.Contains(string(doc), "\noutcome: no-op\n") {
-		t.Fatalf("the outcome is not in the doc's frontmatter: %v\n%s", err, doc)
-	}
-
-	call(t, "execution-record", map[string]any{"id": run.ID, "output": "more detail"})
-	if got := verb.RunOutcome(run); got != verb.OutcomeNoOp {
-		t.Errorf("a record with no outcome dropped it: %q", got)
-	}
-	call(t, "execution-record", map[string]any{"id": run.ID, "output": "changed my mind", "outcome": "performed"})
-	if got := verb.RunOutcome(run); got != verb.OutcomePerformed {
-		t.Errorf("outcome = %q, want the newly recorded performed", got)
-	}
-
-	bad, _ := json.Marshal(map[string]any{"id": run.ID, "output": "x", "outcome": "done"})
-	if _, err := verb.Dispatch(t.Context(), "execution-record", bad); err == nil || !strings.Contains(err.Error(), "outcome") {
-		t.Errorf("an unknown outcome must be refused naming it, got %v", err)
-	}
-}
-
-// The findings a run reports are the performer's text on the run-output doc,
-// without the front matter or the generated heading, and a later record replaces
-// them while the recorded outcome stays.
-func TestRunFindingsReadsTheRunOutputBody(t *testing.T) {
-	wireTasks(t)
-	var task, run workitem.Item
-	json.Unmarshal(call(t, "task-create", map[string]any{"title": "Runnable"}), &task)
-	json.Unmarshal(call(t, "execution-create", map[string]any{"title": "r1", "parent_id": task.ID}), &run)
-
-	if got := verb.RunFindings(run); got != "" {
-		t.Fatalf("a run with no doc has findings %q, want none", got)
-	}
-	call(t, "execution-record", map[string]any{"id": run.ID, "output": "the diff breaks the build\nfix the import", "outcome": "reject"})
-	if got, want := verb.RunFindings(run), "the diff breaks the build\nfix the import"; got != want {
-		t.Errorf("findings = %q, want %q", got, want)
-	}
-	call(t, "execution-record", map[string]any{"id": run.ID, "output": "looks good"})
-	if got := verb.RunFindings(run); got != "looks good" {
-		t.Errorf("findings after a second record = %q, want looks good", got)
-	}
-	if got := verb.RunOutcome(run); got != verb.OutcomeReject {
-		t.Errorf("outcome = %q, want the earlier reject kept", got)
-	}
-}
 
 // TestAttachRootResolvesByKind proves the attachment root resolves by KIND
 // (sty_890b86cb): attaching to a TASK materialises under .satelle/tasks/<tsk_id>/,

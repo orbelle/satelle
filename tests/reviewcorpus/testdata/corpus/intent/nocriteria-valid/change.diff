@@ -1,8 +1,0 @@
---- /dev/null
-+++ b/story/sty_a3a5397a.card.md
-@@ -0,0 +1,5 @@
-+# Saved searches survive a sign-out
-+
-+As a signed-in analyst who has saved a search on the reports page, when I sign
-+out and sign back in on any device, my saved searches are listed exactly as I
-+left them, so I do not rebuild a filter set every session.

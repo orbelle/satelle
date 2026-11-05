@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":6967,"duration_api_ms":6967,"result":"Creating a short plan for the two straightforward steps you requested.\n\n\n","session_id":"5a352c64-c862-449a-b134-67ee48254de7","request_id":"b8b38ae8-74a7-4308-85ae-8af018311b86","usage":{"inputTokens":11277,"outputTokens":648,"cacheReadTokens":2882,"cacheWriteTokens":0}}

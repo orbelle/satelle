@@ -17,7 +17,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 // snapshotMode picks how a page is checked before it is applied: a pull refuses
@@ -223,11 +222,6 @@ func runPagedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer, 
 	}
 	p.rep.Pages = res.Pages
 	if err != nil {
-		// Pages already applied stay; their story views are regenerated now so
-		// the interrupted pass leaves nothing stale behind.
-		if p.rep.Items+p.rep.Ledger > 0 {
-			_, _, _ = verb.SyncStoryBacklog(ctx, a.Store.Stories, time.Now().UTC())
-		}
 		return p.rep, err
 	}
 	now := time.Now().UTC()
@@ -262,9 +256,6 @@ func runPagedWorkstateSnapshot(ctx context.Context, a *app.App, errw io.Writer, 
 // events to, so a transition that lands on a later page than its story moves
 // that row when the page lands (sty_a28c64dd).
 func (p *snapshotPass) settle(ctx context.Context, now time.Time) error {
-	if _, _, verr := verb.SyncStoryBacklog(ctx, p.a.Store.Stories, now); verr != nil {
-		return fmt.Errorf("regenerate story views after %d item(s), %d ledger: %w — store rows landed; re-run is safe", p.rep.Items, p.rep.Ledger, verr)
-	}
 	return nil
 }
 

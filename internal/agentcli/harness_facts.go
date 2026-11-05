@@ -141,24 +141,6 @@ func HarnessFactsTable() []HarnessFacts {
 			PromptContextNote: "the extension injects it into the system prompt via before_agent_start",
 			PreToolUseWarn:    no("pi: a tool_call handler returns only {block, reason} or undefined; notify() reaches only the UI; a non-interactive run cannot send a message"),
 		},
-		{
-			Harness:          HarnessCursor,
-			BackgroundCutoff: 30 * time.Second,
-			// Captured from a real cursor-agent (CapturedVersions): every Shell tool call
-			// carries timeout=30000 with timeoutBehavior=TIMEOUT_BEHAVIOR_BACKGROUND.
-			CutoffBasis: "cursor: Shell tool calls carry timeout=30000 with timeoutBehavior=TIMEOUT_BEHAVIOR_BACKGROUND (hardTimeout 86400000) — cursor backgrounds a shell call at 30s (testdata/cursor/{2e-hooks,3-abs,3-user,4}.out; tool_input.timeout in {3-abs,3-user,4,7-deny,7-stop}-hooks.log)",
-			// An interactive cursor session's stop hook answers a finished gate with a
-			// followup_message that re-prompts the agent (7-stop), and the gate is
-			// stamped with the conversation id the stop payload carries (21-*), so the
-			// verdict reaches the session that started it, once. Print mode
-			// (cursor-agent -p) dispatches no stop event (4-hooks.log): there the
-			// backgrounded gate's verdict is not delivered and the driver holds the
-			// foreground.
-			CompletionNotification: yes(),
-			InTurnWake:             "a stop hook's followup_message re-prompts the session; cap 4 (loop_count 0-3 take a followup, a followup at 4 produces no further turn) — measured on the captured cursor-agent build (CapturedVersions), testdata/cursor/20-cap. Past the cap the verdict is left pending and delivered at the stop of the session's next turn, where the count restarts. unavailable: cursor: print mode (-p) dispatches no stop event (testdata/cursor/4-hooks.log), so a gate outlasting cursor's 30s shell foreground is not delivered to a print-mode driver, which holds the foreground instead",
-			PreToolUseWarn:         no("cursor: native deny carries agent_message; no allow-with-message field is verified for preToolUse"),
-			PromptContext:          no("cursor: the prompt reminder (beforeSubmitPrompt) is unavailable — print mode does not dispatch it and interactive delivery is unproven (sty_7d098d50); session context rides sessionStart"),
-		},
 	}
 }
 

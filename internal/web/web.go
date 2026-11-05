@@ -15,9 +15,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/costview"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
@@ -141,10 +139,6 @@ type rowVM struct {
 	// so a refused earlier attempt's red count is never the only signal on a
 	// story a live agent is currently working.
 	Dispatch *dispatchVM
-	// ChildrenInFlight is, for an epic-parent, how many of its children have a
-	// dispatch in flight right now — the epic's roll-up of the per-story
-	// indicator (sty_a42f4add). Zero for every other story.
-	ChildrenInFlight int
 	// Here marks a story engaged at this checkout in a hosted-mode partition. It
 	// is a mark on the row, never a filter (sty_6ce071dc).
 	Here bool
@@ -187,109 +181,6 @@ type detailData struct {
 	Executions []executionVM // populated only for a TASK — its runs (sty_30a917f8)
 	TopBar     topBar
 	Standalone bool
-	// Cost is the costview headline for a STORY only (nil for a task, matching
-	// the CLI's `satelle story cost` scope) — the same costview.Figures/Family
-	// computation the CLI and the actual-* tags read, pre-formatted with the
-	// costview formatters so the template renders, never recomputes, a figure
-	// (sty_b8542a3a AC7).
-	Cost *costVM
-	// Members is a container's member set (id + status) — epicset's answer, the
-	// same set the close guard and the other surfaces report (sty_9f4f8e12).
-	// MembersNote carries the reason when an epic-parent's set cannot be fixed.
-	Members     []memberVM
-	MembersNote string
-	// WaveSchedule and WaveError are the epic's wave as the story-wave verb
-	// answered it (sty_a42f4add): the schedule it applied, or the verb's refusal
-	// text. ChildrenInFlight rolls the members' running indicators up to the epic.
-	WaveSchedule     string
-	WaveError        string
-	ChildrenInFlight int
-	// Messages is a story's board: each message with its sender, addressee,
-	// state and overdue flag, folded by board.Fold (sty_73c9aa10).
-	Messages []messageVM
-}
-
-// memberVM is one member of a container: its id and status plus, for an
-// epic-parent, what the story-wave verb reported for it and whether a dispatch is
-// running on it (sty_a42f4add). Wave is "runnable" (startable now), "held", or ""
-// when the verb lists the member in neither (finished) or no wave was pushed.
-type memberVM struct {
-	epicset.Ref
-	Wave      string
-	Cause     string
-	Reason    string
-	WaitingOn []waveBlockerVM
-	Dispatch  *dispatchVM
-}
-
-// messageVM is one message on a story's Messages panel. State is the folded
-// board state; Overdue is derived at render time, never stored.
-type messageVM struct {
-	ID       string
-	From     string // sending role, with the session name when it has one
-	To       string // the stored address token
-	State    string
-	Deadline string
-	Overdue  bool
-	Body     string
-	Created  time.Time
-}
-
-// costVM is one story's pre-formatted cost headline plus its family roll-up
-// (nil when the story has no children). Every string is already rendered
-// through a costview formatter, so the template and the CLI can never
-// disagree on a number's presentation.
-type costVM struct {
-	// Cost is the one primary dollar figure (costview.FormatDerived): the
-	// measured tokens priced at read time under the operator's [pricing], or an
-	// explicit unavailable. Seats is the same figure per agent+model seat, and
-	// FamilySeats its epic roll-up; both are pre-formatted by costview, as the
-	// CLI's BY SEAT tables are.
-	Cost        string
-	Seats       []costview.SeatLineView
-	FamilySeats []costview.SeatLineView
-	// Band is costview.FormatCostBand: low, medium, high, or unavailable — the
-	// secondary size indicator after Cost.
-	Band                  string
-	FreshIn, EstFreshIn   string
-	Out, EstOut           string
-	CacheRead, CacheWrite string
-	Unsplit               string
-	Elapsed, EstElapsed   string
-	AgentTime             string
-	LegacyEstimate        string
-	Family                []familyRowVM
-	FamilyTotal           *familyRowVM
-	// DriverRows/DriverTotal are the driving (in-loop) session's own recorded
-	// usage — its own section, separate from the dispatch figures above, same
-	// as the CLI's DRIVER SESSION table (sty_81caa41b, sty_b8542a3a AC4/AC7).
-	// costview.FormatDriverRows is the ONE formatting pass both surfaces call,
-	// so they cannot render different strings for the same ledger data. The web
-	// table omits the dollar column the CLI still prints. Nil/empty when the
-	// story has no driver_usage rows.
-	DriverRows  []costview.DriverRowView
-	DriverTotal *costview.DriverRowView
-	// DriverLine says whether the driving session's own spend is in the figures
-	// above; DriverAdapters is, per adapter, what its driver rows measured and
-	// what they could not measure for usage (no dollar-cost clause).
-	// FamilyDriverLine/FamilyAdapters say the same of the family total. All come
-	// from costview's coverage formatters, as the CLI's do (sty_ca1ca935).
-	DriverLine       string
-	DriverAdapters   []string
-	FamilyDriverLine string
-	FamilyAdapters   []string
-}
-
-// familyRowVM is one family member's pre-formatted cost line — a child, or
-// (as FamilyTotal) the whole family's fold.
-type familyRowVM struct {
-	ID string
-	// Cost is the derived cost (costview.FormatDerived); Band follows it.
-	Cost                  string
-	Band                  string
-	FreshIn, Out          string
-	CacheRead, CacheWrite string
-	Elapsed               string
 }
 
 type executionVM struct {

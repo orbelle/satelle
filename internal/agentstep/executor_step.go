@@ -8,7 +8,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/placement"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/workitem"
@@ -47,7 +46,7 @@ func (g *Engine) resolveExecutorStep(ctx context.Context, item workitem.Item, to
 	spec wfdot.Spec, wfName string, target *wfdot.State) (performerResolution, error) {
 	binding, bound := g.ExecutorBinding()
 	inLoop := !bound || config.IsInLoopCommand(binding.CommandTemplate())
-	placed := placement.Decide(ctx, item, *target, nil)
+	placed := decidePlacement(*target, nil)
 	if placed.PinErr != nil {
 		return performerResolution{}, fmt.Errorf("step %q: %w", toStatus, placed.PinErr)
 	}

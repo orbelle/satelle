@@ -54,7 +54,7 @@ func recordWorkingOn(ctx context.Context, item workitem.Item, state string, now 
 	if item.Kind != workitem.KindStory || item.ID == "" {
 		return
 	}
-	if engaging, ok := storyStatusIsEngaging(ctx, item, state); !ok || !engaging || waitsOnOpenChildrenAt(ctx, item, state) {
+	if engaging, ok := storyStatusIsEngaging(ctx, item, state); !ok || !engaging {
 		return
 	}
 	p := WorkingOnPayload{Session: config.ResolveSession(), Worktree: engagementWorktree(), State: state}

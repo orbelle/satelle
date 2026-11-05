@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":3697,"duration_api_ms":3697,"result":"Reply with the single word STDIN-OK.","session_id":"70f09620-bc6d-46f9-980b-d6d472a3a9e7","request_id":"05a1a28a-169a-488c-bc86-682d1972214a","usage":{"inputTokens":8818,"outputTokens":39,"cacheReadTokens":3862,"cacheWriteTokens":0}}

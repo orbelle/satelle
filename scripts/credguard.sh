@@ -1,19 +1,8 @@
 #!/bin/sh
 # credguard.sh -- run a command and fail if it changed the operator's host
-# credentials file in a way a test could have (sty_18403814, sty_5ba68e2c), or
-# the top level of the real ~/.satelle or the installed satelle/satelled
-# binaries (sty_1b739a74).
+# credentials file in a way a test could have (sty_18403814, sty_5ba68e2c).
 #
 # Usage: credguard.sh -- <cmd> [args...]
-#
-# Host surface (internal/hostguard, via scripts/credfp host-snapshot/host-diff):
-# a new, removed or content-changed top-level entry under the real ~/.satelle,
-# or a created, removed or content-changed ~/.local/bin/satelle or satelled,
-# exits 1 naming it. Names a live satelled rewrites on its own, and the contents
-# of directories, are outside it; mtimes never count. The home is
-# SATELLE_TEST_HOST_HOME when set, otherwise the real HOME -- never SATELLE_HOME
-# or XDG_*, which a suite points at a sandbox. If the host snapshot cannot be
-# taken the guard fails closed (exit 2).
 #
 # The credentials file is ${XDG_CONFIG_HOME:-$HOME/.config}/satelle/credentials.toml, the
 # per-user store `satelle login` writes. A test suite must leave it untouched.
@@ -50,10 +39,6 @@ if ! "$work/credfp" snapshot "$cred" >"$work/before"; then
 	echo "credguard: cannot snapshot host credentials: $cred" >&2
 	exit 2
 fi
-if ! "$work/credfp" host-snapshot "$work/host-before"; then
-	echo "credguard: cannot snapshot host surface; failing closed" >&2
-	exit 2
-fi
 
 "$@"
 status=$?
@@ -77,21 +62,4 @@ else
 	fi
 fi
 
-# Host block: the top level of the real ~/.satelle and the installed binaries.
-# Like the credentials block it can only raise a passing status.
-if ! "$work/credfp" host-snapshot "$work/host-after"; then
-	echo "credguard: cannot snapshot host surface; failing closed" >&2
-	[ "$status" -eq 0 ] && status=2
-else
-	reasons=$("$work/credfp" host-diff "$work/host-before" "$work/host-after")
-	rc=$?
-	if [ "$rc" -eq 1 ]; then
-		echo "credguard: host ~/.satelle or installed binaries changed by tests" >&2
-		printf '%s\n' "$reasons" | sed 's/^/credguard:   /' >&2
-		[ "$status" -eq 0 ] && status=1
-	elif [ "$rc" -ne 0 ]; then
-		echo "credguard: credfp host-diff failed (exit $rc); failing closed" >&2
-		[ "$status" -eq 0 ] && status=2
-	fi
-fi
 exit "$status"

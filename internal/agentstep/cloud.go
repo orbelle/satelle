@@ -15,7 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/placement"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 	"github.com/bobmcallan/satelle/internal/worktree"
@@ -193,7 +192,7 @@ func (g *Engine) dispatchCloud(ctx context.Context, item workitem.Item, toStatus
 	}
 	rec.SessionID, rec.URL = session.ID, session.URL
 	if remotePlaced {
-		rec.Placement = placement.Remote
+		rec.Placement = placementRemote
 	}
 	res.Command, res.Cloud = session.URL, rec
 	g.emitProgress("cloud session started: %s — waiting up to %s for branch %s…", session.URL, deadline, branch)

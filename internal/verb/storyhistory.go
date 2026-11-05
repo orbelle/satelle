@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
@@ -69,8 +70,8 @@ func StoryPerforming(ctx context.Context) func(workitem.Item) bool {
 		return func(workitem.Item) bool { return true }
 	}
 	return func(it workitem.Item) bool {
-		clk, ok := wfgovern.ClockFor(wfs, it)
-		return !ok || clk.Engaging(it.Status)
+		spec, _, _, err := wfgovern.SpecFor(wfs, it)
+		return err != nil || slices.Contains(spec.NonTerminalEngagingStates(), it.Status)
 	}
 }
 

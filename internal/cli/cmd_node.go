@@ -887,8 +887,8 @@ func installNodeDefinition(ctx context.Context, cmd *cobra.Command, client *remo
 	if err != nil {
 		return remotedef.Definition{}, "", err
 	}
-	if err := reindexSubstrate(cmd, a, false); err != nil {
-		return remotedef.Definition{}, "", fmt.Errorf("reindex: %w", err)
+	if _, _, _, err := verb.SyncTasks(cmd.Context(), a.Store.Stories, time.Now()); err != nil {
+		return remotedef.Definition{}, "", fmt.Errorf("task sync: %w", err)
 	}
 	return def, version, nil
 }

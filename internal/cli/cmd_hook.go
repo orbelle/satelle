@@ -29,7 +29,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,12 +38,8 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/app"
-	"github.com/bobmcallan/satelle/internal/compact"
-	"github.com/bobmcallan/satelle/internal/condense"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/docstory"
-	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfdot"
@@ -104,7 +99,7 @@ never blocks a session.`,
 				resolveContextHarness(hookHarnessFlag, raw, os.Environ()), raw)
 		},
 	}
-	context.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi|cursor —selects the injection limit and output shape (default: sniff event, then environment)")
+	context.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi —selects the injection limit and output shape (default: sniff event, then environment)")
 	gate := &cobra.Command{
 		Use:   "gate",
 		Short: "PreToolUse edit gate — block code edits unless a story is engaged",
@@ -157,389 +152,60 @@ python3 tool.py, '.sat'+'elle'.
 Fails closed: a store or listing error, unresolvable workflow, or
 workflow declaring no route blocks the edit.`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) (rerr error) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, _ := io.ReadAll(cmd.InOrStdin())
-			// One git identity lookup and one store for the whole call (as
-			// commitgate holds them, sty_a74551d6 AC5): the seat read and the
-			// in-loop run trace below share them. The store opens lazily, so a call
-			// that resolves no seat never opens it.
 			defer config.MemoGitIdentity()()
 			gs := &gateStore{load: true}
 			defer gs.close()
-			// The in-loop run trace (sty_23ceeca2): a call this gate let through is
-			// recorded on the engaged story, while its step declares evidence a
-			// trace could show; a denied one never ran. The seat is the one the
-			// call resolved below, not a second resolution.
-			var seat traceSeat
-			defer func() {
-				if rerr == nil {
-					recordToolTrace(gs, raw, seat)
-				}
-			}()
-			// currentSeatTouch is resolved once so deny reasons can name a non-live
-			// holder without a second store open (sty_1738f973 AC6). A live
-			// owner-held seat is also heartbeated (sty_3bb1d8be). resolveSeats
-			// (not resolveSeat) so a marked relay coder can name a live seat the
-			// session did not bind (sty_7567f047 AC5).
 			sid := bindSessionID(raw)
-			resumeWakeFor(raw).activity() // a tool call: the session is mid-turn
 			p := filePathFromEvent(raw)
 			command := agentcli.CommandFromHookEvent(raw)
-			// A harness whose hook file cannot filter by tool name sends this verb
-			// EVERY tool call, so classify it here (sty_7d098d50): an edit or write
-			// is judged below on its target, a shell is commitgate's, a tool the
-			// table cannot place fails closed, and any other class is allowed.
-			route, unknownTool := routeUnmatchedTool(raw)
-			switch route {
-			case routeSkip:
-				return nil
-			case routeUnknown:
-				p, command = "", ""
-			case routeJudge:
-				command = "" // an edit-class payload: the target alone is judged
-			}
 			// A session holding seats in several worktrees is attributed by the
-			// tree the edit targets (sty_42231b74); the fence below decides
-			// whether that tree may be edited at all.
-			// A shell command has no path; its first mutation target's tree stands in.
+			// tree the edit targets; a shell command's first mutation target's tree
+			// stands in for its path.
 			attribution := treeOf(p)
 			if p == "" && command != "" {
 				attribution = bashAttributionTree(command, sessionAnchor())
 			}
 			info, engaged, live, engErr := gs.seatsFor(true, sid, attribution)
-			seat = traceSeat{info: info, engaged: engaged, resolved: true}
 			if p != "" {
-				// Foreign-tree fence (sty_a8454d10 / sty_aadd4d6c): refuse edits
-				// that land in ANOTHER git working tree unless the operator opts
-				// in. Non-repo paths (temp, scratchpads) are not fenced.
-				// Observed failure: agent in satelle-server wrote CLI code under
-				// ../satelle with no story in the correct repo — process break.
+				// Foreign-tree fence: refuse edits that land in ANOTHER git working
+				// tree unless the operator opts in. Non-repo paths are not fenced.
 				if !allowOutsideTreeEdits() {
 					if foreignRoot, foreign := editTargetForeign(p); foreign {
 						return denyPreToolUse(cmd, raw, outsideRepoEditReason(p, foreignRoot))
 					}
 				}
-				if err := denyIfNoImplement(cmd, raw, p); err != nil {
-					return err
-				}
-				// Exemption is configuration plus one mechanism rule (path
-				// containment, same class as the foreign-tree fence): a write
-				// under the process temp dir is not an in-repo product edit
-				// (sty_e33f78fe). A path under a [gate] edit_exempt_paths prefix
-				// or a [gate] edit_exempt_globs filename pattern is also exempt.
-				// The data dir / managed paths are NOT special-cased in the binary —
-				// `satelle init` seeds .satelle/ and the footprint it deploys itself
-				// (.gitignore block, harness scaffolds) into edit_exempt_paths, and
-				// story-dump names into edit_exempt_globs, so authored substrate
-				// and satelle-written output stay editable without a release OOTB,
-				// but the operator owns those lists. With empty lists, even a
-				// .satelle/ edit needs an engaged story: config decides in-repo
-				// paths, never a Go rule.
-				//
-				// The one thing exemption may not do is let an edit rewrite the
-				// substrate that judges the work: a locked prefix ([gate]
-				// lock_substrate_paths, default .satelle/) is judged HERE, before
-				// the exemption, whether or not any story is performing, by the
-				// same harness-neutral predicate for every harness (sty_992cffc6,
-				// sty_66abc0e3).
-				if err := substrateLockGate(cmd, raw, p, &lockSeats{info: info, engaged: engaged, live: live, sid: sid}); err != nil {
-					return err
-				}
+				// Exemption is configuration ([gate] edit_exempt_paths/globs) plus
+				// the temp-dir containment rule.
 				if exemptTarget(p) {
 					return nil
 				}
 			} else if command != "" {
-				// A shell command routed through this hook. Preserve read-only
-				// preflight: only shell commands with an in-tree mutation target
-				// need workflow edit permission. Foreign-tree containment stays
-				// active here as well as commitgate.
 				if !allowOutsideTreeEdits() {
 					_, foreign := bashMutationTargets(command, sessionAnchor())
 					if path, foreignRoot, ok := foreignTreeTarget(sessionAnchor(), foreign); ok {
 						return denyPreToolUse(cmd, raw, outsideAnchorBashReason(path, foreignRoot))
 					}
 				}
-				// The substrate lock holds for a shell command as it does for an
-				// Edit: a classified target, or an interpreter's command text,
-				// under a locked prefix is refused before the exemption is
-				// consulted (sty_dc77e118).
-				seats := &lockSeats{info: info, engaged: engaged, live: live, sid: sid}
-				if err := bashSubstrateLockGate(cmd, raw, command, loadGateProcess(), func(tree string) (*lockSeats, error) {
-					if tree == "" {
-						return seats, nil
-					}
-					ti, te, tl, err := resolveSeatsFor(true, sid, tree)
-					return &lockSeats{info: ti, engaged: te, live: tl, sid: sid}, err
-				}); err != nil {
-					return err
-				}
 				if !bashMutatesTree(command, sessionAnchor()) {
 					return nil
 				}
 			}
-			// Engagement-error surface: a broken deployment blocks the edit with a
-			// clear message rather than silently allowing it (sty_f3d5d4b8).
+			// A broken deployment blocks the edit with a clear message rather than
+			// silently allowing it.
 			if engErr != nil {
 				return denyPreToolUse(cmd, raw, "satelle: "+engErr.Error())
 			}
-			_ = engaged // broad engagement remains available to other hook surfaces
+			_ = engaged
 			dm, rm := currentDispatchMarker(), currentRelayMarker()
 			if hookEditPermitted(info, dm, rm) {
 				return nil
 			}
-			if route == routeUnknown {
-				// No story is performing: a tool nothing classifies cannot be shown
-				// read-only, so it is refused, with the way in appended.
-				return denyPreToolUse(cmd, raw, unrecognisedToolReason(raw, unknownTool)+" "+
-					hookDenyReason(info, live, dm, rm, sid, time.Now().UTC()))
-			}
 			if reason, ok := sessionSeatsUnmatched(engaged, live, sid, dm, rm); ok {
 				return denyPreToolUse(cmd, raw, reason)
 			}
-			// The scoped in-loop fix lane (sty_4b694872) is a second look at a
-			// PATH edit the ordinary rule refused: one recorded, in-bound claim
-			// on exactly this path licenses exactly one edit. It never widens
-			// what a gate judges, and never applies to a dispatched performer.
-			note := ""
-			if p != "" {
-				var granted bool
-				if granted, note = fixLaneEdit(info, dm, rm, raw, p); granted {
-					return nil
-				}
-			}
-			return denyPreToolUse(cmd, raw, hookDenyReason(info, live, dm, rm, sid, time.Now().UTC())+note)
-		},
-	}
-
-	commitgate := &cobra.Command{
-		Use:   "commitgate",
-		Short: "PreToolUse Bash gate — foreign-tree containment + engaged-story commit/push",
-		Long: `commitgate is the PreToolUse handler for Bash. It first applies foreign-tree
-containment: a command mutating a git working tree other than the session
-anchor's is denied unless [gate] allow_outside_tree_edits is true. Then it
-denies git commit/push unless a story is engaged, failing closed on
-store/listing/workflow-resolution errors.
-
-Step policy: [gate.command_allow] (push = ["release"]) limits a git subcommand
-to the listed story statuses.
-
-Command rules: the repo's [[gate.command_rule]] entries deny or warn; satelle
-ships none ('help command-rules'). Best-effort: wrappers, eval and scripts
-bypass them. satelle manages no identity or rights: the tool's own permissions
-and the account it runs as enforce what a command may do.
-
-Substrate lock: a command whose target or interpreter text names locked
-substrate is refused, even if it only READS; a shell -c program is classified
-as shell. Not seen: python3 tool.py, '.sat'+'elle'.
-
-Attribution: a commit/push goes to the seat of its worktree (each cd, then -C;
-an unmoved push, its branch's), else the hook's tree's.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) (rerr error) {
-			raw, _ := io.ReadAll(cmd.InOrStdin())
-			resumeWakeFor(raw).activity() // a tool call: the session is mid-turn
-			// Only a shell reaches the rest of this verb from a harness whose hook
-			// file cannot filter by tool name (sty_7d098d50): its other tools are the
-			// edit gate's, and a tool_input.command on one of them is not a shell.
-			if !shellOrMatched(raw) {
-				return nil
-			}
-			command := agentcli.CommandFromHookEvent(raw)
-			// One `git rev-parse` resolves the repo identity for the whole call:
-			// the config load, the store's runtime dir and the repo marker all
-			// ask for it, and none of them may start git again (sty_a74551d6 AC5).
-			defer config.MemoGitIdentity()()
-			defer holdSessionWorktree()()
-			// The one store this call opens for command rules, shared by the seat
-			// read and the ledger row. Opened lazily, so a call no rule matched
-			// never opens it. Deferred first, so it closes after the record below.
-			gs := &gateStore{}
-			defer gs.close()
-			// A command rule that matched and let the command run (allowed by the
-			// story's status, or a warn) is recorded and, for a warn, delivered
-			// only once every later check has also let it through: a deny after a
-			// warn must leave one answer on stdout, not two.
-			var ruled commandRuleDecision
-			defer func() {
-				if rerr != nil || !ruled.Matched {
-					return
-				}
-				h := commandHarness(raw)
-				if ruled.Decision == commandRuleWarned {
-					_ = emitAdditionalContext(cmd.OutOrStdout(), h, "PreToolUse", "", ruled.Reason)
-				}
-				recordCommandRule(gs, ruled, command, h)
-			}()
-			// Containment BEFORE the engaged-story branch: a foreign-tree mutation
-			// is wrong even with a story engaged (sty_aadd4d6c / sty_a8454d10).
-			// The process config loads once for this call: containment, command
-			// rules and command_allow all read this one load, so the hook starts
-			// one `git rev-parse` for its config and no more.
-			gp := loadGateProcess()
-			gs.gp = gp
-			// The in-loop run trace (sty_23ceeca2): a command this hook let run is
-			// recorded on the engaged story, on the store the call already holds. A
-			// matcher-less harness's gate has already seen this call.
-			defer func() {
-				if rerr == nil && !invokingNoToolMatcher(raw) {
-					recordToolTrace(gs, raw, traceSeat{})
-				}
-			}()
-			if !allowOutsideTreeEditsFrom(gp) {
-				cands := mutationTargets(command, sessionAnchor())
-				if path, foreignRoot, ok := foreignTreeTarget(sessionAnchor(), cands); ok {
-					return denyPreToolUse(cmd, raw, outsideAnchorBashReason(path, foreignRoot))
-				}
-			}
-			var info seatInfo
-			var engaged bool
-			var live []seatInfo
-			var seatResolved bool
-			var sid string
-			// The substrate lock before the mutation gate: a command whose target
-			// is locked substrate is refused even though .satelle/ is exempt from
-			// the engaged-story gate (sty_dc77e118). Seats resolve only when the
-			// command has a lockable candidate.
-			// Each candidate is attributed by its own tree; the answer for a
-			// candidate with no tree is the anchor-tree one the mutation gate
-			// below reuses.
-			if err := bashSubstrateLockGate(cmd, raw, command, gp, func(tree string) (*lockSeats, error) {
-				sid = bindSessionID(raw)
-				if tree != "" {
-					ti, te, tl, err := resolveSeatsFor(true, sid, tree)
-					return &lockSeats{info: ti, engaged: te, live: tl, sid: sid}, err
-				}
-				var err error
-				info, engaged, live, err = resolveSeats(true, sid)
-				seatResolved = true
-				return &lockSeats{info: info, engaged: engaged, live: live, sid: sid}, err
-			}); err != nil {
-				return err
-			}
-			if bashMutatesTree(command, sessionAnchor()) {
-				// The mutation is judged against the seat of the tree it lands in.
-				// That answer stays local unless it is the anchor-tree one the
-				// commit gate below reuses.
-				mInfo, mEngaged, mLive := info, engaged, live
-				if tree := bashAttributionTree(command, sessionAnchor()); tree != "" {
-					var err error
-					sid = bindSessionID(raw)
-					mInfo, mEngaged, mLive, err = resolveSeatsFor(true, sid, tree)
-					if err != nil {
-						return denyPreToolUse(cmd, raw, "satelle: "+err.Error())
-					}
-				} else if !seatResolved {
-					var err error
-					sid = bindSessionID(raw)
-					info, engaged, live, err = resolveSeats(true, sid)
-					seatResolved = true
-					mInfo, mEngaged, mLive = info, engaged, live
-					if err != nil {
-						return denyPreToolUse(cmd, raw, "satelle: "+err.Error())
-					}
-				}
-				dm, rm := currentDispatchMarker(), currentRelayMarker()
-				if !hookEditPermitted(mInfo, dm, rm) {
-					if reason, ok := sessionSeatsUnmatched(mEngaged, mLive, sid, dm, rm); ok {
-						return denyPreToolUse(cmd, raw, reason)
-					}
-					return denyPreToolUse(cmd, raw, hookDenyReason(mInfo, mLive, dm, rm, sid, time.Now().UTC()))
-				}
-			}
-			// Repo-authored command rules (sty_a74551d6), before command_allow. The
-			// seat is read only for a command a rule matched, so with no rules, or
-			// no match, this adds nothing but the config load. Rules that fail to
-			// load refuse every shell command: dropping them would turn every
-			// authored deny off without a signal.
-			rules, refuse := commandRulesFrom(gp)
-			if refuse != "" {
-				return denyPreToolUse(cmd, raw, refuse)
-			}
-			if len(rules) > 0 {
-				ruled = evalCommandRules(rules, command, func() (seatInfo, bool, error) {
-					if seatResolved {
-						return info, engaged, nil
-					}
-					return gs.seat(bindSessionID(raw))
-				})
-				if ruled.Decision == commandRuleDenied {
-					recordCommandRule(gs, ruled, command, commandHarness(raw))
-					return denyPreToolUse(cmd, raw, ruled.Reason)
-				}
-			}
-			// Engage gate still applies only to commit/push (today's default).
-			// Opt-in [gate.command_allow] may restrict those (or other git
-			// subcommands) further by story status (sty_c21490cc).
-			subs := gitSubcommands(command)
-			needsEngage := false
-			for _, sub := range subs {
-				if sub == "commit" || sub == "push" {
-					needsEngage = true
-					break
-				}
-			}
-			allowPolicy := commandAllowFrom(gp)
-			if !needsEngage && !commandAllowRestrictsWith(allowPolicy, subs) {
-				return nil // not a gated command — allow
-			}
-			// Heartbeat only for gated commands (after the early return above) —
-			// activity on commit/push keeps the seat alive (sty_3bb1d8be).
-			// A commit/push a leading cd or its own -C moved into another tree is
-			// attributed to the seat in that tree (sty_3a9b06fe); an unmoved one
-			// passes no tree, so the hook's own tree decides as it always did. The
-			// shell starts where the hook runs, so that is where a relative cd
-			// resolves from. A seat resolved above judged an anchor-tree mutation;
-			// a moved commit is decided by its own tree's seat, so it resolves
-			// again.
-			commitTree := ""
-			base := sessionWorktree()
-			if base == "" {
-				base = sessionAnchor()
-			}
-			if d := gitCommandDir(command, base); d != "" {
-				commitTree = treeOf(d)
-			} else {
-				commitTree = pushBranchTree(command, base)
-			}
-			if !seatResolved || commitTree != "" {
-				var err error
-				sid = bindSessionID(raw)
-				info, engaged, live, err = resolveSeatsFor(true, sid, commitTree)
-				if err != nil {
-					return denyPreToolUse(cmd, raw, "satelle: "+err.Error())
-				}
-			}
-			if needsEngage && !engaged {
-				if reason, ok := sessionSeatsUnmatched(engaged, live, sid, currentDispatchMarker(), currentRelayMarker()); ok {
-					return denyPreToolUse(cmd, raw, reason)
-				}
-				// An unstamped session facing several performing stories is not
-				// "unengaged" — it is unattributable. Say so instead of sending it
-				// to engage another story (sty_fbbb4aee AC2). The fused form keeps
-				// its split-the-call text.
-				if !isFusedEngageAndCommit(command) {
-					if dropped := droppedPerformingSeats(); unstampedAmbiguous(live, dropped, sid) {
-						performing := append(append([]seatInfo{}, live...), dropped...)
-						return denyPreToolUse(cmd, raw, ambiguousPerformingReason(performing, sid))
-					}
-				}
-				// Deny only — never allow a fused engage+commit form. PreToolUse cannot
-				// know the engage line would succeed; pick the message that teaches the
-				// recovery path (sty_577d292f). Name a non-live seat when present so
-				// the agent can inspect/release without digging (sty_1738f973 AC6).
-				return denyPreToolUse(cmd, raw, commitDenyReason(command)+seatSuffix(info, time.Now().UTC()))
-			}
-			// Step-scoped policy (opt-in): engaged story must be at an allowed status.
-			if engaged {
-				st := info.StoryStatus
-				if st == "" {
-					st = info.State
-				}
-				if reason, deny := commandAllowDenyWith(allowPolicy, subs, st); deny {
-					return denyPreToolUse(cmd, raw, reason+seatSuffix(info, time.Now().UTC()))
-				}
-			}
-			return nil
+			return denyPreToolUse(cmd, raw, hookDenyReason(info, live, dm, rm, sid, time.Now().UTC()))
 		},
 	}
 
@@ -562,12 +228,7 @@ additionalContext envelope for both harnesses (AC7 finding on sty_e16a2cd7).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, _ := io.ReadAll(cmd.InOrStdin())
 			_ = bindSessionID(raw)
-			// A user prompt starts a fresh Stop-continuation count, and for a
-			// harness that discards this hook's context the verdict is not put
-			// here (sty_eac9b28d).
-			w := resumeWakeFor(raw)
-			w.newTurn()
-			return runHookPromptWith(cmd.OutOrStdout(), w.promptCarriesGates())
+			return runHookPromptWith(cmd.OutOrStdout(), false)
 		},
 	}
 	stopcheck := &cobra.Command{
@@ -597,80 +258,19 @@ session holds the seat.`,
 		},
 	}
 
-	turnend := &cobra.Command{
-		Use:    "turnend",
-		Hidden: true,
-		Short:  "StopFailure / SessionEnd handler — record that the harness ended the turn on its own",
-		Long: `turnend is the handler for the events a harness fires when it ends a turn
-without a Stop hook: a turn that failed (StopFailure) or the session itself
-(SessionEnd). It records the turn as closed and hands every gate of the session
-that is still undelivered to the resume watcher, which waits for it to finish
-and resumes the same session with the verdict. It prints nothing and never
-blocks: neither event can be continued. A harness with no resume path, and a
-dispatched process, are left alone.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			raw, _ := io.ReadAll(cmd.InOrStdin())
-			_ = bindSessionID(raw)
-			resumeWakeFor(raw).closeTurn()
-			return nil
-		},
-	}
-	turnend.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi —the harness that fired the event (default: sniff event)")
-
 	// Explicit harness for deny shape (sty_9e86f407): wrapper forwards
-	// --harness claude|grok|pi|cursor; empty falls back to harnessFromEvent. pi
+	// --harness claude|grok|pi; empty falls back to harnessFromEvent. pi
 	// takes the claude deny envelope (agentcli.PreToolUseDeny gives every harness
 	// without its own shape that).
-	gate.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi|cursor —deny envelope (default: sniff event)")
-	commitgate.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi|cursor —deny envelope (default: sniff event)")
+	gate.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi —deny envelope (default: sniff event)")
 	// Same explicit --harness on prompt/stopcheck (sty_719c4a7b AC2): the
 	// installed hook names its own harness rather than relying only on the
 	// event sniff, so bindSessionID's in-loop publish stays correct even if a
 	// future payload shape changes.
 	prompt.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi —in-loop publish (default: sniff event)")
-	stopcheck.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi|cursor —in-loop publish and Stop output shape (default: sniff event)")
-	stopcheck.Flags().BoolVar(&hookNoWakeFlag, "no-wake", false, "the run ends at settle: wait for no gate and record a delivery limitation for each undelivered one (a harness that cannot hold its stop)")
-	explain := &cobra.Command{
-		Use:   "explain",
-		Short: "Show how the PreToolUse model rule would decide for a payload",
-		Long: `explain is read-only: it prints which transcript was chosen, by which key,
-the model found, the matched glob, any no-implement carve-out, and the decision.
-It does not touch the engagement seat. A denied agent can run it to see why.`,
-		Args: cobra.NoArgs,
-		RunE: runHookExplain,
-	}
-	explain.Flags().String("payload", "", "PreToolUse JSON file (`-` reads stdin)")
-	_ = explain.MarkFlagRequired("payload")
-	hook.AddCommand(context, gate, commitgate, prompt, stopcheck, turnend, explain, newHookResumeCommand())
+	stopcheck.Flags().StringVar(&hookHarnessFlag, "harness", "", "claude|grok|pi —in-loop publish and Stop output shape (default: sniff event)")
+	hook.AddCommand(context, gate, prompt, stopcheck)
 	register(hook)
-}
-
-func runHookExplain(cmd *cobra.Command, args []string) error {
-	path, _ := cmd.Flags().GetString("payload")
-	var raw []byte
-	var err error
-	if path == "-" {
-		raw, err = io.ReadAll(cmd.InOrStdin())
-	} else {
-		raw, err = os.ReadFile(path)
-	}
-	if err != nil {
-		return err
-	}
-	caller := resolveCaller(raw, osCallerFS{})
-	proc, invoking, _, _, loadErr := config.LoadInvokingProcess()
-	if loadErr != nil {
-		proc = config.Config{}
-		invoking = ""
-	}
-	target := filePathFromEvent(raw)
-	if target != "" && invoking != "" {
-		target = resolveAbsTarget(invoking, target)
-	}
-	d, glob, exempt, reason := evaluateNoImplement(caller, target, invoking, proc)
-	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatHookExplain(caller, d, glob, exempt, reason))
-	return nil
 }
 
 // hookHarnessFlag is set by gate/commitgate --harness (wrapper forwards the
@@ -755,9 +355,6 @@ func currentSeatTouch() (info seatInfo, engaged bool, err error) {
 }
 
 func sessionIDFromHook(raw []byte) string {
-	if id := agentcli.HookSessionID(raw); id != "" {
-		return id
-	}
 	var ev struct {
 		SessionID      string `json:"session_id"`
 		SessionIDCamel string `json:"sessionId"`
@@ -789,7 +386,6 @@ func bindSessionID(raw []byte) string {
 		config.PublishSession(id)
 		if !dispatched {
 			publishInLoopModel(raw, id)
-			publishServeRoot(id)
 		}
 		return id
 	}
@@ -797,7 +393,6 @@ func bindSessionID(raw []byte) string {
 		config.PublishSession(id)
 		if !dispatched {
 			publishInLoopModel(raw, id)
-			publishServeRoot(id)
 		}
 		return id
 	}
@@ -1548,7 +1143,7 @@ func dispatchedPerformerPermitted(info seatInfo, binding string) bool {
 // counts as performing, exactly as it did before this rule. Which step waits is
 // the route's declaration; no status or category name appears here.
 func waitsOnOpenChildren(it workitem.Item, status string, spec wfdot.Spec, items []workitem.Item, wfs []docindex.Doc) bool {
-	return wfgovern.WaitsOnOpenChildren(it, status, spec, items, wfs)
+	return false
 }
 
 func dispatchAgents(spec wfdot.Spec) map[string][]string {
@@ -1648,26 +1243,7 @@ func scheduleLine(id, schedule string) string {
 // A container that declares nothing is parallel by default and is named so.
 // Silent (empty) when no holder is in an epic container.
 func seatScheduleLines(holders []string, items []workitem.Item, wfs []docindex.Doc) string {
-	byID := make(map[string]workitem.Item, len(items))
-	for _, it := range items {
-		byID[it.ID] = it
-	}
-	seen := map[string]bool{}
-	var lines []string
-	for _, id := range holders {
-		c, ok := byID[id]
-		if ok && !epicset.IsEpicParent(c) {
-			c, ok = byID[c.ParentID]
-		}
-		if !ok || !epicset.IsEpicParent(c) || seen[c.ID] {
-			continue
-		}
-		seen[c.ID] = true
-		if l := scheduleLine(c.ID, verb.ContainerSchedule(wfs, c)); l != "" {
-			lines = append(lines, l)
-		}
-	}
-	return strings.Join(lines, "\n")
+	return ""
 }
 
 // formatSeatBlock is the SessionStart / prompt multi-line seat inject body.
@@ -2752,33 +2328,7 @@ func runHookContext(out, stderr io.Writer, harness string, raw []byte) error {
 			return nil
 		}
 	}
-	// The team line (sty_4cc971f7): a bound repo's tree is brought to the
-	// project tier before the context renders, and each replaced local edit is
-	// named with its backup. Fail open: an error is a warning line, never a block.
-	teamLine := sessionTeamWriteDown(a)
-	// The release line rides in model context AND, through the harness's own
-	// user channel, to the user (agentcli.SessionContextOutput below).
-	releaseLine := releaseAdvisoryFor(a)
-	// The substrate line (sty_f1a3851d) joins it: from local and recorded state
-	// only, silent when this machine's substrate is in step.
-	substrateLine := substrateAdvisoryFor(a)
-	// The story-sync line (sty_6e5fc41c): conflicts and holds recorded by the
-	// last work-state passes. One notice, the lines joined, none put in
-	// another's place.
-	storyLine := storySyncAdvisoryFor(a)
-	// The command-policy line (sty_041bf275): subscribed lists that are missing,
-	// stale, unverified or failed to refresh, from the local cache only.
-	policyLine := policyAdvisoryFor(a)
-	// The harness-drift line (sty_32c61e68): this session's CLI reports a build
-	// other than the one satelle's measured behavior was captured against. Read
-	// from the payload alone, so it spawns nothing and costs the hook nothing.
-	driftLine := agentcli.SessionDriftLine(harness, raw)
-	// VERSION-STAMP drift (sty_8ecdae90): advisory only — versionDriftAdvisory
-	// has no error channel, so `hook context` keeps its fail-open contract. It
-	// leads the user notice (sty_34808cbe): a stamp behind an init-heals release
-	// is refused by the next store-backed command, which outranks a sync notice.
-	versionLine := versionDriftAdvisory(a.RepoRoot)
-	content, omitted := assembleSessionContext(a, harness, limit, unit, versionLine, teamLine, releaseLine, substrateLine, storyLine, policyLine, driftLine)
+	content, omitted := assembleSessionContext(a, harness, limit, unit)
 	if len(omitted) > 0 {
 		fmt.Fprintf(stderr,
 			"satelle hook context: %s exceeded the %s harness limit (%d %s) — indexed with a read instruction: %s\n",
@@ -2787,7 +2337,7 @@ func runHookContext(out, stderr io.Writer, harness string, raw []byte) error {
 	if strings.TrimSpace(content) == "" {
 		return nil
 	}
-	fmt.Fprintln(out, string(agentcli.SessionContextOutput(harness, emitEvent, content, joinNotice(versionLine, teamLine, releaseLine, substrateLine, storyLine, policyLine, driftLine))))
+	fmt.Fprintln(out, string(agentcli.SessionContextOutput(harness, emitEvent, content, "")))
 	// The marker is written only after a channel-matching emit of non-empty
 	// additionalContext. A non-matching event (including SessionStart when the
 	// channel is elsewhere) writes nothing. Marker errors are swallowed.
@@ -2808,73 +2358,14 @@ func runHookContext(out, stderr io.Writer, harness string, raw []byte) error {
 // (held and conflicted stories), and policyLine the subscribed command-policy
 // advisory, and driftLine the captured-CLI-version advisory. Fail-open: a list
 // error returns empty content.
-func assembleSessionContext(a *app.App, harness string, limit int, unit, versionLine, teamLine, releaseLine, substrateLine, storyLine, policyLine, driftLine string) (string, []string) {
-	if a == nil || a.Store == nil || a.Store.DocIndex == nil {
+func assembleSessionContext(a *app.App, harness string, limit int, unit string) (string, []string) {
+	if a == nil || a.Store == nil {
 		return "", nil
 	}
-	docs, err := a.Store.DocIndex.List(context.Background(), "")
-	if err != nil {
-		return "", nil
-	}
-	always := selectAlwaysDocs(docs)
-	constPath := a.PlaneConstitution()
-	constitution := readConstitution(constPath)
-
-	// Everything that rides around the principles (advisories, seat) is measured
-	// first, so the principles are rendered into what is LEFT of the harness
-	// limit and the whole injection lands inside it (sty_ce1a2733).
-	//
-	// Web availability (sty_fb5e6d96): ONE line naming the URL and whether
-	// anything answers on it, ahead of the constitution so a new user sees where
-	// the server is without asking. Fail-open: probeWebAvailability never errors
-	// and renders "unknown" rather than a fabricated "live".
-	webLine := probeWebAvailability().hookLine()
-	// Scaffold drift (sty_ac25b787): fail-open warning — never blocks SessionStart.
-	// Names `satelle init` as the heal. DetectScaffoldDrift is pure comparison.
-	scaffoldWarn := formatScaffoldDriftWarning(DetectScaffoldDrift(a.RepoRoot))
-	// An auto-raised diagnosis is worth nothing unread (sty_88d40a60): when the
-	// indexer has filed a high-priority system story about an authored document
-	// that fails its structure check, name it here. Silent when there is none.
-	docStoryLine := systemDocStoryAdvisory(openDocStories(a))
-	// Seat inject: prefer a live seat; else name any non-live residue so the agent
-	// can release a stuck holder. Fail open — a seat-read error injects nothing.
-	seat := sessionSeatBlock(a)
-	wrap := func(body string) string {
-		content := prependContextLine(body, webLine)
-		if scaffoldWarn != "" {
-			if content == "" {
-				content = scaffoldWarn
-			} else {
-				content = scaffoldWarn + "\n\n" + content
-			}
-		}
-		content = prependContextLine(content, versionLine)
-		content = prependContextLine(content, releaseLine)
-		content = prependContextLine(content, substrateLine)
-		content = prependContextLine(content, storyLine)
-		content = prependContextLine(content, policyLine)
-		content = prependContextLine(content, driftLine)
-		content = prependContextLine(content, docStoryLine)
-		content = prependContextLine(content, teamLine)
-		return appendSeatToContext(content, seat, 0)
-	}
-
-	measure := contextMeasure(unit)
-	overhead := measure(wrap("X")) - measure("X")
-	if overhead < 0 {
-		overhead = 0
-	}
-	rules, rerr := condenseRules(a.PlaneDir())
-	if rerr != nil {
-		fmt.Fprintf(os.Stderr, "satelle hook context: %s — %v\n", config.CondenseOverrideRel, rerr)
-	}
-	var off compact.Offloader
-	if a.Store.Retrieve != nil {
-		off = retrieveAdapter{ctx: context.Background(), store: a.Store.Retrieve}
-	}
-	content, omitted := sessionAssemblyUnit(constitution, always, constPath, harness, limit, overhead, unit, rules, off)
-	content = wrap(content)
-	return content, omitted
+	// Principles and the constitution left Go (REBUILD Q-principles): the
+	// session context is the web availability line and the engagement seat.
+	content := prependContextLine("", probeWebAvailability().hookLine())
+	return appendSeatToContext(content, sessionSeatBlock(a), 0), nil
 }
 
 // hookEventNames reads both event fields a harness may send. Captured grok
@@ -2959,27 +2450,6 @@ func contextUnitName(unit string) string {
 	return unit
 }
 
-// sessionAssembly renders the deterministic body of a SessionStart injection —
-// constitution, then session principles, degraded to index lines past the
-// harness limit — and is the one place that rule is applied. overhead is what
-// the volatile lines around it (web probe, drift advisories, seat block) will
-// add; `satelle validate` passes 0 to size the stable part, so the hook and the
-// report cannot disagree about what a harness receives.
-func sessionAssembly(constitution string, always []docindex.Doc, constPath, harness string, limit, overhead int, rules condense.Rules) (string, []string) {
-	return sessionAssemblyUnit(constitution, always, constPath, harness, limit, overhead, "bytes", rules, nil)
-}
-
-// sessionAssemblyUnit is sessionAssembly with an explicit budget unit. "bytes"
-// keeps the existing len path; "characters" counts runes. validate and the
-// SessionStart path stay on bytes. off keeps the originals of condensed bodies;
-// nil sizes the render without storing anything (validate and doctor).
-func sessionAssemblyUnit(constitution string, always []docindex.Doc, constPath, harness string, limit, overhead int, unit string, rules condense.Rules, off compact.Offloader) (string, []string) {
-	return renderAlwaysContent(constitution, always, alwaysRender{
-		Budget: limit - overhead, Harness: harness, ConstitutionPath: constPath, Unit: unit,
-		Rules: rules, Offload: off,
-	})
-}
-
 // resolveContextHarness names the in-loop harness a SessionStart injection is
 // for: the explicit --harness flag, else the hook payload's fingerprint, else
 // the session markers in the environment. Anything unrecognised is "unknown" —
@@ -2995,60 +2465,6 @@ func resolveContextHarness(flag string, raw []byte, environ []string) string {
 		return h
 	}
 	return agentcli.HarnessUnknown
-}
-
-// openDocStories reads the open document-diagnosis stories for a, or nothing
-// when the store is unavailable — the same fail-open contract runHookContext
-// keeps for every other line it renders.
-func openDocStories(a *app.App) []docstory.Ref {
-	if a == nil || a.Store == nil || a.Store.Stories == nil {
-		return nil
-	}
-	return docstory.Open(context.Background(), a.Store.Stories.List)
-}
-
-// systemDocStoryAdvisory renders the one-line SessionStart advisory naming open
-// stories the indexer raised about failing authored documents (sty_88d40a60).
-// Pure, for unit tests. Empty for no refs, so a repo with sound substrate gains
-// no output at all — the bound that keeps this from becoming noise is
-// docstory.Qualifies, not a judgement made here.
-//
-// One line, capped at three ids: it rides ahead of the always-content ceiling,
-// so it must not be able to displace principle content however broken a repo is.
-func systemDocStoryAdvisory(refs []docstory.Ref) string {
-	if len(refs) == 0 {
-		return ""
-	}
-	const show = 3
-	named := make([]string, 0, show)
-	for _, r := range refs[:min(len(refs), show)] {
-		named = append(named, fmt.Sprintf("%s (%s)", r.ID, r.Doc()))
-	}
-	listed := strings.Join(named, ", ")
-	if len(refs) > show {
-		listed += fmt.Sprintf(", … (+%d more)", len(refs)-show)
-	}
-	return fmt.Sprintf(
-		"⚠️ satelle: %d open system stor%s already diagnos%s a failing authored document — %s. Read %s before debugging governance behaviour: it names the file and the fault.",
-		len(refs), plural(len(refs), "y", "ies"), plural(len(refs), "es", "e"), listed,
-		plural(len(refs), "it", "them"))
-}
-
-// prependContextLine puts a one-line SessionStart advisory at the head of the
-// body (sty_fb5e6d96 for web availability; sty_8ecdae90 for version-stamp
-// drift). Exactly one line of content is added — no heading, no table — so the
-// always-resident cost stays a line, and an empty line is a no-op so every
-// caller can hand it a value that is silent on the common path. Pure, for unit
-// tests.
-// sessionTeamWriteDown runs the project-tier write-down for session start and
-// returns its warnings as one line ("" when there are none).
-func sessionTeamWriteDown(a *app.App) string {
-	res, err := writeDownProjectTier(a.ProcessConfig, a.ProcessRoot, a.RuntimeDir, a.RepoRoot, a.Config, false)
-	warnings := res.Warnings()
-	if err != nil {
-		warnings = append(warnings, "team substrate: "+err.Error())
-	}
-	return strings.Join(warnings, "\n")
 }
 
 func prependContextLine(content, line string) string {
@@ -3136,152 +2552,6 @@ func renderSeatBlocks(live []seatInfo, now time.Time, mode string) string {
 		}
 	}
 	return strings.Join(blocks, "\n\n")
-}
-
-// selectAlwaysDocs returns the SESSION set — every principle carrying the
-// principles:session residency marker, in the order the index lists them. The
-// marker is the single residency authority (the same one the reviewer reads),
-// so which principles are resident is authored substrate, not a hardcoded name:
-// a principle is session because it is tagged, or on-demand because it is not.
-// Kept minimal by keeping the marker on few docs (the operating principle).
-func selectAlwaysDocs(docs []docindex.Doc) []docindex.Doc {
-	var out []docindex.Doc
-	for _, d := range docs {
-		if d.Kind == "principles" && docHasTag(d.Body, sessionTag) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
-// alwaysRender carries the inputs of one SessionStart render that are not the
-// content itself: the byte budget the harness delivers inline, the harness it
-// is for (named to the agent when content is omitted), and where the
-// constitution can be read back.
-type alwaysRender struct {
-	Budget           int
-	Harness          string
-	ConstitutionPath string
-	// Unit is how Budget is counted. Empty or "bytes" uses len — the SessionStart
-	// path, unchanged. "characters" or "runes" uses utf8.RuneCountInString for a
-	// tool-event clip. The omit header names this unit.
-	Unit string
-	// Rules is how a body that does not fit is condensed. Zero means the embedded
-	// defaults. Offload is where the originals of condensed bodies are kept; nil
-	// sizes the markers without storing anything (an estimate, not a delivery).
-	Rules   condense.Rules
-	Offload compact.Offloader
-}
-
-func (r alwaysRender) measure() func(string) int {
-	if r.Unit == "characters" || r.Unit == "runes" {
-		return utf8.RuneCountInString
-	}
-	return func(s string) int { return len(s) }
-}
-
-func (r alwaysRender) unitName() string {
-	if r.Unit == "" {
-		return "bytes"
-	}
-	return r.Unit
-}
-
-// principleIndexLine is the one-line stand-in for a principle whose body does
-// not fit: its name, its description (falling back to its first heading), and
-// the exact command that pulls the whole rule.
-func principleIndexLine(d docindex.Doc) string {
-	desc := strings.Trim(frontmatterLine(d.Body, "description"), `"'`)
-	if desc == "" {
-		for _, ln := range strings.Split(stripFrontmatter(d.Body), "\n") {
-			if t := strings.TrimSpace(ln); strings.HasPrefix(t, "#") {
-				desc = strings.TrimSpace(strings.TrimLeft(t, "#"))
-				break
-			}
-		}
-	}
-	const maxDesc = 160
-	if r := []rune(desc); len(r) > maxDesc {
-		desc = string(r[:maxDesc-1]) + "…"
-	}
-	line := "- `" + d.Name + "`"
-	if desc != "" {
-		line += " — " + desc
-	}
-	return line + " — read: `satelle doc get principles " + d.Name + "`"
-}
-
-// renderAlwaysContent assembles the bounded injection body + the standing index
-// instruction. The project constitution (when present) rides FIRST as order-zero
-// context, then the session-resident principles. What fits in full is delivered
-// in full; the rest is stepped down the condense ladder (condense.Fit owns it),
-// each condensed body carrying a marker that retrieves the original. Only a set
-// that cannot fit even condensed falls to index lines carrying their pull
-// command, under a directive that tells the agent what was omitted for which
-// harness limit and to read it before working (sty_ce1a2733). Returns the content
-// and the names omitted to a pointer (nil when none; "constitution" when the
-// constitution itself was indexed). The instruction is present whenever it fits,
-// so the pull-on-reference discipline is taught from day one.
-func renderAlwaysContent(constitution string, docs []docindex.Doc, r alwaysRender) (string, []string) {
-	var items []condense.Item
-	consPath := r.ConstitutionPath
-	if consPath == "" {
-		consPath = ".satelle/constitution.md"
-	}
-	if constitution != "" {
-		// What a marker retrieves is the authored file, frontmatter and all.
-		raw, _ := os.ReadFile(r.ConstitutionPath)
-		items = append(items, condense.Item{
-			Name: "constitution", Heading: "# Project constitution", Body: constitution, Original: string(raw),
-			Pointer: "- `constitution` — the project constitution — read: the file `" + consPath + "`",
-		})
-	}
-	for _, d := range docs {
-		body := strings.TrimSpace(stripFrontmatter(d.Body))
-		if body == "" {
-			continue
-		}
-		items = append(items, condense.Item{
-			Name: d.Name, Group: "# Always-resident principles (satelle)", Heading: "### " + d.Name,
-			Body: body, Original: d.Body, Pointer: principleIndexLine(d),
-		})
-	}
-	rules := r.Rules
-	if rules.Unset() {
-		rules, _ = condenseRules("")
-	}
-	frame := condense.Frame{
-		PointerHeader: "OMITTED FOR THE " + strings.ToUpper(r.Harness) + " CONTEXT LIMIT (" + strconv.Itoa(r.Budget) +
-			" " + r.unitName() + "): the following are not inlined — read each now with the command shown, before doing any work.",
-		Trailer: alwaysIndexInstruction,
-	}
-	out, rungs, err := condense.Fit(items, frame, max(r.Budget, 1), r.measure(), rules, r.Offload)
-	if err != nil {
-		return "", nil
-	}
-	var omitted []string
-	for _, rg := range rungs {
-		if rg.Rung == condense.RungPointer {
-			omitted = append(omitted, rg.Name)
-		}
-	}
-	return out, omitted
-}
-
-// condenseRules resolves the condense rules for a repo: the embedded defaults
-// with <dataDir>/config/condense.toml laid over them. A repo override that does
-// not parse yields the embedded rules and the error, so a typo costs the
-// override and never the context.
-func condenseRules(dataDir string) (condense.Rules, error) {
-	rules, err := condense.ParseRules(config.EmbeddedCondense(), config.CondenseOverride(dataDir))
-	if err == nil {
-		return rules, nil
-	}
-	embedded, eerr := condense.ParseRules(config.EmbeddedCondense())
-	if eerr != nil {
-		return condense.Rules{}, eerr
-	}
-	return embedded, err
 }
 
 // readConstitution returns the project constitution body (frontmatter stripped),
@@ -3560,13 +2830,6 @@ func runHookPromptWith(out io.Writer, gatesInContext bool) error {
 			body = gateNotWiredWarning + "\n\n" + body
 		}
 	}
-	// A gate that finished between turns (sty_c4b92c9e): put its verdict in front
-	// of the model with this prompt. No waiting — the Stop hook owns the wait.
-	if gatesInContext {
-		if verdicts := gateDeliveryFor(0); verdicts != "" {
-			body += "\n\n" + verdicts
-		}
-	}
 	return emitAdditionalContext(out, "", "UserPromptSubmit", "", body)
 }
 
@@ -3588,85 +2851,15 @@ func runHookPromptWith(out io.Writer, gatesInContext bool) error {
 // check runs before the other-holder note so a sibling session that edited
 // nothing gets no chatter on every Stop.
 func runHookStopcheck(raw []byte, out io.Writer) error {
-	stopEmitHarness = stopHarness(raw)
-	// Scoped to this answer: a later emitter in the same process (in-process
-	// tests run stopchecks for several harnesses) must not inherit it.
-	defer func() { stopEmitHarness = "" }()
-	// A cursor stop carries the turn's token usage and nothing else keeps it, so it
-	// is recorded before any early return below — a turn that ends on a delivered
-	// verdict is still a turn the session paid for. Fail open.
-	if stopEmitHarness == agentcli.HarnessCursor && !isDispatchedProcess() {
-		_ = agentcli.RecordCursorStop(bindSessionID(raw), raw)
-	}
-	// A gate the session handed off (sty_c4b92c9e) is what it is waiting on: wait
-	// for it here and answer with its verdict, which the harness feeds back as the
-	// session's next input — the wake that costs the driver no call to ask. A gate
-	// still running at the end of the wait is answered too, with a still-running
-	// note, so the session is never released to idle while its gate goes on and
-	// nothing would wake it. This runs before the anti-loop guard, which protects
-	// only stopcheck's own block: a verdict is consumed once, so it cannot loop,
-	// and a still-running note ends with the run (finished, died, or — where the
-	// platform cannot verify liveness — noted once).
-	//
-	// A dispatched process never takes this wait: it inherits the driver's
-	// SATELLE_SESSION, so the handle it would wait on is the very gate that is
-	// waiting for it to exit — a cycle only idle_timeout ends. The driving
-	// session, which is not dispatched, still waits. For the same reason the
-	// ungated-edit check below (stopcheckEdits) never judges a dispatched process.
-	//
-	// A harness that caps the continuations of a turn (resumeWakeFor) is woken by
-	// resuming its session instead of by a note it would count: see resumeWake.
-	//
-	// A harness whose stop cannot hold a session (facts.SettleNotifyOnly) is the
-	// exception: a block there is a user message that starts a turn of its own, so
-	// a still-running note would re-prompt on every settle with nothing to cap it.
-	// Its hook waits once (settleGateDelivery), blocks only with a verdict, and
-	// answers a gate still going with an allow that names it as pending, which the
-	// harness adapter asks about again.
-	//
-	// A harness whose event counts its own continuations (agentcli.StopWithinCap)
-	// takes none of this once the turn has spent them: it would not act on what is
-	// said, so nothing is claimed and the verdict stays for the next turn.
-	var wake *resumeWake
-	defer func() { wake.settle() }()
-	var settle *agentcli.StopAllow
-	if !isDispatchedProcess() && agentcli.StopWithinCap(stopHarness(raw), raw) {
-		facts := agentcli.FactsFor(stopHarness(raw))
-		if !facts.SettleNotifyOnly {
-			if wake = resumeWakeFor(raw); wake != nil {
-				if text := wake.stop(raw); text != "" {
-					return wake.block(out, text)
-				}
-				if wake.spent() {
-					return nil // the turn ends on its own; nothing more can be said
-				}
-			} else if text := stopGateDeliveryFor(stopGateWait()); text != "" {
-				return emitStopBlock(out, text)
-			}
-		} else {
-			d, limited := settleGateDelivery(stopGateWait(), hookNoWakeFlag, facts.NoWakeLimitation)
-			if d.text != "" {
-				return emitStopBlock(out, d.text)
-			}
-			settle = &agentcli.StopAllow{SystemMessage: d.note, Pending: d.pending, Limited: limited}
-			for _, id := range limited {
-				settle.SystemMessage = joinNonEmpty("\n", settle.SystemMessage, fmt.Sprintf("satelle: gate %s undelivered — %s", id, facts.NoWakeLimitation))
-			}
-		}
-	}
 	block, note, err := stopcheckEdits(raw)
 	if err != nil {
 		return err
 	}
 	if block != "" {
-		return wake.block(out, block) // counted where the harness caps continuations
-	}
-	if settle != nil && settle.SystemMessage != "" {
-		settle.SystemMessage = joinNonEmpty("\n", note, settle.SystemMessage)
-		return emitStopAllow(out, *settle)
+		return emitStopBlock(out, block)
 	}
 	if note != "" {
-		return wake.note(out, note)
+		return emitStopNote(out, note)
 	}
 	return nil
 }
@@ -3836,7 +3029,7 @@ func stopHookActive(raw []byte) bool {
 		Camel bool `json:"stopHookActive"`
 	}
 	_ = json.Unmarshal(raw, &ev)
-	return ev.Snake || ev.Camel || agentcli.StopContinued(raw)
+	return ev.Snake || ev.Camel
 }
 
 // stopcheckReason is the agent-facing block message naming the ungated files

@@ -32,9 +32,6 @@ func newStreamRunner(command string) (Runner, error) {
 	if len(fields) == 1 {
 		return nil, fmt.Errorf("agentcli: interface=stream command %q: bare single token rejected — use a full stream spawn line", fields[0])
 	}
-	if adapterOf(fields[0], fields[1:]) == HarnessCursor {
-		return nil, errCursorStream()
-	}
 	for _, tok := range fields {
 		if tok == "{system}" || tok == "{payload}" {
 			return nil, fmt.Errorf("agentcli: interface=stream command must not contain placeholder %s — system/payload ride the first user message, not argv", tok)

@@ -4,12 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/syncscope"
-	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
 // Project kinds a testAccount answers for a binding.
@@ -105,27 +102,4 @@ func signInTo(t *testing.T, server string) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	seedCred(t, server)
-}
-
-// resolvedScope records the scope a sync on this machine resolves for its
-// binding, as its first sync command would, so a test that asserts a command
-// changes nothing is not looking at that first record.
-func (m *snapMachine) resolvedScope(scope config.Scope) {
-	m.t.Helper()
-	m.use()
-	cfg, repoRoot, _, err := loadRepoConfig()
-	if err != nil {
-		m.t.Fatal(err)
-	}
-	if err := syncstate.RecordResolvedScope(config.GlobalDir(), repoRoot, scope, cfg.SyncProject(), time.Now()); err != nil {
-		m.t.Fatal(err)
-	}
-}
-
-// portableAgents gives the repo an agents layer a push accepts: tempRepo's
-// retired harness key names this machine, and every non-local scope sends the
-// agents area.
-func portableAgents(t *testing.T, repo string) {
-	t.Helper()
-	writeRepoFile(t, repo, ".satelle/agents.toml", "[executor]\ncommand = \"in-loop\"\n")
 }

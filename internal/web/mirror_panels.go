@@ -3,6 +3,14 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/docindex"
+	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/syncstate"
+	"github.com/bobmcallan/satelle/internal/wfdot"
+	"github.com/bobmcallan/satelle/internal/wfgovern"
+	"github.com/bobmcallan/satelle/internal/workitem"
 	"maps"
 	"net/url"
 	"os"
@@ -14,18 +22,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/board"
-	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/costview"
-	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/epicset"
-	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/syncstate"
-	"github.com/bobmcallan/satelle/internal/wfdot"
-	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // mirrorIdentity loads kind=identity id=meta for a partition.
@@ -179,7 +175,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		logPath = displayedSyncLogPath()
 	}
 	storyRows := attachStagesFrom(entriesByStory, stories, liveSeat, dispatches, gateSeats, catStepOf, specOf)
-	attachChildrenInFlight(storyRows, stories, dispatches)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
@@ -581,20 +576,6 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 
 	entriesByStory, _ := decodeLedgerByStory(ctx, s, repoKey)
 
-	// Cost headline — a STORY only (nil for a task, matching the CLI's
-	// `satelle story cost` scope), computed via costview BEFORE the timeline
-	// reversal below mutates entriesByStory[id] in place (sty_b8542a3a AC7).
-	var cost *costVM
-	if group == "story" {
-		cost = mirrorBuildCostVM(ctx, s, repoKey, item, entriesByStory)
-	}
-
-	// Before the timeline reversal below, which reorders this slice in place.
-	var messages []messageVM
-	if group == "story" {
-		messages = buildMessageVMs(entriesByStory[id], time.Now())
-	}
-
 	events := entriesByStory[id]
 	// Reverse for timeline (newest first) — same as loadDetail.
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
@@ -629,278 +610,11 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		}
 	}
 
-	var members []memberVM
-	var membersNote string
-	var wave *waveVM
-	childrenInFlight := 0
-	if group == "story" {
-		var refs []epicset.Ref
-		refs, membersNote = mirrorBuildMembers(ctx, s, repoKey, item)
-		dispatches, _ := decodeDispatchSeats(ctx, s, repoKey)
-		wave = mirrorWave(ctx, s, repoKey, item)
-		members = annotateMembers(refs, wave, dispatches)
-		childrenInFlight = rollupDispatch(refs, dispatches)
-	}
-	waveSchedule, waveError := "", ""
-	if wave != nil {
-		waveSchedule, waveError = wave.Schedule, wave.Error
-	}
-
 	idMeta := mirrorIdentity(ctx, s, repoKey)
 	return detailData{
 		Item: item, Events: evs, Route: route, Docs: docs, Executions: executions,
-		TopBar: mirrorTopBar("", idMeta.FooterEmail), Cost: cost,
-		Members: members, MembersNote: membersNote, Messages: messages,
-		WaveSchedule: waveSchedule, WaveError: waveError, ChildrenInFlight: childrenInFlight,
+		TopBar: mirrorTopBar("", idMeta.FooterEmail),
 	}, idMeta, nil
-}
-
-// buildMessageVMs is the Messages panel of one story's mirrored ledger rows:
-// board.Fold's answer, oldest first, with the overdue flag at now. The relay's
-// own transcript rows (cc "*") are conversation, not messages anyone awaits, and
-// are left out as on the CLI board.
-func buildMessageVMs(entries []ledger.Entry, now time.Time) []messageVM {
-	var msgs, marks []ledger.Entry
-	for _, e := range entries {
-		switch e.Kind {
-		case ledger.KindAgentMessage:
-			if !board.Transcript(e) {
-				msgs = append(msgs, e)
-			}
-		case ledger.KindMessageMark:
-			marks = append(marks, e)
-		}
-	}
-	var out []messageVM
-	for _, m := range board.Fold(msgs, marks) {
-		vm := messageVM{
-			ID: m.ID, From: m.From, To: m.To, State: string(m.State),
-			Overdue: board.Overdue(m, now), Body: m.Body, Created: m.CreatedAt,
-		}
-		if m.FromSessionName != "" {
-			vm.From += " (" + m.FromSessionName + ")"
-		}
-		if m.Deadline != nil {
-			vm.Deadline = m.Deadline.UTC().Format(time.RFC3339)
-		}
-		out = append(out, vm)
-	}
-	return out
-}
-
-// mirrorBuildMembers is the container's member set for the story view
-// (sty_9f4f8e12) — epicset's answer over the mirror's indexed stories, the same
-// set the close guard, the close-gate payload, the CLI route view and the
-// workspace aggregate report. The note is non-empty when an epic-parent's set
-// cannot be fixed (the close refuses it); a story that is not a container
-// returns neither members nor a note.
-func mirrorBuildMembers(ctx context.Context, s *mirror.Store, repoKey string, item workitem.Item) ([]epicset.Ref, string) {
-	stories, err := decodeItems(ctx, s, repoKey, "story")
-	if err != nil {
-		return nil, ""
-	}
-	members, err := epicset.MembersFromItems(stories, item)
-	if err != nil {
-		return nil, err.Error()
-	}
-	return epicset.Refs(members), ""
-}
-
-// waveVM is the web-local shape of the story-wave verb's JSON response as the CLI
-// pushed it (sty_a42f4add) — the same keys as verb.WaveResult, plus the refusal
-// text a refused verb is pushed as. The web renders it and never recomputes it;
-// it imports no verb, as the cost view below.
-type waveVM struct {
-	Schedule string          `json:"schedule"`
-	Runnable []string        `json:"runnable"`
-	Omitted  []waveOmittedVM `json:"omitted"`
-	Error    string          `json:"error"`
-}
-
-type waveOmittedVM struct {
-	ID        string          `json:"id"`
-	Cause     string          `json:"cause"`
-	Reason    string          `json:"reason"`
-	WaitingOn []waveBlockerVM `json:"waiting_on"`
-}
-
-type waveBlockerVM struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Cancelled bool   `json:"cancelled"`
-}
-
-// mirrorWave reads the pushed wave row of an epic-parent; nil when the item is not
-// one, or no wave was pushed for it.
-func mirrorWave(ctx context.Context, s *mirror.Store, repoKey string, item workitem.Item) *waveVM {
-	if !epicset.IsEpicParent(item) {
-		return nil
-	}
-	payload, err := s.GetItem(ctx, repoKey, "wave", item.ID)
-	if err != nil {
-		return nil
-	}
-	var w waveVM
-	if json.Unmarshal([]byte(payload), &w) != nil {
-		return nil
-	}
-	return &w
-}
-
-// annotateMembers joins what the verb said (wave) and which dispatches run onto
-// the container's member set. The member set stays epicset's; wave only
-// annotates it, and a nil wave or a refusal annotates nothing.
-func annotateMembers(refs []epicset.Ref, wave *waveVM, dispatches map[string]*dispatchVM) []memberVM {
-	runnable := map[string]bool{}
-	omitted := map[string]waveOmittedVM{}
-	if wave != nil && wave.Error == "" {
-		for _, id := range wave.Runnable {
-			runnable[id] = true
-		}
-		for _, o := range wave.Omitted {
-			omitted[o.ID] = o
-		}
-	}
-	out := make([]memberVM, 0, len(refs))
-	for _, r := range refs {
-		m := memberVM{Ref: r, Dispatch: dispatches[r.ID]}
-		if runnable[r.ID] {
-			m.Wave = "runnable"
-		} else if o, ok := omitted[r.ID]; ok {
-			m.Wave, m.Cause, m.Reason, m.WaitingOn = "held", o.Cause, o.Reason, o.WaitingOn
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
-// rollupDispatch counts the members with a dispatch in flight — the epic's
-// roll-up of the per-story running indicator.
-func rollupDispatch(members []epicset.Ref, dispatches map[string]*dispatchVM) int {
-	n := 0
-	for _, m := range members {
-		if dispatches[m.ID] != nil {
-			n++
-		}
-	}
-	return n
-}
-
-// attachChildrenInFlight sets ChildrenInFlight on every epic-parent row of rows,
-// over the member set epicset reports for it.
-func attachChildrenInFlight(rows []rowVM, stories []workitem.Item, dispatches map[string]*dispatchVM) {
-	for i := range rows {
-		if !epicset.IsEpicParent(rows[i].Item) {
-			continue
-		}
-		members, err := epicset.MembersFromItems(stories, rows[i].Item)
-		if err != nil {
-			continue
-		}
-		rows[i].ChildrenInFlight = rollupDispatch(epicset.Refs(members), dispatches)
-	}
-}
-
-// mirrorBuildCostVM computes item's costview headline plus its family
-// roll-up (nil when item has no children) — the SAME costview.Own/
-// costview.Family computation ComputeStoryActual and `satelle story cost` use,
-// with the workflow's Clock resolved through the one front door,
-// wfgovern.ClockFor, off the mirror's own indexed workflow docs so the web
-// page needs no link to verb or serve.
-func mirrorBuildCostVM(ctx context.Context, s *mirror.Store, repoKey string, item workitem.Item, entriesByStory map[string][]ledger.Entry) *costVM {
-	docs, err := decodeDocs(ctx, s, repoKey)
-	if err != nil {
-		return nil
-	}
-	var workflows []docindex.Doc
-	for _, d := range docs {
-		if d.Kind == "workflows" {
-			workflows = append(workflows, d.Doc)
-		}
-	}
-	clockFor := func(it workitem.Item) costview.Clock {
-		clk, _ := wfgovern.ClockFor(workflows, it)
-		return clk
-	}
-
-	now := time.Now()
-	// Priced now, from the operator's current [pricing]: changing it re-prices
-	// every story on its next render.
-	pricing := costview.WithPricing(config.LoadPricing())
-	own := costview.Own(item, entriesByStory[item.ID], clockFor(item), now, pricing)
-
-	stories, err := decodeItems(ctx, s, repoKey, "story")
-	if err != nil {
-		return costVMFromStory(own, nil)
-	}
-	hasChildren := false
-	for _, it := range stories {
-		if it.ParentID == item.ID {
-			hasChildren = true
-			break
-		}
-	}
-	if !hasChildren {
-		return costVMFromStory(own, nil)
-	}
-	fam := costview.Family(item, stories, entriesByStory, clockFor, now, pricing)
-	return costVMFromStory(own, &fam)
-}
-
-// costVMFromStory renders one item's costview.Story (plus its family roll-up,
-// when non-nil) into the pre-formatted costVM the template reads. It performs
-// no I/O — every figure comes through a costview formatter, the SAME ones the
-// CLI's printCostSummary calls, so a shared fixture produces byte-identical
-// strings on both surfaces (sty_b8542a3a AC7).
-func costVMFromStory(own costview.Story, fam *costview.FamilyCost) *costVM {
-	splitRows := own.Figures.UsageRows - own.Figures.UnsplitRows
-	vm := &costVM{
-		Cost:           costview.FormatDerived(own.Figures.Derived),
-		Seats:          costview.FormatSeatLines(own.Seats),
-		Band:           costview.FormatCostBand(own.Figures),
-		FreshIn:        costview.FormatSplitTokens(own.Figures.FreshInput, splitRows, own.Figures.UnsplitRows, own.Figures.UsageUnavailableRows),
-		EstFreshIn:     costview.FormatEstimate(own.Estimates, "fresh-input"),
-		Out:            costview.FormatTokensMeasured(own.Figures.Output, own.Figures.UsageRows, own.Figures.UsageUnavailableRows),
-		EstOut:         costview.FormatEstimate(own.Estimates, "output"),
-		CacheRead:      costview.FormatSplitTokens(own.Figures.CacheRead, splitRows, own.Figures.UnsplitRows, own.Figures.UsageUnavailableRows),
-		CacheWrite:     costview.FormatSplitTokens(own.Figures.CacheWrite, splitRows, own.Figures.UnsplitRows, own.Figures.UsageUnavailableRows),
-		Elapsed:        costview.FormatDuration(own.Figures.ElapsedMs),
-		EstElapsed:     costview.FormatEstimate(own.Estimates, "minutes"),
-		AgentTime:      costview.FormatDuration(own.Figures.AgentMs),
-		LegacyEstimate: costview.FormatLegacyTokenEstimate(own.Estimates),
-	}
-	if own.Figures.UnsplitTokens > 0 {
-		vm.Unsplit = costview.FormatTokens(own.Figures.UnsplitTokens)
-	}
-	vm.DriverRows, vm.DriverTotal = costview.FormatDriverRows(own.DriverRows)
-	vm.DriverLine = costview.FormatDriverCoverage(own.Figures)
-	vm.DriverAdapters = costview.FormatAdapterUsageCoverage(own.Figures)
-	if fam == nil {
-		return vm
-	}
-	vm.FamilySeats = costview.FormatSeatLines(fam.Seats)
-	vm.FamilyDriverLine = costview.FormatDriverCoverage(fam.Total)
-	vm.FamilyAdapters = costview.FormatAdapterUsageCoverage(fam.Total)
-	for _, c := range fam.Children {
-		vm.Family = append(vm.Family, familyRowFromFigures(c.ID, c.Figures))
-	}
-	total := familyRowFromFigures("FAMILY TOTAL", fam.Total)
-	vm.FamilyTotal = &total
-	return vm
-}
-
-func familyRowFromFigures(id string, f costview.Figures) familyRowVM {
-	splitRows := f.UsageRows - f.UnsplitRows
-	return familyRowVM{
-		ID:         id,
-		Cost:       costview.FormatDerived(f.Derived),
-		Band:       costview.FormatCostBand(f),
-		FreshIn:    costview.FormatSplitTokens(f.FreshInput, splitRows, f.UnsplitRows, f.UsageUnavailableRows),
-		Out:        costview.FormatTokensMeasured(f.Output, f.UsageRows, f.UsageUnavailableRows),
-		CacheRead:  costview.FormatSplitTokens(f.CacheRead, splitRows, f.UnsplitRows, f.UsageUnavailableRows),
-		CacheWrite: costview.FormatSplitTokens(f.CacheWrite, splitRows, f.UnsplitRows, f.UsageUnavailableRows),
-		Elapsed:    costview.FormatDuration(f.ElapsedMs),
-	}
 }
 
 // routeDocName is the name verb.RouteDocName writes the route document under.

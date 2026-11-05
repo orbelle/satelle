@@ -11,13 +11,10 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/sessionconfig"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 func init() {
-	sessionconfig.DefaultHas = HasStoryDoc
-	sessionconfig.DefaultPut = PutConfigBundle
 	Register(&Verb{Name: "story-doc-attach", Description: "Attach a typed markdown document to a story", Invoke: storyDocAttach})
 	Register(&Verb{Name: "story-doc-list", Description: "List a story's attached documents", Invoke: storyDocList})
 	Register(&Verb{Name: "story-doc-get", Description: "Read one of a story's attached documents", Invoke: storyDocGet})
@@ -160,9 +157,6 @@ func writeAttachedDoc(ctx context.Context, item workitem.Item, name, typ, body s
 	payload, _ := json.Marshal(map[string]string{"name": bare, "type": typ})
 	appendLedgerEntry(ctx, item.ID, KindStoryDocAttached, "",
 		fmt.Sprintf("attached %s document %q", typ, bare), payload, now)
-	// A plan attached after an accepted readiness round voids it, whichever path
-	// attached it (sty_a32bd6a9): this core serves `story attach` and the engine.
-	voidReadinessOnAttach(ctx, item, bare)
 	return bare, typ, nil
 }
 
@@ -190,57 +184,6 @@ func HasStoryDoc(ctx context.Context, storyID, name string) bool {
 	}
 	_, err = os.Stat(filepath.Join(dir, file))
 	return err == nil
-}
-
-// PutConfigBundle stores a configuration bundle (internal/sessionconfig) as a
-// story attachment, with both digests in its frontmatter, and records the usual
-// attachment ledger row. An existing attachment of that name is left alone: a
-// digest pair names its content.
-func PutConfigBundle(ctx context.Context, storyID, name, substrateDigest, bindingsDigest string, bundle []byte) error {
-	store, err := requireWorkItem()
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(ctx, storyID)
-	if err != nil {
-		return fmt.Errorf("verb: config bundle: %s: %w", storyID, err)
-	}
-	dir := attachmentDir(item)
-	file := safeName(name)
-	if dir == "" || file == "" {
-		return fmt.Errorf("verb: config bundle: attachment dir or name for %s not configured", storyID)
-	}
-	if _, serr := os.Stat(filepath.Join(dir, file)); serr == nil {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("verb: config bundle: %w", err)
-	}
-	text := sessionconfig.Render(item.ID, strings.TrimSuffix(file, ".md"), substrateDigest, bindingsDigest, bundle)
-	if err := os.WriteFile(filepath.Join(dir, file), []byte(text), 0o644); err != nil {
-		return fmt.Errorf("verb: config bundle: %w", err)
-	}
-	payload, _ := json.Marshal(map[string]string{"name": strings.TrimSuffix(file, ".md"), "type": sessionconfig.DocType})
-	appendLedgerEntry(ctx, item.ID, KindStoryDocAttached, "",
-		fmt.Sprintf("attached %s document %q", sessionconfig.DocType, strings.TrimSuffix(file, ".md")), payload, time.Now())
-	return nil
-}
-
-// ConfigBundleFile reads a story's configuration bundle attachment by name.
-func ConfigBundleFile(ctx context.Context, storyID, name string) ([]byte, error) {
-	store, err := requireWorkItem()
-	if err != nil {
-		return nil, err
-	}
-	dir, err := resolveAttachmentDir(ctx, store, storyID)
-	if err != nil {
-		return nil, err
-	}
-	file := safeName(name)
-	if file == "" {
-		return nil, fmt.Errorf("verb: config bundle: a name is required")
-	}
-	return os.ReadFile(filepath.Join(dir, file))
 }
 
 // storyLessonsList walks every story attachment dir and returns docs whose

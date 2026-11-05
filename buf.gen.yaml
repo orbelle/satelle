@@ -6,8 +6,6 @@ managed:
       value: github.com/bobmcallan/satelle/internal/hosted/syncpb
 inputs:
   - directory: api
-    exclude_paths:
-      - api/board.proto
 plugins:
   - local: protoc-gen-go
     out: internal/hosted/syncpb

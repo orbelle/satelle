@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -36,29 +35,6 @@ func TestFenceDoesNotRefuseInlineInterpreterInOtherRepo(t *testing.T) {
 	for _, handler := range []string{"gate", "commitgate"} {
 		if out, err := runRootIn(t, bashEvent(c), "hook", handler); err != nil {
 			t.Errorf("%s refused %q: %v\n%s", handler, c, err, out)
-		}
-	}
-}
-
-// AC6: the substrate lock's candidates for an interpreter command are what they were.
-func TestBashLockCandidatesInterpreterUnchanged(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("SATELLE_PROJECT_DIR", root)
-	cfg := lockConfig{root: root, lockPaths: []string{".satelle/"}}
-	want := filepath.Join(root, ".satelle", "x")
-	for _, tc := range []struct {
-		command string
-		want    []string
-	}{
-		{`python3 -c "open('.satelle/x','w')"`, []string{want}},
-		{"python3 - <<'PY'\nopen('.satelle/x','w')\nPY", []string{want}},
-		{`bash -c "echo hi > .satelle/x"`, []string{want}},
-		{`python3 -c 'print(1)'`, nil},
-		{"python3 tool.py", nil},
-	} {
-		got := bashLockCandidates(tc.command, cfg)
-		if strings.Join(got, " ") != strings.Join(tc.want, " ") {
-			t.Errorf("bashLockCandidates(%q) = %v, want %v", tc.command, got, tc.want)
 		}
 	}
 }

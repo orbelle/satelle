@@ -1,9 +1,0 @@
-{
-  "id": "intent-nocriteria-valid",
-  "rubric": "intent",
-  "skill": "satelle-story-intent-review",
-  "label": "valid",
-  "story_id": "sty_a3a5397a",
-  "expected_verdict": "accept",
-  "summary": "Begin-work intent rule (satelle-story-intent-review) on a route with no plan step. The story carries no acceptance criteria and no plan document is attached; the card states a behaviour (a role: the signed-in analyst; the context: a saved search, then a sign-out and sign-in on any device; the outcome: the saved searches listed as left). The card is the whole spec, so the missing criteria are not a reason to reject. Pair: intent-nobehaviour-defect. Labelled synthetic case: the card and plan are an illustrative saved-searches story, not a recorded one; the rule it exercises is the one this story set."
-}

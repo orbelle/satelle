@@ -2,18 +2,14 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
-	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
@@ -229,28 +225,6 @@ tool_context_limit_chars = 500
 	}
 }
 
-func TestRenderAlwaysContent_CharacterBudgetIsRunes(t *testing.T) {
-	big := "---\ndescription: a big rule\ntags: [principles:session]\n---\n" + strings.Repeat("x", 2000)
-	docs := []docindex.Doc{doc("a", big), doc("b", big), doc("c", big)}
-	content, omitted := renderAlwaysContent("", docs, alwaysRender{Budget: 500, Harness: "grok", Unit: "characters"})
-	if len(omitted) == 0 {
-		t.Fatal("500-character budget should degrade a large set")
-	}
-	if n := utf8.RuneCountInString(content); n > 500 {
-		t.Fatalf("rendered %d runes, want <= 500:\n%s", n, content)
-	}
-	if strings.Contains(content, strings.Repeat("x", 40)) {
-		t.Fatal("body was inlined under the character budget")
-	}
-	if !strings.Contains(content, "500 characters") || !strings.Contains(content, "read") {
-		t.Fatalf("omit header should name the character budget and the read instruction:\n%s", content)
-	}
-	full, none := renderAlwaysContent("", docs, alwaysRender{Budget: 100000, Harness: "grok", Unit: "characters"})
-	if len(none) != 0 || strings.Count(full, "### ") != 3 {
-		t.Fatalf("a large clip should render the full set, omitted=%v", none)
-	}
-}
-
 // AC3: one delivery per session|harness|channel. A non-matching SessionStart
 // neither delivers nor marks; the matching channel delivers once.
 func TestHookContext_OncePerSession(t *testing.T) {
@@ -321,29 +295,6 @@ What you perceive about the code is unproven until discovery proves it. Record
 it as intent and evidence.
 `
 
-// requireDiagnosisProof fails unless the phrase is in the body and absent from
-// the two fields principleIndexLine would copy.
-func requireDiagnosisProof(t *testing.T, body string) {
-	t.Helper()
-	if !strings.Contains(body, "name: "+diagnosisPrincipleName) {
-		t.Fatalf("principle file is not named %s", diagnosisPrincipleName)
-	}
-	if !strings.Contains(frontmatter(body), "principles:session") {
-		t.Fatal("principle is not tagged principles:session")
-	}
-	desc, heading, prose := diagnosisParts(body)
-	if !strings.Contains(prose, diagnosisProofPhrase) {
-		t.Fatalf("principle body missing proof phrase %q", diagnosisProofPhrase)
-	}
-	if strings.Contains(desc, diagnosisProofPhrase) || strings.Contains(heading, diagnosisProofPhrase) {
-		t.Fatalf("proof phrase is on an index input (description %q, heading %q)", desc, heading)
-	}
-	idx := principleIndexLine(docindex.Doc{Name: diagnosisPrincipleName, Body: body})
-	if strings.Contains(idx, diagnosisProofPhrase) {
-		t.Fatalf("index line contains the proof phrase, so a compact emit could pass: %s", idx)
-	}
-}
-
 func diagnosisParts(body string) (desc, heading, prose string) {
 	prose = body
 	fm := frontmatter(body)
@@ -366,33 +317,6 @@ func diagnosisParts(body string) (desc, heading, prose string) {
 		}
 	}
 	return desc, heading, prose
-}
-
-// seedDiagnosisPrinciple writes the fixture principle into the temp repo and
-// reindexes it.
-func seedDiagnosisPrinciple(t *testing.T, repo string) {
-	t.Helper()
-	body := diagnosisPrincipleFixture
-	requireDiagnosisProof(t, body)
-	dir := filepath.Join(repo, config.DefaultDataDir, "principles")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, diagnosisPrincipleName+".md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a, err := app.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = a.Store.DocIndex.Sync(context.Background(), map[string]string{"principles": dir}, time.Now().UTC())
-	closeErr := a.Close()
-	if err != nil {
-		t.Fatalf("reindex principles: %v", err)
-	}
-	if closeErr != nil {
-		t.Fatal(closeErr)
-	}
 }
 
 func assertDiagnosisInlined(t *testing.T, harness, event, wantEvent, content string, emitted bool) {
@@ -428,23 +352,6 @@ func TestHookContext_NoDriftingDocsPrincipleDelivered(t *testing.T) {
 	if !strings.Contains(content, "### "+name) && !strings.Contains(content, "`satelle doc get principles "+name+"`") {
 		t.Errorf("additionalContext neither inlines %s nor lists it with its read command:\n%s", name, content)
 	}
-}
-
-// The authored session principle is inlined — name and a body phrase the index
-// line cannot carry — on each harness's real delivery channel.
-func TestHookContext_DiagnosisPrincipleInlined(t *testing.T) {
-	repo := sessionContextRepo(t)
-	seedDiagnosisPrinciple(t, repo)
-
-	event, content, _, emitted := runContext(t, "claude", []byte(`{"hook_event_name":"SessionStart","session_id":"sess-diag-claude"}`))
-	assertDiagnosisInlined(t, "claude", event, "SessionStart", content, emitted)
-
-	// The pi extension sends this synthetic SessionStart and reads additionalContext.
-	event, content, _, emitted = runContext(t, "pi", []byte(`{"hook_event_name":"SessionStart","source":"startup","session_id":"sess-diag-pi"}`))
-	assertDiagnosisInlined(t, "pi", event, "SessionStart", content, emitted)
-
-	event, content, _, emitted = runContext(t, "grok", grokDualPayload("PostToolUse", "post_tool_use", "sess-diag-grok"))
-	assertDiagnosisInlined(t, "grok", event, "PostToolUse", content, emitted)
 }
 
 // TestHookContext_SeatPrinciplesStayOutOfSessionStart (sty_bcd344fd AC1, AC2;

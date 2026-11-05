@@ -1,9 +1,0 @@
-{
-  "id": "implementation-valid-01",
-  "rubric": "implementation",
-  "skill": "satelle-code-ac-review",
-  "label": "valid",
-  "story_id": "sty_8eae81ac",
-  "expected_verdict": "accept",
-  "summary": "Frozen from the real, shipped internal/verb/workitem.go (as of commit b7eaed0, sty_8eae81ac), which satelle-code-ac-review accepted after implementation-defect-01's reject (2026-09-27, evt_5d1b4009, notes name TestStoryActualUnpricedRowsTagUnavailable and TestStoryActualUnsplitInputTagged as the new tests that would fail on the old code). change.diff is the real recordActual body verbatim: actual-usd is written only when CostRows > 0 (otherwise 'unavailable' plus the unavailable-row count), and actual-fresh-input / actual-unsplit-input separate the split and unsplit token figures instead of silently folding unsplit input into a zero."
-}

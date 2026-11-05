@@ -12,7 +12,6 @@ const (
 	HarnessClaude  = "claude"
 	HarnessGrok    = "grok"
 	HarnessPi      = "pi"
-	HarnessCursor  = "cursor"
 	HarnessUnknown = "unknown"
 )
 
@@ -44,13 +43,11 @@ var sessionMarkers = []sessionMarker{
 	// desktop environment (XCURSOR_SIZE, HYPRCURSOR_SIZE, GUM_*CURSOR*) are not
 	// cursor-agent evidence, and CLAUDE_PROJECT_DIR is set by cursor's
 	// Claude-compat shim, so it is evidence of neither harness.
-	{harness: HarnessCursor, key: "CURSOR_AGENT", match: nonEmptyNotZero},
-	{harness: HarnessCursor, key: "CURSOR_INVOKED_AS", match: func(v string) bool { return strings.TrimSpace(v) != "" }},
 }
 
 // HarnessOf names the harness behind a binding's command line, for lookups keyed
 // by harness (the [harness.<name>] tables): HarnessClaude, HarnessGrok,
-// HarnessPi, HarnessCursor or HarnessUnknown. It is the reviewer-isolation
+// HarnessPi or HarnessUnknown. It is the reviewer-isolation
 // classifier too: both answer through adapterOf, so there is one rule (cursor-agent
 // is the executable named exactly so or cursor-agent-*, pi exactly pi or pi-*,
 // which excludes pip and the like; the bare names cursor and agent are too common
@@ -94,15 +91,10 @@ func DetectSessionHarnesses(environ []string) map[string]bool {
 }
 
 // InLoopHarnessFromEnv reports whether environ carries any in-loop harness
-// marker, and the first harness it names (cursor, claude, grok, pi order).
-// cursor goes first because a cursor-agent launched from a Claude session
-// inherits CLAUDECODE=1 beside its own CURSOR_* markers (captured in
-// testdata/cursor/6-hook-env.txt), while cursor's markers are set by cursor
-// itself. The reverse inheritance (a claude launched from cursor) is not
-// evidenced; if it ever is, this order is the line to revisit.
+// marker, and the first harness it names (claude, grok, pi order).
 func InLoopHarnessFromEnv(environ []string) (string, bool) {
 	found := DetectSessionHarnesses(environ)
-	for _, h := range []string{HarnessCursor, HarnessClaude, HarnessGrok, HarnessPi} {
+	for _, h := range []string{HarnessClaude, HarnessGrok, HarnessPi} {
 		if found[h] {
 			return h, true
 		}
@@ -119,10 +111,6 @@ var claudeToolNames = map[string]bool{
 // HarnessFromHookEvent classifies a hook event envelope, each adapter
 // fingerprinting its own shape:
 //
-//   - cursor: a non-empty cursor_version field, which every cursor-agent hook
-//     envelope carries (testdata/cursor/*-hooks.log). Checked first: cursor
-//     uses Claude-style tool names (its Read preToolUse in 4-hooks.log carries
-//     tool_name "Read"), which are not claude evidence here.
 //   - grok: any of its own camelCase-only field names — hookEventName,
 //     workspaceRoot, transcriptPath, permissionMode, a camelCase sessionId
 //     with no snake_case session_id, or a camelCase toolInput with no
@@ -154,13 +142,9 @@ func HarnessFromHookEvent(raw []byte) string {
 		WorkspaceRoot       json.RawMessage `json:"workspaceRoot"`
 		TranscriptPathCamel json.RawMessage `json:"transcriptPath"`
 		PermissionModeCamel json.RawMessage `json:"permissionMode"`
-		CursorVersion       string          `json:"cursor_version"`
 	}
 	if json.Unmarshal(raw, &top) != nil {
 		return HarnessUnknown
-	}
-	if strings.TrimSpace(top.CursorVersion) != "" {
-		return HarnessCursor
 	}
 	present := func(m json.RawMessage) bool {
 		s := strings.TrimSpace(string(m))

@@ -722,29 +722,6 @@ func TestResolveInterface_LiveUnsetACPSpawn(t *testing.T) {
 	}
 }
 
-// TestResolveInterface_LiveCursor (sty_10c52ab3): cursor offers command and ACP
-// only. `cursor-agent acp` used live resolves to acp; the one-shot template (or a
-// line without the acp subcommand) is not live-capable and a stream binding to
-// cursor never is.
-func TestResolveInterface_LiveCursor(t *testing.T) {
-	var ac AgentsConfig
-	for command, want := range map[string]string{
-		"cursor-agent acp":                     InterfaceACP,
-		agentcli.CursorCommand:                 InterfaceCommand,
-		"cursor-agent -p --output-format json": InterfaceCommand,
-	} {
-		if iface, _ := ac.ResolveInterface(AgentBinding{Command: command}, UseLive); iface != want {
-			t.Errorf("ResolveInterface(%q, UseLive) = %q, want %q", command, iface, want)
-		}
-	}
-	if liveCapableInterface("cursor-agent -p --input-format stream-json --output-format stream-json", InterfaceStream) {
-		t.Error("a stream binding to cursor must not be live-capable")
-	}
-	if !liveCapableInterface("cursor-agent acp", InterfaceACP) {
-		t.Error("cursor acp must be live-capable")
-	}
-}
-
 // TestResolveInterface_LivePreferenceFromConfig (AC4): the preference order
 // between live-capable transports is read from [defaults] live_interfaces,
 // not hardcoded — editing ONLY that config changes ResolveInterface's result,

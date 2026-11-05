@@ -50,9 +50,6 @@ var toolClassByName = map[string]ToolClass{
 	"run_terminal_command": ClassShell, "run_terminal_cmd": ClassShell, "run_terminal": ClassShell, "shell": ClassShell,
 	"spawn_subagent": ClassSubprocess,
 	"web_fetch":      ClassNetwork, "web_search": ClassNetwork, "image_gen": ClassNetwork,
-	// cursor: its file-delete tool (Delete in a preToolUse payload, testdata/cursor/
-	// 10a, 11a) is an edit. Write and Shell are cursor's too and already classify
-	// above; no Claude name maps to Delete, so a Claude matcher never forwards it.
 	"delete": ClassEdit,
 }
 
@@ -215,13 +212,7 @@ func ReadOnlyGrantProblems(command, iface, grant string, performer bool) []ReadO
 	if iface == "" {
 		iface = InterfaceCommand
 	}
-	adapter, args := adapterOf(fields[0], fields[1:]), fields[1:]
-	if adapter == HarnessCursor {
-		if cause := cursorReadOnlyProblem(args, iface, performer); cause != "" {
-			return []ReadOnlyProblem{{Cause: cause}}
-		}
-		return nil
-	}
+	args := fields[1:]
 	var out []ReadOnlyProblem
 	for _, g := range preflight(iface, fields[0], args, grant) {
 		out = append(out, ReadOnlyProblem{Cause: fmt.Sprintf("adapter %s cannot hold it read-only: %s", g.Adapter, g.What)})
@@ -238,32 +229,6 @@ func ReadOnlyGrantProblems(command, iface, grant string, performer bool) []ReadO
 		}
 	}
 	return out
-}
-
-// cursorReadOnlyProblem is ReadOnlyGrantProblems' cursor case: "" when the seat is
-// held read-only, else why not. A reviewer is held by ReadOnlyEnforced (satelle
-// forces ask mode); a performer is not forced, so it must ask for ask mode itself
-// on the command transport, and the ACP transport never holds it.
-func cursorReadOnlyProblem(args []string, iface string, performer bool) string {
-	if !performer {
-		if _, err := ReadOnlyEnforced(HarnessCursor, args, iface); err != nil {
-			return strings.TrimPrefix(err.Error(), "agentcli: ")
-		}
-		return ""
-	}
-	if iface != InterfaceCommand {
-		return "cursor: satelle forces read-only mode for a reviewer only, so a performer on the " + iface + " transport is not held read-only"
-	}
-	modes := flagValues(args, "--mode")
-	for _, m := range modes {
-		if strings.ToLower(strings.TrimSpace(m)) != cursorReadOnlyMode {
-			return errCursorReadOnlyMode(m).Error()
-		}
-	}
-	if len(modes) == 0 {
-		return "cursor: satelle forces ask mode for a reviewer only, so a performer template must carry --mode " + cursorReadOnlyMode + " itself"
-	}
-	return ""
 }
 
 // allows reports whether a tool of class c named name is inside the grant. An
@@ -428,8 +393,6 @@ func AdapterName(command string) string {
 func adapterOf(binary string, args []string) string {
 	base := strings.ToLower(filepath.Base(binary))
 	switch {
-	case base == "cursor-agent" || strings.HasPrefix(base, "cursor-agent-"):
-		return HarnessCursor
 	case base == "pi" || strings.HasPrefix(base, "pi-"):
 		return HarnessPi
 	case strings.Contains(base, "claude"):
@@ -635,11 +598,6 @@ func preflight(iface, binary string, args []string, grant string) []IsolationGap
 		return gap(fmt.Sprintf("tools not held to the grant (no adapter knows how to trim or deny tools for %q)", filepath.Base(binary)),
 			"point the binding at claude or grok")
 	}
-	if adapter == HarnessCursor {
-		// cursor has no tools allow-list and no permission skip that matters: the
-		// forced ask mode is the ceiling (cursor_seat.go).
-		return cursorPreflight(iface, args)
-	}
 	if adapter == HarnessPi {
 		return piPreflight(iface, label, args, grant)
 	}
@@ -818,9 +776,6 @@ func DescribeReviewer(r Runner, req Request) ReviewerIsolation {
 		return ReviewerIsolation{}
 	}
 	adapter := adapterOf(binary, args)
-	if adapter == HarnessCursor {
-		return cursorOffered(transport)
-	}
 	iso := ReviewerIsolation{Adapter: adapter + " " + transport}
 	if transport == InterfaceACP {
 		iso.OfferedSource = "unavailable: " + adapter + " agent stdio neither trims nor reports offered tools"

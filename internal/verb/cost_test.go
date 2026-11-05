@@ -73,66 +73,6 @@ func TestStoryEstimateWritesTagsInAnyUnit(t *testing.T) {
 	}
 }
 
-// TestStoryActualComputesFromLedgerNotHandEntered pins AC1: the actual is
-// derived from the ledger's own dispatch/driver rows, and a computed figure
-// always replaces a stale hand-typed actual-* tag — the sty_218fb3a3
-// regression (an actual that stayed pinned at the 200k estimate over a 10.4M
-// measured story).
-func TestStoryActualComputesFromLedgerNotHandEntered(t *testing.T) {
-	db := wire(t)
-	ctx := context.Background()
-
-	var it workitem.Item
-	json.Unmarshal(call(t, "story-create", map[string]any{
-		"title": "actual-from-ledger",
-		"tags":  []string{"area:web", "actual-tokens:200000"}, // stale hand-typed figure
-	}), &it)
-
-	cost := 0.42
-	payload, _ := json.Marshal(map[string]any{
-		"from": "plan", "to": "in_progress", "agent": "coder",
-		"tokens_in": 1000, "tokens_out": 200, "tokens_total": 1200,
-		"usage_available": true, "tokens_in_fresh": 1000,
-		"duration_ms": 5000, "cost_usd": cost,
-	})
-	if _, err := db.Ledger.Append(ctx, ledger.AppendInput{
-		StoryID: it.ID, Kind: ledger.KindAgentInvocation, Actor: "coder", Payload: payload,
-	}, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-
-	var act workitem.Item
-	json.Unmarshal(call(t, "story-actual", map[string]any{"id": it.ID}), &act)
-	if !hasTag(act.Tags, "actual-tokens:1200") {
-		t.Errorf("computed actual-tokens missing/wrong: %v", act.Tags)
-	}
-	if hasTag(act.Tags, "actual-tokens:200000") {
-		t.Errorf("stale hand-typed actual-tokens survived: %v", act.Tags)
-	}
-	if !hasTag(act.Tags, "actual-cost:low") {
-		t.Errorf("measured tokens must be tagged actual-cost:low: %v", act.Tags)
-	}
-	if hasActualUSD(act.Tags) {
-		t.Errorf("actual recorder must not write actual-usd: %v", act.Tags)
-	}
-	if !hasTag(act.Tags, "area:web") {
-		t.Errorf("actual dropped an unrelated tag: %v", act.Tags)
-	}
-
-	var actuals []ledger.Entry
-	json.Unmarshal(call(t, "ledger-list", map[string]any{"story_id": it.ID, "kind": ledger.KindActualRecorded}), &actuals)
-	if len(actuals) != 1 {
-		t.Fatalf("want 1 actual_recorded row, got %d", len(actuals))
-	}
-	var recorded verb.StoryActual
-	if err := json.Unmarshal(actuals[0].Payload, &recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded.Total.CostUSD != cost || recorded.Total.FreshInput != 1000 || recorded.Total.Output != 200 {
-		t.Errorf("actual_recorded payload = %+v, want cost %v fresh 1000 output 200", recorded.Total, cost)
-	}
-}
-
 // TestStoryActualUnpricedRowsTagUnavailable pins that a measured row with no
 // cost_usd is still banded from its tokens. A dollar figure is not an input:
 // the absence of a price does not withhold the band, and the recorder does

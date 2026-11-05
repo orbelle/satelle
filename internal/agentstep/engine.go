@@ -47,20 +47,13 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agentartifact"
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/board"
-	"github.com/bobmcallan/satelle/internal/compact"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/placement"
 	"github.com/bobmcallan/satelle/internal/remotedef"
-	"github.com/bobmcallan/satelle/internal/retrieve"
-	"github.com/bobmcallan/satelle/internal/secretref"
-	"github.com/bobmcallan/satelle/internal/sessionconfig"
 	"github.com/bobmcallan/satelle/internal/structure"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
-	"github.com/bobmcallan/satelle/internal/wfhook"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -296,12 +289,6 @@ type Engine struct {
 	// shows up in `satelle story cost` and the web timeline the same way a
 	// one-shot dispatch does. Nil-safe: an unwired recorder writes no rows.
 	invocationRecorder func(ctx context.Context, itemID string, payload map[string]any) error
-	// suiteRecord and suiteLookup are the ledger seam behind check_reuse: tree
-	// (sty_dc554488): record appends one check run as a suite_run row, lookup
-	// finds a green row for the same story, check, command and tree. Both nil
-	// (unwired) means a check always runs and nothing is recorded.
-	suiteRecord func(ctx context.Context, storyID string, ev verb.SuiteEvidence) (string, error)
-	suiteLookup func(ctx context.Context, storyID, check, commandSHA, tree string) (verb.SuiteEvidence, bool)
 	// wiring is the gate-wiring policy a performer dispatch is held to in a
 	// linked worktree (sty_f141c77f). Nil means unguarded; the CLI always wires it.
 	wiring *WiringGuard
@@ -885,16 +872,6 @@ func (g *Engine) SetInvocationRecorder(fn func(ctx context.Context, itemID strin
 	g.invocationRecorder = fn
 }
 
-// SetSuiteEvidence wires the seam a check_reuse: tree gate records its runs
-// through and finds a reusable one by (sty_dc554488). Nil-safe: unwired, every
-// check runs each time.
-func (g *Engine) SetSuiteEvidence(
-	record func(ctx context.Context, storyID string, ev verb.SuiteEvidence) (string, error),
-	lookup func(ctx context.Context, storyID, check, commandSHA, tree string) (verb.SuiteEvidence, bool),
-) {
-	g.suiteRecord, g.suiteLookup = record, lookup
-}
-
 // recordInvocation calls the wired invocation recorder, if any. Best-effort:
 // a write failure never blocks the live session it is describing.
 func (g *Engine) recordInvocation(ctx context.Context, itemID string, payload map[string]any) {
@@ -1057,15 +1034,13 @@ func execCheck(ctx context.Context, dir, command, payload string) (string, error
 	c := exec.CommandContext(ctx, "bash", "-c", command)
 	c.Dir = dir
 	if id := gateStoryFrom(ctx); id != "" {
-		c.Env = append(os.Environ(), verb.GateStoryEnv+"="+id)
+		c.Env = append(os.Environ(), config.GateStoryEnv+"="+id)
 	}
 	// An input holding a secret reference resolves here, at the check's point
 	// of use, and the check's output is scrubbed of the value where its process
 	// returns (sty_bd8d963c); an unresolvable one fails the check, naming it.
-	in, resolved, rerr := secretref.ResolveEnv(ctx, gateInputEnvFrom(ctx))
-	if rerr != nil {
-		return "", rerr
-	}
+	in := gateInputEnvFrom(ctx)
+	var resolved map[string]string
 	if len(in) > 0 {
 		if c.Env == nil {
 			c.Env = os.Environ()
@@ -1158,14 +1133,6 @@ type transitionPayload struct {
 	// verdict input a reviewer must obey. Absent when none qualify or the
 	// resolver is unwired (omitempty matches prior_verdicts).
 	Messages []MessageState `json:"messages,omitempty"`
-	// MeasuredActual is the read-only computed actual (verb.ComputeStoryActual)
-	// for the story under review — attached to EVERY gate payload generically,
-	// never conditioned on the gate's skill name (sty_8eae81ac): mechanism, not
-	// a skill literal in Go. A shipped or repo-authored gate can compare a
-	// self-reported estimate tag against it in its own unit. Enumeration, not a
-	// verdict — the binary computes it and decides nothing. Nil when the
-	// computation fails (unwired store, missing item) — never a fabricated zero.
-	MeasuredActual *verb.StoryActual `json:"measured_actual,omitempty"`
 	// Rework is present ONLY on the rework relay's consult-seat seed: the coder
 	// binding, its authored tool grant, and the later gates that own evidence the
 	// coder cannot produce (ConsultSeed). Absent everywhere else.
@@ -1352,17 +1319,7 @@ func judgeableDoc(d DocState) bool {
 	if strings.EqualFold(d.Type, "change") {
 		return false
 	}
-	// A configuration bundle (internal/sessionconfig) is the whole substrate
-	// a past run used: a record for `satelle story session`, not a document
-	// to judge, and it would starve the plan of the payload budget.
-	if strings.EqualFold(d.Type, sessionconfig.DocType) {
-		return false
-	}
-	// The route document is the OPERATOR's artifact (sty_39e2d9df): it grows by
-	// one block per step, and injecting it into the gate that is about to write
-	// the NEXT block is both circular and quadratic in tokens. A reviewer already
-	// receives the plan and the step summaries. Pull via satelle story route.
-	return !strings.EqualFold(d.Type, verb.RouteDocName)
+	return true
 }
 
 // fillPayloadDocs attaches resolved docs under the cumulative body budget.
@@ -1517,9 +1474,6 @@ func (g *Engine) fillDiff(ctx context.Context, itemID string, tp *transitionPayl
 	// apply to tp.Diff, which is the functional-check payload.
 	if g.diffCompressor != nil && cp.Patch != "" {
 		compressed := g.diffCompressor(ctx, itemID, cp.Patch)
-		if retrieve.MarkerRE.MatchString(compressed) {
-			cp.Truncated = true
-		}
 		cp.Patch = compressed
 	}
 	if mat != nil {
@@ -1549,24 +1503,6 @@ func (g *Engine) fillDiff(ctx context.Context, itemID string, tp *transitionPayl
 		cp.Patch = ""
 	}
 	tp.Diff = &cp
-}
-
-// fillMeasuredActual attaches the read-only computed actual (verb.
-// ComputeStoryActual) to the gate payload, generically for every gate —
-// mechanism, never conditioned on the skill under way (sty_8eae81ac
-// architecture note: the measured_actual block must not depend on the
-// review_skill name, or it becomes a skill literal in Go). Best-effort: a
-// computation failure (unwired store, missing item) leaves MeasuredActual nil
-// rather than failing the gate.
-func (g *Engine) fillMeasuredActual(ctx context.Context, itemID string, tp *transitionPayload) {
-	if itemID == "" {
-		return
-	}
-	actual, err := verb.ComputeStoryActual(ctx, itemID)
-	if err != nil {
-		return
-	}
-	tp.MeasuredActual = &actual
 }
 
 const (
@@ -1634,7 +1570,7 @@ func (g *Engine) markDelivered(ctx context.Context, itemID string, addrs []strin
 	}
 	var ids []string
 	for _, m := range msgs {
-		if m.ID != "" && m.State == string(board.Waiting) && want[m.To] {
+		if m.ID != "" && m.State == "waiting" && want[m.To] {
 			ids = append(ids, m.ID)
 		}
 	}
@@ -1753,7 +1689,7 @@ func (g *Engine) excerptOffload(ctx context.Context, itemID, s string, limit int
 	if err != nil {
 		return cut + "… [truncated]"
 	}
-	return cut + "… [truncated " + retrieve.MarkerKind(hash, "patch", len(overflow)) + "]"
+	return cut + "… [truncated " + hash + "]"
 }
 
 // alwaysPrinciples returns the bodies of the SESSION-resident (principles:session)
@@ -1969,22 +1905,6 @@ func (g *Engine) gateEdge(ctx context.Context, item workitem.Item, toStatus stri
 		// so the refusal itself carries the rule, why it applied here, and where the
 		// story may go instead.
 		next := g.successorsOf(ctx, item, item.Status)
-		// Route drift first, when that is the actual cause: a status that is not a
-		// state of the lane its category derives NOW has no legal edge, and the
-		// generic undeclared-edge text ("no step after X") sends the reader to fix
-		// a workflow that is not broken. Structural, not a verdict on the drift.
-		if d, drifted := g.routeDriftFor(ctx, item); drifted && !d.StatusOnRoute {
-			entry := ""
-			if spec, _, serr := g.activeSpec(ctx, item); serr == nil {
-				entry = spec.Start()
-			}
-			return verb.GateDecision{}, wfgovern.Refusal{
-				Rule: wfgovern.RuleRouteDrift, Item: item.ID,
-				From: item.Status, To: toStatus, Alternatives: next,
-				Why:    wfgovern.DriftWhy(d),
-				Remedy: wfgovern.DriftRemedy(d, entry),
-			}
-		}
 		ref := wfgovern.Refusal{
 			Rule: wfgovern.RuleUndeclaredEdge, Item: item.ID,
 			From: item.Status, To: toStatus, Alternatives: next,
@@ -2434,7 +2354,7 @@ type performerResolution struct {
 	spec    wfdot.Spec
 	wfName  string
 	target  *wfdot.State
-	placed  placement.Decision
+	placed  placementDecision
 	binding config.AgentBinding
 }
 
@@ -2488,7 +2408,7 @@ func (g *Engine) resolvePerformer(ctx context.Context, item workitem.Item, toSta
 	//
 	// A binding's own placement (sty_7028d996) is read through the same lookup the
 	// dispatch uses, resolved once per name.
-	var lookup placement.Bindings
+	var lookup placementBindings
 	if g.namedAgents != nil {
 		type found struct {
 			b  config.AgentBinding
@@ -2504,7 +2424,7 @@ func (g *Engine) resolvePerformer(ctx context.Context, item workitem.Item, toSta
 			return f.b, f.ok
 		}
 	}
-	placed := placement.Decide(ctx, item, *target, lookup)
+	placed := decidePlacement(*target, lookup)
 	if placed.PinErr != nil {
 		return performerResolution{}, fmt.Errorf("step %q: %w", toStatus, placed.PinErr)
 	}
@@ -3291,15 +3211,6 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 		return nil, rerr
 	}
 	req.Env, req.Redact = env, g.scrubValues(nil, resolved)
-	// A DRIVING session (the coder rework seat) may edit the tree,
-	// so it is the one that can leave debris; snapshot the untracked files at
-	// open so Close can tell what THIS session created (sty_e7aaf8b1 AC5).
-	// Consult-role sessions are read-only and are never swept.
-	var leftoverBefore map[string]bool
-	sweepConfigured := len(g.leftoverRule.Patterns) > 0 || strings.TrimSpace(g.leftoverRule.ContentRegex) != ""
-	if role == SessionRoleDriving && sweepConfigured {
-		leftoverBefore, _ = untrackedSnapshot(g.repoRoot)
-	}
 	// usageTracker captures the session's LAST EventUsage (sty_7069bced) — the
 	// same signal runOneShotUsage reads for a one-shot dispatch — so the close
 	// row below can report what the live session actually resolved/spent, not
@@ -3332,7 +3243,7 @@ func (g *Engine) OpenSessionAsWithModel(ctx context.Context, name string, role S
 	}
 	return &liveModelSession{Session: redactSession(sess, req.Redact), engine: g, ctx: ctx, storyID: item.ID, agent: name,
 		model: binding.Model, modelSource: modelSource, tracker: tracker, performer: role == SessionRoleDriving,
-		scratch: scratchDir, repoRoot: g.repoRoot, sweepBefore: leftoverBefore, flush: flush}, nil
+		scratch: scratchDir, repoRoot: g.repoRoot, flush: flush}, nil
 }
 
 // liveUsageTracker accumulates every EventUsage a live session reports across
@@ -3522,25 +3433,7 @@ func (s *liveModelSession) Close() error {
 		}
 		s.engine.recordInvocation(s.ctx, s.storyID, data)
 
-		var swept []string
-		var sweepFailed bool
-		if s.sweepBefore != nil {
-			files, serr := SweepLeftovers(s.repoRoot, s.scratch, s.sweepBefore, s.engine.leftoverRule)
-			if serr != nil {
-				// A partial move before this error must not be lost: SweepLeftovers
-				// still reports every matched file it attempted, and the scratch dir
-				// below is kept — never deleted — on this path (sty_e7aaf8b1 AC5).
-				sweepFailed = true
-				s.engine.recordInvocation(s.ctx, s.storyID, map[string]any{
-					"phase": "leftovers_failed", "scratch_dir": s.scratch, "agent": s.agent,
-					"files": files, "error": serr.Error(),
-				})
-			} else if len(files) > 0 {
-				swept = files
-				s.engine.ledgerLeftovers(s.ctx, s.storyID, s.scratch, s.engine.leftoverRule.ResolveAction(), files)
-			}
-		}
-		keep := err != nil || sweepFailed || (len(swept) > 0 && s.engine.leftoverRule.ResolveAction() == config.LeftoverActionMove)
+		keep := err != nil
 		if err != nil {
 			s.engine.recordInvocation(s.ctx, s.storyID, map[string]any{
 				"phase": "scratch_kept", "scratch_dir": s.scratch, "agent": s.agent,
@@ -4546,177 +4439,6 @@ func (g *Engine) stepSummaryDeclared(ctx context.Context, item workitem.Item) (a
 	return spec.StepSummaryBinding()
 }
 
-// ReviewCreate judges a draft work item's required structure before it is
-// persisted, DETERMINISTICALLY (internal/structure) — a specific title, a goal
-// body, and a non-empty category. Acceptance criteria are not part of that
-// check. No LLM, no agent CLI: the contract is code, so it is
-// harness-independent and never flaky. Always Gated (the structure is the one
-// thing satelle enforces on creation).
-func (g *Engine) ReviewCreate(ctx context.Context, draft verb.CreateDraft) (verb.GateDecision, error) {
-	// 1. Deterministic structural check FIRST — the one thing satelle always
-	// enforces on creation. A structural failure pre-empts: the content reviewer
-	// is never reached on a malformed draft.
-	if problems := structure.Story(draft.Title, draft.Body, draft.AcceptanceCriteria, draft.Category); len(problems) > 0 {
-		return verb.GateDecision{Gated: true, Accept: false, Skill: structureSkill, Notes: strings.Join(problems, "; ")}, nil
-	}
-	// An execution is one run of a task whose intent was judged when the task was
-	// authored: its creation needs the structure check only, whatever the category
-	// or reviewer binding. The content hook would judge a machine-written run as a
-	// story intake and reject it (sty_313f9018).
-	if draft.Kind == string(workitem.KindExecution) {
-		return verb.GateDecision{Gated: true, Accept: true, Skill: structureSkill}, nil
-	}
-	// 2. Optional content/alignment review — the reviewer skill AND the logical
-	// agent that runs it are DECLARED by the active workflow's create-review hook
-	// (selected by the draft's category), not hardcoded. Absent a declaration (or
-	// the skill does not resolve), creation stays deterministic-only.
-	hook, declared, herr := g.createReviewHook(ctx, draft.Category)
-	if herr != nil {
-		// The authored process cannot be read: refuse rather than create under the
-		// embedded default's "no gate declared" (sty_d6e209aa).
-		return verb.GateDecision{}, herr
-	}
-	if !declared || hook.Skill == "" {
-		return verb.GateDecision{Gated: true, Accept: true, Skill: structureSkill}, nil
-	}
-	draftItem := workitem.Item{
-		Title:              draft.Title,
-		Body:               draft.Body,
-		AcceptanceCriteria: draft.AcceptanceCriteria,
-		Category:           draft.Category,
-		Priority:           draft.Priority,
-		Tags:               draft.Tags,
-		Status:             "backlog",
-	}
-	// The hook's DECLARED agent, not an empty selector: an omitted agent is
-	// wfhook.DefaultAgent ("reviewer") — the same binding as before, but chosen by
-	// the substrate and inspectable, rather than fallen into inside gateBinding.
-	dec, err := g.runReviewer(ctx, draftItem, "backlog", hook.Skill, hook.Agent)
-	if err != nil {
-		return verb.GateDecision{}, err
-	}
-	if dec.Gated {
-		return dec, nil // the declared content reviewer accepted or rejected
-	}
-	// The workflow declared a skill but it does not resolve — accept on structure
-	// alone rather than blocking creation on a misconfigured binding.
-	return verb.GateDecision{Gated: true, Accept: true, Skill: structureSkill}, nil
-}
-
-// createReviewHook resolves the create-review LIFECYCLE HOOK declared by the
-// workflow active for the category — its `hooks:` entry or the `create_review:`
-// shorthand. Not declared when no workflow governs the category or the workflow
-// declares none, so creation stays deterministic-only (the binding is
-// configuration, never a hardcoded filename).
-//
-// The hook carries both the skill and the logical agent; the engine does not
-// choose either. Declaration DEFECTS (an unknown operation, a missing skill) are
-// deliberately not judged here — that is validation's job, surfaced by
-// `satelle agent validate` / `satelle workflow validate` before anything runs.
-// The engine keeps only its mechanism-level refusals at dispatch (role, in-loop).
-func (g *Engine) createReviewHook(ctx context.Context, category string) (wfhook.Hook, bool, error) {
-	return g.lifecycleHook(ctx, category, wfhook.OpCreateReview)
-}
-
-// ReviewAmend judges a proposed amendment of a story's FROZEN definition fields
-// (sty_81aa4d8f) against the skill+agent the active workflow declares for the
-// amend_review lifecycle hook. The reviewer is handed the AMENDED story plus the
-// per-field before/after and the caller's reason, because the question it exists
-// to answer — correction or self-serving weakening? — cannot be read off the
-// amended text alone.
-//
-// An UNDECLARED hook (or one whose skill does not resolve) returns Gated false,
-// which the verb treats as a refusal: piercing the freeze without a judge is not
-// on offer. That inverts ReviewCreate's fail-open, deliberately — a bare create
-// must stay legal, an unjudged amendment must not.
-func (g *Engine) ReviewAmend(ctx context.Context, draft verb.AmendDraft) (verb.GateDecision, error) {
-	amended := applyAmendment(draft)
-	// Deterministic structure first, exactly as create does: an amendment may
-	// correct a definition but never leave the story structurally invalid.
-	if problems := structure.Story(amended.Title, amended.Body, amended.AcceptanceCriteria, amended.Category); len(problems) > 0 {
-		return verb.GateDecision{Gated: true, Accept: false, Skill: structureSkill, Notes: strings.Join(problems, "; ")}, nil
-	}
-	hook, declared, herr := g.lifecycleHook(ctx, amended.Category, wfhook.OpAmendReview)
-	if herr != nil {
-		return verb.GateDecision{}, herr
-	}
-	if !declared || hook.Skill == "" {
-		return verb.GateDecision{}, nil // no gate declared — the verb refuses
-	}
-	dec, err := g.runReviewerWith(ctx, amended, amended.Status, hook.Skill, hook.Agent,
-		func(tp *transitionPayload) {
-			tp.Amendment = &AmendmentState{
-				Status: draft.Status,
-				Reason: draft.Reason,
-				Fields: draft.Fields,
-			}
-		})
-	if err != nil {
-		return verb.GateDecision{}, err
-	}
-	// dec.Gated false here means the declared rubric does not resolve. For a
-	// transition that degrades to advisory; for an amendment it stays a refusal,
-	// carried back as-is so the caller reports the unresolved skill.
-	return dec, nil
-}
-
-// applyAmendment returns the story as the amendment would leave it — what the
-// reviewer judges and what the structure check runs against.
-func applyAmendment(draft verb.AmendDraft) workitem.Item {
-	out := draft.Item
-	for _, f := range draft.Fields {
-		switch f.Field {
-		case "title":
-			out.Title = f.New
-		case "body":
-			out.Body = f.New
-		case "acceptance_criteria":
-			out.AcceptanceCriteria = f.New
-		case "category":
-			out.Category = f.New
-		}
-	}
-	return out
-}
-
-// lifecycleHook resolves one lifecycle hook declared by the workflow active for
-// the category — its `hooks:` entry or the `<operation>:` shorthand. Not
-// declared when no workflow governs the category or the workflow declares none;
-// what that ABSENCE means is the caller's decision, not this resolver's.
-func (g *Engine) lifecycleHook(ctx context.Context, category, operation string) (wfhook.Hook, bool, error) {
-	// A lifecycle hook is workflow FRONTMATTER, and a derived route's frontmatter
-	// lives on its declaration of done — the half that says what this repo means
-	// by finished, which is where a create gate belongs. Read it first, so a
-	// converted repo keeps the gate its graphs used to declare (sty_9835070d).
-	//
-	// Only when the route GOVERNS the category, though. The doc index overlays the
-	// shipped done.toml wherever a repo has no file of that name, so reading it
-	// unconditionally would let the default's create gate shadow the one an
-	// authored workflow declares — the same precedence hole RouteGovernsErr closes
-	// for the lifecycle itself (sty_3795e7f6).
-	//
-	// An UNREADABLE authored workflows dir is an error, never "no hook declared":
-	// the caller would otherwise create or amend under no gate at all
-	// (sty_d6e209aa).
-	if workflows, err := g.docs.List(ctx, "workflows"); err == nil {
-		rs, ok, rerr := wfgovern.RouteGovernsErr(workflows, category)
-		if rerr != nil {
-			return wfhook.Hook{}, false, rerr
-		}
-		if ok {
-			if h, hooked := wfhook.For(rs.Done, operation); hooked {
-				return h, true, nil
-			}
-		}
-	}
-	doc, err := g.activeWorkflow(ctx, category)
-	if err != nil {
-		return wfhook.Hook{}, false, nil
-	}
-	h, hooked := wfhook.For(doc.Body, operation)
-	return h, hooked, nil
-}
-
 // reviewerSkills resolves the ordered reviewer skills governing the (from→to)
 // edge from the workflow active for the item's category, the edge's model=
 // override (empty = inherit binding), and whether the edge is a DECLARED
@@ -5043,21 +4765,6 @@ func WorkflowSkillProblems(w docindex.Doc, resolve func(skill string) bool) []st
 		return nil
 	}
 	var problems []string
-	// A declared lifecycle hook's skill must resolve too (sty_51ad783b,
-	// generalised in sty_ede16f51): an unresolved one silently degrades the
-	// operation, which is exactly the misconfiguration to surface here.
-	// Declaration defects (unknown operation, malformed entry) surface with
-	// it, so one check covers the whole hook grammar.
-	hooks, hookProblems := wfhook.Parse(w.Body)
-	for _, p := range hookProblems {
-		problems = append(problems, fmt.Sprintf("workflow %s %s", w.Name, p))
-	}
-	for _, h := range hooks {
-		if !resolve(h.Skill) {
-			problems = append(problems, fmt.Sprintf(
-				"workflow %s declares %s %q which does not resolve in the substrate", w.Name, h.Operation, h.Skill))
-		}
-	}
 	// A lifecycle is a derived route, so the skills a workflow-kind doc names come
 	// from the route grammar rather than a graph (sty_d953c5d8).
 	for _, s := range referencedWorkflowSkills(w.Body) {
@@ -5137,39 +4844,14 @@ func referencedWorkflowSkills(body string) []string {
 // without running when a green row already proves the same story, check,
 // command and tree (sty_dc554488). Any other value runs the command every time.
 func (g *Engine) runCheck(ctx context.Context, item workitem.Item, skill, command, payload, reuse string) verb.GateDecision {
-	var tree, head, cmdSHA string
-	if reuse == "tree" && g.suiteRecord != nil && g.suiteLookup != nil {
-		var terr error
-		if tree, head, terr = verb.GitContentTree(g.repoRoot); terr != nil {
-			tree = "" // no tree to prove: run, record nothing
-		} else {
-			cmdSHA = verb.CommandDigest(command)
-			if ev, ok := g.suiteLookup(ctx, item.ID, skill, cmdSHA, tree); ok {
-				return verb.GateDecision{Gated: true, Skill: skill, Accept: true, Notes: fmt.Sprintf(
-					"functional check passed (%s) — reused suite_run %s: tree %s proven %s (%s), not re-run",
-					skill, ev.ID, verb.ShortTree(tree), ev.RecordedAt.UTC().Format(time.RFC3339),
-					(time.Duration(ev.DurationMS) * time.Millisecond).String())}
-			}
-		}
-	}
+	_ = reuse
 	timeout := g.checkTimeout
 	if timeout <= 0 {
 		timeout = defaultCheckTimeout
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	started := time.Now()
 	out, err := g.redactedCheck(withGateItem(cctx, item), g.repoRoot, command, payload)
-	if tree != "" {
-		outcome := verb.SuiteGreen
-		if err != nil {
-			outcome = verb.SuiteRed
-		}
-		_, _ = g.suiteRecord(ctx, item.ID, verb.SuiteEvidence{
-			Check: skill, Tree: tree, SHA: head, Command: command, CommandSHA: cmdSHA,
-			Outcome: outcome, DurationMS: time.Since(started).Milliseconds(),
-		})
-	}
 	dec := verb.GateDecision{Gated: true, Skill: skill}
 	if err != nil {
 		dec.Accept = false
@@ -5177,7 +4859,7 @@ func (g *Engine) runCheck(ctx context.Context, item workitem.Item, skill, comman
 		if g.checkLogCompressor != nil {
 			notes = g.checkLogCompressor(ctx, item.ID, out)
 		} else {
-			notes = compact.CompressLog(out, compact.LogConfig{}, nil)
+			notes = boundLog(out)
 		}
 		// The label names the skill, never the script: the script stays readable
 		// in the skill file, and echoing it into every verdict floods the
@@ -5194,7 +4876,7 @@ func (g *Engine) runCheck(ctx context.Context, item workitem.Item, skill, comman
 	dec.Notes = "functional check passed (" + skill + ")"
 	// A passing check's own result lines ride along, bounded by the default log
 	// compression; the wired compressor stays failure-only.
-	if res := strings.TrimSpace(compact.CompressLog(out, compact.LogConfig{}, nil)); res != "" {
+	if res := strings.TrimSpace(boundLog(out)); res != "" {
 		dec.Notes += "\n" + res
 	}
 	return dec
@@ -5541,4 +5223,27 @@ func balancedEnd(b []byte, i int) int {
 		}
 	}
 	return -1
+}
+
+// boundLog keeps a failing check's output readable: the head and tail of a long
+// log, with the middle elided.
+func boundLog(out string) string {
+	const head, tail = 40, 80
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) <= head+tail {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[:head], "\n") + fmt.Sprintf("\n… [%d lines elided] …\n", len(lines)-head-tail) + strings.Join(lines[len(lines)-tail:], "\n")
+}
+
+// ReviewCreate is the create seam: creation is ungated (lifecycle hooks and the
+// story-shape check left the binary in the rebuild; a workflow's gates judge an
+// item on its transitions).
+func (g *Engine) ReviewCreate(context.Context, verb.CreateDraft) (verb.GateDecision, error) {
+	return verb.GateDecision{}, nil
+}
+
+// ReviewAmend is the amend seam: ungated, like ReviewCreate.
+func (g *Engine) ReviewAmend(context.Context, verb.AmendDraft) (verb.GateDecision, error) {
+	return verb.GateDecision{}, nil
 }

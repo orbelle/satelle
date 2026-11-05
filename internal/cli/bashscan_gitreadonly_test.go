@@ -6,8 +6,6 @@ package cli
 // the seat of THAT worktree.
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -46,45 +44,4 @@ func TestBashMutationTargetsGitReadOnlyDir(t *testing.T) {
 			t.Errorf("%q: -C must stay a target: %v", cmd, foreign)
 		}
 	}
-}
-
-// AC1: with a real linked worktree of the session repository, the edit gate's
-// predicate separates a read-only git -C from a writing one.
-func TestBashMutatesTreeGitReadOnlyLinkedWorktree(t *testing.T) {
-	fenceTempRootsElsewhere(t)
-	// Outside every temp root: a path under one is exempt before it is judged.
-	base, err := os.MkdirTemp("/var/tmp", "satelle-readonly-")
-	if err != nil {
-		t.Skipf("cannot place a tree outside the temp roots: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	main := gitInitRepo(t, filepath.Join(base, "main"))
-	wt := filepath.Join(base, "linked")
-	gitIn(t, main, "worktree", "add", "-q", "-b", "linked-ro", wt)
-	if bashMutatesTreeWith("git -C "+wt+" diff main --stat", main, nil) {
-		t.Error("git -C <linked worktree> diff is a read, not a tree mutation")
-	}
-	for _, sub := range []string{"commit -m x", "add -A", "checkout main", "merge main", "reset --hard"} {
-		if !bashMutatesTreeWith("git -C "+wt+" "+sub, main, nil) {
-			t.Errorf("git -C <linked worktree> %s must still be a tree mutation", sub)
-		}
-	}
-}
-
-// twoSeatsInLinkedWorktrees is multiSeatRepo with real git: the anchor tree is a
-// repository and wtB a linked worktree of it, so the foreign-tree fence lets a
-// command at wtB through to the seat gate.
-func twoSeatsInLinkedWorktrees(t *testing.T, aStatus, bStatus string, aFirst bool) multiSeat {
-	t.Helper()
-	f := multiSeatRepo(t, aStatus, "feature", bStatus, aFirst, "")
-	// Swap the fake .git markers for a real repository and a real linked worktree.
-	if err := os.Remove(filepath.Join(f.repo, ".git")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(f.wtB, ".git")); err != nil {
-		t.Fatal(err)
-	}
-	gitInitCommit(t, f.repo)
-	gitIn(t, f.repo, "worktree", "add", "-q", "-b", "seat-b", f.wtB)
-	return f
 }

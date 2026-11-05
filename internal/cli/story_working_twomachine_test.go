@@ -2,10 +2,8 @@ package cli
 
 import (
 	"encoding/json"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/verb"
 )
@@ -39,25 +37,4 @@ func locations(rows []verb.WorkingOnPayload) []string {
 		out = append(out, r.Location)
 	}
 	return out
-}
-
-// workingMachine is a machine of the two-machine tests: a git working tree under
-// its own session, so a working_on row can name all three of location, session and
-// worktree.
-func workingMachine(t *testing.T, ts *httptest.Server, f *fakeWorkstateServer, session string) *holdFixture {
-	t.Helper()
-	fx := newHoldMachine(t, ts, f, holdNoGit)
-	gitInitCommit(t, fx.repo)
-	fx.session = session
-	return fx
-}
-
-// storyHead is the last event of id this machine saw the server accept.
-func storyHead(t *testing.T, fx *holdFixture, id string) string {
-	t.Helper()
-	c, err := hosted.LoadWorkstateCursor(fx.ts.URL, "probe", fx.repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c.StoryHeads[id]
 }

@@ -22,7 +22,5 @@ func versionLine() string {
 	if err := json.Unmarshal(resp, &info); err != nil {
 		return fmt.Sprintf("satelle (version decode error: %v)", err)
 	}
-	// The scope marker (repo-local pin vs global) makes the ACTIVE binary obvious
-	// when a repo pins its own satelle (sty_fc1163dd).
-	return fmt.Sprintf("satelle %s (commit %s, built %s) — %s", info.Version, info.Commit, info.BuildTime, binaryScopeLabel())
+	return fmt.Sprintf("satelle %s (commit %s, built %s)", info.Version, info.Commit, info.BuildTime)
 }

@@ -322,69 +322,6 @@ func TestServiceStatusLine_StartLimited(t *testing.T) {
 	}
 }
 
-// TestServiceStatusLine_RunningReachableActive: (c) process running under the
-// unit's cgroup, supervisor reachable and reports active — the WSL-restart-fixed
-// case this story was raised over. Also covers AC3 (exe identity matches).
-func TestServiceStatusLine_RunningReachableActive(t *testing.T) {
-	installDir := t.TempDir()
-	target := filepath.Join(installDir, "satelled")
-	if err := os.WriteFile(target, []byte("the installed binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFakeUserUnit(t, target)
-	withServiceStatusHooks(t, struct {
-		userIsActive   func() (string, bool)
-		systemIsActive func() (string, bool)
-		systemStartLtd func() bool
-	}{
-		userIsActive:   func() (string, bool) { return "active", true },
-		systemIsActive: func() (string, bool) { return "", false },
-		systemStartLtd: func() bool { return false },
-	})
-	procRoot := t.TempDir()
-	writeFakeCgroupPID(t, procRoot, 334, "/user.slice/user-1000.slice/user@1000.service/app.slice/"+serviceUnitName, target)
-	got := serviceStatusLine(procRoot)
-	for _, want := range []string{"active (user unit, pid 334)", "matches the installed binary"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("serviceStatusLine = %q, want substring %q", got, want)
-		}
-	}
-}
-
-// TestServiceStatusLine_RunningUnreachable: (d) process running under the unit's
-// cgroup, but the supervisor is unreachable — the exact WSL-user-D-Bus-dead
-// condition both sty_c344d080 and sty_02acce1b were wrongly parked over. This must
-// NEVER render as "not installed" or "stopped" (sty_acd4b61e AC2).
-func TestServiceStatusLine_RunningUnreachable(t *testing.T) {
-	stale := filepath.Join(t.TempDir(), "old-satelled")
-	if err := os.WriteFile(stale, []byte("stale binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	current := filepath.Join(t.TempDir(), "satelled")
-	if err := os.WriteFile(current, []byte("current installed binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFakeUserUnit(t, current)
-	withServiceStatusHooks(t, unreachableHooks())
-	procRoot := t.TempDir()
-	writeFakeCgroupPID(t, procRoot, 334, "/user.slice/user-1000.slice/user@1000.service/app.slice/"+serviceUnitName, stale)
-	got := serviceStatusLine(procRoot)
-	if !strings.Contains(got, "supervisor is unreachable") {
-		t.Errorf("serviceStatusLine = %q, want it to name the supervisor as unreachable", got)
-	}
-	if !strings.Contains(got, "pid 334") {
-		t.Errorf("serviceStatusLine = %q, want the live pid named", got)
-	}
-	for _, forbidden := range []string{"not installed", "not installed or stopped"} {
-		if strings.Contains(got, forbidden) {
-			t.Errorf("serviceStatusLine = %q must never collapse a live process with an unreachable supervisor into %q", got, forbidden)
-		}
-	}
-	if !strings.Contains(got, "does NOT match") {
-		t.Errorf("serviceStatusLine = %q, want the stale exe identity named", got)
-	}
-}
-
 // TestServiceStatusLine_EphemeralOutsideSupervision: a process is physically
 // found (via the listening port, not the unit's cgroup) while the bus IS
 // reachable and reports the unit inactive — an ephemeral relaunch outside the
@@ -433,90 +370,6 @@ func TestServiceStatusLine_EphemeralOutsideSupervision(t *testing.T) {
 	}
 }
 
-// TestServiceStatusLine_CgroupNamedUnitIsPersistent_DualUnit: sty_29b2af69 AC1 —
-// the dogfood host carries BOTH units for one port, so the sibling that lost the
-// race is reachable-and-inactive. That used to render the ephemeral line even
-// though the live pid's cgroup names an installed unit that IS supervising it.
-// The cgroup path is the stronger fact, and the verdict must say WHICH unit it
-// names so a dual-unit host reads which supervisor owns the process.
-func TestServiceStatusLine_CgroupNamedUnitIsPersistent_DualUnit(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		cgroupPath string
-		wantUnit   string
-	}{
-		{"user slice", "/user.slice/user-1000.slice/user@1000.service/app.slice/" + serviceUnitName, "user unit"},
-		{"system slice", "/system.slice/" + serviceUnitName, "system unit"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			target := filepath.Join(t.TempDir(), "satelled")
-			if err := os.WriteFile(target, []byte("the installed binary"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			writeFakeUserUnit(t, target) // also isolates HOME and the system unit dir
-			writeFakeSystemUnit(t, target)
-			withServiceStatusHooks(t, struct {
-				userIsActive   func() (string, bool)
-				systemIsActive func() (string, bool)
-				systemStartLtd func() bool
-			}{
-				// Both installed units answer "inactive" from a reachable bus — the
-				// `case reachable:` arm the story names.
-				userIsActive:   func() (string, bool) { return "inactive", true },
-				systemIsActive: func() (string, bool) { return "inactive", true },
-				systemStartLtd: func() bool { return false },
-			})
-			procRoot := t.TempDir()
-			writeFakeCgroupPID(t, procRoot, 1739150, tc.cgroupPath, target)
-
-			got := serviceStatusLine(procRoot)
-			if strings.Contains(got, "ephemeral") {
-				t.Errorf("serviceStatusLine = %q must never call a cgroup-supervised process ephemeral", got)
-			}
-			for _, want := range []string{tc.wantUnit, "pid 1739150", "supervised by the installed", "another installed unit for this service is not active"} {
-				if !strings.Contains(got, want) {
-					t.Errorf("serviceStatusLine = %q, want substring %q", got, want)
-				}
-			}
-		})
-	}
-}
-
-// TestServiceStatusLine_CgroupNamedUnitIsPersistent_SingleUnit: the same
-// cgroup-owned verdict on a host that has only one unit must name that unit
-// and must not invent a sibling.
-func TestServiceStatusLine_CgroupNamedUnitIsPersistent_SingleUnit(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "satelled")
-	if err := os.WriteFile(target, []byte("the installed binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFakeUserUnit(t, target)
-	withServiceStatusHooks(t, struct {
-		userIsActive   func() (string, bool)
-		systemIsActive func() (string, bool)
-		systemStartLtd func() bool
-	}{
-		userIsActive:   func() (string, bool) { return "inactive", true },
-		systemIsActive: func() (string, bool) { return "inactive", true },
-		systemStartLtd: func() bool { return false },
-	})
-	procRoot := t.TempDir()
-	writeFakeCgroupPID(t, procRoot, 1739150, "/user.slice/user-1000.slice/user@1000.service/app.slice/"+serviceUnitName, target)
-
-	got := serviceStatusLine(procRoot)
-	if strings.Contains(got, "ephemeral") {
-		t.Errorf("serviceStatusLine = %q must never call a cgroup-supervised process ephemeral", got)
-	}
-	if strings.Contains(got, "another installed unit") {
-		t.Errorf("serviceStatusLine = %q must not claim a sibling unit when only the user unit is installed", got)
-	}
-	for _, want := range []string{"user unit", "pid 1739150", "supervised by the installed"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("serviceStatusLine = %q, want substring %q", got, want)
-		}
-	}
-}
-
 // TestCgroupOwnerUnit covers the classifier itself: which installed unit a
 // cgroup path names, and the cases where it must make no claim at all.
 func TestCgroupOwnerUnit(t *testing.T) {
@@ -540,28 +393,6 @@ func TestCgroupOwnerUnit(t *testing.T) {
 				t.Errorf("cgroupOwnerUnit(%q, %v, %v) = %q, want %q", tc.path, tc.userInstalled, tc.sysInstalled, got, tc.want)
 			}
 		})
-	}
-}
-
-// TestServiceStatusLine_IdentityUnknown: AC3's "states plainly when the
-// comparison could not be made" branch — the unit file names a binary that does
-// not exist on disk, so identityFromPath cannot resolve either side.
-func TestServiceStatusLine_IdentityUnknown(t *testing.T) {
-	writeFakeUserUnit(t, "/nonexistent/satelled")
-	withServiceStatusHooks(t, struct {
-		userIsActive   func() (string, bool)
-		systemIsActive func() (string, bool)
-		systemStartLtd func() bool
-	}{
-		userIsActive:   func() (string, bool) { return "active", true },
-		systemIsActive: func() (string, bool) { return "", false },
-		systemStartLtd: func() bool { return false },
-	})
-	procRoot := t.TempDir()
-	writeFakeCgroupPID(t, procRoot, 334, "/user.slice/user-1000.slice/user@1000.service/app.slice/"+serviceUnitName, "/nonexistent/satelled")
-	got := serviceStatusLine(procRoot)
-	if !strings.Contains(got, "could not be determined") {
-		t.Errorf("serviceStatusLine = %q, want the identity-unknown case named plainly", got)
 	}
 }
 

@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/secretref"
 )
 
 // dispatchID is 8 random hex — unique per call, and deliberately short: the
@@ -111,7 +110,7 @@ func overlayScratchEnv(env map[string]string, dir string) map[string]string {
 // run's output is redacted of (agentcli.Request.Redact); an unresolvable
 // reference fails the dispatch, naming the reference and never a value.
 func dispatchEnv(ctx context.Context, env map[string]string, dir string) (map[string]string, map[string]string, error) {
-	return secretref.ResolveEnv(ctx, overlayScratchEnv(env, dir))
+	return overlayScratchEnv(env, dir), nil, nil
 }
 
 // scratchBriefing is the charter sentence every isolated/live agent receives

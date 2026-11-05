@@ -1,9 +1,0 @@
-{
-  "id": "start-shape-behaviour-valid",
-  "rubric": "start",
-  "skill": "satelle-story-plan-review",
-  "label": "valid",
-  "story_id": "sty_b336c2b0",
-  "expected_verdict": "accept",
-  "summary": "Story-shape rule 1 (satelle-story-shape), accept side. The same story with the card as recorded on sty_b336c2b0: a role (the signed-in account and the operator binding a repo), its context (a repo bound, rebound or moved to a team) and the outcome (what syncs follows the binding with no config edit), with each criterion tracing to it. Pair: start-shape-behaviour-defect."
-}

@@ -3,12 +3,10 @@ package verb_test
 import (
 	"context"
 	"encoding/json"
-	"testing"
-
-	"github.com/bobmcallan/satelle/internal/costview"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
+	"testing"
 )
 
 // sty_23e10d92: a bundled reviewer session is ONE measured invocation judging
@@ -113,59 +111,5 @@ func TestBundledGateWritesOneInvocationRowAndOneVerdictRowPerRubric(t *testing.T
 	}
 	if len(seen) != 3 {
 		t.Errorf("each rubric recorded under its own skill: %v", seen)
-	}
-}
-
-// TestBundledGateAllocationIsLabelledAndSumsToTheMeasuredRow drives the ledger a
-// bundle wrote through the gate-value view: every rubric gets a share, each
-// share is labelled an allocation, and the shares add back to the ONE measured
-// row rather than adding a second measured call.
-func TestBundledGateAllocationIsLabelledAndSumsToTheMeasuredRow(t *testing.T) {
-	lg, id := bundleTransition(t, bundledDecision(true))
-	entries, err := lg.ListByStory(context.Background(), id, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	report := costview.GateValue(map[string][]ledger.Entry{id: entries}, costview.GateFilter{})
-	if len(report.Rows) != 3 {
-		t.Fatalf("one row per rubric, got %+v", report.Rows)
-	}
-	var fresh int
-	var cost float64
-	for _, r := range report.Rows {
-		if r.Invocations != 0 {
-			t.Errorf("an allocated share is not a measured invocation: %+v", r)
-		}
-		if r.AllocatedRows != 1 || r.AllocationNote != "allocated share of bundle bun_test" {
-			t.Errorf("share must be labelled an allocation: %+v", r)
-		}
-		fresh += r.FreshTokens
-		cost += r.CostUSD
-	}
-	if fresh != 1000 {
-		t.Errorf("shares must sum to the measured 1000 fresh tokens, got %d", fresh)
-	}
-	if d := cost - 0.30; d > 1e-9 || d < -1e-9 {
-		t.Errorf("shares must sum to the measured $0.30, got %v", cost)
-	}
-	// Verdicts still land beside the spend, per rubric.
-	for _, r := range report.Rows {
-		if r.Accepts+r.Rejects != 1 {
-			t.Errorf("each rubric has its own verdict: %+v", r)
-		}
-	}
-}
-
-func TestBundledGateUnavailableUsageStaysUnavailableInEveryShare(t *testing.T) {
-	lg, id := bundleTransition(t, bundledDecision(false))
-	entries, _ := lg.ListByStory(context.Background(), id, "")
-	report := costview.GateValue(map[string][]ledger.Entry{id: entries}, costview.GateFilter{})
-	for _, r := range report.Rows {
-		if r.UsageRows != 0 || r.UsageUnavailableRows != 1 || r.Costed != 0 || r.Uncosted != 1 {
-			t.Errorf("unavailable usage must not read as zero in any share: %+v", r)
-		}
-		if r.AllocationUnavailableReason == "" {
-			t.Errorf("the adapter's reason must ride the share: %+v", r)
-		}
 	}
 }

@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":3595,"duration_api_ms":3595,"result":"Hello — good to meet you. How can I help you today?\n\nZEBRA-AGENTS","session_id":"cf9238de-00ea-4b62-8829-88950abf6940","request_id":"adf322d0-90b6-4941-b738-42637b209270","usage":{"inputTokens":8927,"outputTokens":79,"cacheReadTokens":3864,"cacheWriteTokens":0}}

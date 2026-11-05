@@ -1,9 +1,0 @@
-{
-  "id": "create-empty-valid",
-  "rubric": "create",
-  "skill": "satelle-story-create-review",
-  "label": "valid",
-  "story_id": "sty_42a41851",
-  "expected_verdict": "accept",
-  "summary": "Illustrative accepted draft for the empty category sty_42a41851 adds: a story with no product content whose one criterion is trivially satisfiable, taken through the workflow only to prove a remote. Modelled on the rule sty_42a41851 adds to satelle-story-create-review, not a recorded accept."
-}

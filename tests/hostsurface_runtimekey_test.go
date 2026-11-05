@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bobmcallan/satelle/internal/hostguard"
 )
 
 // TestHostSurfaceReportsRuntimeKeyShapedEntries proves the host-surface guard

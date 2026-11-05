@@ -1,1 +1,0 @@
-{"cursor_agent_version":"2026.10.01-e373342","date":"2026-10-10T10:07:33Z","argv":"cursor-agent -p --trust --force --mode ask  --output-format stream-json --model composer-2.5 <prompt>","prompt":"Run exactly this shell command and print its output verbatim: echo ASKSHELL-$((6*7))","approvalMode":"unrestricted"}

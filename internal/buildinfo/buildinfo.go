@@ -19,13 +19,8 @@ const (
 	CLIName = "satelle"
 	// DaemonName is the local-tier daemon binary.
 	DaemonName = "satelled"
-	// LegacyDaemonName is the pre-rename artifact. Compatibility fallback
-	// only — not a current name.
-	LegacyDaemonName = "satelle-serve"
 	// DaemonVersionKey is the .version field for the daemon.
 	DaemonVersionKey = "satelled.version"
-	// LegacyDaemonVersionKey is the pre-rename .version field, read from old tags.
-	LegacyDaemonVersionKey = "satelle-serve.version"
 )
 
 // Info is the resolved build identity.

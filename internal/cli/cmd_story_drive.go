@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -39,12 +38,6 @@ Exit: 0 terminal, 3 parked, 1 refused or stopped. See 'satelle help agent-dispat
 
 func runStoryDrive(cmd *cobra.Command, args []string) error {
 	id := strings.TrimSpace(args[0])
-	// The drive runs reviewers and performers for as long as the route takes: an
-	// agent-facing call is handed to a detached run as a whole, and inside that
-	// process every gate runs in the foreground.
-	if handled, herr := handOffGate(cmd, "story-drive", id); handled {
-		return herr
-	}
 	eng, a, err := engineForCmd(cmd)
 	if err != nil {
 		return err
@@ -82,15 +75,8 @@ func driveOptions(cmd *cobra.Command, eng drive.Performers, a *app.App, out io.W
 		Performers:    eng,
 		Location:      location,
 		LocationLabel: label,
-		Rework: func(ctx context.Context, id string) (drive.Rework, error) {
-			var relay reworkResult
-			err := runRework(cmd, id, 0, "", &relay)
-			return drive.Rework{
-				Converged: relay.Converged, Outcome: relay.Outcome, Rounds: relay.Rounds, LastObjection: relay.LastObjection,
-			}, err
-		},
-		Out:  out,
-		Runs: &lazyRunSource{cfg: a.Config},
+		Out:           out,
+		Runs:          &lazyRunSource{cfg: a.Config},
 	}
 }
 

@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"bytes"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,13 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
-	"github.com/bobmcallan/satelle/internal/agentstep"
 	"github.com/bobmcallan/satelle/internal/agentvalidate"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/docindex"
 	"github.com/bobmcallan/satelle/internal/health"
 	"github.com/bobmcallan/satelle/internal/structure"
-	"github.com/bobmcallan/satelle/internal/testutil"
 )
 
 // isolateUserHome pins HOME and SATELLE_HOME to a disposable dir for this test
@@ -377,35 +371,6 @@ project = "solidsafe-collector-sdk-go"
 	}
 }
 
-func TestHealStaleAfterSeedsMissingKey(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "satelle.toml")
-	if err := os.WriteFile(path, []byte("[review]\ngate_create = false\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	changed, err := healStaleAfter(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed {
-		t.Fatal("expected heal to insert stale_after")
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(got), `stale_after = "24h"`) {
-		t.Fatalf("missing stale_after:\n%s", got)
-	}
-	changed, err = healStaleAfter(dir)
-	if err != nil || changed {
-		t.Fatalf("second heal must not clobber: changed=%v err=%v", changed, err)
-	}
-}
-
 // sty_642275eb: [sync] hold_stale_after is retired. init on an empty repo never
 // writes it, and init over an existing config removes it, leaving every other
 // line (comments and the other [sync] keys) as it was; migrate does the same.
@@ -449,125 +414,6 @@ func TestInitRemovesRetiredHoldStaleAfter(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "removed retired [sync] keys") {
 		t.Errorf("init output does not report the removal:\n%s", out.String())
-	}
-}
-
-func TestMigrateRemovesRetiredHoldStaleAfter(t *testing.T) {
-	testutil.IsolateHome(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "satelle.toml")
-	before := "# keep me\n[sync]\nstale_after = \"24h\"\nhold_stale_after = \"30m\"\nhold_unpushed = false\n\n[review]\ngate_create = false\n"
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := planMigrate(config.Config{}, t.TempDir(), dir)
-	if !p.RetiredSyncKeyRemove || p.StaleAfter {
-		t.Fatalf("plan = StaleAfter %v RetiredSyncKeyRemove %v; want only the retired key to remove", p.StaleAfter, p.RetiredSyncKeyRemove)
-	}
-	if p.empty() {
-		t.Fatal("plan must not be empty while the retired key is set")
-	}
-
-	changed, err := removeRetiredSyncKey(dir)
-	if err != nil || !changed {
-		t.Fatalf("expected the key removed: changed=%v err=%v", changed, err)
-	}
-	got, _ := os.ReadFile(path)
-	want := "# keep me\n[sync]\nstale_after = \"24h\"\nhold_unpushed = false\n\n[review]\ngate_create = false\n"
-	if string(got) != want {
-		t.Fatalf("config after migrate:\n%s\nwant:\n%s", got, want)
-	}
-	if changed, err = removeRetiredSyncKey(dir); err != nil || changed {
-		t.Fatalf("second run must change nothing: changed=%v err=%v", changed, err)
-	}
-	if p := planMigrate(config.Config{}, t.TempDir(), dir); p.RetiredSyncKeyRemove {
-		t.Error("the plan still asks to remove a key that is gone")
-	}
-}
-
-func TestPlanMigrateIncludesMissingStaleAfter(t *testing.T) {
-	testutil.IsolateHome(t)
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "satelle.toml"), []byte("[review]\ngate_create = false\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := planMigrate(config.Config{}, t.TempDir(), dir)
-	if !p.StaleAfter {
-		t.Fatal("missing stale_after must appear on the migrate plan")
-	}
-	if p.empty() {
-		t.Fatal("plan must not be empty when stale_after is missing")
-	}
-}
-
-// TestRunInitAuditTaskIsVirtualAndRerunnable asserts the embedded substrate-audit
-// task is NOT seeded onto disk (it comes from the binary, so it never syncs as if
-// authored — sty_097833e8), is a well-formed re-runnable task at done
-// (sty_d4360e90), and that the begin-run gate accepts a new run under it by
-// resolving it from the binary.
-func TestRunInitAuditTaskIsVirtualAndRerunnable(t *testing.T) {
-	repo := t.TempDir()
-	if err := runInitTest(t, io.Discard, repo); err != nil {
-		t.Fatalf("runInit: %v", err)
-	}
-	dataDir := filepath.Join(repo, ".satelle")
-	if fileExists(filepath.Join(dataDir, "tasks", "tsk_substrate-audit.md")) {
-		t.Error("init seeded tasks/tsk_substrate-audit.md — default tasks are virtual")
-	}
-	body, ok := embeddedDefault("tasks", "tsk_substrate-audit")
-	if !ok {
-		t.Fatal("embedded tsk_substrate-audit missing")
-	}
-	if problems := structure.CheckTask(body); len(problems) > 0 {
-		t.Errorf("embedded audit task fails CheckTask: %v", problems)
-	}
-	if !strings.Contains(body, "\nstatus: done\n") {
-		t.Errorf("embedded audit task must sit at status: done, got:\n%s", body)
-	}
-	// Workflows/skills still virtual.
-	if fileExists(filepath.Join(dataDir, "workflows", "done.md")) {
-		t.Error("workflows must not be seeded")
-	}
-
-	// The audit task's KIND resolves to the route's own task section — not to the
-	// wildcard lane (sty_3795e7f6).
-	if spec := embeddedRouteFor(t, "task"); !spec.HasEdge("backlog", "in_progress") ||
-		!hasGate(spec, "backlog", "in_progress", "satelle-task-validate-before-review") {
-		t.Errorf("a task does not resolve to the route's task section: %+v", spec.Transitions)
-	}
-
-	skillBody, ok := embeddedDefault("skills", "satelle-task-validate-before-review")
-	if !ok {
-		t.Fatal("embedded task-validate-before skill missing")
-	}
-	payload := `{"story":{"id":"exe_test0001","kind":"execution","title":"audit run","status":"backlog","parent_id":"tsk_substrate-audit","tags":[],"created_at":"2026-07-08T00:00:00Z","updated_at":"2026-07-08T00:00:00Z"},"from":"backlog","to":"in_progress","review_skill":"satelle-task-validate-before-review"}`
-	// A stand-in `satelle` on PATH validates exactly the default tasks, so the
-	// gate's virtual branch is exercised without depending on an installed binary.
-	bin := t.TempDir()
-	stub := "#!/bin/sh\n[ \"$1 $2 $3\" = \"task validate tsk_substrate-audit\" ] && echo 'PASS  tasks/tsk_substrate-audit (embedded default)'\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(bin, "satelle"), []byte(stub), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	run := func(payload string) (string, error) {
-		cmd := exec.Command("sh", "-c", checkScript(t, skillBody))
-		cmd.Dir = repo
-		cmd.Stdin = strings.NewReader(payload)
-		var gate bytes.Buffer
-		cmd.Stdout = &gate
-		cmd.Stderr = &gate
-		err := cmd.Run()
-		return gate.String(), err
-	}
-	if out, err := run(payload); err != nil {
-		t.Errorf("begin-run gate rejected a new run under the done audit task: %v\n%s", err, out)
-	}
-	// A parent that is neither a header file nor a default task is still refused.
-	if out, err := run(strings.ReplaceAll(payload, "tsk_substrate-audit", "tsk_nope")); err == nil {
-		t.Errorf("begin-run gate accepted a run under a task with no header and no default:\n%s", out)
 	}
 }
 
@@ -619,100 +465,6 @@ var defaultSolutionSkills = []string{
 	"satelle-workflow-change-review",
 	"satelle-task-validate-before-review",
 	"satelle-task-validate-after-review",
-}
-
-// TestRunInitVirtualDefaultSolution asserts a fresh init does NOT seed the
-// default solution onto disk (sty_29e5a9a5) yet validates green — defaults resolve
-// virtually and skill refs resolve against the embedded set.
-func TestRunInitVirtualDefaultSolution(t *testing.T) {
-	repo := t.TempDir()
-	if err := runInitTest(t, io.Discard, repo); err != nil {
-		t.Fatalf("runInit: %v", err)
-	}
-	dataDir := filepath.Join(repo, ".satelle")
-
-	for _, wf := range defaultSolutionWorkflows {
-		if fileExists(filepath.Join(dataDir, "workflows", wf+".md")) {
-			t.Errorf("init must not seed workflows/%s.md (virtual defaults)", wf)
-		}
-	}
-	for _, sk := range defaultSolutionSkills {
-		if fileExists(filepath.Join(dataDir, "skills", sk+".md")) {
-			t.Errorf("init must not seed skills/%s.md (virtual defaults)", sk)
-		}
-	}
-
-	// Embedded defaults are structure-conformant and skills resolve virtually.
-	resolve := skillResolves(dataDir)
-	var docs []docindex.Doc
-	for _, wf := range defaultSolutionWorkflows {
-		body, ok := embeddedDefault("workflows", wf)
-		if !ok {
-			t.Fatalf("embedded workflow %s missing", wf)
-		}
-		for _, p := range structure.Doc("workflows", wf, body, resolve) {
-			t.Errorf("embedded workflows/%s: %s", wf, p)
-		}
-		docs = append(docs, docindex.Doc{Name: wf, Body: body})
-	}
-	for _, p := range agentstep.WorkflowConsistency(docs, resolve) {
-		t.Errorf("embedded workflow set inconsistent: %s", p)
-	}
-	for _, sk := range defaultSolutionSkills {
-		body, ok := embeddedDefault("skills", sk)
-		if !ok {
-			t.Fatalf("embedded skill %s missing", sk)
-		}
-		for _, p := range structure.Doc("skills", sk, body, nil) {
-			t.Errorf("embedded skills/%s: %s", sk, p)
-		}
-	}
-
-	// An execution resolves to the route's task section out of the box, gated by
-	// the two task-validate reviewers — never falling through to the wildcard.
-	exec := embeddedRouteFor(t, "execution")
-	if !hasGate(exec, "backlog", "in_progress", "satelle-task-validate-before-review") ||
-		!hasGate(exec, "in_progress", "done", "satelle-task-validate-after-review") {
-		t.Errorf("execution does not resolve to the route's task section: %+v", exec.Transitions)
-	}
-	for _, st := range exec.States {
-		if st.Obligation == "coded" {
-			t.Error("an execution fell through to the wildcard lane (it owes `coded`)")
-		}
-	}
-
-	// The generic lane stays generic: no this-repo spine, and every gate the
-	// retired baseline carried is still declared.
-	wild := embeddedRouteFor(t, "*")
-	declared := map[string]bool{}
-	for _, st := range wild.States {
-		declared[st.Name] = true
-		if st.Skill != "" {
-			declared[st.Skill] = true
-		}
-	}
-	for _, tr := range wild.Transitions {
-		for _, sk := range tr.Skills {
-			declared[sk] = true
-		}
-	}
-	for _, state := range []string{"commit", "push", "committed", "integration", "plan", "release"} {
-		if declared[state] {
-			t.Errorf("the generic lane declares extra state %q", state)
-		}
-	}
-	for _, gate := range []string{"satelle-story-intent-review", "satelle-story-done-review", "satelle-story-cancel-review", "satelle-estimate-actual-review", "satelle-story-scope-review", "satelle-workflow-change-review", "satelle-story-blocked-review", "satelle-step-summary"} {
-		if !declared[gate] {
-			t.Errorf("the generic lane must declare gate %q", gate)
-		}
-	}
-	if declared["satelle-code-ac-review"] {
-		t.Error("the generic lane must not reference satelle-code-ac-review")
-	}
-	estBody, _ := embeddedDefault("skills", "satelle-estimate-actual-review")
-	if !strings.Contains(estBody, "```check") {
-		t.Error("estimate skill must carry a self-contained ```check block")
-	}
 }
 
 // TestRunInitBesideAuthoredWorkflowNoSeeds (sty_29e5a9a5): with virtual defaults,
@@ -887,33 +639,6 @@ func TestRunInitLeavesSettledGitignoreUntouched(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "= .gitignore") {
 		t.Errorf("init should report .gitignore unchanged:\n%s", out.String())
-	}
-}
-
-// TestRunInitIgnoresFreshHarnessDirOnce (sty_dbc0be85 AC4): init scaffolds the
-// harness hooks before it writes .gitignore, so a fresh `--harness claude` adds
-// .claude/ on the first run and a second run leaves the bytes equal.
-func TestRunInitIgnoresFreshHarnessDirOnce(t *testing.T) {
-	repo := t.TempDir()
-	gitInitRepo(t, repo)
-	isolateUserHome(t)
-	giPath := filepath.Join(repo, ".gitignore")
-	if err := runInit(io.Discard, repo, true, []string{"claude"}); err != nil {
-		t.Fatalf("first init: %v", err)
-	}
-	first, err := os.ReadFile(giPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !gitignoreHasRule(string(first), ".claude") {
-		t.Fatalf("first run must add .claude/:\n%s", first)
-	}
-	if err := runInit(io.Discard, repo, true, []string{"claude"}); err != nil {
-		t.Fatalf("second init: %v", err)
-	}
-	second, _ := os.ReadFile(giPath)
-	if string(first) != string(second) {
-		t.Errorf("second run changed .gitignore:\n--- first\n%s\n--- second\n%s", first, second)
 	}
 }
 
@@ -1307,95 +1032,5 @@ func TestInitRemovesSyncAreaScopeKeys(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "removed retired [sync] keys") {
 		t.Errorf("init output does not report the removal:\n%s", out.String())
-	}
-}
-
-// AC9 (sty_b336c2b0): init --all reaches a registered repo whose hooks are
-// current but whose config still carries a scope key, heals it, and then counts
-// it current.
-func TestInitAllHealsSyncScopeKeysWithCurrentHooks(t *testing.T) {
-	isolateUserHome(t)
-	repo := t.TempDir()
-	if err := runInit(io.Discard, repo, false, []string{"claude"}); err != nil {
-		t.Fatalf("runInit: %v", err)
-	}
-	if fs := DetectScaffoldDrift(repo); len(fs) != 0 {
-		t.Fatalf("test premise: a freshly initialised repo is current: %v", fs)
-	}
-	cfgPath := filepath.Join(repo, ".satelle", config.ConfigName)
-	b, err := os.ReadFile(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := strings.Replace(string(b), "[sync]\n", "[sync]\nall = \"personal\"\n", 1)
-	if legacy == string(b) {
-		t.Fatalf("test premise: the scaffold has no [sync] table:\n%s", b)
-	}
-	if err := os.WriteFile(cfgPath, []byte(legacy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var out strings.Builder
-	if err := runInitAll(&out, true, nil); err != nil {
-		t.Fatalf("init --all --yes: %v\n%s", err, out.String())
-	}
-	for _, want := range []string{"STALE   " + repo, "[sync] all is removed", "HEALED  " + repo} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("init --all output lacks %q:\n%s", want, out.String())
-		}
-	}
-	if found, err := config.FindSyncScopeKeys(filepath.Dir(cfgPath)); err != nil || len(found) != 0 {
-		t.Errorf("init --all left scope keys: %v (%v)", found, err)
-	}
-
-	out.Reset()
-	if err := runInitAll(&out, true, nil); err != nil {
-		t.Fatalf("second init --all: %v\n%s", err, out.String())
-	}
-	if strings.Contains(out.String(), "STALE") || !strings.Contains(out.String(), "1 already current") {
-		t.Errorf("a healed repo must count as current:\n%s", out.String())
-	}
-}
-
-// sty_7c01ca14 AC5: init removes [sync] recent_window from satelle.toml and
-// satelle.local.toml, keeps every other [sync] key, and leaves a config that loads.
-func TestInitRemovesRecentWindow(t *testing.T) {
-	testutil.IsolateHome(t) // scaffold drift reads the machine catalog (sty_ba9f5d14)
-	repo := t.TempDir()
-	dataDir := filepath.Join(repo, ".satelle")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	shared := "[sync]\nproject = \"probe\"\nrecent_window = \"168h\"\nstale_after = \"6h\"\n"
-	local := "[sync]\nrecent_window = \"24h\"\n"
-	if err := os.WriteFile(filepath.Join(dataDir, config.ConfigName), []byte(shared), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dataDir, config.LocalConfigName), []byte(local), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := config.Load(filepath.Join(dataDir, config.ConfigName)); err == nil || !strings.Contains(err.Error(), "[sync] recent_window") {
-		t.Fatalf("test premise: a config carrying recent_window must not load, got %v", err)
-	}
-	if fs := DetectScaffoldDrift(repo); !slices.ContainsFunc(fs, func(f ScaffoldFinding) bool {
-		return strings.Contains(f.Detail, "[sync] recent_window is removed")
-	}) {
-		t.Errorf("drift does not report recent_window: %v", fs)
-	}
-	var out strings.Builder
-	if err := runInitTest(t, &out, repo); err != nil {
-		t.Fatalf("runInit: %v\n%s", err, out.String())
-	}
-	if found, err := config.FindSyncScopeKeys(dataDir); err != nil || len(found) != 0 {
-		t.Fatalf("init left removed keys: %v (%v)", found, err)
-	}
-	got, _ := os.ReadFile(filepath.Join(dataDir, config.ConfigName))
-	for _, keep := range []string{`project = "probe"`, `stale_after = "6h"`} {
-		if !strings.Contains(string(got), keep) {
-			t.Errorf("init dropped %q:\n%s", keep, got)
-		}
-	}
-	if _, _, err := config.Load(filepath.Join(dataDir, config.ConfigName)); err != nil {
-		t.Fatalf("the healed config does not load: %v", err)
 	}
 }

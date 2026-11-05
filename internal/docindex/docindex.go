@@ -287,7 +287,20 @@ func (s *Store) List(ctx context.Context, kind string) ([]Doc, error) {
 			}
 		}
 	}
+	if k := strings.TrimSpace(kind); k != "" && k != "workflows" {
+		s.refreshKind(ctx, k)
+	}
 	return s.ListIndexed(ctx, s.db, kind)
+}
+
+// refreshKind re-indexes one authored kind from disk, best-effort, so a read
+// sees the files as they are now. With the reindex command gone (B1) every
+// read keeps the index current itself.
+func (s *Store) refreshKind(ctx context.Context, kind string) {
+	if s.roots.Dirs == nil || strings.TrimSpace(s.roots.Dirs[kind]) == "" {
+		return
+	}
+	_, _ = s.SyncRoots(ctx, s.roots.Only(kind), time.Now())
 }
 
 // RowQuerier is the one method ListIndexed needs: the plain handle or the open
@@ -436,6 +449,7 @@ func (s *Store) Fingerprint(ctx context.Context) (string, error) {
 
 // Get returns one indexed doc by (kind, name), or ErrNotFound.
 func (s *Store) Get(ctx context.Context, kind, name string) (Doc, error) {
+	s.refreshKind(ctx, kind)
 	row := s.db.QueryRowContext(ctx,
 		`SELECT kind, name, path, headline, body, hash, size, mod_time, indexed_at
 		   FROM authored_docs WHERE kind = ? AND name = ?`, kind, name)

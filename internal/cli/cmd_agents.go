@@ -11,10 +11,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/agentinstall"
-	"github.com/bobmcallan/satelle/internal/config"
 )
 
 func init() {
@@ -56,14 +52,12 @@ For selecting or validating the headless agent CLI, use satelle agent (singular)
 	}
 
 	install := &cobra.Command{
-		Use:   "install <claude|grok|pi|cursor|all>",
-		Short: "Install launchers + harness compliance hooks (idempotent)",
-		Long: `Install the satelle-owned launcher and compliance hooks for a harness, or for
-all of them.
+		Use:   "install <claude|grok|pi|all>",
+		Short: "Install harness compliance hooks (idempotent)",
+		Long: `Install the satelle-owned compliance hooks for a harness, or for all of them.
 
-"all" covers every harness satelle scaffolds, pi and cursor included, so it
-creates .pi/extensions/ and .cursor/ in a repo that does not use them. Name the
-harness to avoid that.
+"all" covers every harness satelle scaffolds, pi included, so it creates
+.pi/extensions/ in a repo that does not use it. Name the harness to avoid that.
 
 Idempotent: re-running converges rather than duplicating. It writes only the
 files satelle marks as its own, so a hook you authored by hand is never
@@ -73,35 +67,8 @@ Install also adds each scaffold directory to the managed .gitignore block,
 unless git already tracks files under it or .gitignore already has a rule for it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home := config.GlobalDir()
 			repoRoot := initRepoRoot("")
-			rs, err := installLaunchers(home, args[0])
-			if err != nil {
-				return err
-			}
 			out := cmd.OutOrStdout()
-			for _, r := range rs {
-				if r.Path == "" { // a harness with no launcher: nothing written
-					fmt.Fprintf(out, "%s %s launcher (%s)\n", r.Action, r.Name, r.Note)
-					continue
-				}
-				fmt.Fprintf(out, "%s %s launcher → %s", r.Action, r.Name, r.Path)
-				if r.Note != "" {
-					fmt.Fprintf(out, " (%s)", r.Note)
-				}
-				fmt.Fprintln(out)
-				if r.Action == "created" || r.Action == "updated" || r.Action == "unchanged" {
-					if note := agentinstall.UsageNote(home, r.Name); note != "" {
-						fmt.Fprintf(out, "  %s\n", note)
-					}
-					if snip := agentinstall.BindingSnippet(r.Name, r.Path); snip != "" {
-						fmt.Fprintln(out, "  sample binding (paste into agents.toml; does not change default reviewer):")
-						for _, line := range strings.Split(strings.TrimRight(snip, "\n"), "\n") {
-							fmt.Fprintf(out, "  %s\n", line)
-						}
-					}
-				}
-			}
 			// Harness compliance scaffolds (repo-local).
 			targets, err := expandAgentTargets(args[0])
 			if err != nil {
@@ -118,9 +85,6 @@ unless git already tracks files under it or .gitignore already has a rule for it
 						return err
 					}
 					printScaffoldOutcome(out, "claude", ".claude/settings.json", added, updated, incomplete)
-					// satelle installs no statusLine into repo scaffold (sty_325df80c);
-					// the notice names the operator-owned home instead.
-					fmt.Fprintln(out, statusLineOptInNotice())
 				case "grok":
 					added, updated, incomplete, err := ensureGrokHooks(repoRoot)
 					if err != nil {
@@ -133,12 +97,6 @@ unless git already tracks files under it or .gitignore already has a rule for it
 						return err
 					}
 					printScaffoldOutcome(out, "pi", piExtensionRel, added, updated, incomplete)
-				case "cursor":
-					added, updated, incomplete, err := ensureCursorHooks(repoRoot)
-					if err != nil {
-						return err
-					}
-					printScaffoldOutcome(out, "cursor", cursorHooksRel, added, updated, incomplete)
 				}
 			}
 			// After the scaffolds, so a harness dir created on this run is seen.
@@ -148,35 +106,23 @@ unless git already tracks files under it or .gitignore already has a rule for it
 				fmt.Fprintf(out, "updated .gitignore (added: %s)\n", strings.Join(added, ", "))
 			}
 			fmt.Fprintln(out, "No default reviewer or [agent] cli was changed.")
-			fmt.Fprintln(out, "Compliance: governed code edits/commits require an engaged satelle story (hook gate/commitgate).")
+			fmt.Fprintln(out, "Compliance: governed code edits require an engaged satelle story (hook gate).")
 			return nil
 		},
 	}
 
 	remove := &cobra.Command{
-		Use:   "remove <claude|grok|pi|cursor|all>",
-		Short: "Remove satelle-owned launchers and hook scaffolds (idempotent; unmarked left in place)",
-		Long: `Remove the launchers and hook scaffolds satelle installed for a harness.
+		Use:   "remove <claude|grok|pi|all>",
+		Short: "Remove satelle-owned hook scaffolds (idempotent; unmarked left in place)",
+		Long: `Remove the hook scaffolds satelle installed for a harness.
 
 Only satelle-MARKED files go; anything you authored yourself stays, deliberately.
 Afterwards that harness no longer enforces the edit gate, so reach for it when
 you mean to stop satelle governing the harness — not as tidying.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home := config.GlobalDir()
 			repoRoot := initRepoRoot("")
-			rs, err := removeLaunchers(home, args[0])
-			if err != nil {
-				return err
-			}
 			out := cmd.OutOrStdout()
-			for _, r := range rs {
-				fmt.Fprintf(out, "%s %s launcher → %s", r.Action, r.Name, r.Path)
-				if r.Note != "" {
-					fmt.Fprintf(out, " (%s)", r.Note)
-				}
-				fmt.Fprintln(out)
-			}
 			targets, err := expandAgentTargets(args[0])
 			if err != nil {
 				return err
@@ -191,8 +137,6 @@ you mean to stop satelle governing the harness — not as tidying.`,
 					action, path, note, rerr = removeGrokHooks(repoRoot)
 				case "pi":
 					action, path, note, rerr = removePiHooks(repoRoot)
-				case "cursor":
-					action, path, note, rerr = removeCursorHooks(repoRoot)
 				}
 				if rerr != nil {
 					return rerr
@@ -225,40 +169,12 @@ func expandAgentTargets(name string) ([]string, error) {
 	n := strings.ToLower(strings.TrimSpace(name))
 	switch n {
 	case "all":
-		return []string{"claude", "grok", "pi", "cursor"}, nil
-	case "claude", "grok", "pi", "cursor":
+		return []string{"claude", "grok", "pi"}, nil
+	case "claude", "grok", "pi":
 		return []string{n}, nil
 	default:
-		return nil, fmt.Errorf("agents: unknown agent %q (want claude, grok, pi, cursor, or all)", name)
+		return nil, fmt.Errorf("agents: unknown agent %q (want claude, grok, pi, or all)", name)
 	}
-}
-
-// installLaunchers and removeLaunchers manage the $SATELLE_HOME launcher scripts.
-// pi and cursor have none (launcher isolation is a separate story), so such a
-// target has no launcher step and "all" covers the launchers that exist.
-func installLaunchers(home, name string) ([]agentinstall.Result, error) {
-	n := strings.ToLower(strings.TrimSpace(name))
-	if noLauncherAgent(n) {
-		return []agentinstall.Result{agentinstall.NoLauncherResult(n)}, nil
-	}
-	rs, err := agentinstall.Install(home, name)
-	if err == nil && n == "all" {
-		rs = append(rs, agentinstall.NoLauncherResult("pi"), agentinstall.NoLauncherResult(agentcli.HarnessCursor))
-	}
-	return rs, err
-}
-
-func removeLaunchers(home, name string) ([]agentinstall.Result, error) {
-	if noLauncherAgent(name) {
-		return nil, nil
-	}
-	return agentinstall.Remove(home, name)
-}
-
-// noLauncherAgent reports whether name is a harness with no launcher script.
-func noLauncherAgent(name string) bool {
-	n := strings.ToLower(strings.TrimSpace(name))
-	return n == "pi" || n == agentcli.HarnessCursor
 }
 
 func printScaffoldOutcome(out io.Writer, name, rel string, added bool, updated, incomplete []string) {

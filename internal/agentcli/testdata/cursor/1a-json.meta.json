@@ -1,1 +1,0 @@
-{"cursor_agent_version":"2026.10.01-e373342","date":"2026-10-10T03:34:48Z","cwd":"/SCRATCH/sb1","argv":["cursor-agent", "-p", "--trust", "--output-format", "json", "--model", "composer-2.5", "Reply with the single word PONG."]}

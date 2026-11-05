@@ -13,8 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/bobmcallan/satelle/internal/agentinstall"
 )
 
 // turnEndHookCommand is the command wired to a harness's turnEndEvents. It names
@@ -34,12 +32,8 @@ func removeClaudeHooks(repoRoot string) (action, path, note string, err error) {
 		}
 		return "", path, "", err
 	}
-	// Statusline (sty_4e6f0788) is satelle-owned content too, so its presence
-	// alone justifies a remove pass even when no hook entries remain. Stripped
-	// first, on the raw bytes, so a foreign statusLine survives untouched.
-	stripped, droppedLine := stripSatelleStatusLine(raw)
-	if !droppedLine &&
-		!strings.Contains(string(raw), "satelle-hook.sh") && !strings.Contains(string(raw), "satelle hook ") {
+	stripped := raw
+	if !strings.Contains(string(raw), "satelle-hook.sh") && !strings.Contains(string(raw), "satelle hook ") {
 		return "skipped", path, "no satelle-owned hook entries — left in place", nil
 	}
 	pruned, _, perr := pruneSatelleHookEntries(stripped)
@@ -194,7 +188,7 @@ func pruneSatelleHookEntries(raw []byte) (pruned []byte, empty bool, err error) 
 // The rule has one definition, shared with the cursor scaffold, in agentinstall;
 // the prompt and stopcheck constants both contain "satelle hook ".
 func isSatelleOwnedHookCommand(cmd string) bool {
-	return agentinstall.IsSatelleOwnedHookCommand(cmd)
+	return strings.Contains(cmd, "satelle-hook.sh") || strings.Contains(cmd, "satelle hook ")
 }
 
 // maybeRemoveSharedHookScript deletes .satelle/hooks/satelle-hook.sh only when
@@ -210,7 +204,6 @@ func maybeRemoveSharedHookScript(repoRoot string) (action, path, note string, er
 		filepath.Join(repoRoot, ".claude", "settings.json"),
 		filepath.Join(repoRoot, filepath.FromSlash(grokHooksRel)),
 		filepath.Join(repoRoot, filepath.FromSlash(piExtensionRel)),
-		filepath.Join(repoRoot, filepath.FromSlash(cursorHooksRel)),
 	} {
 		b, err := os.ReadFile(p)
 		if err != nil {

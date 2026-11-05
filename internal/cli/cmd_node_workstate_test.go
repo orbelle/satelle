@@ -3,31 +3,16 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/hosted/syncpb"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
-
-// recordingPerformers is a task node's performer that records outcome accept with
-// an output, as a real performer would.
-func recordingPerformers() *taskPerformers {
-	return &taskPerformers{step: func(item workitem.Item) error {
-		return dispatchInto(context.Background(), "execution-record",
-			map[string]any{"id": item.ID, "output": "swept the lot", "outcome": verb.OutcomeAccept}, &struct{}{})
-	}}
-}
 
 // hostedSubjectRig is a task rig whose wake names a story of the team workspace
 // that the node's store does not hold, as a real node's does not: its row and its
@@ -129,124 +114,4 @@ func TestNodeTaskWakeStoppedRunEmptyHostedHead(t *testing.T) {
 		t.Errorf("the subject's hosted chain has %d rows, want the %d pushed", n, want)
 	}
 	noStaleBase(t, r)
-}
-
-// sty_ce11bbdb AC1, AC3: a node syncs its work state through the RPCs a local
-// satelle uses, to the project its run descriptor names, with its node token as
-// the bearer and nothing else changed: the pre-write read is Chain/Read, the
-// story rows go by Chain/Append, the execution and its run output by Sync/Apply.
-// No call carries a location, no row an origin, and no work state goes over the
-// node's HTTP API.
-func TestNodeTaskWakeSyncsLikeALocalSatelle(t *testing.T) {
-	const project = "acme-team"
-	r, subject := taskRig(t, "nightly-sweep", true)
-	setup := r.fakeSetup
-	r.fakeSetup = func(f *devtest.Node) {
-		setup(f)
-		f.Project = project
-	}
-	useTaskNode(t, recordingPerformers(), 0)
-
-	w := r.wake(t)
-	if err := waitJoin(t, w.joined); err != nil {
-		t.Fatalf("join: %v\nnode log:\n%s", err, r.log)
-	}
-
-	calls := r.sync.rec.all()
-	seen := map[string]int{}
-	for _, c := range calls {
-		seen[c.Method]++
-		if c.Project != project || c.Auth != "Bearer "+w.spec.Token || c.Location != "" {
-			t.Errorf("call %+v, want project %s, the node token as bearer and no location", c, project)
-		}
-	}
-	for m := range seen {
-		if m != "Read" && m != "Append" && m != "Apply" {
-			t.Errorf("the node called %s; want only Chain/Read, Chain/Append and Sync/Apply", m)
-		}
-	}
-	if seen["Read"] == 0 || seen["Append"] == 0 || seen["Apply"] != 1 {
-		t.Fatalf("calls = %+v, want reads, appends and one apply\nnode log:\n%s", calls, r.log)
-	}
-	if calls[0].Method != "Read" || calls[0].Story != subject.ID() {
-		t.Errorf("first call = %+v, want the pre-write read of the subject %s", calls[0], subject.ID())
-	}
-	for _, c := range w.fake.Calls() {
-		if strings.Contains(c.Path, "/workstate") || strings.Contains(c.Path, "/stories/") {
-			t.Errorf("work state went over the node API: %s %s", c.Method, c.Path)
-		}
-	}
-
-	apply := onePush(t, r)
-	exec := executionOf(t, apply)
-	if outs := apply.GetOutputs(); len(outs) != 1 || outs[0].GetExecution() != exec || !strings.Contains(string(outs[0].GetBody()), "swept the lot") {
-		t.Errorf("outputs = %v, want the run output of %s", outs, exec)
-	}
-	for _, it := range apply.GetItems() {
-		if it.GetOrigin() != "" {
-			t.Errorf("item carries origin %q", it.GetOrigin())
-		}
-	}
-	for _, e := range apply.GetLedger() {
-		if e.GetOrigin() != "" {
-			t.Errorf("ledger row carries origin %q", e.GetOrigin())
-		}
-	}
-	links := 0
-	for _, row := range r.sync.appended(t, subject.ID()) {
-		if row.Kind == ledger.KindExecutionLink {
-			links++
-		}
-	}
-	if links != 1 {
-		t.Errorf("execution_link rows appended to the subject = %d, want 1", links)
-	}
-	for _, req := range r.sync.appends() {
-		for _, ev := range req.GetEvents() {
-			var payload map[string]any
-			if err := json.Unmarshal(ev.GetPayload(), &payload); err != nil {
-				t.Fatal(err)
-			}
-			if _, ok := payload["origin"]; ok {
-				t.Errorf("appended event %s carries an origin", ev.GetId())
-			}
-		}
-	}
-	if log := r.log.String(); !strings.Contains(log, "published to "+project) {
-		t.Errorf("the node's log does not report the publish to %s:\n%s", project, log)
-	}
-}
-
-// sty_ce11bbdb AC3: the pre-write read refused as the node token's (ended or
-// killed node) or as another project's stops the run with the named error, after
-// that one RPC: nothing is retried, refreshed, recorded or pushed.
-func TestNodeTaskWakeRefusedReadStopsTheRun(t *testing.T) {
-	for _, tc := range []struct {
-		code codes.Code
-		want error
-	}{
-		{codes.Unauthenticated, hosted.ErrNodeTokenRefused},
-		{codes.NotFound, hosted.ErrNodeProjectNotFound},
-	} {
-		t.Run(tc.code.String(), func(t *testing.T) {
-			r, _ := taskRig(t, "nightly-sweep", true)
-			r.sync.rec.refuse = func(rpcCall) error { return status.Error(tc.code, "refused") }
-			useTaskNode(t, recordingPerformers(), 0)
-
-			w := r.wake(t)
-			err := waitJoin(t, w.joined)
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("join = %v, want %v\nnode log:\n%s", err, tc.want, r.log)
-			}
-			if errors.Is(err, hosted.ErrLoginRequired) {
-				t.Errorf("join = %v, a node refusal read as a login refusal", err)
-			}
-			if calls := r.sync.rec.all(); len(calls) != 1 || calls[0].Method != "Read" {
-				t.Errorf("calls = %+v, want the one refused read", calls)
-			}
-			if strings.Contains(r.log.String(), "published to") {
-				t.Errorf("the node published after a refused read:\n%s", r.log)
-			}
-		})
-	}
 }

@@ -2,7 +2,6 @@ package agentcli
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -31,63 +30,6 @@ func TestTurns_GrokEnvelopesReportNumTurns(t *testing.T) {
 	}
 	if !got.TurnsAvailable || got.Turns < 1 {
 		t.Errorf("grok streaming: turns = %d available=%v, want the capture's num_turns", got.Turns, got.TurnsAvailable)
-	}
-}
-
-func TestTurns_PlainGrokAndAcpAreUnavailableWithAdapterReasons(t *testing.T) {
-	_, u := UnwrapUsage(usageFixture(t, "grok_max_turns.txt"))
-	if u.TurnsAvailable {
-		t.Fatalf("plain grok output carries no turn count: %+v", u)
-	}
-	for _, c := range []struct {
-		name, iface, command, want string
-	}{
-		{"grok plain command", "command", DefaultGrokCommand, "grok command: the run's output carried no turn count"},
-		{"grok acp", "acp", "grok agent stdio", "grok acp: the session protocol reports no turn count"},
-		{"cloud", "cloud", "claude", "cloud: a cloud session is not spawned from a command template"},
-		{"cursor command", "command", CursorCommand, "cursor command: the run's output carried no turn count"},
-		{"pi command", "command", "pi -p {payload}", "pi command: the run's output carried no turn count"},
-	} {
-		if got := TurnsUnavailableReason(c.iface, c.command); !strings.Contains(got, c.want) {
-			t.Errorf("%s: reason = %q, want it to contain %q", c.name, got, c.want)
-		}
-	}
-}
-
-// Tool calls are counted only from a transport that emits tool events; every
-// other transport has the reason, so a zero is only ever a measured zero.
-func TestToolCalls_AvailabilityIsPerTransport(t *testing.T) {
-	for _, c := range []struct {
-		name, iface, command string
-		reports              bool
-	}{
-		{"claude one-shot json", "command", DefaultClaudeCommand, false},
-		{"claude stream-json", "stream", DefaultClaudeStreamCommand, true},
-		{"grok json (default reviewer)", "command", DefaultGrokCommand, false},
-		{"grok json", "command", "grok -p {payload} --output-format json", false},
-		{"grok streaming-json", "command", "grok -p {payload} --output-format streaming-json", true},
-		{"grok streaming fused flag", "command", "grok -p {payload} --output-format=streaming-json", true},
-		{"grok acp", "acp", "grok agent stdio", true},
-		{"cursor command", "command", CursorCommand, false},
-		{"pi command", "command", "pi -p {payload}", false},
-		{"cloud", "cloud", "claude", false},
-		{"in-loop", "command", "in-loop", false},
-	} {
-		if got := ReportsToolEvents(c.iface, c.command); got != c.reports {
-			t.Errorf("%s: ReportsToolEvents = %v, want %v", c.name, got, c.reports)
-		}
-		if !c.reports {
-			reason := ToolCallsUnavailableReason(c.iface, c.command)
-			if reason == "" || !strings.Contains(reason, "tool") {
-				t.Errorf("%s: reason = %q, want an adapter-named tool-call reason", c.name, reason)
-			}
-		}
-	}
-	if got := ToolCallsUnavailableReason("command", DefaultGrokCommand); !strings.HasPrefix(got, "grok command:") {
-		t.Errorf("reason = %q, want it to name the adapter", got)
-	}
-	if got := ToolCallsUnavailableReason("cloud", "claude"); !strings.HasPrefix(got, "cloud:") {
-		t.Errorf("cloud reason = %q", got)
 	}
 }
 

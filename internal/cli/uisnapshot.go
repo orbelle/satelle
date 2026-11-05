@@ -19,12 +19,9 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/app"
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/substrate"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
@@ -147,18 +144,6 @@ func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool, since time
 		// Provenance/source for process docs (workflows/skills/principles).
 		prov, src := map[string]string{}, map[string]string{}
 		if a.Store.DocIndex != nil {
-			if rows, err := substrate.List(ctx, a.Store.DocIndex); err == nil {
-				for _, r := range rows {
-					// Key by path (Source) so same-name docs in different dirs
-					// each keep provenance; fall back to kind+name when path empty.
-					key := r.Source
-					if key == "" {
-						key = r.Kind + "\x00" + r.Name
-					}
-					prov[key] = r.Provenance
-					src[key] = r.Source
-				}
-			}
 			docs, err := a.Store.DocIndex.List(ctx, "")
 			if err != nil {
 				return nil, err
@@ -224,12 +209,6 @@ func buildUISnapshotOpts(ctx context.Context, a *app.App, drain bool, since time
 		}
 	}
 
-	if delta {
-		snap.Waves = listWavesJSON(ctx, epicParentsOf(items, sent))
-	} else {
-		snap.Waves = listWavesJSON(ctx, items)
-	}
-
 	if !drain {
 		// Settings blob — display rows the RO settings page renders.
 		if cfgBytes, err := marshalSettingsBlob(a); err == nil {
@@ -286,60 +265,6 @@ func changedSince(items []workitem.Item, cut time.Time) []workitem.Item {
 		if !it.UpdatedAt.Before(cut) {
 			out = append(out, it)
 		}
-	}
-	return out
-}
-
-// epicParentsOf returns the epic-parents among items whose wave a change to
-// changed can move: a changed parent itself, and the parent of every epic theme
-// a changed story carries.
-func epicParentsOf(items, changed []workitem.Item) []workitem.Item {
-	themes := map[string]bool{}
-	ids := map[string]bool{}
-	for _, it := range changed {
-		if it.Kind != workitem.KindStory {
-			continue
-		}
-		ids[it.ID] = true
-		for _, t := range epicset.Themes(it) {
-			themes[t] = true
-		}
-	}
-	var out []workitem.Item
-	for _, it := range items {
-		if it.Kind != workitem.KindStory || !epicset.IsEpicParent(it) {
-			continue
-		}
-		moved := ids[it.ID]
-		for _, t := range epicset.Themes(it) {
-			moved = moved || themes[t]
-		}
-		if moved {
-			out = append(out, it)
-		}
-	}
-	return out
-}
-
-// listWavesJSON emits one wave row per epic-parent: the story-wave verb's own
-// response, byte for byte, so the web renders the CLI's answer and never
-// recomputes it (sty_a42f4add). A verb refusal is pushed as its error text so the
-// page shows the same refusal the CLI prints.
-func listWavesJSON(ctx context.Context, items []workitem.Item) []json.RawMessage {
-	var out []json.RawMessage
-	for _, it := range items {
-		if it.Kind != workitem.KindStory || !epicset.IsEpicParent(it) {
-			continue
-		}
-		req, err := json.Marshal(map[string]any{"id": it.ID})
-		if err != nil {
-			continue
-		}
-		resp, err := verb.Dispatch(ctx, "story-wave", req)
-		if err != nil {
-			resp, _ = json.Marshal(map[string]any{"container": it.ID, "error": err.Error()})
-		}
-		out = append(out, resp)
 	}
 	return out
 }
@@ -470,15 +395,7 @@ func listSeatsJSON(ctx context.Context, a *app.App) ([]json.RawMessage, error) {
 		return nil, nil
 	}
 	now := time.Now().UTC()
-	reaped, _ := a.Store.Leases.Reap(ctx)
-	// AC5/AC6 (sty_81caa41b): this is the web-push mirror's OWN seat listing,
-	// straight off a.Store rather than the verb dispatch seam story-seat-list
-	// uses — so a lease this call reaps (a driving session found dead) would
-	// otherwise never get a final driver_usage row, and a session's still-open
-	// Pending row would never get swept, if the operator only ever looks at
-	// the web UI and never runs `satelle story seat`.
-	verb.RecordDriverUsageOnReap(ctx, reaped, now)
-	verb.SweepPendingDriverUsage(ctx, now)
+	_, _ = a.Store.Leases.Reap(ctx)
 	all, err := a.Store.Leases.List(ctx)
 	if err != nil {
 		return nil, err

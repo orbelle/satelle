@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/gatehandle"
+	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
 // SessionEnv is the process identity SATELLE_SESSION. Acquire stamps it on the
@@ -39,7 +39,7 @@ func PublishSession(id string) {
 		if pid <= 1 {
 			continue
 		}
-		_, identity := gatehandle.ProbeIdentity(pid)
+		_, identity := procgroup.ProbeIdentity(pid)
 		_ = os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)), []byte(id+"\t"+identity+"\n"), 0o600)
 	}
 }
@@ -220,13 +220,13 @@ const (
 	fileUnverifiable
 )
 
-// publishedFileSpeaks judges one pid file by the process probe gatehandle owns.
+// publishedFileSpeaks judges one pid file by the process probe procgroup owns.
 // A platform that yields no identity (or cannot probe) accepts a file on
 // liveness alone, as before.
 func publishedFileSpeaks(pid int, recorded string) publishedVerdict {
-	live, current := gatehandle.ProbeIdentity(pid)
+	live, current := procgroup.ProbeIdentity(pid)
 	switch {
-	case live == gatehandle.Gone:
+	case live == procgroup.Gone:
 		return fileStale
 	case current == "":
 		return fileSpeaks

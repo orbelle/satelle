@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"text/tabwriter"
 
@@ -15,7 +14,6 @@ import (
 )
 
 func init() {
-	var line bool
 	c := &cobra.Command{
 		Use:   "status",
 		Short: "Show the local repo's config, database, and store counts",
@@ -30,22 +28,7 @@ It also names the hosted server and the hosted project this checkout syncs to,
 and whether satelle acts through a session token (SATELLE_TOKEN) or a stored
 login: no network call, no sign-in needed, and never a credential.`,
 		Annotations: needsStore(),
-		// --line is the Claude statusline renderer (sty_4e6f0788). It must never
-		// fail loudly, so it does NOT go through the store bootstrap: openAppForCmd
-		// refuses on breaking drift or a missing agents layer, and a refusal there
-		// would put an error where the operator's status area should be. Defining
-		// PersistentPreRunE here overrides the root's for this command only —
-		// every other status invocation still opens the store exactly as before.
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if line {
-				return nil
-			}
-			return openAppForCmd(cmd)
-		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if line {
-				return runStatusLine(os.Stdout)
-			}
 			a, err := appFrom(cmd)
 			if err != nil {
 				return err
@@ -104,23 +87,9 @@ login: no network call, no sign-in needed, and never a credential.`,
 				}
 				fmt.Fprintf(w, "indexed %s\t%d  (%s)\n", kind, n, dirs.Dirs[kind])
 			}
-			// Scaffold drift (sty_ac25b787): status is exempt from fail-closed refuse
-			// so it can report here. Clean when no harness scaffolding is deployed
-			// or all wrappers match this binary's canonical bodies.
-			if findings := DetectScaffoldDrift(a.RepoRoot); len(findings) == 0 {
-				fmt.Fprintf(w, "scaffold\tclean\n")
-			} else {
-				fmt.Fprintf(w, "scaffold\tDRIFT (%d) — run satelle init\n", len(findings))
-				for _, f := range findings {
-					fmt.Fprintf(w, "  scaffold.%s\t[%s] %s\n", f.Path, f.Kind, f.Detail)
-				}
-			}
 			return w.Flush()
 		},
 	}
-	c.Flags().BoolVar(&line, "line", false,
-		"render one line for a terminal statusline: local web service link plus <story_id>::<stage> (read-only; always exits 0). "+
-			"Opt in by setting it as statusLine.command in your own "+claudeUserSettingsRel+" — satelle never installs it")
 	register(c)
 }
 

@@ -1,17 +1,8 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"maps"
-	"slices"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/app"
-	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/workitem"
-	"github.com/bobmcallan/satelle/internal/worktree"
 )
 
 // Work-state push holds a story's activity until the code it describes can be
@@ -29,121 +20,6 @@ type ledgerRowMeta struct {
 	id        string
 	seq       int64
 	createdAt time.Time
-}
-
-// holdResult is the outcome of classifying a batch.
-type holdResult struct {
-	held        map[string]string // story id -> reason
-	unavailable map[string]string // story id -> why reachability could not be checked
-}
-
-// lines renders one line per held story, then one summary line counting the
-// stories not checked; verbose follows it with one line per such story. A story
-// not checked is information: it is sent, and it never fails the push.
-func (h holdResult) lines(verbose bool) []string {
-	var out []string
-	for _, id := range slices.Sorted(maps.Keys(h.held)) {
-		out = append(out, fmt.Sprintf("held %s: %s", id, h.held[id]))
-	}
-	if len(h.unavailable) == 0 {
-		return out
-	}
-	summary := fmt.Sprintf("reachability not checked for %d stor(y/ies) (engagement tree not on this machine or not a git tree) — informational", len(h.unavailable))
-	if !verbose {
-		return append(out, summary+"; run with --verbose to list")
-	}
-	out = append(out, summary+":")
-	for _, id := range slices.Sorted(maps.Keys(h.unavailable)) {
-		out = append(out, fmt.Sprintf("reachability unavailable (%s): %s not checked", h.unavailable[id], id))
-	}
-	return out
-}
-
-// treeProbe is one engagement tree's relation to the remote, asked once per push.
-type treeProbe struct {
-	dirty bool
-	head  string
-	// onRemote is true when a remote-tracking ref contains head.
-	onRemote bool
-	err      error
-}
-
-func probeTree(tree string) treeProbe {
-	dirty, err := worktree.Dirty(tree)
-	if err != nil {
-		return treeProbe{err: err}
-	}
-	head, err := worktree.Head(tree)
-	if err != nil {
-		return treeProbe{err: err}
-	}
-	on, err := worktree.OnRemote(tree, head)
-	return treeProbe{dirty: dirty, head: head, onRemote: on, err: err}
-}
-
-// classifyHolds decides which stories in the batch are held. Only stories the
-// batch names are looked at, as an item row or as the owner of a ledger row.
-func classifyHolds(ctx context.Context, a *app.App, items []json.RawMessage, rows []ledgerRowMeta) (holdResult, error) {
-	ids := map[string]bool{}
-	for _, raw := range items {
-		if id := rawItemID(raw); id != "" {
-			ids[id] = true
-		}
-	}
-	for _, r := range rows {
-		if r.storyID != "" {
-			ids[r.storyID] = true
-		}
-	}
-	return classifyHoldIDs(ctx, a, ids)
-}
-
-// classifyHoldIDs decides which of the named stories are held, for callers that
-// have story ids but no batch (the attachment leg of a push).
-func classifyHoldIDs(ctx context.Context, a *app.App, ids map[string]bool) (holdResult, error) {
-	res := holdResult{held: map[string]string{}, unavailable: map[string]string{}}
-	probes := map[string]treeProbe{}
-	for _, id := range slices.Sorted(maps.Keys(ids)) {
-		if !workitem.Holdable(id) {
-			continue // append-only: never held back, never re-checked-out
-		}
-		it, err := a.Store.Stories.Get(ctx, id)
-		if err != nil {
-			continue // not a work item on this machine: nothing to hold it by
-		}
-		st, err := verb.StoryCodeState(ctx, it, a.RepoRoot)
-		if err != nil {
-			return res, fmt.Errorf("hold check %s: %w", id, err)
-		}
-		if st.Unavailable != "" {
-			res.unavailable[id] = st.Unavailable
-			continue
-		}
-		if !st.Eligible {
-			continue
-		}
-		p, ok := probes[st.Tree]
-		if !ok {
-			p = probeTree(st.Tree)
-			probes[st.Tree] = p
-		}
-		switch {
-		case p.err != nil:
-			res.unavailable[id] = p.err.Error()
-		case p.dirty:
-			res.held[id] = fmt.Sprintf("uncommitted changes in %s", st.Tree)
-		case !p.onRemote:
-			res.held[id] = fmt.Sprintf("head %s is not on any remote branch", short8(p.head))
-		}
-	}
-	return res, nil
-}
-
-func short8(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
 }
 
 // withoutHeld drops the held stories' item rows and ledger rows. It returns the

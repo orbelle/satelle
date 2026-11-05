@@ -81,10 +81,3 @@ permissions = { contents = "read" }
 		t.Error("init rewrote the v1 definition")
 	}
 }
-
-// A repo with no remotes reports nothing about them.
-func TestRemoteDefinitionReportWithNoRemotes(t *testing.T) {
-	if got := remoteDefinitionReport(t.TempDir()); len(got) != 0 {
-		t.Errorf("report = %v, want none", got)
-	}
-}

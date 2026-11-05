@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":4327,"duration_api_ms":4327,"result":"Hello — good to meet you. How can I help you today?\n\nZEBRA-RULES","session_id":"dcab0065-4a38-472e-ba25-ccdeee2b60cd","request_id":"d8dad866-0f88-46f2-a6c8-dbaa6be5db59","usage":{"inputTokens":8929,"outputTokens":77,"cacheReadTokens":3864,"cacheWriteTokens":0}}

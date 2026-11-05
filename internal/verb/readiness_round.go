@@ -5,16 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
+	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/workitem"
 	"strings"
 	"time"
-
-	"github.com/bobmcallan/satelle/internal/epicset"
-	"github.com/bobmcallan/satelle/internal/lease"
-	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/wfdot"
-	"github.com/bobmcallan/satelle/internal/wfroute"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // A readiness round (sty_a32bd6a9) is ONE presentation of a story's readiness
@@ -43,63 +37,6 @@ func withParkAttempt(ctx context.Context, attempt string) context.Context {
 func parkAttemptFrom(ctx context.Context) string {
 	a, _ := ctx.Value(parkAttemptKey{}).(string)
 	return a
-}
-
-// readinessEdge is the edge a story's readiness is judged on, resolved from its
-// route: the start status and the step entered from it that declares the
-// readiness knob (`propose` for a story, `waits_on_children` for a container).
-type readinessEdge struct {
-	From string
-	To   string
-	Step wfdot.State
-	// Advisors are the advisors the governing route declares, as governingSpec
-	// resolved them for the item; epicAdvice picks the readiness step's own.
-	Advisors []wfroute.Advisor
-}
-
-// name is the step's obligation (its key in step.toml), falling back to its
-// status, for a message that names the step.
-func (e readinessEdge) name() string {
-	if e.Step.Obligation != "" {
-		return e.Step.Obligation
-	}
-	return e.To
-}
-
-// present returns item as a readiness round presents it: at the edge's from
-// status. A legacy-ready epic is stored at e.To, but its round is still the
-// e.From→e.To edge — the reviewers it resolves, the rows it writes and the budget
-// it counts. The copy is in memory only; the stored status is never changed.
-func (e readinessEdge) present(item workitem.Item) workitem.Item {
-	item.Status = e.From
-	return item
-}
-
-// readinessEdgeFor resolves item's readiness edge from its governing route.
-func readinessEdgeFor(ctx context.Context, item workitem.Item) (readinessEdge, error) {
-	if item.Kind != workitem.KindStory {
-		return readinessEdge{}, fmt.Errorf("%s is a %s: only a story or an epic-parent has a readiness step", item.ID, item.Kind)
-	}
-	spec, _, advisors, ok := governingSpec(ctx, item)
-	if !ok {
-		return readinessEdge{}, fmt.Errorf("cannot resolve the route that governs %s", item.ID)
-	}
-	from := spec.Start()
-	container := epicset.IsEpicParent(item)
-	for _, to := range spec.Successors(from) {
-		st, found := spec.StateNamed(to)
-		if !found {
-			continue
-		}
-		if (container && st.WaitsOnChildren) || (!container && st.Propose) {
-			return readinessEdge{From: from, To: to, Step: st, Advisors: advisors}, nil
-		}
-	}
-	knob := "propose"
-	if container {
-		knob = "waits_on_children"
-	}
-	return readinessEdge{}, fmt.Errorf("the route of %s %w: no step entered from %q declares %s", item.ID, errNoReadinessStep, from, knob)
 }
 
 // errNoReadinessStep is what readinessEdgeFor wraps when the route has no step
@@ -264,18 +201,6 @@ func dispatchPerformer(ctx context.Context, current workitem.Item, to, attempt s
 		run.Err = derr
 		var rejected *PerformerReject
 		if errors.As(derr, &rejected) {
-			// A reject may carry changes: they are applied within the same limits
-			// and the reject is still recorded. A change the limits refuse is added
-			// to the notes, so the reject says what was and was not applied.
-			if len(rejected.Changes) > 0 {
-				item, cerr := applyPerformerChanges(ctx, current, to, res, rejected.Changes, now)
-				if cerr != nil {
-					rejected = &PerformerReject{Notes: strings.TrimSpace(rejected.Notes + " (" + cerr.Error() + ")")}
-					derr = rejected
-				} else {
-					run.Item = &item
-				}
-			}
 			if strings.TrimSpace(rejected.Notes) != "" {
 				run.Reject = rejected
 			}
@@ -301,20 +226,6 @@ func dispatchPerformer(ctx context.Context, current workitem.Item, to, attempt s
 		fmt.Sprintf("dispatched step %q to named agent %q%s (%s) with @skill:%s",
 			to, res.Agent, modelNote, res.Command, res.Skill),
 		dispatchPayload(current.Status, to, res, attempt), now)
-	// The configuration changes the performer reported are applied now, before
-	// the step's gates run, so they judge the repaired record (sty_af0b1761). A
-	// refused batch applied nothing and fails the round like any dispatch failure.
-	if len(res.Changes) > 0 {
-		item, cerr := applyPerformerChanges(ctx, current, to, res, res.Changes, now)
-		if cerr != nil {
-			run.Err = cerr
-			if readiness {
-				recordPerformerReject(ctx, current, to, attempt, res, cerr.Error(), now)
-			}
-			return run
-		}
-		run.Item = &item
-	}
 	// A dispatched task-execution run's captured output is written through as
 	// an OKF run-output doc under its task folder (sty_890b86cb) — the same
 	// write seam the in-loop execution-record verb uses. Best-effort: a write
@@ -449,194 +360,6 @@ func recordPerformerReject(ctx context.Context, current workitem.Item, to, attem
 		fmt.Sprintf("performer rejected %s→%s: %s", current.Status, to, notes), payload, now)
 }
 
-// recordReadinessAccept writes the readiness_accept row naming the attempt, but
-// only for an attempt the ledger's single rule accepts: no performer reject or
-// failure and no reviewer reject among its rows. It reports whether it wrote.
-// The row is stamped at the moment it is written — after every row the round
-// made, the plan document included — so a plan attached by the round itself is
-// never "attached after" its own accept.
-func recordReadinessAccept(ctx context.Context, current workitem.Item, from, to, attempt, step string) bool {
-	if !ledger.AttemptAccepted(storyLedgerEntries(ctx, current.ID), from, to, attempt) {
-		return false
-	}
-	payload, err := json.Marshal(struct {
-		From    string `json:"from"`
-		To      string `json:"to"`
-		Attempt string `json:"attempt"`
-		Step    string `json:"step,omitempty"`
-	}{From: from, To: to, Attempt: attempt, Step: step})
-	if err != nil {
-		return false
-	}
-	appendLedgerEntry(ctx, current.ID, ledger.KindReadinessAccept, "executor",
-		fmt.Sprintf("readiness accepted for %s→%s (attempt %s)", from, to, attempt), payload, time.Now())
-	return true
-}
-
-// recordReadinessReuse writes the row that says a presented readiness edge did
-// not run its performer or reviewers, because the readiness accepted in attempt
-// still holds.
-func recordReadinessReuse(ctx context.Context, current workitem.Item, from, to, attempt string) {
-	appendLedgerEntry(ctx, current.ID, ledger.KindReadinessReuse, "executor",
-		fmt.Sprintf("readiness for %s→%s reused from accepted attempt %s: the definition and plan are unchanged since", from, to, attempt),
-		attemptPayload(from, to, "", attempt), time.Now())
-}
-
-// readinessReusable returns the accepted attempt a presented readiness edge can
-// rely on, or "". Only a non-container story reuses: an epic's ready step judges
-// its children, which can change without the epic's own definition changing.
-func readinessReusable(ctx context.Context, current workitem.Item, to string) string {
-	if current.Kind != workitem.KindStory || epicset.IsEpicParent(current) || !stepProposes(ctx, current, to) {
-		return ""
-	}
-	attempt, _ := ledger.ReadinessHolds(storyLedgerEntries(ctx, current.ID), current.Status, to, readinessDocName(ctx, current, to))
-	return attempt
-}
-
-// readinessDocName is the name of the document the readiness step's performer
-// attaches (its skill's output_name), as the engine's performer rule reports it.
-// Empty when the step has no dispatched performer or its skill declares no output
-// contract: the binary names no document of its own.
-func readinessDocName(ctx context.Context, item workitem.Item, to string) string {
-	resolver, ok := executorDispatcher.(PerformerResolver)
-	if !ok {
-		return ""
-	}
-	perf, err := resolver.StepPerformer(ctx, item, to)
-	if err != nil {
-		return ""
-	}
-	return perf.OutputName
-}
-
-// voidReadinessOnAttach drops the ready mark when the document just attached is
-// the readiness step's plan, which voids an accepted readiness. It is the hook the
-// shared attach core calls, so `story attach` and the engine behave alike.
-func voidReadinessOnAttach(ctx context.Context, item workitem.Item, name string) {
-	if item.Kind != workitem.KindStory {
-		return
-	}
-	edge, err := readinessEdgeFor(ctx, item)
-	if err != nil {
-		return
-	}
-	if doc := readinessDocName(ctx, item, edge.To); doc != "" && doc == name {
-		syncReadyMark(ctx, item.ID)
-	}
-}
-
-// roundResult is the outcome of one unengaged readiness round.
-type roundResult struct {
-	Attempt  string
-	Accepted bool
-	// Reason is why the round was not accepted: the performer's or reviewers'
-	// notes, as recorded on the ledger.
-	Reason string
-}
-
-// flagReadinessInFlight makes item's seat row effectively in flight for the length
-// of a readiness round, so the page's running indicator shows the dispatch
-// (sty_a42f4add) — and returns the undo the round defers. It claims no seat and
-// takes none over: a story holding no row gets a non-story-seat one the undo
-// deletes; a row that is settled (the seat kept after a refused engagement, or an
-// engaged child readied from the epic) has only its in-flight columns flagged, and
-// the undo settles them again and clears the activity the dispatch stamped; a row
-// already effectively in flight belongs to the dispatch running on it and is left
-// alone. A row's owner, story_seat, seat_key and state are never written, and a
-// row the round did not insert is never deleted. Best-effort: observability must
-// not fail a readiness round, so any store error just means no indicator.
-func flagReadinessInFlight(ctx context.Context, item workitem.Item, state string) func() {
-	ls, err := requireLease()
-	if err != nil {
-		return func() {}
-	}
-	// A cancelled round must still put the seat back as it found it.
-	done := context.WithoutCancel(ctx)
-	owner := lease.ResolveOwner()
-	inserted, err := ls.InsertIfAbsent(ctx, lease.AcquireOpts{
-		ItemID: item.ID, Kind: string(item.Kind), Owner: owner, State: state, SeatKey: item.ID,
-	})
-	if err != nil {
-		return func() {}
-	}
-	if inserted {
-		return func() { _ = ls.Release(done, item.ID, owner) }
-	}
-	if marked, err := ls.MarkInFlightIfSettled(ctx, item.ID, time.Now()); err == nil && marked {
-		return func() { _ = ls.ClearInFlight(done, item.ID) }
-	}
-	return func() {}
-}
-
-// runReadinessRound runs one readiness round for item on edge without engaging
-// it: the performer, then the step's reviewers, under one attempt id created
-// here. It writes no status and claims no seat — it only shows its dispatch in
-// flight on the seat row the story has or, briefly, a row of its own — and it
-// never parks: a rejected round is recorded on the ledger with its notes and the
-// story stays where it is. The round is accepted when no row of its attempt
-// rejects, and only then is the readiness_accept row written.
-func runReadinessRound(ctx context.Context, item workitem.Item, edge readinessEdge) roundResult {
-	now := time.Now()
-	item = edge.present(item)
-	defer flagReadinessInFlight(ctx, item, edge.From)()
-	attempt := ledger.NewAttemptID()
-	res := roundResult{Attempt: attempt}
-	reject := func(reason string) roundResult {
-		res.Reason = reason
-		syncReadyMark(ctx, item.ID)
-		notifyChange(panelTopic(item.Kind))
-		return res
-	}
-	run := dispatchPerformer(ctx, item, edge.To, attempt, true, now)
-	// rebind may reload the stored record; the round still presents edge.From.
-	item = edge.present(run.rebind(item))
-	switch {
-	case run.Err != nil:
-		recordDispatchFailure(ctx, item, edge.To, attempt, run.Res, run.Err, now)
-		return reject(run.Err.Error())
-	case run.Refuse != nil:
-		return reject(run.Refuse.Error())
-	}
-	if transitionGater != nil {
-		if _, gerr := recordGateRound(ctx, item, edge.To, attempt, now); gerr != nil {
-			return reject(gerr.Error())
-		}
-	}
-	res.Accepted = recordReadinessAccept(ctx, item, edge.From, edge.To, attempt, edge.name())
-	if !res.Accepted {
-		return reject("the round's own rows reject it")
-	}
-	return res
-}
-
-// readinessHolds reports whether item's readiness is accepted and still holds,
-// from the ledger alone.
-func readinessHolds(ctx context.Context, item workitem.Item, edge readinessEdge) (string, bool) {
-	return ledger.ReadinessHolds(storyLedgerEntries(ctx, item.ID), edge.From, edge.To, readinessDocName(ctx, item, edge.To))
-}
-
-// refuseUnheldReadinessMark is the one rule for who may put the readiness mark on
-// a story: only an accepted readiness round. finalTags is the tag set a write
-// would leave on item; the write is refused when it newly carries the mark while
-// item's readiness does not hold in the ledger. A mark a stored item already
-// carries is kept, never newly set, and a route that declares no mark refuses
-// nothing. A create passes a draft (no id, so it carries nothing and has no
-// ledger): a mark on it is always refused.
-func refuseUnheldReadinessMark(ctx context.Context, item workitem.Item, finalTags []string) error {
-	edge, err := readinessEdgeFor(ctx, item)
-	if err != nil || edge.Step.Mark == "" {
-		return nil
-	}
-	mark := edge.Step.Mark
-	if !hasTag(finalTags, mark) || (item.ID != "" && hasTag(item.Tags, mark)) {
-		return nil
-	}
-	if _, ok := readinessHolds(ctx, item, edge); ok {
-		return nil
-	}
-	return fmt.Errorf("readiness mark %q can be set only by an accepted readiness round: %s has none that holds", mark, describeItem(item))
-}
-
 // describeItem names item for a refusal: its id, or "a new <kind>" before it has one.
 func describeItem(item workitem.Item) string {
 	if item.ID == "" {
@@ -645,88 +368,8 @@ func describeItem(item workitem.Item) string {
 	return item.ID
 }
 
-// syncReadyMark removes the readiness mark from the story when its readiness
-// stops holding. The tag is a display marker only: the ledger decides, this just
-// keeps the display from claiming what the ledger no longer says. A no-op for a
-// story whose route declares no mark, that does not carry it, or whose readiness
-// holds. Best-effort, like the other trail rows.
-func syncReadyMark(ctx context.Context, id string) {
-	if _, err := requireWorkItem(); err != nil {
-		return
-	}
-	item, err := storyState(ctx, id)
-	if err != nil || item.Kind != workitem.KindStory {
-		return
-	}
-	edge, err := readinessEdgeFor(ctx, item)
-	if err != nil || edge.Step.Mark == "" || !hasTag(item.Tags, edge.Step.Mark) {
-		return
-	}
-	if _, ok := readinessHolds(ctx, item, edge); ok {
-		return
-	}
-	_, _ = workItemSetCore(ctx, tagRequest(setReq{ID: id, RemoveTags: []string{edge.Step.Mark}}))
-}
-
-// markReady puts the readiness step's mark tag on the story, through the same
-// tag path `story set --add-tags` uses.
-func markReady(ctx context.Context, id, mark string) error {
-	if mark == "" {
-		return nil
-	}
-	_, err := workItemSetCore(ctx, tagRequest(setReq{ID: id, AddTags: []string{mark}}))
-	return err
-}
-
 // errEpicAcceptFound stops firstEpicReadiness's ledger scan at the first match.
 var errEpicAcceptFound = errors.New("an epic-parent readiness accept exists")
-
-// firstEpicReadiness reports whether an accepted readiness round on item would be
-// the repo's first on an epic-parent: item is one, and no epic-parent, item
-// included, has a readiness_accept row yet. The ledger row decides, never the
-// mark, which syncReadyMark removes when readiness stops holding. A caller reads
-// it before the round runs, since the round writes the row it would find.
-func firstEpicReadiness(ctx context.Context, item workitem.Item) bool {
-	if !epicset.IsEpicParent(item) {
-		return false
-	}
-	led, err := requireLedger()
-	if err != nil {
-		return false
-	}
-	store, err := requireWorkItem()
-	if err != nil {
-		return false
-	}
-	seen := map[string]bool{}
-	err = led.ForEachKind(ctx, "", ledger.KindReadinessAccept, func(e ledger.Entry) error {
-		if seen[e.StoryID] {
-			return nil
-		}
-		seen[e.StoryID] = true
-		if e.StoryID == item.ID {
-			return errEpicAcceptFound
-		}
-		if it, gerr := store.Get(ctx, e.StoryID); gerr == nil && epicset.IsEpicParent(it) {
-			return errEpicAcceptFound
-		}
-		return nil
-	})
-	return err == nil
-}
-
-// epicAdvice is the skill of each advisor the route declares on the readiness
-// step entered at status to, in declared order and deduplicated: what an accepted
-// first epic readiness round prompts the orchestrator to run.
-func epicAdvice(to string, advisors []wfroute.Advisor) []string {
-	var out []string
-	for _, ad := range advisors {
-		if ad.Step == to && ad.Skill != "" && !slices.Contains(out, ad.Skill) {
-			out = append(out, ad.Skill)
-		}
-	}
-	return out
-}
 
 func hasTag(tags []string, tag string) bool {
 	for _, t := range tags {

@@ -527,15 +527,8 @@ func (d *driver) advance(ctx context.Context, item workitem.Item, next string) (
 			d.presented = true
 			break
 		}
-		var spent *verb.RejectBudgetSpent
 		var rejected *verb.GateRejection
 		switch {
-		case errors.As(err, &spent):
-			d.presented = true
-			step, performer := d.blame(ctx, item, next, "")
-			return item, d.park(ctx, item, step, performer, fmt.Sprintf(
-				"the %s → %s edge was rejected %d times (reject budget %d); last objection: %s",
-				from, next, spent.Rounds, spent.Budget, spent.Objection))
 		case errors.As(err, &rejected):
 			d.presented = true
 			fmt.Fprintf(d.out, "drive: %s %s → %s rejected\n%s\n", d.id, from, next, rejected.Notes())

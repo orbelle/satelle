@@ -6,15 +6,10 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/remotenode"
-	"github.com/bobmcallan/satelle/internal/remotenode/devtest"
-	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/workitem"
 )
 
 // v1Keys are the keys the v1 task definition below declares, with the values the
@@ -32,28 +27,6 @@ func unsetKeys(t *testing.T, keys ...string) {
 			_ = os.Unsetenv(k)
 		}
 	}
-}
-
-// v1TaskRig is a task rig whose v1 definition declares [setup] on_create and
-// post_start commands that append a and b to order, a [secrets] name, a
-// github-app override and a satelle: override, and the rig's one [[repo]].
-func v1TaskRig(t *testing.T) (r *nodeRig, subject *subjectStory, order string) {
-	t.Helper()
-	r, subject = taskRig(t, "nightly-sweep", true)
-	order = filepath.Join(t.TempDir(), "order")
-	r.setSetup([]string{"echo a >> " + order}, []string{"echo b >> " + order})
-	r.bundle["remote.toml"] += "\n[secrets]\nnames = [\"API_KEY\"]\n"
-	r.addOverride("GH_TOKEN", ghAppOverride)
-	r.addOverride("SAT", `"satelle:SAT_VALUE"`)
-	setup := r.fakeSetup
-	r.fakeSetup = func(f *devtest.Node) {
-		setup(f)
-		for k, v := range v1Keys {
-			f.Secrets[k] = v
-		}
-	}
-	unsetKeys(t, "API_KEY", "GH_TOKEN", "SAT")
-	return r, subject, order
 }
 
 // AC1, AC2: an old-shape definition is refused at join before anything of it is
@@ -102,32 +75,4 @@ func stubSwapRunner(t *testing.T, record func(argv []string)) {
 		return nil
 	}
 	t.Cleanup(func() { remotenode.SwapRunner = prev })
-}
-
-// swapRecorder replaces the node's swap runner with one that records each argv,
-// and the task step with one that records "wake" in the same log, so the order of
-// the swap's lifecycle around the job is visible.
-func swapRecorder(t *testing.T) (log func() [][]string) {
-	t.Helper()
-	var (
-		mu  sync.Mutex
-		got [][]string
-	)
-	stubSwapRunner(t, func(argv []string) {
-		mu.Lock()
-		defer mu.Unlock()
-		got = append(got, argv)
-	})
-	useTaskNode(t, &taskPerformers{step: func(item workitem.Item) error {
-		mu.Lock()
-		got = append(got, []string{"wake"})
-		mu.Unlock()
-		return dispatchInto(context.Background(), "execution-record",
-			map[string]any{"id": item.ID, "output": "swapped", "outcome": verb.OutcomeAccept}, &struct{}{})
-	}}, 0)
-	return func() [][]string {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([][]string(nil), got...)
-	}
 }

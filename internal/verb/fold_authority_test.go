@@ -60,45 +60,6 @@ func TestReadersAnswerFromTheChainNotTheRow(t *testing.T) {
 	}
 }
 
-// sty_d84be8bc AC4: story wave classifies the container, every child and every
-// dependency by the fold. A child whose row says done is still runnable while its
-// chain says backlog, and a story depending on it still waits.
-func TestWaveClassifiesByTheChain(t *testing.T) {
-	db := wire(t)
-	epic := createFolded(t, map[string]any{"title": "container", "category": "epic-parent", "tags": []string{"epic:fold"}})
-	a := createFolded(t, map[string]any{"title": "child a", "category": "feature", "tags": []string{"epic:fold"}})
-	b := createFolded(t, map[string]any{"title": "child b", "category": "feature", "tags": []string{"epic:fold", "depends-on:" + a.ID}})
-	c := createFolded(t, map[string]any{"title": "child c", "category": "feature", "tags": []string{"epic:fold"}})
-
-	wave := func() (runnable []string, waiting map[string]bool) {
-		t.Helper()
-		var res verb.WaveResult
-		if err := json.Unmarshal(call(t, "story-wave", map[string]any{"id": epic.ID}), &res); err != nil {
-			t.Fatal(err)
-		}
-		waiting = map[string]bool{}
-		for _, o := range res.Omitted {
-			waiting[o.ID] = true
-		}
-		return res.Runnable, waiting
-	}
-	if run, waiting := wave(); !slices.Equal(run, sortedStrings(a.ID, c.ID)) || !waiting[b.ID] {
-		t.Fatalf("baseline wave = %v waiting %v, want a and c runnable and b waiting", run, waiting)
-	}
-
-	// Corrupt rows: a (a dependency) and c (a child) both read done.
-	if _, err := db.SQL().Exec(`UPDATE work_items SET status = 'done' WHERE id IN (?, ?)`, a.ID, c.ID); err != nil {
-		t.Fatal(err)
-	}
-	run, waiting := wave()
-	if !slices.Equal(run, sortedStrings(a.ID, c.ID)) {
-		t.Errorf("wave runnable = %v, want a and c as the chain has them (backlog), not dropped as the rows' done", run)
-	}
-	if !waiting[b.ID] {
-		t.Errorf("b must still wait on a, whose chain says backlog: %v", waiting)
-	}
-}
-
 // A task's file is its source of truth and its row is read as before: the fold
 // owns stories only.
 func TestATaskIsStillReadFromItsRow(t *testing.T) {

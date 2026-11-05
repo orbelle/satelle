@@ -197,7 +197,6 @@ func executionRecord(ctx context.Context, raw json.RawMessage) (json.RawMessage,
 		note += " (outcome " + req.Outcome + ")"
 	}
 	appendLedger(ctx, req.ID, ledger.KindTaskUpdated, note, now)
-	appendOpLog("execution-record", req.ID, "run output → "+path, now)
 	notifyChange(TopicTasks)
 	return json.Marshal(map[string]string{"execution": req.ID, "path": path})
 }

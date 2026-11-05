@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,35 +28,4 @@ func createExecutionID(t *testing.T, title string) string {
 		t.Fatalf("create execution %q: %v", title, err)
 	}
 	return it.ID
-}
-
-// An execution is delivered by a push, with no skip line.
-func TestPushDeliversAnExecution(t *testing.T) {
-	fx := newHoldFixture(t, appendOnlyToml)
-	exe := createExecutionID(t, "run")
-
-	out := fx.push(t)
-
-	if !fx.f.hasItem("probe", exe) {
-		t.Fatalf("the execution was not delivered:\n%s", out)
-	}
-	if strings.Contains(out, "skip "+exe) || strings.Contains(out, "held elsewhere") {
-		t.Errorf("an execution must not be reported skipped:\n%s", out)
-	}
-}
-
-// With held-back classification on, an execution is neither held back nor
-// re-checked: it is delivered.
-func TestPushNeverHoldsBackAnExecution(t *testing.T) {
-	fx := newHoldFixture(t, holdBackToml)
-	exe := createExecutionID(t, "run")
-
-	out := fx.push(t)
-
-	if !fx.f.hasItem("probe", exe) {
-		t.Fatalf("the execution was not delivered:\n%s", out)
-	}
-	if strings.Contains(out, "held "+exe) {
-		t.Errorf("an execution was held back:\n%s", out)
-	}
 }

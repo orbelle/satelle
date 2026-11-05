@@ -60,57 +60,6 @@ you. Read-only.`,
 		},
 	}
 
-	var force, yes, dryRun, allowLive bool
-	migrateCmd := &cobra.Command{
-		Use:   "migrate",
-		Short: "Copy legacy in-repo runtime state to ~/.satelle/<repo-key>/ (dry-run default)",
-		Long: `Copy satelle.db (via VACUUM INTO), logs/, backups/, and stories/ from the
-legacy <repo>/.satelle/ layout into the home-keyed runtime dir. Leaves the
-legacy tree in place and prints an rm suggestion — satelle never deletes the
-operator's only ledger copy. Refuses if the target already has a database
-unless --force is set.
-
-LIVE RUNTIME (sty_5308eb60): refuses when the legacy DB holds a fresh
-engagement lease or a satelle serve is responding — relocating under a live
-session strands post-snapshot writes. Pass --allow-live to override (UNSAFE).
---force only means "overwrite an existing home-keyed DB"; it does NOT bypass
-the liveness check.
-
-Dry-run by default (sty_a3915840 — same convention as 'satelle migrate' and
-'substrate prune'). Pass --yes to apply. --dry-run is accepted as an explicit
-no-op flag for scripts.
-
-Prefer the compose verb 'satelle migrate' for full structure convergence.
-Does not open the store for writes — the source DB is free for VACUUM INTO.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, cfgPath, err := config.Load("")
-			if err != nil && err != config.ErrNotFound {
-				return err
-			}
-			repoRoot := "."
-			if cfgPath != "" {
-				repoRoot = config.RepoRootFromConfigPath(cfgPath)
-			} else if wd, e := os.Getwd(); e == nil {
-				repoRoot = wd
-			}
-			a := &app.App{
-				Config:     cfg,
-				RepoRoot:   repoRoot,
-				DataDir:    cfg.ResolveDataDir(repoRoot),
-				RuntimeDir: cfg.ResolveRuntimeDir(repoRoot).Dir,
-				DBPath:     cfg.ResolveDB(repoRoot),
-			}
-			// Dry-run unless --yes. Explicit --dry-run forces dry-run even with --yes.
-			applyDry := !yes || dryRun
-			return runRuntimeMigrate(cmd.OutOrStdout(), a, force, allowLive, applyDry)
-		},
-	}
-	migrateCmd.Flags().BoolVar(&force, "force", false, "overwrite an existing home-keyed database")
-	migrateCmd.Flags().BoolVar(&yes, "yes", false, "apply the relocation (default is dry-run)")
-	migrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "print plan only (default; kept for scripts)")
-	migrateCmd.Flags().BoolVar(&allowLive, "allow-live", false, "UNSAFE: relocate even when a live engagement lease or satelle serve is detected")
-
 	var orphansOnly bool
 	listCmd := &cobra.Command{
 		Use:   "list",
@@ -169,7 +118,7 @@ checkout not yet restored — so read the report before you pass --yes.`,
 	reapCmd.Flags().BoolVar(&reapYes, "yes", false, "remove what was reported (default is report-only)")
 	reapCmd.Flags().BoolVar(&reapIncludeUnknown, "include-unknown", false, "also target unknown key dirs (no marker, no registry match)")
 
-	root.AddCommand(pathCmd, migrateCmd, listCmd, reapCmd)
+	root.AddCommand(pathCmd, listCmd, reapCmd)
 	register(root)
 }
 

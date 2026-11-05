@@ -1,9 +1,0 @@
-{
-  "id": "done-valid-01",
-  "rubric": "done",
-  "skill": "satelle-story-done-review",
-  "label": "valid",
-  "story_id": "sty_d1e20725",
-  "expected_verdict": "accept",
-  "summary": "Frozen from the real ready->done accept on the epic sty_d1e20725 (2026-09-25, evt_a513e492, notes='All 16 children are done (including previously unresolved sty_4fde0a50). Epic-parent close criterion met.'). change.diff continues from done-defect-01's candidate: sty_4fde0a50 moves from backlog to done."
-}

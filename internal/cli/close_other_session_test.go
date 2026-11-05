@@ -4,16 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
-	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/agentstep"
-	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 // closeDiffRunner is every reviewer on the close edge. It records the diff each
@@ -59,58 +54,6 @@ func (r *closeDiffRunner) seen() []agentstep.DiffState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]agentstep.DiffState(nil), r.diffs...)
-}
-
-// otherSessionClose engages a story from a linked worktree T1 as owner-a and
-// commits a slice there, then moves the process to the main tree T2 as
-// release-task with no GateStoryEnv, and wires a reviewer engine whose close
-// edge carries the named rubrics and the diff resolver the app wires.
-func otherSessionClose(t *testing.T, reviewers ...string) (*closeEnv, string, *closeDiffRunner) {
-	t.Helper()
-	e := closeGuardEnv(t)
-	wt := filepath.Join(t.TempDir(), "t1")
-	e.git("worktree", "add", "-q", "-b", "t1", wt)
-	if r, err := filepath.EvalSymlinks(wt); err == nil {
-		wt = r
-	}
-	t.Setenv(verb.GateStoryEnv, "")
-	t.Setenv("SATELLE_OWNER", "owner-a")
-	t.Chdir(wt)
-	id := e.engage()
-	writeRepoFile(t, wt, "slice.go", "package slice\n")
-	for _, args := range [][]string{{"add", "slice.go"}, {"commit", "-qm", "slice"}} {
-		if out, err := exec.Command("git", append([]string{"-C", wt}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	t.Chdir(e.repo)
-	t.Setenv("SATELLE_OWNER", "release-task")
-
-	meta := func(name string) string {
-		return "[meta]\nname = \"" + name + "\"\ntype = \"workflow\"\nscope = \"project\"\ndescription = \"close fixture\"\n\n"
-	}
-	quoted := make([]string, len(reviewers))
-	for i, r := range reviewers {
-		quoted[i] = `"` + r + `"`
-	}
-	step := strings.Replace(closeRouteStep, `requires = ["coded"]`,
-		`requires = ["coded"]`+"\nreviewers = ["+strings.Join(quoted, ", ")+"]", 1)
-	skill := func(name, body string) docindex.Doc {
-		return docindex.Doc{Kind: "skills", Name: name, Body: "---\nname: " + name + "\ntype: skill\ndescription: close fixture\n---\n\n" +
-			body + "\n\nReturn JSON {\"decision\": \"accept\"|\"reject\", \"notes\": \"…\"}.\n"}
-	}
-	docs := memDocs{docs: []docindex.Doc{
-		{Kind: "workflows", Name: "done", Body: meta("done") + closeRouteDone},
-		{Kind: "workflows", Name: "step", Body: meta("step") + step},
-		skill("close-diff-review", "Accept only when the payload diff names the story's change set."),
-		skill("close-reject-review", closeRejectMarker),
-	}}
-	r := &closeDiffRunner{}
-	g := agentstep.New(r, docs, e.repo, "")
-	g.SetDiffResolver(diffResolver())
-	withVerbWiring(t)
-	verb.SetTransitionGater(g)
-	return e, id, r
 }
 
 func hasString(list []string, want string) bool {

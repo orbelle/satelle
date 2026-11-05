@@ -196,31 +196,7 @@ func pushStoryAttachments(ctx context.Context, out, errw io.Writer, a *app.App, 
 	// exactly as it is for its rows; its files stay out of the record and go once
 	// the hold clears. A hold is per story, so every destination holds the same
 	// stories.
-	owing := map[string]bool{}
 	for _, d := range dests {
-		for id := range d.pending {
-			owing[id] = true
-		}
-	}
-	held := map[string]bool{}
-	if len(owing) > 0 {
-		if on, herr := config.HoldUnpushed(a.Config); herr == nil && on {
-			res, cerr := classifyHoldIDs(ctx, a, owing)
-			if cerr != nil {
-				fmt.Fprintf(errw, "attachments: hold check: %v\n", cerr)
-				return
-			}
-			for id := range res.held {
-				held[id] = true
-			}
-		}
-	}
-
-	for _, d := range dests {
-		for id := range held {
-			d.held += len(d.pending[id])
-			delete(d.pending, id)
-		}
 		d.upload(ctx, out, errw, server, a.RepoRoot, binary)
 	}
 }

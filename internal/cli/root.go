@@ -72,7 +72,6 @@ dependency. See https://github.com/bobmcallan/satelle for docs.`,
 	// even when [output].compact_for_agents is off or the caller is not
 	// detected as an agent. See internal/cli/render.go.
 	root.PersistentFlags().Bool("json", false, "force plain indented JSON, skipping compact rendering")
-	root.PersistentFlags().Bool("compact", false, "force compact rendering for a configured command (see satelle help compact-output)")
 	for _, c := range registered {
 		root.AddCommand(c)
 	}
@@ -112,11 +111,6 @@ func retiredNameMessage(args []string) string {
 // user instead of dead-ending. Removed spellings fail closed naming their
 // replacement. Returns the command's error so the caller sets a non-zero exit.
 func Execute() error {
-	// Repo-local binary precedence (sty_fe3ee313): if this repo pins its own
-	// satelle under .satelle/satelle, run THAT binary instead of the global one.
-	if code, handled := reexecLocalIfPresent(); handled {
-		os.Exit(code)
-	}
 	// Fail closed on removed spellings before cobra's generic unknown-command
 	// path, so the replacement is named explicitly.
 	if len(os.Args) > 1 {
@@ -125,9 +119,6 @@ func Execute() error {
 			return fmt.Errorf("%s", msg)
 		}
 	}
-	// A detached gate run claims its hand-off environment first, so nothing it
-	// spawns can mistake itself for the run (sty_c4b92c9e).
-	initGateRun()
 	root := NewRootCmd()
 	// ExecuteC returns the leaf command so we can drain/close even when RunE
 	// failed — Cobra skips PersistentPostRunE on error (sty_9ba3d709).
@@ -142,7 +133,6 @@ func Execute() error {
 			printUnknownCommandHelp(root.ErrOrStderr(), root)
 		}
 	}
-	finishGateRun(err)
 	return err
 }
 

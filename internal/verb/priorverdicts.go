@@ -316,3 +316,12 @@ func evidenceAfter(entries []ledger.Entry, cycleEnd time.Time, ex StaleExemption
 	}
 	return since
 }
+
+// AgentMessage is the addressing of one agent_message row, all a prior-verdict
+// reader needs of it.
+type AgentMessage struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Cc   string `json:"cc,omitempty"`
+	Body string `json:"body"`
+}

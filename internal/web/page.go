@@ -393,12 +393,10 @@ const templatesSrc = `
      One rendering for a story row and an epic's member row (sty_a42f4add). */}}
 {{define "dispatchIndicator"}}{{with .}}<div class="dispatch-indicator{{if .Warn}} dispatch-warn{{end}}" title="{{if .LastEvent}}last activity: {{.LastEvent}}{{end}}">{{.Agent}}{{if .Model}} ({{.Model}}){{end}} running · {{reltime .StartedAt}}{{if not .LastEventAt.IsZero}} · last activity {{reltime .LastEventAt}}{{if .LastEvent}}: {{.LastEvent}}{{end}}{{end}}</div>{{end}}{{end}}
 
-{{/* epicRollup: an epic's roll-up of its children's running indicators — nothing at 0. */}}
-{{define "epicRollup"}}{{if gt . 0}}<div class="dispatch-indicator epic-rollup">agent work in progress · {{.}} {{if eq . 1}}child{{else}}children{{end}}</div>{{end}}{{end}}
 
 {{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-priority="{{.Priority}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}{{template "epicRollup" .ChildrenInFlight}}</td>
+  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}{{template "dispatchIndicator" .Dispatch}}</td>
   <td><span class="badge s-{{.Status}}">{{.Status}}</span></td>
   <td class="col-reviews">{{range .Stages}}<span class="stage-chip stage-{{.State}}" title="{{.Title}}">{{.Name}}{{with .Gates}}{{if .Gates}} <b class="gates tone-{{.Tone}}">{{.Gates}}</b>{{if .Live}}<b class="run live">/{{.Running}}</b>{{end}}{{if .Rejected}} <b class="rej">{{.Rejected}}</b>{{end}}{{end}}{{end}}{{if .Parked}} <b class="blk">{{.Parked}}</b>{{end}}</span>{{end}}</td>
   <td>{{if .Priority}}{{.Priority}}{{else}}—{{end}}</td>
@@ -451,67 +449,14 @@ const templatesSrc = `
     {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip .}}{{end}}</dd>{{end}}
     <dt>Updated</dt><dd>{{ftime .Item.UpdatedAt}}</dd>
   </dl>
-  {{template "epicRollup" .ChildrenInFlight}}
   {{if .Item.Body}}<h4>{{if $isTask}}Work definition{{else}}Description{{end}}</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
   {{if .Item.AcceptanceCriteria}}<h4>Acceptance criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
-  {{if or .Members .MembersNote}}<h4>Members</h4>
-  {{if .MembersNote}}<div class="meta">{{.MembersNote}} — the container does not close</div>{{end}}
-  {{if .WaveError}}<div class="meta epic-wave-error">wave: {{.WaveError}}</div>{{else if .WaveSchedule}}<div class="meta epic-wave-schedule">wave schedule: {{.WaveSchedule}}</div>{{end}}
-  {{if .Members}}<table class="panel-table epic-members"><tbody>{{range .Members}}<tr><td class="id"><a href="story/{{.ID}}">{{.ID}}</a></td><td><span class="badge s-{{.Status}}">{{.Status}}</span></td><td class="epic-wave">{{if eq .Wave "runnable"}}<span class="wave-runnable">startable now</span>{{else if eq .Wave "held"}}<span class="wave-held">held{{if .Cause}} ({{.Cause}}){{end}}{{if .Reason}} — {{.Reason}}{{end}}</span>{{range .WaitingOn}} <a class="wave-blocker" href="story/{{.ID}}">{{.ID}}</a> <span class="badge s-{{.Status}}">{{.Status}}</span>{{if .Cancelled}} <span class="wave-cancelled">cancelled</span>{{end}}{{end}}{{end}}{{template "dispatchIndicator" .Dispatch}}</td></tr>{{end}}</tbody></table>{{end}}{{end}}
   {{if $isTask}}<h4>Runs</h4>
   {{if .Executions}}<ol class="run-list">{{range .Executions}}<li class="run run-s-{{.Status}}">
     <div class="run-head"><span class="run-id">{{.ID}}</span> <span class="badge s-{{.Status}}">{{.Status}}</span></div>
     <div class="run-meta">created {{ftime .CreatedAt}} · updated {{ftime .UpdatedAt}}</div>
     {{if .Output}}<pre class="run-output prose">{{.Output}}</pre>{{else}}<div class="run-noout">no output recorded</div>{{end}}
   </li>{{end}}</ol>{{else}}<div class="empty">No runs yet — create one with <code>satelle execution create --parent {{.Item.ID}}</code>.</div>{{end}}{{end}}
-  {{with .Cost}}<h4>Cost</h4>
-  <dl class="cost-summary">
-    <dt>Cost</dt><dd class="cost-derived">{{.Cost}}</dd>
-    <dt>Band</dt><dd>{{.Band}}</dd>
-    <dt>Fresh in</dt><dd>{{.FreshIn}}{{if .EstFreshIn}} <span class="cost-est">({{.EstFreshIn}})</span>{{end}}</dd>
-    <dt>Out</dt><dd>{{.Out}}{{if .EstOut}} <span class="cost-est">({{.EstOut}})</span>{{end}}</dd>
-    <dt>Cache read</dt><dd>{{.CacheRead}}</dd>
-    <dt>Cache write</dt><dd>{{.CacheWrite}}</dd>
-    {{if .Unsplit}}<dt>Unsplit (legacy)</dt><dd>{{.Unsplit}}</dd>{{end}}
-    <dt>Elapsed (wall)</dt><dd>{{.Elapsed}}{{if .EstElapsed}} <span class="cost-est">({{.EstElapsed}})</span>{{end}}</dd>
-    <dt>Agent time (dispatch+driver)</dt><dd>{{.AgentTime}}</dd>
-  </dl>
-  {{if .Seats}}<h4>By seat</h4>
-  <table class="panel-table cost-seats">
-    <thead><tr><th>Seat</th><th>Auth</th><th>Fresh in</th><th>Cache read</th><th>Cache write</th><th>Out</th><th>Cost</th></tr></thead>
-    <tbody>{{range .Seats}}<tr><td class="id">{{.Seat}}</td><td>{{.Auth}}</td><td>{{.FreshIn}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.Out}}</td><td>{{.Cost}}</td></tr>{{end}}</tbody>
-  </table>{{end}}
-  {{if .LegacyEstimate}}<div class="cost-legacy-estimate">{{.LegacyEstimate}}</div>{{end}}
-  <div class="cost-driver-coverage">{{.DriverLine}}</div>
-  {{range .DriverAdapters}}<div class="cost-adapter-coverage">{{.}}</div>{{end}}
-  {{if .Family}}<h4>Family</h4>
-  <table class="panel-table cost-family">
-    <thead><tr><th>Child</th><th>Cost</th><th>Band</th><th>Fresh in</th><th>Out</th><th>Cache read</th><th>Cache write</th><th>Elapsed</th></tr></thead>
-    <tbody>
-      {{range .Family}}<tr><td class="id">{{.ID}}</td><td>{{.Cost}}</td><td>{{.Band}}</td><td>{{.FreshIn}}</td><td>{{.Out}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.Elapsed}}</td></tr>{{end}}
-      {{with .FamilyTotal}}<tr class="cost-family-total"><td>{{.ID}}</td><td>{{.Cost}}</td><td>{{.Band}}</td><td>{{.FreshIn}}</td><td>{{.Out}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.Elapsed}}</td></tr>{{end}}
-    </tbody>
-  </table>
-  {{if .FamilySeats}}<h4>Family by seat</h4>
-  <table class="panel-table cost-seats cost-family-seats">
-    <thead><tr><th>Seat</th><th>Auth</th><th>Fresh in</th><th>Cache read</th><th>Cache write</th><th>Out</th><th>Cost</th></tr></thead>
-    <tbody>{{range .FamilySeats}}<tr><td class="id">{{.Seat}}</td><td>{{.Auth}}</td><td>{{.FreshIn}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.Out}}</td><td>{{.Cost}}</td></tr>{{end}}</tbody>
-  </table>{{end}}
-  <div class="cost-driver-coverage">{{.FamilyDriverLine}}</div>
-  {{range .FamilyAdapters}}<div class="cost-adapter-coverage">{{.}}</div>{{end}}{{end}}
-  {{if .DriverRows}}<h4>Driver sessions</h4>
-  <table class="panel-table cost-driver">
-    <thead><tr><th>Session</th><th>Executable</th><th>Trigger</th><th>Fresh in</th><th>Out</th><th>Calls</th><th>Cache read</th><th>Cache write</th><th>Agent time</th></tr></thead>
-    <tbody>
-      {{range .DriverRows}}<tr><td class="id">{{.SessionID}}</td><td>{{.Executable}}</td><td{{if .Note}} title="{{.Note}}"{{end}}>{{.Trigger}}</td><td>{{.FreshIn}}</td><td>{{.Out}}</td><td>{{.Calls}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.AgentTime}}</td></tr>{{end}}
-      {{with .DriverTotal}}<tr class="cost-driver-total"><td>{{.SessionID}}</td><td></td><td></td><td>{{.FreshIn}}</td><td>{{.Out}}</td><td>{{.Calls}}</td><td>{{.CacheRead}}</td><td>{{.CacheWrite}}</td><td>{{.AgentTime}}</td></tr>{{end}}
-    </tbody>
-  </table>{{end}}{{end}}
-  {{if .Messages}}<h4>Messages</h4>
-  <table class="panel-table messages">
-    <thead><tr><th>Message</th><th>From</th><th>To</th><th>State</th><th>Deadline</th><th>Body</th></tr></thead>
-    <tbody>{{range .Messages}}<tr><td class="id">{{.ID}}</td><td>{{.From}}</td><td>{{.To}}</td><td><span class="chip chip-msg-{{.State}}">{{.State}}</span>{{if .Overdue}} <span class="chip chip-msg-overdue">overdue</span>{{end}}</td><td>{{.Deadline}}</td><td class="msg-body">{{.Body}}</td></tr>{{end}}</tbody>
-  </table>{{end}}
   {{with .Route}}<h4>Route</h4>
   <article class="doc-article route-doc" id="doc-route">{{.HTML}}</article>{{end}}
   {{if .Docs}}<h4>Documents</h4>

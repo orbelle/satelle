@@ -13,20 +13,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/agentcli"
 	"github.com/bobmcallan/satelle/internal/agentstep"
 	"github.com/bobmcallan/satelle/internal/app"
-	"github.com/bobmcallan/satelle/internal/board"
-	"github.com/bobmcallan/satelle/internal/compact"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/docstory"
-	"github.com/bobmcallan/satelle/internal/epicset"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/lease"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/logfile"
 	"github.com/bobmcallan/satelle/internal/mirror"
-	"github.com/bobmcallan/satelle/internal/oplog"
 	"github.com/bobmcallan/satelle/internal/verb"
-	"github.com/bobmcallan/satelle/internal/waiver"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
 	"github.com/bobmcallan/satelle/internal/workitem"
 )
@@ -104,33 +98,11 @@ func openAppForCmd(cmd *cobra.Command) error {
 		}
 		return fmt.Errorf("bootstrap: %w", err)
 	}
-	// Drift / breaking-surface gate: a deployed repo behind a breaking binary
-	// release that declares `init-heals:` fails closed and names `satelle init` as
-	// the heal path; a release whose migrations are manual only warns, once per
-	// session, and the command runs (sty_6e143870).
-	// `restore` is a heal command and must not sit behind the stamp gate it
-	// heals (sty_a9ec33e7) — keep confirmation; keep other store verbs gated.
-	if cmd.Name() != "restore" {
-		bw, derr := checkBreakingDrift(a.RepoRoot)
-		if derr != nil {
-			_ = a.Close()
-			return derr
-		}
-		warnBreakingOnce(a.RuntimeDir, bw, cmd.ErrOrStderr())
-	}
 	// Lazy harness install (epic:minimal-harness-footprint): if this process is
 	// inside a Claude/Grok session and the repo lacks that harness scaffold,
 	// install it now (idempotent). First session of a new harness may still
 	// have run without hooks; next session picks them up.
 	ensureLazySessionHarness(a.RepoRoot)
-	// Scaffold drift (sty_ac25b787, sty_e56ea643): deployed harness wrappers
-	// behind the binary are satelle-owned bytes that `satelle init` heals, so
-	// they WARN on stderr and never refuse — only a release's own CHANGELOG
-	// ### Breaking that declares `init-heals:` (checkBreakingDrift above) stops a
-	// command. `status` prints the full block itself.
-	if cmd.Name() != "status" {
-		warnScaffoldDrift(a.RepoRoot, cmd.ErrOrStderr())
-	}
 	// Broken configuration refuses to run (sty_d0d6bb67): an initialized repo
 	// (this command reached the store, so .satelle exists) must carry a loadable
 	// agents layer — no silent fallback to compiled defaults. `satelle init` is
@@ -148,10 +120,7 @@ func openAppForCmd(cmd *cobra.Command) error {
 	verb.SetLedgerStore(a.Store.Ledger)
 	verb.SetTxRunner(a.Store.InTx)
 	verb.SetDocIndexStore(a.Store.DocIndex)
-	verb.SetAuthoredDirs(a.AuthoredDirs().Dirs)
-	verb.SetSubstrateConfigDir(a.ProcessDataDir)
 	verb.SetLeaseStore(a.Store.Leases)
-	verb.SetRetrieveStore(a.Store.Retrieve)
 	// UI push drain (sty_9ba3d709 / sty_126228b2 / sty_21a7d16d): machine
 	// [service] endpoint (env > config > derived localhost:port). SATELLE_SERVER_ENDPOINT=none
 	// disables push (hermetic tests). Clear first so a prior test/process state
@@ -179,50 +148,11 @@ func openAppForCmd(cmd *cobra.Command) error {
 	// Authored root (documents/, workflows/, …) — needed when a verb spans both
 	// planes (e.g. migrateLegacySummaries moves docs → runtime stories/).
 	verb.SetDataDir(a.ProcessDataDir)
-	// Archive-retention policy for the closed-story attachment dirs — a no-op
-	// unless satelle.toml sets a count/age policy (sty_aba7200c).
-	verb.SetStoryRetention(a.Config.StoriesKeepClosed, a.Config.StoriesKeepDays)
-	// CCR retrieval-store retention (sty_b0577532): a no-op unless satelle.toml
-	// sets retrieve_keep_days.
-	verb.SetRetrieveRetention(a.Config.RetrieveKeepDays)
 	// Binary attachment cap + content-type allowlist (sty_40e5a305): enforced
 	// in the verb so CLI and any future hosted/MCP caller share one rule.
 	verb.SetAttachmentPolicy(a.Config.ResolveAttachmentMaxBytes(), a.Config.ResolveAttachmentAllowTypes())
 	// Backups root is also runtime (sibling of stories/, not of tasks/).
 	verb.SetBackupsDir(filepath.Join(a.RuntimeDir, "backups"))
-	// Seat concurrency mode (sty_c098dc2d): [engagement] parallel selects the
-	// arbitration KEY a story claims the engagement seat under — "none" (the
-	// default, and what this repo has always enforced: one performing story) or
-	// "epic" (sibling children of one epic, one working tree per lease). Unwired
-	// is "none", so a repo with no [engagement] section is unaffected.
-	verb.SetEngagementMode(a.ProcessConfig)
-	// Worktree declaration (sty_804c566b): the process-of-record [worktree] table
-	// and the main tree it carries from, so a worktree reads the main tree's
-	// declaration rather than one of its own.
-	verb.SetWorktreeConfig(a.ProcessConfig, a.ProcessRoot)
-	// Start-of-work trunk check (sty_9f3e51d1): the process-of-record [trunk]
-	// declaration, and the invoking tree the check inspects and the engagement
-	// baseline is taken in. Unwired, the check does nothing.
-	verb.SetTrunkConfig(a.PlaneConfig().Trunk, a.RepoRoot)
-	// A detached gate run also appends each line to its verdict log, the only
-	// channel that reaches the driving session.
-	verb.SetTrunkOutput(trunkOutput(cmd.ErrOrStderr()))
-	// A plan's criteria skipped in favour of an accepted amend are reported on
-	// the same channel, so the operator driving the transition sees why.
-	verb.SetApplyOutput(trunkOutput(cmd.ErrOrStderr()))
-	// Process-of-record reporting (sty_d6e209aa): where the authored process
-	// lives, so an absent workflows dir or a divergent worktree copy is reported
-	// at engage, in a refusal and in the route document. Data only — nothing is
-	// compared until a surface asks.
-	verb.SetProcessProbe(&verb.ProcessProbe{
-		Process: a.ProcessConfig, InvokingRoot: a.RepoRoot, ProcessRoot: a.ProcessRoot,
-	})
-	// Controlled tag vocabulary (sty_034d843c): validate namespaces declared in
-	// satelle.toml [tags.vocabulary] at story/task create and set. Independent of
-	// the agent CLI — must work with no harness installed.
-	verb.SetTagVocabulary(a.Config)
-	// [release] fields: the metadata keys `story release-record` accepts.
-	verb.SetReleaseFields(a.Config.Release.Fields)
 	// Assignee holder (sty_8ccaa906): local credstore PrincipalID only — no
 	// hosted.Client.Me, no network. Local-only (no credential) means
 	// unassigned (offline team-of-1). The one user rule is resolveUser
@@ -260,10 +190,6 @@ func openAppForCmd(cmd *cobra.Command) error {
 	// (sty_c1f9e74c). That substrate is the process of record. Sync, migrate,
 	// and runtime do not go through SetTaskDir; they keep the location DataDir.
 	verb.SetTaskDir(filepath.Join(a.ProcessDataDir, "tasks"))
-	// Wire the flat-file operation log (runtime logs/operations.log): a plain-text
-	// mirror of state-mutating verbs that a read-only reviewer can scan to verify a
-	// DB change the SQLite store hides from it (sty_be257fef).
-	verb.SetOpLog(oplog.New(a.RuntimeDir, logRotation(a)))
 	// Wire the isolated reviewer that gates status transitions. The agent CLI is
 	// the install-time choice (global config); the gate is inert until a
 	// workflow names a reviewer skill whose rubric is installed.
@@ -314,51 +240,21 @@ func openAppForCmd(cmd *cobra.Command) error {
 			// Attachment payload injection (sty_58fa970e): Bash-less reviewers
 			// receive plan/step-summary bodies in the transition payload.
 			rev.SetDocsResolver(docsResolver(a))
-			// In-loop run trace (sty_23ceeca2): the skill-evidence check compares a
-			// step the driving session performed with the tool calls its hooks saw.
-			rev.SetToolTraceResolver(toolTraceResolver())
 			// Prior-verdict injection (sty_0f5e600c): a re-reviewed edge carries
 			// what it already judged, so the gate judges the delta.
 			rev.SetPriorVerdictsResolver(priorVerdictsResolver())
 			// A performer run at the step it is in answers the exit that rejected it.
 			rev.SetExitRejectResolver(verb.LatestExitReject)
-			// Definition-edit injection (sty_5262592e): the intent reviewer judges
-			// each edited acceptance criterion against the story's purpose.
-			rev.SetDefinitionEditsResolver(definitionEditsResolver())
 			// Rework-relay deferrals (sty_83620b39): an objection the consult seat
 			// deferred to a later gate reaches that gate's payload.
 			rev.SetDeferralsResolver(func(ctx context.Context, itemID string) []agentstep.DeferredItem {
 				return agentstep.DeferralsFrom(verb.StoryLedgerKind(ctx, itemID, ledger.KindAgentInvocation))
 			})
-			// Developer waivers (sty_bef97244): a gate is handed the waivers the
-			// developer recorded for this story against its own skill.
-			rev.SetWaiversResolver(waiversResolver(a))
 			// Finding answers (sty_f948d345): a gate is told which of the findings
 			// its edge's performer was offered went unanswered.
 			rev.SetFindingAnswersResolver(func(ctx context.Context, itemID, from, to string) (agentstep.FindingAnswers, bool) {
 				return agentstep.FindingAnswersFrom(verb.StoryLedgerKind(ctx, itemID, ledger.KindAgentInvocation), from, to)
 			})
-			// Engagement-diff injection (sty_a125b440): Bash-less reviewers
-			// receive the live slice in the transition payload. Enumeration
-			// only; a missing baseline is a marker, never a refused gate.
-			rev.SetDiffResolver(diffResolver())
-			// Plan-citation excerpts: the tree a gate judges, resolved without
-			// requiring the engagement baseline the readiness edge lacks.
-			rev.SetCitationTreeResolver(func(ctx context.Context, itemID string) (string, error) {
-				return verb.StoryGateTree(verb.WithGateStory(ctx, itemID), itemID)
-			})
-			// Ranked diff compressor (sty_918e2086): noise-strip then ranked hunk
-			// selection are the gate payload's PRIMARY patch reducer; the backstop
-			// offloader keeps the diffPayloadCeiling ceiling's overflow recoverable
-			// even when the compressor alone was not enough (or is unwired).
-			rev.SetDiffCompressor(diffCompressor(a))
-			rev.SetDiffOffloader(diffOffloader(a))
-			// Functional-check log compressor (sty_ef930f81): a failing check's
-			// reject notes get the same ranked-keep treatment a gate payload's
-			// patch does, through the SAME retrieval store.
-			rev.SetCheckLogCompressor(checkLogCompressor(a))
-			rev.SetMessagesResolver(messagesResolver())
-			rev.SetMessagesDelivered(messagesDelivered())
 			rev.SetArtifactAttacher(verb.AttachItemDoc)
 			// Structured retry/failure/timeout telemetry (sty_b73c3236): the engine
 			// sees each dispatch ATTEMPT (a killed/timed-out subprocess) the verb
@@ -383,12 +279,6 @@ func openAppForCmd(cmd *cobra.Command) error {
 			// explicit/step/agent model falls straight to cli-default.
 			rev.SetSessionModelsResolver(verb.SessionModels)
 			rev.SetInvocationRecorder(verb.AppendAgentInvocation)
-			rev.SetSuiteEvidence(verb.RecordCheckRun, verb.FindCheckRun)
-			// Leftover-file sweep config (sty_e7aaf8b1): what a coder/driving
-			// session leaves in the tree that this repo wants moved to scratch
-			// (or flagged) at session close. Unset by default — the binary ships
-			// no opinion about what a leftover looks like.
-			rev.SetLeftoverRule(a.ProcessConfig.Dispatch.Leftovers)
 			// A live session (the rework relay's coder seat and
 			// rework.consult binding) resolves an unset interface= to the
 			// binding CLI's best live transport, not always command
@@ -424,13 +314,6 @@ func openAppForCmd(cmd *cobra.Command) error {
 			// returns ungated and the verb treats an unjudged amendment as refused),
 			// so wiring it never lifts a freeze on its own.
 			verb.SetAmendReviewer(rev)
-			// Point a structure-guard refusal at the story the indexer already
-			// raised about the document that will not parse (sty_88d40a60). The
-			// engine stays store-free; this is the injection.
-			storyStore := a.Store.Stories
-			rev.SetTrackingStoryResolver(func(ctx context.Context, kind, name string) string {
-				return docstory.IDForDoc(docstory.Open(ctx, storyStore.List), kind, name)
-			})
 			// The summariser recaps gated transitions; inert until gating is active.
 			verb.SetStepSummariser(rev)
 			// Create-gating is opt-in per repo (satelle.toml [review] gate_create):
@@ -515,10 +398,6 @@ func engineForCmd(cmd *cobra.Command) (*agentstep.Engine, *app.App, error) {
 	// question, out of scope here.
 	rev.SetPriorVerdictsResolver(priorVerdictsResolver())
 	rev.SetExitRejectResolver(verb.LatestExitReject)
-	rev.SetMessagesResolver(messagesResolver()) // create-path engine; harmless, never fills a transition payload
-	// The store an oversized diff's overflow is kept in: the rework relay opens
-	// its sessions on this engine.
-	rev.SetDiffOffloader(diffOffloader(a))
 	eff, err := requireAgents(a)
 	if err != nil {
 		return nil, nil, err
@@ -531,8 +410,6 @@ func engineForCmd(cmd *cobra.Command) (*agentstep.Engine, *app.App, error) {
 	rev.SetOneShotAgents(eff.Agents.OneShotBinding)
 	rev.SetSessionModelsResolver(verb.SessionModels)
 	rev.SetInvocationRecorder(verb.AppendAgentInvocation)
-	rev.SetSuiteEvidence(verb.RecordCheckRun, verb.FindCheckRun)
-	rev.SetLeftoverRule(a.ProcessConfig.Dispatch.Leftovers)
 	// The live sessions this engine opens (the rework relay) ledger
 	// a denied ask-the-user through this sink (sty_ff50f788); unwired, the row
 	// is silently dropped.
@@ -562,7 +439,7 @@ func childrenResolver(a *app.App) func(ctx context.Context, item workitem.Item) 
 		if item.ID == "" {
 			return nil
 		}
-		kids, err := epicset.Members(ctx, a.Store.Stories, item)
+		kids, err := a.Store.Stories.List(ctx, workitem.ListFilter{ParentID: item.ID})
 		if err != nil {
 			return nil
 		}
@@ -623,164 +500,6 @@ func priorVerdictsResolver() func(ctx context.Context, itemID, from, to string, 
 			out = append(out, agentstep.PriorVerdictFrom(v))
 		}
 		return out
-	}
-}
-
-// waiversResolver lists the developer waivers recorded for a story, for
-// gate-payload injection (sty_bef97244). An unreadable ledger degrades to no
-// waivers and never fails the transition.
-func waiversResolver(a *app.App) func(ctx context.Context, itemID string) []agentstep.WaiverItem {
-	return func(ctx context.Context, itemID string) []agentstep.WaiverItem {
-		ws, err := waiver.List(ctx, a.Store.Ledger, itemID)
-		if err != nil {
-			return nil
-		}
-		out := make([]agentstep.WaiverItem, 0, len(ws))
-		for _, w := range ws {
-			out = append(out, agentstep.WaiverItem{
-				ID: w.ID, Gate: w.Gate, Check: w.Check, Reason: w.Reason, Actor: w.Actor,
-				CreatedAt: w.CreatedAt.UTC().Format(time.RFC3339),
-			})
-		}
-		return out
-	}
-}
-
-// definitionEditsResolver lists the definition edits recorded for a story, for
-// transition-payload injection (sty_5262592e). verb.DefinitionEdits reads the
-// package-global ledger store wired above; an unreadable ledger degrades to no
-// edits and never fails the transition.
-func definitionEditsResolver() func(ctx context.Context, itemID string) []agentstep.DefinitionEdit {
-	return func(ctx context.Context, itemID string) []agentstep.DefinitionEdit {
-		if itemID == "" {
-			return nil
-		}
-		edits := verb.DefinitionEdits(ctx, itemID)
-		if len(edits) == 0 {
-			return nil
-		}
-		out := make([]agentstep.DefinitionEdit, 0, len(edits))
-		for _, e := range edits {
-			out = append(out, agentstep.DefinitionEdit{Field: e.Field, Old: e.Old, New: e.New, Actor: e.Actor, At: e.At})
-		}
-		return out
-	}
-}
-
-// diffResolver enumerates the live engagement slice for reviewer-payload
-// injection (sty_a125b440). verb.StoryDiff is the same derivation as
-// `satelle story diff`; ANY error (no baseline, empty sha, foreign tree, git
-// unavailable) becomes a no-baseline marker so the transition cannot fail on
-// enumeration. It runs for a gate judging itemID, so it reads that story's own
-// tree from whichever tree the transition is presented (verb.WithGateStory).
-func diffResolver() func(ctx context.Context, itemID string) *agentstep.DiffState {
-	return func(ctx context.Context, itemID string) *agentstep.DiffState {
-		if itemID == "" {
-			return &agentstep.DiffState{NoBaseline: true, Note: "empty item id"}
-		}
-		res, err := verb.StoryDiff(verb.WithGateStory(ctx, itemID), itemID, verb.StoryDiffOpts{Patch: true, IncludeSubstrate: true})
-		if err != nil {
-			return &agentstep.DiffState{NoBaseline: true, Note: err.Error()}
-		}
-		return &agentstep.DiffState{
-			Baseline: res.Baseline,
-			Dirty:    res.DirtyAt,
-			Files:    res.Files,
-			Stat:     res.Stat,
-			Patch:    res.Patch,
-			Note:     res.Note,
-			Source:   res.Source,
-		}
-	}
-}
-
-// diffCompressor wires the ranked diff compressor (sty_918e2086) a gate
-// payload runs on its patch before diffPayloadCeiling: order-3 noise
-// stripping (CompactPatch, cfg.NoisePatterns) always runs first, then order-4
-// ranked hunk selection (RankPatch) when [output.diff_rank] is enabled. Both
-// offload what they drop through the SAME retrieval store every other
-// offload/retrieve path in this codebase shares (retrieveAdapter), keyed to
-// itemID so retention/pruning covers it.
-func diffCompressor(a *app.App) func(ctx context.Context, itemID, patch string) string {
-	return func(ctx context.Context, itemID, patch string) string {
-		if a.Store == nil || a.Store.Retrieve == nil {
-			return patch
-		}
-		off := retrieveAdapter{ctx: ctx, store: a.Store.Retrieve, storyID: itemID}
-		out := compact.CompactPatch(patch, a.Config.Output.NoisePatterns, off)
-		if !a.Config.Output.DiffRank.Enabled {
-			return out
-		}
-		return compact.RankPatch(out, a.Config.Output.DiffRank.Resolve(), off)
-	}
-}
-
-// diffOffloader wires the store fillDiff's ceiling backstop uses to keep an
-// oversized patch's overflow tail recoverable (sty_918e2086) — the same
-// retrieval store diffCompressor's offloads share, so a marker either one
-// leaves resolves through the same `satelle retrieve <hash>` path.
-func diffOffloader(a *app.App) func(ctx context.Context, itemID string, content []byte) (string, error) {
-	return func(ctx context.Context, itemID string, content []byte) (string, error) {
-		if a.Store == nil || a.Store.Retrieve == nil {
-			return "", fmt.Errorf("diff offloader: no retrieval store wired")
-		}
-		return retrieveAdapter{ctx: ctx, store: a.Store.Retrieve, storyID: itemID}.Put(content)
-	}
-}
-
-// checkLogCompressor wires the log compressor (sty_ef930f81) runCheck uses to
-// build a failing functional check's reject notes, through the SAME
-// retrieval store every other offload/retrieve path in this codebase shares
-// (retrieveAdapter), keyed to itemID so retention/pruning covers it.
-func checkLogCompressor(a *app.App) func(ctx context.Context, itemID, log string) string {
-	return func(ctx context.Context, itemID, log string) string {
-		if a.Store == nil || a.Store.Retrieve == nil {
-			return compact.CompressLog(log, a.Config.Output.CheckLog.Resolve(), nil)
-		}
-		off := retrieveAdapter{ctx: ctx, store: a.Store.Retrieve, storyID: itemID}
-		return compact.CompressLog(log, a.Config.Output.CheckLog.Resolve(), off)
-	}
-}
-
-// messagesResolver injects engagement-windowed agent messages into gate and
-// executor payloads (sty_2db624d0). Never fails the transition.
-func messagesResolver() func(ctx context.Context, itemID string, addresses []string) []agentstep.MessageState {
-	return func(ctx context.Context, itemID string, addresses []string) []agentstep.MessageState {
-		raw := verb.MessagesSince(ctx, itemID, addresses)
-		if len(raw) == 0 {
-			return nil
-		}
-		out := make([]agentstep.MessageState, len(raw))
-		for i, m := range raw {
-			out[i] = agentstep.MessageState{
-				ID:            m.ID,
-				From:          m.From,
-				To:            m.To,
-				Body:          m.Body,
-				CreatedAt:     m.CreatedAt.UTC().Format(time.RFC3339),
-				EngagementSHA: m.EngagementSHA,
-				State:         m.State,
-			}
-		}
-		return out
-	}
-}
-
-// messagesDelivered marks the messages a performer's dispatch injected delivered
-// (sty_73c9aa10), through the same in-process verb `satelle story message-mark`
-// runs. A mark that fails does not stop the rest; the errors come back joined.
-func messagesDelivered() func(ctx context.Context, itemID string, msgIDs []string) error {
-	return func(ctx context.Context, itemID string, msgIDs []string) error {
-		var errs []error
-		by := config.ResolveSession()
-		for _, id := range msgIDs {
-			if _, err := verb.StoryMessageMark(ctx, verb.MarkRequest{
-				ID: itemID, Message: id, State: string(board.Delivered), By: by,
-			}); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
 	}
 }
 

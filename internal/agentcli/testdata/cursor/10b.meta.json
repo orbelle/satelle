@@ -1,1 +1,0 @@
-{"cursor_agent_version":"2026.10.01-e373342","date":"2026-10-10T06:24:49Z","argv":["cursor-agent","-p","--trust","--force","--output-format","json","--model","composer-2.5","<ASK>"],"note":"only .claude/settings.json hooks present"}

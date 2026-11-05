@@ -1,1 +1,0 @@
-{"type":"result","subtype":"success","is_error":false,"duration_ms":7190,"duration_api_ms":7190,"result":"CURSOR_AGENT=1\nCURSOR_INVOKED_AS=cursor-agent","session_id":"155f41ec-a299-4c97-96b7-b0ef7eef4f68","request_id":"600ca850-6ca1-4df1-af57-a2a136b52ee9","usage":{"inputTokens":9014,"outputTokens":173,"cacheReadTokens":16576,"cacheWriteTokens":0}}

@@ -1,9 +1,0 @@
-{
-  "id": "integration-valid-01",
-  "rubric": "integration",
-  "skill": "satelle-integration-review",
-  "label": "valid",
-  "story_id": "sty_81caa41b",
-  "expected_verdict": "accept",
-  "summary": "Constructed responsive fix for integration-defect-01 (sty_81caa41b, evt_289fc388): adds exactly the test the reject asked for -- one that drives real transitions through the workItemSet dispatch seam with an injected driverSnapshotter, taking a story through engage, an ordinary transition, a park and a terminal close, and asserting one driver_usage row per transition with the expected trigger, plus a same-input retry asserting no second row. This story itself was later parked to blocked before a real satelle-integration-review accept was recorded for it, so this case is not tied to a specific ledger accept id (not required for a valid case, unlike a defect's source)."
-}

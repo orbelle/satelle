@@ -620,21 +620,6 @@ func TestScopedPullEpicMembersBringAttachments(t *testing.T) {
 	}
 }
 
-// Members taken from the server are pulled with no hold lookup: the fixture's
-// server fails the test on any hold route (sty_40853d02).
-func TestScopedPullEpicMembersMakeNoHoldCalls(t *testing.T) {
-	fx := newHoldFixture(t, pullSyncTm)
-	r := seedRemoteEpic(fx.f)
-
-	out, err := runRoot(t, "sync", "workstate", "pull", "--server", fx.ts.URL, r.epic)
-	if err != nil {
-		t.Fatalf("pull: %v\n%s", err, out)
-	}
-	if strings.Contains(out, "in flight") {
-		t.Errorf("a pull must not list stories in flight on other locations:\n%s", out)
-	}
-}
-
 // AC5: an epic the server holds with no members, or whose epic-parent has no
 // single theme tag, pulls as the container alone, with the notice and no refusal.
 func TestScopedPullEpicWithNothingToExpand(t *testing.T) {

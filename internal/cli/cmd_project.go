@@ -173,19 +173,13 @@ func runProjectBind(cmd *cobra.Command, slug string) error {
 	if err := config.SaveConfigValues(cfgPath, []config.KeyEdit{edit}); err != nil {
 		return fmt.Errorf("record hosted project in satelle.toml: %w", err)
 	}
-	// Stamp deployed.version when missing so store-backed rehydrate is not
-	// blocked by the breaking-surface gate on a brand-new .satelle tree.
-	dataDir := filepath.Dir(cfgPath)
-	if _, err := writeDeployedVersion(dataDir); err != nil {
-		return fmt.Errorf("stamp deployed.version: %w", err)
-	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Bound this repo to project %q (recorded in %s).\n", slug, cfgPath)
 	if on, set := bindPullOnlyFlag(cmd); set {
 		if err := setPullOnly(cmd.OutOrStdout(), config.RepoRootFromConfigPath(cfgPath), on); err != nil {
 			return err
 		}
 	}
-	return seedProjectSubstrate(cmd, slug)
+	return nil
 }
 
 // bindPullOnlyFlag is the pull-only mark bind was asked to write, and whether it

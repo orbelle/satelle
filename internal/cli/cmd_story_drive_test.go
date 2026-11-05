@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -218,72 +217,6 @@ func (f *driveFixture) edges(id string) []string {
 		out = append(out, p.From+">"+p.To)
 	}
 	return out
-}
-
-// AC2, case 1: an executor-allocated step while [executor] is in-loop is refused
-// before any transition, naming the step and the agents.toml key.
-func TestStoryDriveRefusesAnInLoopExecutor(t *testing.T) {
-	f := newDriveFixture(t, driveOpts{executorCommand: "in-loop"})
-	id := f.create()
-	before := len(f.rows(id))
-	out, err := runRoot(t, "story", "drive", id)
-	if err == nil {
-		t.Fatalf("an in-loop executor must be refused:\n%s", out)
-	}
-	for _, want := range []string{`step "integration"`, "[executor] command"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("refusal must name %q, got: %v", want, err)
-		}
-	}
-	if ExitCodeOf(err) != 1 {
-		t.Errorf("a refusal exits 1, got %d", ExitCodeOf(err))
-	}
-	if got := storyStatus(t, id); got != "backlog" || len(f.edges(id)) != 0 {
-		t.Errorf("a refused drive makes no transition: status %q, edges %v", got, f.edges(id))
-	}
-	if after := f.rows(id); len(after) != before {
-		t.Errorf("a refusal before the first move writes nothing: %d ledger rows became %d", before, len(after))
-	}
-}
-
-// AC2, case 2: a step whose named agent is bound in-loop is refused the same way.
-func TestStoryDriveRefusesANamedAgentBoundInLoop(t *testing.T) {
-	f := newDriveFixture(t, driveOpts{coderCommand: "in-loop"})
-	id := f.create()
-	before := len(f.rows(id))
-	out, err := runRoot(t, "story", "drive", id)
-	if err == nil {
-		t.Fatalf("an in-loop named agent must be refused:\n%s", out)
-	}
-	for _, want := range []string{`step "in_progress"`, `agent "coder"`, "[coder]"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("refusal must name %q, got: %v", want, err)
-		}
-	}
-	if ExitCodeOf(err) != 1 || storyStatus(t, id) != "backlog" {
-		t.Errorf("a refusal exits 1 and moves nothing: %d, %q", ExitCodeOf(err), storyStatus(t, id))
-	}
-	if after := f.rows(id); len(after) != before {
-		t.Errorf("a refusal before the first move writes nothing: %d ledger rows became %d", before, len(after))
-	}
-}
-
-// AC4: the process exit code is read off the ExitError chain.
-func TestExitCodeOf(t *testing.T) {
-	for _, tc := range []struct {
-		err  error
-		want int
-	}{
-		{errors.New("plain"), 1},
-		{&ExitError{Code: 3, Err: errors.New("parked")}, 3},
-		{fmt.Errorf("wrapped: %w", &ExitError{Code: 3}), 3},
-		{&gateExitError{msg: "x"}, 1},
-		{&gateExitError{msg: "x", code: 3}, 3},
-	} {
-		if got := ExitCodeOf(tc.err); got != tc.want {
-			t.Errorf("ExitCodeOf(%v) = %d, want %d", tc.err, got, tc.want)
-		}
-	}
 }
 
 func TestStoryDriveNeedsAnID(t *testing.T) {

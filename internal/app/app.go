@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/sessionconfig"
 	"github.com/bobmcallan/satelle/internal/store"
 )
 
@@ -230,31 +229,7 @@ func OpenLoaded(loc config.Config, locPath string, proc config.Config, procRoot 
 		DBPath:         dbPath,
 		Store:          st,
 	}
-	a.installConfigStamp(authored)
 	return a, nil
-}
-
-// installConfigStamp makes every agent_invocation row carry the digests of the
-// configuration the run used, and keeps that configuration on the story
-// (internal/sessionconfig). The bindings are read from the layered agents
-// config on each stamp, with no cache, like the document set.
-func (a *App) installConfigStamp(authored config.AuthoredRoots) {
-	src := &sessionconfig.Source{
-		Docs:  a.Store.DocIndex,
-		Roots: authored.Dirs,
-		Tier:  authored.Tier,
-		Bindings: func() ([]byte, error) {
-			eff, err := config.LoadEffectiveAgents(a.PlaneDir(), a.PlaneConfig().Vars)
-			if err != nil {
-				return nil, err
-			}
-			return sessionconfig.BindingsJSON(eff.Agents)
-		},
-		Warn: func(err error) {
-			fmt.Fprintln(os.Stderr, "warning:", err)
-		},
-	}
-	a.Store.Ledger.SetInvocationStamper(src.Stamp)
 }
 
 // AuthoredDirs returns the authored roots the directory monitor indexes,

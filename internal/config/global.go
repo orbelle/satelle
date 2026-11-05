@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/bobmcallan/satelle/internal/costview"
 )
 
 // Global config lives under ~/.satelle/ — the one machine-wide touchpoint the
@@ -60,8 +58,6 @@ type GlobalConfig struct {
 	Workspace WorkspaceConfig    `toml:"workspace"`
 	UI        UIConfig           `toml:"ui"`
 	Hosted    GlobalHostedConfig `toml:"hosted"`
-	// Pricing prices a story's tokens at read time; see pricing.go.
-	Pricing costview.Pricing `toml:"pricing"`
 }
 
 // GlobalHostedConfig binds this MACHINE to one hosted satelle-server — the single
@@ -284,12 +280,8 @@ func loadGlobalAt(path string) (GlobalConfig, error) {
 		return GlobalConfig{}, fmt.Errorf("config: read %s: %w", path, err)
 	}
 	var gc GlobalConfig
-	md, err := toml.Decode(string(b), &gc)
-	if err != nil {
+	if _, err := toml.Decode(string(b), &gc); err != nil {
 		return GlobalConfig{}, fmt.Errorf("config: parse %s: %w", path, err)
-	}
-	if err := validatePricing(md, gc.Pricing); err != nil {
-		return GlobalConfig{}, fmt.Errorf("%w (in %s)", err, path)
 	}
 	return gc, nil
 }
@@ -313,7 +305,6 @@ func SaveGlobal(gc GlobalConfig) error {
 	}
 	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo, gc.Agent.ResolveCLI(), repos, gc.UI.Theme, gc.Hosted.ResolveServer())
 	body += renderHostedPush(gc.Hosted.Push)
-	body += renderPricing(gc.Pricing)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)

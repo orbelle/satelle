@@ -175,40 +175,6 @@ func TestRemoveClaude_KeepsWrapperWhilePiReferences(t *testing.T) {
 	}
 }
 
-// AC8: with the extension absent nothing about a session changes, and installing
-// another harness never creates pi files.
-func TestPiNoExtension_NoChange(t *testing.T) {
-	repo := tempRepo(t)
-	t.Chdir(repo)
-	for _, target := range []string{"claude", "grok"} {
-		if out, err := runRootIn(t, "", "agents", "install", target); err != nil {
-			t.Fatalf("install %s: %v\n%s", target, err, out)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(repo, ".pi")); !os.IsNotExist(err) {
-		t.Errorf("installing claude/grok must not create .pi: %v", err)
-	}
-	for _, f := range DetectScaffoldDrift(repo) {
-		if strings.Contains(f.Path, ".pi") {
-			t.Errorf("no extension deployed, yet drift reported: %+v", f)
-		}
-	}
-	// init must not adopt a repo that merely has a .pi directory.
-	if err := os.MkdirAll(filepath.Join(repo, ".pi"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var sb strings.Builder
-	if err := ensureProcessHooks(&sb, repo, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(piExtensionRel))); !os.IsNotExist(err) {
-		t.Errorf("init must not install pi on its own: %v", err)
-	}
-	if strings.Contains(sb.String(), "pi scaffold") {
-		t.Errorf("init output mentions pi: %s", sb.String())
-	}
-}
-
 // AC9: the pi scaffold covers the same event set as claude and grok, in the same
 // invocation form per event, so the three cannot drift apart.
 func TestHarnessHooks_PiMatchesFullEventSet(t *testing.T) {
@@ -363,59 +329,6 @@ func TestPiContextLimitIsItsOwnRow(t *testing.T) {
 	}
 	if got := resolveContextHarness("pi", nil, nil); got != "pi" {
 		t.Errorf("--harness pi must select the pi row, got %q", got)
-	}
-}
-
-// drift: an edited or stale extension is reported, and `satelle init` heals it.
-func TestScaffoldDrift_PiExtension(t *testing.T) {
-	repo := tempRepo(t)
-	t.Chdir(repo)
-	if _, _, _, err := scaffoldPiHooks(repo); err != nil {
-		t.Fatal(err)
-	}
-	piDrift := func() []ScaffoldFinding {
-		var out []ScaffoldFinding
-		for _, f := range DetectScaffoldDrift(repo) {
-			if f.Path == piExtensionRel || f.Path == satelleHookScriptRel {
-				out = append(out, f)
-			}
-		}
-		return out
-	}
-	if d := piDrift(); len(d) != 0 {
-		t.Fatalf("fresh install must not drift: %+v", d)
-	}
-	path := filepath.Join(repo, filepath.FromSlash(piExtensionRel))
-	raw, _ := os.ReadFile(path)
-	if err := os.WriteFile(path, append(raw, []byte("// hand edit\n")...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if d := piDrift(); len(d) != 1 || d[0].Path != piExtensionRel || d[0].Kind != "content" {
-		t.Fatalf("an edited extension must drift: %+v", d)
-	}
-	var sb strings.Builder
-	if err := ensureProcessHooks(&sb, repo, nil); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(sb.String(), "updated pi scaffold") {
-		t.Errorf("init should say it healed the extension: %s", sb.String())
-	}
-	if d := piDrift(); len(d) != 0 {
-		t.Fatalf("init must heal the extension: %+v", d)
-	}
-	// A wrapper the extension calls but that is gone is drift too.
-	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(satelleHookScriptRel))); err != nil {
-		t.Fatal(err)
-	}
-	if d := piDrift(); len(d) != 1 || d[0].Kind != "missing" {
-		t.Fatalf("a missing wrapper must drift: %+v", d)
-	}
-	// An operator-authored satelle.ts is never drift and never healed.
-	if err := os.WriteFile(path, []byte("// mine\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if d := piDrift(); len(d) != 0 {
-		t.Fatalf("an unowned file is not satelle's to report: %+v", d)
 	}
 }
 

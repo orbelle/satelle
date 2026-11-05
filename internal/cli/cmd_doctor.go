@@ -8,30 +8,20 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/app"
-	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/doctor"
 	"github.com/bobmcallan/satelle/internal/health"
-	"github.com/bobmcallan/satelle/internal/store"
-	"github.com/bobmcallan/satelle/internal/verb"
 )
 
 func init() {
 	var (
-		all               bool
-		live              bool
-		contextReviewFlag bool
-		asJSON            bool
-		verbose           bool
-		timeout           time.Duration
+		all     bool
+		asJSON  bool
+		verbose bool
 	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
@@ -96,17 +86,7 @@ killed and reaped on the deadline or on cancellation.`,
 				defer func() { _ = oa.Close() }()
 				a, err = oa, nil
 			}
-			opts := doctor.Opts{
-				Live:              live,
-				LiveTimeout:       timeout,
-				ScaffoldDrift:     scaffoldFindings,
-				StatusDrift:       statusDriftFindings,
-				BreakingDrift:     breakingDriftFindings,
-				SubstrateTracking: repoGitignoreFindings,
-				ContextChecks:     contextChecks,
-				ContextReview:     contextReviewFlag,
-				ContextReviewer:   contextReview,
-			}
+			opts := doctor.Opts{}
 			if a != nil {
 				opts.RepoRoot = a.RepoRoot
 				// The process read-plane: in a linked worktree the main tree's
@@ -144,66 +124,12 @@ killed and reaped on the deadline or on cancellation.`,
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "check every registered workspace repository, each independently")
-	cmd.Flags().BoolVar(&live, "live", false, "additionally run bounded provider probes (spawns provider processes; no paid model call)")
-	cmd.Flags().BoolVar(&contextReviewFlag, "context-review", false, "additionally run the semantic context review: the reviewer binding (a model call) judges each assembled context for paraphrased restatements, under the satelle-context-audit rubric (an authored .satelle/skills file overrides it). Ordinary doctor also reports each bound harness's SessionStart fit, seat/reminder sizes against configured budgets, verbatim duplication ([doctor] duplicate_min_words) and unresolved satelle references, with no model call")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the machine-readable report")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "also list every workflow node/edge allocation (and force detail under --all)")
-	cmd.Flags().DurationVar(&timeout, "timeout", doctor.DefaultLiveTimeout, "per-probe deadline for --live")
 	register(cmd)
-}
-
-// scaffoldFindings adapts this package's harness-scaffold drift detector to the
-// shared finding vocabulary. The detector stays here, beside the code that
-// WRITES the canonical wrappers, so writer and checker cannot drift apart;
-// doctor consumes it as an injected authority rather than importing cli.
-func scaffoldFindings(repoRoot string) health.Findings {
-	var out health.Findings
-	for _, f := range DetectScaffoldDrift(repoRoot) {
-		id := health.IDScaffoldStale
-		title := "Stale harness scaffolding"
-		if f.Kind == "missing" {
-			id = health.IDScaffoldMissing
-			title = "Missing harness scaffolding"
-		}
-		out = append(out, health.Error(id, title,
-			fmt.Sprintf("%s [%s]: %s", f.Path, f.Kind, f.Detail)).
-			About(f.Path).WithRemediation("run `satelle init` to heal"))
-	}
-	return out
 }
 
 // statusDriftFix is the drift finding's fix: a row that disagrees with its chain
 // is most often a story whose chain forked from its hosted one, which rechain
 // merges; reconcile repairs the row of a story only this checkout holds.
 const statusDriftFix = health.RechainRemediation + "; for a story only this checkout holds, run `satelle story reconcile --repair`"
-
-// statusDriftFindings opens the repo's store (if it exists) and reports
-// work-item rows whose status disagrees with the last status_transition.
-// No store ⇒ no finding (the check is optional).
-func statusDriftFindings(repoRoot string) health.Findings {
-	cfg, _, err := config.Load(filepath.Join(repoRoot, config.DefaultDataDir, config.ConfigName))
-	if err != nil && !errors.Is(err, config.ErrNotFound) {
-		return nil
-	}
-	dbPath := cfg.ResolveDB(repoRoot)
-	if _, sterr := os.Stat(dbPath); sterr != nil {
-		return nil
-	}
-	db, oerr := store.Open(dbPath)
-	if oerr != nil {
-		return nil
-	}
-	defer db.Close()
-	drifts, derr := verb.DetectDrift(context.Background(), db.Stories, db.Ledger)
-	if derr != nil {
-		return health.Findings{health.Warn(health.IDStatusDrift, "Story status drift",
-			derr.Error()).About(repoRoot)}
-	}
-	var out health.Findings
-	for _, d := range drifts {
-		out = append(out, health.Error(health.IDStatusDrift, "Story disagrees with its ledger chain",
-			fmt.Sprintf("%s %s: row=%q chain=%q", d.ID, d.Field, d.Row, d.Chain)).
-			About(d.ID).WithRemediation(statusDriftFix))
-	}
-	return out
-}

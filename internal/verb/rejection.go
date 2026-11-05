@@ -111,22 +111,7 @@ func reDispatchOwed(ctx context.Context, current workitem.Item) bool {
 			return true
 		}
 	}
-	return directedMessageOwed(ctx, resolver, current, ranAt, ran)
-}
-
-// directedMessageOwed reports whether the step's own dispatched performer has
-// an unanswered directed message created after its last run (ranAt; any such
-// message when it never ran).
-func directedMessageOwed(ctx context.Context, resolver PerformerResolver, current workitem.Item, ranAt time.Time, ran bool) bool {
-	perf, err := resolver.StepPerformer(ctx, current, current.Status)
-	if err != nil || perf.Kind != PerformerDispatched || perf.Agent == "" {
-		return false
-	}
-	waiting := UnansweredDirected(EngagementMessages(ctx, current.ID), perf.Agent)
-	if len(waiting) == 0 {
-		return false
-	}
-	return !ran || waiting[len(waiting)-1].CreatedAt.After(ranAt)
+	return false
 }
 
 // redispatchStep runs the step's named performer once more at the status the

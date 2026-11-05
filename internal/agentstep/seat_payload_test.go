@@ -8,7 +8,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/retrieve"
 )
 
 // seatPrinciple is a session-resident principle of about n paragraphs.
@@ -21,49 +20,6 @@ func seatPrinciple(name string, n int) docindex.Doc {
 	}
 	body := "---\nname: " + name + "\ntags: [principles:session]\n---\n# " + name + "\n\n" + strings.Join(ps, "\n\n") + "\n"
 	return docindex.Doc{Kind: "principles", Name: name, Body: body}
-}
-
-// sty_58a7bdfe AC5: a dispatched seat receives every injected principle whole —
-// including one far larger than any former per-seat budget — with no condensing,
-// no retrieve marker and no pointer header, and nothing offloaded.
-func TestSeatReceivesEveryPrincipleWhole(t *testing.T) {
-	principles := []docindex.Doc{
-		seatPrinciple(config.OperatingPrinciple, 10), seatPrinciple("p-two", 8),
-		seatPrinciple("p-huge", 600), // ~120 KB, past any budget a repo set
-	}
-	g := New(&fakeRunner{}, fakeDocs{workflow: testWorkflow, extraPrinciples: principles}, "/repo", "")
-	g.SetConstitution("A short constitution. Never edit without a story.")
-	offloaded := 0
-	g.SetDiffOffloader(func(_ context.Context, _ string, content []byte) (string, error) {
-		offloaded++
-		return retrieve.Hash(content), nil
-	})
-	req, err := g.buildRequest(context.Background(), invocation{
-		charter: reviewerCharter(), rubric: "RUBRIC-BODY", principles: config.PrinciplesSession,
-		payload: map[string]string{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := req.SystemPrompt
-	for _, p := range principles {
-		if !strings.Contains(got, strings.TrimSpace(stripFrontmatter(p.Body))) {
-			t.Errorf("%s is not delivered whole", p.Name)
-		}
-	}
-	for _, mark := range []string{"Retrieve more", "OMITTED FOR THE", "CONTEXT BUDGET"} {
-		if strings.Contains(got, mark) {
-			t.Errorf("the seat prompt carries %q: principles must not be condensed or pointered", mark)
-		}
-	}
-	if offloaded != 0 {
-		t.Errorf("%d document(s) offloaded, want none", offloaded)
-	}
-	for _, tail := range []string{"A short constitution.", "RUBRIC-BODY", reviewerCharter()} {
-		if !strings.Contains(got, tail) {
-			t.Errorf("the prompt lost %q", tail[:20])
-		}
-	}
 }
 
 // BuildSeatPayload is the constitution, the principles under one heading, then

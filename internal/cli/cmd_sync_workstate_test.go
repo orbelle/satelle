@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -1120,72 +1118,6 @@ func TestWorkstateItemWireEpicRoundTrip(t *testing.T) {
 				t.Errorf("tag[%d] = %q want %q", i, got.Tags[i], it.Tags[i])
 			}
 		}
-	}
-}
-
-// TestPushMirrorAfterWorkstate (sty_e4e1a008 AC3): posts one drain snapshot when
-// upserted > 0 (carrying the materialised story id) and posts nothing when
-// upserted == 0.
-func TestPushMirrorAfterWorkstate(t *testing.T) {
-	t.Setenv("SATELLE_HOME", t.TempDir())
-	var (
-		mu   sync.Mutex
-		hits int
-		body []byte
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/ingest/snapshot" {
-			mu.Lock()
-			hits++
-			body, _ = io.ReadAll(r.Body)
-			mu.Unlock()
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	t.Cleanup(srv.Close)
-	t.Setenv("SATELLE_SERVER_ENDPOINT", srv.URL)
-
-	a := testApp(t)
-	a.RepoRoot = t.TempDir()
-	_ = os.WriteFile(filepath.Join(a.RepoRoot, ".git"), []byte(""), 0o644)
-	ctx := context.Background()
-	sty, err := a.Store.Stories.Create(ctx, workitem.CreateInput{
-		Kind: workitem.KindStory, Title: "Mirror Push", Status: workitem.StatusBacklog,
-	}, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := pushMirrorAfterWorkstate(ctx, a, 1); err != nil {
-		t.Fatal(err)
-	}
-	mu.Lock()
-	gotHits, gotBody := hits, append([]byte(nil), body...)
-	mu.Unlock()
-	if gotHits != 1 {
-		t.Fatalf("hits=%d, want 1", gotHits)
-	}
-	if !bytes.Contains(gotBody, []byte(sty.ID)) {
-		t.Fatalf("posted snapshot missing story id %s: %s", sty.ID, gotBody)
-	}
-	// sty_a21d9c07 AC1: a change materialised from the hosted project says so,
-	// so satelled never pushes it back.
-	if !bytes.Contains(gotBody, []byte(`"origin":"hosted"`)) {
-		t.Fatalf("posted snapshot does not carry the hosted origin: %s", gotBody)
-	}
-
-	mu.Lock()
-	hits = 0
-	mu.Unlock()
-	if err := pushMirrorAfterWorkstate(ctx, a, 0); err != nil {
-		t.Fatal(err)
-	}
-	mu.Lock()
-	gotHits = hits
-	mu.Unlock()
-	if gotHits != 0 {
-		t.Fatalf("upserted=0 posts=%d, want 0", gotHits)
 	}
 }
 

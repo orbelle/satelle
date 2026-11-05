@@ -732,15 +732,6 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 		return InvokeResult{Err: fmt.Errorf("binding %q: invalid busy_timeout: %w", section, berr)}
 	}
 
-	// A leftover sweep only ever runs for a PERFORM dispatch — reviewers are
-	// read-only — and only when this repo configured a rule, so a repo with no
-	// [dispatch.leftovers] pays no extra git cost (sty_e7aaf8b1 AC5/AC6).
-	var leftoverBefore map[string]bool
-	sweepConfigured := len(g.leftoverRule.Patterns) > 0 || strings.TrimSpace(g.leftoverRule.ContentRegex) != ""
-	if expect == ExpectPerform && sweepConfigured {
-		leftoverBefore, _ = untrackedSnapshot(g.repoRoot)
-	}
-
 	if req.Log != nil {
 		logInput(req.Log, agentReq.SystemPrompt, agentReq.Payload, req.Payload, scratchDir, ref)
 	}
@@ -804,27 +795,7 @@ func (g *Engine) invokePrimary(ctx context.Context, req InvokeRequest) InvokeRes
 	}
 	g.ledgerInteractiveDenied(ctx, req, section, askedNow)
 
-	var swept []string
-	var sweepFailed bool
-	if expect == ExpectPerform && leftoverBefore != nil {
-		files, serr := SweepLeftovers(g.repoRoot, scratchDir, leftoverBefore, g.leftoverRule)
-		if serr != nil {
-			// SweepLeftovers may have already moved SOME matched files out of the
-			// tree before hitting this error — files still reports every match it
-			// attempted. Never delete scratch on this path: that would silently
-			// destroy whatever it already moved, with nothing left to recover it
-			// from (sty_e7aaf8b1 AC5).
-			sweepFailed = true
-			g.recordInvocation(ctx, req.StoryID, map[string]any{
-				"phase": "leftovers_failed", "scratch_dir": scratchDir, "agent": section,
-				"files": files, "error": serr.Error(),
-			})
-		} else if len(files) > 0 {
-			swept = files
-			g.ledgerLeftovers(ctx, req.StoryID, scratchDir, g.leftoverRule.ResolveAction(), files)
-		}
-	}
-	keepScratch := res.Err != nil || sweepFailed || (len(swept) > 0 && g.leftoverRule.ResolveAction() == config.LeftoverActionMove)
+	keepScratch := res.Err != nil
 	if res.Err != nil {
 		g.recordInvocation(ctx, req.StoryID, map[string]any{
 			"phase": "scratch_kept", "scratch_dir": scratchDir, "agent": section,

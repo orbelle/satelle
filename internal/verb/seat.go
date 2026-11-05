@@ -80,13 +80,11 @@ func storySeatList(ctx context.Context, _ json.RawMessage) (json.RawMessage, err
 	if err != nil {
 		return nil, err
 	}
-	reaped, err := ls.Reap(ctx)
+	_, err = ls.Reap(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	recordDriverUsageOnReap(ctx, reaped, now)
-	sweepPendingDriverUsage(ctx, now)
 	all, err := ls.List(ctx)
 	if err != nil {
 		return nil, err

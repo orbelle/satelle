@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bobmcallan/satelle/internal/sessionconfig"
 )
 
 // TestValidateSkipsGeneratedConfigBundles proves the user flow: a config bundle

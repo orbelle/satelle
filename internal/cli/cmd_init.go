@@ -13,13 +13,10 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -28,15 +25,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/docindex"
-	"github.com/bobmcallan/satelle/internal/health"
-	"github.com/bobmcallan/satelle/internal/remotedef"
-	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/store"
-	"github.com/bobmcallan/satelle/internal/syncstate"
-	"github.com/bobmcallan/satelle/internal/verb"
 	"github.com/bobmcallan/satelle/internal/wfdot"
 	"github.com/bobmcallan/satelle/internal/wfgovern"
 )
@@ -45,7 +36,6 @@ func init() {
 	var configArg string
 	var noWorkspace bool
 	var harnessFlag string
-	var all, yes bool
 	cmd := &cobra.Command{
 		Use: "init",
 		// No `install` alias — it collided with `satelle service install`.
@@ -63,7 +53,6 @@ func init() {
   - a managed .gitignore block: .satelle/ is tracked in git, only its
     machine-local state (local.toml, logs, hooks, pinned binary) ignored; your
     own .satelle/ ignore is reported.
-    Repos still on the pre-relocation layout: run 'satelle migrate'.
   - process hooks ON DEMAND for coding harnesses in use (epic:minimal-harness-footprint):
     scaffolds only when the repo already has .claude/ or .grok/, or when
     --harness names them (claude,grok). Never from PATH and never a silent
@@ -87,127 +76,13 @@ shows what was added versus already present.`,
 			if err != nil {
 				return err
 			}
-			if yes && !all {
-				return fmt.Errorf("--yes applies the bulk heal and only means something with --all; " +
-					"a single-repo `satelle init` already applies")
-			}
-			if all {
-				return runInitAll(cmd.OutOrStdout(), yes, forced)
-			}
 			return runInit(cmd.OutOrStdout(), initRepoRoot(configArg), noWorkspace, forced)
 		},
 	}
 	cmd.Flags().StringVar(&configArg, "config", "", "path to satelle.toml (resolves the repo root; default: walk up from CWD)")
 	cmd.Flags().BoolVar(&noWorkspace, "no-workspace", false, "skip registering this repo in the local workspace registry")
 	cmd.Flags().StringVar(&harnessFlag, "harness", "", "comma-separated harness scaffolds to install (claude,grok); when empty, only existing .claude/.grok dirs are scaffolded — never PATH")
-	cmd.Flags().BoolVar(&all, "all", false, "heal EVERY registered repo whose deployed scaffolding, deployed.version stamp or managed .gitignore block is stale (dry-run; --yes applies)")
-	cmd.Flags().BoolVar(&yes, "yes", false, "with --all: apply the heal (default is dry-run)")
 	register(cmd)
-}
-
-// runInitAll heals every registered repo whose deployed harness scaffolding or
-// deployed.version stamp is stale — the chore an upgrade creates and nothing
-// previously offered to do (sty_0f471251). Upgrading the binary invalidates the
-// scaffolding every other repo deployed and leaves each repo's stamp behind it,
-// which refuses that repo's commands once the gap crosses an init-heals breaking
-// release (sty_2e629e93); healing them by hand is N × (cd + satelle init), which
-// is exactly the chore an operator defers.
-//
-// Dry-run by default, --yes applies: the same convention `satelle migrate`
-// already established, deliberately not a second flag shape. The dry run opens
-// NO store and writes no byte — DetectScaffoldDrift and the stamp read are pure
-// filesystem, so a dry run cannot materialise a runtime plane for a repo it is only reporting on
-// (sty_20a7824c).
-//
-// A registry path that no longer resolves is REPORTED and skipped, never fatal:
-// the registry legitimately carries entries for unmounted volumes and detached
-// checkouts, and `satelle runtime reap` (sty_bd8af0b6) is the verb that clears
-// genuinely dead ones.
-func runInitAll(out io.Writer, apply bool, forcedHarness []string) error {
-	gc, err := config.LoadGlobal()
-	if err != nil {
-		return fmt.Errorf("init --all: read the workspace registry: %w", err)
-	}
-	roots := gc.Workspace.Repos
-	if len(roots) == 0 {
-		fmt.Fprintln(out, "no registered repositories — add one with `satelle workspace add <path>`")
-		return nil
-	}
-
-	binVer := strings.TrimSpace(buildinfo.Resolve().Version)
-	var stale, clean, skipped, healed, failed int
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		if st, serr := os.Stat(root); serr != nil || !st.IsDir() {
-			fmt.Fprintf(out, "  SKIP    %s — unreadable or gone (clear it with `satelle runtime reap`)\n", root)
-			skipped++
-			continue
-		}
-		findings := DetectScaffoldDrift(root)
-		var why []string
-		if len(findings) > 0 {
-			why = append(why, fmt.Sprintf("%d item(s)", len(findings)))
-		}
-		if dataDir := filepath.Join(root, config.DefaultDataDir); dirExists(dataDir) {
-			if deployed := readDeployedVersion(dataDir); stampBehind(deployed, binVer) {
-				shown := deployed
-				if shown == "" {
-					shown = "(none)"
-				}
-				why = append(why, fmt.Sprintf("stamp %s behind binary %s (%s)", shown, binVer, stampGap(deployed, binVer)))
-			}
-		}
-		// The same predicate ensureGitignore acts on, so a repo is listed exactly
-		// when init would change its .gitignore (a retired block that ignores
-		// .satelle/, or a missing tracked-substrate entry).
-		if gitignoreNeedsConverge(root) {
-			why = append(why, ".gitignore managed block not current")
-		}
-		if len(why) == 0 {
-			clean++
-			continue
-		}
-		stale++
-		fmt.Fprintf(out, "  STALE   %s — %s\n", root, strings.Join(why, "; "))
-		for _, f := range findings {
-			fmt.Fprintf(out, "            %s [%s]: %s\n", f.Path, f.Kind, f.Detail)
-		}
-		if !apply {
-			continue
-		}
-		// runInit is idempotent over AUTHORED substrate — it seeds only absent
-		// files — so healing deploys canonical scaffolding without touching
-		// anything the operator wrote.
-		unpushed, ierr := runInitReport(io.Discard, root, false, forcedHarness, true)
-		if ierr != nil {
-			fmt.Fprintf(out, "  FAILED  %s — %v\n", root, ierr)
-			failed++
-			continue
-		}
-		if len(unpushed) > 0 {
-			fmt.Fprintf(out, "  HEALED  %s (push failed: %s)\n", root, strings.Join(unpushed, ", "))
-		} else {
-			fmt.Fprintf(out, "  HEALED  %s\n", root)
-		}
-		healed++
-	}
-
-	fmt.Fprintf(out, "\n%d registered: %d stale, %d already current, %d skipped\n",
-		len(roots), stale, clean, skipped)
-	if !apply {
-		if stale > 0 {
-			fmt.Fprintln(out, "dry-run only — nothing was changed. Re-run with --yes to heal the repos listed above.")
-		}
-		return nil
-	}
-	fmt.Fprintf(out, "%d healed, %d failed\n", healed, failed)
-	if failed > 0 {
-		return fmt.Errorf("init --all: %d repositor(y|ies) failed to heal", failed)
-	}
-	return nil
 }
 
 // parseHarnessFlag parses --harness claude,grok into a unique ordered list.
@@ -274,108 +149,7 @@ func runInitWith(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 // changed but could not publish: the heal succeeded and its push did not, which
 // `init --all` reports per repo and never counts as a failed heal.
 func runInitReport(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness []string, processHooks bool) ([]string, error) {
-	before := initSubstrateHashes(repoRoot)
-	err := runInitBody(out, repoRoot, noWorkspace, forcedHarness, processHooks)
-	changed := verb.SeededChanges(before, initSubstrateHashes(repoRoot))
-	if len(changed) > 0 {
-		if rerr := recordInitSeed(repoRoot, changed); rerr != nil {
-			return nil, errors.Join(err, fmt.Errorf("init: record substrate written: %w", rerr))
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	return publishInitChanges(out, repoRoot, changed), nil
-}
-
-// publishInitChanges pushes the synced areas init just changed, so a heal
-// reaches the hosted copy instead of leaving every healed repo unpushed
-// (satelle-sync-architecture rule 3). It pushes nothing when the run changed no
-// area sync tracks or the repo binds no project. A failed push leaves init's
-// result alone: it ends init's output with one line naming the areas and the
-// command, and returns the areas.
-func publishInitChanges(out io.Writer, repoRoot string, changed []verb.SeededFile) []string {
-	cfg, _, err := config.Load(filepath.Join(repoRoot, config.DefaultDataDir, config.ConfigName))
-	if err != nil {
-		return nil
-	}
-	areas := initChangedAreas(cfg, repoRoot, changed)
-	if len(areas) == 0 || cfg.SyncProject() == "" {
-		return nil
-	}
-	if perr := initPush(out, repoRoot); perr != nil {
-		fmt.Fprintf(out, "init changed synced substrate (%s) but the push failed — run `satelle sync push`\n", strings.Join(areas, ", "))
-		return areas
-	}
-	return nil
-}
-
-// initChangedAreas names, sorted, the non-local substrate areas whose files are
-// among changed (paths relative to repoRoot), by each area's own location.
-func initChangedAreas(cfg config.Config, repoRoot string, changed []verb.SeededFile) []string {
-	synced := config.SubstrateAreas(syncstate.RecordedScope(config.GlobalDir(), repoRoot, cfg.SyncProject()))
-	if len(changed) == 0 {
-		return nil
-	}
-	var out []string
-	for _, area := range synced {
-		loc, isDir := config.ConfigAreaLocation(cfg, repoRoot, area)
-		if loc == "" {
-			continue
-		}
-		loc = filepath.Clean(loc)
-		for _, f := range changed {
-			abs := filepath.Clean(filepath.Join(repoRoot, filepath.FromSlash(f.Path)))
-			if abs == loc || isDir && strings.HasPrefix(abs, loc+string(filepath.Separator)) {
-				out = append(out, area)
-				break
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// initPush publishes root's substrate through `satelle sync push`, run bound to
-// root. A variable so the tests can run that command in-process.
-var initPush = func(out io.Writer, root string) error {
-	c, err := initPushCmd(root)
-	if err != nil {
-		return err
-	}
-	c.Stdout, c.Stderr = out, out
-	return c.Run()
-}
-
-// initPushCmd is this binary's own `satelle sync push` bound to root. It runs as
-// a child because only a store-backed command's pre-run binds a command to a
-// repo's store, and init (or `init --all`, over other roots) opens none.
-func initPushCmd(root string) (*exec.Cmd, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("init: locate this binary for the push: %w", err)
-	}
-	c := exec.Command(exe, "sync", "push", "--dry-run=false")
-	c.Dir = root
-	c.Env = append(os.Environ(), "SATELLE_CONFIG="+filepath.Join(root, config.DefaultDataDir, config.ConfigName))
-	return c, nil
-}
-
-// initSubstrateHashes is the substrate under repoRoot as its own config places it.
-func initSubstrateHashes(repoRoot string) map[string]verb.FileState {
-	cfg, _, _ := config.Load(filepath.Join(repoRoot, config.DefaultDataDir, config.ConfigName))
-	return verb.SubstrateHashes(repoRoot, cfg.ResolveAuthoredDirs(repoRoot), cfg.ResolveDataDir(repoRoot))
-}
-
-// recordInitSeed appends the run's substrate_seeded row to repoRoot's database.
-func recordInitSeed(repoRoot string, files []verb.SeededFile) error {
-	cfg, _, _ := config.Load(filepath.Join(repoRoot, config.DefaultDataDir, config.ConfigName))
-	db, err := store.Open(filepath.Join(cfg.ResolveRuntimeDir(repoRoot).Dir, config.DefaultDBName))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	return verb.RecordSubstrateSeed(context.Background(), db.Ledger, repoRoot, files)
+	return nil, runInitBody(out, repoRoot, noWorkspace, forcedHarness, processHooks)
 }
 
 // initTomlHealHook, when set, rewrites satelle.toml after the built-in heals; nil
@@ -392,88 +166,11 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 	}
 	fmt.Fprintln(out, initLine(created, config.DefaultDataDir+"/"))
 
-	// 1b. Removed budget keys (sty_58a7bdfe), on raw bytes before anything loads a
-	// config: every load refuses them, so they go first.
-	budgetEdits, berr := config.HealRemovedBudget(dataDir)
-	if berr != nil {
-		return fmt.Errorf("init: remove budget keys: %w", berr)
-	}
-	for _, e := range budgetEdits {
-		fmt.Fprintf(out, "~ %s (removed %s — satelle manages no context or turn budget)\n",
-			config.DefaultDataDir+"/"+e.Rel, strings.Join(e.Removed, ", "))
-	}
-	// The machine catalog too (sty_ba9f5d14): a seat bound to one of its profiles
-	// resolves the removed key into this repo, so init heals every file it reads.
-	// Idempotent, so init --all heals it on the first repo and finds nothing after.
-	catalogEdit, cerr := config.HealRemovedBudgetCatalog()
-	if cerr != nil {
-		return fmt.Errorf("init: remove budget keys from the machine catalog: %w", cerr)
-	}
-	if catalogEdit != nil {
-		fmt.Fprintf(out, "~ %s (removed %s — satelle manages no context or turn budget)\n",
-			catalogEdit.Rel, strings.Join(catalogEdit.Removed, ", "))
-	}
-
-	// 2. satelle.toml — created only if absent; never overwritten as a whole.
-	// A leftover [hosted] table is folded onto [sync] and dropped (sty_5eb1bb8a).
+	// 2. satelle.toml — created only if absent; never overwritten.
 	tomlPath := filepath.Join(dataDir, config.ConfigName)
 	switch _, statErr := os.Stat(tomlPath); {
 	case statErr == nil:
-		// First: the heals below load the config, and a load refuses a removed
-		// [sync] scope key that this one deletes on raw bytes.
-		retiredChanged, rerr := removeRetiredSyncKey(dataDir)
-		if rerr != nil {
-			return fmt.Errorf("init: remove retired [sync] keys: %w", rerr)
-		}
-		// Also on raw bytes, before anything validates: a seat whose machine
-		// layer names another adapter's tools fails node.alloc (sty_f7f80c48).
-		if ferr := repairForeignSeatTools(out, repoRoot, dataDir); ferr != nil {
-			return fmt.Errorf("init: restate foreign seat tools: %w", ferr)
-		}
-		hostedChanged, herr := healHostedBinding(dataDir)
-		if herr != nil {
-			return fmt.Errorf("init: fold [hosted] into [sync]: %w", herr)
-		}
-		staleChanged, serr := healStaleAfter(dataDir)
-		if serr != nil {
-			return fmt.Errorf("init: seed [sync] stale_after: %w", serr)
-		}
-		fixLaneChanged, ferr := healFixLane(dataDir)
-		if ferr != nil {
-			return fmt.Errorf("init: seed [fix_lane]: %w", ferr)
-		}
-		boundSlug, berr := healBindSyncProject(dataDir, repoRoot)
-		if berr != nil {
-			return fmt.Errorf("init: bind [sync] project: %w", berr)
-		}
-		if boundSlug != "" {
-			fmt.Fprintf(out, "~ %s ([sync] project = %q — the project this checkout already syncs under)\n", config.DefaultDataDir+"/"+config.ConfigName, boundSlug)
-		}
-		if initTomlHealHook != nil {
-			raw, rerr := os.ReadFile(tomlPath)
-			if rerr != nil {
-				return fmt.Errorf("init: read %s: %w", tomlPath, rerr)
-			}
-			if werr := os.WriteFile(tomlPath, initTomlHealHook(raw), 0o644); werr != nil {
-				return fmt.Errorf("init: write %s: %w", tomlPath, werr)
-			}
-		}
-		if retiredChanged {
-			fmt.Fprintf(out, "~ %s (removed retired [sync] keys)\n", config.DefaultDataDir+"/"+config.ConfigName)
-		}
-		if fixLaneChanged {
-			fmt.Fprintf(out, "~ %s ([fix_lane] seeded — product_surface is empty, so the fix lane is closed until you declare it)\n", config.DefaultDataDir+"/"+config.ConfigName)
-		}
-		switch {
-		case hostedChanged && staleChanged:
-			fmt.Fprintf(out, "~ %s ([hosted] folded into [sync]; [sync] keys seeded)\n", config.DefaultDataDir+"/"+config.ConfigName)
-		case hostedChanged:
-			fmt.Fprintf(out, "~ %s ([hosted] folded into [sync])\n", config.DefaultDataDir+"/"+config.ConfigName)
-		case staleChanged:
-			fmt.Fprintf(out, "~ %s ([sync] keys seeded)\n", config.DefaultDataDir+"/"+config.ConfigName)
-		default:
-			fmt.Fprintln(out, initLine(false, config.DefaultDataDir+"/"+config.ConfigName))
-		}
+		fmt.Fprintln(out, initLine(false, config.DefaultDataDir+"/"+config.ConfigName))
 	case os.IsNotExist(statErr):
 		if werr := os.WriteFile(tomlPath, []byte(scaffoldToml), 0o644); werr != nil {
 			return fmt.Errorf("init: write %s: %w", tomlPath, werr)
@@ -483,75 +180,12 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 		return fmt.Errorf("init: stat %s: %w", tomlPath, statErr)
 	}
 
-	// 2b. agents.toml — the agents layer (how each agent runs). Created only if
-	//     absent; an absent file is the read-only default, so this documents the
-	//     knobs without changing behaviour. A repo still carrying the legacy
-	//     actors.toml is treated as present (no re-scaffold) — the loader reads
-	//     either (sty_536f9960).
-	//     The canonical home is workflows/agents.toml, beside the route halves it
-	//     binds (sty_10f732ed); a repo whose file is still at the legacy path is
-	//     RELOCATED here — the one place that converts an unconverted repo, so the
-	//     loader's fallback stays a bridge rather than a second permanent home.
+	// 2b. agents.toml — created only if absent.
 	agentsPath := filepath.Join(dataDir, config.AgentsConfigDir, config.AgentsConfigName)
-	oldAgentsPath := filepath.Join(dataDir, config.AgentsConfigName)
-	legacyPath := filepath.Join(dataDir, config.ActorsConfigName)
-	_, legacyErr := os.Stat(legacyPath)
-	_, oldAgentsErr := os.Stat(oldAgentsPath)
 	agentsRel := config.DefaultDataDir + "/" + config.AgentsRel
 	switch _, statErr := os.Stat(agentsPath); {
-	case os.IsNotExist(statErr) && oldAgentsErr == nil:
-		// Relocate, then run the same format migration the in-place arm runs, so a
-		// converting repo is not left a release behind on format.
-		if mkErr := os.MkdirAll(filepath.Join(dataDir, config.AgentsConfigDir), 0o755); mkErr != nil {
-			return fmt.Errorf("init: mkdir %s: %w", config.AgentsConfigDir, mkErr)
-		}
-		if rerr := os.Rename(oldAgentsPath, agentsPath); rerr != nil {
-			return fmt.Errorf("init: relocate %s: %w", oldAgentsPath, rerr)
-		}
-		note := ""
-		if raw, rerr := os.ReadFile(agentsPath); rerr == nil {
-			if migrated, notes, merr := config.MigrateAgents(string(raw)); merr == nil && len(notes) > 0 {
-				if werr := os.WriteFile(agentsPath, []byte(migrated), 0o644); werr == nil {
-					note = "; migrated: " + strings.Join(notes, "; ")
-				}
-			}
-		}
-		fmt.Fprintf(out, "  ~ %s (relocated from %s/%s%s)\n",
-			agentsRel, config.DefaultDataDir, config.AgentsConfigName, note)
 	case statErr == nil:
-		// Format-migrate an existing agents.toml (harness→command, add role=)
-		// instead of reporting "= already present" — mirrors hook heal.
-		if raw, rerr := os.ReadFile(agentsPath); rerr != nil {
-			fmt.Fprintln(out, initLine(false, agentsRel))
-		} else if migrated, notes, merr := config.MigrateAgents(string(raw)); merr != nil {
-			fmt.Fprintf(out, "= %s (left intact: %v)\n", agentsRel, merr)
-		} else {
-			// The migrated file is written before the heal so the effective
-			// resolver reads the bindings as migrated; a resolve error skips the
-			// heal rather than guess which executables the repo spawns.
-			migratedNotes := len(notes)
-			if migratedNotes > 0 {
-				if werr := os.WriteFile(agentsPath, []byte(migrated), 0o644); werr != nil {
-					return fmt.Errorf("init: write migrated %s: %w", agentsPath, werr)
-				}
-			}
-			if eff, lerr := config.LoadEffectiveAgents(dataDir, nil); lerr == nil {
-				var healed string
-				if healed, notes = withModelOrder(migrated, eff.Agents.SpawnedExecutables(), notes); len(notes) > migratedNotes {
-					if werr := os.WriteFile(agentsPath, []byte(healed), 0o644); werr != nil {
-						return fmt.Errorf("init: write migrated %s: %w", agentsPath, werr)
-					}
-				}
-			}
-			if len(notes) > 0 {
-				fmt.Fprintf(out, "~ %s (migrated: %s)\n", agentsRel, strings.Join(notes, "; "))
-			} else {
-				fmt.Fprintln(out, initLine(false, agentsRel))
-			}
-		}
-	case os.IsNotExist(statErr) && legacyErr == nil:
-		// Legacy actors.toml present: leave it; report it rather than scaffolding.
-		fmt.Fprintln(out, initLine(false, config.DefaultDataDir+"/"+config.ActorsConfigName))
+		fmt.Fprintln(out, initLine(false, agentsRel))
 	case os.IsNotExist(statErr):
 		if mkErr := os.MkdirAll(filepath.Join(dataDir, config.AgentsConfigDir), 0o755); mkErr != nil {
 			return fmt.Errorf("init: mkdir %s: %w", config.AgentsConfigDir, mkErr)
@@ -564,27 +198,7 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 		return fmt.Errorf("init: stat %s: %w", agentsPath, statErr)
 	}
 
-	// 2c. constitution.md — the project constitution injected every session as
-	//     order-zero context (epic:session-context). Created only if absent; a repo
-	//     authors its own, and re-init never clobbers it.
-	constitutionPath := filepath.Join(dataDir, config.DefaultConstitutionName)
-	switch _, statErr := os.Stat(constitutionPath); {
-	case statErr == nil:
-		fmt.Fprintln(out, initLine(false, config.DefaultDataDir+"/"+config.DefaultConstitutionName))
-	case os.IsNotExist(statErr):
-		if werr := os.WriteFile(constitutionPath, []byte(scaffoldConstitution), 0o644); werr != nil {
-			return fmt.Errorf("init: write %s: %w", constitutionPath, werr)
-		}
-		fmt.Fprintln(out, initLine(true, config.DefaultDataDir+"/"+config.DefaultConstitutionName))
-	default:
-		return fmt.Errorf("init: stat %s: %w", constitutionPath, statErr)
-	}
-
-	// 3. Authored-markdown dirs — create each with a tiny README.md describing
-	//    what it should contain (the README is also the tracked keep-file). The
-	//    per-story markdown mirror was removed (sty_fa1e02e1) and story attachments
-	//    create their dir on demand, so .satelle/stories is NOT scaffolded here
-	//    (sty_746a0c98).
+	// 3. Authored-markdown dirs, each with a README.md keep-file.
 	for _, kind := range config.AuthoredKinds {
 		dir := filepath.Join(dataDir, kind)
 		dirCreated, derr := ensureDir(dir)
@@ -598,50 +212,12 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 		fmt.Fprintln(out, initLine(dirCreated || readmeCreated, config.DefaultDataDir+"/"+kind+"/"))
 	}
 
-	// Virtual sparse defaults (sty_29e5a9a5): do NOT materialise unedited embedded
-	// workflows/skills/principles/tasks onto disk. List/Count overlay defaults at
-	// read time; day-one edit uses `satelle substrate edit`. Authored dirs stay
-	// empty scaffolds so an operator has somewhere to put an override.
-	//
-	// `satelle rebase` follows the SAME rule (sty_cc550a88): it backs up and wipes,
-	// then leaves the authored dirs empty — the overlay is the reset. It used to
-	// re-seed the whole default set afterwards, which defeated the reset, because a
-	// materialised copy shadows the shipped default and freezes it against the next
-	// binary upgrade. Tasks remain the one carve-out in both paths: a coded gate
-	// checks for an on-disk task HEADER, so a task cannot live virtually.
-	cfg, _, _ := config.Load(filepath.Join(repoRoot, config.DefaultDataDir, config.ConfigName))
-	bopts := ResolveBackupOpts(cfg, repoRoot)
-	rtEarly := cfg.ResolveRuntimeDir(repoRoot)
-	if err := os.MkdirAll(rtEarly.Dir, 0o755); err != nil {
-		return fmt.Errorf("init: mkdir runtime dir %s: %w", rtEarly.Dir, err)
+	// 4. The per-repo database on the home-keyed runtime plane.
+	cfg, _, _ := config.Load(tomlPath)
+	rt := cfg.ResolveRuntimeDir(repoRoot)
+	if err := os.MkdirAll(rt.Dir, 0o755); err != nil {
+		return fmt.Errorf("init: mkdir runtime dir %s: %w", rt.Dir, err)
 	}
-	bopts.BackupsDir = rtEarly.Dir
-
-	// Heal operator-authored principle frontmatter already on disk (inert scope:,
-	// principles:always → session). Does NOT seed missing defaults.
-	for _, line := range healPrincipleFrontmatter(dataDir, bopts) {
-		fmt.Fprintln(out, line)
-	}
-
-	// Converge ON-DISK embedded-owned copies only (restamp/update). Never create
-	// a missing default file — virtual defaults cover absence (sty_29e5a9a5).
-	for _, line := range convergeOnDiskDefaults(dataDir, bopts) {
-		fmt.Fprintln(out, line)
-	}
-
-	// 3d. Tasks: dir + README only. Embedded default tasks are virtual like the
-	// other kinds — SyncTasks ingests them without a file — so they are never
-	// seeded onto disk, where they would sync as if authored (sty_097833e8). An
-	// existing unedited copy is converged in place by convergeOnDiskDefaults.
-	for _, line := range seedTasks(dataDir) {
-		fmt.Fprintln(out, line)
-	}
-
-	// 4. The per-repo database on the home-keyed runtime plane (sty_4660bbe1) —
-	//    open (creating + migrating) then close, so a fresh repo lands a ready
-	//    satelle.db with no first-command surprise. Authored substrate stays under
-	//    dataDir; runtime (db/logs/backups/stories) never lands in the repo.
-	rt := rtEarly
 	dbPath := filepath.Join(rt.Dir, config.DefaultDBName)
 	dbExisted := fileExists(dbPath)
 	db, derr := store.Open(dbPath)
@@ -652,35 +228,14 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 	_ = config.WriteRepoPathMarker(rt.Dir, repoRoot)
 	fmt.Fprintln(out, initLine(!dbExisted, dbPath))
 
-	// 5a. .satelle/logs pointer to the home-keyed runtime logs directory.
-	plantLogsPointer(out, repoRoot)
-
-	// 5. Process hooks ON DEMAND — Claude (.claude/settings.json) and/or Grok
-	//    (.grok/hooks/satelle.json) when forced via --harness or when those dirs
-	//    already exist. Never PATH, never a silent claude default. Skipped when
-	//    the caller installs them itself (processHooks false).
+	// 5. Harness hooks on demand (--harness, or an existing harness dir).
 	if processHooks {
 		if err := ensureProcessHooks(out, repoRoot, forcedHarness); err != nil {
 			return err
 		}
 	}
 
-	// 5b. Launchers — heal an installed one to the current form, and hint at
-	//     the named-session launcher when it is not installed.
-	if err := healLaunchers(out); err != nil {
-		return err
-	}
-
-	// 6. .gitignore — add only the entries satelle needs that the file does not
-	//    already settle (in-repo local-state, the harness dirs just scaffolded in
-	//    step 5, the story-dump globs). Written after the hooks so a harness dir
-	//    created on this run is seen on this run. An existing operator setting for
-	//    any of them is left as it is. A retired managed block (one that ignored
-	//    .satelle/ wholesale) is refreshed to the tracked-substrate shape; an
-	//    operator's own wholesale ignore outside the block is named, never edited.
-	giPath := filepath.Join(repoRoot, ".gitignore")
-	giBefore, _ := os.ReadFile(giPath)
-	_, retiredLines := retireManagedBlock(string(giBefore))
+	// 6. .gitignore — add only the entries satelle needs.
 	if added, gerr := ensureGitignore(repoRoot); gerr != nil {
 		return gerr
 	} else if len(added) > 0 {
@@ -688,88 +243,16 @@ func runInitBody(out io.Writer, repoRoot string, noWorkspace bool, forcedHarness
 	} else {
 		fmt.Fprintln(out, initLine(false, ".gitignore (satelle entries)"))
 	}
-	for _, r := range retiredLines {
-		fmt.Fprintf(out, "  - .gitignore (removed %s from the managed block: the substrate is tracked)\n", r)
-	}
-	if giAfter, rerr := os.ReadFile(giPath); rerr == nil {
-		if line, ok := gitignoreOwnSatelleIgnore(string(giAfter)); ok {
-			fmt.Fprintf(out, "  ! .gitignore line %q ignores .satelle/ wholesale — remove it so the substrate is tracked\n", line)
-		}
-	}
 
-	// 6b. Local workspace registry (sty_3bdbdc38) — register this repo so the
-	//     aggregate /workspace view and a running 'satelle serve' see it without
-	//     a separate 'satelle workspace add'. LOCAL gc.Workspace only (no hosted
-	//     network). Non-fatal on global-config errors; --no-workspace opts out.
+	// 6b. Local workspace registry, so satelled sees this repo.
 	ensureWorkspaceRegistration(out, repoRoot, noWorkspace)
 
-	// 6c. Remote definitions — report each that is not schema v1, with its
-	//     finding key paths. A heal would need values the old file does not
-	//     carry (the overrides' sources, the team store's names), so init
-	//     rewrites nothing and the exit status is unchanged.
-	for _, line := range remoteDefinitionReport(dataDir) {
-		fmt.Fprintln(out, line)
-	}
-
-	// 7. Agent guidance — init is usually run BY a coding agent, and this report is
-	//    its cue: when the repo carries an agent instruction file (CLAUDE.md /
-	//    AGENTS.md), tell the reading agent to fold satelle into it. init never
-	//    edits those files itself (they are user/agent-owned); it emits the
-	//    instruction, the agent applies it (sty_4c406061).
-	for _, line := range agentGuidance(repoRoot) {
-		fmt.Fprintln(out, line)
-	}
-
-	// Stamp the binary version this repo is aligned to (breaking-surface
-	// baseline) BEFORE validating, so nothing validation reports is about the
-	// stamp being replaced. The stamp means "every migration up to this binary
-	// applied" — every migration above returns before this line when it fails —
-	// not "validates green": a validation failure below is reported as its own
-	// finding, which doctor and the engage precondition keep reporting, and the
-	// stamp stays so the story that fixes it can run (sty_7ef14c27).
-	stamped, err := writeDeployedVersion(dataDir)
-	if err != nil {
-		return fmt.Errorf("init: write deployed.version: %w", err)
-	}
-	fmt.Fprintln(out, initLine(stamped, config.DefaultDataDir+"/"+deployedVersionName))
-	clearStampRefusal(out, repoRoot, dataDir)
-
-	// 8. Validate the deployed system (sty_d0d6bb67): init ends by PROVING the
-	//    deployment green — agents layer loadable, every substrate artifact
-	//    passing its deterministic structure check, workflow set consistent. A
-	//    failing validation exits non-zero: the runtime refuses to run broken
-	//    configuration, so init must not report success over it.
+	// 7. Validate: a repo with a broken configuration refuses to run.
 	if verr := validateDeployment(out, dataDir); verr != nil {
-		if ver := readDeployedVersion(dataDir); ver != "" {
-			return fmt.Errorf("%w; the repo is stamped %s, so a story can run to fix them", verr, ver)
-		}
 		return verr
 	}
-
-	// Point half-upgraded repos at the compose verb (sty_a3915840).
-	if note := cfg.LegacyRuntimeNote(repoRoot); note != "" {
-		fmt.Fprintf(out, "\nlegacy structure detected — run `satelle migrate` to converge (or `satelle migrate --yes` to apply)\n")
-	} else if hasLegacyResidue(dataDir) || gitignoreNeedsConverge(repoRoot) {
-		fmt.Fprintf(out, "\nlegacy structure residue remains — run `satelle migrate` to converge (or `satelle migrate --yes` to apply)\n")
-	}
-
-	fmt.Fprintln(out, "\nReady. Try: satelle status · satelle story create --title \"…\" · satelle serve")
-	fmt.Fprintln(out, advisorPrompt())
+	fmt.Fprintln(out, "\nReady. Try: satelle status · satelle story create --title \"…\"")
 	return nil
-}
-
-// clearStampRefusal drops a recorded push failure that was the drift gate's
-// refusal of this repo's old stamp, once the stamp matches the binary: no push
-// clears it until one succeeds, so validation would otherwise replay a refusal
-// the re-stamp just healed. A dev binary never stamps, so it clears nothing.
-func clearStampRefusal(out io.Writer, repoRoot, dataDir string) {
-	binVer := strings.TrimSpace(buildinfo.Resolve().Version)
-	if isDevVersion(binVer) || readDeployedVersion(dataDir) != binVer {
-		return
-	}
-	if err := syncstate.ClearPushReasonIf(config.GlobalDir(), repoRoot, health.IsStampRefusal); err != nil {
-		fmt.Fprintf(out, "warning: could not clear the recorded stamp refusal: %v\n", err)
-	}
 }
 
 // agentInstructionFiles returns the agent instruction files present at the repo
@@ -796,46 +279,6 @@ func agentInstructionFiles(repoRoot string) []string {
 // remotesDirName is the directory under the data dir holding a repo's remote
 // definitions, one directory per remote, each with its remote.toml.
 const remotesDirName = "remotes"
-
-// remoteDefinitionReport names each remote definition under dataDir/remotes
-// that is not a valid schema v1 remote.toml, one line per error finding with its
-// key path (an old-shape key's finding names its v1 replacement). It reads and
-// writes nothing else; a repo with no remotes reports nothing.
-func remoteDefinitionReport(dataDir string) []string {
-	paths, _ := filepath.Glob(filepath.Join(dataDir, remotesDirName, "*", remotenode.DefinitionFile))
-	sort.Strings(paths)
-	var out []string
-	for _, p := range paths {
-		name := filepath.Base(filepath.Dir(p))
-		body, err := os.ReadFile(p)
-		if err != nil {
-			out = append(out, fmt.Sprintf("warning: remote %s: definition unreadable: %v", name, err))
-			continue
-		}
-		for _, f := range remotedef.Errors(remotedef.Validate(body)) {
-			out = append(out, fmt.Sprintf("warning: remote %s: definition is not v1: %s: %s", name, f.Key, f.Message))
-		}
-	}
-	return out
-}
-
-// agentGuidance renders the agent-facing note init appends to its report when
-// the repo carries an agent instruction file: add/update a satelle section
-// there with the basic loop, pointing agents at `satelle help` as the preferred
-// reference — a short pointer, never a doc dump. Empty when no such file exists.
-func agentGuidance(repoRoot string) []string {
-	files := agentInstructionFiles(repoRoot)
-	if len(files) == 0 {
-		return nil
-	}
-	return []string{
-		"",
-		"Agent note: this repo carries " + strings.Join(files, " and ") + " — add a \"## satelle\" section there (or update the existing one) with the basics:",
-		"  - satelle runs this repo's workflow: create a story (`satelle story create`), drive it through its gates (`satelle story set <id> --status …`); status is the sole proof of done.",
-		"  - keep the section a short pointer: agents should consult `satelle help` (and `satelle help <topic>`) for the process — prefer that over duplicating satelle docs into " + strings.Join(files, "/") + ".",
-		"  - define process agents and workflow steps in `.satelle/workflows/agents.toml` (a `[<name>]` binding: command/tools/model) and allocate a workflow node `agent=<name>` — NOT in a harness-specific agent dir (e.g. `.claude/agents`), which satelle cannot see, validate, dispatch, or carry repo-agnostically. See `satelle help agent-dispatch`.",
-	}
-}
 
 // failVisibleMarker is the stable substring that identifies a fail-visible
 // PreToolUse wrapper (sty_c75c73ed). Lives in the script body under
@@ -916,9 +359,12 @@ func parameterizedHookScriptBody() string {
 	}
 	return fmt.Sprintf(`#!/bin/sh
 %s
-# args: $1=gate|commitgate  $2=claude|grok|pi|cursor
+# args: $1=gate|commitgate  $2=claude|grok|pi
 sub="$1"
 harness="$2"
+# The shell gate is the edit gate (commitgate was merged into gate).
+hsub="$sub"
+[ "$sub" = "commitgate" ] && hsub="gate"
 case "$harness" in
 %s  *)    infra='%s' ;;
 esac
@@ -953,12 +399,12 @@ run_hook(){
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    o=$(printf '%%s' "$p" | "$b" hook "$sub" --harness "$harness" 2>"$errfile")
+    o=$(printf '%%s' "$p" | "$b" hook "$hsub" --harness "$harness" 2>"$errfile")
     code=$?
   else
     # Keep merged failure output private; an unusable result becomes the static
     # infrastructure deny below rather than leaking arbitrary stderr or secrets.
-    o=$(printf '%%s' "$p" | "$b" hook "$sub" --harness "$harness" 2>&1)
+    o=$(printf '%%s' "$p" | "$b" hook "$hsub" --harness "$harness" 2>&1)
     code=$?
   fi
 }
@@ -1268,9 +714,6 @@ func ensureProcessHooks(out io.Writer, repoRoot string, forced []string) error {
 	if err := healPiExtension(out, repoRoot); err != nil {
 		return err
 	}
-	if err := healCursorHooks(out, repoRoot); err != nil {
-		return err
-	}
 	wantClaude, wantGrok := detectProcessHarnesses(repoRoot, forced)
 	if !wantClaude && !wantGrok {
 		fmt.Fprintln(out, "  · process hooks: none (no .claude/.grok dirs and no --harness; use --harness claude,grok or open a harness session for lazy install)")
@@ -1290,7 +733,6 @@ func ensureProcessHooks(out io.Writer, repoRoot string, forced []string) error {
 			fmt.Fprintf(out, "WARN  .claude/settings.json — incomplete satelle hooks after heal: missing %s\n",
 				strings.Join(incomplete, ", "))
 		}
-		printNoImplementHandover(out, repoRoot)
 	}
 	if wantGrok {
 		added, updated, incomplete, err := ensureGrokHooks(repoRoot)
@@ -1821,15 +1263,6 @@ func ensureClaudeHooks(repoRoot string) (created bool, updated []string, incompl
 		if herr != nil {
 			return false, nil, nil, herr
 		}
-		// Statusline (sty_4e6f0788) is a Claude-only top-level key, so it heals
-		// here rather than in the shared hook path. It heals by REMOVAL now
-		// (sty_325df80c): repos seeded before that change carry an entry satelle
-		// should never have written. A foreign statusLine is left alone.
-		if note, serr := unsetClaudeStatusLine(path); serr != nil {
-			return false, nil, nil, serr
-		} else if note != "" {
-			updated = append(updated, note)
-		}
 		return false, updated, incomplete, nil
 	} else if !os.IsNotExist(err) {
 		return false, nil, nil, fmt.Errorf("init: stat %s: %w", path, err)
@@ -2008,7 +1441,7 @@ func legacyHookSub(cmd string) string {
 // are seeded ACTIVE from the managed-list helpers so the seeded values and the
 // set migrate converges on cannot drift apart — hence the literal is split
 // around them.
-var scaffoldToml = scaffoldTomlBeforeExempt + defaultEditExemptTOML() + scaffoldTomlBetweenExempt + defaultEditExemptGlobsTOML() + scaffoldTomlAfterExempt + fixLaneScaffoldBlock()
+var scaffoldToml = scaffoldTomlBeforeExempt + defaultEditExemptTOML() + scaffoldTomlBetweenExempt + defaultEditExemptGlobsTOML() + scaffoldTomlAfterExempt
 
 const scaffoldTomlBeforeExempt = `# satelle.toml — per-repo config (committed, secret-free). Every setting has a
 # default, so this file may stay fully commented; uncomment a key to override.
@@ -2609,7 +2042,7 @@ func gitignoreNeeded(text, repoRoot string) []string {
 			need = append(need, l)
 		}
 	}
-	for _, e := range substrateLockFootprint() {
+	for _, e := range harnessFootprint() {
 		d := strings.TrimSuffix(e, "/")
 		if d == ".gitignore" {
 			continue
@@ -2617,7 +2050,7 @@ func gitignoreNeeded(text, repoRoot string) []string {
 		if fi, err := os.Stat(filepath.Join(repoRoot, d)); err != nil || !fi.IsDir() {
 			continue
 		}
-		if !gitignoreHasSetting(text, d) && !verb.GitListed(repoRoot, "ls-files", "--", d) {
+		if !gitignoreHasSetting(text, d) && !gitListed(repoRoot, "ls-files", "--", d) {
 			need = append(need, d+"/")
 		}
 	}
@@ -2836,24 +2269,6 @@ var dirReadme = map[string]string{
 	"tasks":      "# tasks\n\nAuthored task HEADERS (`tsk_*.md`, `type: task`): re-runnable work-definitions\nthat declare an ACTION and how success is VERIFIED. The file is the source of\ntruth; the DB indexes it. Each RUN is an execution under a per-task folder\n`<tsk_id>/exe_*.md`; create one with `satelle execution create --parent <tsk_id>`.\nDispose of a superseded header with `satelle task archive <tsk_id>`: it marks the\nrecord archived (dropped from the default `task list`, still readable via `task\nget`) and MOVES the header + its executions to `.satelle/backups/tasks/<ts>/<id>/`\n— archive is record disposition, distinct from workflow status.\n",
 }
 
-// seedTasks scaffolds .satelle/tasks (dir + README keep-file). It seeds NO
-// example task (sty_04ec1fe6): a fresh repo starts with an empty tasks dir —
-// tasks are authored substrate the operator writes, and an example header only
-// adds noise beside a repo's own set. The reported "+"/"=" tracks the DIRECTORY
-// (created vs already present), not the README keep-file, so a repo that already
-// has an authored tasks dir reports "=". Returns report lines.
-func seedTasks(dataDir string) []string {
-	var lines []string
-	dir := filepath.Join(dataDir, "tasks")
-	dirCreated, derr := ensureDir(dir)
-	if derr != nil {
-		return lines
-	}
-	ensureReadme(dir, "tasks")
-	lines = append(lines, initLine(dirCreated, config.DefaultDataDir+"/tasks/"))
-	return lines
-}
-
 // ensureReadme writes a dir's README.md (describing its contents) when absent.
 func ensureReadme(dir, kind string) (bool, error) {
 	path := filepath.Join(dir, "README.md")
@@ -2868,54 +2283,6 @@ func ensureReadme(dir, kind string) (bool, error) {
 		return false, fmt.Errorf("init: write %s: %w", path, err)
 	}
 	return true, nil
-}
-
-// convergeOnDiskDefaults restamps/updates embedded-owned files that ALREADY
-// exist under dataDir. It never creates a missing default (virtual defaults
-// cover absence — sty_29e5a9a5). Used by init so a re-run heals drifted stamps
-// without re-seeding 30+ markdown copies.
-func convergeOnDiskDefaults(dataDir string, backupOpts ...BackupOpts) []string {
-	var bopts BackupOpts
-	if len(backupOpts) > 0 {
-		bopts = backupOpts[0]
-	}
-	return convergeOnDiskKinds(dataDir, nil, bopts)
-}
-
-// convergeOnDiskKinds is convergeOnDiskDefaults limited to the named kinds; nil
-// converges every kind. Tasks are included: a default task is virtual, but a
-// copy already on disk is converged in place like any other (sty_097833e8).
-func convergeOnDiskKinds(dataDir string, kinds map[string]bool, bopts BackupOpts) []string {
-	var backupAdvisoryOnce bool
-	var lines []string
-	for _, d := range config.EmbeddedDefaults() {
-		if kinds != nil && !kinds[d.Kind] {
-			continue
-		}
-		// The default's REAL extension — a route source is .toml (sty_81bb0dde).
-		// Hardcoding .md here would stop converging an authored copy of it on disk.
-		rel := d.Kind + "/" + d.Name + embeddedExt(d.Ext)
-		if !fileExists(filepath.Join(dataDir, filepath.FromSlash(rel))) {
-			continue
-		}
-		verb, bres, err := reconcileEmbeddedFile(dataDir, rel, d.Body, bopts)
-		if err != nil {
-			continue
-		}
-		switch verb {
-		case reconcileUnchanged, reconcileCreated:
-			// silence
-		default:
-			lines = append(lines, reconcileReportLine(verb, rel, bres.LocalPath))
-		}
-		if bres.Notice != "" && (!backupAdvisoryOnce || !strings.Contains(bres.Notice, "online/personal")) {
-			lines = append(lines, "  i "+bres.Notice)
-			if strings.Contains(bres.Notice, "online/personal") {
-				backupAdvisoryOnce = true
-			}
-		}
-	}
-	return lines
 }
 
 // defaultSolutionWorkflows is the embedded default solution rebase deploys into

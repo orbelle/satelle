@@ -6,9 +6,6 @@ package cli
 // nothing.
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,72 +15,6 @@ import (
 const divergenceDataDir = "cfg/satelle"
 
 const divergenceMainToml = "data_dir = \"" + divergenceDataDir + "\"\n\n[review]\ngate_create = false\n"
-
-// writeDivergenceProcess authors the feature lane, its check skill and a
-// constitution under main's relocated data dir.
-func writeDivergenceProcess(t *testing.T, main string) {
-	t.Helper()
-	writeFile(t, main, ".satelle/satelle.toml", divergenceMainToml)
-	writeFile(t, main, divergenceDataDir+"/workflows/done.toml", featureLaneDone)
-	writeFile(t, main, divergenceDataDir+"/workflows/step.toml", featureLaneStep)
-	writeFile(t, main, divergenceDataDir+"/skills/wt-place-check.md", placeCheckSkill)
-	writeFile(t, main, divergenceDataDir+"/constitution.md", "MAIN-CONSTITUTION\n")
-}
-
-// createStoryJSON creates a feature story and reads its id from stdout alone. A
-// relocated data dir makes `story create` advise on stderr about the create gate
-// (it looks for satelle.toml inside the data dir), which must not reach the JSON.
-func createStoryJSON(t *testing.T, title string) string {
-	t.Helper()
-	stdout, stderr, err := runRootSplit(t, "", "story", "create", "--title", title, "--body", "b",
-		"--acceptance", "1. a", "--category", "feature")
-	if err != nil {
-		t.Fatalf("story create: %v\n%s", err, stderr)
-	}
-	return idOf(t, stdout)
-}
-
-// copyProcessInto hand-copies main's relocated data dir into the worktree, the
-// way the worktrees under satelle-wt/ carry a copied .satelle folder.
-func copyProcessInto(t *testing.T, main, wt string) {
-	t.Helper()
-	src := filepath.Join(main, filepath.FromSlash(divergenceDataDir))
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil || d.IsDir() {
-			return werr
-		}
-		rel, rerr := filepath.Rel(main, p)
-		if rerr != nil {
-			return rerr
-		}
-		body, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-		writeFile(t, wt, filepath.ToSlash(rel), string(body))
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("copy process into worktree: %v", err)
-	}
-}
-
-// linkedDivergenceFixture is a main tree with an authored process under a
-// relocated data dir, and a linked worktree placed outside it. The process is
-// left in the worktree.
-func linkedDivergenceFixture(t *testing.T) (main, wt string) {
-	t.Helper()
-	isolateProcessEnv(t)
-	base := t.TempDir()
-	main = gitMainTree(t, base)
-	wt = filepath.Join(base, "wt", "sty_diverge")
-	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, main, "worktree", "add", "-q", "-b", "sty_diverge", wt, "HEAD")
-	writeDivergenceProcess(t, main)
-	return main, wt
-}
 
 // wantDivergenceReport asserts the AC4 report: the main tree governs, the
 // worktree's copy is ignored, and every changed and extra file is listed by its

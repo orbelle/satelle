@@ -1,9 +1,0 @@
-{
-  "id": "implementation-dispatch-manifest-valid",
-  "rubric": "implementation",
-  "skill": "satelle-code-ac-review",
-  "label": "valid",
-  "story_id": "sty_08f747ad",
-  "expected_verdict": "accept",
-  "summary": "Dispatch-pointers rule, accept side, at the code gate. The same judge-payload builder written to the rule: it lists each item's kind, name, origin and on-disk path and the retrieval commands the seat runs itself (satelle doc get, satelle ledger list --story), and carries no item body or rejection note. Pair: implementation-dispatch-embed-defect."
-}

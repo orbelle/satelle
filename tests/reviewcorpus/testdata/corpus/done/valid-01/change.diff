@@ -1,9 +1,0 @@
---- a/story/sty_d1e20725.children.status.candidate.md
-+++ b/story/sty_d1e20725.children.status.revised.md
-@@ -14,5 +14,5 @@
- sty_407158e4  done      backlog follow-up (done overlay)
- sty_c1d2e3f4  done      order-tag cleanup
--sty_4fde0a50  backlog   an unset model follows that CLI's configured order,
--                        and init lists the Claude, Grok, and Codex orders
-+sty_4fde0a50  done      an unset model follows that CLI's configured order,
-+                        and init lists the Claude, Grok, and Codex orders

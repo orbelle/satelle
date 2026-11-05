@@ -15,13 +15,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/bobmcallan/satelle/internal/agentcli"
-	"github.com/bobmcallan/satelle/internal/compact"
 )
 
 // Defaults applied when a key is unset. Every setting has one, so a repo with
@@ -160,11 +158,6 @@ type Config struct {
 	// only the leftover-file sweep (sty_e7aaf8b1). Kept separate from
 	// [gate] because it runs at session close, not the PreToolUse hook.
 	Dispatch DispatchConfig `toml:"dispatch"`
-	// Output tunes compact CLI rendering for the list/diff commands an agent
-	// pulls through Bash(satelle:*) (sty_75b76691). The zero value keeps
-	// compact mode OFF everywhere — plain indented JSON, unchanged, until a
-	// repo opts in.
-	Output OutputConfig `toml:"output"`
 	// InstructionReview names the extra instruction paths the shipped trigger
 	// skill counts (sty_012394c0). See InstructionReviewConfig.
 	InstructionReview InstructionReviewConfig `toml:"instruction_review"`
@@ -196,243 +189,6 @@ type Config struct {
 // any key is accepted. The binary names no field of its own.
 type ReleaseConfig struct {
 	Fields []string `toml:"fields"`
-}
-
-// OutputConfig is the [output] table: which verbs get compact rendering, when
-// that is the default for an agent caller, and the fold thresholds. See
-// internal/compact for the mechanism this configures and IsAgentCaller for
-// how an agent caller is detected.
-type OutputConfig struct {
-	// CompactForAgents turns compact mode on by default, for the verbs listed
-	// in CompactCommands, when the caller looks like a dispatched or in-loop
-	// agent (IsAgentCaller). A human or script gets plain JSON regardless,
-	// unless it passes --compact itself.
-	CompactForAgents bool `toml:"compact_for_agents"`
-	// CompactCommands lists the verb names (e.g. "ledger-list", "story-diff")
-	// compact rendering applies to. A verb absent from this list always
-	// prints plain JSON, --compact or not — compaction is opt-in per command.
-	CompactCommands []string `toml:"compact_commands"`
-	// LongCellBytes is the per-cell offload threshold a table fold applies to
-	// a string cell's JSON literal; <= 0 means DefaultLongCellBytes.
-	LongCellBytes int `toml:"long_cell_bytes"`
-	// RepeatMin is the minimum consecutive-identical-line run FoldRepeats
-	// collapses; <= 0 means DefaultRepeatMin.
-	RepeatMin int `toml:"repeat_min"`
-	// NoisePatterns are globs (basename match unless the pattern contains
-	// "/", the same split as [gate] edit_exempt_globs) identifying generated
-	// or lockfile diff noise a story diff --patch offloads whole. Empty means
-	// no file is treated as noise — the binary ships no filename pattern of
-	// its own (sty_75b76691 AC2); a repo seeds its own (e.g. "go.sum").
-	NoisePatterns []string `toml:"noise_patterns"`
-	// DiffRank tunes the ranked diff compressor (internal/compact.RankPatch,
-	// sty_918e2086) that replaces the gate payload's unranked 64KiB cut, and —
-	// when enabled — story diff --patch's own rendering. Disabled (the zero
-	// value) keeps ranking off everywhere; the binary ships no threshold, cap,
-	// or pattern of its own.
-	DiffRank DiffRankConfig `toml:"diff_rank"`
-	// CheckLog tunes the log compressor (internal/compact.CompressLog,
-	// sty_ef930f81) that builds a failing functional check's reject notes in
-	// place of a bare tail. Disabled (the zero value) still produces bounded
-	// head/tail notes — CompressLog's own size fallbacks apply — but keeps
-	// every language-specific pattern empty; the binary ships none of its own.
-	CheckLog CheckLogConfig `toml:"check_log"`
-	// Crush tunes the lossy JSON array crusher (internal/compact.CrushArray,
-	// sty_aa34491d) applied to a compact_commands list still over
-	// SizeThresholdBytes after the lossless table fold. Disabled (the zero
-	// value) keeps it off; the binary ships no keyword or threshold.
-	Crush CrushConfig `toml:"crush"`
-}
-
-// CrushConfig is the [output.crush] table: every tunable
-// internal/compact.CrushArray applies (sty_aa34491d). A disabled or absent
-// table resolves to the zero compact.CrushConfig, which is a no-op.
-type CrushConfig struct {
-	Enabled bool `toml:"enabled"`
-	// MinItems: arrays with fewer rows are never crushed.
-	MinItems int `toml:"min_items"`
-	// SizeThresholdBytes: crush only when the lossless form is still larger.
-	SizeThresholdBytes int `toml:"size_threshold_bytes"`
-	// MaxKept is K, the sampling budget (forced keeps sit outside it).
-	MaxKept       int     `toml:"max_kept"`
-	FirstFraction float64 `toml:"first_fraction"`
-	LastFraction  float64 `toml:"last_fraction"`
-	// VarianceSigma is the length/numeric outlier cutoff in std deviations.
-	VarianceSigma             float64  `toml:"variance_sigma"`
-	StructuralOutlierFraction float64  `toml:"structural_outlier_fraction"`
-	RareStatusFraction        float64  `toml:"rare_status_fraction"`
-	StatusFields              []string `toml:"status_fields"`
-	ErrorKeywords             []string `toml:"error_keywords"`
-}
-
-// Resolve returns the compact.CrushConfig this table configures, or the zero
-// value when disabled.
-func (c CrushConfig) Resolve() compact.CrushConfig {
-	if !c.Enabled {
-		return compact.CrushConfig{}
-	}
-	return compact.CrushConfig{
-		MinItems:                  c.MinItems,
-		SizeThresholdBytes:        c.SizeThresholdBytes,
-		MaxKept:                   c.MaxKept,
-		FirstFraction:             c.FirstFraction,
-		LastFraction:              c.LastFraction,
-		VarianceSigma:             c.VarianceSigma,
-		StructuralOutlierFraction: c.StructuralOutlierFraction,
-		RareStatusFraction:        c.RareStatusFraction,
-		StatusFields:              c.StatusFields,
-		ErrorKeywords:             c.ErrorKeywords,
-	}
-}
-
-// validateCrush refuses a nonsensical [output.crush] at load time.
-func validateCrush(cfg Config, path string) error {
-	c := cfg.Output.Crush
-	if !c.Enabled {
-		return nil
-	}
-	for name, f := range map[string]float64{
-		"first_fraction": c.FirstFraction, "last_fraction": c.LastFraction,
-		"structural_outlier_fraction": c.StructuralOutlierFraction,
-		"rare_status_fraction":        c.RareStatusFraction,
-	} {
-		if f < 0 || f > 1 {
-			return fmt.Errorf("config: %s: [output.crush] %s %v out of range 0..1", path, name, f)
-		}
-	}
-	if c.FirstFraction+c.LastFraction > 1 {
-		return fmt.Errorf("config: %s: [output.crush] first_fraction + last_fraction exceeds 1", path)
-	}
-	if c.MinItems < 0 || c.MaxKept < 0 || c.SizeThresholdBytes < 0 || c.VarianceSigma < 0 {
-		return fmt.Errorf("config: %s: [output.crush] min_items, max_kept, size_threshold_bytes and variance_sigma must not be negative", path)
-	}
-	return nil
-}
-
-// DiffRankConfig is the [output.diff_rank] table: every tunable
-// internal/compact.RankPatch applies (sty_918e2086). A disabled or absent
-// table (Enabled=false, the zero value) is a safe no-op — Resolve returns the
-// zero compact.RankConfig, which RankPatch itself treats as "do nothing".
-type DiffRankConfig struct {
-	Enabled bool `toml:"enabled"`
-	// PassthroughLines: a patch with this many lines or fewer, or that fails
-	// to parse as a unified diff, rides unranked.
-	PassthroughLines int `toml:"passthrough_lines"`
-	// MaxFiles is the largest number of file sections kept; the rest are
-	// dropped behind one retrieval marker per file.
-	MaxFiles int `toml:"max_files"`
-	// MaxHunksPerFile is the largest number of hunks kept per surviving file.
-	MaxHunksPerFile int `toml:"max_hunks_per_file"`
-	// ContextLines is how many unchanged lines are kept on each side of a
-	// change within a kept hunk.
-	ContextLines int `toml:"context_lines"`
-	// PriorityPatterns are regexes; a changed line matching one raises that
-	// hunk's retention score. Validated (compiled) at config Load time — an
-	// invalid pattern fails the load rather than silently losing its bonus.
-	PriorityPatterns []string `toml:"priority_patterns"`
-}
-
-// Resolve returns the compact.RankConfig this table configures, or the zero
-// value when disabled.
-func (c DiffRankConfig) Resolve() compact.RankConfig {
-	if !c.Enabled {
-		return compact.RankConfig{}
-	}
-	return compact.RankConfig{
-		PassthroughLines: c.PassthroughLines,
-		MaxFiles:         c.MaxFiles,
-		MaxHunksPerFile:  c.MaxHunksPerFile,
-		ContextLines:     c.ContextLines,
-		PriorityPatterns: c.PriorityPatterns,
-	}
-}
-
-// CheckLogConfig is the [output.check_log] table: every tunable
-// internal/compact.CompressLog applies (sty_ef930f81) to a failing functional
-// check's reject notes. Enabled=false (the zero value) still resolves to a
-// LogConfig — CompressLog degrades to bounded head/tail notes on its own
-// mechanism-level size fallbacks — but every pattern field resolves empty, so
-// a disabled or absent table never applies a language-specific rule.
-type CheckLogConfig struct {
-	Enabled bool `toml:"enabled"`
-	// PassthroughLines: a log with this many lines or fewer rides verbatim.
-	PassthroughLines int `toml:"passthrough_lines"`
-	// ContextLines is how many lines of context are kept around each kept line.
-	ContextLines int `toml:"context_lines"`
-	// HeadLines/TailLines bound the fallback used when nothing matched.
-	HeadLines int `toml:"head_lines"`
-	TailLines int `toml:"tail_lines"`
-	// MaxKeptLines caps the notes' total kept-line count.
-	MaxKeptLines int `toml:"max_kept_lines"`
-	// KeepPatterns are regexes; a matching line is always kept. Validated
-	// (compiled) at config Load time.
-	KeepPatterns []string `toml:"keep_patterns"`
-	// WarnPatterns are regexes; a matching line is deduplicated to its first
-	// occurrence. Validated at config Load time.
-	WarnPatterns []string `toml:"warn_patterns"`
-	// TraceStart/TraceFrame/TraceAppFrame/TraceKeepFrames tune stack-trace
-	// collapsing. Validated at config Load time.
-	TraceStart      string `toml:"trace_start"`
-	TraceFrame      string `toml:"trace_frame"`
-	TraceAppFrame   string `toml:"trace_app_frame"`
-	TraceKeepFrames int    `toml:"trace_keep_frames"`
-}
-
-// Resolve returns the compact.LogConfig this table configures. Unlike
-// DiffRankConfig.Resolve, a disabled table does NOT return the zero value:
-// CompressLog treats an all-zero LogConfig as "compress with mechanism
-// defaults and no patterns", which is the correct disabled behaviour here
-// (bounded head/tail notes, never a raw untruncated dump) — so Resolve always
-// passes the (possibly all-empty) pattern fields through.
-func (c CheckLogConfig) Resolve() compact.LogConfig {
-	if !c.Enabled {
-		return compact.LogConfig{}
-	}
-	return compact.LogConfig{
-		PassthroughLines: c.PassthroughLines,
-		ContextLines:     c.ContextLines,
-		HeadLines:        c.HeadLines,
-		TailLines:        c.TailLines,
-		MaxKeptLines:     c.MaxKeptLines,
-		KeepPatterns:     c.KeepPatterns,
-		WarnPatterns:     c.WarnPatterns,
-		TraceStart:       c.TraceStart,
-		TraceFrame:       c.TraceFrame,
-		TraceAppFrame:    c.TraceAppFrame,
-		TraceKeepFrames:  c.TraceKeepFrames,
-	}
-}
-
-// Compact-rendering defaults applied when the corresponding OutputConfig
-// field is unset (<= 0).
-const (
-	DefaultLongCellBytes = 200
-	DefaultRepeatMin     = 3
-)
-
-// ResolveLongCellBytes returns the effective per-cell offload threshold.
-func (c OutputConfig) ResolveLongCellBytes() int {
-	if c.LongCellBytes > 0 {
-		return c.LongCellBytes
-	}
-	return DefaultLongCellBytes
-}
-
-// ResolveRepeatMin returns the effective repeated-line fold threshold.
-func (c OutputConfig) ResolveRepeatMin() int {
-	if c.RepeatMin > 0 {
-		return c.RepeatMin
-	}
-	return DefaultRepeatMin
-}
-
-// IsCompactCommand reports whether verb is opted into compact rendering.
-func (c OutputConfig) IsCompactCommand(verb string) bool {
-	for _, v := range c.CompactCommands {
-		if v == verb {
-			return true
-		}
-	}
-	return false
 }
 
 // IsAgentCaller detects a dispatched or in-loop agent process by environment:
@@ -1233,15 +989,6 @@ func Load(explicitPath string) (Config, string, error) {
 	if err := ValidateGateCommandPolicies(cfg, policyPath); err != nil {
 		return Config{}, policyPath, err
 	}
-	if err := validateDiffRankPatterns(cfg, path); err != nil {
-		return Config{}, path, err
-	}
-	if err := validateCheckLogPatterns(cfg, path); err != nil {
-		return Config{}, path, err
-	}
-	if err := validateCrush(cfg, path); err != nil {
-		return Config{}, path, err
-	}
 	if err := validateWorktree(cfg, path); err != nil {
 		return Config{}, path, err
 	}
@@ -1255,49 +1002,6 @@ func Load(explicitPath string) (Config, string, error) {
 		return Config{}, path, err
 	}
 	return cfg, path, nil
-}
-
-// validateDiffRankPatterns refuses an unparseable [output.diff_rank]
-// priority_patterns regex at load time, rather than letting RankPatch drop it
-// silently at gate/render time (sty_918e2086).
-func validateDiffRankPatterns(cfg Config, path string) error {
-	for _, p := range cfg.Output.DiffRank.PriorityPatterns {
-		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("config: %s: [output.diff_rank] priority_patterns %q: %w", path, p, err)
-		}
-	}
-	return nil
-}
-
-// validateCheckLogPatterns refuses an unparseable [output.check_log] regex
-// (keep, warn, or trace pattern) at load time, rather than letting
-// CompressLog silently skip it at check time (sty_ef930f81).
-func validateCheckLogPatterns(cfg Config, path string) error {
-	c := cfg.Output.CheckLog
-	named := map[string]string{
-		"trace_start":     c.TraceStart,
-		"trace_frame":     c.TraceFrame,
-		"trace_app_frame": c.TraceAppFrame,
-	}
-	for field, p := range named {
-		if strings.TrimSpace(p) == "" {
-			continue
-		}
-		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("config: %s: [output.check_log] %s %q: %w", path, field, p, err)
-		}
-	}
-	for _, p := range c.KeepPatterns {
-		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("config: %s: [output.check_log] keep_patterns %q: %w", path, p, err)
-		}
-	}
-	for _, p := range c.WarnPatterns {
-		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("config: %s: [output.check_log] warn_patterns %q: %w", path, p, err)
-		}
-	}
-	return nil
 }
 
 // ResolvePath finds the committed config: an explicit path, then the
