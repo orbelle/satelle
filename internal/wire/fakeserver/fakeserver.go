@@ -54,6 +54,7 @@ type Server struct {
 	nodes    map[string]*Node
 	relays   map[string]*relayPair
 	streams  map[*relayStream]bool
+	gh       map[string]*github // project id → GitHub binding
 	nextID   int
 }
 
@@ -95,6 +96,7 @@ func Start(t testing.TB, tokens ...string) *Server {
 	satellepb.RegisterRemoteServiceServer(g, remotes{s: s})
 	satellepb.RegisterNodeServiceServer(g, nodes{s: s})
 	satellepb.RegisterRelayServiceServer(g, relay{s: s})
+	satellepb.RegisterGitHubServiceServer(g, githubSvc{s: s})
 	chainpb.RegisterChainServer(g, chain{s: s})
 	go func() { _ = g.Serve(ln) }()
 	t.Cleanup(g.Stop)

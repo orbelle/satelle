@@ -3,6 +3,11 @@
 ### Fixed
 - The integration suite under tests/ runs once per story, at integration -> approved (`make test`, now `-tags integration`); its files carry `//go:build integration` again, so build-unit's untagged `go test ./...` on in_progress -> integration runs the unit tests only while still compiling the suite (`go vet -tags integration ./tests/...`). Before, the suite ran at both stages. (sto_76221aa5)
 
+## [1.0.7] - 2026-11-06
+
+### Added
+- satelle.v1 `GitHubService` on the wire: `PublishReview`, `PublishStatus` and `ListPullRequestEvents`, the contract agreed with satelle-server for the satelle GitHub app (its sto_f736956c). The client side that uses it is sto_ebcaa5aa; the fakeserver implements the service for its tests. The generated gRPC code is regenerated with protoc-gen-go-grpc v1.6.2 (cosmetic changes in the other services). (sto_1a29f913)
+
 ## [1.0.6] - 2026-11-06
 
 ### Changed
