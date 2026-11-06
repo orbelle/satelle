@@ -25,7 +25,7 @@ for exe in $(satelle execution list --parent "$task" --status in_progress --json
   fi
 done
 if [ -z "$listed" ]; then
-  echo "no in-progress run of $task lists $SATELLE_ITEM: an item reaches done only through a release run (satelle task run $task --base main)"
+  echo "no in-progress run of $task lists $SATELLE_ITEM: an item reaches done only through a release run (git fetch origin, then satelle task run $task --base origin/main)"
   exit 1
 fi
 git fetch -q origin || { echo "git fetch origin failed"; exit 1; }

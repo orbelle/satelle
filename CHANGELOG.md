@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- The release run is cut with `--base origin/main` after a fetch, so its recorded base is main's real head, not a possibly stale local `main` branch (the v1.0.5 run recorded 0.0.896's commit). (sto_b802a9ae)
+
 ## [1.0.5] - 2026-11-06
 
 ### Changed

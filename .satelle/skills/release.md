@@ -28,11 +28,15 @@ not in the run's inputs, or close an item before step 8 passes.
 ## 0. Start and read the run
 
 ```sh
-exe=$(satelle task run tas_42301d36 --base main --json | jq -r .id)   # created in backlog
+git fetch -q origin
+exe=$(satelle task run tas_42301d36 --base origin/main --json | jq -r .id)   # created in backlog
 satelle execution set "$exe" --status in_progress                     # validate-before
 satelle execution seat "$exe"
 satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]'
 ```
+
+The printed base must be origin/main's head (`git rev-parse origin/main`):
+`--base main` would resolve a local `main` branch first, which may be stale.
 
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).
