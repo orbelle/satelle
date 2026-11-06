@@ -29,17 +29,18 @@ emits markup). Check:
 
 1. **Tokens over ad-hoc literals.** New colors, radii, control heights, and
    content width should use CSS variables from `:root` / `[data-theme="dark"]`
-   (`--ink`, `--muted`, `--accent`, `--chip`, `--panel`, `--content-w`,
+   (`--ink`, `--muted`, `--accent`, `--chip`, `--panel`, `--gutter-mobile`,
    `--content-max`, `--control-height`, `--fail`, …) rather than inventing a
    parallel palette. Hard-coded hex in a tiny local exception is only acceptable
    when no token fits and the story AC requires it — name it in notes if
    accepting with caveat; reject a new free-form palette.
 
-2. **Layout width model (this repo).** Content width is
-   `width: var(--content-w)` with `max-width: var(--content-max)` where
-   `--content-w: 80%` and `--content-max: 1600px`. Reject a
-   slice that reintroduces conflicting width schemes without reconciling to
-   these tokens.
+2. **Layout width model (shared with satelle.dev).** Page containers and the
+   navbar's inner row are `width: 100%` with `max-width: var(--content-max)`
+   (1600px) and 24px side padding; a literal `@media (max-width: 640px)` swaps
+   the side padding to `var(--gutter-mobile)` (1rem); prose caps at 75ch.
+   Reject a slice that reintroduces a proportional width token or another
+   width scheme without reconciling to these values in both apps.
 
 3. **Badge / chip language.** Status chips and badges should follow existing
    chip/badge patterns (`.chip`, color-mix tints on accent/fail where the CSS

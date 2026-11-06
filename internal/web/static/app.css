@@ -26,9 +26,11 @@
   --warn: #9a6b00;
   /* Pass/ok green — a progress chip's exit gates that all passed. */
   --ok: #16a34a;
-  /* One content-width knob (sty_aed93a00) shared by every page container: the
-     in-flow .wrap AND the full-bleed navbar's inner row, so their left edges align. */
-  --content-w: 80%; --content-max: 1600px;
+  /* The layout satelled shares with satelle.dev (sto_99aa0122 / satelle-server
+     sto_1006a260): every page container and the navbar's inner row are full
+     width capped at --content-max, with a --gutter-mobile side gutter at
+     640px and below. Change it in both apps. */
+  --content-max: 1600px; --gutter-mobile: 1rem;
   /* One control-height knob shared by inputs/selects/buttons (satellites pattern). */
   --control-height: 2.2rem;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -73,10 +75,9 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .site-footer { display: flex; align-items: center; gap: 14px; font-family: var(--mono); }
 .site-footer .footer-version { margin-left: auto; }
 
-/* Page width (sty_aed93a00): standard/wide viewports get ~10% side margins
-   (content is 80% of the viewport); super-wide viewports cap at a reasonable
-   max-width so the layout never sprawls full-bleed. */
-.wrap { width: var(--content-w); max-width: var(--content-max); margin: 0 auto; padding: 28px 24px 64px; }
+/* Page width (sto_99aa0122): full width with 24px side padding, capped at
+   --content-max so a wide screen never sprawls full-bleed. */
+.wrap { width: 100%; max-width: var(--content-max); margin: 0 auto; padding: 28px 24px 64px; }
 
 /* Breadcrumbs */
 .crumbs { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; font-family: var(--mono); }
@@ -147,11 +148,11 @@ button.tagchip:focus-visible { outline: 2px solid var(--accent); outline-offset:
    the Satelle Design System header: "◐ satelle wordmark leading, nav right-aligned,
    theme toggle last". The band spans edge-to-edge with a 1px hairline rule (matching
    satelle.dev's .site-header, sty_2faa7dd4); its inner row is capped to the shared
-   content-width token so the ◐ aligns with page content. Layout is flex (no floats):
+   --content-max cap and side padding as .wrap, so the ◐ aligns with page content. Layout is flex (no floats):
    brand-mark leads left, the controls cluster is pushed right by margin-left:auto,
    theme toggle is the rightmost control. */
 .topbar { border-bottom: 1px solid var(--line); background: var(--bg); }
-.topbar-inner { width: var(--content-w); max-width: var(--content-max); margin: 0 auto;
+.topbar-inner { width: 100%; max-width: var(--content-max); margin: 0 auto;
   padding: 12px 24px; display: flex; align-items: center; gap: 8px; }
 .topbar-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 /* Navbar nav row (sty_523f93b3): the DS SiteHeader links, sitting inside the
@@ -170,6 +171,12 @@ button.tagchip:focus-visible { outline: 2px solid var(--accent); outline-offset:
   width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
 .topnav a.github-btn:hover { background: none; border-color: var(--ink); }
 .topnav a.github-btn svg { display: block; }
+
+/* The shared mobile breakpoint (sto_99aa0122): 640px, literal because a custom
+   property cannot appear in a media query. */
+@media (max-width: 640px) {
+  .wrap, .topbar-inner { padding-left: var(--gutter-mobile); padding-right: var(--gutter-mobile); }
+}
 
 /* Header (per-page title block, inside .wrap). The 2px rule now lives on the
    navbar band, so this carries a light 1px hairline — the two never stack. */
@@ -495,7 +502,7 @@ ul.doc-list li { border: 1px solid var(--line); border-radius: 8px; background: 
 .doc-item[open] > .doc-article { padding: 2px 12px 12px; border-top: 1px solid var(--line); margin-top: 2px; }
 
 /* rendered authored-document viewer */
-.doc-article { font-size: 14.5px; line-height: 1.65; max-width: 760px; }
+.doc-article { font-size: 14.5px; line-height: 1.65; max-width: 75ch; }
 .doc-article h1, .doc-article h2, .doc-article h3, .doc-article h4 { margin: 1.4em 0 .5em; line-height: 1.25; }
 .doc-article h1 { font-size: 22px; } .doc-article h2 { font-size: 18px; } .doc-article h3 { font-size: 15.5px; }
 .doc-article p { margin: .7em 0; }
@@ -541,5 +548,5 @@ ol.route-line { list-style: none; margin: 6px 0 10px; padding: 0; display: flex;
 /* --- help page --- */
 .help-topic { margin: 22px 0; }
 .help-topic h2 .meta { font-family: var(--mono); font-size: 11px; }
-/* Full .wrap width — do not inherit .doc-article's 760px reading measure. */
+/* Full .wrap width — do not inherit .doc-article's 75ch reading measure. */
 .help-doc { max-width: none; }

@@ -72,8 +72,8 @@ func TestHelpDocCSSFillsWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	css := string(raw)
-	if !strings.Contains(css, ".doc-article { font-size: 14.5px; line-height: 1.65; max-width: 760px; }") {
-		t.Error(".doc-article must keep max-width: 760px")
+	if !strings.Contains(css, ".doc-article { font-size: 14.5px; line-height: 1.65; max-width: 75ch; }") {
+		t.Error(".doc-article must cap at 75ch")
 	}
 	rule := regexp.MustCompile(`(?s)\.help-doc\s*\{[^}]*\}`)
 	m := rule.FindString(css)
