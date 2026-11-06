@@ -40,6 +40,19 @@ type Syncer struct {
 	// StatePath is the file recording what was pushed (heads per item and
 	// attachment bodies), in the runtime directory.
 	StatePath string
+	// Choose places an item pulled without a workflow by this repo's rules;
+	// nil leaves such items unplaced.
+	Choose Chooser
+}
+
+// Actor records the events satelle itself appends (placing a pulled item).
+const Actor = "satelle"
+
+// Chooser picks the workflow an item belongs in and its start state (the
+// kernel's rules: the item's own, else the first matching rule, else the
+// default).
+type Chooser interface {
+	WorkflowFor(it item.Item) (workflow, start string, err error)
 }
 
 // State is what this runtime last knows the server holds.
@@ -392,6 +405,10 @@ type PullResult struct {
 	Events      int
 	Attachments int
 	Conflicts   []Conflict
+	// Placed are items that arrived without a workflow and were placed by
+	// this repo's rules; Unplaced could not be (local events unpushed, or the
+	// server kept moving).
+	Placed, Unplaced []string
 }
 
 // Pull imports every remote event the local ledger lacks, refreshes the
@@ -420,15 +437,101 @@ func (s *Syncer) Pull(ctx context.Context) (PullResult, error) {
 			return res, err
 		}
 	}
-	if err := s.saveState(st); err != nil {
-		return res, err
-	}
-	return res, s.Cache.Sync(s.Ledger)
+	return res, s.finishPull(ctx, st, res)
 }
 
-// pullItem imports one item's remote events the local ledger lacks. rh is the
-// remote head when known ("" reads whatever follows the local tail).
+// finishPull saves the state, refreshes the cache and gives the server the
+// summaries of the items this pull placed.
+func (s *Syncer) finishPull(ctx context.Context, st State, res PullResult) error {
+	if err := s.saveState(st); err != nil {
+		return err
+	}
+	if err := s.Cache.Sync(s.Ledger); err != nil {
+		return err
+	}
+	return s.putItems(ctx, res.Placed)
+}
+
+// pullItem imports one item's remote events the local ledger lacks, then
+// places it if it arrived without a workflow. rh is the remote head when known
+// ("" reads whatever follows the local tail).
 func (s *Syncer) pullItem(ctx context.Context, id, rh string, st State, res *PullResult) error {
+	if err := s.importItem(ctx, id, rh, st, res); err != nil {
+		return err
+	}
+	return s.place(ctx, id, st, res)
+}
+
+// placeAttempts bounds how often a placement retries after another home
+// appended first.
+const placeAttempts = 3
+
+// place gives an item that arrived without a workflow (a server creates items
+// but never decides process) its workflow by this repo's rules: item.updated
+// {workflow} then item.transitioned {from, to: the start state}, both by
+// Actor. They go to the server first (compare-and-append on the head the
+// local chain ends at) and are imported only once it accepted them, so when
+// two homes race only one placement lands and every home agrees.
+func (s *Syncer) place(ctx context.Context, id string, st State, res *PullResult) error {
+	if s.Choose == nil {
+		return nil
+	}
+	for range placeAttempts {
+		local, err := s.Ledger.Read(id)
+		if err != nil || len(local) == 0 {
+			return err
+		}
+		it, err := item.Fold(local)
+		if err != nil || it.Workflow != "" {
+			return nil // not an item, or already placed
+		}
+		head := local[len(local)-1].Hash
+		if st.Heads[id] != head {
+			res.Unplaced = append(res.Unplaced, id) // local events not pushed: placing would fork
+			return nil
+		}
+		name, start, err := s.Choose.WorkflowFor(it)
+		if err != nil {
+			return fmt.Errorf("place %s: %w", id, err)
+		}
+		e1, err := s.Ledger.NewEvent(id, item.KindUpdated, Actor, item.Fields{Workflow: &name}, head)
+		if err != nil {
+			return err
+		}
+		e2, err := s.Ledger.NewEvent(id, item.KindTransitioned, Actor, item.Move{From: it.Status, To: start}, e1.Hash)
+		if err != nil {
+			return err
+		}
+		placed := []ledger.Event{e1, e2}
+		_, err = s.Client.Chain.Append(ctx, &chainpb.AppendRequest{Project: s.Project, ItemId: id, PrevHash: head, Events: wire.ToProtos(placed)})
+		if err == nil {
+			if _, err := s.Ledger.Import(append(append([]ledger.Event(nil), local...), placed...)); err != nil {
+				return fmt.Errorf("place %s: %w", id, err)
+			}
+			st.Heads[id] = e2.Hash
+			res.Placed = append(res.Placed, id)
+			return nil
+		}
+		if _, stale := staleHead(err); !stale {
+			return hosted.Describe("Chain.Append "+id, err)
+		}
+		// Another home appended first: bring its events in through the one
+		// import path (it verifies the whole chain) and look again.
+		conflicts := len(res.Conflicts)
+		if err := s.importItem(ctx, id, "", st, res); err != nil {
+			return err
+		}
+		if len(res.Conflicts) > conflicts {
+			return nil
+		}
+	}
+	res.Unplaced = append(res.Unplaced, id)
+	return nil
+}
+
+// importItem imports one item's remote events the local ledger lacks,
+// verifying the whole chain. rh is the remote head when known.
+func (s *Syncer) importItem(ctx context.Context, id, rh string, st State, res *PullResult) error {
 	local, err := s.Ledger.Read(id)
 	if err != nil {
 		return err
@@ -505,10 +608,7 @@ func (s *Syncer) PullItem(ctx context.Context, id string) (PullResult, error) {
 		_ = s.saveState(st)
 		return res, err
 	}
-	if err := s.saveState(st); err != nil {
-		return res, err
-	}
-	return res, s.Cache.Sync(s.Ledger)
+	return res, s.finishPull(ctx, st, res)
 }
 
 // fetchAttachment stores an attachment's body locally unless it is already

@@ -1155,6 +1155,10 @@ nothing (sto_42f9cae5). Any other kind may be appended by `ledger append` and is
 category, workflow, assignee (carried for sync; no behaviour). The workflow is
 chosen at create (explicit `--workflow`, else the first matching rule, else the
 default) and stamped on the item. Status starts at the workflow's start state.
+An item that arrives from the server without a workflow (satelle-server never
+decides process) is placed on first pull by the same rules, as item.updated
+{workflow} then item.transitioned {from, to: start} by actor `satelle`,
+appended to the server first so every home agrees (sto_aca60d04).
 
 **Transitions.** `story set --status X` finds the explicit transition from the
 current state, runs its groups in order (sequential groups stop at the first

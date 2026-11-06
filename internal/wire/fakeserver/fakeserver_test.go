@@ -2,6 +2,8 @@ package fakeserver_test
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -10,6 +12,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wire"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
@@ -70,5 +73,38 @@ func TestChainAppendIsCompareAndAppend(t *testing.T) {
 	unauth := context.Background()
 	if _, err := chain.Heads(unauth, &chainpb.HeadsRequest{Project: "p"}); status.Code(err) != codes.Unauthenticated {
 		t.Errorf("no bearer = %v, want Unauthenticated", err)
+	}
+}
+
+// A seeded item is a verifiable server-born chain: one item.created with no
+// workflow or status, ids in the server's forms, listed in Heads.
+func TestSeedItem(t *testing.T) {
+	srv := fakeserver.Start(t, "tok")
+	c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok"}, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	p, err := c.Projects.CreateProject(context.Background(), &satellepb.CreateProjectRequest{Slug: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := srv.SeedItem("acme", map[string]any{"kind": "story", "title": "born on the server"})
+	if !regexp.MustCompile(`^sto_[0-9a-f]{8}$`).MatchString(id) {
+		t.Fatalf("item id %q", id)
+	}
+	evs := wire.FromProtos(srv.Events(p.GetId(), id))
+	if len(evs) != 1 || !regexp.MustCompile(`^evt_[0-9a-f]{16}$`).MatchString(evs[0].ID) || evs[0].Kind != "item.created" {
+		t.Fatalf("events %+v", evs)
+	}
+	if err := ledger.VerifyChain(id, evs); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(evs[0].Payload), "workflow") || strings.Contains(string(evs[0].Payload), "status") {
+		t.Fatalf("payload names process: %s", evs[0].Payload)
+	}
+	heads, err := c.Chain.Heads(context.Background(), &chainpb.HeadsRequest{Project: p.GetId()})
+	if err != nil || len(heads.GetHeads()) == 0 {
+		t.Fatalf("heads %v %v", heads, err)
 	}
 }

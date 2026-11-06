@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledgersync"
 )
@@ -48,10 +50,15 @@ func openSync(fn func(cmd *cobra.Command, k *kernel.Kernel, s *ledgersync.Syncer
 			return err
 		}
 		defer c.Close()
-		s := &ledgersync.Syncer{Client: c, Project: b.Project, Ledger: k.Ledger, Cache: k.Cache,
-			StatePath: filepath.Join(r.Runtime, syncStateFile)}
-		return fn(cmd, k, s)
+		return fn(cmd, k, newSyncer(k, c, b.Project, r.Runtime))
 	}
+}
+
+// newSyncer is the syncer for the bound project: it records sync state in the
+// runtime directory and places pulled items by this repo's rules.
+func newSyncer(k *kernel.Kernel, c *hosted.Client, project, runtime string) *ledgersync.Syncer {
+	return &ledgersync.Syncer{Client: c, Project: project, Ledger: k.Ledger, Cache: k.Cache,
+		StatePath: filepath.Join(runtime, syncStateFile), Choose: k}
 }
 
 func short(h string) string {
@@ -114,6 +121,13 @@ func syncPullCmd() *cobra.Command {
 			res, err := s.Pull(cmd.Context())
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "Pulled %d event(s) on %d item(s) and %d attachment(s).\n", res.Events, len(res.Items), res.Attachments)
+			if len(res.Placed) > 0 {
+				fmt.Fprintf(out, "Placed %d item(s) by this repo's rules.\n", len(res.Placed))
+			}
+			if len(res.Unplaced) > 0 {
+				fmt.Fprintf(out, "%d item(s) arrived without a workflow and were not placed (local events unpushed or the server kept moving): %s; push, then pull again\n",
+					len(res.Unplaced), strings.Join(res.Unplaced, ", "))
+			}
 			reportConflicts(out, res.Conflicts)
 			if err != nil {
 				return err

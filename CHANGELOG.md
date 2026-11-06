@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- `satelle sync pull` places an item that arrived without a workflow (one created by satelle-server, e.g. over MCP) by this repo's own rules: it records `item.updated {workflow}` and `item.transitioned {from: "", to: <start>}` as actor `satelle`, on the server first, so a second machine adds nothing and two racing machines agree. (sto_aca60d04)
 - Every performer and judge run on this machine (and on a remote node, from its own ledger) gets the item's record: the newest version of each attachment and its children in a read-only folder under `.satelle/runs/` (gitignored), named in the prompt and removed after the run, with small bodies inlined (16 KiB each, 64 KiB in all, every cut marked). A detached run gets the record inline only. (sto_cdf94c34)
 - A performer re-run is told which gates rejected the latest attempt to leave its state, with their notes; every `gate.run` records its presentation's `attempt`. (sto_cdf94c34)
 - `satelle story attachment <id> <name> [--sha S]` prints any version of an attachment byte for byte. (sto_cdf94c34)

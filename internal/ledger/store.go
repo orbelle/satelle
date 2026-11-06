@@ -62,6 +62,24 @@ func (s *Store) Path(item string) string { return s.path(item) }
 // Append adds an event to item's chain. payload is marshalled to JSON (a
 // json.RawMessage is taken as is); nil means no payload.
 func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
+	var e Event
+	err := s.withLock(func() error {
+		prev, err := s.tailHash(item)
+		if err != nil {
+			return err
+		}
+		if e, err = s.NewEvent(item, kind, actor, payload, prev); err != nil {
+			return err
+		}
+		return s.write(e)
+	})
+	return e, err
+}
+
+// NewEvent builds a complete event linked to prev (id, time and hash set)
+// without writing it, so a caller can offer it elsewhere first (a server's
+// compare-and-append) and import it after. payload is as for Append.
+func (s *Store) NewEvent(item, kind, actor string, payload any, prev string) (Event, error) {
 	if !ValidItem(item) {
 		return Event{}, fmt.Errorf("ledger: invalid item id %q", item)
 	}
@@ -78,18 +96,9 @@ func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 			raw = b
 		}
 	}
-	e := Event{ID: newEventID(), Item: item, Kind: kind, At: s.now().UTC(), Actor: actor, Payload: raw}
-	err := s.withLock(func() error {
-		prev, err := s.tailHash(item)
-		if err != nil {
-			return err
-		}
-		e.Prev = prev
-		if e.Hash, err = HashOf(e); err != nil {
-			return err
-		}
-		return s.write(e)
-	})
+	e := Event{ID: newEventID(), Item: item, Kind: kind, At: s.now().UTC(), Actor: actor, Payload: raw, Prev: prev}
+	var err error
+	e.Hash, err = HashOf(e)
 	return e, err
 }
 

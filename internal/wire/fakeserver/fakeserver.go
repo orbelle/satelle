@@ -6,8 +6,10 @@ package fakeserver
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"sort"
@@ -24,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/wire"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
@@ -136,6 +139,51 @@ func (s *Server) Events(project, item string) []*chainpb.Event {
 		return nil
 	}
 	return append([]*chainpb.Event(nil), s.chains[p.Id][item]...)
+}
+
+// SeedItem creates an item server-side the way satelle-server's MCP does: one
+// item.created event carrying fields and no workflow or status (the server
+// never decides process). The item id is <first three letters of kind>_<8
+// hex> and the event id evt_<16 hex>, as the server makes them. It returns
+// the item id.
+func (s *Server) SeedItem(project string, fields map[string]any) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.project(project)
+	if p == nil {
+		panic(fmt.Sprintf("fakeserver: no project %q", project))
+	}
+	kind, _ := fields["kind"].(string)
+	if len(kind) < 3 {
+		panic("fakeserver: SeedItem needs a kind of at least three letters")
+	}
+	id := strings.ToLower(kind[:3]) + "_" + randHex(4)
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	e := ledger.Event{ID: "evt_" + randHex(8), Item: id, Kind: "item.created", At: time.Now().UTC(), Actor: s.me.GetId(), Payload: payload}
+	if e.Hash, err = ledger.HashOf(e); err != nil {
+		panic(err)
+	}
+	pe := wire.ToProto(e)
+	pe.Seq = 1
+	if s.chains[p.Id] == nil {
+		s.chains[p.Id] = map[string][]*chainpb.Event{}
+	}
+	s.chains[p.Id][id] = []*chainpb.Event{pe}
+	for sub := range s.subs {
+		if sub.project == p.Id {
+			sub.send(pe)
+		}
+	}
+	return id
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Items is the stored summaries of project (id or slug).

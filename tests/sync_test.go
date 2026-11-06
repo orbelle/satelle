@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -160,4 +161,96 @@ func TestSyncCarriesEveryAttachmentVersion(t *testing.T) {
 	if got := b.must("story", "attachment", s.ID, "plan"); got != "# plan v3, the newest\n" {
 		t.Errorf("newest plan on b = %q", got)
 	}
+}
+
+// An item created server-side with no workflow (as satelle-server's MCP
+// does) arrives placed by each repo's own rules, can be driven, and a second
+// machine adds nothing; foreign ids are kept as they are.
+func TestSyncPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
+	t.Parallel()
+	srv := fakeserver.Start(t, syncToken)
+	config := func(s *sandbox) {
+		s.write(".satelle/workflows/bugflow.toml", "[states.triage]\nstart = true\n[states.done]\nterminal = true\n[[transition]]\nfrom = [\"triage\"]\nto = \"done\"\n")
+		s.write(".satelle/satelle.toml", "[workflows]\ndefault = \"default\"\n[[workflows.rule]]\nworkflow = \"bugflow\"\ncategory = \"bug\"\n[items]\nprefix = { story = \"sty\" }\n")
+		s.must("validate")
+	}
+	a := signedIn(t)
+	config(a)
+	a.must("project", "create", "shared", "--bind", "--server", srv.URL)
+	parent := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "parent"})
+	id := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "from the server", "body": "b",
+		"criteria": []string{"one", "two"}, "tags": []string{"x"}, "parent": parent, "category": "bug", "assignee": "usr_1"})
+
+	if out := a.must("sync", "pull"); !strings.Contains(out, "Placed 2 item(s)") {
+		t.Fatalf("pull: %s", out)
+	}
+	got := a.get(id)
+	if got.ID != id || got.Workflow != "bugflow" || got.Status != "triage" || strings.Join(got.Criteria, ",") != "one,two" ||
+		strings.Join(got.Tags, ",") != "x" || got.Parent != parent || got.Category != "bug" || got.Assignee != "usr_1" {
+		t.Fatalf("placed item = %+v", got)
+	}
+	if p := a.get(parent); p.Workflow != "default" || p.Status != "backlog" {
+		t.Fatalf("parent = %s/%s", p.Workflow, p.Status)
+	}
+	type ev struct {
+		ID, Actor string
+		Payload   json.RawMessage
+	}
+	events := func(s *sandbox, kind string) []ev {
+		var evs []ev
+		var all []struct {
+			ID      string          `json:"id"`
+			Kind    string          `json:"kind"`
+			Actor   string          `json:"actor"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		s.mustJSON(&all, "ledger", "list", id)
+		for _, e := range all {
+			var c bytes.Buffer
+			_ = json.Compact(&c, e.Payload)
+			e.Payload = c.Bytes()
+			if kind == "" || e.Kind == kind {
+				evs = append(evs, ev{e.ID, e.Actor, e.Payload})
+			}
+		}
+		return evs
+	}
+	upd, mv := events(a, "item.updated"), events(a, "item.transitioned")
+	if len(upd) != 1 || upd[0].Actor != "satelle" || string(upd[0].Payload) != `{"workflow":"bugflow"}` {
+		t.Fatalf("item.updated = %+v", upd)
+	}
+	if len(mv) != 1 || mv[0].Actor != "satelle" || string(mv[0].Payload) != `{"from":"","to":"triage"}` {
+		t.Fatalf("item.transitioned = %+v", mv)
+	}
+	if first := events(a, "")[0]; !strings.HasPrefix(first.ID, "evt_") || first.ID != srv.Events("shared", id)[0].GetId() {
+		t.Fatalf("the server's event id was not kept: %s", first.ID)
+	}
+	if local := a.create("story", "--title", "made here"); !strings.HasPrefix(local.ID, "sty_") {
+		t.Fatalf("a local story's id %s ignores the repo prefix", local.ID)
+	}
+	a.must("story", "set", id, "--status", "done")
+	if a.get(id).Status != "done" {
+		t.Fatal("the placed item could not be driven")
+	}
+	a.must("sync", "push")
+	a.must("ledger", "verify")
+
+	b := signedIn(t)
+	config(b)
+	b.must("project", "bind", "shared", "--server", srv.URL)
+	if out := b.must("sync", "pull"); strings.Contains(out, "Placed") {
+		t.Fatalf("b placed again: %s", out)
+	}
+	if strings.Join(b.hashes()[id], ",") != strings.Join(a.hashes()[id], ",") {
+		t.Fatal("b's chain differs from a's")
+	}
+	bu, bm := events(b, "item.updated"), events(b, "item.transitioned")
+	if len(bu) != 1 || bu[0].Actor != "satelle" || len(bm) != 2 || bm[0].Actor != "satelle" ||
+		string(bm[0].Payload) != `{"from":"","to":"triage"}` || string(bm[1].Payload) != `{"from":"triage","to":"done"}` {
+		t.Fatalf("b's placing events: updated %+v transitioned %+v", bu, bm)
+	}
+	if b.get(id).Status != "done" {
+		t.Fatalf("b's status %s", b.get(id).Status)
+	}
+	b.must("ledger", "verify")
 }

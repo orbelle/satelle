@@ -55,9 +55,7 @@ func openBound(fn func(cmd *cobra.Command, k *kernel.Kernel, s *ledgersync.Synce
 			return err
 		}
 		defer c.Close()
-		s := &ledgersync.Syncer{Client: c, Project: b.Project, Ledger: k.Ledger, Cache: k.Cache,
-			StatePath: filepath.Join(r.Runtime, syncStateFile)}
-		return fn(cmd, k, s, args)
+		return fn(cmd, k, newSyncer(k, c, b.Project, r.Runtime), args)
 	}
 }
 
@@ -261,8 +259,6 @@ func withRemote(k *kernel.Kernel, r repo) (func(), error) {
 	if err != nil {
 		return func() {}, err
 	}
-	k.Remote = remotenode.Placer{Client: c, Project: b.Project,
-		Sync: &ledgersync.Syncer{Client: c, Project: b.Project, Ledger: k.Ledger, Cache: k.Cache,
-			StatePath: filepath.Join(r.Runtime, syncStateFile)}}
+	k.Remote = remotenode.Placer{Client: c, Project: b.Project, Sync: newSyncer(k, c, b.Project, r.Runtime)}
 	return func() { c.Close() }, nil
 }

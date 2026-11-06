@@ -147,3 +147,40 @@ func TestInitWritesTheRunsIgnore(t *testing.T) {
 		t.Fatalf(".satelle/.gitignore = %q, %v", b, err)
 	}
 }
+
+// WorkflowFor is the one selection rule: the item's own workflow, else the
+// first matching rule, else the default, with that workflow's start state.
+func TestWorkflowFor(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "workflows", "bugflow.toml"), []byte("[states.triage]\nstart = true\n[states.done]\nterminal = true\n[[transition]]\nfrom = [\"triage\"]\nto = \"done\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toml, _ := os.ReadFile(filepath.Join(root, "satelle.toml"))
+	if err := os.WriteFile(filepath.Join(root, "satelle.toml"), append(toml, []byte("\n[[workflows.rule]]\nworkflow = \"bugflow\"\ncategory = \"bug\"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	for _, c := range []struct {
+		it          item.Item
+		name, start string
+	}{
+		{item.Item{Kind: "story", Category: "bug"}, "bugflow", "triage"},
+		{item.Item{Kind: "story"}, "default", "backlog"},
+		{item.Item{Kind: "story", Category: "bug", Workflow: "default"}, "default", "backlog"},
+	} {
+		name, start, err := k.WorkflowFor(c.it)
+		if err != nil || name != c.name || start != c.start {
+			t.Errorf("WorkflowFor(%+v) = %s %s %v, want %s %s", c.it, name, start, err, c.name, c.start)
+		}
+	}
+	if _, _, err := k.WorkflowFor(item.Item{Kind: "story", Workflow: "nope"}); err == nil {
+		t.Error("an unknown workflow was accepted")
+	}
+}

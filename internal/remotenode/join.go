@@ -388,7 +388,7 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 
 // syncer is the node's syncer for its run's project.
 func (j *joiner) syncer(k *kernel.Kernel) *ledgersync.Syncer {
-	return &ledgersync.Syncer{Client: j.nc.Hosted(), Project: j.run.Project, Ledger: k.Ledger, Cache: k.Cache,
+	return &ledgersync.Syncer{Client: j.nc.Hosted(), Project: j.run.Project, Ledger: k.Ledger, Cache: k.Cache, Choose: k,
 		StatePath: filepath.Join(j.o.Dir, "runtime", "sync-state.json")}
 }
 

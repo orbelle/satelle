@@ -159,3 +159,25 @@ func TestOnWriteSeesAppendsAndImports(t *testing.T) {
 		t.Fatalf("OnWrite saw %q", got)
 	}
 }
+
+// NewEvent builds a verifiable event linked to prev and writes nothing.
+func TestNewEventBuildsWithoutWriting(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.Append("sto_1", "item.created", "me", map[string]string{"title": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := s.NewEvent("sto_1", "item.updated", "satelle", map[string]string{"workflow": "w"}, first.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyChain("sto_1", []Event{first, e}); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := s.Read("sto_1"); len(evs) != 1 {
+		t.Fatalf("NewEvent wrote: %d events", len(evs))
+	}
+}

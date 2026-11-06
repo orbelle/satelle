@@ -87,6 +87,22 @@ func (k *Kernel) prefix(kind string) string {
 	return string(r)
 }
 
+// WorkflowFor is the workflow an item belongs in and that workflow's start
+// state: its own workflow when set, else the first matching rule, else the
+// default. Create uses it, and so does placing an item that arrived from a
+// server without one.
+func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
+	name := it.Workflow
+	if name == "" {
+		name = k.Rules.Select(it)
+	}
+	w, ok := k.Workflows[name]
+	if !ok {
+		return "", "", fmt.Errorf("workflow %q does not exist", name)
+	}
+	return name, w.StartState(), nil
+}
+
 // Create records a new item. Kind and title are required; status may not be
 // given (it is the workflow's start state). The workflow is f.Workflow, else
 // the first matching rule, else the default.
@@ -104,15 +120,10 @@ func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
 			return draft, fmt.Errorf("parent: %w", err)
 		}
 	}
-	name := draft.Workflow
-	if name == "" {
-		name = k.Rules.Select(draft)
+	name, start, err := k.WorkflowFor(draft)
+	if err != nil {
+		return draft, err
 	}
-	w, ok := k.Workflows[name]
-	if !ok {
-		return draft, fmt.Errorf("workflow %q does not exist", name)
-	}
-	start := w.StartState()
 	f.Workflow, f.Status = &name, &start
 	if k.Git != nil && f.Base == nil {
 		if head, err := k.Git.Head(); err == nil {
