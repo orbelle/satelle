@@ -37,14 +37,9 @@ func baseHref() string {
 // tmplFuncs are shared template helpers.
 var tmplFuncs = template.FuncMap{
 	"basehref": baseHref,
-	// product / version back the one shared site footer (see the "footer"
-	// template) so it needs no per-page data: they are baked into the binary
-	// (per-artifact name via buildinfo.Name). The footer names no user; the
-	// satelle user is shown once, in the top bar.
-	"product": func() string { return buildinfo.Resolve().Name },
-	"version": func() string { return buildinfo.Resolve().Version },
-	// buildline is the build identity line the top bar shows on every page, so
-	// the operator sees which satelled build is serving.
+	// buildline is the build identity line (name, version, commit, build time)
+	// the top bar and the footer show on every page, so the operator sees which
+	// satelled build is serving. It is baked into the binary: no per-page data.
 	"buildline": func() string { return buildinfo.Resolve().String() },
 	"ftime": func(t time.Time) string {
 		if t.IsZero() {
@@ -289,7 +284,7 @@ const templatesSrc = `
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="hosted push is failing — see the project page">Push Failing</span>{{end}}{{end}}
 
-{{define "footer"}}<footer class="site-footer"><span class="footer-version">{{product}} {{version}}</span></footer>{{end}}
+{{define "footer"}}<footer class="site-footer"><span class="footer-version">{{buildline}}</span></footer>{{end}}
 
 {{/* favicon: satelle.dev ◐ monogram (animated terminator + reduced-motion static),
      one shared partial so every page <head> links the same icon — no per-page drift. */}}

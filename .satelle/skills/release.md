@@ -15,9 +15,24 @@ tests, and there is no staging: local testing is the staging.
 
 - The branch to release (`claude/satelle-rebuild` until the CI/CD task replaces
   it) is pushed, and every item on it is done.
-- `.version` names the version to release; `satelle.build` is the release
-  time (`date -u +%Y-%m-%dT%H:%M:%SZ`). When it changes, commit it on the
-  branch (`chore(release): v<version> (<execution id>)`) and push before step 1.
+- Every release bumps the version. Raise `satelle.version` past the latest
+  published `v*` tag (patch for fixes, minor for features, major for a break)
+  and `satelled.version` past the latest `serve-v*` tag; set `satelle.build`
+  to the release time (`date -u +%Y-%m-%dT%H:%M:%SZ`). Add the CHANGELOG
+  heading `## [<version>] - <date>` over the released entries. Refuse to go on
+  when either tag already exists, since that would re-release a version:
+
+  ```sh
+  git fetch -q --tags origin
+  v=$(awk '$1=="satelle.version:"{print $2}' .version)
+  s=$(awk '$1=="satelled.version:"{print $2}' .version)
+  git rev-parse -q --verify "refs/tags/v$v" && { echo "v$v is already released: bump satelle.version"; exit 1; }
+  git rev-parse -q --verify "refs/tags/serve-v$s" && { echo "serve-v$s is already released: bump satelled.version"; exit 1; }
+  ```
+
+  Commit the bump on the branch (`chore(release): v<version> (<execution id>)`)
+  and push before step 1. The released binaries show this version, commit and
+  build time in `satelle version` and on every satelled page.
 - The full suite passes locally on the branch head:
   `go build ./... && go test -count=1 ./...`.
 

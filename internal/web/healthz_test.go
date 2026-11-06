@@ -41,15 +41,23 @@ func TestHealthzReportsBuildIdentity(t *testing.T) {
 	}
 }
 
-// Every page's top bar carries the build identity line.
-func TestTopbarShowsBuildIdentity(t *testing.T) {
+// Every page's top bar and footer carry the build identity line: name,
+// version, commit and build time.
+func TestPagesShowBuildIdentity(t *testing.T) {
 	stampBuild(t)
 	srv := mirrorWith(t, fixtureSnapshot())
-	line := buildinfo.Resolve().String()
+	info := buildinfo.Resolve()
+	line := info.String()
+	if !strings.Contains(line, info.Commit) || !strings.Contains(line, info.BuildTime) {
+		t.Fatalf("build line %q lacks the commit or build time", line)
+	}
 	for _, path := range []string{"/", "/r/proj/"} {
 		body := html.UnescapeString(httpGetBody(t, srv.URL+path))
-		if !strings.Contains(body, `class="topbar-build"`) || !strings.Contains(body, line) {
+		if !strings.Contains(body, `<span class="topbar-build" title="`+line+`">`+line+`</span>`) {
 			t.Errorf("%s lacks the top bar build line %q", path, line)
+		}
+		if !strings.Contains(body, `<span class="footer-version">`+line+`</span>`) {
+			t.Errorf("%s lacks the footer build line %q", path, line)
 		}
 	}
 }
