@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Changed
+- satelled's Activity tab is the agent activity going on now: the stories and task runs being worked (not finished runs), one condensed row each with its kind, state, who or what works it (seats, else the state's performer) and its latest step and time. The tab counts only these. (sto_f85ca73c)
+
 ## [1.0.3] - 2026-11-06
 
 ### Added

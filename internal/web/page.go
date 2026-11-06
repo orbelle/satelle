@@ -334,14 +334,14 @@ const templatesSrc = `
   <section class="panel" data-topic="activity" id="panel-activity">
     <div class="filterbar">
       <div class="filter-input">
-        <input type="text" placeholder="filter… e.g. task:id status:all order:updated" aria-label="filter activity">
+        <input type="text" placeholder="filter… e.g. kind:story task:id order:updated" aria-label="filter activity">
         <span class="filter-count" aria-live="polite"></span>
       </div>
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
-      <tbody data-rows>{{template "workitemRows" .Activity}}</tbody>
+      <thead><tr><th>ID</th><th>Title · Kind</th><th>State</th><th>Working</th><th>Latest step</th><th>When</th></tr></thead>
+      <tbody data-rows>{{template "activityRows" .Activity}}</tbody>
     </table>
   </section>
 
@@ -386,6 +386,18 @@ const templatesSrc = `
   <td class="meta">{{if .Assignee}}{{.Assignee}}{{else}}—{{end}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{/* activityRows: the items being worked now, one condensed line each: who
+     or what works it (seats, else the state's performer) and its latest step.
+     Same row attributes as workitemRows, so the filters and expand work. */}}
+{{define "activityRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.StepAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+  <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
+  <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta act-kind">{{.Kind}}</span>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{with $task}} {{tagchip (printf "task:%s" .)}}{{end}}</div></td>
+  <td>{{template "statebadge" .}}</td>
+  <td class="meta act-working">{{range $i, $w := .Working}}{{if $i}}<br>{{end}}{{$w}}{{else}}—{{end}}</td>
+  <td class="meta act-step"{{with .StepTitle}} title="{{.}}"{{end}}>{{if .Step}}{{.Step}}{{else}}—{{end}}</td>
+  <td class="updated">{{ftime .StepAt}}</td>
+</tr>{{else}}<tr><td colspan="6" class="empty">no agent activity</td></tr>{{end}}{{end}}
 
 {{/* statebadge: an item's status, classed by its workflow (start, terminal,
      park or active), never by the state's name. */}}

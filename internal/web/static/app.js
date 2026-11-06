@@ -21,7 +21,8 @@
     var t = panel.dataset.topic;
     return t === "stories" || t === "activity" || t === "tasks";
   }
-  // kind: tells a story row from a task execution row on the Activity panel;
+  // kind: tells a story row from a task run row on the Activity panel (the
+  // stories and task runs being worked now);
   // task: narrows execution rows to one task's runs (sty_c356ed4f).
   var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
   var ORDER_FIELDS = { updated: 1, created: 1, status: 1, title: 1, id: 1, order: 1 };

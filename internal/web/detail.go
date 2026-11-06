@@ -75,36 +75,53 @@ const (
 // stateClass reports a state's class for list badges: start, terminal, park
 // or active ("" when the workflow is unknown or lacks the state).
 func stateClass(w *mirror.Workflow, status string) string {
-	if w == nil {
+	s, ok := workflowState(w, status)
+	switch {
+	case !ok:
 		return ""
+	case s.Terminal:
+		return "terminal"
+	case s.Park:
+		return "park"
+	case s.Start:
+		return "start"
+	}
+	return "active"
+}
+
+// workflowState is the state named status in w; ok is false when the workflow
+// is unknown or lacks it.
+func workflowState(w *mirror.Workflow, status string) (mirror.WorkflowState, bool) {
+	if w == nil {
+		return mirror.WorkflowState{}, false
 	}
 	for _, s := range w.States {
-		if s.Name != status {
-			continue
+		if s.Name == status {
+			return s, true
 		}
-		switch {
-		case s.Terminal:
-			return "terminal"
-		case s.Park:
-			return "park"
-		case s.Start:
-			return "start"
-		}
-		return "active"
 	}
-	return ""
+	return mirror.WorkflowState{}, false
+}
+
+// transitionOf is an item.transitioned event's move; ok is false for any other
+// event or an unreadable payload.
+func transitionOf(e Entry) (from, to string, ok bool) {
+	if e.Kind != mirror.EventTransitioned {
+		return "", "", false
+	}
+	var m struct{ From, To string }
+	if json.Unmarshal(e.Payload, &m) != nil {
+		return "", "", false
+	}
+	return m.From, m.To, true
 }
 
 // moves returns the item's transitions from its events, oldest first.
 func moves(events []Entry) [][2]string {
 	var out [][2]string
 	for _, e := range events {
-		if e.Kind != mirror.EventTransitioned {
-			continue
-		}
-		var m struct{ From, To string }
-		if json.Unmarshal(e.Payload, &m) == nil {
-			out = append(out, [2]string{m.From, m.To})
+		if from, to, ok := transitionOf(e); ok {
+			out = append(out, [2]string{from, to})
 		}
 	}
 	return out
@@ -211,15 +228,15 @@ func buildPresentations(events []Entry) []presentationVM {
 			}
 			out[cur].Verdicts = append(out[cur].Verdicts, verdictVM{GateRun: g, At: e.At, Duration: humanMs(g.DurationMS)})
 		case mirror.EventTransitioned:
-			var m struct{ From, To string }
-			if json.Unmarshal(e.Payload, &m) != nil {
+			from, to, ok := transitionOf(e)
+			if !ok {
 				continue
 			}
-			if cur >= 0 && key == m.From+mirror.TransitionSep+m.To {
+			if cur >= 0 && key == from+mirror.TransitionSep+to {
 				out[cur].Outcome = outcomeMoved
 			} else {
 				closeOpen(out, cur)
-				out = append(out, presentationVM{From: m.From, To: m.To, At: e.At, Outcome: outcomeMoved})
+				out = append(out, presentationVM{From: from, To: to, At: e.At, Outcome: outcomeMoved})
 			}
 			cur, key = -1, ""
 		}

@@ -132,7 +132,7 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/{$}", s.projectHome)
 	mux.HandleFunc("GET /r/{slug}/fragment/stories", s.fragmentRows("workitemRows", "stories"))
 	mux.HandleFunc("GET /r/{slug}/fragment/tasks", s.fragmentRows("workitemRows", "tasks"))
-	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("workitemRows", "activity"))
+	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("activityRows", "activity"))
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
 	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentEngagement)
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))

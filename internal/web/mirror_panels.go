@@ -112,7 +112,15 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		return pageData{}, id, err
 	}
 	workflows := workflowsOf(docs)
-	engagedIDs, _ := decodeEngagedItems(ctx, s, repoKey)
+	seats, err := decodeSeats(ctx, s, repoKey)
+	if err != nil {
+		return pageData{}, id, err
+	}
+	engagedIDs := engagedItems(seats)
+	events, err := decodeLedger(ctx, s, repoKey, "")
+	if err != nil {
+		return pageData{}, id, err
+	}
 
 	projectName := id.ProjectName
 	if projectName == "" {
@@ -147,7 +155,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
-		Activity:        itemRows(executions, workflows),
+		Activity:        activityRows(stories, executions, workflows, seats, events),
 		DocKinds:        docKinds(docs),
 		Workflows:       workflowRows(docs),
 		Uptime:          formatUptime(time.Since(serverStart)),
@@ -289,9 +297,8 @@ func decodeLedger(ctx context.Context, s *mirror.Store, repoKey, itemID string) 
 	return out, nil
 }
 
-// decodeEngagedItems lists the items a seat is bound to, sorted. A legacy
-// seat row counts when it is a story seat that is not stale.
-func decodeEngagedItems(ctx context.Context, s *mirror.Store, repoKey string) ([]string, error) {
+// decodeSeats returns the partition's seat rows.
+func decodeSeats(ctx context.Context, s *mirror.Store, repoKey string) ([]mirror.Seat, error) {
 	rows, err := s.ListItems(ctx, repoKey, "seat")
 	if err != nil {
 		return nil, err
@@ -307,18 +314,24 @@ func decodeEngagedItems(ctx context.Context, s *mirror.Store, repoKey string) ([
 		}
 		seats = append(seats, seat)
 	}
-	return engagedItems(seats), nil
+	return seats, nil
+}
+
+// seatItem is the item a seat is bound to, "" when none: a legacy row counts
+// when it is a story seat that is not stale.
+func seatItem(seat mirror.Seat) string {
+	id := strings.TrimSpace(seat.Item)
+	if id == "" && seat.StorySeat && !seat.Stale {
+		id = strings.TrimSpace(seat.ID) // a legacy row: id is the item
+	}
+	return id
 }
 
 // engagedItems is the sorted set of items the seats are bound to.
 func engagedItems(seats []mirror.Seat) []string {
 	set := map[string]bool{}
 	for _, seat := range seats {
-		id := strings.TrimSpace(seat.Item)
-		if id == "" && seat.StorySeat && !seat.Stale {
-			id = strings.TrimSpace(seat.ID) // a legacy row: id is the item
-		}
-		if id != "" {
+		if id := seatItem(seat); id != "" {
 			set[id] = true
 		}
 	}
