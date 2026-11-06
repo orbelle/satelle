@@ -17,20 +17,18 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// itemCmd is the command group for one item kind. Every kind gets get and
-// list; a writable kind gets create and set; story adds the work verbs and
-// task adds run.
-func itemCmd(kind string, writable bool) *cobra.Command {
+// itemCmd is the command group for one item kind. Every kind is worked alike
+// in its workflow (get, list, set and the work verbs); a creatable kind adds
+// create, and task adds run (the only way an execution is created).
+func itemCmd(kind string, creatable bool) *cobra.Command {
 	cmd := &cobra.Command{Use: kind, Short: fmt.Sprintf("Work with %s items", kind)}
-	cmd.AddCommand(itemGetCmd(kind), itemListCmd(kind))
-	if writable {
-		cmd.AddCommand(itemCreateCmd(kind), itemSetCmd(kind))
+	cmd.AddCommand(itemGetCmd(kind), itemListCmd(kind), itemSetCmd(kind),
+		attachCmd(kind), attachmentsCmd(kind), attachmentCmd(kind), routeCmd(kind), diffCmd(kind),
+		seatCmd(kind), releaseCmd(kind), performCmd(kind), collectCmd(kind))
+	if creatable {
+		cmd.AddCommand(itemCreateCmd(kind))
 	}
-	switch kind {
-	case "story":
-		cmd.AddCommand(attachCmd(kind), attachmentsCmd(kind), attachmentCmd(kind), routeCmd(kind), diffCmd(kind),
-			seatCmd(kind), releaseCmd(kind), performCmd(kind), collectCmd(kind))
-	case "task":
+	if kind == "task" {
 		cmd.AddCommand(taskRunCmd())
 	}
 	return cmd
@@ -636,7 +634,10 @@ func taskRunCmd() *cobra.Command {
 				return err
 			}
 			if *asJSON {
-				return writeJSON(cmd.OutOrStdout(), map[string]any{"execution": exec, "inputs": inputs})
+				return writeJSON(cmd.OutOrStdout(), struct {
+					item.Item
+					TaskRun kernel.TaskRunRecord `json:"task_run"`
+				}{exec, kernel.TaskRunRecord{Task: args[0], Inputs: inputs}})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s created (%s) over %d items\n", exec.ID, exec.Status, len(inputs))
 			for _, id := range inputs {

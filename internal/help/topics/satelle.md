@@ -29,7 +29,8 @@ failure exits 1.
 
 A task is a repeating workflow over a selection of items: `satelle task run <id>`
 creates an execution recording which items it took. satelle runs a task when
-asked; repeating it is up to cron, a remote or a routine.
+asked; repeating it is up to cron, a remote or a routine. An execution is
+worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id>`.
 
 Topics: `satelle help workflows`, `satelle help edit-gate`,
 `satelle help configuration`, `satelle help remotes`.

@@ -100,21 +100,42 @@ func TestTaskRunCreatesAnExecution(t *testing.T) {
 	if !strings.HasPrefix(task.ID, "tas_") {
 		t.Errorf("task id %q", task.ID)
 	}
+	// The created execution prints at the top level, like create --json; the
+	// items it took are under task_run.
+	out := s.must("task", "run", task.ID, "--json")
 	var run struct {
-		Execution item.Item `json:"execution"`
-		Inputs    []string  `json:"inputs"`
+		item.Item
+		TaskRun struct {
+			Task   string   `json:"task"`
+			Inputs []string `json:"inputs"`
+		} `json:"task_run"`
 	}
-	s.mustJSON(&run, "task", "run", task.ID)
-	if run.Execution.Kind != "execution" || run.Execution.Parent != task.ID {
-		t.Errorf("execution = %+v", run.Execution)
+	if err := json.Unmarshal([]byte(out), &run); err != nil {
+		t.Fatalf("task run --json: %v\n%s", err, out)
 	}
-	if strings.Join(run.Inputs, ",") != a+","+b && strings.Join(run.Inputs, ",") != b+","+a {
-		t.Errorf("inputs = %v, want %s and %s", run.Inputs, a, b)
+	if !strings.HasPrefix(run.ID, "exe_") || run.Kind != "execution" || run.Parent != task.ID || run.Status != "backlog" || run.Workflow == "" {
+		t.Errorf("execution = %+v", run.Item)
 	}
-	if evs := s.ledger(run.Execution.ID, "task.run"); len(evs) != 1 || !strings.Contains(string(evs[0].Payload), a) {
+	if run.TaskRun.Task != task.ID {
+		t.Errorf("task_run.task = %q, want %s", run.TaskRun.Task, task.ID)
+	}
+	if got := strings.Join(run.TaskRun.Inputs, ","); got != a+","+b && got != b+","+a {
+		t.Errorf("task_run.inputs = %v, want %s and %s", run.TaskRun.Inputs, a, b)
+	}
+	var top, got map[string]any
+	if err := json.Unmarshal([]byte(out), &top); err != nil {
+		t.Fatal(err)
+	}
+	s.mustJSON(&got, "execution", "get", run.ID)
+	for _, f := range []string{"id", "kind", "workflow", "status"} {
+		if top[f] == nil || top[f] != got[f] {
+			t.Errorf("task run --json %s = %v, execution get says %v", f, top[f], got[f])
+		}
+	}
+	if evs := s.ledger(run.ID, "task.run"); len(evs) != 1 || !strings.Contains(string(evs[0].Payload), a) {
 		t.Errorf("task.run on the execution's ledger = %+v", evs)
 	}
-	if out := s.must("execution", "list", "--parent", task.ID); !strings.Contains(out, run.Execution.ID) {
+	if out := s.must("execution", "list", "--parent", task.ID); !strings.Contains(out, run.ID) {
 		t.Errorf("execution list:\n%s", out)
 	}
 }
