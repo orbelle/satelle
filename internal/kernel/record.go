@@ -50,19 +50,6 @@ func (r Record) Close() error {
 	return os.RemoveAll(r.Dir)
 }
 
-// latestAttachments keeps the newest version of each name, newest first.
-func latestAttachments(atts []item.Attachment) []item.Attachment {
-	seen := map[string]bool{}
-	var out []item.Attachment
-	for i := len(atts) - 1; i >= 0; i-- {
-		if !seen[atts[i].Name] {
-			seen[atts[i].Name] = true
-			out = append(out, atts[i])
-		}
-	}
-	return out
-}
-
 var hexSHA = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // resolveAttachment picks the version of name: the newest with no sha, else
@@ -145,7 +132,7 @@ func fileName(name string) string {
 // the inline part only and names no local path. An item with no attachments
 // and no children has an empty record.
 func (k *Kernel) record(it item.Item, events []ledger.Event, folder bool) (Record, error) {
-	atts := latestAttachments(item.FoldAttachments(events))
+	atts, _ := item.LatestAttachments(item.FoldAttachments(events))
 	children, err := k.List(cache.Query{Parent: it.ID})
 	if err != nil {
 		return Record{}, err

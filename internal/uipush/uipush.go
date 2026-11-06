@@ -115,8 +115,9 @@ func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 		if err != nil {
 			return snap, err
 		}
-		for _, a := range atts {
-			snap.StoryDocs = append(snap.StoryDocs, mustJSON(attachmentRow(src.Ledger, a)))
+		latest, versions := item.LatestAttachments(atts)
+		for _, a := range latest {
+			snap.StoryDocs = append(snap.StoryDocs, mustJSON(attachmentRow(src.Ledger, a, versions[a.Name])))
 		}
 	}
 	seats, err := src.Cache.Seats("", "")
@@ -143,12 +144,12 @@ func itemRow(it item.Item) mirror.Item {
 	}
 }
 
-// attachmentRow is an attachment's metadata, with its body when it is text
-// within MaxBody.
-func attachmentRow(l *ledger.Store, a item.Attachment) mirror.Attachment {
+// attachmentRow is an attachment's metadata (the newest of versions), with its
+// body when it is text within MaxBody.
+func attachmentRow(l *ledger.Store, a item.Attachment, versions int) mirror.Attachment {
 	row := mirror.Attachment{
 		ID: a.Item + "/" + a.Name, Item: a.Item, Name: a.Name, MediaType: a.MediaType,
-		Size: a.Size, SHA256: a.SHA256, At: a.At, Actor: a.Actor,
+		Size: a.Size, SHA256: a.SHA256, At: a.At, Actor: a.Actor, Versions: versions,
 	}
 	if a.Size == 0 {
 		return row

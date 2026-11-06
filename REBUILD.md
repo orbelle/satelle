@@ -499,7 +499,7 @@ satelled serves **plain HTTP only**: no gRPC, no Connect. The surface is:
   - `/debug/pprof/*` (loopback only).
 - **Ingest** (POST only; anything else gets 405)
   - `POST /ingest/change`: `{repo_key, topic, entity, at, origin}`.
-  - `POST /ingest/snapshot`: `{repo_key, slug, stories, tasks, executions, docs, ledger_events, story_docs, seats, waves, settings, identity, kinds, merge_kinds, origin}`. Answers 409 `partition_unknown`, or 409 on a slug conflict.
+  - `POST /ingest/snapshot`: `{repo_key, slug, stories, tasks, executions, docs, ledger_events, story_docs, seats, waves, settings, identity, kinds, merge_kinds, origin}`. `story_docs` carries one row per `<item>/<name>`: the newest version, with `versions` counting them (sto_e2490f1f). Answers 409 `partition_unknown`, or 409 on a slug conflict.
   - `POST /ingest/remove`: `{repo_key}`.
   - Callers: push/publisher.go, cli/uisnapshot.go, cli/cmd_workspace.go.
   - The endpoint comes from `[service] endpoint` (default `http://127.0.0.1:8787`); `SATELLE_SERVER_ENDPOINT` overrides it, and `none` disables it.

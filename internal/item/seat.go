@@ -81,3 +81,17 @@ func FoldAttachments(events []ledger.Event) []Attachment {
 	}
 	return out
 }
+
+// LatestAttachments returns the newest version of each name, newest first, and
+// how many versions each name has. atts is oldest first, as FoldAttachments
+// returns it; it is not changed.
+func LatestAttachments(atts []Attachment) (latest []Attachment, versions map[string]int) {
+	versions = map[string]int{}
+	for i := len(atts) - 1; i >= 0; i-- {
+		if versions[atts[i].Name] == 0 {
+			latest = append(latest, atts[i])
+		}
+		versions[atts[i].Name]++
+	}
+	return latest, versions
+}

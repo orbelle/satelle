@@ -59,8 +59,9 @@ func (e *Event) Normalize() {
 }
 
 // Attachment is one row of Snapshot.StoryDocs: a document attached to an item.
-// Its id is "<item>/<name>". Body is set for a text attachment within the
-// pusher's bound; BodyOmitted says it was left out.
+// Its id is "<item>/<name>": a pusher sends one row per name, the newest
+// version, with Versions counting them. Body is set for a text attachment
+// within the pusher's bound; BodyOmitted says it was left out.
 type Attachment struct {
 	ID          string    `json:"id"`
 	Item        string    `json:"item"`
@@ -72,7 +73,8 @@ type Attachment struct {
 	Actor       string    `json:"actor,omitempty"`
 	Body        string    `json:"body,omitempty"`
 	BodyOmitted bool      `json:"body_omitted,omitempty"`
-	Type        string    `json:"type,omitempty"` // legacy media type
+	Versions    int       `json:"versions,omitempty"` // how many versions of Name the item has; the row is the newest
+	Type        string    `json:"type,omitempty"`     // legacy media type
 }
 
 // Seat is one row of Snapshot.Seats: a session bound to an item. Its id is

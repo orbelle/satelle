@@ -322,3 +322,47 @@ func TestDeltaListsIdentity(t *testing.T) {
 		t.Fatalf("delta identity = %+v", meta)
 	}
 }
+
+// A full push (the seed) of an item that re-attached a name succeeds, sending
+// the newest version with its count; a later delta keeps one row per name.
+func TestSeedPushesTheNewestVersionOfEachAttachment(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	srv, store := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Re-planned")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []struct{ name, body string }{{"plan.md", "# Plan\n\nfirst draft"}, {"plan.md", "# Plan\n\nsecond draft"}, {"notes.md", "# Notes\n\nonce"}} {
+		if _, err := k.Attach(it.ID, a.name, []byte(a.body), "text/markdown", "ann"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Seed(ctx, src); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if n, _ := store.CountItems(ctx, "rk-test", "story_doc"); n != 2 {
+		t.Fatalf("story_doc rows = %d, want 2", n)
+	}
+	page := get(t, srv.URL+"/r/proj/story/"+it.ID)
+	if !strings.Contains(page, "second draft") || !strings.Contains(page, "2 versions") || strings.Contains(page, "first draft") {
+		t.Errorf("the page does not show the newest plan with its count")
+	}
+	if strings.Count(page, " versions") != 1 {
+		t.Errorf("a single-version attachment shows a count")
+	}
+	if _, err := k.Attach(it.ID, "plan.md", []byte("# Plan\n\nthird draft"), "text/markdown", "ann"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	page = get(t, srv.URL+"/r/proj/story/"+it.ID)
+	if !strings.Contains(page, "third draft") || !strings.Contains(page, "3 versions") {
+		t.Errorf("after the delta the page does not show the third version")
+	}
+	if n, _ := store.CountItems(ctx, "rk-test", "story_doc"); n != 2 {
+		t.Errorf("after the delta, story_doc rows = %d, want 2", n)
+	}
+}
