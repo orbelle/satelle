@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Added
+- The upgrade skill, `.satelle/skills/satelle-upgrade.md`, ships in the init template, so `satelle upgrade --archive` (and `satelle init`) writes it. The session agent follows it to port the archived pre-1.0 process: it maps every workflow, step, `[[gate]]`, performer and agent binding old -> new (park with its `@prior` resume, `parallel` as a cap, `propose` reviewers on the way out, judges only on read-only `claude`/`pi`/`grok`), optimises (unwired checks, duplicates, built-in gates), retypes script skills to `type: check`, rewrites old commands and the `decision` answer to `verdict`, has the user confirm the proposal and a status map (with a rehearsal that finds categories sharing a status), then imports, validates and verifies the ledger. `satelle help upgrade` names it; `satelle help workflows` documents the judge's verdict object. (sto_5725d112)
+
 ## [1.0.9] - 2026-11-06
 
 ### Fixed

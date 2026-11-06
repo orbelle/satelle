@@ -174,7 +174,7 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 	for _, tok := range []string{
 		// AC2: every old key the Map covers.
 		"[[gate]]", "on", "for", "when", "applies_to", "mandatory", "parallel",
-		"reviewer_agent", "after_children", "waits_on_children", "advise",
+		"reviewer_agent", "propose = true", "after_children", "waits_on_children", "advise",
 		"interface", "park", "cancel", "recover",
 		// AC2: the judge rule and the resume rule.
 		"session", "claude", "pi", "grok", "read-only",

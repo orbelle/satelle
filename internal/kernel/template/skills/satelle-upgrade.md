@@ -109,6 +109,11 @@ One proposal row per old element, by these rules.
   reviewer seat). Either way it meets the judge rule under Agents; when the
   archive has no reviewer seat, or it cannot meet the rule, the row asks the
   user which judge binding the gate uses.
+- `propose = true`: the old step's agent produced its artifact on the edge
+  into the state, and the step's reviewers judged it before the move. A v1
+  performer works inside its state and a gate judges on the way out, so a
+  proposing step's reviewers go on the transitions out of its state (joining
+  the next step's reviewers there), not into it. The row says so.
 - `parallel` is a concurrency cap, not a switch. Absent or `0` becomes
   `mode = "sequential"`: the first reject stops the round. A count of 1 or more,
   or `true`, becomes `mode = "parallel"`: every gate runs. The count itself is
@@ -175,7 +180,7 @@ One proposal row per old element, by these rules.
 
 **Settings**
 - Each of these is a row with "no v1 equivalent": reject_budget, rework,
-  propose, freeze, schedule, bundle, `[review]`, `[categories]`,
+  freeze, schedule, bundle, `[review]`, `[categories]`,
   `[engagement]`, `[fix_lane]`, `[worktree]`, substrate_roots, and the
   data_dir, db, web_port and log settings.
 - `[gate] edit_exempt_paths` and edit_exempt_globs become the v1
