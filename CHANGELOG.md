@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.3] - 2026-11-06
 
 ### Added
 - `satelle <kind> seat <id> --base <ref>`: the commit the item's diff is judged from, resolved when seated (it must be in HEAD's history); a stacked branch is seated on the branch it is stacked on. (sto_31081c83)
