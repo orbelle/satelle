@@ -31,6 +31,9 @@ func itemCmd(kind string, creatable bool) *cobra.Command {
 	if kind == "task" {
 		cmd.AddCommand(taskRunCmd())
 	}
+	if kind == item.QueueKind {
+		cmd.AddCommand(queueAddCmd(), queueRemoveCmd(), queueFireCmd())
+	}
 	return cmd
 }
 
@@ -51,10 +54,22 @@ type fieldFlags struct {
 	title, body, category, parent, workflow, assignee string
 	criteria, tags, addTags, removeTags               []string
 	inKind, inStatus, inTag, inCategory               string
+	clearInputs                                       bool
+	trigTask, trigWorkflow, trigBase                  string
+	minSize                                           int
 }
 
-func (f *fieldFlags) register(cmd *cobra.Command, create bool) {
+func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	fl := cmd.Flags()
+	if kind == item.QueueKind {
+		fl.StringVar(&f.trigTask, "trigger-task", "", "the task the queue's trigger runs (an execution under it)")
+		fl.StringVar(&f.trigWorkflow, "trigger-workflow", "", "the workflow the queue's trigger starts a run in")
+		fl.StringVar(&f.trigBase, "trigger-base", "", "the ref a fired run's base comes from (default HEAD)")
+		fl.IntVar(&f.minSize, "min-size", 0, "fire when an enqueue leaves this many members (0: only by hand)")
+	}
+	if !create && (kind == "task" || kind == item.QueueKind) {
+		fl.BoolVar(&f.clearInputs, "clear-inputs", false, "clear the input selection")
+	}
 	fl.StringVar(&f.title, "title", "", "title")
 	fl.StringVar(&f.body, "body", "", "body (markdown); '-' reads stdin")
 	fl.StringArrayVar(&f.criteria, "criteria", nil, "an acceptance criterion (repeatable; replaces the list on set)")
@@ -62,10 +77,10 @@ func (f *fieldFlags) register(cmd *cobra.Command, create bool) {
 	fl.StringVar(&f.category, "category", "", "category")
 	fl.StringVar(&f.parent, "parent", "", "parent item id")
 	fl.StringVar(&f.assignee, "assignee", "", "assignee (carried, no behaviour)")
-	fl.StringVar(&f.inKind, "input-kind", "", "task input selection: item kind")
-	fl.StringVar(&f.inStatus, "input-status", "", "task input selection: status")
-	fl.StringVar(&f.inTag, "input-tag", "", "task input selection: tag")
-	fl.StringVar(&f.inCategory, "input-category", "", "task input selection: category")
+	fl.StringVar(&f.inKind, "input-kind", "", "input selection (a task's inputs, a queue's filter): item kind")
+	fl.StringVar(&f.inStatus, "input-status", "", "input selection (a task's inputs, a queue's filter): status")
+	fl.StringVar(&f.inTag, "input-tag", "", "input selection (a task's inputs, a queue's filter): tag")
+	fl.StringVar(&f.inCategory, "input-category", "", "input selection (a task's inputs, a queue's filter): category")
 	if create {
 		fl.StringVar(&f.workflow, "workflow", "", "workflow (default: the first matching rule, else the default)")
 	} else {
@@ -144,6 +159,34 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 		}
 		out.Inputs = &sel
 	}
+	if changed("clear-inputs") && f.clearInputs {
+		if out.Inputs != nil {
+			return out, errors.New("--clear-inputs cannot be given with an --input-* flag")
+		}
+		out.Inputs = &item.Selection{}
+	}
+	if changed("trigger-task") || changed("trigger-workflow") || changed("trigger-base") || changed("min-size") {
+		t := item.Trigger{}
+		if cur != nil && cur.Trigger != nil {
+			t = *cur.Trigger
+		}
+		if changed("trigger-task") {
+			t.Task, t.Workflow = f.trigTask, ""
+		}
+		if changed("trigger-workflow") {
+			t.Workflow = f.trigWorkflow
+			if !changed("trigger-task") {
+				t.Task = ""
+			}
+		}
+		if changed("trigger-base") {
+			t.Base = f.trigBase
+		}
+		if changed("min-size") {
+			t.MinSize = f.minSize
+		}
+		out.Trigger = &t
+	}
 	return out, nil
 }
 
@@ -186,7 +229,7 @@ func itemCreateCmd(kind string) *cobra.Command {
 			return nil
 		},
 	}
-	f.register(cmd, true)
+	f.register(cmd, kind, true)
 	asJSON = jsonFlag(cmd)
 	return cmd
 }
@@ -216,6 +259,9 @@ func itemGetCmd(kind string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if kind == item.QueueKind {
+				return showQueue(k, out, it, atts, seats, *asJSON)
+			}
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
@@ -233,6 +279,10 @@ func itemGetCmd(kind string) *cobra.Command {
 			return nil
 		},
 	}
+	if kind == item.QueueKind {
+		cmd.Aliases = []string{"show"}
+		cmd.Short = "Show a queue: its filter, trigger, members and last fire"
+	}
 	asJSON = jsonFlag(cmd)
 	return cmd
 }
@@ -246,7 +296,14 @@ func printItem(w io.Writer, it item.Item) {
 		}
 	}
 	if it.Inputs != nil {
-		fmt.Fprintf(w, "inputs     kind=%q status=%q tag=%q category=%q\n", it.Inputs.Kind, it.Inputs.Status, it.Inputs.Tag, it.Inputs.Category)
+		label := "inputs"
+		if it.Kind == item.QueueKind {
+			label = "filter"
+		}
+		fmt.Fprintf(w, "%-10s kind=%q status=%q tag=%q category=%q\n", label, it.Inputs.Kind, it.Inputs.Status, it.Inputs.Tag, it.Inputs.Category)
+	}
+	if it.Trigger != nil {
+		fmt.Fprintf(w, "trigger    %s\n", triggerText(*it.Trigger))
 	}
 	if it.Body != "" {
 		fmt.Fprintf(w, "\n%s\n", strings.TrimRight(it.Body, "\n"))
@@ -359,7 +416,7 @@ notes.`,
 			return reportTransition(out, res, *asJSON)
 		},
 	}
-	f.register(cmd, false)
+	f.register(cmd, kind, false)
 	cmd.Flags().StringVar(&status, "status", "", "present the transition to this state")
 	asJSON = jsonFlag(cmd)
 	return cmd
@@ -381,6 +438,9 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 		}
 		if res.Moved {
 			fmt.Fprintf(w, "%s: %s -> %s\n", res.Item.ID, res.From, res.To)
+		}
+		for _, q := range res.Queued {
+			printQueueOutcome(w, q)
 		}
 	}
 	if res.Moved {

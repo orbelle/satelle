@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -481,5 +482,68 @@ func TestIngestSnapshotSlugConflict(t *testing.T) {
 	code, _ = post(mirror.Snapshot{RepoKey: "empty-2", Slug: ""})
 	if code != 200 {
 		t.Fatalf("empty slug 2 status %d", code)
+	}
+}
+
+// The queue partition replaces on a full snapshot and merges on a delta, and
+// a snapshot and a queues change event ring the queues doorbell.
+func TestIngestQueues(t *testing.T) {
+	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	var doorbells []string
+	h := &mirror.IngestHandler{Store: s, OnChange: func(topic string) { doorbells = append(doorbells, topic) }}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	post := func(path string, v any) {
+		t.Helper()
+		body, _ := json.Marshal(v)
+		resp, err := http.Post(srv.URL+path, "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s status %d", path, resp.StatusCode)
+		}
+	}
+	ids := func() []string {
+		rows, err := s.ListItems(t.Context(), "rk1", "queue")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+	q := func(id string) json.RawMessage { return []byte(`{"id":"` + id + `","kind":"queue","title":"q"}`) }
+	post("/ingest/snapshot", mirror.Snapshot{RepoKey: "rk1", Slug: "demo", Queues: []json.RawMessage{q("que_a"), q("que_b")},
+		Identity: json.RawMessage(`{"project_name":"demo"}`)})
+	if got := ids(); len(got) != 2 {
+		t.Fatalf("full: %v", got)
+	}
+	if !slices.Contains(doorbells, "queues") {
+		t.Fatalf("snapshot doorbells %v", doorbells)
+	}
+	post("/ingest/snapshot", mirror.Snapshot{RepoKey: "rk1", Slug: "demo", Queues: []json.RawMessage{q("que_c")},
+		Kinds: []string{"identity"}, MergeKinds: []string{"queue"}, Identity: json.RawMessage(`{"project_name":"demo"}`)})
+	if got := ids(); len(got) != 3 {
+		t.Fatalf("delta merge: %v", got)
+	}
+	post("/ingest/snapshot", mirror.Snapshot{RepoKey: "rk1", Slug: "demo", Queues: []json.RawMessage{q("que_z")},
+		Identity: json.RawMessage(`{"project_name":"demo"}`)})
+	if got := ids(); len(got) != 1 || got[0] != "que_z" {
+		t.Fatalf("full replace: %v", got)
+	}
+	doorbells = nil
+	post("/ingest/change", mirror.ChangeEvent{RepoKey: "rk1", Topic: "queues", Entity: "queue", At: "t"})
+	if !slices.Contains(doorbells, "queues") {
+		t.Fatalf("change doorbells %v", doorbells)
 	}
 }

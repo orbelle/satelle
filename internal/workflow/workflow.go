@@ -41,6 +41,9 @@ type State struct {
 	Park      bool       `toml:"park"`
 	Resumes   bool       `toml:"resumes"`
 	Performer *Performer `toml:"performer"`
+	// Enqueue names the queues (que_ item ids) an item entering this state
+	// is added to.
+	Enqueue []string `toml:"enqueue"`
 }
 
 // Performer is the binding that does a state's work, and the skill it follows.

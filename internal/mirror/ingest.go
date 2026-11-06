@@ -64,6 +64,7 @@ type Snapshot struct {
 	Stories      []json.RawMessage `json:"stories,omitempty"`
 	Tasks        []json.RawMessage `json:"tasks,omitempty"`
 	Executions   []json.RawMessage `json:"executions,omitempty"`
+	Queues       []json.RawMessage `json:"queues,omitempty"`
 	Docs         []json.RawMessage `json:"docs,omitempty"`
 	LedgerEvents []json.RawMessage `json:"ledger_events,omitempty"`
 	StoryDocs    []json.RawMessage `json:"story_docs,omitempty"` // id = story_id/name
@@ -369,6 +370,7 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	if h.OnChange != nil {
 		h.OnChange("stories")
 		h.OnChange("tasks")
+		h.OnChange("queues")
 		h.OnChange("docs")
 		h.OnChange("projects")
 	}
@@ -416,6 +418,7 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 		{"story", rawToRows(snap.Stories, "id"), merges("story")},
 		{"task", rawToRows(snap.Tasks, "id"), merges("task")},
 		{"execution", rawToRows(snap.Executions, "id"), merges("execution")},
+		{"queue", rawToRows(snap.Queues, "id"), merges("queue")},
 		{"doc", docRows(snap.Docs), false},
 		{"ledger_event", rawToRows(snap.LedgerEvents, "id"), merges("ledger_event")},
 		{"story_doc", rawToRows(snap.StoryDocs, "id"), merges("story_doc")},

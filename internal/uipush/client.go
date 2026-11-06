@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/push"
 )
@@ -126,9 +127,12 @@ func topics(src Source, ids []string) []string {
 		if err != nil || !ok {
 			continue
 		}
-		if it.Kind == "task" || it.Kind == "execution" {
+		switch it.Kind {
+		case item.QueueKind:
+			add("queues")
+		case "task", "execution":
 			add("tasks")
-		} else {
+		default:
 			add("stories")
 		}
 	}

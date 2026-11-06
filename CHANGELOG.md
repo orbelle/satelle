@@ -1,3 +1,8 @@
+## Unreleased
+
+### Added
+- Queues (`satelle help queues`): a `que_` item gathers items by a filter (`--input-kind/-status/-tag/-category`) and by explicit `satelle queue add`, and its trigger runs a task (an execution under it) or a workflow (an execution under the queue in that workflow's start state) over its members. `--min-size N` fires synchronously in the command whose enqueue reaches N; `satelle queue fire` fires by hand (exit 2 while the last run is open or the queue moved); satelle schedules and watches nothing. The queue's ledger records `queue.added`, `queue.removed` and `queue.fired`; the run's `task.run` names the queue. A workflow state's `enqueue = ["que_…"]` adds every item entering it. satelled has a live Queues tab: filter, trigger, members and last fire with its run's status. `satelle task|queue set --clear-inputs` clears a selection. The release procedure's step 0 now fires the release run from a release queue (filter approved stories, trigger the release task), creating it on first use. (sto_8f1605c8)
+
 ## [1.0.10] - 2026-11-06
 
 ### Added

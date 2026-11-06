@@ -131,16 +131,19 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/{$}", s.projectHome)
 	mux.HandleFunc("GET /r/{slug}/fragment/stories", s.fragmentRows("workitemRows", "stories"))
 	mux.HandleFunc("GET /r/{slug}/fragment/tasks", s.fragmentRows("workitemRows", "tasks"))
+	mux.HandleFunc("GET /r/{slug}/fragment/queues", s.fragmentRows("queueRows", "queues"))
 	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("activityRows", "activity"))
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
 	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentEngagement)
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
 	mux.HandleFunc("GET /r/{slug}/fragment/task/{id}", s.itemFragment("task"))
 	mux.HandleFunc("GET /r/{slug}/fragment/execution/{id}", s.itemFragment("execution"))
+	mux.HandleFunc("GET /r/{slug}/fragment/queue/{id}", s.itemFragment("queue"))
 	mux.HandleFunc("GET /r/{slug}/fragment/workflow/{name}", s.workflowFragment)
 	mux.HandleFunc("GET /r/{slug}/story/{id}", s.itemDetail("story"))
 	mux.HandleFunc("GET /r/{slug}/task/{id}", s.itemDetail("task"))
 	mux.HandleFunc("GET /r/{slug}/execution/{id}", s.itemDetail("execution"))
+	mux.HandleFunc("GET /r/{slug}/queue/{id}", s.itemDetail("queue"))
 	mux.HandleFunc("GET /r/{slug}/doc/{kind}/{name}", s.docPage)
 	mux.HandleFunc("GET /r/{slug}/help", s.helpPage)
 	mux.HandleFunc("GET /r/{slug}/settings", s.settingsPage)
@@ -365,6 +368,8 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 			payload = data.Stories
 		case "tasks":
 			payload = data.Tasks
+		case "queues":
+			payload = data.Queues
 		case "activity":
 			payload = data.Activity
 		case "docs":

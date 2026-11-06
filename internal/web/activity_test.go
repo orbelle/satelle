@@ -189,8 +189,14 @@ func TestActivityLiveWiring(t *testing.T) {
 	}
 	js := string(b)
 	for _, want := range []string{
-		`var LIVE_TOPICS = ["stories", "activity", "tasks"]`,
-		`var DERIVED_TOPICS = { stories: ["activity"], tasks: ["activity"] }`,
+		`var PANELS = ["stories", "activity", "tasks", "queues", "workflow"]`,
+		`var LIVE_TOPICS = ["stories", "activity", "tasks", "queues"]`,
+		`var DERIVED_TOPICS = { stories: ["activity", "queues"], tasks: ["activity", "queues"] }`,
+		`t === "queues"`,
+		`if (kind === "queue") return "queues";`,
+		`refetch[tp] = debounce(function () { refetchPanel(tp); }, 250)`,
+		`(DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); })`,
+		`(DERIVED_TOPICS[ev.data] || []).indexOf(detailTopic) !== -1`,
 		`tab.textContent = panel.querySelectorAll("[data-rows] .row").length`,
 	} {
 		if !strings.Contains(js, want) {

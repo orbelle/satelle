@@ -13,6 +13,10 @@ workflow = "standing"
 kind = "task"
 
 [[workflows.rule]]
+workflow = "standing"
+kind = "queue"
+
+[[workflows.rule]]
 workflow = "epic"
 tag = "epic"
 

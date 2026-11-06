@@ -128,10 +128,18 @@ func (s *Store) AppendRaw(e Event) error {
 			return err
 		}
 		if e.Prev != prev {
-			return fmt.Errorf("ledger: event %s: prev %q does not link to tail %q", e.ID, e.Prev, prev)
+			return &StaleTail{Event: e.ID, Prev: e.Prev, Tail: prev}
 		}
 		return s.write(e)
 	})
+}
+
+// StaleTail is AppendRaw's refusal of an event that does not link to the
+// chain's current tail.
+type StaleTail struct{ Event, Prev, Tail string }
+
+func (e *StaleTail) Error() string {
+	return fmt.Sprintf("ledger: event %s: prev %q does not link to tail %q", e.Event, e.Prev, e.Tail)
 }
 
 // Import merges chains from elsewhere (a pull): events already present (same

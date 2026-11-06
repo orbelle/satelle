@@ -85,7 +85,7 @@ func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	}
 	snap.Kinds = []string{"seat", "identity"}
 	snap.Identity = identity(src)
-	snap.MergeKinds = []string{"story", "task", "execution", "ledger_event", "story_doc"}
+	snap.MergeKinds = []string{"story", "task", "execution", "queue", "ledger_event", "story_doc"}
 	return snap, nil
 }
 
@@ -99,6 +99,8 @@ func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 			snap.Tasks = append(snap.Tasks, row)
 		case "execution":
 			snap.Executions = append(snap.Executions, row)
+		case item.QueueKind:
+			snap.Queues = append(snap.Queues, row)
 		default:
 			snap.Stories = append(snap.Stories, row)
 		}
@@ -140,7 +142,7 @@ func itemRow(it item.Item) mirror.Item {
 	return mirror.Item{
 		ID: it.ID, Kind: it.Kind, Title: it.Title, Body: it.Body, Status: it.Status, Criteria: it.Criteria,
 		Tags: tags, ParentID: it.Parent, Category: it.Category, Workflow: it.Workflow, Assignee: it.Assignee,
-		CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
+		Inputs: it.Inputs, Trigger: it.Trigger, CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
 	}
 }
 

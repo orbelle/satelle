@@ -13,13 +13,13 @@
 (function () {
   "use strict";
   // A row's data-terminal comes from its pushed workflow; no state is named here.
-  var PANELS = ["stories", "activity", "tasks", "workflow"];
+  var PANELS = ["stories", "activity", "tasks", "queues", "workflow"];
   // Panels of work items (status + workflow + default sort). The workflow
   // panel is a read-only catalog: free-text filter only, no status/order
   // default chips.
   function isItemPanel(panel) {
     var t = panel.dataset.topic;
-    return t === "stories" || t === "activity" || t === "tasks";
+    return t === "stories" || t === "activity" || t === "tasks" || t === "queues";
   }
   // kind: tells a story row from a task run row on the Activity panel (the
   // stories and task runs being worked now);
@@ -32,7 +32,10 @@
   var pendingExpand = null;
   try { pendingExpand = new URLSearchParams(location.search).get("expand"); } catch (e) {}
 
-  function topicForKind(kind) { return kind === "task" ? "tasks" : "stories"; }
+  function topicForKind(kind) {
+    if (kind === "queue") return "queues";
+    return (kind === "task" || kind === "execution") ? "tasks" : "stories";
+  }
 
   function debounce(fn, ms) {
     var t = null;
@@ -411,10 +414,11 @@
   }
 
   // Panels with a rows fragment endpoint (the refetch targets); workflow has none.
-  var LIVE_TOPICS = ["stories", "activity", "tasks"];
+  var LIVE_TOPICS = ["stories", "activity", "tasks", "queues"];
   // A topic doorbell also refetches the panels derived from it: Activity lists
-  // the stories and task executions under way, so it follows both.
-  var DERIVED_TOPICS = { stories: ["activity"], tasks: ["activity"] };
+  // the stories and task executions under way, so it follows both; a queue's
+  // filter members follow the stories, and its last run's status the tasks.
+  var DERIVED_TOPICS = { stories: ["activity", "queues"], tasks: ["activity", "queues"] };
 
   // ---- Projects landing soft-refresh (sty_f968f9db) -----------------------
   // Prefer in-place count updates when the row set is unchanged so numbers
@@ -576,7 +580,7 @@
       if (document.hidden) { live.stale = true; return; }
       if (refetch[ev.data]) refetch[ev.data]();
       (DERIVED_TOPICS[ev.data] || []).forEach(function (tp) { if (refetch[tp]) refetch[tp](); });
-      if (refreshDetail && ev.data === detailTopic) refreshDetail();
+      if (refreshDetail && (ev.data === detailTopic || (DERIVED_TOPICS[ev.data] || []).indexOf(detailTopic) !== -1)) refreshDetail();
       // Landing soft-refreshes counts via /fragment/projects — no full reload.
       if (ev.data === "projects" && refreshProjects) refreshProjects();
       if (ev.data === "logs" && refreshLogs) refreshLogs();

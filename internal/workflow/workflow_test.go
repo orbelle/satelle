@@ -37,6 +37,7 @@ park = true
 resumes = true
 [states.end]
 terminal = true
+enqueue = ["que_00000001", "que_00000002"]
 
 [gates.g1]
 skill = "judge"
@@ -70,6 +71,9 @@ func TestValidWorkflow(t *testing.T) {
 	}
 	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
 		t.Fatalf("unexpected problems: %v", errs)
+	}
+	if got := w.States["end"].Enqueue; strings.Join(got, ",") != "que_00000001,que_00000002" {
+		t.Fatalf("enqueue %v", got)
 	}
 	if w.Name != "wf" || w.StartState() != "s0" {
 		t.Fatalf("name %q start %q", w.Name, w.StartState())
@@ -116,6 +120,8 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"performer agent", base + "[states.b]\nperformer = { agent = \"zz\", skill = \"work\" }\n[[transition]]\nfrom = [\"a\"]\nto = \"b\"\n", "performer agent"},
 		{"duplicate", base + "[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n", "duplicates"},
 		{"from terminal", base + "[[transition]]\nfrom = [\"z\"]\nto = \"a\"\n", "is terminal"},
+		{"empty enqueue", base + "[states.e]\nenqueue = [\"\"]\n", "empty queue name"},
+		{"duplicate enqueue", base + "[states.e]\nenqueue = [\"que_1\", \"que_1\"]\n", "enqueues into que_1 twice"},
 		{"resumes without park", base + "[states.a2]\nresumes = true\n", "not a park state"},
 	}
 	for _, c := range cases {

@@ -36,6 +36,16 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 		if st.Resumes && !st.Park {
 			bad("state %q resumes but is not a park state", name)
 		}
+		seenQ := map[string]bool{}
+		for _, q := range st.Enqueue {
+			switch {
+			case strings.TrimSpace(q) == "":
+				bad("state %q enqueues into an empty queue name", name)
+			case seenQ[q]:
+				bad("state %q enqueues into %s twice", name, q)
+			}
+			seenQ[q] = true
+		}
 		if p := st.Performer; p != nil {
 			if p.Agent == "" || !agent(p.Agent) {
 				bad("state %q performer agent %q is not in the agents catalog", name, p.Agent)

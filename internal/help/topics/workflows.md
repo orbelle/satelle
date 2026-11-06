@@ -21,6 +21,10 @@ An item gets its workflow at create: `--workflow`, else the first
 `[[workflows.rule]]` in `satelle.toml` whose `category`, `tag` and `kind` all
 match, else `[workflows] default`. It keeps that workflow.
 
+A state may name queues an item entering it joins, `enqueue = ["que_…"]`;
+the move is refused when one does not exist or is closed (`satelle help
+queues`).
+
 ## Gates
 
 A gate is a named judgement on a transition:

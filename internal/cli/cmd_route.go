@@ -25,13 +25,14 @@ type routeView struct {
 }
 
 type stateView struct {
-	Name      string `json:"name"`
-	Start     bool   `json:"start,omitempty"`
-	Terminal  bool   `json:"terminal,omitempty"`
-	Park      bool   `json:"park,omitempty"`
-	Resumes   bool   `json:"resumes,omitempty"`
-	Performer string `json:"performer,omitempty"` // agent/skill
-	Current   bool   `json:"current,omitempty"`
+	Name      string   `json:"name"`
+	Start     bool     `json:"start,omitempty"`
+	Terminal  bool     `json:"terminal,omitempty"`
+	Park      bool     `json:"park,omitempty"`
+	Resumes   bool     `json:"resumes,omitempty"`
+	Performer string   `json:"performer,omitempty"` // agent/skill
+	Enqueue   []string `json:"enqueue,omitempty"`   // queues an item entering it joins
+	Current   bool     `json:"current,omitempty"`
 }
 
 type transitionView struct {
@@ -70,6 +71,9 @@ func buildRoute(w *workflow.Workflow, it item.Item, results []gate.Result) route
 		sv := stateView{Name: n, Start: st.Start, Terminal: st.Terminal, Park: st.Park, Resumes: st.Resumes, Current: n == it.Status}
 		if st.Performer != nil {
 			sv.Performer = st.Performer.Agent + "/" + st.Performer.Skill
+		}
+		if len(st.Enqueue) > 0 {
+			sv.Enqueue = st.Enqueue
 		}
 		v.States = append(v.States, sv)
 	}
@@ -125,6 +129,9 @@ func printRoute(w io.Writer, v routeView) {
 		}
 		if s.Performer != "" {
 			tags = append(tags, "performer "+s.Performer)
+		}
+		if len(s.Enqueue) > 0 {
+			tags = append(tags, "enqueue "+strings.Join(s.Enqueue, ","))
 		}
 		extra := ""
 		if len(tags) > 0 {

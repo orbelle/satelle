@@ -107,6 +107,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
+	queues, err := decodeItems(ctx, s, repoKey, "queue")
+	if err != nil {
+		return pageData{}, id, err
+	}
 	docs, err := decodeDocs(ctx, s, repoKey)
 	if err != nil {
 		return pageData{}, id, err
@@ -155,6 +159,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
+		Queues:          queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows),
 		Activity:        activityRows(stories, executions, workflows, seats, events),
 		DocKinds:        docKinds(docs),
 		Workflows:       workflowRows(docs),
@@ -381,7 +386,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	sort.SliceStable(atts, func(i, j int) bool { return atts[i].At.Before(atts[j].At) })
 
 	var children []childLink
-	for _, kind := range []string{"story", "task", "execution"} {
+	for _, kind := range []string{"story", "task", "execution", "queue"} {
 		items, _ := decodeItems(ctx, s, repoKey, kind)
 		for _, c := range items {
 			if c.ParentID == id {
@@ -391,7 +396,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	}
 	parentKind := ""
 	if it.ParentID != "" {
-		for _, kind := range []string{"story", "task", "execution"} {
+		for _, kind := range []string{"story", "task", "execution", "queue"} {
 			if _, err := s.GetItem(ctx, repoKey, kind, it.ParentID); err == nil {
 				parentKind = kind
 				break

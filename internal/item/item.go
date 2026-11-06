@@ -23,7 +23,7 @@ const (
 )
 
 // Selection names a set of items by field; empty fields match anything. A
-// task item carries one as its inputs.
+// task item carries one as its inputs; a queue as its filter.
 type Selection struct {
 	Kind     string `json:"kind,omitempty" toml:"kind"`
 	Status   string `json:"status,omitempty" toml:"status"`
@@ -53,7 +53,8 @@ type Item struct {
 	Workflow  string     `json:"workflow"`
 	Assignee  string     `json:"assignee,omitempty"`
 	Inputs    *Selection `json:"inputs,omitempty"`
-	Base      string     `json:"base,omitempty"` // the commit the item was created at
+	Trigger   *Trigger   `json:"trigger,omitempty"` // a queue's trigger
+	Base      string     `json:"base,omitempty"`    // the commit the item was created at
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 }
@@ -73,6 +74,7 @@ type Fields struct {
 	Workflow *string    `json:"workflow,omitempty"`
 	Assignee *string    `json:"assignee,omitempty"`
 	Inputs   *Selection `json:"inputs,omitempty"`
+	Trigger  *Trigger   `json:"trigger,omitempty"`
 	Base     *string    `json:"base,omitempty"`
 }
 
@@ -105,8 +107,17 @@ func (f Fields) Apply(it *Item) {
 		it.Tags = slices.Clone(*f.Tags)
 	}
 	if f.Inputs != nil {
-		in := *f.Inputs
-		it.Inputs = &in
+		// The zero selection clears it: an item without inputs selects nothing.
+		if *f.Inputs == (Selection{}) {
+			it.Inputs = nil
+		} else {
+			in := *f.Inputs
+			it.Inputs = &in
+		}
+	}
+	if f.Trigger != nil {
+		t := *f.Trigger
+		it.Trigger = &t
 	}
 }
 

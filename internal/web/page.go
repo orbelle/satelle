@@ -135,6 +135,8 @@ var tmplFuncs = template.FuncMap{
 			return "tasks"
 		case "execution":
 			return "activity"
+		case "queue":
+			return "queues"
 		}
 		return "stories"
 	},
@@ -313,6 +315,7 @@ const templatesSrc = `
     </span>
     <a class="tab" role="tab" data-panel="activity" href="#activity"><span class="tab-label" data-text="Activity">Activity</span> <span class="n">{{len .Activity}}</span></a>
     <a class="tab" role="tab" data-panel="tasks" href="#tasks"><span class="tab-label" data-text="Tasks">Tasks</span> <span class="n">{{len .Tasks}}</span></a>
+    <a class="tab" role="tab" data-panel="queues" href="#queues"><span class="tab-label" data-text="Queues">Queues</span> <span class="n">{{len .Queues}}</span></a>
     <a class="tab" role="tab" data-panel="workflow" href="#workflow"><span class="tab-label" data-text="Workflow">Workflow</span> <span class="n">{{len .Workflows}}</span></a>
   </div>
 
@@ -353,6 +356,17 @@ const templatesSrc = `
     <table class="panel-table">
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Tasks}}</tbody>
+    </table>
+  </section>
+
+  <section class="panel" data-topic="queues" id="panel-queues">
+    <div class="filterbar">
+      <input type="text" placeholder="filter… e.g. status:all order:updated" aria-label="filter queues">
+      <div class="chips"></div>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>ID</th><th>Queue · Filter</th><th>Members</th><th>Trigger</th><th>Last fire</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "queueRows" .Queues}}</tbody>
     </table>
   </section>
 
@@ -398,6 +412,18 @@ const templatesSrc = `
   <td class="meta act-step"{{with .StepTitle}} title="{{.}}"{{end}}>{{if .Step}}{{.Step}}{{else}}—{{end}}</td>
   <td class="updated">{{ftime .StepAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">no agent activity</td></tr>{{end}}{{end}}
+
+{{/* queueRows: one row per queue — its filter, members now (added or by
+     filter), trigger and last fire with its run's status. Same row attributes
+     as workitemRows, so the filters and expand work. */}}
+{{define "queueRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}" data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID .Trigger | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+  <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
+  <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta q-filter">filter {{.Filter}}</span></div></td>
+  <td class="meta q-members"><span class="n">{{len .Members}}</span>{{range .Members}}<br><span class="q-member" data-member="{{.ID}}">{{.ID}} <span class="badge">{{.Status}}</span>{{if .Explicit}} added{{end}}</span>{{end}}</td>
+  <td class="meta q-trigger">{{.Trigger}}</td>
+  <td class="meta q-fire">{{with .LastFire}}{{ftime .At}} · {{.Cause}}<br>run <span class="q-run" data-run="{{.Run}}">{{.Run}}</span> <span class="badge">{{.RunStatus}}</span> · {{.Inputs}} items{{else}}never{{end}}</td>
+  <td class="updated">{{ftime .UpdatedAt}}</td>
+</tr>{{else}}<tr><td colspan="6" class="empty">no queues</td></tr>{{end}}{{end}}
 
 {{/* rootcrumb: the breadcrumb root, this machine's projects (the Projects
      page). One owner for its label. */}}

@@ -37,6 +37,19 @@ func (k *Kernel) append(id, kind, actor string, payload any) (ledger.Event, erro
 	return e, k.Cache.SyncItem(k.Ledger, id)
 }
 
+// appendAfter appends to id's chain only when its tail is still prev (a
+// compare-and-append); a moved tail is ErrQueueMoved's cause, a *ledger.StaleTail.
+func (k *Kernel) appendAfter(id, kind, actor, prev string, payload any) (ledger.Event, error) {
+	e, err := k.Ledger.NewEvent(id, kind, actor, payload, prev)
+	if err != nil {
+		return e, err
+	}
+	if err := k.Ledger.AppendRaw(e); err != nil {
+		return e, err
+	}
+	return e, k.Cache.SyncItem(k.Ledger, id)
+}
+
 // workflowOf returns the workflow an item was created under.
 func (k *Kernel) workflowOf(it item.Item) (*workflow.Workflow, error) {
 	w, ok := k.Workflows[it.Workflow]
@@ -107,6 +120,12 @@ func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
 // given (it is the workflow's start state). The workflow is f.Workflow, else
 // the first matching rule, else the default.
 func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
+	return k.create(f, actor, "")
+}
+
+// create is Create with an id claimed beforehand ("" allocates one); a
+// claimed id must have no chain yet.
+func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 	var draft item.Item
 	f.Apply(&draft)
 	if strings.TrimSpace(draft.Kind) == "" || strings.TrimSpace(draft.Title) == "" {
@@ -119,6 +138,9 @@ func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
 		if _, err := k.Get(draft.Parent); err != nil {
 			return draft, fmt.Errorf("parent: %w", err)
 		}
+	}
+	if err := k.checkTrigger(draft.Kind, f.Trigger); err != nil {
+		return draft, err
 	}
 	name, start, err := k.WorkflowFor(draft)
 	if err != nil {
@@ -133,6 +155,15 @@ func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
 	prefix := k.prefix(draft.Kind)
 	if !ledger.ValidItem(prefix + "_x") {
 		return draft, fmt.Errorf("id prefix %q for kind %q is not usable in an id", prefix, draft.Kind)
+	}
+	if id != "" {
+		if n, _ := k.Ledger.Size(id); n > 0 {
+			return draft, fmt.Errorf("item %s already exists", id)
+		}
+		if _, err := k.append(id, item.KindCreated, actor, f); err != nil {
+			return draft, err
+		}
+		return k.Get(id)
 	}
 	for {
 		id := item.NewID(prefix)
@@ -159,6 +190,11 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 	if f.Workflow != nil && *f.Workflow != it.Workflow {
 		return it, errors.New("an item keeps the workflow it was created under")
 	}
+	if f.Trigger != nil {
+		if err := k.checkTrigger(it.Kind, f.Trigger); err != nil {
+			return it, err
+		}
+	}
 	if f.Parent != nil && *f.Parent != "" {
 		if *f.Parent == id {
 			return it, errors.New("an item cannot be its own parent")
@@ -180,6 +216,9 @@ type TransitionResult struct {
 	To    string
 	Moved bool
 	Gates []gate.Result
+	// Queued is what entering To enqueued, one outcome per queue its state
+	// configuration names (only when the item moved).
+	Queued []QueueOutcome `json:",omitempty"`
 }
 
 // Rejects returns the gates that rejected.
@@ -209,6 +248,13 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	tr, err := w.Find(it.Status, to, item.PriorStatus(events))
 	if err != nil {
 		return res, err
+	}
+	// The queues entering `to` enqueues into must exist before anything runs.
+	queues := w.States[to].Enqueue
+	for _, q := range queues {
+		if _, err := k.openQueue(q); err != nil {
+			return res, fmt.Errorf("state %q of workflow %s enqueues into %s: %w", to, w.Name, q, err)
+		}
 	}
 	sp := span{}
 	if k.Git != nil {
@@ -268,8 +314,18 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 		return res, err
 	}
 	res.Moved = true
-	res.Item, err = k.Get(id)
-	return res, err
+	if res.Item, err = k.Get(id); err != nil {
+		return res, err
+	}
+	cause := fmt.Sprintf("%s:%s->%s", w.Name, it.Status, to)
+	for _, q := range queues {
+		out, err := k.Enqueue(q, []string{id}, cause, actor)
+		if err != nil {
+			return res, fmt.Errorf("%s moved to %s, but enqueueing it into %s failed (add it with satelle queue add %s %s): %w", id, to, q, q, id, err)
+		}
+		res.Queued = append(res.Queued, out)
+	}
+	return res, nil
 }
 
 // coverage hashes what a gate judges: the item's body, criteria and
@@ -462,12 +518,15 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	return res, runErr
 }
 
-// TaskRunRecord is the task.run payload: the task, the items it took and the
-// ref the execution's base came from ("" when HEAD was detached or unknown).
+// TaskRunRecord is the task.run payload: the task (none for a run a queue
+// fired into a workflow), the items it took, the ref the execution's base
+// came from ("" when HEAD was detached or unknown), and the queue that fired
+// it.
 type TaskRunRecord struct {
-	Task    string   `json:"task"`
+	Task    string   `json:"task,omitempty"`
 	Inputs  []string `json:"inputs"`
 	BaseRef string   `json:"base_ref,omitempty"`
+	Queue   string   `json:"queue,omitempty"`
 }
 
 // TaskRun runs a task once: it selects the task's inputs and creates an
@@ -484,30 +543,39 @@ func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecor
 	if task.Inputs == nil {
 		return item.Item{}, rec, fmt.Errorf("item %s names no input selection", taskID)
 	}
-	var base *string
+	matches, err := k.selectInputs(*task.Inputs)
+	if err != nil {
+		return item.Item{}, rec, err
+	}
+	rec.Inputs = []string{}
+	for _, m := range matches {
+		if m.ID != taskID && m.Parent != taskID {
+			rec.Inputs = append(rec.Inputs, m.ID)
+		}
+	}
+	kind, title := ExecutionKind, task.Title
+	return k.startRun("", item.Fields{Kind: &kind, Title: &title, Parent: &taskID}, baseRef, rec, actor)
+}
+
+// selectInputs returns the items sel selects.
+func (k *Kernel) selectInputs(sel item.Selection) ([]item.Item, error) {
+	return k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
+}
+
+// startRun creates a run (an execution item, under id when claimed, else a
+// new one) from f, with its base from baseRef (resolved now) else HEAD, and
+// records rec on it as task.run.
+func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunRecord, actor string) (item.Item, TaskRunRecord, error) {
 	if baseRef != "" {
 		commit, err := k.resolveBase(baseRef)
 		if err != nil {
 			return item.Item{}, rec, err
 		}
-		base, rec.BaseRef = &commit, baseRef
+		f.Base, rec.BaseRef = &commit, baseRef
 	} else if g, ok := k.Git.(BranchGit); ok {
 		rec.BaseRef, _ = g.Branch()
 	}
-	sel := *task.Inputs
-	matches, err := k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
-	if err != nil {
-		return item.Item{}, rec, err
-	}
-	ids := []string{}
-	for _, m := range matches {
-		if m.ID != taskID && m.Parent != taskID {
-			ids = append(ids, m.ID)
-		}
-	}
-	rec.Inputs = ids
-	kind, title := ExecutionKind, task.Title
-	exec, err := k.Create(item.Fields{Kind: &kind, Title: &title, Parent: &taskID, Base: base}, actor)
+	exec, err := k.create(f, actor, id)
 	if err != nil {
 		return exec, rec, err
 	}

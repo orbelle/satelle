@@ -9,7 +9,7 @@ key refuses to run; `satelle validate` lists every problem.
       default = "default"
       [[workflows.rule]]          # first match wins
       workflow = "..."
-      category = "..."            # and/or tag = "...", kind = "..."
+      category = "..."            # and/or tag = "...", kind = "..." (e.g. kind = "queue")
 
       [gate]
       edit_exempt_paths = []      # globs always editable

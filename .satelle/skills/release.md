@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36) follows over the approved items it took: fast-forward main to each tested pull-request head without re-testing, send back any head that no longer fast-forwards, bump the version once, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees. Landing is local; GitHub runs no tests. Never forces, never merges or rebases main.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: fast-forward main to each tested pull-request head without re-testing, send back any head that no longer fast-forwards, bump the version once, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees. Landing is local; GitHub runs no tests. Never forces, never merges or rebases main.
 ---
 
 # Release (CI/CD)
@@ -28,8 +28,19 @@ not in the run's inputs, or close an item before step 8 passes.
 ## 0. Start and read the run
 
 ```sh
+task=tas_42301d36
 git fetch -q origin
-exe=$(satelle task run tas_42301d36 --base origin/main --json | jq -r .id)   # created in backlog
+satelle queue --help >/dev/null 2>&1 || { echo "the installed satelle has no queue command: install the build origin/main carries (step 7), then start again" >&2; exit 1; }
+que=$(satelle queue list --json | jq -r --arg t "$task" '[.[] | select(.trigger.task == $t)][0].id // empty')
+if [ -z "$que" ]; then
+  que=$(satelle queue create --title "Release queue: approved stories" --input-kind story --input-status approved \
+    --trigger-task "$task" --trigger-base origin/main --min-size 0 --json | jq -r .id)
+  [ -n "$que" ] || { echo "could not create the release queue" >&2; exit 1; }
+  satelle task set "$task" --clear-inputs
+fi
+fired=$(satelle queue fire "$que" --base origin/main --json) || exit $?
+exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')                  # created in backlog
+[ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
 satelle execution set "$exe" --status in_progress                     # validate-before
 satelle execution seat "$exe"
 satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]'
@@ -37,6 +48,13 @@ satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]
 
 The printed base must be origin/main's head (`git rev-parse origin/main`):
 `--base main` would resolve a local `main` branch first, which may be stale.
+
+The release run is fired from the release queue, whose filter selects approved
+stories and whose trigger names the release task. Step 0 creates it on first
+use (and clears the task's own input selection, so the queue alone says what a
+release takes); `satelle queue show <que>` shows its members and last fire. A
+fire refused because the last run is still open exits 2 naming that run: finish
+or cancel it first.
 
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).

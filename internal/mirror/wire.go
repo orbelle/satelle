@@ -3,6 +3,8 @@ package mirror
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/item"
 )
 
 // The row shapes the CLI pushes inside a Snapshot (satelled's maintained
@@ -10,7 +12,8 @@ import (
 // what both sides marshal and read. Unknown fields are carried and ignored, and
 // the legacy aliases (story_id, created_at, type) of older pushers are read too.
 
-// Item is one row of Snapshot.Stories, Tasks or Executions: a folded work item.
+// Item is one row of Snapshot.Stories, Tasks, Executions or Queues: a folded
+// work item.
 type Item struct {
 	ID       string   `json:"id"`
 	Kind     string   `json:"kind"`
@@ -20,15 +23,17 @@ type Item struct {
 	Criteria []string `json:"criteria,omitempty"`
 	// AcceptanceCriteria is the legacy one-string criteria; read when Criteria
 	// is empty.
-	AcceptanceCriteria string    `json:"acceptance_criteria,omitempty"`
-	Tags               []string  `json:"tags"`
-	ParentID           string    `json:"parent_id,omitempty"`
-	Category           string    `json:"category,omitempty"`
-	Workflow           string    `json:"workflow,omitempty"`
-	Assignee           string    `json:"assignee,omitempty"`
-	Priority           string    `json:"priority,omitempty"` // legacy; carried, not shown
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	AcceptanceCriteria string          `json:"acceptance_criteria,omitempty"`
+	Tags               []string        `json:"tags"`
+	ParentID           string          `json:"parent_id,omitempty"`
+	Category           string          `json:"category,omitempty"`
+	Workflow           string          `json:"workflow,omitempty"`
+	Assignee           string          `json:"assignee,omitempty"`
+	Priority           string          `json:"priority,omitempty"` // legacy; carried, not shown
+	Inputs             *item.Selection `json:"inputs,omitempty"`   // a task's inputs, a queue's filter
+	Trigger            *item.Trigger   `json:"trigger,omitempty"`  // a queue's trigger
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 // Event is one row of Snapshot.LedgerEvents: a generic ledger event, keyed by
