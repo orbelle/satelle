@@ -26,10 +26,7 @@ func resolveServer(flag string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s := gc.Hosted.ResolveServer(); s != "" {
-		return s, nil
-	}
-	return hosted.DefaultServer, nil
+	return hosted.ConfiguredServer(gc), nil
 }
 
 // dial opens a gRPC client to server with the default credential store

@@ -5,6 +5,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -12,8 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
 // serverStart marks when the web service process came up.
@@ -107,18 +111,12 @@ type crumbProject struct {
 
 type topBar struct {
 	Uptime string
-	// User is the signed-in hosted-server identity, or nil when signed out /
-	// unconfigured — the account control renders an avatar+menu vs a Sign in link.
+	// User is the user this machine's CLI is signed in as, or nil when it is
+	// signed out: the top bar shows it as an avatar.
 	User *topBarUser
 	// Active names the current nav item so its link renders accent (DS SiteHeader):
 	// "home", "projects", "help", or "" for a page no nav item represents.
 	Active string
-	// MirrorRO is true on the push-fed serve: no sign-in/settings forms; identity
-	// (if any) comes from the pushed meta blob (epic:mirror-ui-parity order:4).
-	MirrorRO bool
-	// IdentityEmail is the operator email from the pushed identity meta; shown as
-	// a static strip when MirrorRO is set (no auth menu).
-	IdentityEmail string
 }
 
 type rowVM struct {
@@ -282,9 +280,25 @@ func stripFrontmatter(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// newTopBar builds RO topbar chrome (no hosted auth on the push-fed serve).
-func newTopBar(active string) topBar {
-	return topBar{Uptime: formatUptime(time.Since(serverStart)), Active: active}
+// newTopBar builds the top bar: uptime, the active nav item and the user this
+// machine's CLI is signed in as (from its latest push; nil when signed out).
+func newTopBar(ctx context.Context, st *mirror.Store, active string) topBar {
+	return topBar{Uptime: formatUptime(time.Since(serverStart)), Active: active, User: signedIn(ctx, st)}
+}
+
+// signedIn is the avatar for the user the CLI's latest push names: the name's
+// first letter, with name and email.
+func signedIn(ctx context.Context, st *mirror.Store) *topBarUser {
+	u := st.SignedIn(ctx)
+	if u == nil {
+		return nil
+	}
+	label := u.Name
+	if label == "" {
+		label = u.Email
+	}
+	r, _ := utf8.DecodeRuneInString(label)
+	return &topBarUser{Name: label, Email: u.Email, Initial: string(unicode.ToUpper(r))}
 }
 
 func httpError(w http.ResponseWriter, err error) {

@@ -244,3 +244,20 @@ func TestSeedInstanceAndRemove(t *testing.T) {
 		t.Error("a push to nothing listening reported success")
 	}
 }
+
+// A push carries who the CLI is signed in as, and satelled's top bar shows it.
+func TestPushCarriesTheSignedInUser(t *testing.T) {
+	ctx := context.Background()
+	_, src := fixture(t)
+	srv, store := satelled(t, "inst")
+	src.User = &mirror.User{Name: "Ada", Email: "ada@example.com"}
+	if err := (uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}).Push(ctx, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	if u := store.SignedIn(ctx); u == nil || *u != *src.User {
+		t.Fatalf("satelled's signed-in user = %+v, want %+v", u, src.User)
+	}
+	if page := get(t, srv.URL+"/"); !strings.Contains(page, `aria-label="Signed in as Ada (ada@example.com)">A</span>`) {
+		t.Errorf("the landing page's top bar does not show Ada")
+	}
+}

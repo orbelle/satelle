@@ -86,12 +86,20 @@ type Snapshot struct {
 	Origin IngestOrigin `json:"origin,omitempty"`
 }
 
-// IdentityMeta is the JSON shape of Snapshot.Identity — what the mirror footer
-// and account strip render without opening a repo DB or calling git.
+// User is a signed-in user: display name and email, never a token.
+type User struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// IdentityMeta is the JSON shape of Snapshot.Identity: the project name and repo
+// path a page renders without opening a repo DB or calling git.
 type IdentityMeta struct {
 	ProjectName string `json:"project_name"`
 	RepoRoot    string `json:"repo_root"`
-	FooterEmail string `json:"footer_email"`
+	// User is who the pushing CLI is signed in as (from its local credential
+	// store, stamped at login); nil when it is signed out.
+	User *User `json:"user,omitempty"`
 	// Hosted is set when the server is the repo's store of record (sty_0dc600e1):
 	// the page then lists this machine's stories and links the rest to the server.
 	Hosted *HostedMeta `json:"hosted,omitempty"`

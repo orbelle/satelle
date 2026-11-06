@@ -477,6 +477,24 @@ func (s *Store) ListPartitionDetails(ctx context.Context) ([]PartitionDetail, er
 	return out, nil
 }
 
+// SignedIn is the user named by the most recently pushed partition's identity:
+// every partition on this machine is pushed by the same CLI login, so the
+// latest push says who is signed in now. Nil when it names none.
+func (s *Store) SignedIn(ctx context.Context) *User {
+	var payload string
+	err := s.db.QueryRowContext(ctx, `
+SELECT payload FROM items WHERE kind = 'identity' AND id = 'meta'
+ORDER BY updated_at DESC LIMIT 1`).Scan(&payload)
+	if err != nil {
+		return nil
+	}
+	var meta IdentityMeta
+	if json.Unmarshal([]byte(payload), &meta) != nil || meta.User == nil || meta.User.Name+meta.User.Email == "" {
+		return nil
+	}
+	return meta.User
+}
+
 // ApplyChange records a coarse change event (order:2 publisher). Bumps seq and
 // leaves item bodies unchanged — full bodies arrive via snapshot (order:4).
 func (s *Store) ApplyChange(ctx context.Context, repoKey, topic string, now time.Time) (seq int64, err error) {

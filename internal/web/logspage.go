@@ -35,7 +35,7 @@ func (s *MirrorServer) logsPage(w http.ResponseWriter, r *http.Request) {
 		Path:   s.LogPath,
 		Filter: filter,
 		Rows:   filterLogRows(rows, filter),
-		TopBar: mirrorTopBar("logs", ""),
+		TopBar: newTopBar(r.Context(), s.Store, "logs"),
 	})
 }
 

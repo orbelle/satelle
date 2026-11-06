@@ -8,8 +8,10 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/uipush"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -91,5 +93,21 @@ func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	return fn(c, uipush.Source{
 		Ledger: led, Cache: ch, Workflows: wfs, DataDir: r.DataDir,
 		RepoRoot: root, RepoKey: config.RepoKey(root), Slug: config.RepoName(root),
+		User: signedInUser(),
 	})
+}
+
+// signedInUser is who this machine's CLI is signed in as: the name and email
+// stamped into the local credential store at login (no network call, never a
+// token), or nil when it holds no login for the configured server.
+func signedInUser() *mirror.User {
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return nil
+	}
+	c, err := hosted.FileStore{}.Load(hosted.ConfiguredServer(gc))
+	if err != nil || c.DisplayName+c.Email == "" {
+		return nil
+	}
+	return &mirror.User{Name: c.DisplayName, Email: c.Email}
 }

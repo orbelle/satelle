@@ -17,7 +17,7 @@ import (
 // viewer-local Timeline-fields checklist (sty_43d228e4) — the approved placement.
 func TestSettingsTimelineFieldsControl(t *testing.T) {
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "settings", settingsData{RepoRoot: "/repo", TopBar: newTopBar("")}); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "settings", settingsData{RepoRoot: "/repo", TopBar: topBar{}}); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()

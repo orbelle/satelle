@@ -36,7 +36,7 @@ type Source struct {
 	RepoRoot  string // the repo's canonical root
 	RepoKey   string
 	Slug      string
-	Email     string // shown in satelled's top bar; may be empty
+	User      *mirror.User // who the CLI is signed in as; nil when signed out
 }
 
 // Full is the snapshot that replaces every kind of the partition.
@@ -55,7 +55,7 @@ func Full(src Source) (mirror.Snapshot, error) {
 	if snap.Settings, err = settings(src); err != nil {
 		return snap, err
 	}
-	snap.Identity = mustJSON(mirror.IdentityMeta{ProjectName: src.Slug, RepoRoot: src.RepoRoot, FooterEmail: src.Email})
+	snap.Identity = mustJSON(mirror.IdentityMeta{ProjectName: src.Slug, RepoRoot: src.RepoRoot, User: src.User})
 	return snap, nil
 }
 

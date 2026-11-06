@@ -38,7 +38,7 @@ func baseHref() string {
 var tmplFuncs = template.FuncMap{
 	"basehref": baseHref,
 	// buildline is the build identity line (name, version, commit, build time)
-	// the top bar and the footer show on every page, so the operator sees which
+	// the footer shows on every page, so the operator sees which
 	// satelled build is serving. It is baked into the binary: no per-page data.
 	"buildline": func() string { return buildinfo.Resolve().String() },
 	"ftime": func(t time.Time) string {
@@ -206,17 +206,7 @@ const templatesSrc = `
      connected, muted --fail-soft on the ◐ only (.sse-down, added by app.js) when the
      stream drops. The theme toggle glyph is ☾/☀ (app.js), never ◐. Mobile-collapsible
      nav is out of scope — the row stays inline. */}}
-{{define "topbar"}}<header class="topbar"><div class="topbar-inner"><a class="brand-mark" href="https://satelle.dev/" target="_blank" rel="noopener" title="satelle — home{{if .Uptime}} · {{.Uptime}} at page load · mark colour = live-update connection{{end}}" aria-label="satelle home (opens in a new tab)">{{template "brandmark-svg"}}<span class="brand-word">satelle</span></a><div class="topbar-controls"><span class="topbar-build" title="{{buildline}}">{{buildline}}</span><nav class="topnav"><a href="https://satelle.dev/install" target="_blank" rel="noopener">Install</a><a href="https://satelle.dev/docs" target="_blank" rel="noopener">Docs</a><a href="/"{{if eq .Active "projects"}} class="active" aria-current="page"{{end}}>Projects</a><a href="/logs"{{if eq .Active "logs"}} class="active" aria-current="page"{{end}}>Logs</a><a class="github-btn" href="https://github.com/bobmcallan/satelle" target="_blank" rel="noopener" aria-label="GitHub" title="GitHub">{{template "github-svg"}}</a></nav>{{if .MirrorRO}}{{if .IdentityEmail}}<span class="signin" title="Read-only local UI — project data pushed by the CLI (not live-edited here)" aria-label="Operator identity {{.IdentityEmail}}; read-only local UI, project data pushed by the CLI">{{.IdentityEmail}}</span>{{end}}{{else}}{{template "account" .User}}{{end}}<button class="theme-toggle" id="theme-toggle" type="button" title="Toggle light/dark" aria-label="Toggle light/dark theme">☾</button></div></div></header>{{end}}
-
-{{/* account: the hosted-server sign-in control (sty_9ae98484, sty_2faa7dd4).
-     Signed out → a "Sign in" link (relative href, so the <base> resolves the /slug/
-     prefix on a supervised child). Signed in → an avatar (initial, email tooltip)
-     that opens a dropdown with: the identity; the LOCAL Project settings + GLOBAL
-     settings links; a "Remove server" quick action that clears the global [hosted]
-     server (a POST to settings/global with an empty server — a fetch in app.js
-     attaches the CSRF header a bare form can't set); and a Sign out form (POST). The
-     dropdown reuses the <details> idiom the breadcrumb switcher proves. */}}
-{{define "account"}}{{if .}}<details class="account"><summary class="avatar" title="{{.Email}}" aria-label="Account menu for {{.Name}}">{{.Initial}}</summary><div class="account-menu"><div class="acct-id"><strong>{{.Name}}</strong><span class="acct-email">{{.Email}}</span></div><div class="acct-div"></div><a class="acct-link" href="settings" role="menuitem">Project settings</a><a class="acct-link" href="settings/global" role="menuitem">Global settings</a><form class="acct-remove-form" method="post" action="settings/global"><input type="hidden" name="server" value=""><button type="submit" class="acct-remove-server" role="menuitem" title="Clear the global hosted server (~/.satelle/config.toml) and sign out everywhere">Remove server</button></form><div class="acct-div"></div><form method="post" action="oauth/logout"><button type="submit" class="acct-signout">Sign out</button></form></div></details>{{else}}<a class="signin" href="oauth/login" title="Sign in to the hosted satelle-server">Sign in</a>{{end}}{{end}}
+{{define "topbar"}}<header class="topbar"><div class="topbar-inner"><a class="brand-mark" href="https://satelle.dev/" target="_blank" rel="noopener" title="satelle — home{{if .Uptime}} · {{.Uptime}} at page load · mark colour = live-update connection{{end}}" aria-label="satelle home (opens in a new tab)">{{template "brandmark-svg"}}<span class="brand-word">satelle</span></a><div class="topbar-controls"><nav class="topnav"><a href="https://satelle.dev/install" target="_blank" rel="noopener">Install</a><a href="https://satelle.dev/docs" target="_blank" rel="noopener">Docs</a><a href="/"{{if eq .Active "projects"}} class="active" aria-current="page"{{end}}>Projects</a><a href="/logs"{{if eq .Active "logs"}} class="active" aria-current="page"{{end}}>Logs</a><a class="github-btn" href="https://github.com/bobmcallan/satelle" target="_blank" rel="noopener" aria-label="GitHub" title="GitHub">{{template "github-svg"}}</a></nav>{{with .User}}<span class="avatar" title="{{.Name}} · {{.Email}}" aria-label="Signed in as {{.Name}} ({{.Email}})">{{.Initial}}</span>{{end}}<button class="theme-toggle" id="theme-toggle" type="button" title="Toggle light/dark" aria-label="Toggle light/dark theme">☾</button></div></div></header>{{end}}
 
 {{/* brandmark-svg: the satelle mark — a half-shaded sphere whose terminator sweeps
      the moon-phase cycle. Pure SMIL, no JS; fill/stroke use currentColor so it

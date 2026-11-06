@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Changed
+- satelled's top bar shows who the CLI is signed in as: an outlined avatar with the first letter of the name, name and email in its title, as on satelle.dev. The CLI's push carries the name and email stamped into its local credential store at login (never a token); satelled shows the latest push's user on every page. The build line is in the footer only. (sto_b8d4e844)
+
+### Removed
+- The unused sign-in menu, "Remove server" action and email strip from satelled's top bar, and the pushed `footer_email`. (sto_b8d4e844)
+
 ## [1.0.1] - 2026-11-06
 
 ### Fixed

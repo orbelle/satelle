@@ -151,7 +151,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		DocKinds:        docKinds(docs),
 		Workflows:       workflowRows(docs),
 		Uptime:          formatUptime(time.Since(serverStart)),
-		TopBar:          mirrorTopBar("", id.FooterEmail),
+		TopBar:          newTopBar(ctx, s, ""),
 		Hosted:          links,
 	}, id, nil
 }
@@ -412,7 +412,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		Presentations: buildPresentations(events),
 		Attachments:   atts,
 		Events:        evs,
-		TopBar:        mirrorTopBar("", idMeta.FooterEmail),
+		TopBar:        newTopBar(ctx, s, ""),
 	}, idMeta, nil
 }
 
@@ -435,23 +435,13 @@ func docAnchor(name string) string {
 	return strings.TrimRight(b.String(), "-")
 }
 
-// mirrorTopBar builds chrome for the push-fed surface: no auth forms; optional
-// identity email from the pushed meta blob (order:4).
-func mirrorTopBar(active, identityEmail string) topBar {
-	tb := newTopBar(active)
-	tb.User = nil
-	tb.IdentityEmail = identityEmail
-	tb.MirrorRO = true
-	return tb
-}
-
 // mirrorSettingsData loads the pushed settings blob into the settings template VM.
 func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (settingsData, mirror.IdentityMeta, error) {
 	id := mirrorIdentity(ctx, s, repoKey)
 	payload, err := s.GetItem(ctx, repoKey, "settings", "config")
 	if err != nil || payload == "" {
 		return settingsData{
-			TopBar:   mirrorTopBar("", id.FooterEmail),
+			TopBar:   newTopBar(ctx, s, ""),
 			RepoRoot: id.RepoRoot,
 			Rows:     nil,
 			MirrorRO: true,
@@ -485,7 +475,7 @@ func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (s
 	}
 	return settingsData{
 		Rows:     rows,
-		TopBar:   mirrorTopBar("", id.FooterEmail),
+		TopBar:   newTopBar(ctx, s, ""),
 		RepoRoot: root,
 		MirrorRO: true,
 	}, id, nil

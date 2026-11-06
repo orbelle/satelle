@@ -24,12 +24,22 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 // DefaultServer is the hosted server used when none is configured.
 const DefaultServer = "https://satelle.dev"
+
+// ConfiguredServer is the server this machine is configured for in its global
+// config, else DefaultServer.
+func ConfiguredServer(gc config.GlobalConfig) string {
+	if s := gc.Hosted.ResolveServer(); s != "" {
+		return s
+	}
+	return DefaultServer
+}
 
 // ErrLoginRequired is returned when there is no usable credential: no stored
 // tokens, or a refresh that failed.

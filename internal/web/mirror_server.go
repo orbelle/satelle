@@ -275,7 +275,7 @@ func (s *MirrorServer) landing(w http.ResponseWriter, r *http.Request) {
 	mirrorRender(w, "mirrorWorkspace", "/", mirrorWorkspaceData{
 		Partitions:   pvm,
 		TotalStories: total,
-		TopBar:       mirrorTopBar("projects", ""),
+		TopBar:       newTopBar(r.Context(), s.Store, "projects"),
 		Empty:        len(pvm) == 0,
 	})
 }
@@ -464,9 +464,8 @@ func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	id := mirrorIdentity(r.Context(), s.Store, repoKey)
 	data := docPageData{
-		TopBar:   mirrorTopBar("", id.FooterEmail),
+		TopBar:   newTopBar(r.Context(), s.Store, ""),
 		Kind:     kind,
 		Name:     doc.Name,
 		Headline: doc.Headline,
@@ -484,12 +483,11 @@ func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *MirrorServer) helpPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	repoKey, err := s.resolveSlug(r.Context(), slug)
+	_, err := s.resolveSlug(r.Context(), slug)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	id := mirrorIdentity(r.Context(), s.Store, repoKey)
 	topics := make([]helpTopic, 0)
 	for _, t := range help.List() {
 		topics = append(topics, helpTopic{
@@ -500,7 +498,7 @@ func (s *MirrorServer) helpPage(w http.ResponseWriter, r *http.Request) {
 	}
 	mirrorRender(w, "help", s.projectBase(slug), helpPageData{
 		Topics: topics,
-		TopBar: mirrorTopBar("help", id.FooterEmail),
+		TopBar: newTopBar(r.Context(), s.Store, "help"),
 	})
 }
 
@@ -532,7 +530,7 @@ func (s *MirrorServer) globalSettingsPage(w http.ResponseWriter, r *http.Request
 		Saved:  r.URL.Query().Get("saved") == "1",
 		Server: gc.Hosted.Server,
 		Theme:  gc.UI.Theme,
-		TopBar: mirrorTopBar("projects", ""),
+		TopBar: newTopBar(r.Context(), s.Store, "projects"),
 	})
 }
 
