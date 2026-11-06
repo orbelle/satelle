@@ -80,6 +80,13 @@ func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 // without writing it, so a caller can offer it elsewhere first (a server's
 // compare-and-append) and import it after. payload is as for Append.
 func (s *Store) NewEvent(item, kind, actor string, payload any, prev string) (Event, error) {
+	return NewEventWith(newEventID(), s.now().UTC(), item, kind, actor, payload, prev)
+}
+
+// NewEventWith builds a complete event with a given id and time, linked to
+// prev and hashed, without writing it: for a caller that must rebuild the same
+// event twice (an import that resumes) or carry another store's time.
+func NewEventWith(id string, at time.Time, item, kind, actor string, payload any, prev string) (Event, error) {
 	if !ValidItem(item) {
 		return Event{}, fmt.Errorf("ledger: invalid item id %q", item)
 	}
@@ -96,7 +103,7 @@ func (s *Store) NewEvent(item, kind, actor string, payload any, prev string) (Ev
 			raw = b
 		}
 	}
-	e := Event{ID: newEventID(), Item: item, Kind: kind, At: s.now().UTC(), Actor: actor, Payload: raw, Prev: prev}
+	e := Event{ID: id, Item: item, Kind: kind, At: at.UTC(), Actor: actor, Payload: raw, Prev: prev}
 	var err error
 	e.Hash, err = HashOf(e)
 	return e, err

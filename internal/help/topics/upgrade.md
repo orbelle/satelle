@@ -1,0 +1,70 @@
+# Upgrading a pre-1.0 repo
+
+v1 is a clean rewrite: a pre-1.0 `.satelle` (its `satelle.toml` keys, its
+`workflows/step.toml`, `done.toml` and `agents.toml`) does not load, and every
+command names `satelle upgrade --archive`. While it does not load, the edit
+gate allows edits under `.satelle/` only. The way across has two steps.
+
+## 1. Archive and start fresh
+
+    satelle upgrade --archive --dry-run   # what it would move, and where
+    satelle upgrade --archive
+
+This moves the old `.satelle`, verified file by file (paths, modes, bytes,
+symlink targets), to `<runtime>/archive/<UTC stamp>/.satelle` (`satelle
+runtime path` names the runtime dir); nothing is deleted. It then writes a
+fresh v1 `.satelle` (as `satelle init` does), which validates, so the edit gate
+works again. Reinstall the harness hooks with `satelle agents install
+<harness>`: pre-1.0 hooks call commands v1 does not have.
+
+The fresh `.satelle` holds one starter workflow. Your agent's upgrade step
+ports the archived workflows, agent bindings and skills into it, matched to
+what the old ones did and confirmed with you, and writes the status map.
+
+## 2. Import the old items
+
+The old store is the runtime directory that holds `satelle.db` (the archive
+step prints it). Write a status map: every old status an item has, mapped to a
+workflow and state of the new `.satelle`:
+
+    [status]
+    backlog = { workflow = "delivery", state = "backlog" }
+    done = { workflow = "delivery", state = "done" }
+    "task/active" = { workflow = "standing", state = "open" }
+
+A `<kind>/<status>` key wins over a bare `<status>` key. Then:
+
+    satelle upgrade --from <old store> --map <file> --dry-run
+    satelle upgrade --from <old store> --map <file>
+
+The dry run prints each mapping rule with its item count, the totals and the
+map's sha256, and writes nothing. An old status the map does not name, a
+target workflow or state the `.satelle` lacks, or an unreadable row refuses
+the whole import before anything is written, listing each problem.
+
+What is imported, for every old item, open and closed:
+
+- the item, with its old id, kind, title, body, criteria (the old single text
+  split at numbered or bulleted lines), tags, parent, category, assignee and
+  created time, in the workflow and state the map gives;
+- each old history row as an `upgrade.imported` event carrying the row
+  unchanged (kind, actor, body, payload, time);
+- each file of its old `stories/<id>/` directory as an attachment with the same
+  bytes and sha256;
+- an `upgrade.mapped` event, last, recording the map, its sha256, the rule
+  used, the old status and the old priority and other columns.
+
+Not imported: the old store's regenerated views (`stories/<id>.md`,
+`index.md`, `log.md`), binary-file sidecars (`*.satelle.json`, read for their
+media type), history rows that name no item, and task definitions under the
+archived `.satelle/tasks/` (port them as tasks). A second run imports nothing
+twice; an interrupted run resumes.
+
+## Repos that start clean
+
+`~/.satelle/config.toml` `[upgrade] start_clean = ["<repo root>", ...]` lists
+repos that start clean on v1: `--archive` works, but `--from` refuses, naming
+the setting.
+
+The old store is opened read-only. If its directory is read-only, pass a copy:
+sqlite needs to write its `-shm` file to read a store with a write-ahead log.
