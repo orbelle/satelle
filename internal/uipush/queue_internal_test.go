@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func TestQueueRowsAndTopic(t *testing.T) {
@@ -51,6 +52,22 @@ func TestQueueRowsAndTopic(t *testing.T) {
 	if row.Inputs == nil || row.Inputs.Status != "open" || row.Trigger == nil || row.Trigger.Task != "tas_1" || row.Trigger.MinSize != 2 {
 		t.Fatalf("queue row %+v", row)
 	}
+	// A queue file's definition replaces the chain's on its row.
+	src.Queues = map[string]*workflow.Queue{"que_1": {Name: "release", Title: "From the file",
+		Filter: &item.Selection{Kind: "story"}, Trigger: &item.Trigger{Task: "tas_9", Base: "origin/main"}}}
+	snap, err = Delta(src, []string{"que_1"})
+	if err != nil || len(snap.Queues) != 1 {
+		t.Fatalf("file delta %v %v", snap.Queues, err)
+	}
+	row = mirror.Item{}
+	if err := json.Unmarshal(snap.Queues[0], &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.Title != "From the file" || row.Inputs == nil || row.Inputs.Kind != "story" || row.Inputs.Status != "" ||
+		row.Trigger == nil || row.Trigger.Task != "tas_9" || row.Trigger.MinSize != 0 {
+		t.Fatalf("file queue row %+v", row)
+	}
+	src.Queues = nil
 	for id, want := range map[string]string{"que_1": "queues", "sto_1": "stories", "exe_1": "tasks", "tas_1": "tasks"} {
 		if got := topics(src, []string{id}); !slices.Equal(got, []string{want}) {
 			t.Errorf("%s: topics %v, want %s", id, got, want)

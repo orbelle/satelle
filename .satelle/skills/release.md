@@ -29,16 +29,10 @@ not in the run's inputs, or close an item before step 8 passes.
 
 ```sh
 task=tas_42301d36
+que=release
 git fetch -q origin
-satelle queue --help >/dev/null 2>&1 || { echo "the installed satelle has no queue command: install the build origin/main carries (step 7), then start again" >&2; exit 1; }
-que=$(satelle queue list --json | jq -r --arg t "$task" '[.[] | select(.trigger.task == $t)][0].id // empty')
-if [ -z "$que" ]; then
-  que=$(satelle queue create --title "Release queue: approved stories" --input-kind story --input-status approved \
-    --trigger-task "$task" --trigger-base origin/main --min-size 0 --json | jq -r .id)
-  [ -n "$que" ] || { echo "could not create the release queue" >&2; exit 1; }
-  satelle task set "$task" --clear-inputs
-fi
-fired=$(satelle queue fire "$que" --base origin/main --json) || exit $?
+satelle queue get "$que" --json 2>/dev/null | jq -e --arg t "$task" '.trigger.task == $t' >/dev/null || { echo "release queue $que (.satelle/queues/$que.toml) is missing or does not trigger $task; a satelle older than the build origin/main carries cannot read queue files: install that build (step 7), then start again" >&2; exit 1; }
+fired=$(satelle queue fire "$que" --json) || exit $?
 exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')                  # created in backlog
 [ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
 satelle execution set "$exe" --status in_progress                     # validate-before
@@ -49,12 +43,14 @@ satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]
 The printed base must be origin/main's head (`git rev-parse origin/main`):
 `--base main` would resolve a local `main` branch first, which may be stale.
 
-The release run is fired from the release queue, whose filter selects approved
-stories and whose trigger names the release task. Step 0 creates it on first
-use (and clears the task's own input selection, so the queue alone says what a
-release takes); `satelle queue show <que>` shows its members and last fire. A
-fire refused because the last run is still open exits 2 naming that run: finish
-or cancel it first.
+The release run is fired from the release queue, defined in
+`.satelle/queues/release.toml` (filter: approved stories; trigger: the release
+task, base `origin/main`, min size 0). The delivery and chore workflows enqueue
+into it by name on their `approved` state, so a story reaching approved joins it
+with the transition as the cause. Nothing fires on enqueue: this step is the
+fire, and the file's `base` is the run's base. `satelle queue show release`
+shows its members and last fire. A fire refused because the last run is still
+open exits 2 naming that run: finish or cancel it first.
 
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).

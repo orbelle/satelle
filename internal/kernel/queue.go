@@ -3,10 +3,13 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 // A fire that cannot take the queue now. Both are refusals, not failures: the
@@ -24,6 +27,7 @@ var (
 // queued, and the fire it caused, or why the fire was held.
 type QueueOutcome struct {
 	Queue   string       `json:"queue"`
+	Name    string       `json:"name,omitempty"` // the queue file's name, when one defines it
 	Added   []string     `json:"added"`
 	Already []string     `json:"already,omitempty"`
 	Fire    *FireOutcome `json:"fire,omitempty"`
@@ -34,6 +38,7 @@ type QueueOutcome struct {
 // members), and what that run took.
 type FireOutcome struct {
 	Queue    string   `json:"queue"`
+	Name     string   `json:"name,omitempty"` // the queue file's name, when one defines it
 	Run      string   `json:"run,omitempty"`
 	Status   string   `json:"status,omitempty"`
 	Task     string   `json:"task,omitempty"`
@@ -42,6 +47,69 @@ type FireOutcome struct {
 	Base     string   `json:"base,omitempty"`
 	BaseRef  string   `json:"base_ref,omitempty"`
 	Cause    string   `json:"cause"`
+}
+
+// ResolveQueue maps a queue reference to its chain id: a queue file's name
+// is its chain, anything else is taken as an id. def is the file defining the
+// chain, or nil.
+func (k *Kernel) ResolveQueue(ref string) (id string, def *workflow.Queue) {
+	if q := k.Queues[ref]; q != nil {
+		return q.ChainID(k.Settings.Prefix(item.QueueKind)), q
+	}
+	return ref, k.queueFiles[ref]
+}
+
+// QueueFile returns the file defining the queue chain id, or nil.
+func (k *Kernel) QueueFile(id string) *workflow.Queue { return k.queueFiles[id] }
+
+// overlayQueue sets a file-defined queue's definition on its folded item.
+func (k *Kernel) overlayQueue(it *item.Item) {
+	if it.Kind != item.QueueKind {
+		return
+	}
+	if def := k.queueFiles[it.ID]; def != nil {
+		def.Apply(it)
+	}
+}
+
+// materializeQueues creates the chain of each queue file that has none yet,
+// once: a compare-and-create on the empty chain, so a concurrent process that
+// created it first wins and nothing is written twice. The genesis carries the
+// queue's identity (kind, its name as title, workflow); the file stays the
+// only owner of its definition. A chain that exists (an adopted id) is never
+// written to here.
+func (k *Kernel) materializeQueues() error {
+	for _, id := range sortedKeys(k.queueFiles) {
+		if n, err := k.Ledger.Size(id); err != nil || n > 0 {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		def := k.queueFiles[id]
+		kind, title := item.QueueKind, def.Name
+		name, start, err := k.WorkflowFor(item.Item{Kind: kind, Title: title})
+		if err != nil {
+			return fmt.Errorf("%s: %w", k.RelPath(def.File), err)
+		}
+		f := item.Fields{Kind: &kind, Title: &title, Workflow: &name, Status: &start}
+		if _, err := k.appendAfter(id, item.KindCreated, "satelle", "", f); err != nil {
+			var stale *ledger.StaleTail
+			if errors.As(err, &stale) {
+				continue
+			}
+			return fmt.Errorf("%s: creating queue %s: %w", k.RelPath(def.File), id, err)
+		}
+	}
+	return nil
+}
+
+// RelPath is p relative to the working tree, when it is under it.
+func (k *Kernel) RelPath(p string) string {
+	if r, err := filepath.Rel(k.Dir, p); err == nil && !strings.HasPrefix(r, "..") {
+		return r
+	}
+	return p
 }
 
 // checkTrigger checks a trigger a create or update sets: only a queue carries
@@ -93,7 +161,8 @@ func (k *Kernel) openQueue(id string) (item.Item, error) {
 }
 
 // QueueMembers returns a queue's folded state and its members now.
-func (k *Kernel) QueueMembers(id string) (item.Item, item.QueueState, []string, error) {
+func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, []string, error) {
+	id, _ := k.ResolveQueue(ref)
 	q, events, err := k.load(id)
 	if err != nil {
 		return q, item.QueueState{}, nil, err
@@ -115,8 +184,12 @@ func (k *Kernel) QueueMembers(id string) (item.Item, item.QueueState, []string, 
 // not already there, then fires the trigger in this call when its minimum size
 // is reached. A fire the queue cannot take now (its last run is open, or the
 // queue moved) is reported in Held, not as an error: the items stay queued.
-func (k *Kernel) Enqueue(queueID string, ids []string, cause, actor string) (QueueOutcome, error) {
+func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOutcome, error) {
+	queueID, def := k.ResolveQueue(ref)
 	out := QueueOutcome{Queue: queueID, Added: []string{}}
+	if def != nil {
+		out.Name = def.Name
+	}
 	q, err := k.openQueue(queueID)
 	if err != nil {
 		return out, err
@@ -167,7 +240,8 @@ func (k *Kernel) Enqueue(queueID string, ids []string, cause, actor string) (Que
 
 // Dequeue removes explicit members, recording queue.removed for each. An item
 // the queue's filter selects cannot be removed: change the filter or the item.
-func (k *Kernel) Dequeue(queueID string, ids []string, actor string) ([]string, error) {
+func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, error) {
+	queueID, _ := k.ResolveQueue(ref)
 	q, st, members, err := k.QueueMembers(queueID)
 	if err != nil {
 		return nil, err
@@ -196,8 +270,12 @@ func (k *Kernel) Dequeue(queueID string, ids []string, actor string) ([]string, 
 // base is baseRef, else the trigger's base, else HEAD. A queue with no members
 // fires nothing (Run is ""). Satelle fires only here, in the calling process:
 // nothing watches or schedules a queue.
-func (k *Kernel) Fire(queueID, baseRef, cause, actor string) (FireOutcome, error) {
+func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
+	queueID, def := k.ResolveQueue(ref)
 	out := FireOutcome{Queue: queueID, Cause: cause, Inputs: []string{}}
+	if def != nil {
+		out.Name = def.Name
+	}
 	q, events, err := k.load(queueID)
 	if err != nil {
 		return out, err
@@ -237,7 +315,7 @@ func (k *Kernel) Fire(queueID, baseRef, cause, actor string) (FireOutcome, error
 			return out, err
 		}
 	}
-	runID := item.NewID(k.prefix(ExecutionKind))
+	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
 	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause}
 	if _, err := k.appendAfter(queueID, item.KindQueueFired, actor, prev, claim); err != nil {

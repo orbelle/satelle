@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/cache"
-	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -327,18 +326,21 @@ func TestQueueEmptyFireAndStaleClaim(t *testing.T) {
 }
 
 func TestStateEnqueue(t *testing.T) {
-	_, open := queueKernel(t)
+	root, open := queueKernel(t)
 	k := open()
 	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("release")})
-	q := newQueue(t, k, nil, item.Trigger{Task: task.ID, MinSize: 1})
 	k.Close()
-	k = open(q.ID)
+	write(t, filepath.Join(root, "queues", "q.toml"), "title = \"q\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 1\n")
+	k = open("q")
 	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
 	res, err := k.Transition(context.Background(), s.ID, "done", "me")
 	if err != nil || !res.Moved || len(res.Queued) != 1 || res.Queued[0].Fire == nil {
 		t.Fatalf("transition %+v %v", res, err)
 	}
-	events, _ := k.Ledger.Read(q.ID)
+	if o := res.Queued[0]; o.Queue != "que_q" || o.Name != "q" {
+		t.Fatalf("queued into %q (%q), want que_q (q)", o.Queue, o.Name)
+	}
+	events, _ := k.Ledger.Read("que_q")
 	var e item.QueueEntry
 	for _, ev := range events {
 		if ev.Kind == item.KindQueueAdded {
@@ -352,15 +354,22 @@ func TestStateEnqueue(t *testing.T) {
 		t.Fatalf("queue chain %v", got)
 	}
 
-	// A state naming a missing queue refuses before any gate runs or move.
+	// A state naming a queue with no file, or by id, does not open.
 	k.Close()
-	k = open("que_00000000")
-	s2 := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s2")})
-	if _, err := k.Transition(context.Background(), s2.ID, "done", "me"); err == nil {
-		t.Fatal("moved into a state enqueueing into a missing queue")
-	}
-	events, _ = k.Ledger.Read(s2.ID)
-	if len(eventKinds(events, gate.KindRun)) != 0 || len(eventKinds(events, item.KindTransitioned)) != 0 {
-		t.Fatalf("refused move recorded %v", eventKinds(events, ""))
+	for _, ref := range []string{"nope", "que_q"} {
+		write(t, filepath.Join(root, "workflows", "default.toml"), `name = "default"
+[states.backlog]
+start = true
+[states.done]
+terminal = true
+enqueue = ["`+ref+`"]
+[[transition]]
+from = ["backlog"]
+to = "done"
+`)
+		_, err := Open(Options{Root: root})
+		if err == nil || !strings.Contains(err.Error(), "enqueues into \""+ref+"\", which has no .satelle/queues/"+ref+".toml") {
+			t.Fatalf("enqueue %q opened: %v", ref, err)
+		}
 	}
 }

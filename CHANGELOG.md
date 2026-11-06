@@ -3,6 +3,18 @@
 ### Fixed
 - `satelle <kind> set --criteria` and `--tag` no longer drop existing entries silently: a set that would drop one refuses, naming each, unless `--replace` is given (nothing is written and no transition is presented). `--add-criteria` and `--remove-criteria` (exact text; removing one the item lacks is an error) change one criterion without restating the rest. (sto_b8c42ae9)
 
+## [1.0.13] - 2026-11-06
+
+### Added
+- Queues are declared in tracked files, `.satelle/queues/<name>.toml` (title, `[filter]`, `[trigger]` task or workflow, base, `min_size`), like workflows. The file is the queue's definition; the ledger keeps its members and fires. Every queue command takes the name (`satelle queue show release`). A file binds the chain `id` names (adopting a queue made on the ledger, with its members and fire history) or `que_<name>`, created on first use; editing the file applies on the next command. `satelle validate` checks each file (unknown keys, title, an empty filter, the trigger's shape and workflow, two files binding one chain). `satelle queue show` says which file defines a queue (`defined_by` in JSON), and satelled shows the file's definition. This repo's release queue is `.satelle/queues/release.toml`, adopting `que_65bc4edc`. (sto_533a7930)
+
+### Changed
+- The delivery and chore workflows' `approved` state enqueues into the release queue (`enqueue = ["release"]`), so a story reaching approved joins it with the transition as the cause; the queue fires by hand only (min size 0). Release step 0 fires `release` by name, with the file's base, and refuses when the queue is missing or does not trigger the release task. (sto_06dfdef0, sto_533a7930)
+- `satelle queue set` refuses the title, filter and trigger of a file-defined queue, naming the file to edit. (sto_533a7930)
+
+### Breaking
+- A workflow state's `enqueue` names queue files; a `que_…` id fails `satelle validate`. To heal, write `.satelle/queues/<name>.toml` with `id = "<que_…>"`, its title, `[filter]` and `[trigger]`, then change the entry to `enqueue = ["<name>"]`. (sto_533a7930)
+
 ## [1.0.12] - 2026-11-06
 
 ### Added

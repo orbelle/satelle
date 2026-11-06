@@ -37,6 +37,9 @@ type Source struct {
 	RepoKey   string
 	Slug      string
 	User      *mirror.User // who the CLI is signed in as; nil when signed out
+	// Queues are the queue files by the chain id each defines; a queue row
+	// carries its file's title, filter and trigger.
+	Queues map[string]*workflow.Queue
 }
 
 // Full is the snapshot that replaces every kind of the partition.
@@ -93,6 +96,9 @@ func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 	snap := mirror.Snapshot{RepoKey: src.RepoKey, Slug: src.Slug}
 	for _, it := range items {
+		if def := src.Queues[it.ID]; def != nil && it.Kind == item.QueueKind {
+			def.Apply(&it)
+		}
 		row := mustJSON(itemRow(it))
 		switch it.Kind {
 		case "task":

@@ -62,17 +62,25 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 			runStatus = "missing"
 		}
 	}
+	definedBy := ""
+	if def := k.QueueFile(q.ID); def != nil {
+		definedBy = k.RelPath(def.File)
+	}
 	if asJSON {
 		return writeJSON(out, struct {
 			item.Item
+			DefinedBy   string            `json:"defined_by,omitempty"`
 			Members     []member          `json:"members"`
 			LastFire    *item.Fired       `json:"last_fire,omitempty"`
 			RunStatus   string            `json:"last_run_status,omitempty"`
 			Attachments []item.Attachment `json:"attachments"`
 			Seats       []item.Seat       `json:"seats"`
-		}{q, rows, st.LastFire, runStatus, atts, seats})
+		}{q, definedBy, rows, st.LastFire, runStatus, atts, seats})
 	}
 	printItem(out, q)
+	if definedBy != "" {
+		fmt.Fprintf(out, "defined by %s\n", definedBy)
+	}
 	fmt.Fprintf(out, "\nmembers (%d)\n", len(rows))
 	for _, m := range rows {
 		how := "filter"
@@ -89,27 +97,37 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 	return nil
 }
 
+// queueLabel is "name (id)" for a file-defined queue, else its id.
+func queueLabel(name, id string) string {
+	if name != "" {
+		return fmt.Sprintf("%s (%s)", name, id)
+	}
+	return id
+}
+
 func printQueueOutcome(w io.Writer, o kernel.QueueOutcome) {
+	q := queueLabel(o.Name, o.Queue)
 	for _, id := range o.Added {
-		fmt.Fprintf(w, "queued %s in %s\n", id, o.Queue)
+		fmt.Fprintf(w, "queued %s in %s\n", id, q)
 	}
 	for _, id := range o.Already {
-		fmt.Fprintf(w, "%s is already in %s\n", id, o.Queue)
+		fmt.Fprintf(w, "%s is already in %s\n", id, q)
 	}
 	if o.Fire != nil {
 		printFire(w, *o.Fire)
 	}
 	if o.Held != "" {
-		fmt.Fprintf(w, "%s did not fire: %s\n", o.Queue, o.Held)
+		fmt.Fprintf(w, "%s did not fire: %s\n", q, o.Held)
 	}
 }
 
 func printFire(w io.Writer, f kernel.FireOutcome) {
+	q := queueLabel(f.Name, f.Queue)
 	if f.Run == "" {
-		fmt.Fprintf(w, "%s has no members; nothing fired\n", f.Queue)
+		fmt.Fprintf(w, "%s has no members; nothing fired\n", q)
 		return
 	}
-	fmt.Fprintf(w, "%s fired %s (%s) over %d items", f.Queue, f.Run, f.Status, len(f.Inputs))
+	fmt.Fprintf(w, "%s fired %s (%s) over %d items", q, f.Run, f.Status, len(f.Inputs))
 	if f.Base != "" {
 		from := f.BaseRef
 		if from == "" {
@@ -200,7 +218,7 @@ fire's run is still open or the queue changed while firing.`,
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, item.QueueKind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, item.QueueKind, args[0]); err != nil {
 				return err
 			}
 			f, err := k.Fire(args[0], base, "by hand", actor())

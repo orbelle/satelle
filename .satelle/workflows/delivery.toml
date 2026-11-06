@@ -20,6 +20,9 @@ performer = { agent = "executor", skill = "coder" }
 # contains main. A run of the release task takes the item; a release run that
 # cannot land it sends it back to in_progress with the reason.
 [states.approved]
+# Reaching approved adds the story to the release queue (fired by hand in
+# release step 0); the queue is .satelle/queues/release.toml.
+enqueue = ["release"]
 
 [states.blocked]
 park = true

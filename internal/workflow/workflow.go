@@ -41,7 +41,7 @@ type State struct {
 	Park      bool       `toml:"park"`
 	Resumes   bool       `toml:"resumes"`
 	Performer *Performer `toml:"performer"`
-	// Enqueue names the queues (que_ item ids) an item entering this state
+	// Enqueue names the queues (.satelle/queues/<name>.toml) an item entering this state
 	// is added to.
 	Enqueue []string `toml:"enqueue"`
 }
