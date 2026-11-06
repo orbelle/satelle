@@ -1,7 +1,7 @@
 package buildinfo_test
 
-// The Go toolchain is pinned in four places — go.mod's `go` directive, the
-// tracked mise.toml, and `go-version` in both CI workflows — and nothing made
+// The Go toolchain is pinned in three places — go.mod's `go` directive, the
+// tracked mise.toml, and `go-version` in the release workflow — and nothing made
 // them agree (sty_02d79953). A partial bump drifts silently: local gates, CI and
 // the released binary would each build on a different toolchain with no signal.
 //
@@ -43,7 +43,6 @@ var toolchainPinFiles = []struct {
 }{
 	{"go.mod", parseGoModDirective},
 	{"mise.toml", parseMiseGoPin},
-	{filepath.Join(".github", "workflows", "test.yml"), parseWorkflowGoVersion},
 	{filepath.Join(".github", "workflows", "release.yml"), parseWorkflowGoVersion},
 }
 
@@ -183,7 +182,7 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
-// TestToolchainPinsAgree (AC1) is the guard itself: the four pins this repo
+// TestToolchainPinsAgree (AC1) is the guard itself: the three pins this repo
 // carries must agree at the granularity each declares.
 func TestToolchainPinsAgree(t *testing.T) {
 	pins, err := collectPins(moduleRoot(t))
@@ -200,14 +199,13 @@ func TestToolchainPinsAgree(t *testing.T) {
 
 // TestComparePinsNamesEveryFileOnMismatch (AC2) drives the decision directly:
 // one drift case per file class, the exact-vs-minor granularity rule in both
-// directions, and an all-agree control. Every failure must name all four files
+// directions, and an all-agree control. Every failure must name all three files
 // and every declared version — the message is part of the contract.
 func TestComparePinsNamesEveryFileOnMismatch(t *testing.T) {
-	pinsWith := func(goMod, mise, testYML, releaseYML string) []pin {
+	pinsWith := func(goMod, mise, releaseYML string) []pin {
 		return []pin{
 			{file: "go.mod", raw: goMod},
 			{file: "mise.toml", raw: mise},
-			{file: ".github/workflows/test.yml", raw: testYML},
 			{file: ".github/workflows/release.yml", raw: releaseYML},
 		}
 	}
@@ -216,15 +214,14 @@ func TestComparePinsNamesEveryFileOnMismatch(t *testing.T) {
 		pins   []pin
 		wantOK bool
 	}{
-		{name: "all agree", pins: pinsWith("1.27.0", "1.27.0", "1.27", "1.27"), wantOK: true},
-		{name: "minor-only CI floats the patch", pins: pinsWith("1.27.9", "1.27.9", "1.27", "1.27"), wantOK: true},
-		{name: "a CI pin that names a patch may match it", pins: pinsWith("1.27.4", "1.27.4", "1.27.4", "1.27"), wantOK: true},
-		{name: "go.mod drifted", pins: pinsWith("1.28.0", "1.27.0", "1.27", "1.27")},
-		{name: "mise.toml drifted", pins: pinsWith("1.27.0", "1.26.0", "1.27", "1.27")},
-		{name: "test.yml drifted", pins: pinsWith("1.27.0", "1.27.0", "1.26", "1.27")},
-		{name: "release.yml drifted", pins: pinsWith("1.27.0", "1.27.0", "1.27", "1.28")},
-		{name: "same minor, different patch", pins: pinsWith("1.27.0", "1.27.3", "1.27", "1.27")},
-		{name: "a CI pin that names the wrong patch", pins: pinsWith("1.27.0", "1.27.0", "1.27.4", "1.27")},
+		{name: "all agree", pins: pinsWith("1.27.0", "1.27.0", "1.27"), wantOK: true},
+		{name: "minor-only CI floats the patch", pins: pinsWith("1.27.9", "1.27.9", "1.27"), wantOK: true},
+		{name: "a CI pin that names a patch may match it", pins: pinsWith("1.27.4", "1.27.4", "1.27.4"), wantOK: true},
+		{name: "go.mod drifted", pins: pinsWith("1.28.0", "1.27.0", "1.27")},
+		{name: "mise.toml drifted", pins: pinsWith("1.27.0", "1.26.0", "1.27")},
+		{name: "release.yml drifted", pins: pinsWith("1.27.0", "1.27.0", "1.28")},
+		{name: "same minor, different patch", pins: pinsWith("1.27.0", "1.27.3", "1.27")},
+		{name: "a CI pin that names the wrong patch", pins: pinsWith("1.27.0", "1.27.0", "1.27.4")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -278,7 +275,6 @@ func TestCollectPinsReadsEachFileClass(t *testing.T) {
 		return map[string]string{
 			"go.mod":                        goMod,
 			"mise.toml":                     mise,
-			".github/workflows/test.yml":    wf,
 			".github/workflows/release.yml": wf,
 		}
 	}
@@ -292,7 +288,7 @@ func TestCollectPinsReadsEachFileClass(t *testing.T) {
 	if err := comparePins(pins); err != nil {
 		t.Fatalf("clean tree should agree: %v", err)
 	}
-	for _, want := range []string{"1.27.0", "1.27.0", "1.27", "1.27"} {
+	for _, want := range []string{"1.27.0", "1.27.0", "1.27"} {
 		found := false
 		for _, p := range pins {
 			if p.raw == want {
@@ -307,7 +303,6 @@ func TestCollectPinsReadsEachFileClass(t *testing.T) {
 	for _, c := range []struct{ name, file, body string }{
 		{"go.mod", "go.mod", strings.Replace(goMod, "go 1.27.0", "go 1.28.0", 1)},
 		{"mise.toml", "mise.toml", strings.Replace(mise, "1.27.0", "1.26.7", 1)},
-		{"test.yml", ".github/workflows/test.yml", strings.Replace(wf, "'1.27'", "'1.26'", 1)},
 		{"release.yml", ".github/workflows/release.yml", strings.Replace(wf, "'1.27'", "'1.28'", 1)},
 	} {
 		t.Run("drifted "+c.name, func(t *testing.T) {

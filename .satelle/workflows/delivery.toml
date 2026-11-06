@@ -59,12 +59,10 @@ skill = "satelle-definition-unchanged-check"
 
 [gates.format-vet]
 skill = "satelle-format-vet-check"
-paths = ["**/*.go"]
 carry = true
 
 [gates.build-unit]
 skill = "satelle-build-unit-check"
-paths = ["**/*.go", "go.mod", "go.sum"]
 carry = true
 
 [gates.instruction-change]
