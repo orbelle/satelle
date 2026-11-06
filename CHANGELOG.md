@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- The build line names the commit once: a dev build reads `satelled 1.0.2 (commit 7ce02f1069d9, built …)`, not `satelled 1.0.2+7ce02f1069d9 (commit 7ce02f1069d9, …)`; a dirty build's commit reads `<c>-dirty`. The version itself (in /healthz and service status) is unchanged. (sto_698d41a4)
 - A full push to satelled (`satelle workspace add`, the seed) no longer fails when an item has re-attached a name (every re-plan does): the CLI pushes the newest version of each attachment with its version count, and satelled's detail page shows `N versions`. Upgrade the CLI with satelled; an older CLI still sends duplicates. (sto_e2490f1f)
 - Every push to satelled, not only a full seed, carries who the CLI is signed in as, so the top bar's avatar appears (and clears on sign-out) with the next ordinary change. (sto_93dedb87)
 

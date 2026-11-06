@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
@@ -15,7 +14,8 @@ func stampBuild(t *testing.T, version, commit, built string) {
 	t.Cleanup(func() { buildinfo.Version, buildinfo.Commit, buildinfo.BuildTime = v, c, b })
 }
 
-// satelle version and --version print the build identity line, dev marker and all.
+// satelle version and --version print the build identity line, naming the
+// commit once (a dirty dev build's commit reads <c>-dirty).
 func TestVersionPrintsBuildIdentity(t *testing.T) {
 	stampBuild(t, "1.0.0+0123456789ab-dirty", "0123456789ab", "2026-11-06T09:30:00Z")
 	want := buildinfo.Resolve().String() + "\n"
@@ -27,10 +27,8 @@ func TestVersionPrintsBuildIdentity(t *testing.T) {
 		if out != want {
 			t.Errorf("%v printed %q, want %q", args, out, want)
 		}
-		for _, s := range []string{"1.0.0+0123456789ab-dirty", "commit 0123456789ab", "built 2026-11-06T09:30:00Z"} {
-			if !strings.Contains(out, s) {
-				t.Errorf("%v output %q lacks %q", args, out, s)
-			}
+		if want := "satelle 1.0.0 (commit 0123456789ab-dirty, built 2026-11-06T09:30:00Z)\n"; out != want {
+			t.Errorf("%v printed %q, want %q", args, out, want)
 		}
 	}
 }

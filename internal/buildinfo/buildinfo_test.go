@@ -64,15 +64,22 @@ func TestResolveFrom_DevNoVCS(t *testing.T) {
 	}
 }
 
-// String is the one identity line: name, version (dev marker kept), commit
-// shortened to 12, build time.
+// String is the one identity line: name, version, commit (shortened to 12,
+// named once: a dev build's +<commit> marker is not repeated), build time.
 func TestInfoString(t *testing.T) {
 	rel := Info{Name: "satelle", Version: "1.0.0", Commit: "0123456789abcdef0123456789abcdef01234567", BuildTime: "2026-11-06T09:30:00Z"}
 	if got, want := rel.String(), "satelle 1.0.0 (commit 0123456789ab, built 2026-11-06T09:30:00Z)"; got != want {
 		t.Errorf("release String() = %q, want %q", got, want)
 	}
-	dev := Info{Name: "satelled", Version: "1.0.0+0123456789ab-dirty", Commit: "0123456789ab", BuildTime: "2026-11-06T09:30:00Z"}
-	if got, want := dev.String(), "satelled 1.0.0+0123456789ab-dirty (commit 0123456789ab, built 2026-11-06T09:30:00Z)"; got != want {
+	dev := Info{Name: "satelled", Version: "1.0.2+7ce02f1069d9", Commit: "7ce02f1069d9", BuildTime: "2026-11-06T02:33:47Z"}
+	if got, want := dev.String(), "satelled 1.0.2 (commit 7ce02f1069d9, built 2026-11-06T02:33:47Z)"; got != want {
 		t.Errorf("dev String() = %q, want %q", got, want)
+	}
+	dirty := Info{Name: "satelled", Version: "1.0.0+0123456789ab-dirty", Commit: "0123456789ab", BuildTime: "2026-11-06T09:30:00Z"}
+	if got, want := dirty.String(), "satelled 1.0.0 (commit 0123456789ab-dirty, built 2026-11-06T09:30:00Z)"; got != want {
+		t.Errorf("dirty String() = %q, want %q", got, want)
+	}
+	if dirty.Version != "1.0.0+0123456789ab-dirty" {
+		t.Error("String changed the version itself")
 	}
 }

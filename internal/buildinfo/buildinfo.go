@@ -33,15 +33,24 @@ type Info struct {
 }
 
 // String is the build identity line: "<name> <version> (commit <c>, built
-// <t>)". The commit is shortened to 12 characters (CI stamps the full SHA); a
-// dev build's version keeps its +<commit>[-dirty] marker. A bare `go build`
-// reports the VCS commit time as its build time.
+// <t>)", naming the commit once. The commit is shortened to 12 characters (CI
+// stamps the full SHA). A dev build's version marker +<commit>[-dirty] is not
+// repeated: the line shows the version before it, and a dirty build's commit
+// reads <c>-dirty. A bare `go build` reports the VCS commit time as its build
+// time.
 func (i Info) String() string {
 	c := i.Commit
 	if len(c) > 12 {
 		c = c[:12]
 	}
-	return fmt.Sprintf("%s %s (commit %s, built %s)", i.Name, i.Version, c, i.BuildTime)
+	v := i.Version
+	if base, marker, ok := strings.Cut(v, "+"); ok {
+		v = base
+		if strings.HasSuffix(marker, "-dirty") && !strings.HasSuffix(c, "-dirty") {
+			c += "-dirty"
+		}
+	}
+	return fmt.Sprintf("%s %s (commit %s, built %s)", i.Name, v, c, i.BuildTime)
 }
 
 // Build info — overridden via -ldflags at release time. These are the
