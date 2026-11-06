@@ -902,7 +902,7 @@ names checked: 77
 no Go string literal names this repo's workflow
 ```
 
-CI runs the audit (`.github/workflows/test.yml`).
+The audit runs locally in the format-vet gate (GitHub runs no tests).
 
 ## Progress
 

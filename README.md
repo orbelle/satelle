@@ -279,11 +279,12 @@ edit gate, attachments, task runs, sync between two homes over the in-process
 fake satelle-server, satelled's pages, and a docker-local node (skipped without
 a docker daemon and a small local image). No test reaches past loopback.
 
-CI (`test.yml`) runs build, vet, the windows cross-build, `make test`, the
-literal audit (`scripts/audit-literals.sh`), gofmt and the no-cgo static build.
-Releases are cut by `.github/workflows/release.yml` when a CLI or serve version
-in `.version` has no matching tag yet (`vX` / `serve-vY`); `satelle update`
-installs them.
+GitHub runs no tests: build, vet, gofmt, the windows cross-build, `make test`
+and the literal audit (`scripts/audit-literals.sh`) run locally in this repo's
+satelle gates. Releases are cut only when asked, by running
+`.github/workflows/release.yml` (workflow_dispatch) once the local tests pass;
+it publishes each CLI or serve version in `.version` that has no tag yet
+(`vX` / `serve-vY`), and `satelle update` installs them.
 
 `make judgment` runs the opt-in LLM rubric fixtures under `tests/llm/`
 (`-tags llm`). They cost tokens and call a live model; never in default CI.
