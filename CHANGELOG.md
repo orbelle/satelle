@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.6] - 2026-11-06
 
 ### Changed
 - Clearing worktrees is part of the workflow: the release run ends by running the cleanup task (tas_b3424a1c), which removes each linked worktree that is committed and pushed (every released item's), deletes its pushed local branch, reports any it keeps, and puts the main checkout on main at origin/main. (sto_7a60fa80)
