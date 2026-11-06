@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ const (
 
 	releaseRepo     = "bobmcallan/satelle"
 	defaultAPI      = "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
-	defaultListAPI  = "https://api.github.com/repos/" + releaseRepo + "/releases?per_page=30"
+	defaultListAPI  = "https://api.github.com/repos/" + releaseRepo + "/releases?per_page=100"
 	defaultBase     = "https://github.com/" + releaseRepo + "/releases/download"
 	serveTagPrefix  = "serve-" // satelled releases are tagged serve-v<version>
 	downloadTimeout = 5 * time.Minute
@@ -58,9 +59,11 @@ func updateCmd() *cobra.Command {
 		Short: "Replace satelle (and satelled beside it) with a GitHub release",
 		Long: `update downloads the latest satelle release (or --version) for this OS and
 architecture, checks it against the release's .sha256, and replaces the running
-binary. A satelled beside it is replaced with the latest satelled release the
-same way. A running satelled keeps the old binary until it is restarted
-('satelle service restart').`,
+binary. A satelled beside it is replaced the same way with the satelled release
+of the highest version (serve-v<version> tags, compared numerically), or with
+serve-v<version> when --version is given. Every download is checked before
+anything is replaced, so a refusal leaves both binaries as they were. A running
+satelled keeps the old binary until it is restarted ('satelle service restart').`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), downloadTimeout)
@@ -70,49 +73,65 @@ same way. A running satelled keeps the old binary until it is restarted
 			if err != nil {
 				return fmt.Errorf("locate the running binary: %w", err)
 			}
-			tag := "v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
-			if version == "" {
+			pin := strings.TrimPrefix(strings.TrimSpace(version), "v")
+			tag := "v" + pin
+			if pin == "" {
 				if tag, err = latestTag(ctx); err != nil {
 					return err
 				}
 			}
+			// Plan both, fetch every asset that is not current, then replace.
 			old := buildinfo.Version
-			if strings.TrimPrefix(tag, "v") == old {
+			var cliBin []byte
+			if strings.TrimPrefix(tag, "v") != old {
+				if cliBin, err = fetchAsset(ctx, tag, buildinfo.CLIName); err != nil {
+					return err
+				}
+			}
+			daemonPath := filepath.Join(filepath.Dir(target), buildinfo.DaemonName+exeSuffix())
+			var daemonBin []byte
+			daemonOld, daemonNew := "", ""
+			if _, err := os.Stat(daemonPath); err == nil {
+				serveTag := serveTagPrefix + "v" + pin
+				if pin == "" {
+					if serveTag, err = latestServeTag(ctx); err != nil {
+						return err
+					}
+				}
+				daemonNew = strings.TrimPrefix(serveTag, serveTagPrefix+"v")
+				daemonOld = daemonVersion(ctx, daemonPath)
+				if daemonOld != daemonNew {
+					if daemonBin, err = fetchAsset(ctx, serveTag, buildinfo.DaemonName); err != nil {
+						if pin != "" {
+							return fmt.Errorf("satelled %s has no usable asset for %s/%s (nothing was replaced): %w", serveTag, runtime.GOOS, runtime.GOARCH, err)
+						}
+						return err
+					}
+				}
+			}
+			if cliBin == nil {
 				fmt.Fprintf(out, "satelle %s is current\n", old)
 			} else {
-				if err := installAsset(ctx, tag, buildinfo.CLIName, target); err != nil {
+				if err := replaceFile(target, cliBin); err != nil {
 					return err
 				}
 				fmt.Fprintf(out, "satelle %s → %s\n", old, strings.TrimPrefix(tag, "v"))
 			}
-			return updateDaemon(ctx, out, filepath.Join(filepath.Dir(target), buildinfo.DaemonName+exeSuffix()))
+			switch {
+			case daemonNew == "":
+			case daemonBin == nil:
+				fmt.Fprintf(out, "satelled %s is current\n", daemonOld)
+			default:
+				if err := replaceFile(daemonPath, daemonBin); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "satelled %s → %s (restart it to run the new one: satelle service restart)\n", daemonOld, daemonNew)
+			}
+			return nil
 		},
 	}
-	cmd.Flags().StringVar(&version, "version", "", "install this satelle version instead of the latest")
+	cmd.Flags().StringVar(&version, "version", "", "install this version of satelle, and of satelled (serve-v<version>) beside it, instead of the latest")
 	return cmd
-}
-
-// updateDaemon replaces the satelled at path, when there is one, with the
-// newest satelled release.
-func updateDaemon(ctx context.Context, out io.Writer, path string) error {
-	if _, err := os.Stat(path); err != nil {
-		return nil
-	}
-	tag, err := latestServeTag(ctx)
-	if err != nil {
-		return err
-	}
-	newV := strings.TrimPrefix(tag, serveTagPrefix+"v")
-	old := daemonVersion(ctx, path)
-	if old == newV {
-		fmt.Fprintf(out, "satelled %s is current\n", old)
-		return nil
-	}
-	if err := installAsset(ctx, tag, buildinfo.DaemonName, path); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "satelled %s → %s (restart it to run the new one: satelle service restart)\n", old, newV)
-	return nil
 }
 
 // daemonVersion is the version field of satelled's identity line; "unknown" when it
@@ -179,34 +198,88 @@ func latestServeTag(ctx context.Context) (string, error) {
 	if err := json.Unmarshal(body, &rs); err != nil {
 		return "", fmt.Errorf("list releases: %w", err)
 	}
-	for _, r := range rs {
-		if strings.HasPrefix(r.Tag, serveTagPrefix+"v") {
-			return r.Tag, nil
-		}
+	tags := make([]string, len(rs))
+	for i, r := range rs {
+		tags[i] = r.Tag
+	}
+	if tag, ok := newestServeTag(tags); ok {
+		return tag, nil
 	}
 	return "", errors.New("no satelled release found")
 }
 
-// installAsset downloads name's asset of tag for this platform, checks its
-// sha256, and moves it over path.
-func installAsset(ctx context.Context, tag, name, path string) error {
+// newestServeTag is the serve-v tag of the highest version among tags, in
+// whatever order they come (GitHub's list is not ordered by version). A tag
+// whose version is not dotted integers is never chosen.
+func newestServeTag(tags []string) (string, bool) {
+	best, bestV := "", []int(nil)
+	for _, t := range tags {
+		v, ok := strings.CutPrefix(t, serveTagPrefix+"v")
+		if !ok {
+			continue
+		}
+		parts, ok := parseReleaseVersion(v)
+		if !ok {
+			continue
+		}
+		if bestV == nil || releaseVersionLess(bestV, parts) {
+			best, bestV = t, parts
+		}
+	}
+	return best, bestV != nil
+}
+
+// parseReleaseVersion splits a dotted version into integers.
+func parseReleaseVersion(v string) ([]int, bool) {
+	fields := strings.Split(v, ".")
+	out := make([]int, len(fields))
+	for i, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
+// releaseVersionLess compares versions field by field; a missing field is 0.
+func releaseVersionLess(a, b []int) bool {
+	for i := range max(len(a), len(b)) {
+		x, y := 0, 0
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// fetchAsset downloads name's asset of tag for this platform and checks its
+// sha256; nothing is written.
+func fetchAsset(ctx context.Context, tag, name string) ([]byte, error) {
 	version := strings.TrimPrefix(tag, serveTagPrefix)
 	asset := fmt.Sprintf("%s-%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, exeSuffix())
 	url := strings.TrimRight(envOr(envReleaseBase, defaultBase), "/") + "/" + tag + "/" + asset
 	bin, err := releaseGet(ctx, url)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", asset, err)
+		return nil, fmt.Errorf("download %s: %w", asset, err)
 	}
 	sum, err := releaseGet(ctx, url+".sha256")
 	if err != nil {
-		return fmt.Errorf("download %s.sha256: %w", asset, err)
+		return nil, fmt.Errorf("download %s.sha256: %w", asset, err)
 	}
 	f := strings.Fields(string(sum))
 	got := sha256.Sum256(bin)
 	if len(f) == 0 || !strings.EqualFold(f[0], hex.EncodeToString(got[:])) {
-		return fmt.Errorf("%s: checksum mismatch; nothing was replaced", asset)
+		return nil, fmt.Errorf("%s: checksum mismatch; nothing was replaced", asset)
 	}
-	return replaceFile(path, bin)
+	return bin, nil
 }
 
 // replaceFile writes body beside path and renames it into place. Windows

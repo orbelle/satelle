@@ -1,3 +1,8 @@
+## Unreleased
+
+### Fixed
+- `satelle update` installs the satelled release with the highest version among the `serve-v*` tags (1.0.10 beats 1.0.9), whatever order GitHub lists them in, and `--version X` installs satelled from `serve-vX` too, refusing (and replacing nothing) when that release has no asset for the platform. Every asset is downloaded and checked before either binary is replaced. The release procedure's install step runs the new binary's update a second time. (sto_7dbee6f2)
+
 ## [1.0.10] - 2026-11-06
 
 ### Added
