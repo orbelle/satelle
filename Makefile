@@ -89,11 +89,11 @@ endif
 # test runs every package, the integration suite under tests/ included: it
 # builds satelle and satelled once and drives them in throwaway homes.
 test:
-	$(CREDGUARD) $(HERMETIC) $(SKIPCHECK) go test $(STRICTFLAGS) $(JSONFLAG) $(TESTFLAGS) ./... $(JSONOUT)
+	$(CREDGUARD) $(HERMETIC) $(SKIPCHECK) go test -tags integration $(STRICTFLAGS) $(JSONFLAG) $(TESTFLAGS) ./... $(JSONOUT)
 
 # integration runs only the integration suite under tests/.
 integration:
-	$(CREDGUARD) $(HERMETIC) go test $(TESTFLAGS) ./tests/
+	$(CREDGUARD) $(HERMETIC) go test -tags integration $(TESTFLAGS) ./tests/
 
 # judgment: opt-in LLM rubric fixtures (sty_6830e78e). Costs tokens, not hermetic,
 # never in default CI. See README ## Testing.

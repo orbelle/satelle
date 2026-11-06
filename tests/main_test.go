@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package tests is satelle's integration suite. TestMain builds the real
 // satelle and satelled binaries once; each test drives them as a user would,
 // in its own home, credentials dir and fresh git repo. Nothing here reaches

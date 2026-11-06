@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- The integration suite under tests/ runs once per story, at integration -> approved (`make test`, now `-tags integration`); its files carry `//go:build integration` again, so build-unit's untagged `go test ./...` on in_progress -> integration runs the unit tests only while still compiling the suite (`go vet -tags integration ./tests/...`). Before, the suite ran at both stages. (sto_76221aa5)
+
 ## [1.0.6] - 2026-11-06
 
 ### Changed
