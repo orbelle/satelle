@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Changed
+- Clearing worktrees is part of the workflow: the release run ends by running the cleanup task (tas_b3424a1c), which removes each linked worktree that is committed and pushed (every released item's), deletes its pushed local branch, reports any it keeps, and puts the main checkout on main at origin/main. (sto_7a60fa80)
+
 ### Fixed
 - The release run is cut with `--base origin/main` after a fetch, so its recorded base is main's real head, not a possibly stale local `main` branch (the v1.0.5 run recorded 0.0.896's commit). (sto_b802a9ae)
 

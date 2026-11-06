@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36) follows over the approved items it took: fast-forward main to each tested pull-request head without re-testing, send back any head that no longer fast-forwards, bump the version once, dispatch release.yml, confirm both releases, back up and install the published build here, check it, and only then move each item to done. Landing is local; GitHub runs no tests. Never forces, never merges or rebases main.
+description: CI/CD — the procedure a run of the release task (tas_42301d36) follows over the approved items it took: fast-forward main to each tested pull-request head without re-testing, send back any head that no longer fast-forwards, bump the version once, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees. Landing is local; GitHub runs no tests. Never forces, never merges or rebases main.
 ---
 
 # Release (CI/CD)
@@ -157,3 +157,21 @@ the run (`satelle execution attach "$exe" --name release-evidence --file -`):
 
 Then present the run `in_progress → done` (validate-after) and release its
 seat.
+
+## 10. Clear the finished worktrees
+
+Clearing worktrees is part of the workflow (operator, 2026-11-06): from the
+main checkout (not a linked worktree, which the cleanup may remove), run the
+cleanup task and follow its run to done:
+
+```sh
+cd <the main checkout>
+git fetch -q origin
+satelle task run tas_b3424a1c --base origin/main
+```
+
+The cleanup removes each linked worktree that has no uncommitted or untracked
+change and whose HEAD is on a remote branch (so every released item's
+worktree), deletes its pushed local branch, keeps and reports any other, and
+puts the main checkout on main at origin/main. It never removes a worktree
+with work that is not pushed.
