@@ -291,10 +291,7 @@ func ReadRepoPathMarker(runtimeDir string) string {
 // this: this machine's project path, the mirror partition's slug, its path and
 // ProjectName, and the runtime dir's repo.path marker. Identity NAMES the
 // repository, and a worktree and its parent are the same repository, so identity
-// must not move per worktree. The .satelle/deployed.version stamp is read the
-// same way (cli.stampDataDir): it records which binary the REPOSITORY's
-// substrate was aligned to, and .satelle is gitignored, so a worktree never
-// carries it (sty_5bf84ba4). Every LOCATION use of this function keeps the
+// must not move per worktree. Every LOCATION use of this function keeps the
 // invoking root: FindDataDir, the edit tree, and runtime-dir resolution (which
 // collapses worktrees by RepoKey on its own). The process read-plane is a
 // separate resolution after config is loaded, and it follows the data dir the

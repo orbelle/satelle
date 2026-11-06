@@ -532,7 +532,7 @@ const templatesSrc = `
     <h1>satelle<span class="dot">.</span> settings</h1>
     <div class="meta">{{.RepoRoot}} · read-only view of <code>.satelle/satelle.toml</code></div>
   </header>
-  <div class="settings-note settings-readonly-note">Repo settings are read-only here — edit <code>.satelle/satelle.toml</code> directly (and commit it under the workflow) to change them. Machine-wide hosted server lives on <a href="/settings/global">global settings</a>. Overlay (<code>satelle.local.toml</code>) values are not shown here.</div>
+  <div class="settings-note settings-readonly-note">Repo settings are read-only here — edit <code>.satelle/satelle.toml</code> directly (and commit it under the workflow) to change them. Machine-wide hosted server lives on <a href="/settings/global">global settings</a>.</div>
   <div class="settings">
     {{range .Rows}}{{if .SectHead}}<h2 class="kind-h settings-sect">{{.SectHead}}</h2>{{end}}<div class="setting-row">
       <div class="setting-label"><span class="setting-key">{{.FieldID}}</span><span class="setting-label-name">{{.Label}}</span>{{if .Help}}<span class="setting-help">{{.Help}}</span>{{end}}</div>

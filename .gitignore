@@ -8,17 +8,11 @@ CLAUDE.md
 .claude/settings*.json
 
 # satelle process substrate (.satelle/) is tracked: workflows, skills,
-# principles, constitution, satelle.toml, task definitions and documents.
-# Its machine-local and runtime parts are not (sty_3f91b9e2). The re-include
-# overrides a machine-wide core.excludesFile that ignores .satelle/.
+# principles, constitution, satelle.toml and agents.toml. Its run-time part
+# (runs/) is ignored by .satelle/.gitignore; runtime state lives under
+# ~/.satelle/<repo-key>/, outside the repo. The re-include overrides a
+# machine-wide core.excludesFile that ignores .satelle/.
 !.satelle/
-.satelle/**/.env
-.satelle/logs
-.satelle/hooks
-.satelle/deployed.version
-.satelle/*.local.toml
-.satelle/tasks/*/exe_*.md
-.satelle/tasks/*/output-exe_*.md
 
 # Built binaries — leading `/` is required so only the *named path* is ignored.
 # A bare `satelled` would also match cmd/satelled/ and hide the source.
@@ -30,17 +24,3 @@ CLAUDE.md
 
 # Opt-in live benchmark output (generated evidence, not source fixtures).
 /tests/plannerbench/out/
-
-# >>> satelle (managed) >>>
-# .satelle/ is this repo's process substrate (workflows, skills, principles,
-# constitution, satelle.toml, tasks, documents) and is tracked in git; only the
-# machine-local state below is ignored. The re-include overrides a machine-wide
-# core.excludesFile that ignores .satelle/. satelle adds only entries this file
-# does not already settle; any rule written here or elsewhere is kept.
-# Runtime state lives under ~/.satelle/<repo-key>/, outside the repo.
-.satelle/satelle.local.toml
-.satelle/workflows/agents.local.toml
-.satelle/satelle
-sty_*_body.md
-sty_*_ac.md
-# <<< satelle (managed) <<<
