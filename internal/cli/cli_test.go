@@ -303,3 +303,80 @@ func TestInvalidConfigurationRefusesToRun(t *testing.T) {
 		t.Error("an edit was allowed under an invalid configuration")
 	}
 }
+
+// getStory loads a story through the CLI.
+func getStory(t *testing.T, id string) item.Item {
+	t.Helper()
+	var it item.Item
+	if err := json.Unmarshal([]byte(must(t, "story", "get", id, "--json")), &it); err != nil {
+		t.Fatal(err)
+	}
+	return it
+}
+
+func TestSetCriteriaAddRemove(t *testing.T) {
+	isolate(t)
+	must(t, "init")
+	id := createID(t, "story", "create", "--title", "c", "--criteria", "a", "--criteria", "b")
+	want := func(w ...string) {
+		t.Helper()
+		if got := getStory(t, id).Criteria; strings.Join(got, "|") != strings.Join(w, "|") {
+			t.Fatalf("criteria %q, want %q", got, w)
+		}
+	}
+	must(t, "story", "set", id, "--add-criteria", "c")
+	want("a", "b", "c")
+	must(t, "story", "set", id, "--remove-criteria", "b")
+	want("a", "c")
+	must(t, "story", "set", id, "--add-criteria", "a")
+	want("a", "c")
+	out, err := run(t, "", "story", "set", id, "--remove-criteria", "zz")
+	if err == nil || !strings.Contains(err.Error(), "zz") {
+		t.Fatalf("removing a missing criterion: %v\n%s", err, out)
+	}
+	want("a", "c")
+}
+
+func TestSetReplaceGuard(t *testing.T) {
+	isolate(t)
+	must(t, "init")
+	id := createID(t, "story", "create", "--title", "g",
+		"--criteria", "a", "--criteria", "b", "--tag", "x", "--tag", "y")
+	crit := func(w ...string) {
+		t.Helper()
+		if got := getStory(t, id).Criteria; strings.Join(got, "|") != strings.Join(w, "|") {
+			t.Fatalf("criteria %q, want %q", got, w)
+		}
+	}
+	tags := func(w ...string) {
+		t.Helper()
+		if got := getStory(t, id).Tags; strings.Join(got, "|") != strings.Join(w, "|") {
+			t.Fatalf("tags %q, want %q", got, w)
+		}
+	}
+	_, err := run(t, "", "story", "set", id, "--criteria", "a")
+	if err == nil || !strings.Contains(err.Error(), "  - b") || !strings.Contains(err.Error(), "--replace") {
+		t.Fatalf("dropping criterion b: %v", err)
+	}
+	crit("a", "b")
+	_, err = run(t, "", "story", "set", id, "--tag", "x")
+	if err == nil || !strings.Contains(err.Error(), "  - y") {
+		t.Fatalf("dropping tag y: %v", err)
+	}
+	tags("x", "y")
+	must(t, "story", "set", id, "--criteria", "a", "--criteria", "b", "--criteria", "c")
+	crit("a", "b", "c")
+	must(t, "story", "set", id, "--criteria", "a", "--remove-criteria", "b", "--remove-criteria", "c")
+	crit("a")
+	must(t, "story", "set", id, "--criteria", "z", "--replace")
+	crit("z")
+	must(t, "story", "set", id, "--tag", "q", "--replace")
+	tags("q")
+	before := getStory(t, id).Status
+	if _, err := run(t, "", "story", "set", id, "--criteria", "n", "--status", "done"); err == nil {
+		t.Fatal("a dropping --criteria with --status was accepted")
+	}
+	if it := getStory(t, id); it.Status != before || strings.Join(it.Criteria, "|") != "z" {
+		t.Fatalf("refused set changed the story: status %q criteria %q", it.Status, it.Criteria)
+	}
+}

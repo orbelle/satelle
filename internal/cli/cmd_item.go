@@ -53,6 +53,8 @@ func getItem(k *kernel.Kernel, kind, id string) (item.Item, error) {
 type fieldFlags struct {
 	title, body, category, parent, workflow, assignee string
 	criteria, tags, addTags, removeTags               []string
+	addCriteria, removeCriteria                       []string
+	replace                                           bool
 	inKind, inStatus, inTag, inCategory               string
 	clearInputs                                       bool
 	trigTask, trigWorkflow, trigBase                  string
@@ -72,8 +74,8 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	}
 	fl.StringVar(&f.title, "title", "", "title")
 	fl.StringVar(&f.body, "body", "", "body (markdown); '-' reads stdin")
-	fl.StringArrayVar(&f.criteria, "criteria", nil, "an acceptance criterion (repeatable; replaces the list on set)")
-	fl.StringArrayVar(&f.tags, "tag", nil, "a tag (repeatable; replaces the list on set)")
+	fl.StringArrayVar(&f.criteria, "criteria", nil, "an acceptance criterion (repeatable; on set, replaces the list only with --replace)")
+	fl.StringArrayVar(&f.tags, "tag", nil, "a tag (repeatable; on set, replaces the list only with --replace)")
 	fl.StringVar(&f.category, "category", "", "category")
 	fl.StringVar(&f.parent, "parent", "", "parent item id")
 	fl.StringVar(&f.assignee, "assignee", "", "assignee (carried, no behaviour)")
@@ -86,6 +88,9 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	} else {
 		fl.StringArrayVar(&f.addTags, "add-tag", nil, "add a tag (repeatable)")
 		fl.StringArrayVar(&f.removeTags, "remove-tag", nil, "remove a tag (repeatable)")
+		fl.StringArrayVar(&f.addCriteria, "add-criteria", nil, "add an acceptance criterion at the end of the list (repeatable)")
+		fl.StringArrayVar(&f.removeCriteria, "remove-criteria", nil, "remove an acceptance criterion, by its exact text (repeatable)")
+		fl.BoolVar(&f.replace, "replace", false, "let --criteria / --tag drop existing entries")
 	}
 }
 
@@ -116,9 +121,47 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 		}
 		out.Body = &body
 	}
-	if changed("criteria") {
-		c := append([]string{}, f.criteria...)
-		out.Criteria = &c
+	if changed("criteria") || changed("add-criteria") || changed("remove-criteria") {
+		var crit []string
+		if changed("criteria") {
+			crit = append(crit, f.criteria...)
+		} else if cur != nil {
+			crit = append(crit, cur.Criteria...)
+		}
+		for _, c := range f.addCriteria {
+			if !contains(crit, c) {
+				crit = append(crit, c)
+			}
+		}
+		var missing []string
+		for _, c := range f.removeCriteria {
+			if !contains(crit, c) && (cur == nil || !contains(cur.Criteria, c)) {
+				missing = append(missing, c)
+			}
+		}
+		if len(missing) > 0 {
+			var b strings.Builder
+			b.WriteString("--remove-criteria names a criterion the item does not have:")
+			for _, c := range missing {
+				fmt.Fprintf(&b, "\n  - %s", c)
+			}
+			b.WriteString("\ncurrent criteria:")
+			if cur == nil || len(cur.Criteria) == 0 {
+				b.WriteString(" (none)")
+			} else {
+				for _, c := range cur.Criteria {
+					fmt.Fprintf(&b, "\n  - %s", c)
+				}
+			}
+			return out, errors.New(b.String())
+		}
+		kept := crit[:0]
+		for _, c := range crit {
+			if !contains(f.removeCriteria, c) {
+				kept = append(kept, c)
+			}
+		}
+		out.Criteria = &kept
 	}
 	if changed("tag") || changed("add-tag") || changed("remove-tag") {
 		var tags []string
@@ -139,6 +182,35 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 			}
 		}
 		out.Tags = &kept
+	}
+	if cur != nil && !f.replace {
+		var msg strings.Builder
+		guard := func(flag, name string, have []string, next *[]string, removed []string) {
+			if !changed(flag) || next == nil {
+				return
+			}
+			var drop []string
+			for _, e := range have {
+				if !contains(*next, e) && !contains(removed, e) {
+					drop = append(drop, e)
+				}
+			}
+			if len(drop) == 0 {
+				return
+			}
+			if msg.Len() > 0 {
+				msg.WriteString("\n")
+			}
+			fmt.Fprintf(&msg, "set would drop existing %s; give --replace to replace the list, or use --add-%s/--remove-%s:", name, flag, flag)
+			for _, e := range drop {
+				fmt.Fprintf(&msg, "\n  - %s", e)
+			}
+		}
+		guard("criteria", "criteria", cur.Criteria, out.Criteria, f.removeCriteria)
+		guard("tag", "tags", cur.Tags, out.Tags, f.removeTags)
+		if msg.Len() > 0 {
+			return out, errors.New(msg.String())
+		}
 	}
 	if changed("input-kind") || changed("input-status") || changed("input-tag") || changed("input-category") {
 		sel := item.Selection{}

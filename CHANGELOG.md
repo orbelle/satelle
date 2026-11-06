@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- `satelle <kind> set --criteria` and `--tag` no longer drop existing entries silently: a set that would drop one refuses, naming each, unless `--replace` is given (nothing is written and no transition is presented). `--add-criteria` and `--remove-criteria` (exact text; removing one the item lacks is an error) change one criterion without restating the rest. (sto_b8c42ae9)
+
 ## [1.0.12] - 2026-11-06
 
 ### Added
