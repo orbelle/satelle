@@ -117,21 +117,60 @@ from = ["defined"]
 to = "retired"
 `)
 	s.must("validate")
-	task := s.create("task", "--title", "Release approved items", "--input-kind", "story", "--input-status", "approved")
+	task := s.create("task", "--title", "Release approved items")
+
+	// The release queue as this repo's ledger carries it, declared on the
+	// approved state the way delivery.toml and chore.toml declare it.
+	repoQue := repoReleaseQueue(t)
+	q := s.create("queue", "--title", "Release queue: approved stories", "--input-kind", "story", "--input-status", "approved",
+		"--trigger-task", task.ID, "--trigger-base", "origin/main", "--min-size", "0")
+	s.write(".satelle/workflows/flow.toml", `name = "flow"
+[states.backlog]
+start = true
+[states.approved]
+enqueue = ["`+q.ID+`"]
+[states.done]
+terminal = true
+[[transition]]
+from = ["backlog"]
+to = "approved"
+[[transition]]
+from = ["approved"]
+to = "done"
+`)
+	s.must("validate")
 	var approved []string
 	var other string
 	for i := range 3 {
 		st := s.create("story", "--title", "story")
 		if i < 2 {
-			s.must("story", "set", st.ID, "--status", "approved")
+			if out := s.must("story", "set", st.ID, "--status", "approved"); !strings.Contains(out, q.ID) {
+				t.Fatalf("moving %s to approved reported no enqueue into %s:\n%s", st.ID, q.ID, out)
+			}
 			approved = append(approved, st.ID)
 		} else {
 			other = st.ID
 		}
 	}
+	var added []string
+	for _, e := range s.ledger(q.ID, item.KindQueueAdded) {
+		var qe item.QueueEntry
+		if json.Unmarshal(e.Payload, &qe) != nil || qe.Cause != "flow:backlog->approved" {
+			t.Fatalf("queue.added %s", e.Payload)
+		}
+		added = append(added, qe.Item)
+	}
+	if !slices.Equal(added, approved) {
+		t.Fatalf("explicit members %v, want %v", added, approved)
+	}
 	step0 := shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)
+	queRE := regexp.MustCompile(`(?m)^que=(\S+)$`)
+	if m := queRE.FindAllStringSubmatch(step0, -1); len(m) != 1 || m[0][1] != repoQue {
+		t.Fatalf("step 0 names release queue %v, want one que=%s line", m, repoQue)
+	}
+	step0 = queRE.ReplaceAllString(step0, "que="+q.ID)
 
-	// Run 1: creates the queue, clears the task's inputs, fires, seats.
+	// Run 1: fires the queue and seats the run.
 	r := s.exec("bash", "", "-c", step0)
 	if r.code != 0 {
 		t.Fatalf("step 0: exit %d\n%s%s", r.code, r.out, r.err)
@@ -164,24 +203,19 @@ to = "retired"
 		t.Fatalf("inputs after the seated line %v, want %v\n%s", got, want, r.out)
 	}
 	before := strings.Join(lines[:seatAt], "\n")
-	if !strings.Contains(before, exe+": backlog -> in_progress") || !strings.Contains(before, task.ID+" updated") {
+	if !strings.Contains(before, exe+": backlog -> in_progress") {
 		t.Fatalf("step 0 output before the seat:\n%s", before)
 	}
 
 	var queues []item.Item
 	s.mustJSON(&queues, "queue", "list")
-	if len(queues) != 1 {
+	if len(queues) != 1 || queues[0].ID != q.ID {
 		t.Fatalf("queues %+v", queues)
 	}
-	q := queues[0]
+	q = queues[0]
 	if q.Inputs == nil || q.Inputs.Kind != "story" || q.Inputs.Status != "approved" || q.Trigger == nil ||
 		q.Trigger.Task != task.ID || q.Trigger.Base != "origin/main" || q.Trigger.MinSize != 0 {
 		t.Fatalf("release queue %+v", q)
-	}
-	var tk item.Item
-	s.mustJSON(&tk, "task", "get", task.ID)
-	if tk.Inputs != nil {
-		t.Fatalf("task inputs not cleared: %+v", tk.Inputs)
 	}
 	var runs []item.Item
 	s.mustJSON(&runs, "execution", "list", "--parent", task.ID)
@@ -254,4 +288,27 @@ to = "retired"
 	if len(queues) != 1 || len(runs) != 1 {
 		t.Fatalf("after run 2: queues %d runs %d", len(queues), len(runs))
 	}
+}
+
+// repoReleaseQueue is the queue this repo's delivery and chore workflows
+// enqueue approved stories into; both must name the same single queue.
+func repoReleaseQueue(t *testing.T) string {
+	t.Helper()
+	re := regexp.MustCompile(`(?m)^\[states\.approved\]\n(?:#.*\n)*enqueue = \["(que_[0-9a-f]{8})"\]$`)
+	que := ""
+	for _, wf := range []string{"delivery", "chore"} {
+		b, err := os.ReadFile("../.satelle/workflows/" + wf + ".toml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := re.FindSubmatch(b)
+		if m == nil {
+			t.Fatalf("%s.toml: the approved state enqueues no release queue", wf)
+		}
+		if que != "" && que != string(m[1]) {
+			t.Fatalf("%s.toml enqueues %s, another workflow %s", wf, m[1], que)
+		}
+		que = string(m[1])
+	}
+	return que
 }

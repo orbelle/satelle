@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Changed
+- The delivery and chore workflows declare the release queue `que_65bc4edc` on their `approved` state (`enqueue`), so a story reaching approved joins it with the transition as the cause (`satelle workflow show` lists it). The queue fires by hand only (min size 0). Release step 0 now fires `que_65bc4edc` directly, refusing if the queue is missing or doesn't trigger the release task, and no longer creates the queue or clears the task's inputs. (sto_06dfdef0)
+
 ## [1.0.12] - 2026-11-06
 
 ### Added
