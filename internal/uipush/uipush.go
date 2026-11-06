@@ -55,12 +55,19 @@ func Full(src Source) (mirror.Snapshot, error) {
 	if snap.Settings, err = settings(src); err != nil {
 		return snap, err
 	}
-	snap.Identity = mustJSON(mirror.IdentityMeta{ProjectName: src.Slug, RepoRoot: src.RepoRoot, User: src.User})
+	snap.Identity = identity(src)
 	return snap, nil
 }
 
+// identity is the partition's identity blob: project name, repo path and who
+// the CLI is signed in as. Every push carries it, full and delta alike, so a
+// sign-in or sign-out shows on satelled's next change.
+func identity(src Source) json.RawMessage {
+	return mustJSON(mirror.IdentityMeta{ProjectName: src.Slug, RepoRoot: src.RepoRoot, User: src.User})
+}
+
 // Delta is the snapshot that merges the rows of the named items (and their
-// events and attachments) and replaces the seats.
+// events and attachments) and replaces the seats and the identity.
 func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	var items []item.Item
 	for _, id := range ids {
@@ -76,7 +83,8 @@ func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	snap.Kinds = []string{"seat"}
+	snap.Kinds = []string{"seat", "identity"}
+	snap.Identity = identity(src)
 	snap.MergeKinds = []string{"story", "task", "execution", "ledger_event", "story_doc"}
 	return snap, nil
 }

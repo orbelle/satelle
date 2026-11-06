@@ -2,12 +2,14 @@ package uipush_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -259,5 +261,64 @@ func TestPushCarriesTheSignedInUser(t *testing.T) {
 	}
 	if page := get(t, srv.URL+"/"); !strings.Contains(page, `aria-label="Signed in as Ada (ada@example.com)">A</span>`) {
 		t.Errorf("the landing page's top bar does not show Ada")
+	}
+}
+
+// A delta push (an ordinary change) carries who the CLI is signed in as, and
+// replaces it: a sign-in shows on satelled's next change, a sign-out clears it.
+func TestDeltaPushCarriesTheSignedInUser(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	srv, store := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
+	if err := c.Push(ctx, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	if seeded, _ := store.PartitionSeeded(ctx, "rk-test"); !seeded || store.SignedIn(ctx) != nil {
+		t.Fatalf("seeded %v, signed in %+v", seeded, store.SignedIn(ctx))
+	}
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("After sign-in")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.User = &mirror.User{Name: "Ada", Email: "ada@example.com"}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if u := store.SignedIn(ctx); u == nil || *u != *src.User {
+		t.Fatalf("after the delta, signed in = %+v", u)
+	}
+	if page := get(t, srv.URL+"/"); !strings.Contains(page, `aria-label="Signed in as Ada (ada@example.com)">A</span>`) {
+		t.Error("the top bar does not show Ada after a delta push")
+	}
+	if rows := get(t, srv.URL+"/r/proj/fragment/stories"); !strings.Contains(rows, "After sign-in") {
+		t.Error("the delta's change did not merge")
+	}
+	src.User = nil
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if u := store.SignedIn(ctx); u != nil {
+		t.Fatalf("after a signed-out delta, signed in = %+v", u)
+	}
+}
+
+// Delta lists identity among the kinds it replaces and carries the whole blob.
+func TestDeltaListsIdentity(t *testing.T) {
+	_, src := fixture(t)
+	src.User = &mirror.User{Name: "Ada", Email: "ada@example.com"}
+	snap, err := uipush.Delta(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(snap.Kinds, "identity") {
+		t.Fatalf("delta kinds = %v", snap.Kinds)
+	}
+	var meta mirror.IdentityMeta
+	if err := json.Unmarshal(snap.Identity, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.ProjectName != "proj" || meta.RepoRoot != src.RepoRoot || meta.User == nil || *meta.User != *src.User {
+		t.Fatalf("delta identity = %+v", meta)
 	}
 }

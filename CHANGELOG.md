@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- Every push to satelled, not only a full seed, carries who the CLI is signed in as, so the top bar's avatar appears (and clears on sign-out) with the next ordinary change. (sto_93dedb87)
+
 ## [1.0.2] - 2026-11-06
 
 ### Changed
