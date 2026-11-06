@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.0] - 2026-11-06
 
 ### Added
 - An execution is worked like any item in its workflow: `satelle execution set|attach|attachments|attachment|seat|release|route|perform|diff|collect`, so a task run can walk to a terminal state through its gates. Executions are still created only by `satelle task run`. (sto_a7a68d54)
