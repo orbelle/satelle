@@ -62,6 +62,10 @@ itself reviewed (see *Directives are reviewed*).
   satelle-delivery and satelle-server-infra start clean (their old backlog is
   irrelevant to the rewrite; satelle-server-infra is migrated by the
   satelle-server session with a backlog of 0).
+- **satelle-server is satelle's primary tester.** Every satelle release is
+  handed to the satelle-server session to exercise in its real work; what it
+  finds (command, status, message, version) goes to the front of satelle's
+  order.
 - **Dogfood.** satelle is built with satelle: every change is a story driven
   through this repo's workflow on the rebuild branch, released locally, then
   used.
