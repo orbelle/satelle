@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- Every satelled page footer shows the build identity line, `satelled <version> (commit <c>, built <t>)`, like the top bar and `satelle version`, so the serving build is visible at a glance. (sto_f32b4895)
+
 ## [1.0.0] - 2026-11-06
 
 ### Added
