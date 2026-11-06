@@ -238,11 +238,11 @@ func TestMultiStateGates(t *testing.T) {
 func TestSeatsAttachmentsTasks(t *testing.T) {
 	k, _, _ := multiState(t)
 	it, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t")}, "me")
-	s, err := k.Seat(it.ID, "sess1", "local:/w", "me")
+	s, err := k.Seat(it.ID, "sess1", "local:/w", "", "me")
 	if err != nil || s.Base != "abc123" {
 		t.Fatalf("seat %+v %v", s, err)
 	}
-	if _, err := k.Seat(it.ID, "sess1", "mars", "me"); err == nil {
+	if _, err := k.Seat(it.ID, "sess1", "mars", "", "me"); err == nil {
 		t.Fatal("bad location accepted")
 	}
 	if seats, _ := k.Cache.Seats("sess1", ""); len(seats) != 1 {

@@ -230,13 +230,15 @@ type event struct {
 
 // gateRun is a gate.run payload.
 type gateRun struct {
-	Transition string `json:"transition"`
-	Gate       string `json:"gate"`
-	Binding    string `json:"binding"`
-	Result     string `json:"result"`
-	Notes      string `json:"notes"`
-	TokensIn   int    `json:"tokens_in"`
-	TokensOut  int    `json:"tokens_out"`
+	Transition string   `json:"transition"`
+	Gate       string   `json:"gate"`
+	Binding    string   `json:"binding"`
+	Result     string   `json:"result"`
+	Notes      string   `json:"notes"`
+	TokensIn   int      `json:"tokens_in"`
+	TokensOut  int      `json:"tokens_out"`
+	Changed    []string `json:"changed"`
+	Warning    string   `json:"warning"`
 }
 
 // ledger returns the events of id (every item's when id is "") of one kind

@@ -43,6 +43,13 @@ type Result struct {
 	// Attempt names the presentation this result belongs to: every gate of
 	// one Transition call shares it.
 	Attempt string `json:"attempt,omitempty"`
+	// Changed is the diff a judged gate (accept or reject over a coverage)
+	// saw: the reference a later skip compares with.
+	Changed []string `json:"changed,omitempty"`
+	// Warning says a relevance skip happened on an empty diff, or one that has
+	// shrunk since the item's last judged diff: a skip that may mean the base
+	// is wrong, not that nothing relevant changed.
+	Warning string `json:"warning,omitempty"`
 }
 
 // TransitionKey names a move for carry and the ledger.
@@ -79,11 +86,14 @@ type Run struct {
 	// Record is the item's record section (attachments and children) for the
 	// judge prompt; "" adds nothing.
 	Record string
+
+	skipWarning string // diffWarning, computed once per Execute
 }
 
 // Execute runs the groups and returns the results in run order and whether
 // the transition may proceed (no gate rejected).
 func (r Run) Execute(ctx context.Context) ([]Result, bool) {
+	r.skipWarning = r.diffWarning()
 	var all []Result
 	for _, g := range r.Transition.Groups {
 		var res []Result
@@ -126,6 +136,9 @@ func (r Run) one(ctx context.Context, name string) Result {
 	start := time.Now()
 	res := r.decide(ctx, name)
 	res.Transition, res.Gate = r.key(), name
+	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
+		res.Changed = r.Changed
+	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
 }
@@ -136,7 +149,7 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		return Result{Result: Reject, Notes: fmt.Sprintf("gate %q is not defined", name)}
 	}
 	if len(g.Paths) > 0 && !MatchAny(g.Paths, r.Changed) {
-		return Result{Result: Skipped, Notes: fmt.Sprintf("no changed path matches %v", g.Paths)}
+		return Result{Result: Skipped, Notes: fmt.Sprintf("no changed path matches %v", g.Paths), Warning: r.skipWarning}
 	}
 	if g.Trigger != "" {
 		trig, ok := r.Skills[g.Trigger]
@@ -148,7 +161,7 @@ func (r Run) decide(ctx context.Context, name string) Result {
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger %s: %v\n%s", g.Trigger, err, out)}
 		}
 		if !relevant {
-			return Result{Result: Skipped, Notes: fmt.Sprintf("trigger %s found nothing relevant\n%s", g.Trigger, out)}
+			return Result{Result: Skipped, Notes: fmt.Sprintf("trigger %s found nothing relevant\n%s", g.Trigger, out), Warning: r.skipWarning}
 		}
 	}
 	coverage := ""
@@ -180,6 +193,48 @@ func (r Run) decide(ctx context.Context, name string) Result {
 	}
 	res.Coverage = coverage
 	return res
+}
+
+// diffWarning is what a relevance skip on this run reports: the diff is
+// empty, or paths of the item's last judged diff are no longer changed (by set
+// containment, so a diff that swapped its paths for others is caught too).
+// "" when the diff holds everything last judged.
+func (r Run) diffWarning() string {
+	check := fmt.Sprintf("check the item's base (satelle %s diff %s)", r.Item.Kind, r.Item.ID)
+	if len(r.Changed) == 0 {
+		b := r.Base
+		if len(b) > 12 {
+			b = b[:12]
+		}
+		return fmt.Sprintf("the item's diff is empty (base %s): no changed path reached this gate; %s", b, check)
+	}
+	for i := len(r.Prior) - 1; i >= 0; i-- {
+		p := r.Prior[i]
+		if (p.Result != Accept && p.Result != Reject) || p.Coverage == "" || len(p.Changed) == 0 {
+			continue
+		}
+		now := map[string]bool{}
+		for _, c := range r.Changed {
+			now[c] = true
+		}
+		var gone []string
+		for _, c := range p.Changed {
+			if !now[c] {
+				gone = append(gone, c)
+			}
+		}
+		if len(gone) == 0 {
+			return ""
+		}
+		shown := gone
+		more := ""
+		if len(shown) > 5 {
+			shown, more = shown[:5], ", …"
+		}
+		return fmt.Sprintf("the item's diff has shrunk since its last judged diff (%s on %s): %d path(s) no longer changed: %s%s; %s",
+			p.Gate, p.Transition, len(gone), strings.Join(shown, ", "), more, check)
+	}
+	return ""
 }
 
 // carried reports whether the gate's latest result on this transition was an

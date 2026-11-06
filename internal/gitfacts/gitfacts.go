@@ -108,6 +108,23 @@ func (r Repo) Resolve(ref string) (string, error) {
 	return "", fmt.Errorf("resolve %s: %w", ref, last)
 }
 
+// IsAncestor reports whether commit a is in b's history (a commit is its own
+// ancestor). An error when either names no commit here.
+func (r Repo) IsAncestor(a, b string) (bool, error) {
+	cmd := exec.Command("git", "-C", r.Dir, "merge-base", "--is-ancestor", a, b)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", a, b, err, strings.TrimSpace(errb.String()))
+}
+
 // MergeBase returns the best common ancestor of a and b.
 func (r Repo) MergeBase(a, b string) (string, error) {
 	out, err := r.git("merge-base", a, b)

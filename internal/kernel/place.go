@@ -47,12 +47,14 @@ type Collected struct {
 	Base   string `json:"base"`
 }
 
-// BranchGit is what Collect and the gates of a collected branch ask of git, all
-// read-only.
+// BranchGit is what Collect, seat --base, the stale-base check and a collected
+// branch's gates ask of git, all read-only.
 type BranchGit interface {
 	// Resolve returns the commit ref names; an error when there is none.
 	Resolve(ref string) (string, error)
 	MergeBase(a, b string) (string, error)
+	// IsAncestor reports whether a is in b's history.
+	IsAncestor(a, b string) (bool, error)
 	ChangedBetween(base, head string) ([]string, error)
 	DiffBetween(base, head string, paths []string) (string, error)
 }
@@ -72,7 +74,7 @@ func (k *Kernel) performRemote(ctx context.Context, it item.Item, remote string,
 		return agent.Result{}, "", fmt.Errorf("start a node of remote %s: %w", remote, err)
 	}
 	loc := LocationRemote + node
-	if _, err := k.Seat(it.ID, node, loc, actor); err != nil {
+	if _, err := k.Seat(it.ID, node, loc, "", actor); err != nil {
 		return agent.Result{}, loc, err
 	}
 	res, runErr := k.Remote.PerformOn(ctx, node, req)
@@ -93,7 +95,7 @@ func (k *Kernel) performCloud(ctx context.Context, it item.Item, req agent.Reque
 		return agent.Result{}, "", err
 	}
 	loc := LocationCloud + url
-	if _, err := k.Seat(it.ID, url, loc, actor); err != nil {
+	if _, err := k.Seat(it.ID, url, loc, "", actor); err != nil {
 		return agent.Result{}, loc, err
 	}
 	return agent.Result{Text: "performing in the cloud at " + url}, loc, nil

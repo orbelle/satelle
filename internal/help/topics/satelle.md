@@ -22,6 +22,7 @@ How you drive it:
     satelle story set <id> --status <s>  # presents a transition; gates judge it
     satelle story route <id>             # where it is, and every gate result
     satelle story seat <id>              # bind this session here, for the edit gate
+    satelle story seat <id> --base <ref> # judge the diff from <ref> (a stacked branch)
 
 `satelle story set --status` exits 0 when the item moved, and 2 when a gate
 rejected the move; it then lists each rejecting gate and its notes. Any other

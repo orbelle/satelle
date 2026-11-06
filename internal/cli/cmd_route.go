@@ -199,17 +199,12 @@ latest seat's base commit, else the commit the item was created at.`,
 			if err != nil {
 				return err
 			}
-			events, err := k.Ledger.Read(it.ID)
+			base, stale, err := k.ItemBase(it.ID)
 			if err != nil {
 				return err
 			}
-			base := it.Base
-			seats := item.FoldSeats(events)
-			for i := len(seats) - 1; i >= 0; i-- {
-				if seats[i].Base != "" {
-					base = seats[i].Base
-					break
-				}
+			if stale != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", stale)
 			}
 			if base == "" {
 				return fmt.Errorf("%s has no base commit (created outside a git work tree)", it.ID)

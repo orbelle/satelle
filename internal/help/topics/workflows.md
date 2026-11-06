@@ -42,6 +42,18 @@ fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and
 `SATELLE_BASE` set; exit 0 accepts, anything else rejects, and its output is the
 notes.
 
+## The base
+
+`SATELLE_BASE` is the item's diff base: the commit its gates judge the change
+from. A seat records it: HEAD when the seat is taken, or the commit
+`satelle story seat <id> --base <ref>` names (a stacked branch is seated on the
+branch it is stacked on). When HEAD's history no longer contains the base (the
+branch was rebased or reset), every transition with gates refuses before any
+gate runs, naming the base, HEAD and the re-seat that fixes it; gateless moves
+still go through. A gate skipped for relevance (its `paths` or trigger matched
+nothing) on an empty diff, or on one missing paths the item's last judged diff
+had, says so in a warning on the output and its `gate.run` record.
+
 ## Performers
 
 A state may carry a performer, an agent plus a skill:

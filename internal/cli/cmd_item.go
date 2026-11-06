@@ -375,6 +375,9 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 	} else {
 		for _, g := range res.Gates {
 			fmt.Fprintf(w, "gate %-24s %-8s %s\n", g.Gate, g.Result, firstLine(g.Notes))
+			if g.Warning != "" {
+				fmt.Fprintf(w, "  warning: %s\n", g.Warning)
+			}
 		}
 		if res.Moved {
 			fmt.Fprintf(w, "%s: %s -> %s\n", res.Item.ID, res.From, res.To)
@@ -517,14 +520,19 @@ sha256 or a unique hex prefix of at least 7 characters).`,
 }
 
 func seatCmd(kind string) *cobra.Command {
-	var session, location string
+	var session, location, base string
 	cmd := &cobra.Command{
 		Use:   "seat <id>",
 		Short: "Bind this session, at this worktree, to an item",
 		Long: `seat binds a session at a location to an item. While the item's current
 state has a performer, the edit gate allows the seated session's edits at that
 location. The session defaults to $SATELLE_SESSION (the context hook prints
-it); the location defaults to local:<this worktree>.`,
+it); the location defaults to local:<this worktree>.
+
+The seat records the item's diff base: the commit its gates judge the change
+from. It is HEAD unless --base names a branch, tag or commit (resolved now, and
+it must be in HEAD's history). Seat a stacked branch with --base <the branch it
+is stacked on> so its gates judge only its own change.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, r, err := openKernel()
@@ -541,16 +549,21 @@ it); the location defaults to local:<this worktree>.`,
 			if location == "" {
 				location = localLocation(r.Tree)
 			}
-			s, err := k.Seat(args[0], session, location, actor())
+			s, err := k.Seat(args[0], session, location, base, actor())
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "seated %s on %s at %s\n", s.Session, s.Item, s.Location)
+			fmt.Fprintf(cmd.OutOrStdout(), "seated %s on %s at %s", s.Session, s.Item, s.Location)
+			if s.Base != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), " (base %s)", short(s.Base))
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&session, "session", sessionFromEnv(), "session (default $SATELLE_SESSION)")
 	cmd.Flags().StringVar(&location, "location", "", "local:<path>, remote:<node> or cloud:<url> (default: this worktree)")
+	cmd.Flags().StringVar(&base, "base", "", "the commit the item's diff is judged from: a branch, tag or SHA, resolved now (default HEAD)")
 	return cmd
 }
 

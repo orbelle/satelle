@@ -214,6 +214,11 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	if k.Git != nil {
 		sp = k.spanOf(it, events)
 	}
+	if len(tr.Groups) > 0 {
+		if stale := k.staleBase(it, sp); stale != nil {
+			return res, stale
+		}
+	}
 	base := sp.base
 	var changed []string
 	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
@@ -267,18 +272,6 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	return res, err
 }
 
-// base is the commit an item's work is judged from: the latest bound seat's
-// base, else the commit at create.
-func (k *Kernel) base(it item.Item, events []ledger.Event) string {
-	seats := item.FoldSeats(events)
-	for i := len(seats) - 1; i >= 0; i-- {
-		if seats[i].Base != "" {
-			return seats[i].Base
-		}
-	}
-	return it.Base
-}
-
 // coverage hashes what a gate judges: the item's body, criteria and
 // attachments, and the diff of the gate's paths over the span judged.
 func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (string, error) {
@@ -316,9 +309,10 @@ func (k *Kernel) Attach(id, name string, data []byte, mediaType, actor string) (
 	return a, err
 }
 
-// Seat binds session at location to the item, with HEAD as its base. A
-// terminal item takes no seat.
-func (k *Kernel) Seat(id, session, location, actor string) (item.Seat, error) {
+// Seat binds session at location to the item. Its base, the commit the item's
+// diff is judged from, is baseRef's commit when given (it must be in HEAD's
+// history), else HEAD. A terminal item takes no seat.
+func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, error) {
 	it, err := k.Get(id)
 	if err != nil {
 		return item.Seat{}, err
@@ -341,7 +335,11 @@ func (k *Kernel) Seat(id, session, location, actor string) (item.Seat, error) {
 		return item.Seat{}, fmt.Errorf("item %s is in terminal state %q", id, it.Status)
 	}
 	s := item.Seat{Session: session, Location: location}
-	if k.Git != nil {
+	if baseRef != "" {
+		if s.Base, err = k.seatBase(baseRef); err != nil {
+			return item.Seat{}, err
+		}
+	} else if k.Git != nil {
 		s.Base, _ = k.Git.Head()
 	}
 	e, err := k.append(id, item.KindSeatBound, actor, s)

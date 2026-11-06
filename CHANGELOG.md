@@ -1,6 +1,11 @@
 ## [Unreleased]
 
+### Added
+- `satelle <kind> seat <id> --base <ref>`: the commit the item's diff is judged from, resolved when seated (it must be in HEAD's history); a stacked branch is seated on the branch it is stacked on. (sto_31081c83)
+
 ### Fixed
+- A gated transition refuses before any gate runs when HEAD's history no longer contains the item's diff base (after a rebase or reset), naming the base, HEAD and the re-seat that fixes it; `satelle story diff` warns the same. Before, a re-seat followed by a rebase made every gate judge the wrong slice and accept it (reported by satelle-server). (sto_31081c83)
+- A gate skipped for relevance on an empty diff, or one that lost paths of the item's last judged diff, reports a warning on the output and its `gate.run` record (which now records the `changed` paths a judged gate saw), instead of a silent skip. (sto_31081c83)
 - The build line names the commit once: a dev build reads `satelled 1.0.2 (commit 7ce02f1069d9, built …)`, not `satelled 1.0.2+7ce02f1069d9 (commit 7ce02f1069d9, …)`; a dirty build's commit reads `<c>-dirty`. The version itself (in /healthz and service status) is unchanged. (sto_698d41a4)
 - A full push to satelled (`satelle workspace add`, the seed) no longer fails when an item has re-attached a name (every re-plan does): the CLI pushes the newest version of each attachment with its version count, and satelled's detail page shows `N versions`. Upgrade the CLI with satelled; an older CLI still sends duplicates. (sto_e2490f1f)
 - Every push to satelled, not only a full seed, carries who the CLI is signed in as, so the top bar's avatar appears (and clears on sign-out) with the next ordinary change. (sto_93dedb87)

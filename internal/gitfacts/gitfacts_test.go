@@ -46,3 +46,43 @@ func TestFacts(t *testing.T) {
 		t.Fatal("dirty tree reported clean")
 	}
 }
+
+// IsAncestor: a parent and the commit itself are in its history; a commit a
+// rebase rewrote is not; an unknown commit is an error.
+func TestIsAncestor(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q", "-b", "main")
+	commit := func(name string) string {
+		os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644)
+		gittest.Git(t, dir, "add", ".")
+		gittest.Git(t, dir, "commit", "-qm", name)
+		h, _ := Repo{Dir: dir}.Head()
+		return h
+	}
+	r := Repo{Dir: dir}
+	root := commit("a")
+	gittest.Git(t, dir, "checkout", "-q", "-b", "side")
+	side := commit("s")
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	gittest.Git(t, dir, "checkout", "-q", "-b", "feat")
+	feat := commit("f")
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{root, feat, true}, {feat, feat, true}, {side, feat, false}} {
+		if got, err := r.IsAncestor(c.a, c.b); err != nil || got != c.want {
+			t.Errorf("IsAncestor(%.7s, %.7s) = %v, %v; want %v", c.a, c.b, got, err, c.want)
+		}
+	}
+	gittest.Git(t, dir, "rebase", "-q", "side")
+	head, _ := r.Head()
+	if in, err := r.IsAncestor(feat, head); err != nil || in {
+		t.Errorf("the pre-rebase commit is in the rebased history: %v %v", in, err)
+	}
+	if _, err := r.IsAncestor(strings.Repeat("0", 40), head); err == nil {
+		t.Error("an unknown commit is not an error")
+	}
+}

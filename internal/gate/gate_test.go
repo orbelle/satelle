@@ -187,3 +187,53 @@ func TestReviewerDiffersFromPerformer(t *testing.T) {
 		t.Fatal("rule off still refused")
 	}
 }
+
+// A relevance skip reports an empty diff, or one that lost paths of the item's
+// last judged diff; a judged result records the diff it saw.
+func TestRelevanceSkipReportsAnEmptyOrShrunkDiff(t *testing.T) {
+	gates := map[string]workflow.Gate{"code": {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}}, "all": {Skill: "judge", Agent: "y1"}}
+	run := func(changed []string, prior ...Result) []Result {
+		r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code", "all"}}}, gates)
+		r.Item.Kind, r.Changed, r.Prior, r.Base = "story", changed, prior, "0123456789abcdef"
+		rs, _ := r.Execute(context.Background())
+		return rs
+	}
+	judged := Result{Transition: "a->b", Gate: "all", Result: Accept, Coverage: "c", Changed: []string{"a.go", "b.md"}}
+
+	// (a) an empty diff
+	if rs := run(nil); rs[0].Result != Skipped || !strings.Contains(rs[0].Warning, "diff is empty") || !strings.Contains(rs[0].Warning, "satelle story diff i1") {
+		t.Errorf("empty diff: %+v", rs[0])
+	}
+	// (b) a diff that lost a.go and b.md
+	if rs := run([]string{"c.md"}, judged); !strings.Contains(rs[0].Warning, "shrunk") || !strings.Contains(rs[0].Warning, "a.go, b.md") || !strings.Contains(rs[0].Warning, "all on a->b") {
+		t.Errorf("shrunk diff: %+v", rs[0])
+	}
+	// (c) a superset of the last judged diff
+	if rs := run([]string{"a.go", "b.md", "c.md"}, judged); rs[0].Result != Accept || rs[0].Warning != "" {
+		t.Errorf("superset: %+v", rs[0])
+	}
+	if rs := run([]string{"b.md", "c.md"}, Result{Transition: "a->b", Gate: "all", Result: Accept, Coverage: "c", Changed: []string{"b.md"}}); rs[0].Result != Skipped || rs[0].Warning != "" {
+		t.Errorf("a skip on a diff holding everything last judged warned: %+v", rs[0])
+	}
+	// (d) skipped and carried results are not a reference
+	newer := []Result{judged, {Gate: "all", Result: Skipped, Changed: []string{"x.md"}}, {Gate: "all", Result: Carried, Coverage: "c", Changed: []string{"y.md"}}}
+	if rs := run([]string{"c.md"}, newer...); !strings.Contains(rs[0].Warning, "a.go, b.md") {
+		t.Errorf("the reference was not the last judged diff: %+v", rs[0])
+	}
+	// (f) a judged accept records the diff it saw; a skip does not
+	rs := run([]string{"c.md"}, judged)
+	if rs[0].Changed != nil || strings.Join(rs[1].Changed, ",") != "c.md" {
+		t.Errorf("recorded diffs: skip %v, accept %v", rs[0].Changed, rs[1].Changed)
+	}
+}
+
+// (e) A trigger skip carries the warning too.
+func TestTriggerSkipReportsAnEmptyDiff(t *testing.T) {
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"t"}}}, map[string]workflow.Gate{"t": {Skill: "judge", Agent: "y1", Trigger: "never"}})
+	r.Skills["never"] = workflow.Skill{Name: "never", Meta: map[string]string{"type": "check"}, Script: "exit 1"}
+	r.Changed, r.Dir = nil, t.TempDir()
+	rs, _ := r.Execute(context.Background())
+	if rs[0].Result != Skipped || !strings.Contains(rs[0].Warning, "diff is empty") {
+		t.Errorf("trigger skip: %+v", rs[0])
+	}
+}

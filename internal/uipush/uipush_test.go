@@ -159,7 +159,7 @@ func TestPushRoundTrip(t *testing.T) {
 	if res, err := k.Transition(ctx, it.ID, "second", "ann"); err != nil || !res.Moved {
 		t.Fatalf("second presentation: moved=%v err=%v", res.Moved, err)
 	}
-	if _, err := k.Seat(it.ID, "sess", "local:/x", "ann"); err != nil {
+	if _, err := k.Seat(it.ID, "sess", "local:/x", "", "ann"); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
