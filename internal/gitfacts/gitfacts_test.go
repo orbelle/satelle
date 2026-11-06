@@ -86,3 +86,22 @@ func TestIsAncestor(t *testing.T) {
 		t.Error("an unknown commit is not an error")
 	}
 }
+
+// Branch is the checkout's current branch, "" on a detached HEAD.
+func TestBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q", "-b", "trunk")
+	gittest.Git(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	r := Repo{Dir: dir}
+	if b, err := r.Branch(); err != nil || b != "trunk" {
+		t.Fatalf("on a branch: %q %v", b, err)
+	}
+	head, _ := r.Head()
+	gittest.Git(t, dir, "checkout", "-q", "--detach", head)
+	if b, err := r.Branch(); err != nil || b != "" {
+		t.Fatalf("detached: %q %v", b, err)
+	}
+}

@@ -462,26 +462,42 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	return res, runErr
 }
 
-// TaskRunRecord is the task.run payload: the task and the items it took.
+// TaskRunRecord is the task.run payload: the task, the items it took and the
+// ref the execution's base came from ("" when HEAD was detached or unknown).
 type TaskRunRecord struct {
-	Task   string   `json:"task"`
-	Inputs []string `json:"inputs"`
+	Task    string   `json:"task"`
+	Inputs  []string `json:"inputs"`
+	BaseRef string   `json:"base_ref,omitempty"`
 }
 
 // TaskRun runs a task once: it selects the task's inputs and creates an
-// execution item (parent = the task) recording which items it took.
-func (k *Kernel) TaskRun(taskID, actor string) (item.Item, []string, error) {
+// execution item (parent = the task) recording which items it took. Its base is
+// baseRef's commit, resolved now, else HEAD. baseRef need not be in HEAD's
+// history: a run is often cut in one checkout and worked in another, whose
+// first gated move checks the base.
+func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecord, error) {
+	rec := TaskRunRecord{Task: taskID}
 	task, err := k.Get(taskID)
 	if err != nil {
-		return item.Item{}, nil, err
+		return item.Item{}, rec, err
 	}
 	if task.Inputs == nil {
-		return item.Item{}, nil, fmt.Errorf("item %s names no input selection", taskID)
+		return item.Item{}, rec, fmt.Errorf("item %s names no input selection", taskID)
+	}
+	var base *string
+	if baseRef != "" {
+		commit, err := k.resolveBase(baseRef)
+		if err != nil {
+			return item.Item{}, rec, err
+		}
+		base, rec.BaseRef = &commit, baseRef
+	} else if g, ok := k.Git.(BranchGit); ok {
+		rec.BaseRef, _ = g.Branch()
 	}
 	sel := *task.Inputs
 	matches, err := k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
 	if err != nil {
-		return item.Item{}, nil, err
+		return item.Item{}, rec, err
 	}
 	ids := []string{}
 	for _, m := range matches {
@@ -489,15 +505,16 @@ func (k *Kernel) TaskRun(taskID, actor string) (item.Item, []string, error) {
 			ids = append(ids, m.ID)
 		}
 	}
+	rec.Inputs = ids
 	kind, title := ExecutionKind, task.Title
-	exec, err := k.Create(item.Fields{Kind: &kind, Title: &title, Parent: &taskID}, actor)
+	exec, err := k.Create(item.Fields{Kind: &kind, Title: &title, Parent: &taskID, Base: base}, actor)
 	if err != nil {
-		return exec, nil, err
+		return exec, rec, err
 	}
-	if _, err := k.append(exec.ID, KindTaskRun, actor, TaskRunRecord{Task: taskID, Inputs: ids}); err != nil {
-		return exec, nil, err
+	if _, err := k.append(exec.ID, KindTaskRun, actor, rec); err != nil {
+		return exec, rec, err
 	}
-	return exec, ids, nil
+	return exec, rec, nil
 }
 
 // renderItem is the prompt a performer receives.

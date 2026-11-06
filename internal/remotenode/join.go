@@ -363,11 +363,11 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	}
 	target := j.run.ItemID
 	if j.run.Mode == ModeTask {
-		exec, inputs, err := k.TaskRun(j.run.ItemID, actor)
+		exec, rec, err := k.TaskRun(j.run.ItemID, "", actor)
 		if err != nil {
 			return Outcome{}, err
 		}
-		j.say("task %s: execution %s over %d items", j.run.ItemID, exec.ID, len(inputs))
+		j.say("task %s: execution %s over %d items", j.run.ItemID, exec.ID, len(rec.Inputs))
 		target = exec.ID
 	}
 	j.say("driving %s", target)

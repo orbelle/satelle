@@ -6,7 +6,9 @@ description: The release procedure a release task's run follows: fast-forward ma
 
 # Release
 
-A release is a run of the release task (`satelle task run <release task>`). The
+A release is a run of the release task, cut with its base on main
+(`satelle task run <release task> --base main`; check the printed base names
+main). The
 executor seated on the run does the steps below and attaches the evidence; the
 run's close gate judges it. Landing is local, GitHub holds the code and runs no
 tests, and there is no staging: local testing is the staging.

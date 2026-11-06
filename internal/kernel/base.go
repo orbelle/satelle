@@ -71,8 +71,8 @@ func (k *Kernel) ItemBase(id string) (string, *StaleBaseError, error) {
 	return sp.base, k.staleBase(it, sp), nil
 }
 
-// seatBase resolves a seat's --base to a commit in HEAD's history.
-func (k *Kernel) seatBase(ref string) (string, error) {
+// resolveBase resolves a --base ref to its commit, now.
+func (k *Kernel) resolveBase(ref string) (string, error) {
 	g, ok := k.Git.(BranchGit)
 	if !ok {
 		return "", errors.New("--base needs a git work tree")
@@ -81,6 +81,16 @@ func (k *Kernel) seatBase(ref string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("--base %s names no commit here (fetch it first)", ref)
 	}
+	return commit, nil
+}
+
+// seatBase resolves a seat's --base to a commit in HEAD's history.
+func (k *Kernel) seatBase(ref string) (string, error) {
+	commit, err := k.resolveBase(ref)
+	if err != nil {
+		return "", err
+	}
+	g := k.Git.(BranchGit)
 	head, err := k.Git.Head()
 	if err != nil {
 		return "", err

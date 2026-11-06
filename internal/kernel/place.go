@@ -47,14 +47,16 @@ type Collected struct {
 	Base   string `json:"base"`
 }
 
-// BranchGit is what Collect, seat --base, the stale-base check and a collected
-// branch's gates ask of git, all read-only.
+// BranchGit is what Collect, seat --base, task run, the stale-base check and a
+// collected branch's gates ask of git, all read-only.
 type BranchGit interface {
 	// Resolve returns the commit ref names; an error when there is none.
 	Resolve(ref string) (string, error)
 	MergeBase(a, b string) (string, error)
 	// IsAncestor reports whether a is in b's history.
 	IsAncestor(a, b string) (bool, error)
+	// Branch is the checkout's current branch, "" when HEAD is detached.
+	Branch() (string, error)
 	ChangedBetween(base, head string) ([]string, error)
 	DiffBetween(base, head string, paths []string) (string, error)
 }

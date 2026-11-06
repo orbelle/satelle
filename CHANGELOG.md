@@ -7,6 +7,7 @@
 - satelle v0 leftovers in this repo: the `.satelle/hooks` wrapper script and every `.gitignore` entry for a path v1 never creates (`.satelle/logs`, `hooks`, `deployed.version`, `*.local.toml`, `**/.env`, task run files, the v0 managed block). v1's harness hooks call `satelle hook <verb>` directly; its only run-time path under `.satelle/` is `runs/`, ignored by `.satelle/.gitignore`. Untracked v0 files were moved to the v0 backup, not deleted. (sto_d6ed135f)
 
 ### Changed
+- `satelle task run` prints the base it recorded for the execution (short sha and the branch it came from, `task_run.base_ref` in `--json`) and takes `--base <ref>`, resolved at run time and not required to be in HEAD's history, so a release run cut on a story branch is not refused on main. (sto_1496cf90, reported by satelle-server)
 - satelled's layout matches satelle.dev's: pages and the header's inner row span the full width up to 1600px (no 80% width), use a 1rem side gutter at 640px and below, and cap document prose at 75ch. (sto_99aa0122, with satelle-server sto_1006a260)
 - satelled's Activity tab is the agent activity going on now: the stories and task runs being worked (not finished runs), one condensed row each with its kind, state, who or what works it (seats, else the state's performer) and its latest step and time. The tab counts only these. (sto_f85ca73c)
 

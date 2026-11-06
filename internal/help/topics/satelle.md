@@ -29,7 +29,9 @@ rejected the move; it then lists each rejecting gate and its notes. Any other
 failure exits 1.
 
 A task is a repeating workflow over a selection of items: `satelle task run <id>`
-creates an execution recording which items it took. satelle runs a task when
+creates an execution recording which items it took, and prints the base its
+diff is judged from (HEAD, or `satelle task run <id> --base <ref>` for a run
+worked on another branch, such as a release on main). satelle runs a task when
 asked; repeating it is up to cron, a remote or a routine. An execution is
 worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id>`.
 

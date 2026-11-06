@@ -629,10 +629,16 @@ project), or in a cloud session (cloud), whose branch 'collect' records.`,
 
 func taskRunCmd() *cobra.Command {
 	var asJSON *bool
+	var base string
 	cmd := &cobra.Command{
 		Use:   "run <id>",
 		Short: "Run a task once: create an execution over its input selection",
-		Args:  cobra.ExactArgs(1),
+		Long: `run creates an execution over the task's input selection and records its
+base: the commit the execution's diff is judged from, printed with the branch it
+came from. It is HEAD unless --base names a branch, tag or SHA (resolved now). A
+run worked on another branch than the one it is cut on, such as a release worked
+on main, passes --base <that branch>.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
 			if err != nil {
@@ -642,7 +648,7 @@ func taskRunCmd() *cobra.Command {
 			if _, err := getItem(k, "task", args[0]); err != nil {
 				return err
 			}
-			exec, inputs, err := k.TaskRun(args[0], actor())
+			exec, rec, err := k.TaskRun(args[0], base, actor())
 			if err != nil {
 				return err
 			}
@@ -650,15 +656,24 @@ func taskRunCmd() *cobra.Command {
 				return writeJSON(cmd.OutOrStdout(), struct {
 					item.Item
 					TaskRun kernel.TaskRunRecord `json:"task_run"`
-				}{exec, kernel.TaskRunRecord{Task: args[0], Inputs: inputs}})
+				}{exec, rec})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s created (%s) over %d items\n", exec.ID, exec.Status, len(inputs))
-			for _, id := range inputs {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s created (%s) over %d items", exec.ID, exec.Status, len(rec.Inputs))
+			if exec.Base != "" {
+				from := rec.BaseRef
+				if from == "" {
+					from = "detached HEAD"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), ", base %s (%s)", short(exec.Base), from)
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+			for _, id := range rec.Inputs {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", id)
 			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&base, "base", "", "the commit the execution's diff is judged from: a branch, tag or SHA, resolved now (default HEAD)")
 	asJSON = jsonFlag(cmd)
 	return cmd
 }

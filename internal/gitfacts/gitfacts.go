@@ -125,6 +125,22 @@ func (r Repo) IsAncestor(a, b string) (bool, error) {
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", a, b, err, strings.TrimSpace(errb.String()))
 }
 
+// Branch returns the checkout's current branch, "" on a detached HEAD.
+func (r Repo) Branch() (string, error) {
+	cmd := exec.Command("git", "-C", r.Dir, "symbolic-ref", "--short", "-q", "HEAD")
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(out.String()), nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+		return "", nil
+	}
+	return "", fmt.Errorf("git symbolic-ref HEAD: %w: %s", err, strings.TrimSpace(errb.String()))
+}
+
 // MergeBase returns the best common ancestor of a and b.
 func (r Repo) MergeBase(a, b string) (string, error) {
 	out, err := r.git("merge-base", a, b)

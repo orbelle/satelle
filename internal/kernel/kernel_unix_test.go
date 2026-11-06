@@ -267,19 +267,22 @@ func TestSeatsAttachmentsTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	other, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("u")}, "me")
-	exec, ids, err := k.TaskRun(task.ID, "me")
+	exec, run, err := k.TaskRun(task.ID, "", "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exec.Kind != ExecutionKind || exec.Parent != task.ID || strings.Join(ids, ",") != it.ID+","+other.ID {
-		t.Fatalf("task run %+v %v", exec, ids)
+	if exec.Kind != ExecutionKind || exec.Parent != task.ID || strings.Join(run.Inputs, ",") != it.ID+","+other.ID {
+		t.Fatalf("task run %+v %v", exec, run.Inputs)
+	}
+	if run.BaseRef != "" || exec.Base != "abc123" {
+		t.Fatalf("with a git that knows no branch: base %q, base_ref %q", exec.Base, run.BaseRef)
 	}
 	ev, _ := k.Cache.Events(exec.ID, KindTaskRun)
 	var rec TaskRunRecord
 	if len(ev) != 1 || ev[0].Decode(&rec) != nil || len(rec.Inputs) != 2 {
 		t.Fatalf("task.run %+v", rec)
 	}
-	if _, _, err := k.TaskRun(it.ID, "me"); err == nil {
+	if _, _, err := k.TaskRun(it.ID, "", "me"); err == nil {
 		t.Fatal("item without inputs ran as a task")
 	}
 }
