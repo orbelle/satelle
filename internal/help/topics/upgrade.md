@@ -17,14 +17,16 @@ fresh v1 `.satelle` (as `satelle init` does), which validates, so the edit gate
 works again. Reinstall the harness hooks with `satelle agents install
 <harness>`: pre-1.0 hooks call commands v1 does not have.
 
-The fresh `.satelle` holds one starter workflow. Your agent's upgrade step
-ports the archived workflows, agent bindings and skills into it, matched to
-what the old ones did and confirmed with you, and writes the status map.
+The fresh `.satelle` holds one starter workflow and the upgrade skill. The
+archive step writes `.satelle/skills/satelle-upgrade.md`: have your session
+agent follow it. It ports the archived workflows, agent bindings and skills,
+optimised and confirmed with you, and writes the status map.
 
 ## 2. Import the old items
 
 The old store is the runtime directory that holds `satelle.db` (the archive
-step prints it). Write a status map: every old status an item has, mapped to a
+step prints it when it finds `satelle.db` in the runtime directory or in the
+archived `.satelle`; otherwise name the directory the pre-1.0 binary used). Write a status map: every old status an item has, mapped to a
 workflow and state of the new `.satelle`:
 
     [status]

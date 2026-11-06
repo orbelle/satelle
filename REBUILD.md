@@ -83,7 +83,8 @@ satelled and remotes is mechanism worth keeping.
   go through one small adapter.
 - **Embedded default process.** `internal/config/substrate` (≈90 markdown files:
   skills, principles, workflows, tasks, remotes) leaves the binary. The binary
-  ships only its help text and the two-state init file. BDD, story shape, plan
+  ships only its help text and the init template: the two-state workflow and
+  the upgrade skill (operator, 2026-11-06). BDD, story shape, plan
   review and similar practice are this repo's process, kept in this repo's
   `.satelle/` (a future marketplace package, not built now).
 - **Documents.** The documents kind leaves satelle; it becomes a separate

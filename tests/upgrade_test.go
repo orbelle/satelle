@@ -108,6 +108,13 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	if !strings.Contains(out, dest) || !strings.Contains(out, "satelle help upgrade") {
 		t.Errorf("archive printed:\n%s", out)
 	}
+	// The fresh .satelle carries the upgrade skill, and help upgrade names it.
+	if _, err := os.Stat(filepath.Join(s.dir, ".satelle", "skills", "satelle-upgrade.md")); err != nil {
+		t.Errorf("the fresh .satelle has no upgrade skill: %v", err)
+	}
+	if h := s.must("help", "upgrade"); !strings.Contains(h, "skills/satelle-upgrade.md") {
+		t.Errorf("help upgrade does not name the skill:\n%s", h)
+	}
 	s.must("validate")
 
 	// A workflow the map targets beyond init's default.

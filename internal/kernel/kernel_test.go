@@ -148,6 +148,49 @@ func TestInitWritesTheRunsIgnore(t *testing.T) {
 	}
 }
 
+// TestInitShipsTheUpgradeSkill: init writes the upgrade skill, it loads as a
+// plain (judged, not check) skill, the configuration still validates, and its
+// body names every old key its Map covers and the rules that keep the port
+// valid (sto_5725d112).
+func TestInitShipsTheUpgradeSkill(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "satelle-upgrade.md")); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok := c.Skills["satelle-upgrade"]
+	if !ok || sk.Meta["name"] != "satelle-upgrade" || sk.IsCheck() {
+		t.Fatalf("skill = %+v, %v", sk.Meta, ok)
+	}
+	if probs := Validate(root); len(probs) != 0 {
+		t.Fatalf("validate: %v", probs)
+	}
+	for _, tok := range []string{
+		// AC2: every old key the Map covers.
+		"[[gate]]", "on", "for", "when", "applies_to", "mandatory", "parallel",
+		"reviewer_agent", "after_children", "waits_on_children", "advise",
+		"interface", "park", "cancel", "recover",
+		// AC2: the judge rule and the resume rule.
+		"session", "claude", "pi", "grok", "read-only",
+		"@prior", "resumes = true", "satelle workflow show",
+		// AC6: retype and command renames.
+		"type: check", "story attachment <id> <name>", "story attachments <id>",
+		"ledger list <id>", "--file -",
+		// AC8: the category check.
+		"SATELLE_HOME", "--json", "<kind>/<status>",
+	} {
+		if !strings.Contains(sk.Body, "`"+tok+"`") {
+			t.Errorf("the upgrade skill does not name `%s`", tok)
+		}
+	}
+}
+
 // WorkflowFor is the one selection rule: the item's own workflow, else the
 // first matching rule, else the default, with that workflow's start state.
 func TestWorkflowFor(t *testing.T) {

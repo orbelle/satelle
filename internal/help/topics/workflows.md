@@ -71,6 +71,9 @@ Each dispatched performer gets its skill and the item (title, body, criteria).
 When the latest attempt to leave the item's state was rejected, the prompt also
 lists each rejecting gate with its notes (8 KiB each), so a re-run can address
 them. Each judge gets the item, the change it judges, and the same record.
+A judge answers with a JSON object `{"verdict": "accept"|"reject", "notes":
+"..."}`; the last such object in its answer counts, and an answer without one
+is a reject.
 
 The record is the newest version of each attachment and the item's children.
 Before a run on this machine (and on a remote node, from its own ledger)
