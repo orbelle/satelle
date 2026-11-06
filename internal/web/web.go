@@ -73,7 +73,7 @@ type pageData struct {
 	Uptime          string
 	Theme           string
 	TopBar          topBar
-	Projects        []crumbProject // workspace project switcher for the breadcrumb
+	Projects        []crumbProject // this machine's projects, for the breadcrumb switcher
 	// LastIngest is when this partition's state was last confirmed against the
 	// repo, rendered as elapsed time so the page never presents an unrepaired
 	// frame as current (sty_e6e467fe, presented per sty_226a661e).

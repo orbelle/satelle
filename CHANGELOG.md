@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Breaking
+- One vocabulary: a **project** is a repo or directory; a **workspace** is a collection of projects on satelle.dev (`satelle help projects`). This machine's projects moved from `satelle workspace add|remove|list|partitions|prune` to `satelle project add|remove|list|partitions|prune`; `satelle project list` now lists this machine's projects (with the satelle.dev project each is bound to), and `satelle project list --hosted` lists the satelle.dev projects you belong to. `satelle workspace` is satelle.dev's only: `satelle workspace list`. `~/.satelle/config.toml` `[workspace] repos` becomes `[projects] paths`; an existing file is carried over on its next save. satelled's breadcrumb root and landing say projects, and `GET /workspace` is gone. (sto_b4fa76fe)
+
 ### Changed
 - satelled's Activity tab is the agent activity going on now: the stories and task runs being worked (not finished runs), one condensed row each with its kind, state, who or what works it (seats, else the state's performer) and its latest step and time. The tab counts only these. (sto_f85ca73c)
 

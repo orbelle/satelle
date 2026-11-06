@@ -196,7 +196,7 @@ const templatesSrc = `
      above every page's .wrap. Matches the LIVE satelle.dev header (sty_2faa7dd4):
      the ◐ satelle mark LEADS at the left (the ◐ is accent, the wordmark is ink); a
      right-aligned nav row of TEXT links (Install · Docs · Projects · Logs) —
-     Install/Docs open satelle.dev in a new tab, Projects is the local workspace
+     Install/Docs open satelle.dev in a new tab, Projects is this machine's projects
      landing, Logs is the machine-wide server.log (sty_df4a0785); active via
      .Active — then a GitHub OUTLINED ICON button (new tab, not a text link);
      the account control; and the theme toggle LAST. There are no Home/Help top-nav
@@ -294,7 +294,7 @@ const templatesSrc = `
 <body>
 {{template "topbar" .TopBar}}
 <div class="wrap">
-  <nav class="crumbs"><a href="/">workspace</a> <span class="sep">/</span> {{if gt (len .Projects) 1}}<details class="proj-switch"><summary class="cur">{{.ProjectName}} <span class="chev" aria-hidden="true">▾</span></summary><ul class="proj-menu">{{range .Projects}}<li><a href="/{{.Slug}}/" title="{{.Path}}"{{if .Current}} class="current" aria-current="page"{{end}}>{{.Name}}{{if .Ambiguous}} <span class="proj-slug">{{.Path}}</span>{{end}}</a></li>{{end}}</ul></details>{{else}}<span class="cur">{{.ProjectName}}</span>{{end}}</nav>
+  <nav class="crumbs">{{template "rootcrumb"}} <span class="sep">/</span> {{if gt (len .Projects) 1}}<details class="proj-switch"><summary class="cur">{{.ProjectName}} <span class="chev" aria-hidden="true">▾</span></summary><ul class="proj-menu">{{range .Projects}}<li><a href="/{{.Slug}}/" title="{{.Path}}"{{if .Current}} class="current" aria-current="page"{{end}}>{{.Name}}{{if .Ambiguous}} <span class="proj-slug">{{.Path}}</span>{{end}}</a></li>{{end}}</ul></details>{{else}}<span class="cur">{{.ProjectName}}</span>{{end}}</nav>
   <header class="app">
     <h1>{{.ProjectName}}</h1>
     <div class="meta">{{.RepoRoot}} · <a href="help">help →</a> · <a href="settings">settings →</a> · {{template "freshness" .}} · {{template "syncstate" .}}</div>
@@ -399,6 +399,10 @@ const templatesSrc = `
   <td class="updated">{{ftime .StepAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">no agent activity</td></tr>{{end}}{{end}}
 
+{{/* rootcrumb: the breadcrumb root, this machine's projects (the Projects
+     page). One owner for its label. */}}
+{{define "rootcrumb"}}<a href="/">projects</a>{{end}}
+
 {{/* statebadge: an item's status, classed by its workflow (start, terminal,
      park or active), never by the state's name. */}}
 {{define "statebadge"}}<span class="badge{{with .StateClass}} st-{{.}}{{end}}">{{.Status}}</span>{{end}}
@@ -413,7 +417,7 @@ const templatesSrc = `
   <td><div class="wi-title">{{.Name}}</div></td>
   <td>{{.States}}</td>
   <td class="meta mono">{{.Source}}</td>
-</tr>{{else}}<tr><td colspan="3" class="empty">none pushed — run <code>satelle workspace add</code></td></tr>{{end}}{{end}}
+</tr>{{else}}<tr><td colspan="3" class="empty">none pushed — run <code>satelle project add</code></td></tr>{{end}}{{end}}
 
 {{define "workflowDetail"}}<div class="expbody">
   <a class="detail-link" href="doc/{{.Kind}}/{{.Name}}">Open workflow →</a>
@@ -423,7 +427,7 @@ const templatesSrc = `
 {{/* route: a workflow drawn as pushed — its states in route order (current
      highlighted, start, park and terminal marked, visited filled) and its
      explicit transitions with their gate groups. */}}
-{{define "route"}}{{if .Missing}}<div class="empty">{{if .Workflow}}Workflow <code>{{.Workflow}}</code> was not pushed; run <code>satelle workspace add</code> to push it.{{else}}This item names no workflow.{{end}}</div>{{else}}
+{{define "route"}}{{if .Missing}}<div class="empty">{{if .Workflow}}Workflow <code>{{.Workflow}}</code> was not pushed; run <code>satelle project add</code> to push it.{{else}}This item names no workflow.{{end}}</div>{{else}}
   <ol class="route-line" aria-label="route of workflow {{.Workflow}}">{{range .States}}<li class="route-state{{if .Current}} current{{end}}{{if .Visited}} visited{{end}}{{if .Terminal}} terminal{{end}}{{if .Park}} park{{end}}{{if .Start}} start{{end}}"{{if .Current}} aria-current="step"{{end}}>
     <span class="wf-node">{{.Name}}</span>{{if .Start}}<span class="route-flag">start</span>{{end}}{{if .Park}}<span class="route-flag">park{{if .Resumes}} · resumes{{end}}</span>{{end}}{{if .Terminal}}<span class="route-flag">terminal</span>{{end}}{{if .PerformerAgent}}<span class="route-perf" title="performer{{if .PerformerSkill}} under skill {{.PerformerSkill}}{{end}}">{{.PerformerAgent}}{{if .PerformerSkill}} · {{.PerformerSkill}}{{end}}</span>{{end}}
   </li>{{end}}</ol>
@@ -565,7 +569,7 @@ const templatesSrc = `
 <body>
 {{template "topbar" .TopBar}}
 <div class="wrap">
-  <nav class="crumbs"><a href="/">workspace</a> <span class="sep">/</span> <span class="cur">global settings</span></nav>
+  <nav class="crumbs">{{template "rootcrumb"}} <span class="sep">/</span> <span class="cur">global settings</span></nav>
   <header class="app">
     <h1>global settings</h1>
     <div class="meta">machine-wide · <code>~/.satelle/config.toml</code> · follows you across every project</div>
@@ -672,7 +676,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
 <body data-page="logs">
 {{template "topbar" .TopBar}}
 <div class="wrap">
-  <nav class="crumbs"><a href="/">workspace</a> <span class="sep">/</span> <span class="cur">logs</span></nav>
+  <nav class="crumbs">{{template "rootcrumb"}} <span class="sep">/</span> <span class="cur">logs</span></nav>
   <header class="app">
     <h1>logs</h1>
     <div class="meta">satelled · <code class="logs-path">{{.Path}}</code></div>

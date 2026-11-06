@@ -61,8 +61,8 @@ func TestRequestLogSlowWarn(t *testing.T) {
 	dir := t.TempDir()
 	// A handler slower than the threshold → WARN.
 	_, log := serve(t, filepath.Join(dir, "slow.log"), logfile.DefaultConfig,
-		func(w http.ResponseWriter, r *http.Request) { time.Sleep(5 * time.Millisecond) }, "/workspace") // time-subject: the handler must outlast the 1ms slow threshold
-	if !strings.Contains(log, "\tWARN\tGET\t/workspace\t") {
+		func(w http.ResponseWriter, r *http.Request) { time.Sleep(5 * time.Millisecond) }, "/fragment/projects") // time-subject: the handler must outlast the 1ms slow threshold
+	if !strings.Contains(log, "\tWARN\tGET\t/fragment/projects\t") {
 		t.Errorf("slow request did not log a WARN line: %q", log)
 	}
 	// /events (SSE) is exempt from the slow WARN even when long-lived.

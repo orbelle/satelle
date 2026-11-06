@@ -61,7 +61,7 @@ func TestWhoamiAndProjects(t *testing.T) {
 	}
 	must(t, "project", "create", "alpha", "--name", "Alpha", "--server", srv.URL)
 	must(t, "project", "create", "beta", "--bind", "--server", srv.URL)
-	out = must(t, "project", "list", "--server", srv.URL)
+	out = must(t, "project", "list", "--hosted", "--server", srv.URL)
 	if !strings.Contains(out, "alpha") || !strings.Contains(out, "*  beta") {
 		t.Errorf("project list = %q, want both projects with beta bound", out)
 	}

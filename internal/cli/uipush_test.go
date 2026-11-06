@@ -14,8 +14,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/web"
 )
 
-// Each command's ledger writes reach this home's satelled; workspace add
-// seeds it and workspace remove drops the partition through its ingest.
+// Each command's ledger writes reach this home's satelled; project add
+// seeds it and project remove drops the partition through its ingest.
 func TestCommandsPushToSatelled(t *testing.T) {
 	isolate(t)
 	ms, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
@@ -51,8 +51,8 @@ func TestCommandsPushToSatelled(t *testing.T) {
 		t.Fatalf("the create did not reach satelled:\n%s", list)
 	}
 
-	if out := must(t, "workspace", "add"); !strings.Contains(out, "seeded satelled at "+srv.URL) {
-		t.Fatalf("workspace add: %s", out)
+	if out := must(t, "project", "add"); !strings.Contains(out, "seeded satelled at "+srv.URL) {
+		t.Fatalf("project add: %s", out)
 	}
 	if wf := get("/r/" + slug() + "/fragment/workflow/default"); !strings.Contains(wf, `class="route-line"`) {
 		t.Errorf("the seed did not push the workflow:\n%s", wf)
@@ -64,8 +64,8 @@ func TestCommandsPushToSatelled(t *testing.T) {
 		t.Errorf("the transition did not reach satelled:\n%s", page)
 	}
 
-	must(t, "workspace", "remove")
+	must(t, "project", "remove")
 	if parts, _ := ms.ListPartitions(context.Background()); len(parts) != 0 {
-		t.Errorf("workspace remove left %d partition(s)", len(parts))
+		t.Errorf("project remove left %d partition(s)", len(parts))
 	}
 }

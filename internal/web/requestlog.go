@@ -10,7 +10,7 @@ import (
 )
 
 // slowThreshold is the request duration above which a completed request logs at
-// WARN instead of INFO — the signal for the heavy paths (e.g. /workspace) when they
+// WARN instead of INFO — the signal for the heavy paths (e.g. the Projects landing) when they
 // degrade. A var, not a const, so tests can lower it; a mechanism, not a process
 // opinion, so it stays in code rather than a config knob (a follow-up can add one).
 var slowThreshold = 1 * time.Second

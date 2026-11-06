@@ -69,10 +69,13 @@ func projectServer(flag string) (string, error) {
 func projectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
-		Short: "Bind this repo to a satelle-server project; create, list and show projects",
+		Short: "This machine's projects (repos or directories) and the satelle.dev project each is bound to",
+		Long: `A project is a repo or directory: add, remove and list this machine's projects
+(satelled shows them). Each is bound to at most one satelle.dev project: bind,
+create and show work with satelle.dev. A workspace is a collection of projects
+on satelle.dev (satelle workspace list). See satelle help projects.`,
 	}
 	var server string
-	cmd.PersistentFlags().StringVar(&server, "server", "", "server URL")
 	withClient := func(fn func(cmd *cobra.Command, args []string, srv string, c *hosted.Client) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, args []string) error {
 			srv, err := projectServer(server)
@@ -132,40 +135,63 @@ func projectCmd() *cobra.Command {
 		}),
 	}
 	createCmd.Flags().StringVar(&name, "name", "", "display name (default the slug)")
-	createCmd.Flags().StringVar(&workspace, "workspace", "", "workspace id (default the server's choice)")
+	createCmd.Flags().StringVar(&workspace, "workspace", "", "satelle.dev workspace id (see 'satelle workspace list'; default the server's choice)")
 	createCmd.Flags().BoolVar(&doBind, "bind", false, "bind this repo to the new project")
 
 	var listJSON *bool
+	var hostedList bool
+	listHosted := withClient(func(cmd *cobra.Command, _ []string, _ string, c *hosted.Client) error {
+		resp, err := c.Projects.ListProjects(cmd.Context(), &satellepb.ListProjectsRequest{})
+		if err != nil {
+			return hosted.Describe("project list", err)
+		}
+		if *listJSON {
+			return writeJSON(cmd.OutOrStdout(), resp.GetProjects())
+		}
+		bound := ""
+		if r, err := findRepo(""); err == nil {
+			if b, ok, _ := loadBinding(r); ok {
+				bound = b.Project
+			}
+		}
+		tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "\tSLUG\tID\tNAME\tROLE")
+		for _, p := range resp.GetProjects() {
+			mark := ""
+			if p.GetId() == bound {
+				mark = "*"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", mark, p.GetSlug(), p.GetId(), p.GetName(), p.GetRole())
+		}
+		return tw.Flush()
+	})
 	listCmd := &cobra.Command{
 		Use:   "list",
-		Short: "List the projects you belong to",
+		Short: "List this machine's projects (--hosted: the satelle.dev projects you belong to)",
 		Args:  cobra.NoArgs,
-		RunE: withClient(func(cmd *cobra.Command, _ []string, _ string, c *hosted.Client) error {
-			resp, err := c.Projects.ListProjects(cmd.Context(), &satellepb.ListProjectsRequest{})
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if hostedList {
+				return listHosted(cmd, args)
+			}
+			if cmd.Flags().Changed("server") {
+				return errors.New("--server applies to the satelle.dev listing; add --hosted")
+			}
+			projects, err := localProjects()
 			if err != nil {
-				return hosted.Describe("project list", err)
+				return err
 			}
 			if *listJSON {
-				return writeJSON(cmd.OutOrStdout(), resp.GetProjects())
-			}
-			bound := ""
-			if r, err := findRepo(""); err == nil {
-				if b, ok, _ := loadBinding(r); ok {
-					bound = b.Project
-				}
+				return writeJSON(cmd.OutOrStdout(), projects)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "\tSLUG\tID\tNAME\tROLE")
-			for _, p := range resp.GetProjects() {
-				mark := ""
-				if p.GetId() == bound {
-					mark = "*"
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", mark, p.GetSlug(), p.GetId(), p.GetName(), p.GetRole())
+			fmt.Fprintln(tw, "STATE\tNAME\tBOUND\tPATH")
+			for _, p := range projects {
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.State, p.Name, p.Bound, p.Path)
 			}
 			return tw.Flush()
-		}),
+		},
 	}
+	listCmd.Flags().BoolVar(&hostedList, "hosted", false, "list the satelle.dev projects you belong to")
 	listJSON = jsonFlag(listCmd)
 
 	showCmd := &cobra.Command{
@@ -198,7 +224,11 @@ func projectCmd() *cobra.Command {
 			return nil
 		}),
 	}
+	for _, c := range []*cobra.Command{bindCmd, createCmd, listCmd, showCmd} {
+		c.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
+	}
 	cmd.AddCommand(bindCmd, createCmd, listCmd, showCmd)
+	cmd.AddCommand(projectLocalCmds()...)
 	return cmd
 }
 

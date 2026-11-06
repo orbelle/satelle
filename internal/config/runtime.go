@@ -281,14 +281,14 @@ func ReadRepoPathMarker(runtimeDir string) string {
 //
 // Without this, registering from a worktree added a second project row and
 // relabelled the parent repo's partition after its own directory name, so
-// /r/<parent> returned 404 until a `satelle workspace add` from the main tree put
+// /r/<parent> returned 404 until a `satelle project add` from the main tree put
 // it back — on every worktree dispatch (sty_cd219594, sty_dfc9b100).
 //
 // Falls back to repoRoot unchanged when the tree is not a git worktree of a
 // satelle-governed main tree, so the ordinary case is untouched.
 //
 // OWNERSHIP RULE — identity versus location. Every IDENTITY sink goes through
-// this: the workspace-registry path, the mirror partition's slug, its path and
+// this: this machine's project path, the mirror partition's slug, its path and
 // ProjectName, and the runtime dir's repo.path marker. Identity NAMES the
 // repository, and a worktree and its parent are the same repository, so identity
 // must not move per worktree. The .satelle/deployed.version stamp is read the
@@ -323,9 +323,9 @@ func CanonicalRepoRoot(repoRoot string) string {
 	return main
 }
 
-// RepoName is the name a repo goes by in the workspace registry and the web
+// RepoName is the name a repo goes by in this machine's projects and the web
 // partition: the base of its canonical root, so a worktree and its main tree are
-// one name. It is what `satelle workspace list` shows and what a cross-repo
+// one name. It is what `satelle project list` shows and what a cross-repo
 // `depends-on:<repo>/<id>` names.
 //
 // It is NOT the hosted project slug. Slugify and ResolveBoundProject own that

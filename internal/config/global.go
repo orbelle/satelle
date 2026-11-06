@@ -11,7 +11,7 @@ import (
 )
 
 // Global config lives under ~/.satelle/ — the one machine-wide touchpoint the
-// spec reserves (the future workspace registry lives here too). It is kept in a
+// spec reserves (this machine's project list lives here too). It is kept in a
 // file named config.toml, deliberately NOT satelle.toml, so the per-repo
 // walk-up (which looks for .satelle/satelle.toml) can never mistake the global
 // home for a repo root.
@@ -53,10 +53,10 @@ func ServerEndpointEnv() (endpoint string, disabled bool, set bool) {
 
 // GlobalConfig is the machine-wide config at ~/.satelle/config.toml.
 type GlobalConfig struct {
-	Service   ServiceConfig      `toml:"service"`
-	Workspace WorkspaceConfig    `toml:"workspace"`
-	UI        UIConfig           `toml:"ui"`
-	Hosted    GlobalHostedConfig `toml:"hosted"`
+	Service  ServiceConfig      `toml:"service"`
+	Projects ProjectsConfig     `toml:"projects"`
+	UI       UIConfig           `toml:"ui"`
+	Hosted   GlobalHostedConfig `toml:"hosted"`
 }
 
 // GlobalHostedConfig binds this MACHINE to one hosted satelle-server — the single
@@ -109,36 +109,37 @@ type UIConfig struct {
 	Theme string `toml:"theme"` // "dark" | "light" (empty = light default)
 }
 
-// WorkspaceConfig is the connected-repo registry the workspace view aggregates.
-// Per-repo databases stay the source of truth; this is just the list of paths.
-type WorkspaceConfig struct {
-	Repos []string `toml:"repos"`
+// ProjectsConfig is this machine's projects: the repos or directories satelled
+// shows. Each project's own .satelle stays the source of truth; this is just
+// the list of paths.
+type ProjectsConfig struct {
+	Paths []string `toml:"paths"`
 }
 
-// AddRepo adds an absolute repo path to the registry, de-duplicated. Reports
-// whether it was newly added.
-func (w *WorkspaceConfig) AddRepo(path string) bool {
-	for _, r := range w.Repos {
+// Add adds an absolute project path, de-duplicated. Reports whether it was
+// newly added.
+func (p *ProjectsConfig) Add(path string) bool {
+	for _, r := range p.Paths {
 		if r == path {
 			return false
 		}
 	}
-	w.Repos = append(w.Repos, path)
+	p.Paths = append(p.Paths, path)
 	return true
 }
 
-// RemoveRepo drops a repo path from the registry. Reports whether it was present.
-func (w *WorkspaceConfig) RemoveRepo(path string) bool {
-	out := w.Repos[:0]
+// Remove drops a project path. Reports whether it was present.
+func (p *ProjectsConfig) Remove(path string) bool {
+	out := p.Paths[:0]
 	found := false
-	for _, r := range w.Repos {
+	for _, r := range p.Paths {
 		if r == path {
 			found = true
 			continue
 		}
 		out = append(out, r)
 	}
-	w.Repos = out
+	p.Paths = out
 	return found
 }
 
@@ -262,6 +263,17 @@ func loadGlobalAt(path string) (GlobalConfig, error) {
 	if _, err := toml.Decode(string(b), &gc); err != nil {
 		return GlobalConfig{}, fmt.Errorf("config: parse %s: %w", path, err)
 	}
+	// A machine config written before projects were named projects keeps its
+	// list: the old [workspace] repos table is read once and carried into
+	// [projects] paths; the next save writes only [projects].
+	var legacy struct {
+		Old struct {
+			Repos []string `toml:"repos"`
+		} `toml:"workspace"`
+	}
+	if _, err := toml.Decode(string(b), &legacy); err == nil && len(gc.Projects.Paths) == 0 {
+		gc.Projects.Paths = legacy.Old.Repos
+	}
 	return gc, nil
 }
 
@@ -275,9 +287,9 @@ func SaveGlobal(gc GlobalConfig) error {
 		return fmt.Errorf("config: mkdir %s: %w", dir, err)
 	}
 	repos := "[]"
-	if len(gc.Workspace.Repos) > 0 {
-		quoted := make([]string, len(gc.Workspace.Repos))
-		for i, r := range gc.Workspace.Repos {
+	if len(gc.Projects.Paths) > 0 {
+		quoted := make([]string, len(gc.Projects.Paths))
+		for i, r := range gc.Projects.Paths {
 			quoted[i] = fmt.Sprintf("%q", r)
 		}
 		repos = "[" + strings.Join(quoted, ", ") + "]"
@@ -353,10 +365,10 @@ endpoint = %q
 # — the mirror holds N partitions.
 repo = %q
 
-[workspace]
-# connected repo paths the /workspace view aggregates (per-repo DBs stay the
-# source of truth). Manage with 'satelle workspace add|remove|list'.
-repos = %s
+[projects]
+# this machine's projects (repos or directories) satelled shows. Manage with
+# 'satelle project add|remove|list'.
+paths = %s
 
 [ui]
 # light/dark theme shared across every repo's web UI ("dark" | "" = light).

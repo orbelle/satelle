@@ -33,8 +33,8 @@ const (
 const CodePartitionUnknown = "partition_unknown"
 
 // EnvIngestOrigin, set to OriginHosted, stamps a CLI verb's ingest hosted
-// whatever the verb: satelled sets it on its reseed child, whose
-// `workspace add` is local when an operator runs it (sty_0367d20c).
+// whatever the verb; unset, `satelle project add` run by an operator is local
+// (sty_0367d20c).
 const EnvIngestOrigin = "SATELLE_INGEST_ORIGIN"
 
 // ChangeEvent is the body POSTed by the CLI push publisher (sty_126228b2).
@@ -57,7 +57,7 @@ type RemoveEvent struct {
 //
 // Partial drains (sty_3562c820) set Kinds / MergeKinds so only those partitions
 // are written; kinds named in neither are left untouched. Absent both fields,
-// behaviour is today's full replace of every kind (workspace add + reconcile).
+// behaviour is today's full replace of every kind (project add + reconcile).
 type Snapshot struct {
 	RepoKey      string            `json:"repo_key"`
 	Slug         string            `json:"slug,omitempty"`
@@ -474,7 +474,7 @@ func slugConflictMessage(store *Store, ctx context.Context, slug, existingKey, i
 	}
 	return fmt.Sprintf(
 		"slug %q already used by partition %s%s; incoming repo_key %s collides. "+
-			"Rename this repo's directory so its basename is unique, then re-run `satelle workspace add`. "+
+			"Rename this repo's directory so its basename is unique, then re-run `satelle project add`. "+
 			"To drop the existing landing card, remove that partition from the serve mirror.",
 		slug, existingKey, pathNote, incomingKey,
 	)

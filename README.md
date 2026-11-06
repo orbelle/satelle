@@ -48,7 +48,7 @@ satelle update --force
 make install           # build + install satelle and satelled to ~/.local/bin
 
 cd your-repo
-satelle init           # scaffold .satelle/ + validate; reports workspace: member|not-member
+satelle init           # scaffold .satelle/ + validate
 satelle story create --title "Ship the thing" --priority high
 satelle task create  --title "write release notes"
 satelle reindex        # index authored markdown under .satelle/
@@ -57,7 +57,7 @@ satelle service install   # always-on UI (prefers satelled); or: satelled --port
 ```
 
 The UI is a **push-fed read-only mirror** (not a live DB browser). Project pages
-live under `/r/<slug>/` on the workspace landing (`http://127.0.0.1:8787/`).
+live under `/r/<slug>/` on the Projects page (`http://127.0.0.1:8787/`).
 
 ### Push-fed UI (CLI → satelled)
 
@@ -67,17 +67,17 @@ serve-adoption onboarding):
 1. Run the UI: `satelled` (or `satelle service install`, which prefers the
    dedicated binary). `satelle serve` remains a **deprecated alias** that prints
    a migration notice and runs the same mirror.
-2. Join the workspace and seed the mirror in one verb:
+2. Add the project to this machine's projects and seed the mirror in one verb:
    ```sh
-   satelle workspace add         # register + seed; bootstraps endpoint when a matching serve is up
-   satelle workspace partitions  # list mirror partitions (repo_key, path, counts)
-   satelle workspace prune <repo_key> [--force]  # remove orphan/junk partitions
-   satelle workspace remove      # unregister + purge that repo's partition
+   satelle project add         # add + seed; bootstraps endpoint when a matching serve is up
+   satelle project partitions  # list mirror partitions (repo_key, path, counts)
+   satelle project prune <repo_key> [--force]  # remove orphan/junk partitions
+   satelle project remove      # remove + purge that project's partition
    ```
    `[server] endpoint` usually lives in **gitignored** `.satelle/satelle.local.toml`
    (per machine). When unset and a local serve answers at the service port
    (default `http://127.0.0.1:8787`) **and** reports a matching `X-Satelle-Instance`
-   for this `SATELLE_HOME`, `workspace add` writes that endpoint into
+   for this `SATELLE_HOME`, `project add` writes that endpoint into
    local.toml and seeds in the same command. Without a matching serve it still
    registers, prints seed skipped, and exits 0. Hermetic tests set
    `SATELLE_SERVER_ENDPOINT=none` so they never auto-probe a live operator serve.
@@ -85,7 +85,7 @@ serve-adoption onboarding):
    reconcile step).
 
 `satelle ui` / `satelle ui push` were **removed** — they print a pointer to
-`satelle workspace add`.
+`satelle project add`.
 
 Serve never opens per-repo runtime DBs — only `~/.satelle/serve/mirror.db`,
 partitioned by repo-key.
@@ -144,7 +144,8 @@ repo it governs.
 | `publish` | `push`, `list`, `adopt`, `check` — team catalog (select local artifacts to share; not a second home for the repo). Distinct from personal `sync` |
 | `settings` | Read/write config in two scopes: repo `<key> [value]` (committed `.satelle/satelle.toml`; no args lists all) is the default; `--global server <url>` sets the machine-wide hosted server in `~/.satelle/config.toml` (no login; sign in after via the UI or `login`) |
 | | `init`, `reindex`, `status`, `version` |
-| `workspace` | `add` (register + seed mirror), `remove`, `list` |
+| `project` | this machine's projects: `add` (add + seed mirror), `remove`, `list`, `partitions`, `prune`; the satelle.dev project each is bound to: `bind`, `create`, `show`, `list --hosted` |
+| `workspace` | `list` your satelle.dev workspaces (collections of projects) |
 | UI process | `satelled` (dedicated binary); `satelle serve` is a deprecated alias |
 
 The CLI is the sole writer into repo stores. The UI process only serves the

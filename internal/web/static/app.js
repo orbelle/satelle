@@ -416,7 +416,7 @@
   // the stories and task executions under way, so it follows both.
   var DERIVED_TOPICS = { stories: ["activity"], tasks: ["activity"] };
 
-  // ---- workspace landing soft-refresh (sty_f968f9db) -----------------------
+  // ---- Projects landing soft-refresh (sty_f968f9db) -----------------------
   // Prefer in-place count updates when the row set is unchanged so numbers
   // tick without a full-page (or even tbody) flash. Fall back to swapping the
   // live region when partitions are added/removed or reordered.

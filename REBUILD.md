@@ -217,7 +217,7 @@ merges into another package.
 | `oplog` | deleted | Flat `logs/operations.log` mirror of mutations; the ledger is the source of truth. Importers: `verb/wiring.go`, `cli/app.go`. |
 | `arbor` | deleted | Dead: slog wrapper with zero importers (verified). |
 | `app` (0.3k) | kept | **11/8**. Bootstrap: load config, refuse without `.satelle/` (`ErrNotInitialised`), open the store, runtime marker. |
-| `workspace` (0.25k) | deleted | Read-only cross-repo aggregation for `stats`/`throughput` and cross-repo `depends-on:` (`verb/dependson_sibling.go`). The satelled workspace view is push-fed and does not import it. |
+| `workspace` (0.25k) | deleted | Read-only cross-repo aggregation for `stats`/`throughput` and cross-repo `depends-on:` (`verb/dependson_sibling.go`). The satelled Projects page is push-fed and does not import it. |
 | `verb` (22.7k, 83 files) | kept, heavily cut | **1, 2, 3, 4, 6, 7**. Kernel files, about 8.4k lines, stripped further: `verb.go`, `helpers.go`, `wiring.go`, `workitem.go` (`workItemSetCore`, the transition state machine: CAS → `runGate` → `recordGateRound` → `performStep` → tx writes row + transition event → lease settle), `review.go` (the `TransitionGater`/`ExecutorDispatcher`/`PerformerResolver` seams, `GateDecision`/`ReviewerVerdict`), `readiness_round.go` (`recordGateRound`, `dispatchPerformer`), `reviewer_dispatch.go`, `rejection.go`, `transition_edge.go`, `foldstate.go`, `ledger.go`, `single_story.go` (engagement lease), `seat.go`, `storydocs*.go`/`storymd.go` (attachments), `skill_delivery.go`, `sessionmodels.go` (performer model, needed for the reviewer≠performer rule), `working_on.go`, `storyhistory.go`. About 14.3k lines are process and are deleted whole; the list follows under Cuts. |
 | `drive` (0.9k) | kept | **4/9**. Headless walk of an item along its route (`successor()`, `park()` via `verb.ResumeParkName`); remote nodes run it. It names no state. |
 | `wfroute` (0.6k) | kept, slimmed | **2**. Renders a route from `wfdot.Spec` without naming states. satelled's web (`web/workflow.go`, `web/stages.go`) consumes it. |
@@ -326,7 +326,7 @@ merges into another package.
 | `settings` (+`server`) | kept | **8/11**. Legacy `web_port`/`sync.server` keys go. |
 | `service install/uninstall/status/restart` | kept | **8**. satelled's service entry point is maintained. |
 | `serve` | kept (alias), Q-serve | The help calls it a deprecated alias of `satelled`, but `service install` falls back to it, so it is part of satelled's entry points. |
-| `workspace add/list/remove/partitions/prune` | kept | **8**. Feeds satelled's mirror ingest; satelled itself execs `workspace add`. |
+| `project add/list/remove/partitions/prune` (was `workspace …`, sto_b4fa76fe) | kept | **8**. Feeds satelled's mirror ingest; satelled itself execs `project add`. |
 | `runtime path/list/reap` | kept | **8**. Runtime plane under `~/.satelle/<key>`. |
 | `runtime migrate` | deleted | Compat for the legacy in-repo layout. |
 | `logs` | kept | Runtime logs. The `.satelle/logs` symlink pointer goes. |
@@ -489,7 +489,7 @@ satelled serves **plain HTTP only**: no gRPC, no Connect. The surface is:
   - Files: mirror DB at `~/.satelle/serve/`, log at `~/.satelle/serve/server.log`.
   - Startup line: `satelled (push-fed mirror) http://…`.
 - **HTTP routes** (web/mirror_server.go:105–156, mirror/ingest.go:164–167, serve/serve.go)
-  - `GET /static/`, `/favicon.ico`, `/healthz` (body `ok`, header `X-Satelle-Instance`), `/events` (SSE; topics stories/tasks/docs/logs), `/theme`, `/{$}`, `/workspace`, `/fragment/projects`.
+  - `GET /static/`, `/favicon.ico`, `/healthz` (body `ok`, header `X-Satelle-Instance`), `/events` (SSE; topics stories/tasks/docs/logs), `/theme`, `/{$}`, `/fragment/projects` (the `/workspace` alias was removed, sto_b4fa76fe).
   - `GET /r/{slug}/{$}`.
   - `GET /r/{slug}/fragment/{stories,tasks,activity,docs,engagement}`.
   - `GET /r/{slug}/fragment/{story,task,execution}/{id}`, `GET /r/{slug}/fragment/workflow/{name}`.
@@ -507,13 +507,13 @@ satelled serves **plain HTTP only**: no gRPC, no Connect. The surface is:
   - `sync workstate push`
   - `sync workstate rechain --conflicted`
   - `sync workstate snapshot|follow|fetch <id>`
-  - `workspace add` (with `SATELLE_SERVER_ENDPOINT` and `SATELLE_INGEST_ORIGIN=hosted`)
+  - `project add` (with `SATELLE_SERVER_ENDPOINT` and `SATELLE_INGEST_ORIGIN=hosted`)
   - `sync documents push --snapshot-only`
   - `sync pull --fast-forward-only`
 - **CLI entry points**
   - `satelle service install|uninstall|status|restart`. Install flags: `--port`, `--addr`, `--repo`, `--serve-bin`, `--system`. The unit is `satelle.service` with `ExecStart=<satelled> --addr A --port P`, falling back to `satelle serve`.
   - `satelle serve` (`--addr`, `--port`; hidden `--no-watch`, `--base-path`).
-  - `satelle workspace add|remove|list|partitions|prune`.
+  - `satelle project add|remove|list|partitions|prune`.
 
 Parts of that surface the contract's other rules would remove (documents, epics, cost) are listed under Q-satelled-docs and Q-satelled-ui. They are not decided here.
 
@@ -939,7 +939,7 @@ when it can.
     `task create|get|list|set|run`, `execution get|list`,
     `ledger append|list|verify|rebuild`, `workflow show`,
     `hook gate|context|prompt|stopcheck`, `agents install|remove`, `login`,
-    `logout`, `whoami`, `service *` (the unit runs `satelled`), `workspace *`,
+    `logout`, `whoami`, `service *` (the unit runs `satelled`), `project *` (this machine's projects; was `workspace *`), `workspace list` (satelle.dev),
     `runtime *`, `logs`.
   - satelled no longer execs the CLI (`serve/deps_test.go` enforces it).
   - This repo's `.satelle/` is on the new schema and validates. Workflows:

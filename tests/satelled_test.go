@@ -83,10 +83,10 @@ from = ["backlog"]
 to = "done"
 groups = [{ gates = ["has-ok"] }]
 `)
-	if out := s.must("workspace", "add"); !strings.Contains(out, "seeded satelled at "+url) {
-		t.Fatalf("workspace add: %s", out)
+	if out := s.must("project", "add"); !strings.Contains(out, "seeded satelled at "+url) {
+		t.Fatalf("project add: %s", out)
 	}
-	out := s.must("workspace", "partitions")
+	out := s.must("project", "partitions")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("partitions:\n%s", out)

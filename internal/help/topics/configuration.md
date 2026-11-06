@@ -34,4 +34,4 @@ key refuses to run; `satelle validate` lists every problem.
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives
 under `~/.satelle/<repo-key>/` (`satelle runtime path`), shared by every
 worktree of the repository. `~/.satelle/config.toml` holds machine settings:
-satelled's port and address, the workspace registry and the hosted server.
+satelled's port and address, this machine's projects (`satelle help projects`) and the hosted server.

@@ -34,4 +34,4 @@ asked; repeating it is up to cron, a remote or a routine. An execution is
 worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id>`.
 
 Topics: `satelle help workflows`, `satelle help edit-gate`,
-`satelle help configuration`, `satelle help remotes`.
+`satelle help configuration`, `satelle help remotes`, `satelle help projects`.

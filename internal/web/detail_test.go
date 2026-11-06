@@ -210,7 +210,6 @@ func TestRoutesAllAnswer(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	for path, code := range map[string]int{
 		"/":                                 200,
-		"/workspace":                        200,
 		"/healthz":                          200,
 		"/theme":                            200,
 		"/favicon.ico":                      200,

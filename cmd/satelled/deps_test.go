@@ -20,7 +20,6 @@ func TestServeBinaryImportIsolation(t *testing.T) {
 		"github.com/bobmcallan/satelle/internal/app",
 		"github.com/bobmcallan/satelle/internal/store",
 		"github.com/bobmcallan/satelle/internal/agentstep",
-		"github.com/bobmcallan/satelle/internal/workspace",
 		"github.com/bobmcallan/satelle/internal/hosted",
 		"github.com/bobmcallan/satelle/internal/cli",
 		"github.com/bobmcallan/satelle/internal/kernel",
