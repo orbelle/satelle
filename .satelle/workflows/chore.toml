@@ -1,4 +1,6 @@
-# A chore: code and land without a plan stage.
+# A chore: code without a plan stage, end DEV at approved (an open, approved
+# pull request), and reach done only through a run of the release task, as a
+# delivery story does.
 name = "chore"
 
 [states.backlog]
@@ -8,6 +10,9 @@ start = true
 performer = { agent = "executor", skill = "coder" }
 
 [states.integration]
+
+# DEV ends here; a run of the release task takes the item.
+[states.approved]
 
 [states.blocked]
 park = true
@@ -39,10 +44,23 @@ carry = true
 [gates.integration-check]
 skill = "satelle-integration-check"
 
-# Done includes pushed (operator, 2026-11-06). Replaces chore-landed, which
-# required origin/main and a green CI run; GitHub now runs no tests.
-[gates.on-origin]
-skill = "satelle-pushed-check"
+[gates.pr-ready]
+skill = "satelle-pr-ready-check"
+
+[gates.release-run]
+skill = "satelle-release-run-check"
+
+[gates.version-stamp]
+skill = "satelle-version-stamp-check"
+
+[gates.changelog-entry]
+skill = "satelle-changelog-entry-check"
+
+[gates.ci-published]
+skill = "satelle-ci-published-check"
+
+[gates.release-installed]
+skill = "satelle-release-installed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
@@ -66,11 +84,16 @@ groups = [
 
 [[transition]]
 from = ["integration"]
-to = "done"
-groups = [{ mode = "sequential", gates = ["integration-check", "on-origin"] }]
+to = "approved"
+groups = [{ mode = "sequential", gates = ["integration-check", "pr-ready"] }]
 
 [[transition]]
-from = ["integration"]
+from = ["approved"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] }]
+
+[[transition]]
+from = ["integration", "approved"]
 to = "in_progress"
 
 [[transition]]

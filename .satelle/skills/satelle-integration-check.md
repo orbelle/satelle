@@ -4,12 +4,17 @@ scope: project
 type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
-description: Functional-check gate on entry to outcome, the outcome review's edge after integration (and to landing for a chore): runs `make integration` and asserts the installed binary and live service are byte-identical before and after. This gate runs locally only. Deterministic, self-contained.
+description: The full local suite, once, on the edge to approved (integration → approved, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no tests; this is the run the release trusts. Deterministic, self-contained.
 ---
 
-# Integration check (outcome-entry functional gate)
+# Integration check (the full suite, once, before approved)
 
-Runs `make integration` on entry to `outcome`, before the outcome review and failing fast (and on entry to `landing` for a chore) — the suite's only local run — and asserts the installed binary and the live service are unchanged before and after. Verifies; installs and restarts nothing.
+Runs `make test`, the full hermetic suite (unit and integration), on the head
+that becomes the pull request's head, before the PR check and failing fast. It
+is the only full run: the release fast-forwards this tested head without
+testing again (operator, 2026-11-06). It asserts the installed binary and the
+live service are unchanged before and after. Verifies; installs and restarts
+nothing.
 
 ```check
 #!/usr/bin/env bash
@@ -32,7 +37,7 @@ if [ -n "$svc_pid" ]; then
   svc_before="$svc_pid:$(readlink -f /proc/$svc_pid/exe 2>/dev/null || true)"
 fi
 
-make integration
+make test
 suite_ec=$?
 
 # --- After: the same fingerprints must be unchanged -------------------------
@@ -40,7 +45,7 @@ fail=0
 if [ -n "$installed" ]; then
   bin_after=$(stat -c '%d:%i:%s:%Y' "$installed" 2>/dev/null || true)
   if [ "$bin_before" != "$bin_after" ]; then
-    echo "OBJECTIVE 2 FAILED (disturbed install): the integration suite changed the installed binary $installed"
+    echo "OBJECTIVE 2 FAILED (disturbed install): the suite changed the installed binary $installed"
     echo "  before: $bin_before"
     echo "  after:  $bin_after"
     echo "  a test must drive the repo-built binary via SATELLE_BIN, never the installed one"
@@ -54,7 +59,7 @@ if [ -n "$svc_pid" ]; then
     svc_after="$new_pid:$(readlink -f /proc/$new_pid/exe 2>/dev/null || true)"
   fi
   if [ "$svc_before" != "$svc_after" ]; then
-    echo "OBJECTIVE 2 FAILED (disturbed service): the integration suite changed the operator's running service"
+    echo "OBJECTIVE 2 FAILED (disturbed service): the suite changed the operator's running service"
     echo "  before: $svc_before"
     echo "  after:  ${svc_after:-<no service running>}"
     echo "  a hermetic test must set SATELLE_HOME to a temp dir and never seed or signal a real serve"
@@ -66,8 +71,8 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 if [ "$suite_ec" -ne 0 ]; then
-  echo "OBJECTIVE 2 FAILED (integration suite): make integration exited $suite_ec"
+  echo "OBJECTIVE 2 FAILED (full suite): make test exited $suite_ec"
   exit "$suite_ec"
 fi
-echo "objective 2 PASS: integration suite green; installed binary and live service unchanged"
+echo "objective 2 PASS: full suite green; installed binary and live service unchanged"
 ```

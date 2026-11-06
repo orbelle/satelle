@@ -24,6 +24,8 @@ the after-review gate can judge. You do **not** advance status.
 ## Do not
 
 - Self-enact `done` or reopen a completed run (re-run = new execution).
-- Treat this as a project-workflow code ship (no version bump / CI release path).
+- Do work the task's ACTION does not name. A version bump, a push to main or a
+  CI release is in scope only when the ACTION names it, as the release task's
+  ACTION does (`.satelle/skills/release.md`).
 
 See [[satelle-agent-model]] and the task-workflow prose.

@@ -1,84 +1,155 @@
 ---
 name: release
 type: skill
-description: The release procedure a release task's run follows: fast-forward main to the approved branch, push, dispatch release.yml, confirm the tags and assets, install the published build here and attach the evidence. Local landing; GitHub runs no tests. Never advances status.
+description: CI/CD — the procedure a run of the release task (tas_42301d36) follows over the approved items it took: fast-forward main to each tested pull-request head without re-testing, send back any head that no longer fast-forwards, bump the version once, dispatch release.yml, confirm both releases, back up and install the published build here, check it, and only then move each item to done. Landing is local; GitHub runs no tests. Never forces, never merges or rebases main.
 ---
 
-# Release
+# Release (CI/CD)
 
-A release is a run of the release task, cut with its base on main
-(`satelle task run <release task> --base main`; check the printed base names
-main). The
-executor seated on the run does the steps below and attaches the evidence; the
-run's close gate judges it. Landing is local, GitHub holds the code and runs no
-tests, and there is no staging: local testing is the staging.
+DEV ends at `approved` (operator, 2026-11-06; modelled on satelle-server's
+release skill): an open, auto-approved pull request whose head contains
+`origin/main` and passed the full local suite on exactly that tree (the
+integration check). The suite runs once, so a release run does not test
+again: it ships only heads that fast-forward `main`, which are the trees that
+were tested. A head that no longer fast-forwards goes back through the loop
+(rebase, coding gates, the full suite, a pull request), with the reason
+recorded on the item. A pushed-back item reopens; it never becomes a new
+story.
 
-## 0. Preconditions
+The run's items reach `done` only through it: the `release-run` gate on
+`approved → done` refuses any item no in-progress run lists. Every step below
+that fails stops the run: record the reason in the run's `release-evidence`,
+leave the items as they are and end the turn. Nothing installed is touched
+before step 7.
 
-- The branch to release (`claude/satelle-rebuild` until the CI/CD task replaces
-  it) is pushed, and every item on it is done.
-- Every release bumps the version. Raise `satelle.version` past the latest
-  published `v*` tag (patch for fixes, minor for features, major for a break)
-  and `satelled.version` past the latest `serve-v*` tag; set `satelle.build`
-  to the release time (`date -u +%Y-%m-%dT%H:%M:%SZ`). Add the CHANGELOG
-  heading `## [<version>] - <date>` over the released entries. Refuse to go on
-  when either tag already exists, since that would re-release a version:
+Never: run a test suite, merge or rebase onto main, force-push, take an item
+not in the run's inputs, or close an item before step 8 passes.
 
-  ```sh
-  git fetch -q --tags origin
-  v=$(awk '$1=="satelle.version:"{print $2}' .version)
-  s=$(awk '$1=="satelled.version:"{print $2}' .version)
-  git rev-parse -q --verify "refs/tags/v$v" && { echo "v$v is already released: bump satelle.version"; exit 1; }
-  git rev-parse -q --verify "refs/tags/serve-v$s" && { echo "serve-v$s is already released: bump satelled.version"; exit 1; }
-  ```
-
-  Commit the bump on the branch (`chore(release): v<version> (<execution id>)`)
-  and push before step 1. The released binaries show this version, commit and
-  build time in `satelle version` and on every satelled page.
-- The full suite passes locally on the branch head:
-  `go build ./... && go test -count=1 ./...`.
-
-## 1. Land on main
-
-Fast-forward only; never merge, rebase or force onto main.
+## 0. Start and read the run
 
 ```sh
-git fetch origin
-git merge-base --is-ancestor origin/main origin/<branch>   # must hold
-git push origin origin/<branch>:refs/heads/main
+exe=$(satelle task run tas_42301d36 --base main --json | jq -r .id)   # created in backlog
+satelle execution set "$exe" --status in_progress                     # validate-before
+satelle execution seat "$exe"
+satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]'
 ```
 
-If main is not an ancestor of the branch, stop and report: someone landed on
-main since, and the branch must take it in through a story first.
+For each input item find its pull request: the PR against main whose title
+ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).
+Record `<id> PR #<n> head <sha>`. An item with no open pull request goes on the
+send-back list. Record `sha256sum` of `$(command -v satelle)` and of the
+satelled binary in the `installed` line of `satelle service status`; the same
+sums just before step 7 prove nothing installed was touched.
 
-## 2. Publish
+## 1. Order
+
+Sort the items by `git rev-list --count origin/main..<head>`, fewest first, so
+stacked heads fast-forward in turn.
+
+## 2. Fast-forward without re-testing
+
+a. Plan in git only. Start with `tip=origin/main`. For each item:
+   - its head is already on main (`git merge-base --is-ancestor <head> origin/main`): keep it (a resumed run);
+   - else `git merge-base --is-ancestor $tip <head>`: keep it and set `tip=<head>`;
+   - else put it on the send-back list: "head <sha> does not contain main <tip> after <earlier ids>; rebase onto origin/main and come through integration again".
+
+b. The tree that presents the moves below must carry the config being
+   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills`,
+   else stop with "check out the run's tip first: git checkout --detach $tip".
+
+c. Send back each item on the list. It reopens:
+
+```sh
+printf '%s\n' "<reason>" | satelle story attach <id> --name release-sendback --file -
+satelle story set <id> --status in_progress      # approved -> in_progress
+```
+
+   The coder's next run reads the reason from the item's record.
+
+If no item is kept, stop: "nothing fast-forwards".
+
+## 3. Bump once
+
+In a temporary worktree at the tip, so the session's own tree is untouched:
+
+```sh
+wt=$(mktemp -d); git worktree add --detach "$wt" "$tip"
+```
+
+For `satelle.version` against the `v*` tags and `satelled.version` against the
+`serve-v*` tags: strip the prefix, `sort -V`, and compare with the latest tag
+other than the value's own. Keep the current value when it is above that
+latest and its own tag is absent or points at `$tip` (a resumed run already
+published it); otherwise set it to the latest tag's patch + 1. Set
+`satelle.build=$(date -u +%Y-%m-%dT%H:%M:%SZ)` when either changed.
+
+Rename `## [Unreleased]` in CHANGELOG.md to `## [<ver>] - <date>`; with no
+Unreleased heading, insert `## [<ver>] - <date>` / `### Changed` with one line
+per released item, `- <title> (<id>)`.
+
+Commit only `.version` and `CHANGELOG.md`, so the tested tree is otherwise
+unchanged: `chore(release): v<ver>, satelled <sver> (<exe>: <ids>)`. Skip the
+commit when nothing changed (a resumed run).
+
+## 4. Push main once
+
+```sh
+git -C "$wt" push origin HEAD:refs/heads/main   # a plain push: refused unless it fast-forwards; never forced
+git worktree remove "$wt"
+```
+
+GitHub marks each pull request merged, because main now contains its head.
+
+## 5. Dispatch
 
 ```sh
 gh workflow run release.yml --ref main
-gh run list --workflow release.yml --limit 1 --json databaseId,status,conclusion,headSha,url
+gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url   # the run whose headSha is the pushed sha
 gh run watch <id> --exit-status
-gh release view v<satelle.version> --json tagName,targetCommitish,assets
-gh release view serve-v<satelled.version> --json tagName,assets
 ```
 
-The run's `headSha` must be main's head. A failed run or a missing tag means
-the release is not done: report it and stop.
-
-## 3. Install the published build here
+## 6. Confirm both releases
 
 ```sh
-satelle update --version <satelle.version>
-satelle service restart
-satelle version
-satelle service status
+gh release view v<ver> --json tagName,assets
+gh release view serve-v<sver> --json tagName,assets
 ```
 
-`satelle version` must name the released version and main's commit.
+## 7. Back up, then install here
 
-## 4. Attach the evidence
+```sh
+sbin=$(command -v satelle)
+dbin=<the path in the [...] of the "installed" line of satelle service status>
+bk="$(satelle runtime path)/backups/bin/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$bk"; cp -p "$sbin" "$dbin" "$bk/"
+printf 'restore: install -m 0755 %s %s && install -m 0755 %s %s && satelle service restart\n' "$bk/satelle" "$sbin" "$bk/satelled" "$dbin"
+satelle update --version <ver>
+satelle service restart
+```
 
-Attach one markdown document named `release-evidence` to the run
-(`satelle execution attach <run> --name release-evidence --file -`) with:
-main's head before and after, the release.yml run URL, its head sha and
-conclusion, both tags and their asset lists, and the `satelle version` and
-`satelle service status` lines.
+The restore line is printed, with real paths and no placeholder, before
+anything is replaced. The backup is never deleted by the run.
+
+## 8. Check
+
+`satelle version` names `<ver>` and main's commit; `satelle service status`
+shows satelled answering, `running` and `installed` at `<sver>` and main's
+commit, and no `warning` line (the release-installed gate's patterns). A
+mismatch stops the run and repeats the restore line.
+
+## 9. Close
+
+For each released item: `satelle story set <id> --status done`. Its five gates
+(release-run, version-stamp, changelog-entry, ci-published, release-installed)
+judge it while the run is still in progress. Then attach `release-evidence` to
+the run (`satelle execution attach "$exe" --name release-evidence --file -`):
+
+- per item: id, PR number, head sha, and released, or sent back with the reason
+- main before and after, and the bump commit
+- the release.yml run URL, head sha and conclusion
+- both tags with their asset names
+- the step-0 and pre-step-7 binary sha256s, the backup dir listing and the restore line
+- the `satelle version` and `satelle service status` lines
+- each item's final status
+
+Then present the run `in_progress → done` (validate-after) and release its
+seat.

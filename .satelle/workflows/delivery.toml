@@ -1,5 +1,8 @@
-# This repo's route for a story: plan, code, integrate, judge the outcome.
-# Merging and releasing completed work is a task (see release.toml), not a step.
+# This repo's route for a story. DEV: plan, code, integrate, and end at
+# approved (tested locally, pushed, an open pull request, approved). CI/CD: a
+# run of the release task takes the approved items, fast-forwards main, bumps
+# the version once, releases and installs, and only then moves them to done
+# (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
 [states.backlog]
@@ -13,7 +16,10 @@ performer = { agent = "executor", skill = "coder" }
 
 [states.integration]
 
-[states.assessment]
+# DEV ends here: an open, approved pull request whose head is tested and
+# contains main. A run of the release task takes the item; a release run that
+# cannot land it sends it back to in_progress with the reason.
+[states.approved]
 
 [states.blocked]
 park = true
@@ -83,13 +89,33 @@ skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
 
+# The full local suite, once, on the head that will be released (GitHub runs
+# no tests; operator, 2026-11-06).
 [gates.integration-check]
 skill = "satelle-integration-check"
 
-# Done includes pushed (operator, 2026-11-06): the session pushes the branch
-# before presenting done; this verifies HEAD is on origin.
-[gates.on-origin]
-skill = "satelle-pushed-check"
+# DEV's end: the head is committed, pushed, contains origin/main and has an
+# open pull request against main, approved automatically (the code-ac gate is
+# the review until the satelle GitHub app reviews).
+[gates.pr-ready]
+skill = "satelle-pr-ready-check"
+
+# CI/CD's gates on approved -> done, all reading origin/main: only a run of the
+# release task closes an item, after the bump, the release and the install.
+[gates.release-run]
+skill = "satelle-release-run-check"
+
+[gates.version-stamp]
+skill = "satelle-version-stamp-check"
+
+[gates.changelog-entry]
+skill = "satelle-changelog-entry-check"
+
+[gates.ci-published]
+skill = "satelle-ci-published-check"
+
+[gates.release-installed]
+skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
@@ -124,27 +150,28 @@ groups = [
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["definition-unchanged", "binary-scope"] },
-]
-
-[[transition]]
-from = ["integration"]
-to = "assessment"
-groups = [
-  { mode = "sequential", gates = ["format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["definition-unchanged", "binary-scope", "format-vet", "build-unit"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]
 
 [[transition]]
-from = ["assessment"]
-to = "done"
+from = ["integration"]
+to = "approved"
 groups = [
-  { mode = "sequential", gates = ["integration-check", "on-origin"] },
+  { mode = "sequential", gates = ["integration-check", "pr-ready"] },
 ]
 
-# Rework: back to coding from any judging state, and back to planning.
 [[transition]]
-from = ["integration", "assessment"]
+from = ["approved"]
+to = "done"
+groups = [
+  { mode = "sequential", gates = ["release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] },
+]
+
+# Rework: back to coding from integration, or from approved when a release run
+# cannot land the item (it records why on the item); and back to planning.
+[[transition]]
+from = ["integration", "approved"]
 to = "in_progress"
 
 [[transition]]
