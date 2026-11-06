@@ -2470,6 +2470,498 @@ func (x *RelayFrame) GetData() []byte {
 	return nil
 }
 
+type PublishReviewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	PullNumber    int64                  `protobuf:"varint,2,opt,name=pull_number,json=pullNumber,proto3" json:"pull_number,omitempty"`
+	CommitSha     string                 `protobuf:"bytes,3,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	Event         string                 `protobuf:"bytes,4,opt,name=event,proto3" json:"event,omitempty"` // APPROVE | REQUEST_CHANGES | COMMENT, passed through
+	Body          string                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`   // names the team and the gate
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishReviewRequest) Reset() {
+	*x = PublishReviewRequest{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishReviewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishReviewRequest) ProtoMessage() {}
+
+func (x *PublishReviewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishReviewRequest.ProtoReflect.Descriptor instead.
+func (*PublishReviewRequest) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *PublishReviewRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PublishReviewRequest) GetPullNumber() int64 {
+	if x != nil {
+		return x.PullNumber
+	}
+	return 0
+}
+
+func (x *PublishReviewRequest) GetCommitSha() string {
+	if x != nil {
+		return x.CommitSha
+	}
+	return ""
+}
+
+func (x *PublishReviewRequest) GetEvent() string {
+	if x != nil {
+		return x.Event
+	}
+	return ""
+}
+
+func (x *PublishReviewRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+type PublishReviewResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReviewId      int64                  `protobuf:"varint,1,opt,name=review_id,json=reviewId,proto3" json:"review_id,omitempty"`
+	HtmlUrl       string                 `protobuf:"bytes,2,opt,name=html_url,json=htmlUrl,proto3" json:"html_url,omitempty"`
+	Repository    string                 `protobuf:"bytes,3,opt,name=repository,proto3" json:"repository,omitempty"` // owner/name
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishReviewResponse) Reset() {
+	*x = PublishReviewResponse{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishReviewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishReviewResponse) ProtoMessage() {}
+
+func (x *PublishReviewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishReviewResponse.ProtoReflect.Descriptor instead.
+func (*PublishReviewResponse) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *PublishReviewResponse) GetReviewId() int64 {
+	if x != nil {
+		return x.ReviewId
+	}
+	return 0
+}
+
+func (x *PublishReviewResponse) GetHtmlUrl() string {
+	if x != nil {
+		return x.HtmlUrl
+	}
+	return ""
+}
+
+func (x *PublishReviewResponse) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+type PublishStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	CommitSha     string                 `protobuf:"bytes,2,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	State         string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"` // error | failure | pending | success, passed through
+	Context       string                 `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
+	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	TargetUrl     string                 `protobuf:"bytes,6,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishStatusRequest) Reset() {
+	*x = PublishStatusRequest{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishStatusRequest) ProtoMessage() {}
+
+func (x *PublishStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishStatusRequest.ProtoReflect.Descriptor instead.
+func (*PublishStatusRequest) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *PublishStatusRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetCommitSha() string {
+	if x != nil {
+		return x.CommitSha
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *PublishStatusRequest) GetTargetUrl() string {
+	if x != nil {
+		return x.TargetUrl
+	}
+	return ""
+}
+
+type PublishStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StatusId      int64                  `protobuf:"varint,1,opt,name=status_id,json=statusId,proto3" json:"status_id,omitempty"`
+	Repository    string                 `protobuf:"bytes,2,opt,name=repository,proto3" json:"repository,omitempty"` // owner/name
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishStatusResponse) Reset() {
+	*x = PublishStatusResponse{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishStatusResponse) ProtoMessage() {}
+
+func (x *PublishStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishStatusResponse.ProtoReflect.Descriptor instead.
+func (*PublishStatusResponse) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *PublishStatusResponse) GetStatusId() int64 {
+	if x != nil {
+		return x.StatusId
+	}
+	return 0
+}
+
+func (x *PublishStatusResponse) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+type ListPullRequestEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       string                 `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	SinceToken    string                 `protobuf:"bytes,2,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"` // "" from the start
+	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPullRequestEventsRequest) Reset() {
+	*x = ListPullRequestEventsRequest{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPullRequestEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPullRequestEventsRequest) ProtoMessage() {}
+
+func (x *ListPullRequestEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPullRequestEventsRequest.ProtoReflect.Descriptor instead.
+func (*ListPullRequestEventsRequest) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *ListPullRequestEventsRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *ListPullRequestEventsRequest) GetSinceToken() string {
+	if x != nil {
+		return x.SinceToken
+	}
+	return ""
+}
+
+func (x *ListPullRequestEventsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ListPullRequestEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*PullRequestEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	NextToken     string                 `protobuf:"bytes,2,opt,name=next_token,json=nextToken,proto3" json:"next_token,omitempty"` // resume from here; equal to since_token when nothing is new
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPullRequestEventsResponse) Reset() {
+	*x = ListPullRequestEventsResponse{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPullRequestEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPullRequestEventsResponse) ProtoMessage() {}
+
+func (x *ListPullRequestEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPullRequestEventsResponse.ProtoReflect.Descriptor instead.
+func (*ListPullRequestEventsResponse) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *ListPullRequestEventsResponse) GetEvents() []*PullRequestEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *ListPullRequestEventsResponse) GetNextToken() string {
+	if x != nil {
+		return x.NextToken
+	}
+	return ""
+}
+
+type PullRequestEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeliveryId    string                 `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
+	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`         // opened | synchronize | ..., as GitHub delivered it
+	Repository    string                 `protobuf:"bytes,3,opt,name=repository,proto3" json:"repository,omitempty"` // owner/name
+	PullNumber    int64                  `protobuf:"varint,4,opt,name=pull_number,json=pullNumber,proto3" json:"pull_number,omitempty"`
+	HeadSha       string                 `protobuf:"bytes,5,opt,name=head_sha,json=headSha,proto3" json:"head_sha,omitempty"`
+	HeadRef       string                 `protobuf:"bytes,6,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
+	BaseRef       string                 `protobuf:"bytes,7,opt,name=base_ref,json=baseRef,proto3" json:"base_ref,omitempty"`
+	Sender        string                 `protobuf:"bytes,8,opt,name=sender,proto3" json:"sender,omitempty"`
+	ReceivedAt    *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=received_at,json=receivedAt,proto3" json:"received_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullRequestEvent) Reset() {
+	*x = PullRequestEvent{}
+	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullRequestEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullRequestEvent) ProtoMessage() {}
+
+func (x *PullRequestEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_satelle_v1_satelle_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullRequestEvent.ProtoReflect.Descriptor instead.
+func (*PullRequestEvent) Descriptor() ([]byte, []int) {
+	return file_satelle_v1_satelle_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *PullRequestEvent) GetDeliveryId() string {
+	if x != nil {
+		return x.DeliveryId
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetPullNumber() int64 {
+	if x != nil {
+		return x.PullNumber
+	}
+	return 0
+}
+
+func (x *PullRequestEvent) GetHeadSha() string {
+	if x != nil {
+		return x.HeadSha
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetHeadRef() string {
+	if x != nil {
+		return x.HeadRef
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetBaseRef() string {
+	if x != nil {
+		return x.BaseRef
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetSender() string {
+	if x != nil {
+		return x.Sender
+	}
+	return ""
+}
+
+func (x *PullRequestEvent) GetReceivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReceivedAt
+	}
+	return nil
+}
+
 var File_satelle_v1_satelle_proto protoreflect.FileDescriptor
 
 const file_satelle_v1_satelle_proto_rawDesc = "" +
@@ -2647,7 +3139,59 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"RelayFrame\x12\x18\n" +
 	"\asession\x18\x01 \x01(\tR\asession\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data2N\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"\x9a\x01\n" +
+	"\x14PublishReviewRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
+	"\vpull_number\x18\x02 \x01(\x03R\n" +
+	"pullNumber\x12\x1d\n" +
+	"\n" +
+	"commit_sha\x18\x03 \x01(\tR\tcommitSha\x12\x14\n" +
+	"\x05event\x18\x04 \x01(\tR\x05event\x12\x12\n" +
+	"\x04body\x18\x05 \x01(\tR\x04body\"o\n" +
+	"\x15PublishReviewResponse\x12\x1b\n" +
+	"\treview_id\x18\x01 \x01(\x03R\breviewId\x12\x19\n" +
+	"\bhtml_url\x18\x02 \x01(\tR\ahtmlUrl\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x03 \x01(\tR\n" +
+	"repository\"\xc0\x01\n" +
+	"\x14PublishStatusRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1d\n" +
+	"\n" +
+	"commit_sha\x18\x02 \x01(\tR\tcommitSha\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x18\n" +
+	"\acontext\x18\x04 \x01(\tR\acontext\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1d\n" +
+	"\n" +
+	"target_url\x18\x06 \x01(\tR\ttargetUrl\"T\n" +
+	"\x15PublishStatusResponse\x12\x1b\n" +
+	"\tstatus_id\x18\x01 \x01(\x03R\bstatusId\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x02 \x01(\tR\n" +
+	"repository\"v\n" +
+	"\x1cListPullRequestEventsRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
+	"\vsince_token\x18\x02 \x01(\tR\n" +
+	"sinceToken\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"t\n" +
+	"\x1dListPullRequestEventsResponse\x124\n" +
+	"\x06events\x18\x01 \x03(\v2\x1c.satelle.v1.PullRequestEventR\x06events\x12\x1d\n" +
+	"\n" +
+	"next_token\x18\x02 \x01(\tR\tnextToken\"\xb2\x02\n" +
+	"\x10PullRequestEvent\x12\x1f\n" +
+	"\vdelivery_id\x18\x01 \x01(\tR\n" +
+	"deliveryId\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x03 \x01(\tR\n" +
+	"repository\x12\x1f\n" +
+	"\vpull_number\x18\x04 \x01(\x03R\n" +
+	"pullNumber\x12\x19\n" +
+	"\bhead_sha\x18\x05 \x01(\tR\aheadSha\x12\x19\n" +
+	"\bhead_ref\x18\x06 \x01(\tR\aheadRef\x12\x19\n" +
+	"\bbase_ref\x18\a \x01(\tR\abaseRef\x12\x16\n" +
+	"\x06sender\x18\b \x01(\tR\x06sender\x12;\n" +
+	"\vreceived_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"receivedAt2N\n" +
 	"\x0eAccountService\x12<\n" +
 	"\x05GetMe\x12\x18.satelle.v1.GetMeRequest\x1a\x19.satelle.v1.GetMeResponse2\xed\x01\n" +
 	"\x0eProjectService\x12Q\n" +
@@ -2681,7 +3225,11 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\fReportStatus\x12\x1f.satelle.v1.ReportStatusRequest\x1a .satelle.v1.ReportStatusResponse\x12B\n" +
 	"\aEndNode\x12\x1a.satelle.v1.EndNodeRequest\x1a\x1b.satelle.v1.EndNodeResponse2M\n" +
 	"\fRelayService\x12=\n" +
-	"\aConnect\x12\x16.satelle.v1.RelayFrame\x1a\x16.satelle.v1.RelayFrame(\x010\x01BAZ?github.com/bobmcallan/satelle/internal/wire/satellepb;satellepbb\x06proto3"
+	"\aConnect\x12\x16.satelle.v1.RelayFrame\x1a\x16.satelle.v1.RelayFrame(\x010\x012\xa9\x02\n" +
+	"\rGitHubService\x12T\n" +
+	"\rPublishReview\x12 .satelle.v1.PublishReviewRequest\x1a!.satelle.v1.PublishReviewResponse\x12T\n" +
+	"\rPublishStatus\x12 .satelle.v1.PublishStatusRequest\x1a!.satelle.v1.PublishStatusResponse\x12l\n" +
+	"\x15ListPullRequestEvents\x12(.satelle.v1.ListPullRequestEventsRequest\x1a).satelle.v1.ListPullRequestEventsResponseBAZ?github.com/bobmcallan/satelle/internal/wire/satellepb;satellepbb\x06proto3"
 
 var (
 	file_satelle_v1_satelle_proto_rawDescOnce sync.Once
@@ -2695,7 +3243,7 @@ func file_satelle_v1_satelle_proto_rawDescGZIP() []byte {
 	return file_satelle_v1_satelle_proto_rawDescData
 }
 
-var file_satelle_v1_satelle_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_satelle_v1_satelle_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_satelle_v1_satelle_proto_goTypes = []any{
 	(*GetMeRequest)(nil),                  // 0: satelle.v1.GetMeRequest
 	(*GetMeResponse)(nil),                 // 1: satelle.v1.GetMeResponse
@@ -2739,64 +3287,79 @@ var file_satelle_v1_satelle_proto_goTypes = []any{
 	(*EndNodeRequest)(nil),                // 39: satelle.v1.EndNodeRequest
 	(*EndNodeResponse)(nil),               // 40: satelle.v1.EndNodeResponse
 	(*RelayFrame)(nil),                    // 41: satelle.v1.RelayFrame
-	(*timestamppb.Timestamp)(nil),         // 42: google.protobuf.Timestamp
+	(*PublishReviewRequest)(nil),          // 42: satelle.v1.PublishReviewRequest
+	(*PublishReviewResponse)(nil),         // 43: satelle.v1.PublishReviewResponse
+	(*PublishStatusRequest)(nil),          // 44: satelle.v1.PublishStatusRequest
+	(*PublishStatusResponse)(nil),         // 45: satelle.v1.PublishStatusResponse
+	(*ListPullRequestEventsRequest)(nil),  // 46: satelle.v1.ListPullRequestEventsRequest
+	(*ListPullRequestEventsResponse)(nil), // 47: satelle.v1.ListPullRequestEventsResponse
+	(*PullRequestEvent)(nil),              // 48: satelle.v1.PullRequestEvent
+	(*timestamppb.Timestamp)(nil),         // 49: google.protobuf.Timestamp
 }
 var file_satelle_v1_satelle_proto_depIdxs = []int32{
 	2,  // 0: satelle.v1.ListProjectsResponse.projects:type_name -> satelle.v1.Project
 	7,  // 1: satelle.v1.ListWorkspacesResponse.workspaces:type_name -> satelle.v1.Workspace
-	42, // 2: satelle.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
+	49, // 2: satelle.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
 	12, // 3: satelle.v1.PutItemsRequest.items:type_name -> satelle.v1.Item
-	42, // 4: satelle.v1.Attachment.stored_at:type_name -> google.protobuf.Timestamp
+	49, // 4: satelle.v1.Attachment.stored_at:type_name -> google.protobuf.Timestamp
 	15, // 5: satelle.v1.PutAttachmentRequest.attachment:type_name -> satelle.v1.Attachment
 	15, // 6: satelle.v1.ListAttachmentChangesResponse.attachments:type_name -> satelle.v1.Attachment
-	42, // 7: satelle.v1.Secret.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 8: satelle.v1.AccountService.GetMe:input_type -> satelle.v1.GetMeRequest
-	3,  // 9: satelle.v1.ProjectService.ListProjects:input_type -> satelle.v1.ListProjectsRequest
-	5,  // 10: satelle.v1.ProjectService.GetProject:input_type -> satelle.v1.GetProjectRequest
-	6,  // 11: satelle.v1.ProjectService.CreateProject:input_type -> satelle.v1.CreateProjectRequest
-	8,  // 12: satelle.v1.WorkspaceService.ListWorkspaces:input_type -> satelle.v1.ListWorkspacesRequest
-	10, // 13: satelle.v1.LocationService.RegisterLocation:input_type -> satelle.v1.RegisterLocationRequest
-	13, // 14: satelle.v1.ItemService.PutItems:input_type -> satelle.v1.PutItemsRequest
-	16, // 15: satelle.v1.AttachmentService.PutAttachment:input_type -> satelle.v1.PutAttachmentRequest
-	18, // 16: satelle.v1.AttachmentService.GetAttachment:input_type -> satelle.v1.GetAttachmentRequest
-	19, // 17: satelle.v1.AttachmentService.ListAttachmentChanges:input_type -> satelle.v1.ListAttachmentChangesRequest
-	21, // 18: satelle.v1.RemoteService.FireRemote:input_type -> satelle.v1.FireRemoteRequest
-	23, // 19: satelle.v1.RemoteService.GetItemRun:input_type -> satelle.v1.GetItemRunRequest
-	25, // 20: satelle.v1.RemoteService.StartNode:input_type -> satelle.v1.StartNodeRequest
-	27, // 21: satelle.v1.NodeService.GetNode:input_type -> satelle.v1.GetNodeRequest
-	29, // 22: satelle.v1.NodeService.GetDefinition:input_type -> satelle.v1.GetDefinitionRequest
-	31, // 23: satelle.v1.NodeService.ReadSecret:input_type -> satelle.v1.ReadSecretRequest
-	33, // 24: satelle.v1.NodeService.GetRun:input_type -> satelle.v1.GetRunRequest
-	35, // 25: satelle.v1.NodeService.PublishChannelKey:input_type -> satelle.v1.PublishChannelKeyRequest
-	37, // 26: satelle.v1.NodeService.ReportStatus:input_type -> satelle.v1.ReportStatusRequest
-	39, // 27: satelle.v1.NodeService.EndNode:input_type -> satelle.v1.EndNodeRequest
-	41, // 28: satelle.v1.RelayService.Connect:input_type -> satelle.v1.RelayFrame
-	1,  // 29: satelle.v1.AccountService.GetMe:output_type -> satelle.v1.GetMeResponse
-	4,  // 30: satelle.v1.ProjectService.ListProjects:output_type -> satelle.v1.ListProjectsResponse
-	2,  // 31: satelle.v1.ProjectService.GetProject:output_type -> satelle.v1.Project
-	2,  // 32: satelle.v1.ProjectService.CreateProject:output_type -> satelle.v1.Project
-	9,  // 33: satelle.v1.WorkspaceService.ListWorkspaces:output_type -> satelle.v1.ListWorkspacesResponse
-	11, // 34: satelle.v1.LocationService.RegisterLocation:output_type -> satelle.v1.RegisterLocationResponse
-	14, // 35: satelle.v1.ItemService.PutItems:output_type -> satelle.v1.PutItemsResponse
-	17, // 36: satelle.v1.AttachmentService.PutAttachment:output_type -> satelle.v1.PutAttachmentResponse
-	15, // 37: satelle.v1.AttachmentService.GetAttachment:output_type -> satelle.v1.Attachment
-	20, // 38: satelle.v1.AttachmentService.ListAttachmentChanges:output_type -> satelle.v1.ListAttachmentChangesResponse
-	22, // 39: satelle.v1.RemoteService.FireRemote:output_type -> satelle.v1.FireRemoteResponse
-	24, // 40: satelle.v1.RemoteService.GetItemRun:output_type -> satelle.v1.ItemRun
-	26, // 41: satelle.v1.RemoteService.StartNode:output_type -> satelle.v1.StartNodeResponse
-	28, // 42: satelle.v1.NodeService.GetNode:output_type -> satelle.v1.Node
-	30, // 43: satelle.v1.NodeService.GetDefinition:output_type -> satelle.v1.Definition
-	32, // 44: satelle.v1.NodeService.ReadSecret:output_type -> satelle.v1.Secret
-	34, // 45: satelle.v1.NodeService.GetRun:output_type -> satelle.v1.RunDescriptor
-	36, // 46: satelle.v1.NodeService.PublishChannelKey:output_type -> satelle.v1.PublishChannelKeyResponse
-	38, // 47: satelle.v1.NodeService.ReportStatus:output_type -> satelle.v1.ReportStatusResponse
-	40, // 48: satelle.v1.NodeService.EndNode:output_type -> satelle.v1.EndNodeResponse
-	41, // 49: satelle.v1.RelayService.Connect:output_type -> satelle.v1.RelayFrame
-	29, // [29:50] is the sub-list for method output_type
-	8,  // [8:29] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	49, // 7: satelle.v1.Secret.expires_at:type_name -> google.protobuf.Timestamp
+	48, // 8: satelle.v1.ListPullRequestEventsResponse.events:type_name -> satelle.v1.PullRequestEvent
+	49, // 9: satelle.v1.PullRequestEvent.received_at:type_name -> google.protobuf.Timestamp
+	0,  // 10: satelle.v1.AccountService.GetMe:input_type -> satelle.v1.GetMeRequest
+	3,  // 11: satelle.v1.ProjectService.ListProjects:input_type -> satelle.v1.ListProjectsRequest
+	5,  // 12: satelle.v1.ProjectService.GetProject:input_type -> satelle.v1.GetProjectRequest
+	6,  // 13: satelle.v1.ProjectService.CreateProject:input_type -> satelle.v1.CreateProjectRequest
+	8,  // 14: satelle.v1.WorkspaceService.ListWorkspaces:input_type -> satelle.v1.ListWorkspacesRequest
+	10, // 15: satelle.v1.LocationService.RegisterLocation:input_type -> satelle.v1.RegisterLocationRequest
+	13, // 16: satelle.v1.ItemService.PutItems:input_type -> satelle.v1.PutItemsRequest
+	16, // 17: satelle.v1.AttachmentService.PutAttachment:input_type -> satelle.v1.PutAttachmentRequest
+	18, // 18: satelle.v1.AttachmentService.GetAttachment:input_type -> satelle.v1.GetAttachmentRequest
+	19, // 19: satelle.v1.AttachmentService.ListAttachmentChanges:input_type -> satelle.v1.ListAttachmentChangesRequest
+	21, // 20: satelle.v1.RemoteService.FireRemote:input_type -> satelle.v1.FireRemoteRequest
+	23, // 21: satelle.v1.RemoteService.GetItemRun:input_type -> satelle.v1.GetItemRunRequest
+	25, // 22: satelle.v1.RemoteService.StartNode:input_type -> satelle.v1.StartNodeRequest
+	27, // 23: satelle.v1.NodeService.GetNode:input_type -> satelle.v1.GetNodeRequest
+	29, // 24: satelle.v1.NodeService.GetDefinition:input_type -> satelle.v1.GetDefinitionRequest
+	31, // 25: satelle.v1.NodeService.ReadSecret:input_type -> satelle.v1.ReadSecretRequest
+	33, // 26: satelle.v1.NodeService.GetRun:input_type -> satelle.v1.GetRunRequest
+	35, // 27: satelle.v1.NodeService.PublishChannelKey:input_type -> satelle.v1.PublishChannelKeyRequest
+	37, // 28: satelle.v1.NodeService.ReportStatus:input_type -> satelle.v1.ReportStatusRequest
+	39, // 29: satelle.v1.NodeService.EndNode:input_type -> satelle.v1.EndNodeRequest
+	41, // 30: satelle.v1.RelayService.Connect:input_type -> satelle.v1.RelayFrame
+	42, // 31: satelle.v1.GitHubService.PublishReview:input_type -> satelle.v1.PublishReviewRequest
+	44, // 32: satelle.v1.GitHubService.PublishStatus:input_type -> satelle.v1.PublishStatusRequest
+	46, // 33: satelle.v1.GitHubService.ListPullRequestEvents:input_type -> satelle.v1.ListPullRequestEventsRequest
+	1,  // 34: satelle.v1.AccountService.GetMe:output_type -> satelle.v1.GetMeResponse
+	4,  // 35: satelle.v1.ProjectService.ListProjects:output_type -> satelle.v1.ListProjectsResponse
+	2,  // 36: satelle.v1.ProjectService.GetProject:output_type -> satelle.v1.Project
+	2,  // 37: satelle.v1.ProjectService.CreateProject:output_type -> satelle.v1.Project
+	9,  // 38: satelle.v1.WorkspaceService.ListWorkspaces:output_type -> satelle.v1.ListWorkspacesResponse
+	11, // 39: satelle.v1.LocationService.RegisterLocation:output_type -> satelle.v1.RegisterLocationResponse
+	14, // 40: satelle.v1.ItemService.PutItems:output_type -> satelle.v1.PutItemsResponse
+	17, // 41: satelle.v1.AttachmentService.PutAttachment:output_type -> satelle.v1.PutAttachmentResponse
+	15, // 42: satelle.v1.AttachmentService.GetAttachment:output_type -> satelle.v1.Attachment
+	20, // 43: satelle.v1.AttachmentService.ListAttachmentChanges:output_type -> satelle.v1.ListAttachmentChangesResponse
+	22, // 44: satelle.v1.RemoteService.FireRemote:output_type -> satelle.v1.FireRemoteResponse
+	24, // 45: satelle.v1.RemoteService.GetItemRun:output_type -> satelle.v1.ItemRun
+	26, // 46: satelle.v1.RemoteService.StartNode:output_type -> satelle.v1.StartNodeResponse
+	28, // 47: satelle.v1.NodeService.GetNode:output_type -> satelle.v1.Node
+	30, // 48: satelle.v1.NodeService.GetDefinition:output_type -> satelle.v1.Definition
+	32, // 49: satelle.v1.NodeService.ReadSecret:output_type -> satelle.v1.Secret
+	34, // 50: satelle.v1.NodeService.GetRun:output_type -> satelle.v1.RunDescriptor
+	36, // 51: satelle.v1.NodeService.PublishChannelKey:output_type -> satelle.v1.PublishChannelKeyResponse
+	38, // 52: satelle.v1.NodeService.ReportStatus:output_type -> satelle.v1.ReportStatusResponse
+	40, // 53: satelle.v1.NodeService.EndNode:output_type -> satelle.v1.EndNodeResponse
+	41, // 54: satelle.v1.RelayService.Connect:output_type -> satelle.v1.RelayFrame
+	43, // 55: satelle.v1.GitHubService.PublishReview:output_type -> satelle.v1.PublishReviewResponse
+	45, // 56: satelle.v1.GitHubService.PublishStatus:output_type -> satelle.v1.PublishStatusResponse
+	47, // 57: satelle.v1.GitHubService.ListPullRequestEvents:output_type -> satelle.v1.ListPullRequestEventsResponse
+	34, // [34:58] is the sub-list for method output_type
+	10, // [10:34] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_satelle_v1_satelle_proto_init() }
@@ -2810,9 +3373,9 @@ func file_satelle_v1_satelle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_satelle_v1_satelle_proto_rawDesc), len(file_satelle_v1_satelle_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   42,
+			NumMessages:   49,
 			NumExtensions: 0,
-			NumServices:   9,
+			NumServices:   10,
 		},
 		GoTypes:           file_satelle_v1_satelle_proto_goTypes,
 		DependencyIndexes: file_satelle_v1_satelle_proto_depIdxs,

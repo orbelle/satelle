@@ -278,3 +278,71 @@ message RelayFrame {
   string role = 2;    // first frame only: local | remote
   bytes data = 3;
 }
+
+// ---- GitHub (the satelle GitHub app, through satelle-server) ----
+
+// GitHubService publishes a client's own review and status on its project's
+// repository, and lists the pull-request events the app received for it. The
+// server derives the installation and repository from the project's binding
+// (a caller publishes only on its own project's repository), mints a token per
+// call and never returns it, and decides nothing: event, state, context and
+// body are the client's, passed to GitHub unchanged. The server never appends
+// to an item's chain; the client records what it published. Errors:
+// FAILED_PRECONDITION when the project has no GitHub binding or the app is not
+// configured; NOT_FOUND or PERMISSION_DENIED for a non-member.
+service GitHubService {
+  rpc PublishReview(PublishReviewRequest) returns (PublishReviewResponse);
+  rpc PublishStatus(PublishStatusRequest) returns (PublishStatusResponse);
+  // ListPullRequestEvents pages the verified pull-request webhook deliveries
+  // received for the project's repository, oldest first, retained for a
+  // server-configured time.
+  rpc ListPullRequestEvents(ListPullRequestEventsRequest) returns (ListPullRequestEventsResponse);
+}
+
+message PublishReviewRequest {
+  string project = 1;
+  int64 pull_number = 2;
+  string commit_sha = 3;
+  string event = 4; // APPROVE | REQUEST_CHANGES | COMMENT, passed through
+  string body = 5;  // names the team and the gate
+}
+message PublishReviewResponse {
+  int64 review_id = 1;
+  string html_url = 2;
+  string repository = 3; // owner/name
+}
+
+message PublishStatusRequest {
+  string project = 1;
+  string commit_sha = 2;
+  string state = 3; // error | failure | pending | success, passed through
+  string context = 4;
+  string description = 5;
+  string target_url = 6;
+}
+message PublishStatusResponse {
+  int64 status_id = 1;
+  string repository = 2; // owner/name
+}
+
+message ListPullRequestEventsRequest {
+  string project = 1;
+  string since_token = 2; // "" from the start
+  int32 page_size = 3;
+}
+message ListPullRequestEventsResponse {
+  repeated PullRequestEvent events = 1;
+  string next_token = 2; // resume from here; equal to since_token when nothing is new
+}
+
+message PullRequestEvent {
+  string delivery_id = 1;
+  string action = 2; // opened | synchronize | ..., as GitHub delivered it
+  string repository = 3; // owner/name
+  int64 pull_number = 4;
+  string head_sha = 5;
+  string head_ref = 6;
+  string base_ref = 7;
+  string sender = 8;
+  google.protobuf.Timestamp received_at = 9;
+}
