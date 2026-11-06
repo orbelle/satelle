@@ -55,6 +55,7 @@ func ServerEndpointEnv() (endpoint string, disabled bool, set bool) {
 type GlobalConfig struct {
 	Service  ServiceConfig      `toml:"service"`
 	Projects ProjectsConfig     `toml:"projects"`
+	Upgrade  UpgradeConfig      `toml:"upgrade"`
 	UI       UIConfig           `toml:"ui"`
 	Hosted   GlobalHostedConfig `toml:"hosted"`
 }
@@ -107,6 +108,41 @@ func (h GlobalHostedConfig) ResolveServer() string {
 // light/dark choice follows the operator rather than a single browser origin.
 type UIConfig struct {
 	Theme string `toml:"theme"` // "dark" | "light" (empty = light default)
+}
+
+// UpgradeConfig is this machine's settings for satelle upgrade.
+type UpgradeConfig struct {
+	// StartClean lists repo roots that start clean on v1: satelle upgrade
+	// archives their old .satelle but refuses to import their old ledger.
+	StartClean []string `toml:"start_clean"`
+}
+
+// StartCleanFor reports whether repoRoot is listed in [upgrade] start_clean,
+// comparing canonical (symlink-resolved) roots, and names the setting.
+func (gc GlobalConfig) StartCleanFor(repoRoot string) (bool, string) {
+	resolved := func(p string) string {
+		root := filepath.Clean(CanonicalRepoRoot(p))
+		if r, err := filepath.EvalSymlinks(root); err == nil {
+			return r
+		}
+		return root
+	}
+	want := resolved(repoRoot)
+	for _, r := range gc.Upgrade.StartClean {
+		if resolved(r) == want {
+			return true, "[upgrade] start_clean in " + GlobalConfigPath()
+		}
+	}
+	return false, ""
+}
+
+// tomlStrings renders a string list as a TOML array.
+func tomlStrings(ss []string) string {
+	quoted := make([]string, len(ss))
+	for i, s := range ss {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // ProjectsConfig is this machine's projects: the repos or directories satelled
@@ -286,15 +322,8 @@ func SaveGlobal(gc GlobalConfig) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("config: mkdir %s: %w", dir, err)
 	}
-	repos := "[]"
-	if len(gc.Projects.Paths) > 0 {
-		quoted := make([]string, len(gc.Projects.Paths))
-		for i, r := range gc.Projects.Paths {
-			quoted[i] = fmt.Sprintf("%q", r)
-		}
-		repos = "[" + strings.Join(quoted, ", ") + "]"
-	}
-	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo, repos, gc.UI.Theme, gc.Hosted.ResolveServer())
+	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo,
+		tomlStrings(gc.Projects.Paths), tomlStrings(gc.Upgrade.StartClean), gc.UI.Theme, gc.Hosted.ResolveServer())
 	body += renderHostedPush(gc.Hosted.Push)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -369,6 +398,12 @@ repo = %q
 # this machine's projects (repos or directories) satelled shows. Manage with
 # 'satelle project add|remove|list'.
 paths = %s
+
+[upgrade]
+# repo roots that start clean on v1: 'satelle upgrade --archive' still archives
+# their old .satelle, but 'satelle upgrade --from' refuses to import their old
+# ledger (see 'satelle help upgrade').
+start_clean = %s
 
 [ui]
 # light/dark theme shared across every repo's web UI ("dark" | "" = light).

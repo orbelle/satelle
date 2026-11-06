@@ -75,6 +75,9 @@ const (
 func LoadConfig(root string) (*Config, error) {
 	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{}}
 	var errs []error
+	if err := legacyProblem(root); err != nil {
+		errs = append(errs, err)
+	}
 	if err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &c.Settings); err != nil {
 		errs = append(errs, err)
 	}

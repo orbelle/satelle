@@ -51,7 +51,11 @@ satelled and remotes is mechanism worth keeping.
    knows nothing of any workflow. It is the source of truth. The current ledger
    is reference material, not a constraint: the format may be rewritten. Existing
    stores are archived as they are (moved aside, untouched), and the rebuilt
-   binary starts a fresh ledger; no migration or import is built.
+   binary starts a fresh ledger. Superseded by the operator ruling that
+   satelle provides the way across: `satelle upgrade --archive` archives a
+   pre-1.0 .satelle and starts v1, and `satelle upgrade --from` imports the
+   operator's other repos' story ledgers by a confirmed status map
+   (sto_cc74bd5e).
 7. **Edit gate and harness hooks.** Generic: an edit is allowed only while a work
    item sits in a performing state allocated to the editing agent. Harness
    adapters (Claude, pi, and grok if present) are thin and agent-agnostic.
