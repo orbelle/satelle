@@ -326,7 +326,7 @@ merges into another package.
 | `settings` (+`server`) | kept | **8/11**. Legacy `web_port`/`sync.server` keys go. |
 | `service install/uninstall/status/restart` | kept | **8**. satelled's service entry point is maintained. |
 | `serve` | kept (alias), Q-serve | The help calls it a deprecated alias of `satelled`, but `service install` falls back to it, so it is part of satelled's entry points. |
-| `project add/list/remove/partitions/prune` (was `workspace …`, sto_b4fa76fe) | kept | **8**. Feeds satelled's mirror ingest; satelled itself execs `project add`. |
+| `project add/list/remove/partitions/prune` (was `workspace …`, sto_b4fa76fe) | kept | **8**. Feeds satelled's mirror ingest; satelled runs no CLI command (sto_1f2f6964). |
 | `runtime path/list/reap` | kept | **8**. Runtime plane under `~/.satelle/<key>`. |
 | `runtime migrate` | deleted | Compat for the legacy in-repo layout. |
 | `logs` | kept | Runtime logs. The `.satelle/logs` symlink pointer goes. |
@@ -503,13 +503,7 @@ satelled serves **plain HTTP only**: no gRPC, no Connect. The surface is:
   - `POST /ingest/remove`: `{repo_key}`.
   - Callers: push/publisher.go, cli/uisnapshot.go, cli/cmd_workspace.go.
   - The endpoint comes from `[service] endpoint` (default `http://127.0.0.1:8787`); `SATELLE_SERVER_ENDPOINT` overrides it, and `none` disables it.
-- **satelled → CLI exec contract** (serve/children.go). satelled runs the sibling `satelle` with:
-  - `sync workstate push`
-  - `sync workstate rechain --conflicted`
-  - `sync workstate snapshot|follow|fetch <id>`
-  - `project add` (with `SATELLE_SERVER_ENDPOINT` and `SATELLE_INGEST_ORIGIN=hosted`)
-  - `sync documents push --snapshot-only`
-  - `sync pull --fast-forward-only`
+- **satelled → CLI exec contract: none in v1.** The pre-rebuild satelled ran the sibling `satelle` (serve/children.go) for `sync workstate push|rechain|snapshot|follow|fetch`, `workspace add`, `sync documents push` and `sync pull`. v1's satelled runs no CLI command: it is fed only by the CLI's pushes (`/ingest/change`, `/ingest/snapshot`, `/ingest/remove`), and `serve/deps_test.go` enforces that it never links the CLI (sto_1f2f6964).
 - **CLI entry points**
   - `satelle service install|uninstall|status|restart`. Install flags: `--port`, `--addr`, `--repo`, `--serve-bin`, `--system`. The unit is `satelle.service` with `ExecStart=<satelled> --addr A --port P`, falling back to `satelle serve`.
   - `satelle serve` (`--addr`, `--port`; hidden `--no-watch`, `--base-path`).
