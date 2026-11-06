@@ -3,6 +3,11 @@
 ### Added
 - Queues (`satelle help queues`): a `que_` item gathers items by a filter (`--input-kind/-status/-tag/-category`) and by explicit `satelle queue add`, and its trigger runs a task (an execution under it) or a workflow (an execution under the queue in that workflow's start state) over its members. `--min-size N` fires synchronously in the command whose enqueue reaches N; `satelle queue fire` fires by hand (exit 2 while the last run is open or the queue moved); satelle schedules and watches nothing. The queue's ledger records `queue.added`, `queue.removed` and `queue.fired`; the run's `task.run` names the queue. A workflow state's `enqueue = ["que_…"]` adds every item entering it. satelled has a live Queues tab: filter, trigger, members and last fire with its run's status. `satelle task|queue set --clear-inputs` clears a selection. The release procedure's step 0 now fires the release run from a release queue (filter approved stories, trigger the release task), creating it on first use. (sto_8f1605c8)
 
+## [1.0.11] - 2026-11-06
+
+### Fixed
+- `satelle update` installs the satelled release with the highest version among the `serve-v*` tags (1.0.10 beats 1.0.9), whatever order GitHub lists them in, and `--version X` installs satelled from `serve-vX` too, refusing (and replacing nothing) when that release has no asset for the platform. Every asset is downloaded and checked before either binary is replaced. The release procedure's install step runs the new binary's update a second time. (sto_7dbee6f2)
+
 ## [1.0.10] - 2026-11-06
 
 ### Added

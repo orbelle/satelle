@@ -165,3 +165,89 @@ func TestUpdateMissingAssetFails(t *testing.T) {
 		t.Errorf("the binary was replaced: %q", got)
 	}
 }
+
+func TestNewestServeTagComparesNumerically(t *testing.T) {
+	for _, c := range []struct {
+		tags []string
+		want string
+		ok   bool
+	}{
+		{[]string{"v1.0.10", "serve-v1.0.9", "v1.0.9", "serve-v1.0.10"}, "serve-v1.0.10", true},
+		{[]string{"serve-v0.0.297", "serve-v1.0.2", "serve-v1.0.10", "serve-v1.0.9"}, "serve-v1.0.10", true},
+		{[]string{"serve-vnext", "serve-v1.0.1"}, "serve-v1.0.1", true},
+		{[]string{"serve-v1.0", "serve-v1.0.1"}, "serve-v1.0.1", true},
+		{[]string{"v2.0.0", "v1.0.0"}, "", false},
+	} {
+		got, ok := newestServeTag(c.tags)
+		if got != c.want || ok != c.ok {
+			t.Errorf("newestServeTag(%v) = %q %v, want %q %v", c.tags, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// GitHub lists serve-v1.0.9 before serve-v1.0.10; update takes 1.0.10.
+func TestUpdateInstallsTheNewestSatelledNotTheFirstListed(t *testing.T) {
+	isolate(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake satelled is a shell script")
+	}
+	_, daemon := fakeInstall(t, true)
+	releaseServer(t, "v1.0.10", []string{"v1.0.10", "serve-v1.0.9", "v1.0.9", "serve-v1.0.10"}, map[string]string{
+		"v1.0.10/" + asset("satelle", "1.0.10"):        "cli 1.0.10",
+		"serve-v1.0.9/" + asset("satelled", "1.0.9"):   "daemon 1.0.9",
+		"serve-v1.0.10/" + asset("satelled", "1.0.10"): "daemon 1.0.10",
+	}, "")
+	out := must(t, "update")
+	if !strings.Contains(out, "satelled 0.1.0 → 1.0.10") {
+		t.Errorf("update printed:\n%s", out)
+	}
+	if got := readString(t, daemon); got != "daemon 1.0.10" {
+		t.Errorf("satelled = %q", got)
+	}
+}
+
+func TestUpdatePinsSatelledToTheVersion(t *testing.T) {
+	isolate(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake satelled is a shell script")
+	}
+	cli, daemon := fakeInstall(t, true)
+	releaseServer(t, "v2.0.0", []string{"v2.0.0", "serve-v2.0.0"}, map[string]string{
+		"v1.5.0/" + asset("satelle", "1.5.0"):        "pinned cli",
+		"serve-v1.5.0/" + asset("satelled", "1.5.0"): "pinned daemon",
+		"serve-v2.0.0/" + asset("satelled", "2.0.0"): "newer daemon",
+	}, "")
+	out := must(t, "update", "--version", "1.5.0")
+	if !strings.Contains(out, "satelled 0.1.0 → 1.5.0") {
+		t.Errorf("update printed:\n%s", out)
+	}
+	if got := readString(t, cli); got != "pinned cli" {
+		t.Errorf("cli = %q", got)
+	}
+	if got := readString(t, daemon); got != "pinned daemon" {
+		t.Errorf("satelled = %q", got)
+	}
+}
+
+func TestUpdatePinnedSatelledWithoutAssetRefuses(t *testing.T) {
+	isolate(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake satelled is a shell script")
+	}
+	cli, daemon := fakeInstall(t, true)
+	before := readString(t, daemon)
+	releaseServer(t, "v2.0.0", []string{"v2.0.0", "serve-v2.0.0"}, map[string]string{
+		"v1.5.0/" + asset("satelle", "1.5.0"):        "pinned cli",
+		"serve-v2.0.0/" + asset("satelled", "2.0.0"): "newer daemon",
+	}, "")
+	_, err := run(t, "", "update", "--version", "1.5.0")
+	if err == nil || !strings.Contains(err.Error(), "serve-v1.5.0") || !strings.Contains(err.Error(), asset("satelled", "1.5.0")) {
+		t.Fatalf("pinned update without a satelled asset: %v", err)
+	}
+	if got := readString(t, cli); got != "old cli" {
+		t.Errorf("the cli was replaced: %q", got)
+	}
+	if got := readString(t, daemon); got != before {
+		t.Errorf("satelled was replaced: %q", got)
+	}
+}

@@ -145,11 +145,15 @@ dbin=<the path in the [...] of the "installed" line of satelle service status>
 bk="$(satelle runtime path)/backups/bin/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$bk"; cp -p "$sbin" "$dbin" "$bk/"
 printf 'restore: install -m 0755 %s %s && install -m 0755 %s %s && satelle service restart\n' "$bk/satelle" "$sbin" "$bk/satelled" "$dbin"
 satelle update --version <ver>
+"$sbin" update --version <ver>    # the new binary's own update: satelled serve-v<ver>
 satelle service restart
 ```
 
 The restore line is printed, with real paths and no placeholder, before
-anything is replaced. The backup is never deleted by the run.
+anything is replaced. The backup is never deleted by the run. The second
+update runs the binary just installed, so a fix to `satelle update` itself
+takes effect in the run that ships it; when the pair is already right it only
+prints two `is current` lines.
 
 ## 8. Check
 
