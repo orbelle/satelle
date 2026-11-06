@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.13] - 2026-11-06
 
 ### Added
 - Queues are declared in tracked files, `.satelle/queues/<name>.toml` (title, `[filter]`, `[trigger]` task or workflow, base, `min_size`), like workflows. The file is the queue's definition; the ledger keeps its members and fires. Every queue command takes the name (`satelle queue show release`). A file binds the chain `id` names (adopting a queue made on the ledger, with its members and fire history) or `que_<name>`, created on first use; editing the file applies on the next command. `satelle validate` checks each file (unknown keys, title, an empty filter, the trigger's shape and workflow, two files binding one chain). `satelle queue show` says which file defines a queue (`defined_by` in JSON), and satelled shows the file's definition. This repo's release queue is `.satelle/queues/release.toml`, adopting `que_65bc4edc`. (sto_533a7930)
