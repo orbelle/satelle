@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.5] - 2026-11-06
 
 ### Changed
 - DEV ends at `approved` and CI/CD is a task, as satelle-server runs it: a story or chore enters `approved` after the full local suite (`make test`) and an open, auto-approved pull request against main whose head is HEAD and contains origin/main (no review or GitHub test is read). It reaches `done` only through a run of the release task, which fast-forwards main to each tested head without re-testing, sends back any head that no longer fast-forwards (the item reopens at `in_progress` with the reason on it), bumps the version once, dispatches release.yml, backs up and installs the published build here with a one-line restore, and checks it. The version bump moved from the hand-run release skill into the run. Gates: pr-ready, release-run, version-stamp, changelog-entry, ci-published, release-installed. (sto_8c8d8853)
