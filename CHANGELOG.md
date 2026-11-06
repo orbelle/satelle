@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.8] - 2026-11-06
 
 ### Added
 - `satelle upgrade`, the way from a pre-1.0 repo onto v1 (`satelle help upgrade`). `--archive` moves the old `.satelle`, verified file by file, to `<runtime>/archive/<UTC stamp>/.satelle` (nothing deleted) and writes a fresh v1 `.satelle`, so the edit gate works again. `--from <old store> --map <status map>` imports every old item, open and closed, with its id, fields, criteria (split from the old single text), created time, history (`upgrade.imported`) and documents (attachments with identical bytes), in the workflow and state the operator-confirmed map gives; an unmapped status refuses the whole import before anything is written; `upgrade.mapped` records the mapping on each item; a second run imports nothing twice. `--dry-run` writes nothing. `~/.satelle/config.toml` `[upgrade] start_clean` lists repos whose old ledger is not imported. (sto_cc74bd5e)
