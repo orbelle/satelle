@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.2] - 2026-11-06
 
 ### Changed
 - satelled's top bar shows who the CLI is signed in as: an outlined avatar with the first letter of the name, name and email in its title, as on satelle.dev. The CLI's push carries the name and email stamped into its local credential store at login (never a token); satelled shows the latest push's user on every page. The build line is in the footer only. (sto_b8d4e844)
