@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -119,16 +121,29 @@ to = "retired"
 	s.must("validate")
 	task := s.create("task", "--title", "Release approved items")
 
-	// The release queue as this repo's ledger carries it, declared on the
-	// approved state the way delivery.toml and chore.toml declare it.
-	repoQue := repoReleaseQueue(t)
-	q := s.create("queue", "--title", "Release queue: approved stories", "--input-kind", "story", "--input-status", "approved",
-		"--trigger-task", task.ID, "--trigger-base", "origin/main", "--min-size", "0")
+	// A queue created on the ledger before queues were files, with one
+	// approved story added by hand: the repo's release.toml adopts it.
+	q := s.create("queue", "--title", "legacy")
+	legacy := s.create("story", "--title", "story")
+	s.must("story", "set", legacy.ID, "--status", "approved")
+	s.must("queue", "add", q.ID, legacy.ID)
+	approved := []string{legacy.ID}
+
+	// The repo's release.toml, rebound to this sandbox's queue and task.
+	releaseTOML := repoReleaseQueue(t)
+	for _, line := range []string{`id = "que_65bc4edc"`, `task = "tas_42301d36"`} {
+		if !strings.Contains(releaseTOML, line+"\n") {
+			t.Fatalf(".satelle/queues/release.toml lacks %s:\n%s", line, releaseTOML)
+		}
+	}
+	releaseTOML = strings.Replace(releaseTOML, `id = "que_65bc4edc"`, `id = "`+q.ID+`"`, 1)
+	releaseTOML = strings.Replace(releaseTOML, `task = "tas_42301d36"`, `task = "`+task.ID+`"`, 1)
+	s.write(".satelle/queues/release.toml", releaseTOML)
 	s.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]
 start = true
 [states.approved]
-enqueue = ["`+q.ID+`"]
+enqueue = ["release"]
 [states.done]
 terminal = true
 [[transition]]
@@ -139,36 +154,41 @@ from = ["approved"]
 to = "done"
 `)
 	s.must("validate")
-	var approved []string
 	var other string
-	for i := range 3 {
+	for i := range 2 {
 		st := s.create("story", "--title", "story")
-		if i < 2 {
-			if out := s.must("story", "set", st.ID, "--status", "approved"); !strings.Contains(out, q.ID) {
-				t.Fatalf("moving %s to approved reported no enqueue into %s:\n%s", st.ID, q.ID, out)
+		if i < 1 {
+			if out := s.must("story", "set", st.ID, "--status", "approved"); !strings.Contains(out, "queued "+st.ID+" in release ("+q.ID+")") {
+				t.Fatalf("moving %s to approved reported no enqueue into release (%s):\n%s", st.ID, q.ID, out)
 			}
 			approved = append(approved, st.ID)
 		} else {
 			other = st.ID
 		}
 	}
-	var added []string
+	var added, causes []string
 	for _, e := range s.ledger(q.ID, item.KindQueueAdded) {
 		var qe item.QueueEntry
-		if json.Unmarshal(e.Payload, &qe) != nil || qe.Cause != "flow:backlog->approved" {
+		if json.Unmarshal(e.Payload, &qe) != nil {
 			t.Fatalf("queue.added %s", e.Payload)
 		}
-		added = append(added, qe.Item)
+		added, causes = append(added, qe.Item), append(causes, qe.Cause)
 	}
-	if !slices.Equal(added, approved) {
-		t.Fatalf("explicit members %v, want %v", added, approved)
+	if !slices.Equal(added, approved) || !slices.Equal(causes, []string{"", "flow:backlog->approved"}) {
+		t.Fatalf("explicit members %v causes %q, want %v", added, causes, approved)
+	}
+	var shown struct {
+		ID        string `json:"id"`
+		DefinedBy string `json:"defined_by"`
+	}
+	s.mustJSON(&shown, "queue", "show", "release")
+	if shown.ID != q.ID || shown.DefinedBy != ".satelle/queues/release.toml" {
+		t.Fatalf("queue show release %+v", shown)
 	}
 	step0 := shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)
-	queRE := regexp.MustCompile(`(?m)^que=(\S+)$`)
-	if m := queRE.FindAllStringSubmatch(step0, -1); len(m) != 1 || m[0][1] != repoQue {
-		t.Fatalf("step 0 names release queue %v, want one que=%s line", m, repoQue)
+	if m := regexp.MustCompile(`(?m)^que=(\S+)$`).FindAllStringSubmatch(step0, -1); len(m) != 1 || m[0][1] != "release" {
+		t.Fatalf("step 0 names release queue %v, want one que=release line", m)
 	}
-	step0 = queRE.ReplaceAllString(step0, "que="+q.ID)
 
 	// Run 1: fires the queue and seats the run.
 	r := s.exec("bash", "", "-c", step0)
@@ -290,25 +310,39 @@ to = "done"
 	}
 }
 
-// repoReleaseQueue is the queue this repo's delivery and chore workflows
-// enqueue approved stories into; both must name the same single queue.
+// repoReleaseQueue is this repo's .satelle/queues/release.toml, after
+// checking that the delivery and chore workflows enqueue approved stories
+// into it by name.
 func repoReleaseQueue(t *testing.T) string {
 	t.Helper()
-	re := regexp.MustCompile(`(?m)^\[states\.approved\]\n(?:#.*\n)*enqueue = \["(que_[0-9a-f]{8})"\]$`)
-	que := ""
+	re := regexp.MustCompile(`(?m)^\[states\.approved\]\n(?:#.*\n)*enqueue = \["release"\]$`)
 	for _, wf := range []string{"delivery", "chore"} {
 		b, err := os.ReadFile("../.satelle/workflows/" + wf + ".toml")
 		if err != nil {
 			t.Fatal(err)
 		}
-		m := re.FindSubmatch(b)
-		if m == nil {
-			t.Fatalf("%s.toml: the approved state enqueues no release queue", wf)
+		if !re.Match(b) {
+			t.Fatalf("%s.toml: the approved state does not enqueue into release", wf)
 		}
-		if que != "" && que != string(m[1]) {
-			t.Fatalf("%s.toml enqueues %s, another workflow %s", wf, m[1], que)
-		}
-		que = string(m[1])
 	}
-	return que
+	b, err := os.ReadFile("../.satelle/queues/release.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var def struct {
+		Title   string
+		Filter  struct{ Kind, Status string }
+		Trigger struct {
+			Task, Base string
+			MinSize    int `toml:"min_size"`
+		}
+	}
+	if _, err := toml.Decode(string(b), &def); err != nil {
+		t.Fatal(err)
+	}
+	if def.Filter.Kind != "story" || def.Filter.Status != "approved" || def.Trigger.Task != "tas_42301d36" ||
+		def.Trigger.Base != "origin/main" || def.Trigger.MinSize != 0 {
+		t.Fatalf(".satelle/queues/release.toml %+v", def)
+	}
+	return string(b)
 }

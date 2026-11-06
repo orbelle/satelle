@@ -1,13 +1,43 @@
 # Queues
 
-A queue is an item of kind `queue` (id `que_…`). It gathers items, and its
-trigger runs a task or a workflow over them. Satelle schedules and watches
-nothing: a queue fires only inside the command that fills it, or when fired by
-hand.
+A queue gathers items, and its trigger runs a task or a workflow over them.
+Satelle schedules and watches nothing: a queue fires only inside the command
+that fills it, or when fired by hand.
 
-    satelle queue create --title "Release queue" \
-      --input-kind story --input-status approved \   # the filter
-      --trigger-task tas_42301d36 --trigger-base origin/main --min-size 0
+## Declaring a queue
+
+A queue is declared in a tracked file, `.satelle/queues/<name>.toml`, like a
+workflow. The file is the queue's definition; the ledger keeps its members and
+fires (`queue.added`, `queue.removed`, `queue.fired`) on the queue's chain.
+This repo's `.satelle/queues/release.toml`:
+
+    title = "Release queue: approved stories"
+    id = "que_65bc4edc"   # optional: adopt a queue made before it had a file
+
+    [filter]              # optional; without it, explicit adds only
+    kind = "story"        # also status, tag, category
+    status = "approved"
+
+    [trigger]             # optional; without it, the queue never fires
+    task = "tas_42301d36" # or workflow = "<name>", exactly one
+    base = "origin/main"  # the ref a run's base comes from
+    min_size = 0          # 0 fires by hand only
+
+- The name is the file's name (lower-case letters, digits, dashes). Every queue
+  command takes it: `satelle queue show release`.
+- The queue's chain is `id` when set, keeping that queue's members and fire
+  history, else `que_<name>`, created on first use.
+- An edit to the file applies on the next command. `satelle queue set` refuses
+  the title, filter and trigger of a file-defined queue: edit the file.
+- `satelle validate` refuses an unknown key, a missing title, an empty
+  `[filter]`, a trigger naming both or neither target, a negative `min_size`, a
+  trigger workflow that is not configured, and two files binding one chain.
+
+`satelle queue create` still makes a queue on the ledger alone (no file), for a
+one-off or for an external producer:
+
+    satelle queue create --title "Inbox" --input-kind story \
+      --trigger-task tas_… --trigger-base origin/main --min-size 0
     satelle queue add <que> <id>...      # explicit members
     satelle queue remove <que> <id>...   # explicit members only
     satelle queue list [--json]
@@ -22,7 +52,8 @@ workflow state, in add order), then every item its filter selects
 selection a task's inputs use). The queue itself, the trigger's task and the
 runs under either are never members. `queue remove` takes only explicit items;
 a filter member leaves when the item or the filter changes
-(`satelle queue set <que> --input-… | --clear-inputs`).
+(the file's `[filter]`, or `satelle queue set <que> --input-… | --clear-inputs`
+for a queue with no file).
 
 ## The trigger
 
@@ -48,14 +79,14 @@ creates nothing.
 
 ## Enqueue from a state
 
-A workflow state can add every item entering it to queues:
+A workflow state can add every item entering it to queues, by name:
 
-    [states.done]
-    terminal = true
-    enqueue = ["que_1a2b3c4d"]
+    [states.approved]
+    enqueue = ["release"]
 
-The queue must exist and be open when the move is presented, or the move is
-refused before any gate runs. The item is added (cause `<workflow>:<from>-><to>`)
+Each name must have a `.satelle/queues/<name>.toml` (`satelle validate`), and
+the queue must be open when the move is presented, or the move is refused
+before any gate runs. The item is added (cause `<workflow>:<from>-><to>`)
 after the move is recorded, and the trigger fires there when it fills.
 
 ## Where it shows

@@ -28,15 +28,18 @@ type Git interface {
 
 // Kernel is an opened repo: its configuration, ledger and cache.
 type Kernel struct {
-	Root       string // the .satelle directory
-	Dir        string // the working tree checks and agents run in
-	Settings   Settings
-	Ledger     *ledger.Store
-	Cache      *cache.Cache
-	Workflows  map[string]*workflow.Workflow
-	Rules      workflow.Rules
-	Skills     map[string]workflow.Skill
-	Agents     agent.Catalog
+	Root      string // the .satelle directory
+	Dir       string // the working tree checks and agents run in
+	Settings  Settings
+	Ledger    *ledger.Store
+	Cache     *cache.Cache
+	Workflows map[string]*workflow.Workflow
+	Rules     workflow.Rules
+	Skills    map[string]workflow.Skill
+	Agents    agent.Catalog
+	// Queues are the queue files by name; queueFiles binds chain ids to them.
+	Queues     map[string]*workflow.Queue
+	queueFiles map[string]*workflow.Queue
 	Git        Git // nil outside a git work tree
 	Dispatcher agent.Dispatcher
 	// Remote performs steps placed remote:<id>; nil refuses them.
@@ -86,6 +89,7 @@ func Open(o Options) (*Kernel, error) {
 	k := &Kernel{
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Agents: cfg.Agents,
+		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues),
 		Dispatcher: agent.Runner{}, Now: time.Now,
 	}
 	repo := gitfacts.Repo{Dir: o.Dir}
@@ -93,6 +97,10 @@ func Open(o Options) (*Kernel, error) {
 		k.Git = repo
 	}
 	led.Now = func() time.Time { return k.Now() }
+	if err := k.materializeQueues(); err != nil {
+		c.Close()
+		return nil, err
+	}
 	return k, nil
 }
 
@@ -101,7 +109,7 @@ func (k *Kernel) Close() error { return k.Cache.Close() }
 
 // Validate returns every problem with the kernel's configuration.
 func (k *Kernel) Validate() []error {
-	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Agents: k.Agents}
+	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Agents: k.Agents, Queues: k.Queues}
 	c.Settings.Workflows = k.Rules
 	return c.Problems()
 }

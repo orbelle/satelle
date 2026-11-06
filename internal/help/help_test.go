@@ -45,3 +45,21 @@ func TestProjectAndWorkspaceDefinedOnce(t *testing.T) {
 		t.Error("the satelle topic does not point to satelle help projects")
 	}
 }
+
+// Queue files are documented where queues and workflows are.
+func TestQueueFilesDocumented(t *testing.T) {
+	for topic, wants := range map[string][]string{
+		"queues":    {".satelle/queues/<name>.toml", `enqueue = ["release"]`, "satelle queue set` refuses"},
+		"workflows": {`enqueue = ["<name>"]`, ".satelle/queues/<name>.toml"},
+	} {
+		top, ok := Get(topic)
+		if !ok {
+			t.Fatalf("no %s topic", topic)
+		}
+		for _, want := range wants {
+			if !strings.Contains(top.Body, want) {
+				t.Errorf("the %s topic lacks %q", topic, want)
+			}
+		}
+	}
+}

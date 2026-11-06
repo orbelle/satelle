@@ -21,8 +21,9 @@ An item gets its workflow at create: `--workflow`, else the first
 `[[workflows.rule]]` in `satelle.toml` whose `category`, `tag` and `kind` all
 match, else `[workflows] default`. It keeps that workflow.
 
-A state may name queues an item entering it joins, `enqueue = ["que_…"]`;
-the move is refused when one does not exist or is closed (`satelle help
+A state may name queues an item entering it joins, `enqueue = ["<name>"]`,
+each a `.satelle/queues/<name>.toml`: `satelle validate` refuses a name with no
+file, and the move is refused when the queue is closed (`satelle help
 queues`).
 
 ## Gates

@@ -39,6 +39,9 @@ func itemCmd(kind string, creatable bool) *cobra.Command {
 
 // getItem loads id and checks it is of kind.
 func getItem(k *kernel.Kernel, kind, id string) (item.Item, error) {
+	if kind == item.QueueKind {
+		id, _ = k.ResolveQueue(id)
+	}
 	it, err := k.Get(id)
 	if err != nil {
 		return it, err
@@ -47,6 +50,12 @@ func getItem(k *kernel.Kernel, kind, id string) (item.Item, error) {
 		return it, fmt.Errorf("%s is a %s, not a %s", id, it.Kind, kind)
 	}
 	return it, nil
+}
+
+// resolveItem is getItem's id: a queue's name becomes its chain id.
+func resolveItem(k *kernel.Kernel, kind, ref string) (string, error) {
+	it, err := getItem(k, kind, ref)
+	return it.ID, err
 }
 
 // fieldFlags are the item fields create and set take.
@@ -480,7 +489,7 @@ func attachCmd(kind string) *cobra.Command {
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			var data []byte
@@ -525,7 +534,7 @@ func attachmentsCmd(kind string) *cobra.Command {
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			atts, err := k.Cache.Attachments(args[0])
@@ -564,7 +573,7 @@ sha256 or a unique hex prefix of at least 7 characters).`,
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			_, body, err := k.AttachmentBody(args[0], args[1], sha)
@@ -600,7 +609,7 @@ is stacked on> so its gates judge only its own change.`,
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			if session == "" {
@@ -639,7 +648,7 @@ func releaseCmd(kind string) *cobra.Command {
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			if session == "" {
@@ -675,7 +684,7 @@ project), or in a cloud session (cloud), whose branch 'collect' records.`,
 				return err
 			}
 			defer release()
-			if _, err := getItem(k, kind, args[0]); err != nil {
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
 			res, err := k.Perform(cmd.Context(), args[0], actor())
@@ -705,7 +714,7 @@ on main, passes --base <that branch>.`,
 				return err
 			}
 			defer k.Close()
-			if _, err := getItem(k, "task", args[0]); err != nil {
+			if args[0], err = resolveItem(k, "task", args[0]); err != nil {
 				return err
 			}
 			exec, rec, err := k.TaskRun(args[0], base, actor())

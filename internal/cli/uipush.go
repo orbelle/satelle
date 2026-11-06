@@ -89,11 +89,12 @@ func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 		return err
 	}
 	wfs, _ := workflow.Load(filepath.Join(r.DataDir, kernel.WorkflowsDir))
+	cfg, _ := kernel.LoadConfig(r.DataDir)
 	root := config.CanonicalRepoRoot(filepath.Dir(r.DataDir))
 	return fn(c, uipush.Source{
 		Ledger: led, Cache: ch, Workflows: wfs, DataDir: r.DataDir,
 		RepoRoot: root, RepoKey: config.RepoKey(root), Slug: config.RepoName(root),
-		User: signedInUser(),
+		User: signedInUser(), Queues: kernel.QueueIndex(cfg.Settings, cfg.Queues),
 	})
 }
 

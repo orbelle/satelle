@@ -77,6 +77,9 @@ func (k *Kernel) load(id string) (item.Item, []ledger.Event, error) {
 		return item.Item{}, nil, fmt.Errorf("item %s does not exist", id)
 	}
 	it, err := item.Fold(events)
+	if err == nil {
+		k.overlayQueue(&it)
+	}
 	return it, events, err
 }
 
@@ -86,18 +89,14 @@ func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 	if err := k.Cache.Sync(k.Ledger); err != nil {
 		return nil, err
 	}
-	return k.Cache.Items(q)
-}
-
-func (k *Kernel) prefix(kind string) string {
-	if p := k.Settings.Items.Prefix[kind]; p != "" {
-		return p
+	items, err := k.Cache.Items(q)
+	if err != nil {
+		return nil, err
 	}
-	r := []rune(strings.ToLower(kind))
-	if len(r) > 3 {
-		r = r[:3]
+	for i := range items {
+		k.overlayQueue(&items[i])
 	}
-	return string(r)
+	return items, nil
 }
 
 // WorkflowFor is the workflow an item belongs in and that workflow's start
@@ -152,7 +151,7 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 			f.Base = &head
 		}
 	}
-	prefix := k.prefix(draft.Kind)
+	prefix := k.Settings.Prefix(draft.Kind)
 	if !ledger.ValidItem(prefix + "_x") {
 		return draft, fmt.Errorf("id prefix %q for kind %q is not usable in an id", prefix, draft.Kind)
 	}
@@ -189,6 +188,9 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 	}
 	if f.Workflow != nil && *f.Workflow != it.Workflow {
 		return it, errors.New("an item keeps the workflow it was created under")
+	}
+	if def := k.queueFiles[id]; def != nil && (f.Title != nil || f.Inputs != nil || f.Trigger != nil) {
+		return it, fmt.Errorf("queue %s is defined by %s: edit its title, filter and trigger there", id, k.RelPath(def.File))
 	}
 	if f.Trigger != nil {
 		if err := k.checkTrigger(it.Kind, f.Trigger); err != nil {
@@ -250,11 +252,13 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 		return res, err
 	}
 	// The queues entering `to` enqueues into must exist before anything runs.
-	queues := w.States[to].Enqueue
-	for _, q := range queues {
+	var queues []string
+	for _, name := range w.States[to].Enqueue {
+		q, _ := k.ResolveQueue(name)
 		if _, err := k.openQueue(q); err != nil {
-			return res, fmt.Errorf("state %q of workflow %s enqueues into %s: %w", to, w.Name, q, err)
+			return res, fmt.Errorf("state %q of workflow %s enqueues into %s: %w", to, w.Name, name, err)
 		}
+		queues = append(queues, q)
 	}
 	sp := span{}
 	if k.Git != nil {

@@ -21,8 +21,8 @@ performer = { agent = "executor", skill = "coder" }
 # cannot land it sends it back to in_progress with the reason.
 [states.approved]
 # Reaching approved adds the story to the release queue (fired by hand in
-# release step 0; see .satelle/skills/release.md).
-enqueue = ["que_65bc4edc"]
+# release step 0); the queue is .satelle/queues/release.toml.
+enqueue = ["release"]
 
 [states.blocked]
 park = true

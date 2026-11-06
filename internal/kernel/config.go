@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -60,6 +62,7 @@ type Config struct {
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	Agents    agent.Catalog
+	Queues    map[string]*workflow.Queue // by name
 }
 
 // Config file and directory names under the root.
@@ -68,12 +71,14 @@ const (
 	AgentsFile   = "agents.toml"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
+	QueuesDir    = "queues"
 )
 
 // LoadConfig reads root's configuration. It returns what it could load and
 // every load error; Problems adds the validation errors.
 func LoadConfig(root string) (*Config, error) {
-	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{}}
+	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{},
+		Queues: map[string]*workflow.Queue{}}
 	var errs []error
 	if err := legacyProblem(root); err != nil {
 		errs = append(errs, err)
@@ -105,7 +110,42 @@ func LoadConfig(root string) (*Config, error) {
 	} else {
 		c.Skills = sk
 	}
+	if qs, err := workflow.LoadQueues(filepath.Join(root, QueuesDir)); err != nil {
+		errs = append(errs, err)
+		if qs != nil {
+			c.Queues = qs
+		}
+	} else {
+		c.Queues = qs
+	}
 	return c, errors.Join(errs...)
+}
+
+// Prefix is the id prefix of kind: [items] prefix, else the kind's first
+// three letters.
+func (s Settings) Prefix(kind string) string {
+	if p := s.Items.Prefix[kind]; p != "" {
+		return p
+	}
+	r := []rune(strings.ToLower(kind))
+	if len(r) > 3 {
+		r = r[:3]
+	}
+	return string(r)
+}
+
+// QueueIndex binds each queue file to the ledger chain it defines: chain id
+// to definition. It is the one owner of that binding.
+func QueueIndex(s Settings, queues map[string]*workflow.Queue) map[string]*workflow.Queue {
+	out := map[string]*workflow.Queue{}
+	for _, name := range sortedKeys(queues) {
+		q := queues[name]
+		id := q.ChainID(s.Prefix(item.QueueKind))
+		if _, dup := out[id]; !dup {
+			out[id] = q
+		}
+	}
+	return out
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -120,6 +160,33 @@ func (c *Config) Problems() []error {
 		w := c.Workflows[name]
 		errs = append(errs, w.Validate(skill, c.Agents.Has)...)
 		errs = append(errs, c.bindingProblems(w)...)
+		for _, sname := range sortedKeys(w.States) {
+			for _, q := range w.States[sname].Enqueue {
+				if _, ok := c.Queues[q]; !ok {
+					errs = append(errs, fmt.Errorf("workflow %s: state %q enqueues into %q, which has no %s/%s/%s.toml",
+						w.Name, sname, q, filepath.Base(c.Root), QueuesDir, q))
+				}
+			}
+		}
+	}
+	errs = append(errs, c.queueProblems()...)
+	return errs
+}
+
+// queueProblems checks each queue file, and that no two bind the same chain.
+func (c *Config) queueProblems() []error {
+	var errs []error
+	wf := func(n string) bool { _, ok := c.Workflows[n]; return ok }
+	bound := map[string]string{}
+	for _, name := range sortedKeys(c.Queues) {
+		q := c.Queues[name]
+		errs = append(errs, q.Validate(wf)...)
+		id := q.ChainID(c.Settings.Prefix(item.QueueKind))
+		if other, dup := bound[id]; dup {
+			errs = append(errs, fmt.Errorf("%s: binds queue %s, which %s also binds", q.File, id, c.Queues[other].File))
+			continue
+		}
+		bound[id] = name
 	}
 	return errs
 }

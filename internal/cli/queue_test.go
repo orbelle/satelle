@@ -106,3 +106,69 @@ to = "closed"
 		t.Fatalf("run %+v", run)
 	}
 }
+
+// A queue file is addressed by its name, shown with its file, refuses
+// definition edits through queue set, and satelle validate names a broken one.
+func TestQueueFileCommands(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	task := createID(t, "task", "create", "--title", "release")
+	other := createID(t, "task", "create", "--title", "other")
+	if err := os.MkdirAll(dir+"/.satelle/queues", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := dir + "/.satelle/queues/release.toml"
+	if err := os.WriteFile(file, []byte("title = \"Release\"\n[filter]\nkind = \"story\"\n[trigger]\ntask = \""+task+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := createID(t, "story", "create", "--title", "s")
+	show := must(t, "queue", "show", "release")
+	for _, want := range []string{"que_release  Release", "defined by .satelle/queues/release.toml", "members (1)", s} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("show lacks %q:\n%s", want, show)
+		}
+	}
+	var shown struct {
+		ID        string `json:"id"`
+		DefinedBy string `json:"defined_by"`
+	}
+	if err := json.Unmarshal([]byte(must(t, "queue", "show", "release", "--json")), &shown); err != nil || shown.ID != "que_release" || shown.DefinedBy != ".satelle/queues/release.toml" {
+		t.Fatalf("show --json %+v %v", shown, err)
+	}
+	for _, args := range [][]string{{"--trigger-task", other}, {"--input-status", "x"}, {"--title", "x"}, {"--clear-inputs"}} {
+		if _, err := run(t, "", append([]string{"queue", "set", "release"}, args...)...); err == nil || !strings.Contains(err.Error(), ".satelle/queues/release.toml") {
+			t.Fatalf("queue set %v: %v", args, err)
+		}
+	}
+	if after := must(t, "queue", "show", "release"); !strings.Contains(after, "task "+task) || !strings.Contains(after, "Release") {
+		t.Fatalf("show after refused sets:\n%s", after)
+	}
+	out := must(t, "queue", "fire", "release")
+	if !strings.Contains(out, "release (que_release) fired exe_") {
+		t.Fatalf("fire:\n%s", out)
+	}
+
+	if err := os.WriteFile(file, []byte("title = \"Release\"\n[trigger]\ntask = \""+task+"\"\nworkflow = \"default\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), "queues/release.toml") {
+		t.Fatalf("validate a broken queue file: %v", err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := os.ReadFile(dir + "/.satelle/workflows/default.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(wf), "[states.done]\n", "[states.done]\nenqueue = [\"nope\"]\n", 1)
+	if broken == string(wf) {
+		t.Fatalf("default workflow has no [states.done]:\n%s", wf)
+	}
+	if err := os.WriteFile(dir+"/.satelle/workflows/default.toml", []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), `enqueues into "nope", which has no .satelle/queues/nope.toml`) {
+		t.Fatalf("validate an enqueue naming no file: %v", err)
+	}
+}
