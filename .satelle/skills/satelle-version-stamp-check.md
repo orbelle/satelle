@@ -16,13 +16,13 @@ would sort below `v1.0.3`.
 set -u
 git fetch -q origin --tags || { echo "git fetch origin failed"; exit 1; }
 key() { git show origin/main:.version 2>/dev/null | awk -v k="$1:" '$1==k {print $2}'; }
-ver=$(key satelle.version); sver=$(key satelled.version); build=$(key satelle.build)
-if [ -z "$ver" ] || [ -z "$sver" ] || [ -z "$build" ]; then
+ver=$(key satelle.version); sver=$(key satelled.version); BUILD=$(key satelle.build)
+if [ -z "$ver" ] || [ -z "$sver" ] || [ -z "$BUILD" ]; then
   echo "origin/main .version lacks satelle.version, satelled.version or satelle.build"
   exit 1
 fi
-if ! printf '%s' "$build" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'; then
-  echo "satelle.build '$build' is not date -u +%Y-%m-%dT%H:%M:%SZ"
+if ! printf '%s' "$BUILD" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'; then
+  echo "satelle.build '$BUILD' is not date -u +%Y-%m-%dT%H:%M:%SZ"
   exit 1
 fi
 above() { # $1 version, $2 prefix: is $1 above every other tag with the prefix?
@@ -32,5 +32,5 @@ above() { # $1 version, $2 prefix: is $1 above every other tag with the prefix?
 }
 above "$ver" v || { echo "satelle.version $ver is not above the latest v* tag; bump it"; exit 1; }
 above "$sver" serve-v || { echo "satelled.version $sver is not above the latest serve-v* tag; bump it"; exit 1; }
-echo "origin/main bumps satelle $ver and satelled $sver past the latest other tags; build $build"
+echo "origin/main bumps satelle $ver and satelled $sver past the latest other tags; build $BUILD"
 ```
