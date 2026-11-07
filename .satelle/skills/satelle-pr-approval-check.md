@@ -6,9 +6,10 @@ description: The pr-approval gate (sto_ebcaa5aa; sto_efe81afd puts it on integra
 
 # PR approval (the satelle GitHub app's review on the head)
 
-The satelle GitHub app (app id 5563015, renamed from orbelle-reviewer)
-publishes the `pr-review` gate's verdict on the pull request. Approval is read
-back from GitHub, not from satelle.dev.
+The satelle GitHub app (app id 5379260, bot account `satelle[bot]`, id
+344745317) publishes the `pr-review` gate's verdict on the pull request.
+orbelle-reviewer (app 5563015, account 350948835) is internal and its reviews
+never count. Approval is read back from GitHub, not from satelle.dev.
 
 - **Selection.** The pull request is selected as pr-ready selects it: open, not
   a draft, against main, head == HEAD, and a title ending `(<item id>)`.
@@ -31,8 +32,8 @@ line below.
 ```sh
 #!/usr/bin/env bash
 set -u
-app=5563015
-app_account=350948835
+app=5379260
+app_account=344745317
 for tool in gh jq git satelle sha256sum; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the review cannot be read"; exit 1; }
 done

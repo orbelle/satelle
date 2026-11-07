@@ -359,7 +359,7 @@ func TestPRReadyRequiresChangelogAttachment(t *testing.T) {
 		t.Fatalf("(b) malformed attachment: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.attach(id, "### Added\n- P adds\n")
-	if r := ready(); r.code != 0 || !strings.Contains(r.out, "approved: PR #1") {
+	if r := ready(); r.code != 0 || !strings.Contains(r.out, "ready: PR #1") {
 		t.Fatalf("(d) valid attachment, CHANGELOG.md untouched: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.at(dir, func() {

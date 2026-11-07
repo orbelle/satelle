@@ -1,3 +1,10 @@
+## [1.0.22] - 2026-11-07
+
+### Changed
+- Delivery and chore integration -> approved now require the satelle app's review: pr-review publishes the judge verdict and pr-approval needs satelle[bot]'s approval on the head; pr-ready no longer approves (sto_efe81afd)
+- The approval check matches the satelle app (app 5379260, satelle[bot] 344745317), not orbelle-reviewer (sto_efe81afd)
+- `satelle help projects` names the satelle GitHub app (app 5379260, satelle[bot]) as the app that reviews this repo's pull requests (sto_e809d7d6)
+
 ## [1.0.21] - 2026-11-07
 
 ### Added
