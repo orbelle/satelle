@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -65,6 +66,18 @@ type Gate struct {
 	// or carried): it sees the result and notes, and a non-zero exit turns
 	// the result into a reject.
 	After string `toml:"after"`
+	// Timeout bounds every check script this gate runs (its check skill,
+	// trigger and after), each run separately, as a Go duration; empty uses
+	// the default.
+	Timeout string `toml:"timeout"`
+}
+
+// Bound is the gate's own bound on its check scripts: 0 when it sets none.
+func (g Gate) Bound() (time.Duration, error) {
+	if g.Timeout == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(g.Timeout)
 }
 
 // Judges returns the bindings that judge the gate: its agent, or its panel.
