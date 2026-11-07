@@ -41,6 +41,23 @@ func TestFoldQueue(t *testing.T) {
 	}
 }
 
+func TestFoldQueueRemembersAdds(t *testing.T) {
+	st := FoldQueue([]ledger.Event{
+		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "c1"}),
+		qev(t, KindQueueFired, QueueFire{Run: "exe_1"}),
+		qev(t, KindQueueRemoved, QueueEntry{Item: "a"}),
+	})
+	if !st.AddedWith("a", "c1") || st.AddedWith("a", "c2") || st.AddedWith("b", "c1") {
+		t.Fatalf("added a/c1=%v a/c2=%v b/c1=%v", st.AddedWith("a", "c1"), st.AddedWith("a", "c2"), st.AddedWith("b", "c1"))
+	}
+	if len(st.Explicit) != 0 {
+		t.Fatalf("explicit %v", st.Explicit)
+	}
+	if (QueueState{}).AddedWith("a", "c1") {
+		t.Fatal("zero state reports an add")
+	}
+}
+
 func TestMembers(t *testing.T) {
 	q := Item{ID: "que_1", Inputs: &Selection{Status: "approved"}, Trigger: &Trigger{Task: "tas_1"}}
 	cands := []Item{
