@@ -5,6 +5,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -585,5 +586,61 @@ func TestPerformLocalReleasesTheSeat(t *testing.T) {
 				t.Fatalf("performer.run = %+v", run)
 			}
 		})
+	}
+}
+
+// A bounded drive moves its steps and concludes accept; Drive is unbounded up
+// to MaxDriveSteps and still walks to the terminal state.
+func TestDriveStepsStopsAfterN(t *testing.T) {
+	k, d := lineKernel(t, "", "")
+	it := newItem(t, k)
+	res, err := k.DriveSteps(context.Background(), it.ID, "node", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != VerdictAccept || res.Item.Status != "b" || len(res.Steps) != 1 || !res.Steps[0].Moved ||
+		res.Notes != "moved a → b; stopped after 1 step(s)" {
+		t.Fatalf("DriveSteps(1) = %+v", res)
+	}
+	if len(d.calls) != 0 {
+		t.Fatalf("one transition performed %v", d.calls)
+	}
+	res, err = k.Drive(context.Background(), it.ID, "node")
+	if err != nil || res.Verdict != VerdictAccept || res.Item.Status != "c" {
+		t.Fatalf("Drive after DriveSteps = %+v, %v", res, err)
+	}
+}
+
+// Drive still rejects a cycle at MaxDriveSteps.
+func TestDriveRejectsAtMaxDriveSteps(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, ".satelle")
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"loop\"\n")
+	write(t, filepath.Join(root, "workflows", "loop.toml"), `
+[states.x]
+start = true
+[states.y]
+[states.z]
+terminal = true
+[[transition]]
+from = ["x"]
+to = "y"
+[[transition]]
+from = ["y"]
+to = "x"
+[[transition]]
+from = ["y"]
+to = "z"
+`)
+	k, err := Open(Options{Root: root, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { k.Close() })
+	it := newItem(t, k)
+	res, err := k.Drive(context.Background(), it.ID, "node")
+	if err != nil || res.Verdict != VerdictReject || len(res.Steps) != MaxDriveSteps ||
+		res.Notes != fmt.Sprintf("stopped after %d steps", MaxDriveSteps) {
+		t.Fatalf("Drive on a cycle = %v steps, %q, %v", len(res.Steps), res.Notes, err)
 	}
 }

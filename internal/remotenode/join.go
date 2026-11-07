@@ -242,7 +242,7 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 			return Outcome{}, err
 		}
 	}
-	k, err := j.openKernel(root, tree, overlay, env)
+	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, env)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -316,10 +316,11 @@ func (j *joiner) runSetup(ctx context.Context, dir string, def remotedef.Definit
 	return nil
 }
 
-// openKernel installs the bundle's overlay into root, starts a configuration
-// when the tree has none, and opens the kernel with the node's own runtime.
-// The node performs every step itself: its bindings are placed locally.
-func (j *joiner) openKernel(root, tree string, overlay []fileEntry, env []string) (*kernel.Kernel, error) {
+// openNodeKernel installs the bundle's overlay into root, starts a
+// configuration when the tree has none, and opens the kernel with the node's
+// own runtime. The node performs every step itself: its bindings are placed
+// locally, dispatched by dispatcher with env added.
+func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher agent.Dispatcher, env []string) (*kernel.Kernel, error) {
 	if err := writeOverlay(root, overlay); err != nil {
 		return nil, err
 	}
@@ -328,7 +329,7 @@ func (j *joiner) openKernel(root, tree string, overlay []fileEntry, env []string
 			return nil, err
 		}
 	}
-	k, err := kernel.Open(kernel.Options{Root: root, Runtime: filepath.Join(j.o.Dir, "runtime"), Dir: tree})
+	k, err := kernel.Open(kernel.Options{Root: root, Runtime: runtime, Dir: tree})
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +337,7 @@ func (j *joiner) openKernel(root, tree string, overlay []fileEntry, env []string
 		b.Placement = agent.PlaceLocal
 		k.Agents[name] = b
 	}
-	k.Dispatcher = withEnv{inner: j.o.Dispatcher, env: env}
+	k.Dispatcher = withEnv{inner: dispatcher, env: env}
 	return k, nil
 }
 
