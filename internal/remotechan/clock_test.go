@@ -62,15 +62,24 @@ func (f *fakeClock) tickLog() []time.Duration {
 	return append([]time.Duration(nil), f.log...)
 }
 
-// waitTickers waits until n tickers are registered. A session starts its loss
-// monitor in a goroutine, so a test that advances the clock straight after
-// connecting can step past the moment the monitor's ticker would have been due.
-func (f *fakeClock) waitTickers(t *testing.T, n int) {
+// waitLive waits until at least n live (registered, not stopped) tickers of
+// period d are on the clock. A session starts its loss monitor in a goroutine,
+// so a test that advances the clock straight after connecting can step past
+// the moment the monitor's ticker would have been due. The handshake's own
+// tickers (key poll, hello resend) register and stop before a session exists,
+// so the wait counts only live tickers of the monitor's period.
+func (f *fakeClock) waitLive(t *testing.T, d time.Duration, n int) {
 	t.Helper()
-	eventually(t, fmt.Sprintf("%d tickers on the fake clock", n), func() bool {
+	eventually(t, fmt.Sprintf("%d live %v tickers on the fake clock", n, d), func() bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		return len(f.tickers) >= n
+		live := 0
+		for _, tk := range f.tickers {
+			if tk.d == d && !tk.stopped {
+				live++
+			}
+		}
+		return live >= n
 	})
 }
 

@@ -192,8 +192,11 @@ func TestRefusedNodeTokenIsNotRetried(t *testing.T) {
 	}
 	defer bad.Close()
 	_, err = Join(testCtx(t), bad.Relay, r.session, r.id)
-	if status.Code(errors.Unwrap(errors.Unwrap(err))) != codes.Unauthenticated && !strings.Contains(err.Error(), "Unauthenticated") {
+	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("join = %v, want UNAUTHENTICATED", err)
+	}
+	if classifyClose(err) != closeRefusal {
+		t.Fatalf("join = %v is not classified as a refusal", err)
 	}
 	if classifyClose(status.Error(codes.Unauthenticated, "x")) != closeRefusal {
 		t.Fatal("UNAUTHENTICATED is not a refusal")
@@ -242,7 +245,7 @@ func TestJobThatNeverBeatsIsLost(t *testing.T) {
 	if lerr != nil || rerr != nil {
 		t.Fatalf("attach %v, join %v", lerr, rerr)
 	}
-	clock.waitTickers(t, 2)
+	clock.waitLive(t, HeartbeatInterval, 2)
 	local.Expect("silent")
 	for i := 0; i < int((LostAfter+HeartbeatInterval)/HeartbeatInterval); i++ {
 		clock.Advance(HeartbeatInterval)
