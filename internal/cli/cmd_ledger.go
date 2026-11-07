@@ -210,6 +210,9 @@ func workflowCmd() *cobra.Command {
 					if g.Carry {
 						fmt.Fprint(out, "  carry")
 					}
+					if g.Timeout != "" {
+						fmt.Fprintf(out, "  timeout %s", g.Timeout)
+					}
 					fmt.Fprintln(out)
 				}
 			}

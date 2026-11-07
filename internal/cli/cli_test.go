@@ -114,6 +114,7 @@ performer = { agent = "agent-x9", skill = "work" }
 terminal = true
 [gates.g1]
 skill = "has-ok"
+timeout = "30m"
 [[transition]]
 from = ["st-one"]
 to = "st-two"
@@ -378,5 +379,23 @@ func TestSetReplaceGuard(t *testing.T) {
 	}
 	if it := getStory(t, id); it.Status != before || strings.Join(it.Criteria, "|") != "z" {
 		t.Fatalf("refused set changed the story: status %q criteria %q", it.Status, it.Criteria)
+	}
+}
+
+// workflow show lists a gate's own timeout beside its other keys.
+func TestWorkflowShowGateTimeout(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeGatedWorkflow(t, dir)
+	must(t, "validate")
+	out := must(t, "workflow", "show", "gated")
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "skill has-ok") {
+			line = l
+		}
+	}
+	if !strings.HasSuffix(line, "timeout 30m") {
+		t.Fatalf("gate line %q in:\n%s", line, out)
 	}
 }
