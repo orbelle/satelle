@@ -212,15 +212,18 @@ It exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 }
 
 func collectCmd(kind string) *cobra.Command {
-	var branch string
+	var branch, base string
 	var asJSON *bool
 	cmd := &cobra.Command{
 		Use:   "collect <id> --branch <b>",
 		Short: "Record the branch a step's work came back on; its gates judge that branch",
 		Long: `collect reads the branch (a local branch, or origin/<b> once fetched) and records
-on the ledger its commit and its merge base with HEAD. From then on the item's
-gates judge the diff from that base to that commit. collect never changes the
-repository: merging the branch, if the workflow needs it, is a step's work.`,
+on the ledger its commit and its merge base with the base branch: --base <ref>,
+else origin/main, else the item's recorded base. HEAD is never used, so the base
+is the same whichever tree collect runs in. From then on the item's gates judge
+the diff from that base to that commit. A branch that adds nothing over that
+base is refused. collect never changes the repository: merging the branch, if
+the workflow needs it, is a step's work.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
@@ -231,18 +234,19 @@ repository: merging the branch, if the workflow needs it, is a step's work.`,
 			if _, err := getItem(k, kind, args[0]); err != nil {
 				return err
 			}
-			c, err := k.Collect(args[0], branch, actor())
+			c, err := k.Collect(args[0], branch, base, actor())
 			if err != nil {
 				return err
 			}
 			if *asJSON {
 				return writeJSON(cmd.OutOrStdout(), c)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "collected %s at %s (base %s) on %s\n", c.Branch, short(c.Commit), short(c.Base), args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "collected %s at %s (base %s from %s) on %s\n", c.Branch, short(c.Commit), short(c.Base), c.BaseRef, args[0])
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "the branch the work came back on")
+	cmd.Flags().StringVar(&base, "base", "", "the ref the branch's diff base is taken from: its merge base with that ref, resolved now (default origin/main, else the item's recorded base)")
 	_ = cmd.MarkFlagRequired("branch")
 	asJSON = jsonFlag(cmd)
 	return cmd

@@ -39,12 +39,14 @@ const (
 // KindBranchCollected records a branch a step's work came back on.
 const KindBranchCollected = "branch.collected"
 
-// Collected is the branch.collected payload: the branch, the commit it was at
-// and the diff base its gates judge from.
+// Collected is the branch.collected payload: the branch, the commit it was at,
+// the diff base its gates judge from (its merge base with the base branch) and
+// the ref that base was taken from.
 type Collected struct {
-	Branch string `json:"branch"`
-	Commit string `json:"commit"`
-	Base   string `json:"base"`
+	Branch  string `json:"branch"`
+	Commit  string `json:"commit"`
+	Base    string `json:"base"`
+	BaseRef string `json:"base_ref,omitempty"`
 }
 
 // BranchGit is what Collect, seat --base, task run, the stale-base check and a
@@ -104,11 +106,16 @@ func (k *Kernel) performCloud(ctx context.Context, it item.Item, req agent.Reque
 }
 
 // Collect records the branch a step's work came back on: the commit it is at
-// and its merge base with HEAD, which becomes the diff base the item's gates
-// judge from. It reads git and never writes it: bringing the branch in, if
-// that is needed, is the work of a step's agent.
-func (k *Kernel) Collect(id, branch, actor string) (Collected, error) {
-	if _, err := k.Get(id); err != nil {
+// and its merge base with the base branch, which becomes the diff base the
+// item's gates judge from. The base branch is baseRef when given, else
+// origin/main, else the item's recorded base; never HEAD, so the base is the
+// same whichever tree collect runs in. A branch that adds nothing over that
+// base is refused: its gates would judge an empty diff. It reads git and never
+// writes it: bringing the branch in, if that is needed, is the work of a step's
+// agent.
+func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
+	it, events, err := k.load(id)
+	if err != nil {
 		return Collected{}, err
 	}
 	bg, ok := k.Git.(BranchGit)
@@ -122,15 +129,34 @@ func (k *Kernel) Collect(id, branch, actor string) (Collected, error) {
 	if err != nil {
 		return Collected{}, fmt.Errorf("branch %s is not here (fetch it first): %w", branch, err)
 	}
-	head, err := k.Git.Head()
+	ref, tip := baseRef, ""
+	switch {
+	case baseRef != "":
+		if tip, err = k.resolveBase(baseRef); err != nil {
+			return Collected{}, err
+		}
+	default:
+		if c, rerr := bg.Resolve(defaultCollectBase); rerr == nil {
+			ref, tip = defaultCollectBase, c
+		} else if recorded := k.base(it, events); recorded != "" {
+			ref, tip = "recorded base", recorded
+		} else {
+			return Collected{}, fmt.Errorf("collect %s: no base: %s is not here and the item records none; pass --base <ref>", id, defaultCollectBase)
+		}
+	}
+	base, err := bg.MergeBase(tip, commit)
+	if err != nil {
+		return Collected{}, fmt.Errorf("branch %s shares no history with %s (%s): %w", branch, ref, tip, err)
+	}
+	paths, err := bg.ChangedBetween(base, commit)
 	if err != nil {
 		return Collected{}, err
 	}
-	base, err := bg.MergeBase(head, commit)
-	if err != nil {
-		return Collected{}, err
+	if len(paths) == 0 {
+		return Collected{}, fmt.Errorf("branch %s (%s) adds nothing over %s (base %s): its gates would judge an empty diff. Collect a branch with the item's work, or pass --base <ref> for the branch it is stacked on",
+			branch, short(commit), ref, short(base))
 	}
-	c := Collected{Branch: branch, Commit: commit, Base: base}
+	c := Collected{Branch: branch, Commit: commit, Base: base, BaseRef: ref}
 	_, err = k.append(id, KindBranchCollected, actor, c)
 	return c, err
 }

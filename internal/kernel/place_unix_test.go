@@ -278,17 +278,17 @@ func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	gittest.Git(t, dir, "checkout", "-q", "main")
 	refsBefore := gittest.Git(t, dir, "for-each-ref")
 
-	c, err := k.Collect(it.ID, "cloud/work", "ada")
+	c, err := k.Collect(it.ID, "cloud/work", "", "ada")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Commit != tip || c.Base != base || c.Branch != "cloud/work" {
+	if c.Commit != tip || c.Base != base || c.Branch != "cloud/work" || c.BaseRef != "recorded base" {
 		t.Fatalf("collected = %+v, want commit %s base %s", c, tip, base)
 	}
 	if gittest.Git(t, dir, "for-each-ref") != refsBefore || gittest.Git(t, dir, "rev-parse", "HEAD") != base {
 		t.Fatal("collect changed the repository")
 	}
-	if _, err := k.Collect(it.ID, "no-such-branch", "ada"); err == nil {
+	if _, err := k.Collect(it.ID, "no-such-branch", "", "ada"); err == nil {
 		t.Fatal("collecting a missing branch succeeded")
 	}
 	res, err := k.Transition(context.Background(), it.ID, "c", "ada")
@@ -305,5 +305,121 @@ func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no branch.collected event")
+	}
+}
+
+// collectFixture is a repository whose origin/main moved on after the story's
+// branch sto/x forked, and a worktree on sto/x that merged origin/main (a
+// send-back), so the worktree's HEAD is the branch tip. It returns the kernel,
+// the item, the main checkout, the worktree, the branch tip and origin/main.
+func collectFixture(t *testing.T) (k *Kernel, it item.Item, dir, wt, tip, originMain string) {
+	t.Helper()
+	dir = t.TempDir()
+	gittest.Git(t, dir, "init", "-q", "-b", "main")
+	write(t, filepath.Join(dir, "README"), "r\n")
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-q", "-m", "init")
+	k, _ = lineKernel(t, "cloud", dir)
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-q", "-m", "config")
+	it = newItem(t, k)
+	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	fork := gittest.Git(t, dir, "rev-parse", "HEAD")
+	gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", fork)
+	gittest.Git(t, dir, "checkout", "-q", "-b", "sto/x")
+	write(t, filepath.Join(dir, "x.go"), "package x\n")
+	gittest.Git(t, dir, "add", "x.go")
+	gittest.Git(t, dir, "commit", "-q", "-m", "work")
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	write(t, filepath.Join(dir, "y.go"), "package y\n")
+	gittest.Git(t, dir, "add", "y.go")
+	gittest.Git(t, dir, "commit", "-q", "-m", "main moves on")
+	originMain = gittest.Git(t, dir, "rev-parse", "HEAD")
+	gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", originMain)
+	wt = filepath.Join(t.TempDir(), "wt")
+	gittest.Git(t, dir, "worktree", "add", "-q", wt, "sto/x")
+	gittest.Git(t, wt, "merge", "-q", "--no-edit", "origin/main")
+	tip = gittest.Git(t, wt, "rev-parse", "HEAD")
+	return k, it, dir, wt, tip, originMain
+}
+
+// Collecting from inside a worktree whose HEAD already is the branch takes the
+// branch's merge base with origin/main, not with HEAD (which would be the
+// branch itself and an empty span), and the main checkout gets the same base.
+func TestCollectBaseIsTheBaseBranchNotHEAD(t *testing.T) {
+	k, it, dir, wt, tip, originMain := collectFixture(t)
+	want := gittest.Git(t, dir, "merge-base", "origin/main", "sto/x")
+	if want != originMain {
+		t.Fatalf("fixture: merge-base = %s, want origin/main %s", want, originMain)
+	}
+	refsBefore := gittest.Git(t, dir, "for-each-ref")
+	headDir, headWT := gittest.Git(t, dir, "rev-parse", "HEAD"), gittest.Git(t, wt, "rev-parse", "HEAD")
+
+	k.Git = gitfacts.Repo{Dir: wt}
+	inWT, err := k.Collect(it.ID, "sto/x", "", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inWT.Commit != tip || inWT.Base != want || inWT.Base == inWT.Commit || inWT.BaseRef != "origin/main" {
+		t.Fatalf("collected in the worktree = %+v, want commit %s base %s from origin/main", inWT, tip, want)
+	}
+	k.Git = gitfacts.Repo{Dir: dir}
+	inMain, err := k.Collect(it.ID, "sto/x", "", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inMain.Base != inWT.Base || inMain.Commit != inWT.Commit {
+		t.Fatalf("collected in the main checkout = %+v, in the worktree = %+v", inMain, inWT)
+	}
+	paths, err := k.Git.(BranchGit).ChangedBetween(inWT.Base, inWT.Commit)
+	if err != nil || strings.Join(paths, " ") != "x.go" {
+		t.Fatalf("collected span = %v, %v; want only the story's x.go", paths, err)
+	}
+	if gittest.Git(t, dir, "for-each-ref") != refsBefore || gittest.Git(t, dir, "rev-parse", "HEAD") != headDir || gittest.Git(t, wt, "rev-parse", "HEAD") != headWT {
+		t.Fatal("collect changed the repository")
+	}
+}
+
+// --base names the ref the merge base is taken with, resolved now; a ref that
+// names no commit is refused.
+func TestCollectBaseRef(t *testing.T) {
+	k, it, dir, wt, _, _ := collectFixture(t)
+	k.Git = gitfacts.Repo{Dir: wt}
+	gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", gittest.Git(t, dir, "rev-parse", "main~1"))
+	c, err := k.Collect(it.ID, "sto/x", "main", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := gittest.Git(t, dir, "merge-base", "main", "sto/x"); c.Base != want || c.BaseRef != "main" {
+		t.Fatalf("collected = %+v, want base %s from main", c, want)
+	}
+	if _, err := k.Collect(it.ID, "sto/x", "nope", "ada"); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("collect --base nope = %v", err)
+	}
+}
+
+// A branch that adds nothing over its base (here, one already merged into
+// origin/main) is refused, naming the branch and the base, and nothing is
+// recorded.
+func TestCollectRefusesABranchThatAddsNothing(t *testing.T) {
+	k, it, dir, wt, tip, _ := collectFixture(t)
+	gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", tip)
+	k.Git = gitfacts.Repo{Dir: wt}
+	_, err := k.Collect(it.ID, "sto/x", "", "ada")
+	if err == nil {
+		t.Fatal("collecting a branch that adds nothing succeeded")
+	}
+	for _, want := range []string{"sto/x", "origin/main", tip[:12]} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal %q does not name %s", err, want)
+		}
+	}
+	events, _ := k.Ledger.Read(it.ID)
+	for _, e := range events {
+		if e.Kind == KindBranchCollected {
+			t.Fatal("a refused collect recorded a branch")
+		}
 	}
 }
