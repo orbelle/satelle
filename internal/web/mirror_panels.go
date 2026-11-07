@@ -156,7 +156,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncLogPath:     logPath,
 		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
-		BacklogCount:    backlogCount(stories),
+		BacklogCount:    backlogCount(stories, workflows),
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
@@ -356,12 +356,14 @@ func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mir
 }
 
 // backlogCount is the number of stories in backlog, the Stories tab's
-// 'N backlog' badge. The server owns the count: first load renders it and the
-// live refresh refetches it as a fragment.
-func backlogCount(stories []Item) int {
+// 'N backlog' badge: those whose state is their workflow's start state, read
+// from the pushed workflow, never a state name. A story whose workflow is
+// unpushed or lacks its state is not counted. The server owns the count: first
+// load renders it and the live refresh refetches it as a fragment.
+func backlogCount(stories []Item, workflows map[string]*mirror.Workflow) int {
 	n := 0
 	for _, it := range stories {
-		if it.Status == "backlog" {
+		if s, ok := workflowState(workflows[it.Workflow], it.Status); ok && s.Start {
 			n++
 		}
 	}

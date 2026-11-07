@@ -35,12 +35,26 @@ func TestEngagedItems(t *testing.T) {
 	}
 }
 
-// The backlog count is the stories whose status is backlog.
+// The backlog count is the stories in their workflow's start state, whatever
+// that state is called; a status named "backlog" that is not the start state,
+// and a story whose workflow is unpushed, are not counted.
 func TestBacklogCount(t *testing.T) {
-	if n := backlogCount([]Item{{Status: "backlog"}, {Status: "alpha"}, {Status: "backlog"}}); n != 2 {
-		t.Fatalf("backlog = %d, want 2", n)
+	queued := mirror.Workflow{Name: "queue", States: []mirror.WorkflowState{
+		{Name: "queued", Start: true}, {Name: "backlog"}, {Name: "fin", Terminal: true},
+	}}
+	workflows := map[string]*mirror.Workflow{"flow": &fixtureWorkflow, "queue": &queued}
+	stories := []Item{
+		{ID: "sto_a", Status: "alpha", Workflow: "flow"},
+		{ID: "sto_b", Status: "beta", Workflow: "flow"},
+		{ID: "sto_q", Status: "queued", Workflow: "queue"},
+		{ID: "sto_named", Status: "backlog", Workflow: "queue"},
+		{ID: "sto_fin", Status: "fin", Workflow: "queue"},
+		{ID: "sto_lost", Status: "alpha", Workflow: "unpushed"},
 	}
-	if n := backlogCount(nil); n != 0 {
+	if n := backlogCount(stories, workflows); n != 2 {
+		t.Fatalf("backlog = %d, want 2 (sto_a, sto_q)", n)
+	}
+	if n := backlogCount(nil, nil); n != 0 {
 		t.Fatalf("nil stories = %d", n)
 	}
 }
