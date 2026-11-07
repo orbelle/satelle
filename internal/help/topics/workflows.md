@@ -37,6 +37,7 @@ A gate is a named judgement on a transition:
     trigger = "relevant"         # relevance: a check skill whose exit 0 means relevant
     carry = true                 # an earlier accept over unchanged coverage is carried
     after = "publish"            # a check skill run once the gate has a verdict
+    timeout = "30m"              # bounds this gate's check scripts; default 10m
 
 A transition runs its groups in order. A `sequential` group stops at its first
 reject (fail-fast); a `parallel` group runs every gate. Every gate's result —
@@ -59,6 +60,24 @@ carried) and `SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`,
 reject. Its output joins the notes as `after <skill>: …`. Use it to publish a
 verdict somewhere (this repo's `pr-review` gate publishes to the PR with
 `satelle github review`).
+
+A gate's `timeout` (a Go duration such as `"30m"` or `"1h30m"`, positive)
+bounds each check script the gate runs — its check skill, its trigger and its
+`after` — each run separately; without it the default of 10m applies.
+`satelle validate` refuses a timeout that does not parse, one that is not
+positive, and one on a gate that runs no check script (a judge with no trigger
+and no `after`). A check cut at its bound rejects the gate, and the notes
+name the bound and where it came from: `timed out after 30m0s (gates.full-test
+timeout)`, or `timed out after 10m0s (default; set timeout on
+[gates.full-test] to raise it)`. A trigger or `after` that times out keeps its
+`trigger <skill>: ` or `after <skill>: ` prefix. A timeout is a failure, not a
+verdict, so `after` does not run on it.
+
+`satelle story set <id> --status <to>` runs the gates in that command before
+it returns. A gate with a long `timeout` (see `satelle workflow show`) can
+outlast a harness's bound on one shell command: run such a move as the
+harness's background command, with that command's own timeout above the sum
+of the sequential gates' bounds.
 
 ## The base
 

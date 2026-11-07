@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/item"
 )
@@ -49,6 +50,7 @@ carry = true
 skill = "script"
 trigger = "script"
 after = "script"
+timeout = "30m"
 
 [[transition]]
 from = ["s0"]
@@ -78,6 +80,12 @@ func TestValidWorkflow(t *testing.T) {
 	}
 	if w.Gates["g2"].After != "script" {
 		t.Fatalf("after %q", w.Gates["g2"].After)
+	}
+	if d, err := w.Gates["g2"].Bound(); err != nil || d != 30*time.Minute {
+		t.Fatalf("g2 bound %v %v", d, err)
+	}
+	if d, err := w.Gates["g1"].Bound(); err != nil || d != 0 {
+		t.Fatalf("g1 bound %v %v", d, err)
 	}
 	if w.Name != "wf" || w.StartState() != "s0" {
 		t.Fatalf("name %q start %q", w.Name, w.StartState())
@@ -128,6 +136,10 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"duplicate enqueue", base + "[states.e]\nenqueue = [\"que_1\", \"que_1\"]\n", "enqueues into que_1 twice"},
 		{"after missing", base + "[gates.g]\nskill = \"script\"\nafter = \"nope\"\n", `after "nope" is not a check skill`},
 		{"after not a check", base + "[gates.g]\nskill = \"script\"\nafter = \"judge\"\n", `after "judge" is not a check skill`},
+		{"timeout not a duration", base + "[gates.g]\nskill = \"script\"\ntimeout = \"soon\"\n", `timeout "soon" is not a duration`},
+		{"timeout zero", base + "[gates.g]\nskill = \"script\"\ntimeout = \"0s\"\n", `timeout "0s" must be positive`},
+		{"timeout negative", base + "[gates.g]\nskill = \"script\"\ntimeout = \"-1m\"\n", `timeout "-1m" must be positive`},
+		{"timeout on judge", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ntimeout = \"5m\"\n", "this gate runs none"},
 		{"resumes without park", base + "[states.a2]\nresumes = true\n", "not a park state"},
 	}
 	for _, c := range cases {

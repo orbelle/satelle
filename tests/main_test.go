@@ -88,9 +88,42 @@ func newSandbox(t *testing.T) *sandbox {
 		k, v, _ := strings.Cut(kv, "=")
 		s.env[k] = v
 	}
-	s.git("init", "-q")
-	s.git("commit", "-q", "--allow-empty", "-m", "init")
+	s.initRepo("git")
 	return s
+}
+
+// setupAttempts bounds how often newSandbox retries a repo setup whose git
+// was killed by a signal.
+const setupAttempts = 3
+
+// initRepo makes the sandbox repo with gitBin: git init and an empty first
+// commit. A setup git killed by a signal (no exit status, no stderr) is
+// logged and retried on a fresh .git, at most setupAttempts times; a git that
+// exits non-zero is a real failure and fails the test at once. newSandbox
+// passes "git"; a test passes a fake to drive the retry.
+func (s *sandbox) initRepo(gitBin string) {
+	s.t.Helper()
+	steps := [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "init"}}
+	for n := 1; ; n++ {
+		var failed []string
+		var r result
+		for _, args := range steps {
+			if r = s.exec(gitBin, "", args...); r.code != 0 || r.signaled {
+				failed = args
+				break
+			}
+		}
+		if failed == nil {
+			return
+		}
+		if !r.signaled || n == setupAttempts {
+			s.t.Fatalf("%s", gitFailure(failed, r))
+		}
+		s.t.Logf("sandbox setup: %s; retrying (attempt %d/%d)", gitFailure(failed, r), n+1, setupAttempts)
+		if err := os.RemoveAll(filepath.Join(s.dir, ".git")); err != nil {
+			s.t.Fatal(err)
+		}
+	}
 }
 
 func realDir(t *testing.T, d string) string {
@@ -132,6 +165,11 @@ func slicesHasPrefix(k string, prefixes []string) bool {
 type result struct {
 	out, err string
 	code     int
+	// state is how the process ended, as os.ProcessState prints it:
+	// "exit status 128" or "signal: killed".
+	state string
+	// signaled is true when the process ran but was ended by a signal.
+	signaled bool
 }
 
 // exec runs bin with args in the repo, stdin on its input.
@@ -145,6 +183,10 @@ func (s *sandbox) exec(bin, stdin string, args ...string) result {
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	r := result{out: out.String(), err: errb.String()}
+	if ps := cmd.ProcessState; ps != nil {
+		r.state = ps.String()
+		r.signaled = !ps.Exited()
+	}
 	if err != nil {
 		ee, ok := err.(*exec.ExitError)
 		if !ok {
@@ -202,9 +244,26 @@ func (s *sandbox) git(args ...string) string {
 	s.t.Helper()
 	r := s.exec("git", "", args...)
 	if r.code != 0 {
-		s.t.Fatalf("git %v: %s%s", args, r.out, r.err)
+		s.t.Fatalf("%s", gitFailure(args, r))
 	}
 	return r.out
+}
+
+// gitFailure describes a failed git command: how it ended, then its stdout
+// and stderr, each shown as (empty) when it printed nothing, so a silent
+// failure says so.
+func gitFailure(args []string, r result) string {
+	stream := func(s string) string {
+		if s == "" {
+			return "(empty)"
+		}
+		return s
+	}
+	state := r.state
+	if state == "" {
+		state = fmt.Sprintf("exit %d", r.code)
+	}
+	return fmt.Sprintf("git %v: %s\nstdout: %s\nstderr: %s", args, state, stream(r.out), stream(r.err))
 }
 
 // write writes a file under the repo.

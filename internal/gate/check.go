@@ -89,7 +89,7 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 	err := cmd.Run()
 	notes := bound(out.Bytes())
 	if ctx.Err() != nil {
-		return false, notes, fmt.Errorf("check timed out after %v", timeout)
+		return false, notes, &TimeoutError{Bound: timeout}
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
@@ -100,6 +100,11 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 	}
 	return true, notes, nil
 }
+
+// TimeoutError is a check cut at its bound.
+type TimeoutError struct{ Bound time.Duration }
+
+func (e *TimeoutError) Error() string { return fmt.Sprintf("check timed out after %v", e.Bound) }
 
 func bound(b []byte) string {
 	b = bytes.TrimSpace(b)

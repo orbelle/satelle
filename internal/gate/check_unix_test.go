@@ -4,6 +4,7 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -46,6 +47,10 @@ func TestRunCheckBoundsAndTimeout(t *testing.T) {
 	ok, _, err = RunCheck(context.Background(), "sleep 30", t.TempDir(), CheckEnv{}, 200*time.Millisecond)
 	if ok || err == nil || time.Since(start) > 2*time.Second {
 		t.Fatalf("timeout: %v %v %v", ok, err, time.Since(start))
+	}
+	var te *TimeoutError
+	if !errors.As(err, &te) || te.Bound != 200*time.Millisecond || err.Error() != "check timed out after 200ms" {
+		t.Fatalf("timeout error %T %v", err, err)
 	}
 }
 
@@ -164,5 +169,86 @@ func TestRunCheckWithoutGateHasNoGateFields(t *testing.T) {
 	ok, notes, err := RunCheck(context.Background(), `cat; echo; echo "g=${SATELLE_GATE-unset}"`, t.TempDir(), CheckEnv{Item: "i"}, 0)
 	if !ok || err != nil || strings.Contains(notes, `"gate"`) || !strings.Contains(notes, "g=unset") {
 		t.Fatalf("%v %v %q", ok, err, notes)
+	}
+}
+
+// A gate's timeout bounds that gate's check scripts (check skill, trigger and
+// after, each separately) in place of the run's bound; a gate without one keeps
+// the run's bound. A timed-out gate rejects naming the bound and its source.
+func TestGateTimeoutBoundsThatGate(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"long":  {Skill: "slow", Timeout: "5s"},
+		"short": {Skill: "slow"},
+		"tight": {Skill: "hang", Trigger: "yes", Timeout: "200ms"},
+		"trig":  {Skill: "pass", Trigger: "hang", Timeout: "200ms"},
+		"after": {Skill: "pass", After: "hang", Timeout: "200ms"},
+	}
+	r, _ := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"long", "short", "tight", "trig", "after"}}}, gates)
+	r.Skills["slow"] = checkSkill("sleep 1; echo ok")
+	r.Skills["hang"] = checkSkill("sleep 30")
+	r.Skills["pass"] = checkSkill("echo checked")
+	r.Skills["yes"] = checkSkill("exit 0")
+	r.Dir, r.CheckTimeout = t.TempDir(), 200*time.Millisecond
+	start := time.Now()
+	rs, pass := r.Execute(context.Background())
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("gates took %v", took)
+	}
+	got := map[string]Result{}
+	for _, x := range rs {
+		got[x.Gate] = x
+	}
+	if pass || got["long"].Result != Accept || got["long"].Notes != "ok" {
+		t.Fatalf("long: %v %+v", pass, got["long"])
+	}
+	for n, want := range map[string]string{
+		"short": "timed out after 200ms (default; set timeout on [gates.short] to raise it)",
+		"tight": "timed out after 200ms (gates.tight timeout)",
+		"trig":  "trigger hang: timed out after 200ms (gates.trig timeout)",
+		"after": "after hang: timed out after 200ms (gates.after timeout)",
+	} {
+		if got[n].Result != Reject || !strings.Contains(got[n].Notes, want) {
+			t.Errorf("%s: want reject with %q, got %+v", n, want, got[n])
+		}
+	}
+	if !strings.HasPrefix(got["tight"].Notes, "timed out after 200ms (gates.tight timeout)") {
+		t.Errorf("tight notes %q", got["tight"].Notes)
+	}
+}
+
+// Without a gate timeout or a run bound, a gate's check runs under the default.
+func TestGateBoundDefault(t *testing.T) {
+	r := Run{}
+	d, src, err := r.bound("g", workflow.Gate{})
+	if err != nil || DefaultCheckTimeout != 10*time.Minute || d != DefaultCheckTimeout || src != "default; set timeout on [gates.g] to raise it" {
+		t.Fatalf("%v %q %v", d, src, err)
+	}
+	r.CheckTimeout = time.Minute
+	if d, _, _ := r.bound("g", workflow.Gate{}); d != time.Minute {
+		t.Fatalf("run bound %v", d)
+	}
+	if d, src, _ := r.bound("g", workflow.Gate{Timeout: "30m"}); d != 30*time.Minute || src != "gates.g timeout" {
+		t.Fatalf("gate bound %v %q", d, src)
+	}
+	if _, _, err := r.bound("g", workflow.Gate{Timeout: "soon"}); err == nil {
+		t.Fatal("unparsable timeout accepted")
+	}
+}
+
+// A timeout that does not parse (a config that skipped validation) fails the
+// gate closed before any script runs.
+func TestGateBadTimeoutFailsClosed(t *testing.T) {
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}, map[string]workflow.Gate{
+		"g": {Skill: "pass", Timeout: "soon"},
+	})
+	marker := t.TempDir() + "/ran"
+	r.Skills["pass"] = checkSkill("touch " + marker)
+	r.Dir = t.TempDir()
+	rs, pass := r.Execute(context.Background())
+	if pass || rs[0].Result != Reject || !strings.Contains(rs[0].Notes, `timeout "soon" on gates.g`) {
+		t.Fatalf("%v %+v", pass, rs)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("check ran under an unparsable timeout")
 	}
 }

@@ -8,6 +8,7 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -142,7 +143,7 @@ func (r Run) one(ctx context.Context, name string) Result {
 	res := r.decide(ctx, name)
 	res.Transition, res.Gate = r.key(), name
 	if g, ok := r.Workflow.Gates[name]; ok && g.After != "" && (res.verdict || res.Result == Carried) {
-		res = r.after(ctx, name, g.After, res)
+		res = r.after(ctx, name, g, res)
 	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
 		res.Changed = r.Changed
@@ -154,7 +155,8 @@ func (r Run) one(ctx context.Context, name string) Result {
 // after runs a gate's after check on its verdict. Exit 0 keeps the result;
 // a non-zero exit or an error turns it into a reject. Either way the check's
 // output joins the notes.
-func (r Run) after(ctx context.Context, name, skillName string, res Result) Result {
+func (r Run) after(ctx context.Context, name string, g workflow.Gate, res Result) Result {
+	skillName := g.After
 	skill, ok := r.Skills[skillName]
 	if !ok {
 		res.Result = Reject
@@ -163,16 +165,50 @@ func (r Run) after(ctx context.Context, name, skillName string, res Result) Resu
 	}
 	env := r.env()
 	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
-	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, env, r.CheckTimeout)
+	limit, source, berr := r.bound(name, g)
+	if berr != nil {
+		res.Result = Reject
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %v", skillName, berr))
+		return res
+	}
+	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, env, limit)
 	note := fmt.Sprintf("after %s: %s", skillName, out)
 	if err != nil {
-		note = fmt.Sprintf("after %s: %v\n%s", skillName, err, out)
+		note = fmt.Sprintf("after %s: %s", skillName, checkFailure(err, source, out))
 	}
 	res.Notes = joinNotes(res.Notes, note)
 	if err != nil || !passed {
 		res.Result = Reject
 	}
 	return res
+}
+
+// bound is what limits each of the gate's check scripts, and where that
+// limit comes from: the gate's own timeout, else the run's, else the default.
+// A timeout that does not parse is an error: the gate fails closed.
+func (r Run) bound(name string, g workflow.Gate) (time.Duration, string, error) {
+	d, err := g.Bound()
+	if err != nil {
+		return 0, "", fmt.Errorf("timeout %q on gates.%s: %w", g.Timeout, name, err)
+	}
+	if d > 0 {
+		return d, "gates." + name + " timeout", nil
+	}
+	def := fmt.Sprintf("default; set timeout on [gates.%s] to raise it", name)
+	if r.CheckTimeout > 0 {
+		return r.CheckTimeout, def, nil
+	}
+	return DefaultCheckTimeout, def, nil
+}
+
+// checkFailure is the notes of a check that failed to run: a timeout names
+// its bound and where the bound came from; any other error is given as is.
+func checkFailure(err error, source, out string) string {
+	var te *TimeoutError
+	if errors.As(err, &te) {
+		return fmt.Sprintf("timed out after %v (%s)\n%s", te.Bound, source, out)
+	}
+	return fmt.Sprintf("%v\n%s", err, out)
 }
 
 func joinNotes(a, b string) string {
@@ -187,6 +223,10 @@ func (r Run) decide(ctx context.Context, name string) Result {
 	if !ok {
 		return Result{Result: Reject, Notes: fmt.Sprintf("gate %q is not defined", name)}
 	}
+	limit, source, err := r.bound(name, g)
+	if err != nil {
+		return Result{Result: Reject, Notes: err.Error()}
+	}
 	if len(g.Paths) > 0 && !MatchAny(g.Paths, r.Changed) {
 		return Result{Result: Skipped, Notes: fmt.Sprintf("no changed path matches %v", g.Paths), Warning: r.skipWarning}
 	}
@@ -195,9 +235,9 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		if !ok {
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger skill %q is missing", g.Trigger)}
 		}
-		relevant, out, err := RunCheck(ctx, trig.Script, r.Dir, r.env(), r.CheckTimeout)
+		relevant, out, err := RunCheck(ctx, trig.Script, r.Dir, r.env(), limit)
 		if err != nil {
-			return Result{Result: Reject, Notes: fmt.Sprintf("trigger %s: %v\n%s", g.Trigger, err, out)}
+			return Result{Result: Reject, Notes: fmt.Sprintf("trigger %s: %s", g.Trigger, checkFailure(err, source, out))}
 		}
 		if !relevant {
 			return Result{Result: Skipped, Notes: fmt.Sprintf("trigger %s found nothing relevant\n%s", g.Trigger, out), Warning: r.skipWarning}
@@ -220,10 +260,10 @@ func (r Run) decide(ctx context.Context, name string) Result {
 	}
 	var res Result
 	if skill.IsCheck() {
-		passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.env(), r.CheckTimeout)
+		passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.env(), limit)
 		res = Result{Result: Reject, Notes: out}
 		if err != nil {
-			res.Notes = fmt.Sprintf("%v\n%s", err, out)
+			res.Notes = checkFailure(err, source, out)
 		} else {
 			res.verdict = true
 			if passed {
