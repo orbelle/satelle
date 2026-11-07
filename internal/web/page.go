@@ -310,7 +310,7 @@ const templatesSrc = `
          anchors are invalid HTML — browsers rewrite the DOM and the chip
          floats misaligned between Stories and Tasks (sty_01ba9482). */}}
     <span class="tab-cluster">
-      <a class="tab" role="tab" data-panel="stories" href="#stories"><span class="tab-label" data-text="Stories">Stories</span> <span class="n">{{len .Stories}}</span></a>
+      <a class="tab" role="tab" data-panel="stories" href="#stories"><span class="tab-label" data-text="Stories">Stories</span> <span class="n">{{len .Stories}}</span>{{template "backlogBadge" .}}</a>
       {{template "engagementBadge" .}}
     </span>
     <a class="tab" role="tab" data-panel="activity" href="#activity"><span class="tab-label" data-text="Activity">Activity</span> <span class="n">{{len .Activity}}</span></a>
@@ -387,9 +387,14 @@ const templatesSrc = `
 </body>
 </html>{{end}}
 
-{{/* engagementBadge: story-seat count chip when EngagementCount > 0; emits nothing
+{{/* backlogBadge: the Stories tab's 'N backlog' chip when BacklogCount > 0; emits
+     nothing at 0. Rendered inside the tab anchor at page load and live-refreshed via
+     GET fragment/backlog — JS swaps, inserts or removes it. */}}
+{{define "backlogBadge"}}{{if gt .BacklogCount 0}}<span class="n-backlog" title="stories in the open backlog" data-backlog-count="{{.BacklogCount}}">{{.BacklogCount}} backlog</span>{{end}}{{end}}
+
+{{/* engagementBadge: engaged-story count chip when EngagementCount > 0; emits nothing
      at 0 (sty_e4632f45). Live-refreshed via GET fragment/engagement — JS insert/remove
-     handles 0↔n. Count = non-stale story_seat rows. */}}
+     handles 0↔n. Count = non-terminal stories holding a non-stale seat. */}}
 {{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{end}}
 
 {{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">

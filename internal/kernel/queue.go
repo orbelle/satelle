@@ -223,11 +223,16 @@ func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Memb
 // Enqueue adds items to a queue explicitly, then fires the trigger in this
 // call when its minimum size is reached. A state's enqueue (a cause written by
 // item.StateCause) always records queue.added: the item was outside that state
-// just before the move, so any earlier add it caused had lapsed. Any other add
-// records queue.added unless the item is already a live explicit member, and
-// refuses an item already in a terminal state, which a queue does not hold. A
-// fire the queue cannot take now (its last run is open, or the queue moved) is
-// reported in Held, not as an error: the items stay queued.
+// just before the move, so any earlier add it caused had lapsed. An add with
+// an empty cause records queue.added unless the item is already a live
+// explicit member. Any other cause (an external producer's) records it unless
+// the item is a live explicit member or the chain already holds a queue.added
+// for that item with that cause, before or after any fire, so a producer's
+// retry never re-queues an item a run took; a skipped item is reported in
+// Already. A non-state add that would record refuses an item already in a
+// terminal state, which a queue does not hold. A fire the queue cannot take
+// now (its last run is open, or the queue moved) is reported in Held, not as
+// an error: the items stay queued.
 func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOutcome, error) {
 	queueID, def := k.ResolveQueue(ref)
 	out := QueueOutcome{Queue: queueID, Added: []string{}}
@@ -255,7 +260,8 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 		if err != nil {
 			return out, err
 		}
-		if slices.Contains(out.Added, id) || (!stateCause && slices.Contains(live, id)) {
+		if slices.Contains(out.Added, id) || (!stateCause && slices.Contains(live, id)) ||
+			(cause != "" && !stateCause && st.AddedWith(id, cause)) {
 			out.Already = append(out.Already, id)
 			continue
 		}

@@ -120,7 +120,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
-	engagedIDs := engagedItems(seats)
+	engagedIDs := engagedItems(seats, stories, workflows)
 	events, err := decodeLedger(ctx, s, repoKey, "")
 	if err != nil {
 		return pageData{}, id, err
@@ -156,6 +156,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncLogPath:     logPath,
 		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
+		BacklogCount:    backlogCount(stories, workflows),
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
@@ -332,15 +333,41 @@ func seatItem(seat mirror.Seat) string {
 	return id
 }
 
-// engagedItems is the sorted set of items the seats are bound to.
-func engagedItems(seats []mirror.Seat) []string {
+// engagedItems is the sorted set of stories engaged now: the items the seats
+// are bound to that are stories in a non-terminal state. A task run's
+// (execution's) seat is not a story engaged — Activity lists it instead — and a
+// story whose workflow does not name its state counts, since the page cannot
+// prove it terminal.
+func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow) []string {
+	byID := make(map[string]Item, len(stories))
+	for _, it := range stories {
+		byID[it.ID] = it
+	}
 	set := map[string]bool{}
 	for _, seat := range seats {
-		if id := seatItem(seat); id != "" {
-			set[id] = true
+		id := seatItem(seat)
+		it, ok := byID[id]
+		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" {
+			continue
 		}
+		set[id] = true
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// backlogCount is the number of stories in backlog, the Stories tab's
+// 'N backlog' badge: those whose state is their workflow's start state, read
+// from the pushed workflow, never a state name. A story whose workflow is
+// unpushed or lacks its state is not counted. The server owns the count: first
+// load renders it and the live refresh refetches it as a fragment.
+func backlogCount(stories []Item, workflows map[string]*mirror.Workflow) int {
+	n := 0
+	for _, it := range stories {
+		if s, ok := workflowState(workflows[it.Workflow], it.Status); ok && s.Start {
+			n++
+		}
+	}
+	return n
 }
 
 // mirrorLoadDetail builds the detail VM from mirror kinds only: the item, its

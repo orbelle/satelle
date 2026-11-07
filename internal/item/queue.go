@@ -72,14 +72,24 @@ type QueueState struct {
 	Explicit []string          `json:"explicit"`
 	Causes   map[string]string `json:"causes,omitempty"`
 	LastFire *Fired            `json:"last_fire,omitempty"`
+	// added is every (item, cause) the chain has ever added, across removes
+	// and fires. Unexported, so no JSON shape of the state changes.
+	added map[QueueEntry]bool
+}
+
+// AddedWith reports whether the chain holds a queue.added for this item with
+// this cause, before or after any fire or remove.
+func (s QueueState) AddedWith(id, cause string) bool {
+	return s.added[QueueEntry{Item: id, Cause: cause}]
 }
 
 // FoldQueue folds a queue's chain. An add appends an item and records its
 // cause; adding an item already explicit moves it to the end with the new
 // cause. A remove deletes it, and a fire takes every member, so it empties the
-// explicit list.
+// explicit list. The fold also remembers every (item, cause) ever added,
+// which neither a remove nor a fire clears (AddedWith).
 func FoldQueue(events []ledger.Event) QueueState {
-	st := QueueState{Explicit: []string{}, Causes: map[string]string{}}
+	st := QueueState{Explicit: []string{}, Causes: map[string]string{}, added: map[QueueEntry]bool{}}
 	drop := func(id string) {
 		st.Explicit = slices.DeleteFunc(st.Explicit, func(e string) bool { return e == id })
 		delete(st.Causes, id)
@@ -92,6 +102,7 @@ func FoldQueue(events []ledger.Event) QueueState {
 				drop(q.Item)
 				st.Explicit = append(st.Explicit, q.Item)
 				st.Causes[q.Item] = q.Cause
+				st.added[QueueEntry{Item: q.Item, Cause: q.Cause}] = true
 			}
 		case KindQueueRemoved:
 			var q QueueEntry

@@ -79,6 +79,13 @@ ledger keeps its `queue.added`: a lapse is read from the item's status, not
 recorded. A cause an external producer writes in the `x:y->z` shape is read
 as a state cause. `queue remove` still clears a lapsed member.
 
+An add with a cause that is neither empty nor a state cause is idempotent per
+queue, item and cause: if the chain already records that item added with that
+cause, before or after any fire, it is reported as already queued and nothing
+is written, so a producer's retry never re-queues an item a run took. A
+different cause adds again, and `queue add` (no cause) and a state's enqueue
+keep re-adding after a fire.
+
 ## The trigger
 
 `--trigger-task <tas>` starts an execution under that task, as `task run`

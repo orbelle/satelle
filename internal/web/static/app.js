@@ -357,36 +357,38 @@
         var tab = document.querySelector('.tab[data-panel="' + topic + '"] .n');
         if (tab) tab.textContent = panel.querySelectorAll("[data-rows] .row").length;
         if (topic === "stories") {
-          refreshBacklogBadge(panel);
+          refreshBacklogBadge();
           refreshEngagementBadge();
         }
       })
       .catch(function () {});
   }
 
-  // refreshBacklogBadge recomputes the Stories tab's 'N backlog' badge from the
-  // live rows (sty_af09a484). The server renders it at page load from BacklogCount,
-  // but a realtime refetch only refreshed the total .n — so the badge stayed frozen
-  // at the page-load value. Recompute from the rows carrying data-status="backlog"
-  // and create / update / remove the badge consistently with the server template's
-  // {{if .BacklogCount}} (shown when > 0, gone when 0). The badge's spacing comes
-  // from its CSS margin, so no literal separator node is needed.
-  function refreshBacklogBadge(panel) {
-    var tabEl = document.querySelector('.tab[data-panel="stories"]');
-    if (!tabEl) return;
-    var n = panel.querySelectorAll('[data-rows] .row[data-status="backlog"]').length;
-    var badge = tabEl.querySelector(".n-backlog");
-    if (n > 0) {
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.className = "n-backlog";
-        badge.title = "stories in the open backlog";
-        tabEl.appendChild(badge);
-      }
-      badge.textContent = n + " backlog";
-    } else if (badge) {
-      badge.remove();
-    }
+  // refreshBacklogBadge reloads the Stories tab's 'N backlog' badge from the
+  // server (sty_af09a484). The server owns the count: it renders the badge at
+  // page load from BacklogCount and serves the same template at
+  // fragment/backlog, so first load and live updates agree. At count 0 the
+  // fragment is empty and the badge is absent; handle swap, insert (0→n), and
+  // remove (n→0). The badge's spacing comes from its CSS margin.
+  function refreshBacklogBadge() {
+    fetch("fragment/backlog")
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var tabEl = document.querySelector('.tab[data-panel="stories"]');
+        if (!tabEl) return;
+        var tmp = document.createElement("div");
+        tmp.innerHTML = html.trim();
+        var next = tmp.querySelector(".n-backlog");
+        var cur = tabEl.querySelector(".n-backlog");
+        if (next && cur) {
+          cur.parentNode.replaceChild(next, cur);
+        } else if (next) {
+          tabEl.appendChild(next);
+        } else if (cur) {
+          cur.remove();
+        }
+      })
+      .catch(function () {});
   }
 
   // refreshEngagementBadge reloads the story-seat count chip from the server

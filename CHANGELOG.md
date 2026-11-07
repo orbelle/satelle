@@ -1,3 +1,10 @@
+## [1.0.19] - 2026-11-07
+
+### Fixed
+- The release's worktree cleanup keeps the worktree of an item that is not in a terminal state, such as one sent back to in_progress, and every send-back reason says to merge origin/main into the branch rather than rebase, so the item comes back without a force-push. (sto_6f16d931)
+- A queue add with an external producer's cause is idempotent per queue, item and cause: a retried add after a fire no longer re-queues the item the fire's run already took; a hand add (no cause) and a state's enqueue still add again after a fire. (sto_38289aba)
+- satelled's Stories tab now counts only seated stories in a non-terminal state as engaged, so a task run's seat no longer inflates 'N engaged', and the 'N backlog' badge is rendered on first load instead of vanishing on refresh. (sto_4c04cd6f)
+
 ## [1.0.18] - 2026-11-07
 
 ### Fixed
