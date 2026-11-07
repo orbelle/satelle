@@ -18,7 +18,9 @@
 // RESOURCE_EXHAUSTED, INTERNAL or a network error is a restart;
 // UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, ALREADY_EXISTS,
 // FAILED_PRECONDITION or INVALID_ARGUMENT is a refusal and is never retried
-// (see classifyClose). A job open at the drop is failed, not resumed.
+// (see classifyClose). A stream the relay ended is classified by its final
+// status, never by the io.EOF a send on it returns. A job open at the drop is
+// failed, not resumed.
 //
 // # Channel protocol
 //
