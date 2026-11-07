@@ -23,5 +23,6 @@ A binding's `placement` in agents.toml says where a state's performer runs:
   at `remote:<node>` and sends the step over the sealed channel.
 - `cloud`: a cloud session performs the step, seated at `cloud:<url>`. When its
   work comes back on a branch, `satelle story collect <id> --branch <b>`
-  records the branch's commit and merge base; the item's gates then judge that
-  diff. collect never changes the repository.
+  records the branch's commit and its merge base with origin/main (or
+  `--base <ref>`), never HEAD; the item's gates then judge that diff, and a
+  branch that adds nothing is refused. collect never changes the repository.

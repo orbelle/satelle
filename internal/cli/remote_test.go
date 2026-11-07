@@ -59,6 +59,7 @@ func TestRemoteNeedsABinding(t *testing.T) {
 func TestStoryCollectRecordsTheBranch(t *testing.T) {
 	newMachine(t)
 	id := createID(t, "story", "create", "--title", "cloud work")
+	trunk := gittest.Git(t, "", "rev-parse", "--abbrev-ref", "HEAD")
 	gittest.Git(t, "", "checkout", "-q", "-b", "cloud/x")
 	if err := os.WriteFile("work.txt", []byte("w\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -80,5 +81,12 @@ func TestStoryCollectRecordsTheBranch(t *testing.T) {
 	}
 	if _, err := run(t, "", "story", "collect", id, "--branch", "nope"); err == nil {
 		t.Fatal("collecting a missing branch succeeded")
+	}
+	if out := must(t, "story", "collect", id, "--branch", "cloud/x", "--base", trunk); !strings.Contains(out, "from "+trunk) {
+		t.Fatalf("collect --base %s = %q", trunk, out)
+	}
+	out, err := run(t, "", "story", "collect", id, "--branch", trunk, "--base", trunk)
+	if err == nil || !strings.Contains(err.Error()+out, "branch "+trunk) {
+		t.Fatalf("collecting a branch that adds nothing = %q, %v", out, err)
 	}
 }
