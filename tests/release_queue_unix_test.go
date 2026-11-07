@@ -55,11 +55,13 @@ func shBlockVar(t *testing.T, rel, heading, name, value string) string {
 	return re.ReplaceAllString(block, name+"="+value)
 }
 
-// The release procedure's step 0, run as written, fires the release run from
-// the release queue over exactly the approved stories, and the release-run
-// check accepts each of them.
-func TestReleaseStepZeroFiresFromTheQueue(t *testing.T) {
-	for _, tool := range []string{"bash", "jq", "git"} {
+// releaseSandbox is a repo whose main is pushed to a bare origin, carrying
+// this repo's queue rule, a plain flow for stories (backlog -> approved ->
+// done), the runbook and standing workflows, and the release task, which it
+// returns with the sandbox and the origin's path.
+func releaseSandbox(t *testing.T, tools ...string) (*sandbox, string, item.Item) {
+	t.Helper()
+	for _, tool := range append([]string{"bash", "jq", "git"}, tools...) {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Fatalf("%s is required by the release blocks and is not on PATH", tool)
 		}
@@ -126,7 +128,29 @@ from = ["defined"]
 to = "retired"
 `)
 	s.must("validate")
-	task := s.create("task", "--title", "Release approved items")
+	return s, origin, s.create("task", "--title", "Release approved items")
+}
+
+// writeReleaseQueue writes the repo's release.toml into the sandbox, rebound
+// to queue q and task.
+func writeReleaseQueue(t *testing.T, s *sandbox, q, task string) {
+	t.Helper()
+	releaseTOML := repoReleaseQueue(t)
+	for _, line := range []string{`id = "que_65bc4edc"`, `task = "tas_42301d36"`} {
+		if !strings.Contains(releaseTOML, line+"\n") {
+			t.Fatalf(".satelle/queues/release.toml lacks %s:\n%s", line, releaseTOML)
+		}
+	}
+	releaseTOML = strings.Replace(releaseTOML, `id = "que_65bc4edc"`, `id = "`+q+`"`, 1)
+	releaseTOML = strings.Replace(releaseTOML, `task = "tas_42301d36"`, `task = "`+task+`"`, 1)
+	s.write(".satelle/queues/release.toml", releaseTOML)
+}
+
+// The release procedure's step 0, run as written, fires the release run from
+// the release queue over exactly the approved stories, and the release-run
+// check accepts each of them.
+func TestReleaseStepZeroFiresFromTheQueue(t *testing.T) {
+	s, _, task := releaseSandbox(t)
 
 	// A queue created on the ledger before queues were files, with one
 	// approved story added by hand: the repo's release.toml adopts it.
@@ -137,15 +161,7 @@ to = "retired"
 	approved := []string{legacy.ID}
 
 	// The repo's release.toml, rebound to this sandbox's queue and task.
-	releaseTOML := repoReleaseQueue(t)
-	for _, line := range []string{`id = "que_65bc4edc"`, `task = "tas_42301d36"`} {
-		if !strings.Contains(releaseTOML, line+"\n") {
-			t.Fatalf(".satelle/queues/release.toml lacks %s:\n%s", line, releaseTOML)
-		}
-	}
-	releaseTOML = strings.Replace(releaseTOML, `id = "que_65bc4edc"`, `id = "`+q.ID+`"`, 1)
-	releaseTOML = strings.Replace(releaseTOML, `task = "tas_42301d36"`, `task = "`+task.ID+`"`, 1)
-	s.write(".satelle/queues/release.toml", releaseTOML)
+	writeReleaseQueue(t, s, q.ID, task.ID)
 	s.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]
 start = true
