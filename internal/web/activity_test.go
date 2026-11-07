@@ -204,3 +204,41 @@ func TestActivityLiveWiring(t *testing.T) {
 		}
 	}
 }
+
+var engagedChipRE = regexp.MustCompile(`<span class="n-engaged[^>]*>[^<]*</span>`)
+
+// A task run's seat and a terminal story's seat are not stories engaged: the
+// Stories tab's chip counts only the seated non-terminal stories, and the
+// run's seat shows on Activity instead.
+func TestEngagedBadgeIgnoresTaskRunSeats(t *testing.T) {
+	snap := activitySnapshot("beta")
+	snap.Seats = append(snap.Seats, raw(mirror.Seat{ID: "exe_run/s1", Item: "exe_run", Session: "s1", Location: "local:/x", BoundAt: activityT0}))
+	srv := mirrorWith(t, snap)
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	for name, html := range map[string]string{
+		"page":     page,
+		"fragment": httpGetBody(t, srv.URL+"/r/proj/fragment/engagement"),
+	} {
+		chip := engagedChipRE.FindString(html)
+		if chip == "" {
+			t.Fatalf("%s: no engaged chip:\n%s", name, html)
+		}
+		for _, want := range []string{`data-engagement-count="2"`, `title="engaged: sto_lost_seat, sto_seat"`, ">2 engaged<"} {
+			if !strings.Contains(chip, want) {
+				t.Errorf("%s: chip lacks %s: %s", name, want, chip)
+			}
+		}
+		for _, notWant := range []string{"exe_run", "sto_done"} {
+			if strings.Contains(chip, notWant) {
+				t.Errorf("%s: chip names %s: %s", name, notWant, chip)
+			}
+		}
+	}
+	row, ok := activityRowsOf(t, activityPanel(t, page))["exe_run"]
+	if !ok {
+		t.Fatal("the seated run is not on Activity")
+	}
+	if !strings.Contains(row, "s1 · local:/x") {
+		t.Errorf("the run's Activity row lacks its seat: %s", row)
+	}
+}

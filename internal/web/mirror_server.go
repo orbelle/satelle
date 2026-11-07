@@ -134,7 +134,8 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/fragment/queues", s.fragmentRows("queueRows", "queues"))
 	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("activityRows", "activity"))
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
-	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentEngagement)
+	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentBadge("engagementBadge"))
+	mux.HandleFunc("GET /r/{slug}/fragment/backlog", s.fragmentBadge("backlogBadge"))
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
 	mux.HandleFunc("GET /r/{slug}/fragment/task/{id}", s.itemFragment("task"))
 	mux.HandleFunc("GET /r/{slug}/fragment/execution/{id}", s.itemFragment("execution"))
@@ -382,20 +383,23 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 	}
 }
 
-// fragmentEngagement returns the engagement badge HTML when count > 0, else empty (sty_e4632f45).
-func (s *MirrorServer) fragmentEngagement(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	repoKey, err := s.resolveSlug(r.Context(), slug)
-	if err != nil {
-		http.NotFound(w, r)
-		return
+// fragmentBadge returns a project-chrome badge template's HTML — the engagement
+// or backlog chip — which is empty when its count is 0 (sty_e4632f45).
+func (s *MirrorServer) fragmentBadge(tmplName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := r.PathValue("slug")
+		repoKey, err := s.resolveSlug(r.Context(), slug)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		data, _, err := mirrorLoadPanels(r.Context(), s.Store, repoKey, slug)
+		if err != nil {
+			httpError(w, err)
+			return
+		}
+		mirrorRender(w, tmplName, s.projectBase(slug), data)
 	}
-	data, _, err := mirrorLoadPanels(r.Context(), s.Store, repoKey, slug)
-	if err != nil {
-		httpError(w, err)
-		return
-	}
-	mirrorRender(w, "engagementBadge", s.projectBase(slug), data)
 }
 
 func (s *MirrorServer) itemFragment(group string) http.HandlerFunc {
