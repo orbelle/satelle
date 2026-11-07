@@ -1,3 +1,8 @@
+## [1.0.20] - 2026-11-07
+
+### Added
+- Every release now ends with a drift review (release step 11): `scripts/drift-check.sh` checks the substrate's commands, flags, help topics, links and workflow skills against the released binary, two judge gates review the release's binary change against the constitution and the principles' claims against the released source, and each finding becomes a drift story under its epic. (sto_8ed779af)
+
 ## [1.0.19] - 2026-11-07
 
 ### Fixed

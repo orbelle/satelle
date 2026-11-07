@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts), run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees. Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts), run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
 ---
 
 # Release (CI/CD)
@@ -466,3 +466,34 @@ worktree of an item still being worked: an item sent back to in_progress keeps
 its worktree, reported `kept <path> (<branch>): item <id> is <state>, not
 terminal`. The terminal states are read from `satelle workflow show`, never
 listed here.
+
+## 11. Drift review
+
+Every release ends with a drift review (operator, 2026-11-07): the substrate
+checked against the binary just released, and the release's binary change
+judged against the constitution. From the main checkout, after step 10, start
+the drift review task with the release's tag range as its base and follow its
+run to done:
+
+```sh
+cd <the main checkout>
+git fetch -q origin --tags
+task=tas_a45ba066
+ver=$(sed -n 's/^satelle\.version: *//p' .version)
+prev=$(git tag -l 'v*' | sed 's/^v//' | sort -V | awk -v v="$ver" '$0 == v { print p; exit } { p = $0 }')
+[ -n "$ver" ] && [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }
+[ "$(git rev-parse HEAD)" = "$(git rev-parse "v$ver^{commit}")" ] || { echo "the main checkout is not at v$ver: the drift review judges the released tree" >&2; exit 1; }
+exe=$(satelle task run "$task" --base "v$prev" --json | jq -r '.id')
+satelle execution set "$exe" --status in_progress                     # validate-before
+satelle execution seat "$exe" --base "v$prev"
+[ "$(satelle execution diff "$exe" --json | jq -r .base)" = "$(git rev-parse "v$prev^{commit}")" ] || { echo "run $exe is not judged from v$prev" >&2; exit 1; }
+```
+
+Then follow `.satelle/skills/drift-review.md` to `done`. The seat carries the
+same `--base` as the run: a seat without it records HEAD (`v$ver`), the latest
+seat's base is the one the gates judge from, and the diff the
+`drift-constitution` gate judges would be empty.
+
+A drift finding never reopens the release: it is a story (`scripts/drift-stories.sh`),
+parented on its epic, and the story is the fix. The release run is already
+done when this starts.
