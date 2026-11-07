@@ -235,8 +235,10 @@ func wireWorkflow(w *workflow.Workflow) *mirror.Workflow {
 	for _, n := range sortedKeys(w.States) {
 		s := w.States[n]
 		ws := mirror.WorkflowState{Name: n, Start: s.Start, Terminal: s.Terminal, Park: s.Park, Resumes: s.Resumes}
-		if s.Performer != nil {
-			ws.PerformerAgent, ws.PerformerSkill = s.Performer.Agent, s.Performer.Skill
+		if _, ok := s.Operated(); ok {
+			ws.PerformerAgent = "operator"
+		} else if p := s.Agent(); p != nil {
+			ws.PerformerAgent, ws.PerformerSkill = p.Agent, p.Skill
 		}
 		out.States = append(out.States, ws)
 	}

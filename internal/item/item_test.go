@@ -74,3 +74,23 @@ func TestFieldsApplyTrigger(t *testing.T) {
 		t.Fatalf("the zero trigger did not clear: %+v", it.Trigger)
 	}
 }
+
+func TestFoldedAndSinceEntered(t *testing.T) {
+	for _, k := range []string{KindCreated, KindUpdated, KindTransitioned, KindSeatBound, KindSeatReleased, KindAttachmentAdd} {
+		if !Folded(k) {
+			t.Errorf("%s is read by the folds", k)
+		}
+	}
+	for _, k := range []string{"github.review", "gate.run", "performer.run", ""} {
+		if Folded(k) {
+			t.Errorf("%s is carried, not folded", k)
+		}
+	}
+	events := []ledger.Event{{Kind: KindCreated}, {Kind: KindAttachmentAdd}, {Kind: KindTransitioned}, {Kind: KindAttachmentAdd, ID: "after"}}
+	if got := SinceEntered(events); len(got) != 1 || got[0].ID != "after" {
+		t.Errorf("SinceEntered = %+v", got)
+	}
+	if got := SinceEntered(events[:2]); len(got) != 2 {
+		t.Errorf("never moved: SinceEntered = %+v", got)
+	}
+}

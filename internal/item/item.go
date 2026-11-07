@@ -22,6 +22,28 @@ const (
 	KindAttachmentAdd = "attachment.added"
 )
 
+// Folded reports whether kind is one the folds read, the kinds above. Only
+// satelle's own verbs write these; a raw append may not.
+func Folded(kind string) bool {
+	switch kind {
+	case KindCreated, KindUpdated, KindTransitioned, KindSeatBound, KindSeatReleased, KindAttachmentAdd:
+		return true
+	}
+	return false
+}
+
+// SinceEntered is the events after the item last entered its current state:
+// those after the last item.transitioned, or all of them when it never moved.
+func SinceEntered(events []ledger.Event) []ledger.Event {
+	start := 0
+	for i, e := range events {
+		if e.Kind == KindTransitioned {
+			start = i + 1
+		}
+	}
+	return events[start:]
+}
+
 // Selection names a set of items by field; empty fields match anything. A
 // task item carries one as its inputs; a queue as its filter.
 type Selection struct {

@@ -20,8 +20,34 @@ type Artifact struct {
 // MediaType is the attachment media type: the body is markdown, and the
 // artifact's type travels as a parameter (text/markdown; type=plan).
 func (a Artifact) MediaType() string {
-	return mime.FormatMediaType("text/markdown", map[string]string{"type": a.Type})
+	return TypedMediaType("text/markdown", a.Type)
 }
+
+// TypedMediaType is the media type mt with the attachment type typ set as its
+// type parameter (text/markdown; type=plan). Other parameters of mt are kept.
+// It is empty when mt does not parse or typ is not a valid parameter value.
+func TypedMediaType(mt, typ string) string {
+	base, params, err := mime.ParseMediaType(mt)
+	if err != nil {
+		return ""
+	}
+	params["type"] = typ
+	return mime.FormatMediaType(base, params)
+}
+
+// MediaTypeParam is the value of parameter key in media type mt; empty when mt
+// does not parse or has no such parameter.
+func MediaTypeParam(mt, key string) string {
+	_, params, err := mime.ParseMediaType(mt)
+	if err != nil {
+		return ""
+	}
+	return params[key]
+}
+
+// ValidType reports whether typ is a valid attachment type: a plain token, so
+// the media-type parameter needs no quoting.
+func ValidType(typ string) bool { return artifactType.MatchString(typ) }
 
 // artifactKey spots an "artifact" key written raw in the text, which a valid
 // object would have decoded; an escaped mention inside a JSON string does not
@@ -65,7 +91,7 @@ func ParseArtifact(text string) (*Artifact, error) {
 			return nil, fmt.Errorf("malformed artifact: %s is missing or blank", field)
 		}
 	}
-	if !artifactType.MatchString(a.Type) || a.MediaType() == "" {
+	if !ValidType(a.Type) || a.MediaType() == "" {
 		return nil, fmt.Errorf("malformed artifact: type %q is not a valid media-type parameter value (letters, digits, '.', '_', '-')", a.Type)
 	}
 	return &a, nil

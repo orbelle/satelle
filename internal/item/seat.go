@@ -33,6 +33,9 @@ type Attachment struct {
 	MediaType string    `json:"media_type"`
 	At        time.Time `json:"at,omitzero"`
 	Actor     string    `json:"actor,omitempty"`
+	// Operator is set only by the operator's record verb, after its checks that
+	// no agent session is recording.
+	Operator bool `json:"operator,omitempty"`
 }
 
 // FoldSeats returns the seats still bound at the end of the chain, in bind

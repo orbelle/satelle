@@ -141,6 +141,8 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"timeout negative", base + "[gates.g]\nskill = \"script\"\ntimeout = \"-1m\"\n", `timeout "-1m" must be positive`},
 		{"timeout on judge", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ntimeout = \"5m\"\n", "this gate runs none"},
 		{"resumes without park", base + "[states.a2]\nresumes = true\n", "not a park state"},
+		{"operator with agent", base + "[states.b]\nperformer = { operator = \"x\", agent = \"a1\" }\n[[transition]]\nfrom = [\"a\"]\nto = \"b\"\n", `state "b" performer is the operator; it takes no agent or skill`},
+		{"operator with skill", base + "[states.b]\nperformer = { operator = \"x\", skill = \"work\" }\n[[transition]]\nfrom = [\"a\"]\nto = \"b\"\n", "it takes no agent or skill"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -200,5 +202,48 @@ func TestSkills(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "bad.md"), []byte("---\ntype: check\n---\nno script\n"), 0o644)
 	if _, err := LoadSkills(dir); err == nil {
 		t.Fatal("check without script accepted")
+	}
+}
+
+func TestOperatorPerformer(t *testing.T) {
+	w, err := parse(t, `
+[states.a]
+start = true
+[states.deploy]
+performer = { operator = "deploy-record" }
+[states.work]
+performer = { agent = "a1", skill = "work" }
+[states.z]
+terminal = true
+[[transition]]
+from = ["a"]
+to = "deploy"
+[[transition]]
+from = ["deploy"]
+to = "work"
+[[transition]]
+from = ["work"]
+to = "z"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("unexpected problems: %v", errs)
+	}
+	if typ, ok := w.States["deploy"].Operated(); !ok || typ != "deploy-record" {
+		t.Fatalf("Operated() = %q, %v", typ, ok)
+	}
+	if p := w.States["deploy"].Agent(); p != nil {
+		t.Fatalf("an operator state has no agent performer, got %+v", p)
+	}
+	if _, ok := w.States["work"].Operated(); ok {
+		t.Fatal("an agent state is not the operator's")
+	}
+	if p := w.States["work"].Agent(); p == nil || p.Agent != "a1" {
+		t.Fatalf("Agent() = %+v", p)
+	}
+	if _, ok := w.States["a"].Operated(); ok || w.States["a"].Agent() != nil {
+		t.Fatal("a state with no performer is neither")
 	}
 }

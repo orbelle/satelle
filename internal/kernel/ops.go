@@ -251,6 +251,11 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	if err != nil {
 		return res, err
 	}
+	// An operator state is left only once the operator has recorded its word
+	// since the item entered it; nothing runs or is recorded before that.
+	if typ, ok := w.States[it.Status].Operated(); ok && !operatorRecorded(item.SinceEntered(events), typ) {
+		return res, &OperatorRecordError{Item: id, Kind: it.Kind, State: it.Status, Type: typ}
+	}
 	// The queues entering `to` enqueues into must exist before anything runs.
 	var queues []string
 	for _, name := range w.States[to].Enqueue {
@@ -350,20 +355,27 @@ func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []
 
 // Attach stores data as a blob and records it on the item.
 func (k *Kernel) Attach(id, name string, data []byte, mediaType, actor string) (item.Attachment, error) {
+	return k.attach(id, item.Attachment{Name: name, MediaType: mediaType}, data, actor)
+}
+
+// attach stores data as a blob and records a, with its sha and size filled
+// in, on the item: the one writer of attachment.added.
+func (k *Kernel) attach(id string, a item.Attachment, data []byte, actor string) (item.Attachment, error) {
 	if _, err := k.Get(id); err != nil {
 		return item.Attachment{}, err
 	}
-	if strings.TrimSpace(name) == "" {
+	if strings.TrimSpace(a.Name) == "" {
 		return item.Attachment{}, errors.New("an attachment needs a name")
 	}
-	if mediaType == "" {
-		mediaType = "application/octet-stream"
+	if a.MediaType == "" {
+		a.MediaType = "application/octet-stream"
 	}
 	sha, err := k.Ledger.PutBlob(data)
 	if err != nil {
 		return item.Attachment{}, err
 	}
-	a := item.Attachment{Name: name, SHA256: sha, Size: int64(len(data)), MediaType: mediaType}
+	a.Item, a.At, a.Actor = "", time.Time{}, ""
+	a.SHA256, a.Size = sha, int64(len(data))
 	e, err := k.append(id, item.KindAttachmentAdd, actor, a)
 	a.Item, a.At, a.Actor = id, e.At, actor
 	return a, err
@@ -464,10 +476,14 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 		return agent.Result{}, err
 	}
 	st := w.States[it.Status]
-	if st.Performer == nil {
+	if _, ok := st.Operated(); ok {
+		return agent.Result{}, fmt.Errorf("state %q is the operator's: nothing is dispatched", it.Status)
+	}
+	perf := st.Agent()
+	if perf == nil {
 		return agent.Result{}, fmt.Errorf("state %q has no performer", it.Status)
 	}
-	b := k.Agents[st.Performer.Agent]
+	b := k.Agents[perf.Agent]
 	if agent.IsSession(b) {
 		return agent.Result{}, fmt.Errorf("state %q is performed by the session (agent %q), not dispatched", it.Status, b.Name)
 	}
@@ -490,7 +506,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 		defer rec.Close()
 		prompt += rec.Section
 	}
-	req := agent.Request{Binding: b, System: k.Skills[st.Performer.Skill].Body, Prompt: prompt, Dir: k.Dir}
+	req := agent.Request{Binding: b, System: k.Skills[perf.Skill].Body, Prompt: prompt, Dir: k.Dir}
 	start := time.Now()
 	var res agent.Result
 	var runErr error
@@ -510,7 +526,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	if runErr == nil {
 		art, runErr = agent.ParseArtifact(res.Text)
 	}
-	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: st.Performer.Skill, Model: res.Model,
+	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: perf.Skill, Model: res.Model,
 		TokensIn: res.TokensIn, TokensOut: res.TokensOut, DurationMS: time.Since(start).Milliseconds(), Location: loc}
 	if runErr != nil {
 		rec.Error = runErr.Error()
@@ -630,14 +646,8 @@ func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
 // item's current state since it last entered it, with their notes bounded;
 // "" when that attempt did not reject or there is none.
 func rejections(it item.Item, events []ledger.Event) string {
-	start := 0
-	for i, e := range events {
-		if e.Kind == item.KindTransitioned {
-			start = i + 1
-		}
-	}
 	var runs []gate.Result
-	for _, e := range events[start:] {
+	for _, e := range item.SinceEntered(events) {
 		var r gate.Result
 		if e.Kind == gate.KindRun && e.Decode(&r) == nil && r.Attempt != "" && gate.FromOf(r.Transition) == it.Status {
 			runs = append(runs, r)

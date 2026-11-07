@@ -42,6 +42,11 @@ type Verdict struct {
 
 var allow = Verdict{Allow: true}
 
+// OperatorRecordDenied is the gate's refusal of satelle's operator record verb in
+// an agent tool call: every call the gate judges is one.
+const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
+	"Ask the operator to run it in their own terminal. (If this is prose such as a commit message, reword it or pass it with -F <file>.)"
+
 // Edit judges an edit of target (absolute, or relative to Root).
 func (g Gate) Edit(target string) Verdict {
 	return g.judge(resolvePath(g.Root, target), false)
@@ -58,6 +63,9 @@ func (g Gate) Bash(command, cwd string) Verdict {
 		isFile = isRegularFile
 	}
 	t := ScanBash(command, cwd, g.Root, isFile)
+	if t.OperatorRecord {
+		return Verdict{Reason: OperatorRecordDenied}
+	}
 	for _, p := range t.Paths {
 		if v := g.judge(p, false); !v.Allow {
 			return v

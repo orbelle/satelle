@@ -25,6 +25,12 @@ Always and never:
 - Another repository's working tree is refused (the fence); a linked worktree of
   this repository is judged by the seat at that worktree.
 - While the configuration is invalid, only `.satelle/` itself may be edited.
+- A seat on an item in an operator state (`performer = { operator = "<type>" }`)
+  allows no edits, and the operator's record verb (`satelle <kind> record`) is
+  refused for every session. The scan also refuses quoted or heredoc text that
+  names the verb, so reword such prose or pass it with `-F <file>`. These
+  checks run as the agent's own OS user: they stop an agent session, not a
+  deliberate forgery of the runtime ledger.
 
 A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to

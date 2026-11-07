@@ -8,13 +8,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// performing reports whether the item's current state has a performer.
+// performing reports whether an agent performs the item's current state: an
+// operator state has no agent performer, so its seat allows no edits.
 func performing(k *kernel.Kernel, it item.Item) bool {
 	w, ok := k.Workflows[it.Workflow]
 	if !ok {
 		return false
 	}
-	return w.States[it.Status].Performer != nil
+	return w.States[it.Status].Agent() != nil
 }
 
 // seatsOf lists session's bound seats with their items' positions.

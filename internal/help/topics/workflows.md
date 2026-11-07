@@ -109,6 +109,41 @@ A state may carry a performer, an agent plus a skill:
 `session` is the interactive session itself: nothing is dispatched, and the
 session does the work under the edit gate.
 
+### The operator's states
+
+A state can be the operator's alone: no agent performs it, and leaving it needs
+the operator's recorded word. Its performer names the attachment type the
+operator records, and takes no agent or skill:
+
+    [states.deploy]
+    performer = { operator = "deploy-record" }
+
+While an item is in such a state, satelle dispatches nothing (`perform`
+refuses, a drive stops there) and a seat on it allows no agent edits. Every
+transition out of it, `*` moves such as cancel included, is refused until the
+operator has recorded an attachment of the declared type since the item last
+entered the state; a record from an earlier visit does not count. The
+transition then runs its configured gates as usual.
+
+The operator records it from their own terminal, with `SATELLE_SESSION`
+unset:
+
+    satelle story record <id> --file F [--name N] [--type-media M]
+
+The type comes from the state; the name defaults to it. Before writing
+anything the verb asks for the item id to be retyped on the controlling
+terminal (`/dev/tty`); it never reads stdin, and without a terminal it refuses.
+
+Three checks refuse an agent: the kernel refuses any call made with an agent
+session (`SATELLE_SESSION`), the edit-gate hook refuses the verb in any agent
+shell call (behind wrappers such as `env`, `timeout` or `xargs`, and named in
+quoted, heredoc or `-c` program text), and the terminal retype needs the
+person at the keyboard. The operator mark is set only by this verb: `attach`,
+performer artifacts and the server's attach tool never set it, and
+`satelle ledger append` refuses every kind satelle reads (item, seat and
+attachment events), so a raw append can neither forge the record nor move the
+item.
+
 ### What a performer and a judge receive
 
 Each dispatched performer gets its skill and the item (title, body, criteria).

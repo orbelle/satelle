@@ -408,10 +408,10 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 
 func (r Run) performerModel() string {
 	st, ok := r.Workflow.States[r.From]
-	if !ok || st.Performer == nil {
+	if !ok || st.Agent() == nil {
 		return ""
 	}
-	return r.Agents[st.Performer.Agent].Model
+	return r.Agents[st.Agent().Agent].Model
 }
 
 // prompt is what a judge is asked: the item, the move, and the change.

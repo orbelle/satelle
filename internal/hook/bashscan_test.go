@@ -35,3 +35,42 @@ func TestScanBashTargets(t *testing.T) {
 		}
 	}
 }
+
+// operatorRecordCases are agent shell calls that run satelle's operator
+// record verb, by every wrapper and text form the scan covers.
+var operatorRecordCases = []string{
+	"satelle story record sto_1 --file f",
+	"sh -c 'satelle task record t_1 --file f'",
+	"FOO=1 /usr/local/bin/satelle story record sto_1 --file f",
+	"env -u SATELLE_SESSION satelle story record sto_1 --file f",
+	"command satelle story record sto_1",
+	"timeout 30 satelle story record sto_1",
+	"xargs satelle story record < ids",
+	"satelle --config c.toml story record sto_1",
+	`script -qc "satelle story record sto_1 --file f" /dev/null`,
+	`python3 -c "import subprocess; subprocess.run(['satelle','story','record','sto_1'])"`,
+	"bash <<'EOF'\nsatelle story record sto_1 --file f\nEOF",
+	"echo ok && nohup satelle story record sto_1 --file f",
+}
+
+// notOperatorRecordCases name satelle or record without running the verb.
+var notOperatorRecordCases = []string{
+	"satelle story attach sto_1 --name record --file f",
+	"satelle story get sto_1",
+	"git log --grep record",
+	"echo record; satelle status",
+}
+
+func TestScanBashOperatorRecord(t *testing.T) {
+	noFile := func(string) bool { return false }
+	for _, c := range operatorRecordCases {
+		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: the operator record verb was not seen", c)
+		}
+	}
+	for _, c := range notOperatorRecordCases {
+		if ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: read as the operator record verb", c)
+		}
+	}
+}

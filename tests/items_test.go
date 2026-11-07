@@ -74,12 +74,6 @@ func TestAttachments(t *testing.T) {
 			t.Errorf("--sha %s printed a body", bad)
 		}
 	}
-	for _, sha := range []string{"abcdef01" + strings.Repeat("1", 56), "abcdef02" + strings.Repeat("2", 56)} {
-		s.must("ledger", "append", id, "--kind", "attachment.added", "--payload", `{"name":"twin","sha256":"`+sha+`","size":1,"media_type":"text/plain"}`)
-	}
-	if r := s.run("story", "attachment", id, "twin", "--sha", "abcdef0"); r.code == 0 || !strings.Contains(r.err+r.out, "ambiguous") {
-		t.Errorf("an ambiguous prefix: code %d, %s%s", r.code, r.out, r.err)
-	}
 	if r := s.run("story", "get", id, "--attachment", "plan.md"); r.code == 0 {
 		t.Error("story get --attachment still exists")
 	}
