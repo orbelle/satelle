@@ -193,6 +193,84 @@ func TestQueueLedgerRecordsAddRemoveFire(t *testing.T) {
 	}
 }
 
+// addCauses lists the causes of every queue.added for id on a queue's chain.
+func addCauses(t *testing.T, k *Kernel, queueID, id string) []string {
+	t.Helper()
+	events, err := k.Ledger.Read(queueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range events {
+		var q item.QueueEntry
+		if e.Kind == item.KindQueueAdded && e.Decode(&q) == nil && q.Item == id {
+			out = append(out, q.Cause)
+		}
+	}
+	return out
+}
+
+func TestProducerCauseIdempotentAcrossFire(t *testing.T) {
+	_, open := queueKernel(t)
+	k := open()
+	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("release")})
+	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
+	q := newQueue(t, k, nil, item.Trigger{Task: task.ID})
+	out, err := k.Enqueue(q.ID, []string{s.ID}, "intake r1 d1", "me")
+	if err != nil || !slices.Equal(out.Added, []string{s.ID}) {
+		t.Fatalf("enqueue %+v %v", out, err)
+	}
+	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d1", "me"); err != nil || len(out.Added) != 0 || !slices.Equal(out.Already, []string{s.ID}) {
+		t.Fatalf("retry before fire %+v %v", out, err)
+	}
+	f, err := k.Fire(q.ID, "", "by hand", "me")
+	if err != nil || !slices.Equal(f.Inputs, []string{s.ID}) {
+		t.Fatalf("fire %+v %v", f, err)
+	}
+	// A retry after the fire does not re-queue the item the run took.
+	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d1", "me"); err != nil || len(out.Added) != 0 || !slices.Equal(out.Already, []string{s.ID}) {
+		t.Fatalf("retry after fire %+v %v", out, err)
+	}
+	if got := addCauses(t, k, q.ID, s.ID); !slices.Equal(got, []string{"intake r1 d1"}) {
+		t.Fatalf("adds after retry %v", got)
+	}
+	// A different cause is a different key: it adds again.
+	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d2", "me"); err != nil || !slices.Equal(out.Added, []string{s.ID}) {
+		t.Fatalf("new cause %+v %v", out, err)
+	}
+	if got := addCauses(t, k, q.ID, s.ID); !slices.Equal(got, []string{"intake r1 d1", "intake r1 d2"}) {
+		t.Fatalf("adds after new cause %v", got)
+	}
+	// A retry of a recorded pair is a no-op even once the item is terminal.
+	if _, err := k.Transition(context.Background(), s.ID, "done", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d1", "me"); err != nil || len(out.Added) != 0 || !slices.Equal(out.Already, []string{s.ID}) {
+		t.Fatalf("retry at terminal %+v %v", out, err)
+	}
+}
+
+func TestEmptyCauseRequeuesAfterFire(t *testing.T) {
+	_, open := queueKernel(t)
+	k := open()
+	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("release")})
+	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
+	q := newQueue(t, k, nil, item.Trigger{Task: task.ID})
+	if _, err := k.Enqueue(q.ID, []string{s.ID}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Fire(q.ID, "", "by hand", "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := k.Enqueue(q.ID, []string{s.ID}, "", "me")
+	if err != nil || !slices.Equal(out.Added, []string{s.ID}) {
+		t.Fatalf("re-add after fire %+v %v", out, err)
+	}
+	if got := addCauses(t, k, q.ID, s.ID); !slices.Equal(got, []string{"", ""}) {
+		t.Fatalf("adds %q", got)
+	}
+}
+
 func TestQueueFiresTaskSynchronously(t *testing.T) {
 	_, open := queueKernel(t)
 	k := open()
