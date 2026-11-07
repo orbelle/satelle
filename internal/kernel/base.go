@@ -115,7 +115,7 @@ func (k *Kernel) ItemBase(id string) (string, *StaleBaseError, error) {
 // from when collect is given no --base: its merge base with origin/main. HEAD
 // is never used, since a tree whose HEAD already is the branch would make the
 // base the branch's own commit and the span empty.
-const defaultCollectBase = "origin/main"
+const defaultCollectBase = DefaultBaseBranch
 
 // resolveBase resolves a --base ref to its commit, now.
 func (k *Kernel) resolveBase(ref string) (string, error) {

@@ -138,7 +138,7 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	default:
 		if c, rerr := bg.Resolve(defaultCollectBase); rerr == nil {
 			ref, tip = defaultCollectBase, c
-		} else if recorded := k.base(it, events); recorded != "" {
+		} else if recorded, _ := k.base(it, events); recorded != "" {
 			ref, tip = "recorded base", recorded
 		} else {
 			return Collected{}, fmt.Errorf("collect %s: no base: %s is not here and the item records none; pass --base <ref>", id, defaultCollectBase)
