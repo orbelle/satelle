@@ -30,7 +30,7 @@ each block finds the in-progress run and the run-local directory
 ## 0. Find the run, seat it on its base
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id // empty')
 [ -n "$exe" ] || { echo "no in-progress run of $task: release.md step 11 starts it" >&2; exit 1; }
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"; mkdir -p "$rd"
@@ -53,7 +53,7 @@ and `drift-constitution` would be skipped before it judged anything.
 ## 1. Substrate against the binary
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 bash scripts/drift-check.sh > "$rd/substrate.txt"; echo "drift-check exit $?" | tee "$rd/substrate.exit"
@@ -66,7 +66,7 @@ report its reason.
 ## 2. Raise a story per finding
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
@@ -82,7 +82,7 @@ is missing (for example an epic tag with no open epic).
 ## 3. Attach drift-report
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
@@ -111,7 +111,7 @@ satelle execution attach "$exe" --name drift-report --type text/markdown --file 
 ## 4. Present done; answer each reject with stories
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 satelle execution set "$exe" --status done || satelle execution route "$exe"
 ```
@@ -135,7 +135,7 @@ other way, and never change the code or substrate a gate judged.
 ## 5. Release the seat
 
 ```sh
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status done --json | jq -r '.[0].id')
 satelle execution release "$exe"
 ```

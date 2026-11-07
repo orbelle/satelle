@@ -478,7 +478,7 @@ run to done:
 ```sh
 cd <the main checkout>
 git fetch -q origin --tags
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 prev=$(git tag -l 'v*' | sed 's/^v//' | sort -V | awk -v v="$ver" '$0 == v { print p; exit } { p = $0 }')
 [ -n "$ver" ] && [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }

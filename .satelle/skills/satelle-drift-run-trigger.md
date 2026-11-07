@@ -12,7 +12,7 @@ task's run skips them.
 
 ```sh
 set -u
-task=tas_DRIFT_REVIEW
+task=tas_a45ba066
 command -v jq >/dev/null 2>&1 || { echo "jq is not installed"; exit 2; }
 parent=$(satelle execution get "$SATELLE_ITEM" --json | jq -r '.parent // empty') || { echo "cannot read $SATELLE_ITEM"; exit 2; }
 if [ "$parent" = "$task" ]; then
