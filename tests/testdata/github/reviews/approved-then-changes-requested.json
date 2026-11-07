@@ -1,0 +1,86 @@
+[
+  {
+    "id": 5746161424,
+    "node_id": "PRR_kwDOTFqjRc8AAAABVn93EA",
+    "user": {
+      "login": "orbelle-reviewer[bot]",
+      "id": 350948835,
+      "node_id": "BOT_kgDOFOsN4w",
+      "avatar_url": "https://avatars.githubusercontent.com/u/349620474?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D",
+      "html_url": "https://github.com/apps/orbelle-reviewer",
+      "followers_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "satelle: a cold review judged this head to meet the acceptance criteria of sty_350d552b (sha256:742fb4bc21b7fae3127a252652805818918140f9fe092daf20ea53cbdac34e99) and the repo's constitution.",
+    "state": "APPROVED",
+    "html_url": "https://github.com/orbelle/satelle/pull/5#pullrequestreview-5746161424",
+    "pull_request_url": "https://api.github.com/repos/orbelle/satelle/pulls/5",
+    "author_association": "NONE",
+    "is_copilot_code_review": false,
+    "copilot_code_review_effort": null,
+    "_links": {
+      "html": {
+        "href": "https://github.com/orbelle/satelle/pull/5#pullrequestreview-5746161424"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/orbelle/satelle/pulls/5"
+      }
+    },
+    "submitted_at": "2026-11-03T01:52:35Z",
+    "commit_id": "@HEAD@"
+  },
+  {
+    "id": 5746161425,
+    "node_id": "PRR_kwDOTFqjRc8AAAABVn93EA",
+    "user": {
+      "login": "orbelle-reviewer[bot]",
+      "id": 350948835,
+      "node_id": "BOT_kgDOFOsN4w",
+      "avatar_url": "https://avatars.githubusercontent.com/u/349620474?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D",
+      "html_url": "https://github.com/apps/orbelle-reviewer",
+      "followers_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/orbelle-reviewer%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "satelle · gate pr-review (reviewer-alt): request changes\n\nAC2 is not met: no fixture covers a review of an older head.",
+    "state": "CHANGES_REQUESTED",
+    "html_url": "https://github.com/orbelle/satelle/pull/5#pullrequestreview-5746161425",
+    "pull_request_url": "https://api.github.com/repos/orbelle/satelle/pulls/5",
+    "author_association": "NONE",
+    "is_copilot_code_review": false,
+    "copilot_code_review_effort": null,
+    "_links": {
+      "html": {
+        "href": "https://github.com/orbelle/satelle/pull/5#pullrequestreview-5746161425"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/orbelle/satelle/pulls/5"
+      }
+    },
+    "submitted_at": "2026-11-03T03:28:06Z",
+    "commit_id": "@HEAD@"
+  }
+]

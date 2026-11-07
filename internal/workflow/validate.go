@@ -157,6 +157,11 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 			bad("trigger %q is not a check skill in skills/", g.Trigger)
 		}
 	}
+	if g.After != "" {
+		if a, ok := skill(g.After); !ok || !a.IsCheck() {
+			bad("after %q is not a check skill in skills/", g.After)
+		}
+	}
 	for _, p := range g.Paths {
 		if strings.TrimSpace(p) == "" {
 			bad("has an empty path pattern")

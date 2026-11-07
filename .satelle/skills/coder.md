@@ -42,6 +42,11 @@ Prefer the plan attachment over re-deriving the slice from the story body.
 
 If **no plan is attached**, say so and stop — do not invent one.
 
+If the record holds `pr-review` (the satelle GitHub app's requested changes on
+your PR head) or `release-sendback` (why a release run sent the item back),
+read the newest one first: it is why the item is back at in_progress, and each
+point in it must be addressed before you present again.
+
 ## Implement the plan's slice — and only that
 
 1. **Only the plan's files.** Sibling problems you notice go in your hand-off

@@ -48,6 +48,7 @@ carry = true
 [gates.g2]
 skill = "script"
 trigger = "script"
+after = "script"
 
 [[transition]]
 from = ["s0"]
@@ -74,6 +75,9 @@ func TestValidWorkflow(t *testing.T) {
 	}
 	if got := w.States["end"].Enqueue; strings.Join(got, ",") != "que_00000001,que_00000002" {
 		t.Fatalf("enqueue %v", got)
+	}
+	if w.Gates["g2"].After != "script" {
+		t.Fatalf("after %q", w.Gates["g2"].After)
 	}
 	if w.Name != "wf" || w.StartState() != "s0" {
 		t.Fatalf("name %q start %q", w.Name, w.StartState())
@@ -122,6 +126,8 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"from terminal", base + "[[transition]]\nfrom = [\"z\"]\nto = \"a\"\n", "is terminal"},
 		{"empty enqueue", base + "[states.e]\nenqueue = [\"\"]\n", "empty queue name"},
 		{"duplicate enqueue", base + "[states.e]\nenqueue = [\"que_1\", \"que_1\"]\n", "enqueues into que_1 twice"},
+		{"after missing", base + "[gates.g]\nskill = \"script\"\nafter = \"nope\"\n", `after "nope" is not a check skill`},
+		{"after not a check", base + "[gates.g]\nskill = \"script\"\nafter = \"judge\"\n", `after "judge" is not a check skill`},
 		{"resumes without park", base + "[states.a2]\nresumes = true\n", "not a park state"},
 	}
 	for _, c := range cases {
