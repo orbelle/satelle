@@ -3,6 +3,11 @@
 ### Fixed
 - The cache never holds a ledger event twice: two commands syncing the same new tail at once (a gate run appending while another command synced) no longer index it twice, which made every satelled seed fail with `500 … snapshot has duplicate item kind=ledger_event`. The cache schema makes an event id unique (schema v3) and a writer re-reads the ingested offset under the write lock, so re-ingesting an event is a no-op; an existing cache, duplicates included, is rebuilt from the ledger on first open. A snapshot satelled refuses is now recorded for the repo, and `satelle status` (and `seed_failure` in `--json`) names the failed seed and its cause until a full snapshot lands; `satelle project add` re-seeds. (sto_5e290320)
 
+## [1.0.14] - 2026-11-07
+
+### Added
+- A gate's `after`: a check skill run once the gate has a verdict (accept, reject or carried; never a skip or a failure such as a dispatch error or an answer with no verdict), seeing `SATELLE_GATE`, `SATELLE_GATE_RESULT`, `SATELLE_GATE_BINDING` and the notes on stdin; a non-zero exit turns the result into a reject. `satelle github review --pr N --sha S --event E [--body-file F|-]` publishes a pull-request review as the satelle GitHub app through satelle.dev (`GitHubService.PublishReview`). The delivery and chore workflows define `pr-review` (the code-ac judge on `reviewer-alt`, publishing its verdict to the PR head and, on a reject, attaching the body as `pr-review` and reopening the item at in_progress) and `pr-approval` (passes only on the app account's approving review on the PR head; a CHANGES_REQUESTED there reopens the item), wired into no transition yet; the release run's step 0 reopens an item whose PR head has the app's requested changes. (sto_ebcaa5aa)
+
 ## [1.0.13] - 2026-11-06
 
 ### Added

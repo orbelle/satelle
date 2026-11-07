@@ -10,6 +10,13 @@ A **workspace** is a collection of projects on satelle.dev, personal or team.
 `satelle workspace list` lists yours; `satelle project create --workspace <id>`
 creates a project in one.
 
+A satelle.dev project can be bound to a GitHub repository by installing the
+satelle GitHub app on it (on satelle.dev). `satelle github review --pr N --sha
+S --event E [--body-file F|-]` then publishes a pull-request review on that
+repository as the app: the repository comes from the binding, and the event
+and body are passed through unchanged. A project with no binding is refused
+(FAILED_PRECONDITION).
+
 satelled keeps one partition per project it has been sent:
 `satelle project partitions` lists them and `satelle project prune <repo_key>`
 drops one whose project is gone.
