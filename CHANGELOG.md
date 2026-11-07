@@ -1,3 +1,10 @@
+## [1.0.18] - 2026-11-07
+
+### Fixed
+- `story collect` takes the branch's diff base from its merge base with origin/main (or `--base <ref>`, else the item's recorded base), never HEAD, so collecting from a tree already on the branch no longer records an empty span; a branch that adds nothing over its base is refused, naming the branch and base. (sto_18c44320)
+- A file-defined queue now mirrors its title, filter and trigger onto its chain (the genesis carries them, and the next command after a file edit appends one `item.updated` by `satelle` with cause `queue file <path>`), so a reader of the chain alone, such as satelle.dev, sees the trigger and its `min_size` (sto_a4efae82)
+- A seated item's gates now judge its diff from the merge base of HEAD and its base branch (`origin/main`, or the seat's `--base` ref) when the seat's base is behind it, so merging `origin/main` into a reworked branch no longer puts main's changes in the judged scope. (sto_84e723db)
+
 ## [1.0.17] - 2026-11-07
 
 ### Changed
