@@ -110,3 +110,33 @@ func (q *Queue) Apply(it *item.Item) {
 		it.Trigger = &t
 	}
 }
+
+// Fields is the file's definition as an item payload (title, inputs,
+// trigger), always whole: a missing [filter] or [trigger] is the zero value,
+// which clears it on fold. It is what a queue's chain mirrors.
+func (q *Queue) Fields() item.Fields {
+	title := q.Title
+	in, t := item.Selection{}, item.Trigger{}
+	if q.Filter != nil {
+		in = *q.Filter
+	}
+	if q.Trigger != nil {
+		t = *q.Trigger
+	}
+	return item.Fields{Title: &title, Inputs: &in, Trigger: &t}
+}
+
+// Differs reports whether it, a queue's folded item, carries a definition
+// other than the file's (title, inputs or trigger).
+func (q *Queue) Differs(it item.Item) bool {
+	want := it
+	q.Apply(&want)
+	return it.Title != want.Title || !samePtr(it.Inputs, want.Inputs) || !samePtr(it.Trigger, want.Trigger)
+}
+
+func samePtr[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}

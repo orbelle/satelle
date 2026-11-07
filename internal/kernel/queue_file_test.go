@@ -39,7 +39,7 @@ func TestQueueFileAdoptsChain(t *testing.T) {
 	if _, err := k.Enqueue(q.ID, []string{second.ID}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := k.Ledger.Size(q.ID)
+	before := chainLen(t, k, q.ID)
 	k.Close()
 
 	queueFile(t, root, "release", `id = "`+q.ID+`"
@@ -52,8 +52,15 @@ task = "`+task.ID+`"
 base = "origin/main"
 `)
 	k = open()
-	if after, _ := k.Ledger.Size(q.ID); after != before {
-		t.Fatalf("open wrote to the adopted chain: %d -> %d events", before, after)
+	events, _ := k.Ledger.Read(q.ID)
+	if len(events) != before+1 || events[before].Kind != item.KindUpdated || events[before].Actor != "satelle" {
+		t.Fatalf("open on the adopted chain: %d -> %d events, want one item.updated by satelle", before, len(events))
+	}
+	assertChainIsFile(t, k, q.ID, filepath.Join(root, QueuesDir, "release.toml"))
+	k.Close()
+	k = open()
+	if n := chainLen(t, k, q.ID); n != before+1 {
+		t.Fatalf("a second open wrote to the adopted chain: %d events, want %d", n, before+1)
 	}
 	got, st, ms, err := k.QueueMembers("release")
 	if err != nil {
@@ -104,8 +111,8 @@ func TestQueueFileMaterializes(t *testing.T) {
 	}
 }
 
-// Editing the file changes the queue on the next open; nothing is written to
-// its chain.
+// Editing the file changes the queue on the next open, which mirrors the edit
+// onto its chain as one event.
 func TestQueueFileEditTakesEffect(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -117,7 +124,7 @@ func TestQueueFileEditTakesEffect(t *testing.T) {
 	if _, _, ms, _ := k.QueueMembers("q"); len(ms.Members) != 0 {
 		t.Fatalf("members under status=done: %v", ms.Members)
 	}
-	size, _ := k.Ledger.Size("que_q")
+	size := chainLen(t, k, "que_q")
 	k.Close()
 	queueFile(t, root, "q", "title = \"Q2\"\n[filter]\nstatus = \"backlog\"\nkind = \"story\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 1\n")
 	k = open()
@@ -125,8 +132,8 @@ func TestQueueFileEditTakesEffect(t *testing.T) {
 	if err != nil || !slices.Equal(ms.Members, []string{s.ID}) || q.Title != "Q2" || q.Trigger.MinSize != 1 {
 		t.Fatalf("after the edit: %+v members %v %v", q, ms.Members, err)
 	}
-	if n, _ := k.Ledger.Size("que_q"); n != size {
-		t.Fatalf("the edit wrote to the chain: %d -> %d", size, n)
+	if n := chainLen(t, k, "que_q"); n != size+1 {
+		t.Fatalf("the edit wrote %d -> %d events to the chain, want one", size, n)
 	}
 }
 
@@ -160,6 +167,170 @@ func TestQueueFileRefusesSet(t *testing.T) {
 	if err != nil || got.Title != "Release" || got.Trigger.Task != task.ID || got.Body != "notes" {
 		t.Fatalf("que_release %+v %v", got, err)
 	}
+	k.Close()
+	queueFile(t, root, "release", "title = \"Release 2\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 2\n")
+	k = open()
+	events, _ := k.Ledger.Read("que_release")
+	var mirrored int
+	for _, e := range events {
+		if e.Actor == "me" {
+			continue
+		}
+		mirrored++
+		var p struct{ Cause string }
+		if e.Actor != "satelle" || e.Decode(&p) != nil || p.Cause != "queue file .satelle/queues/release.toml" {
+			t.Fatalf("%s by %q cause %q, want satelle and the file", e.Kind, e.Actor, p.Cause)
+		}
+	}
+	if mirrored != 2 || events[len(events)-1].Kind != item.KindUpdated {
+		t.Fatalf("%d events by satelle, want the genesis and one item.updated", mirrored)
+	}
+}
+
+// assertChainIsFile folds id's chain without the overlay and compares its
+// title, inputs and trigger to the queue file at path.
+func assertChainIsFile(t *testing.T, k *Kernel, id, path string) {
+	t.Helper()
+	events, err := k.Ledger.Read(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := item.Fold(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := workflow.ParseQueue(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != def.Title {
+		t.Fatalf("chain title %q, file %q", got.Title, def.Title)
+	}
+	if (got.Inputs == nil) != (def.Filter == nil) || (got.Inputs != nil && *got.Inputs != *def.Filter) {
+		t.Fatalf("chain inputs %+v, file filter %+v", got.Inputs, def.Filter)
+	}
+	if (got.Trigger == nil) != (def.Trigger == nil) || (got.Trigger != nil && *got.Trigger != *def.Trigger) {
+		t.Fatalf("chain trigger %+v, file trigger %+v", got.Trigger, def.Trigger)
+	}
+}
+
+// A file queue's chain records the file: the genesis carries the whole
+// definition, an edit writes one item.updated, an unchanged file nothing, and
+// a body or tags update does not provoke a mirror.
+func TestQueueFileMirrors(t *testing.T) {
+	root, open := queueKernel(t)
+	k := open()
+	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("t")})
+	k.Close()
+	file := filepath.Join(root, QueuesDir, "m.toml")
+	reopen := func(want int) {
+		t.Helper()
+		k.Close()
+		k = open()
+		if n := chainLen(t, k, "que_m"); n != want {
+			t.Fatalf("que_m has %d events, want %d", n, want)
+		}
+	}
+	lastPayload := func() map[string]any {
+		t.Helper()
+		events, _ := k.Ledger.Read("que_m")
+		var p map[string]any
+		if err := events[len(events)-1].Decode(&p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// (a) the genesis carries the definition
+	queueFile(t, root, "m", "title = \"M\"\n[filter]\nkind = \"story\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 2\n")
+	k = open()
+	if n := chainLen(t, k, "que_m"); n != 1 {
+		t.Fatalf("que_m has %d events, want its genesis", n)
+	}
+	assertChainIsFile(t, k, "que_m", file)
+	reopen(1)
+
+	// (b) an edit writes one item.updated naming title, inputs and trigger
+	queueFile(t, root, "m", "title = \"M2\"\n[filter]\nstatus = \"done\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 1\n")
+	reopen(2)
+	events, _ := k.Ledger.Read("que_m")
+	if e := events[1]; e.Kind != item.KindUpdated || e.Actor != "satelle" {
+		t.Fatalf("mirror event %s by %s", e.Kind, e.Actor)
+	}
+	p := lastPayload()
+	for _, key := range []string{"title", "inputs", "trigger"} {
+		if _, ok := p[key]; !ok {
+			t.Fatalf("mirror payload %v lacks %s", p, key)
+		}
+	}
+	if p["cause"] != "queue file .satelle/queues/m.toml" {
+		t.Fatalf("mirror cause %v", p["cause"])
+	}
+	assertChainIsFile(t, k, "que_m", file)
+	reopen(2)
+
+	// (e) a body and tags update is not the definition
+	if _, err := k.Update("que_m", item.Fields{Body: ptr("notes"), Tags: &[]string{"x"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	reopen(3)
+
+	// (c) dropping [filter] and [trigger] clears them on the chain
+	queueFile(t, root, "m", "title = \"M2\"\n")
+	reopen(4)
+	p = lastPayload()
+	if in, _ := p["inputs"].(map[string]any); in == nil || len(in) != 0 {
+		t.Fatalf("cleared inputs %v, want {}", p["inputs"])
+	}
+	if tr, _ := p["trigger"].(map[string]any); tr == nil || tr["task"] != nil || tr["workflow"] != nil {
+		t.Fatalf("cleared trigger %v, want neither target", p["trigger"])
+	}
+	assertChainIsFile(t, k, "que_m", file)
+	reopen(4)
+	k.Close()
+
+	// (d) a chain from before the mirror (a bare genesis) is backfilled once
+	k = open()
+	kind, title, wf, st := item.QueueKind, "legacy", "default", "backlog"
+	if _, err := k.Ledger.Append("que_legacy", item.KindCreated, "satelle", item.Fields{Kind: &kind, Title: &title, Workflow: &wf, Status: &st}); err != nil {
+		t.Fatal(err)
+	}
+	k.Close()
+	queueFile(t, root, "legacy", "title = \"Legacy\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 3\n")
+	k = open()
+	events, _ = k.Ledger.Read("que_legacy")
+	if len(events) != 2 || events[1].Kind != item.KindUpdated {
+		t.Fatalf("legacy chain %d events, want the genesis and one item.updated", len(events))
+	}
+	assertChainIsFile(t, k, "que_legacy", filepath.Join(root, QueuesDir, "legacy.toml"))
+	k.Close()
+	k = open()
+	if n := chainLen(t, k, "que_legacy"); n != 2 {
+		t.Fatalf("a second open wrote to que_legacy: %d events", n)
+	}
+	k.Close()
+}
+
+// A reader folding only the chain gets the file's title, filter and trigger,
+// min_size included, before and after an edit.
+func TestQueueFileChainFoldsToFile(t *testing.T) {
+	root, open := queueKernel(t)
+	k := open()
+	task := mustCreate(t, k, item.Fields{Kind: ptr("task"), Title: ptr("t")})
+	k.Close()
+	file := filepath.Join(root, QueuesDir, "f.toml")
+	queueFile(t, root, "f", "title = \"F\"\n[filter]\nkind = \"story\"\nstatus = \"done\"\n[trigger]\ntask = \""+task.ID+"\"\nbase = \"origin/main\"\nmin_size = 3\n")
+	k = open()
+	assertChainIsFile(t, k, "que_f", file)
+	events, _ := k.Ledger.Read("que_f")
+	if it, _ := item.Fold(events); it.Trigger == nil || it.Trigger.MinSize != 3 || it.Trigger.Base != "origin/main" {
+		t.Fatalf("raw fold trigger %+v", it.Trigger)
+	}
+	k.Close()
+	queueFile(t, root, "f", "title = \"F\"\n[filter]\nkind = \"task\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 0\n")
+	k = open()
+	assertChainIsFile(t, k, "que_f", file)
+	k.Close()
 }
 
 // A retired file queue refuses a move into a state that enqueues into it

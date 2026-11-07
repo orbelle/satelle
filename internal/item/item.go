@@ -116,8 +116,14 @@ func (f Fields) Apply(it *Item) {
 		}
 	}
 	if f.Trigger != nil {
-		t := *f.Trigger
-		it.Trigger = &t
+		// The zero trigger (neither target) clears it, like the zero
+		// selection: a queue file without [trigger] mirrors it so.
+		if *f.Trigger == (Trigger{}) {
+			it.Trigger = nil
+		} else {
+			t := *f.Trigger
+			it.Trigger = &t
+		}
 	}
 }
 

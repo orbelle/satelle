@@ -72,33 +72,54 @@ func (k *Kernel) overlayQueue(it *item.Item) {
 	}
 }
 
-// materializeQueues creates the chain of each queue file that has none yet,
-// once: a compare-and-create on the empty chain, so a concurrent process that
-// created it first wins and nothing is written twice. The genesis carries the
-// queue's identity (kind, its name as title, workflow); the file stays the
-// only owner of its definition. A chain that exists (an adopted id) is never
-// written to here.
+// queueMirror is the payload of an event the kernel writes to mirror a queue
+// file onto its chain: the file's definition, and the file as its cause. The
+// cause is the kernel's only; a user update cannot carry one.
+type queueMirror struct {
+	item.Fields
+	Cause string `json:"cause"`
+}
+
+// materializeQueues mirrors each queue file onto its chain, so a reader
+// folding the chain alone (a synced replica, satelle.dev) sees the file's
+// definition; the file stays its only owner, and local reads still overlay it.
+// A chain that does not exist yet is created once, its genesis carrying the
+// queue's identity (kind, workflow) and the whole definition. A queue chain
+// that exists (an earlier genesis, an adopted id) gets one item.updated with
+// the whole definition when its raw fold's title, inputs or trigger differ
+// from the file's, and nothing when they agree. Every write is a
+// compare-and-append on the tail it read, by actor satelle with cause
+// "queue file <path>": a process that wrote first wins, and the next open
+// compares again.
 func (k *Kernel) materializeQueues() error {
 	for _, id := range sortedKeys(k.queueFiles) {
-		if n, err := k.Ledger.Size(id); err != nil || n > 0 {
-			if err != nil {
-				return err
-			}
-			continue
-		}
 		def := k.queueFiles[id]
-		kind, title := item.QueueKind, def.Name
-		name, start, err := k.WorkflowFor(item.Item{Kind: kind, Title: title})
+		events, err := k.Ledger.Read(id)
 		if err != nil {
-			return fmt.Errorf("%s: %w", k.RelPath(def.File), err)
+			return err
 		}
-		f := item.Fields{Kind: &kind, Title: &title, Workflow: &name, Status: &start}
-		if _, err := k.appendAfter(id, item.KindCreated, "satelle", "", f); err != nil {
+		p := queueMirror{Fields: def.Fields(), Cause: "queue file " + k.RelPath(def.File)}
+		kind, prev := item.KindCreated, ""
+		if len(events) == 0 {
+			qk := item.QueueKind
+			name, start, err := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
+			if err != nil {
+				return fmt.Errorf("%s: %w", k.RelPath(def.File), err)
+			}
+			p.Kind, p.Workflow, p.Status = &qk, &name, &start
+		} else {
+			it, err := item.Fold(events) // raw: never the overlay, which is the file
+			if err != nil || it.Kind != item.QueueKind || !def.Differs(it) {
+				continue
+			}
+			kind, prev = item.KindUpdated, events[len(events)-1].Hash
+		}
+		if _, err := k.appendAfter(id, kind, "satelle", prev, p); err != nil {
 			var stale *ledger.StaleTail
 			if errors.As(err, &stale) {
 				continue
 			}
-			return fmt.Errorf("%s: creating queue %s: %w", k.RelPath(def.File), id, err)
+			return fmt.Errorf("%s: mirroring queue %s: %w", k.RelPath(def.File), id, err)
 		}
 	}
 	return nil
