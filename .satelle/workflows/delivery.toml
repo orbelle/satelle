@@ -103,6 +103,21 @@ skill = "satelle-integration-check"
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
+# PR review by the satelle GitHub app (sto_ebcaa5aa): defined, not on any
+# route. sto_efe81afd wires them into integration -> approved once satelle.dev
+# serves GitHubService and this project is bound to its repo. pr-review is the
+# code-ac judge; its after publishes the verdict on the PR head and, on a
+# reject, attaches it as pr-review and reopens the item. pr-approval passes
+# only on the app's approving review on the head.
+[gates.pr-review]
+skill = "satelle-code-ac-review"
+agent = "reviewer-alt"
+carry = true
+after = "satelle-pr-review-publish"
+
+[gates.pr-approval]
+skill = "satelle-pr-approval-check"
+
 # CI/CD's gates on approved -> done, all reading origin/main: only a run of the
 # release task closes an item, after the bump, the release and the install.
 [gates.release-run]

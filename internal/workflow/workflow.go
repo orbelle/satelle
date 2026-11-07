@@ -61,6 +61,10 @@ type Gate struct {
 	Paths   []string `toml:"paths"`
 	Trigger string   `toml:"trigger"`
 	Carry   bool     `toml:"carry"`
+	// After is a check skill run once the gate has a verdict (accept, reject
+	// or carried): it sees the result and notes, and a non-zero exit turns
+	// the result into a reject.
+	After string `toml:"after"`
 }
 
 // Judges returns the bindings that judge the gate: its agent, or its panel.
