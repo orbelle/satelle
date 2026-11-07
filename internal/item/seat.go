@@ -9,11 +9,14 @@ import (
 // Seat binds a session at a location to an item. Base is the commit the seat
 // started from.
 type Seat struct {
-	Item     string    `json:"item,omitempty"`
-	Session  string    `json:"session"`
-	Location string    `json:"location"`
-	Base     string    `json:"base,omitempty"`
-	BoundAt  time.Time `json:"bound_at,omitzero"`
+	Item     string `json:"item,omitempty"`
+	Session  string `json:"session"`
+	Location string `json:"location"`
+	Base     string `json:"base,omitempty"`
+	// BaseRef is the ref the seat's --base named, as typed: the item's base
+	// branch, whose merge base with HEAD the item's diff is judged from.
+	BaseRef string    `json:"base_ref,omitempty"`
+	BoundAt time.Time `json:"bound_at,omitzero"`
 }
 
 // SeatRelease is the payload of seat.released.

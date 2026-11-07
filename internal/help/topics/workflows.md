@@ -72,6 +72,13 @@ still go through. A gate skipped for relevance (its `paths` or trigger matched
 nothing) on an empty diff, or on one missing paths the item's last judged diff
 had, says so in a warning on the output and its `gate.run` record.
 
+The base is judged against the item's base branch: the ref the seat's `--base`
+named, else `origin/main`. When the recorded base is an ancestor of HEAD's
+merge base with that branch, the gates judge from the merge base instead, so
+merging `origin/main` into the item's branch never widens the judged diff. The
+recorded base stands when the branch is not there, when HEAD is wholly inside
+it, or when the base is not behind it (a stacked or story-branch seat).
+
 ## Performers
 
 A state may carry a performer, an agent plus a skill:

@@ -147,7 +147,7 @@ func collected(events []ledger.Event) (Collected, bool) {
 }
 
 // span is what an item's gates judge: from base to head, or to the working
-// tree when head is "".
+// tree when head is "", whose base is the judged base (judgedBase).
 type span struct{ base, head string }
 
 func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
@@ -156,7 +156,7 @@ func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
 			return span{base: c.Base, head: c.Commit}
 		}
 	}
-	return span{base: k.base(it, events)}
+	return span{base: k.judgedBase(it, events)}
 }
 
 func (k *Kernel) changed(s span) ([]string, error) {

@@ -673,7 +673,11 @@ it); the location defaults to local:<this worktree>.
 The seat records the item's diff base: the commit its gates judge the change
 from. It is HEAD unless --base names a branch, tag or commit (resolved now, and
 it must be in HEAD's history). Seat a stacked branch with --base <the branch it
-is stacked on> so its gates judge only its own change.`,
+is stacked on> so its gates judge only its own change.
+
+A base behind the item's base branch (the --base ref, else origin/main) is
+judged from HEAD's merge base with that branch, so merging main into the
+item's branch does not widen the diff.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, r, err := openKernel()
