@@ -12,9 +12,16 @@ release skill): an open, auto-approved pull request whose head contains
 integration check). The suite runs once, so a release run does not test
 again: it ships only heads that fast-forward `main`, which are the trees that
 were tested. A head that no longer fast-forwards goes back through the loop
-(rebase, coding gates, the full suite, a pull request), with the reason
-recorded on the item. A pushed-back item reopens; it never becomes a new
-story.
+(merge origin/main into the branch with `git fetch origin && git merge
+origin/main`, resolve any conflict in the real work, push, and come through
+integration again: coding gates, the full suite, a pull request), with the
+reason recorded on the item. A pushed-back item reopens; it never becomes a
+new story.
+
+Items never edit `CHANGELOG.md`: each records its lines as an attachment named
+`changelog` (format in `satelle-pr-ready-check.md`, owned by
+`scripts/changelog-items.sh`), and this run writes the version section from
+the items it lands (step 3).
 
 The run's items reach `done` only through it: the `release-run` gate on
 `approved → done` refuses any item no in-progress run lists. Every step below
@@ -104,12 +111,49 @@ stacked heads fast-forward in turn.
 ## 2. Fast-forward without re-testing
 
 a. Plan in git only. Start with `tip=origin/main`. For each item:
-   - its head is already on main (`git merge-base --is-ancestor <head> origin/main`): keep it (a resumed run);
-   - else `git merge-base --is-ancestor $tip <head>`: keep it and set `tip=<head>`;
-   - else put it on the send-back list: "head <sha> does not contain main <tip> after <earlier ids>; rebase onto origin/main and come through integration again".
+   - its head is already on main (`git merge-base --is-ancestor <head> origin/main`): keep it (a resumed run; its lines are already in the version section, so the block below does not run for it);
+   - else `git merge-base --is-ancestor $tip <head>`: run the block below for it, with `head=<head>` and the current `tip`. On a `<id>: keep head <sha>` line keep it and set `tip=<head>`; on a `<id>: send back: <reason>` line put it on the send-back list with the text after `send back: ` as its reason and leave `tip` unchanged;
+   - else put it on the send-back list: "head <sha> does not contain main <tip> after <earlier ids>; merge origin/main into the branch (git fetch origin && git merge origin/main), resolve any conflict in the real work, push, and come through integration again".
+
+### Each kept item's changelog
+
+Once per item whose head contains `$tip` (`id=` each in turn, with the loop's
+`$head` and `$tip`). Its verdict is its output, never its exit status: every
+item outcome prints exactly one line and exits 0, so a send-back never stops
+the run. It exits 1 only when it cannot judge at all (git, satelle or bash is
+not on PATH, named on stderr): that is a failed step, which stops the run.
+The head's own `scripts/changelog-items.sh` validates the attachment, so a
+legacy head without the script is sent back too.
+
+```sh
+id=<id>
+for tool in git satelle bash; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not on PATH, so the changelog of $id cannot be judged" >&2; exit 1; }
+done
+why=
+if ! cl=$(satelle story attachment "$id" changelog 2>/dev/null); then
+  why="no changelog attachment"
+elif ! git cat-file -e "$head:scripts/changelog-items.sh" 2>/dev/null; then
+  why="head has no scripts/changelog-items.sh"
+elif ! out=$(printf '%s\n' "$cl" | bash <(git show "$head:scripts/changelog-items.sh") lines "$id" 2>&1 >/dev/null); then
+  why=${out:-the attachment is refused}
+fi
+if [ -n "$why" ]; then
+  echo "$id: send back: no valid changelog attachment on head $head: merge origin/main and record the lines with satelle story attach $id --name changelog --file - ($why)"
+elif ! git diff --quiet "$tip" "$head" -- CHANGELOG.md; then
+  echo "$id: send back: head $head edits CHANGELOG.md; restore it (git checkout origin/main -- CHANGELOG.md) and move the lines to the changelog attachment"
+else
+  echo "$id: keep head $head"
+fi
+```
+
+Two items cut in parallel from the same main land one per run unless
+stacked. The second is sent back, merges origin/main in DEV (items touch no
+shared changelog, so only overlapping real work can conflict), and comes
+through integration again, where the full suite runs on the combined tree.
 
 b. The tree that presents the moves below must carry the config being
-   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills`,
+   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh`,
    else stop with "check out the run's tip first: git checkout --detach $tip".
 
 c. Send back each item on the list. It reopens:
@@ -145,9 +189,35 @@ latest and its own tag is absent or points at `$tip` (a resumed run already
 published it); otherwise set it to the latest tag's patch + 1. Set
 `satelle.build=$(date -u +%Y-%m-%dT%H:%M:%SZ)` when either changed.
 
-Rename `## [Unreleased]` in CHANGELOG.md to `## [<ver>] - <date>`; with no
-Unreleased heading, insert `## [<ver>] - <date>` / `### Changed` with one line
-per released item, `- <title> (<id>)`.
+### Changelog from the items
+
+Write the version section from the kept items' `changelog` attachments, in
+landing order (step 1's sort), in `$wt`. The section, `## [<ver>] - <date>`
+(UTC date) with each item's lines under their `### <Section>` in fixed order
+(Added, Changed, Deprecated, Removed, Fixed, Security, Breaking), each line
+ending with its item id, is written as the file's first `## [` heading;
+nothing is staged above it. The lines are copied verbatim; the run never
+edits an item's content. A missing attachment stops the run. A resumed run
+whose CHANGELOG.md already has the `## [<ver>] - ` heading changes nothing.
+
+```sh
+ids="<kept ids, landing order>"
+ver=<satelle.version>
+d=$(mktemp -d) || exit 1
+args=
+for id in $ids; do
+  satelle story attachment "$id" changelog >"$d/$id" 2>/dev/null || { echo "no changelog attachment on $id: stop the run" >&2; rm -rf "$d"; exit 1; }
+  args="$args $id:$d/$id"
+done
+if awk -v h="## [$ver] - " 'index($0, h) == 1 { f = 1 } END { exit !f }' "$wt/CHANGELOG.md"; then
+  echo "CHANGELOG.md already has the [$ver] section (a resumed run)"
+else
+  { bash "$wt/scripts/changelog-items.sh" render "$ver" "$(date -u +%Y-%m-%d)" $args && cat "$wt/CHANGELOG.md"; } >"$d/CHANGELOG.md" || { echo "writing the [$ver] section failed: stop the run" >&2; rm -rf "$d"; exit 1; }
+  cat "$d/CHANGELOG.md" >"$wt/CHANGELOG.md"
+  echo "CHANGELOG.md: the [$ver] section written from $ids"
+fi
+rm -rf "$d"
+```
 
 Commit only `.version` and `CHANGELOG.md`, so the tested tree is otherwise
 unchanged: `chore(release): v<ver>, satelled <sver> (<exe>: <ids>)`. Skip the
@@ -211,6 +281,7 @@ the run (`satelle execution attach "$exe" --name release-evidence --file -`):
 
 - per item: id, PR number, head sha, and released, or sent back with the reason
 - main before and after, and the bump commit
+- the version section written (its heading and the ids it names)
 - the release.yml run URL, head sha and conclusion
 - both tags with their asset names
 - the step-0 and pre-step-7 binary sha256s, the backup dir listing and the restore line
