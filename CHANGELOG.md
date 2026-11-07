@@ -1,3 +1,16 @@
+## [1.0.16] - 2026-11-07
+
+### Changed
+- Driving an epic (the agent-goals principle) now ends in a release: drive each child to `approved`, run the section's readiness block, and when every open child is approved fire the release queue per `.satelle/skills/release.md` step 0; after the run is done, close the epic through its children-closed and done-review gates. A child the release sends back keeps the epic underway until it is driven to approved and released again. The section no longer names the pre-1.0 `satelle story wave`, `satelle story ready`, waiting step, epic base or trunk. (sto_dbfdef18)
+
+### Removed
+- `.satelle/skills/merge-epic.md`, the pre-1.0 epic merge skill (trunk sync, `epic/<id>` branches, `--release`), with the release-review branch-only path and the other references to it; the lessons skill reads attachments with the v1 verbs. (sto_dbfdef18)
+
+### Fixed
+- satelled refreshes a repo's workflows on every push, not only on `satelle project add`: a delta push now carries the workflow docs and replaces satelled's copy, so a workflow file added, edited or removed after the repo was first seeded shows on the next change, and its terminal rows are marked terminal (`data-terminal`, `st-terminal`) instead of active, and a new state such as `approved` gets its styled badge. (sto_da3e089f)
+- The cache never holds a ledger event twice: two commands syncing the same new tail at once (a gate run appending while another command synced) no longer index it twice, which made every satelled seed fail with `500 … snapshot has duplicate item kind=ledger_event`. The cache schema makes an event id unique (schema v3) and a writer re-reads the ingested offset under the write lock, so re-ingesting an event is a no-op; an existing cache, duplicates included, is rebuilt from the ledger on first open. A snapshot satelled refuses is now recorded for the repo, and `satelle status` (and `seed_failure` in `--json`) names the failed seed and its cause until a full snapshot lands; `satelle project add` re-seeds. (sto_5e290320)
+- `satelle <kind> set --criteria` and `--tag` no longer drop existing entries silently: a set that would drop one refuses, naming each, unless `--replace` is given (nothing is written and no transition is presented). `--add-criteria` and `--remove-criteria` (exact text; removing one the item lacks is an error) change one criterion without restating the rest. (sto_b8c42ae9)
+
 ## [1.0.15] - 2026-11-07
 
 ### Changed
