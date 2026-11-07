@@ -168,3 +168,23 @@ func (r Repo) ChangedBetween(base, head string) ([]string, error) {
 func (r Repo) DiffBetween(base, head string, paths []string) (string, error) {
 	return r.git(append([]string{"diff", "--no-color", "--no-ext-diff", base, head, "--"}, paths...)...)
 }
+
+// TrackedFiles lists the files git tracks under path (relative to Dir; "" or
+// "." is every file), repo-relative and slash-separated, sorted.
+func (r Repo) TrackedFiles(path string) ([]string, error) {
+	if path == "" {
+		path = "."
+	}
+	out, err := r.git("ls-files", "-z", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			files = append(files, p)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}

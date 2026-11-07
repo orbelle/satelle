@@ -1,0 +1,11 @@
+# The node image's build context (Dockerfile): source only.
+.git
+bin/
+/satelle
+/satelled
+/satelle-serve
+/cmd/satelle/satelle
+/cmd/satelled/satelled
+**/*.local.*
+.env
+**/.env

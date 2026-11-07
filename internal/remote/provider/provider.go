@@ -41,6 +41,10 @@ type Handle interface {
 	ID() string
 	// Exec runs argv in the machine and returns its combined output.
 	Exec(ctx context.Context, argv ...string) ([]byte, error)
+	// CopyIn copies host, a file or a directory, to the path machine on the
+	// machine; CopyOut copies the other way.
+	CopyIn(ctx context.Context, host, machine string) error
+	CopyOut(ctx context.Context, machine, host string) error
 	// Logs returns the machine's own output so far.
 	Logs(ctx context.Context) ([]byte, error)
 	// Stop stops and removes the machine.

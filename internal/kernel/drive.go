@@ -41,12 +41,24 @@ type DriveResult struct {
 // interactive session, or at a state with nowhere to go. An item that reached
 // a terminal state is accepted; any other stop is a reject with its reason.
 func (k *Kernel) Drive(ctx context.Context, id, actor string) (DriveResult, error) {
+	return k.DriveSteps(ctx, id, actor, 0)
+}
+
+// DriveSteps is Drive bounded to limit steps. limit 0 is Drive: at most
+// MaxDriveSteps, and reaching that bound is a reject. With limit > 0, limit steps
+// that all moved conclude accept, noting the last move; every other stop is
+// Drive's.
+func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (DriveResult, error) {
+	bounded := limit > 0
+	if !bounded {
+		limit = MaxDriveSteps
+	}
 	var res DriveResult
 	stop := func(it item.Item, verdict, notes string) (DriveResult, error) {
 		res.Item, res.Verdict, res.Notes = it, verdict, notes
 		return res, nil
 	}
-	for range MaxDriveSteps {
+	for range limit {
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
@@ -101,6 +113,9 @@ func (k *Kernel) Drive(ctx context.Context, id, actor string) (DriveResult, erro
 				why = append(why, g.Gate+": "+firstLine(g.Notes))
 			}
 			return stop(tr.Item, VerdictReject, fmt.Sprintf("%s → %s rejected (%s)", it.Status, next, strings.Join(why, "; ")))
+		}
+		if bounded && len(res.Steps) == limit {
+			return stop(tr.Item, VerdictAccept, fmt.Sprintf("moved %s → %s; stopped after %d step(s)", it.Status, next, limit))
 		}
 	}
 	it, err := k.Get(id)

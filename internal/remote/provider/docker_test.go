@@ -100,8 +100,8 @@ func TestDockerLocalFailedSetupLeavesTheMachineToInspect(t *testing.T) {
 }
 
 func TestContainerNameAndProviders(t *testing.T) {
-	if got := containerName("nod_1/x y"); got != "satelle-node-nod_1-x-y" {
-		t.Errorf("containerName = %q", got)
+	if got := ContainerName("nod_1/x y"); got != "satelle-node-nod_1-x-y" {
+		t.Errorf("ContainerName = %q", got)
 	}
 	for _, p := range remotedef.Providers {
 		a, err := For(p)
@@ -134,7 +134,7 @@ func TestDockerLocalKeepsTheTokenOffTheArgv(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(b), "\n")
 	run := lines[0]
 	if strings.Contains(run, "s3cret") || !strings.Contains(run, "-e "+EnvNodeToken+" ") || !strings.Contains(run, "--network none") ||
-		!strings.Contains(run, "-v /bin/satelle:/usr/local/bin/satelle:ro") || !strings.Contains(run, " "+DefaultImage+" ") {
+		!strings.Contains(run, "-v /bin/satelle:/usr/local/bin/satelle:ro") || !strings.Contains(run, " "+NodeImage+" ") {
 		t.Fatalf("docker run argv = %q", run)
 	}
 	if lines[1] != "TOKEN=s3cret" {
@@ -142,5 +142,55 @@ func TestDockerLocalKeepsTheTokenOffTheArgv(t *testing.T) {
 	}
 	if !strings.Contains(b, "exec -d satelle-node-nod_9 satelle node join --no-setup") {
 		t.Fatalf("no join started: %s", b)
+	}
+}
+
+// The node image, liveness and copies through a fake docker CLI: the argv of
+// each, and a definition with no image runs NodeImage.
+func TestDockerLocalBuildCopyArgv(t *testing.T) {
+	dir := t.TempDir()
+	log := dir + "/argv"
+	script := dir + "/docker"
+	if err := writeScript(script, "#!/bin/sh\necho \"$@\" >> "+log+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	d := DockerLocal{Docker: script}
+	if err := d.BuildNodeImage(ctx, "/src/tree"); err != nil {
+		t.Fatal(err)
+	}
+	if !d.Exists(ctx, "satelle-node-nod_1") {
+		t.Fatal("Exists on an inspect that succeeds = false")
+	}
+	h, err := d.Start(ctx, remotedef.Definition{}, Run{NodeID: "nod_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CopyIn(ctx, "/tmp/in", "/node/in"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CopyOut(ctx, "/node/out/outcome.json", "/tmp/back/outcome.json"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := readFile(log)
+	lines := strings.Split(strings.TrimSpace(b), "\n")
+	want := []string{
+		"build -t " + NodeImage + " -f /src/tree/Dockerfile /src/tree",
+		"container inspect --format {{.Id}} satelle-node-nod_1",
+	}
+	if len(lines) != 5 || lines[0] != want[0] || lines[1] != want[1] {
+		t.Fatalf("argv = %q", lines)
+	}
+	if !strings.Contains(lines[2], "run -d --name satelle-node-nod_1 ") || !strings.Contains(lines[2], " --entrypoint sh "+NodeImage+" -c ") {
+		t.Fatalf("docker run argv = %q", lines[2])
+	}
+	if lines[3] != "cp /tmp/in satelle-node-nod_1:/node/in" || lines[4] != "cp satelle-node-nod_1:/node/out/outcome.json /tmp/back/outcome.json" {
+		t.Fatalf("docker cp argv = %q", lines[3:])
+	}
+	if err := writeScript(script, "#!/bin/sh\nexit 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	if d.Exists(ctx, "satelle-node-gone") {
+		t.Fatal("Exists on an inspect that fails = true")
 	}
 }

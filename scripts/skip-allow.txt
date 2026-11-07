@@ -17,3 +17,4 @@ github.com/bobmcallan/satelle/cmd/satelled TestServeGateSeesNewFiles a clone wit
 github.com/bobmcallan/satelle/internal/remote/provider TestDockerLocalRunsTheDefinition needs a running docker daemon and a small local image; the fake-docker argv tests always run
 github.com/bobmcallan/satelle/internal/remote/provider TestDockerLocalFailedSetupLeavesTheMachineToInspect needs a running docker daemon and a small local image
 github.com/bobmcallan/satelle/tests TestRemoteNodeOnDockerLocal needs a running docker daemon and a small local image
+github.com/bobmcallan/satelle/tests TestDockerLocalFireOnDaemon builds the node image from the repo's Dockerfile on a docker daemon, which pulls golang and alpine; runs only with SATELLE_DOCKER_BUILD=1 (TestDockerLocalFireRoundTrip always runs with a fake docker)

@@ -52,7 +52,11 @@ func TestFullV1ValidatesClean(t *testing.T) {
 
 func TestEveryTestdataAndRepoDefinitionValidates(t *testing.T) {
 	paths, _ := filepath.Glob("testdata/*.toml")
-	paths = append(paths, "../../.satelle/remotes/satelle-cicd/remote.toml")
+	repo, _ := filepath.Glob("../../.satelle/remotes/*/remote.toml")
+	if !slices.Contains(repo, "../../.satelle/remotes/docker-probe/remote.toml") {
+		t.Fatalf("the repo's definitions %v miss docker-probe", repo)
+	}
+	paths = append(paths, repo...)
 	for _, p := range paths {
 		b, err := os.ReadFile(p)
 		if err != nil {

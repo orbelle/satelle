@@ -1,0 +1,24 @@
+# The smallest remote, a local probe (sto_251b9f7b): a docker-local node runs
+# this repo's satelle, built from the repo's Dockerfile as satelle-node:local,
+# takes one item, drives one step on its workflow and brings the chain back.
+# It runs here, not through satelle-server, and needs docker only:
+#
+#   satelle remote fire docker-probe <item> --steps 1
+#   satelle remote status docker-probe <item>
+#
+# The node has no network, no secrets and no repos. scope = "job" leaves the
+# container (satelle-node-<node>) after the run, to inspect with
+# `docker exec -it satelle-node-<node> sh`; `docker rm -f` removes it.
+version = 1
+name = "docker-probe"
+provider = "docker-local"
+satelle_version = "1.0.21"
+
+[drive]
+kind = "item"
+
+[setup]
+on_create = ["satelle version"]
+
+[lifecycle]
+scope = "job"
