@@ -12,6 +12,11 @@ start = true
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }
+# Round cap (sto_216e2027): plan review was rejected 8 rounds running on one
+# dissenter (satelle-server sto_7094c283). After 3 rejected rounds in a row the
+# item is held for the operator instead of re-planned; 3 is the plan skill's
+# own attempt budget.
+hold = { rounds = 3, to = "held" }
 
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
@@ -27,6 +32,12 @@ performer = { agent = "executor", skill = "coder" }
 enqueue = ["release"]
 
 [states.blocked]
+park = true
+resumes = true
+
+# Where a state's round cap holds an item for the operator. Only the operator
+# moves it out (held -> @prior, or cancelled); the driving session stops.
+[states.held]
 park = true
 resumes = true
 
@@ -198,6 +209,15 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
+# The hold's move: gateless, so the hold cannot itself be rejected.
+[[transition]]
+from = ["plan"]
+to = "held"
+
+[[transition]]
+from = ["held"]
+to = "@prior"
+
 [[transition]]
 from = ["*"]
 to = "blocked"
@@ -213,6 +233,6 @@ to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]
 
 [[transition]]
-from = ["blocked"]
+from = ["blocked", "held"]
 to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]

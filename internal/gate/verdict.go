@@ -7,10 +7,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 )
 
-// Verdict is what a judge returns: accept or reject, with notes.
+// Verdict is what a judge returns: accept or reject, with notes, and
+// optionally the judge's own short label for its blocking finding.
 type Verdict struct {
 	Verdict string `json:"verdict"`
 	Notes   string `json:"notes"`
+	Class   string `json:"class,omitempty"`
 }
 
 // ParseVerdict finds the last JSON object in text whose verdict is accept or

@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: report it and stop.
 ---
 
 # Agent goals
@@ -25,6 +25,9 @@ workflow fits, propose one and create it only with the user's approval.
 gate, integration and deploy checks, close — without pausing to ask permission. A
 declared step is authorised *by* the workflow, even when it builds, deploys, or
 mutates local state; a block is a gap only if it *prevents* following it.
+One declared move is not the session's: a state's `hold` parks the item for the
+operator, and only the operator presents the move out of that park; the session
+reports the hold and stops.
 
 **This session is the orchestrator when both seats are in-loop** (both resolve
 to the in-loop command: the same agent). `complete sty_<id>` starts that story's
@@ -32,7 +35,8 @@ drive; an epic, or `drive epic <id> to done`, starts *Driving an epic*.
 
 **A named performer hands the drive back here.** The step's agent does the step
 and does not change status. When it returns, this session runs the next
-`satelle story set` the workflow names. A refusal there fences source edits. The
+`satelle story set` the workflow names, unless the item is held: then it
+reports the hold and stops. A refusal there fences source edits. The
 drive stays in this session.
 
 **One story at a time — outside an epic.**

@@ -82,6 +82,42 @@ type Fields struct {
 type Move struct {
 	From string `json:"from"`
 	To   string `json:"to"`
+	// Hold is set when the move is a hold: the from-state's round cap was
+	// reached, and this is the summary computed when it was.
+	Hold *Hold `json:"hold,omitempty"`
+}
+
+// Hold summarises the rejected rounds that held an item for the operator.
+type Hold struct {
+	State  string `json:"state"`  // the state the rounds were leaving
+	Rounds int    `json:"rounds"` // rejected rounds in a row
+	// Dissent is every verdict that rejected in any counted round, most
+	// rejections first.
+	Dissent []Dissent `json:"dissent"`
+	// Accepted names every verdict (gate/binding, or the gate for a check)
+	// that accepted or carried in the last round.
+	Accepted []string `json:"accepted"`
+}
+
+// Dissent is one verdict's record across a hold's rounds: how many it
+// rejected, and the class it gave most often (with that count).
+type Dissent struct {
+	Gate        string `json:"gate"`
+	Binding     string `json:"binding,omitempty"`
+	Rejected    int    `json:"rejected"`
+	Class       string `json:"class"`
+	ClassRounds int    `json:"class_rounds"`
+}
+
+// Key names the verdict: gate/binding, or the gate alone for a check.
+func (d Dissent) Key() string { return VerdictKey(d.Gate, d.Binding) }
+
+// VerdictKey is gate/binding, or the gate alone when there is no binding.
+func VerdictKey(gate, binding string) string {
+	if binding == "" {
+		return gate
+	}
+	return gate + "/" + binding
 }
 
 // Apply sets every field f names on it, status included.

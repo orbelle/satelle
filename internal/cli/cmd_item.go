@@ -343,14 +343,23 @@ func itemGetCmd(kind string) *cobra.Command {
 			if kind == item.QueueKind {
 				return showQueue(k, out, it, atts, seats, *asJSON)
 			}
+			held, err := k.HoldOf(it.ID)
+			if err != nil {
+				return err
+			}
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
 					Attachments []item.Attachment `json:"attachments"`
 					Seats       []item.Seat       `json:"seats"`
-				}{it, atts, seats})
+					Held        *item.Hold        `json:"held,omitempty"`
+				}{it, atts, seats, held})
 			}
 			printItem(out, it)
+			if held != nil {
+				fmt.Fprintf(out, "held       after %d rejected rounds leaving %s; dissent %s; accepted %s\n",
+					held.Rounds, held.State, dissentKeys(*held), orNone(held.Accepted))
+			}
 			for _, a := range atts {
 				fmt.Fprintf(out, "attachment %s (%s, %d bytes)\n", a.Name, a.MediaType, a.Size)
 			}
@@ -544,7 +553,40 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 			fmt.Fprintf(&b, ":\n    %s", strings.ReplaceAll(n, "\n", "\n    "))
 		}
 	}
+	if h := res.Held; h != nil {
+		writeHold(&b, res.Item, *h)
+	}
 	return &exitError{code: ExitBlocked, msg: b.String()}
+}
+
+// holdStop is the line a hold report ends with: the driving session stops at
+// a hold; the move out of it is the operator's.
+const holdStop = "held for the operator: the driving session reports this hold and stops (satelle help workflows, Hold)"
+
+// writeHold reports a hold: where the item is held and after how many rounds,
+// each dissenting verdict with its class, and the verdicts that accepted.
+func writeHold(b *strings.Builder, it item.Item, h item.Hold) {
+	fmt.Fprintf(b, "\n%s held at %s after %d rejected rounds leaving %s", it.ID, it.Status, h.Rounds, h.State)
+	for _, d := range h.Dissent {
+		fmt.Fprintf(b, "\n  dissent: %s rejected %d of %d rounds; class %s in %d", d.Key(), d.Rejected, h.Rounds, d.Class, d.ClassRounds)
+	}
+	fmt.Fprintf(b, "\n  accepted: %s", orNone(h.Accepted))
+	fmt.Fprintf(b, "\n%s", holdStop)
+}
+
+func dissentKeys(h item.Hold) string {
+	var keys []string
+	for _, d := range h.Dissent {
+		keys = append(keys, d.Key())
+	}
+	return orNone(keys)
+}
+
+func orNone(xs []string) string {
+	if len(xs) == 0 {
+		return "none"
+	}
+	return strings.Join(xs, ", ")
 }
 
 func firstLine(s string) string {

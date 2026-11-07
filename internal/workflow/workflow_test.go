@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,5 +201,54 @@ func TestSkills(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "bad.md"), []byte("---\ntype: check\n---\nno script\n"), 0o644)
 	if _, err := LoadSkills(dir); err == nil {
 		t.Fatal("check without script accepted")
+	}
+}
+
+func TestValidateHold(t *testing.T) {
+	const states = "[states.a]\nstart = true\n[states.p]\npark = true\nresumes = true\n[states.q]\npark = true\n[states.z]\nterminal = true\n" +
+		"[gates.g]\nskill = \"judge\"\nagent = \"a1\"\n" +
+		"[[transition]]\nfrom = [\"a\"]\nto = \"z\"\ngroups = [{ gates = [\"g\"] }]\n" +
+		"[[transition]]\nfrom = [\"p\"]\nto = \"@prior\"\n" +
+		"[[transition]]\nfrom = [\"a\"]\nto = \"q\"\n"
+	toP := "[[transition]]\nfrom = [\"a\"]\nto = \"p\"\n"
+	hold := func(rounds int, to string) string {
+		return fmt.Sprintf("[states.a.hold]\nrounds = %d\nto = %q\n", rounds, to)
+	}
+	valid := states + toP + hold(2, "p")
+	w, err := parse(t, valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("valid hold refused: %v", errs)
+	}
+	if h := w.States["a"].Hold; h == nil || h.Rounds != 2 || h.To != "p" {
+		t.Fatalf("hold decoded as %+v", h)
+	}
+	cases := []struct{ name, body, want string }{
+		{"rounds zero", states + toP + hold(0, "p"), "rounds 0 must be at least 1"},
+		{"to missing", states + toP + "[states.a.hold]\nrounds = 2\n", `to "" is not a park state`},
+		{"to not park", states + toP + hold(2, "z"), `to "z" is not a park state`},
+		{"to unknown", states + toP + hold(2, "nope"), `to "nope" is not a park state`},
+		{"on a park state", states + toP + "[states.q.hold]\nrounds = 2\nto = \"p\"\n", "a terminal or park state cannot be held"},
+		{"on a terminal state", states + toP + "[states.z.hold]\nrounds = 2\nto = \"p\"\n", "a terminal or park state cannot be held"},
+		{"no declared move", states + hold(2, "p"), `no transition is declared from "a" to "p"`},
+		{"gated move", states + "[[transition]]\nfrom = [\"a\"]\nto = \"p\"\ngroups = [{ gates = [\"g\"] }]\n" + hold(2, "p"), "carries gates; the move into a hold must be gateless"},
+		{"gated wildcard move", states + "[[transition]]\nfrom = [\"*\"]\nto = \"p\"\ngroups = [{ gates = [\"g\"] }]\n" + hold(2, "p"), "carries gates"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := parse(t, c.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var msgs []string
+			for _, e := range w.Validate(skillOf, agentOf) {
+				msgs = append(msgs, e.Error())
+			}
+			if joined := strings.Join(msgs, "\n"); !strings.Contains(joined, c.want) {
+				t.Fatalf("want %q in:\n%s", c.want, joined)
+			}
+		})
 	}
 }

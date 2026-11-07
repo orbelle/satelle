@@ -237,3 +237,33 @@ func TestTriggerSkipReportsAnEmptyDiff(t *testing.T) {
 		t.Errorf("trigger skip: %+v", rs[0])
 	}
 }
+
+func TestVerdictClassAndPanelMembers(t *testing.T) {
+	v, ok := parseVerdict(`notes first {"verdict":"reject","notes":"gap","class":"AC3"}`)
+	if !ok || v.Verdict != Reject || v.Class != "AC3" {
+		t.Fatalf("class not read: %+v %v", v, ok)
+	}
+	if v := ParseVerdict(`{"verdict":"accept","notes":"ok"}`); v.Class != "" {
+		t.Fatalf("class without one given: %+v", v)
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"p"}}},
+		map[string]workflow.Gate{"p": {Skill: "judge", Panel: []string{"y1", "n1"}, Combine: workflow.CombineAll}, "one": {Skill: "judge", Agent: "n2"}})
+	d.answers["n1"] = `{"verdict":"reject","notes":"bad","class":"AC3"}`
+	d.answers["n2"] = `{"verdict":"reject","notes":"bad","class":"plan"}`
+	rs, pass := r.Execute(context.Background())
+	if pass || len(rs) != 1 {
+		t.Fatalf("panel: %v %+v", pass, rs)
+	}
+	want := []Member{{Binding: "y1", Result: Accept}, {Binding: "n1", Result: Reject, Class: "AC3"}}
+	if got := rs[0].Members; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("members %+v, want %+v", got, want)
+	}
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one"}}}
+	rs, _ = r.Execute(context.Background())
+	if len(rs) != 1 || rs[0].Class != "plan" || rs[0].Binding != "n2" || len(rs[0].Members) != 0 {
+		t.Fatalf("single judge class: %+v", rs)
+	}
+	if ToOf(TransitionKey("a", "b")) != "b" || FromOf(TransitionKey("a", "b")) != "a" {
+		t.Fatal("ToOf/FromOf")
+	}
+}

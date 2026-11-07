@@ -79,6 +79,45 @@ outlast a harness's bound on one shell command: run such a move as the
 harness's background command, with that command's own timeout above the sum
 of the sequential gates' bounds.
 
+### Hold
+
+A state may cap the rejected rounds of leaving it, and name the park state
+that holds the item for the operator once the cap is reached:
+
+    [states.plan]
+    hold = { rounds = 3, to = "held" }
+    [states.held]
+    park = true
+    resumes = true
+
+    [[transition]]
+    from = ["plan"]
+    to = "held"                  # declared, and gateless
+    [[transition]]
+    from = ["held"]
+    to = "@prior"
+
+A round is one presentation of a transition leaving the state, to a target
+that is not a park state, that at least one gate rejected. The count starts
+again whenever the item moves, so the rounds counted are rejections in a row.
+When a rejection brings the count to `rounds`, the item is moved to `to` in
+the same command; the move records a summary: the state and rounds, each
+dissenting verdict (gate/binding, or the gate for a check) with how many
+rounds it rejected and the class it gave most often (a judge's optional
+`"class"` in its verdict object, `unclassified` when it gave none), and the
+verdicts that accepted in the last round. `story set` exits 2 and prints it;
+`story get` shows it while the item stays held. A park state has no performer,
+so the item is not performed again.
+
+`satelle validate` refuses a hold whose `rounds` is below 1, whose `to` is not
+a park state, that sits on a terminal or park state, or that has no declared
+transition from the state to `to`, or one that carries gates.
+
+The move out of the hold is the operator's, never the driving session's: the
+session reports the hold and stops. Once the operator has decided, they run
+`satelle <kind> set <id> --status <state>` (for a resuming park, the state it
+was held from), which starts the count again.
+
 ## The base
 
 `SATELLE_BASE` is the item's diff base: the commit its gates judge the change

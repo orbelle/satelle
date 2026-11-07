@@ -221,6 +221,10 @@ type TransitionResult struct {
 	// Queued is what entering To enqueued, one outcome per queue its state
 	// configuration names (only when the item moved).
 	Queued []QueueOutcome `json:",omitempty"`
+	// Held is set when this rejection reached the from-state's round cap and
+	// the item was moved to the cap's park state instead (Item is then the
+	// held item; Moved stays false: the requested move did not happen).
+	Held *item.Hold `json:",omitempty"`
 }
 
 // Rejects returns the gates that rejected.
@@ -236,8 +240,16 @@ func (r TransitionResult) Rejects() []gate.Result {
 
 // Transition presents the move of id to `to`: it finds the explicit
 // transition, runs its gates, records every gate result, and records the move
-// only when no gate rejected. A rejected move is a result, not an error.
+// only when no gate rejected. A rejected move is a result, not an error. A
+// rejection that reaches the from-state's round cap holds the item: it is moved
+// to the cap's park state and the result carries the hold.
 func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (TransitionResult, error) {
+	return k.transition(ctx, id, to, actor, nil)
+}
+
+// transition is Transition; a non-nil hold makes the move a hold, recorded
+// with its summary, and is never itself held.
+func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *item.Hold) (TransitionResult, error) {
 	it, events, err := k.load(id)
 	if err != nil {
 		return TransitionResult{}, err
@@ -312,9 +324,12 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 		}
 	}
 	if !pass {
-		return res, nil
+		if hold != nil {
+			return res, nil
+		}
+		return k.holdIfCapped(ctx, res, w, actor)
 	}
-	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to}); err != nil {
+	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold}); err != nil {
 		return res, err
 	}
 	res.Moved = true
@@ -630,26 +645,13 @@ func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
 // item's current state since it last entered it, with their notes bounded;
 // "" when that attempt did not reject or there is none.
 func rejections(it item.Item, events []ledger.Event) string {
-	start := 0
-	for i, e := range events {
-		if e.Kind == item.KindTransitioned {
-			start = i + 1
-		}
-	}
-	var runs []gate.Result
-	for _, e := range events[start:] {
-		var r gate.Result
-		if e.Kind == gate.KindRun && e.Decode(&r) == nil && r.Attempt != "" && gate.FromOf(r.Transition) == it.Status {
-			runs = append(runs, r)
-		}
-	}
-	if len(runs) == 0 {
+	attempts := attemptsLeaving(it.Status, events)
+	if len(attempts) == 0 {
 		return ""
 	}
-	latest := runs[len(runs)-1].Attempt
 	var b strings.Builder
-	for _, r := range runs {
-		if r.Attempt != latest || r.Result != gate.Reject {
+	for _, r := range attempts[len(attempts)-1].Results {
+		if r.Result != gate.Reject {
 			continue
 		}
 		if b.Len() == 0 {

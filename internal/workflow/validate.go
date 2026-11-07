@@ -106,6 +106,9 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 			}
 		}
 	}
+	for _, name := range w.stateNames() {
+		errs = append(errs, w.validateHold(name)...)
+	}
 	if len(starts) == 1 {
 		reached := w.reachable(starts[0])
 		anyTerminal := false
@@ -120,6 +123,39 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 		if len(terminals) > 0 && !anyTerminal {
 			bad("no terminal state is reachable from start %q", starts[0])
 		}
+	}
+	return errs
+}
+
+// validateHold checks a state's hold: a positive cap, a park target, a state
+// that is left by review, and a declared gateless move into the park.
+func (w *Workflow) validateHold(name string) []error {
+	st := w.States[name]
+	h := st.Hold
+	if h == nil {
+		return nil
+	}
+	var errs []error
+	bad := func(format string, args ...any) {
+		errs = append(errs, fmt.Errorf("workflow %s: state %q hold: "+format, append([]any{w.Name, name}, args...)...))
+	}
+	if h.Rounds < 1 {
+		bad("rounds %d must be at least 1", h.Rounds)
+	}
+	if st.Terminal || st.Park {
+		bad("a terminal or park state cannot be held")
+	}
+	target, ok := w.States[h.To]
+	if h.To == "" || !ok || !target.Park {
+		bad("to %q is not a park state", h.To)
+		return errs
+	}
+	tr, err := w.Find(name, h.To, "")
+	switch {
+	case err != nil:
+		bad("no transition is declared from %q to %q", name, h.To)
+	case len(tr.Groups) > 0:
+		bad("the transition from %q to %q carries gates; the move into a hold must be gateless", name, h.To)
 	}
 	return errs
 }

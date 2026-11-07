@@ -13,7 +13,8 @@ import (
 // fakeClaude puts a fake `claude` first on the sandbox's PATH. Each run
 // records its argv in <dir>/argv.<model>.<pid> and answers with claude's JSON
 // envelope whose result is a verdict: accept, or what <dir>/verdict.<model>
-// holds.
+// holds. When <dir>/class.<model> exists the verdict also carries that
+// file's text as its class; without it the envelope is unchanged.
 func fakeClaude(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -25,7 +26,11 @@ printf '%s\n' "$@" > "$FAKE_DIR/argv.$model.$$"
 cat > /dev/null
 v=accept
 [ -f "$FAKE_DIR/verdict.$model" ] && v=$(cat "$FAKE_DIR/verdict.$model")
+if [ -f "$FAKE_DIR/class.$model" ]; then
+printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s by %s\\",\\"class\\":\\"%s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$v" "$model" "$(cat "$FAKE_DIR/class.$model")"
+else
 printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s by %s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$v" "$model"
+fi
 `, 0o755)
 	s.path = append(s.path, dir)
 	s.env["FAKE_DIR"] = dir
@@ -259,6 +264,92 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 	}
 	if route := s.must("story", "route", id); !strings.Contains(route, "▶ shipped") || !strings.Contains(route, "carried") {
 		t.Errorf("route:\n%s", route)
+	}
+	s.must("ledger", "verify")
+}
+
+const cappedWorkflow = `name = "capped"
+[states.queued]
+start = true
+hold = { rounds = 2, to = "parked" }
+[states.parked]
+park = true
+resumes = true
+[states.shipped]
+terminal = true
+
+[gates.panel]
+skill = "judge"
+panel = ["judge-b", "judge-c"]
+combine = "all"
+
+[[transition]]
+from = ["queued"]
+to = "shipped"
+groups = [{ mode = "sequential", gates = ["panel"] }]
+[[transition]]
+from = ["queued"]
+to = "parked"
+[[transition]]
+from = ["parked"]
+to = "@prior"
+`
+
+// A state's round cap holds the item once a panel member has rejected that
+// many presentations in a row, and the hold names the dissenter, the class
+// its verdict carried through the real dispatch and parse, and who accepted.
+func TestRoundCapHoldsForTheOperator(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	fake := fakeClaude(t, s)
+	s.must("init")
+	s.write(".satelle/agents.toml", pipelineAgents)
+	s.write(".satelle/workflows/capped.toml", cappedWorkflow)
+	s.write(".satelle/skills/judge.md", "---\nname: judge\n---\nJudge it.\n")
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "config")
+	s.must("validate")
+	if show := s.must("workflow", "show", "capped"); !strings.Contains(show, "hold 2 -> parked") {
+		t.Errorf("workflow show lacks the hold:\n%s", show)
+	}
+	writeFile(t, filepath.Join(fake, "verdict.jc-1"), "reject", 0o644)
+
+	for _, c := range []struct {
+		name, class, want string
+	}{
+		{"classified", "AC3", "class AC3 in 2"},
+		{"unclassified", "", "class unclassified in 2"},
+	} {
+		os.Remove(filepath.Join(fake, "class.jc-1"))
+		if c.class != "" {
+			writeFile(t, filepath.Join(fake, "class.jc-1"), c.class, 0o644)
+		}
+		id := s.create("story", "--title", c.name, "--workflow", "capped").ID
+		r := s.run("story", "set", id, "--status", "shipped")
+		if r.code != 2 || strings.Contains(r.out+r.err, "held") {
+			t.Fatalf("%s round 1: exit %d\n%s%s", c.name, r.code, r.out, r.err)
+		}
+		r = s.run("story", "set", id, "--status", "shipped")
+		got := r.out + r.err
+		for _, want := range []string{
+			id + " held at parked after 2 rejected rounds leaving queued",
+			"dissent: panel/judge-c rejected 2 of 2 rounds; " + c.want,
+			"accepted: panel/judge-b",
+			"held for the operator: the driving session reports this hold and stops",
+		} {
+			if r.code != 2 || !strings.Contains(got, want) {
+				t.Errorf("%s round 2: exit %d, lacks %q:\n%s", c.name, r.code, want, got)
+			}
+		}
+		if strings.Contains(got, "--status") {
+			t.Errorf("%s: the hold report hands out a status command:\n%s", c.name, got)
+		}
+		if st := s.get(id).Status; st != "parked" {
+			t.Fatalf("%s: status %q, want parked", c.name, st)
+		}
+		if out := s.must("story", "get", id); !strings.Contains(out, "held       after 2 rejected rounds leaving queued; dissent panel/judge-c") {
+			t.Errorf("%s: story get lacks the held line:\n%s", c.name, out)
+		}
 	}
 	s.must("ledger", "verify")
 }

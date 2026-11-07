@@ -45,6 +45,16 @@ type State struct {
 	// Enqueue names the queues (.satelle/queues/<name>.toml) an item entering this state
 	// is added to.
 	Enqueue []string `toml:"enqueue"`
+	// Hold caps the rejected rounds of leaving this state: once that many
+	// presentations in a row are rejected, the item moves to the hold's park
+	// state for the operator. Nil: the state is never held.
+	Hold *Hold `toml:"hold"`
+}
+
+// Hold is a state's round cap and the park state it holds the item in.
+type Hold struct {
+	Rounds int    `toml:"rounds"`
+	To     string `toml:"to"`
 }
 
 // Performer is the binding that does a state's work, and the skill it follows.

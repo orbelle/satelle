@@ -51,6 +51,11 @@ type Result struct {
 	// shrunk since the item's last judged diff: a skip that may mean the base
 	// is wrong, not that nothing relevant changed.
 	Warning string `json:"warning,omitempty"`
+	// Class is the judge's label for its blocking finding, as it gave it; the
+	// gate does not interpret it.
+	Class string `json:"class,omitempty"`
+	// Members is a panel's verdict per member, in panel order.
+	Members []Member `json:"members,omitempty"`
 
 	// verdict says the result is a verdict: a check that ran, or a judge
 	// (every panel member) that answered with one. A reject that is a failure
@@ -65,6 +70,19 @@ func TransitionKey(from, to string) string { return from + "->" + to }
 func FromOf(key string) string {
 	from, _, _ := strings.Cut(key, "->")
 	return from
+}
+
+// ToOf is the to-state of a TransitionKey.
+func ToOf(key string) string {
+	_, to, _ := strings.Cut(key, "->")
+	return to
+}
+
+// Member is one panel member's verdict within a panel's combined Result.
+type Member struct {
+	Binding string `json:"binding"`
+	Result  string `json:"result"`
+	Class   string `json:"class,omitempty"`
 }
 
 // Run is one presentation of a transition.
@@ -363,6 +381,7 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 		out.verdict = out.verdict && m.verdict
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
+		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class})
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
 	}
 	pass := false
@@ -402,7 +421,7 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 		return res
 	}
 	v, parsed := parseVerdict(out.Text)
-	res.Result, res.Notes, res.verdict = v.Verdict, v.Notes, parsed
+	res.Result, res.Notes, res.Class, res.verdict = v.Verdict, v.Notes, v.Class, parsed
 	return res
 }
 

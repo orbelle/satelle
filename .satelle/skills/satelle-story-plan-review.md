@@ -30,6 +30,10 @@ longer resolves). Start from those excerpts; open files only to check beyond the
 
 Do **not** look under in-repo `.satelle/stories/` (obsolete post-relocation).
 
+The newest `plan` attachment is the whole plan. Only the newest plan is live:
+earlier versions and earlier verdicts are in the ledger and are not live, so a
+finding cites text in the newest body.
+
 - **No plan artifact → reject**.
 
 ## 2. The criteria being judged
@@ -133,9 +137,11 @@ section does not apply; [[satelle-reviewer-verdict]] governs the stop and
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>", "criteria": [{"criterion": 1, "status": "accept", "finding": "", "reviewed": "<exact words this entry rests on>"}]}
+{"verdict": "accept", "notes": "", "class": "AC1", "reviewed": "<exact words this verdict rests on>", "criteria": [{"criterion": 1, "status": "accept", "finding": "", "reviewed": "<exact words this entry rests on>"}]}
 ```
 
 Return one `criteria` entry per acceptance criterion you judged
 ([[satelle-reviewer-verdict]]), so an accepted criterion whose text is unchanged
 settles on the next presentation instead of being judged again.
+A reject names its class: the label of the criterion its blocking finding
+concerns (`AC<n>`), or `plan` when the finding is not about one criterion.

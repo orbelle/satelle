@@ -107,6 +107,9 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 		}
 		step.Moved = tr.Moved
 		res.Steps = append(res.Steps, step)
+		if tr.Held != nil {
+			return stop(tr.Item, VerdictReject, fmt.Sprintf("%s held at %s after %d rounds", it.Status, tr.Item.Status, tr.Held.Rounds))
+		}
 		if !tr.Moved {
 			var why []string
 			for _, g := range tr.Rejects() {

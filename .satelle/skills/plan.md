@@ -90,16 +90,17 @@ criteria from what you proved, then plan them.
    decided in the plan with its reason. An either/or left for implementation is
    a finding the reviewers will raise.
 
-On a **re-presentation** (a rejected readiness edge, the definition possibly
-edited since) your payload carries every gate seat's latest finding as
-`findings_to_answer`, and any relay from the driver arrives in `messages`
-([[satelle-discovery-criteria]]). Re-read the story as it stands now and change
-only the sections the findings name to resolve them, rather than restating the
-previous plan. Keep every other section byte-identical: a reviewer carries its
-accept of an unchanged criterion only while the words it quoted are still there.
-Answer every offered finding id beside your artifact in the same final object:
-`"answers":[{"finding":"<id>","answer":"adopted"|"rebutted","evidence":"<what you changed, or the code that shows the finding is wrong>"}]`
-(`satelle help agent-dispatch`).
+On a **re-plan** (your prompt lists the latest attempt's rejecting findings,
+the definition possibly edited since), re-read the story as it stands now and
+write the whole plan as it now stands, as a fresh body. The body has no round
+numbers, no answers-to-findings or changes-since sections, and no quoted
+superseded text: reviewers judge only the newest plan, so anything about
+earlier rounds in it reads as live. Answer each finding in an `answers` array
+beside the artifact, in the same final object:
+`{"gate":"<gate>","binding":"<binding>","answer":"adopted"|"rebutted","evidence":"<what changed, or the code that shows the finding is wrong>"}`.
+Satelle keeps your whole answer in the ledger (the `performer.run` output) and
+attaches only the artifact body, which becomes the newest plan version;
+earlier versions stay on the ledger.
 
 ## Produce the plan
 
@@ -122,9 +123,13 @@ Your final response must be one JSON object in this canonical shape:
     "name": "plan",
     "type": "plan",
     "body": "# Implementation plan\n\n## AC1\n..."
-  }
+  },
+  "answers": [{"gate": "<gate>", "binding": "<binding>", "answer": "adopted", "evidence": "<what changed, or the code that shows the finding is wrong>"}]
 }
 ```
+
+On a first plan `answers` is `[]`; on a re-plan it holds one entry per
+rejecting finding, and nothing about the findings goes in `body`.
 
 Label every criterion `AC<n>`; no prose or fence around the JSON.
 
