@@ -1,3 +1,12 @@
+## [1.0.21] - 2026-11-07
+
+### Added
+- A gate can carry its own `timeout` (e.g. `timeout = "30m"`), bounding each of its check scripts in place of the 10m default, so a long check such as a full test suite can be a gate; a gate that times out rejects with notes naming the bound and where it came from, and `satelle workflow show` lists it (sto_41e7f0e2)
+
+### Fixed
+- The serve-version gate (`scripts/check-serve-version.sh`) exits 3 with go's own error when it cannot derive its watch set, instead of exit 1, which callers read as "unwatched"; `--check-path` takes several paths in one derivation, and TestServeGateWatchesEveryServeDependency no longer flakes under the parallel suite (sto_54770db7)
+- Integration sandbox setup no longer fails silently: a sandbox git command that fails now reports its exit status or signal with its stdout and stderr, and a setup git killed by a signal is retried on a fresh repo, up to three times. (sto_75987aed)
+
 ## [1.0.20] - 2026-11-07
 
 ### Added

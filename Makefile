@@ -31,7 +31,8 @@ build:
 # satelled.version was not advanced (sty_4a5c6924). Run on EVERY release,
 # not only slices the author reads as serve-path (sty_a8853e85). The watch set is
 # derived from `go list -deps ./cmd/satelled`; print it with
-# `bash scripts/check-serve-version.sh --paths`.
+# `bash scripts/check-serve-version.sh --paths`. Exit 3 means the watch set
+# could not be derived (no answer), never "unwatched" (sto_54770db7).
 check-serve-version:
 	@bash scripts/check-serve-version.sh
 

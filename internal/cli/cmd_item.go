@@ -459,7 +459,13 @@ func itemSetCmd(kind string) *cobra.Command {
 the item's current state to the given one: its gates run in their configured
 order and every result is recorded on the ledger. The item moves only when no
 gate rejects; otherwise set exits 2 and lists each rejecting gate with its
-notes.`,
+notes.
+
+--status runs the transition's gates in this command before it returns. A
+gate with a long timeout (see satelle workflow show) can outlast a harness's
+bound on one shell command. Run such a move as the harness's background
+command, with that command's own timeout above the sum of the sequential
+gates' bounds.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()

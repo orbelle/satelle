@@ -167,6 +167,18 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 			bad("has an empty path pattern")
 		}
 	}
+	if g.Timeout != "" {
+		d, err := g.Bound()
+		switch {
+		case err != nil:
+			bad("timeout %q is not a duration (e.g. \"30m\")", g.Timeout)
+		case d <= 0:
+			bad("timeout %q must be positive", g.Timeout)
+		}
+		if ok && !sk.IsCheck() && g.Trigger == "" && g.After == "" {
+			bad("timeout bounds check scripts; this gate runs none")
+		}
+	}
 	return errs
 }
 

@@ -725,6 +725,20 @@ These came up in Phase B and are not decided here.
 35. **Q-gate-timeout.** Gates run synchronously (ruling Q-gate-async). No
     harness timeout was observed in this sandbox. Measure long gates
     (build/test checks) under real claude/pi/grok hooks before closing this.
+    - **claude, measured 2026-11-07** (Claude Code 2.1.319, satelle branch
+      build of sto_41e7f0e2). A check gate `long` (`sleep 900`) with
+      `timeout = "20m"` ran inside `satelle story set <id> --status done`,
+      which an interactive claude session ran as a background command, with
+      the session's PreToolUse hook live. The move took 900s, recorded
+      `gate.run long accept` with duration_ms 900003, and the item reached
+      done. A gate's own `timeout` is what bounds it. The harness bounds only
+      the shell command, so run a long move as the harness's background
+      command (`satelle story set --help`).
+    - **claude foreground control: not run.** A foreground command is capped
+      at 10 minutes (600000 ms), so a 15-minute gate cannot finish there.
+      This is why long moves go in the background.
+    - **pi and grok:** installed on the measuring machine but not yet
+      measured. This question stays open for them.
 
 ## Operator rulings
 
