@@ -4,17 +4,19 @@ scope: project
 type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
-description: The full local suite, once, on the edge to approved (integration → approved, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no tests; this is the run the release trusts. Deterministic, self-contained.
+description: The full local suite, once, on the edge to approved (integration → approved, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no tests; each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
 ---
 
 # Integration check (the full suite, once, before approved)
 
 Runs `make test`, the full hermetic suite (unit and integration), on the head
-that becomes the pull request's head, before the PR check and failing fast. It
-is the only full run: the release fast-forwards this tested head without
-testing again (operator, 2026-11-06). It asserts the installed binary and the
-live service are unchanged before and after. Verifies; installs and restarts
-nothing.
+that becomes the pull request's head, before the PR check and failing fast.
+Each head is tested here; a release run then builds one candidate from its
+items (fast-forwarding or merging their heads in queue order) and runs
+`make test` once more on that combined tree, so main only ever fast-forwards
+to a tree the release tested (operator, 2026-11-06; sto_4d68812e). It asserts
+the installed binary and the live service are unchanged before and after.
+Verifies; installs and restarts nothing.
 
 ```check
 #!/usr/bin/env bash
