@@ -498,6 +498,10 @@ func TestReworkRerunsTheFullSuite(t *testing.T) {
 // themselves and the release run writes the version section.
 func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 	word := "Unreleased"
+	// .satelle/remotes/satelle-cicd is the pre-1.0 remote, kept as reference
+	// only (operator, 2026-11-07): nothing dispatches it, so its text is not
+	// part of the process this test guards.
+	reference := filepath.Join("..", ".satelle", "remotes", "satelle-cicd")
 	for _, root := range []string{".satelle/skills", ".satelle/workflows", ".satelle/queues", ".satelle/tasks", ".satelle/remotes", "scripts"} {
 		err := filepath.WalkDir(filepath.Join("..", root), func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -507,6 +511,9 @@ func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 				return err
 			}
 			if d.IsDir() {
+				if p == reference {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			b, err := os.ReadFile(p)
