@@ -1,4 +1,4 @@
-# Recorded GitHub review fixtures (sto_ebcaa5aa)
+# Recorded GitHub review fixtures (sto_ebcaa5aa, sto_efe81afd)
 
 `recorded.json` is a real response of GitHub's list-reviews endpoint, recorded
 read-only on 2026-11-07 with
@@ -6,8 +6,15 @@ read-only on 2026-11-07 with
     gh api repos/orbelle/satelle/pulls/5/reviews
 
 It holds the two reviews the orbelle-reviewer app (app id 5563015) left on
-orbelle/satelle#5. Its bot account, `orbelle-reviewer[bot]`, has the numeric
-id 350948835 (`gh api 'users/orbelle-reviewer[bot]' --jq .id`, same day): the
+orbelle/satelle#5, by its bot account `orbelle-reviewer[bot]` (numeric id
+350948835, `gh api 'users/orbelle-reviewer[bot]' --jq .id`, same day). It is
+the field-shape source of every other file. orbelle-reviewer is internal only,
+so its reviews never count.
+
+The account the approval check matches is the user-facing satelle GitHub app's
+(app id 5379260): `satelle[bot]`, numeric id 344745317
+(`gh api 'users/satelle[bot]' --jq .id`, confirmed 2026-11-08), per the
+operator ruling in `.satelle/principles/satelle-operator-rulings.md`. It is the
 `user.id` every review by the app carries, and the `app_account` of
 `.satelle/skills/satelle-pr-approval-check.md`.
 
@@ -24,7 +31,7 @@ older commit.
 | `approved-on-head.json` | the app approves HEAD | accepts |
 | `approved-then-commented.json` | approves HEAD, then comments | accepts (a comment decides nothing) |
 | `approved-older-head.json` | the app approves an older head | rejects |
-| `approved-other-account.json` | `satelle[bot]` (id 344745317, a different app, 5379260) approves HEAD | rejects: the login is never compared |
+| `approved-other-account.json` | `orbelle-reviewer[bot]` (id 350948835, internal app 5563015) approves HEAD | rejects: the login is never compared |
 | `approved-then-dismissed.json` | approves HEAD, then the approval is dismissed | rejects |
 | `approved-then-changes-requested.json` | approves HEAD, then requests changes | rejects and reopens the item |
 | `changes-requested.json` | the app requests changes on HEAD | rejects and reopens the item |

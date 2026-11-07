@@ -100,17 +100,17 @@ carry = true
 skill = "satelle-integration-check"
 
 # DEV's end: the head is committed, pushed, contains origin/main and has an
-# open pull request against main, approved automatically (the code-ac gate is
-# the review until the satelle GitHub app reviews).
+# open pull request against main. Readiness only: it does not approve; the
+# satelle GitHub app's review (pr-review, pr-approval) decides after it.
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
-# PR review by the satelle GitHub app (sto_ebcaa5aa): defined, not on any
-# route. sto_efe81afd wires them into integration -> approved once satelle.dev
-# serves GitHubService and this project is bound to its repo. pr-review is the
-# code-ac judge; its after publishes the verdict on the PR head and, on a
-# reject, attaches it as pr-review and reopens the item. pr-approval passes
-# only on the app's approving review on the head.
+# PR review by the satelle GitHub app (sto_ebcaa5aa), on integration -> approved
+# after pr-ready (sto_efe81afd): approval is the satelle app's review on the
+# head. pr-review is the code-ac judge; its after publishes the verdict on the
+# PR head as satelle[bot] and, on a reject, attaches it as pr-review and
+# reopens the item. pr-approval passes only on the app's approving review on
+# the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
@@ -178,7 +178,7 @@ groups = [
 from = ["integration"]
 to = "approved"
 groups = [
-  { mode = "sequential", gates = ["integration-check", "pr-ready"] },
+  { mode = "sequential", gates = ["integration-check", "pr-ready", "pr-review", "pr-approval"] },
 ]
 
 [[transition]]

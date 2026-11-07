@@ -18,9 +18,22 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// The satelle GitHub app's account: the user.id its reviews carry
-// (tests/testdata/github/reviews/README.md).
-const appAccount = "350948835"
+// The satelle GitHub app's account (satelle[bot], app 5379260): the user.id
+// its reviews carry (tests/testdata/github/reviews/README.md).
+const appAccount = "344745317"
+
+// orbelleReviewerAccount is orbelle-reviewer[bot]'s user.id (app 5563015):
+// internal only, so its reviews never count.
+const orbelleReviewerAccount = 350948835
+
+// prRouteTail is the gates integration -> approved runs after pr-ready, in
+// order: the sandbox route and this repo's delivery and chore routes share it.
+var prRouteTail = []string{"pr-review", "pr-approval"}
+
+// tomlGates renders gate names as a TOML array's elements.
+func tomlGates(gates []string) string {
+	return `"` + strings.Join(gates, `", "`) + `"`
+}
 
 // repoPRGates returns this repo's pr-review and pr-approval gates as
 // .satelle/workflows/delivery.toml defines them, after checking chore.toml
@@ -145,7 +158,7 @@ to = "integration"
 [[transition]]
 from = ["integration"]
 to = "approved"
-groups = [{ mode = "sequential", gates = ["pr-review", "pr-approval"] }]
+groups = [{ mode = "sequential", gates = [`+tomlGates(prRouteTail)+`] }]
 [[transition]]
 from = ["integration", "approved"]
 to = "in_progress"
@@ -299,8 +312,24 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	if m := regexp.MustCompile(`(?m)^app_account=(\d+)$`).FindStringSubmatch(check); m == nil || m[1] != appAccount {
 		t.Fatalf("the approval check's app_account is %v, want %s", m, appAccount)
 	}
-	if !strings.Contains(check, "app=5563015\n") {
-		t.Fatal("the approval check does not name app 5563015")
+	if !strings.Contains(check, "app=5379260\n") {
+		t.Fatal("the approval check does not name app 5379260")
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", "github", "reviews", "approved-other-account.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var other []struct {
+		User struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(b, &other); err != nil || len(other) == 0 {
+		t.Fatalf("approved-other-account: %v", err)
+	}
+	if u := other[0].User; u.ID != orbelleReviewerAccount || u.Login != "orbelle-reviewer[bot]" {
+		t.Fatalf("approved-other-account is by %s (%d), want orbelle-reviewer[bot] (%d)", u.Login, u.ID, orbelleReviewerAccount)
 	}
 	run := func(item string) result {
 		t.Helper()
@@ -340,7 +369,7 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		if got := p.status(id); got != want {
 			t.Errorf("%s: status %s, want %s", c.fixture, got, want)
 		}
-		if c.pass && !strings.Contains(r.out, "approved by the satelle app (account "+appAccount+", app 5563015)") {
+		if c.pass && !strings.Contains(r.out, "approved by the satelle app (account "+appAccount+", app 5379260)") {
 			t.Errorf("%s: output %q", c.fixture, r.out)
 		}
 		if !c.pass && !c.reopen && !strings.Contains(r.out, "no approving review by the satelle app") {
@@ -570,39 +599,49 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	p.must("ledger", "verify")
 }
 
-// AC5: the gates are defined and wired into no route; the delivery and chore
-// routes are unchanged; only the publish check calls satelle.dev.
-func TestPRReviewGatesAreNotOnARoute(t *testing.T) {
+// sto_efe81afd AC1: delivery and chore run integration -> approved through
+// pr-ready, then the review gate and the approval check, in one sequential
+// group; no other transition runs them; pr-ready no longer approves; only the
+// publish check calls satelle.dev.
+func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	files, err := filepath.Glob("../.satelle/workflows/*.toml")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no workflows: %v", err)
 	}
+	want := append([]string{"integration-check", "pr-ready"}, prRouteTail...)
+	routed := 0
 	for _, f := range files {
 		w, err := workflow.Parse(f)
 		if err != nil {
 			t.Fatal(err)
 		}
+		name := filepath.Base(f)
+		route := name == "delivery.toml" || name == "chore.toml"
 		for _, tr := range w.Transitions {
+			onRoute := route && slices.Equal(tr.From, []string{"integration"}) && tr.To == "approved"
 			for _, g := range tr.Groups {
-				if slices.Contains(g.Gates, "pr-review") || slices.Contains(g.Gates, "pr-approval") {
-					t.Errorf("%s: %v -> %s runs %v", filepath.Base(f), tr.From, tr.To, g.Gates)
+				if !onRoute && (slices.Contains(g.Gates, "pr-review") || slices.Contains(g.Gates, "pr-approval")) {
+					t.Errorf("%s: %v -> %s runs %v", name, tr.From, tr.To, g.Gates)
 				}
 			}
 		}
-		if name := filepath.Base(f); name != "delivery.toml" && name != "chore.toml" {
+		if !route {
 			continue
 		}
+		routed++
 		tr, err := w.Find("integration", "approved", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		var groups [][]string
-		for _, g := range tr.Groups {
-			groups = append(groups, g.Gates)
+		if len(tr.Groups) != 1 || tr.Groups[0].Mode != workflow.Sequential || !slices.Equal(tr.Groups[0].Gates, want) {
+			t.Errorf("%s: integration -> approved runs %+v, want one sequential group %v (ending with the sandbox's prRouteTail)", name, tr.Groups, want)
 		}
-		if len(groups) != 1 || !slices.Equal(groups[0], []string{"integration-check", "pr-ready"}) {
-			t.Errorf("%s: integration -> approved runs %v", filepath.Base(f), groups)
-		}
+	}
+	if routed != 2 {
+		t.Fatalf("checked %d of delivery.toml and chore.toml", routed)
+	}
+	if strings.Contains(shBlock0(t, ".satelle/skills/satelle-pr-ready-check.md"), `echo "approved:`) {
+		t.Error("pr-ready still approves")
 	}
 	skills, _ := filepath.Glob("../.satelle/skills/*.md")
 	for _, f := range skills {

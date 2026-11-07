@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's end (integration → approved). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Approved automatically; no review or GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's end (integration → approved). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off)
@@ -13,11 +13,13 @@ head the one the release takes: the pull request's head is HEAD, and HEAD
 already contains `origin/main`. A release run fast-forwards to it or merges it
 onto the heads landing before it, and tests the combined candidate once.
 
-"Approved automatically": the item enters `approved` when this check accepts.
-No reviewer agent is bound and no GitHub review is requested or read (GitHub
-refuses an approval from the PR's own author; the satelle GitHub app,
-satelle-server sto_f736956c, is the later reviewer). The code-ac gate is the
-review until then. GitHub runs no tests.
+This check proves the head is ready for review; it does not approve. On
+integration → approved it runs before `pr-review` and `pr-approval`
+(sto_efe81afd): `pr-review` is the code-ac judge, whose verdict the satelle
+GitHub app publishes on this pull request's head, and `pr-approval` passes only
+on the app's approving review of HEAD. The item enters `approved` only when
+both accept after this check. No GitHub review is read here, and GitHub runs
+no tests.
 
 Before presenting integration → approved, the session:
 
@@ -84,5 +86,5 @@ if [ -z "$pr" ]; then
   echo "no open pull request against main has head ${head:0:12} and a title ending ($SATELLE_ITEM): gh pr create --base main --title \"<title> ($SATELLE_ITEM)\""
   exit 1
 fi
-echo "approved: PR #$pr (${head:0:12}) open against main, contains origin/main $(git rev-parse --short=12 origin/main); no review or GitHub test is read"
+echo "ready: PR #$pr (${head:0:12}) open against main, contains origin/main $(git rev-parse --short=12 origin/main); the satelle app's review decides approval"
 ```
