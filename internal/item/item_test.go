@@ -61,3 +61,16 @@ func TestNewIDAndSelection(t *testing.T) {
 		t.Fatal("selection")
 	}
 }
+
+// The zero trigger clears an item's trigger; any other sets it.
+func TestFieldsApplyTrigger(t *testing.T) {
+	it := Item{Trigger: &Trigger{Task: "tas_1", MinSize: 2}}
+	Fields{Trigger: &Trigger{Workflow: "w"}}.Apply(&it)
+	if it.Trigger == nil || it.Trigger.Workflow != "w" || it.Trigger.MinSize != 0 {
+		t.Fatalf("set: %+v", it.Trigger)
+	}
+	Fields{Trigger: &Trigger{}}.Apply(&it)
+	if it.Trigger != nil {
+		t.Fatalf("the zero trigger did not clear: %+v", it.Trigger)
+	}
+}

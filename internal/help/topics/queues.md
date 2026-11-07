@@ -29,6 +29,13 @@ This repo's `.satelle/queues/release.toml`:
   history, else `que_<name>`, created on first use.
 - An edit to the file applies on the next command. `satelle queue set` refuses
   the title, filter and trigger of a file-defined queue: edit the file.
+- The chain mirrors the file, so a reader of the chain alone (a synced replica,
+  satelle.dev) sees the definition. The genesis carries the title, filter and
+  trigger; when the file's differ from the chain's, the next command appends
+  one `item.updated` with all three (actor `satelle`, cause
+  `queue file <path>`), and nothing when they agree. An absent `[filter]` or
+  `[trigger]` is written as an empty value, meaning cleared: inputs `{}`, a
+  trigger with neither `task` nor `workflow`.
 - `satelle validate` refuses an unknown key, a missing title, an empty
   `[filter]`, a trigger naming both or neither target, a negative `min_size`, a
   trigger workflow that is not configured, and two files binding one chain.
