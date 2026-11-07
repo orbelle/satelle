@@ -70,8 +70,10 @@ func buildRoute(w *workflow.Workflow, it item.Item, results []gate.Result) route
 	for _, n := range names {
 		st := w.States[n]
 		sv := stateView{Name: n, Start: st.Start, Terminal: st.Terminal, Park: st.Park, Resumes: st.Resumes, Current: n == it.Status}
-		if st.Performer != nil {
-			sv.Performer = st.Performer.Agent + "/" + st.Performer.Skill
+		if typ, ok := st.Operated(); ok {
+			sv.Performer = "operator (records " + typ + ")"
+		} else if p := st.Agent(); p != nil {
+			sv.Performer = p.Agent + "/" + p.Skill
 		}
 		if len(st.Enqueue) > 0 {
 			sv.Enqueue = st.Enqueue

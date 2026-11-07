@@ -46,7 +46,10 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 			}
 			seenQ[q] = true
 		}
-		if p := st.Performer; p != nil {
+		if _, ok := st.Operated(); ok && (st.Performer.Agent != "" || st.Performer.Skill != "") {
+			bad("state %q performer is the operator; it takes no agent or skill", name)
+		}
+		if p := st.Agent(); p != nil {
 			if p.Agent == "" || !agent(p.Agent) {
 				bad("state %q performer agent %q is not in the agents catalog", name, p.Agent)
 			}

@@ -161,6 +161,10 @@ func (c *Config) Problems() []error {
 		errs = append(errs, w.Validate(skill, c.Agents.Has)...)
 		errs = append(errs, c.bindingProblems(w)...)
 		for _, sname := range sortedKeys(w.States) {
+			if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
+				errs = append(errs, fmt.Errorf("workflow %s: state %q operator type %q is not a valid attachment type (letters, digits, '.', '_', '-')",
+					w.Name, sname, typ))
+			}
 			for _, q := range w.States[sname].Enqueue {
 				if _, ok := c.Queues[q]; !ok {
 					errs = append(errs, fmt.Errorf("workflow %s: state %q enqueues into %q, which has no %s/%s/%s.toml",
@@ -206,7 +210,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 		}
 	}
 	for _, sname := range sortedKeys(w.States) {
-		p := w.States[sname].Performer
+		p := w.States[sname].Agent()
 		if p == nil {
 			continue
 		}
@@ -225,7 +229,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 	}
 	for i, t := range w.Transitions {
 		for _, from := range expandFrom(w, t.From) {
-			p := w.States[from].Performer
+			p := w.States[from].Agent()
 			if p == nil {
 				continue
 			}

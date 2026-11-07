@@ -184,3 +184,20 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 		t.Error("grok hook file left with nothing in it")
 	}
 }
+
+// The gate refuses the operator record verb in any agent tool call, before
+// paths and seats: a seat that allows every edit does not allow it.
+func TestGateRefusesOperatorRecord(t *testing.T) {
+	root := newRepo(t)
+	g := Gate{Root: root, Seated: func(string) bool { return true }}
+	for _, c := range operatorRecordCases {
+		if v := g.Bash(c, root); v.Allow || v.Reason != OperatorRecordDenied {
+			t.Errorf("%q: %+v", c, v)
+		}
+	}
+	for _, c := range notOperatorRecordCases {
+		if v := g.Bash(c, root); !v.Allow {
+			t.Errorf("%q denied: %s", c, v.Reason)
+		}
+	}
+}

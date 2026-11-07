@@ -30,7 +30,10 @@ func ledgerAppendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "append <item> --kind K [--payload JSON]",
 		Short: "Append an event to an item's chain (carried, never read by satelle)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Append an event of a kind satelle carries but never reads. The kinds satelle
+reads (its item, seat and attachment events, such as item.transitioned and
+attachment.added) are refused: only satelle's own verbs write them.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
 			if err != nil {
@@ -42,6 +45,9 @@ func ledgerAppendCmd() *cobra.Command {
 			}
 			if strings.TrimSpace(kind) == "" {
 				return fmt.Errorf("--kind is required")
+			}
+			if item.Folded(kind) {
+				return fmt.Errorf("satelle ledger append carries kinds satelle never reads; %s is written only by satelle's own verbs", kind)
 			}
 			var p any
 			if payload != "" {

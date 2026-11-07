@@ -58,9 +58,31 @@ type Hold struct {
 }
 
 // Performer is the binding that does a state's work, and the skill it follows.
+// Operator, when set, makes the state the operator's instead: no agent
+// performs it, and its value is the attachment type the operator records
+// before any transition out.
 type Performer struct {
-	Agent string `toml:"agent"`
-	Skill string `toml:"skill"`
+	Agent    string `toml:"agent"`
+	Skill    string `toml:"skill"`
+	Operator string `toml:"operator"`
+}
+
+// Operated reports whether the state is the operator's, and the attachment
+// type the operator records to leave it.
+func (s State) Operated() (string, bool) {
+	if s.Performer == nil || s.Performer.Operator == "" {
+		return "", false
+	}
+	return s.Performer.Operator, true
+}
+
+// Agent is the state's performer when an agent performs it; nil for an
+// operator state or a state with no performer.
+func (s State) Agent() *Performer {
+	if s.Performer == nil || s.Performer.Operator != "" {
+		return nil
+	}
+	return s.Performer
 }
 
 // Gate is a named judgement a transition can carry.

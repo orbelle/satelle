@@ -577,3 +577,77 @@ func TestReplanReplacesJudgedPlan(t *testing.T) {
 		t.Fatalf("answers not on the ledger: %s", b)
 	}
 }
+
+// An operator state with a hold: its exit refusal runs before any gate, so a
+// refused presentation is not a round; once the operator has recorded, the
+// rejected rounds count and the hold move (made after that record) is not
+// refused.
+func TestHoldOnOperatorState(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"ops\"\n[items]\nprefix = { thing = \"th\" }\n")
+	write(t, filepath.Join(root, "agents.toml"), "[agents.r1]\ncommand = \"claude\"\nmodel = \"m1\"\ntools = [\"Read\"]\n")
+	write(t, filepath.Join(root, "skills", "review.md"), "Review the change.\n")
+	write(t, filepath.Join(root, "workflows", "ops.toml"), `
+[states.a]
+start = true
+[states.deploy]
+performer = { operator = "deploy-record" }
+hold = { rounds = 2, to = "held" }
+[states.held]
+park = true
+resumes = true
+[states.done]
+terminal = true
+
+[gates.review]
+skill = "review"
+agent = "r1"
+
+[[transition]]
+from = ["a"]
+to = "deploy"
+[[transition]]
+from = ["deploy"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["review"] }]
+[[transition]]
+from = ["deploy"]
+to = "held"
+[[transition]]
+from = ["held"]
+to = "@prior"
+`)
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { k.Close() })
+	d := &fakeDispatcher{answers: map[string]string{"r1": reject}}
+	k.Dispatcher = d
+	k.Git = fakeGit{}
+	ctx := context.Background()
+	it, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("ship")}, "op")
+	if res, err := k.Transition(ctx, it.ID, "deploy", "op"); err != nil || !res.Moved {
+		t.Fatalf("into deploy: %v", err)
+	}
+	for i := range 3 {
+		res, err := k.Transition(ctx, it.ID, "done", "op")
+		var oe *OperatorRecordError
+		if !errors.As(err, &oe) || res.Held != nil {
+			t.Fatalf("refusal %d: %v %+v", i+1, err, res.Held)
+		}
+	}
+	if got, _ := k.Get(it.ID); got.Status != "deploy" || len(d.calls) != 0 {
+		t.Fatalf("refusals counted or judged: %s %v", got.Status, d.calls)
+	}
+	if _, err := k.RecordOperator(it.ID, "", []byte("deployed"), "", "bob", ""); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := k.Transition(ctx, it.ID, "done", "op"); err != nil || res.Held != nil || res.Item.Status != "deploy" {
+		t.Fatalf("round 1: %v %+v", err, res.Held)
+	}
+	res, err := k.Transition(ctx, it.ID, "done", "op")
+	if err != nil || res.Held == nil || res.Item.Status != "held" || res.Held.Rounds != 2 {
+		t.Fatalf("round 2: %v held=%+v status=%s", err, res.Held, res.Item.Status)
+	}
+}

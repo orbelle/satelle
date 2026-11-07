@@ -23,7 +23,7 @@ import (
 func itemCmd(kind string, creatable bool) *cobra.Command {
 	cmd := &cobra.Command{Use: kind, Short: fmt.Sprintf("Work with %s items", kind)}
 	cmd.AddCommand(itemGetCmd(kind), itemListCmd(kind), itemSetCmd(kind),
-		attachCmd(kind), attachmentsCmd(kind), attachmentCmd(kind), routeCmd(kind), diffCmd(kind),
+		attachCmd(kind), recordCmd(kind), attachmentsCmd(kind), attachmentCmd(kind), routeCmd(kind), diffCmd(kind),
 		seatCmd(kind), releaseCmd(kind), performCmd(kind), collectCmd(kind))
 	if creatable {
 		cmd.AddCommand(itemCreateCmd(kind))
@@ -638,6 +638,64 @@ func attachCmd(kind string) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "attachment name (default: the file's base name)")
 	cmd.Flags().StringVar(&file, "file", "", "file to attach; '-' reads stdin")
 	cmd.Flags().StringVar(&mediaType, "type", "", "media type (default: from the file extension)")
+	_ = cmd.MarkFlagRequired("file")
+	return cmd
+}
+
+// recordCmd records the operator's word on an item in an operator state: the
+// attachment of the state's declared type that its transitions out need. It
+// refuses an agent session, and asks for the item id retyped on the
+// controlling terminal before it writes anything.
+func recordCmd(kind string) *cobra.Command {
+	var name, file, mediaType string
+	cmd := &cobra.Command{
+		Use:   "record <id> --file F",
+		Short: "Record the operator's word on an item in an operator state (operator only)",
+		Long: `record attaches the operator's word to an item whose current state is the
+operator's (performer = { operator = "<type>" }): the file is recorded with the
+state's declared type, marked as the operator's, and only such a record since
+the item entered the state lets it leave. The operator runs it in their own
+terminal with SATELLE_SESSION unset; it asks for the item id to be retyped on
+the controlling terminal and never reads stdin. An agent session may not run it.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
+				return err
+			}
+			session := sessionFromEnv()
+			if err := kernel.OperatorSession(session); err != nil {
+				return err
+			}
+			it, typ, err := k.OperatorState(args[0])
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			if mediaType == "" {
+				mediaType = mime.TypeByExtension(filepath.Ext(file))
+			}
+			if err := confirmOnTerminal(it.ID, it.Status, typ); err != nil {
+				return err
+			}
+			a, err := k.RecordOperator(it.ID, name, data, mediaType, actor(), session)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "recorded the operator's %s on %s (%d bytes, sha256 %s)\n", typ, it.ID, a.Size, a.SHA256[:12])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "attachment name (default: the state's declared type)")
+	cmd.Flags().StringVar(&file, "file", "", "file to record")
+	cmd.Flags().StringVar(&mediaType, "type-media", "", "media type (default: from the file extension, else text/markdown); the declared type is added as its type parameter")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }

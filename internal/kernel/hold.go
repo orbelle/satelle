@@ -25,14 +25,8 @@ type attempt struct {
 // the item last moved (its last item.transitioned), oldest first. It is the
 // window both the rejection findings and the round cap read.
 func attemptsLeaving(status string, events []ledger.Event) []attempt {
-	start := 0
-	for i, e := range events {
-		if e.Kind == item.KindTransitioned {
-			start = i + 1
-		}
-	}
 	var out []attempt
-	for _, e := range events[start:] {
+	for _, e := range item.SinceEntered(events) {
 		var r gate.Result
 		if e.Kind != gate.KindRun || e.Decode(&r) != nil || r.Attempt == "" || gate.FromOf(r.Transition) != status {
 			continue

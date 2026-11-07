@@ -3,6 +3,7 @@ package hook
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -24,6 +25,12 @@ type BashTargets struct {
 	// scan cannot read (a code flag, `-`, or stdin fed by a heredoc or pipe):
 	// such a program may write anywhere under its working dir.
 	Inline []string
+	// OperatorRecord is set when the command would run satelle's operator record
+	// verb: satelle at any word position of a segment (behind env, command,
+	// timeout, xargs and the like) with a later record word, or the two on one
+	// line of quoted or heredoc text (sh -c, script -c, an interpreter -c
+	// program). It is fail-closed: prose that quotes the verb counts too.
+	OperatorRecord bool
 }
 
 // ScanBash classifies command walked from cwd. root, when set, is the tree
@@ -40,16 +47,20 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 		seen[p] = true
 		*dst = append(*dst, p)
 	}
-	scanBash(command, filepath.Clean(cwd), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
+	scanBash(command, filepath.Clean(cwd), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) },
+		func() { t.OperatorRecord = true })
 	return t
 }
 
-func scanBash(command, cwd, root string, isFile func(string) bool, depth int, path, inline func(string)) {
+func scanBash(command, cwd, root string, isFile func(string) bool, depth int, path, inline func(string), record func()) {
 	var segs []bashSegment
 	forEachSegment(command, cwd, func(s bashSegment) { segs = append(segs, s) })
 	for j, sg := range segs {
 		for _, r := range redirectTargets(sg.Tokens, sg.Cwd) {
 			path(r)
+		}
+		if operatorRecordSegment(sg) {
+			record()
 		}
 		words := sg.Words
 		if len(words) == 0 {
@@ -57,7 +68,7 @@ func scanBash(command, cwd, root string, isFile func(string) bool, depth int, pa
 		}
 		if depth < maxShellProgramDepth {
 			if prog, ok := shellProgram(sg); ok {
-				scanBash(prog, sg.Cwd, root, isFile, depth+1, path, inline)
+				scanBash(prog, sg.Cwd, root, isFile, depth+1, path, inline, record)
 				continue
 			}
 		}
@@ -1473,4 +1484,43 @@ func isShellIdent(s string) bool {
 		}
 	}
 	return true
+}
+
+// operatorRecordVerb is satelle's operator record verb, the operator's alone.
+const operatorRecordVerb = "record"
+
+// operatorRecordText finds satelle and a later record word on one line of
+// quoted or heredoc text; the separators may be spaces, quotes, commas or
+// brackets, so an argv list (['satelle','story','record']) matches too.
+var operatorRecordText = regexp.MustCompile(`(?m)(?:^|[\s'"/,\[(])satelle(?:[\s'",\])][^\n]*?)?[\s'",\[(]` + operatorRecordVerb + `(?:$|[\s'",\])])`)
+
+// operatorRecordSegment reports whether the segment would run satelle's
+// operator record verb: satelle at any word position (so behind any wrapper in
+// shellOpaqueWords, or after satelle's own flags) with a later record word not
+// taken as a flag's value, or the verb named in the segment's quoted or
+// heredoc text.
+func operatorRecordSegment(sg bashSegment) bool {
+	for i, w := range sg.Words {
+		if filepath.Base(w) != "satelle" {
+			continue
+		}
+		for j := i + 1; j < len(sg.Words); j++ {
+			if sg.Words[j] == operatorRecordVerb && !strings.HasPrefix(sg.Words[j-1], "-") {
+				return true
+			}
+		}
+	}
+	for _, t := range sg.Tokens {
+		if t.Kind != "string" {
+			continue
+		}
+		text := t.Value
+		if t.Raw != "" {
+			text = t.Raw
+		}
+		if operatorRecordText.MatchString(text) {
+			return true
+		}
+	}
+	return false
 }
