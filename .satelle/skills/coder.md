@@ -45,7 +45,15 @@ If **no plan is attached**, say so and stop — do not invent one.
 If the record holds `pr-review` (the satelle GitHub app's requested changes on
 your PR head) or `release-sendback` (why a release run sent the item back),
 read the newest one first: it is why the item is back at in_progress, and each
-point in it must be addressed before you present again.
+point in it must be addressed before you present again. On a send-back, merge
+origin/main into your branch (`git fetch origin && git merge origin/main`);
+never rebase or force-push the pushed head; resolve any conflict in the real
+work; the route re-runs the full suite at integration -> approved.
+
+Record the item's changelog lines as its `changelog` attachment
+(`satelle story attach <sty_id> --name changelog --type text/markdown --file -`,
+format in `satelle-pr-ready-check.md`). Never edit `CHANGELOG.md` or
+`.version`: the release run writes the version section from the attachments.
 
 ## Implement the plan's slice — and only that
 

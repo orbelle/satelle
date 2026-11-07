@@ -1,7 +1,11 @@
-## [Unreleased]
+## [1.0.15] - 2026-11-07
+
+### Changed
+- Items no longer edit CHANGELOG.md: each records its lines as an attachment named `changelog` (`### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking`, then one `- ` line per entry), owned by `scripts/changelog-items.sh` (`lines`, `render`, `has`). pr-ready refuses an item with no or a malformed `changelog` attachment, and a head that edits CHANGELOG.md, naming the attachment to use. The release run's step 2a judges each kept item's attachment with one line per item (keep, or send back with the reason) and step 3 writes `## [<version>] - <date>` on top of CHANGELOG.md from the landed items' attachments, each line ending with its item id; no staging heading is used. changelog-entry requires the first version heading to be the release's and the section to hold every landed item's lines. A send-back now says to merge origin/main into the branch, not rebase. (sto_04c03be7)
+- A release run lands every approved item it takes: it builds one release-local candidate from their heads in queue order, fast-forwarding to a head that contains it and merging one that does not (never rebased, never forced), drops and sends back only a head whose merge conflicts (naming the paths), runs `make test` once on the combined candidate (a red candidate sends back the merged items and lands nothing), and pushes main only as a fast-forward to that tested tree plus the bump commit. release.md, the integration and pr-ready checks and delivery.toml restate the rule: main only ever fast-forwards to a tree the release tested. (sto_4d68812e)
 
 ### Fixed
-- The cache never holds a ledger event twice: two commands syncing the same new tail at once (a gate run appending while another command synced) no longer index it twice, which made every satelled seed fail with `500 … snapshot has duplicate item kind=ledger_event`. The cache schema makes an event id unique (schema v3) and a writer re-reads the ingested offset under the write lock, so re-ingesting an event is a no-op; an existing cache, duplicates included, is rebuilt from the ledger on first open. A snapshot satelled refuses is now recorded for the repo, and `satelle status` (and `seed_failure` in `--json`) names the failed seed and its cause until a full snapshot lands; `satelle project add` re-seeds. (sto_5e290320)
+- A remote channel refused by the relay (an invalid node token) is now always reported as UNAUTHENTICATED and not retried: a send on a stream the relay already ended reports the stream's final status instead of io.EOF, which was misclassified as a restart; and TestJobThatNeverBeatsIsLost waits for the session's loss monitor ticker instead of any registered ticker (sto_ea8666e1)
 
 ## [1.0.14] - 2026-11-07
 
