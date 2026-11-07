@@ -82,6 +82,16 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 	for _, e := range events {
 		chains[e.Item] = append(chains[e.Item], ledger.Event{ID: e.ID, Item: e.Item, Kind: e.Kind, At: e.At, Actor: e.Actor, Payload: e.Payload})
 	}
+	// status resolves an explicit member for item.Members' lapse rule, from the
+	// pushed rows and their workflow's terminal states.
+	status := func(id string) (string, bool, bool) {
+		it, ok := byID[id]
+		if !ok {
+			return "", false, false
+		}
+		s, _ := workflowState(workflows[it.Workflow], it.Status)
+		return it.Status, s.Terminal, true
+	}
 	out := make([]queueVM, 0, len(queues))
 	for _, q := range queues {
 		st := item.FoldQueue(chains[q.ID])
@@ -90,7 +100,7 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 			Filter:  filterText(q.Inputs),
 			Trigger: triggerLabel(q.Trigger),
 		}
-		for _, id := range item.Members(asItem(q), st, cands) {
+		for _, id := range item.Members(asItem(q), st, cands, status).Members {
 			m := memberVM{ID: id}
 			if it, ok := byID[id]; ok {
 				m.Kind, m.Title, m.Status = it.Kind, it.Title, it.Status

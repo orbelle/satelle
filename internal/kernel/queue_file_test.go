@@ -55,7 +55,7 @@ base = "origin/main"
 	if after, _ := k.Ledger.Size(q.ID); after != before {
 		t.Fatalf("open wrote to the adopted chain: %d -> %d events", before, after)
 	}
-	got, st, members, err := k.QueueMembers("release")
+	got, st, ms, err := k.QueueMembers("release")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +63,8 @@ base = "origin/main"
 		got.Trigger == nil || got.Trigger.Base != "origin/main" {
 		t.Fatalf("queue %+v", got)
 	}
-	if !slices.Equal(st.Explicit, []string{second.ID}) || !slices.Equal(members, []string{second.ID}) {
-		t.Fatalf("explicit %v members %v, want [%s]", st.Explicit, members, second.ID)
+	if !slices.Equal(st.Explicit, []string{second.ID}) || !slices.Equal(ms.Members, []string{second.ID}) {
+		t.Fatalf("explicit %v members %v, want [%s]", st.Explicit, ms.Members, second.ID)
 	}
 	if st.LastFire == nil || st.LastFire.Run != fire.Run || st.LastFire.Cause != "by hand" {
 		t.Fatalf("last fire %+v, want run %s", st.LastFire, fire.Run)
@@ -99,8 +99,8 @@ func TestQueueFileMaterializes(t *testing.T) {
 		t.Fatalf("queues %+v", queues)
 	}
 	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
-	if _, _, members, err := k.QueueMembers("inbox"); err != nil || !slices.Equal(members, []string{s.ID}) {
-		t.Fatalf("members %v %v", members, err)
+	if _, _, ms, err := k.QueueMembers("inbox"); err != nil || !slices.Equal(ms.Members, []string{s.ID}) {
+		t.Fatalf("members %v %v", ms.Members, err)
 	}
 }
 
@@ -114,16 +114,16 @@ func TestQueueFileEditTakesEffect(t *testing.T) {
 	queueFile(t, root, "q", "title = \"Q\"\n[filter]\nstatus = \"done\"\n[trigger]\ntask = \""+task.ID+"\"\n")
 	k = open()
 	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
-	if _, _, members, _ := k.QueueMembers("q"); len(members) != 0 {
-		t.Fatalf("members under status=done: %v", members)
+	if _, _, ms, _ := k.QueueMembers("q"); len(ms.Members) != 0 {
+		t.Fatalf("members under status=done: %v", ms.Members)
 	}
 	size, _ := k.Ledger.Size("que_q")
 	k.Close()
 	queueFile(t, root, "q", "title = \"Q2\"\n[filter]\nstatus = \"backlog\"\nkind = \"story\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 1\n")
 	k = open()
-	q, _, members, err := k.QueueMembers("q")
-	if err != nil || !slices.Equal(members, []string{s.ID}) || q.Title != "Q2" || q.Trigger.MinSize != 1 {
-		t.Fatalf("after the edit: %+v members %v %v", q, members, err)
+	q, _, ms, err := k.QueueMembers("q")
+	if err != nil || !slices.Equal(ms.Members, []string{s.ID}) || q.Title != "Q2" || q.Trigger.MinSize != 1 {
+		t.Fatalf("after the edit: %+v members %v %v", q, ms.Members, err)
 	}
 	if n, _ := k.Ledger.Size("que_q"); n != size {
 		t.Fatalf("the edit wrote to the chain: %d -> %d", size, n)

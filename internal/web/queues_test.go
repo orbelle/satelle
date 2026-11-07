@@ -13,7 +13,9 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// queueSnapshot: que_1 filters status alpha, holds sto_add explicitly, and
+// queueSnapshot: que_1 filters status alpha, holds sto_add explicitly (two
+// more explicit adds have lapsed: sto_back left the state that enqueued it,
+// sto_end was added by hand and reached the terminal zed), and
 // fired exe_q (status beta) over two items.
 func queueSnapshot() mirror.Snapshot {
 	it := func(id, kind, status string) json.RawMessage {
@@ -24,8 +26,9 @@ func queueSnapshot() mirror.Snapshot {
 	}
 	return mirror.Snapshot{
 		RepoKey: "rk", Slug: "proj",
-		Stories: []json.RawMessage{it("sto_a", "story", "alpha"), it("sto_b", "story", "beta"), it("sto_add", "story", "zed")},
-		Tasks:   []json.RawMessage{it("tas_1", "task", "alpha")},
+		Stories: []json.RawMessage{it("sto_a", "story", "alpha"), it("sto_b", "story", "beta"), it("sto_add", "story", "held"),
+			it("sto_back", "story", "beta"), it("sto_end", "story", "zed")},
+		Tasks: []json.RawMessage{it("tas_1", "task", "alpha")},
 		Executions: []json.RawMessage{
 			raw(mirror.Item{ID: "exe_q", Kind: "execution", Title: "run", Status: "beta", ParentID: "tas_1", Workflow: "flow", CreatedAt: activityT0, UpdatedAt: activityT0}),
 		},
@@ -37,6 +40,8 @@ func queueSnapshot() mirror.Snapshot {
 			ev("q2", "que_1", item.KindQueueFired, 2, item.QueueFire{Run: "exe_q", Task: "tas_1", Cause: "by hand"}),
 			ev("x1", "exe_q", "task.run", 2, map[string]any{"task": "tas_1", "inputs": []string{"sto_old", "sto_x"}, "queue": "que_1"}),
 			ev("q3", "que_1", item.KindQueueAdded, 3, item.QueueEntry{Item: "sto_add"}),
+			ev("q4", "que_1", item.KindQueueAdded, 4, item.QueueEntry{Item: "sto_back", Cause: "flow:alpha->held"}),
+			ev("q5", "que_1", item.KindQueueAdded, 5, item.QueueEntry{Item: "sto_end"}),
 		},
 		Docs: []json.RawMessage{
 			raw(mirror.Doc{Kind: mirror.DocKindWorkflows, Name: "flow", Source: ".satelle/workflows/flow.toml", Body: "name = \"flow\"", Workflow: &fixtureWorkflow}),
@@ -58,7 +63,8 @@ func TestQueuesPanel(t *testing.T) {
 	inOrder(t, frag, "que_1", "Release queue", "filter kind:story status:alpha",
 		`<span class="n">2</span>`, `data-member="sto_add"`, "added", `data-member="sto_a"`,
 		"task tas_1, by hand", "by hand", `data-run="exe_q"`, ">beta<", "2 items")
-	if strings.Contains(frag, `data-member="sto_b"`) || strings.Contains(frag, `data-member="sto_old"`) {
+	if strings.Contains(frag, `data-member="sto_b"`) || strings.Contains(frag, `data-member="sto_old"`) ||
+		strings.Contains(frag, `data-member="sto_back"`) || strings.Contains(frag, `data-member="sto_end"`) {
 		t.Fatalf("lists a non-member:\n%s", frag)
 	}
 	if !strings.Contains(frag, `data-expand-url="fragment/queue/que_1"`) {

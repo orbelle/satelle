@@ -187,9 +187,9 @@ func TestQueueLedgerRecordsAddRemoveFire(t *testing.T) {
 	if got := eventKinds(events, "queue."); !slices.Equal(got, want) {
 		t.Fatalf("queue chain %v, want %v", got, want)
 	}
-	_, st, members, _ := k.QueueMembers(q.ID)
-	if len(st.Explicit) != 0 || len(members) != 0 || st.LastFire.Run != f.Run {
-		t.Fatalf("after fire %+v %v", st, members)
+	_, st, ms, _ := k.QueueMembers(q.ID)
+	if len(st.Explicit) != 0 || len(ms.Members) != 0 || st.LastFire.Run != f.Run {
+		t.Fatalf("after fire %+v %v", st, ms.Members)
 	}
 }
 

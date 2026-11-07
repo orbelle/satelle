@@ -172,3 +172,60 @@ func TestQueueFileCommands(t *testing.T) {
 		t.Fatalf("validate an enqueue naming no file: %v", err)
 	}
 }
+
+// queue show names an explicit member whose item left the state that enqueued
+// it as lapsed, 'left: <status>', and not as a member.
+func TestQueueShowLapsed(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	if err := os.WriteFile(dir+"/.satelle/workflows/default.toml", []byte(`name = "default"
+[states.backlog]
+start = true
+[states.in_progress]
+[states.approved]
+enqueue = ["release"]
+[states.done]
+terminal = true
+[[transition]]
+from = ["backlog", "approved"]
+to = "in_progress"
+[[transition]]
+from = ["in_progress"]
+to = "approved"
+[[transition]]
+from = ["approved"]
+to = "done"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir+"/.satelle/queues", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.satelle/queues/release.toml", []byte("title = \"release\"\n[trigger]\nworkflow = \"default\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := createID(t, "story", "create", "--title", "sent back")
+	must(t, "story", "set", s, "--status", "in_progress")
+	must(t, "story", "set", s, "--status", "approved")
+	if show := must(t, "queue", "show", "release"); !strings.Contains(show, "members (1)") || strings.Contains(show, "lapsed") {
+		t.Fatalf("approved:\n%s", show)
+	}
+	must(t, "story", "set", s, "--status", "in_progress")
+	show := must(t, "queue", "show", "release")
+	if !regexp.MustCompile(`members \(0\)\nlapsed \(1\)\n  ` + s + ` +left: in_progress +sent back`).MatchString(show) {
+		t.Fatalf("show after the send-back:\n%s", show)
+	}
+	var shown struct {
+		Members []struct{ ID string } `json:"members"`
+		Lapsed  []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"lapsed"`
+	}
+	if err := json.Unmarshal([]byte(must(t, "queue", "show", "release", "--json")), &shown); err != nil {
+		t.Fatal(err)
+	}
+	if len(shown.Members) != 0 || len(shown.Lapsed) != 1 || shown.Lapsed[0].ID != s || shown.Lapsed[0].Status != "in_progress" {
+		t.Fatalf("show --json %+v", shown)
+	}
+}

@@ -55,6 +55,23 @@ a filter member leaves when the item or the filter changes
 (the file's `[filter]`, or `satelle queue set <que> --input-… | --clear-inputs`
 for a queue with no file).
 
+An explicit member lapses when its item moves on, so a fire never takes work
+that is no longer ready:
+
+- Added by a state's enqueue (cause `<workflow>:<from>-><to>`): it lapses once
+  the item's status is no longer that state, e.g. an approved story sent back
+  to in_progress, or moved to done.
+- Added by hand or by an external producer (any other cause): it lapses when
+  the item reaches a terminal state of its workflow. `queue add` refuses an
+  item that is already terminal.
+
+A lapsed member is not in `queue show`'s members and a fire does not take it;
+`queue show` lists it under `lapsed (n)` as `left: <status>`. It stays a member
+when the filter selects it. Entering the state again enqueues it again. The
+ledger keeps its `queue.added`: a lapse is read from the item's status, not
+recorded. A cause an external producer writes in the `x:y->z` shape is read
+as a state cause. `queue remove` still clears a lapsed member.
+
 ## The trigger
 
 `--trigger-task <tas>` starts an execution under that task, as `task run`
@@ -87,7 +104,9 @@ A workflow state can add every item entering it to queues, by name:
 Each name must have a `.satelle/queues/<name>.toml` (`satelle validate`), and
 the queue must be open when the move is presented, or the move is refused
 before any gate runs. The item is added (cause `<workflow>:<from>-><to>`)
-after the move is recorded, and the trigger fires there when it fills.
+after the move is recorded, and the trigger fires there when it fills. The
+member lapses when the item leaves the state (see Members), and every entry
+into the state adds it again.
 
 ## Where it shows
 

@@ -321,7 +321,7 @@ func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (Transiti
 	if res.Item, err = k.Get(id); err != nil {
 		return res, err
 	}
-	cause := fmt.Sprintf("%s:%s->%s", w.Name, it.Status, to)
+	cause := item.StateCause(w.Name, it.Status, to)
 	for _, q := range queues {
 		out, err := k.Enqueue(q, []string{id}, cause, actor)
 		if err != nil {

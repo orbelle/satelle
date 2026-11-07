@@ -32,7 +32,7 @@ func triggerText(t item.Trigger) string {
 }
 
 func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachment, seats []item.Seat, asJSON bool) error {
-	_, st, members, err := k.QueueMembers(q.ID)
+	_, st, ms, err := k.QueueMembers(q.ID)
 	if err != nil {
 		return err
 	}
@@ -43,8 +43,22 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 		Title    string `json:"title"`
 		Explicit bool   `json:"explicit"`
 	}
+	type lapse struct {
+		ID     string `json:"id"`
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
+		Title  string `json:"title"`
+	}
+	lapsed := []lapse{}
+	for _, l := range ms.Lapsed {
+		r := lapse{ID: l.ID, Status: l.Status}
+		if it, err := k.Get(l.ID); err == nil {
+			r.Kind, r.Title = it.Kind, it.Title
+		}
+		lapsed = append(lapsed, r)
+	}
 	rows := []member{}
-	for _, id := range members {
+	for _, id := range ms.Members {
 		m := member{ID: id}
 		if it, err := k.Get(id); err == nil {
 			m.Kind, m.Status, m.Title = it.Kind, it.Status, it.Title
@@ -71,11 +85,12 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 			item.Item
 			DefinedBy   string            `json:"defined_by,omitempty"`
 			Members     []member          `json:"members"`
+			Lapsed      []lapse           `json:"lapsed"`
 			LastFire    *item.Fired       `json:"last_fire,omitempty"`
 			RunStatus   string            `json:"last_run_status,omitempty"`
 			Attachments []item.Attachment `json:"attachments"`
 			Seats       []item.Seat       `json:"seats"`
-		}{q, definedBy, rows, st.LastFire, runStatus, atts, seats})
+		}{q, definedBy, rows, lapsed, st.LastFire, runStatus, atts, seats})
 	}
 	printItem(out, q)
 	if definedBy != "" {
@@ -88,6 +103,12 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 			how = "added"
 		}
 		fmt.Fprintf(out, "  %-14s %-14s %-7s %s\n", m.ID, m.Status, how, m.Title)
+	}
+	if len(lapsed) > 0 {
+		fmt.Fprintf(out, "lapsed (%d)\n", len(lapsed))
+		for _, l := range lapsed {
+			fmt.Fprintf(out, "  %-14s left: %-14s %s\n", l.ID, l.Status, l.Title)
+		}
 	}
 	if lf := st.LastFire; lf != nil {
 		fmt.Fprintf(out, "last fire  %s by %s (%s): run %s, %s\n", lf.At.Format("2006-01-02 15:04"), lf.Actor, lf.Cause, lf.Run, runStatus)

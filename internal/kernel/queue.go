@@ -160,30 +160,53 @@ func (k *Kernel) openQueue(id string) (item.Item, error) {
 	return q, nil
 }
 
-// QueueMembers returns a queue's folded state and its members now.
-func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, []string, error) {
+// memberStatus resolves an explicit member's status and whether it is a
+// terminal state of its workflow, for item.Members' lapse rule.
+func (k *Kernel) memberStatus(id string) (string, bool, bool) {
+	it, err := k.Get(id)
+	if err != nil {
+		return "", false, false
+	}
+	w := k.Workflows[it.Workflow]
+	return it.Status, w != nil && w.IsTerminal(it.Status), true
+}
+
+// membership is a queue's members now, given its folded state.
+func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, error) {
+	var candidates []item.Item
+	if q.Inputs != nil {
+		var err error
+		if candidates, err = k.selectInputs(*q.Inputs); err != nil {
+			return item.Membership{}, err
+		}
+	}
+	return item.Members(q, st, candidates, k.memberStatus), nil
+}
+
+// QueueMembers returns a queue's folded state and its membership now: its
+// members and the explicit members that lapsed.
+func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Membership, error) {
 	id, _ := k.ResolveQueue(ref)
 	q, events, err := k.load(id)
 	if err != nil {
-		return q, item.QueueState{}, nil, err
+		return q, item.QueueState{}, item.Membership{}, err
 	}
 	if q.Kind != item.QueueKind {
-		return q, item.QueueState{}, nil, fmt.Errorf("%s is a %s, not a %s", id, q.Kind, item.QueueKind)
+		return q, item.QueueState{}, item.Membership{}, fmt.Errorf("%s is a %s, not a %s", id, q.Kind, item.QueueKind)
 	}
 	st := item.FoldQueue(events)
-	var candidates []item.Item
-	if q.Inputs != nil {
-		if candidates, err = k.selectInputs(*q.Inputs); err != nil {
-			return q, st, nil, err
-		}
-	}
-	return q, st, item.Members(q, st, candidates), nil
+	m, err := k.membership(q, st)
+	return q, st, m, err
 }
 
-// Enqueue adds items to a queue explicitly, recording queue.added for each one
-// not already there, then fires the trigger in this call when its minimum size
-// is reached. A fire the queue cannot take now (its last run is open, or the
-// queue moved) is reported in Held, not as an error: the items stay queued.
+// Enqueue adds items to a queue explicitly, then fires the trigger in this
+// call when its minimum size is reached. A state's enqueue (a cause written by
+// item.StateCause) always records queue.added: the item was outside that state
+// just before the move, so any earlier add it caused had lapsed. Any other add
+// records queue.added unless the item is already a live explicit member, and
+// refuses an item already in a terminal state, which a queue does not hold. A
+// fire the queue cannot take now (its last run is open, or the queue moved) is
+// reported in Held, not as an error: the items stay queued.
 func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOutcome, error) {
 	queueID, def := k.ResolveQueue(ref)
 	out := QueueOutcome{Queue: queueID, Added: []string{}}
@@ -199,16 +222,24 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 		return out, err
 	}
 	st := item.FoldQueue(events)
+	_, stateCause := item.EnqueuedState(cause)
+	// The live explicit members: the explicit list less the lapsed, without
+	// the filter (an item the filter selects is still added explicitly).
+	live := item.Members(item.Item{ID: q.ID}, st, nil, k.memberStatus).Members
 	for _, id := range ids {
 		if id == queueID {
 			return out, fmt.Errorf("a queue cannot hold itself")
 		}
-		if _, err := k.Get(id); err != nil {
+		it, err := k.Get(id)
+		if err != nil {
 			return out, err
 		}
-		if slices.Contains(st.Explicit, id) || slices.Contains(out.Added, id) {
+		if slices.Contains(out.Added, id) || (!stateCause && slices.Contains(live, id)) {
 			out.Already = append(out.Already, id)
 			continue
+		}
+		if w := k.Workflows[it.Workflow]; !stateCause && w != nil && w.IsTerminal(it.Status) {
+			return out, fmt.Errorf("%s is %s, a terminal state; a queue does not hold it", id, it.Status)
 		}
 		if _, err := k.append(queueID, item.KindQueueAdded, actor, item.QueueEntry{Item: id, Cause: cause}); err != nil {
 			return out, err
@@ -219,11 +250,11 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	if t == nil || t.MinSize == 0 || len(out.Added) == 0 {
 		return out, nil
 	}
-	_, _, members, err := k.QueueMembers(queueID)
+	_, _, m, err := k.QueueMembers(queueID)
 	if err != nil {
 		return out, err
 	}
-	if len(members) < t.MinSize {
+	if len(m.Members) < t.MinSize {
 		return out, nil
 	}
 	fire, err := k.Fire(queueID, "", "enqueue", actor)
@@ -242,14 +273,14 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 // the queue's filter selects cannot be removed: change the filter or the item.
 func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, error) {
 	queueID, _ := k.ResolveQueue(ref)
-	q, st, members, err := k.QueueMembers(queueID)
+	q, st, m, err := k.QueueMembers(queueID)
 	if err != nil {
 		return nil, err
 	}
 	removed := []string{}
 	for _, id := range ids {
 		if !slices.Contains(st.Explicit, id) {
-			if slices.Contains(members, id) {
+			if slices.Contains(m.Members, id) {
 				return removed, fmt.Errorf("%s matches the queue's filter; it is not an explicit member of %s", id, q.ID)
 			}
 			return removed, fmt.Errorf("%s is not in queue %s", id, q.ID)
@@ -296,13 +327,11 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 			}
 		}
 	}
-	var candidates []item.Item
-	if q.Inputs != nil {
-		if candidates, err = k.selectInputs(*q.Inputs); err != nil {
-			return out, err
-		}
+	m, err := k.membership(q, st)
+	if err != nil {
+		return out, err
 	}
-	members := item.Members(q, st, candidates)
+	members := m.Members
 	if len(members) == 0 {
 		return out, nil
 	}
