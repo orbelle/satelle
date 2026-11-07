@@ -9,9 +9,9 @@ description: DEV's end (integration → approved). HEAD is committed and pushed,
 DEV ends at an approved pull request (operator, 2026-11-06; modelled on
 satelle-server's pr-ready). The coding gates judged the change and the
 integration check ran the full local suite on this HEAD; this check makes that
-test count for the release: the pull request's head is HEAD, and HEAD already
-contains `origin/main`, so a release run fast-forwards it without testing
-again.
+head the one the release takes: the pull request's head is HEAD, and HEAD
+already contains `origin/main`. A release run fast-forwards to it or merges it
+onto the heads landing before it, and tests the combined candidate once.
 
 "Approved automatically": the item enters `approved` when this check accepts.
 No reviewer agent is bound and no GitHub review is requested or read (GitHub

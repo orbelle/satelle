@@ -1,7 +1,9 @@
 # This repo's route for a story. DEV: plan, code, integrate, and end at
 # approved (tested locally, pushed, an open pull request, approved). CI/CD: a
-# run of the release task takes the approved items, fast-forwards main, bumps
-# the version once, releases and installs, and only then moves them to done
+# run of the release task takes the approved items, builds one candidate from
+# their heads (fast-forward or merge, in queue order), tests it once, bumps
+# the version once on top, fast-forwards main to it, releases and installs,
+# and only then moves them to done
 # (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
