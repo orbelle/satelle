@@ -20,19 +20,31 @@ const DefaultCheckTimeout = 10 * time.Minute
 // outputBound is how much of a check's output head and tail the notes keep.
 const outputBound = 2048
 
-// CheckEnv is what a check script sees of its transition.
+// CheckEnv is what a check script sees of its transition. Gate, Result,
+// Binding and Notes are set only for a gate's after check: the gate it follows
+// and that gate's verdict.
 type CheckEnv struct {
 	Item, From, To, Base string
+	Gate, Result         string
+	Binding, Notes       string
 }
 
 // payload is the JSON object a check reads on stdin.
 func (e CheckEnv) payload() []byte {
-	b, _ := json.Marshal(map[string]string{"id": e.Item, "from": e.From, "to": e.To, "base": e.Base})
+	m := map[string]string{"id": e.Item, "from": e.From, "to": e.To, "base": e.Base}
+	if e.Gate != "" {
+		m["gate"], m["result"], m["binding"], m["notes"] = e.Gate, e.Result, e.Binding, e.Notes
+	}
+	b, _ := json.Marshal(m)
 	return b
 }
 
 func (e CheckEnv) vars() []string {
-	return []string{"SATELLE_ITEM=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
+	v := []string{"SATELLE_ITEM=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
+	if e.Gate != "" {
+		v = append(v, "SATELLE_GATE="+e.Gate, "SATELLE_GATE_RESULT="+e.Result, "SATELLE_GATE_BINDING="+e.Binding)
+	}
+	return v
 }
 
 // RunCheck runs a check skill's script in dir: a script starting with "#!" is

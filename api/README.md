@@ -8,7 +8,7 @@ exceptions are OAuth's browser authorize, discovery and token endpoints
 | proto | package | services |
 |---|---|---|
 | [`satelle/chain/v2/chain.proto`](satelle/chain/v2/chain.proto) | `satelle.chain.v2` | `Chain` (Append, Read, Heads, Subscribe) |
-| [`satelle/v1/satelle.proto`](satelle/v1/satelle.proto) | `satelle.v1` | `AccountService`, `ProjectService`, `WorkspaceService`, `LocationService`, `ItemService`, `AttachmentService`, `RemoteService`, `NodeService`, `RelayService` |
+| [`satelle/v1/satelle.proto`](satelle/v1/satelle.proto) | `satelle.v1` | `AccountService`, `ProjectService`, `WorkspaceService`, `LocationService`, `ItemService`, `AttachmentService`, `RemoteService`, `NodeService`, `RelayService`, `GitHubService` |
 
 Generate the Go code with `buf generate` (from the repo root; `protoc-gen-go`
 and `protoc-gen-go-grpc` on `PATH`). It lands in `internal/wire/chainpb` and
@@ -46,6 +46,22 @@ detail (the server's head and the events the client is missing). Pull walks
 Sync carries only items (their chains and `ItemService.PutItems` summaries) and
 attachment bodies (`AttachmentService`, keyed by project, item and name, for
 each `attachment.added` event). Configuration and documents are not synced.
+
+## GitHub
+
+`GitHubService` acts on the repository a project is bound to by the satelle
+GitHub app; the request names the project, never the repository, and the
+server never parses a PR title or appends to a chain. It decides nothing: the
+review's event and body are the client's, passed through.
+
+- `PublishReview{project, pull_number, commit_sha, event, body}` publishes a
+  review as the app and answers `{review_id, html_url, repository}`. The CLI
+  is `satelle github review --pr N --sha S --event E [--body-file F|-]
+  [--json]`; satelle's own `pr-review` gate publishes its verdict this way
+  (its `after` check, `.satelle/skills/satelle-pr-review-publish.md`) and
+  records what was published as a `github.review` event on the item.
+- `PublishStatus` and `ListPullRequestEvents` have no CLI yet.
+- `FAILED_PRECONDITION` when the project has no GitHub binding.
 
 ## OAuth (HTTP, exempt)
 

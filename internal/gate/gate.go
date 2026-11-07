@@ -50,6 +50,11 @@ type Result struct {
 	// shrunk since the item's last judged diff: a skip that may mean the base
 	// is wrong, not that nothing relevant changed.
 	Warning string `json:"warning,omitempty"`
+
+	// verdict says the result is a verdict: a check that ran, or a judge
+	// (every panel member) that answered with one. A reject that is a failure
+	// (missing skill, dispatch error, unparseable answer) is not.
+	verdict bool
 }
 
 // TransitionKey names a move for carry and the ledger.
@@ -136,11 +141,45 @@ func (r Run) one(ctx context.Context, name string) Result {
 	start := time.Now()
 	res := r.decide(ctx, name)
 	res.Transition, res.Gate = r.key(), name
+	if g, ok := r.Workflow.Gates[name]; ok && g.After != "" && (res.verdict || res.Result == Carried) {
+		res = r.after(ctx, name, g.After, res)
+	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
 		res.Changed = r.Changed
 	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
+}
+
+// after runs a gate's after check on its verdict. Exit 0 keeps the result;
+// a non-zero exit or an error turns it into a reject. Either way the check's
+// output joins the notes.
+func (r Run) after(ctx context.Context, name, skillName string, res Result) Result {
+	skill, ok := r.Skills[skillName]
+	if !ok {
+		res.Result = Reject
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after skill %q is missing", skillName))
+		return res
+	}
+	env := r.env()
+	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
+	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, env, r.CheckTimeout)
+	note := fmt.Sprintf("after %s: %s", skillName, out)
+	if err != nil {
+		note = fmt.Sprintf("after %s: %v\n%s", skillName, err, out)
+	}
+	res.Notes = joinNotes(res.Notes, note)
+	if err != nil || !passed {
+		res.Result = Reject
+	}
+	return res
+}
+
+func joinNotes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "\n" + b
 }
 
 func (r Run) decide(ctx context.Context, name string) Result {
@@ -185,8 +224,11 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		res = Result{Result: Reject, Notes: out}
 		if err != nil {
 			res.Notes = fmt.Sprintf("%v\n%s", err, out)
-		} else if passed {
-			res.Result = Accept
+		} else {
+			res.verdict = true
+			if passed {
+				res.Result = Accept
+			}
 		}
 	} else {
 		res = r.judge(ctx, g, skill)
@@ -271,13 +313,14 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 	if len(members) == 1 {
 		return members[0]
 	}
-	out := Result{Binding: strings.Join(names, ",")}
+	out := Result{Binding: strings.Join(names, ","), verdict: true}
 	accepts := 0
 	var notes []string
 	for _, m := range members {
 		if m.Result == Accept {
 			accepts++
 		}
+		out.verdict = out.verdict && m.verdict
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
@@ -318,8 +361,8 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 		res.Notes = "dispatch failed: " + err.Error()
 		return res
 	}
-	v := ParseVerdict(out.Text)
-	res.Result, res.Notes = v.Verdict, v.Notes
+	v, parsed := parseVerdict(out.Text)
+	res.Result, res.Notes, res.verdict = v.Verdict, v.Notes, parsed
 	return res
 }
 

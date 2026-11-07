@@ -3,6 +3,11 @@
 ### Fixed
 - `satelle <kind> set --criteria` and `--tag` no longer drop existing entries silently: a set that would drop one refuses, naming each, unless `--replace` is given (nothing is written and no transition is presented). `--add-criteria` and `--remove-criteria` (exact text; removing one the item lacks is an error) change one criterion without restating the rest. (sto_b8c42ae9)
 
+## [1.0.14] - 2026-11-07
+
+### Added
+- A gate's `after`: a check skill run once the gate has a verdict (accept, reject or carried; never a skip or a failure such as a dispatch error or an answer with no verdict), seeing `SATELLE_GATE`, `SATELLE_GATE_RESULT`, `SATELLE_GATE_BINDING` and the notes on stdin; a non-zero exit turns the result into a reject. `satelle github review --pr N --sha S --event E [--body-file F|-]` publishes a pull-request review as the satelle GitHub app through satelle.dev (`GitHubService.PublishReview`). The delivery and chore workflows define `pr-review` (the code-ac judge on `reviewer-alt`, publishing its verdict to the PR head and, on a reject, attaching the body as `pr-review` and reopening the item at in_progress) and `pr-approval` (passes only on the app account's approving review on the PR head; a CHANGES_REQUESTED there reopens the item), wired into no transition yet; the release run's step 0 reopens an item whose PR head has the app's requested changes. (sto_ebcaa5aa)
+
 ## [1.0.13] - 2026-11-06
 
 ### Added
