@@ -31,6 +31,11 @@ type Client struct {
 	InstanceID string
 	Origin     mirror.IngestOrigin
 	HTTP       *http.Client // nil uses a client bounded by Timeout
+	// Report, when set, is told each snapshot outcome: full is true for a full
+	// snapshot (a seed, or a delta's fallback), err is nil when satelled took
+	// it. A satelled that is not reachable or serves another home attempts no
+	// snapshot and reports nothing.
+	Report func(full bool, err error)
 }
 
 func (c Client) http() *http.Client {
@@ -69,11 +74,8 @@ func (c Client) Seed(ctx context.Context, src Source) error {
 	if err := c.check(ctx); err != nil {
 		return err
 	}
-	snap, err := Full(src)
-	if err != nil {
-		return err
-	}
-	_, err = c.post(ctx, snap)
+	err := c.full(ctx, src)
+	c.report(true, err)
 	return err
 }
 
@@ -89,27 +91,40 @@ func (c Client) Push(ctx context.Context, src Source, ids []string) error {
 		_ = p.PostContext(ctx, topic)
 	}
 	if len(ids) == 0 {
-		snap, err := Full(src)
-		if err != nil {
-			return err
-		}
-		_, err = c.post(ctx, snap)
+		err := c.full(ctx, src)
+		c.report(true, err)
 		return err
 	}
 	snap, err := Delta(src, ids)
 	if err != nil {
+		c.report(false, err)
 		return err
 	}
 	code, err := c.post(ctx, snap)
 	if code != http.StatusConflict {
+		c.report(false, err)
 		return err
 	}
-	full, ferr := Full(src)
-	if ferr != nil {
-		return ferr
-	}
-	_, err = c.post(ctx, full)
+	err = c.full(ctx, src)
+	c.report(true, err)
 	return err
+}
+
+// full builds and posts a full snapshot of src.
+func (c Client) full(ctx context.Context, src Source) error {
+	snap, err := Full(src)
+	if err != nil {
+		return err
+	}
+	_, err = c.post(ctx, snap)
+	return err
+}
+
+// report hands one snapshot outcome to Report, when set.
+func (c Client) report(full bool, err error) {
+	if c.Report != nil {
+		c.Report(full, err)
+	}
 }
 
 // topics are the coarse panels the items ids belong to.

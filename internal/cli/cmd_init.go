@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
 func initCmd() *cobra.Command {
@@ -105,6 +107,17 @@ type statusReport struct {
 	Items     map[string]int `json:"items"` // "<kind> <status>" → count
 	Session   string         `json:"session,omitempty"`
 	Seats     []seatView     `json:"seats,omitempty"`
+	// Seed is the last snapshot satelled refused for this repo, until a full
+	// snapshot lands.
+	Seed *seedFailure `json:"seed_failure,omitempty"`
+}
+
+// seedFailure is a snapshot satelled refused: when it last failed, why, and
+// how many attempts in a row failed for that reason.
+type seedFailure struct {
+	FailedAt time.Time `json:"failed_at"`
+	Reason   string    `json:"reason"`
+	Attempts int       `json:"attempts"`
 }
 
 type seatView struct {
@@ -140,6 +153,9 @@ func statusCmd() *cobra.Command {
 			for _, it := range items {
 				rep.Items[it.Kind+" "+it.Status]++
 			}
+			if st, _, _ := syncstate.Load(config.GlobalDir(), uiRepoRoot(r)); st.SnapshotReason != "" {
+				rep.Seed = &seedFailure{FailedAt: st.SnapshotLastFailure, Reason: st.SnapshotReason, Attempts: st.SnapshotPasses}
+			}
 			if session != "" {
 				if rep.Seats, err = seatsOf(k, session); err != nil {
 					return err
@@ -158,6 +174,10 @@ func statusCmd() *cobra.Command {
 			fmt.Fprintln(out, "items")
 			for _, key := range keys {
 				fmt.Fprintf(out, "  %-30s %d\n", key, rep.Items[key])
+			}
+			if s := rep.Seed; s != nil {
+				fmt.Fprintf(out, "satelled  seed failed %s (%d attempt(s)): %s\n", s.FailedAt.Format(time.RFC3339), s.Attempts, s.Reason)
+				fmt.Fprintln(out, "          satelle project add re-seeds once the cause is fixed")
 			}
 			if session != "" {
 				fmt.Fprintf(out, "session   %s\n", session)

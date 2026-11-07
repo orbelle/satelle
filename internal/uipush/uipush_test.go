@@ -366,3 +366,58 @@ func TestSeedPushesTheNewestVersionOfEachAttachment(t *testing.T) {
 		t.Errorf("after the delta, story_doc rows = %d, want 2", n)
 	}
 }
+
+// Report sees every snapshot satelled refuses, and a delta's fallback once as
+// a full snapshot; a satelled that is not listening attempts none.
+func TestReportSeesRefusedSnapshot(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Reported")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		full bool
+		err  error
+	}
+	var got []outcome
+	record := func(full bool, err error) { got = append(got, outcome{full, err}) }
+
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.Header().Set("X-Satelle-Instance", "inst")
+			return
+		}
+		http.Error(w, `mirror: snapshot has duplicate item kind=ledger_event id="deadbeef"`, http.StatusInternalServerError)
+	}))
+	t.Cleanup(refusing.Close)
+	c := uipush.Client{Endpoint: refusing.URL, InstanceID: "inst", Report: record}
+	if err := c.Seed(ctx, src); err == nil {
+		t.Fatal("a refused seed reported success")
+	}
+	if len(got) != 1 || !got[0].full || got[0].err == nil || !strings.Contains(got[0].err.Error(), `kind=ledger_event id="deadbeef"`) {
+		t.Fatalf("seed outcome %+v", got)
+	}
+
+	got = nil
+	srv, _ := satelled(t, "inst")
+	c = uipush.Client{Endpoint: srv.URL, InstanceID: "inst", Report: record}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].full || got[0].err != nil {
+		t.Fatalf("a delta to an unseeded partition: outcomes %+v, want one full success", got)
+	}
+
+	got = nil
+	c = uipush.Client{Endpoint: "http://127.0.0.1:1", Report: record}
+	if err := c.Seed(ctx, src); err == nil {
+		t.Fatal("a seed to nothing listening reported success")
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err == nil {
+		t.Fatal("a push to nothing listening reported success")
+	}
+	if len(got) != 0 {
+		t.Fatalf("an unreachable satelled reported %+v", got)
+	}
+}

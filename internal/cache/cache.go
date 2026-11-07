@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS events (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, item TEXT, kind TEXT, at TEXT,
 	actor TEXT, payload TEXT, prev TEXT, hash TEXT);
 CREATE INDEX IF NOT EXISTS events_item ON events(item, kind);
+CREATE UNIQUE INDEX IF NOT EXISTS events_id ON events(id);
 CREATE TABLE IF NOT EXISTS seats (
 	item TEXT, session TEXT, location TEXT, base TEXT, bound_at TEXT, PRIMARY KEY (item, session));
 CREATE TABLE IF NOT EXISTS attachments (
@@ -38,8 +39,9 @@ CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 `
 
 // schemaVersion changes whenever schema does; a cache of another version is
-// dropped and rebuilt from the ledger on its next Sync.
-const schemaVersion = 2
+// dropped and rebuilt from the ledger on its next Sync. v3 makes an event id
+// unique in events (events_id), so a cache never holds an event twice.
+const schemaVersion = 3
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
@@ -99,6 +101,7 @@ func (c *Cache) Sync(l *ledger.Store) error {
 func (c *Cache) SyncItem(l *ledger.Store, id string) error { return c.syncItem(l, id) }
 
 func (c *Cache) syncItem(l *ledger.Store, id string) error {
+	// Cheap pre-check outside the write lock: an unchanged item takes no lock.
 	var offset int64
 	err := c.db.QueryRow(`SELECT offset FROM files WHERE item = ?`, id).Scan(&offset)
 	if err != nil && err != sql.ErrNoRows {
@@ -106,6 +109,26 @@ func (c *Cache) syncItem(l *ledger.Store, id string) error {
 	}
 	size, err := l.Size(id)
 	if err != nil {
+		return err
+	}
+	if size == offset {
+		return nil
+	}
+	// BEGIN IMMEDIATE: this process now holds the write lock. Re-read the
+	// committed offset and the tail under it, so a writer that waited on
+	// another one never ingests the same events again or moves the offset
+	// backwards.
+	tx, err := c.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	offset = 0
+	err = tx.QueryRow(`SELECT offset FROM files WHERE item = ?`, id).Scan(&offset)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if size, err = l.Size(id); err != nil {
 		return err
 	}
 	if size == offset {
@@ -125,11 +148,6 @@ func (c *Cache) syncItem(l *ledger.Store, id string) error {
 	if err != nil {
 		return err
 	}
-	tx, err := c.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	if offset == 0 {
 		for _, t := range []string{"events", "items", "item_tags", "seats", "attachments"} {
 			col := "item"
@@ -142,7 +160,9 @@ func (c *Cache) syncItem(l *ledger.Store, id string) error {
 		}
 	}
 	for _, e := range fresh {
-		if _, err := tx.Exec(`INSERT INTO events (id, item, kind, at, actor, payload, prev, hash) VALUES (?,?,?,?,?,?,?,?)`,
+		// An event already indexed keeps its first row (and seq): re-ingest is
+		// a no-op, and the events_id unique index enforces it.
+		if _, err := tx.Exec(`INSERT INTO events (id, item, kind, at, actor, payload, prev, hash) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
 			e.ID, e.Item, e.Kind, ts(e.At), e.Actor, string(e.Payload), e.Prev, e.Hash); err != nil {
 			return err
 		}

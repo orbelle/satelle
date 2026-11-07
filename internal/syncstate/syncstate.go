@@ -42,6 +42,10 @@ type State struct {
 	// what the push failed on.
 	PushHeld map[string]string `json:"push_held,omitempty"`
 
+	// The snapshot group is the outcome of the full or delta snapshot this
+	// home's CLI posts to satelled, written by cli.withUISource: a refused
+	// snapshot sets SnapshotReason, a full snapshot that lands clears it, and
+	// `satelle status` names it.
 	SnapshotLastSuccess time.Time `json:"snapshot_last_success,omitempty"`
 	SnapshotLastFailure time.Time `json:"snapshot_last_failure,omitempty"`
 	SnapshotReason      string    `json:"snapshot_reason,omitempty"`
@@ -177,7 +181,8 @@ func ClearPushReasonIf(globalDir, repoPath string, match func(string) bool) erro
 	})
 }
 
-// RecordSnapshot merges the snapshot-leg fields and writes atomically.
+// RecordSnapshot merges the snapshot-leg fields (the CLI's snapshot to
+// satelled) and writes atomically.
 func RecordSnapshot(globalDir, repoPath string, success bool, reason, scope string, now time.Time) error {
 	return record(globalDir, repoPath, scope, func(s *State) {
 		if success {

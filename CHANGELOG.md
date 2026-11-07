@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- The cache never holds a ledger event twice: two commands syncing the same new tail at once (a gate run appending while another command synced) no longer index it twice, which made every satelled seed fail with `500 … snapshot has duplicate item kind=ledger_event`. The cache schema makes an event id unique (schema v3) and a writer re-reads the ingested offset under the write lock, so re-ingesting an event is a no-op; an existing cache, duplicates included, is rebuilt from the ledger on first open. A snapshot satelled refuses is now recorded for the repo, and `satelle status` (and `seed_failure` in `--json`) names the failed seed and its cause until a full snapshot lands; `satelle project add` re-seeds. (sto_5e290320)
+
 ## [1.0.13] - 2026-11-06
 
 ### Added

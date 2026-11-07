@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/uipush"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -69,28 +71,55 @@ func uiClient() (uipush.Client, bool) {
 	return uipush.Client{Endpoint: ep, InstanceID: config.SafeCurrentInstanceID()}, true
 }
 
+// uiRepoRoot is r's canonical root: the repo path satelled's partition and
+// the per-repo sync state (syncstate) are keyed on.
+func uiRepoRoot(r repo) string { return config.CanonicalRepoRoot(filepath.Dir(r.DataDir)) }
+
+// recordSnapshot records one snapshot outcome for root in the per-repo sync
+// state, which `satelle status` reads. A full snapshot that lands clears a
+// recorded failure; a delta that lands records nothing, since it does not
+// prove the partition whole. Best effort, like the push itself.
+func recordSnapshot(root string, full bool, err error) {
+	if err == nil {
+		if full {
+			_ = syncstate.RecordSnapshot(config.GlobalDir(), root, true, "", "", time.Now())
+		}
+		return
+	}
+	label := "push"
+	if full {
+		label = "seed"
+	}
+	_ = syncstate.RecordSnapshot(config.GlobalDir(), root, false, label+": "+err.Error(), "", time.Now())
+}
+
 // withUISource opens r's ledger and cache read-only for a push to satelled.
-// It does nothing when the push is disabled.
+// It does nothing when the push is disabled. Each snapshot satelled refuses,
+// and a source that cannot be built, is recorded for `satelle status`.
 func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	c, ok := uiClient()
 	if !ok {
 		return nil
 	}
+	root := uiRepoRoot(r)
+	c.Report = func(full bool, err error) { recordSnapshot(root, full, err) }
 	led, err := ledger.Open(r.Runtime)
 	if err != nil {
+		recordSnapshot(root, true, err)
 		return err
 	}
 	ch, err := cache.Open(filepath.Join(r.Runtime, "cache.db"))
 	if err != nil {
+		recordSnapshot(root, true, err)
 		return err
 	}
 	defer ch.Close()
 	if err := ch.Sync(led); err != nil {
+		recordSnapshot(root, true, err)
 		return err
 	}
 	wfs, _ := workflow.Load(filepath.Join(r.DataDir, kernel.WorkflowsDir))
 	cfg, _ := kernel.LoadConfig(r.DataDir)
-	root := config.CanonicalRepoRoot(filepath.Dir(r.DataDir))
 	return fn(c, uipush.Source{
 		Ledger: led, Cache: ch, Workflows: wfs, DataDir: r.DataDir,
 		RepoRoot: root, RepoKey: config.RepoKey(root), Slug: config.RepoName(root),
