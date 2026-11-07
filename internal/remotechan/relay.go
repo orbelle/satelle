@@ -41,12 +41,12 @@ func dialRelay(ctx context.Context, relay satellepb.RelayServiceClient, session 
 		cancel()
 		return nil, fmt.Errorf("remotechan: dial relay: %w", err)
 	}
-	if err := stream.Send(&satellepb.RelayFrame{Session: session, Role: role.String()}); err != nil {
-		cancel()
-		return nil, fmt.Errorf("remotechan: dial relay: %w", err)
-	}
 	c := &conn{stream: stream, cancel: cancel, frames: make(chan []byte), done: make(chan struct{})}
 	go c.read()
+	if err := c.send(ctx, &satellepb.RelayFrame{Session: session, Role: role.String()}); err != nil {
+		c.CloseNow()
+		return nil, fmt.Errorf("remotechan: dial relay: %w", err)
+	}
 	return c, nil
 }
 
@@ -83,19 +83,51 @@ func (c *conn) Read(ctx context.Context) ([]byte, error) {
 	}
 }
 
-// Write sends one frame.
-func (c *conn) Write(_ context.Context, b []byte) error {
+// Write sends one frame. A send on a stream the relay already ended reports the
+// stream's final status, not io.EOF: gRPC reports a server-ended stream on
+// SendMsg as io.EOF and leaves the status for RecvMsg, which the reader takes.
+// Without this a refusal (UNAUTHENTICATED) could surface as EOF and be
+// classified as a restart.
+func (c *conn) Write(ctx context.Context, b []byte) error {
+	return c.send(ctx, &satellepb.RelayFrame{Data: b})
+}
+
+// send is the one send site, for the header frame and every data frame.
+func (c *conn) send(ctx context.Context, f *satellepb.RelayFrame) error {
 	c.wmu.Lock()
-	defer c.wmu.Unlock()
 	select {
 	case <-c.done:
+		c.wmu.Unlock()
 		if c.err != nil {
 			return c.err
 		}
 		return ErrClosed
 	default:
 	}
-	return c.stream.Send(&satellepb.RelayFrame{Data: b})
+	err := c.stream.Send(f)
+	c.wmu.Unlock()
+	if errors.Is(err, io.EOF) {
+		return c.ended(ctx)
+	}
+	return err
+}
+
+// ended waits for the stream's final status from the reader after a send found
+// the stream already ended. It is bounded by ctx and closeGrace (the wait runs
+// outside wmu, so Close is never held behind it); a reader that cannot finish
+// in time (blocked handing over a frame nobody reads) leaves errStreamEnded,
+// the same restart class as a bare EOF.
+func (c *conn) ended(ctx context.Context) error {
+	t := time.NewTimer(closeGrace)
+	defer t.Stop()
+	select {
+	case <-c.done:
+		return c.err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return errStreamEnded
+	}
 }
 
 // Close stops sending, lets the relay deliver what was sent and end the
