@@ -36,6 +36,7 @@ A gate is a named judgement on a transition:
     paths = ["**/*.go"]          # relevance: runs only when a changed path matches
     trigger = "relevant"         # relevance: a check skill whose exit 0 means relevant
     carry = true                 # an earlier accept over unchanged coverage is carried
+    after = "publish"            # a check skill run once the gate has a verdict
 
 A transition runs its groups in order. A `sequential` group stops at its first
 reject (fail-fast); a `parallel` group runs every gate. Every gate's result —
@@ -46,6 +47,18 @@ A skill whose frontmatter says `type: check` is a deterministic check: its first
 fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and
 `SATELLE_BASE` set; exit 0 accepts, anything else rejects, and its output is the
 notes.
+
+A gate's `after` is a check skill run once the gate has a verdict: an accept or
+reject from its check or judge (every panel member answered), or a carry. It
+does not run on a skip, or on a reject that is a failure rather than a verdict
+(a missing skill or agent, a trigger or coverage error, a failed dispatch, an
+answer with no verdict, the reviewer-differs refusal). Besides the check
+variables it sees `SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or
+carried) and `SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`,
+`binding` and `notes`. Exit 0 keeps the result; any other exit turns it into a
+reject. Its output joins the notes as `after <skill>: …`. Use it to publish a
+verdict somewhere (this repo's `pr-review` gate publishes to the PR with
+`satelle github review`).
 
 ## The base
 

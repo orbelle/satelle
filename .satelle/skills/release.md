@@ -55,7 +55,44 @@ open exits 2 naming that run: finish or cancel it first.
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).
 Record `<id> PR #<n> head <sha>`. An item with no open pull request goes on the
-send-back list. Record `sha256sum` of `$(command -v satelle)` and of the
+send-back list.
+
+### Reviews on the heads
+
+Then read the satelle GitHub app's review on each item's PR head, once per
+input item (`id=` each in turn). The app's latest decision on the head
+(APPROVED, CHANGES_REQUESTED or DISMISSED; a comment decides nothing) is
+matched by its account's numeric id, read from the approval check, never by
+login. When it requested changes, the item reopens here: the review body is
+attached as `pr-review`, the item moves approved → in_progress, and it is
+dropped from the run and recorded as sent back with "the satelle app requested
+changes on head <sha>". The block calls gh and satelle's local commands only,
+never satelle.dev, and changes nothing until the app reviews this repo's pull
+requests.
+
+```sh
+id=<id>
+app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check.md)
+[ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check.md" >&2; exit 1; }
+pr=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100 |
+  jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
+if [ -z "$pr" ]; then echo "$id: no open pull request (send it back)"; exit 0; fi
+n=$(printf '%s' "$pr" | jq -r .number)
+head=$(printf '%s' "$pr" | jq -r .headRefOid)
+review=$(gh api "repos/{owner}/{repo}/pulls/$n/reviews" --paginate | jq -s -c --argjson app "$app_account" --arg h "$head" '
+  (add // []) | [.[] | select(.user.id == $app and .commit_id == $h and
+    (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))]
+  | sort_by(.submitted_at) | last // empty')
+if [ "$(printf '%s' "$review" | jq -r '.state // empty')" = CHANGES_REQUESTED ]; then
+  printf '%s' "$review" | jq -j '.body // ""' | satelle story attach "$id" --name pr-review --type text/markdown --file -
+  satelle story set "$id" --status in_progress      # approved -> in_progress
+  echo "$id: sent back: the satelle app requested changes on head $head ($(printf '%s' "$review" | jq -r .html_url))"
+else
+  echo "$id: PR #$n head $head: no changes requested by the satelle app"
+fi
+```
+
+Record `sha256sum` of `$(command -v satelle)` and of the
 satelled binary in the `installed` line of `satelle service status`; the same
 sums just before step 7 prove nothing installed was touched.
 
@@ -83,6 +120,13 @@ satelle story set <id> --status in_progress      # approved -> in_progress
 ```
 
    The coder's next run reads the reason from the item's record.
+
+   When the installed satelle refuses the tip's workflows (an unknown key, such
+   as a gate's `after`, from a satelle older than the build origin/main
+   carries), build the tip in a temporary worktree as step 3 makes one
+   (`wt=$(mktemp -d); git worktree add --detach "$wt" "$tip"; go build -C "$wt"
+   -o "$wt/satelle" ./cmd/satelle`) and present the send-back with that build
+   first on `PATH`.
 
 If no item is kept, stop: "nothing fast-forwards".
 

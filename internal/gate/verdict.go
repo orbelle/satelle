@@ -16,6 +16,13 @@ type Verdict struct {
 // ParseVerdict finds the last JSON object in text whose verdict is accept or
 // reject. Without one the verdict is a reject whose notes say why.
 func ParseVerdict(text string) Verdict {
+	v, _ := parseVerdict(text)
+	return v
+}
+
+// parseVerdict is ParseVerdict, also reporting whether the judge answered with
+// a verdict (true) or the reject is the fallback for a missing one (false).
+func parseVerdict(text string) (Verdict, bool) {
 	var v Verdict
 	if _, ok := agent.LastObject(text, func(raw json.RawMessage) bool {
 		var c Verdict
@@ -25,11 +32,11 @@ func ParseVerdict(text string) Verdict {
 		v = c
 		return true
 	}); ok {
-		return v
+		return v, true
 	}
 	snippet := strings.TrimSpace(text)
 	if len(snippet) > 500 {
 		snippet = snippet[len(snippet)-500:]
 	}
-	return Verdict{Verdict: Reject, Notes: `no {"verdict":"accept"|"reject","notes":"..."} object in the judge's answer: ` + snippet}
+	return Verdict{Verdict: Reject, Notes: `no {"verdict":"accept"|"reject","notes":"..."} object in the judge's answer: ` + snippet}, false
 }
