@@ -60,11 +60,12 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
    exits 0 printing `no open child of <epic>: close it` when no child is open.
    It exits 2 when the epic id does not resolve or the list fails.
 3. On "fire the release", follow `.satelle/skills/release.md` from step 0 (it
-   fires the `release` queue) through step 10. The run takes every approved
-   story in the queue, the epic's children among them.
-4. After the run is `done`, run the readiness block again. When it says "close
-   it", present `satelle story set <epic> --status done`. The children-closed
-   and done-review gates judge the move.
+   fires the `release` queue) through step 11 (the drift review). The run
+   takes every approved story in the queue, the epic's children among them.
+4. After the release run and the drift run are `done`, run the readiness block
+   again. When it says "close it", present
+   `satelle story set <epic> --status done`. The children-closed and
+   done-review gates judge the move.
 
 ```sh
 epic=EPIC_ID

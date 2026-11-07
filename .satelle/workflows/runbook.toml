@@ -22,6 +22,26 @@ skill = "satelle-task-validate-before-review"
 skill = "satelle-task-validate-after-review"
 agent = "reviewer-alt"
 
+# The drift review run (release.md step 11) only: the trigger skips every
+# other run. drift-constitution judges the release's binary change, its diff
+# from the previous release tag over the binary's sources, against the
+# constitution and principles; its after check holds an accept of a diff the
+# prompt cut to READ lines for each hidden file. drift-claims judges the
+# principles' statements of mechanism against the released source; .version
+# changes on every release, so it is relevant to every drift run.
+[gates.drift-constitution]
+skill = "satelle-drift-constitution-review"
+agent = "reviewer"
+trigger = "satelle-drift-run-trigger"
+after = "satelle-drift-diff-covered"
+paths = ["cmd/**", "internal/**", "go.mod", "go.sum"]
+
+[gates.drift-claims]
+skill = "satelle-drift-claims-review"
+agent = "reviewer"
+trigger = "satelle-drift-run-trigger"
+paths = [".version"]
+
 [[transition]]
 from = ["backlog"]
 to = "in_progress"
@@ -30,7 +50,7 @@ groups = [{ mode = "sequential", gates = ["validate-before"] }]
 [[transition]]
 from = ["in_progress"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["validate-after"] }]
+groups = [{ mode = "sequential", gates = ["drift-constitution", "drift-claims", "validate-after"] }]
 
 [[transition]]
 from = ["*"]
