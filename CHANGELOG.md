@@ -1,3 +1,9 @@
+## [1.0.25] - 2026-11-07
+
+### Added
+- A workflow state can be the operator's (`performer = { operator = "<type>" }`): satelle dispatches nothing there and a seat on it allows no agent edits, and every transition out is refused until the operator records an attachment of that type since the item entered the state, with the new `satelle <kind> record` verb run from their own terminal (the item id retyped on `/dev/tty`); an agent session cannot record it (the kernel refuses a session, the edit-gate hook refuses the verb in any agent shell call), and `satelle ledger append` now refuses the item, seat and attachment kinds satelle reads. (sto_35cb5d50)
+- A workflow state can cap its rejected rounds (`hold = { rounds = N, to = "<park>" }`): once that many presentations in a row are rejected, the item is held in the park state for the operator instead of re-performed, and the hold names each dissenting reviewer with its most repeated finding class (a judge's optional `class`) and the reviewers that accepted; `delivery` holds plans after 3 rejected rounds, and a re-plan now writes the whole plan as a fresh body with its answers beside it (sto_216e2027)
+
 ## [1.0.24] - 2026-11-07
 
 ### Fixed
