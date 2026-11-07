@@ -22,4 +22,4 @@ a test flapping) and you can still act:
    is unlocalised.
 
 When the process itself forbids progress, that is a blockage, not a diagnosis
-problem: park per [[satelle-recognise-blockage]].
+problem: park per [[satelle-agent-goals]] (*a block is never worked around*).

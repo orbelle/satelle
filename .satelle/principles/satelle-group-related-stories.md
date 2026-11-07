@@ -10,7 +10,7 @@ description: When filing two or more related stories in one sitting, give them a
 
 Two or more related stories filed in one sitting share an `epic:<theme>`, the
 current sprint tag and an `order:<N>` each, before you finish. A dependency is
-`depends-on:`, never an order. Vocabulary: [[satelle-story-classification]].
+`depends-on:`, never an order.
 
 This repo's sprint tag is `sprint:<YYYY-MM>-<name>`: the month the sprint
 starts plus a short kebab-case name, usually the epic theme
