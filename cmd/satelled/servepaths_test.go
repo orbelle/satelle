@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,42 +86,86 @@ func run(t *testing.T, dir, name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// watches reports whether the gate considers path part of the serve build.
-// Exit 0 means watched, exit 1 unwatched; anything else is the script failing
-// rather than answering, and must not be read as "unwatched".
+// classifyCheckPath reads a `--check-path` exit code and stdout. Exit 0 means
+// every path is watched, exit 1 that the printed paths are not; any other code
+// is the script failing rather than answering (exit 3: the watch set could not
+// be derived), and is returned as an error carrying the script's own reason. It
+// must never be read as "unwatched" (sto_54770db7). Exit 1 naming no path is an
+// error too: that is the script dying under `set -e`, not an answer, and reading
+// it as "nothing unwatched" would pass a batched check vacuously.
+func classifyCheckPath(code int, out string) ([]string, error) {
+	switch code {
+	case 0:
+		return nil, nil
+	case 1:
+		var paths []string
+		for _, ln := range strings.Split(out, "\n") {
+			if ln = strings.TrimSpace(ln); ln != "" {
+				paths = append(paths, ln)
+			}
+		}
+		if len(paths) == 0 {
+			return nil, fmt.Errorf("the gate exited 1 but named no unwatched path — it failed rather than answered")
+		}
+		return paths, nil
+	default:
+		return nil, fmt.Errorf("the gate could not answer (exit %d, want 0 watched / 1 unwatched): %s",
+			code, strings.TrimSpace(out))
+	}
+}
+
+// checkPaths runs `--check-path` once over every path, so one derivation of the
+// watch set answers them all, and returns the paths the gate does not watch.
+// stdout carries the unwatched paths; stderr is kept apart so a warning can
+// never be read as one, and joins the failure message when the gate cannot
+// answer.
+func checkPaths(t *testing.T, root string, paths []string) []string {
+	t.Helper()
+	cmd := exec.Command("bash", append([]string{gateScript, "--check-path"}, paths...)...)
+	cmd.Dir = root
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			t.Fatalf("--check-path: %v\n%s", err, stderr.String())
+		}
+		code = ee.ExitCode()
+	}
+	out := stdout.String()
+	if code != 0 && code != 1 {
+		out += stderr.String()
+	}
+	missed, err := classifyCheckPath(code, out)
+	if err != nil {
+		t.Fatalf("--check-path: %v\nstderr:\n%s", err, stderr.String())
+	}
+	return missed
+}
+
+// watches reports whether the gate considers path part of the serve build. The
+// single-path form of checkPaths, kept so that mode stays exercised.
 func watches(t *testing.T, root, path string) bool {
 	t.Helper()
-	cmd := exec.Command("bash", gateScript, "--check-path", path)
-	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return true
-	}
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) {
-		t.Fatalf("--check-path %s: %v\n%s", path, err, out)
-	}
-	if code := ee.ExitCode(); code != 1 {
-		t.Fatalf("--check-path %s: exit %d (want 0 watched / 1 unwatched)\n%s", path, code, out)
-	}
-	return false
+	return len(checkPaths(t, root, []string{path})) == 0
 }
 
 // TestServeGateWatchesEveryServeDependency is the enumeration, as a test rather
 // than as a snapshot: it re-derives the serve binary's dependency set on every
 // run and requires the gate to watch all of it. A new package joining the serve
 // build fails here on the commit that adds it, so the drift this story fixes
-// cannot silently recur.
+// cannot silently recur. The gate is asked once for every package: a call per
+// package re-derived the watch set each time, multiplying the exposure to a
+// transient `go list` failure under the parallel suite (sto_54770db7).
 func TestServeGateWatchesEveryServeDependency(t *testing.T) {
 	root := repoRoot(t)
 	deps := serveDeps(t, root)
-	var missed []string
-	for _, pkg := range deps {
-		if !watches(t, root, pkg+"/anyfile.go") {
-			missed = append(missed, pkg)
-		}
+	probes := make([]string, len(deps))
+	for i, pkg := range deps {
+		probes[i] = pkg + "/anyfile.go"
 	}
-	if len(missed) > 0 {
+	if missed := checkPaths(t, root, probes); len(missed) > 0 {
 		t.Errorf("the serve binary links these packages but the version gate does not watch them:\n  %s\n"+
 			"A change confined to one of them would release with no satelled.version bump, and the "+
 			"running service would silently keep the old code.", strings.Join(missed, "\n  "))
@@ -339,16 +384,91 @@ func TestServeGateProbeRunsWhenServeBumped(t *testing.T) {
 // NOT linked, so this test stays honest only while that isolation holds.
 func TestServeGateIgnoresCLIOnlyPaths(t *testing.T) {
 	root := repoRoot(t)
-	for _, path := range []string{
+	cliOnly := []string{
 		"internal/cli/drift.go",
 		"internal/verb/changelog.go",
 		"internal/store/store.go",
 		"internal/app/app.go",
 		"internal/agentstep/engine.go",
-	} {
-		if watches(t, root, path) {
+	}
+	missed := map[string]bool{}
+	for _, p := range checkPaths(t, root, cliOnly) {
+		missed[p] = true
+	}
+	for _, path := range cliOnly {
+		if !missed[path] {
 			t.Errorf("%s is not part of the serve build but the gate watches it — "+
 				"a CLI-only release would be forced to cut a serve release", path)
+		}
+	}
+}
+
+// TestServeGateCannotAnswerIsNotUnwatched is AC2 of sto_54770db7: when the gate
+// cannot derive its watch set it must say so, with go's own reason, under an
+// exit code no caller reads as an answer. It used to exit 1 — the same code as
+// "unwatched" — so a transient `go list` failure under the parallel suite was
+// reported as one serve package missing from the set. GOFLAGS=-mod=nonexistent
+// is a deterministic `go list` failure (as in scripts/credguard_test.go).
+func TestServeGateCannotAnswerIsNotUnwatched(t *testing.T) {
+	requireGitAndGo(t)
+	clone := privateClone(t, repoRoot(t))
+	env := []string{"GOFLAGS=-mod=nonexistent", "SERVE_TAG_REMOTE=" + clone}
+	for _, args := range [][]string{
+		{"--check-path", "internal/serve/x.go"},
+		nil, // gate mode
+	} {
+		code, out := gateIn(t, clone, env, args...)
+		if code != 3 {
+			t.Errorf("%v: exit %d, want 3 (could not derive the watch set)\n%s", args, code, out)
+		}
+		if !strings.Contains(out, "go list") || !strings.Contains(out, "-mod") {
+			t.Errorf("%v: output does not carry go's own reason\n%s", args, out)
+		}
+		if strings.Contains(out, "internal/serve/x.go") {
+			t.Errorf("%v: a gate that could not answer echoed the path as unwatched\n%s", args, out)
+		}
+		if _, err := classifyCheckPath(code, out); err == nil {
+			t.Errorf("%v: exit %d was classified as an answer\n%s", args, code, out)
+		}
+	}
+}
+
+// TestClassifyCheckPath pins the exit-code reading every --check-path caller
+// shares: only 0 and 1 are answers.
+func TestClassifyCheckPath(t *testing.T) {
+	for _, c := range []struct {
+		code    int
+		out     string
+		want    []string
+		wantErr []string
+	}{
+		{code: 0, out: ""},
+		{code: 1, out: "a/x.go\nb/y.go\n", want: []string{"a/x.go", "b/y.go"}},
+		{code: 3, out: "reason text", wantErr: []string{"exit 3", "reason text"}},
+		{code: 2, out: "usage", wantErr: []string{"exit 2"}},
+		{code: 1, out: "\n", wantErr: []string{"named no unwatched path"}},
+	} {
+		got, err := classifyCheckPath(c.code, c.out)
+		if c.wantErr != nil {
+			if err == nil {
+				t.Errorf("exit %d: no error, got paths %v", c.code, got)
+				continue
+			}
+			for _, w := range c.wantErr {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("exit %d: error %q does not contain %q", c.code, err, w)
+				}
+			}
+			if got != nil {
+				t.Errorf("exit %d: paths %v alongside an error", c.code, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("exit %d: unexpected error %v", c.code, err)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("exit %d: paths %v, want %v", c.code, got, c.want)
 		}
 	}
 }

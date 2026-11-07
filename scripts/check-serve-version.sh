@@ -28,32 +28,55 @@
 # it prints the remedy. Override the remote name with SERVE_TAG_REMOTE (tests).
 #
 # Modes:
-#   (no args)            run the gate
-#   --paths              print the derived watch set, one per line, exit 0
-#   --check-path <path>  exit 0 if <path> is under the watch set, 1 if not
+#   (no args)                 run the gate
+#   --paths                   print the derived watch set, one per line, exit 0
+#   --check-path <path>...    print each <path> NOT under the watch set, one per
+#                             line; exit 0 if every path is watched, 1 if any is not
+#
+# Exit codes: 0 ok / watched; 1 gate failure or an unwatched path; 2 usage error;
+# 3 (CANNOT_ANSWER) the watch set could not be derived, so there is NO answer.
+# 3 is distinct from 1 on purpose (sto_54770db7): a failed `go list` used to exit
+# 1, which `--check-path` callers read as "this path is unwatched" — a transient
+# derivation failure under a parallel test suite reported one package as missing
+# from a set it was in. The reason (go's own stderr) is printed with the exit.
 set -euo pipefail
+
+CANNOT_ANSWER=3
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "check-serve-version: not a git repo" >&2
-  exit 1
+  exit "$CANNOT_ANSWER"
 }
 cd "$ROOT"
+
+# go list's stderr is kept so a failure names its reason instead of "failed".
+# Created in the parent: serve_paths runs in a $( ) subshell, whose EXIT trap
+# would not be the parent's.
+GO_ERR=$(mktemp)
+trap 'rm -f "$GO_ERR"' EXIT
+
+# go_reason prints the captured go stderr on one line.
+go_reason() {
+  tr '\n' ' ' <"$GO_ERR" | sed 's/[[:space:]]*$//'
+}
 
 # serve_paths prints the directories the serve binary is built from. FAILS CLOSED:
 # a `go list` error or an empty set exits non-zero rather than yielding a gate
 # that watches nothing. An inert gate is worse than the narrow one being replaced.
 serve_paths() {
-  local mod deps out
-  mod=$(go list -m 2>/dev/null) || {
-    echo "check-serve-version: go list -m failed — cannot resolve the module path" >&2
+  local mod deps out rc
+  mod=$(go list -m 2>"$GO_ERR") || {
+    rc=$?
+    echo "check-serve-version: go list -m failed (exit $rc) — cannot resolve the module path: $(go_reason)" >&2
     return 1
   }
   [ -n "$mod" ] || {
     echo "check-serve-version: go list -m returned nothing" >&2
     return 1
   }
-  deps=$(go list -deps ./cmd/satelled 2>/dev/null) || {
-    echo "check-serve-version: go list -deps ./cmd/satelled failed" >&2
+  deps=$(go list -deps ./cmd/satelled 2>"$GO_ERR") || {
+    rc=$?
+    echo "check-serve-version: go list -deps ./cmd/satelled failed (exit $rc): $(go_reason)" >&2
     return 1
   }
   # In-repo packages only; a stdlib or vendored dep is not ours to version.
@@ -75,12 +98,12 @@ serve_paths() {
 # before this was fixed, in the very story that exists to stop a silent gate.
 if ! paths_raw=$(serve_paths); then
   echo "check-serve-version: refusing to run a gate whose watch set could not be derived" >&2
-  exit 1
+  exit "$CANNOT_ANSWER"
 fi
 mapfile -t SERVE_PATHS <<<"$paths_raw"
 if [ "${#SERVE_PATHS[@]}" -eq 0 ] || [ -z "${SERVE_PATHS[0]}" ]; then
   echo "check-serve-version: derived an EMPTY watch set — refusing to run a gate that watches nothing" >&2
-  exit 1
+  exit "$CANNOT_ANSWER"
 fi
 
 case "${1:-}" in
@@ -89,16 +112,26 @@ case "${1:-}" in
   exit 0
   ;;
 --check-path)
-  target="${2:-}"
-  [ -n "$target" ] || { echo "check-serve-version: --check-path needs a path" >&2; exit 2; }
-  for p in "${SERVE_PATHS[@]}"; do
-    case "$target" in "$p"*) exit 0 ;; esac
+  shift
+  [ $# -gt 0 ] && [ -n "$1" ] || { echo "check-serve-version: --check-path needs a path" >&2; exit 2; }
+  # One derivation answers every path: callers batch rather than re-derive per
+  # path (sto_54770db7).
+  miss=0
+  for target in "$@"; do
+    hit=0
+    for p in "${SERVE_PATHS[@]}"; do
+      case "$target" in "$p"*) hit=1; break ;; esac
+    done
+    if [ "$hit" -eq 0 ]; then
+      printf '%s\n' "$target"
+      miss=1
+    fi
   done
-  exit 1
+  exit "$miss"
   ;;
 "") ;;
 *)
-  echo "check-serve-version: unknown argument $1 (want --paths or --check-path <path>)" >&2
+  echo "check-serve-version: unknown argument $1 (want --paths or --check-path <path>...)" >&2
   exit 2
   ;;
 esac
