@@ -21,6 +21,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/uipush"
 	"github.com/bobmcallan/satelle/internal/web"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 // The kinds and tokens satelled reads are the kernel's.
@@ -303,16 +304,28 @@ func TestDeltaPushCarriesTheSignedInUser(t *testing.T) {
 	}
 }
 
-// Delta lists identity among the kinds it replaces and carries the whole blob.
-func TestDeltaListsIdentity(t *testing.T) {
+// Delta lists identity and the workflow docs among the kinds it replaces and
+// carries the whole identity blob and every workflow.
+func TestDeltaListsIdentityAndWorkflows(t *testing.T) {
 	_, src := fixture(t)
 	src.User = &mirror.User{Name: "Ada", Email: "ada@example.com"}
 	snap, err := uipush.Delta(src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(snap.Kinds, "identity") {
+	if !slices.Contains(snap.Kinds, "identity") || !slices.Contains(snap.Kinds, "doc") {
 		t.Fatalf("delta kinds = %v", snap.Kinds)
+	}
+	if len(snap.Docs) != len(src.Workflows) {
+		t.Fatalf("delta carries %d workflow docs, the repo has %d", len(snap.Docs), len(src.Workflows))
+	}
+	for name := range src.Workflows {
+		if !slices.ContainsFunc(snap.Docs, func(d json.RawMessage) bool {
+			var doc mirror.Doc
+			return json.Unmarshal(d, &doc) == nil && doc.Kind == mirror.DocKindWorkflows && doc.Name == name
+		}) {
+			t.Errorf("delta lacks workflow %q", name)
+		}
 	}
 	var meta mirror.IdentityMeta
 	if err := json.Unmarshal(snap.Identity, &meta); err != nil {
@@ -320,6 +333,94 @@ func TestDeltaListsIdentity(t *testing.T) {
 	}
 	if meta.ProjectName != "proj" || meta.RepoRoot != src.RepoRoot || meta.User == nil || *meta.User != *src.User {
 		t.Fatalf("delta identity = %+v", meta)
+	}
+}
+
+// storyRow is the stories fragment's row for id, from its <tr to its </tr>.
+func storyRow(body, id string) string {
+	at := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
+	if at < 0 {
+		return ""
+	}
+	start := strings.LastIndex(body[:at], "<tr")
+	end := strings.Index(body[at:], "</tr>")
+	if start < 0 || end < 0 {
+		return ""
+	}
+	return body[start : at+end]
+}
+
+// reloadWorkflows re-reads the repo's workflow files, as every CLI push does.
+func reloadWorkflows(t *testing.T, k *kernel.Kernel, src *uipush.Source) {
+	t.Helper()
+	wfs, err := workflow.Load(filepath.Join(src.DataDir, kernel.WorkflowsDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.Workflows = wfs
+	k.Workflows = wfs
+}
+
+// A workflow file added after the seed reaches satelled on the next delta
+// push, so its terminal rows are marked terminal; a workflow file changed
+// after the seed is refreshed the same way.
+func TestDeltaPushCarriesAnAddedOrChangedWorkflow(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	srv, store := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
+	if err := c.Seed(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	if seeded, _ := store.PartitionSeeded(ctx, "rk-test"); !seeded {
+		t.Fatal("the seed did not seed the partition")
+	}
+
+	write(t, filepath.Join(src.DataDir, "workflows", "breakglass.toml"), `
+[states.open]
+start = true
+[states.closed]
+terminal = true
+[[transition]]
+from = ["open"]
+to = "closed"
+`)
+	reloadWorkflows(t, k, &src)
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Breakglass done"), Workflow: ptr("breakglass")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := k.Transition(ctx, it.ID, "closed", "ann"); err != nil || !res.Moved {
+		t.Fatalf("close: moved=%v err=%v", res.Moved, err)
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	row := storyRow(get(t, srv.URL+"/r/proj/fragment/stories"), it.ID)
+	if row == "" {
+		t.Fatal("the delta's item has no row in the stories fragment")
+	}
+	for _, want := range []string{`data-status="closed"`, `data-workflow="breakglass"`, `data-terminal="1"`, `st-terminal`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the added workflow's terminal row lacks %s: %s", want, row)
+		}
+	}
+
+	if wf := get(t, srv.URL+"/r/proj/fragment/workflow/flow"); strings.Contains(wf, ">approved<") {
+		t.Fatal("the seeded flow already has an approved state")
+	}
+	flow := filepath.Join(src.DataDir, "workflows", "flow.toml")
+	b, err := os.ReadFile(flow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, flow, string(b)+"[states.approved]\n")
+	reloadWorkflows(t, k, &src)
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if wf := get(t, srv.URL+"/r/proj/fragment/workflow/flow"); !strings.Contains(wf, ">approved<") {
+		t.Error("the changed workflow's new state did not reach satelled")
 	}
 }
 

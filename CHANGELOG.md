@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- satelled refreshes a repo's workflows on every push, not only on `satelle project add`: a delta push now carries the workflow docs and replaces satelled's copy, so a workflow file added, edited or removed after the repo was first seeded shows on the next change, and its terminal rows are marked terminal (`data-terminal`, `st-terminal`) instead of active, and a new state such as `approved` gets its styled badge. (sto_da3e089f)
+
 ## [1.0.13] - 2026-11-06
 
 ### Added

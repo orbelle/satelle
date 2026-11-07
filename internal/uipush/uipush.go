@@ -2,7 +2,10 @@
 // tells satelled what changed (POST /ingest/change) and pushes the rows its
 // pages read (POST /ingest/snapshot): folded items from the cache, the items'
 // ledger events, attachment metadata and text bodies, seats, the workflows,
-// settings and identity. satelled never asks the CLI for anything.
+// settings and identity. A full push carries all of them; a delta carries the
+// changed items' rows, the seats, the workflows and the identity, so a
+// workflow file added or edited reaches satelled on the repo's next push.
+// satelled never asks the CLI for anything.
 package uipush
 
 import (
@@ -70,7 +73,10 @@ func identity(src Source) json.RawMessage {
 }
 
 // Delta is the snapshot that merges the rows of the named items (and their
-// events and attachments) and replaces the seats and the identity.
+// events and attachments) and replaces the seats, the identity and the
+// workflow docs. The workflows are re-read from disk on every push, so an
+// added, edited or removed workflow file reaches satelled without a reseed,
+// and its terminal states are known when the rows render.
 func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	var items []item.Item
 	for _, id := range ids {
@@ -86,7 +92,10 @@ func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	snap.Kinds = []string{"seat", "identity"}
+	if snap.Docs, err = workflowDocs(src); err != nil {
+		return snap, err
+	}
+	snap.Kinds = []string{"seat", "identity", "doc"}
 	snap.Identity = identity(src)
 	snap.MergeKinds = []string{"story", "task", "execution", "queue", "ledger_event", "story_doc"}
 	return snap, nil
