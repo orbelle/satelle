@@ -63,7 +63,7 @@ if [ -z "$(git branch -r --contains "$head")" ]; then
   exit 1
 fi
 if ! git merge-base --is-ancestor origin/main "$head"; then
-  echo "HEAD ${head:0:12} does not contain origin/main $(git rev-parse --short=12 origin/main): move the item back to in_progress, merge origin/main into the branch (git fetch origin && git merge origin/main), resolve any conflict in the real work, push, and come through integration again"
+  echo "HEAD ${head:0:12} does not contain origin/main $(git rev-parse --short=12 origin/main): move the item back to in_progress, merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the pushed head is not rewritten and the push needs no force), resolve any conflict in the real work, push, and come through integration again"
   exit 1
 fi
 if ! git diff --quiet origin/main "$head" -- CHANGELOG.md; then

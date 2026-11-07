@@ -20,9 +20,12 @@ candidate, the combined tree. main only ever fast-forwards to a tree the
 release tested: the tested candidate, plus the bump commit, which changes only
 the files step 3 commits. A sent-back item goes back through the loop (merge
 origin/main into the branch with `git fetch origin && git merge origin/main`,
-resolve any conflict in the real work, push, and come through integration
-again: coding gates, the full suite, a pull request), with the reason recorded
-on the item. A pushed-back item reopens; it never becomes a new story.
+never a rebase, so its pushed head is never rewritten and the push needs no
+force; resolve any conflict in the real work, push, and come through
+integration again: coding gates, the full suite, a pull request), with the
+reason recorded on the item; every send-back reason below says so. A
+pushed-back item reopens; it never becomes a new story, and its worktree stays
+(step 10 keeps the worktree of an item that is not in a terminal state).
 
 Items never edit `CHANGELOG.md`: each records its lines as an attachment named
 `changelog` (format in `satelle-pr-ready-check.md`, owned by
@@ -158,9 +161,9 @@ elif ! out=$(printf '%s\n' "$cl" | bash <(git show "$head:scripts/changelog-item
   why=${out:-the attachment is refused}
 fi
 if [ -n "$why" ]; then
-  echo "$id: send back: no valid changelog attachment on head $head: merge origin/main and record the lines with satelle story attach $id --name changelog --file - ($why)"
+  echo "$id: send back: no valid changelog attachment on head $head: merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and record the lines with satelle story attach $id --name changelog --file - ($why)"
 elif ! git diff --quiet "$tip...$head" -- CHANGELOG.md; then
-  echo "$id: send back: head $head edits CHANGELOG.md; restore it (git checkout origin/main -- CHANGELOG.md) and move the lines to the changelog attachment"
+  echo "$id: send back: head $head edits CHANGELOG.md; restore it (git checkout origin/main -- CHANGELOG.md), move the lines to the changelog attachment, and merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force)"
 else
   echo "$id: keep head $head"
 fi
@@ -178,7 +181,7 @@ candidate's current HEAD as the tip:
 - the head is already in the candidate (`git merge-base --is-ancestor <head> <tip>`; a resumed run's head already on main too): kept, contained;
 - the tip is an ancestor of the head: kept, the candidate fast-forwards to it;
 - else the head is merged onto the tip in the candidate (`--no-ff`, a merge commit; the head itself is never rewritten): kept, merged. The tip before the first merge is recorded in `$rd/ff` (the fast-forward prefix);
-- a merge that conflicts is aborted, the item is dropped from the candidate and goes on the send-back list naming the conflicting paths: "head <sha> conflicts with the release candidate after <kept ids> in: <paths>; merge origin/main into the branch, resolve, and come through integration again".
+- a merge that conflicts is aborted, the item is dropped from the candidate and goes on the send-back list naming the conflicting paths: "head <sha> conflicts with the release candidate after <kept ids> in: <paths>; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again".
 
 An item with no open pull request goes on the send-back list too. Each kept
 item is recorded `<id> <head>` in `$rd/kept`, in queue order (the landing
@@ -209,7 +212,7 @@ for id in $(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payl
   if cut -f1 "$rd/sendback" | grep -qx "$id"; then echo "$id: sent back: its changelog"; continue; fi
   head=$(printf '%s' "$prs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
   if [ -z "$head" ]; then
-    printf '%s\tno open pull request against main has a title ending (%s)\n' "$id" "$id" >>"$rd/sendback"
+    printf '%s\tno open pull request against main has a title ending (%s); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), push, open one and come through integration again\n' "$id" "$id" >>"$rd/sendback"
     echo "$id: sent back: no open pull request"; continue
   fi
   tip=$(git -C "$wt" rev-parse HEAD)
@@ -224,7 +227,7 @@ for id in $(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payl
   else
     paths=$(git -C "$wt" diff --name-only --diff-filter=U | paste -sd ' ' -)
     git -C "$wt" merge --abort 2>/dev/null
-    printf '%s\thead %s conflicts with the release candidate after %s in: %s; merge origin/main into the branch, resolve, and come through integration again\n' \
+    printf '%s\thead %s conflicts with the release candidate after %s in: %s; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again\n' \
       "$id" "$head" "${kept:-origin/main}" "${paths:-(the merge failed without unmerged paths)}" >>"$rd/sendback"
     echo "$id: sent back: head $head conflicts in: $paths"; continue
   fi
@@ -301,7 +304,7 @@ fi
 ff=$(cat "$rd/ff")
 while read -r id head; do
   git merge-base --is-ancestor "$head" "$ff" && continue
-  printf '%s\tthe release candidate %s failed make test (log in release-evidence); merge origin/main into the branch and come through integration again\n' "$id" "$cand" >>"$rd/sendback"
+  printf '%s\tthe release candidate %s failed make test (log in release-evidence); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and come through integration again\n' "$id" "$cand" >>"$rd/sendback"
 done <"$rd/kept"
 echo "make test failed on the candidate $cand (log $rd/suite.log): send back (step 2c), attach the log's tail to release-evidence and stop the run" >&2
 exit 1
@@ -450,10 +453,16 @@ cleanup task and follow its run to done:
 cd <the main checkout>
 git fetch -q origin
 satelle task run tas_b3424a1c --base origin/main
+bash scripts/clear-worktrees.sh      # the task's ACTION; its output is the run's worktree-evidence
 ```
 
-The cleanup removes each linked worktree that has no uncommitted or untracked
-change and whose HEAD is on a remote branch (so every released item's
-worktree), deletes its pushed local branch, keeps and reports any other, and
-puts the main checkout on main at origin/main. It never removes a worktree
-with work that is not pushed.
+The cleanup (`scripts/clear-worktrees.sh`) removes each linked worktree that
+has no uncommitted or untracked change, whose HEAD is on a remote branch, and
+whose branch names no item or an item in a terminal state of its own workflow
+(so every released item's worktree), deletes its local branch, keeps and
+reports any other with its reason, and puts the main checkout on main at
+origin/main. It never removes a worktree with work that is not pushed, nor the
+worktree of an item still being worked: an item sent back to in_progress keeps
+its worktree, reported `kept <path> (<branch>): item <id> is <state>, not
+terminal`. The terminal states are read from `satelle workflow show`, never
+listed here.
