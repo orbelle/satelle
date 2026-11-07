@@ -20,9 +20,11 @@ worktree. Where a story stops is configuration, never a Go default.
 The merge, release and verify lane is a task on a local trigger (a schedule,
 or a condition over story state), not a continuation of the story's drive. Task
 and story share only the PR and the story's chain; the task records its outcome
-on the story and never takes its seat or worktree. An epic releases on demand
-(`--release all|<id>,…`) through its merge step; a member left out keeps its
-status.
+on the story and never takes its seat or worktree. An epic's children release
+like any approved story: when every open child is approved the driving agent
+fires the release queue (`.satelle/skills/release.md` step 0), and the epic
+closes through its own gates once they reach done; a child the run sends back
+keeps the epic open.
 
 ## 3. Forge actions are commands the repo configures
 Opening, reviewing, approving and merging a PR are repo-declared commands
@@ -40,7 +42,7 @@ Entering a waiting step appends `queue_enqueued`; withdrawal appends
 second transport ([[satelle-sync-architecture]] §1).
 
 ## 6. Mechanism only
-satelle ships waiting steps, triggers, the queue, on-demand epic release and
+satelle ships waiting steps, triggers, the queue, queues and
 publisher seams. Merge and release policy is the repo's configuration
 ([[satelle-mechanism-vs-substrate]], [[satelle-agent-agnostic]]).
 

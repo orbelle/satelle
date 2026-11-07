@@ -19,11 +19,10 @@ Pull by story id from the payload:
 
 ```bash
 satelle story get <id>
-satelle story docs <id>
-satelle story doc <id> plan          # if present
-satelle story doc <id> ac-evidence   # if present — the per-AC realised-test map
-satelle story doc <id> release-summary  # if present
-satelle ledger list --story <id>
+satelle story attachments <id>
+satelle story attachment <id> plan          # if present
+satelle story attachment <id> ac-evidence   # if present — the per-AC realised-test map
+satelle ledger list <id>
 ```
 
 ## 2. What the ledger is evidence OF
