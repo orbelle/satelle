@@ -1,3 +1,8 @@
+## [1.0.24] - 2026-11-07
+
+### Fixed
+- A performer satelle dispatches locally (`satelle <kind> perform`, or a drive) can now edit the repo: the run is seated at `local:<worktree>` under its own `perform_<hex>` session, handed to the performer as `SATELLE_SESSION` with the worktree as `SATELLE_PROJECT_DIR`, so the installed edit-gate hook admits its Edit and Write, and the seat is released when the run ends, also on failure (sto_c943a0b4)
+
 ## [1.0.23] - 2026-11-07
 
 ### Added
