@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside a container or under its sequential = true override; otherwise the wave says who may start. Given an epic, ready it first.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic.
 ---
 
 # Agent goals
@@ -35,43 +35,61 @@ and does not change status. When it returns, this session runs the next
 `satelle story set` the workflow names. A refusal there fences source edits. The
 drive stays in this session.
 
-**One story at a time — outside a container, or when it sets sequential = true.**
-Drive a single engaged story to its terminal state before engaging another.
-Inside a container, children run in parallel by default and the wave says who
-may start; see *Driving an epic*.
+**One story at a time — outside an epic.**
+Drive a single engaged story to its terminal state before engaging another. An
+epic's children end DEV at `approved` and reach `done` together through the
+release run; see *Driving an epic*. Reason: a child reaches `done` only through
+a release run, and the release fires only once every open child is approved, so
+driving one child to its terminal state before engaging the next would
+deadlock. This is that rule's consequence, not an ordering rule.
 
 ## Driving an epic
 
-**Plan the epic first, unprompted.** When you are given an epic, or a child of an
-epic whose readiness does not hold, run `satelle story ready <epic>` first, before
-engaging any child, without waiting to be told. You own each child's delivery:
-first message the ready performer a line per child — `in-loop`, `local` for a
-subagent, or `team:<path>`, and why. `satelle story wave <epic>` prints it.
+**Children carry the work.** An epic has no plan step of its own. Each child is
+readied and delivered by its own category workflow, where its own gates judge
+it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 
-**Drive epic `<id>` to ready** walks only the container to ready; it engages no
-child. Its round is the epic's own judgement of order, parallelism and
-achievability and changes no child's status. With `ready_children` absent or true
-it also runs each backlog child's readiness round (each stays in backlog); with
-`ready_children = false` each child is planned through its own backlog → plan step
-when `satelle story wave` lets it start.
+**Drive epic `<id>` to done:**
 
-**Drive epic `<id>` to done** requires the container at its waiting step.
-`satelle story wave <id>` returns the set that may be engaged. Drive each child
-on its own category workflow to its own terminal state. Close the container only
-after the wave is empty because every child is terminal
+1. Drive each child on its own category workflow to `approved`, where DEV ends.
+2. Run the readiness block below with `EPIC_ID` replaced by the epic's id. It
+   exits 0 printing `every open child of <epic> is approved: fire the release`
+   when the epic has open children and every one is `approved`. It exits 1,
+   listing `<id> <status>` for each open child not yet approved (an earlier DEV
+   state, or blocked), when any is not: drive those first and do not fire. It
+   exits 0 printing `no open child of <epic>: close it` when no child is open.
+   It exits 2 when the epic id does not resolve or the list fails.
+3. On "fire the release", follow `.satelle/skills/release.md` from step 0 (it
+   fires the `release` queue) through step 10. The run takes every approved
+   story in the queue, the epic's children among them.
+4. After the run is `done`, run the readiness block again. When it says "close
+   it", present `satelle story set <epic> --status done`. The children-closed
+   and done-review gates judge the move.
+
+```sh
+epic=EPIC_ID
+satelle story get "$epic" >/dev/null || exit 2
+open=$(satelle story list --parent "$epic" --open --json) || exit 2
+if [ "$(printf '%s\n' "$open" | jq length)" -eq 0 ]; then
+  echo "no open child of $epic: close it"
+  exit 0
+fi
+pending=$(printf '%s\n' "$open" | jq -r '.[] | select(.status != "approved") | "\(.id) \(.status)"')
+if [ -n "$pending" ]; then
+  printf '%s\n' "$pending"
+  echo "drive these to approved before the fire" >&2
+  exit 1
+fi
+echo "every open child of $epic is approved: fire the release"
+```
+
+**A child the release sends back** is `in_progress` again, with a
+`release-sendback` attachment naming the reason (read it with
+`satelle story attachment <id> release-sendback`). The epic stays `underway`,
+because children-closed refuses the epic's done move while that child is open.
+Drive that child again to `approved` before the next fire. Then rerun the
+readiness block and fire again before closing the epic
 ([[satelle-story-classification]] defines the children).
-
-When `satelle story wave` exits non-zero, that is a **stop**: surface its reason.
-A zero exit naming children is not — drive them. Do not pick a child by `order:`,
-by the sprint, or by title; `satelle story wave` alone says who may start.
-
-You open the worktrees. Cut an independent child from the epic base, the branch
-the container was engaged on. Cut a child whose `depends-on` target is done and
-already on trunk from trunk; so too a done target
-with no branch of its own — never cut from a branch that does not exist. Cut a
-child whose target is done but not yet on trunk from that target's branch, not
-from main. A
-cancelled dependency is a stop: cut no worktree from it, do not retarget the edge.
 
 ## When an engaged story cannot satisfy its ACs
 

@@ -1,5 +1,7 @@
 # A container: its children carry the work. It may not close while a child is
 # open; that rule is the children-closed check, not Go.
+# Children reach done only through a release run; the driving agent fires it
+# per satelle-agent-goals `## Driving an epic`, then closes the epic here.
 name = "epic"
 
 [states.backlog]

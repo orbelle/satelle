@@ -9,8 +9,8 @@ description: When stories do run at once, act from each story's own worktree, ke
 # Parallel driving
 
 Prove one slice before running many on the same code ([[satelle-start-small]]);
-which children may start together is `satelle story wave`'s answer
-([[satelle-agent-goals]]). When several stories do run at once:
+an epic's children are driven to `approved` and released together
+([[satelle-agent-goals]], *Driving an epic*). When several stories do run at once:
 
 1. **Act from the story's own worktree.** An edit, commit or command is
    attributed by the tree it targets; run each story's work from its worktree,

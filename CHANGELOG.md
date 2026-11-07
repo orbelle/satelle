@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Changed
+- Driving an epic (the agent-goals principle) now ends in a release: drive each child to `approved`, run the section's readiness block, and when every open child is approved fire the release queue per `.satelle/skills/release.md` step 0; after the run is done, close the epic through its children-closed and done-review gates. A child the release sends back keeps the epic underway until it is driven to approved and released again. The section no longer names the pre-1.0 `satelle story wave`, `satelle story ready`, waiting step, epic base or trunk. (sto_dbfdef18)
+
+### Removed
+- `.satelle/skills/merge-epic.md`, the pre-1.0 epic merge skill (trunk sync, `epic/<id>` branches, `--release`), with the release-review branch-only path and the other references to it; the lessons skill reads attachments with the v1 verbs. (sto_dbfdef18)
+
 ## [1.0.13] - 2026-11-06
 
 ### Added

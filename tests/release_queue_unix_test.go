@@ -21,6 +21,13 @@ import (
 // fence, with its task= line rebound to task.
 func shBlock(t *testing.T, rel, heading, task string) string {
 	t.Helper()
+	return shBlockVar(t, rel, heading, "task", task)
+}
+
+// shBlockVar returns the first ```sh block after heading in a repo file, fence
+// to fence, with its single name= line rebound to value.
+func shBlockVar(t *testing.T, rel, heading, name, value string) string {
+	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
 	if err != nil {
 		t.Fatal(err)
@@ -41,11 +48,11 @@ func shBlock(t *testing.T, rel, heading, task string) string {
 	if !ok {
 		t.Fatalf("%s: unclosed sh block", rel)
 	}
-	re := regexp.MustCompile(`(?m)^task=\S+$`)
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `=\S+$`)
 	if len(re.FindAllString(block, -1)) != 1 {
-		t.Fatalf("%s: the block has no single task= line:\n%s", rel, block)
+		t.Fatalf("%s: the block has no single %s= line:\n%s", rel, name, block)
 	}
-	return re.ReplaceAllString(block, "task="+task)
+	return re.ReplaceAllString(block, name+"="+value)
 }
 
 // The release procedure's step 0, run as written, fires the release run from
