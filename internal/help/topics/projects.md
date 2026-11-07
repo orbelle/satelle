@@ -18,7 +18,8 @@ and body are passed through unchanged. A project with no binding is refused
 (FAILED_PRECONDITION).
 
 The app that reviews this repo's pull requests is the satelle GitHub app (app
-5379260, satelle[bot]).
+5379260, satelle[bot]). The approval check matches that account, satelle[bot]
+(id 344745317); reviews by orbelle-reviewer, an internal app, never count.
 
 satelled keeps one partition per project it has been sent:
 `satelle project partitions` lists them and `satelle project prune <repo_key>`
