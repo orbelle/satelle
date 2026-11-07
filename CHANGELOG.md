@@ -1,3 +1,8 @@
+## [1.0.23] - 2026-11-07
+
+### Added
+- `satelle remote fire <id> <item> [--steps N]` runs a docker-local remote here, with no satelle-server, sign-in or bound project. The node runs in a container built from the repo's `Dockerfile` (`satelle-node:local`), seated at `remote:<node>` and inspectable with `docker exec`. Its chain comes back verified, and `remote status` shows the run. `.satelle/remotes/docker-probe` is the smallest example. (sto_251b9f7b)
+
 ## [1.0.22] - 2026-11-07
 
 ### Changed
