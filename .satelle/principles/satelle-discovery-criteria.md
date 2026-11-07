@@ -25,4 +25,4 @@ reviewer cites.
   verbatim; the definition check prints the exact command. Never reword them:
   a change goes back through plan → backlog and readiness.
 
-See [[satelle-agent-goals]], [[satelle-edits-require-a-story]].
+See [[satelle-agent-goals]].

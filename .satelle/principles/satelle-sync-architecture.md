@@ -147,4 +147,4 @@ driving session then amends this principle under a `substrate` story (so the
 change is reviewed like any other), and re-presents the plan against the
 amended text. A plan never departs from this document silently.
 
-See [[satelle-mechanism-vs-substrate]], [[satelle-no-drifting-docs]].
+See [[satelle-mechanism-vs-substrate]].

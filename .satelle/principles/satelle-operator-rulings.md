@@ -7,8 +7,9 @@ description: The operator's standing rulings for satelle v1. Every session and d
 
 # Operator rulings (satelle v1)
 
-Recorded 2026-11-06. These hold until the operator changes them; a change is
-itself reviewed (see *Directives are reviewed*).
+Recorded 2026-11-06; later rulings sit under the date they were made. These hold
+until the operator changes them; a change is itself reviewed (see *Directives
+are reviewed*).
 
 - **Process lives in configuration, never in Go.** The binary is a stateless,
   generic kernel: items, workflows, gates as skills, agents with grants, a
@@ -73,3 +74,19 @@ itself reviewed (see *Directives are reviewed*).
   an agent resuming takes the lowest open one unless told otherwise.
 - **Never work around a block.** A gate, hook or fence that refuses is either
   right or a gap; raise a story for the gap and record any manual step taken.
+
+## 2026-11-07
+
+- **Testing, not coding, is the bottleneck.** Effort and review go to proving a
+  change: tests, gates and evidence. Writing code is the cheap part
+  (operator, 2026-11-07).
+- **The outer loop.** The human is involved at the start (the story and its
+  criteria) and at confirming the result; the agent drives everything in
+  between through the gates (operator, 2026-11-07).
+- **Only approved stories are released.** A release takes items at `approved`,
+  and nothing short of it ships (operator, 2026-11-07).
+- **satelle-cicd is reference only.** `.satelle/remotes/satelle-cicd` is the
+  pre-1.0 remote kept for reference; nothing dispatches it, and its text is not
+  part of the process (operator, 2026-11-07).
+- **The user-facing GitHub app is satelle (5379260); orbelle-reviewer is
+  internal** (operator, 2026-11-07).

@@ -13,7 +13,7 @@ every reviewer gate on the path accepted. **Status is the sole proof of done.**
 
 Do not patch status to skip a gate or invent process the workflow did not
 configure. When a **structural** gap blocks the loop (bad config, a missing gate
-skill), **surface it and stop**: [[satelle-review-structure-not-process]].
+skill), **surface it and stop**.
 
 **A block is never worked around:** when a gate, hook deny, the edit gate, the
 cross-repo fence or a harness refusal blocks an action, raise the work as a story
@@ -88,8 +88,7 @@ echo "every open child of $epic is approved: fire the release"
 `satelle story attachment <id> release-sendback`). The epic stays `underway`,
 because children-closed refuses the epic's done move while that child is open.
 Drive that child again to `approved` before the next fire. Then rerun the
-readiness block and fire again before closing the epic
-([[satelle-story-classification]] defines the children).
+readiness block and fire again before closing the epic.
 
 ## When an engaged story cannot satisfy its ACs
 
@@ -105,4 +104,4 @@ Do **not** weaken the ACs (definition freeze). Diagnose:
 
 Relations are **tags** only.
 
-See [[satelle-agent-model]], [[satelle-done-is-last]], [[satelle-local-first]], [[satelle-constitution]].
+See [[satelle-operator-rulings]] and the constitution (`.satelle/constitution.md`).
