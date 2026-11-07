@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gittest"
@@ -275,12 +276,27 @@ func (s *sandbox) write(rel, body string) {
 	writeFile(s.t, filepath.Join(s.dir, rel), body, 0o644)
 }
 
+// writeFile writes a test fixture file, creating its directory. Every
+// executable the suite writes (fake git, gh, docker, claude and other
+// scripts) must go through here: a file with an execute bit is written under
+// syscall.ForkLock held for reading, so no child forked concurrently by
+// another parallel test inherits its open write fd. Such an inherited fd makes
+// an immediate exec of the fake fail with ETXTBSY, "text file busy"
+// (golang/go#22315).
 func writeFile(t *testing.T, p, body string, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(body), mode); err != nil {
+	exe := mode&0o111 != 0
+	if exe {
+		syscall.ForkLock.RLock()
+	}
+	err := os.WriteFile(p, []byte(body), mode)
+	if exe {
+		syscall.ForkLock.RUnlock()
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 }
