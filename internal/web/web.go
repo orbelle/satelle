@@ -56,15 +56,18 @@ func getTheme(w http.ResponseWriter, r *http.Request) {
 }
 
 type pageData struct {
-	RepoRoot     string
-	ProjectName  string
-	DBPath       string
-	Stories      []rowVM
+	RepoRoot    string
+	ProjectName string
+	DBPath      string
+	Stories     []rowVM
+	// BacklogCount is the number of stories in backlog, the Stories tab's
+	// 'N backlog' badge; rendered at page load and refetched live.
 	BacklogCount int
-	// EngagementCount is the number of non-stale story seats (typically 0 or 1).
+	// EngagementCount is the number of stories in a non-terminal state that hold
+	// a non-stale seat; a task run's seat is not counted (Activity shows it).
 	// Always rendered in project chrome — 0 is visible, not hidden (sty_01ba9482).
 	EngagementCount int
-	// EngagedStoryIDs lists those seat item ids (sorted); empty when count is 0.
+	// EngagedStoryIDs lists those seated stories' ids (sorted); empty when count is 0.
 	EngagedStoryIDs []string
 	Tasks           []rowVM
 	Queues          []queueVM

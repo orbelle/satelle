@@ -224,6 +224,7 @@ func TestRoutesAllAnswer(t *testing.T) {
 		"/r/proj/fragment/activity":         200,
 		"/r/proj/fragment/docs":             200,
 		"/r/proj/fragment/engagement":       200,
+		"/r/proj/fragment/backlog":          200,
 		"/r/proj/fragment/story/sto_1":      200,
 		"/r/proj/fragment/execution/exe_1":  200,
 		"/r/proj/fragment/workflow/flow":    200,
