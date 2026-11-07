@@ -2,12 +2,17 @@ package cache
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -188,19 +193,9 @@ func TestSchemaRejectsDuplicateEventID(t *testing.T) {
 	}
 }
 
-// A v2 cache that already holds an event twice is rebuilt clean on open.
-func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
-	dir := t.TempDir()
-	l, _ := ledger.Open(dir)
-	e, _ := l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr("A")})
-	size, _ := l.Size("a")
-
-	path := filepath.Join(dir, "cache.db")
-	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v2 := `
+// v2Schema is the v2 cache DDL (no events_id unique index), stamped v2: the
+// shape a pre-v3 binary writes.
+const v2Schema = `
 CREATE TABLE files (item TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE items (
 	id TEXT PRIMARY KEY, kind TEXT, title TEXT, body TEXT, criteria TEXT, status TEXT,
@@ -216,7 +211,20 @@ CREATE TABLE seats (
 CREATE TABLE attachments (
 	item TEXT, name TEXT, sha256 TEXT, size INTEGER, media_type TEXT, at TEXT, actor TEXT);
 PRAGMA user_version = 2;`
-	if _, err := db.Exec(v2); err != nil {
+
+// A v2 cache that already holds an event twice is rebuilt clean on open.
+func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := ledger.Open(dir)
+	e, _ := l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr("A")})
+	size, _ := l.Size("a")
+
+	path := filepath.Join(dir, "cache.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(v2Schema); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -317,5 +325,205 @@ func TestConcurrentSyncIngestsEachEventOnce(t *testing.T) {
 		if !reflect.DeepEqual(eventIDs(got), eventIDs(want)) {
 			t.Fatalf("%s: cache %v ledger %v", id, eventIDs(got), eventIDs(want))
 		}
+	}
+}
+
+// masterNames lists the tables and indexes in db, read from sqlite_master.
+func masterNames(t *testing.T, db *sql.DB) map[string]bool {
+	t.Helper()
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type IN ('table', 'index')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	names := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		names[n] = true
+	}
+	return names
+}
+
+// An older binary (simulated: the cache is stamped one version past this
+// binary's schemaVersion) refuses the cache, naming both versions and the
+// binary to update, and drops nothing.
+func TestOlderBinaryRefusesNewerCache(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := ledger.Open(dir)
+	l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr("A"), Status: ptr("s0")})
+	l.Append("a", item.KindTransitioned, "me", item.Move{From: "s0", To: "s1"})
+	path := filepath.Join(dir, "cache.db")
+	c, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Sync(l); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+
+	newer := schemaVersion + 1
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, newer)); err != nil {
+		t.Fatal(err)
+	}
+	counts := func() (events, items int) {
+		t.Helper()
+		if err := db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(`SELECT COUNT(*) FROM items`).Scan(&items); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	events0, items0 := counts()
+	if events0 != 2 || items0 != 1 {
+		t.Fatalf("setup counts events %d items %d", events0, items0)
+	}
+
+	c, err = Open(path)
+	if err == nil {
+		c.Close()
+		t.Fatal("an older binary opened a newer cache")
+	}
+	var tooNew *SchemaTooNewError
+	if !errors.As(err, &tooNew) {
+		t.Fatalf("error %v is not a SchemaTooNewError", err)
+	}
+	if tooNew.Cache != newer || tooNew.Binary != schemaVersion {
+		t.Fatalf("versions cache %d binary %d", tooNew.Cache, tooNew.Binary)
+	}
+	msg := err.Error()
+	for _, want := range []string{fmt.Sprintf("v%d", newer), fmt.Sprintf("v%d", schemaVersion), buildinfo.Resolve().Name} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q does not name %q", msg, want)
+		}
+	}
+
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != newer {
+		t.Fatalf("user_version %d (%v), want %d", version, err, newer)
+	}
+	names := masterNames(t, db)
+	for _, want := range append(append([]string{}, tables...), "events_id") {
+		if !names[want] {
+			t.Errorf("%s was dropped", want)
+		}
+	}
+	if events, items := counts(); events != events0 || items != items0 {
+		t.Fatalf("counts events %d items %d, want %d %d", events, items, events0, items0)
+	}
+	db.Close()
+}
+
+// TestCacheOpenHelperProcess is not a test: TestConcurrentOpenDuringMigration
+// re-execs the test binary into it, so each opener is a real OS process. It
+// opens the cache and syncs the ledger, exiting 1 on any error.
+func TestCacheOpenHelperProcess(t *testing.T) {
+	dbPath := os.Getenv("SATELLE_CACHE_HELPER_DB")
+	if dbPath == "" {
+		return
+	}
+	fail := func(err error) {
+		fmt.Fprintln(os.Stderr, "helper:", err)
+		os.Exit(1)
+	}
+	l, err := ledger.Open(os.Getenv("SATELLE_CACHE_HELPER_LEDGER"))
+	if err != nil {
+		fail(err)
+	}
+	c, err := Open(dbPath)
+	if err != nil {
+		fail(err)
+	}
+	if err := c.Sync(l); err != nil {
+		fail(err)
+	}
+	if err := c.Close(); err != nil {
+		fail(err)
+	}
+	os.Exit(0)
+}
+
+// Several processes opening a v2 cache at once race through the v2 -> v3
+// migration; every one of them opens and inserts without error, and the
+// result is one complete v3 cache.
+func TestConcurrentOpenDuringMigration(t *testing.T) {
+	const procs, rounds = 4, 10
+	dir := t.TempDir()
+	ledgerDir := filepath.Join(dir, "ledger")
+	l, err := ledger.Open(ledgerDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for i := 0; i < 6; i++ {
+		id := fmt.Sprintf("i%d", i)
+		l.Append(id, item.KindCreated, "me", item.Fields{Kind: ptr("k"), Title: ptr(id), Status: ptr("s0")})
+		l.Append(id, item.KindTransitioned, "me", item.Move{From: "s0", To: "s1"})
+		l.Append(id, item.KindTransitioned, "me", item.Move{From: "s1", To: "s2"})
+		total += 3
+	}
+
+	for round := 0; round < rounds; round++ {
+		path := filepath.Join(dir, fmt.Sprintf("cache-%d.db", round))
+		// WAL, as every cache satelle writes is (Open's DSN sets it).
+		db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(v2Schema); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+
+		cmds := make([]*exec.Cmd, procs)
+		outs := make([]*strings.Builder, procs)
+		for i := range cmds {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestCacheOpenHelperProcess$", "-test.count=1")
+			cmd.Env = append(os.Environ(), "SATELLE_CACHE_HELPER_DB="+path, "SATELLE_CACHE_HELPER_LEDGER="+ledgerDir)
+			outs[i] = &strings.Builder{}
+			cmd.Stdout, cmd.Stderr = outs[i], outs[i]
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			cmds[i] = cmd
+		}
+		for i, cmd := range cmds {
+			if err := cmd.Wait(); err != nil {
+				t.Errorf("round %d: opener %d: %v\n%s", round, i, err, outs[i].String())
+			}
+		}
+		if t.Failed() {
+			t.FailNow()
+		}
+
+		c, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var version int
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != schemaVersion {
+			t.Fatalf("round %d: user_version %d (%v)", round, version, err)
+		}
+		if !masterNames(t, c.db)["events_id"] {
+			t.Fatalf("round %d: events_id index missing", round)
+		}
+		noDuplicateIDs(t, c)
+		all, err := c.Events("", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != total {
+			t.Fatalf("round %d: cache holds %d events, ledger %d", round, len(all), total)
+		}
+		c.Close()
 	}
 }

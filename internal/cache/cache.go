@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 
@@ -38,17 +39,44 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 `
 
-// schemaVersion changes whenever schema does; a cache of another version is
-// dropped and rebuilt from the ledger on its next Sync. v3 makes an event id
-// unique in events (events_id), so a cache never holds an event twice.
+// schemaVersion changes whenever schema does. A cache of a lower version is
+// dropped and recreated in one immediate transaction, then rebuilt from the
+// ledger on its next Sync. A cache of a higher version was written by a newer
+// binary: Open refuses it with SchemaTooNewError and never lowers it. v3
+// makes an event id unique in events (events_id), so a cache never holds an
+// event twice.
 const schemaVersion = 3
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
+// SchemaTooNewError is Open's refusal of a cache whose schema is newer than
+// this binary's: an older binary never lowers the cache, it asks to be
+// updated instead.
+type SchemaTooNewError struct {
+	Path   string
+	Cache  int    // the cache's PRAGMA user_version
+	Binary int    // this binary's schemaVersion
+	Build  string // this binary's build identity (buildinfo)
+}
+
+func (e *SchemaTooNewError) Error() string {
+	return fmt.Sprintf("cache: %s is at schema v%d, newer than v%d that this binary understands; it was written by a newer satelle — update %s to the release that wrote it (an older satelle never lowers the cache)",
+		e.Path, e.Cache, e.Binary, e.Build)
+}
+
+func tooNew(path string, version int) error {
+	return &SchemaTooNewError{Path: path, Cache: version, Binary: schemaVersion, Build: buildinfo.Resolve().String()}
+}
+
 // Cache is an open cache database.
 type Cache struct{ db *sql.DB }
 
-// Open opens (creating) the cache at path.
+// Open opens (creating) the cache at path. A cache at this binary's schema
+// version opens with no write. A lower one (or a new file) is migrated: the
+// version re-check, the drops, the create and the version stamp run in one
+// immediate transaction, so a concurrent opener sees either the old cache or
+// the new one. A higher one is refused with SchemaTooNewError and nothing is
+// dropped.
 func Open(path string) (*Cache, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("cache: %w", err)
@@ -59,24 +87,61 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("cache: open %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	if err := migrate(db, path); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("cache: %w", err)
-	}
-	if version != schemaVersion {
-		for _, t := range tables {
-			if _, err := db.Exec(`DROP TABLE IF EXISTS ` + t); err != nil {
-				db.Close()
-				return nil, fmt.Errorf("cache: %w", err)
-			}
-		}
-	}
-	if _, err := db.Exec(schema + fmt.Sprintf("PRAGMA user_version = %d;", schemaVersion)); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("cache: schema: %w", err)
+		return nil, err
 	}
 	return &Cache{db: db}, nil
+}
+
+// migrate brings the cache at db to schemaVersion, or refuses a newer one.
+// The cheap check runs outside any lock; the decision is re-made under
+// BEGIN IMMEDIATE (the DSN's _txlock), as syncItem does.
+func migrate(db *sql.DB, path string) error {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("cache: %w", err)
+	}
+	switch {
+	case version > schemaVersion:
+		return tooNew(path, version)
+	case version == schemaVersion:
+		return nil // the schema committed with its version stamp: complete.
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("cache: %w", err)
+	}
+	defer tx.Rollback()
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("cache: %w", err)
+	}
+	switch {
+	case version > schemaVersion: // a newer binary migrated while we waited
+		return tooNew(path, version)
+	case version == schemaVersion: // another opener migrated while we waited
+		return tx.Commit()
+	}
+	for _, t := range tables {
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + t); err != nil {
+			return fmt.Errorf("cache: %w", err)
+		}
+	}
+	for _, stmt := range strings.Split(schema, ";") {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("cache: schema: %w", err)
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
+		return fmt.Errorf("cache: schema: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("cache: %w", err)
+	}
+	return nil
 }
 
 // Close closes the database.
