@@ -24,6 +24,8 @@ const (
 	// SessionEnv names the session a CLI call acts for when no harness hook
 	// input supplies one.
 	SessionEnv = "SATELLE_SESSION"
+	// ProjectDirEnv pins the working tree a hook judges an edit in.
+	ProjectDirEnv = "SATELLE_PROJECT_DIR"
 )
 
 // SessionFromEnv returns the trimmed SATELLE_SESSION value, or "".

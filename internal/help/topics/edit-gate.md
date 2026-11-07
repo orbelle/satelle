@@ -11,6 +11,12 @@ current state has a performer**:
 The session id comes from the harness's hook payload, or from
 `SATELLE_SESSION`; the context hook prints it at session start.
 
+A performer satelle dispatches here (`satelle <kind> perform`, or a drive) is
+seated for its run as session `perform_<hex>` at `local:<worktree>`. It
+receives the session as `SATELLE_SESSION` and the worktree as
+`SATELLE_PROJECT_DIR`, and the seat is released when the run ends, also on
+failure.
+
 Always and never:
 
 - `[gate] edit_exempt_paths` (globs relative to the worktree) are always allowed.

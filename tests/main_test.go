@@ -25,6 +25,8 @@ import (
 var (
 	satelleBin  string
 	satelledBin string
+	// hookHarnessBin is a claude stand-in that runs the installed hooks.
+	hookHarnessBin string
 )
 
 func TestMain(m *testing.M) {
@@ -44,7 +46,8 @@ func buildAndRun(m *testing.M) int {
 	}
 	satelleBin = filepath.Join(dir, "satelle"+exe)
 	satelledBin = filepath.Join(dir, "satelled"+exe)
-	for bin, pkg := range map[string]string{satelleBin: "../cmd/satelle", satelledBin: "../cmd/satelled"} {
+	hookHarnessBin = filepath.Join(dir, "hookharness"+exe)
+	for bin, pkg := range map[string]string{satelleBin: "../cmd/satelle", satelledBin: "../cmd/satelled", hookHarnessBin: "./testdata/hookharness"} {
 		cmd := exec.Command("go", "build", "-o", bin, pkg)
 		// Static, so the docker-local test can mount it into a small image.
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")

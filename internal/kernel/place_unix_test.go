@@ -423,3 +423,167 @@ func TestCollectRefusesABranchThatAddsNothing(t *testing.T) {
 		}
 	}
 }
+
+// probeDispatcher runs probe inside Dispatch, while a local run is seated.
+type probeDispatcher struct {
+	probe func(ctx context.Context, req agent.Request) (agent.Result, error)
+}
+
+func (p probeDispatcher) Dispatch(ctx context.Context, _ agent.Role, req agent.Request) (agent.Result, error) {
+	return p.probe(ctx, req)
+}
+
+// movedGit is a checkout whose HEAD has moved past the recorded base.
+type movedGit struct{ fakeGit }
+
+func (movedGit) Head() (string, error) { return "def456", nil }
+
+func envValue(env []string, key string) (string, bool) {
+	v, ok := "", false
+	for _, kv := range env {
+		if rest, found := strings.CutPrefix(kv, key+"="); found {
+			v, ok = rest, true
+		}
+	}
+	return v, ok
+}
+
+func TestPerformLocalSeatsTheRun(t *testing.T) {
+	for _, driver := range []bool{false, true} {
+		t.Run(map[bool]string{false: "alone", true: "beside a driver"}[driver], func(t *testing.T) {
+			k, _ := lineKernel(t, "", "")
+			it := newItem(t, k)
+			if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
+				t.Fatal(err)
+			}
+			if driver {
+				if _, err := k.Seat(it.ID, "driver", LocalLocation(k.Dir), "", "ada"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// HEAD moves on: a seat taken at HEAD would move the judged base.
+			k.Git = movedGit{}
+			ran := false
+			k.Dispatcher = probeDispatcher{probe: func(_ context.Context, req agent.Request) (agent.Result, error) {
+				ran = true
+				session, ok := envValue(req.Env, "SATELLE_SESSION")
+				if !ok || !strings.HasPrefix(session, "perform_") {
+					t.Fatalf("SATELLE_SESSION = %q (%v) in %v", session, ok, req.Env)
+				}
+				if dir, _ := envValue(req.Env, "SATELLE_PROJECT_DIR"); dir != k.Dir {
+					t.Fatalf("SATELLE_PROJECT_DIR = %q, want %q", dir, k.Dir)
+				}
+				seats, err := k.Cache.Seats(session, it.ID)
+				if err != nil || len(seats) != 1 || seats[0].Location != LocalLocation(k.Dir) {
+					t.Fatalf("performer seats = %+v, %v", seats, err)
+				}
+				all, _ := k.Cache.Seats("", it.ID)
+				if want := map[bool]int{false: 1, true: 2}[driver]; len(all) != want {
+					t.Fatalf("seats on the item = %+v, want %d", all, want)
+				}
+				cur, events, err := k.load(it.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The performer's seat carries the recorded base (the driver's,
+				// else the create commit), so it never moves what gates judge.
+				if base, _ := k.base(cur, events); base != "abc123" || seats[0].Base != "abc123" {
+					t.Fatalf("base while performing = %q, performer seat base %q, want abc123", base, seats[0].Base)
+				}
+				return agent.Result{Text: "did it"}, nil
+			}}
+			if _, err := k.Perform(context.Background(), it.ID, "ada"); err != nil || !ran {
+				t.Fatalf("perform = %v (ran %v)", err, ran)
+			}
+		})
+	}
+}
+
+func TestPerformLocalReleasesTheSeat(t *testing.T) {
+	boom := errors.New("performer broke")
+	cases := []struct {
+		name  string
+		probe func(ctx context.Context) (agent.Result, error)
+		ctx   func() context.Context
+		fails string
+		panic bool
+		// unseat releases the run's seat from under it, so the release
+		// after a successful run fails and that error is the run's.
+		unseat bool
+		also   string // a second error the run's must carry
+	}{
+		{name: "success", probe: func(context.Context) (agent.Result, error) { return agent.Result{Text: "did it"}, nil }},
+		{name: "error", probe: func(context.Context) (agent.Result, error) { return agent.Result{}, boom }, fails: boom.Error()},
+		{name: "cancelled", probe: func(ctx context.Context) (agent.Result, error) { return agent.Result{}, ctx.Err() },
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			}, fails: context.Canceled.Error()},
+		{name: "panic", probe: func(context.Context) (agent.Result, error) { panic("performer panicked") }, panic: true},
+		{name: "release fails", probe: func(context.Context) (agent.Result, error) { return agent.Result{Text: "did it"}, nil },
+			unseat: true, fails: "holds no seat"},
+		{name: "run and release fail", probe: func(context.Context) (agent.Result, error) { return agent.Result{}, boom },
+			unseat: true, fails: boom.Error(), also: "holds no seat"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			k, _ := lineKernel(t, "", "")
+			it := newItem(t, k)
+			if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
+				t.Fatal(err)
+			}
+			k.Dispatcher = probeDispatcher{probe: func(ctx context.Context, req agent.Request) (agent.Result, error) {
+				if seats, _ := k.Cache.Seats("", it.ID); len(seats) != 1 {
+					t.Fatalf("seats during the run = %+v", seats)
+				}
+				if c.unseat {
+					session, _ := envValue(req.Env, "SATELLE_SESSION")
+					if err := k.Release(it.ID, session, "ada"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return c.probe(ctx)
+			}}
+			ctx := context.Background()
+			if c.ctx != nil {
+				ctx = c.ctx()
+			}
+			var err error
+			func() {
+				defer func() {
+					if r := recover(); (r != nil) != c.panic {
+						t.Fatalf("recovered %v, want a panic %v", r, c.panic)
+					}
+				}()
+				_, err = k.Perform(ctx, it.ID, "ada")
+			}()
+			if seats, serr := k.Cache.Seats("", it.ID); serr != nil || len(seats) != 0 {
+				t.Fatalf("seats after the run = %+v, %v", seats, serr)
+			}
+			if c.panic {
+				return
+			}
+			if c.fails == "" && err != nil || c.fails != "" && (err == nil || !strings.Contains(err.Error(), c.fails)) {
+				t.Fatalf("perform = %v, want %q", err, c.fails)
+			}
+			if c.also != "" && !strings.Contains(err.Error(), c.also) {
+				t.Fatalf("perform = %v, want it to carry %q too", err, c.also)
+			}
+			got := strings.Join(kinds(t, k, it.ID), " ")
+			if !strings.Contains(got, item.KindSeatBound+" "+item.KindSeatReleased+" "+KindPerformerRun) {
+				t.Fatalf("events = %s", got)
+			}
+			events, _ := k.Ledger.Read(it.ID)
+			var run PerformerRun
+			for _, e := range events {
+				if e.Kind == KindPerformerRun {
+					_ = e.Decode(&run)
+				}
+			}
+			if (run.Error != "") != (c.fails != "") || run.Location != "" {
+				t.Fatalf("performer.run = %+v", run)
+			}
+		})
+	}
+}

@@ -70,8 +70,5 @@ func canonical(p string) string {
 	return filepath.Clean(p)
 }
 
-// localLocation is the seat location of a working tree.
-func localLocation(tree string) string { return "local:" + canonical(tree) }
-
 // sessionFromEnv is SATELLE_SESSION.
 func sessionFromEnv() string { return config.SessionFromEnv() }

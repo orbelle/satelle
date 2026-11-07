@@ -698,7 +698,7 @@ item's branch does not widen the diff.`,
 				return errors.New("no session: pass --session or set SATELLE_SESSION")
 			}
 			if location == "" {
-				location = localLocation(r.Tree)
+				location = kernel.LocalLocation(r.Tree)
 			}
 			s, err := k.Seat(args[0], session, location, base, actor())
 			if err != nil {

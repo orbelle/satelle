@@ -217,8 +217,12 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 			t.Errorf("record folder %s was left behind", f)
 		}
 	}
-	if env := strings.Join(d.reqs[0].Env, " "); env != "NOTE="+nodeSecret {
-		t.Fatalf("the performer's env = %q, want the run's secrets", env)
+	// The run's secrets, and the session the node seated the run under with
+	// its tree, for the performer's edit gate.
+	env := strings.Join(d.reqs[0].Env, " ")
+	if len(d.reqs[0].Env) != 3 || !strings.Contains(env, "NOTE="+nodeSecret) ||
+		!strings.Contains(env, "SATELLE_SESSION=perform_") || !strings.Contains(env, "SATELLE_PROJECT_DIR="+dir) {
+		t.Fatalf("the performer's env = %q, want the run's secrets and its seat", env)
 	}
 
 	got := strings.Join(methods(l.srv, "node-tok"), " ")

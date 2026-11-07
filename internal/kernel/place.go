@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -66,6 +68,41 @@ type BranchGit interface {
 // ErrCloudByHand is returned by Perform for a cloud-placed step when no
 // launcher is configured: the operator starts the session.
 var ErrCloudByHand = errors.New("no cloud launcher")
+
+// LocalLocation is the seat location of a working tree: local: and the tree's
+// canonical path, so locations compare equal however the tree was reached.
+func LocalLocation(tree string) string {
+	if abs, err := filepath.Abs(tree); err == nil {
+		tree = abs
+	}
+	if r, err := filepath.EvalSymlinks(tree); err == nil {
+		tree = r
+	}
+	return LocationLocal + filepath.Clean(tree)
+}
+
+// performLocal runs a step here: the run is seated at local:<tree> under a
+// session of its own, handed to the performer as SATELLE_SESSION with the tree
+// as SATELLE_PROJECT_DIR, so its harness's edit gate admits its edits. The
+// seat carries the item's recorded base, so it never moves what the gates
+// judge, and it is released when the run ends, also on failure or panic.
+func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger.Event, req agent.Request, actor string) (res agent.Result, err error) {
+	session := item.NewID("perform")
+	base, ref := k.base(it, events)
+	if _, err := k.bindSeat(it.ID, item.Seat{Session: session, Location: LocalLocation(k.Dir), Base: base, BaseRef: ref}, actor); err != nil {
+		return agent.Result{}, err
+	}
+	defer func() {
+		rerr := k.Release(it.ID, session, actor)
+		if err == nil {
+			err = rerr
+		} else if rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+	}()
+	req.Env = append(append([]string{}, req.Env...), config.SessionEnv+"="+session, config.ProjectDirEnv+"="+k.Dir)
+	return k.Dispatcher.Dispatch(ctx, agent.Perform, req)
+}
 
 // performRemote runs a step on a node: the node holds a remote:<node> seat for
 // the run.

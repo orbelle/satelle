@@ -373,6 +373,22 @@ func (k *Kernel) Attach(id, name string, data []byte, mediaType, actor string) (
 // diff is judged from, is baseRef's commit when given (it must be in HEAD's
 // history), else HEAD. A terminal item takes no seat.
 func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, error) {
+	s := item.Seat{Session: session, Location: location}
+	if baseRef != "" {
+		base, err := k.seatBase(baseRef)
+		if err != nil {
+			return item.Seat{}, err
+		}
+		s.Base, s.BaseRef = base, baseRef
+	} else if k.Git != nil {
+		s.Base, _ = k.Git.Head()
+	}
+	return k.bindSeat(id, s, actor)
+}
+
+// bindSeat appends s, whose base is already resolved, as a seat on the item.
+func (k *Kernel) bindSeat(id string, s item.Seat, actor string) (item.Seat, error) {
+	session, location := s.Session, s.Location
 	it, err := k.Get(id)
 	if err != nil {
 		return item.Seat{}, err
@@ -393,15 +409,6 @@ func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, 
 	}
 	if w.States[it.Status].Terminal {
 		return item.Seat{}, fmt.Errorf("item %s is in terminal state %q", id, it.Status)
-	}
-	s := item.Seat{Session: session, Location: location}
-	if baseRef != "" {
-		if s.Base, err = k.seatBase(baseRef); err != nil {
-			return item.Seat{}, err
-		}
-		s.BaseRef = baseRef
-	} else if k.Git != nil {
-		s.Base, _ = k.Git.Head()
 	}
 	e, err := k.append(id, item.KindSeatBound, actor, s)
 	s.Item, s.BoundAt = id, e.At
@@ -441,6 +448,7 @@ type PerformerRun struct {
 
 // Perform dispatches the current state's performer and records the run. A
 // state performed by the session is refused: the session does that work. A
+// local run is seated at local:<tree> under its own session for the run. A
 // binding placed remote:<id> runs on a node of that remote (k.Remote); one
 // placed in the cloud starts a cloud session (k.Cloud) seated at cloud:<url>.
 // An answer ending in an {"artifact":{name,type,body}} object also attaches
@@ -496,7 +504,7 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 			return res, runErr
 		}
 	default:
-		res, runErr = k.Dispatcher.Dispatch(ctx, agent.Perform, req)
+		res, runErr = k.performLocal(ctx, it, events, req, actor)
 	}
 	var art *agent.Artifact
 	if runErr == nil {

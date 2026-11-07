@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
@@ -50,8 +51,9 @@ each prompt; stopcheck answers the Stop event.`,
 	return cmd
 }
 
-// hookSession is the session a hook acts for: SATELLE_SESSION (a dispatched
-// agent carries its driver's), else the harness payload's.
+// hookSession is the session a hook acts for: SATELLE_SESSION (a performer
+// Perform dispatches carries the session seated for its run), else the harness
+// payload's.
 func hookSession(in hook.Input) string {
 	if s := sessionFromEnv(); s != "" {
 		return s
@@ -62,7 +64,7 @@ func hookSession(in hook.Input) string {
 // hookDir is the directory the session works in: the harness's pinned project
 // dir, else the payload's cwd, else the process's.
 func hookDir(in hook.Input) string {
-	for _, k := range []string{"SATELLE_PROJECT_DIR", "CLAUDE_PROJECT_DIR"} {
+	for _, k := range []string{config.ProjectDirEnv, "CLAUDE_PROJECT_DIR"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 			return v
 		}
@@ -141,7 +143,7 @@ func seated(k *kernel.Kernel, session, tree string) bool {
 	if err != nil {
 		return false
 	}
-	want := localLocation(tree)
+	want := kernel.LocalLocation(tree)
 	for _, s := range seats {
 		if s.Location != want {
 			continue
