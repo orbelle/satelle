@@ -1,3 +1,12 @@
+## [1.0.17] - 2026-11-07
+
+### Changed
+- Every `[[link]]` in the constitution and the principles now names an existing principle, proved by the integration test `TestPrincipleLinksResolve`: the constitution's two links resolve to the new `satelle-story-shape` (a story is one behaviour whose criteria meet it, each provable at its gate) and `satelle-start-small` (the smallest change that proves the behaviour; prove -> validate -> scale) principles, ten other dead links in the principles are repointed or removed, and `satelle-operator-rulings` records the five 2026-11-07 rulings (testing is the bottleneck, the outer loop, only approved stories are released, satelle-cicd is reference only, the user-facing GitHub app is satelle 5379260 and orbelle-reviewer is internal). (sto_c7d30153)
+
+### Fixed
+- A queue's explicit member lapses when its item moves on, so a fire no longer takes a sent-back or done item: a member a state enqueued lapses once the item leaves that state, one added by hand or by an external producer lapses at a terminal state, `queue show` lists lapsed members as `left: <status>`, re-entering the state enqueues the item again, and `queue add` refuses an item already terminal. (sto_f6e94fea)
+- The cache no longer rebuilds unsafely when its schema version differs from the binary's: an older satelle now refuses a newer cache, naming both schema versions and the binary to update, instead of lowering it, and a migration's version check, drops and create run in one immediate transaction, so a concurrent process sees either the old cache or the new one (sto_ef03e445)
+
 ## [1.0.16] - 2026-11-07
 
 ### Changed
