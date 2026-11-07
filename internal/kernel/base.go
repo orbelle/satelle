@@ -8,16 +8,56 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// base is the commit an item's work is judged from: the latest bound seat's
-// base, else the commit at create.
-func (k *Kernel) base(it item.Item, events []ledger.Event) string {
+// DefaultBaseBranch is an item's base branch when its seat named none: the
+// branch a merge of main into the item's branch brings in.
+const DefaultBaseBranch = "origin/main"
+
+// base is the commit an item's work is judged from as recorded: the latest
+// bound seat's base, else the commit at create. ref is the --base ref that
+// seat named, "" when it named none or the base is the create commit.
+func (k *Kernel) base(it item.Item, events []ledger.Event) (commit, ref string) {
 	seats := item.FoldSeats(events)
 	for i := len(seats) - 1; i >= 0; i-- {
 		if seats[i].Base != "" {
-			return seats[i].Base
+			return seats[i].Base, seats[i].BaseRef
 		}
 	}
-	return it.Base
+	return it.Base, ""
+}
+
+// judgedBase is the commit a locally seated item's diff is judged from: the
+// merge base of HEAD and the item's base branch (the seat's --base ref, else
+// DefaultBaseBranch) when the recorded base is an ancestor of it, so merging
+// that branch into the item's branch never widens the judged scope. The
+// recorded base stands when the branch does not resolve, when the merge base
+// is the recorded base or HEAD itself (HEAD is wholly inside the branch, so
+// there is no own change to separate), or when the recorded base is not in the
+// merge base's history (a stacked or story-branch seat, or a stale base).
+func (k *Kernel) judgedBase(it item.Item, events []ledger.Event) string {
+	recorded, ref := k.base(it, events)
+	g, ok := k.Git.(BranchGit)
+	if recorded == "" || !ok {
+		return recorded
+	}
+	if ref == "" {
+		ref = DefaultBaseBranch
+	}
+	tip, err := g.Resolve(ref)
+	if err != nil {
+		return recorded
+	}
+	head, err := k.Git.Head()
+	if err != nil {
+		return recorded
+	}
+	mb, err := g.MergeBase(head, tip)
+	if err != nil || mb == recorded || mb == head {
+		return recorded
+	}
+	if in, err := g.IsAncestor(recorded, mb); err != nil || !in {
+		return recorded
+	}
+	return mb
 }
 
 // StaleBaseError refuses a gated transition whose diff base is no longer in
@@ -67,7 +107,7 @@ func (k *Kernel) ItemBase(id string) (string, *StaleBaseError, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	sp := span{base: k.base(it, events)}
+	sp := span{base: k.judgedBase(it, events)}
 	return sp.base, k.staleBase(it, sp), nil
 }
 
@@ -75,7 +115,7 @@ func (k *Kernel) ItemBase(id string) (string, *StaleBaseError, error) {
 // from when collect is given no --base: its merge base with origin/main. HEAD
 // is never used, since a tree whose HEAD already is the branch would make the
 // base the branch's own commit and the span empty.
-const defaultCollectBase = "origin/main"
+const defaultCollectBase = DefaultBaseBranch
 
 // resolveBase resolves a --base ref to its commit, now.
 func (k *Kernel) resolveBase(ref string) (string, error) {

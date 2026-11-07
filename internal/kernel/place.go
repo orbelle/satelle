@@ -138,7 +138,7 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	default:
 		if c, rerr := bg.Resolve(defaultCollectBase); rerr == nil {
 			ref, tip = defaultCollectBase, c
-		} else if recorded := k.base(it, events); recorded != "" {
+		} else if recorded, _ := k.base(it, events); recorded != "" {
 			ref, tip = "recorded base", recorded
 		} else {
 			return Collected{}, fmt.Errorf("collect %s: no base: %s is not here and the item records none; pass --base <ref>", id, defaultCollectBase)
@@ -173,7 +173,7 @@ func collected(events []ledger.Event) (Collected, bool) {
 }
 
 // span is what an item's gates judge: from base to head, or to the working
-// tree when head is "".
+// tree when head is "", whose base is the judged base (judgedBase).
 type span struct{ base, head string }
 
 func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
@@ -182,7 +182,7 @@ func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
 			return span{base: c.Base, head: c.Commit}
 		}
 	}
-	return span{base: k.base(it, events)}
+	return span{base: k.judgedBase(it, events)}
 }
 
 func (k *Kernel) changed(s span) ([]string, error) {

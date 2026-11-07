@@ -194,7 +194,9 @@ func diffCmd(kind string) *cobra.Command {
 		Use:   "diff <id>",
 		Short: "List the paths changed since the item's base commit",
 		Long: `diff lists the paths changed in this worktree since the item's base: the
-latest seat's base commit, else the commit the item was created at.`,
+latest seat's base commit, else the commit the item was created at, moved to
+the merge base of HEAD and the item's base branch (the seat's --base ref, else
+origin/main) when the seat's base is behind it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, r, err := openKernel()

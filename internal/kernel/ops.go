@@ -399,6 +399,7 @@ func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, 
 		if s.Base, err = k.seatBase(baseRef); err != nil {
 			return item.Seat{}, err
 		}
+		s.BaseRef = baseRef
 	} else if k.Git != nil {
 		s.Base, _ = k.Git.Head()
 	}
