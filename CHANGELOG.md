@@ -1,3 +1,12 @@
+## [1.0.26] - 2026-11-08
+
+### Changed
+- Drift stories are raised in the story shape: `scripts/drift-stories.sh` writes a body that names the role the finding affects and quotes the finding, and one criterion naming the proof it is fixed (`drift-check.sh` no longer prints the drift-key, or the next drift run's judge no longer raises it); `drift-stories.sh --reshape` rewrites the older open drift stories in backlog to that shape (sto_e70d7867)
+
+### Fixed
+- The integration suite writes fake executables under the fork lock, so a parallel test's fork can no longer hold the write fd open and make exec fail with "text file busy" (sto_53cce86f)
+- The pr-approval check no longer accepts an approval GitHub re-pointed from an older head: the app's approval on the head passes only when the item's ledger records that review as an APPROVE on that head, and a re-pointed one is refused naming both heads. (sto_952d4435)
+
 ## [1.0.25] - 2026-11-07
 
 ### Added
