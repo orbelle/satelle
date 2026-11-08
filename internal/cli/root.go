@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 // Exit codes.
@@ -115,10 +115,8 @@ func actor() string {
 	if s := sessionFromEnv(); s != "" {
 		return s
 	}
-	for _, k := range []string{"USER", "USERNAME"} {
-		if u := strings.TrimSpace(os.Getenv(k)); u != "" {
-			return u
-		}
+	if u := config.OSUser(); u != "" {
+		return u
 	}
 	return "cli"
 }

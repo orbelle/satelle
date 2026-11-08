@@ -190,6 +190,9 @@ const (
 	EventGateRun         = "gate.run"
 	EventTransitioned    = "item.transitioned"
 	EventAttachmentAdded = "attachment.added"
+	// PerformerOperator is WorkflowState.PerformerAgent for a state that is the
+	// operator's (performer = { operator = "<type>" }): no agent performs it.
+	PerformerOperator = "operator"
 	// GateReject is the gate.run result that refuses a transition
 	// (gate.Reject).
 	GateReject = "reject"

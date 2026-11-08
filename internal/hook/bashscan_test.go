@@ -2,6 +2,7 @@ package hook
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -72,5 +73,36 @@ func TestScanBashOperatorRecord(t *testing.T) {
 		if ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: read as the operator record verb", c)
 		}
+	}
+}
+
+// AC7: a shell call naming satelled's operator-record route is the operator's
+// record too, behind wrappers and inside program text; the GET page is not.
+func TestScanBashOperatorRoute(t *testing.T) {
+	noFile := func(string) bool { return false }
+	const post = "curl -X POST http://127.0.0.1:8787/r/x/operator-record/sto_1 -d to=approved"
+	for _, c := range []string{
+		post,
+		"env FOO=1 " + post,
+		"timeout 5 " + post,
+		"sh -c '" + post + "'",
+		`python3 -c 'import urllib.request as u; u.urlopen("http://127.0.0.1:8787/r/x/operator-record/sto_1", b"to=approved")'`,
+		"wget --post-data to=approved http://localhost:8787/r/x/operator-record/sto_1",
+		"python3 <<'EOF'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:8787/r/x/operator-record/sto_1', b'to=approved')\nEOF",
+	} {
+		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: the operator-record route was not seen", c)
+		}
+	}
+	for _, c := range []string{
+		"curl http://127.0.0.1:8787/r/x/operator",
+		"curl http://127.0.0.1:8787/r/x/fragment/operator",
+	} {
+		if ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: read as the operator-record route", c)
+		}
+	}
+	if v := (Gate{Root: "/w"}).Bash(post, "/w"); v.Allow || !strings.Contains(v.Reason, "operator-record route") {
+		t.Errorf("gate: %+v", v)
 	}
 }

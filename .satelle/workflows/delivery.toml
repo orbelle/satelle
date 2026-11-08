@@ -1,9 +1,11 @@
 # This repo's route for a story. DEV: plan, code, integrate, and end at
-# approved (tested locally, pushed, an open pull request, approved). CI/CD: a
-# run of the release task takes the approved items, builds one candidate from
-# their heads (fast-forward or merge, in queue order), tests it once, bumps
-# the version once on top, fast-forwards main to it, releases and installs,
-# and only then moves them to done
+# confirm (tested locally, pushed, an open pull request, approved, with a
+# generated result summary). The operator's word moves it on: to approved
+# (confirmed) or back to in_progress (sent back with the reason) (sto_9f1303b3).
+# CI/CD: a run of the release task takes the approved items, builds one
+# candidate from their heads (fast-forward or merge, in queue order), tests it
+# once, bumps the version once on top, fast-forwards main to it, releases and
+# installs, and only then moves them to done
 # (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
@@ -23,9 +25,18 @@ performer = { agent = "executor", skill = "coder" }
 
 [states.integration]
 
-# DEV ends here: an open, approved pull request whose head is tested and
-# contains main. A run of the release task takes the item; a release run that
-# cannot land it sends it back to in_progress with the reason.
+# The agent's DEV ends here: an open, approved pull request whose head is
+# tested and contains main, and the result summary (result-summary, typed
+# brief) attached. The operator reads it on satelled's Awaiting-you page (or
+# with satelle story attachment) and records their word, naming the move:
+# approved (confirm) or in_progress (send back, with the reason). Only that
+# move leaves; the driving session presents it (sto_9f1303b3).
+[states.confirm]
+performer = { operator = "confirmation" }
+
+# Confirmed by the operator. A run of the release task takes the item; a
+# release run that cannot land it sends it back to in_progress with the
+# reason, and it returns through confirm.
 [states.approved]
 # Reaching approved adds the story to the release queue (fired by hand in
 # release step 0); the queue is .satelle/queues/release.toml.
@@ -115,13 +126,13 @@ skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
-# DEV's end: the head is committed, pushed, contains origin/main and has an
+# The agent's DEV, on its way to confirm: the head is committed, pushed, contains origin/main and has an
 # open pull request against main. Readiness only: it does not approve; the
 # satelle GitHub app's review (pr-review, pr-approval) decides after it.
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
-# PR review by the satelle GitHub app (sto_ebcaa5aa), on integration -> approved
+# PR review by the satelle GitHub app (sto_ebcaa5aa), on integration -> confirm
 # after pr-ready (sto_efe81afd): approval is the satelle app's review on the
 # head. pr-review is the code-ac judge; its after publishes the verdict on the
 # PR head as satelle[bot] and, on a reject, attaches it as pr-review and
@@ -135,6 +146,14 @@ after = "satelle-pr-review-publish"
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
+
+# The operator's result summary (sto_9f1303b3): last on integration -> confirm,
+# so it runs only once every earlier gate of the move accepted. It composes
+# the changes, every gate verdict, the evidence and the coder's how-to into
+# result-summary (text/markdown; type=brief) and rejects when it cannot. No
+# carry: it is regenerated on every entry.
+[gates.result-summary]
+skill = "satelle-result-summary"
 
 # CI/CD's gates on approved -> done, all reading origin/main: only a run of the
 # release task closes an item, after the bump, the release and the install.
@@ -192,10 +211,20 @@ groups = [
 
 [[transition]]
 from = ["integration"]
-to = "approved"
+to = "confirm"
 groups = [
-  { mode = "sequential", gates = ["integration-check", "pr-ready", "pr-review", "pr-approval"] },
+  { mode = "sequential", gates = ["integration-check", "pr-ready", "pr-review", "pr-approval", "result-summary"] },
 ]
+
+# The operator's word picks one of these, and only it: gateless, since the
+# operator judged it (the kernel holds the move to the record).
+[[transition]]
+from = ["confirm"]
+to = "approved"
+
+[[transition]]
+from = ["confirm"]
+to = "in_progress"
 
 [[transition]]
 from = ["approved"]
@@ -205,7 +234,8 @@ groups = [
 ]
 
 # Rework: back to coding from integration, or from approved when a release run
-# cannot land the item (it records why on the item); and back to planning.
+# cannot land the item (it records why on the item); and back to planning. A
+# send-back from confirm is the operator's own move above.
 [[transition]]
 from = ["integration", "approved"]
 to = "in_progress"

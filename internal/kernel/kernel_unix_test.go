@@ -640,7 +640,7 @@ to = "@prior"
 	if got, _ := k.Get(it.ID); got.Status != "deploy" || len(d.calls) != 0 {
 		t.Fatalf("refusals counted or judged: %s %v", got.Status, d.calls)
 	}
-	if _, err := k.RecordOperator(it.ID, "", []byte("deployed"), "", "bob", ""); err != nil {
+	if _, err := k.RecordOperator(it.ID, "", "done", []byte("deployed"), "", "bob", ""); err != nil {
 		t.Fatal(err)
 	}
 	if res, err := k.Transition(ctx, it.ID, "done", "op"); err != nil || res.Held != nil || res.Item.Status != "deploy" {

@@ -43,9 +43,10 @@ type Verdict struct {
 var allow = Verdict{Allow: true}
 
 // OperatorRecordDenied is the gate's refusal of satelle's operator record verb in
-// an agent tool call: every call the gate judges is one.
-const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
-	"Ask the operator to run it in their own terminal. (If this is prose such as a commit message, reword it or pass it with -F <file>.)"
+// an agent tool call, and of satelled's operator-record route: every call the
+// gate judges is one.
+const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record` or post satelled's operator-record route. " +
+	"Ask the operator to run it in their own terminal, or to answer on satelled's Awaiting-you page. (If this is prose such as a commit message, reword it or pass it with -F <file>.)"
 
 // Edit judges an edit of target (absolute, or relative to Root).
 func (g Gate) Edit(target string) Verdict {

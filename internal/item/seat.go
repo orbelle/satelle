@@ -36,6 +36,9 @@ type Attachment struct {
 	// Operator is set only by the operator's record verb, after its checks that
 	// no agent session is recording.
 	Operator bool `json:"operator,omitempty"`
+	// To is the move the operator chose: the state the item may leave the
+	// operator state for. Only operator records set it.
+	To string `json:"to,omitempty"`
 }
 
 // FoldSeats returns the seats still bound at the end of the chain, in bind

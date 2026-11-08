@@ -61,8 +61,12 @@ live under `/r/<slug>/` on the Projects page (`http://127.0.0.1:8787/`).
 
 ### Push-fed UI (CLI → satelled)
 
-The web UI is a **read-only mirror** fed by the CLI (serve-split architecture;
-serve-adoption onboarding):
+The web UI is a **mirror** fed by the CLI (serve-split architecture;
+serve-adoption onboarding). Its one write is the operator's word: the project's
+**Awaiting you** page (`/r/<slug>/operator`) lists the items in a state that is
+the operator's, with their result summary, and records the operator's chosen
+move through the same owner as `satelle <kind> record`, from this machine only
+(see `satelle help workflows`, "The operator's states"):
 
 1. Run the UI: `satelled` (or `satelle service install`, which prefers the
    dedicated binary). `satelle serve` remains a **deprecated alias** that prints

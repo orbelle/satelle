@@ -1,6 +1,8 @@
 // Command satelled is the dedicated local-tier daemon (push-fed mirror UI)
 // (sty_80233c10 / epic:serve-adoption; renamed sty_bd9de06d). It has no CLI
-// verb surface and cannot mutate repo state — only ingest + read-only render.
+// verb surface: a push-fed mirror (ingest + render); its one write is the
+// operator's word, recorded through internal/operator from the loopback
+// Awaiting-you page (sto_9f1303b3).
 package main
 
 import (

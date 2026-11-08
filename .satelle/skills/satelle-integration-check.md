@@ -4,10 +4,10 @@ scope: project
 type: check
 tags: [type:skill, type:reviewer, type:functional-check]
 check_reuse: tree
-description: The full local suite, once, on the edge to approved (integration → approved, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no tests; each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
+description: The full local suite, once, on the edge into confirm (integration → confirm, for a story and a chore alike; the item reaches approved only on the operator's word): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no tests; each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
 ---
 
-# Integration check (the full suite, once, before approved)
+# Integration check (the full suite, once, before confirm)
 
 Runs `make test`, the full hermetic suite (unit and integration), on the head
 that becomes the pull request's head, before the PR check and failing fast.

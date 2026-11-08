@@ -123,7 +123,7 @@ func TestOperatorRecordLetsTheItemLeave(t *testing.T) {
 		t.Fatalf("leaving without a record: %v", err)
 	}
 	ft := useTerminal(t, &id)
-	out := must(t, "story", "record", id, "--file", "evidence.md")
+	out := must(t, "story", "record", id, "--to", "st-three", "--file", "evidence.md")
 	if !strings.Contains(out, "recorded the operator's deploy-record on "+id) || !strings.Contains(ft.prompt.String(), "Type the item id to confirm") {
 		t.Fatalf("record: %s / prompt %q", out, ft.prompt.String())
 	}
@@ -192,7 +192,7 @@ func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 
 	refused := func(want string) {
 		t.Helper()
-		_, err := run(t, "", "story", "record", id, "--file", "evidence.md")
+		_, err := run(t, "", "story", "record", id, "--to", "st-three", "--file", "evidence.md")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("record: want %q, got %v", want, err)
 		}
@@ -228,4 +228,49 @@ func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 			t.Errorf("hook allowed %q (%s)", c, why)
 		}
 	}
+}
+
+// AC3: the record verb names the move: a missing or undeclared --to, or an
+// empty word, is refused before the terminal prompt; the recorded move is the
+// only one the item may then make, and story get shows it.
+func TestRecordVerbRequiresTo(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeOperatorWorkflow(t, dir)
+	id := createID(t, "story", "create", "--title", "ship", "--workflow", "ops")
+	must(t, "story", "set", id, "--status", "deploy")
+	if out := must(t, "story", "get", id); !strings.Contains(out, "operator   awaiting deploy-record") {
+		t.Fatalf("get before the record:\n%s", out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "empty.md"), []byte(" \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ft := useTerminal(t, &id)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--file", "evidence.md"}, "--to must name a move state deploy declares: one of st-three"},
+		{[]string{"--to", "st-one", "--file", "evidence.md"}, "--to must name a move"},
+		{[]string{"--to", "st-three", "--file", "empty.md"}, "is empty"},
+	} {
+		_, err := run(t, "", append([]string{"story", "record", id}, c.args...)...)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: want %q, got %v", c.args, c.want, err)
+		}
+	}
+	if ft.prompt.Len() != 0 || countEvents(t, id, "attachment.added") != 0 {
+		t.Fatalf("a refused record prompted (%q) or wrote", ft.prompt.String())
+	}
+	out := must(t, "story", "record", id, "--to", "st-three", "--file", "evidence.md")
+	if !strings.Contains(out, "move to st-three; present it with satelle story set "+id+" --status st-three") || !strings.Contains(ft.prompt.String(), "move to st-three") {
+		t.Fatalf("record: %s / prompt %q", out, ft.prompt.String())
+	}
+	if out := must(t, "story", "get", id); !strings.Contains(out, "chose st-three at") {
+		t.Fatalf("get after the record:\n%s", out)
+	}
+	if out := must(t, "story", "get", id, "--json"); !strings.Contains(out, `"to": "st-three"`) && !strings.Contains(out, `"to":"st-three"`) {
+		t.Fatalf("get --json after the record:\n%s", out)
+	}
+	must(t, "story", "set", id, "--status", "st-three")
 }

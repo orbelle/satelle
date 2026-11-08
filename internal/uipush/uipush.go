@@ -236,7 +236,7 @@ func wireWorkflow(w *workflow.Workflow) *mirror.Workflow {
 		s := w.States[n]
 		ws := mirror.WorkflowState{Name: n, Start: s.Start, Terminal: s.Terminal, Park: s.Park, Resumes: s.Resumes}
 		if _, ok := s.Operated(); ok {
-			ws.PerformerAgent = "operator"
+			ws.PerformerAgent = mirror.PerformerOperator
 		} else if p := s.Agent(); p != nil {
 			ws.PerformerAgent, ws.PerformerSkill = p.Agent, p.Skill
 		}

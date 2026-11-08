@@ -73,6 +73,7 @@ type pageData struct {
 	Queues          []queueVM
 	Activity        []activityRowVM // stories and task runs being worked now
 	DocKinds        []kindGroup
+	Operator        []operatorRowVM // items in a state that is the operator's (the Awaiting-you tab)
 	Workflows       []workflowRowVM
 	Uptime          string
 	Theme           string

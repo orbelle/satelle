@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's end (integration → approved). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: The agent's DEV end (integration → confirm). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters confirm only when pr-review (the judge, published by the satelle GitHub app), pr-approval (the app's approving review on HEAD) and result-summary accept after it, and approved only on the operator's word. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off)
@@ -14,14 +14,15 @@ already contains `origin/main`. A release run fast-forwards to it or merges it
 onto the heads landing before it, and tests the combined candidate once.
 
 This check proves the head is ready for review; it does not approve. On
-integration → approved it runs before `pr-review` and `pr-approval`
+integration → confirm it runs before `pr-review` and `pr-approval`
 (sto_efe81afd): `pr-review` is the code-ac judge, whose verdict the satelle
 GitHub app publishes on this pull request's head, and `pr-approval` passes only
-on the app's approving review of HEAD. The item enters `approved` only when
-both accept after this check. No GitHub review is read here, and GitHub runs
+on the app's approving review of HEAD. The item enters `confirm`, the
+operator's state, only when both and `result-summary` accept after this check,
+and reaches `approved` only on the operator's word. No GitHub review is read here, and GitHub runs
 no tests.
 
-Before presenting integration → approved, the session:
+Before presenting integration → confirm, the session:
 
 1. works the item on its own branch, named by its id, cut from `origin/main`
    (or stacked on another approved item's head, to ship together);

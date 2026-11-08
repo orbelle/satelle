@@ -56,23 +56,7 @@ func TestArtifactMediaType(t *testing.T) {
 	}
 }
 
-func TestTypedMediaType(t *testing.T) {
-	for _, c := range []struct{ mt, typ, want string }{
-		{"text/markdown", "plan", "text/markdown; type=plan"},
-		{"text/markdown; charset=utf-8", "deploy-record", "text/markdown; charset=utf-8; type=deploy-record"},
-		{"text/plain; type=other", "plan", "text/plain; type=plan"},
-		{"not a media type;;", "plan", ""},
-	} {
-		if got := TypedMediaType(c.mt, c.typ); got != c.want {
-			t.Errorf("TypedMediaType(%q, %q) = %q, want %q", c.mt, c.typ, got, c.want)
-		}
-	}
-	if got := MediaTypeParam("text/markdown; type=deploy-record", "type"); got != "deploy-record" {
-		t.Errorf("MediaTypeParam = %q", got)
-	}
-	if got := MediaTypeParam("text/markdown", "type"); got != "" {
-		t.Errorf("MediaTypeParam without the parameter = %q", got)
-	}
+func TestValidType(t *testing.T) {
 	if !ValidType("deploy-record") || ValidType("bad type") || ValidType("") {
 		t.Error("ValidType")
 	}

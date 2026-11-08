@@ -3,7 +3,7 @@ package web
 import (
 	"encoding/json"
 	"html/template"
-	"slices"
+
 	"sort"
 	"strings"
 	"time"
@@ -138,10 +138,7 @@ func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM
 	for _, s := range w.States {
 		byName[s.Name] = s
 	}
-	open := func(s string) bool { st := byName[s]; return !st.Terminal && !st.Park }
-	from := func(t mirror.WorkflowTransition, s string) bool {
-		return slices.Contains(t.From, s) || (slices.Contains(t.From, workflow.AnyState) && open(s))
-	}
+	from := func(t mirror.WorkflowTransition, s string) bool { return leaves(w, t, s) }
 	// Order: breadth first from the start states along the transitions, then
 	// any state not reached, park states last.
 	var names []string

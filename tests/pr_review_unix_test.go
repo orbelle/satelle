@@ -719,7 +719,70 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	p.must("ledger", "verify")
 }
 
-// sto_efe81afd AC1: delivery and chore run integration -> approved through
+// AC1: the operator's confirmation sits between integration and approved on
+// both routes: confirm is the operator's (it records a confirmation), entered
+// only from integration, left by gateless moves to approved or back to
+// in_progress; there is no integration -> approved; only approved enqueues the
+// release queue, which still fires by hand.
+func TestConfirmationIsOnTheRoutes(t *testing.T) {
+	for _, wf := range []string{"delivery", "chore"} {
+		w, err := workflow.Parse("../.satelle/workflows/" + wf + ".toml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if typ, ok := w.States["confirm"].Operated(); !ok || typ != "confirmation" {
+			t.Errorf("%s: confirm is not the operator's confirmation (%q, %v)", wf, typ, ok)
+		}
+		if _, err := w.Find("integration", "approved", ""); err == nil {
+			t.Errorf("%s: integration -> approved skips the confirmation", wf)
+		}
+		for _, to := range []string{"approved", "in_progress"} {
+			tr, err := w.Find("confirm", to, "")
+			if err != nil {
+				t.Errorf("%s: confirm -> %s: %v", wf, to, err)
+				continue
+			}
+			if len(tr.Groups) != 0 || !slices.Equal(tr.From, []string{"confirm"}) {
+				t.Errorf("%s: confirm -> %s is %+v, want an explicit gateless move", wf, to, tr)
+			}
+		}
+		for _, tr := range w.Transitions {
+			if tr.To == "confirm" && !slices.Equal(tr.From, []string{"integration"}) {
+				t.Errorf("%s: confirm is entered from %v", wf, tr.From)
+			}
+			if tr.To == "approved" && !slices.Equal(tr.From, []string{"confirm"}) {
+				t.Errorf("%s: approved is entered from %v", wf, tr.From)
+			}
+		}
+		for name, st := range w.States {
+			want := name == "approved"
+			if got := slices.Equal(st.Enqueue, []string{"release"}); got != want {
+				t.Errorf("%s: state %s enqueues %v", wf, name, st.Enqueue)
+			}
+		}
+	}
+	var q struct {
+		ID     string `toml:"id"`
+		Title  string `toml:"title"`
+		Filter struct {
+			Kind   string `toml:"kind"`
+			Status string `toml:"status"`
+		} `toml:"filter"`
+		Trigger struct {
+			Task    string `toml:"task"`
+			Base    string `toml:"base"`
+			MinSize *int   `toml:"min_size"`
+		} `toml:"trigger"`
+	}
+	if err := workflow.DecodeStrict("../.satelle/queues/release.toml", &q); err != nil {
+		t.Fatal(err)
+	}
+	if q.Filter.Status != "approved" || q.Trigger.MinSize == nil || *q.Trigger.MinSize != 0 {
+		t.Errorf("release queue %+v: want status approved, fired by hand (min_size 0)", q)
+	}
+}
+
+// sto_efe81afd AC1: delivery and chore run integration -> confirm through
 // pr-ready, then the review gate and the approval check, in one sequential
 // group; no other transition runs them; pr-ready no longer approves; only the
 // publish check calls satelle.dev.
@@ -728,7 +791,7 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no workflows: %v", err)
 	}
-	want := append([]string{"integration-check", "pr-ready"}, prRouteTail...)
+	want := append(append([]string{"integration-check", "pr-ready"}, prRouteTail...), "result-summary")
 	routed := 0
 	for _, f := range files {
 		w, err := workflow.Parse(f)
@@ -738,7 +801,7 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 		name := filepath.Base(f)
 		route := name == "delivery.toml" || name == "chore.toml"
 		for _, tr := range w.Transitions {
-			onRoute := route && slices.Equal(tr.From, []string{"integration"}) && tr.To == "approved"
+			onRoute := route && slices.Equal(tr.From, []string{"integration"}) && tr.To == "confirm"
 			for _, g := range tr.Groups {
 				if !onRoute && (slices.Contains(g.Gates, "pr-review") || slices.Contains(g.Gates, "pr-approval")) {
 					t.Errorf("%s: %v -> %s runs %v", name, tr.From, tr.To, g.Gates)
@@ -749,12 +812,12 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 			continue
 		}
 		routed++
-		tr, err := w.Find("integration", "approved", "")
+		tr, err := w.Find("integration", "confirm", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(tr.Groups) != 1 || tr.Groups[0].Mode != workflow.Sequential || !slices.Equal(tr.Groups[0].Gates, want) {
-			t.Errorf("%s: integration -> approved runs %+v, want one sequential group %v (ending with the sandbox's prRouteTail)", name, tr.Groups, want)
+			t.Errorf("%s: integration -> confirm runs %+v, want one sequential group %v (the sandbox's prRouteTail, then the result summary)", name, tr.Groups, want)
 		}
 	}
 	if routed != 2 {

@@ -15,9 +15,10 @@ pat=$(printf '"%s"|' $names); pat=${pat%|}
 # Coincidences, each reviewed: the word is the same, the meaning is mechanism.
 #   "done" in hook/bashscan.go is a shell keyword; in remotechan/channel.go the
 #   channel protocol's end-of-stream message.
+#   "confirm" in agent/pi.go is the pi RPC's extension UI dialog method.
 #   "in_progress" nowhere expected; "story"/"task" are item kinds (ruling Q-tasks),
 #   so no workflow, state or gate of this repo may be named after them.
-allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
+allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/agent/pi\.go:.*case "select", "confirm", "input", "editor":|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
 hits=$(find internal cmd -name '*.go' ! -name '*_test.go' -print0 | xargs -0 grep -nE "$pat" | grep -vE "$allow" || true)
 echo "names checked: $(echo "$names" | wc -l)"
 if [ -n "$hits" ]; then echo "$hits"; exit 1; fi

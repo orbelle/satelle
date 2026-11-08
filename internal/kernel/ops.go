@@ -14,6 +14,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/operator"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -264,9 +265,17 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		return res, err
 	}
 	// An operator state is left only once the operator has recorded its word
-	// since the item entered it; nothing runs or is recorded before that.
-	if typ, ok := w.States[it.Status].Operated(); ok && !operatorRecorded(item.SinceEntered(events), typ) {
-		return res, &OperatorRecordError{Item: id, Kind: it.Kind, State: it.Status, Type: typ}
+	// since the item entered it, and only by the move that word names; nothing
+	// runs or is recorded before that. A hold made after the record is the
+	// round cap's move, not a choice, and is not held to it.
+	if typ, ok := w.States[it.Status].Operated(); ok {
+		rec, ok := operator.Latest(events, typ)
+		if !ok {
+			return res, &OperatorRecordError{Item: id, Kind: it.Kind, State: it.Status, Type: typ}
+		}
+		if hold == nil && rec.To != to {
+			return res, &OperatorMoveError{Item: id, Kind: it.Kind, State: it.Status, Type: typ, Recorded: rec.To, Asked: to}
+		}
 	}
 	// The queues entering `to` enqueues into must exist before anything runs.
 	var queues []string
@@ -378,27 +387,17 @@ func (k *Kernel) Attach(id, name string, data []byte, mediaType, actor string) (
 	return k.attach(id, item.Attachment{Name: name, MediaType: mediaType}, data, actor)
 }
 
-// attach stores data as a blob and records a, with its sha and size filled
-// in, on the item: the one writer of attachment.added.
+// attach records a on the existing item through item.AppendAttachment, the
+// one writer of attachment.added, and syncs the cache.
 func (k *Kernel) attach(id string, a item.Attachment, data []byte, actor string) (item.Attachment, error) {
 	if _, err := k.Get(id); err != nil {
 		return item.Attachment{}, err
 	}
-	if strings.TrimSpace(a.Name) == "" {
-		return item.Attachment{}, errors.New("an attachment needs a name")
-	}
-	if a.MediaType == "" {
-		a.MediaType = "application/octet-stream"
-	}
-	sha, err := k.Ledger.PutBlob(data)
+	a, _, err := item.AppendAttachment(k.Ledger, id, a, data, actor)
 	if err != nil {
 		return item.Attachment{}, err
 	}
-	a.Item, a.At, a.Actor = "", time.Time{}, ""
-	a.SHA256, a.Size = sha, int64(len(data))
-	e, err := k.append(id, item.KindAttachmentAdd, actor, a)
-	a.Item, a.At, a.Actor = id, e.At, actor
-	return a, err
+	return a, k.Cache.SyncItem(k.Ledger, id)
 }
 
 // Seat binds session at location to the item. Its base, the commit the item's

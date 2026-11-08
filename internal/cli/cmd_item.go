@@ -7,6 +7,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/operator"
 )
 
 // itemCmd is the command group for one item kind. Every kind is worked alike
@@ -347,18 +349,30 @@ func itemGetCmd(kind string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			word, err := operatorWordOf(k, it.ID)
+			if err != nil {
+				return err
+			}
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
 					Attachments []item.Attachment `json:"attachments"`
 					Seats       []item.Seat       `json:"seats"`
 					Held        *item.Hold        `json:"held,omitempty"`
-				}{it, atts, seats, held})
+					Operator    *operatorWordView `json:"operator,omitempty"`
+				}{it, atts, seats, held, word})
 			}
 			printItem(out, it)
 			if held != nil {
 				fmt.Fprintf(out, "held       after %d rejected rounds leaving %s; dissent %s; accepted %s\n",
 					held.Rounds, held.State, dissentKeys(*held), orNone(held.Accepted))
+			}
+			if word != nil {
+				if word.To == "" {
+					fmt.Fprintf(out, "operator   awaiting %s\n", word.Type)
+				} else {
+					fmt.Fprintf(out, "operator   %s chose %s at %s\n", word.Actor, word.To, word.At.Local().Format("2006-01-02 15:04"))
+				}
 			}
 			for _, a := range atts {
 				fmt.Fprintf(out, "attachment %s (%s, %d bytes)\n", a.Name, a.MediaType, a.Size)
@@ -647,14 +661,17 @@ func attachCmd(kind string) *cobra.Command {
 // refuses an agent session, and asks for the item id retyped on the
 // controlling terminal before it writes anything.
 func recordCmd(kind string) *cobra.Command {
-	var name, file, mediaType string
+	var name, file, mediaType, to string
 	cmd := &cobra.Command{
-		Use:   "record <id> --file F",
+		Use:   "record <id> --to <state> --file F",
 		Short: "Record the operator's word on an item in an operator state (operator only)",
 		Long: `record attaches the operator's word to an item whose current state is the
 operator's (performer = { operator = "<type>" }): the file is recorded with the
-state's declared type, marked as the operator's, and only such a record since
-the item entered the state lets it leave. The operator runs it in their own
+state's declared type, marked as the operator's, and names the move the
+operator chose (--to, a move the state declares). Only the move named by the
+newest such record since the item entered the state lets it leave; the driving
+session, or the operator, then presents exactly that move. The word must not
+be empty: a send-back records its reason. The operator runs it in their own
 terminal with SATELLE_SESSION unset; it asks for the item id to be retyped on
 the controlling terminal and never reads stdin. An agent session may not run it.`,
 		Args: cobra.ExactArgs(1),
@@ -668,32 +685,44 @@ the controlling terminal and never reads stdin. An agent session may not run it.
 				return err
 			}
 			session := sessionFromEnv()
-			if err := kernel.OperatorSession(session); err != nil {
+			if err := operator.Session(session); err != nil {
 				return err
 			}
 			it, typ, err := k.OperatorState(args[0])
 			if err != nil {
 				return err
 			}
+			targets, err := k.Targets(it.ID)
+			if err != nil {
+				return err
+			}
+			if to == "" || !slices.Contains(targets, to) {
+				return fmt.Errorf("--to must name a move state %s declares: one of %s", it.Status, strings.Join(targets, ", "))
+			}
 			data, err := os.ReadFile(file)
 			if err != nil {
 				return err
 			}
+			if strings.TrimSpace(string(data)) == "" {
+				return fmt.Errorf("%s is empty: the operator's word says why (a send-back records its reason)", file)
+			}
 			if mediaType == "" {
 				mediaType = mime.TypeByExtension(filepath.Ext(file))
 			}
-			if err := confirmOnTerminal(it.ID, it.Status, typ); err != nil {
+			if err := confirmOnTerminal(it.ID, it.Status, typ, to); err != nil {
 				return err
 			}
-			a, err := k.RecordOperator(it.ID, name, data, mediaType, actor(), session)
+			a, err := k.RecordOperator(it.ID, name, to, data, mediaType, actor(), session)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "recorded the operator's %s on %s (%d bytes, sha256 %s)\n", typ, it.ID, a.Size, a.SHA256[:12])
+			fmt.Fprintf(cmd.OutOrStdout(), "recorded the operator's %s on %s: move to %s; present it with satelle %s set %s --status %s (%d bytes, sha256 %s)\n",
+				typ, it.ID, to, kind, it.ID, to, a.Size, a.SHA256[:12])
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "attachment name (default: the state's declared type)")
+	cmd.Flags().StringVar(&to, "to", "", "the move the operator chose: a state the item's current state declares a transition to")
 	cmd.Flags().StringVar(&file, "file", "", "file to record")
 	cmd.Flags().StringVar(&mediaType, "type-media", "", "media type (default: from the file extension, else text/markdown); the declared type is added as its type parameter")
 	_ = cmd.MarkFlagRequired("file")

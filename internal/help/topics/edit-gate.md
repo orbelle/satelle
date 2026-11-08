@@ -28,7 +28,9 @@ Always and never:
 - A seat on an item in an operator state (`performer = { operator = "<type>" }`)
   allows no edits, and the operator's record verb (`satelle <kind> record`) is
   refused for every session. The scan also refuses quoted or heredoc text that
-  names the verb, so reword such prose or pass it with `-F <file>`. These
+  names the verb, and any shell call that names satelled's `operator-record`
+  route (a curl or wget argument, `-c` program text, a heredoc), so reword such
+  prose or pass it with `-F <file>`. These
   checks run as the agent's own OS user: they stop an agent session, not a
   deliberate forgery of the runtime ledger.
 

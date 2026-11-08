@@ -45,7 +45,13 @@ read the newest one first: it is why the item is back at in_progress, and each
 point in it must be addressed before you present again. On a send-back, merge
 origin/main into your branch (`git fetch origin && git merge origin/main`);
 never rebase or force-push the pushed head; resolve any conflict in the real
-work; the route re-runs the full suite at integration -> approved.
+work; the route re-runs the full suite at integration -> confirm.
+
+If the record holds `confirmation` (the operator's word recorded at confirm
+that sent the item back), read it first (`satelle story attachment <id>
+confirmation`): its body is the operator's reason. Address each point before
+you present again; the route re-runs `integration -> confirm`, and the
+operator confirms the new head.
 
 Record the item's changelog lines as its `changelog` attachment
 (`satelle story attach <id> --name changelog --type text/markdown --file -`,
@@ -84,8 +90,20 @@ satelle story attach <id> --name ac-evidence --type text/markdown --file - <<'EO
 
 Not run under this grant: <command> — needs <tool> (orchestrator to run)
 Notes: <plan defect / renamed test / intentional substitute — or empty>
+
+## How to try it
+
+1. git fetch origin && git switch --detach <head> && make build
+2. <the steps a person runs against the PR head to see the change work, and
+   what they see>
 EOF
 ```
+
+`## How to try it` is required: the `result-summary` gate on
+`integration -> confirm` copies it into the operator's result summary and
+rejects when it is missing or empty. Write it for the operator, who confirms
+the story from it: the commands and steps against the PR head, and the
+observable result of each.
 
 Without the CLI, emit the same table under `## Per-AC evidence` and say it is
 to be attached.

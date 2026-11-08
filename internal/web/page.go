@@ -316,6 +316,7 @@ const templatesSrc = `
     <a class="tab" role="tab" data-panel="activity" href="#activity"><span class="tab-label" data-text="Activity">Activity</span> <span class="n">{{len .Activity}}</span></a>
     <a class="tab" role="tab" data-panel="tasks" href="#tasks"><span class="tab-label" data-text="Tasks">Tasks</span> <span class="n">{{len .Tasks}}</span></a>
     <a class="tab" role="tab" data-panel="queues" href="#queues"><span class="tab-label" data-text="Queues">Queues</span> <span class="n">{{len .Queues}}</span></a>
+    <a class="tab" role="tab" data-panel="operator" href="#operator"><span class="tab-label" data-text="Awaiting you">Awaiting you</span> <span class="n">{{len .Operator}}</span></a>
     <a class="tab" role="tab" data-panel="workflow" href="#workflow"><span class="tab-label" data-text="Workflow">Workflow</span> <span class="n">{{len .Workflows}}</span></a>
   </div>
 
@@ -367,6 +368,18 @@ const templatesSrc = `
     <table class="panel-table">
       <thead><tr><th>ID</th><th>Queue · Filter</th><th>Members</th><th>Trigger</th><th>Last fire</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "queueRows" .Queues}}</tbody>
+    </table>
+  </section>
+
+  <section class="panel" data-topic="operator" id="panel-operator">
+    <p class="meta">Items in a state that is the operator's. <a href="operator">Read each summary and record your word →</a></p>
+    <div class="filterbar">
+      <input type="text" placeholder="filter… e.g. status:all" aria-label="filter items awaiting you">
+      <div class="chips"></div>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>ID</th><th>Title</th><th>State</th><th>Brief</th><th></th></tr></thead>
+      <tbody data-rows>{{template "operatorRows" .Operator}}</tbody>
     </table>
   </section>
 

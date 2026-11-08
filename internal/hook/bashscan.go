@@ -1489,6 +1489,10 @@ func isShellIdent(s string) bool {
 // operatorRecordVerb is satelle's operator record verb, the operator's alone.
 const operatorRecordVerb = "record"
 
+// operatorRecordRoute is satelled's route that records the operator's word
+// (POST /r/<slug>/operator-record/<id>); the operator's alone, like the verb.
+const operatorRecordRoute = "operator-record"
+
 // operatorRecordText finds satelle and a later record word on one line of
 // quoted or heredoc text; the separators may be spaces, quotes, commas or
 // brackets, so an argv list (['satelle','story','record']) matches too.
@@ -1498,9 +1502,13 @@ var operatorRecordText = regexp.MustCompile(`(?m)(?:^|[\s'"/,\[(])satelle(?:[\s'
 // operator record verb: satelle at any word position (so behind any wrapper in
 // shellOpaqueWords, or after satelle's own flags) with a later record word not
 // taken as a flag's value, or the verb named in the segment's quoted or
-// heredoc text.
+// heredoc text. Naming satelled's operator-record route anywhere in the
+// segment (a curl or wget argument, -c program text, a heredoc) counts too.
 func operatorRecordSegment(sg bashSegment) bool {
 	for i, w := range sg.Words {
+		if strings.Contains(w, operatorRecordRoute) {
+			return true
+		}
 		if filepath.Base(w) != "satelle" {
 			continue
 		}
@@ -1518,7 +1526,7 @@ func operatorRecordSegment(sg bashSegment) bool {
 		if t.Raw != "" {
 			text = t.Raw
 		}
-		if operatorRecordText.MatchString(text) {
+		if operatorRecordText.MatchString(text) || strings.Contains(text, operatorRecordRoute) || strings.Contains(t.Value, operatorRecordRoute) {
 			return true
 		}
 	}

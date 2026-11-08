@@ -188,23 +188,41 @@ While an item is in such a state, satelle dispatches nothing (`perform`
 refuses, a drive stops there) and a seat on it allows no agent edits. Every
 transition out of it, `*` moves such as cancel included, is refused until the
 operator has recorded an attachment of the declared type since the item last
-entered the state; a record from an earlier visit does not count. The
-transition then runs its configured gates as usual.
+entered the state; a record from an earlier visit does not count. The record
+names the move the operator chose (`to`), and only that move leaves: the
+newest record since entry decides, and any other move is refused before
+anything runs. The transition then runs its configured gates as usual. The
+operator's word is never empty: a send-back records its reason, which the
+next performer reads as the attachment in its record folder.
 
 The operator records it from their own terminal, with `SATELLE_SESSION`
 unset:
 
-    satelle story record <id> --file F [--name N] [--type-media M]
+    satelle story record <id> --to <state> --file F [--name N] [--type-media M]
 
-The type comes from the state; the name defaults to it. Before writing
-anything the verb asks for the item id to be retyped on the controlling
-terminal (`/dev/tty`); it never reads stdin, and without a terminal it refuses.
+The type comes from the state; the name defaults to it. `--to` must name a
+move the state declares. Before writing anything the verb asks for the item id
+to be retyped on the controlling terminal (`/dev/tty`); it never reads stdin,
+and without a terminal it refuses. `satelle story get` then shows
+`operator   <who> chose <state>`; the driving session (or the operator)
+presents exactly that move with `satelle story set <id> --status <state>`.
+
+satelled lists every item in an operator state on the project's Awaiting-you
+tab and page (`/r/<project>/operator`), with the newest attachment typed
+`brief` (media type `...; type=brief`) as its summary, whether the word is
+recorded, and a form that records it: the move, the word, and the item id
+retyped. The form is satelled's one write, through the same owner as the verb
+(internal/operator); it is accepted only from this machine (loopback), only as
+a same-origin browser form, and never while satelled itself runs inside an
+agent session. satelled does not present the move.
 
 Three checks refuse an agent: the kernel refuses any call made with an agent
 session (`SATELLE_SESSION`), the edit-gate hook refuses the verb in any agent
 shell call (behind wrappers such as `env`, `timeout` or `xargs`, and named in
-quoted, heredoc or `-c` program text), and the terminal retype needs the
-person at the keyboard. The operator mark is set only by this verb: `attach`,
+quoted, heredoc or `-c` program text) and any shell call naming satelled's
+`operator-record` route, and the terminal retype needs the person at the
+keyboard. The operator mark is set only by this verb and satelled's form, both
+through internal/operator: `attach`,
 performer artifacts and the server's attach tool never set it, and
 `satelle ledger append` refuses every kind satelle reads (item, seat and
 attachment events), so a raw append can neither forge the record nor move the

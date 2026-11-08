@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: report it and stop.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to confirm, where the operator's word moves each to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: report it and stop. At an operator state, report the item and stop; once the operator's word is recorded, present exactly the move it names.
 ---
 
 # Agent goals
@@ -29,6 +29,15 @@ One declared move is not the session's: a state's `hold` parks the item for the
 operator, and only the operator presents the move out of that park; the session
 reports the hold and stops.
 
+**An operator state is the operator's word** (`performer = { operator = ... }`,
+such as `confirm`, where the operator confirms a story's result from its
+summary). The session reports the item, with satelled's Awaiting-you page
+(`/r/<project>/operator`), and stops; it never records the word. Once
+`satelle story get <id>` shows `operator   <who> chose <state>`, the session
+presents exactly that move (`satelle story set <id> --status <state>`); the
+kernel refuses any other. A send-back to `in_progress` carries the operator's
+reason as the `confirmation` attachment, which the coder reads first.
+
 **This session is the orchestrator when both seats are in-loop** (both resolve
 to the in-loop command: the same agent). `complete sty_<id>` starts that story's
 drive; an epic, or `drive epic <id> to done`, starts *Driving an epic*.
@@ -41,8 +50,8 @@ drive stays in this session.
 
 **One story at a time — outside an epic.**
 Drive a single engaged story to its terminal state before engaging another. An
-epic's children end DEV at `approved` and reach `done` together through the
-release run; see *Driving an epic*. Reason: a child reaches `done` only through
+epic's children end DEV at `confirm`, reach `approved` on the operator's word,
+and reach `done` together through the release run; see *Driving an epic*. Reason: a child reaches `done` only through
 a release run, and the release fires only once every open child is approved, so
 driving one child to its terminal state before engaging the next would
 deadlock. This is that rule's consequence, not an ordering rule.
@@ -55,12 +64,15 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 
 **Drive epic `<id>` to done:**
 
-1. Drive each child on its own category workflow to `approved`, where DEV ends.
+1. Drive each child on its own category workflow to `confirm`, where DEV ends;
+   the operator's word moves it to `approved` (then present that move) or back
+   to `in_progress`.
 2. Run the readiness block below with `EPIC_ID` replaced by the epic's id. It
    exits 0 printing `every open child of <epic> is approved: fire the release`
    when the epic has open children and every one is `approved`. It exits 1,
    listing `<id> <status>` for each open child not yet approved (an earlier DEV
-   state, or blocked), when any is not: drive those first and do not fire. It
+   state, or blocked), when any is not: drive those first and do not fire;
+   those at `confirm` wait for the operator's word: report them and stop. It
    exits 0 printing `no open child of <epic>: close it` when no child is open.
    It exits 2 when the epic id does not resolve or the list fails.
 3. On "fire the release", follow `.satelle/skills/release.md` from step 0 (it
@@ -83,6 +95,9 @@ pending=$(printf '%s\n' "$open" | jq -r '.[] | select(.status != "approved") | "
 if [ -n "$pending" ]; then
   printf '%s\n' "$pending"
   echo "drive these to approved before the fire" >&2
+  if printf '%s\n' "$pending" | grep -q ' confirm$'; then
+    echo "those at confirm wait for the operator's word: report them and stop" >&2
+  fi
   exit 1
 fi
 echo "every open child of $epic is approved: fire the release"

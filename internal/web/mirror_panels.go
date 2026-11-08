@@ -144,6 +144,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
+	opRows, _, err := operatorRows(ctx, s, repoKey, "", false)
+	if err != nil {
+		return pageData{}, id, err
+	}
 	lastIngest, stale := partitionFreshness(ctx, s, repoKey)
 	return pageData{
 		RepoRoot:        repoRoot,
@@ -163,6 +167,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		Queues:          queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows),
 		Activity:        activityRows(stories, executions, workflows, seats, events),
 		DocKinds:        docKinds(docs),
+		Operator:        opRows,
 		Workflows:       workflowRows(docs),
 		Uptime:          formatUptime(time.Since(serverStart)),
 		TopBar:          newTopBar(ctx, s, ""),

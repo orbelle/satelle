@@ -18,8 +18,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// MirrorServer is the push-fed read-only UI (sty_dbdadfa0 + epic:mirror-ui-parity).
-// It never opens a per-repo runtime DB; all product state comes from the mirror store.
+// MirrorServer is the push-fed UI (sty_dbdadfa0 + epic:mirror-ui-parity). All
+// product state it shows comes from the mirror store; its one write is the
+// operator's word, recorded through internal/operator from the loopback
+// Awaiting-you page (POST /r/{slug}/operator-record/{id}).
 type MirrorServer struct {
 	Handler http.Handler
 	Store   *mirror.Store
@@ -74,6 +76,7 @@ func init() {
 	// Full template set (shared page chrome + the Projects landing).
 	mirrorTmpl = template.Must(template.New("web").Funcs(tmplFuncs).Parse(templatesSrc))
 	template.Must(mirrorTmpl.New("mirrorProjects").Parse(mirrorProjectsSrc))
+	template.Must(mirrorTmpl.New("operator").Parse(operatorTmplSrc))
 }
 
 // NewMirror builds the RO+ingest HTTP surface over m. Instance identity is
@@ -134,6 +137,10 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/fragment/queues", s.fragmentRows("queueRows", "queues"))
 	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("activityRows", "activity"))
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
+	mux.HandleFunc("GET /r/{slug}/fragment/operator", s.fragmentRows("operatorRows", "operator"))
+	mux.HandleFunc("GET /r/{slug}/operator", s.operatorPage)
+	// satelled's one write: the operator's word, through internal/operator.
+	mux.HandleFunc("POST /r/{slug}/operator-record/{id}", s.operatorRecord)
 	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentBadge("engagementBadge"))
 	mux.HandleFunc("GET /r/{slug}/fragment/backlog", s.fragmentBadge("backlogBadge"))
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
@@ -375,6 +382,8 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 			payload = data.Activity
 		case "docs":
 			payload = data.DocKinds
+		case "operator":
+			payload = data.Operator
 		default:
 			http.NotFound(w, r)
 			return

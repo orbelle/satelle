@@ -189,9 +189,9 @@ func TestActivityLiveWiring(t *testing.T) {
 	}
 	js := string(b)
 	for _, want := range []string{
-		`var PANELS = ["stories", "activity", "tasks", "queues", "workflow"]`,
-		`var LIVE_TOPICS = ["stories", "activity", "tasks", "queues"]`,
-		`var DERIVED_TOPICS = { stories: ["activity", "queues"], tasks: ["activity", "queues"] }`,
+		`var PANELS = ["stories", "activity", "tasks", "queues", "operator", "workflow"]`,
+		`var LIVE_TOPICS = ["stories", "activity", "tasks", "queues", "operator"]`,
+		`var DERIVED_TOPICS = { stories: ["activity", "queues", "operator"], tasks: ["activity", "queues", "operator"] }`,
 		`t === "queues"`,
 		`if (kind === "queue") return "queues";`,
 		`refetch[tp] = debounce(function () { refetchPanel(tp); }, 250)`,

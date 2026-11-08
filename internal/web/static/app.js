@@ -13,7 +13,7 @@
 (function () {
   "use strict";
   // A row's data-terminal comes from its pushed workflow; no state is named here.
-  var PANELS = ["stories", "activity", "tasks", "queues", "workflow"];
+  var PANELS = ["stories", "activity", "tasks", "queues", "operator", "workflow"];
   // Panels of work items (status + workflow + default sort). The workflow
   // panel is a read-only catalog: free-text filter only, no status/order
   // default chips.
@@ -416,11 +416,11 @@
   }
 
   // Panels with a rows fragment endpoint (the refetch targets); workflow has none.
-  var LIVE_TOPICS = ["stories", "activity", "tasks", "queues"];
+  var LIVE_TOPICS = ["stories", "activity", "tasks", "queues", "operator"];
   // A topic doorbell also refetches the panels derived from it: Activity lists
   // the stories and task executions under way, so it follows both; a queue's
   // filter members follow the stories, and its last run's status the tasks.
-  var DERIVED_TOPICS = { stories: ["activity", "queues"], tasks: ["activity", "queues"] };
+  var DERIVED_TOPICS = { stories: ["activity", "queues", "operator"], tasks: ["activity", "queues", "operator"] };
 
   // ---- Projects landing soft-refresh (sty_f968f9db) -----------------------
   // Prefer in-place count updates when the row set is unchanged so numbers

@@ -19,13 +19,13 @@ var openTerminal = func() (io.ReadWriteCloser, error) {
 // item id before the operator's word on it is recorded. It never reads stdin:
 // an agent's tool call has no terminal of its own, and when it shares the
 // operator's, only the person at the keyboard can answer.
-func confirmOnTerminal(id, state, typ string) error {
+func confirmOnTerminal(id, state, typ, to string) error {
 	tty, err := openTerminal()
 	if err != nil {
 		return errors.New("no controlling terminal: the operator records from their own terminal")
 	}
 	defer tty.Close()
-	fmt.Fprintf(tty, "Recording the operator's word on %s (%s, type %s). Type the item id to confirm: ", id, state, typ)
+	fmt.Fprintf(tty, "Recording the operator's word on %s (%s, type %s): move to %s. Type the item id to confirm: ", id, state, typ, to)
 	line, err := bufio.NewReader(tty).ReadString('\n')
 	if err != nil && line == "" {
 		return errors.New("no answer on the controlling terminal: nothing recorded")
