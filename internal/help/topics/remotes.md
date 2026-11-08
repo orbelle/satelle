@@ -98,6 +98,18 @@ reject or a failure leaves it to inspect, and the gate's notes say `docker rm
 -f satelle-node-<node>`; a check cut at the gate's `timeout` is removed. With
 `scope = "job"` the container is always left.
 
+The same definition runs as a fly-sprite remote with only its `provider`
+line changed: a gate may be placed on a docker-local or a fly-sprite remote.
+A fly-sprite check runs on a node satelle-server starts
+(RemoteService.StartNode), reached over the sealed channel: the starter
+hands it the same bundle, script, stdin and wrapper and runs the same check.
+It needs a bound project (`satelle project bind`), and the node must run a
+satelle carrying the gate jobs (its `satelle_version`). The definition
+satelle-server serves the node must be this repo's file: the node reports
+the sha256 of its `remote.toml`, and a different one is refused, naming
+both, before the check runs. The node's lifecycle is the server's: the
+starter ends it after every check.
+
 Every check is its own node and container, with nothing shared, so several
 items' gates run at once on separate nodes. A long suite still holds the
 `story set` that runs it: start that command in the background (the harness's

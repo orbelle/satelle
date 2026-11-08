@@ -314,9 +314,16 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 
 // localRefusal names what a local node cannot be given.
 func localRefusal(def remotedef.Definition) error {
-	switch {
-	case def.Provider != remotedef.ProviderDockerLocal:
+	if def.Provider != remotedef.ProviderDockerLocal {
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
+	}
+	return gateNodeRefusal(def)
+}
+
+// gateNodeRefusal names what a node started for one run cannot be given, on
+// any provider: it is handed no secrets, fetches no repos and drives an item.
+func gateNodeRefusal(def remotedef.Definition) error {
+	switch {
 	case len(def.SecretEntries()) > 0:
 		return errors.New("[secrets] is not served to a local node: nothing here hands out secrets")
 	case len(def.Repos) > 0:

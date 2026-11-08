@@ -389,14 +389,24 @@ the workflow needs it, is a step's work.`,
 // withRemote gives the kernel the remote placement of the bound project, if
 // any; the returned close releases the connection.
 func withRemote(k *kernel.Kernel, r repo) (func(), error) {
-	b, ok, err := loadBinding(r)
+	p, closeFn, ok, err := hostedPlacer(k, r)
 	if err != nil || !ok {
 		return func() {}, err
 	}
+	k.Remote = p
+	return closeFn, nil
+}
+
+// hostedPlacer is the Placer for the bound project, dialled; ok is false when
+// the repo is not bound. The returned close releases the connection.
+func hostedPlacer(k *kernel.Kernel, r repo) (remotenode.Placer, func(), bool, error) {
+	b, ok, err := loadBinding(r)
+	if err != nil || !ok {
+		return remotenode.Placer{}, func() {}, false, err
+	}
 	c, err := dial(b.Server)
 	if err != nil {
-		return func() {}, err
+		return remotenode.Placer{}, func() {}, false, err
 	}
-	k.Remote = remotenode.Placer{Client: c, Project: b.Project, Sync: newSyncer(k, c, b.Project, r.Runtime)}
-	return func() { c.Close() }, nil
+	return remotenode.Placer{Client: c, Project: b.Project, Sync: newSyncer(k, c, b.Project, r.Runtime)}, func() { c.Close() }, true, nil
 }

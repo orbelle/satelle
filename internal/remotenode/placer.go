@@ -56,8 +56,10 @@ func (p Placer) StartNode(ctx context.Context, remote, itemID, binding string) (
 	return r.GetNodeId(), nil
 }
 
-// PerformOn sends req to node over the sealed channel and returns its answer.
-func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (agent.Result, error) {
+// Attach opens the sealed channel to node: it pins the key the node
+// publishes (NodeService.GetNode), attaches through the relay and waits up to
+// ReadyTimeout for the node's ready report. End the run with End.
+func (p Placer) Attach(ctx context.Context, node string) (*Run, error) {
 	key := func(ctx context.Context) ([]byte, error) {
 		n, err := p.Client.Nodes.GetNode(ctx, &satellepb.GetNodeRequest{NodeId: node})
 		if err != nil {
@@ -67,7 +69,7 @@ func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (
 	}
 	sess, err := remotechan.Attach(ctx, p.Client.Relay, node, key, p.ChanOpts...)
 	if err != nil {
-		return agent.Result{}, fmt.Errorf("channel to node %s: %w", node, err)
+		return nil, fmt.Errorf("channel to node %s: %w", node, err)
 	}
 	ready := p.ReadyTimeout
 	if ready <= 0 {
@@ -75,7 +77,16 @@ func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (
 	}
 	run, err := AttachRun(ctx, sess, ready)
 	if err != nil {
-		return agent.Result{}, fmt.Errorf("node %s: %w", node, err)
+		return nil, fmt.Errorf("node %s: %w", node, err)
+	}
+	return run, nil
+}
+
+// PerformOn sends req to node over the sealed channel and returns its answer.
+func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (agent.Result, error) {
+	run, err := p.Attach(ctx, node)
+	if err != nil {
+		return agent.Result{}, err
 	}
 	defer run.End()
 	start := time.Now()

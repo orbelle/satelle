@@ -293,8 +293,8 @@ func Validate(root string) []error {
 }
 
 // gatePlacementProblems checks each gate's placement: "" or local, or
-// remote:<id> on a check gate, where <id> is a docker-local remote defined
-// under RemotesDir (the provider that runs gate checks here).
+// remote:<id> on a check gate, where <id> is a remote defined under
+// RemotesDir whose definition parses (any provider remotedef admits).
 func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {
@@ -324,13 +324,8 @@ func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
 			bad("is placed on remote %s, which has no %s: %v", id, filepath.Join(filepath.Base(c.Root), RemotesDir, id, RemoteFile), err)
 			continue
 		}
-		def, err := remotedef.Parse(b)
-		if err != nil {
+		if _, err := remotedef.Parse(b); err != nil {
 			bad("is placed on remote %s: %v", id, err)
-			continue
-		}
-		if def.Provider != remotedef.ProviderDockerLocal {
-			bad("is placed on remote %s, whose provider %s does not run gate checks here (only %s does)", id, def.Provider, remotedef.ProviderDockerLocal)
 		}
 	}
 	return errs

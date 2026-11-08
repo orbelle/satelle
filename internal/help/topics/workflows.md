@@ -106,10 +106,10 @@ harness's background command, with that command's own timeout above the sum
 of the sequential gates' bounds.
 
 A check gate's `placement` says where its check skill runs: `local` (the
-default) here, or `remote:<id>` on a node of the docker-local remote
-`.satelle/remotes/<id>/` (see `satelle help remotes`). Only a check gate may
-be placed on a remote, and only on a docker-local one; `satelle validate`
-refuses any other. Relevance (`paths`, `trigger`), carry and `after` still run
+default) here, or `remote:<id>` on a node of the docker-local or fly-sprite
+remote `.satelle/remotes/<id>/` (see `satelle help remotes`). Only a check
+gate may be placed on a remote; `satelle validate` refuses any other.
+Relevance (`paths`, `trigger`), carry and `after` still run
 here, so a skipped or carried gate starts no node and an `after` keeps its
 credentials here. The node judges the item's pushed head: its collected
 branch's commit, else HEAD on its branch, which must be committed (a clean

@@ -1,6 +1,8 @@
 package remotenode
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/bobmcallan/satelle/internal/filebundle"
@@ -54,6 +56,23 @@ func ReadBundle(bundle []byte) (remotedef.Definition, []fileEntry, error) {
 		return remotedef.Definition{}, nil, fmt.Errorf("the bundle has no %s", DefinitionFile)
 	}
 	return def, overlay, nil
+}
+
+// DefinitionDigest is the hex sha256 of the bundle's remote.toml content: the
+// identity of the definition a node runs, the same however the rest of the
+// bundle is encoded.
+func DefinitionDigest(bundle []byte) (string, error) {
+	entries, err := filebundle.Decode(bundle, nil)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.Path == DefinitionFile {
+			sum := sha256.Sum256([]byte(e.Content))
+			return hex.EncodeToString(sum[:]), nil
+		}
+	}
+	return "", fmt.Errorf("the bundle has no %s", DefinitionFile)
 }
 
 // writeOverlay writes the overlay files into dataDir, leaving every other file.
