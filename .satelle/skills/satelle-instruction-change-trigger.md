@@ -3,20 +3,21 @@ name: satelle-instruction-change-trigger
 scope: system
 type: check
 tags: [type:skill, type:reviewer, type:functional-check]
-description: The `when` precondition for satelle-instruction-change-review. Exits 0 when the story's change set adds or rewrites instruction text (a new file, or at least THRESHOLD changed words) in skills, principles or the constitution; exits 1 for a whitespace, punctuation or typo-only change. Deterministic and self-contained; the rule is this script, so a repo overrides the skill to change it.
+description: The trigger of satelle-instruction-change-review. Exits 0 when the story's diff adds or rewrites instruction text (a new file, or at least THRESHOLD changed words) in skills, principles or the constitution; exits 1 for no instruction change or a whitespace, punctuation or typo-only one. Deterministic and self-contained; the rule is this script, so a repo overrides the skill to change it.
 ---
 
-# Instruction-change trigger (`when` precondition)
+# Instruction-change trigger
 
-Not a verdict. A gate that declares `when = "satelle-instruction-change-trigger"`
+Not a verdict. A gate that declares `trigger = "satelle-instruction-change-trigger"`
 runs this script before it is enqueued: **exit 0 runs the gate, exit 1 skips
-it**, any other outcome runs it (a broken precondition never costs a gate). The
-binary runs the script; the rule below is the whole decision.
+it** and its output is noted, and any other exit means the trigger is broken,
+so the gate runs anyway. The binary runs the script; the rule below is the
+whole decision.
 
 ## What counts
 
-The story's change set, unioned from `satelle story diff <id> --include-substrate`
-and `--recorded`, filtered to instruction paths:
+The story's change set is the `paths` of `satelle story diff <id> --json`, the
+id being `$SATELLE_ITEM`, filtered to instruction paths:
 
 - generic: `.satelle/skills/**`, `.satelle/principles/**`,
   `.satelle/constitution.md`
@@ -24,11 +25,11 @@ and `--recorded`, filtered to instruction paths:
   repo that also keeps embedded defaults in-tree names them; the binary ships no
   repo path
 
-A **new** file, an unmeasurable one (git-ignored substrate), or a change with at
-least `THRESHOLD` changed words (`git diff -w --word-diff`, tokens containing a
-letter or digit only) triggers. Whitespace and punctuation changes count zero.
-A story with no baseline and instruction files changed also triggers. No
-instruction path changed means skip.
+Each is measured against the diff's `base`. A **new** file, an unmeasurable one
+(git-ignored substrate), or a change with at least `THRESHOLD` changed words
+(`git diff -w --word-diff`, tokens containing a letter or digit only) triggers.
+Whitespace and punctuation changes count zero. A diff with no base and
+instruction files changed also triggers. No instruction path changed means skip.
 
 ## Configuration
 
@@ -43,38 +44,21 @@ set -uo pipefail
 THRESHOLD=5
 generic='^\.satelle/(skills|principles)/|^\.satelle/constitution\.md$'
 
-payload=$(cat)
-sid=$(printf '%s' "$payload" | grep -oE '"id":[[:space:]]*"sty_[a-f0-9]+"' | head -1 | grep -oE 'sty_[a-f0-9]+')
+command -v jq >/dev/null 2>&1 || { echo "jq is not installed"; exit 2; }
+sid=$(printf '%s' "${SATELLE_ITEM:-}" | grep -oE '^sto_[a-f0-9]+$')
 if [ -z "$sid" ]; then
-  echo "could not read the story id from the transition payload"
+  echo "SATELLE_ITEM (${SATELLE_ITEM:-unset}) is not a story id"
   exit 2
 fi
-
-extract_files() {
-  local raw
-  raw=$(cat)
-  [ -z "$raw" ] && return 0
-  if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$raw" | python3 -c "import json,sys
-try:
- print('\n'.join(json.load(sys.stdin).get('files') or []))
-except Exception:
- pass" 2>/dev/null || true
-  else
-    printf '%s' "$raw" | tr -d ' \n' | sed -n 's/.*\"files\":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '"' | grep -v '^$' || true
-  fi
-}
-
-rec=""
-if recorded=$(satelle story diff "$sid" --recorded --json 2>/dev/null); then
-  rec=$(printf '%s' "$recorded" | extract_files)
+if ! diff=$(satelle story diff "$sid" --json 2>&1); then
+  echo "could not read the diff of $sid: $diff"
+  exit 2
 fi
-liv=""
-base=""
-if live=$(satelle story diff "$sid" --include-substrate --json 2>/dev/null); then
-  liv=$(printf '%s' "$live" | extract_files)
-  base=$(printf '%s' "$live" | grep -oE '"baseline_sha":[[:space:]]*"[a-f0-9]+"' | head -1 | grep -oE '[a-f0-9]{7,}')
+if ! all=$(printf '%s' "$diff" | jq -r '.paths // [] | .[]'); then
+  echo "could not read the paths of $sid's diff"
+  exit 2
 fi
+base=$(printf '%s' "$diff" | jq -r '.base // empty')
 
 # Instruction paths: the generic set plus [instruction_review] extra_paths globs.
 match="$generic"
@@ -87,13 +71,13 @@ for g in $extra; do
   match="$match|^$re\$"
 done
 
-files=$(printf '%s\n%s\n' "$rec" "$liv" | grep -v '^$' | sort -u | grep -E "$match" || true)
+files=$(printf '%s\n' "$all" | grep -v '^$' | grep -E "$match" || true)
 if [ -z "$files" ]; then
   echo "no instruction file changed for $sid (skills, principles, constitution)"
   exit 1
 fi
 if [ -z "$base" ]; then
-  echo "instruction files changed for $sid but there is no engagement baseline to measure against: $(printf '%s' "$files" | tr '\n' ' ')"
+  echo "instruction files changed for $sid but its diff has no base to measure against: $(printf '%s' "$files" | tr '\n' ' ')"
   exit 0
 fi
 
@@ -112,9 +96,9 @@ while IFS= read -r f; do
     /^-/  { k = split(substr($0,2), w, /[[:space:]]+/); for (i=1;i<=k;i++) if (w[i] ~ /[[:alnum:]]/) d++ }
     END { print (a>d ? a : d) + 0 }')
   total=$((total + ${n:-0}))
-done <<EOF
+done <<EOF2
 $files
-EOF
+EOF2
 
 if [ "$total" -ge "$THRESHOLD" ]; then
   echo "instruction text changed: $total words (threshold $THRESHOLD) in: $(printf '%s' "$files" | tr '\n' ' ')"
