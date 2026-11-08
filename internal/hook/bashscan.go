@@ -28,8 +28,11 @@ type BashTargets struct {
 	// OperatorRecord is set when the command would run satelle's operator record
 	// verb: satelle at any word position of a segment (behind env, command,
 	// timeout, xargs and the like) with a later record word, or the two on one
-	// line of quoted or heredoc text (sh -c, script -c, an interpreter -c
-	// program). It is fail-closed: prose that quotes the verb counts too.
+	// line of text a shell or interpreter may run (sh -c, script -c, an
+	// interpreter -c program, a heredoc or here-string, a command substitution,
+	// text piped into a command that is not data). Text passed only as data to a
+	// command on the closed dataCommands list (or a git message or read
+	// command) is not scanned; anything else fails closed and is.
 	OperatorRecord bool
 }
 
@@ -47,20 +50,17 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 		seen[p] = true
 		*dst = append(*dst, p)
 	}
-	scanBash(command, filepath.Clean(cwd), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) },
-		func() { t.OperatorRecord = true })
+	scanBash(command, filepath.Clean(cwd), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
+	t.OperatorRecord = operatorRecordCommand(command, 0)
 	return t
 }
 
-func scanBash(command, cwd, root string, isFile func(string) bool, depth int, path, inline func(string), record func()) {
+func scanBash(command, cwd, root string, isFile func(string) bool, depth int, path, inline func(string)) {
 	var segs []bashSegment
 	forEachSegment(command, cwd, func(s bashSegment) { segs = append(segs, s) })
 	for j, sg := range segs {
 		for _, r := range redirectTargets(sg.Tokens, sg.Cwd) {
 			path(r)
-		}
-		if operatorRecordSegment(sg) {
-			record()
 		}
 		words := sg.Words
 		if len(words) == 0 {
@@ -68,7 +68,7 @@ func scanBash(command, cwd, root string, isFile func(string) bool, depth int, pa
 		}
 		if depth < maxShellProgramDepth {
 			if prog, ok := shellProgram(sg); ok {
-				scanBash(prog, sg.Cwd, root, isFile, depth+1, path, inline, record)
+				scanBash(prog, sg.Cwd, root, isFile, depth+1, path, inline)
 				continue
 			}
 		}
@@ -971,13 +971,7 @@ func shellProgramPlain(prog string) bool {
 			if t.Kind != "word" {
 				continue
 			}
-			if t.Value == "eval" || t.Value == "source" {
-				return false
-			}
-			// A lone & is a background separator unless it is glued into a
-			// redirect (2>&1, &>f).
-			if t.Value == "&" && !(j > 0 && toks[j-1].End == t.Start && strings.HasSuffix(toks[j-1].Value, ">")) &&
-				!(j+1 < len(toks) && toks[j+1].Start == t.End && strings.HasPrefix(toks[j+1].Value, ">")) {
+			if t.Value == "eval" || t.Value == "source" || backgroundAmp(toks, j) {
 				return false
 			}
 		}
@@ -996,6 +990,16 @@ func shellProgramPlain(prog string) bool {
 		}
 	}
 	return true
+}
+
+// backgroundAmp reports whether the word token at j is a lone & that runs a
+// command in the background: tokenizeBash keeps & as a word, so it is a
+// separator unless it is glued into a redirect (2>&1, &>f).
+func backgroundAmp(toks []bashTok, j int) bool {
+	t := toks[j]
+	return t.Kind == "word" && t.Value == "&" &&
+		!(j > 0 && toks[j-1].End == t.Start && strings.HasSuffix(toks[j-1].Value, ">")) &&
+		!(j+1 < len(toks) && toks[j+1].Start == t.End && strings.HasPrefix(toks[j+1].Value, ">"))
 }
 
 // isNameByte is a byte that continues a file or identifier name. A root token
@@ -1543,33 +1547,228 @@ const operatorRecordVerb = "record"
 // brackets, so an argv list (['satelle','story','record']) matches too.
 var operatorRecordText = regexp.MustCompile(`(?m)(?:^|[\s'"/,\[(])satelle(?:[\s'",\])][^\n]*?)?[\s'",\[(]` + operatorRecordVerb + `(?:$|[\s'",\])])`)
 
-// operatorRecordSegment reports whether the segment would run satelle's
-// operator record verb: satelle at any word position (so behind any wrapper in
-// shellOpaqueWords, or after satelle's own flags) with a later record word not
-// taken as a flag's value, or the verb named in the segment's quoted or
-// heredoc text.
-func operatorRecordSegment(sg bashSegment) bool {
-	for i, w := range sg.Words {
-		if filepath.Base(w) != "satelle" {
-			continue
+// dataCommands are the commands whose arguments and stdin are only data: they
+// print, match or count text and never run it. The list is closed; a command
+// not on it has its text scanned as code. rg (--pre runs a program) and sed
+// (its e flag executes) are left out on purpose.
+var dataCommands = map[string]bool{
+	"echo": true, "printf": true, "grep": true, "egrep": true, "fgrep": true,
+	"cat": true, "head": true, "tail": true, "wc": true, "satelle": true,
+}
+
+// gitMessageSubcommands are the git subcommands whose quoted arguments are a
+// message: prose stored, not run.
+var gitMessageSubcommands = map[string]bool{"commit": true, "tag": true}
+
+// shellCompoundWords open or close a compound command. A group or loop body
+// piped into another command is several segments that splitSegments cannot
+// tie to that pipe, so a command with one at a command position has no data
+// segments at all.
+var shellCompoundWords = map[string]bool{
+	"{": true, "}": true, "do": true, "done": true, "then": true, "else": true, "elif": true,
+	"fi": true, "if": true, "while": true, "until": true, "for": true, "case": true,
+	"esac": true, "select": true, "function": true, "coproc": true, "!": true,
+}
+
+// operatorRecordCommand reports whether command would run satelle's operator
+// record verb. Each segment is judged by operatorRecordSegment; a segment is
+// data only when dataSegment holds for it and everything its output is piped
+// into is data too, so text flowing into a shell is always scanned.
+func operatorRecordCommand(command string, depth int) bool {
+	segs := splitSegments(tokenizeBash(command))
+	data := make([]bool, len(segs))
+	compound := false
+	for j, ps := range segs {
+		data[j] = dataSegment(ps.Toks)
+		if cmd := commandTokens(ps.Toks, leadingAssignments(wordsOnly(ps.Toks))); len(cmd) > 0 && shellCompoundWords[cmd[0].Value] {
+			compound = true
 		}
-		for j := i + 1; j < len(sg.Words); j++ {
-			if sg.Words[j] == operatorRecordVerb && !strings.HasPrefix(sg.Words[j-1], "-") {
-				return true
+		for _, t := range ps.Toks {
+			if t.Kind == "word" && strings.ContainsAny(t.Value, "()") {
+				compound = true
 			}
 		}
 	}
-	for _, t := range sg.Tokens {
-		if t.Kind != "string" {
-			continue
-		}
-		text := t.Value
-		if t.Raw != "" {
-			text = t.Raw
-		}
-		if operatorRecordText.MatchString(text) {
+	sink := make([]bool, len(segs))
+	for j := len(segs) - 1; j >= 0; j-- {
+		sink[j] = j+1 == len(segs) || !segs[j+1].Piped || (data[j+1] && sink[j+1])
+	}
+	for j, ps := range segs {
+		if operatorRecordSegment(ps.Toks, !compound && data[j] && sink[j], depth) {
 			return true
 		}
 	}
 	return false
+}
+
+// operatorRecordSegment reports whether one segment would run the verb. An
+// assignment value before the command word may be run (GIT_EDITOR=…), so it is
+// always scanned. A segment that is not data is scanned in full: the word rule
+// (operatorRecordWords) and every quoted or heredoc text. In a data segment the
+// word rule applies only to satelle's own argv, and quoted text is scanned only
+// where the shell itself runs part of it (operatorRecordDataToken).
+func operatorRecordSegment(toks []bashTok, data bool, depth int) bool {
+	cmd := commandTokens(toks, leadingAssignments(wordsOnly(toks)))
+	for _, t := range toks[:len(toks)-len(cmd)] {
+		if t.Kind == "string" && operatorRecordText.MatchString(tokText(t)) {
+			return true
+		}
+	}
+	if !data {
+		if operatorRecordWords(toks) {
+			return true
+		}
+		for _, t := range toks {
+			if t.Kind == "string" && operatorRecordText.MatchString(tokText(t)) {
+				return true
+			}
+		}
+		return false
+	}
+	if cmd[0].Value == "satelle" && operatorRecordWords(cmd) {
+		return true
+	}
+	for _, t := range cmd {
+		if t.Kind == "string" && operatorRecordDataToken(t, depth) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokText is a string token's full source text: a heredoc's Raw, else its Value.
+func tokText(t bashTok) string {
+	if t.Raw != "" {
+		return t.Raw
+	}
+	return t.Value
+}
+
+// operatorRecordDataToken reports whether a quoted argument of a data command
+// runs the verb. Single-quoted and $'…' text, and a heredoc with a quoted
+// delimiter, are never expanded. An unquoted-delimiter heredoc with a `$(` or
+// backtick is scanned as text. A double-quoted token's `$(…)` bodies are judged
+// as commands in their own right; a backtick, an unterminated `$(` or a nesting
+// deeper than maxShellProgramDepth scans the whole token as text.
+func operatorRecordDataToken(t bashTok, depth int) bool {
+	v := t.Value
+	switch {
+	case t.Raw != "":
+		opener := strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(t.Raw, "<<"), "-"), " \t")
+		if strings.HasPrefix(opener, "'") || strings.HasPrefix(opener, `"`) {
+			return false
+		}
+		if strings.Contains(t.Raw, "$(") || strings.Contains(t.Raw, "`") {
+			return operatorRecordText.MatchString(t.Raw)
+		}
+		return false
+	case strings.HasPrefix(v, "'") || strings.HasPrefix(v, "$'"):
+		return false
+	case !strings.HasPrefix(v, `"`):
+		return operatorRecordText.MatchString(v)
+	}
+	for i := 1; i < len(v); {
+		switch {
+		case v[i] == '\\':
+			i += 2
+		case v[i] == '`':
+			return operatorRecordText.MatchString(v)
+		case v[i] == '$' && i+1 < len(v) && v[i+1] == '(':
+			end, ok := skipSubstitution(v, i+2)
+			if !ok || depth+1 > maxShellProgramDepth {
+				return operatorRecordText.MatchString(v)
+			}
+			if operatorRecordCommand(v[i+2:end-1], depth+1) {
+				return true
+			}
+			i = end
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+// operatorRecordWords is the word rule: satelle at any word position (so behind
+// any wrapper in shellOpaqueWords, or after satelle's own flags) with a later
+// record word not taken as a flag's value. Quoted words count in their slots
+// (satelle story "record"), heredoc bodies do not, and a subshell or
+// substitution opener or closer glued to a word ((satelle, $(satelle, record))
+// is stripped before comparing.
+func operatorRecordWords(toks []bashTok) bool {
+	words := commandArgWords(toks)
+	for i, w := range words {
+		for _, p := range []string{"$(", "<(", ">(", "(", "`"} {
+			for strings.HasPrefix(w, p) {
+				w = strings.TrimPrefix(w, p)
+			}
+		}
+		if filepath.Base(w) != "satelle" {
+			continue
+		}
+		for j := i + 1; j < len(words); j++ {
+			if strings.TrimRight(words[j], ")`") == operatorRecordVerb && !strings.HasPrefix(words[j-1], "-") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dataSegment reports whether a segment's quoted text is only data: its command
+// word is a bare, unglued, path-less name on dataCommands (printf without -v,
+// which assigns a variable) or a git message or read invocation
+// (gitDataInvocation), and it has no bare word with a substitution or process
+// substitution, no here-string and no background &.
+func dataSegment(toks []bashTok) bool {
+	cmd := commandTokens(toks, leadingAssignments(wordsOnly(toks)))
+	if len(cmd) == 0 {
+		return false
+	}
+	k := len(toks) - len(cmd)
+	name := cmd[0].Value
+	if (k > 0 && toks[k-1].End == cmd[0].Start) || (len(cmd) > 1 && cmd[1].Start == cmd[0].End) || strings.Contains(name, "/") {
+		return false
+	}
+	words := commandArgWords(cmd)
+	switch {
+	case name == "git":
+		if !gitDataInvocation(words) {
+			return false
+		}
+	case !dataCommands[name]:
+		return false
+	case name == "printf":
+		for _, w := range words[1:] {
+			if strings.HasPrefix(w, "-v") {
+				return false
+			}
+		}
+	}
+	for j, t := range toks {
+		switch {
+		case t.Kind == "word" && (strings.ContainsAny(t.Value, "`(") || backgroundAmp(toks, j)):
+			return false
+		case t.Kind == "string" && strings.HasPrefix(t.Raw, "<<<"):
+			return false
+		}
+	}
+	return true
+}
+
+// gitDataInvocation reports whether words are a git command whose quoted
+// arguments are data: a read-only subcommand or a message one, with no global
+// option that can run a program (-c sets an editor or alias, --config-env the
+// same from the environment, --exec-path a directory of git programs).
+func gitDataInvocation(words []string) bool {
+	sub, _, args, ok := gitInvocationArgs(words)
+	if !ok || !(gitReadOnlySubcommands[sub] || gitMessageSubcommands[sub]) {
+		return false
+	}
+	for _, w := range words[1 : len(words)-len(args)-1] {
+		if strings.HasPrefix(w, "-c") || strings.HasPrefix(w, "--config-env") || strings.HasPrefix(w, "--exec-path") {
+			return false
+		}
+	}
+	return true
 }

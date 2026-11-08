@@ -27,10 +27,15 @@ Always and never:
 - While the configuration is invalid, only `.satelle/` itself may be edited.
 - A seat on an item in an operator state (`performer = { operator = "<type>" }`)
   allows no edits, and the operator's record verb (`satelle <kind> record`) is
-  refused for every session. The scan also refuses quoted or heredoc text that
-  names the verb, so reword such prose or pass it with `-F <file>`. These
-  checks run as the agent's own OS user: they stop an agent session, not a
-  deliberate forgery of the runtime ledger.
+  refused for every session. The verb is refused as a command word behind any
+  wrapper, and in text a shell or interpreter runs: `-c` programs, heredocs and
+  here-strings fed to one, `script -c`, a command substitution, and text piped
+  into a command that is not data. Prose given as data to `echo`, `printf`,
+  `grep`, `cat`/`head`/`tail`/`wc`, a git message or read command
+  (`git commit`/`tag`/`log`), or satelle's own flags is not scanned. Other
+  commands still are, so pass such prose with `-F <file>`. These checks run as
+  the agent's own OS user: they stop an agent session, not a deliberate
+  forgery of the runtime ledger.
 
 A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to

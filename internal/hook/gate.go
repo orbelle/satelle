@@ -45,7 +45,7 @@ var allow = Verdict{Allow: true}
 // OperatorRecordDenied is the gate's refusal of satelle's operator record verb in
 // an agent tool call: every call the gate judges is one.
 const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
-	"Ask the operator to run it in their own terminal. (If this is prose such as a commit message, reword it or pass it with -F <file>.)"
+	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
 // Edit judges an edit of target (absolute, or relative to Root).
 func (g Gate) Edit(target string) Verdict {

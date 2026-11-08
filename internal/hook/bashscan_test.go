@@ -73,6 +73,50 @@ var operatorRecordCases = []string{
 	`python3 -c "import subprocess; subprocess.run(['satelle','story','record','sto_1'])"`,
 	"bash <<'EOF'\nsatelle story record sto_1 --file f\nEOF",
 	"echo ok && nohup satelle story record sto_1 --file f",
+	// Quoted, subshell, substitution and background word forms.
+	`satelle story "record" sto_1`,
+	`"satelle" story record sto_1`,
+	"(satelle story record sto_1)",
+	"echo $(satelle story record sto_1)",
+	"echo ok & satelle story record sto_1",
+}
+
+// operatorRecordCodeCases name the verb only in text that a shell or
+// interpreter runs; the word rule alone does not see them.
+var operatorRecordCodeCases = []string{
+	"zsh -c 'satelle story record sto_1'",
+	`node -e "require('child_process').execSync('satelle story record sto_1')"`,
+	"echo 'satelle story record sto_1' | bash",
+	`echo 'satelle story record sto_1' | "bash"`,
+	"printf 'satelle story record sto_1' | xargs -I{} sh -c '{}'",
+	`echo "satelle story record sto_1" | grep satelle | sh`,
+	"cat <<'EOF' | bash\nsatelle story record sto_1\nEOF",
+	"bash <<< 'satelle story record sto_1'",
+	"cat <<< x\nsatelle story record sto_1",
+	"cat <<EOF\n$(satelle story record sto_1)\nEOF",
+	`git commit -m "$(satelle story record sto_1)"`,
+	`echo "$(satelle story record sto_1)"`,
+	"GIT_EDITOR='satelle story record sto_1' git commit",
+	"git -c core.editor='satelle story record sto_1' commit",
+	// A group or loop body piped into a shell.
+	"{ echo a; echo 'satelle story record sto_1'; } | bash",
+	"while true; do echo 'satelle story record sto_1'; done | sh",
+}
+
+// operatorRecordDataCases name the verb only as data to a command that does
+// not run it: a commit message, echo, printf, a grep pattern, a file argument,
+// satelle's own prose flags and a heredoc to cat.
+var operatorRecordDataCases = []string{
+	`git commit -m "fix(hook): the satelle story record guard reads prose"`,
+	"git commit -m \"$(cat <<'EOF'\nfix: satelle story record guard\nEOF\n)\"",
+	`echo "run satelle story record sto_1 from your terminal"`,
+	"echo satelle story record",
+	`printf '%s\n' "satelle story record"`,
+	`grep -rn "satelle story record" internal/`,
+	`git log --oneline | grep "satelle story record"`,
+	`cat "docs/satelle story record notes.md"`,
+	`satelle story raise --title "Guard" --body "the operator runs satelle story record"`,
+	"cat <<'EOF'\nsatelle story record sto_1\nEOF",
 }
 
 // notOperatorRecordCases name satelle or record without running the verb.
@@ -85,14 +129,37 @@ var notOperatorRecordCases = []string{
 
 func TestScanBashOperatorRecord(t *testing.T) {
 	noFile := func(string) bool { return false }
-	for _, c := range operatorRecordCases {
+	for _, c := range append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...) {
 		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: the operator record verb was not seen", c)
 		}
 	}
-	for _, c := range notOperatorRecordCases {
+	for _, c := range append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...) {
 		if ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: read as the operator record verb", c)
+		}
+	}
+}
+
+// Every data case names the verb on one line, so a scan of the whole command
+// text (or of every quoted token) would refuse it: the data cases stand only
+// while data is exempt.
+func TestOperatorRecordDataCasesNameTheVerb(t *testing.T) {
+	for _, c := range operatorRecordDataCases {
+		if !operatorRecordText.MatchString(c) {
+			t.Errorf("%q does not name the verb", c)
+		}
+	}
+}
+
+// No code case is caught by the word rule on any segment, so each refusal rests
+// on the scan of text a shell or interpreter runs.
+func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
+	for _, c := range operatorRecordCodeCases {
+		for _, ps := range splitSegments(tokenizeBash(c)) {
+			if operatorRecordWords(ps.Toks) {
+				t.Errorf("%q: the word rule fires on %v", c, ps.Toks)
+			}
 		}
 	}
 }

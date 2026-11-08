@@ -3,6 +3,7 @@ package hook
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -217,16 +218,17 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 }
 
 // The gate refuses the operator record verb in any agent tool call, before
-// paths and seats: a seat that allows every edit does not allow it.
+// paths and seats: a seat that allows every edit does not allow it. Prose that
+// names the verb only as data is allowed.
 func TestGateRefusesOperatorRecord(t *testing.T) {
 	root := newRepo(t)
 	g := Gate{Root: root, Seated: func(string) bool { return true }}
-	for _, c := range operatorRecordCases {
+	for _, c := range append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...) {
 		if v := g.Bash(c, root); v.Allow || v.Reason != OperatorRecordDenied {
 			t.Errorf("%q: %+v", c, v)
 		}
 	}
-	for _, c := range notOperatorRecordCases {
+	for _, c := range append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...) {
 		if v := g.Bash(c, root); !v.Allow {
 			t.Errorf("%q denied: %s", c, v.Reason)
 		}
