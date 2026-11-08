@@ -5,6 +5,7 @@ package tests
 import (
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -78,7 +79,8 @@ func TestChangeTriggersReadTheStoryDiff(t *testing.T) {
 		why   string
 	}{
 		{"satelle-workflow-change-trigger", map[string]string{"internal/x.go": "package x\n\nfunc Foo() { bar() }\n\nfunc bar() {}\n"}, 1, "code only"},
-		{"satelle-workflow-change-trigger", map[string]string{"internal/config/substrate/workflows/delivery.toml": "name = \"delivery\"\n"}, 0, "an embedded route"},
+		{"satelle-workflow-change-trigger", map[string]string{"internal/kernel/template/workflows/default.toml": extraRoute}, 0, "the init template's route"},
+		{"satelle-workflow-change-trigger", map[string]string{"internal/config/substrate/workflows/delivery.toml": "name = \"delivery\"\n"}, 1, "the pre-1.0 substrate path"},
 		{"satelle-workflow-change-trigger", map[string]string{".satelle/workflows/extra.toml": extraRoute}, 0, "a repo route"},
 		{"satelle-instruction-change-trigger", map[string]string{"internal/x.go": "package x\n\nfunc Foo() { bar() }\n\nfunc bar() {}\n"}, 1, "code only"},
 		{"satelle-instruction-change-trigger", map[string]string{".satelle/skills/guide.md": "---\nname: guide\n---\n\n# Guide\n\nRead the card, then the plan, then write the code and its test!\n"}, 1, "punctuation only"},
@@ -110,3 +112,56 @@ terminal = true
 from = ["defined"]
 to = "retired"
 `
+
+// Each change trigger skips an item that is not a story: on a task run (exe_)
+// it exits 1 with a line naming the item, never 2 (a broken trigger, which
+// would run the gate anyway).
+func TestChangeTriggersSkipAnExecution(t *testing.T) {
+	t.Parallel()
+	for _, skill := range []string{"satelle-workflow-change-trigger", "satelle-instruction-change-trigger"} {
+		t.Run(skill, func(t *testing.T) {
+			t.Parallel()
+			s := triggerSandbox(t)
+			task := s.create("task", "--title", "a task", "--input-kind", "story").ID
+			var run struct {
+				ID string `json:"id"`
+			}
+			s.mustJSON(&run, "task", "run", task)
+			if !strings.HasPrefix(run.ID, "exe_") {
+				t.Fatalf("task run id %q is not exe_", run.ID)
+			}
+			bin := filepath.Join(t.TempDir(), "trigger")
+			writeFile(t, bin, triggerScript(t, skill), 0o755)
+			s.env["SATELLE_ITEM"] = run.ID
+			r := s.exec(bin, `{"id":"`+run.ID+`","from":"in_progress","to":"done","base":""}`)
+			if r.code != 1 || !strings.Contains(r.out, run.ID+" is not a story") {
+				t.Fatalf("%s on %s: exit %d, want 1 with a line naming it\n%s%s", skill, run.ID, r.code, r.out, r.err)
+			}
+		})
+	}
+}
+
+// WORKFLOW_PATHS names the places workflows are loaded from today: the repo's
+// .satelle/<WorkflowsDir>/ and the init template's <WorkflowsDir>/, which
+// satelle init writes; not the pre-1.0 internal/config/substrate/workflows/.
+func TestWorkflowTriggerPathsMatchTheLoader(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^\s*WorkflowsDir\s*=\s*"([^"]+)"`).FindStringSubmatch(repoText(t, "internal/kernel/config.go"))
+	if m == nil {
+		t.Fatal("internal/kernel/config.go has no WorkflowsDir")
+	}
+	if !strings.Contains(repoText(t, "internal/kernel/init.go"), "//go:embed all:template") {
+		t.Fatal("internal/kernel/init.go no longer embeds template/")
+	}
+	tmpl := "internal/kernel/template/" + m[1] + "/"
+	if fs, _ := filepath.Glob(filepath.Join("..", tmpl, "*.toml")); len(fs) == 0 {
+		t.Fatalf("%s holds no workflow", tmpl)
+	}
+	want := `WORKFLOW_PATHS='^\.satelle/` + m[1] + `/|^` + tmpl + `'`
+	script := triggerScript(t, "satelle-workflow-change-trigger")
+	if !strings.Contains(script, "\n"+want+"\n") {
+		t.Errorf("the workflow-change trigger does not set %s", want)
+	}
+	if strings.Contains(script, "internal/config/substrate/") {
+		t.Error("the workflow-change trigger still names internal/config/substrate/")
+	}
+}

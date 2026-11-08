@@ -14,23 +14,31 @@ it** and its output is noted, and any other exit means the trigger is broken,
 so the gate runs anyway.
 
 The story's change set is the `paths` of `satelle story diff <id> --json`, the
-id being `$SATELLE_ITEM`. When any path in it matches `WORKFLOW_PATHS` (this
-repo's route files, and the embedded default route it keeps in-tree), the
-review runs. Otherwise it is skipped.
+id being `$SATELLE_ITEM`. When any path in it matches `WORKFLOW_PATHS`, the
+review runs. Otherwise it is skipped. `WORKFLOW_PATHS` names the two places
+workflows are loaded from (`internal/kernel/config.go`, `WorkflowsDir`): this
+repo's route files, `.satelle/workflows/`, and the default route `satelle init`
+writes into a new repo, embedded from `internal/kernel/template/workflows/`.
+An item that is not a story (an execution, `exe_`) has no story diff: it is
+skipped, exit 1, with a line saying so.
 
 ```check
 #!/usr/bin/env bash
 set -uo pipefail
 
 # THE CONFIGURATION — the paths whose change is a route edit.
-WORKFLOW_PATHS='^\.satelle/workflows/|^internal/config/substrate/workflows/'
+WORKFLOW_PATHS='^\.satelle/workflows/|^internal/kernel/template/workflows/'
 
 command -v jq >/dev/null 2>&1 || { echo "jq is not installed"; exit 2; }
-sid=$(printf '%s' "${SATELLE_ITEM:-}" | grep -oE '^sto_[a-f0-9]+$')
-if [ -z "$sid" ]; then
-  echo "SATELLE_ITEM (${SATELLE_ITEM:-unset}) is not a story id"
+item=${SATELLE_ITEM:-}
+if ! printf '%s' "$item" | grep -qE '^[a-z]+_[A-Za-z0-9]+$'; then
+  echo "SATELLE_ITEM (${item:-unset}) is not an item id"
   exit 2
 fi
+case $item in
+  sto_*) sid=$item ;;
+  *) echo "$item is not a story: it has no story diff to judge; workflow-change review not needed"; exit 1 ;;
+esac
 if ! diff=$(satelle story diff "$sid" --json 2>&1); then
   echo "could not read the diff of $sid: $diff"
   exit 2
