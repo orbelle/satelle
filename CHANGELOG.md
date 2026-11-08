@@ -1,3 +1,11 @@
+## [1.0.36] - 2026-11-08
+
+### Added
+- The drift review closes what its run no longer finds: a new step 4 presents each open drift story already on the drift route done on the run's drift-report, the report lists each story closed and each still open with its reason, the run's done move checks that list against the kernel, the drift judges state a RESOLVED line for each finding that no longer holds, and drift-constitution now also runs on a constitution- or principle-only release (sto_d722c56a)
+
+### Changed
+- The plan skill states that a story's changelog lines are its changelog attachment and a plan's slice never edits CHANGELOG.md or .version (sto_59399db5)
+
 ## [1.0.35] - 2026-11-08
 
 ### Added
