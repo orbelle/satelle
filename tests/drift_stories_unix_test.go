@@ -179,3 +179,164 @@ func TestDriftStoriesEmptyInput(t *testing.T) {
 		t.Fatalf("%d drift stories raised, want none", n)
 	}
 }
+
+// One finding of every kind drift-stories.sh maps.
+const driftEveryKind = `.satelle/skills/a.md:3: command: satelle story doc — doc is not a subcommand of satelle story
+.satelle/skills/b.md:4: flag: satelle story list --nope — no such flag
+.satelle/skills/c.md:5: topic: satelle help nope — no such help topic
+.satelle/skills/d.md:6: link: [[no-such-principle]] — no such principle
+.satelle/skills/e.md:7: skill: ghost — no such skill
+.satelle/workflows/f.toml:8: config: gates.ghost — no such gate
+.satelle/principles/p.md:6: prose: queue entries live in the story chain — internal/kernel/queue.go:62
+internal/x.go:3: constitution: satelle-operator-rulings Foo — a REST handler beside gRPC
+`
+
+// shapeWant is what a raised story's role line and criterion say for a kind.
+func shapeWant(kind, file string) (role, proof string) {
+	switch kind {
+	case "prose":
+		return "Who is affected: the reader of the principle " + file + ",",
+			"the next drift run's drift-claims judge no longer raises drift-key"
+	case "constitution":
+		return "Who is affected: the maintainer of the Go file " + file + ",",
+			"the next drift run's drift-constitution judge no longer raises drift-key"
+	}
+	return "Who is affected: the agent or operator following " + file + ",",
+		"scripts/drift-check.sh no longer prints drift-key"
+}
+
+// checkShape asserts a drift story is in the story shape for its finding: the
+// drift-key line first, the role its kind affects, the finding quoted, and one
+// criterion that quotes the finding and names the proof that it is fixed.
+func checkShape(t *testing.T, it item.Item, line string) {
+	t.Helper()
+	file, rest, _ := strings.Cut(line, ":")
+	_, rest, _ = strings.Cut(rest, ": ")
+	kind, rest, _ := strings.Cut(rest, ": ")
+	subject, _, _ := strings.Cut(rest, " — ")
+	key := kind + ":" + file + ":" + subject
+	role, proof := shapeWant(kind, file)
+	if !strings.HasPrefix(it.Body, "drift-key: "+key+"\n") {
+		t.Errorf("%s (%s): body does not open with its drift-key:\n%s", kind, it.ID, it.Body)
+	}
+	if !strings.Contains(it.Body, "\n"+role) {
+		t.Errorf("%s (%s): body lacks the role %q:\n%s", kind, it.ID, role, it.Body)
+	}
+	if !strings.Contains(it.Body, "\n> "+line+"\n") {
+		t.Errorf("%s (%s): body does not quote the finding %q:\n%s", kind, it.ID, line, it.Body)
+	}
+	want := `The finding "` + line + `" is fixed: ` + proof + " `" + key + "`"
+	if len(it.Criteria) != 1 || it.Criteria[0] != want {
+		t.Errorf("%s (%s): criteria %q, want [%q]", kind, it.ID, it.Criteria, want)
+	}
+}
+
+// A story raised for each kind names the role the finding affects, quotes the
+// finding, and carries the criterion naming its proof.
+func TestDriftStoriesStoryShapePerKind(t *testing.T) {
+	t.Parallel()
+	s := newStoriesSandbox(t)
+	r := s.raise(driftEveryKind)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	stories := s.drifts()
+	lines := strings.Split(strings.TrimSpace(driftEveryKind), "\n")
+	if len(stories) != len(lines) {
+		t.Fatalf("%d drift stories, want %d:\n%s", len(stories), len(lines), r.out)
+	}
+	for _, line := range lines {
+		var found *item.Item
+		for i := range stories {
+			if strings.Contains(stories[i].Body, "\n> "+line+"\n") {
+				found = &stories[i]
+			}
+		}
+		if found == nil {
+			t.Errorf("no story quotes %q", line)
+			continue
+		}
+		checkShape(t, *found, line)
+	}
+}
+
+// --reshape rewrites an open drift story of the old shape in backlog to the
+// story shape, keeping its drift-key and release; one past backlog is held,
+// untouched; a second run leaves the reshaped story as it is.
+func TestDriftStoriesReshape(t *testing.T) {
+	t.Parallel()
+	s := newStoriesSandbox(t)
+	s.write(".satelle/workflows/default.toml", `name = "default"
+
+[states.backlog]
+start = true
+
+[states.plan]
+
+[states.done]
+terminal = true
+
+[[transition]]
+from = ["backlog"]
+to = "plan"
+
+[[transition]]
+from = ["backlog", "plan"]
+to = "done"
+`)
+	old := func(line, key string) item.Item {
+		return s.create("story", "--title", "Drift: old", "--tag", "drift", "--tag", "release:v1.0.20",
+			"--body", "drift-key: "+key+"\n\n"+line+"\n\nraised by the drift review of v1.0.20\n")
+	}
+	lines := strings.Split(strings.TrimSpace(driftFindings), "\n")
+	keys := []string{commandKey, constitutionKey, proseKey}
+	var ids []string
+	for i, line := range lines {
+		ids = append(ids, old(line, keys[i]).ID)
+	}
+	held := old(".satelle/skills/z.md:9: link: [[gone]] — no such principle", "link:.satelle/skills/z.md:[[gone]]")
+	s.must("story", "set", held.ID, "--status", "plan")
+
+	script, err := filepath.Abs("../scripts/drift-stories.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := s.exec("bash", "", script, "--reshape")
+	if r.code != 0 {
+		t.Fatalf("reshape: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	out := raised(t, r.out)
+	for i, key := range keys {
+		if out[key] != [2]string{ids[i], "reshaped"} {
+			t.Errorf("%s: %v, want %s reshaped", key, out[key], ids[i])
+		}
+		it := s.get(ids[i])
+		checkShape(t, it, lines[i])
+		if !strings.HasSuffix(it.Body, "\nraised by the drift review of v1.0.20\n") {
+			t.Errorf("%s (%s): reshape lost the release line:\n%s", key, it.ID, it.Body)
+		}
+	}
+	if got := out["link:.satelle/skills/z.md:[[gone]]"]; got != [2]string{held.ID, "held:plan"} {
+		t.Errorf("held story: %v, want %s held:plan", got, held.ID)
+	}
+	if it := s.get(held.ID); it.Body != held.Body || len(it.Criteria) != 0 {
+		t.Errorf("held story was changed: %q %q", it.Body, it.Criteria)
+	}
+
+	again := s.exec("bash", "", script, "--reshape")
+	if again.code != 0 {
+		t.Fatalf("second reshape: exit %d\n%s%s", again.code, again.out, again.err)
+	}
+	for i, key := range keys {
+		if got := raised(t, again.out)[key]; got != [2]string{ids[i], "already"} {
+			t.Errorf("second reshape %s: %v, want %s already", key, got, ids[i])
+		}
+	}
+	// The reshaped stories still dedup a finding raised again.
+	r = s.raise(driftFindings)
+	for i, key := range keys {
+		if got := raised(t, r.out)[key]; got != [2]string{ids[i], "existing"} {
+			t.Errorf("raise after reshape %s: %v, want %s existing", key, got, ids[i])
+		}
+	}
+}

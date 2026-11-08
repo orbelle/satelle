@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +26,16 @@ const appAccount = "344745317"
 // orbelleReviewerAccount is orbelle-reviewer[bot]'s user.id (app 5563015):
 // internal only, so its reviews never count.
 const orbelleReviewerAccount = 350948835
+
+// The review GitHub re-pointed (tests/testdata/github/reviews/README.md):
+// satelle[bot] approved orbelle/satelle#41 on repointedGiven, which
+// sto_e809d7d6's github.review ledger event 4215b0fe records, and GitHub's
+// list-reviews endpoint now reports it on repointedReported, a later head.
+const (
+	repointedReviewID = 5815187973
+	repointedGiven    = "6109ffe2f71d13665ce69edb01104e3599067a8d"
+	repointedReported = "f93eef33d5814570f648a88df4f207b23e9f9996"
+)
 
 // prRouteTail is the gates integration -> approved runs after pr-ready, in
 // order: the sandbox route and this repo's delivery and chore routes share it.
@@ -230,6 +241,30 @@ func (p *prSandbox) serveReviews(fixture string) {
 	writeFile(p.t, filepath.Join(p.fake, "reviews.json"), body, 0o644)
 }
 
+// serveReviewsAs serves a fixture as serveReviews does, its first review's id
+// set to reviewID: the id the fake satelle.dev gave the published review.
+func (p *prSandbox) serveReviewsAs(fixture string, reviewID int64) {
+	p.t.Helper()
+	p.serveReviews(fixture)
+	path := filepath.Join(p.fake, "reviews.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	dec := json.NewDecoder(strings.NewReader(string(b)))
+	dec.UseNumber()
+	var rs []map[string]any
+	if err := dec.Decode(&rs); err != nil || len(rs) == 0 {
+		p.t.Fatalf("%s: %v", fixture, err)
+	}
+	rs[0]["id"] = json.Number(fmt.Sprint(reviewID))
+	out, err := json.Marshal(rs)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	writeFile(p.t, path, string(out), 0o644)
+}
+
 // fixtureBody is the body of a fixture's last review.
 func fixtureBody(t *testing.T, fixture string) string {
 	t.Helper()
@@ -337,19 +372,32 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
 		return p.exec("bash", "", "-c", check)
 	}
+	// The item's ledger records what the publish check published: the
+	// approval the on-head fixtures carry, given on HEAD, and the re-pointed
+	// fixture's approval, given on the older head.
+	for _, rec := range []struct {
+		sha string
+		rid int64
+	}{{p.head, 5746161424}, {p.old, repointedReviewID}} {
+		p.must("ledger", "append", id, "--kind", "github.review", "--payload",
+			fmt.Sprintf(`{"event":"APPROVE","pull_number":12,"commit_sha":%q,"review_id":%d}`, rec.sha, rec.rid))
+	}
+	const noApproval = "no approving review by the satelle app"
 	for _, c := range []struct {
 		fixture string
 		pass    bool
 		reopen  bool
+		out     string
 	}{
-		{"approved-on-head", true, false},
-		{"approved-then-commented", true, false},
-		{"approved-older-head", false, false},
-		{"approved-other-account", false, false},
-		{"approved-then-dismissed", false, false},
-		{"none", false, false},
-		{"approved-then-changes-requested", false, true},
-		{"changes-requested", false, true},
+		{"approved-on-head", true, false, ""},
+		{"approved-then-commented", true, false, ""},
+		{"approved-older-head", false, false, noApproval},
+		{"approved-other-account", false, false, noApproval},
+		{"approved-then-dismissed", false, false, noApproval},
+		{"none", false, false, noApproval},
+		{"approved-repointed", false, false, "GitHub re-pointed an older approval"},
+		{"approved-then-changes-requested", false, true, ""},
+		{"changes-requested", false, true, ""},
 	} {
 		p.serveReviews(c.fixture)
 		r := run(id)
@@ -372,8 +420,11 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		if c.pass && !strings.Contains(r.out, "approved by the satelle app (account "+appAccount+", app 5379260)") {
 			t.Errorf("%s: output %q", c.fixture, r.out)
 		}
-		if !c.pass && !c.reopen && !strings.Contains(r.out, "no approving review by the satelle app") {
-			t.Errorf("%s: output %q", c.fixture, r.out)
+		if c.out != "" && !strings.Contains(r.out, c.out) {
+			t.Errorf("%s: output %q, want %q", c.fixture, r.out, c.out)
+		}
+		if c.fixture == "approved-repointed" && (!strings.Contains(r.out, p.head[:12]) || !strings.Contains(r.out, p.old[:12])) {
+			t.Errorf("%s: output %q does not name both heads %s and %s", c.fixture, r.out, p.head[:12], p.old[:12])
 		}
 		if c.reopen {
 			p.must("story", "set", id, "--status", "integration")
@@ -381,6 +432,17 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	}
 	if n := p.transitions(id, "integration", "in_progress"); n != 2 {
 		t.Errorf("reopened %d times, want 2", n)
+	}
+
+	// An approval on HEAD whose review_id the item's ledger does not record
+	// is refused and never moves the item.
+	unrecorded := p.item(14, true)
+	p.serveReviews("approved-on-head")
+	if r := run(unrecorded); r.code == 0 || !strings.Contains(r.out, "is not on the item's ledger") {
+		t.Errorf("unrecorded approval: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if got := p.status(unrecorded); got != "integration" {
+		t.Errorf("unrecorded item moved to %s", got)
 	}
 
 	// A PR whose title lacks the item id maps to no item: rejected, never
@@ -395,6 +457,62 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	}
 	if got := p.status(untitled); got != "integration" {
 		t.Errorf("untitled item moved to %s", got)
+	}
+}
+
+// GitHub re-points an older approval's commit_id to the PR's new head: the
+// recorded response reports review 5815187973 on f93eef33, not on 6109ffe2
+// where the ledger records it was given. approved-repointed.json is that
+// review with only commit_id bound to the sandbox's HEAD.
+func TestPRReviewRepointedReviewIsRecorded(t *testing.T) {
+	read := func(name string) []map[string]any {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("testdata", "github", "reviews", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dec := json.NewDecoder(strings.NewReader(string(b)))
+		dec.UseNumber()
+		var rs []map[string]any
+		if err := dec.Decode(&rs); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return rs
+	}
+	var rec map[string]any
+	for _, r := range read("repointed-recorded.json") {
+		if r["id"] == json.Number(fmt.Sprint(repointedReviewID)) {
+			rec = r
+		}
+	}
+	if rec == nil {
+		t.Fatalf("repointed-recorded.json has no review %d", repointedReviewID)
+	}
+	user, _ := rec["user"].(map[string]any)
+	if rec["state"] != "APPROVED" || user["id"] != json.Number(appAccount) || rec["submitted_at"] != "2026-11-07T21:58:23Z" {
+		t.Fatalf("review %d is %v by %v at %v", repointedReviewID, rec["state"], user["id"], rec["submitted_at"])
+	}
+	if rec["commit_id"] != repointedReported || rec["commit_id"] == repointedGiven {
+		t.Fatalf("review %d reports commit_id %v, want the re-pointed %s (given on %s)", repointedReviewID, rec["commit_id"], repointedReported, repointedGiven)
+	}
+
+	cs := read("approved-repointed.json")
+	if len(cs) != 1 {
+		t.Fatalf("approved-repointed.json holds %d reviews, want 1", len(cs))
+	}
+	if cs[0]["commit_id"] != "@HEAD@" {
+		t.Fatalf("approved-repointed.json commit_id %v, want @HEAD@", cs[0]["commit_id"])
+	}
+	if len(cs[0]) != len(rec) {
+		t.Fatalf("approved-repointed.json has %d fields, the recorded review %d", len(cs[0]), len(rec))
+	}
+	for k, v := range rec {
+		if k == "commit_id" {
+			continue
+		}
+		if got, ok := cs[0][k]; !ok || !reflect.DeepEqual(got, v) {
+			t.Errorf("approved-repointed.json %s = %v, recorded %v", k, got, v)
+		}
 	}
 }
 
@@ -423,7 +541,9 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	// then reads the app's approval and the item moves.
 	approved := p.item(21, true)
 	p.judge("accept", "every criterion is met")
-	p.serveReviews("approved-on-head")
+	// GitHub reports the review the publish check published: the fake
+	// satelle.dev's first review id, which github.review records below.
+	p.serveReviewsAs("approved-on-head", 1)
 	if r := p.present(approved); r.code != 0 {
 		t.Fatalf("accept: exit %d\n%s%s", r.code, r.out, r.err)
 	}

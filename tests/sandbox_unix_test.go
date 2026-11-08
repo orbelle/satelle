@@ -3,11 +3,15 @@
 package tests
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -64,5 +68,43 @@ func TestSandboxSetupRetriesKilledGit(t *testing.T) {
 	s.initRepo(killingGit(t, setupAttempts-1))
 	if got := strings.TrimSpace(s.git("log", "--format=%s")); got != "init" {
 		t.Fatalf("log after retried setup = %q, want init", got)
+	}
+}
+
+// An executable written through writeFile can be exec'd at once while other
+// goroutines fork continuously: no forked child inherits its write fd, which
+// would make the exec fail with ETXTBSY (golang/go#22315).
+func TestWriteFileExecUnderForkLoad(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = exec.Command("true").Run()
+			}
+		}()
+	}
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
+	for i := range 300 {
+		p := filepath.Join(dir, fmt.Sprintf("fake%d", i))
+		writeFile(t, p, "#!/bin/sh\nexit 0\n", 0o755)
+		if err := exec.Command(p).Run(); err != nil {
+			if errors.Is(err, syscall.ETXTBSY) {
+				t.Fatalf("exec %s: %v (golang/go#22315)", p, err)
+			}
+			t.Fatalf("exec %s: %v", p, err)
+		}
 	}
 }

@@ -36,3 +36,42 @@ older commit.
 | `approved-then-changes-requested.json` | approves HEAD, then requests changes | rejects and reopens the item |
 | `changes-requested.json` | the app requests changes on HEAD | rejects and reopens the item |
 | `none.json` | no reviews | rejects, never reopens |
+| `approved-repointed.json` | the app's approval given on an older head (the ledger records `@OLD@`) that GitHub reports on HEAD | rejects, naming both heads |
+
+`approved-repointed.json` is the exception to the copy rule above: it is
+review 5815187973 copied from `repointed-recorded.json`, every field as
+recorded except `commit_id`, which is `@HEAD@`.
+
+## GitHub re-points an older review's commit_id (sto_952d4435)
+
+`repointed-recorded.json` is a real response of the list-reviews endpoint,
+recorded read-only on 2026-11-08 with
+
+    gh api repos/orbelle/satelle/pulls/41/reviews --paginate
+
+and kept verbatim. It holds three reviews by `satelle[bot]` (user.id
+344745317) on orbelle/satelle#41, the PR of sto_e809d7d6:
+
+| review | state | submitted_at | given on (ledger) | commit_id GitHub reports |
+|---|---|---|---|---|
+| 5815183195 | CHANGES_REQUESTED | 2026-11-07T21:56:49Z | cd3e7ac3 | cd3e7ac3e246663c54d9f6fd9644a1e3a67f5370 |
+| 5815187973 | APPROVED | 2026-11-07T21:58:23Z | 6109ffe2 | f93eef33d5814570f648a88df4f207b23e9f9996 |
+| 5815417340 | APPROVED | 2026-11-07T22:44:10Z | f93eef33 | f93eef33d5814570f648a88df4f207b23e9f9996 |
+
+The item's `github.review` ledger event for review 5815187973 records
+`commit_sha` 6109ffe2f71d13665ce69edb01104e3599067a8d, the head the judge
+approved. GitHub now reports that review on f93eef33, a head the judge never
+saw.
+
+When it happened: the PR head moved from 6109ffe2 to f93eef33 by an ordinary
+push of a merge commit ("Merge remote-tracking branch 'origin/sto_efe81afd'
+into sto_e809d7d6"). It was not a force-push: 6109ffe2 is still an ancestor of
+f93eef33 (`git merge-base --is-ancestor 6109ffe2 f93eef33` succeeds), and
+`gh api repos/orbelle/satelle/pulls/41/commits` still lists it. The approval
+that was the latest review when the head moved was re-pointed. The earlier
+CHANGES_REQUESTED review 5815183195, given on cd3e7ac3, was not: GitHub still
+reports it on cd3e7ac3.
+
+The consequence: a review's `commit_id` is not proof of the head it was given
+for. The item's `github.review` event is, so the approval check accepts an
+approval only when the ledger records its review_id as an APPROVE on HEAD.
