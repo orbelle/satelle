@@ -100,6 +100,15 @@ type Fields struct {
 	Base     *string    `json:"base,omitempty"`
 }
 
+// Placement is what placing an item on a workflow writes: item.updated with
+// these Fields (the workflow), then item.transitioned with this Move (from the
+// item's status to the workflow's start state). A sync placement
+// (ledgersync's place) and a reselect (kernel.Reselect) both write it, so one
+// function owns its shape.
+func Placement(workflow, from, start string) (Fields, Move) {
+	return Fields{Workflow: &workflow}, Move{From: from, To: start}
+}
+
 // Move is the payload of item.transitioned.
 type Move struct {
 	From string `json:"from"`

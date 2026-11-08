@@ -19,7 +19,13 @@ transitions between them, written out explicitly.
 
 An item gets its workflow at create: `--workflow`, else the first
 `[[workflows.rule]]` in `satelle.toml` whose `category`, `tag` and `kind` all
-match, else `[workflows] default`. It keeps that workflow.
+match, else `[workflows] default`. It keeps that workflow, with one
+exception: `satelle <kind> set <id> --reselect <w>` moves it to `<w>`'s start
+state when the rules now select `<w>` for it and its workflow has neither
+moved it nor judged it (no transition out of a status, no gate run). A refusal
+for that evidence exits 2; any other refusal exits 1; neither writes anything.
+`satelle workflow select --kind <k> [--tag <t>]... [--category <c>]` prints the
+workflow and start state the rules choose for those fields.
 
 A state may name queues an item entering it joins, `enqueue = ["<name>"]`,
 each a `.satelle/queues/<name>.toml`: `satelle validate` refuses a name with no

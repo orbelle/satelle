@@ -1,3 +1,16 @@
+## [1.0.37] - 2026-11-08
+
+### Added
+- An item its workflow has neither moved nor judged can be moved onto the workflow the repo's rules now select for it with `satelle <kind> set <id> --reselect <workflow>` (same id and ledger, at that workflow's start state, no gate run; exit 2 when its workflow has already moved or judged it, exit 1 for any other refusal, nothing written either way), `satelle workflow select --kind <k> [--tag <t>]... [--category <c>]` prints the workflow and start state the rules choose, and `scripts/drift-stories.sh --rehome` is the one-off that puts every open drift story onto the drift workflow: an untouched story moves in place, one its route has moved or judged keeps that route while its record is re-raised on drift (tagged `drift-record-of:<old>`, the old story's `drift` tag swapped for `drift-moved:<new>`), a keyless story is re-homed like any other and no story is cancelled; it exits 0 when it moved or re-raised a story, 1 when there is nothing to do, and 2, writing nothing, when the drift workflow or its rule is missing (sto_66131cc0)
+
+## [1.0.36] - 2026-11-08
+
+### Added
+- The drift review closes what its run no longer finds: a new step 4 presents each open drift story already on the drift route done on the run's drift-report, the report lists each story closed and each still open with its reason, the run's done move checks that list against the kernel, the drift judges state a RESOLVED line for each finding that no longer holds, and drift-constitution now also runs on a constitution- or principle-only release (sto_d722c56a)
+
+### Changed
+- The plan skill states that a story's changelog lines are its changelog attachment and a plan's slice never edits CHANGELOG.md or .version (sto_59399db5)
+
 ## [1.0.35] - 2026-11-08
 
 ### Added

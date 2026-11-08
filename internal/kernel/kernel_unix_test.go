@@ -716,3 +716,141 @@ func TestJudgeDispatchLogsUnderRuntime(t *testing.T) {
 		}
 	}
 }
+
+// Reselect moves an item onto the workflow the rules now select only when its
+// own workflow has neither moved nor judged it, writing the placement pair and
+// no gate run; every refusal leaves the chain as it was. The rules check comes
+// before the evidence check, so the evidence refusal (ErrKeepsWorkflow) always
+// means the rules do select the wanted workflow.
+func TestReselect(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"wa\"\n[[workflows.rule]]\nworkflow = \"wb\"\ntag = \"b\"\n")
+	write(t, filepath.Join(root, "skills", "no.md"), "---\ntype: check\n---\n```sh\nexit 1\n```\n")
+	write(t, filepath.Join(root, "workflows", "wa.toml"), `
+[states.a0]
+start = true
+[states.a1]
+[states.a2]
+terminal = true
+[gates.no]
+skill = "no"
+[[transition]]
+from = ["a0"]
+to = "a1"
+[[transition]]
+from = ["a0"]
+to = "a2"
+groups = [{ gates = ["no"] }]
+`)
+	write(t, filepath.Join(root, "workflows", "wb.toml"), "[states.b0]\nstart = true\n[states.b9]\nterminal = true\n[[transition]]\nfrom = [\"b0\"]\nto = \"b9\"\n")
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	k.Git = fakeGit{}
+	ctx := context.Background()
+	story := func(tagged bool, move string) item.Item {
+		t.Helper()
+		f := item.Fields{Kind: ptr("story"), Title: ptr("s")}
+		it := mustCreate(t, k, f)
+		if it.Workflow != "wa" || it.Status != "a0" {
+			t.Fatalf("created at %s/%s", it.Workflow, it.Status)
+		}
+		if move != "" {
+			if _, err := k.Transition(ctx, it.ID, move, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if tagged {
+			if _, err := k.Update(it.ID, item.Fields{Tags: &[]string{"b"}}, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := k.Get(it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	chain := func(id string) []string {
+		t.Helper()
+		evs, err := k.Ledger.Read(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range evs {
+			out = append(out, e.Kind+" "+string(e.Payload))
+		}
+		return out
+	}
+	refused := func(name string, it item.Item, want string, sentinel bool, wantMsg string) {
+		t.Helper()
+		before := chain(it.ID)
+		_, err := k.Reselect(it.ID, want, "me")
+		if err == nil {
+			t.Fatalf("%s: reselect to %s was not refused", name, want)
+		}
+		if errors.Is(err, ErrKeepsWorkflow) != sentinel {
+			t.Errorf("%s: errors.Is(ErrKeepsWorkflow) = %v, want %v (%v)", name, !sentinel, sentinel, err)
+		}
+		if !strings.Contains(err.Error(), wantMsg) {
+			t.Errorf("%s: error %q does not name %q", name, err, wantMsg)
+		}
+		if after := chain(it.ID); !reflect.DeepEqual(before, after) {
+			t.Errorf("%s: the refused reselect changed the chain:\n%v\n->\n%v", name, before, after)
+		}
+	}
+
+	// 1. untouched, now tagged b: moved in place onto wb at b0.
+	u := story(true, "")
+	before := chain(u.ID)
+	got, err := k.Reselect(u.ID, "wb", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != u.ID || got.Workflow != "wb" || got.Status != "b0" {
+		t.Fatalf("reselected to %s %s/%s", got.ID, got.Workflow, got.Status)
+	}
+	after := chain(u.ID)
+	if len(after) != len(before)+2 || !reflect.DeepEqual(after[:len(before)], before) {
+		t.Fatalf("chain:\n%v\n->\n%v", before, after)
+	}
+	if want := []string{item.KindUpdated + ` {"workflow":"wb"}`, item.KindTransitioned + ` {"from":"a0","to":"b0"}`}; !reflect.DeepEqual(after[len(before):], want) {
+		t.Errorf("reselect wrote %v, want %v", after[len(before):], want)
+	}
+	for _, e := range after {
+		if strings.HasPrefix(e, gate.KindRun) {
+			t.Errorf("reselect ran a gate: %s", e)
+		}
+	}
+
+	// 2. moved a0 -> a1, tagged b: the workflow moved it.
+	refused("moved", story(true, "a1"), "wb", true, "was moved by workflow wa (a0 -> a1)")
+	// 3. one rejected present to a2, tagged b: the workflow judged it.
+	judged := story(false, "a2")
+	if judged.Status != "a0" {
+		t.Fatalf("the gated present moved the story to %s", judged.Status)
+	}
+	if runs := len(chain(judged.ID)); runs < 2 {
+		t.Fatalf("the rejected present left no gate run")
+	}
+	if _, err := k.Update(judged.ID, item.Fields{Tags: &[]string{"b"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	refused("judged", judged, "wb", true, "has a gate run under workflow wa")
+	// 4. untagged: the rules select wa, not wb.
+	refused("untagged", story(false, ""), "wb", false, "the repo's rules select wa")
+	// 5. untagged and moved: still the rules refusal, not the evidence one.
+	refused("untagged moved", story(false, "a1"), "wb", false, "the repo's rules select wa")
+	// 6. already there.
+	refused("already", story(false, ""), "wa", false, "is already under workflow wa")
+	// 7. no such workflow.
+	refused("unknown", story(true, ""), "wc", false, "workflow wc does not exist")
+	// 8. Update still refuses a workflow change.
+	plain := story(true, "")
+	if _, err := k.Update(plain.ID, item.Fields{Workflow: ptr("wb")}, "me"); err == nil {
+		t.Error("Update changed an item's workflow")
+	}
+}

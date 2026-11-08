@@ -16,7 +16,7 @@ suite when either drifts.
 ```sh
 set -u
 limit=200000
-paths='cmd/** internal/** go.mod go.sum'
+paths='cmd/** internal/** go.mod go.sum .satelle/constitution.md .satelle/principles/**'
 [ "${SATELLE_GATE_RESULT:-}" = accept ] || exit 0
 notes=$(jq -r '.notes // ""')
 tmp=$(mktemp) || exit 2
