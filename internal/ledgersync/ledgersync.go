@@ -133,13 +133,9 @@ func indexOf(events []ledger.Event, hash string) int {
 	return -1
 }
 
-// common is the length of the shared prefix of two chains.
-func common(a, b []ledger.Event) int {
-	n := 0
-	for n < len(a) && n < len(b) && a[n].Hash == b[n].Hash {
-		n++
-	}
-	return n
+// hashesOf is the hash at each sequence of events, for ledger.SharedPrefix.
+func hashesOf(events []ledger.Event) func(int) (string, error) {
+	return func(seq int) (string, error) { return events[seq].Hash, nil }
 }
 
 func staleHead(err error) (*chainpb.StaleHead, bool) {
@@ -272,7 +268,7 @@ func (s *Syncer) pushItem(ctx context.Context, id string, st State) (int, *Confl
 	if err != nil {
 		return 0, nil, err
 	}
-	n := common(local, remote)
+	n, _ := ledger.SharedPrefix(local, len(remote), hashesOf(remote))
 	switch {
 	case n == len(remote) && n == len(local):
 		st.Heads[id] = local[n-1].Hash
@@ -559,7 +555,7 @@ func (s *Syncer) importItem(ctx context.Context, id, rh string, st State, res *P
 		if err != nil {
 			return err
 		}
-		n := common(local, full)
+		n, _ := ledger.SharedPrefix(local, len(full), hashesOf(full))
 		if n < len(local) {
 			res.Conflicts = append(res.Conflicts, Conflict{Item: id, Common: n, LocalOnly: local[n:], RemoteOnly: full[n:]})
 			return nil

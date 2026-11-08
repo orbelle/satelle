@@ -175,7 +175,7 @@ func (s *Store) Import(events []Event) (added int, err error) {
 }
 
 func (s *Store) write(e Event) error {
-	line, err := json.Marshal(e)
+	line, err := Encode(e)
 	if err != nil {
 		return err
 	}
@@ -408,10 +408,13 @@ func (s *Store) GetBlob(sha string) ([]byte, error) {
 	}
 	sum := sha256.Sum256(b)
 	if hex.EncodeToString(sum[:]) != sha {
-		return nil, fmt.Errorf("ledger: blob %s is corrupt", sha)
+		return nil, fmt.Errorf("ledger: blob %s is %w", sha, ErrCorruptBlob)
 	}
 	return b, nil
 }
+
+// ErrCorruptBlob is wrapped by GetBlob's refusal of a stored body whose sha256 differs.
+var ErrCorruptBlob = errors.New("corrupt")
 
 func newEventID() string {
 	var b [12]byte

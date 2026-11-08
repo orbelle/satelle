@@ -1,6 +1,6 @@
 # Ledger store adapters
 
-A ledger store is where satelle will replicate a ledger off the machine. Any
+A ledger store is where satelle replicates a ledger off the machine. Any
 store that is not built in is an external command that implements the adapter
 contract below; satelle links no vendor storage SDK. Configure it in
 `satelle.toml`:
@@ -81,3 +81,53 @@ POSIX sh implementation over a directory:
 
     [ledger]
     store = { command = "/path/to/satelle-store-fs", args = ["--root", "/path/to/dir"] }
+
+## Replication: push and pull
+
+    satelle ledger push
+    satelle ledger pull
+
+carry a runtime's ledger through the configured store command, so an
+ephemeral container's ledger survives it: push before it exits, pull into the
+next fresh runtime. Both refuse to run, and make no store call, without an
+external store command.
+
+Object layout:
+
+- `chains/<item>/<seq>.json`: one object per event, `<seq>` the event's
+  0-based position on its chain as 12 digits (`chains/sto_1/000000000000.json`),
+  the body the event exactly as satelle writes it, including its hash. The key
+  carries no hash, so a conditional create tests exactly "no event at this
+  sequence".
+- `blobs/<sha256>`: one object per blob a chain references, an attachment's
+  body or a performer run's stored output, written before the event that
+  references it.
+
+Push writes each event by `put-if-absent`. An exit 3 at a sequence compares
+the hash in the returned body: the same hash is already there and the push
+continues past it; a different hash is a divergence, `diverged: <item> at event
+<seq>: ...; not pushed past it`, that item's push stops, other items continue,
+and push exits 1. A rerun is safe: every write is conditional.
+
+Pull lists `chains/`, compares the store's event at the last sequence both
+chains hold, whatever their lengths, and finds the fork point when it
+differs. A chain that forked, in a longer, an equal-length or a shorter store
+chain, is refused, `diverged: <item> at event <seq>: ...; nothing appended`,
+nothing is appended to it, and pull exits 1. A store chain that is a prefix of
+the local one is not a conflict: pull appends nothing and the next push writes
+the rest. New events are fetched in order and verified with the local chain
+before any is appended; one that does not verify refuses its item.
+
+Blobs are tolerant and recorded. Chains always replicate; a referenced blob
+that is missing is a gap, named on one line with its item, event and sha256:
+
+    gap: <item> event <seq> <kind> <event-id> blob <sha256> (<what>): <why>
+
+Push names a blob neither side holds (`not in this runtime and not in the
+store`); pull names one the store lacks (`not in the store`) or holds with
+other bytes (`the store's body hashes to <sha256>; not stored`). A blob that
+arrives later is checked against its sha256 before it fills the gap
+(`filled: <item> event <seq> blob <sha256>`). Gaps never change push's or
+pull's exit code. `satelle ledger verify` exits 3 while any gap remains (every
+chain intact, a referenced blob missing or corrupt), so a pipeline can gate on
+it; it exits 1 for a broken chain and 0 when everything is held.

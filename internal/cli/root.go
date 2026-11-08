@@ -19,8 +19,9 @@ import (
 
 // Exit codes.
 const (
-	ExitError   = 1 // the command failed
-	ExitBlocked = 2 // a gate rejected a presented transition, or the kernel refused a move for the evidence on the item's chain
+	ExitError    = 1 // the command failed
+	ExitBlocked  = 2 // a gate rejected a presented transition, or the kernel refused a move for the evidence on the item's chain
+	ExitBlobGaps = 3 // satelle ledger verify: every chain intact, a referenced blob missing or corrupt
 )
 
 // exitError carries an exit code; its message is printed unless quiet.
