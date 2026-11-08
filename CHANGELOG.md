@@ -1,3 +1,11 @@
+## [1.0.40] - 2026-11-08
+
+### Added
+- `satelle ledger push` and `satelle ledger pull` replicate every chain, one object per event at `chains/<item>/<seq>.json`, and every blob it references (attachment bodies and performer outputs) through the configured `[ledger] store` command, so an ephemeral container's ledger survives it; a diverged chain is refused at its fork point and exits 1, a missing blob is named as a gap and never fails the run, and `satelle ledger verify` now exits 3 while a referenced blob is missing or corrupt so a pipeline can gate on it. (sto_1f029004)
+
+### Changed
+- The sync architecture names the `[ledger] store` command (`satelle ledger push` and `pull`) as a second transport for work state beside the Chain service, with the same divergence rule (sto_cb800e5e)
+
 ## [1.0.39] - 2026-11-08
 
 ### Changed
