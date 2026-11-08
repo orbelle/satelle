@@ -42,6 +42,7 @@ func newDriftStorySandbox(t *testing.T) *driftSandbox {
 	d.write(".satelle/satelle.toml", cfg[:i]+driftRule(t)+cfg[i:])
 	d.write(".satelle/workflows/drift.toml", repoText(t, ".satelle/workflows/drift.toml"))
 	d.write(".satelle/skills/satelle-story-cancel-review.md", repoText(t, ".satelle/skills/satelle-story-cancel-review.md"))
+	d.write(".satelle/skills/satelle-change-judged-check.md", repoText(t, ".satelle/skills/satelle-change-judged-check.md"))
 	check := regexp.MustCompile(driftTaskLine).ReplaceAllString(repoText(t, ".satelle/skills/satelle-drift-resolved-check.md"), "task="+d.drift)
 	if !strings.Contains(check, "\ntask="+d.drift+"\n") {
 		t.Fatal("satelle-drift-resolved-check.md has no task=<id> line")

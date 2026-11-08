@@ -18,6 +18,11 @@ terminal = true
 [gates.drift-resolved]
 skill = "satelle-drift-resolved-check"
 
+# Every move into a terminal state that no model gate judges runs this first
+# (sto_035f3007); a drift record has no judged change, so it accepts.
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
 agent = "reviewer-alt"
@@ -26,7 +31,7 @@ after = ["satelle-verdict-notes-check"]
 [[transition]]
 from = ["open"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["drift-resolved"] }]
+groups = [{ mode = "sequential", gates = ["change-judged", "drift-resolved"] }]
 
 [[transition]]
 from = ["*"]
