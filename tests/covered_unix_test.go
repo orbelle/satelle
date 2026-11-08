@@ -267,6 +267,8 @@ func TestDoneFromMainIsNotRefusedWhileTheBranchIsJudged(t *testing.T) {
 	t.Parallel()
 	for _, moved := range []bool{false, true} {
 		s := coveredSandbox(t, true)
+		s.git("config", "diff.mnemonicPrefix", "true")
+		s.git("config", "diff.algorithm", "histogram")
 		s.git("checkout", "-q", "-b", "feat/x")
 		id := reviewedItem(s)
 		if moved {
@@ -287,6 +289,42 @@ func TestDoneFromMainIsNotRefusedWhileTheBranchIsJudged(t *testing.T) {
 			if g := latestRun(s, id, "change-judged"); g.Result != "reject" || !strings.Contains(g.Notes, "code-ac") {
 				t.Fatalf("change-judged = %+v, want a reject naming code-ac", g)
 			}
+		}
+	}
+}
+
+// The v1.0.33 release sequence: a story judged in its own tree on its branch,
+// whose user diff config uses mnemonic prefixes and the histogram algorithm,
+// is pushed and lands on main by fast-forward, or by a --no-ff merge, and
+// main moves on with a bump; its local branch is gone. Done from main passes
+// the change-judged check, since the branch is still at its judged change.
+func TestDoneFromMainAfterALandingIsAccepted(t *testing.T) {
+	t.Parallel()
+	for _, landing := range []string{"--ff-only", "--no-ff"} {
+		s := coveredSandbox(t, true)
+		s.git("config", "diff.mnemonicPrefix", "true")
+		s.git("config", "diff.algorithm", "histogram")
+		origin := t.TempDir()
+		if r := s.exec("git", "", "init", "-q", "--bare", origin); r.code != 0 {
+			t.Fatalf("%s", gitFailure([]string{"init", "--bare"}, r))
+		}
+		s.git("remote", "add", "origin", origin)
+		s.git("push", "-q", "origin", "main")
+		s.git("checkout", "-q", "-b", "feat/x")
+		id := reviewedItem(s)
+		s.git("push", "-q", "origin", "feat/x")
+		s.git("checkout", "-q", "main")
+		s.git("merge", "-q", landing, "--no-edit", "feat/x")
+		s.commitFile("bump.txt", "the release bump\n")
+		s.git("push", "-q", "origin", "main")
+		s.git("branch", "-q", "-D", "feat/x")
+
+		r := s.run("story", "set", id, "--status", "done")
+		if r.code != 0 || s.get(id).Status != "done" {
+			t.Fatalf("done from main after a %s landing: exit %d\n%s%s", landing, r.code, r.out, r.err)
+		}
+		if g := latestRun(s, id, "change-judged"); g.Result != "accept" {
+			t.Fatalf("change-judged after a %s landing = %+v, want accept", landing, g)
 		}
 	}
 }

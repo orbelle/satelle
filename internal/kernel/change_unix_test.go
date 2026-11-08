@@ -246,3 +246,68 @@ func TestALegacyTerminalItemHasNoFrozenDiff(t *testing.T) {
 		t.Fatalf("legacy terminal diff err = %v", err)
 	}
 }
+
+// A change judged in its own tree is the judged change once its branch lands
+// on main, by fast-forward or by a --no-ff merge, and main moves on with a
+// bump, whatever prefix or algorithm the user's diff config asks for.
+func TestJudgedChangesSurviveALanding(t *testing.T) {
+	for _, landing := range []string{"--ff-only", "--no-ff"} {
+		t.Run(landing, func(t *testing.T) {
+			dir, k := coveredKernel(t)
+			gittest.Git(t, dir, "config", "diff.mnemonicPrefix", "true")
+			gittest.Git(t, dir, "config", "diff.algorithm", "histogram")
+			it := seated(t, k, dir)
+			commitFile(t, dir, "story.go", "package story\n")
+			moveTo(t, k, it.ID, "r")
+			gittest.Git(t, dir, "checkout", "-q", "main")
+			gittest.Git(t, dir, "merge", "-q", landing, "--no-edit", "feat/x")
+			commitFile(t, dir, "bump.txt", "the release bump\n")
+			js, err := k.JudgedChanges(it.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(js) != 1 || js[0].Now != js[0].Judged {
+				t.Fatalf("after a %s landing and a bump: judged = %+v, want now == judged", landing, js)
+			}
+		})
+	}
+}
+
+// A verdict recorded before diffs were canonical (its hash taken over other
+// diff text) is the judged change while its branch is still at the head it
+// recorded, read as commits; read from the branch's own tree, or once the
+// branch moved past that head, its now is hashed.
+func TestALegacyVerdictAtItsBranchHeadIsTheJudgedChange(t *testing.T) {
+	dir, k, it := judgedItem(t)
+	js, err := k.JudgedChanges(it.ID)
+	if err != nil || len(js) != 1 {
+		t.Fatalf("judged = %+v, %v", js, err)
+	}
+	head := gittest.Git(t, dir, "rev-parse", "HEAD")
+	legacy := gate.Result{Transition: "w->r", Gate: "code-ac", Result: gate.Accept,
+		Change: &gate.Change{Base: js[0].Base, Head: head, Branch: "feat/x", Hash: "legacy"}}
+	if _, err := k.append(it.ID, gate.KindRun, "ada", legacy); err != nil {
+		t.Fatal(err)
+	}
+	last := func() JudgedChange {
+		t.Helper()
+		js, err := k.JudgedChanges(it.ID)
+		if err != nil || len(js) != 2 {
+			t.Fatalf("judged = %+v, %v", js, err)
+		}
+		return js[1]
+	}
+	if j := last(); j.Now == "legacy" {
+		t.Fatalf("read from the branch's own tree: %+v, want now hashed", j)
+	}
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	if j := last(); j.Now != "legacy" || j.NowHead != head {
+		t.Fatalf("read as commits at the recorded head: %+v, want now == judged", j)
+	}
+	gittest.Git(t, dir, "checkout", "-q", "feat/x")
+	commitFile(t, dir, "later.go", "package later\n")
+	gittest.Git(t, dir, "checkout", "-q", "main")
+	if j := last(); j.Now == "legacy" {
+		t.Fatalf("branch moved past the recorded head: %+v, want now hashed", j)
+	}
+}

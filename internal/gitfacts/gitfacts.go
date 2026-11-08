@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -63,9 +64,17 @@ func (r Repo) ChangedPaths(base string) ([]string, error) {
 	return out, nil
 }
 
-// Diff returns `git diff base -- paths` (every path when paths is empty).
+// diffText are the flags every diff whose text is hashed runs with: the text
+// must not depend on the user's diff config (diff.mnemonicPrefix,
+// diff.noprefix, diff.srcPrefix and diff.dstPrefix, diff.algorithm), so a
+// change diffed in its own tree and between its commits, or on another
+// machine, is the same text.
+var diffText = []string{"diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers"}
+
+// Diff returns `git diff base -- paths` (every path when paths is empty), in
+// the canonical text diffText fixes.
 func (r Repo) Diff(base string, paths []string) (string, error) {
-	return r.git(append([]string{"diff", "--no-color", "--no-ext-diff", base, "--"}, paths...)...)
+	return r.git(append(append(slices.Clone(diffText), base, "--"), paths...)...)
 }
 
 // Dirty reports whether the working tree has uncommitted changes or
@@ -166,9 +175,9 @@ func (r Repo) ChangedBetween(base, head string) ([]string, error) {
 }
 
 // DiffBetween returns `git diff base head -- paths` (every path when paths is
-// empty).
+// empty), in the canonical text diffText fixes.
 func (r Repo) DiffBetween(base, head string, paths []string) (string, error) {
-	return r.git(append([]string{"diff", "--no-color", "--no-ext-diff", base, head, "--"}, paths...)...)
+	return r.git(append(append(slices.Clone(diffText), base, head, "--"), paths...)...)
 }
 
 // TrackedFiles lists the files git tracks under path (relative to Dir; "" or

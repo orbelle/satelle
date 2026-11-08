@@ -62,7 +62,11 @@ diff --json` reports those verdicts as `judged`, each with `now`, the hash of
 the item's change today over the same base, branch and paths: read from the
 judged branch when it still resolves (this tree when it is that branch, else
 the branch's commits, whatever the presenting checkout's HEAD carries), else
-from the presented tree. The binary does not refuse a terminal move on its
+from the presented tree. The diff hashed is git's text with `a/` and `b/`
+prefixes and the myers algorithm, whatever the user's diff config says, so a
+change hashed in its own tree hashes the same once its branch lands; a
+verdict read between commits ending at the head it recorded reports `now`
+equal to `judged`. The binary does not refuse a terminal move on its
 own. A workflow that needs a terminal state reached only with a change a judge
 accepted places a check gate on that transition, as satelle's own repository
 places `satelle-change-judged-check` first on each move into `done` no model

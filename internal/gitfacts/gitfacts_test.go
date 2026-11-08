@@ -140,3 +140,62 @@ func TestCleanTreeDiffEqualsDiffBetweenHead(t *testing.T) {
 		}
 	}
 }
+
+// diffRepo is a repo whose config sets cfg (key, value pairs), with two
+// commits of a.txt: base, then head, which myers and histogram diff
+// differently.
+func diffRepo(t *testing.T, cfg ...string) (r Repo, base, head string) {
+	t.Helper()
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	for i := 0; i+1 < len(cfg); i += 2 {
+		gittest.Git(t, dir, "config", cfg[i], cfg[i+1])
+	}
+	r = Repo{Dir: dir}
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\nb\nc\na\nb\nc\n"), 0o644)
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "base")
+	base, _ = r.Head()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("c\nb\na\nb\nc\na\n"), 0o644)
+	gittest.Git(t, dir, "commit", "-qam", "head")
+	head, _ = r.Head()
+	return r, base, head
+}
+
+// A change's diff text is the same in its own clean tree and between its
+// commits, and the same on every machine, whatever prefix or algorithm the
+// user's diff config asks for: a change hashed where it was judged hashes the
+// same once it is read as commits, or read elsewhere.
+func TestDiffTextIgnoresTheUsersDiffConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	plain, pb, ph := diffRepo(t, "diff.algorithm", "myers")
+	want, err := plain.DiffBetween(pb, ph, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(want, "--- a/a.txt\n+++ b/a.txt\n") {
+		t.Fatalf("plain diff has no a/ b/ prefixes:\n%s", want)
+	}
+	for _, cfg := range [][]string{
+		{"diff.mnemonicPrefix", "true"},
+		{"diff.noprefix", "true"},
+		{"diff.srcPrefix", "x/", "diff.dstPrefix", "y/"},
+		{"diff.algorithm", "histogram"},
+		{"diff.algorithm", "patience", "diff.mnemonicPrefix", "true"},
+	} {
+		r, base, head := diffRepo(t, cfg...)
+		tree, err := r.Diff(base, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		between, err := r.DiffBetween(base, head, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tree != want || between != want {
+			t.Errorf("config %v:\ntree diff\n%s\ndiff between commits\n%s\nwant\n%s", cfg, tree, between, want)
+		}
+	}
+}

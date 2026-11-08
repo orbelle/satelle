@@ -45,29 +45,30 @@ func (k *Kernel) runSpan(events []ledger.Event, sp span) gate.Change {
 // still resolves: this tree itself when it is that branch (uncommitted work
 // included), else the branch's commits, whatever this checkout's HEAD
 // carries. A detached judge, or a branch gone, reads the presented span.
-func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff string, err error) {
+// tree says the diff was read from this working tree, not between commits.
+func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff string, tree bool, err error) {
 	if bg, ok := k.Git.(BranchGit); ok && rec.Branch != "" {
 		if h, rerr := bg.Resolve(rec.Branch); rerr == nil {
 			if cur, _ := bg.Branch(); sp.head == "" && cur == rec.Branch {
 				head, err = k.Git.Head()
 				if err != nil {
-					return "", "", err
+					return "", "", false, err
 				}
 				diff, err = k.Git.Diff(rec.Base, paths)
-				return head, diff, err
+				return head, diff, true, err
 			}
 			diff, err = bg.DiffBetween(rec.Base, h, paths)
-			return h, diff, err
+			return h, diff, false, err
 		}
 	}
 	head = sp.head
 	if head == "" {
 		if head, err = k.Git.Head(); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 	}
 	diff, err = k.diffSpan(span{base: rec.Base, head: sp.head}, paths)
-	return head, diff, err
+	return head, diff, sp.head == "", err
 }
 
 // gatePaths are the paths gate name of w judges; nil when it is not defined.
@@ -95,7 +96,7 @@ func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results
 		}
 		return &item.Span{Base: sp.base, Head: head}, nil
 	}
-	head, _, err := k.changeNow(*rec.Change, sp, gatePaths(w, rec.Gate))
+	head, _, _, err := k.changeNow(*rec.Change, sp, gatePaths(w, rec.Gate))
 	if err != nil {
 		return nil, fmt.Errorf("%s: reading the change gate %s accepted on %s: %w", it.ID, rec.Gate, rec.Transition, err)
 	}
@@ -105,7 +106,10 @@ func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results
 // JudgedChange is one recorded gate verdict over a change: what the gate saw
 // (Judged, the hash of the diff alone) and the item's change now over the same
 // base, branch and paths (Now, ending at NowHead). The binary reports both;
-// whether they must match is a workflow's check.
+// whether they must match is a workflow's check. Read between commits that end
+// at the head the gate recorded, the change is the one it saw, whatever text
+// its hash was taken over: Now is then Judged, so a verdict hashed before diff
+// text was canonical still matches its unmoved branch.
 type JudgedChange struct {
 	Gate, Transition, Result, Attempt string
 	Base, Branch                      string
@@ -129,7 +133,10 @@ func (k *Kernel) JudgedChanges(id string) ([]JudgedChange, error) {
 		return out, nil
 	}
 	sp := k.spanOf(it, events)
-	type now struct{ hash, head string }
+	type now struct {
+		hash, head string
+		tree       bool
+	}
 	seen := map[string]now{}
 	for _, e := range events {
 		var r gate.Result
@@ -140,12 +147,15 @@ func (k *Kernel) JudgedChanges(id string) ([]JudgedChange, error) {
 		key := strings.Join([]string{r.Change.Base, r.Change.Branch, r.Change.Head, strings.Join(paths, "\x1f")}, "\x00")
 		n, ok := seen[key]
 		if !ok {
-			head, diff, err := k.changeNow(*r.Change, sp, paths)
+			head, diff, tree, err := k.changeNow(*r.Change, sp, paths)
 			if err != nil {
 				return nil, fmt.Errorf("%s: reading the change gate %s saw on %s: %w", id, r.Gate, r.Transition, err)
 			}
-			n = now{hash: changeHash(diff), head: head}
+			n = now{hash: changeHash(diff), head: head, tree: tree}
 			seen[key] = n
+		}
+		if !n.tree && r.Change.Head != "" && n.head == r.Change.Head {
+			n.hash = r.Change.Hash
 		}
 		out = append(out, JudgedChange{
 			Gate: r.Gate, Transition: r.Transition, Result: r.Result, Attempt: r.Attempt,
