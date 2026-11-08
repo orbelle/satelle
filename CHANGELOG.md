@@ -1,3 +1,8 @@
+## [1.0.38] - 2026-11-08
+
+### Added
+- `satelle ledger store-test` proves an external ledger store command, configured as `[ledger] store = { command = "...", args = [...] }`, against the adapter contract in `satelle help ledger-store` (put-if-absent, get, list and the `error: <code>: <message>` line), and `adapters/satelle-store-fs` is a POSIX sh filesystem reference adapter that passes it. (sto_eb93dfd8)
+
 ## [1.0.37] - 2026-11-08
 
 ### Added
