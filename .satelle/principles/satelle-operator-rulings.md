@@ -98,3 +98,7 @@ are reviewed*).
   advised." Doctor reads the repo and reports; any change it finds needed is
   advice to the agent or the user, never an action it takes (operator,
   2026-11-08).
+- **The binary is read-only on the user's repo, its refs and its remotes.**
+  Git it runs in a throwaway scratch repo it creates for one run (a remote
+  node's workspace; the docker check gate's node) is not a git action on the
+  repo: "Does not count ... and the rule holds" (operator, 2026-11-08).
