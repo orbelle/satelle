@@ -7,6 +7,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/operator"
 )
 
 // MaxDriveSteps bounds a headless drive: a workflow with a cycle stops here.
@@ -78,9 +79,17 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 			return stop(it, VerdictReject, fmt.Sprintf("parked at %s", it.Status))
 		}
 		step := DriveStep{State: it.Status}
+		// An operator state stops the drive until the operator's word is
+		// recorded since entry; once it is, the drive presents the move the
+		// word names (Transition holds it to that move). Nothing is performed.
+		next := ""
 		if typ, ok := st.Operated(); ok {
-			res.Steps = append(res.Steps, step)
-			return stop(it, VerdictReject, fmt.Sprintf("state %s is the operator's: it needs the operator's %s record", it.Status, typ))
+			rec, recorded := operator.Latest(events, typ)
+			if !recorded {
+				res.Steps = append(res.Steps, step)
+				return stop(it, VerdictReject, fmt.Sprintf("state %s is the operator's: it needs the operator's %s record", it.Status, typ))
+			}
+			next = rec.To
 		}
 		if p := st.Agent(); p != nil {
 			if agent.IsSession(k.Agents[p.Agent]) {
@@ -93,11 +102,12 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 			}
 			step.Performed = true
 		}
-		next := ""
-		for _, t := range w.Targets(it.Status, item.PriorStatus(events)) {
-			if s, ok := w.States[t]; ok && !s.Park {
-				next = t
-				break
+		if next == "" {
+			for _, t := range w.Targets(it.Status, item.PriorStatus(events)) {
+				if s, ok := w.States[t]; ok && !s.Park {
+					next = t
+					break
+				}
 			}
 		}
 		if next == "" {

@@ -27,11 +27,15 @@ declared step is authorised *by* the workflow, even when it builds, deploys, or
 mutates local state; a block is a gap only if it *prevents* following it.
 One declared move is not the session's: a state's `hold` parks the item for the
 operator, and only the operator presents the move out of that park; the session
-reports the hold and stops.
+reports the hold and stops. A state whose performer is the operator is left
+only once the operator has recorded its word with `satelle <kind> record`,
+which the session never runs: in this repo a delivery story leaves backlog only
+on the operator's go. When the move is refused for it, the session reports the
+missing go and stops.
 
 **An operator state is the operator's word** (`performer = { operator = ... }`,
-such as `confirm`, where the operator confirms a story's result from its
-summary). The session reports the item, with satelled's Awaiting-you page
+such as a delivery story's `backlog`, where the operator's `go` starts it, and
+`confirm`, where the operator confirms a story's result from its summary). The session reports the item, with satelled's Awaiting-you page
 (`/r/<project>/operator`), and stops; it never records the word. Once
 `satelle story get <id>` shows `operator   <who> chose <state>`, the session
 presents exactly that move (`satelle story set <id> --status <state>`); the

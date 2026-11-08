@@ -11,6 +11,13 @@ name = "delivery"
 
 [states.backlog]
 start = true
+# The human's start (sto_33a25a76; operator ruling 2026-11-07, the outer
+# loop): a story enters development only on the operator's recorded go, which
+# names the move (plan; blocked or cancelled too, since every exit needs it).
+# The operator records it from their own terminal (satelle story record <id>
+# --to plan --file F) or on satelled's Awaiting-you page; the driving session
+# then presents that move. After it nothing asks the operator until confirm.
+performer = { operator = "go" }
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }

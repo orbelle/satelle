@@ -332,3 +332,29 @@ func TestSendBackReopensWithTheReason(t *testing.T) {
 		t.Fatalf("record folder confirmation: %q %v", b, err)
 	}
 }
+
+// sto_33a25a76 AC4: once the operator's word is recorded, a drive passes the
+// operator state: it performs nothing there and presents exactly the move the
+// word names, here done, not the first declared target (a). Without a record
+// it still stops (TestOperatorStateDispatchesNothing).
+func TestDrivePassesARecordedOperatorState(t *testing.T) {
+	k, d, id := operatorKernel(t)
+	if _, err := k.RecordOperator(id, "", "done", []byte("deployed"), "", "bob", ""); err != nil {
+		t.Fatal(err)
+	}
+	res, err := k.DriveSteps(context.Background(), id, "op", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := DriveStep{State: "deploy", Performed: false, To: "done", Moved: true}
+	if res.Verdict != VerdictAccept || len(res.Steps) != 1 || res.Steps[0] != want || res.Item.Status != "done" {
+		t.Fatalf("drive: %+v", res)
+	}
+	// The only dispatch is the exit's judged gate; deploy itself ran nothing.
+	if len(d.calls) != 1 || !strings.HasSuffix(d.calls[0], ":r1") {
+		t.Fatalf("dispatched %v", d.calls)
+	}
+	if n := countKind(t, k, id, KindPerformerRun); n != 0 {
+		t.Fatalf("performer.run recorded %d times", n)
+	}
+}

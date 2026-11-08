@@ -18,7 +18,10 @@ reviewer cites.
   seat's findings (`findings_to_answer`); message it only with a decision of
   your own, such as a scope ruling.
 - **A rejected readiness round takes no edge.** `satelle story set <id>
-  --status plan` takes backlog → plan; read the plan the planner attaches with
+  --status plan` takes backlog → plan once the operator has recorded the go
+  (`satelle story record <id> --to plan --file F`, or satelled's Awaiting-you
+  page; the operator's alone); refused without it, report the missing go and
+  stop. Read the plan the planner attaches with
   `satelle story attachment <id> plan`. `satelle story set <id> --status
   in_progress` presents it to the readiness reviewers, and a rejection leaves
   the story at plan.
