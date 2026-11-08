@@ -48,11 +48,20 @@ func (e CheckEnv) Vars() []string {
 	return v
 }
 
-// RunCheck runs a check skill's script in dir: a script starting with "#!" is
-// executed as a file (its interpreter decides), any other through sh. The
-// transition is in the environment and, as JSON, on stdin. It returns whether the
-// script exited 0 and its combined output, bounded to head and tail.
+// RunCheck runs a check skill's script and returns whether it exited 0 and its
+// combined output, bounded to head and tail. See RunCheckCode.
 func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout time.Duration) (bool, string, error) {
+	code, out, err := RunCheckCode(ctx, script, dir, env, timeout)
+	return err == nil && code == 0, out, err
+}
+
+// RunCheckCode runs a check skill's script in dir: a script starting with "#!"
+// is executed as a file (its interpreter decides), any other through sh. The
+// transition is in the environment and, as JSON, on stdin. It returns the
+// script's exit code (-1 when a signal killed it) and its combined output,
+// bounded to head and tail. A timeout, or a script that cannot start, is an
+// error with code -1.
+func RunCheckCode(ctx context.Context, script, dir string, env CheckEnv, timeout time.Duration) (int, string, error) {
 	if timeout <= 0 {
 		timeout = DefaultCheckTimeout
 	}
@@ -62,7 +71,7 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 	if strings.HasPrefix(script, "#!") {
 		f, err := os.CreateTemp("", "satelle-check-*")
 		if err != nil {
-			return false, "", err
+			return -1, "", err
 		}
 		defer os.Remove(f.Name())
 		_, werr := f.WriteString(script)
@@ -70,10 +79,10 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 			werr = cerr
 		}
 		if werr != nil {
-			return false, "", werr
+			return -1, "", werr
 		}
 		if err := os.Chmod(f.Name(), 0o700); err != nil {
-			return false, "", err
+			return -1, "", err
 		}
 		cmd = exec.CommandContext(ctx, f.Name())
 	} else {
@@ -90,16 +99,16 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 	err := cmd.Run()
 	notes := bound(out.Bytes())
 	if ctx.Err() != nil {
-		return false, notes, &TimeoutError{Bound: timeout}
+		return -1, notes, &TimeoutError{Bound: timeout}
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return false, notes, nil
+		return exit.ExitCode(), notes, nil
 	}
 	if err != nil {
-		return false, notes, err
+		return -1, notes, err
 	}
-	return true, notes, nil
+	return 0, notes, nil
 }
 
 // TimeoutError is a check cut at its bound.

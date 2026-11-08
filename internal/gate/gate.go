@@ -261,14 +261,30 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		if !ok {
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger skill %q is missing", g.Trigger)}
 		}
-		relevant, out, err := RunCheck(ctx, trig.Script, r.Dir, r.env(), limit)
-		if err != nil {
+		code, out, err := RunCheckCode(ctx, trig.Script, r.Dir, r.env(), limit)
+		switch {
+		case err != nil:
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger %s: %s", g.Trigger, checkFailure(err, source, out))}
-		}
-		if !relevant {
+		case code == 0:
+		case code == 1:
 			return Result{Result: Skipped, Notes: fmt.Sprintf("trigger %s found nothing relevant\n%s", g.Trigger, out), Warning: r.skipWarning}
+		default:
+			// Any other exit is a trigger that failed: the gate runs anyway
+			// (fails closed) and its notes say so first.
+			how := fmt.Sprintf("exit %d", code)
+			if code < 0 {
+				how = "killed by a signal"
+			}
+			res := r.judged(ctx, name, g, limit, source)
+			res.Notes = joinNotes(fmt.Sprintf("trigger %s failed (%s); the gate ran\n%s", g.Trigger, how, out), res.Notes)
+			return res
 		}
 	}
+	return r.judged(ctx, name, g, limit, source)
+}
+
+// judged is a relevant gate's outcome: carried, or run by its check or judge.
+func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit time.Duration, source string) Result {
 	coverage := ""
 	if r.Coverage != nil {
 		c, err := r.Coverage(g.Paths)

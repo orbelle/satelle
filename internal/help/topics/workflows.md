@@ -34,7 +34,7 @@ A gate is a named judgement on a transition:
     skill = "review"             # .satelle/skills/review.md
     agent = "reviewer"           # or panel = ["a", "b"], combine = "all|any|majority"
     paths = ["**/*.go"]          # relevance: runs only when a changed path matches
-    trigger = "relevant"         # relevance: a check skill whose exit 0 means relevant
+    trigger = "relevant"         # relevance: a check skill; exit 0 runs the gate, exit 1 skips it
     carry = true                 # an earlier accept over unchanged coverage is carried
     after = "publish"            # a check skill run once the gate has a verdict
     timeout = "30m"              # bounds this gate's check scripts; default 10m
@@ -50,11 +50,21 @@ fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and
 `SATELLE_BASE` set; exit 0 accepts, anything else rejects, and its output is the
 notes.
 
+A gate's `trigger` is a check skill whose exit decides relevance: exit 0 means
+relevant and the gate runs; exit 1 means not relevant, and the gate is recorded
+`skipped` with the trigger's output as its notes. Any other exit, or a trigger
+killed by a signal, means the trigger failed: the gate runs anyway (it fails
+closed) and its notes start
+`trigger <skill> failed (exit <code>); the gate ran` (or
+`failed (killed by a signal)`), then the trigger's output. A trigger
+that times out, cannot start or names a missing skill rejects the gate.
+
 A gate's `after` is a check skill run once the gate has a verdict: an accept or
 reject from its check or judge (every panel member answered), or a carry. It
 does not run on a skip, or on a reject that is a failure rather than a verdict
-(a missing skill or agent, a trigger or coverage error, a failed dispatch, an
-answer with no verdict, the reviewer-differs refusal). Besides the check
+(a missing skill or agent, a trigger that timed out or could not run, a
+coverage error, a failed dispatch, an answer with no verdict, the
+reviewer-differs refusal). Besides the check
 variables it sees `SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or
 carried) and `SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`,
 `binding` and `notes`. Exit 0 keeps the result; any other exit turns it into a
