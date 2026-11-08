@@ -226,7 +226,46 @@ func workflowCmd() *cobra.Command {
 		},
 	}
 	asJSON = jsonFlag(show)
-	cmd.AddCommand(show)
+	cmd.AddCommand(show, workflowSelectCmd())
+	return cmd
+}
+
+// workflowSelectCmd prints the workflow the repo's rules choose for an item
+// with the given kind, tags and category, and that workflow's start state:
+// the choice create makes when no --workflow is given. It reads only.
+func workflowSelectCmd() *cobra.Command {
+	var kind, category string
+	var tags []string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "select --kind K [--tag T]... [--category C]",
+		Short: "Print the workflow and start state the rules choose for a kind, tags and category",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(kind) == "" {
+				return fmt.Errorf("--kind is required")
+			}
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			name, start, err := k.WorkflowFor(item.Item{Kind: kind, Tags: tags, Category: category})
+			if err != nil {
+				return err
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]string{"workflow": name, "start": start})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", name, start)
+			return nil
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVar(&kind, "kind", "", "the item kind (required)")
+	fl.StringArrayVar(&tags, "tag", nil, "a tag (repeatable)")
+	fl.StringVar(&category, "category", "", "the category")
+	asJSON = jsonFlag(cmd)
 	return cmd
 }
 

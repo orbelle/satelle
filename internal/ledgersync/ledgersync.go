@@ -494,11 +494,12 @@ func (s *Syncer) place(ctx context.Context, id string, st State, res *PullResult
 		if err != nil {
 			return fmt.Errorf("place %s: %w", id, err)
 		}
-		e1, err := s.Ledger.NewEvent(id, item.KindUpdated, Actor, item.Fields{Workflow: &name}, head)
+		f, m := item.Placement(name, it.Status, start)
+		e1, err := s.Ledger.NewEvent(id, item.KindUpdated, Actor, f, head)
 		if err != nil {
 			return err
 		}
-		e2, err := s.Ledger.NewEvent(id, item.KindTransitioned, Actor, item.Move{From: it.Status, To: start}, e1.Hash)
+		e2, err := s.Ledger.NewEvent(id, item.KindTransitioned, Actor, m, e1.Hash)
 		if err != nil {
 			return err
 		}

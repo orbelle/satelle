@@ -176,8 +176,64 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 	}
 }
 
+// ErrKeepsWorkflow refuses a reselect of an item its workflow has already
+// moved or judged: the evidence on its chain belongs to that workflow.
+var ErrKeepsWorkflow = errors.New("its workflow has moved or judged it")
+
+// Reselect moves id onto workflow want, at want's start state, when the
+// repo's rules now select want for it and its own workflow has neither moved
+// it (a transition out of a status) nor judged it (a gate run). It writes the
+// same pair a sync placement does (item.Placement), compare-and-appended on
+// the chain's tail, and runs no gate. Every refusal writes nothing; one for the
+// evidence on the chain wraps ErrKeepsWorkflow. It is the one exception to
+// Update's rule that an item keeps the workflow it was created under.
+func (k *Kernel) Reselect(id, want, actor string) (item.Item, error) {
+	it, events, err := k.load(id)
+	if err != nil {
+		return it, err
+	}
+	if _, ok := k.Workflows[want]; !ok {
+		return it, fmt.Errorf("workflow %s does not exist", want)
+	}
+	if it.Workflow == want {
+		return it, fmt.Errorf("%s is already under workflow %s", id, want)
+	}
+	draft := it
+	draft.Workflow = ""
+	name, start, err := k.WorkflowFor(draft)
+	if err != nil {
+		return it, err
+	}
+	if name != want {
+		return it, fmt.Errorf("the repo's rules select %s for %s, not %s", name, id, want)
+	}
+	for _, e := range events {
+		switch e.Kind {
+		case gate.KindRun:
+			return it, fmt.Errorf("%w: %s has a gate run under workflow %s", ErrKeepsWorkflow, id, it.Workflow)
+		case item.KindTransitioned:
+			var m item.Move
+			if err := e.Decode(&m); err != nil {
+				return it, err
+			}
+			if m.From != "" {
+				return it, fmt.Errorf("%w: %s was moved by workflow %s (%s -> %s)", ErrKeepsWorkflow, id, it.Workflow, m.From, m.To)
+			}
+		}
+	}
+	f, m := item.Placement(want, it.Status, start)
+	e1, err := k.appendAfter(id, item.KindUpdated, actor, events[len(events)-1].Hash, f)
+	if err != nil {
+		return it, err
+	}
+	if _, err := k.appendAfter(id, item.KindTransitioned, actor, e1.Hash, m); err != nil {
+		return it, err
+	}
+	return k.Get(id)
+}
+
 // Update changes the fields f names. Status moves only by Transition, and an
-// item keeps the workflow it was created under.
+// item keeps the workflow it was created under (Reselect is the one exception).
 func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, error) {
 	it, err := k.Get(id)
 	if err != nil {

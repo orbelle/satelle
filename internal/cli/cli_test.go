@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -397,5 +398,76 @@ func TestWorkflowShowGateTimeout(t *testing.T) {
 	}
 	if !strings.HasSuffix(line, "timeout 30m") {
 		t.Fatalf("gate line %q in:\n%s", line, out)
+	}
+}
+
+// appendRule appends a [[workflows.rule]] selecting workflow for tag.
+func appendRule(t *testing.T, dir, workflow, tag string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "\n[[workflows.rule]]\nworkflow = %q\ntag = %q\n", workflow, tag); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// workflow select prints the rules' choice and its start state for the given
+// fields: the rule's workflow when they match, the default otherwise.
+func TestWorkflowSelect(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeGatedWorkflow(t, dir)
+	appendRule(t, dir, "gated", "via-g")
+	must(t, "validate")
+	if out := must(t, "workflow", "select", "--kind", "story", "--tag", "x", "--tag", "via-g"); out != "gated st-one\n" {
+		t.Errorf("select with the rule's tag: %q", out)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(must(t, "workflow", "select", "--kind", "story", "--tag", "via-g", "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["workflow"] != "gated" || got["start"] != "st-one" {
+		t.Errorf("select --json: %v", got)
+	}
+	if out := must(t, "workflow", "select", "--kind", "story"); out != "default backlog\n" {
+		t.Errorf("select without the rule's tag: %q", out)
+	}
+	if _, err := run(t, "", "workflow", "select", "--tag", "via-g"); err == nil || ExitCodeOf(err) != ExitError {
+		t.Errorf("select without --kind: %v", err)
+	}
+}
+
+// --reselect takes no other field flag and no --status: either is refused with
+// exit 1 before anything is written. With neither, an item the rules now place
+// elsewhere moves there in place.
+func TestSetReselectConflicts(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeGatedWorkflow(t, dir)
+	appendRule(t, dir, "gated", "via-g")
+	must(t, "validate")
+	id := createID(t, "story", "create", "--title", "r")
+	must(t, "story", "set", id, "--add-tag", "via-g")
+	events := func() string { return must(t, "ledger", "list", id) }
+	before := events()
+	for _, extra := range [][]string{{"--title", "other"}, {"--status", "done"}, {"--add-tag", "z"}} {
+		args := append([]string{"story", "set", id, "--reselect", "gated"}, extra...)
+		_, err := run(t, "", args...)
+		if err == nil || ExitCodeOf(err) != ExitError || !strings.Contains(err.Error(), extra[0]) {
+			t.Errorf("%v: %v", args, err)
+		}
+		if after := events(); after != before {
+			t.Fatalf("%v wrote to the ledger:\n%s", args, after)
+		}
+	}
+	out := must(t, "story", "set", id, "--reselect", "gated")
+	if want := id + " moved to workflow gated (backlog -> st-one)\n"; out != want {
+		t.Errorf("reselect printed %q, want %q", out, want)
+	}
+	if it := getStory(t, id); it.Workflow != "gated" || it.Status != "st-one" {
+		t.Errorf("reselected story at %s/%s", it.Workflow, it.Status)
 	}
 }

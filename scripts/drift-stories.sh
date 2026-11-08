@@ -4,6 +4,7 @@
 #
 #   drift-stories.sh <version> < misses
 #   drift-stories.sh --reshape
+#   drift-stories.sh --rehome
 #   drift-stories.sh --keys < findings
 #
 # Each stdin line is a finding in drift-check.sh's form,
@@ -43,6 +44,27 @@
 #   <key>\t<id>\treshaped     body and criteria rewritten
 #   <key>\t<id>\talready      it already carries the role line
 #   <key>\t<id>\theld:<state> past backlog; not touched
+#
+# --rehome is a one-off: it puts every open story tagged drift that is not on
+# the drift workflow onto it, so the drift review can close each finding's one
+# open drift story. Before it writes anything it requires the drift workflow
+# and a rule that selects it for a story tagged drift, and that the rules
+# select it for each candidate's own tags and category. A story its workflow
+# has neither moved nor judged is reselected in place (satelle story set
+# --reselect drift); one its workflow has moved or judged keeps that workflow,
+# its record is re-raised on drift (same title, body, criteria, tags, parent
+# and category, plus drift-record-of:<old>), and its drift tag is swapped for
+# drift-moved:<new>. A story whose drift-key already has an open drift story
+# on drift is only retagged drift-moved:<that story>. A story with no drift-key
+# line (key -) is re-homed like any other. No story is cancelled. Output, one
+# line per candidate:
+#   <key>\t<old>\t<old>\tmoved         reselected in place
+#   <key>\t<old>\t<new>\tkept:<state>  its record re-raised on drift
+#   <key>\t<old>\t<home>\tduplicate    the key's open drift story is <home>
+# Exit 0 when it moved, re-raised or retagged a story; 1 when there is nothing
+# to do (every open drift story is on drift), writing nothing; 2 when the
+# drift workflow or its rule is missing, or a candidate's rules select another
+# workflow (both before anything is written), or a step fails.
 #
 # --keys prints the drift-key of each distinct finding on stdin, one per line,
 # and raises nothing: the drift workflow's done gate
@@ -149,6 +171,76 @@ if [ "${1:-}" = --reshape ]; then
   exit 0
 fi
 
+if [ "${1:-}" = --rehome ]; then
+  "$bin" workflow show drift --json > /dev/null 2> "$tmp/err" || { echo "drift-stories: no drift workflow: $(head -n1 "$tmp/err")" >&2; exit 2; }
+  "$bin" workflow select --kind story --tag drift --json > "$tmp/select" || { echo "drift-stories: satelle workflow select failed" >&2; exit 2; }
+  chosen=$(jq -r '.workflow' "$tmp/select")
+  [ "$chosen" = drift ] || { echo "drift-stories: the repo's rules select $chosen for a story tagged drift, not drift (no drift rule)" >&2; exit 2; }
+  start=$(jq -r '.start' "$tmp/select")
+  "$bin" story list --tag drift --open --json > "$tmp/open" || { echo "drift-stories: satelle story list --tag drift failed" >&2; exit 2; }
+  # A story's key: its first body line starting `drift-key: `, else -.
+  keyed='(((.body // "") | split("\n") | map(select(startswith("drift-key: "))) | .[0] // "drift-key: -") | ltrimstr("drift-key: "))'
+  jq -r '.[] | select(.workflow != "drift") | .id' "$tmp/open" > "$tmp/ids"
+  if [ ! -s "$tmp/ids" ]; then
+    echo "drift-stories: nothing to re-home: every open drift story is on the drift workflow" >&2
+    exit 1
+  fi
+  # home: each key's open drift story already on drift.
+  jq -r ".[] | select(.workflow == \"drift\") | [$keyed, .id] | @tsv" "$tmp/open" | awk -F'\t' '$1 != "-"' > "$tmp/home"
+  # Pre-pass, read only: the rules must select drift for each candidate.
+  while IFS= read -r id <&3; do
+    sel=(--kind story)
+    while IFS= read -r -d '' t; do sel+=(--tag "$t"); done < <(jq -j --arg id "$id" '.[] | select(.id == $id) | .tags[]? | . + "\u0000"' "$tmp/open")
+    cat=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .category // ""' "$tmp/open")
+    [ -n "$cat" ] && sel+=(--category "$cat")
+    w=$("$bin" workflow select "${sel[@]}" --json | jq -r '.workflow') || { echo "drift-stories: satelle workflow select for $id failed" >&2; exit 2; }
+    [ "$w" = drift ] || { echo "drift-stories: the repo's rules select $w for $id, not drift; nothing was re-homed" >&2; exit 2; }
+  done 3< "$tmp/ids"
+  while IFS= read -r old <&3; do
+    key=$(jq -r --arg id "$old" ".[] | select(.id == \$id) | $keyed" "$tmp/open")
+    home=""
+    [ "$key" != - ] && home=$(awk -F'\t' -v k="$key" '$1 == k { print $2; exit }' "$tmp/home")
+    if [ -n "$home" ]; then
+      "$bin" story set "$old" --remove-tag drift --add-tag "drift-moved:$home" > /dev/null \
+        || { echo "drift-stories: retagging $old drift-moved:$home failed" >&2; exit 2; }
+      printf '%s\t%s\t%s\tduplicate\n' "$key" "$old" "$home"
+      continue
+    fi
+    "$bin" story set "$old" --reselect drift > /dev/null 2> "$tmp/err"
+    code=$?
+    if [ "$code" -eq 0 ]; then
+      "$bin" story get "$old" --json > "$tmp/got" || { echo "drift-stories: satelle story get $old failed" >&2; exit 2; }
+      [ "$(jq -r '.workflow + " " + .status' "$tmp/got")" = "drift $start" ] \
+        || { echo "drift-stories: $old is at $(jq -r '.workflow + "/" + .status' "$tmp/got") after its reselect, not drift/$start" >&2; exit 2; }
+      [ "$key" != - ] && printf '%s\t%s\n' "$key" "$old" >> "$tmp/home"
+      printf '%s\t%s\t%s\tmoved\n' "$key" "$old" "$old"
+      continue
+    fi
+    [ "$code" -eq 2 ] || { echo "drift-stories: reselecting $old failed: $(head -n1 "$tmp/err")" >&2; exit 2; }
+    # Its workflow moved or judged it: it keeps that route; its record is re-raised.
+    "$bin" story get "$old" --json > "$tmp/got" || { echo "drift-stories: satelle story get $old failed" >&2; exit 2; }
+    args=(--title "$(jq -r '.title' "$tmp/got")" --body -)
+    while IFS= read -r -d '' c; do args+=(--criteria "$c"); done < <(jq -j '.criteria[]? | . + "\u0000"' "$tmp/got")
+    while IFS= read -r -d '' t; do args+=(--tag "$t"); done < <(jq -j '.tags[]? | . + "\u0000"' "$tmp/got")
+    args+=(--tag "drift-record-of:$old")
+    parent=$(jq -r '.parent // ""' "$tmp/got")
+    [ -n "$parent" ] && args+=(--parent "$parent")
+    cat=$(jq -r '.category // ""' "$tmp/got")
+    [ -n "$cat" ] && args+=(--category "$cat")
+    status=$(jq -r '.status' "$tmp/got")
+    jq -j '.body // ""' "$tmp/got" > "$tmp/body"
+    "$bin" story create "${args[@]}" --json < "$tmp/body" > "$tmp/new" || { echo "drift-stories: re-raising $old failed" >&2; exit 2; }
+    new=$(jq -r '.id // empty' "$tmp/new")
+    [ -n "$new" ] || { echo "drift-stories: re-raising $old returned no id" >&2; exit 2; }
+    [ "$(jq -r '.workflow' "$tmp/new")" = drift ] || { echo "drift-stories: $new, the record of $old, is not on drift" >&2; exit 2; }
+    "$bin" story set "$old" --remove-tag drift --add-tag "drift-moved:$new" > /dev/null \
+      || { echo "drift-stories: retagging $old drift-moved:$new failed ($new is its record)" >&2; exit 2; }
+    [ "$key" != - ] && printf '%s\t%s\n' "$key" "$new" >> "$tmp/home"
+    printf '%s\t%s\t%s\tkept:%s\n' "$key" "$old" "$new" "$status"
+  done 3< "$tmp/ids"
+  exit 0
+fi
+
 if [ "${1:-}" = --keys ]; then
   parse_findings || exit 2
   cut -f1 "$tmp/findings" | awk '!seen[$0]++'
@@ -156,7 +248,7 @@ if [ "${1:-}" = --keys ]; then
 fi
 
 ver=${1:-}
-[ -n "$ver" ] || { echo "usage: drift-stories.sh <version> < misses | drift-stories.sh --reshape | drift-stories.sh --keys < findings" >&2; exit 2; }
+[ -n "$ver" ] || { echo "usage: drift-stories.sh <version> < misses | drift-stories.sh --reshape | drift-stories.sh --rehome | drift-stories.sh --keys < findings" >&2; exit 2; }
 ver=${ver#v}
 
 parse_findings || exit 2

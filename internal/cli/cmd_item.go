@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/gate"
@@ -459,7 +460,7 @@ func itemListCmd(kind string) *cobra.Command {
 
 func itemSetCmd(kind string) *cobra.Command {
 	var f fieldFlags
-	var status string
+	var status, reselect string
 	var asJSON *bool
 	cmd := &cobra.Command{
 		Use:   "set <id>",
@@ -474,9 +475,26 @@ notes.
 gate with a long timeout (see satelle workflow show) can outlast a harness's
 bound on one shell command. Run such a move as the harness's background
 command, with that command's own timeout above the sum of the sequential
-gates' bounds.`,
+gates' bounds.
+
+--reselect <workflow> moves the item to that workflow's start state, when the
+repo's rules now select that workflow for it and its own workflow has neither
+moved nor judged it; it takes no other field flag and no --status. A refusal
+for the evidence on the item's chain exits 2; any other refusal exits 1.
+Nothing is written on a refusal.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("reselect") {
+				var others []string
+				cmd.Flags().Visit(func(fl *pflag.Flag) {
+					if fl.Name != "reselect" && fl.Name != "json" {
+						others = append(others, "--"+fl.Name)
+					}
+				})
+				if len(others) > 0 {
+					return fmt.Errorf("--reselect takes no other field flag and no --status (got %s)", strings.Join(others, ", "))
+				}
+			}
 			k, _, err := openKernel()
 			if err != nil {
 				return err
@@ -485,6 +503,21 @@ gates' bounds.`,
 			it, err := getItem(k, kind, args[0])
 			if err != nil {
 				return err
+			}
+			if cmd.Flags().Changed("reselect") {
+				from := it.Status
+				moved, err := k.Reselect(it.ID, reselect, actor())
+				if errors.Is(err, kernel.ErrKeepsWorkflow) {
+					return &exitError{code: ExitBlocked, msg: err.Error()}
+				}
+				if err != nil {
+					return err
+				}
+				if *asJSON {
+					return writeJSON(cmd.OutOrStdout(), moved)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s moved to workflow %s (%s -> %s)\n", moved.ID, moved.Workflow, from, moved.Status)
+				return nil
 			}
 			fields, err := f.fields(cmd, &it)
 			if err != nil {
@@ -514,6 +547,7 @@ gates' bounds.`,
 	}
 	f.register(cmd, kind, false)
 	cmd.Flags().StringVar(&status, "status", "", "present the transition to this state")
+	cmd.Flags().StringVar(&reselect, "reselect", "", "move the item to this workflow's start state, when the rules now select it and its workflow has neither moved nor judged it")
 	asJSON = jsonFlag(cmd)
 	return cmd
 }
