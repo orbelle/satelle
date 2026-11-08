@@ -3,7 +3,7 @@ name: satelle-outcome-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate on integration → outcome, after satelle-integration-check has run the integration suite (fail fast). Isolated read-only reviewer judges, per numbered AC, that the integrated behaviour meets the story's BDD and ACs, citing integration-level evidence, and rejects an AC with no integration-level proof. Comes before release, or before the PR on the pr route. Verdict only; never runs the suite. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Gate on integration → outcome, after satelle-integration-check has run the integration suite (fail fast). Isolated read-only reviewer judges, per numbered AC, that the integrated behaviour meets the story's BDD and ACs, citing integration-level evidence, and rejects an AC with no integration-level proof. Comes before release, or before the PR on the pr route. Verdict only; never runs the suite.
 ---
 
 # Outcome review (integration → outcome)
@@ -16,17 +16,22 @@ the way into integration. The integration suite has now passed on this edge
 **does the integrated behaviour actually achieve the story's BDD and each
 numbered AC?** Judge the outcome, not the code shape.
 
-Do **not** run the suite, write tests, or design a better test plan. You get
-`{story, from, to}` on stdin. Read-only.
+Do **not** run the suite, write tests, or design a better test plan. Your
+prompt carries the item, the move, the changed paths and the diff since the
+item's base. Read-only.
 
 ## Evidence
 
-- The story: title, body (its behaviour, the BDD), numbered ACs.
+- The story: title, body (its behaviour, the BDD), numbered ACs. The numbered
+  ACs are the `## Acceptance criteria` section of the `plan` attachment in the
+  record folder your prompt names when the plan has that section, else the
+  criteria in your prompt.
 - The integration evidence: the integration suite's result on this edge, the
   presented integration tests for this change (under `tests/` or co-located
-  end-to-end tests), and payload `docs` such as `ac-evidence`.
-- The slice (`payload.diff`, opened from `diff.patch_path`) only to locate which
-  tests and paths realise each AC.
+  end-to-end tests), and the item's attachments such as `ac-evidence`, read
+  from the record folder (`attachments/<name>`).
+- The changed paths and diff in your prompt only to locate which tests and
+  paths realise each AC.
 
 ## Judge, per numbered AC
 
@@ -55,5 +60,5 @@ Every criterion gets a verdict; an unchecked criterion never accepts.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```

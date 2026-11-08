@@ -139,3 +139,47 @@ groups = [{ gates = ["look"] }]
 		}
 	}
 }
+
+// validate refuses the two v0 skill shapes v1 would misrun: a ```check block
+// in a skill that is not type: check (dispatched to an agent instead of run),
+// and a judge skill that answers with the retired decision key (always a
+// reject, since a judge's answer is read only for verdict).
+func TestValidateRefusesV0Skills(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	s.must("init")
+
+	s.write(".satelle/skills/oldcheck.md", "---\ntype: skill\n---\n# Old check\n\n```check\nexit 0\n```\n")
+	r := s.run("validate")
+	if r.code == 0 || !strings.Contains(r.err, "oldcheck") || !strings.Contains(r.err, "not check") {
+		t.Fatalf("validate with a ```check block in a type: skill: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if err := os.Remove(filepath.Join(s.dir, ".satelle", "skills", "oldcheck.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	s.write(".satelle/agents.toml", "[agents.reviewer]\ncommand = \"claude\"\ntools = [\"Read\", \"Grep\", \"Glob\"]\n")
+	s.write(".satelle/skills/look.md", "# Look\n\n## Verdict\n\n```json\n{\"decision\": \"accept\", \"notes\": \"\"}\n```\n")
+	s.write(".satelle/workflows/default.toml", `name = "default"
+[states.backlog]
+start = true
+[states.done]
+terminal = true
+[gates.look]
+skill = "look"
+agent = "reviewer"
+[[transition]]
+from = ["backlog"]
+to = "done"
+groups = [{ gates = ["look"] }]
+`)
+	r = s.run("validate")
+	if r.code == 0 || !strings.Contains(r.err, `skill "look"`) || !strings.Contains(r.err, "verdict") {
+		t.Fatalf("validate with a judge answering decision: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+
+	s.write(".satelle/skills/look.md", "# Look\n\n## Verdict\n\n```json\n{\"verdict\": \"accept\", \"notes\": \"\"}\n```\n")
+	if r := s.run("validate"); r.code != 0 {
+		t.Fatalf("validate with a judge answering verdict: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+}

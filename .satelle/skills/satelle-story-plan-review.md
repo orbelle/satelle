@@ -3,7 +3,7 @@ name: satelle-story-plan-review
 scope: system
 type: skill
 tags: [type:skill, type:reviewer]
-description: Plan gate — on plan → in_progress, or backlog → plan when readiness proposes its plan first. Read-only reviewer validates the ATTACHED plan against the behavior the story card states: each criterion cites the card behavior it proves, the criteria are not narrower than the card, recorded partial solutions are kept. Never invents a competing plan; re-presented edge follows [[satelle-reviewer-verdict]].
+description: Plan gate — on plan → in_progress, or backlog → plan when readiness proposes its plan first. Read-only reviewer validates the ATTACHED plan against the behavior the story card states: each criterion cites the card behavior it proves, the criteria are not narrower than the card, recorded partial solutions are kept. Never invents a competing plan.
 payload_citations: plan
 ---
 
@@ -12,38 +12,36 @@ payload_citations: plan
 ## Primary objective
 
 Validate the **presented** plan against the **story card**. Answer only: may the
-story advance across this edge (`from` → `to` in the payload)? Do **not**
-create-and-complete this step. Do **not** invent a competing plan and match
-against it.
+story advance across this edge (the move is the first line of your prompt)? Do
+**not** create-and-complete this step. Do **not** invent a competing plan and
+match against it.
 
-You get `{story, from, to}` on stdin. You do not edit or implement.
+Your prompt carries the item (id, title, body, criteria) and the move. You do
+not edit or implement.
 
 ## 1. Locate the presented artifact
 
-Plan is the `docs` entry named `plan` (`name`, `type`, `path`). The file at `path` is the plan body. Prefer that — it is how a Bash-less reviewer
-reads what it judges. When `truncated: true`, or for a fuller
-pull when shell is granted: `satelle story doc <sty_id> plan`.
-
-The payload's `citations` block holds each `path:line` the plan cites, already
-read from the tree you judge (the lines plus three either side, or why one no
-longer resolves). Start from those excerpts; open files only to check beyond them.
-
-Do **not** look under in-repo `.satelle/stories/` (obsolete post-relocation).
+The plan is `attachments/plan` in the record folder your prompt names (the
+item's newest attachments, read-only). Read it there: the inline copy in the
+prompt may be cut. Open the files the plan cites (`path:line`) to check its
+claims.
 
 The newest `plan` attachment is the whole plan. Only the newest plan is live:
 earlier versions and earlier verdicts are in the ledger and are not live, so a
 finding cites text in the newest body.
 
-- **No plan artifact → reject**.
+- **No `plan` attachment in the record folder → reject**, naming the gap.
 
 ## 2. The criteria being judged
 
-- When the payload carries `criteria_source` (the binary supplies it, with
-  `criteria_state`, when the step applies the plan's criteria to the story),
-  the criteria are the ones that field names. Judge them, and judge coverage
-  against them. Content under that heading that is not a numbered criterion
-  would be applied as a criterion — a finding.
-- Otherwise the story's own numbered criteria are the criteria.
+- When the plan has an `## Acceptance criteria` section, its numbered lines are
+  the criteria: judge them, and judge coverage against them. Content under that
+  heading that is not a numbered criterion is a finding. Satelle copies nothing
+  from the plan onto the story; every later gate reads that section from the
+  plan attachment.
+- Otherwise the criteria in your prompt are the criteria.
+- Every number in your prompt's criteria appears in the plan as `AC<n>` or
+  under its Draft changes; a dropped one is a finding.
 
 The plan may author the criteria when the story has none. Where the story
 arrived with raiser draft criteria and the plan replaces or changes them, the
@@ -109,7 +107,7 @@ plan** (approach and/or files, and what evidence will prove it).
   the plan designs, it must name what the receiving seat reads for itself (its
   grant, the CLI, the files on disk). A plan that embeds readable content in a
   dispatch — items, documents or history the seat can fetch, copied into its
-  prompt or payload instead of sent as ids, paths and retrieval commands — is
+  prompt or request instead of sent as ids, paths and retrieval commands — is
   rejected whatever its size; bounding or batching that content is the same
   defect.
 
@@ -122,26 +120,20 @@ plan** (approach and/or files, and what evidence will prove it).
   without a proof path — name it. Falsify checkable plan claims against the repo
   only when the plan asserts something already exists; do not rewrite the plan.
 
-## 6. First pass: every blocking finding, once
+## 6. Every blocking finding, at once
 
-On the **first** presentation of this edge (the payload has no
-`prior_verdicts`), enumerate **every** blocking finding — read the whole plan
-against every criterion and stop nowhere early. A blocker held back for a later
-pass is a defect of the review, not of the plan: it costs a full round to
-surface.
-
-**Fail-fast mode.** When the payload's `review_mode` is `"fail-fast"`, this
-section does not apply; [[satelle-reviewer-verdict]] governs the stop and
-`coverage`.
+Every presentation is judged fresh: your prompt carries no earlier verdict.
+Enumerate **every** blocking finding — read the whole plan against every
+criterion and stop nowhere early. A blocker held back for a later pass is a
+defect of the review, not of the plan: it costs a full round to surface.
 
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "class": "AC1", "reviewed": "<exact words this verdict rests on>", "criteria": [{"criterion": 1, "status": "accept", "finding": "", "reviewed": "<exact words this entry rests on>"}]}
+{"verdict": "accept", "notes": "", "class": "AC1"}
 ```
 
-Return one `criteria` entry per acceptance criterion you judged
-([[satelle-reviewer-verdict]]), so an accepted criterion whose text is unchanged
-settles on the next presentation instead of being judged again.
-A reject names its class: the label of the criterion its blocking finding
-concerns (`AC<n>`), or `plan` when the finding is not about one criterion.
+`notes` carries one line per blocking finding, each naming its criterion
+(`AC<n>: ...`). A reject names its class: the label of the criterion its
+blocking finding concerns (`AC<n>`), or `plan` when the finding is not about one
+criterion.

@@ -3,14 +3,15 @@ name: satelle-workflow-change-review
 scope: system
 type: skill
 tags: [type:skill, type:reviewer]
-description: Implementation-exit gate judging route edits — where a gate is bound (a step table's reviewers vs an always-on gate entry), over-fire, skill and obligation resolution, park/cancel/recover preserved. Fast-accepts workflow:n/a when the slice touches no workflow file. Review-only. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Implementation-exit gate judging route edits — where a gate is bound (a step table's reviewers vs an always-on gate entry), over-fire, skill and obligation resolution, park/cancel/recover preserved. Fast-accepts workflow:n/a when the slice touches no workflow file. Review-only.
 ---
 
 # Workflow-change review
 
-You are an isolated reviewer judging whether the engaged slice's
-workflow edits (if any) are sound. You receive `{story, from, to}` on stdin;
-`story` carries title, body, acceptance criteria, and tags. Attached plan and step summaries may appear as payload `docs` entries (`name`, `type`, `path`). Open `path`. Read the repository
+You are an isolated reviewer judging whether the engaged slice's workflow edits
+(if any) are sound. Your prompt carries the item (title, body, criteria, tags),
+the move, the changed paths and the diff since the item's base. The plan is
+`attachments/plan` in the record folder your prompt names. Read the repository
 (Read/Grep); you do not edit.
 
 ## Scope first — n/a fast-accept
@@ -24,13 +25,13 @@ Decide whether this slice touches **workflow substrate**:
   `.satelle/` / `docs/` is **not** this gate — that lane is
   [[satelle-substrate-only-check]].
 
-Infer from the payload (body, ACs, plan, step summaries) and from files that
-exist in the tree for this slice — you have **no git**. Absence of workflow
-mentions and no plan claiming workflow edits **is** the n/a signal.
+Infer from your prompt (body, ACs, the changed paths and diff), the plan, and
+files that exist in the tree for this slice — you have **no git**. Absence of
+workflow mentions and no plan claiming workflow edits **is** the n/a signal.
 
 - **No workflow touch** → accept immediately:
  ```json
- {"verdict": "accept", "notes": "workflow: n/a", "reviewed": "<exact words this verdict rests on>"}
+ {"verdict": "accept", "notes": "workflow: n/a"}
  ```
  Never reject for missing evidence of a surface the slice never claimed.
 
@@ -89,5 +90,5 @@ Fair gate: judge the change as written, not perfectionism.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```

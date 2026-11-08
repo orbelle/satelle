@@ -3,13 +3,14 @@ name: satelle-binary-scope-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Readiness (backlog → plan) reviewer. Isolated read-only judge of the plan's footprint in the satelle binary — rejects a plan that adds a git or forge action, or process logic that belongs in a step skill or configuration, to the binary, per [[satelle-mechanism-vs-substrate]]. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Readiness (backlog → plan) reviewer. Isolated read-only judge of the plan's footprint in the satelle binary — rejects a plan that adds a git or forge action, or process logic that belongs in a step skill or configuration, to the binary, per [[satelle-mechanism-vs-substrate]].
 ---
 
 # Binary scope review (backlog → plan, readiness)
 
-Read-only. Open the `plan` doc's `path` and judge only where the planned work
-lives. The rule is [[satelle-mechanism-vs-substrate]], section "Git and the
+Read-only. On plan → in_progress, read the `plan` attachment from the record
+folder your prompt names (`attachments/plan`) and judge only where the planned
+work lives. The rule is [[satelle-mechanism-vs-substrate]], section "Git and the
 forge are a step's work": the binary is a small mechanism that runs the user's
 configuration through its reviewers and gates, and it takes no git or forge
 action.
@@ -42,8 +43,8 @@ action.
    process: reject it.
 
 This reviewer runs first on plan → in_progress and fails fast. It runs again on
-in_progress → integration, where it judges the diff (`satelle story diff
-"$SATELLE_ITEM"` and the changed files) instead of the plan.
+in_progress → integration, where it judges the changed paths and the diff your
+prompt carries instead of the plan (Read a changed file when the diff is cut).
 
 Every finding names the planned file, the action or logic, and where it
 belongs. Judge the plan as written; do not design the change.
@@ -51,5 +52,5 @@ belongs. Judge the plan as written; do not design the change.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```

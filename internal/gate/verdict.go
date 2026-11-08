@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
@@ -41,4 +42,18 @@ func parseVerdict(text string) (Verdict, bool) {
 		snippet = snippet[len(snippet)-500:]
 	}
 	return Verdict{Verdict: Reject, Notes: `no {"verdict":"accept"|"reject","notes":"..."} object in the judge's answer: ` + snippet}, false
+}
+
+// legacyAnswerKey matches the retired judge answer key: "decision" as a JSON
+// key, or `decision` as a code span. ParseVerdict reads only verdict, so an
+// answer keyed decision is always a reject.
+var legacyAnswerKey = regexp.MustCompile("\"decision\"\\s*:|`decision`")
+
+// LegacyAnswerKey reports whether text (a judge skill's body) names the
+// retired answer key, and which key it is.
+func LegacyAnswerKey(text string) (string, bool) {
+	if legacyAnswerKey.MatchString(text) {
+		return "decision", true
+	}
+	return "", false
 }
