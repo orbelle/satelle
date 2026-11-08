@@ -39,8 +39,9 @@ the repo's Dockerfile, starts the node's container, seats the item at
 remote:<node>, runs the node on the item and imports its chain, verified. It
 needs docker, and no sign-in or bound project. Any other remote is started by
 satelle-server for the bound project: 'remote fire' pushes the item's chain
-first; 'remote status' pulls it back once the run concluded. See
-'satelle help remotes'.`,
+to the bound project first, whatever [ledger] store names, and refuses an
+item that diverged from it; 'remote status' pulls it back once the run
+concluded. See 'satelle help remotes'.`,
 	}
 	cmd.AddCommand(remoteFireCmd(), remoteStatusCmd())
 	return cmd
@@ -82,7 +83,7 @@ func withBound(k *kernel.Kernel, r repo, out io.Writer, fn func(b bound) error) 
 		return err
 	}
 	defer c.Close()
-	return fn(bound{Client: c, Project: b.Project, Repl: newReplicator(k, devStore(k, c, b), out)})
+	return fn(bound{Client: c, Project: b.Project, Repl: newReplicator(k, devFor(k, c, b.Project), out)})
 }
 
 // localRemote reads the remote's definition from this repo when it is a
@@ -157,8 +158,11 @@ func fireOnServer(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) 
 	if err != nil {
 		return err
 	}
-	if res.Failed() {
-		return fmt.Errorf("%s diverged from the project; run satelle ledger pull %s and resolve it before firing", args[1], args[1])
+	if len(res.Diverged) > 0 {
+		return &exitError{code: ExitError, msg: fmt.Sprintf("remote fire: %s diverged from the project; run satelle ledger pull %s and resolve it before firing", args[1], args[1])}
+	}
+	if err := replicationFailure("remote fire", res); err != nil {
+		return err
 	}
 	r, err := b.Client.Remotes.FireRemote(cmd.Context(), &satellepb.FireRemoteRequest{RemoteId: args[0], Project: b.Project, ItemId: args[1]})
 	if err != nil {
@@ -418,6 +422,6 @@ func hostedPlacer(k *kernel.Kernel, r repo) (remotenode.Placer, func(), bool, er
 	if err != nil {
 		return remotenode.Placer{}, func() {}, false, err
 	}
-	repl := newReplicator(k, devStore(k, c, b), os.Stderr)
+	repl := newReplicator(k, devFor(k, c, b.Project), os.Stderr)
 	return remotenode.Placer{Client: c, Project: b.Project, Repl: repl}, func() { c.Close() }, true, nil
 }

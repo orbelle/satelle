@@ -52,19 +52,10 @@ func TestHotPathMakesNoStoreCall(t *testing.T) {
 		dir := isolate(t)
 		must(t, "init")
 		writeGatedWorkflow(t, dir)
-		work := t.TempDir()
-		calls := filepath.Join(work, "calls.log")
-		rec := filepath.Join(work, "rec.sh")
-		if err := os.WriteFile(rec, []byte("echo \"$@\" >> '"+calls+"'\necho 'error: unavailable: down' >&2\nexit 1\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		configureLedger(t, dir, `store = { command = "sh", args = ['`+rec+`'] }`)
+		calls := recordingStore(t, dir)
 		must(t, "validate")
 		hotPath(t, dir)
-		if _, err := os.Stat(calls); !os.IsNotExist(err) {
-			b, _ := os.ReadFile(calls)
-			t.Fatalf("the hot path called the store:\n%s", b)
-		}
+		noStoreCall(t, calls)
 		// Control: push does call it, and shows its error.
 		out, err := run(t, "", "ledger", "push")
 		if ExitCodeOf(err) != 1 || !strings.Contains(out+err.Error(), "error: unavailable: down") {

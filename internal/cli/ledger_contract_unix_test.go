@@ -11,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
 // agentRunMachine is a container runtime as id4me's agent-run makes one: not
@@ -187,6 +190,39 @@ func TestAgentRunContract(t *testing.T) {
 	for _, verb := range []string{"push", "pull"} {
 		if _, err := run(t, "", "ledger", verb); err != nil {
 			t.Errorf("%s in sync: %v", verb, err)
+		}
+	}
+
+	// Not signed in, with the custom home in effect.
+	if got := config.GlobalDir(); got != x.satelleHome {
+		t.Errorf("GlobalDir %s, want the custom SATELLE_HOME %s", got, x.satelleHome)
+	}
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hosted.SignedIn(hosted.ConfiguredServer(gc)) {
+		t.Error("the runtime is signed in")
+	}
+	// The account and container come only from the environment.
+	t.Setenv("LEDGER_ACCOUNT", "")
+	if out, err := run(t, "", "ledger", "push"); ExitCodeOf(err) != 1 || !strings.Contains(out+err.Error(), "LEDGER_ACCOUNT and LEDGER_CONTAINER are required") {
+		t.Errorf("push without LEDGER_ACCOUNT: %v\n%s", err, out)
+	}
+	t.Setenv("LEDGER_ACCOUNT", "acct")
+	// An unreachable store: exit 1 with its error line, never a crash.
+	down := "#!/bin/sh\necho 'error: unavailable: down' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "satelle-store-azure"), []byte(down), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"push", "pull"} {
+		out, err := run(t, "", "ledger", verb)
+		all := out
+		if err != nil {
+			all += err.Error()
+		}
+		if ExitCodeOf(err) != 1 || !strings.Contains(all, "error: unavailable: down") || strings.Contains(all, "panic") || strings.Contains(all, "goroutine") {
+			t.Errorf("%s through a down store: exit %d\n%s", verb, ExitCodeOf(err), all)
 		}
 	}
 }

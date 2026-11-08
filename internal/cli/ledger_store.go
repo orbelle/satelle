@@ -38,7 +38,7 @@ func openStore(k *kernel.Kernel, r repo, verb string) (ledgerrepl.Store, func(),
 	spec, defaulted := resolveStore(k)
 	switch {
 	case spec.External():
-		c, err := storeCommand(k, verb)
+		c, err := storeCommand(k, spec, verb)
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -59,14 +59,16 @@ func openStore(k *kernel.Kernel, r repo, verb string) (ledgerrepl.Store, func(),
 		if err != nil {
 			return nil, func() {}, err
 		}
-		return devStore(k, c, b), func() { c.Close() }, nil
+		d := devFor(k, c, b.Project)
+		d.Server = b.Server
+		return d, func() { c.Close() }, nil
 	}
 	return nil, func() {}, nil
 }
 
-// devStore is satelle.dev for the bound project.
-func devStore(k *kernel.Kernel, c *hosted.Client, b binding) *ledgerrepl.Dev {
-	return &ledgerrepl.Dev{Client: c, Project: b.Project, Server: b.Server, Ledger: k.Ledger, Cache: k.Cache}
+// devFor is satelle.dev for project over c. It reads no setting.
+func devFor(k *kernel.Kernel, c *hosted.Client, project string) *ledgerrepl.Dev {
+	return &ledgerrepl.Dev{Client: c, Project: project, Ledger: k.Ledger, Cache: k.Cache}
 }
 
 // newReplicator is the one replicator the CLI builds, for every store: it

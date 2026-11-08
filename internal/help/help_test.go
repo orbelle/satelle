@@ -119,6 +119,8 @@ func TestLedgerStoreChoiceDocumented(t *testing.T) {
 		"is `satelle.dev` while signed in", "`local` otherwise",
 		"## Push, pull and status", "satelle ledger status", "performer-output-<event id>",
 		"No hook, gate, story or ledger read",
+		"`satelle remote fire`, a remote placement", "store-test checks only a configured store\ncommand",
+		"and `args` may be omitted",
 	} {
 		if !strings.Contains(top.Body, want) {
 			t.Errorf("the ledger-store topic lacks %q", want)

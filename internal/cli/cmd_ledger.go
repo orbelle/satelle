@@ -53,11 +53,14 @@ conformance/<run>/. See 'satelle help ledger-store'.`,
 				return err
 			}
 			defer k.Close()
-			c, err := storeCommand(k, "store-test")
+			// store-test checks only the configured command: it never
+			// resolves a default, so an unset or built-in store is refused
+			// before any call.
+			spec := k.Settings.Ledger.Store
+			c, err := storeCommand(k, spec, "store-test")
 			if err != nil {
 				return err
 			}
-			spec := k.Settings.Ledger.Store
 			out := cmd.OutOrStdout()
 			var failed []string
 			for _, r := range ledgerstore.Conformance(cmd.Context(), c) {
@@ -78,12 +81,10 @@ conformance/<run>/. See 'satelle help ledger-store'.`,
 	}
 }
 
-// storeCommand is the configured external store command, run in the working
-// tree without satelle's credentials. With no external command configured (no
-// [ledger] store, or a built-in store named) it refuses, naming the verb, and
-// nothing is run.
-func storeCommand(k *kernel.Kernel, verb string) (ledgerstore.Command, error) {
-	spec := k.Settings.Ledger.Store
+// storeCommand is the external store command spec names, run in the working
+// tree without satelle's credentials. With no external command (spec unset,
+// or a built-in store) it refuses, naming the verb, and nothing is run.
+func storeCommand(k *kernel.Kernel, spec ledgerstore.Spec, verb string) (ledgerstore.Command, error) {
 	const only = "only an external store command ([ledger] store = { command = ..., args = [...] }) implements the adapter operations put-if-absent, get and list"
 	if !spec.External() {
 		if spec.Kind == "" {

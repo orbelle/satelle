@@ -29,12 +29,10 @@ With no `[ledger] store` set, the store is `satelle.dev` while signed in
 (`SATELLE_TOKEN`, or a stored `satelle login`) and `local` otherwise. Any
 other value is refused when the configuration loads, naming `[ledger] store`.
 
-The local runtime stays the working copy: only push, pull and status read
-`[ledger] store` or contact the store. No hook, gate, story or ledger read
-waits on it, so they work with the store unreachable. A remote placement
-(`remote:<id>`), a remote node and `satelle remote status` move their run's
-chains through satelle-server whatever the store is, because the node runs
-there, by the same replicator and rules.
+The local runtime stays the working copy: only push, pull and status
+resolve `[ledger] store` or contact the store (store-test reads it only to
+check a configured command). No hook, gate, story or ledger read waits on it,
+so they work with the store unreachable.
 
 ## The adapter contract (what an external store command implements)
 
@@ -65,7 +63,10 @@ Three rules complete it:
   directly with no shell, in the working tree. Stdin carries the body for
   `put-if-absent` and is empty for the other operations.
 - The environment is satelle's own, passed through with nothing added, minus
-  satelle's credentials `SATELLE_TOKEN` and `SATELLE_NODE_TOKEN`.
+  satelle's credentials `SATELLE_TOKEN` and `SATELLE_NODE_TOKEN`. An adapter
+  can therefore read its own settings (an account, a container) from its
+  environment, and `args` may be omitted:
+  `store = { command = "satelle-store-azure" }`.
 - satelle checks every key operand (the key, the list prefix and the
   after-key) and the body against the limits before it runs the command, and
   refuses one outside them naming the limit.
@@ -95,9 +96,10 @@ exits 1 naming the failed checks otherwise. The checks, in order:
 8. an error prints error: <code>: <message>
 
 The first two run before anything is written, so a store that has never been
-written is exercised too. With no external store command configured (no
-`[ledger] store`, or a built-in store named), `store-test` makes no store call
-and exits 1: only a store command implements the adapter operations.
+written is exercised too. store-test checks only a configured store
+command: it never resolves the default, so with no `[ledger] store` (even
+while signed in) or a built-in store named, it makes no store or server call
+and exits 1, because only a store command implements the adapter operations.
 
 The reference adapter `adapters/satelle-store-fs` in satelle's repository is a
 POSIX sh implementation over a directory:
@@ -145,6 +147,13 @@ and lists chains with `Chain.Heads`. Blobs travel as attachments of their item
 (`AttachmentService`): an attachment under its own name, a performer output as
 `performer-output-<event id>`. Push also stores the item summaries the server
 lists.
+
+`satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
+`satelle remote status` move their run's item through satelle-server whatever
+`[ledger] store` names, because the node runs there, by the same replicator
+and rules: fire and a placement push only that item's chain, and refuse with
+exit 1 when it diverged; a node and `remote status` pull only that item. No
+hook, gate or read contacts the store.
 
 A store command's object layout:
 

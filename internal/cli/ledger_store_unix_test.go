@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
+	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
 // adapterAbs is resolved at init, while the working directory is the package.
@@ -172,5 +173,21 @@ func TestLedgerStoreTestRefusesWithoutAnExternalCommand(t *testing.T) {
 				t.Errorf("a command ran (%v)", err)
 			}
 		})
+	}
+}
+
+// store-test never resolves the default store: unset while signed in and
+// bound, it is refused as unconfigured and the server is never called.
+func TestLedgerStoreTestRefusesTheDefaultWhileSignedIn(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	newMachine(t)
+	must(t, "project", "create", "acme", "--bind", "--server", srv.URL)
+	before := len(srv.Calls())
+	out, err := run(t, "", "ledger", "store-test")
+	if ExitCodeOf(err) != 1 || !strings.Contains(err.Error(), "no [ledger] store is configured") || !strings.Contains(err.Error(), "only an external store command") {
+		t.Fatalf("store-test signed in, unset: %v\n%s", err, out)
+	}
+	if n := len(srv.Calls()); n != before {
+		t.Fatalf("store-test made %d server call(s)", n-before)
 	}
 }

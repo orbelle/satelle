@@ -3,55 +3,12 @@ package cli
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/item"
-	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
-	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
-
-const testToken = "tok-ada"
-
-// machine is one local satelle: its own home and repo.
-type machine struct {
-	home, dir string
-}
-
-// newMachine isolates a fresh home and repo, initialises it and signs it in
-// with the session token the fake accepts.
-func newMachine(t *testing.T) machine {
-	t.Helper()
-	dir := isolate(t)
-	t.Setenv("SATELLE_TOKEN", testToken)
-	must(t, "init")
-	return machine{home: os.Getenv("HOME"), dir: dir}
-}
-
-// use makes m the current machine.
-func (m machine) use(t *testing.T) {
-	t.Helper()
-	t.Setenv("HOME", m.home)
-	t.Setenv("SATELLE_HOME", filepath.Join(m.home, ".satelle"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(m.home, "xdg"))
-	t.Chdir(m.dir)
-}
-
-func runtimeLedger(t *testing.T) *ledger.Store {
-	t.Helper()
-	r, err := findRepo("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	l, err := ledger.Open(r.Runtime)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return l
-}
 
 func TestWhoamiAndProjects(t *testing.T) {
 	newMachine(t)
@@ -219,26 +176,5 @@ func TestLedgerDevPullOfAPurePrefix(t *testing.T) {
 	}
 	if out := must(t, "ledger", "status"); !strings.Contains(out, "ahead") {
 		t.Errorf("status = %q", out)
-	}
-}
-
-// satelle remote status pulls only its run's item, through satelle-server.
-func TestRemoteStatusPullsOnlyItsItem(t *testing.T) {
-	srv := fakeserver.Start(t, testToken)
-	newMachine(t)
-	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
-	mine := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "the run's"})
-	other := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "another"})
-	srv.SetItemRun("ci", mine, &satellepb.ItemRun{State: remotenode.RunConcluded, Verdict: "accept"})
-	out := must(t, "remote", "status", "ci", mine)
-	if !strings.Contains(out, "pulled 1 event(s)") {
-		t.Errorf("remote status = %q", out)
-	}
-	l := runtimeLedger(t)
-	if got, _ := l.Read(mine); len(got) == 0 {
-		t.Error("the run's item was not pulled")
-	}
-	if got, _ := l.Read(other); len(got) != 0 {
-		t.Error("another item was pulled")
 	}
 }

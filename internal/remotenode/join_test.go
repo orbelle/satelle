@@ -16,6 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
@@ -459,3 +460,43 @@ kind = "item"
 `
 
 func ptr[T any](v T) *T { return &v }
+
+// A placement whose item diverged from the server refuses to start a node.
+func TestPlacementRefusesADivergedItem(t *testing.T) {
+	l := newLocalRepo(t)
+	it, err := l.k.Create(item.Fields{Kind: ptr("story"), Title: ptr("forked")}, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := l.k.Ledger.Read(it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another runtime holds event 0 and appends its own event 1 to the server.
+	other, err := ledger.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Import(events[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Append(it.ID, "note.added", "bob", map[string]string{"n": "theirs"}); err != nil {
+		t.Fatal(err)
+	}
+	theirs := &ledgerrepl.Replicator{Ledger: other, Store: &ledgerrepl.Dev{Client: l.client, Project: l.project}}
+	if res, err := theirs.Push(context.Background()); err != nil || res.Failed() {
+		t.Fatalf("the other runtime's push: %+v %v", res, err)
+	}
+	if _, err := l.k.Ledger.Append(it.ID, "note.added", "ada", map[string]string{"n": "mine"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Placer{Client: l.client, Project: l.project, Repl: l.repl()}.StartNode(context.Background(), "ci", it.ID, "doer")
+	if err == nil || !strings.Contains(err.Error(), "pushing "+it.ID+" before its node starts: "+it.ID+" diverged from the server") {
+		t.Fatalf("StartNode of a diverged item = %v", err)
+	}
+	for _, m := range methods(l.srv, "user-tok") {
+		if m == "StartNode" {
+			t.Fatal("StartNode was called for a diverged item")
+		}
+	}
+}
