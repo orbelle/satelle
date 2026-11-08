@@ -325,3 +325,72 @@ func TestJudgedResultRecordsChange(t *testing.T) {
 		}
 	}
 }
+
+// A judge whose dispatch failed is an error, not its verdict: the transition
+// is still refused, a sequential group stops after it, and a panel is an
+// error only when no member rejected and the combine does not pass.
+func TestDispatchFailureIsAnError(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"dead": {Skill: "judge", Agent: "dead"},
+		"ok":   {Skill: "judge", Agent: "y1"},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"dead", "ok"}}}, gates)
+	r.Agents["dead"] = agent.Binding{Name: "dead", Command: "claude", Model: "model-dead"}
+	rs, pass := r.Execute(context.Background())
+	if pass || results(rs) != "dead=error" || len(d.calls) != 1 {
+		t.Fatalf("sequential: %v %s %v", pass, results(rs), d.calls)
+	}
+	if !strings.HasPrefix(rs[0].Notes, "dispatch failed: no such fake") || rs[0].Change != nil || rs[0].Changed != nil {
+		t.Fatalf("error result %+v", rs[0])
+	}
+	r, _ = setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"dead", "ok"}}}, gates)
+	r.Agents["dead"] = agent.Binding{Name: "dead", Command: "claude", Model: "model-dead"}
+	if rs, pass := r.Execute(context.Background()); pass || results(rs) != "dead=error ok=accept" {
+		t.Fatalf("parallel: %v %s", pass, results(rs))
+	}
+	for _, c := range []struct {
+		combine string
+		panel   []string
+		want    string
+	}{
+		{workflow.CombineAll, []string{"dead", "y1"}, Error},
+		{workflow.CombineAll, []string{"dead", "n1"}, Reject},
+		{workflow.CombineAny, []string{"dead", "y1"}, Accept},
+		{workflow.CombineMost, []string{"dead", "dead2", "y1"}, Error},
+	} {
+		r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"p"}}}, map[string]workflow.Gate{
+			"p": {Skill: "judge", Panel: c.panel, Combine: c.combine},
+		})
+		for _, n := range []string{"dead", "dead2"} {
+			r.Agents[n] = agent.Binding{Name: n, Command: "claude", Model: "model-" + n}
+		}
+		rs, pass := r.Execute(context.Background())
+		if rs[0].Result != c.want || pass != (c.want == Accept) || !strings.Contains(rs[0].Notes, "dead: error: dispatch failed") {
+			t.Errorf("%s %v: %v %+v", c.combine, c.panel, pass, rs[0])
+		}
+	}
+}
+
+// A judge's dispatch is logged under the run's logs dir, named for the
+// binding and item; with no logs dir none is asked for.
+func TestJudgeDispatchLogPath(t *testing.T) {
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"ok"}}}, map[string]workflow.Gate{"ok": {Skill: "judge", Agent: "y1"}})
+	rec := &logRecorder{Dispatcher: r.Dispatcher}
+	r.Dispatcher = rec
+	r.Execute(context.Background())
+	r.Logs = "/logs"
+	r.Execute(context.Background())
+	if len(rec.logs) != 2 || rec.logs[0] != "" || !strings.HasPrefix(rec.logs[1], "/logs/dispatch/dispatch-y1-") || !strings.HasSuffix(rec.logs[1], "-i1.log") {
+		t.Fatalf("logs %q", rec.logs)
+	}
+}
+
+type logRecorder struct {
+	agent.Dispatcher
+	logs []string
+}
+
+func (l *logRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	l.logs = append(l.logs, req.Log)
+	return l.Dispatcher.Dispatch(ctx, role, req)
+}

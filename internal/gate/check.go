@@ -21,19 +21,31 @@ const DefaultCheckTimeout = 10 * time.Minute
 const outputBound = 2048
 
 // CheckEnv is what a check script sees of its transition. Gate, Result,
-// Binding and Notes are set only for a gate's after check: the gate it follows
-// and that gate's verdict.
+// Binding, Notes and Members are set only for a gate's after check: the gate it
+// follows, that gate's verdict, and each judge's own answer (none for a check
+// gate or a carry).
 type CheckEnv struct {
 	Item, From, To, Base string
 	Gate, Result         string
 	Binding, Notes       string
+	Members              []CheckMember
+}
+
+// CheckMember is one judge's own verdict and notes, as an after check sees it.
+type CheckMember struct {
+	Binding string `json:"binding"`
+	Result  string `json:"result"`
+	Notes   string `json:"notes"`
 }
 
 // Payload is the JSON object a check reads on stdin.
 func (e CheckEnv) Payload() []byte {
-	m := map[string]string{"id": e.Item, "from": e.From, "to": e.To, "base": e.Base}
+	m := map[string]any{"id": e.Item, "from": e.From, "to": e.To, "base": e.Base}
 	if e.Gate != "" {
 		m["gate"], m["result"], m["binding"], m["notes"] = e.Gate, e.Result, e.Binding, e.Notes
+	}
+	if len(e.Members) > 0 {
+		m["members"] = e.Members
 	}
 	b, _ := json.Marshal(m)
 	return b

@@ -28,6 +28,28 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: `python3 -c 'print(1)'`, inline: []string{"/w"}},
 		{cmd: "python3 script.py"},
 		{cmd: "cat <<'EOF' | python3 -\nprint(1)\nEOF", inline: []string{"/w"}},
+		// chmod: the leading mode operand is a mode, not a path, in every form.
+		{cmd: "chmod +x /tmp/x.sh", paths: []string{"/tmp/x.sh"}},
+		{cmd: "chmod u+w f", paths: []string{"/w/f"}},
+		{cmd: "chmod a=r f g", paths: []string{"/w/f", "/w/g"}},
+		{cmd: "chmod 755 f", paths: []string{"/w/f"}},
+		{cmd: "chmod 0644 f", paths: []string{"/w/f"}},
+		{cmd: "chmod u=rwx,g=rx,o= f", paths: []string{"/w/f"}},
+		{cmd: "chmod -R go-w dir", paths: []string{"/w/dir"}},
+		{cmd: "chmod -w f", paths: []string{"/w/f"}},
+		{cmd: "chmod -t f", paths: []string{"/w/f"}},
+		{cmd: "chmod --reference=ref f", paths: []string{"/w/f"}},
+		{cmd: "chmod -- +x f", paths: []string{"/w/f"}},
+		{cmd: `chmod "+x" f`, paths: []string{"/w/f"}},
+		{cmd: "chmod +x"},
+		// chmod: every file operand stays a target, mode-shaped or not, once
+		// the mode slot has closed; a non-mode leading positional fails closed.
+		{cmd: "chmod notamode f", paths: []string{"/w/notamode", "/w/f"}},
+		{cmd: "chmod /tmp/scratch +x", paths: []string{"/tmp/scratch", "/w/+x"}},
+		{cmd: "chmod notamode 755", paths: []string{"/w/notamode", "/w/755"}},
+		{cmd: "chmod a=r f +x", paths: []string{"/w/f", "/w/+x"}},
+		{cmd: "chmod -w +x", paths: []string{"/w/+x"}},
+		{cmd: "chmod --reference=ref +x", paths: []string{"/w/+x"}},
 	} {
 		got := ScanBash(c.cmd, "/w", "", noFile)
 		if !slices.Equal(got.Paths, c.paths) || !slices.Equal(got.Inline, c.inline) {

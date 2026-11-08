@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func repoPRGates(t *testing.T) (review, approval workflow.Gate) {
 	}
 	for j := range 2 {
 		a, b := got[0][j], got[1][j]
-		if a.Skill != b.Skill || a.Agent != b.Agent || a.After != b.After || a.Carry != b.Carry || a.Trigger != b.Trigger ||
+		if a.Skill != b.Skill || a.Agent != b.Agent || !slices.Equal(a.After, b.After) || a.Carry != b.Carry || a.Trigger != b.Trigger ||
 			!slices.Equal(a.Panel, b.Panel) || !slices.Equal(a.Paths, b.Paths) || a.Combine != b.Combine {
 			t.Fatalf("delivery and chore define the gate differently: %+v vs %+v", a, b)
 		}
@@ -89,8 +90,12 @@ func gateTOML(t *testing.T, name string, g workflow.Gate) string {
 	if g.Carry {
 		b.WriteString("carry = true\n")
 	}
-	if g.After != "" {
-		fmt.Fprintf(&b, "after = %q\n", g.After)
+	if len(g.After) > 0 {
+		q := make([]string, len(g.After))
+		for i, a := range g.After {
+			q[i] = strconv.Quote(a)
+		}
+		fmt.Fprintf(&b, "after = [%s]\n", strings.Join(q, ", "))
 	}
 	return b.String()
 }
@@ -122,10 +127,11 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	srv.BindGitHub("acme", "orbelle/acme")
 
 	review, approval := repoPRGates(t)
-	if review.Skill != "satelle-code-ac-review" || review.Agent != "reviewer-alt" || review.After != "satelle-pr-review-publish" {
-		t.Fatalf("pr-review is %+v, want the code-ac judge on reviewer-alt with the publish after", review)
+	if review.Skill != "satelle-code-ac-review" || review.Agent != "reviewer-alt" ||
+		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"}) {
+		t.Fatalf("pr-review is %+v, want the code-ac judge on reviewer-alt with the reasons rules, then the publish after", review)
 	}
-	if approval.Skill != "satelle-pr-approval-check" || approval.Agent != "" || approval.After != "" {
+	if approval.Skill != "satelle-pr-approval-check" || approval.Agent != "" || len(approval.After) != 0 {
 		t.Fatalf("pr-approval is %+v", approval)
 	}
 	skills, err := filepath.Glob("../.satelle/skills/*.md")
@@ -526,7 +532,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 
 	// AC4: a PR titled without the item id is never published to.
 	untitled := p.item(20, false)
-	p.judge("accept", "fine")
+	p.judge("accept", "fine: AC1 holds, the publish check runs last in its after list")
 	if r := p.present(untitled); r.code != 2 || !strings.Contains(r.err, "no open pull request") {
 		t.Fatalf("untitled: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -537,10 +543,30 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("untitled item moved to %s", got)
 	}
 
+	// sto_b9f9d9c7: an accept with no reasons fails pr-review's notes rule. It
+	// is recorded as a reject keeping the judge's raw answer, and the publish
+	// check after the rule never runs: nothing is published, nothing reopens.
+	silent := p.item(19, true)
+	p.judge("accept", "")
+	if r := p.present(silent); r.code != 2 || !strings.Contains(r.err, "the judge gave no reasons") {
+		t.Fatalf("silent accept: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if n := p.published(); n != 0 {
+		t.Fatalf("a refused accept was published (%d reviews)", n)
+	}
+	if got := p.status(silent); got != "integration" {
+		t.Fatalf("silent accept left the item at %s", got)
+	}
+	if runs := p.gateRuns(silent); len(runs) != 1 || runs[0].Result != "reject" ||
+		!strings.Contains(runs[0].Notes, "after satelle-pr-review-publish: not run: after satelle-verdict-notes-check refused the verdict") ||
+		!strings.Contains(runs[0].Answer, `"verdict":"accept","notes":""`) {
+		t.Fatalf("silent accept gate runs %+v", runs)
+	}
+
 	// AC1: a judge accept is published as APPROVE on HEAD; the approval check
 	// then reads the app's approval and the item moves.
 	approved := p.item(21, true)
-	p.judge("accept", "every criterion is met")
+	p.judge("accept", "every criterion is met: AC1 to AC4 hold on the head of the pull request")
 	// GitHub reports the review the publish check published: the fake
 	// satelle.dev's first review id, which github.review records below.
 	p.serveReviewsAs("approved-on-head", 1)
@@ -602,7 +628,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	id := p.item(22, true)
 	created := len(p.ledger(id, ""))
 	p.serveReviews("none")
-	p.judge("reject", "AC2 is not met")
+	p.judge("reject", "AC2 is not met: a reject never reopens the item at in_progress")
 	r = p.present(id)
 	if r.code != 2 || !strings.Contains(r.err, "reopened at in_progress") {
 		t.Fatalf("reject: exit %d\n%s%s", r.code, r.out, r.err)
@@ -667,7 +693,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("repeat reject: status %s, %d reopenings", got, p.transitions(id, "integration", "in_progress"))
 	}
 	p.must("story", "set", id, "--status", "integration")
-	p.judge("reject", "AC3 is not met either")
+	p.judge("reject", "AC3 is not met either: the review body is never attached as pr-review")
 	if r := p.present(id); r.code != 2 {
 		t.Fatalf("new findings: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -689,7 +715,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	// app's CHANGES_REQUESTED stands: no approval is published over it, and
 	// the approval check reopens the item with the app's review.
 	p.must("story", "set", id, "--status", "integration")
-	p.judge("accept", "fine now")
+	p.judge("accept", "fine now: AC2 and AC3 hold, the item reopens with the review attached")
 	p.serveReviews("changes-requested")
 	r = p.present(id)
 	if r.code != 2 || !strings.Contains(r.err, "gate pr-approval") {
@@ -774,8 +800,8 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 		}
 	}
 	review, _ := repoPRGates(t)
-	if review.After != "satelle-pr-review-publish" {
-		t.Errorf("the publish check is reached as %q, not pr-review's after", review.After)
+	if len(review.After) == 0 || review.After[len(review.After)-1] != "satelle-pr-review-publish" {
+		t.Errorf("the publish check is reached as %v, not last in pr-review's after", review.After)
 	}
 	if block := idBlock(t, ".satelle/skills/release.md", "### Reviews on the heads", "sto_x"); strings.Contains(block, "satelle github") {
 		t.Error("the release review read calls satelle github")

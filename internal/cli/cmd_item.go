@@ -518,8 +518,9 @@ gates' bounds.`,
 	return cmd
 }
 
-// reportTransition prints a transition's gate results; a rejected move is an
-// ExitBlocked error naming every rejecting gate and its notes.
+// reportTransition prints a transition's gate results; a refused move is an
+// ExitBlocked error naming every rejecting gate, and every gate whose judge
+// could not be asked (result error), with its notes.
 func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) error {
 	if asJSON {
 		if err := writeJSON(w, res); err != nil {
@@ -543,15 +544,18 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 		return nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s did not move %s -> %s: rejected by", res.Item.ID, res.From, res.To)
-	for _, g := range res.Rejects() {
-		fmt.Fprintf(&b, "\n  gate %s", g.Gate)
-		if g.Binding != "" {
-			fmt.Fprintf(&b, " (%s)", g.Binding)
+	fmt.Fprintf(&b, "%s did not move %s -> %s:", res.Item.ID, res.From, res.To)
+	rejects, errs := res.Rejects(), res.Errors()
+	if len(rejects) > 0 || len(errs) == 0 {
+		b.WriteString(" rejected by")
+		writeRefusals(&b, rejects)
+	}
+	if len(errs) > 0 {
+		if len(rejects) > 0 {
+			b.WriteString("\n ")
 		}
-		if n := strings.TrimSpace(g.Notes); n != "" {
-			fmt.Fprintf(&b, ":\n    %s", strings.ReplaceAll(n, "\n", "\n    "))
-		}
+		b.WriteString(" could not judge (error)")
+		writeRefusals(&b, errs)
 	}
 	if h := res.Held; h != nil {
 		writeHold(&b, res.Item, *h)
@@ -943,4 +947,17 @@ func gateResults(k *kernel.Kernel, id string) ([]gate.Result, error) {
 		}
 	}
 	return out, nil
+}
+
+// writeRefusals lists refusing gates, each with its binding and notes.
+func writeRefusals(b *strings.Builder, gates []gate.Result) {
+	for _, g := range gates {
+		fmt.Fprintf(b, "\n  gate %s", g.Gate)
+		if g.Binding != "" {
+			fmt.Fprintf(b, " (%s)", g.Binding)
+		}
+		if n := strings.TrimSpace(g.Notes); n != "" {
+			fmt.Fprintf(b, ":\n    %s", strings.ReplaceAll(n, "\n", "\n    "))
+		}
+	}
 }

@@ -21,6 +21,7 @@ skill = "satelle-task-validate-before-review"
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 # A run that landed items (release.md step 4 attaches its kept list as
 # release-kept before the push) is refused done while any of them is not in a
@@ -41,14 +42,15 @@ skill = "satelle-release-kept-check"
 skill = "satelle-drift-constitution-review"
 agent = "reviewer"
 trigger = "satelle-drift-run-trigger"
-after = "satelle-drift-diff-covered"
 paths = ["cmd/**", "internal/**", "go.mod", "go.sum"]
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-diff-covered"]
 
 [gates.drift-claims]
 skill = "satelle-drift-claims-review"
 agent = "reviewer"
 trigger = "satelle-drift-run-trigger"
 paths = [".version"]
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [[transition]]
 from = ["backlog"]

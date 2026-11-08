@@ -31,6 +31,7 @@ func TestWireConstantsAreTheKernels(t *testing.T) {
 		mirror.EventTransitioned:    item.KindTransitioned,
 		mirror.EventAttachmentAdded: item.KindAttachmentAdd,
 		mirror.GateReject:           gate.Reject,
+		mirror.GateError:            gate.Error,
 		mirror.TransitionSep:        gate.TransitionKey("", ""),
 	} {
 		if got != want {

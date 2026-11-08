@@ -51,5 +51,5 @@ text while keeping every rule passes test 3 even if the file is still long.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": ""}
+{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>"}
 ```

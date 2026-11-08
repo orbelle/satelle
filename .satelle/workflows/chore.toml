@@ -30,6 +30,7 @@ terminal = true
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.format-vet]
 skill = "satelle-format-vet-check"
@@ -43,6 +44,7 @@ carry = true
 skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 # On a node of the docker-local remote integration, against the pushed head
 # (sto_da5c52e7); the timeout bounds the whole node run.
@@ -64,7 +66,7 @@ skill = "satelle-pr-ready-check"
 skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
-after = "satelle-pr-review-publish"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
@@ -94,10 +96,12 @@ skill = "satelle-release-installed-check"
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check"]
 
 [[transition]]
 from = ["backlog"]

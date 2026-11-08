@@ -238,6 +238,18 @@ func (r TransitionResult) Rejects() []gate.Result {
 	return out
 }
 
+// Errors returns the gates whose judge could not be asked (result error):
+// they refuse the move but are not a verdict.
+func (r TransitionResult) Errors() []gate.Result {
+	var out []gate.Result
+	for _, g := range r.Gates {
+		if g.Result == gate.Error {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
 // Transition presents the move of id to `to`: it finds the explicit
 // transition, runs its gates, records every gate result, and records the move
 // only when no gate rejected. A rejected move is a result, not an error. A
@@ -309,6 +321,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		Coverage:        func(paths []string) (string, string, error) { return k.coverage(it, events, sp, paths) },
 		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
 		Remote:          k.RemoteChecks,
+		Logs:            k.Logs,
 	}
 	if k.Git != nil {
 		run.Span = k.runSpan(events, sp)

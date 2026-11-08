@@ -1,4 +1,5 @@
-// Package logsread is the single reader for satelle runtime logs. Storage is
+// Package logsread is the single reader for satelle runtime logs, and the one
+// owner of where a per-dispatch log lives and how many are kept. Storage is
 // the home-keyed directory; .satelle/logs is only a pointer.
 package logsread
 
@@ -139,4 +140,29 @@ func LatestDispatchAtOrBefore(logsDir, story, agent string, at time.Time) (File,
 		}
 	}
 	return File{}, false, nil
+}
+
+// DispatchPath is where one dispatch's log is written: logsDir/dispatch under
+// the FormatDispatchName convention, the place ListDispatch reads.
+func DispatchPath(logsDir, agent, storyID string, nano int64) string {
+	return filepath.Join(logsDir, "dispatch", FormatDispatchName(agent, storyID, nano))
+}
+
+// PruneDispatch removes the oldest dispatch logs under logsDir beyond the
+// newest keep.
+func PruneDispatch(logsDir string, keep int) error {
+	files, err := ListDispatch(logsDir)
+	if err != nil {
+		return err
+	}
+	if keep < 0 {
+		keep = 0
+	}
+	var first error
+	for i := keep; i < len(files); i++ {
+		if err := os.Remove(files[i].Path); err != nil && first == nil && !os.IsNotExist(err) {
+			first = err
+		}
+	}
+	return first
 }

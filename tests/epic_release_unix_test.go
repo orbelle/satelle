@@ -50,7 +50,10 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 	}
 
 	s := newSandbox(t)
-	fakeClaude(t, s)
+	fake := fakeClaude(t, s)
+	// The epic's judges answer with reasons that name the record, as the
+	// epic gates' notes and reference rules require.
+	writeFile(t, filepath.Join(fake, "notes.ra-1"), "every child is closed: read attachments/ and the children of the epic", 0o644)
 	s.env["SATELLE_SESSION"] = "release-it"
 	origin := realDir(t, t.TempDir())
 	s.exec("git", "", "init", "-q", "--bare", origin)
@@ -87,6 +90,9 @@ kind = "task"
 	}
 	s.write(".satelle/workflows/epic.toml", repoFile(".satelle/workflows/epic.toml"))
 	s.write(".satelle/skills/satelle-children-closed-check.md", repoFile(".satelle/skills/satelle-children-closed-check.md"))
+	for _, name := range []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
+		s.write(".satelle/skills/"+name+".md", repoFile(".satelle/skills/"+name+".md"))
+	}
 	for _, name := range []string{"satelle-story-done-review", "satelle-story-blocked-review", "satelle-story-cancel-review"} {
 		s.write(".satelle/skills/"+name+".md", "---\nname: "+name+"\n---\nJudge it.\n")
 	}

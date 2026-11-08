@@ -193,6 +193,9 @@ const (
 	// GateReject is the gate.run result that refuses a transition
 	// (gate.Reject).
 	GateReject = "reject"
+	// GateError is the gate.run result of a judge that could not be asked: it
+	// refuses a transition too, but is not a verdict (gate.Error).
+	GateError = "error"
 	// TransitionSep joins from and to in a gate.run transition key
 	// (gate.TransitionKey).
 	TransitionSep = "->"

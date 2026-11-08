@@ -1,3 +1,11 @@
+## [1.0.33] - 2026-11-08
+
+### Changed
+- A gate's `after` may now list check skills run in order (`after = ["a", "b"]`; a single string such as `after = "x"` still loads, as a one-entry list): each check also sees every judge's own notes as `members`, the first that refuses turns the verdict into a reject and the rest do not run, and a refused judged verdict keeps the judge's raw answer on the gate.run (`answer`, or `members[].answer`); this repo's judged gates declare `satelle-verdict-notes-check` and, where they judge a plan or a change, `satelle-verdict-reference-check`, so an accept with no reasons is recorded as a reject saying "the judge gave no reasons" and is never published to the PR, while a gate that declares no rule records the verdict as given; a judge whose dispatch failed is now recorded as result `error`, not as its reject, still refusing the move but listed under "could not judge (error)", shown in the warning colour on the web, and not counted as a rejected round; and each judge dispatch is logged, the full pi RPC exchange included, under `satelle logs` (sto_b9f9d9c7)
+
+### Fixed
+- The edit gate no longer reads chmod's mode as a file: in `chmod +x <file>` (or `u+w`, `a=r`, `755`, `-w`, `--reference=<f>`) only the files are judged, so a scratch-file chmod from an unseated checkout is allowed and an in-repo one is refused naming the file, not `+x`; `chmod -t <file>` now judges the file instead of skipping it (sto_fbc2dcf1)
+
 ## [1.0.32] - 2026-11-08
 
 ### Added

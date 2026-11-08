@@ -66,5 +66,6 @@ spec.
 {"verdict": "accept", "notes": "behavior: holds — \"<the behavior, quoted>\"\nAC1: met — <evidence>"}
 ```
 
-For a parent, `notes` lists the unresolved children on reject (may be empty on
-accept).
+For a parent, `notes` lists the unresolved children on reject; an accept
+still says what it judged (the gate's notes and reference rules refuse one
+that does not).

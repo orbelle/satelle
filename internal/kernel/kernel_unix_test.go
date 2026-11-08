@@ -651,3 +651,68 @@ to = "@prior"
 		t.Fatalf("round 2: %v held=%+v status=%s", err, res.Held, res.Item.Status)
 	}
 }
+
+// A judge whose dispatch failed refuses the move as an error, recorded as
+// result error, and an error is not a rejected round: error-only attempts
+// never reach the round cap.
+func TestDispatchErrorRefusesButIsNotARound(t *testing.T) {
+	k, d := capped(t, capTwo)
+	d.mu.Lock()
+	delete(d.answers, "r1")
+	d.mu.Unlock()
+	ctx := context.Background()
+	it, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t")}, "me")
+	for i := range 3 {
+		res, err := k.Transition(ctx, it.ID, "z", "me")
+		if err != nil || res.Moved || res.Held != nil || res.Item.Status != "a" {
+			t.Fatalf("attempt %d: %v moved=%v held=%+v status=%s", i+1, err, res.Moved, res.Held, res.Item.Status)
+		}
+		if len(res.Rejects()) != 0 || len(res.Errors()) != 1 || res.Errors()[0].Gate != "scope" {
+			t.Fatalf("attempt %d: rejects %+v errors %+v", i+1, res.Rejects(), res.Errors())
+		}
+	}
+	ev, err := k.Ledger.Read(it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded []string
+	for _, e := range ev {
+		var r gate.Result
+		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
+			recorded = append(recorded, r.Gate+"="+r.Result)
+		}
+	}
+	if strings.Join(recorded, " ") != "scope=error scope=error scope=error" {
+		t.Fatalf("recorded %v", recorded)
+	}
+	if h, err := k.HoldOf(it.ID); err != nil || h != nil {
+		t.Fatalf("error-only attempts hold: %+v %v", h, err)
+	}
+	dr, err := k.Drive(ctx, it.ID, "me")
+	if err != nil || dr.Verdict != VerdictReject || !strings.Contains(dr.Notes, "scope: error: dispatch failed: no answer") {
+		t.Fatalf("drive: %v %+v", err, dr)
+	}
+}
+
+// A judge's dispatch is asked to log under the kernel's runtime logs dir,
+// the dir satelle logs reads.
+func TestJudgeDispatchLogsUnderRuntime(t *testing.T) {
+	k, d := capped(t, "")
+	if want := filepath.Join(k.Root, "runtime", "logs"); k.Logs != want {
+		t.Fatalf("Logs %q, want %q", k.Logs, want)
+	}
+	it, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t")}, "me")
+	if _, err := k.Transition(context.Background(), it.ID, "z", "me"); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.reqs) == 0 {
+		t.Fatal("no judge dispatched")
+	}
+	for _, r := range d.reqs {
+		if !strings.HasPrefix(r.Log, filepath.Join(k.Logs, "dispatch", "dispatch-"+r.Binding.Name+"-")) || !strings.HasSuffix(r.Log, "-"+it.ID+".log") {
+			t.Errorf("%s logs to %q", r.Binding.Name, r.Log)
+		}
+	}
+}

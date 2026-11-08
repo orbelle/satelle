@@ -20,7 +20,8 @@ import (
 // reads events until agent_settled, then asks for the last assistant text and
 // the session stats, and ends pi's process group. pi has no deny flag, so a
 // plain deny is taken out of --tools and a scoped deny on a shell grant is
-// refused.
+// refused. The dispatch log gets argv, every RPC line written ("> ") and read
+// ("< ") in order, then pi's stderr: the full exchange.
 type pi struct{}
 
 func (pi) Name() string         { return PresetPi }
@@ -130,6 +131,7 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	req.log.argv(argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = req.Dir
 	cmd.Env = append(os.Environ(), req.Env...)
@@ -155,6 +157,7 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 		for {
 			line, err := r.ReadBytes('\n')
 			if t := bytes.TrimSpace(line); len(t) > 0 {
+				req.log.line("< ", t)
 				lines <- t
 			}
 			if err != nil {
@@ -176,9 +179,11 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 			_ = procgroup.Kill(cmd)
 			<-done
 		}
+		req.log.output("stderr: ", stderr.Bytes())
 	}
 	send := func(v map[string]any) error {
 		b, _ := json.Marshal(v)
+		req.log.line("> ", b)
 		_, err := stdin.Write(append(b, '\n'))
 		return err
 	}

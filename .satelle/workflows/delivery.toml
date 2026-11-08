@@ -62,10 +62,12 @@ terminal = true
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
@@ -75,6 +77,7 @@ skill = "satelle-story-plan-review"
 panel = ["reviewer-alt", "reviewer-grok"]
 combine = "all"
 carry = true
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
@@ -91,11 +94,13 @@ carry = true
 skill = "satelle-instruction-change-review"
 agent = "reviewer-alt"
 trigger = "satelle-instruction-change-trigger"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
 agent = "reviewer-alt"
 trigger = "satelle-workflow-change-trigger"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.ac-evidence]
 skill = "satelle-ac-evidence-check"
@@ -104,6 +109,7 @@ skill = "satelle-ac-evidence-check"
 skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 # The full local suite, once, on the head that will be released (GitHub runs
 # no tests; operator, 2026-11-06). It runs on a node of the docker-local
@@ -131,7 +137,7 @@ skill = "satelle-pr-ready-check"
 skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
-after = "satelle-pr-review-publish"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
@@ -163,18 +169,22 @@ skill = "satelle-release-installed-check"
 [gates.outcome-review]
 skill = "satelle-outcome-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
 agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check"]
 
 # ---- transitions ----
 
