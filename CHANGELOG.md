@@ -1,3 +1,12 @@
+## [1.0.29] - 2026-11-08
+
+### Changed
+- The principles now describe what the released binary does: sync carries work state only and configuration lives in git, seats are real and the edit gate enforces them, queues are files with entries on the queue's own chain, telemetry is logged with `satelle ledger append`, and the binary is read-only on the user's repo, refs and remotes (git in a scratch repo it creates for one run does not count). (sto_3214e6dc)
+- A broken gate trigger fails closed: a trigger's exit 0 runs the gate and exit 1 skips it with the trigger's output as before, but any other exit (or a trigger killed by a signal) now runs the gate instead of skipping it, and the gate's notes start `trigger <skill> failed (exit <code>); the gate ran` with the trigger's output; `satelle help workflows` names the convention (sto_0f9e07bf)
+
+### Fixed
+- The instruction-change and workflow-change triggers read the story id and its `satelle story diff --json` paths, so their review gates run only when a story touches instruction or workflow files instead of failing on every story. (sto_093bcaf3)
+
 ## [1.0.28] - 2026-11-08
 
 ### Changed
