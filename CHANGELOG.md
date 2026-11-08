@@ -1,3 +1,12 @@
+## [1.0.31] - 2026-11-08
+
+### Changed
+- The binary-scope review applies the 2026-11-08 git ruling: it rejects Go that writes the user's repo, its refs or remotes, and accepts reads of it and git in a scratch repo the binary creates for one run (sto_d6c55304)
+
+### Fixed
+- The release, worktree cleanup and drift review procedures attach the run's parent task as `task` right after starting and seating the run, so the after-review that requires it can judge the run (sto_5a130f3a)
+- The workflow-change trigger guards the paths workflows are loaded from today (`.satelle/workflows/` and the init template), and both change triggers skip an item that is not a story with a line instead of exiting 2 (sto_26c5b3cd)
+
 ## [1.0.30] - 2026-11-08
 
 ### Fixed
