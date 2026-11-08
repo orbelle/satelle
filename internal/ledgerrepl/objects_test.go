@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -106,7 +107,7 @@ func chain(t *testing.T, s *ledger.Store, it string) []ledger.Event {
 }
 
 func repl(s *ledger.Store, o Objects, out *bytes.Buffer) *Replicator {
-	return &Replicator{Ledger: s, Objects: o, Refs: kernel.BlobRefs, Out: out}
+	return &Replicator{Ledger: s, Store: &ObjectStore{Objects: o, Name: "test"}, Refs: kernel.BlobRefs, Out: out}
 }
 
 // keysOf is the store's chain keys for item, as sequences.
@@ -156,4 +157,13 @@ func TestChainKey(t *testing.T) {
 	if !slices.Equal(upTo(3), []int{0, 1, 2}) {
 		t.Fatal("upTo")
 	}
+}
+
+func chainFile(t *testing.T, s *ledger.Store, it string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(s.Path(it))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

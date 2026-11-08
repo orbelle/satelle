@@ -16,7 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
-	"github.com/bobmcallan/satelle/internal/ledgersync"
+	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode"
@@ -46,20 +46,30 @@ first; 'remote status' pulls it back once the run concluded. See
 	return cmd
 }
 
+// bound is the bound project, dialled: its client, its id, and the
+// replicator that moves its chains through satelle-server. A remote's node
+// runs there, so the remote paths use it whatever [ledger] store names.
+type bound struct {
+	Client  *hosted.Client
+	Project string
+	Repl    *ledgerrepl.Replicator
+}
+
 // openBound opens the kernel and a client for the bound project.
-func openBound(fn func(cmd *cobra.Command, k *kernel.Kernel, s *ledgersync.Syncer, args []string) error) func(*cobra.Command, []string) error {
+func openBound(fn func(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		k, r, err := openKernel()
 		if err != nil {
 			return err
 		}
 		defer k.Close()
-		return withBound(k, r, func(s *ledgersync.Syncer) error { return fn(cmd, k, s, args) })
+		return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error { return fn(cmd, k, b, args) })
 	}
 }
 
-// withBound runs fn with a syncer for the bound project of the open kernel.
-func withBound(k *kernel.Kernel, r repo, fn func(s *ledgersync.Syncer) error) error {
+// withBound runs fn with the bound project of the open kernel; the
+// replicator's lines go to out.
+func withBound(k *kernel.Kernel, r repo, out io.Writer, fn func(b bound) error) error {
 	b, ok, err := loadBinding(r)
 	if err != nil {
 		return err
@@ -72,7 +82,7 @@ func withBound(k *kernel.Kernel, r repo, fn func(s *ledgersync.Syncer) error) er
 		return err
 	}
 	defer c.Close()
-	return fn(newSyncer(k, c, b.Project, r.Runtime))
+	return fn(bound{Client: c, Project: b.Project, Repl: newReplicator(k, devStore(k, c, b), out)})
 }
 
 // localRemote reads the remote's definition from this repo when it is a
@@ -131,7 +141,7 @@ func remoteFireCmd() *cobra.Command {
 			if steps != 0 {
 				return errors.New("--steps applies to a docker-local remote")
 			}
-			return withBound(k, r, func(s *ledgersync.Syncer) error { return fireOnServer(cmd, k, s, args) })
+			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error { return fireOnServer(cmd, k, b, args) })
 		},
 	}
 	cmd.Flags().IntVar(&steps, "steps", 0, "a docker-local node drives at most this many steps (default 0: as far as the item goes)")
@@ -139,21 +149,18 @@ func remoteFireCmd() *cobra.Command {
 }
 
 // fireOnServer pushes the item's chain and asks satelle-server to fire the run.
-func fireOnServer(cmd *cobra.Command, k *kernel.Kernel, s *ledgersync.Syncer, args []string) error {
+func fireOnServer(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) error {
 	if _, err := k.Get(args[1]); err != nil {
 		return err
 	}
-	res, err := s.Push(cmd.Context())
+	res, err := b.Repl.Push(cmd.Context(), args[1])
 	if err != nil {
 		return err
 	}
-	for _, c := range res.Conflicts {
-		if c.Item == args[1] {
-			reportConflicts(cmd.ErrOrStderr(), res.Conflicts)
-			return fmt.Errorf("%s diverged from the project; pull and resolve it before firing", args[1])
-		}
+	if res.Failed() {
+		return fmt.Errorf("%s diverged from the project; run satelle ledger pull %s and resolve it before firing", args[1], args[1])
 	}
-	r, err := s.Client.Remotes.FireRemote(cmd.Context(), &satellepb.FireRemoteRequest{RemoteId: args[0], Project: s.Project, ItemId: args[1]})
+	r, err := b.Client.Remotes.FireRemote(cmd.Context(), &satellepb.FireRemoteRequest{RemoteId: args[0], Project: b.Project, ItemId: args[1]})
 	if err != nil {
 		return hosted.Describe("RemoteService.FireRemote", err)
 	}
@@ -210,16 +217,19 @@ func remoteStatusCmd() *cobra.Command {
 				runs := localRuns(r)
 				return show(func(context.Context) (*satellepb.ItemRun, error) { return runs.Load(args[0], args[1]) }, nil)
 			}
-			return withBound(k, r, func(s *ledgersync.Syncer) error {
+			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error {
 				return show(func(ctx context.Context) (*satellepb.ItemRun, error) {
-					run, err := s.Client.Remotes.GetItemRun(ctx, &satellepb.GetItemRunRequest{RemoteId: args[0], ItemId: args[1]})
+					run, err := b.Client.Remotes.GetItemRun(ctx, &satellepb.GetItemRunRequest{RemoteId: args[0], ItemId: args[1]})
 					if err != nil {
 						return nil, hosted.Describe("RemoteService.GetItemRun", err)
 					}
 					return run, nil
 				}, func(ctx context.Context) (int, error) {
-					res, err := s.PullItem(ctx, args[1])
-					return res.Events, err
+					res, err := b.Repl.Pull(ctx, args[1])
+					if err != nil {
+						return res.Events, err
+					}
+					return res.Events, replicationFailure("pull", res)
 				})
 			})
 		},
@@ -408,5 +418,6 @@ func hostedPlacer(k *kernel.Kernel, r repo) (remotenode.Placer, func(), bool, er
 	if err != nil {
 		return remotenode.Placer{}, func() {}, false, err
 	}
-	return remotenode.Placer{Client: c, Project: b.Project, Sync: newSyncer(k, c, b.Project, r.Runtime)}, func() { c.Close() }, true, nil
+	repl := newReplicator(k, devStore(k, c, b), os.Stderr)
+	return remotenode.Placer{Client: c, Project: b.Project, Repl: repl}, func() { c.Close() }, true, nil
 }

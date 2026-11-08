@@ -9,7 +9,9 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/remotenode"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
+	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 const testToken = "tok-ada"
@@ -85,7 +87,10 @@ func TestWhoamiAndProjects(t *testing.T) {
 	}
 }
 
-func TestSyncRoundTripWithAttachments(t *testing.T) {
+// Signed in with no [ledger] store set, the store is satelle.dev: push,
+// status and pull carry items, their chains and attachment bodies between
+// two machines bound to one project.
+func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 
 	a := newMachine(t)
@@ -95,8 +100,8 @@ func TestSyncRoundTripWithAttachments(t *testing.T) {
 		t.Fatal(err)
 	}
 	must(t, "story", "attach", id, "--file", "plan.md")
-	out := must(t, "sync", "push")
-	if !strings.Contains(out, "on 1 item(s) and 1 attachment(s)") {
+	out := must(t, "ledger", "push")
+	if !strings.Contains(out, "ledger store: satelle.dev project ") || !strings.Contains(out, "1 blob(s) written on 1 item(s)") {
 		t.Errorf("push = %q", out)
 	}
 	if got := srv.Items("shared"); len(got) != 1 || got[0].GetId() != id || got[0].GetTitle() != "from a" {
@@ -105,93 +110,135 @@ func TestSyncRoundTripWithAttachments(t *testing.T) {
 	if atts := srv.Attachments(); len(atts) != 1 || string(atts[0].GetBody()) != "# the plan\n" {
 		t.Errorf("server attachments = %v", atts)
 	}
-	if out := must(t, "sync", "push"); !strings.Contains(out, "Pushed 0 event(s) on 0 item(s) and 0 attachment(s)") {
+	if out := must(t, "ledger", "push"); !strings.Contains(out, "push: 0 event(s) and 0 blob(s) written on 0 item(s)") {
 		t.Errorf("second push = %q, want nothing pushed", out)
 	}
 
 	b := newMachine(t)
 	must(t, "project", "bind", "shared", "--server", srv.URL)
-	out = must(t, "sync", "status")
-	if !strings.Contains(out, id) || !strings.Contains(out, "remote only") {
+	out = must(t, "ledger", "status")
+	if !strings.Contains(out, id) || !strings.Contains(out, "store only") {
 		t.Errorf("status before pull = %q", out)
 	}
-	out = must(t, "sync", "pull")
-	if !strings.Contains(out, "and 1 attachment(s)") {
+	out = must(t, "ledger", "pull")
+	if !strings.Contains(out, "on 1 item(s) and 1 blob(s)") {
 		t.Errorf("pull = %q", out)
 	}
 	var it item.Item
 	if err := json.Unmarshal([]byte(must(t, "story", "get", id, "--json")), &it); err != nil || it.Title != "from a" {
 		t.Fatalf("pulled item = %+v, %v", it, err)
 	}
-	var atts []item.Attachment
-	if err := json.Unmarshal([]byte(must(t, "story", "attachments", id, "--json")), &atts); err != nil || len(atts) != 1 {
-		t.Fatalf("pulled attachments = %v, %v", atts, err)
+	atts := attachments(t, id)
+	if len(atts) != 1 {
+		t.Fatalf("pulled attachments = %v", atts)
 	}
 	if body, err := runtimeLedger(t).GetBlob(atts[0].SHA256); err != nil || string(body) != "# the plan\n" {
 		t.Errorf("pulled body = %q, %v", body, err)
 	}
 	must(t, "ledger", "verify")
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "in sync") {
+		t.Errorf("status after pull = %q", out)
+	}
 
 	// B changes the item and pushes; A pulls the change.
 	must(t, "story", "set", id, "--title", "edited on b")
-	if out := must(t, "sync", "status"); !strings.Contains(out, "ahead") {
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "ahead") {
 		t.Errorf("status after a local edit = %q", out)
 	}
-	must(t, "sync", "push")
+	must(t, "ledger", "push")
 	a.use(t)
-	if out := must(t, "sync", "status"); !strings.Contains(out, "behind") {
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "behind") {
 		t.Errorf("status on a = %q, want behind", out)
 	}
-	must(t, "sync", "pull")
+	must(t, "ledger", "pull")
 	if err := json.Unmarshal([]byte(must(t, "story", "get", id, "--json")), &it); err != nil || it.Title != "edited on b" {
 		t.Fatalf("a after pull = %+v, %v", it, err)
 	}
-	if out := must(t, "sync", "status"); !strings.Contains(out, "in sync") {
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "in sync") {
 		t.Errorf("status after pull = %q", out)
+	}
+	var rows []struct{ Item, State string }
+	if err := json.Unmarshal([]byte(must(t, "ledger", "status", "--json")), &rows); err != nil || len(rows) != 1 || rows[0].State != "in sync" {
+		t.Errorf("status --json = %+v, %v", rows, err)
 	}
 	_ = b
 }
 
-func TestPushReportsAStaleHeadConflict(t *testing.T) {
+// A push over a moved head on satelle.dev is a divergence: push and pull
+// exit 1 naming the item, status says diverged, nothing is rewritten.
+func TestLedgerDevDivergence(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
 	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
 	id := createID(t, "story", "create", "--title", "base", "--criteria", "c")
-	must(t, "sync", "push")
+	must(t, "ledger", "push")
 
 	b := newMachine(t)
 	must(t, "project", "bind", "shared", "--server", srv.URL)
-	must(t, "sync", "pull")
+	must(t, "ledger", "pull")
 	must(t, "story", "set", id, "--title", "b's title")
-	must(t, "sync", "push")
+	must(t, "ledger", "push")
 
 	a.use(t)
 	must(t, "story", "set", id, "--title", "a's title")
-	out, err := run(t, "", "sync", "push")
-	if err == nil {
-		t.Fatalf("push over a moved head succeeded:\n%s", out)
+	out, err := run(t, "", "ledger", "push")
+	if ExitCodeOf(err) != 1 || !strings.Contains(out, "diverged: "+id+" at event 1: ") || !strings.Contains(err.Error(), id) {
+		t.Fatalf("push over a moved head: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "conflict: "+id) || !strings.Contains(out, "local ") || !strings.Contains(out, "remote ") ||
-		!strings.Contains(out, "item.updated") {
-		t.Errorf("push output = %q, want the diverged events of %s", out, id)
-	}
-	// Nothing was rewritten: the server keeps b's chain, a keeps its own.
 	if ev := srv.Events("shared", id); len(ev) != 2 {
 		t.Errorf("server chain has %d events, want b's 2", len(ev))
 	}
-	if out := must(t, "sync", "status"); !strings.Contains(out, "diverged") {
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "diverged at 1") {
 		t.Errorf("status = %q, want diverged", out)
 	}
-	if _, err := run(t, "", "sync", "pull"); err == nil {
-		t.Error("pull over a diverged chain succeeded")
+	for _, args := range [][]string{{"ledger", "pull"}, {"ledger", "pull", id}} {
+		out, err := run(t, "", args...)
+		if ExitCodeOf(err) != 1 || !strings.Contains(out, "diverged: "+id+" at event 1: ") || !strings.Contains(out, "nothing appended") {
+			t.Errorf("%v over a diverged chain: %v\n%s", args, err, out)
+		}
 	}
 	must(t, "ledger", "verify")
 	_ = b
 }
 
-func TestSyncNeedsABinding(t *testing.T) {
+// A pull of every item and of the one item, whose local chain is ahead of
+// the server's (a pure prefix of it), is no conflict: exit 0, nothing
+// imported.
+func TestLedgerDevPullOfAPurePrefix(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
-	if _, err := run(t, "", "sync", "push"); err == nil || !strings.Contains(err.Error(), "project bind") {
-		t.Errorf("unbound push = %v", err)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	id := createID(t, "story", "create", "--title", "base", "--criteria", "c")
+	must(t, "ledger", "push")
+	must(t, "story", "set", id, "--title", "ahead here")
+	for _, args := range [][]string{{"ledger", "pull"}, {"ledger", "pull", id}} {
+		out := must(t, args...)
+		if !strings.Contains(out, "pull: 0 event(s)") || strings.Contains(out, "diverged") {
+			t.Errorf("%v = %q", args, out)
+		}
+	}
+	if out := must(t, "ledger", "status"); !strings.Contains(out, "ahead") {
+		t.Errorf("status = %q", out)
+	}
+}
+
+// satelle remote status pulls only its run's item, through satelle-server.
+func TestRemoteStatusPullsOnlyItsItem(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	mine := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "the run's"})
+	other := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "another"})
+	srv.SetItemRun("ci", mine, &satellepb.ItemRun{State: remotenode.RunConcluded, Verdict: "accept"})
+	out := must(t, "remote", "status", "ci", mine)
+	if !strings.Contains(out, "pulled 1 event(s)") {
+		t.Errorf("remote status = %q", out)
+	}
+	l := runtimeLedger(t)
+	if got, _ := l.Read(mine); len(got) == 0 {
+		t.Error("the run's item was not pulled")
+	}
+	if got, _ := l.Read(other); len(got) != 0 {
+		t.Error("another item was pulled")
 	}
 }

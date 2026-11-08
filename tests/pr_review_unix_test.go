@@ -121,7 +121,7 @@ func newPRSandbox(t *testing.T) *prSandbox {
 			t.Fatalf("%s is required by the PR review skills and is not on PATH", tool)
 		}
 	}
-	srv := fakeserver.Start(t, syncToken)
+	srv := fakeserver.Start(t, devToken)
 	s := signedIn(t)
 	s.must("project", "create", "acme", "--bind", "--server", srv.URL)
 	srv.BindGitHub("acme", "orbelle/acme")

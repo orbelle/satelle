@@ -4,7 +4,7 @@
 //
 // Five field groups share one file (push, snapshot, substrate areas, the
 // substrate refresh attempt stamp, and story conflicts). Each writer re-loads and merges only its
-// own group (satelled and `satelle sync` are separate processes). A torn read
+// own group (satelled and the satelle CLI are separate processes). A torn read
 // is "no state", never a parse error that fails doctor.
 package syncstate
 
@@ -59,8 +59,8 @@ type State struct {
 	SubstrateAreas map[string]SubstrateArea `json:"substrate_areas,omitempty"`
 
 	// SubstrateCheckedAttempt is when a session start last started a detached
-	// `satelle sync status` to refresh SubstrateAreas. It only debounces that
-	// refresh; it says nothing about the areas' state.
+	// refresh of SubstrateAreas. It only debounces that refresh; it says
+	// nothing about the areas' state.
 	SubstrateCheckedAttempt time.Time `json:"substrate_checked_attempt,omitempty"`
 	// StoryConflicts are the stories a sync pass did not apply because the local
 	// and hosted copies differ in content (sty_6e5fc41c). A pass records the

@@ -7,13 +7,17 @@ import (
 )
 
 // BlobRef is a blob an event on a chain references: the event's 0-based
-// position, id and kind, the blob's sha256, and what the blob is.
+// position, id and kind, the blob's sha256, and what the blob is. Name and
+// MediaType are an attachment's name and media type, empty for a blob that
+// is not an attachment (a performer output).
 type BlobRef struct {
-	Seq    int
-	Event  string
-	Kind   string
-	SHA256 string
-	What   string
+	Seq       int
+	Event     string
+	Kind      string
+	SHA256    string
+	What      string
+	Name      string
+	MediaType string
 }
 
 // The reasons a referenced blob is a gap in this runtime.

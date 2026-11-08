@@ -1,4 +1,4 @@
-package ledgersync
+package ledgerrepl
 
 import (
 	"context"
@@ -8,11 +8,9 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/cache"
-	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
-	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
-	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 // rules is a stub Chooser: category bug goes to bugflow at triage, anything
@@ -31,29 +29,16 @@ func (r *rules) WorkflowFor(it item.Item) (string, string, error) {
 	return "default", "backlog", nil
 }
 
-type world struct {
-	srv     *fakeserver.Server
-	client  *hosted.Client
-	project string
+// home is one machine: its own ledger and cache, replicating to the world's
+// project.
+type home struct {
+	w      *world
+	Ledger *ledger.Store
+	cache  *cache.Cache
+	Choose Chooser
 }
 
-func newWorld(t *testing.T) *world {
-	t.Helper()
-	srv := fakeserver.Start(t, "tok")
-	c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok"}, hosted.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { c.Close() })
-	p, err := c.Projects.CreateProject(context.Background(), &satellepb.CreateProjectRequest{Slug: "acme"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &world{srv: srv, client: c, project: p.GetId()}
-}
-
-// home is one machine: its own ledger, cache and sync state.
-func (w *world) home(t *testing.T, choose Chooser) *Syncer {
+func (w *world) home(t *testing.T, choose Chooser) *home {
 	t.Helper()
 	dir := t.TempDir()
 	l, err := ledger.Open(filepath.Join(dir, "ledger"))
@@ -65,10 +50,22 @@ func (w *world) home(t *testing.T, choose Chooser) *Syncer {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	return &Syncer{Client: w.client, Project: w.project, Ledger: l, Cache: c, StatePath: filepath.Join(dir, "state.json"), Choose: choose}
+	return &home{w: w, Ledger: l, cache: c, Choose: choose}
 }
 
-func chainOf(t *testing.T, s *Syncer, id string) []ledger.Event {
+// Pull is one pull run, as the CLI makes it: a fresh store, the cache
+// refreshed, pulled items placed by the home's rules.
+func (h *home) Pull(ctx context.Context) (Result, error) {
+	d := h.w.dev()
+	d.Ledger, d.Cache = h.Ledger, h.cache
+	r := &Replicator{Ledger: h.Ledger, Store: d, Refs: kernel.BlobRefs, Cache: h.cache}
+	if h.Choose != nil {
+		r.Choose = h.Choose
+	}
+	return r.Pull(ctx)
+}
+
+func chainOf(t *testing.T, s *home, id string) []ledger.Event {
 	t.Helper()
 	evs, err := s.Ledger.Read(id)
 	if err != nil {
@@ -178,9 +175,8 @@ func TestRaceLoserImportsWinnersPlacement(t *testing.T) {
 	if err := ledger.VerifyChain(id, ae); err != nil {
 		t.Fatal(err)
 	}
-	st, err := a.LoadState()
-	if err != nil || st.Heads[id] != be[2].Hash {
-		t.Fatalf("a's saved head %q, want b's tail %q (%v)", st.Heads[id], be[2].Hash, err)
+	if got := w.serverHashes(id); strings.Join(got, ",") != hashes(be) {
+		t.Fatalf("the server holds %v, want b's chain", got)
 	}
 }
 

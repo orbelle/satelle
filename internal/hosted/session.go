@@ -126,3 +126,12 @@ func (s EnvStore) Delete(serverURL string) error {
 	}
 	return s.File.Delete(serverURL)
 }
+
+// SignedIn reports whether this machine holds a credential for server:
+// SATELLE_TOKEN, else a stored login (satelle login). It reads only local
+// state and makes no network call; an unreadable credentials file is not
+// signed in.
+func SignedIn(server string) bool {
+	c, err := DefaultStore().Load(server)
+	return err == nil && c.AccessToken != ""
+}

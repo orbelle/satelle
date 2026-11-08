@@ -4,7 +4,6 @@ package ledgerrepl
 
 import (
 	"bytes"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,15 +20,6 @@ func pull(t *testing.T, s *ledger.Store, o Objects) (Result, string) {
 		t.Fatalf("pull: %v\n%s", err, out.String())
 	}
 	return res, out.String()
-}
-
-func chainFile(t *testing.T, s *ledger.Store, it string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(s.Path(it))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
 }
 
 // refusesFork pulls into b and checks the fork is named at seq and b's chain

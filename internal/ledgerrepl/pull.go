@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -22,77 +21,113 @@ type refusal struct{ line string }
 
 func (e *refusal) Error() string { return e.line }
 
-// Pull brings the store's chains into this runtime. For each item it finds
-// the prefix both chains share, comparing at the last sequence both hold
-// whatever their lengths: a fork is refused naming the item and fork point
-// and nothing is appended; a store chain that is the local chain or a prefix
-// of it needs nothing; a longer one has its new events fetched in order,
-// verified with the local chain, then appended. Then every blob a local chain
-// references and this runtime lacks is fetched and checked against its sha256
-// before it is stored; one the store lacks, or holds with other bytes, is a
-// gap. A store error ends the pull and is returned.
-func (r *Replicator) Pull(ctx context.Context) (Result, error) {
-	var res Result
-	lengths, holes, err := r.storeChains(ctx)
+// Pull brings the store's chains into this runtime: every chain with no
+// items, else only the named ones (one the store lacks is refused). For each
+// item it finds the prefix both chains share, comparing at the last sequence
+// both hold whatever their lengths: a fork is refused naming the item and
+// fork point and nothing is appended; a store chain that is the local chain
+// or a prefix of it needs nothing and is no conflict; a longer one has its
+// new events fetched in order, verified with the local chain, then appended.
+// An item that arrived without a workflow is placed when Choose is set. Then
+// every blob a pulled chain references and this runtime lacks is fetched and
+// checked against its sha256 before it is stored; one the store lacks, or
+// holds with other bytes, is a gap. The cache, when set, is refreshed even
+// after an error. A store error ends the pull and is returned.
+func (r *Replicator) Pull(ctx context.Context, items ...string) (Result, error) {
+	res, err := r.pull(ctx, items)
+	if r.Cache != nil {
+		if serr := r.Cache.Sync(r.Ledger); err == nil {
+			err = serr
+		}
+	}
 	if err != nil {
 		return res, err
 	}
-	items := make([]string, 0, len(lengths))
-	for item := range lengths {
-		items = append(items, item)
+	if s, ok := r.Store.(Summaries); ok {
+		err = s.PutSummaries(ctx, res.Placed)
 	}
-	sort.Strings(items)
-	for _, item := range items {
-		if seq, ok := holes[item]; ok {
-			r.refuse(&res, holeLine(item, seq))
+	return res, err
+}
+
+func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
+	var res Result
+	if len(items) == 0 {
+		items = nil // every chain
+	}
+	lst, err := r.Store.Chains(ctx, items)
+	if err != nil {
+		return res, err
+	}
+	for _, line := range lst.Skipped {
+		r.printf("%s\n", line)
+	}
+	ids := items
+	if len(items) == 0 {
+		ids = make([]string, 0, len(lst.Chains))
+		for item := range lst.Chains {
+			ids = append(ids, item)
+		}
+		sort.Strings(ids)
+	}
+	for _, item := range ids {
+		c, ok := lst.Chains[item]
+		if !ok {
+			r.refuse(&res, fmt.Sprintf("the store holds no chain %s", item))
 			continue
 		}
-		err := r.pullItem(ctx, &res, item, lengths[item])
-		var ref *refusal
-		if errors.As(err, &ref) {
-			r.refuse(&res, ref.line)
+		if c.Hole >= 0 {
+			r.refuse(&res, holeLine(item, c.Hole))
 			continue
 		}
+		pulled, err := r.pullOne(ctx, &res, item, c)
 		if err != nil {
 			return res, err
 		}
+		if pulled && r.Choose != nil {
+			if err := r.place(ctx, &res, item); err != nil {
+				return res, err
+			}
+		}
 	}
-	return res, r.fillBlobs(ctx, &res)
+	scope := items
+	if len(items) == 0 {
+		if scope, err = r.Ledger.Items(); err != nil {
+			return res, err
+		}
+	}
+	return res, r.fillBlobs(ctx, &res, scope)
 }
 
-// storeEvent gets and decodes the store's event at seq of item.
-func (r *Replicator) storeEvent(ctx context.Context, item string, seq int) (ledger.Event, error) {
-	key := ChainKey(item, seq)
-	body, found, err := r.Objects.Get(ctx, key)
-	if err != nil {
-		return ledger.Event{}, err
+// pullOne pulls one item, printing a refusal; ok is false when the item was
+// refused or diverged.
+func (r *Replicator) pullOne(ctx context.Context, res *Result, item string, c Chain) (ok bool, err error) {
+	diverged := len(res.Diverged)
+	err = r.pullItem(ctx, res, item, c)
+	var ref *refusal
+	if errors.As(err, &ref) {
+		r.refuse(res, ref.line)
+		return false, nil
 	}
-	if !found {
-		return ledger.Event{}, &refusal{fmt.Sprintf("the store listed %s but has no such key; %s left untouched", key, item)}
-	}
-	var e ledger.Event
-	if err := json.Unmarshal(body, &e); err != nil {
-		return e, &refusal{fmt.Sprintf("%s event %d from the store is not an event (%v); nothing appended", item, seq, err)}
-	}
-	if e.Item != item {
-		return e, &refusal{fmt.Sprintf("%s event %d from the store names item %q; nothing appended", item, seq, e.Item)}
-	}
-	return e, nil
+	return err == nil && len(res.Diverged) == diverged, err
 }
 
-func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, n int) error {
+func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c Chain) error {
 	local, err := r.Ledger.Read(item)
 	if err != nil {
 		return err
 	}
+	n := c.Len
+	if proven(local, c) && n <= len(local) {
+		return nil // the store holds this chain or a prefix of it
+	}
 	seen := map[int]string{}
 	hashAt := func(seq int) (string, error) {
-		e, err := r.storeEvent(ctx, item, seq)
+		h, err := r.Store.HashAt(ctx, item, seq)
 		if err != nil {
 			return "", err
 		}
-		seen[seq] = e.Hash
-		return e.Hash, nil
+		seen[seq] = h
+		return h, nil
 	}
 	s, err := ledger.SharedPrefix(local, n, hashAt)
 	if err != nil {
@@ -105,11 +140,14 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, n i
 	if n <= len(local) {
 		return nil // the store holds this chain or a prefix of it
 	}
+	fetched, err := r.Store.Events(ctx, item, len(local), n)
+	if err != nil {
+		return err
+	}
 	chain := append([]ledger.Event(nil), local...)
-	for seq := len(local); seq < n; seq++ {
-		e, err := r.storeEvent(ctx, item, seq)
-		if err != nil {
-			return err
+	for i, e := range fetched {
+		if e.Item != item {
+			return &refusal{fmt.Sprintf("%s event %d from the store names item %q; nothing appended", item, len(local)+i, e.Item)}
 		}
 		chain = append(chain, e)
 	}
@@ -124,21 +162,18 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, n i
 	res.Events += added
 	if added > 0 {
 		res.Items++
+		res.Written = append(res.Written, item)
 	}
 	return err
 }
 
-// fillBlobs fetches each blob a local chain references and this runtime does
-// not hold, checking its sha256 before storing it.
-func (r *Replicator) fillBlobs(ctx context.Context, res *Result) error {
+// fillBlobs fetches each blob a chain of items references and this runtime
+// does not hold, checking its sha256 before storing it.
+func (r *Replicator) fillBlobs(ctx context.Context, res *Result, items []string) error {
 	if r.Refs == nil {
 		return nil
 	}
-	items, err := r.Ledger.Items()
-	if err != nil {
-		return err
-	}
-	unfilled := map[string]string{} // sha -> why the store could not fill it
+	unfilled := map[string]string{} // item, name and sha -> why the store could not fill it
 	for _, item := range items {
 		events, err := r.Ledger.Read(item)
 		if err != nil {
@@ -154,12 +189,18 @@ func (r *Replicator) fillBlobs(ctx context.Context, res *Result) error {
 				continue
 			}
 			sha := g.Ref.SHA256
-			why, tried := unfilled[sha]
+			key := item + "\x00" + g.Ref.Name + "\x00" + sha
+			why, tried := unfilled[key]
 			if !tried {
-				if why, err = r.fetchBlob(ctx, sha); err != nil {
+				// An earlier fill (another event or item) may have stored it.
+				if _, err := r.Ledger.GetBlob(sha); err == nil {
+					r.printf("filled: %s event %d blob %s\n", item, g.Ref.Seq, sha)
+					continue
+				}
+				if why, err = r.fetchBlob(ctx, item, g.Ref); err != nil {
 					return err
 				}
-				unfilled[sha] = why
+				unfilled[key] = why
 			}
 			if why != "" {
 				g.Why = why
@@ -175,10 +216,11 @@ func (r *Replicator) fillBlobs(ctx context.Context, res *Result) error {
 	return nil
 }
 
-// fetchBlob gets sha from the store and stores it when its body hashes to
-// sha. It returns why it did not, or "" when the blob is now held.
-func (r *Replicator) fetchBlob(ctx context.Context, sha string) (string, error) {
-	body, found, err := r.Objects.Get(ctx, BlobKey(sha))
+// fetchBlob gets ref's blob from the store and stores it when its body
+// hashes to its sha256. It returns why it did not, or "" when the blob is now
+// held.
+func (r *Replicator) fetchBlob(ctx context.Context, item string, ref ledger.BlobRef) (string, error) {
+	body, found, err := r.Store.GetBlob(ctx, item, ref)
 	if err != nil {
 		return "", err
 	}
@@ -186,7 +228,7 @@ func (r *Replicator) fetchBlob(ctx context.Context, sha string) (string, error) 
 		return whyNotInStore, nil
 	}
 	sum := sha256.Sum256(body)
-	if got := hex.EncodeToString(sum[:]); got != sha {
+	if got := hex.EncodeToString(sum[:]); got != ref.SHA256 {
 		return fmt.Sprintf("the store's body hashes to %s; not stored", got), nil
 	}
 	if _, err := r.Ledger.PutBlob(body); err != nil {

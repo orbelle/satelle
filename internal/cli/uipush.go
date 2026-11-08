@@ -19,7 +19,7 @@ import (
 )
 
 // written records the items a command wrote to the ledger, so the command's
-// end can tell satelled (flushUI). Every kernel mutation and a sync pull
+// end can tell satelled (flushUI). Every kernel mutation and a ledger pull
 // write through the ledger, so watching it covers them all.
 var written struct {
 	sync.Mutex

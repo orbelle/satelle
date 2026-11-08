@@ -1,8 +1,10 @@
-// Package ledgerrepl replicates a runtime's ledger through a ledger store's
-// adapter operations: push writes every chain, one object per event, and the
-// blobs the chains reference; pull brings them back verified. A chain that
-// diverged from the store's is refused at its fork, never merged. A blob that
-// is missing on either side is a gap: named, never fatal.
+// Package ledgerrepl replicates a runtime's ledger to and from a ledger
+// store, by the same rules whatever the store: push appends each chain past
+// what the store holds, with the blobs the chains reference; pull brings them
+// back verified. A chain that diverged from the store's is refused at its
+// fork, never merged. A blob that is missing on either side is a gap: named,
+// never fatal. The store is a Store: an external store command's adapter
+// operations (ObjectStore) or satelle.dev (Dev).
 package ledgerrepl
 
 import (
@@ -10,9 +12,9 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"sort"
-	"strconv"
 
+	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
@@ -24,15 +26,29 @@ type Objects interface {
 	List(ctx context.Context, prefix, after string) ([]string, error)
 }
 
-// Replicator carries the chains and blobs of Ledger to and from Objects. Refs
+// Replicator carries the chains and blobs of Ledger to and from Store. Refs
 // lists the blobs a chain references; Out receives one line per divergence,
-// gap, fill and skipped key.
+// refusal, gap, fill and skipped entry. Cache, when set, is refreshed after
+// every pull. Choose, when set, places an item a pull brought in without a
+// workflow by this repo's rules.
 type Replicator struct {
-	Ledger  *ledger.Store
-	Objects Objects
-	Refs    func([]ledger.Event) []ledger.BlobRef
-	Out     io.Writer
+	Ledger *ledger.Store
+	Store  Store
+	Refs   func([]ledger.Event) []ledger.BlobRef
+	Out    io.Writer
+	Cache  *cache.Cache
+	Choose Chooser
 }
+
+// Chooser picks the workflow an item belongs in and its start state (the
+// kernel's rules: the item's own, else the first matching rule, else the
+// default).
+type Chooser interface {
+	WorkflowFor(it item.Item) (workflow, start string, err error)
+}
+
+// Actor records the events satelle itself appends (placing a pulled item).
+const Actor = "satelle"
 
 // The store's key prefixes.
 const (
@@ -64,10 +80,16 @@ type Divergence struct {
 type Result struct {
 	Events   int // events written to the store (push) or appended here (pull)
 	Blobs    int // blobs written to the store (push) or filled here (pull)
-	Items    int // items an event was written to
+	Items    int // items an event (or, on push, a blob) was written to: len(Written)
 	Gaps     []ledger.Gap
 	Diverged []Divergence
 	Refused  []string // items left untouched for another reason, one line each
+	// Written is the items counted in Items, in order.
+	Written []string
+	// Placed are items a pull brought in without a workflow and placed by
+	// this repo's rules; Unplaced could not be (local events unpushed, or
+	// the store kept moving).
+	Placed, Unplaced []string
 }
 
 // Failed reports whether an item diverged or was refused. Gaps never fail.
@@ -112,38 +134,6 @@ func short(h string) string {
 		return "(no event hash)"
 	}
 	return h
-}
-
-// storeChains lists the store's chains in one call: each item's length, and
-// the first missing sequence of an item whose sequences are not 0..n-1. A key
-// under chains/ that is not an event key is named and skipped.
-func (r *Replicator) storeChains(ctx context.Context) (lengths, holes map[string]int, err error) {
-	keys, err := r.Objects.List(ctx, ChainsPrefix, "")
-	if err != nil {
-		return nil, nil, err
-	}
-	seqs := map[string][]int{}
-	for _, k := range keys {
-		m := chainKeyPattern.FindStringSubmatch(k)
-		if m == nil || !ledger.ValidItem(m[1]) {
-			r.printf("store key %s is not a chain event key; skipped\n", k)
-			continue
-		}
-		n, _ := strconv.Atoi(m[2])
-		seqs[m[1]] = append(seqs[m[1]], n)
-	}
-	lengths, holes = map[string]int{}, map[string]int{}
-	for item, s := range seqs {
-		sort.Ints(s)
-		for i, n := range s {
-			if n != i {
-				holes[item] = i
-				break
-			}
-		}
-		lengths[item] = len(s)
-	}
-	return lengths, holes, nil
 }
 
 func holeLine(item string, seq int) string {

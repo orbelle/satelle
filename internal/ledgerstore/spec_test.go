@@ -56,3 +56,19 @@ func TestSpecRefusals(t *testing.T) {
 		}
 	}
 }
+
+func TestResolve(t *testing.T) {
+	if got := Resolve(Spec{}, true); got.Kind != KindSatelleDev || got.External() {
+		t.Errorf("unset, signed in: %+v, want satelle.dev", got)
+	}
+	if got := Resolve(Spec{}, false); got.Kind != KindLocal || got.External() {
+		t.Errorf("unset, signed out: %+v, want local", got)
+	}
+	for _, s := range []Spec{{Kind: KindSatelleDev}, {Kind: KindLocal}, {Command: "satelle-store-azure"}, {Command: "sh", Args: []string{"a"}}} {
+		for _, in := range []bool{true, false} {
+			if got := Resolve(s, in); got.Kind != s.Kind || got.Command != s.Command || !slices.Equal(got.Args, s.Args) {
+				t.Errorf("Resolve(%+v, %v) = %+v, want it unchanged", s, in, got)
+			}
+		}
+	}
+}

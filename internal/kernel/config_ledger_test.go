@@ -55,6 +55,9 @@ func TestLedgerStoreRefusals(t *testing.T) {
 		`store = { command = "x", bucket = "b" }`: "unknown key bucket",
 		`store = { command = "" }`:                "command is required",
 		`other = 1`:                               "unknown key ledger.other",
+		`store = 3`:                               "[ledger] store",
+		`store = ["x"]`:                           "[ledger] store",
+		`store = "azure"`:                         "[ledger] store",
 	} {
 		if _, err := loadLedger(t, extra); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", extra, err, want)

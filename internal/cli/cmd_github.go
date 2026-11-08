@@ -11,7 +11,6 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
-	"github.com/bobmcallan/satelle/internal/ledgersync"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
@@ -41,7 +40,7 @@ COMMENT) and the body are passed through unchanged; satelle.dev answers with
 the review's id and url. A project with no GitHub binding is refused by the
 server (FAILED_PRECONDITION).`,
 		Args: cobra.NoArgs,
-		RunE: openBound(func(cmd *cobra.Command, _ *kernel.Kernel, s *ledgersync.Syncer, _ []string) error {
+		RunE: openBound(func(cmd *cobra.Command, _ *kernel.Kernel, s bound, _ []string) error {
 			if pr <= 0 {
 				return errors.New("--pr is required")
 			}

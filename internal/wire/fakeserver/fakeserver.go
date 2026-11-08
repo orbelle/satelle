@@ -56,6 +56,7 @@ type Server struct {
 	streams  map[*relayStream]bool
 	gh       map[string]*github // project id → GitHub binding
 	nextID   int
+	grpc     *grpc.Server
 }
 
 // Call is one RPC the fake received.
@@ -98,11 +99,15 @@ func Start(t testing.TB, tokens ...string) *Server {
 	satellepb.RegisterRelayServiceServer(g, relay{s: s})
 	satellepb.RegisterGitHubServiceServer(g, githubSvc{s: s})
 	chainpb.RegisterChainServer(g, chain{s: s})
+	s.grpc = g
 	go func() { _ = g.Serve(ln) }()
 	t.Cleanup(g.Stop)
 	s.URL = "http://" + ln.Addr().String()
 	return s
 }
+
+// Stop stops serving: every later call fails as unreachable.
+func (s *Server) Stop() { s.grpc.Stop() }
 
 // AllowToken makes tok an accepted bearer.
 func (s *Server) AllowToken(tok string) {

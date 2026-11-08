@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -25,9 +26,13 @@ func ledgerCmd() *cobra.Command {
 		Short: "Read, append to, verify and rebuild the ledger",
 		Long: `The ledger is satelle's history of record: one append-only, hash-chained
 JSONL file per item under the runtime directory. The sqlite cache is rebuilt
-from it.`,
+from it.
+
+push, pull and status are the one replication surface: they replicate the
+ledger to and from the [ledger] store (satelle.dev, a store command, or local),
+by the same rules for every store. See 'satelle help ledger-store'.`,
 	}
-	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd())
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd())
 	return cmd
 }
 
@@ -112,84 +117,127 @@ func replicationFailure(verb string, res ledgerrepl.Result) error {
 
 func ledgerPushCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "push",
-		Short: "Write every chain and the blobs it references to the ledger store",
-		Long: `Write every item's chain to the external store command configured as
-[ledger] store, one object per event at chains/<item>/<seq>.json by
-put-if-absent, and each blob a chain references (attachment bodies and
-performer outputs) at blobs/<sha256> before the event that references it.
+		Use:   "push [<item>...]",
+		Short: "Append each chain, and the blobs it references, to the ledger store",
+		Long: `Append every item's chain (or only the named items') to the [ledger] store,
+past what the store holds, and each blob a chain references (attachment bodies
+and performer outputs) before the event that references it. The store is
+satelle.dev, a store command, or local (see 'satelle help ledger-store'); with
+no [ledger] store set it is satelle.dev while signed in and local otherwise.
+With the local store push says so and makes no store or network call.
 
 An event already in the store with the same hash is already there; a different
 hash at a sequence is a divergence: that item's push stops there, naming the
 item and sequence, other items continue, and push exits 1. A blob neither this
 runtime nor the store holds is a gap: named, never fatal. A store error ends
-the push with its cause and exit 1; a rerun is safe. See 'satelle help
-ledger-store'.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			k, _, err := openKernel()
-			if err != nil {
-				return err
-			}
-			defer k.Close()
-			c, err := storeCommand(k, "push")
-			if err != nil {
-				return err
-			}
+the push with its cause and exit 1; a rerun is safe.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			r := ledgerrepl.Replicator{Ledger: k.Ledger, Objects: c, Refs: kernel.BlobRefs, Out: out}
-			res, err := r.Push(cmd.Context())
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(out, "push: %d event(s) and %d blob(s) written on %d item(s); %d blob gap(s)\n",
-				res.Events, res.Blobs, res.Items, len(res.Gaps))
-			return replicationFailure("push", res)
+			return withStore(out, out, "push", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
+				res, err := r.Push(cmd.Context(), args...)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "push: %d event(s) and %d blob(s) written on %d item(s); %d blob gap(s)\n",
+					res.Events, res.Blobs, res.Items, len(res.Gaps))
+				return replicationFailure("push", res)
+			})
 		},
 	}
 }
 
 func ledgerPullCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "pull",
+		Use:   "pull [<item>...]",
 		Short: "Bring the ledger store's chains and blobs into this runtime, verified",
-		Long: `Read every chain the external store command configured as [ledger] store
-holds and append the events this runtime lacks, after verifying them against
-the hash chain. Before appending, the store's event at the last sequence both
-chains hold is compared, whatever their lengths: a chain that diverged is
-refused, naming the item and fork point, nothing is appended to it, and pull
-exits 1. A store chain that is a prefix of the local one is not a conflict;
-the next push writes the rest.
+		Long: `Read every chain the [ledger] store holds (or only the named items') and
+append the events this runtime lacks, after verifying them against the hash
+chain. Before appending, the store's event at the last sequence both chains
+hold is compared, whatever their lengths: a chain that diverged is refused,
+naming the item and fork point, nothing is appended to it, and pull exits 1. A
+store chain that is a prefix of the local one is not a conflict: pull imports
+nothing and the next push writes the rest. A named item the store does not
+hold is refused. An item that arrives without a workflow is placed by this
+repo's rules. With the local store pull says so and makes no store or network
+call.
 
 Then each blob a chain references and this runtime lacks is fetched and
 checked against its sha256 before it is stored. One the store lacks, or holds
 with other bytes, is a gap: named, never fatal. See 'satelle help
 ledger-store'.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			k, _, err := openKernel()
-			if err != nil {
-				return err
-			}
-			defer k.Close()
-			c, err := storeCommand(k, "pull")
-			if err != nil {
-				return err
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			r := ledgerrepl.Replicator{Ledger: k.Ledger, Objects: c, Refs: kernel.BlobRefs, Out: out}
-			res, err := r.Pull(cmd.Context())
-			if serr := k.Cache.Sync(k.Ledger); err == nil {
-				err = serr
-			}
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(out, "pull: %d event(s) on %d item(s) and %d blob(s); %d blob gap(s)\n",
-				res.Events, res.Items, res.Blobs, len(res.Gaps))
-			return replicationFailure("pull", res)
+			return withStore(out, out, "pull", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
+				res, err := r.Pull(cmd.Context(), args...)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "pull: %d event(s) on %d item(s) and %d blob(s); %d blob gap(s)\n",
+					res.Events, res.Items, res.Blobs, len(res.Gaps))
+				if len(res.Placed) > 0 {
+					fmt.Fprintf(out, "Placed %d item(s) by this repo's rules.\n", len(res.Placed))
+				}
+				if len(res.Unplaced) > 0 {
+					fmt.Fprintf(out, "%d item(s) arrived without a workflow and were not placed (local events unpushed or the store kept moving): %s; push, then pull again\n",
+						len(res.Unplaced), strings.Join(res.Unplaced, ", "))
+				}
+				return replicationFailure("pull", res)
+			})
 		},
 	}
+}
+
+func ledgerStatusCmd() *cobra.Command {
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Compare each item's chain with the ledger store's",
+		Long: `Compare every local chain and every chain the [ledger] store holds, by the
+rules push and pull use, and print one row per item: in sync, ahead (push
+appends), behind (pull appends), diverged at <seq>, local only or store only.
+It writes nothing and exits 0. With the local store it says so and makes no
+store or network call.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out, header := cmd.OutOrStdout(), cmd.OutOrStdout()
+			if *asJSON {
+				// stdout stays JSON: the local line goes to stderr and the
+				// store is not named.
+				out, header = cmd.ErrOrStderr(), nil
+			}
+			return withStore(out, header, "status", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
+				rows, err := r.Status(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if *asJSON {
+					if rows == nil {
+						rows = []ledgerrepl.ItemStatus{}
+					}
+					return writeJSON(cmd.OutOrStdout(), rows)
+				}
+				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+				fmt.Fprintln(tw, "ITEM\tLOCAL\tSTORE\tSTATE")
+				for _, row := range rows {
+					fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n", row.Item, row.Local, row.Store, row.State)
+				}
+				return tw.Flush()
+			})
+		},
+	}
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+// short is a hash cut to 12 characters, "-" for none.
+func short(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	if h == "" {
+		return "-"
+	}
+	return h
 }
 
 func ledgerAppendCmd() *cobra.Command {

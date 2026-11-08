@@ -44,12 +44,12 @@ func TestBlobRefs(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("refs %+v, want the run output and the attachment", refs)
 	}
-	for i, want := range []struct{ kind, sha, what string }{
-		{KindPerformerRun, pr.Output, "performer output (work)"},
-		{"attachment.added", atts[0].SHA256, "attachment plan"},
+	for i, want := range []struct{ kind, sha, what, name, media string }{
+		{KindPerformerRun, pr.Output, "performer output (work)", "", ""},
+		{"attachment.added", atts[0].SHA256, "attachment plan", "plan", atts[0].MediaType},
 	} {
 		r := refs[i]
-		if r.Kind != want.kind || r.SHA256 != want.sha || r.What != want.what {
+		if r.Kind != want.kind || r.SHA256 != want.sha || r.What != want.what || r.Name != want.name || r.MediaType != want.media {
 			t.Errorf("ref %d = %+v, want %s %s %q", i, r, want.kind, want.sha, want.what)
 		}
 		if e := events[r.Seq]; e.Kind != want.kind || e.ID != r.Event {
@@ -86,7 +86,7 @@ func TestPushKeys(t *testing.T) {
 	}
 	c := ledgerstore.Command{Path: "sh", Args: []string{stub}, Dir: work}
 	var out bytes.Buffer
-	r := ledgerrepl.Replicator{Ledger: k.Ledger, Objects: c, Refs: BlobRefs, Out: &out}
+	r := ledgerrepl.Replicator{Ledger: k.Ledger, Store: &ledgerrepl.ObjectStore{Objects: c}, Refs: BlobRefs, Out: &out}
 	ctx := context.Background()
 	res, err := r.Push(ctx)
 	if err != nil || res.Failed() || len(res.Gaps) != 0 {

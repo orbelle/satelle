@@ -14,13 +14,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-const syncToken = "tok-integration"
+const devToken = "tok-integration"
 
 // signedIn is a sandbox initialised and signed in to the fake server.
 func signedIn(t *testing.T) *sandbox {
 	t.Helper()
 	s := newSandbox(t)
-	s.env["SATELLE_TOKEN"] = syncToken
+	s.env["SATELLE_TOKEN"] = devToken
 	s.must("init")
 	return s
 }
@@ -40,12 +40,13 @@ func (s *sandbox) hashes() map[string][]string {
 	return out
 }
 
-// Two machines share a project on the fake server: what one pushes the other
-// pulls, items, ledger and attachments alike; a push over a moved head is
-// reported as a conflict and rewrites nothing.
-func TestSyncBetweenTwoMachines(t *testing.T) {
+// Two machines share a project on the fake server, the store signed in with
+// no [ledger] store set: what one pushes the other pulls, items, ledger and
+// attachments alike; a push over a moved head is a divergence that exits 1
+// and rewrites nothing.
+func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 	t.Parallel()
-	srv := fakeserver.Start(t, syncToken)
+	srv := fakeserver.Start(t, devToken)
 
 	a := signedIn(t)
 	a.must("project", "create", "shared", "--bind", "--server", srv.URL)
@@ -54,16 +55,16 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 	a.must("story", "set", s2.ID, "--status", "done")
 	a.write("plan.md", "# the plan\n")
 	a.must("story", "attach", s1.ID, "--file", "plan.md")
-	if out := a.must("sync", "push"); !strings.Contains(out, "on 2 item(s) and 1 attachment(s)") {
+	if out := a.must("ledger", "push"); !strings.Contains(out, "1 blob(s) written on 2 item(s)") {
 		t.Errorf("push: %s", out)
 	}
 
 	b := signedIn(t)
 	b.must("project", "bind", "shared", "--server", srv.URL)
-	if out := b.must("sync", "status"); !strings.Contains(out, "remote only") {
+	if out := b.must("ledger", "status"); !strings.Contains(out, "store only") {
 		t.Errorf("status before pull: %s", out)
 	}
-	if out := b.must("sync", "pull"); !strings.Contains(out, "1 attachment(s)") {
+	if out := b.must("ledger", "pull"); !strings.Contains(out, "and 1 blob(s)") {
 		t.Errorf("pull: %s", out)
 	}
 
@@ -88,22 +89,25 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 		t.Errorf("pulled attachment = %q", out)
 	}
 	b.must("ledger", "verify")
-	if out := b.must("sync", "status"); !strings.Contains(out, "in sync") {
+	if out := b.must("ledger", "status"); !strings.Contains(out, "in sync") {
 		t.Errorf("status after pull: %s", out)
 	}
 
-	// b moves the head; a's edit of the same item now conflicts.
+	// b moves the head; a's edit of the same item now diverges.
 	b.must("story", "set", s1.ID, "--title", "b's title")
-	b.must("sync", "push")
+	b.must("ledger", "push")
 	a.must("story", "set", s1.ID, "--title", "a's title")
-	r := a.run("sync", "push")
-	if r.code == 0 {
-		t.Fatalf("a push over a moved head succeeded:\n%s", r.out)
+	r := a.run("ledger", "push")
+	if r.code != 1 {
+		t.Fatalf("a push over a moved head exited %d:\n%s", r.code, r.out)
 	}
-	if all := r.out + r.err; !strings.Contains(all, "conflict: "+s1.ID) || !strings.Contains(all, "item.updated") {
-		t.Errorf("conflict report:\n%s", all)
+	if all := r.out + r.err; !strings.Contains(all, "diverged: "+s1.ID+" at event ") || !strings.Contains(all, "not pushed past it") {
+		t.Errorf("divergence report:\n%s", all)
 	}
-	if out := a.must("sync", "status"); !strings.Contains(out, "diverged") {
+	if r := a.run("ledger", "pull", s1.ID); r.code != 1 || !strings.Contains(r.out+r.err, "nothing appended") {
+		t.Errorf("a pull of the diverged item exited %d:\n%s%s", r.code, r.out, r.err)
+	}
+	if out := a.must("ledger", "status"); !strings.Contains(out, "diverged at") {
 		t.Errorf("status after the conflict: %s", out)
 	}
 	if got := len(srv.Events("shared", s1.ID)); got != len(hb[s1.ID])+1 {
@@ -114,9 +118,9 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 
 // Every version of every attachment survives a push and a pull, each body
 // identical by sha256 and readable by its sha on the other machine.
-func TestSyncCarriesEveryAttachmentVersion(t *testing.T) {
+func TestLedgerDevCarriesEveryAttachmentVersion(t *testing.T) {
 	t.Parallel()
-	srv := fakeserver.Start(t, syncToken)
+	srv := fakeserver.Start(t, devToken)
 	a := signedIn(t)
 	a.must("project", "create", "versions", "--bind", "--server", srv.URL)
 	s := a.create("story", "--title", "versioned")
@@ -129,11 +133,11 @@ func TestSyncCarriesEveryAttachmentVersion(t *testing.T) {
 			t.Fatalf("attach %s: %s%s", x.name, r.out, r.err)
 		}
 	}
-	a.must("sync", "push")
+	a.must("ledger", "push")
 
 	b := signedIn(t)
 	b.must("project", "bind", "versions", "--server", srv.URL)
-	b.must("sync", "pull")
+	b.must("ledger", "pull")
 
 	var atts []item.Attachment
 	a.mustJSON(&atts, "story", "attachments", s.ID)
@@ -168,9 +172,9 @@ func TestSyncCarriesEveryAttachmentVersion(t *testing.T) {
 // An item created server-side with no workflow (as satelle-server's MCP
 // does) arrives placed by each repo's own rules, can be driven, and a second
 // machine adds nothing; foreign ids are kept as they are.
-func TestSyncPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
+func TestLedgerDevPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 	t.Parallel()
-	srv := fakeserver.Start(t, syncToken)
+	srv := fakeserver.Start(t, devToken)
 	config := func(s *sandbox) {
 		s.write(".satelle/workflows/bugflow.toml", "[states.triage]\nstart = true\n[states.done]\nterminal = true\n[[transition]]\nfrom = [\"triage\"]\nto = \"done\"\n")
 		s.write(".satelle/satelle.toml", "[workflows]\ndefault = \"default\"\n[[workflows.rule]]\nworkflow = \"bugflow\"\ncategory = \"bug\"\n[items]\nprefix = { story = \"sty\" }\n")
@@ -183,7 +187,7 @@ func TestSyncPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 	id := srv.SeedItem("shared", map[string]any{"kind": "story", "title": "from the server", "body": "b",
 		"criteria": []string{"one", "two"}, "tags": []string{"x"}, "parent": parent, "category": "bug", "assignee": "usr_1"})
 
-	if out := a.must("sync", "pull"); !strings.Contains(out, "Placed 2 item(s)") {
+	if out := a.must("ledger", "pull"); !strings.Contains(out, "Placed 2 item(s)") {
 		t.Fatalf("pull: %s", out)
 	}
 	got := a.get(id)
@@ -234,13 +238,13 @@ func TestSyncPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 	if a.get(id).Status != "done" {
 		t.Fatal("the placed item could not be driven")
 	}
-	a.must("sync", "push")
+	a.must("ledger", "push")
 	a.must("ledger", "verify")
 
 	b := signedIn(t)
 	config(b)
 	b.must("project", "bind", "shared", "--server", srv.URL)
-	if out := b.must("sync", "pull"); strings.Contains(out, "Placed") {
+	if out := b.must("ledger", "pull"); strings.Contains(out, "Placed") {
 		t.Fatalf("b placed again: %s", out)
 	}
 	if strings.Join(b.hashes()[id], ",") != strings.Join(a.hashes()[id], ",") {

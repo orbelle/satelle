@@ -83,3 +83,19 @@ func (s *Spec) UnmarshalTOML(v any) error {
 	return fmt.Errorf("[ledger] store: %v is neither a built-in store name (%q, %q) nor a command table { command = \"...\", args = [\"...\"] }",
 		v, KindSatelleDev, KindLocal)
 }
+
+// Resolve is the store a repo replicates to: s when [ledger] store is set;
+// unset, satelle.dev while signed in and local otherwise. It names no vendor:
+// any other store is the operator's command.
+func Resolve(s Spec, signedIn bool) Spec {
+	if s.Set() {
+		return s
+	}
+	if signedIn {
+		return Spec{Kind: KindSatelleDev}
+	}
+	return Spec{Kind: KindLocal}
+}
+
+// Set reports whether [ledger] store names a store.
+func (s Spec) Set() bool { return s.Kind != "" || s.External() }

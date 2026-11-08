@@ -186,30 +186,3 @@ func TestLedgerPushAndPullKeepTheirExitWithABlobGap(t *testing.T) {
 		t.Errorf("verify after a pull with a gap: %v", err)
 	}
 }
-
-func TestLedgerPushAndPullRefuseWithoutAnExternalCommand(t *testing.T) {
-	for _, verb := range []string{"push", "pull"} {
-		for name, body := range map[string]string{"no [ledger] store": "", "local": `store = "local"`} {
-			t.Run(verb+"/"+name, func(t *testing.T) {
-				dir := isolate(t)
-				must(t, "init")
-				if body != "" {
-					configureLedger(t, dir, body)
-				}
-				shim := t.TempDir()
-				log := filepath.Join(shim, "log")
-				if err := os.WriteFile(filepath.Join(shim, "sh"), []byte("#!/bin/sh\necho \"$@\" >> '"+log+"'\nexec /bin/sh \"$@\"\n"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				t.Setenv("PATH", shim+string(os.PathListSeparator)+os.Getenv("PATH"))
-				out, err := run(t, "", "ledger", verb)
-				if err == nil || ExitCodeOf(err) != 1 || !strings.Contains(err.Error(), "satelle ledger "+verb+": ") || !strings.Contains(err.Error(), "only an external store command") {
-					t.Fatalf("err %v\n%s", err, out)
-				}
-				if _, err := os.Stat(log); !os.IsNotExist(err) {
-					t.Errorf("a command ran (%v)", err)
-				}
-			})
-		}
-	}
-}

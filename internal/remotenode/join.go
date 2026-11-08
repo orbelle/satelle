@@ -14,7 +14,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/kernel"
-	"github.com/bobmcallan/satelle/internal/ledgersync"
+	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotechan"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -363,8 +363,8 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	if j.run.ItemID == "" || j.run.Project == "" {
 		return Outcome{}, fmt.Errorf("the %s run names no item or project", j.run.Mode)
 	}
-	sync := j.syncer(k)
-	if _, err := sync.PullItem(ctx, j.run.ItemID); err != nil {
+	repl := j.replicator(k)
+	if err := pullRun(ctx, repl, j.run.ItemID); err != nil {
 		return Outcome{}, err
 	}
 	target := j.run.ItemID
@@ -378,24 +378,37 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	}
 	j.say("driving %s", target)
 	res, derr := k.Drive(ctx, target, actor)
-	pushed, perr := sync.Push(ctx)
+	pushed, perr := repl.Push(ctx)
 	if derr != nil {
 		return Outcome{}, derr
 	}
 	if perr != nil {
 		return Outcome{}, fmt.Errorf("push the ledger: %w", perr)
 	}
-	if len(pushed.Conflicts) > 0 {
-		return Outcome{}, fmt.Errorf("push the ledger: %d items diverged from the server", len(pushed.Conflicts))
+	if pushed.Failed() {
+		return Outcome{}, fmt.Errorf("push the ledger: %d item(s) diverged from the server", len(pushed.Diverged)+len(pushed.Refused))
 	}
 	j.say("%s at %s: %s", target, res.Item.Status, res.Notes)
 	return Outcome{Verdict: res.Verdict, Notes: j.redacted(fmt.Sprintf("%s: %s", target, res.Notes))}, nil
 }
 
-// syncer is the node's syncer for its run's project.
-func (j *joiner) syncer(k *kernel.Kernel) *ledgersync.Syncer {
-	return &ledgersync.Syncer{Client: j.nc.Hosted(), Project: j.run.Project, Ledger: k.Ledger, Cache: k.Cache, Choose: k,
-		StatePath: filepath.Join(j.o.Dir, "runtime", "sync-state.json")}
+// replicator moves the node's chains through satelle-server for its run's
+// project, by the rules every store uses.
+func (j *joiner) replicator(k *kernel.Kernel) *ledgerrepl.Replicator {
+	store := &ledgerrepl.Dev{Client: j.nc.Hosted(), Project: j.run.Project, Server: j.o.Server, Ledger: k.Ledger, Cache: k.Cache}
+	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: store, Refs: kernel.BlobRefs, Out: j.o.Log, Cache: k.Cache, Choose: k}
+}
+
+// pullRun pulls the run's item; a diverged or refused chain is an error.
+func pullRun(ctx context.Context, repl *ledgerrepl.Replicator, itemID string) error {
+	res, err := repl.Pull(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	if res.Failed() {
+		return fmt.Errorf("pull %s: %d diverged, %d refused: %s", itemID, len(res.Diverged), len(res.Refused), strings.Join(append(res.DivergedItems(), res.Refused...), "; "))
+	}
+	return nil
 }
 
 // perform serves a performer node: pull the run's item, publish the channel
@@ -404,7 +417,7 @@ func (j *joiner) syncer(k *kernel.Kernel) *ledgersync.Syncer {
 // node's own ledger.
 func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree string, report Report) (Outcome, error) {
 	if j.run.ItemID != "" && j.run.Project != "" {
-		if _, err := j.syncer(k).PullItem(ctx, j.run.ItemID); err != nil {
+		if err := pullRun(ctx, j.replicator(k), j.run.ItemID); err != nil {
 			return Outcome{}, err
 		}
 	}

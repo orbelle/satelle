@@ -16,7 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
-	"github.com/bobmcallan/satelle/internal/ledgersync"
+	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -144,8 +144,26 @@ func newLocalRepo(t *testing.T) *localRepo {
 	return &localRepo{srv: srv, client: c, project: p.GetId(), k: k}
 }
 
-func (l *localRepo) syncer(t *testing.T) *ledgersync.Syncer {
-	return &ledgersync.Syncer{Client: l.client, Project: l.project, Ledger: l.k.Ledger, Cache: l.k.Cache, StatePath: filepath.Join(t.TempDir(), "state.json")}
+// repl is the local repo's replicator through the fake, as the CLI builds
+// it for a bound project.
+func (l *localRepo) repl() *ledgerrepl.Replicator {
+	d := &ledgerrepl.Dev{Client: l.client, Project: l.project, Server: l.srv.URL, Ledger: l.k.Ledger, Cache: l.k.Cache}
+	return &ledgerrepl.Replicator{Ledger: l.k.Ledger, Store: d, Refs: kernel.BlobRefs, Cache: l.k.Cache, Choose: l.k}
+}
+
+// nodeItems is the items whose chains a node's ledger under dir holds.
+func nodeItems(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	if err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && filepath.Base(filepath.Dir(p)) == "ledger" && strings.HasSuffix(p, ".jsonl") {
+			out = append(out, strings.TrimSuffix(filepath.Base(p), ".jsonl"))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func nodeBundle(t *testing.T) []byte {
@@ -182,7 +200,7 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	if _, err := l.k.Attach(it.ID, "plan", []byte(plan), "text/markdown", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.syncer(t).Push(context.Background()); err != nil {
+	if _, err := l.repl().Push(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	l.srv.AddNode(&fakeserver.Node{ID: "nod_9", Token: "node-tok", Bundle: nodeBundle(t), Version: "v3",
@@ -249,7 +267,7 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 		t.Fatal("the node did not end")
 	}
 	// The pushed chain carries the drive: the local repo pulls it.
-	if _, err := l.syncer(t).Pull(context.Background()); err != nil {
+	if _, err := l.repl().Pull(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	back, err := l.k.Get(it.ID)
@@ -276,7 +294,7 @@ func TestJoinRunsATask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.syncer(t).Push(context.Background()); err != nil {
+	if _, err := l.repl().Push(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	l.srv.AddNode(&fakeserver.Node{ID: "nod_t", Token: "node-tok", Bundle: nodeBundle(t), Version: "v1",
@@ -325,6 +343,7 @@ type startingPlacer struct {
 	bundle []byte
 	d      agent.Dispatcher
 	done   chan error
+	dir    string // the node's directory
 }
 
 func (p *startingPlacer) StartNode(ctx context.Context, remote, itemID, binding string) (string, error) {
@@ -334,8 +353,9 @@ func (p *startingPlacer) StartNode(ctx context.Context, remote, itemID, binding 
 	}
 	p.srv.SetNodeDefinition(node, p.bundle, "v1")
 	tok := p.srv.NodeToken(node)
+	p.dir = p.t.TempDir()
 	go func() {
-		_, err := Join(context.Background(), JoinOptions{Server: p.srv.URL, NodeID: node, Token: tok, Dir: p.t.TempDir(), Dispatcher: p.d})
+		_, err := Join(context.Background(), JoinOptions{Server: p.srv.URL, NodeID: node, Token: tok, Dir: p.dir, Dispatcher: p.d})
 		p.done <- err
 	}()
 	return node, nil
@@ -357,12 +377,16 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	if _, err := l.k.Attach(it.ID, "plan", []byte(plan), "text/markdown", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	other, err := l.k.Create(item.Fields{Kind: ptr("story"), Title: ptr("stays here")}, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := &answers{text: map[string]string{"doer": "done remotely"}}
 	files := map[string]string{"remote.toml": performerDefinition}
 	for p, b := range lineConfig {
 		files[p] = b
 	}
-	p := &startingPlacer{Placer: Placer{Client: l.client, Project: l.project, Sync: l.syncer(t)}, t: t, srv: l.srv, bundle: bundleOf(t, files), d: d, done: make(chan error, 1)}
+	p := &startingPlacer{Placer: Placer{Client: l.client, Project: l.project, Repl: l.repl()}, t: t, srv: l.srv, bundle: bundleOf(t, files), d: d, done: make(chan error, 1)}
 	l.k.Remote = p
 	res, err := l.k.Perform(context.Background(), it.ID, "ada")
 	if err != nil {
@@ -398,6 +422,15 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	if d.seen["perform:doer"] != plan {
 		t.Errorf("the node's performer read %d bytes of the plan from its record, want %d", len(d.seen["perform:doer"]), len(plan))
 	}
+	// The placement pushed only its item; the performer node pulled only
+	// its run's item.
+	if len(l.srv.Events(l.project, it.ID)) == 0 || len(l.srv.Events(l.project, other.ID)) != 0 {
+		t.Errorf("the server holds %d event(s) of the placed item and %d of the other, want some and none",
+			len(l.srv.Events(l.project, it.ID)), len(l.srv.Events(l.project, other.ID)))
+	}
+	if got := nodeItems(t, p.dir); strings.Join(got, ",") != it.ID {
+		t.Errorf("the performer node's ledger holds %v, want only %s", got, it.ID)
+	}
 	for _, f := range d.folders {
 		if _, err := os.Stat(f); !os.IsNotExist(err) {
 			t.Errorf("record folder %s was left behind", f)
@@ -405,11 +438,11 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	}
 }
 
-// A placement with no ledger to push refuses to start a node.
-func TestPlacementWithoutSyncRefuses(t *testing.T) {
+// A placement with no replicator to push the item refuses to start a node.
+func TestPlacementWithoutAReplicatorRefuses(t *testing.T) {
 	_, err := Placer{Client: &hosted.Client{}, Project: "prj"}.StartNode(context.Background(), "ci", "sto_1", "doer")
 	if err == nil || !strings.Contains(err.Error(), "pushes the item first") {
-		t.Fatalf("StartNode without Sync = %v", err)
+		t.Fatalf("StartNode without Repl = %v", err)
 	}
 }
 

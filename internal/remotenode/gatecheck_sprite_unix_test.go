@@ -331,7 +331,7 @@ func TestServerSpritesRunsTheCheckOnAJoinedNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			p := &spritePlacer{Placer: Placer{Client: l.client, Project: l.project, Sync: l.syncer(t), ReadyTimeout: 30 * time.Second},
+			p := &spritePlacer{Placer: Placer{Client: l.client, Project: l.project, Repl: l.repl(), ReadyTimeout: 30 * time.Second},
 				t: t, srv: l.srv, bundle: c.bundle, agentOnly: c.agentOnly, done: make(chan error, 1)}
 			closed := false
 			g := GateChecker{Tree: f.tree, DataDir: f.dataDir, Sprites: ServerSprites{Placer: func(context.Context) (NodePlacer, func(), error) {

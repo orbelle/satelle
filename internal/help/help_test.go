@@ -109,3 +109,22 @@ func TestLedgerStoreContractDocumented(t *testing.T) {
 		t.Error("the configuration topic does not document [ledger]")
 	}
 }
+
+// The ledger-store topic says how the store is chosen and that push, pull and
+// status are the one replication surface for every store (sto_9b98696a).
+func TestLedgerStoreChoiceDocumented(t *testing.T) {
+	top, _ := Get("ledger-store")
+	for _, want := range []string{
+		"## Choosing the store", `store = "satelle.dev"`, `store = "local"`,
+		"is `satelle.dev` while signed in", "`local` otherwise",
+		"## Push, pull and status", "satelle ledger status", "performer-output-<event id>",
+		"No hook, gate, story or ledger read",
+	} {
+		if !strings.Contains(top.Body, want) {
+			t.Errorf("the ledger-store topic lacks %q", want)
+		}
+	}
+	if strings.Contains(top.Body, "satelle sync") {
+		t.Error("the ledger-store topic names the removed satelle sync")
+	}
+}

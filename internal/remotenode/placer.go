@@ -8,7 +8,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/hosted"
-	"github.com/bobmcallan/satelle/internal/ledgersync"
+	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/remotechan"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -29,9 +29,10 @@ type Placer struct {
 	// DefaultReadyTimeout.
 	ReadyTimeout time.Duration
 	ChanOpts     []remotechan.Option
-	// Sync pushes the item before its node starts, so the node pulls the
-	// item and its attachments and builds the record from its own ledger.
-	Sync *ledgersync.Syncer
+	// Repl pushes the item before its node starts, through satelle-server,
+	// so the node pulls the item and its attachments and builds the record
+	// from its own ledger.
+	Repl *ledgerrepl.Replicator
 }
 
 // StartNode pushes the item, then asks for a node of remote to perform
@@ -40,11 +41,15 @@ func (p Placer) StartNode(ctx context.Context, remote, itemID, binding string) (
 	if p.Client == nil || p.Project == "" {
 		return "", errors.New("a remote placement needs a bound project (satelle project bind)")
 	}
-	if p.Sync == nil {
+	if p.Repl == nil {
 		return "", errors.New("a remote placement pushes the item first; no ledger to push")
 	}
-	if _, err := p.Sync.PushItem(ctx, itemID); err != nil {
+	res, err := p.Repl.Push(ctx, itemID)
+	if err != nil {
 		return "", fmt.Errorf("pushing %s before its node starts: %w", itemID, err)
+	}
+	if res.Failed() {
+		return "", fmt.Errorf("pushing %s before its node starts: %s diverged from the server; run satelle ledger pull %s", itemID, itemID, itemID)
 	}
 	r, err := p.Client.Remotes.StartNode(ctx, &satellepb.StartNodeRequest{RemoteId: remote, Project: p.Project, ItemId: itemID, Binding: binding})
 	if err != nil {

@@ -1,17 +1,40 @@
 # Ledger store adapters
 
-A ledger store is where satelle replicates a ledger off the machine. Any
-store that is not built in is an external command that implements the adapter
-contract below; satelle links no vendor storage SDK. Configure it in
-`satelle.toml`:
+A ledger store is where a repo's ledger replicates off the machine.
+`satelle ledger push`, `satelle ledger pull` and `satelle ledger status` are
+the one replication surface, with the same rules for every store.
+
+## Choosing the store
+
+Configure it in `satelle.toml`:
 
     [ledger]
+    store = "satelle.dev"     # satelle.dev, built in
+    store = "local"           # no replication
     store = { command = "satelle-store-azure", args = ["--account", "...", "--container", "..."] }
 
-A command path holding a `/` that is not absolute is relative to the working
-tree; a bare name is looked up on `PATH`. `store = "satelle.dev"` and
-`store = "local"` name satelle's built-in stores and implement no adapter
-operations.
+- `"satelle.dev"` replicates to the project this repo is bound to
+  (`satelle project bind`), through satelle-server's Chain and Attachment
+  services. It needs a sign-in (`satelle login`) and a binding; unbound,
+  push, pull and status exit 1 naming both ways out.
+- `"local"` replicates nothing: push, pull and status say
+  `ledger store is local` and make no store or network call.
+- A table names an external command that implements the adapter contract
+  below; satelle links no vendor storage SDK. A command path holding a `/`
+  that is not absolute is relative to the working tree; a bare name is looked
+  up on `PATH`. `args` is optional: an adapter can take its settings from its
+  own environment instead.
+
+With no `[ledger] store` set, the store is `satelle.dev` while signed in
+(`SATELLE_TOKEN`, or a stored `satelle login`) and `local` otherwise. Any
+other value is refused when the configuration loads, naming `[ledger] store`.
+
+The local runtime stays the working copy: only push, pull and status read
+`[ledger] store` or contact the store. No hook, gate, story or ledger read
+waits on it, so they work with the store unreachable. A remote placement
+(`remote:<id>`), a remote node and `satelle remote status` move their run's
+chains through satelle-server whatever the store is, because the node runs
+there, by the same replicator and rules.
 
 ## The adapter contract (what an external store command implements)
 
@@ -74,7 +97,7 @@ exits 1 naming the failed checks otherwise. The checks, in order:
 The first two run before anything is written, so a store that has never been
 written is exercised too. With no external store command configured (no
 `[ledger] store`, or a built-in store named), `store-test` makes no store call
-and exits 1.
+and exits 1: only a store command implements the adapter operations.
 
 The reference adapter `adapters/satelle-store-fs` in satelle's repository is a
 POSIX sh implementation over a directory:
@@ -82,17 +105,48 @@ POSIX sh implementation over a directory:
     [ledger]
     store = { command = "/path/to/satelle-store-fs", args = ["--root", "/path/to/dir"] }
 
-## Replication: push and pull
+## Push, pull and status
 
-    satelle ledger push
-    satelle ledger pull
+    satelle ledger push [<item>...]
+    satelle ledger pull [<item>...]
+    satelle ledger status [--json]
 
-carry a runtime's ledger through the configured store command, so an
-ephemeral container's ledger survives it: push before it exits, pull into the
-next fresh runtime. Both refuse to run, and make no store call, without an
-external store command.
+replicate every item's chain, or only the named items', to and from the store.
+An ephemeral container's ledger survives it: push before it exits, pull into
+the next fresh runtime. Each verb first names the store (`ledger store:
+satelle.dev project <id> at <server>` or `ledger store: command <path>`).
 
-Object layout:
+The rules are the same for every store:
+
+- Push appends each local chain past what the store holds, every blob the new
+  events reference first. Events the store already holds with the same hashes
+  are already there; a different hash at a sequence is a divergence,
+  `diverged: <item> at event <seq>: ...; not pushed past it`, that item's push
+  stops, other items continue, and push exits 1. A store chain that already
+  extends the local one needs nothing. A rerun is safe: every append is
+  conditional.
+- Pull compares the store's event at the last sequence both chains hold,
+  whatever their lengths, and finds the fork point when it differs. A chain
+  that forked, in a longer, an equal-length or a shorter store chain, is
+  refused, `diverged: <item> at event <seq>: ...; nothing appended`, nothing is
+  appended to it, and pull exits 1. A store chain that is a prefix of the
+  local one, for a pull of every item or of one, is not a conflict: pull
+  imports nothing, exits 0, and the next push writes the rest. New events are
+  verified with the local chain before any is appended; one that does not
+  verify refuses its item. A named item the store does not hold is refused.
+  An item that arrives without a workflow (created by satelle-server) is
+  placed by this repo's rules, on the store first.
+- Status prints one row per item, `ITEM LOCAL STORE STATE`, the event counts
+  and `in sync`, `ahead`, `behind`, `diverged at <seq>`, `local only` or
+  `store only`. It writes nothing and exits 0.
+
+satelle.dev appends through `Chain.Append`, compare-and-append on the head,
+and lists chains with `Chain.Heads`. Blobs travel as attachments of their item
+(`AttachmentService`): an attachment under its own name, a performer output as
+`performer-output-<event id>`. Push also stores the item summaries the server
+lists.
+
+A store command's object layout:
 
 - `chains/<item>/<seq>.json`: one object per event, `<seq>` the event's
   0-based position on its chain as 12 digits (`chains/sto_1/000000000000.json`),
