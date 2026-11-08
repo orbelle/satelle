@@ -87,7 +87,9 @@ func setup(groups []workflow.Group, gates map[string]workflow.Gate) (Run, *fakeD
 		Item: item.Item{ID: "i1", Title: "t"}, From: "s0", To: "s1", Transition: tr, Workflow: wf,
 		Skills: map[string]workflow.Skill{"judge": {Name: "judge", Meta: map[string]string{}, Body: "judge it"}},
 		Agents: agents, Dispatcher: d, Changed: []string{"a/b.go"},
-		Coverage: func(paths []string) (string, error) { return "cov:" + strings.Join(paths, ","), nil },
+		Coverage: func(paths []string) (string, string, error) {
+			return "cov:" + strings.Join(paths, ","), "chg:" + strings.Join(paths, ","), nil
+		},
 	}, d
 }
 
@@ -282,6 +284,44 @@ func TestLegacyAnswerKey(t *testing.T) {
 		key, legacy := LegacyAnswerKey(c.text)
 		if legacy != c.legacy || (legacy && key != "decision") {
 			t.Errorf("LegacyAnswerKey(%q) = %q, %v; want legacy=%v", c.text, key, legacy, c.legacy)
+		}
+	}
+}
+
+// A model gate's accept, reject and carry record the change it covered (the
+// run's span and the diff-only hash); a check's result and a skip record none.
+func TestJudgedResultRecordsChange(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"skip":   {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}},
+		"ok":     {Skill: "judge", Agent: "y1"},
+		"carry":  {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}, Carry: true},
+		"check":  {Skill: "check", Carry: true},
+		"reject": {Skill: "judge", Agent: "n1"},
+	}
+	r, _ := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"skip", "ok", "carry", "check", "reject"}}}, gates)
+	r.Skills["check"] = workflow.Skill{Name: "check", Meta: map[string]string{"type": workflow.TypeCheck}, Script: "exit 0"}
+	r.Span = Change{Base: "b0", Head: "h1", Branch: "feat/x"}
+	r.Prior = []Result{
+		{Transition: "s0->s1", Gate: "carry", Result: Accept, Coverage: "cov:**/*.go"},
+		{Transition: "s0->s1", Gate: "check", Result: Accept, Coverage: "cov:"},
+	}
+	rs, _ := r.Execute(context.Background())
+	got := map[string]Result{}
+	for _, x := range rs {
+		got[x.Gate] = x
+	}
+	if results(rs) != "skip=skipped ok=accept carry=carried check=carried reject=reject" {
+		t.Fatalf("results = %s", results(rs))
+	}
+	for name, hash := range map[string]string{"ok": "chg:", "carry": "chg:**/*.go", "reject": "chg:"} {
+		want := Change{Base: "b0", Head: "h1", Branch: "feat/x", Hash: hash}
+		if c := got[name].Change; c == nil || *c != want {
+			t.Errorf("%s change = %+v, want %+v", name, c, want)
+		}
+	}
+	for _, name := range []string{"skip", "check"} {
+		if c := got[name].Change; c != nil {
+			t.Errorf("%s records a change %+v; only a model gate's verdict does", name, c)
 		}
 	}
 }

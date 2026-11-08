@@ -100,15 +100,62 @@ func (k *Kernel) staleBase(it item.Item, sp span) *StaleBaseError {
 	return nil
 }
 
-// ItemBase returns the base id's working-tree diff is judged from, and the
-// stale-base finding when HEAD's history no longer contains it.
-func (k *Kernel) ItemBase(id string) (string, *StaleBaseError, error) {
+// ItemDiff is an item's change: the paths changed from Base to Head, or to
+// the working tree when Head is "". Frozen says it is the change the item
+// reached its terminal state with, which later work does not move.
+type ItemDiff struct {
+	Base, Head string
+	Paths      []string
+	Frozen     bool
+}
+
+// ItemChange returns id's change. A terminal item's is the span recorded on
+// its move into that state; any other item's is this working tree's diff
+// from its judged base, with the stale-base finding when HEAD's history no
+// longer contains that base. Base is "" when the item has none.
+func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 	it, events, err := k.load(id)
 	if err != nil {
-		return "", nil, err
+		return ItemDiff{}, nil, err
+	}
+	w, err := k.workflowOf(it)
+	if err != nil {
+		return ItemDiff{}, nil, err
+	}
+	if w.States[it.Status].Terminal {
+		for i := len(events) - 1; i >= 0; i-- {
+			var m item.Move
+			if events[i].Kind != item.KindTransitioned || events[i].Decode(&m) != nil || m.To != it.Status {
+				continue
+			}
+			if m.Change == nil {
+				break
+			}
+			bg, ok := k.Git.(BranchGit)
+			if !ok {
+				return ItemDiff{}, nil, fmt.Errorf("%s: its frozen diff needs a git work tree", id)
+			}
+			paths, err := bg.ChangedBetween(m.Change.Base, m.Change.Head)
+			if err != nil {
+				return ItemDiff{}, nil, err
+			}
+			return ItemDiff{Base: m.Change.Base, Head: m.Change.Head, Paths: paths, Frozen: true}, nil, nil
+		}
+		if recorded, _ := k.base(it, events); recorded == "" {
+			return ItemDiff{}, nil, nil
+		}
+		return ItemDiff{}, nil, fmt.Errorf("%s reached %s before satelle recorded the change it reached it with; it has no frozen diff", id, it.Status)
 	}
 	sp := span{base: k.judgedBase(it, events)}
-	return sp.base, k.staleBase(it, sp), nil
+	d := ItemDiff{Base: sp.base}
+	if d.Base == "" || k.Git == nil {
+		return d, nil, nil
+	}
+	stale := k.staleBase(it, sp)
+	if d.Paths, err = k.Git.ChangedPaths(d.Base); err != nil {
+		return ItemDiff{}, nil, err
+	}
+	return d, stale, nil
 }
 
 // defaultCollectBase is the branch a collected branch's diff base is taken

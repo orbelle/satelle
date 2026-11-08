@@ -107,6 +107,15 @@ type Move struct {
 	// Hold is set when the move is a hold: the from-state's round cap was
 	// reached, and this is the summary computed when it was.
 	Hold *Hold `json:"hold,omitempty"`
+	// Change is the item's change frozen at a move into a terminal state:
+	// the span its diff is read from from then on. Nil on any other move.
+	Change *Span `json:"change,omitempty"`
+}
+
+// Span is a change between two commits.
+type Span struct {
+	Base string `json:"base"`
+	Head string `json:"head"`
 }
 
 // Hold summarises the rejected rounds that held an item for the operator.

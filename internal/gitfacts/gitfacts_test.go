@@ -105,3 +105,38 @@ func TestBranch(t *testing.T) {
 		t.Fatalf("detached: %q %v", b, err)
 	}
 }
+
+// On a clean tree the working-tree diff from a base is byte-equal to the diff
+// between the base and HEAD: a change a judge saw in a tree hashes the same
+// when it is later read from the branch's commits.
+func TestCleanTreeDiffEqualsDiffBetweenHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1\n"), 0o644)
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "one")
+	r := Repo{Dir: dir}
+	base, _ := r.Head()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("2\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "d"), 0o755)
+	os.WriteFile(filepath.Join(dir, "d", "b.go"), []byte("package d\n"), 0o644)
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "two")
+	head, _ := r.Head()
+	for _, paths := range [][]string{nil, {"d/b.go"}} {
+		tree, err := r.Diff(base, paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		between, err := r.DiffBetween(base, head, paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tree == "" || tree != between {
+			t.Fatalf("paths %v: tree diff\n%s\n!= diff between base and HEAD\n%s", paths, tree, between)
+		}
+	}
+}

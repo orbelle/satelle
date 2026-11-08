@@ -58,11 +58,26 @@ type Result struct {
 	Members []Member `json:"members,omitempty"`
 	// Location is where a remote-placed check ran: remote:<node>. "" is here.
 	Location string `json:"location,omitempty"`
+	// Change is the change a model gate (a skill that is not a check) judged
+	// or carried: its span and the hash of the diff alone. Checks and skips
+	// carry none.
+	Change *Change `json:"change,omitempty"`
 
 	// verdict says the result is a verdict: a check that ran, or a judge
 	// (every panel member) that answered with one. A reject that is a failure
 	// (missing skill, dispatch error, unparseable answer) is not.
 	verdict bool
+}
+
+// Change is what a model gate's verdict covers: the span it was shown (base,
+// head commit, and the branch it was on, "" when detached) and the sha256 of
+// exactly the diff text of its paths over that span. Unlike Coverage it does
+// not move when the item's body or attachments do.
+type Change struct {
+	Base   string `json:"base"`
+	Head   string `json:"head,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	Hash   string `json:"hash"`
 }
 
 // TransitionKey names a move for carry and the ledger.
@@ -100,8 +115,12 @@ type Run struct {
 	Dir     string   // where checks and judges run
 	Base    string   // the commit the work started from
 	Changed []string // paths changed since Base
-	// Coverage hashes what a gate with these paths judges; nil disables carry.
-	Coverage func(paths []string) (string, error)
+	// Coverage hashes what a gate with these paths judges (coverage), and the
+	// diff alone (change); nil disables carry.
+	Coverage func(paths []string) (coverage, change string, err error)
+	// Span is the base, head and branch of what this presentation judges; a
+	// model gate's result records it with the change hash.
+	Span Change
 	// Diff returns the change a gate with these paths judges, for the prompt.
 	Diff func(paths []string) (string, error)
 	// Prior is every earlier gate.run result on the item, oldest first.
@@ -285,18 +304,22 @@ func (r Run) decide(ctx context.Context, name string) Result {
 
 // judged is a relevant gate's outcome: carried, or run by its check or judge.
 func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit time.Duration, source string) Result {
+	skill, ok := r.Skills[g.Skill]
 	coverage := ""
+	var change *Change
 	if r.Coverage != nil {
-		c, err := r.Coverage(g.Paths)
+		c, ch, err := r.Coverage(g.Paths)
 		if err != nil {
 			return Result{Result: Reject, Notes: fmt.Sprintf("coverage: %v", err)}
 		}
 		coverage = c
+		if !skill.IsCheck() {
+			change = &Change{Base: r.Span.Base, Head: r.Span.Head, Branch: r.Span.Branch, Hash: ch}
+		}
 		if g.Carry && r.carried(name, c) {
-			return Result{Result: Carried, Coverage: c, Notes: "an earlier accept covers the same change"}
+			return Result{Result: Carried, Coverage: c, Change: change, Notes: "an earlier accept covers the same change"}
 		}
 	}
-	skill, ok := r.Skills[g.Skill]
 	if !ok {
 		return Result{Result: Reject, Notes: fmt.Sprintf("skill %q is missing", g.Skill), Coverage: coverage}
 	}
@@ -319,6 +342,9 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 		res = r.judge(ctx, g, skill)
 	}
 	res.Coverage = coverage
+	if res.Result == Accept || res.Result == Reject {
+		res.Change = change
+	}
 	return res
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/gate"
-	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -205,10 +204,14 @@ func diffCmd(kind string) *cobra.Command {
 		Long: `diff lists the paths changed in this worktree since the item's base: the
 latest seat's base commit, else the commit the item was created at, moved to
 the merge base of HEAD and the item's base branch (the seat's --base ref, else
-origin/main) when the seat's base is behind it.`,
+origin/main) when the seat's base is behind it.
+
+An item in a terminal state has a frozen diff: the change it reached that state
+with (the base and head recorded on that move), which later work in the tree
+does not move. --json then adds its head and "frozen": true.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			k, r, err := openKernel()
+			k, _, err := openKernel()
 			if err != nil {
 				return err
 			}
@@ -217,25 +220,26 @@ origin/main) when the seat's base is behind it.`,
 			if err != nil {
 				return err
 			}
-			base, stale, err := k.ItemBase(it.ID)
+			d, stale, err := k.ItemChange(it.ID)
 			if err != nil {
 				return err
 			}
 			if stale != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", stale)
 			}
-			if base == "" {
+			if d.Base == "" {
 				return fmt.Errorf("%s has no base commit (created outside a git work tree)", it.ID)
 			}
-			paths, err := gitfacts.Repo{Dir: r.Tree}.ChangedPaths(base)
-			if err != nil {
-				return err
-			}
+			paths := d.Paths
 			if *asJSON {
 				if paths == nil {
 					paths = []string{}
 				}
-				return writeJSON(cmd.OutOrStdout(), map[string]any{"item": it.ID, "base": base, "paths": paths})
+				v := map[string]any{"item": it.ID, "base": d.Base, "paths": paths}
+				if d.Frozen {
+					v["head"], v["frozen"] = d.Head, true
+				}
+				return writeJSON(cmd.OutOrStdout(), v)
 			}
 			for _, p := range paths {
 				fmt.Fprintln(cmd.OutOrStdout(), p)

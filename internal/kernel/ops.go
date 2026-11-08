@@ -306,9 +306,29 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		Dir: k.Dir, Base: base, Changed: changed, Prior: prior,
 		ReviewerDiffers: k.Settings.Rules.ReviewerDiffersFromPerformer,
 		CheckTimeout:    k.CheckTimeout,
-		Coverage:        func(paths []string) (string, error) { return k.coverage(it, events, sp, paths) },
+		Coverage:        func(paths []string) (string, string, error) { return k.coverage(it, events, sp, paths) },
 		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
 		Remote:          k.RemoteChecks,
+	}
+	if k.Git != nil {
+		run.Span = k.runSpan(events, sp)
+	}
+	// A move into a terminal state needs the item's change to be the one its
+	// latest accepted judge saw. Without a judge on this transition only the
+	// earlier results can cover it, so the move is refused before any gate
+	// runs; with one, the check waits for this attempt's verdicts.
+	terminal := w.States[to].Terminal && k.Git != nil
+	judgedHere := k.judged(w, tr)
+	var frozen *item.Span
+	if terminal && !judgedHere {
+		unc, fs, err := k.uncovered(it, to, w, sp, prior)
+		if err != nil {
+			return res, err
+		}
+		if unc != nil {
+			return res, unc
+		}
+		frozen = fs
 	}
 	// A check placed on a remote judges the pushed head, not this tree.
 	if remotePlaced(w, tr) {
@@ -316,7 +336,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	}
 	// A judge reads the item's record; checks need none. The folder is
 	// written after the changed paths are computed, and is gitignored.
-	if k.judged(w, tr) {
+	if judgedHere {
 		rec, err := k.record(it, events, true)
 		if err != nil {
 			return res, err
@@ -339,7 +359,17 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		}
 		return k.holdIfCapped(ctx, res, w, actor)
 	}
-	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold}); err != nil {
+	if terminal && judgedHere {
+		unc, fs, err := k.uncovered(it, to, w, sp, append(prior, results...))
+		if err != nil {
+			return res, err
+		}
+		if unc != nil {
+			return res, unc
+		}
+		frozen = fs
+	}
+	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold, Change: frozen}); err != nil {
 		return res, err
 	}
 	res.Moved = true
@@ -358,8 +388,9 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 }
 
 // coverage hashes what a gate judges: the item's body, criteria and
-// attachments, and the diff of the gate's paths over the span judged.
-func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (string, error) {
+// attachments, and the diff of the gate's paths over the span judged. change
+// hashes that diff alone (changeHash), what a terminal move compares.
+func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (coverage, change string, err error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00", it.Body, strings.Join(it.Criteria, "\x1f"))
 	for _, a := range item.FoldAttachments(events) {
@@ -367,10 +398,16 @@ func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []
 	}
 	d, err := k.diffSpan(sp, paths)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	h.Write([]byte(d))
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil)), changeHash(d), nil
+}
+
+// changeHash is the fingerprint of a change: the sha256 of its diff text.
+func changeHash(diff string) string {
+	s := sha256.Sum256([]byte(diff))
+	return hex.EncodeToString(s[:])
 }
 
 // Attach stores data as a blob and records it on the item.

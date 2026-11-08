@@ -179,10 +179,11 @@ func TestTheJudgedBaseFollowsTheBaseBranchOnlyWhenBehindIt(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir, k, _, m0 := mainRepo(t)
 			it, want := c.run(t, dir, k, m0)
-			got, stale, err := k.ItemBase(it.ID)
+			d, stale, err := k.ItemChange(it.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
+			got := d.Base
 			if got != want {
 				t.Fatalf("judged base = %s, want %s (main fork %s)", got, want, m0)
 			}
@@ -225,7 +226,7 @@ func TestAMergeOfMainKeepsTheJudgedDiffToTheItemsOwnChange(t *testing.T) {
 			t.Fatalf("the code-ac payload carries merged-in main's %s:\n%s", p, prompt)
 		}
 	}
-	if base, stale, err := k.ItemBase(it.ID); err != nil || stale != nil || base != m1 {
-		t.Fatalf("item base = %s, %v, %v; want %s", base, stale, err, m1)
+	if d, stale, err := k.ItemChange(it.ID); err != nil || stale != nil || d.Base != m1 {
+		t.Fatalf("item base = %s, %v, %v; want %s", d.Base, stale, err, m1)
 	}
 }
