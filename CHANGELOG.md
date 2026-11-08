@@ -1,3 +1,8 @@
+## [1.0.35] - 2026-11-08
+
+### Added
+- Drift stories raised from now on run on their own drift workflow, and close only while a drift review run is in progress whose drift-report shows their finding gone: a substrate finding absent from drift-check's output, a prose or constitution finding only with a RESOLVED line from that run's judges. (sto_98f84833)
+
 ## [1.0.34] - 2026-11-08
 
 ### Changed
