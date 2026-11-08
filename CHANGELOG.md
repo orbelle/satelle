@@ -1,3 +1,8 @@
+## [1.0.41] - 2026-11-08
+
+### Fixed
+- The edit-gate hook refuses `satelle <kind> record` only where it would run: as a command word behind any wrapper, or in text a shell or interpreter executes (`-c` programs, heredocs and here-strings fed to one, `script -c`, a command substitution, text piped into a command that is not data). Prose naming it as data to `echo`, `printf`, `grep`, `cat`/`head`/`tail`/`wc`, `git commit`/`tag`/`log` or satelle's own flags is no longer refused, and a quoted or subshell form (`satelle story "record"`, `(satelle story record …)`) now is. (sto_f13a2c01)
+
 ## [1.0.40] - 2026-11-08
 
 ### Added
