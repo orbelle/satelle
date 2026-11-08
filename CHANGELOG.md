@@ -1,3 +1,11 @@
+## [1.0.28] - 2026-11-08
+
+### Changed
+- The operator rulings record that doctor is read-only on git: it reports, and any further action is advice to the agent or user (2026-11-08) (sto_f1712fdf)
+
+### Fixed
+- A release run's done is refused while an item it landed is not done, and the next release run carries an item a stopped run landed (its pull request merged, its head on main) to done as contained instead of sending it back; that item's changelog lines are not written twice (sto_4a863578)
+
 ## [1.0.27] - 2026-11-08
 
 ### Added
