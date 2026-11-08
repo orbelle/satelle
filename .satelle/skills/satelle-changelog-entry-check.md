@@ -1,7 +1,7 @@
 ---
 name: satelle-changelog-entry-check
 type: check
-description: CI/CD gate on approved → done. The first version heading of origin/main's CHANGELOG.md is "## [<satelle.version>] - <YYYY-MM-DD>", and that section holds every line of the item's changelog attachment under its section, ending with the item id. Deterministic, no agent.
+description: CI/CD gate on approved → done. The first version heading of origin/main's CHANGELOG.md is "## [<satelle.version>] - <YYYY-MM-DD>", and that section holds every line of the item's changelog attachment under its section, ending with the item id; an item an earlier release already published (a landed item a later run carries to done, release.md step 2a) is accepted from the earlier section that holds its lines. Deterministic, no agent.
 ---
 
 # Changelog entry
@@ -16,7 +16,13 @@ every landed item is checked:
 - the first `## [` line of origin/main's CHANGELOG.md is the version's heading;
   anything left above the version section, whatever its name, is refused;
 - the item has a `changelog` attachment, and every entry of it appears in the
-  version section under its `### <Section>`, ending with the item id.
+  version section under its `### <Section>`, ending with the item id;
+- or, when the version section lacks them, in an earlier version section: an
+  item whose head an earlier release already published, and which a later run
+  carries to done, has its lines in that release's section and none in this
+  one (release.md step 3 writes nothing for it). Every line ends with the item
+  id and only step 3 writes them, so such lines exist only when a release
+  published the item.
 
 ```sh
 set -u
@@ -36,9 +42,16 @@ if ! satelle story attachment "$SATELLE_ITEM" changelog >"$tmp/item" 2>/dev/null
   echo "no changelog attachment on $SATELLE_ITEM: the release run writes the [$ver] section from it"
   exit 1
 fi
-if ! why=$(bash scripts/changelog-items.sh has "$tmp/CHANGELOG.md" "$ver" "$SATELLE_ITEM:$tmp/item" 2>&1); then
-  echo "CHANGELOG.md on origin/main lacks $SATELLE_ITEM's lines: $why"
-  exit 1
+if why=$(bash scripts/changelog-items.sh has "$tmp/CHANGELOG.md" "$ver" "$SATELLE_ITEM:$tmp/item" 2>&1); then
+  echo "CHANGELOG.md on origin/main opens with the [$ver] section, which holds every line of $SATELLE_ITEM's changelog attachment"
+  exit 0
 fi
-echo "CHANGELOG.md on origin/main opens with the [$ver] section, which holds every line of $SATELLE_ITEM's changelog attachment"
+for v in $(grep '^## \[' "$tmp/CHANGELOG.md" | sed -n '2,$ s/^## \[\([^]]*\)\].*/\1/p'); do
+  if bash scripts/changelog-items.sh has "$tmp/CHANGELOG.md" "$v" "$SATELLE_ITEM:$tmp/item" >/dev/null 2>&1; then
+    echo "CHANGELOG.md on origin/main holds every line of $SATELLE_ITEM's changelog attachment in the [$v] section, the release that published it"
+    exit 0
+  fi
+done
+echo "CHANGELOG.md on origin/main lacks $SATELLE_ITEM's lines: $why"
+exit 1
 ```

@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts), run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
 ---
 
 # Release (CI/CD)
@@ -49,7 +49,7 @@ from step 2 on the run keeps its state in one run-local directory,
 `$rd/candidate` (`$wt` below) and the files `kept`, `sendback`, `ff`,
 `tested` and `suite.log`. Each block finds the in-progress run and `rd` again
 the same way. The durable record stays on the items (`release-sendback`) and
-the run (`release-evidence`).
+the run (`release-kept`, step 4, and `release-evidence`).
 
 ## 0. Start and read the run
 
@@ -81,7 +81,11 @@ open exits 2 naming that run: finish or cancel it first.
 For each input item find its pull request: the PR against main whose title
 ends `(<id>)` (`gh pr list --state open --base main --json number,headRefOid,title`).
 Record `<id> PR #<n> head <sha>`. An item with no open pull request goes on the
-send-back list.
+send-back list, unless it has a merged pull request (title ending `(<id>)`,
+`gh pr list --state merged`) whose head is an ancestor of `origin/main`: a run
+that did not close it already landed that head. It is carried, kept as
+contained (step 2a), and reaches done in this run (step 9); it is never sent
+back, which would reopen landed work.
 
 ### Reviews on the heads
 
@@ -94,7 +98,9 @@ attached as `pr-review`, the item moves approved → in_progress, and it is
 dropped from the run and recorded as sent back with "the satelle app requested
 changes on head <sha>". The block calls gh and satelle's local commands only,
 never satelle.dev, and changes nothing until the app reviews this repo's pull
-requests.
+requests. A carried item (no open pull request, a merged one whose head is on
+`origin/main`) has no review to read: the run that landed it read the app's
+review on that head, and a review of a landed head sends nothing back.
 
 ```sh
 id=<id>
@@ -102,7 +108,17 @@ app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/sat
 [ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check.md" >&2; exit 1; }
 pr=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100 |
   jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
-if [ -z "$pr" ]; then echo "$id: no open pull request (send it back)"; exit 0; fi
+if [ -z "$pr" ]; then
+  mpr=$(gh pr list --state merged --base main --json number,headRefOid,title --limit 200 |
+    jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
+  mhead=$(printf '%s' "$mpr" | jq -r '.headRefOid // empty')
+  if [ -n "$mhead" ] && git merge-base --is-ancestor "$mhead" origin/main 2>/dev/null; then
+    echo "$id: PR #$(printf '%s' "$mpr" | jq -r .number) merged, head $mhead on origin/main: contained, no review to read"
+  else
+    echo "$id: no open pull request (send it back)"
+  fi
+  exit 0
+fi
 n=$(printf '%s' "$pr" | jq -r .number)
 head=$(printf '%s' "$pr" | jq -r .headRefOid)
 review=$(gh api "repos/{owner}/{repo}/pulls/$n/reviews" --paginate | jq -s -c --argjson app "$app_account" --arg h "$head" '
@@ -137,7 +153,8 @@ a. Judge each item's changelog, then build the candidate.
 ### Each kept item's changelog
 
 Once per input item still `approved` after step 0, in queue order (`id=` each
-in turn, with its `head` from step 0 and `tip=origin/main`). Its verdict is
+in turn, with its `head` from step 0, a carried item's merged head included,
+and `tip=origin/main`). Its verdict is
 its output, never its exit status: every item outcome prints exactly one line
 and exits 0, so a send-back never stops the run. It exits 1 only when it
 cannot judge at all (git, satelle or bash is not on PATH, named on stderr):
@@ -178,12 +195,15 @@ run's inputs in queue order. It skips an item no longer `approved` (step 0's
 review sent it back) or held by its changelog. For the rest, with the
 candidate's current HEAD as the tip:
 
-- the head is already in the candidate (`git merge-base --is-ancestor <head> <tip>`; a resumed run's head already on main too): kept, contained;
+- the head is already in the candidate (`git merge-base --is-ancestor <head> <tip>`; a resumed run's head already on main too, and a carried head): kept, contained; a head a `v*` release tag already contains prints `contained, released in v<X>` (the earliest such tag), and step 3 writes no lines for it;
 - the tip is an ancestor of the head: kept, the candidate fast-forwards to it;
 - else the head is merged onto the tip in the candidate (`--no-ff`, a merge commit; the head itself is never rewritten): kept, merged. The tip before the first merge is recorded in `$rd/ff` (the fast-forward prefix);
 - a merge that conflicts is aborted, the item is dropped from the candidate and goes on the send-back list naming the conflicting paths: "head <sha> conflicts with the release candidate after <kept ids> in: <paths>; merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), resolve, and come through integration again".
 
-An item with no open pull request goes on the send-back list too. Each kept
+An item with no open pull request goes on the send-back list too, unless its
+merged pull request's head is an ancestor of `origin/main` (step 0): that head
+is carried and lands contained, since the candidate starts at `origin/main`.
+It is never sent back for the missing open pull request. Each kept
 item is recorded `<id> <head>` in `$rd/kept`, in queue order (the landing
 order). Each item prints one line, `<id>: <fast-forward|merged|contained|sent
 back|skipped> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
@@ -198,19 +218,24 @@ held=$(cat <<'HELD'
 <each "<id>: send back: <reason>" line the changelog verdicts printed>
 HELD
 )
-git fetch -q origin || { echo "git fetch origin failed" >&2; exit 1; }
+git fetch -q origin --tags || { echo "git fetch origin failed" >&2; exit 1; }
 [ ! -e "$wt" ] || git worktree remove --force "$wt"
 rm -rf "$rd" && mkdir -p "$rd" || exit 1
 git worktree add -q --detach "$wt" origin/main || exit 1
 : >"$rd/kept"
 printf '%s\n' "$held" | sed -n 's/^\([a-z]*_[0-9a-f]*\): send back: /\1\t/p' >"$rd/sendback"
 prs=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100) || { echo "gh pr list failed" >&2; exit 1; }
+mprs=$(gh pr list --state merged --base main --json number,headRefOid,title --limit 200) || { echo "gh pr list failed" >&2; exit 1; }
 kept=
 for id in $(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]'); do
   st=$(satelle story get "$id" --json | jq -r .status)
   if [ "$st" != approved ]; then echo "$id: skipped: $st, not approved"; continue; fi
   if cut -f1 "$rd/sendback" | grep -qx "$id"; then echo "$id: sent back: its changelog"; continue; fi
   head=$(printf '%s' "$prs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
+  if [ -z "$head" ]; then
+    mhead=$(printf '%s' "$mprs" | jq -r --arg id "($id)" '[.[] | select(.title | endswith($id))][0].headRefOid // empty')
+    [ -n "$mhead" ] && git -C "$wt" merge-base --is-ancestor "$mhead" origin/main 2>/dev/null && head=$mhead
+  fi
   if [ -z "$head" ]; then
     printf '%s\tno open pull request against main has a title ending (%s); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force), push, open one and come through integration again\n' "$id" "$id" >>"$rd/sendback"
     echo "$id: sent back: no open pull request"; continue
@@ -232,7 +257,9 @@ for id in $(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payl
     echo "$id: sent back: head $head conflicts in: $paths"; continue
   fi
   echo "$id $head" >>"$rd/kept"; kept="${kept:+$kept }$id"
-  echo "$id: $how head $head"
+  rel=
+  [ "$how" = contained ] && rel=$(git -C "$wt" tag -l 'v*' --contains "$head" | sort -V | head -n1)
+  if [ -n "$rel" ]; then echo "$id: contained, released in $rel head $head"; else echo "$id: $how head $head"; fi
 done
 [ -s "$rd/ff" ] || git -C "$wt" rev-parse HEAD >"$rd/ff"
 [ -s "$rd/kept" ] || { echo "nothing lands: send back (step 2c) and stop the run" >&2; exit 1; }
@@ -333,9 +360,15 @@ nothing is staged above it. The lines are copied verbatim; the run never
 edits an item's content. A missing attachment stops the run. A resumed run
 whose CHANGELOG.md already has the `## [<ver>] - ` heading changes nothing.
 
+`ids` lists the kept items in landing order, except each whose build line
+(step 2a) says `contained, released in v<X>`: that release already wrote its
+lines, and changelog-entry accepts its done from that section. When no kept
+item is left, the section is not written and CHANGELOG.md is left as it is.
+
 ```sh
-ids="<kept ids, landing order>"
+ids="<kept ids, landing order, without those released before>"
 ver=<satelle.version>
+[ -n "$ids" ] || { echo "every kept item was released before: the version section is left as it is"; exit 0; }
 d=$(mktemp -d) || exit 1
 args=
 for id in $ids; do
@@ -364,6 +397,13 @@ Pushes only the tested candidate and the bump on top of it. It stops with
 this candidate (`$rd/tested` is missing), the tested commit is not under HEAD,
 or HEAD differs from it outside `.version` and `CHANGELOG.md`.
 
+Before the push it attaches `$rd/kept` to the run as `release-kept`, the
+items the run lands, `<id> <head>` in landing order. The runbook's
+`release-kept` gate refuses the run's done while any of them is not in a
+terminal state (step 9). Attached first, a push refused after it leaves a run
+that must be resumed or cancelled, never landed items without a record; a
+resumed step 4 attaches it again and the gate reads the latest.
+
 ```sh
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r 'if length == 1 then .[0].id else empty end')
@@ -375,6 +415,7 @@ if [ -z "$tested" ] || ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
   echo "the candidate changed after the suite ran (or the suite has not passed on it): stop the run" >&2
   exit 1
 fi
+satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" || exit 1   # before the push: landed items are never unrecorded
 git -C "$wt" push origin HEAD:refs/heads/main || exit 1   # a plain push: refused unless it fast-forwards; never forced
 echo "main is $(git -C "$wt" rev-parse HEAD)"
 git worktree remove --force "$wt"   # pushed; --force only drops the suite's build output
@@ -427,7 +468,16 @@ mismatch stops the run and repeats the restore line.
 
 For each released item: `satelle story set <id> --status done`. Its five gates
 (release-run, version-stamp, changelog-entry, ci-published, release-installed)
-judge it while the run is still in progress. Then attach `release-evidence` to
+judge it while the run is still in progress. Present every move here with step
+7's installed binary first on `PATH`: `command -v satelle` is step 0's path and
+`satelle version` names `<ver>`. Take any tip build step 2c put first on `PATH`
+off it before this step, because release-installed reads `satelle version`.
+
+The run's done is refused by its `release-kept` gate until every item step 4
+listed is terminal. When an item's done is refused, fix the cause and present
+it again while the run is still in progress. A run that cannot finish may be
+cancelled (`* -> cancelled`, no gates); the next fire carries its landed items
+as contained (step 2a), and they reach done there. Then attach `release-evidence` to
 the run (`satelle execution attach "$exe" --name release-evidence --file -`):
 
 - per item: id, PR number, head sha, and how it landed (fast-forward, merged or contained) or sent back with the reason

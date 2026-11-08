@@ -222,7 +222,7 @@ model = "ra-1"
 tools = ["Read", "Grep", "Glob"]
 `)
 	s.write(".satelle/workflows/runbook.toml", repoText(t, ".satelle/workflows/runbook.toml"))
-	for _, name := range []string{"task-run", "satelle-task-validate-before-review", "satelle-task-validate-after-review",
+	for _, name := range []string{"task-run", "satelle-task-validate-before-review", "satelle-task-validate-after-review", "satelle-release-kept-check",
 		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered"} {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
