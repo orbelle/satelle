@@ -388,3 +388,37 @@ func TestAcEvidenceCheckReadsTheItem(t *testing.T) {
 		t.Fatalf("with ac-evidence: status %q, want %q", st, check)
 	}
 }
+
+// satelle-change-judged-check accepts an item no model gate accepted a change
+// on, a story and an execution alike, without reading its diff.
+func TestChangeJudgedCheckAcceptsWithoutAJudgedChange(t *testing.T) {
+	t.Parallel()
+	const check = "satelle-change-judged-check"
+	c := newCheckSandbox(t, nil)
+	story := c.create("story", "--title", "unjudged").ID
+	var exe struct {
+		ID string `json:"id"`
+	}
+	c.mustJSON(&exe, "task", "run", c.task)
+	for _, it := range []struct{ kind, id string }{{"story", story}, {"execution", exe.ID}} {
+		if r := c.run(it.kind, "set", it.id, "--status", check); r.code != 0 {
+			t.Fatalf("%s %s: exit %d, want 0\n%s%s", it.kind, it.id, r.code, r.out, r.err)
+		}
+		var last gateRun
+		for _, g := range c.gateRuns(it.id) {
+			if g.Gate == check {
+				last = g
+			}
+		}
+		if last.Result != "accept" {
+			t.Fatalf("%s %s: gate.run %+v, want accept", it.kind, it.id, last)
+		}
+		var got struct {
+			Status string `json:"status"`
+		}
+		c.mustJSON(&got, it.kind, "get", it.id)
+		if got.Status != check {
+			t.Fatalf("%s %s: status %q, want %q", it.kind, it.id, got.Status, check)
+		}
+	}
+}

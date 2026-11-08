@@ -208,7 +208,13 @@ origin/main) when the seat's base is behind it.
 
 An item in a terminal state has a frozen diff: the change it reached that state
 with (the base and head recorded on that move), which later work in the tree
-does not move. --json then adds its head and "frozen": true.`,
+does not move. --json then adds its head and "frozen": true.
+
+Any other item's --json carries "judged": every gate verdict that recorded the
+change it saw, oldest first, with that change's hash ("judged") and the hash of
+the item's change now over the same base, branch and paths ("now", ending at
+"now_head"). It reports both and decides nothing; a workflow that needs them
+equal places a check on its transition.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
@@ -238,6 +244,19 @@ does not move. --json then adds its head and "frozen": true.`,
 				v := map[string]any{"item": it.ID, "base": d.Base, "paths": paths}
 				if d.Frozen {
 					v["head"], v["frozen"] = d.Head, true
+				} else {
+					js, err := k.JudgedChanges(it.ID)
+					if err != nil {
+						return err
+					}
+					judged := make([]map[string]string, 0, len(js))
+					for _, j := range js {
+						judged = append(judged, map[string]string{
+							"gate": j.Gate, "transition": j.Transition, "result": j.Result, "attempt": j.Attempt,
+							"base": j.Base, "branch": j.Branch, "judged": j.Judged, "now": j.Now, "now_head": j.NowHead,
+						})
+					}
+					v["judged"] = judged
 				}
 				return writeJSON(cmd.OutOrStdout(), v)
 			}

@@ -4,7 +4,10 @@ package kernel
 
 import (
 	"context"
-	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,42 +127,82 @@ func frozenOf(t *testing.T, k *Kernel, id, to string) *item.Span {
 	return nil
 }
 
-// (a) A commit after the judge refuses a gateless terminal move, naming the
-// gate and its transition, and records nothing. (e) Re-running the judge
-// over the new change lets it through, frozen at that change.
-func TestATerminalMoveRefusesAChangeNoJudgeAccepted(t *testing.T) {
+// (a) The kernel decides nothing about a judged change: a commit after the
+// judge does not refuse a gateless terminal move (a workflow refuses it with
+// a check). The move records the change it was made with.
+func TestTheKernelDoesNotRefuseAnUnjudgedTerminalMove(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	commitFile(t, dir, "later.go", "package later\n")
-	_, before, _ := k.load(it.ID)
+	res, err := k.Transition(context.Background(), it.ID, "d", "ada")
+	if err != nil || !res.Moved {
+		t.Fatalf("move to d after a later commit: moved %v, err %v", res.Moved, err)
+	}
+	head := gittest.Git(t, dir, "rev-parse", "HEAD")
+	if fs := frozenOf(t, k, it.ID, "d"); fs == nil || fs.Head != head {
+		t.Fatalf("frozen change = %+v, want head %s", fs, head)
+	}
+}
 
-	_, err := k.Transition(context.Background(), it.ID, "d", "ada")
-	var unc *UncoveredError
-	if !errors.As(err, &unc) {
-		t.Fatalf("move to d after a later commit: err = %v, want an UncoveredError", err)
+// No declaration of the kernel decides whether a terminal move's change is
+// the judged one: the names that did are gone.
+func TestNoKernelDeclarationDecidesAJudgedChange(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if unc.Gate != "code-ac" || unc.Transition != "w->r" || unc.To != "d" {
-		t.Fatalf("refusal = %+v", unc)
-	}
-	for _, want := range []string{"gate code-ac", "w -> r", "Re-run code-ac", "return the item to w"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("refusal %q does not say %q", err, want)
+	banned := map[string]bool{"UncoveredError": true, "latestJudged": true, "uncovered": true}
+	files := 0
+	for _, p := range pkgs {
+		for name, f := range p.Files {
+			files++
+			for _, d := range f.Decls {
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					if banned[d.Name.Name] {
+						t.Errorf("%s declares func %s", name, d.Name.Name)
+					}
+				case *ast.GenDecl:
+					for _, s := range d.Specs {
+						if ts, ok := s.(*ast.TypeSpec); ok && banned[ts.Name.Name] {
+							t.Errorf("%s declares type %s", name, ts.Name.Name)
+						}
+					}
+				}
+			}
 		}
 	}
-	got, _ := k.Get(it.ID)
-	_, after, _ := k.load(it.ID)
-	if got.Status != "r" || len(after) != len(before) {
-		t.Fatalf("a refused move recorded something: status %s, %d events, was %d", got.Status, len(after), len(before))
+	if files == 0 {
+		t.Fatal("parsed no kernel source file")
 	}
+}
 
-	moveTo(t, k, it.ID, "w")
-	res := moveTo(t, k, it.ID, "r")
-	if res.Gates[0].Result != gate.Accept {
-		t.Fatalf("code-ac on the new change = %+v, want a fresh accept", res.Gates[0])
+// JudgedChanges reports each recorded verdict's change and the change now:
+// equal until a later commit, different after it, and none once the item is
+// terminal (its change is frozen).
+func TestJudgedChangesReportNow(t *testing.T) {
+	dir, k, it := judgedItem(t)
+	one := func() JudgedChange {
+		t.Helper()
+		js, err := k.JudgedChanges(it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(js) != 1 || js[0].Gate != "code-ac" || js[0].Transition != "w->r" || js[0].Result != gate.Accept || js[0].Branch != "feat/x" || js[0].Judged == "" {
+			t.Fatalf("judged = %+v, want one code-ac accept on w->r", js)
+		}
+		return js[0]
+	}
+	if j := one(); j.Now != j.Judged || j.NowHead != gittest.Git(t, dir, "rev-parse", "HEAD") {
+		t.Fatalf("before a later commit: %+v, want now == judged at HEAD", j)
+	}
+	commitFile(t, dir, "later.go", "package later\n")
+	if j := one(); j.Now == j.Judged {
+		t.Fatalf("after a later commit: %+v, want now != judged", j)
 	}
 	moveTo(t, k, it.ID, "d")
-	head := gittest.Git(t, dir, "rev-parse", "HEAD")
-	if fs := frozenOf(t, k, it.ID, "d"); fs == nil || fs.Head != head || fs.Base != res.Gates[0].Change.Base {
-		t.Fatalf("frozen change = %+v, want base %s head %s", fs, res.Gates[0].Change.Base, head)
+	if js, err := k.JudgedChanges(it.ID); err != nil || js == nil || len(js) != 0 {
+		t.Fatalf("terminal item: judged = %#v, err %v, want an empty slice", js, err)
 	}
 }
 

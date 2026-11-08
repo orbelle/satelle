@@ -136,6 +136,13 @@ after = "satelle-pr-review-publish"
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
 
+# A terminal state is reached only with a change a judge accepted (sto_e2cec5df).
+# The rule was the binary's; it is this check now (sto_035f3007), first on
+# approved -> done, which has no judge of its own, so a commit made after
+# code-ac fails here before release-run reads release state.
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
 # CI/CD's gates on approved -> done, all reading origin/main: only a run of the
 # release task closes an item, after the bump, the release and the install.
 [gates.release-run]
@@ -201,7 +208,7 @@ groups = [
 from = ["approved"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] },
+  { mode = "sequential", gates = ["change-judged", "release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] },
 ]
 
 # Rework: back to coding from integration, or from approved when a release run
