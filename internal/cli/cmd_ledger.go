@@ -3,13 +3,17 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/ledgerstore"
+	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -21,8 +25,59 @@ func ledgerCmd() *cobra.Command {
 JSONL file per item under the runtime directory. The sqlite cache is rebuilt
 from it.`,
 	}
-	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd())
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd())
 	return cmd
+}
+
+func ledgerStoreTestCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "store-test",
+		Short: "Prove the configured ledger store command against the adapter contract",
+		Long: `Drive the external store command configured as
+[ledger] store = { command = "...", args = ["..."] } through the adapter
+contract: put-if-absent, get and list, and the error line. It creates and reads
+keys under conformance/ only, prints one line per check, and exits 0 only when
+every check passes. The contract has no delete, so each run's keys stay under
+conformance/<run>/. See 'satelle help ledger-store'.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			k, _, err := openKernel()
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+			spec := k.Settings.Ledger.Store
+			const only = "only an external store command ([ledger] store = { command = ..., args = [...] }) implements the adapter operations put-if-absent, get and list"
+			if !spec.External() {
+				if spec.Kind == "" {
+					return &exitError{code: ExitError, msg: "store-test: no [ledger] store is configured; " + only}
+				}
+				return &exitError{code: ExitError, msg: fmt.Sprintf("store-test: [ledger] store is the built-in %q store, which implements no adapter operations; %s", spec.Kind, only)}
+			}
+			path := spec.Command
+			if strings.ContainsRune(path, '/') && !filepath.IsAbs(path) {
+				path = filepath.Join(k.Dir, path)
+			}
+			c := ledgerstore.Command{Path: path, Args: spec.Args, Dir: k.Dir,
+				Withhold: []string{hosted.SessionTokenEnv, provider.EnvNodeToken}}
+			out := cmd.OutOrStdout()
+			var failed []string
+			for _, r := range ledgerstore.Conformance(cmd.Context(), c) {
+				if r.OK {
+					fmt.Fprintf(out, "ok    %s\n", r.Name)
+					continue
+				}
+				failed = append(failed, r.Name)
+				fmt.Fprintf(out, "FAIL  %s: %s\n", r.Name, r.Reason)
+			}
+			if len(failed) > 0 {
+				return &exitError{code: ExitError, msg: fmt.Sprintf("store-test: %d of %d checks failed: %s",
+					len(failed), ledgerstore.ConformanceChecks, strings.Join(failed, "; "))}
+			}
+			fmt.Fprintf(out, "store-test: %d checks passed against %s\n", ledgerstore.ConformanceChecks, spec.Command)
+			return nil
+		},
+	}
 }
 
 func ledgerAppendCmd() *cobra.Command {

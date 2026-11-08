@@ -1,0 +1,105 @@
+#!/bin/sh
+# satelle-store-fs -- the filesystem reference adapter of satelle's ledger store
+# contract (`satelle help ledger-store`). POSIX sh; no dependency beyond the
+# POSIX utilities.
+#
+# Usage:
+#   satelle-store-fs --root <dir> put-if-absent <key>    (body on stdin)
+#   satelle-store-fs --root <dir> get <key>
+#   satelle-store-fs --root <dir> list <prefix> [<after-key>]
+#
+# Configure it as:
+#   [ledger]
+#   store = { command = "/path/to/satelle-store-fs", args = ["--root", "/path/to/dir"] }
+#
+# <dir> must be an existing directory. The adapter creates <dir>/objects and
+# <dir>/tmp itself on the first put; a root that holds nothing yet is a valid,
+# empty store.
+#
+# Object layout. A key's '/' becomes '%' (not in the key charset, so the
+# mapping is unambiguous). The encoded key is cut into 200-byte chunks, each
+# prefixed '_' and joined as directories, and the last chunk is suffixed '@':
+# key chains/x/000.json is <dir>/objects/_chains%x%000.json@. Files end in '@'
+# and directories never do, so keys a and a/b cannot collide; the '_' prefix
+# makes '.' and '..' safe; chunking keeps a 512-byte key under NAME_MAX.
+#
+# put-if-absent writes the body to <dir>/tmp, then hard-links it to the object
+# path: ln is atomic and fails when the target exists, so a key is never
+# overwritten.
+#
+# list compares keys as strings in byte order (LC_ALL=C). awk compares two
+# numeric-looking strings as numbers, so the after-key test concatenates "" to
+# both sides to force a string comparison: keys 12 and 102 sort as 102 < 12.
+#
+# Exit codes: 0 done; 1 transient failure; 2 permanent failure; 3 put-if-absent
+# found the key (its body is on stdout); 4 get found no such key. On 1 and 2 one
+# line goes to stderr: error: <code>: <message>.
+
+export LC_ALL=C
+
+fail() { # fail <exit> <code> <message>
+	printf 'error: %s: %s\n' "$2" "$3" >&2
+	exit "$1"
+}
+
+[ "$1" = "--root" ] || fail 2 invalid "usage: satelle-store-fs --root <dir> <op> <operands>"
+[ "$#" -ge 3 ] || fail 2 invalid "usage: satelle-store-fs --root <dir> <op> <operands>"
+root=$2
+op=$3
+shift 3
+[ -d "$root" ] || fail 2 invalid "root $root is not a directory"
+objects=$root/objects
+
+# objpath <key>: the object file of key, relative to objects.
+objpath() {
+	printf '%s\n' "$1" | tr '/' '%' | awk '{
+		s = $0; out = ""
+		while (length(s) > 200) { out = out "_" substr(s, 1, 200) "/"; s = substr(s, 201) }
+		print out "_" s "@"
+	}'
+}
+
+case $op in
+put-if-absent)
+	[ "$#" -eq 1 ] || fail 2 invalid "put-if-absent takes one key"
+	rel=$(objpath "$1")
+	final=$objects/$rel
+	mkdir -p "$root/tmp" || fail 1 unavailable "cannot create $root/tmp"
+	tmp=$root/tmp/put.$$
+	trap 'rm -f "$tmp"' EXIT
+	cat >"$tmp" || fail 1 unavailable "cannot write $tmp"
+	mkdir -p "$(dirname "$final")" || fail 1 unavailable "cannot create the directory of $1"
+	if ln "$tmp" "$final" 2>/dev/null; then
+		exit 0
+	fi
+	if [ -f "$final" ]; then
+		cat "$final" || fail 1 unavailable "cannot read $1"
+		exit 3
+	fi
+	fail 1 unavailable "cannot link $1"
+	;;
+get)
+	[ "$#" -eq 1 ] || fail 2 invalid "get takes one key"
+	final=$objects/$(objpath "$1")
+	[ -f "$final" ] || exit 4
+	cat "$final" || fail 1 unavailable "cannot read $1"
+	exit 0
+	;;
+list)
+	[ "$#" -eq 1 ] || [ "$#" -eq 2 ] || fail 2 invalid "list takes a prefix and an optional after-key"
+	prefix=$1
+	after=${2-}
+	[ -d "$objects" ] || exit 0
+	files=$(cd "$objects" && find . -type f -name '*@') || fail 1 unavailable "cannot list $objects"
+	[ -n "$files" ] || exit 0
+	printf '%s\n' "$files" |
+		sed -e 's|^\./||' -e 's|/_||g' -e 's|^_||' -e 's|@$||' |
+		tr '%' '/' |
+		awk -v p="$prefix" -v a="$after" 'index($0, p) == 1 && (a == "" || ("" $0) > ("" a))' |
+		sort
+	exit 0
+	;;
+*)
+	fail 2 invalid "unknown operation $op"
+	;;
+esac

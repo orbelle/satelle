@@ -27,6 +27,9 @@ key refuses to run; `satelle validate` lists every problem.
       [service]                   # satelled
       [sync]
 
+      [ledger]                    # optional; see satelle help ledger-store
+      store = { command = "...", args = ["..."] }   # or "satelle.dev" / "local", built in
+
 - `agents.toml` — the agents catalog (see `satelle help workflows`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.

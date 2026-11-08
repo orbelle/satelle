@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -23,6 +24,7 @@ type Settings struct {
 	Items     ItemSettings    `toml:"items"`
 	Service   ServiceSettings `toml:"service"`
 	Sync      SyncSettings    `toml:"sync"`
+	Ledger    LedgerSettings  `toml:"ledger"`
 }
 
 // GateSettings is the [gate] section, read by the edit gate.
@@ -55,6 +57,12 @@ type ServiceSettings struct {
 type SyncSettings struct {
 	Enabled bool   `toml:"enabled"`
 	URL     string `toml:"url"`
+}
+
+// LedgerSettings is the [ledger] section. Store is optional: absent, it is the
+// zero Spec (no store configured).
+type LedgerSettings struct {
+	Store ledgerstore.Spec `toml:"store"`
 }
 
 // Config is everything a repo configures under its .satelle/ directory.
