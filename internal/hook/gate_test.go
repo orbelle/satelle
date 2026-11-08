@@ -69,6 +69,8 @@ func TestEditGateTable(t *testing.T) {
 		{name: "bash git read", bash: "git -C " + foreign + " status", allow: true},
 		{name: "bash git -C write foreign", seated: []string{root}, bash: "git -C " + foreign + " commit -m x", allow: false},
 		{name: "bash sh -c program judged by its writes", bash: `sh -c 'echo hi > y.txt'`, allow: false},
+		{name: "bash chmod scratch file unseated", bash: "chmod +x " + filepath.Join(temp, "x.sh"), allow: true},
+		{name: "bash chmod repo file unseated", bash: "chmod +x main.go", allow: false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			clear(seats)
@@ -88,6 +90,35 @@ func TestEditGateTable(t *testing.T) {
 				t.Errorf("deny reason does not explain itself: %q", v.Reason)
 			}
 		})
+	}
+}
+
+// TestGateChmodModeOperand pins that chmod's mode is not judged as an edit:
+// from an unseated repo cwd a scratch-file chmod is allowed, and an in-repo
+// chmod is refused naming the file, never the mode.
+func TestGateChmodModeOperand(t *testing.T) {
+	root := newRepo(t)
+	g := Gate{Root: root, TempRoots: []string{"/tmp"}, Seated: func(string) bool { return false }}
+	for _, cmd := range []string{"chmod +x /tmp/x.sh", "chmod u+w /tmp/x.sh", "chmod 755 /tmp/x.sh", "chmod a=r /tmp/x.sh"} {
+		if v := g.Bash(cmd, root); !v.Allow {
+			t.Errorf("%q: denied (%s), want allowed", cmd, v.Reason)
+		}
+	}
+	for _, cmd := range []string{"chmod +x sub/run.sh", "chmod 755 sub/run.sh"} {
+		v := g.Bash(cmd, root)
+		if v.Allow {
+			t.Fatalf("%q: allowed, want refused", cmd)
+		}
+		if v.Path != filepath.Join(root, "sub/run.sh") {
+			t.Errorf("%q: refused path %q, want %q", cmd, v.Path, filepath.Join(root, "sub/run.sh"))
+		}
+		if !strings.Contains(v.Reason, "edit to sub/run.sh blocked") || strings.Contains(v.Reason, "+x") {
+			t.Errorf("%q: reason does not name the file alone: %q", cmd, v.Reason)
+		}
+	}
+	// A mode-shaped word after the first positional is a file chmod writes.
+	if v := g.Bash("chmod /tmp/x.sh +x", root); v.Allow || v.Path != filepath.Join(root, "+x") {
+		t.Errorf("chmod /tmp/x.sh +x: allow %v path %q, want refused at %q", v.Allow, v.Path, filepath.Join(root, "+x"))
 	}
 }
 
