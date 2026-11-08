@@ -1,3 +1,8 @@
+## [1.0.43] - 2026-11-08
+
+### Changed
+- The sync-architecture principle describes the one replication path: `[ledger] store` (satelle.dev while signed in, local otherwise, or an adapter command) with `satelle ledger push`, `pull` and `status`, the hot path never contacting the store, and remote paths replicating their run's item through satelle-server; it no longer names the removed sync verb. (sto_9b5f0603)
+
 ## [1.0.42] - 2026-11-08
 
 ### Added
