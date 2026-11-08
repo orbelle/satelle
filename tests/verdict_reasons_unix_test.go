@@ -149,7 +149,7 @@ func TestVerdictRulesDeclaredOnTheRepoGates(t *testing.T) {
 	}
 	sort.Strings(judged)
 	sort.Strings(referenced)
-	if len(judged) != 22 || len(referenced) != 16 {
+	if len(judged) != 23 || len(referenced) != 16 {
 		t.Errorf("judged gates %d %v; referenced %d %v", len(judged), judged, len(referenced), referenced)
 	}
 	tmpl, err := workflow.Load("../internal/kernel/template/workflows")

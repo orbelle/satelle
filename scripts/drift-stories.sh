@@ -4,6 +4,7 @@
 #
 #   drift-stories.sh <version> < misses
 #   drift-stories.sh --reshape
+#   drift-stories.sh --keys < findings
 #
 # Each stdin line is a finding in drift-check.sh's form,
 # `<file>:<line>: <kind>: <subject> — <why>`. Kinds command, flag, topic,
@@ -42,6 +43,12 @@
 #   <key>\t<id>\treshaped     body and criteria rewritten
 #   <key>\t<id>\talready      it already carries the role line
 #   <key>\t<id>\theld:<state> past backlog; not touched
+#
+# --keys prints the drift-key of each distinct finding on stdin, one per line,
+# and raises nothing: the drift workflow's done gate
+# (.satelle/skills/satelle-drift-resolved-check.md) reads a drift-report's
+# findings through it, so a finding maps to its key in this script only. A
+# line that is not a finding exits 2.
 # Exit 0 when every finding is carried, 2 when it cannot raise (a tool or an
 # epic is missing, a line is not a finding, a create or set fails).
 set -uo pipefail
@@ -77,12 +84,41 @@ body() {
     "$1" "$(role "$kind" "${rest%%:*}")" "$2" "$3"
 }
 
-for tool in "$bin" jq; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "drift-stories: $tool is not on PATH" >&2; exit 2; }
-done
+# parse_findings: every stdin finding, parsed once into $tmp/findings, one
+# line each: key, epic tag, file, subject, the finding. The one place a finding
+# maps to its key and epic; returns 1 (naming the line) on a line that is not a
+# finding or carries an unknown kind.
+parse_findings() {
+  local line file rest num kind subject epic
+  : > "$tmp/findings"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    file=${line%%:*}
+    rest=${line#*:}
+    num=${rest%%:*}
+    rest=${rest#*: }
+    kind=${rest%%: *}
+    rest=${rest#*: }
+    subject=${rest%% — *}
+    case $num in '' | *[!0-9]*) echo "drift-stories: not a finding: $line" >&2; return 1 ;; esac
+    case $kind in
+      constitution) epic=epic:constitution ;;
+      command | flag | topic | link | skill | config | prose) epic=epic:hygiene ;;
+      *) echo "drift-stories: unknown kind $kind in: $line" >&2; return 1 ;;
+    esac
+    printf '%s\t%s\t%s\t%s\t%s\n' "$kind:$file:$subject" "$epic" "$file" "$subject" "$line" >> "$tmp/findings"
+  done
+}
 
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
+
+# --keys needs neither satelle nor jq.
+if [ "${1:-}" != --keys ]; then
+  for tool in "$bin" jq; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "drift-stories: $tool is not on PATH" >&2; exit 2; }
+  done
+fi
 
 if [ "${1:-}" = --reshape ]; then
   "$bin" story list --tag drift --open --json > "$tmp/open" || { echo "drift-stories: satelle story list --tag drift failed" >&2; exit 2; }
@@ -113,29 +149,17 @@ if [ "${1:-}" = --reshape ]; then
   exit 0
 fi
 
+if [ "${1:-}" = --keys ]; then
+  parse_findings || exit 2
+  cut -f1 "$tmp/findings" | awk '!seen[$0]++'
+  exit 0
+fi
+
 ver=${1:-}
-[ -n "$ver" ] || { echo "usage: drift-stories.sh <version> < misses | drift-stories.sh --reshape" >&2; exit 2; }
+[ -n "$ver" ] || { echo "usage: drift-stories.sh <version> < misses | drift-stories.sh --reshape | drift-stories.sh --keys < findings" >&2; exit 2; }
 ver=${ver#v}
 
-# Parse every finding first: kind, file, subject, the line itself.
-: > "$tmp/findings"
-while IFS= read -r line || [ -n "$line" ]; do
-  [ -n "$line" ] || continue
-  file=${line%%:*}
-  rest=${line#*:}
-  num=${rest%%:*}
-  rest=${rest#*: }
-  kind=${rest%%: *}
-  rest=${rest#*: }
-  subject=${rest%% — *}
-  case $num in '' | *[!0-9]*) echo "drift-stories: not a finding: $line" >&2; exit 2 ;; esac
-  case $kind in
-    constitution) epic=epic:constitution ;;
-    command | flag | topic | link | skill | config | prose) epic=epic:hygiene ;;
-    *) echo "drift-stories: unknown kind $kind in: $line" >&2; exit 2 ;;
-  esac
-  printf '%s\t%s\t%s\t%s\t%s\n' "$kind:$file:$subject" "$epic" "$file" "$subject" "$line" >> "$tmp/findings"
-done
+parse_findings || exit 2
 [ -s "$tmp/findings" ] || exit 0
 
 # Resolve each epic a finding needs, before anything is created.

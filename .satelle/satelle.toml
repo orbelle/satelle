@@ -20,6 +20,13 @@ kind = "queue"
 workflow = "epic"
 tag = "epic"
 
+# A drift story (scripts/drift-stories.sh) is a record that closes only on a
+# drift run's evidence; before chore, since a .satelle/ finding is a chore too.
+[[workflows.rule]]
+workflow = "drift"
+kind = "story"
+tag = "drift"
+
 [[workflows.rule]]
 workflow = "chore"
 category = "chore"

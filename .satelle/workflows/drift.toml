@@ -1,0 +1,34 @@
+# A drift story records one finding of the drift review (its `drift-key:`
+# line, raised by scripts/drift-stories.sh); the fix is other work. The record
+# is never worked here: it closes only inside a drift review run that no
+# longer finds it, on that run's drift-report (drift-resolved), so every close
+# is a gate.run on the story's ledger. A story that fails the re-check stays
+# open. Selected for stories tagged drift by the rule in satelle.toml.
+name = "drift"
+
+[states.open]
+start = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.drift-resolved]
+skill = "satelle-drift-resolved-check"
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer-alt"
+after = ["satelle-verdict-notes-check"]
+
+[[transition]]
+from = ["open"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["drift-resolved"] }]
+
+[[transition]]
+from = ["*"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]

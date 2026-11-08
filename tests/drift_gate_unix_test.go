@@ -21,6 +21,7 @@ var driftTaskFiles = []string{
 	".satelle/skills/release.md",
 	".satelle/skills/drift-review.md",
 	".satelle/skills/satelle-drift-run-trigger.md",
+	".satelle/skills/satelle-drift-resolved-check.md",
 }
 
 // repoText reads a file of this repo.
