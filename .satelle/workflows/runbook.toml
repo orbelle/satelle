@@ -22,6 +22,14 @@ skill = "satelle-task-validate-before-review"
 skill = "satelle-task-validate-after-review"
 agent = "reviewer-alt"
 
+# A run that landed items (release.md step 4 attaches its kept list as
+# release-kept before the push) is refused done while any of them is not in a
+# terminal state of its own workflow. A run with no release-kept landed
+# nothing, so the check accepts every other run. First in its group: cheap,
+# and it fails before the reviewer is spent.
+[gates.release-kept]
+skill = "satelle-release-kept-check"
+
 # The drift review run (release.md step 11) only: the trigger skips every
 # other run. drift-constitution judges the release's binary change, its diff
 # from the previous release tag over the binary's sources, against the
@@ -50,7 +58,7 @@ groups = [{ mode = "sequential", gates = ["validate-before"] }]
 [[transition]]
 from = ["in_progress"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["drift-constitution", "drift-claims", "validate-after"] }]
+groups = [{ mode = "sequential", gates = ["release-kept", "drift-constitution", "drift-claims", "validate-after"] }]
 
 [[transition]]
 from = ["*"]

@@ -316,6 +316,37 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	if r := entry(idX); r.code != 1 || !strings.Contains(r.out, `"- X never landed (`+idX+`)" under ### Added`) {
 		t.Fatalf("changelog-entry for an absent entry: exit %d\n%s%s", r.code, r.out, r.err)
 	}
+
+	// AC3 (sto_4a863578): a later release writes [1.0.2] from D only. An item
+	// an earlier release published is accepted from that section; D from the
+	// first; an absent entry is still refused with the current version's
+	// reason.
+	idD := c.story("### Added\n- D adds a thing\n")
+	wtD := c.worktree("origin/main", true)
+	if r := c.exec("bash", "", "-c", changelogBlock(t, wtD, "1.0.2", idD)); r.code != 0 {
+		t.Fatalf("step 3 for 1.0.2: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	c.bump(wtD, "1.0.2")
+	c.at(gate, func() { c.git("checkout", "-q", "--detach", "origin/main") })
+	if r := entry(idA); r.code != 0 || !strings.Contains(r.out, "in the [1.0.1] section, the release that published it") {
+		t.Fatalf("changelog-entry for an item [1.0.1] published: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if r := entry(idD); r.code != 0 || !strings.Contains(r.out, "opens with the [1.0.2] section") {
+		t.Fatalf("changelog-entry for an item of the first section: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if r := entry(idX); r.code != 1 || !strings.Contains(r.out, `"- X never landed (`+idX+`)" under ### Added`) || !strings.Contains(r.out, "[1.0.2]") {
+		t.Fatalf("changelog-entry for an absent entry after 1.0.2: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	// Step 3 with every kept item released before writes nothing.
+	wtE := c.worktree("origin/main", true)
+	before, _ := os.ReadFile(filepath.Join(wtE, "CHANGELOG.md"))
+	if r := c.exec("bash", "", "-c", changelogBlock(t, wtE, "1.0.3")); r.code != 0 || !strings.Contains(r.out, "released before") {
+		t.Fatalf("step 3 with no unreleased item: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(wtE, "CHANGELOG.md")); string(after) != string(before) {
+		t.Fatalf("step 3 with no unreleased item changed CHANGELOG.md:\n%s", after)
+	}
+
 	push := func(body string) {
 		c.at(gate, func() {
 			c.write("CHANGELOG.md", body)
