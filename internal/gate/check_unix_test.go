@@ -98,15 +98,15 @@ func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 		return rs
 	}
 	gates := map[string]workflow.Gate{
-		"ok":      {Skill: "judge", Agent: "y1", After: "after"},
-		"bad":     {Skill: "judge", Agent: "n1", After: "after"},
-		"carry":   {Skill: "judge", Agent: "y1", Carry: true, After: "after"},
-		"skip":    {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}, After: "after"},
-		"gone":    {Skill: "nope", Agent: "y1", After: "after"},
-		"dead":    {Skill: "judge", Agent: "dead", After: "after"},
-		"garbled": {Skill: "judge", Agent: "garbled", After: "after"},
-		"check":   {Skill: "pass", After: "after"},
-		"panel":   {Skill: "judge", Panel: []string{"y1", "garbled"}, Combine: workflow.CombineAny, After: "after"},
+		"ok":      {Skill: "judge", Agent: "y1", After: []string{"after"}},
+		"bad":     {Skill: "judge", Agent: "n1", After: []string{"after"}},
+		"carry":   {Skill: "judge", Agent: "y1", Carry: true, After: []string{"after"}},
+		"skip":    {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}, After: []string{"after"}},
+		"gone":    {Skill: "nope", Agent: "y1", After: []string{"after"}},
+		"dead":    {Skill: "judge", Agent: "dead", After: []string{"after"}},
+		"garbled": {Skill: "judge", Agent: "garbled", After: []string{"after"}},
+		"check":   {Skill: "pass", After: []string{"after"}},
+		"panel":   {Skill: "judge", Panel: []string{"y1", "garbled"}, Combine: workflow.CombineAny, After: []string{"after"}},
 	}
 	prior := []Result{{Transition: "s0->s1", Gate: "carry", Result: Accept, Coverage: "cov:"}}
 	rs := run(gates, prior, map[string]string{"garbled": "no verdict here"})
@@ -138,6 +138,7 @@ func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 	logged := string(b)
 	for _, want := range []string{
 		`gate=ok result=accept binding=y1 item=i1`, `"notes":"fine"`, `"gate":"ok"`, `"result":"accept"`, `"binding":"y1"`,
+		`"members":[{"binding":"y1","result":"accept","notes":"fine"}]`,
 		`gate=bad result=reject binding=n1`, `"notes":"bad"`,
 		`gate=carry result=carried`,
 		`gate=check result=accept binding= `,
@@ -149,11 +150,16 @@ func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 	if n := strings.Count(logged, "\n"); n != 4 {
 		t.Errorf("after ran %d times, want 4:\n%s", n, logged)
 	}
+	for _, ln := range strings.Split(logged, "\n") {
+		if (strings.HasPrefix(ln, "gate=carry") || strings.HasPrefix(ln, "gate=check")) && strings.Contains(ln, `"members"`) {
+			t.Errorf("a carry or a check gate sees members: %s", ln)
+		}
+	}
 
 	// A failing after turns an accept (and a carry) into a reject with its output.
 	gates = map[string]workflow.Gate{
-		"ok":    {Skill: "judge", Agent: "y1", After: "fails"},
-		"carry": {Skill: "judge", Agent: "y1", Carry: true, After: "fails"},
+		"ok":    {Skill: "judge", Agent: "y1", After: []string{"fails"}},
+		"carry": {Skill: "judge", Agent: "y1", Carry: true, After: []string{"fails"}},
 	}
 	r, _ := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"ok", "carry"}}}, gates)
 	r.Skills["fails"] = checkSkill("echo could not publish; exit 1")
@@ -184,7 +190,7 @@ func TestGateTimeoutBoundsThatGate(t *testing.T) {
 		"short": {Skill: "slow"},
 		"tight": {Skill: "hang", Trigger: "yes", Timeout: "200ms"},
 		"trig":  {Skill: "pass", Trigger: "hang", Timeout: "200ms"},
-		"after": {Skill: "pass", After: "hang", Timeout: "200ms"},
+		"after": {Skill: "pass", After: []string{"hang"}, Timeout: "200ms"},
 	}
 	r, _ := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"long", "short", "tight", "trig", "after"}}}, gates)
 	r.Skills["slow"] = checkSkill("sleep 1; echo ok")
@@ -311,5 +317,65 @@ func TestBrokenTriggerRunsTheGate(t *testing.T) {
 	}
 	if !strings.HasPrefix(rs[4].Notes, line) || !strings.HasSuffix(rs[4].Notes, "nope") {
 		t.Fatalf("failing notes %q", rs[4].Notes)
+	}
+}
+
+// The after list runs in order and stops at the first refusal: a notes rule
+// (a check, here a fixture) that refuses an empty-notes accept turns it into
+// a reject carrying the check's output and the judge's raw answer, and the
+// publish check after it never runs. A gate with no after records the
+// verdict as given.
+func TestAfterListRefusesAndKeepsAnswer(t *testing.T) {
+	const empty = `thinking done {"verdict":"accept","notes":""}`
+	publishLog := t.TempDir() + "/publish.log"
+	notesRule := checkSkill(`#!/bin/sh
+p=$(cat)
+case "$p" in
+  *'"notes":""'*) echo "the judge gave no reasons"; exit 1;;
+esac
+exit 0
+`)
+	publish := checkSkill(`echo "$SATELLE_GATE $SATELLE_GATE_RESULT" >> ` + publishLog + `; echo published`)
+	gates := map[string]workflow.Gate{
+		"single": {Skill: "judge", Agent: "empty", After: []string{"notes", "publish"}},
+		"panel":  {Skill: "judge", Panel: []string{"y1", "empty"}, Combine: workflow.CombineAll, After: []string{"notes", "publish"}},
+		"good":   {Skill: "judge", Agent: "y1", After: []string{"notes", "publish"}},
+		"bare":   {Skill: "judge", Agent: "empty"},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"single", "panel", "good", "bare"}}}, gates)
+	b := r.Agents["y2"]
+	b.Name = "empty"
+	r.Agents["empty"] = b
+	d.answers["empty"] = empty
+	r.Skills["notes"], r.Skills["publish"] = notesRule, publish
+	r.Dir = t.TempDir()
+	rs, pass := r.Execute(context.Background())
+	got := map[string]Result{}
+	for _, x := range rs {
+		got[x.Gate] = x
+	}
+	if pass {
+		t.Fatal("refused verdicts passed")
+	}
+	s := got["single"]
+	if s.Result != Reject || !strings.Contains(s.Notes, "after notes: the judge gave no reasons") ||
+		!strings.Contains(s.Notes, "after publish: not run: after notes refused the verdict") || s.Answer != empty {
+		t.Errorf("single: %+v", s)
+	}
+	p := got["panel"]
+	if p.Result != Reject || p.Answer != "" || len(p.Members) != 2 || p.Members[1].Answer != empty || p.Members[0].Answer != yes ||
+		p.Members[0].Result != Accept || p.Members[1].Result != Accept {
+		t.Errorf("panel: %+v", p)
+	}
+	g := got["good"]
+	if g.Result != Accept || g.Answer != "" || strings.Contains(g.Notes, "after notes") || !strings.Contains(g.Notes, "after publish: published") {
+		t.Errorf("good: %+v", g)
+	}
+	if bare := got["bare"]; bare.Result != Accept || bare.Notes != "" || bare.Answer != "" {
+		t.Errorf("a gate with no after changed the verdict: %+v", bare)
+	}
+	logged, err := os.ReadFile(publishLog)
+	if err != nil || string(logged) != "good accept\n" {
+		t.Fatalf("publish ran on %q (%v), want only good", logged, err)
 	}
 }

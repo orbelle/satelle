@@ -148,8 +148,8 @@ func checksRoute(t *testing.T, checks []string) string {
 			if g.Trigger != "" {
 				triggers[g.Trigger] = true
 			}
-			if g.After != "" {
-				afters[g.After] = true
+			for _, a := range g.After {
+				afters[a] = true
 			}
 		}
 	}
@@ -165,7 +165,7 @@ func checksRoute(t *testing.T, checks []string) string {
 		case triggers[name]:
 			fmt.Fprintf(&b, "skill = \"fixture-accept\"\ntrigger = %q\n", name)
 		case afters[name]:
-			fmt.Fprintf(&b, "skill = \"fixture-accept\"\nafter = %q\n", name)
+			fmt.Fprintf(&b, "skill = \"fixture-accept\"\nafter = [%q]\n", name)
 		default:
 			fmt.Fprintf(&b, "skill = %q\n", name)
 		}

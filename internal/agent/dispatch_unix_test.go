@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/logsread"
 )
 
 // fake writes an executable named name that records its argv and stdin and
@@ -130,5 +133,103 @@ func TestCancelKillsProcessGroup(t *testing.T) {
 	}
 	if time.Since(start) > 1500*time.Millisecond {
 		t.Fatalf("cancel took %v", time.Since(start))
+	}
+}
+
+// fakePi speaks the pi RPC: it answers the prompt, settles, then answers the
+// text and stats requests.
+const fakePi = `while IFS= read -r line; do
+  case "$line" in
+    *'"type":"prompt"'*)
+      echo '{"type":"response","id":"satelle-prompt","command":"prompt","success":true}'
+      echo '{"type":"message_end","message":{"role":"assistant","provider":"prov","model":"m1","content":[{"type":"text","text":"interim"}]}}'
+      echo '{"type":"agent_settled"}';;
+    *get_last_assistant_text*) echo '{"type":"response","id":"satelle-text","success":true,"data":{"text":"final"}}';;
+    *get_session_stats*) echo '{"type":"response","id":"satelle-stats","success":true,"data":{"tokens":{"input":3,"output":4}}}'; echo "pi says bye" >&2;;
+  esac
+done
+`
+
+// A dispatch with Log set writes the full pi RPC exchange there, in order:
+// argv, each line sent (> ) and read (< ), then stderr.
+func TestDispatchLogPi(t *testing.T) {
+	bin, _, _ := fake(t, "pi", fakePi)
+	logs := t.TempDir()
+	path := logsread.DispatchPath(logs, "r", "sto_1", time.Now().UnixNano())
+	b := Binding{Name: "r", Command: bin, Tools: []string{"Read"}}
+	if _, err := (Runner{}).Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: "p", System: "s", Log: path}); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, path)
+	want := []string{
+		"argv: [",
+		`> {"id":"satelle-prompt","message":"p","type":"prompt"}`,
+		`< {"type":"response","id":"satelle-prompt"`,
+		`< {"type":"message_end"`,
+		`< {"type":"agent_settled"}`,
+		`> {"id":"satelle-text","type":"get_last_assistant_text"}`,
+		`< {"type":"response","id":"satelle-text"`,
+		`< {"type":"response","id":"satelle-stats"`,
+		"stderr: pi says bye",
+	}
+	at := 0
+	for _, w := range want {
+		i := strings.Index(got[at:], w)
+		if i < 0 {
+			t.Fatalf("log lacks %q after offset %d:\n%s", w, at, got)
+		}
+		at += i + len(w)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("log mode %v %v", fi, err)
+	}
+	if f, ok, err := logsread.Select(logs, "sto_1", "r"); err != nil || !ok || f.Path != path {
+		t.Fatalf("satelle logs does not find it: %+v %v %v", f, ok, err)
+	}
+}
+
+// claude (and grok, through runOnce) log argv and stdout.
+func TestDispatchLogClaude(t *testing.T) {
+	bin, _, _ := fake(t, "claude", "cat >/dev/null\necho '{\"result\":\"done\",\"usage\":{\"input_tokens\":5,\"output_tokens\":7}}'\necho oops >&2\n")
+	path := logsread.DispatchPath(t.TempDir(), "c", "sto_1", 1)
+	b := Binding{Name: "c", Command: bin, Tools: []string{"Read"}}
+	if _, err := (Runner{}).Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: "p", Log: path}); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, path)
+	if !strings.HasPrefix(got, "argv: [") || !strings.Contains(got, `< {"result":"done"`) || !strings.Contains(got, "stderr: oops") {
+		t.Fatalf("log:\n%s", got)
+	}
+}
+
+// Logging keeps only the newest dispatch logs, and a log that cannot be
+// written does not stop the dispatch.
+func TestDispatchLogPrunesAndNeverFails(t *testing.T) {
+	bin, _, _ := fake(t, "pi", fakePi)
+	b := Binding{Name: "r", Command: bin, Tools: []string{"Read"}}
+	logs := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(logs, "dispatch"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for n := int64(1); n <= int64(config.DefaultLogsMaxFiles)+3; n++ {
+		if err := os.WriteFile(logsread.DispatchPath(logs, "r", "sto_1", n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := logsread.DispatchPath(logs, "r", "sto_1", time.Now().UnixNano())
+	if _, err := (Runner{}).Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: "p", Log: path}); err != nil {
+		t.Fatal(err)
+	}
+	files, err := logsread.ListDispatch(logs)
+	if err != nil || len(files) != config.DefaultLogsMaxFiles || files[0].Path != path {
+		t.Fatalf("%v %d %+v", err, len(files), files)
+	}
+	blocked := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Runner{}.Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: "p", Log: filepath.Join(blocked, "dispatch", "x.log")})
+	if err != nil || res.Text != "final" {
+		t.Fatalf("unwritable log failed the dispatch: %v %+v", err, res)
 	}
 }

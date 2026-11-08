@@ -256,14 +256,14 @@ func judged(p presentationVM, gate string) bool {
 }
 
 // closeOpen settles the outcome of the open presentation at i: refused when a
-// gate rejected, else open.
+// gate rejected or errored (its judge could not be asked), else open.
 func closeOpen(ps []presentationVM, i int) {
 	if i < 0 || ps[i].Outcome != "" {
 		return
 	}
 	ps[i].Outcome = outcomeOpen
 	for _, v := range ps[i].Verdicts {
-		if v.Result == mirror.GateReject {
+		if v.Result == mirror.GateReject || v.Result == mirror.GateError {
 			ps[i].Outcome = outcomeRefused
 		}
 	}

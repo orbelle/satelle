@@ -128,7 +128,8 @@ func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 // judges and any other judge apart by their system prompt: "constitution"
 // (it defines the DRIFT line), "claims" (the CLAIM line), else "other". Each
 // records its prompt in prompt.<gate>.<pid> and answers with verdict.<gate>
-// (default accept) and notes.<gate>.
+// (default accept) and notes.<gate> (by default notes that give a reason and
+// name a file, as the gates' reasons rules require).
 func fakeDriftJudge(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -143,7 +144,7 @@ esac
 cat > "$FAKE_DIR/prompt.$g.$$"
 printf '%s' "$sys" > "$FAKE_DIR/system.$g"
 v=accept; [ -f "$FAKE_DIR/verdict.$g" ] && v=$(cat "$FAKE_DIR/verdict.$g")
-n="$v by $g"; [ -f "$FAKE_DIR/notes.$g" ] && n=$(cat "$FAKE_DIR/notes.$g")
+n="$v by $g: judged the diff of internal/x.go against the record"; [ -f "$FAKE_DIR/notes.$g" ] && n=$(cat "$FAKE_DIR/notes.$g")
 inner=$(jq -cn --arg v "$v" --arg n "$n" '{verdict:$v,notes:$n}')
 jq -cn --arg r "$inner" '{type:"result",subtype:"success",is_error:false,result:$r,usage:{input_tokens:3,output_tokens:2}}'
 `, 0o755)
@@ -223,7 +224,8 @@ tools = ["Read", "Grep", "Glob"]
 `)
 	s.write(".satelle/workflows/runbook.toml", repoText(t, ".satelle/workflows/runbook.toml"))
 	for _, name := range []string{"task-run", "satelle-task-validate-before-review", "satelle-task-validate-after-review", "satelle-release-kept-check",
-		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered"} {
+		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered",
+		"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
 	// The trigger as the repo has it until the drift task exists; then its id.
@@ -394,7 +396,7 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 	drift := d.start(d.drift, stepSeat(t))
 	d.assertJudgedFromPrev(drift)
 
-	d.setFake("notes.constitution", "no drift")
+	d.setFake("notes.constitution", "no drift: every principle holds over the diff of internal/x.go")
 	if r := d.run("execution", "set", drift, "--status", "done"); r.code == 0 {
 		t.Fatal("an accept with no READ line closed a run whose diff was cut")
 	}
@@ -415,7 +417,7 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 	// Under the cut an accept with no READ line stands.
 	small := newDriftSandbox(t, nil)
 	exe := small.start(small.drift, stepSeat(t))
-	small.setFake("notes.constitution", "no drift")
+	small.setFake("notes.constitution", "no drift: every principle holds over the diff of internal/x.go")
 	small.run("execution", "set", exe, "--status", "done")
 	if g := latestRun(small.sandbox, exe, "drift-constitution"); g.Result != "accept" {
 		t.Fatalf("drift-constitution under the cut = %s (%q), want accept", g.Result, g.Notes)

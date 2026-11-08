@@ -319,6 +319,7 @@ type gateRun struct {
 	TokensOut  int      `json:"tokens_out"`
 	Changed    []string `json:"changed"`
 	Warning    string   `json:"warning"`
+	Answer     string   `json:"answer"`
 }
 
 // ledger returns the events of id (every item's when id is "") of one kind

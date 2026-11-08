@@ -94,10 +94,11 @@ type Gate struct {
 	Paths   []string `toml:"paths"`
 	Trigger string   `toml:"trigger"`
 	Carry   bool     `toml:"carry"`
-	// After is a check skill run once the gate has a verdict (accept, reject
-	// or carried): it sees the result and notes, and a non-zero exit turns
-	// the result into a reject.
-	After string `toml:"after"`
+	// After lists the check skills run, in order, once the gate has a verdict
+	// (accept, reject or carried): each sees the result, notes and every
+	// judge's own answer, and a non-zero exit turns the result into a reject
+	// and stops the checks after it.
+	After []string `toml:"after"`
 	// Timeout bounds every check script this gate runs (its check skill,
 	// trigger and after), each run separately, as a Go duration; empty uses
 	// the default.

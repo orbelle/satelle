@@ -47,7 +47,9 @@ is not grounds to object.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": ""}
+{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>"}
 ```
 
-On reject, `notes` names what is missing (may be empty on accept).
+On reject, `notes` names what is missing; on accept, what you judged. The
+gate's notes rule (`satelle-verdict-notes-check`) refuses notes too short to
+say either.

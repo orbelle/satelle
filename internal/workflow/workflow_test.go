@@ -50,7 +50,7 @@ carry = true
 [gates.g2]
 skill = "script"
 trigger = "script"
-after = "script"
+after = ["script"]
 timeout = "30m"
 
 [[transition]]
@@ -79,8 +79,8 @@ func TestValidWorkflow(t *testing.T) {
 	if got := w.States["end"].Enqueue; strings.Join(got, ",") != "que_00000001,que_00000002" {
 		t.Fatalf("enqueue %v", got)
 	}
-	if w.Gates["g2"].After != "script" {
-		t.Fatalf("after %q", w.Gates["g2"].After)
+	if strings.Join(w.Gates["g2"].After, ",") != "script" {
+		t.Fatalf("after %v", w.Gates["g2"].After)
 	}
 	if d, err := w.Gates["g2"].Bound(); err != nil || d != 30*time.Minute {
 		t.Fatalf("g2 bound %v %v", d, err)
@@ -135,8 +135,11 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"from terminal", base + "[[transition]]\nfrom = [\"z\"]\nto = \"a\"\n", "is terminal"},
 		{"empty enqueue", base + "[states.e]\nenqueue = [\"\"]\n", "empty queue name"},
 		{"duplicate enqueue", base + "[states.e]\nenqueue = [\"que_1\", \"que_1\"]\n", "enqueues into que_1 twice"},
-		{"after missing", base + "[gates.g]\nskill = \"script\"\nafter = \"nope\"\n", `after "nope" is not a check skill`},
-		{"after not a check", base + "[gates.g]\nskill = \"script\"\nafter = \"judge\"\n", `after "judge" is not a check skill`},
+		{"after missing", base + "[gates.g]\nskill = \"script\"\nafter = [\"nope\"]\n", `after "nope" is not a check skill`},
+		{"after not a check", base + "[gates.g]\nskill = \"script\"\nafter = [\"judge\"]\n", `after "judge" is not a check skill`},
+		{"after duplicate", base + "[gates.g]\nskill = \"script\"\nafter = [\"script\", \"script\"]\n", `after lists "script" twice`},
+		{"after second not a check", base + "[gates.g]\nskill = \"script\"\nafter = [\"script\", \"judge\"]\n", `after "judge" is not a check skill`},
+		{"after as a string", base + "[gates.g]\nskill = \"script\"\nafter = \"script\"\n", "after"},
 		{"timeout not a duration", base + "[gates.g]\nskill = \"script\"\ntimeout = \"soon\"\n", `timeout "soon" is not a duration`},
 		{"timeout zero", base + "[gates.g]\nskill = \"script\"\ntimeout = \"0s\"\n", `timeout "0s" must be positive`},
 		{"timeout negative", base + "[gates.g]\nskill = \"script\"\ntimeout = \"-1m\"\n", `timeout "-1m" must be positive`},

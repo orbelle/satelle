@@ -21,10 +21,17 @@ type Request struct {
 	Deny    []string // denied beyond the binding's own deny list
 	Dir     string   // working directory
 	Env     []string // extra KEY=VALUE entries
+	// Log is the path of this dispatch's log: the command line and everything
+	// exchanged with the harness. "" writes none. A log that cannot be written
+	// never fails the dispatch.
+	Log string
 
 	// promptFile is where an adapter that reads its prompt from a file (grok)
 	// finds it for this run; set by that adapter's Run.
 	promptFile string
+	// log is the open dispatch log, set by Runner.Dispatch from Log; nil
+	// writes nothing.
+	log *dispatchLog
 }
 
 func (r Request) denies() []string { return append(append([]string{}, r.Binding.Deny...), r.Deny...) }
@@ -140,6 +147,8 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	default:
 		return Result{}, fmt.Errorf("unknown role %q", role)
 	}
+	req.log = openLog(req.Log)
+	defer closeLog(req.log, req.Log)
 	start := time.Now()
 	res, err := a.Run(ctx, req)
 	res.Duration = time.Since(start)
@@ -164,7 +173,8 @@ func (s session) Run(context.Context, Request) (Result, error) {
 }
 
 // runOnce starts argv, feeds stdin, and returns stdout. The child runs in its
-// own process group, killed whole when ctx ends.
+// own process group, killed whole when ctx ends. The dispatch log gets argv,
+// then stdout and stderr once the child exits.
 func runOnce(ctx context.Context, argv []string, stdin string, req Request) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = req.Dir
@@ -177,7 +187,10 @@ func runOnce(ctx context.Context, argv []string, stdin string, req Request) ([]b
 	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
+	req.log.argv(argv)
 	err := cmd.Run()
+	req.log.output("< ", out.Bytes())
+	req.log.output("stderr: ", errb.Bytes())
 	if ctx.Err() != nil {
 		return out.Bytes(), fmt.Errorf("%s: %w", argv[0], ctx.Err())
 	}

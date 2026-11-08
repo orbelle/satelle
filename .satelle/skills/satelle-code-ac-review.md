@@ -95,5 +95,5 @@ stated.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": ""}
+{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>"}
 ```

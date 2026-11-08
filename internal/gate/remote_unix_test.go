@@ -92,7 +92,7 @@ func TestRemoteCarryAndAfter(t *testing.T) {
 		t.Fatalf("carried: %+v %d", rs[0], len(f.checks))
 	}
 
-	r, f = remoteSetup(t, workflow.Gate{Placement: "remote:box", After: "publish"})
+	r, f = remoteSetup(t, workflow.Gate{Placement: "remote:box", After: []string{"publish"}})
 	r.Skills["publish"] = checkSkill(`echo "published $SATELLE_GATE_RESULT from $PWD"`)
 	f.out = RemoteOutcome{Node: "nod_2", Exit: 0}
 	rs, _ = r.Execute(context.Background())
@@ -106,7 +106,7 @@ func TestRemoteCarryAndAfter(t *testing.T) {
 func TestRemoteCheckFailuresReject(t *testing.T) {
 	check := func(name string, r Run, wants ...string) {
 		t.Helper()
-		r.Workflow.Gates["suite"] = func(g workflow.Gate) workflow.Gate { g.After = "publish"; return g }(r.Workflow.Gates["suite"])
+		r.Workflow.Gates["suite"] = func(g workflow.Gate) workflow.Gate { g.After = []string{"publish"}; return g }(r.Workflow.Gates["suite"])
 		r.Skills["publish"] = checkSkill("echo published")
 		rs, pass := r.Execute(context.Background())
 		if pass || rs[0].Result != Reject || rs[0].verdict || strings.Contains(rs[0].Notes, "published") {

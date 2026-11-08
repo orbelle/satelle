@@ -60,3 +60,26 @@ func TestLatestDispatchAtOrBefore(t *testing.T) {
 		t.Fatalf("got %+v ok=%v err=%v", f, ok, err)
 	}
 }
+
+// DispatchPath names a log ListDispatch finds; PruneDispatch keeps the newest.
+func TestDispatchPathAndPrune(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dispatch"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for n := int64(1); n <= 5; n++ {
+		if err := os.WriteFile(DispatchPath(dir, "reviewer-alt", "sto_1", n), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := PruneDispatch(dir, 3); err != nil {
+		t.Fatal(err)
+	}
+	files, err := ListDispatch(dir)
+	if err != nil || len(files) != 3 || files[0].Nano != 5 || files[2].Nano != 3 || files[0].Agent != "reviewer-alt" {
+		t.Fatalf("%v %+v", err, files)
+	}
+	if err := PruneDispatch(t.TempDir(), 3); err != nil {
+		t.Fatalf("missing dir: %v", err)
+	}
+}

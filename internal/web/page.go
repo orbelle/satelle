@@ -65,8 +65,9 @@ var tmplFuncs = template.FuncMap{
 		return strings.Join(ss, sep)
 	},
 	// evdot maps a timeline event to its dot's outcome class from the gate
-	// result in the payload: a reject is a fail dot, an accept or carry a pass
-	// dot; every other event keeps the default dot.
+	// result in the payload: a reject is a fail dot, an error (a judge that
+	// could not be asked) an error dot, an accept or carry a pass dot; every
+	// other event keeps the default dot.
 	"evdot": func(ev eventVM) string {
 		for _, c := range ev.Chips {
 			if c.Type != "outcome" {
@@ -74,6 +75,9 @@ var tmplFuncs = template.FuncMap{
 			}
 			if c.Label == mirror.GateReject {
 				return "tl-fail"
+			}
+			if c.Label == mirror.GateError {
+				return "tl-error"
 			}
 			if c.Label == gateAccept || c.Label == gateCarried {
 				return "tl-pass"

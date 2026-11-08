@@ -14,7 +14,8 @@ import (
 // records its argv in <dir>/argv.<model>.<pid> and answers with claude's JSON
 // envelope whose result is a verdict: accept, or what <dir>/verdict.<model>
 // holds. When <dir>/class.<model> exists the verdict also carries that
-// file's text as its class; without it the envelope is unchanged.
+// file's text as its class; without it the envelope is unchanged. Its notes
+// are "<verdict> by <model>", or what <dir>/notes.<model> holds (no quotes).
 func fakeClaude(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -26,10 +27,12 @@ printf '%s\n' "$@" > "$FAKE_DIR/argv.$model.$$"
 cat > /dev/null
 v=accept
 [ -f "$FAKE_DIR/verdict.$model" ] && v=$(cat "$FAKE_DIR/verdict.$model")
+n="$v by $model"
+[ -f "$FAKE_DIR/notes.$model" ] && n=$(cat "$FAKE_DIR/notes.$model")
 if [ -f "$FAKE_DIR/class.$model" ]; then
-printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s by %s\\",\\"class\\":\\"%s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$v" "$model" "$(cat "$FAKE_DIR/class.$model")"
+printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s\\",\\"class\\":\\"%s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$n" "$(cat "$FAKE_DIR/class.$model")"
 else
-printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s by %s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$v" "$model"
+printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$n"
 fi
 `, 0o755)
 	s.path = append(s.path, dir)

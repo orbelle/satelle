@@ -18,7 +18,7 @@ const (
 	// DefaultWebPort is satelled's listen port.
 	DefaultWebPort = 8787
 	// DefaultLogsMaxSizeKB caps each log file before it rolls; DefaultLogsMaxFiles
-	// bounds how many rotations are kept.
+	// bounds how many rotations are kept, and how many per-dispatch logs.
 	DefaultLogsMaxSizeKB = 5120
 	DefaultLogsMaxFiles  = 7
 	// SessionEnv names the session a CLI call acts for when no harness hook

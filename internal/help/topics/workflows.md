@@ -36,14 +36,25 @@ A gate is a named judgement on a transition:
     paths = ["**/*.go"]          # relevance: runs only when a changed path matches
     trigger = "relevant"         # relevance: a check skill; exit 0 runs the gate, exit 1 skips it
     carry = true                 # an earlier accept over unchanged coverage is carried
-    after = "publish"            # a check skill run once the gate has a verdict
+    after = ["notes", "publish"] # check skills run in order once the gate has a verdict
     timeout = "30m"              # bounds this gate's check scripts; default 10m
     placement = "remote:integration"  # a check gate only: run its check on a node
 
 A transition runs its groups in order. A `sequential` group stops at its first
-reject (fail-fast); a `parallel` group runs every gate. Every gate's result —
-accept, reject, skipped (not relevant) or carried — is recorded on the ledger
-with its notes, tokens and duration. The item moves only when no gate rejects.
+reject or error (fail-fast); a `parallel` group runs every gate. Every gate's
+result — accept, reject, skipped (not relevant), carried or error — is
+recorded on the ledger with its notes, tokens and duration. The item moves
+only when no gate rejects or errors.
+
+A gate's result is `error` when its judge could not be asked: the dispatch
+failed (the harness would not start, exited with an error, or settled with
+no answer). An error is not the judge's verdict: `story set` lists it under
+`could not judge (error)`, not `rejected by`, and the web shows it in the
+warning colour. It still refuses the move (exit 2), but it is not a rejected
+round toward a hold, is not dissent, and is not handed to a re-run as a
+finding; carry never carries over it. A panel that does not pass is a reject
+when any member rejected, else an error. Other failures (a missing skill or
+agent, the reviewer-differs refusal, an answer with no verdict) stay rejects.
 
 A terminal state is reached only with a change a judge accepted. Every model
 gate's verdict (a skill that is not `type: check`) records the change it saw:
@@ -74,18 +85,36 @@ closed) and its notes start
 `failed (killed by a signal)`), then the trigger's output. A trigger
 that times out, cannot start or names a missing skill rejects the gate.
 
-A gate's `after` is a check skill run once the gate has a verdict: an accept or
-reject from its check or judge (every panel member answered), or a carry. It
-does not run on a skip, or on a reject that is a failure rather than a verdict
-(a missing skill or agent, a trigger that timed out or could not run, a
-coverage error, a failed dispatch, an answer with no verdict, the
-reviewer-differs refusal). Besides the check
-variables it sees `SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or
-carried) and `SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`,
-`binding` and `notes`. Exit 0 keeps the result; any other exit turns it into a
-reject. Its output joins the notes as `after <skill>: …`. Use it to publish a
-verdict somewhere (this repo's `pr-review` gate publishes to the PR with
-`satelle github review`).
+A gate's `after` is a list of check skills run, in order, once the gate has a
+verdict: an accept or reject from its check or judge (every panel member
+answered), or a carry. They do not run on a skip, on an error, or on a reject
+that is a failure rather than a verdict (a missing skill or agent, a trigger
+that timed out or could not run, a coverage error, an answer with no verdict,
+the reviewer-differs refusal). Besides the check variables each sees
+`SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or carried) and
+`SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`, `binding`,
+`notes` and, for a judged gate, `members`: each judge's own `binding`,
+`result` and `notes` (one entry for a single judge, one per panel member in
+panel order; none for a check gate or a carry). Exit 0 keeps the result and
+its output, if any, joins the notes as `after <skill>: …`. Any other exit (or a
+check that times out, cannot start or is missing) turns the result into a
+reject with its output, and the checks after it do not run: each is noted
+`after <skill>: not run: after <failed> refused the verdict`. When the list
+refuses a judged verdict, the gate.run keeps the judge's raw answer: `answer`
+for a single judge, `members[].answer` for a panel (the panel's own members
+keep their verdicts, so such a round shows no member dissent). `satelle
+validate` refuses an entry that is not a check skill and an entry listed
+twice.
+
+Use `after` to hold a verdict to a rule the gate declares, or to publish it.
+This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
+hold at least 40 non-whitespace characters) and, on gates that judge a plan or
+a change, `satelle-verdict-reference-check` (an accept quotes the work or names
+a file, criterion or record path); a refusal's notes say `the judge gave no
+reasons`. The rules live in those skills, not in the binary: a gate that
+declares none records its judge's verdict as given, and `satelle init` declares
+none. The `pr-review` gate lists its publish check last, so a refused verdict
+is never published to the PR (`satelle github review`).
 
 A gate's `timeout` (a Go duration such as `"30m"` or `"1h30m"`, positive)
 bounds each check script the gate runs — its check skill, its trigger and its
@@ -234,6 +263,14 @@ them. Each judge gets the item, the change it judges, and the same record.
 A judge answers with a JSON object `{"verdict": "accept"|"reject", "notes":
 "..."}`; the last such object in its answer counts, and an answer without one
 is a reject.
+
+Each judge's dispatch is logged under the runtime logs dir (`satelle logs
+--path`, then `dispatch/`), one file per dispatch named for the binding, the
+time and the item: the command line, then for `pi` every RPC line written
+(`> `) and read (`< `) in order, for `claude` and `grok` their stdout (`< `),
+then stderr. `satelle logs` shows the newest. Only the newest few are kept,
+as many as the rotated log files; they hold prompts and tool output, stay on
+this machine and are never written to the ledger.
 
 The record is the newest version of each attachment and the item's children.
 Before a run on this machine (and on a remote node, from its own ledger)

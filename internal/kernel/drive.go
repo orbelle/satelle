@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -118,6 +119,9 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 			var why []string
 			for _, g := range tr.Rejects() {
 				why = append(why, g.Gate+": "+firstLine(g.Notes))
+			}
+			for _, g := range tr.Errors() {
+				why = append(why, g.Gate+": "+gate.Error+": "+firstLine(g.Notes))
 			}
 			return stop(tr.Item, VerdictReject, fmt.Sprintf("%s → %s rejected (%s)", it.Status, next, strings.Join(why, "; ")))
 		}

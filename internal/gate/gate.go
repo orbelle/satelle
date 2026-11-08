@@ -1,5 +1,5 @@
 // Package gate runs a transition's gate groups in order: sequential groups
-// stop at the first reject, parallel groups run every gate. Each gate is
+// stop at the first reject or error, parallel groups run every gate. Each gate is
 // first judged for relevance (paths, trigger), then for carry (an earlier
 // accept with the same coverage), and only then run: a check skill as a
 // script, any other skill by its judge or panel. Every gate yields a Result
@@ -16,6 +16,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/logsread"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -28,6 +29,9 @@ const (
 	Reject  = "reject"
 	Skipped = "skipped"
 	Carried = "carried"
+	// Error is a judge that could not be asked (its dispatch failed): not a
+	// verdict, yet the transition is refused as on a reject.
+	Error = "error"
 )
 
 // Result is one gate's outcome on one transition: the gate.run payload.
@@ -62,6 +66,13 @@ type Result struct {
 	// or carried: its span and the hash of the diff alone. Checks and skips
 	// carry none.
 	Change *Change `json:"change,omitempty"`
+	// Answer is a single judge's raw answer, kept only when the gate's after
+	// checks refused its verdict. A panel keeps it on each member instead.
+	Answer string `json:"answer,omitempty"`
+
+	// judges is each judge's own answer (one, or one per panel member in
+	// panel order), for the after checks; never recorded.
+	judges []judgeAnswer
 
 	// verdict says the result is a verdict: a check that ran, or a judge
 	// (every panel member) that answered with one. A reject that is a failure
@@ -100,6 +111,14 @@ type Member struct {
 	Binding string `json:"binding"`
 	Result  string `json:"result"`
 	Class   string `json:"class,omitempty"`
+	// Answer is the member's raw answer, kept only when the gate's after
+	// checks refused the panel's verdict.
+	Answer string `json:"answer,omitempty"`
+}
+
+// judgeAnswer is one judge's own result, notes and raw answer text.
+type judgeAnswer struct {
+	binding, result, notes, answer string
 }
 
 // Run is one presentation of a transition.
@@ -137,12 +156,19 @@ type Run struct {
 	// is none. The caller sets them only when a gate is placed on a remote.
 	Head    Head
 	HeadErr error
+	// Logs is the runtime logs dir a judge's dispatch log is written under;
+	// "" writes none.
+	Logs string
 
 	skipWarning string // diffWarning, computed once per Execute
 }
 
+// Refuses reports whether a result refuses the transition: a reject, or an
+// error (a judge that could not be asked).
+func Refuses(result string) bool { return result == Reject || result == Error }
+
 // Execute runs the groups and returns the results in run order and whether
-// the transition may proceed (no gate rejected).
+// the transition may proceed (no gate rejected or errored).
 func (r Run) Execute(ctx context.Context) ([]Result, bool) {
 	r.skipWarning = r.diffWarning()
 	var all []Result
@@ -163,14 +189,14 @@ func (r Run) Execute(ctx context.Context) ([]Result, bool) {
 			for _, name := range g.Gates {
 				out := r.one(ctx, name)
 				res = append(res, out)
-				if out.Result == Reject {
+				if Refuses(out.Result) {
 					break
 				}
 			}
 		}
 		all = append(all, res...)
 		for _, x := range res {
-			if x.Result == Reject {
+			if Refuses(x.Result) {
 				return all, false
 			}
 		}
@@ -187,7 +213,7 @@ func (r Run) one(ctx context.Context, name string) Result {
 	start := time.Now()
 	res := r.decide(ctx, name)
 	res.Transition, res.Gate = r.key(), name
-	if g, ok := r.Workflow.Gates[name]; ok && g.After != "" && (res.verdict || res.Result == Carried) {
+	if g, ok := r.Workflow.Gates[name]; ok && len(g.After) > 0 && (res.verdict || res.Result == Carried) {
 		res = r.after(ctx, name, g, res)
 	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
@@ -197,35 +223,73 @@ func (r Run) one(ctx context.Context, name string) Result {
 	return res
 }
 
-// after runs a gate's after check on its verdict. Exit 0 keeps the result;
-// a non-zero exit or an error turns it into a reject. Either way the check's
-// output joins the notes.
+// after runs a gate's after checks on its verdict, in order. Each sees the
+// result as it stands and every judge's own answer; exit 0 keeps the result
+// and its output (if any) joins the notes. A non-zero exit or an error turns
+// the result into a reject with its output, and the checks after it do not
+// run (each is noted as not run). A refused judged verdict keeps the raw
+// answer: on the result for one judge, on each member for a panel.
 func (r Run) after(ctx context.Context, name string, g workflow.Gate, res Result) Result {
-	skillName := g.After
+	refusedBy := ""
+	for _, skillName := range g.After {
+		if refusedBy != "" {
+			res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: not run: after %s refused the verdict", skillName, refusedBy))
+			continue
+		}
+		if !r.afterOne(ctx, name, g, skillName, &res) {
+			res.Result = Reject
+			refusedBy = skillName
+		}
+	}
+	if refusedBy != "" {
+		keepAnswer(&res)
+	}
+	return res
+}
+
+// afterOne runs one after check on res, adding its notes; false when it
+// refused the verdict (missing, failed to run, or a non-zero exit).
+func (r Run) afterOne(ctx context.Context, name string, g workflow.Gate, skillName string, res *Result) bool {
 	skill, ok := r.Skills[skillName]
 	if !ok {
-		res.Result = Reject
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after skill %q is missing", skillName))
-		return res
+		return false
 	}
 	env := r.env()
 	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
+	for _, j := range res.judges {
+		env.Members = append(env.Members, CheckMember{Binding: j.binding, Result: j.result, Notes: j.notes})
+	}
 	limit, source, berr := r.bound(name, g)
 	if berr != nil {
-		res.Result = Reject
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %v", skillName, berr))
-		return res
+		return false
 	}
 	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, env, limit)
-	note := fmt.Sprintf("after %s: %s", skillName, out)
-	if err != nil {
-		note = fmt.Sprintf("after %s: %s", skillName, checkFailure(err, source, out))
+	switch {
+	case err != nil:
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %s", skillName, checkFailure(err, source, out)))
+	case passed && out == "":
+	default:
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %s", skillName, out))
 	}
-	res.Notes = joinNotes(res.Notes, note)
-	if err != nil || !passed {
-		res.Result = Reject
+	return err == nil && passed
+}
+
+// keepAnswer records the raw answer of each judge on a refused verdict.
+func keepAnswer(res *Result) {
+	if len(res.Members) == 0 {
+		if len(res.judges) == 1 {
+			res.Answer = res.judges[0].answer
+		}
+		return
 	}
-	return res
+	if len(res.judges) != len(res.Members) {
+		return
+	}
+	for i := range res.Members {
+		res.Members[i].Answer = res.judges[i].answer
+	}
 }
 
 // bound is what limits each of the gate's check scripts, and where that
@@ -425,12 +489,20 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 		return members[0]
 	}
 	out := Result{Binding: strings.Join(names, ","), verdict: true}
-	accepts := 0
+	accepts, rejects := 0, 0
 	var notes []string
 	for _, m := range members {
-		if m.Result == Accept {
+		switch m.Result {
+		case Accept:
 			accepts++
+		case Reject:
+			rejects++
 		}
+		j := judgeAnswer{binding: m.Binding, result: m.Result, notes: m.Notes}
+		if len(m.judges) == 1 {
+			j = m.judges[0]
+		}
+		out.judges = append(out.judges, j)
 		out.verdict = out.verdict && m.verdict
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
@@ -446,9 +518,15 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 	default:
 		pass = accepts == len(members)
 	}
-	out.Result = Reject
-	if pass {
+	// A panel that does not pass rejects when any member rejected; when none
+	// did, its members could not be asked and the panel is an error.
+	switch {
+	case pass:
 		out.Result = Accept
+	case rejects > 0:
+		out.Result = Reject
+	default:
+		out.Result = Error
 	}
 	out.Notes = fmt.Sprintf("panel (%s): %d of %d accept\n%s", g.Combine, accepts, len(members), strings.Join(notes, "\n"))
 	return out
@@ -467,14 +545,20 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 			return res
 		}
 	}
-	out, err := r.Dispatcher.Dispatch(ctx, agent.Judge, agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir})
+	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
+	if r.Logs != "" {
+		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
+	}
+	out, err := r.Dispatcher.Dispatch(ctx, agent.Judge, req)
 	res.TokensIn, res.TokensOut = out.TokensIn, out.TokensOut
 	if err != nil {
-		res.Notes = "dispatch failed: " + err.Error()
+		// The judge was never asked: an error, not its verdict.
+		res.Result, res.Notes = Error, "dispatch failed: "+err.Error()
 		return res
 	}
 	v, parsed := parseVerdict(out.Text)
 	res.Result, res.Notes, res.Class, res.verdict = v.Verdict, v.Notes, v.Class, parsed
+	res.judges = []judgeAnswer{{binding: name, result: v.Verdict, notes: v.Notes, answer: out.Text}}
 	return res
 }
 

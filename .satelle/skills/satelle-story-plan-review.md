@@ -130,7 +130,7 @@ defect of the review, not of the plan: it costs a full round to surface.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "class": "AC1"}
+{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>", "class": "AC1"}
 ```
 
 `notes` carries one line per blocking finding, each naming its criterion

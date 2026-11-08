@@ -31,7 +31,7 @@ workflow mentions and no plan claiming workflow edits **is** the n/a signal.
 
 - **No workflow touch** → accept immediately:
  ```json
- {"verdict": "accept", "notes": "workflow: n/a"}
+ {"verdict": "accept", "notes": "workflow: n/a; no file under .satelle/workflows/ changes and the plan claims no workflow edit"}
  ```
  Never reject for missing evidence of a surface the slice never claimed.
 
@@ -90,5 +90,5 @@ Fair gate: judge the change as written, not perfectionism.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": ""}
+{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>"}
 ```

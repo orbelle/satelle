@@ -66,7 +66,7 @@ func TestBinaryScopeReviewFollowsTheGitRuling(t *testing.T) {
 			t.Errorf("the skill still says, unqualified: %q", bare)
 		}
 	}
-	if !strings.Contains(skill, `{"verdict": "accept", "notes": ""}`) {
+	if !strings.Contains(skill, `{"verdict": "accept", "notes": "<what you judged: quote the work, or name the file, criterion or record path you checked>"}`) {
 		t.Error("the skill's verdict format changed")
 	}
 }

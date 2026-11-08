@@ -52,6 +52,9 @@ type Kernel struct {
 	Now   func() time.Time
 	// CheckTimeout bounds each check script; zero is gate.DefaultCheckTimeout.
 	CheckTimeout time.Duration
+	// Logs is the runtime logs dir (<Runtime>/logs, what satelle logs reads):
+	// where a judge's dispatch log is written. "" writes none.
+	Logs string
 }
 
 // Options say where a kernel lives.
@@ -93,7 +96,7 @@ func Open(o Options) (*Kernel, error) {
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Agents: cfg.Agents,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues),
-		Dispatcher: agent.Runner{}, Now: time.Now,
+		Dispatcher: agent.Runner{}, Now: time.Now, Logs: filepath.Join(o.Runtime, "logs"),
 	}
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {

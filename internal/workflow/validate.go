@@ -196,9 +196,15 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 			bad("trigger %q is not a check skill in skills/", g.Trigger)
 		}
 	}
-	if g.After != "" {
-		if a, ok := skill(g.After); !ok || !a.IsCheck() {
-			bad("after %q is not a check skill in skills/", g.After)
+	seenAfter := map[string]bool{}
+	for _, name := range g.After {
+		if seenAfter[name] {
+			bad("after lists %q twice", name)
+			continue
+		}
+		seenAfter[name] = true
+		if a, ok := skill(name); !ok || !a.IsCheck() {
+			bad("after %q is not a check skill in skills/", name)
 		}
 	}
 	for _, p := range g.Paths {
@@ -214,7 +220,7 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 		case d <= 0:
 			bad("timeout %q must be positive", g.Timeout)
 		}
-		if ok && !sk.IsCheck() && g.Trigger == "" && g.After == "" {
+		if ok && !sk.IsCheck() && g.Trigger == "" && len(g.After) == 0 {
 			bad("timeout bounds check scripts; this gate runs none")
 		}
 	}

@@ -44,3 +44,29 @@ func TestReportTransitionHold(t *testing.T) {
 		t.Errorf("an unheld rejection reports a hold:\n%s", err)
 	}
 }
+
+// A gate whose judge could not be asked is reported as an error, not as the
+// judge's verdict, and still blocks.
+func TestReportTransitionError(t *testing.T) {
+	res := kernel.TransitionResult{
+		Item: item.Item{ID: "sto_1", Status: "plan"}, From: "plan", To: "build",
+		Gates: []gate.Result{{Gate: "scope", Binding: "r1", Result: gate.Error, Notes: "dispatch failed: argument list too long"}},
+	}
+	var out bytes.Buffer
+	err := reportTransition(&out, res, false)
+	if ExitCodeOf(err) != ExitBlocked {
+		t.Fatalf("exit %d: %v", ExitCodeOf(err), err)
+	}
+	if line := out.String(); !strings.Contains(line, "gate scope") || !strings.Contains(line, " error ") {
+		t.Errorf("gate line: %q", line)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "rejected by") || !strings.Contains(msg, "could not judge (error)\n  gate scope (r1):\n    dispatch failed: argument list too long") {
+		t.Errorf("refusal:\n%s", msg)
+	}
+	res.Gates = append(res.Gates, gate.Result{Gate: "plan", Binding: "r2", Result: gate.Reject, Notes: "AC2 unmet"})
+	msg = reportTransition(&out, res, false).Error()
+	if !strings.Contains(msg, "rejected by\n  gate plan (r2)") || !strings.Contains(msg, "could not judge (error)\n  gate scope (r1)") {
+		t.Errorf("mixed refusal:\n%s", msg)
+	}
+}

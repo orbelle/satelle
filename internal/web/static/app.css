@@ -432,6 +432,7 @@ li.presentation.outcome-refused { border-left-color: var(--fail); }
 .verdict-table td, .verdict-table th { padding: 5px 8px; }
 tr.verdict.v-accept .verdict-result, tr.verdict.v-carried .verdict-result { color: var(--ok); }
 tr.verdict.v-reject .verdict-result { color: var(--fail); font-weight: 600; }
+tr.verdict.v-error .verdict-result { color: var(--warn); font-weight: 600; }
 tr.verdict.v-skipped .verdict-result { color: var(--muted); }
 pre.verdict-notes { white-space: pre-wrap; margin: 0; font-size: 12px; max-height: 18em; overflow: auto; }
 
@@ -445,6 +446,7 @@ ol.timeline li::before { content: ""; position: absolute; left: -7px; top: 4px; 
    column's .rej is 11px TEXT and uses the --fail theme token
    instead. Neutral events keep the accent dot above. */
 ol.timeline li.tl-pass::before { background: #2ecc71; }
+ol.timeline li.tl-error::before { background: var(--warn); }
 ol.timeline li.tl-fail::before { background: #e74c3c; }
 .ev-kind { font-weight: 600; font-size: 13px; }
 .ev-meta { color: var(--muted); font-size: 11.5px; font-family: var(--mono); }
