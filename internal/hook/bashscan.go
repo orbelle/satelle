@@ -1079,6 +1079,9 @@ func mutationPathArgs(words []string, cwd string) []string {
 		}
 		return out
 	}
+	if cmd == "chmod" {
+		return chmodPathArgs(words[1:], cwd)
+	}
 
 	// dest-last family: collect -t DIR first; else only the last positional.
 	if destLastVerbs[cmd] {
@@ -1126,8 +1129,8 @@ func mutationPathArgs(words []string, cwd string) []string {
 		return []string{resolvePath(cwd, positionals[len(positionals)-1])}
 	}
 
-	// All-args family: rm/touch/mkdir/chmod/chown/truncate — every
-	// non-option arg is a mutation target (sed has its own extractor).
+	// All-args family: rm/touch/mkdir/chown/truncate — every non-option arg
+	// is a mutation target (sed and chmod have their own extractors).
 	skipNext := false
 	for i := 1; i < len(words); i++ {
 		w := words[i]
@@ -1136,13 +1139,59 @@ func mutationPathArgs(words []string, cwd string) []string {
 			continue
 		}
 		if strings.HasPrefix(w, "-") {
-			if (cmd == "rm" || cmd == "mkdir" || cmd == "chmod" || cmd == "chown") &&
+			if (cmd == "rm" || cmd == "mkdir" || cmd == "chown") &&
 				(w == "-t" || w == "--target-directory") {
 				skipNext = true
 			}
 			continue
 		}
 		out = append(out, resolvePath(cwd, w))
+	}
+	return out
+}
+
+// chmodMode matches a chmod mode as GNU chmod reads one: comma-separated
+// clauses, each symbolic ([ugoa]*([-+=]([rwxXst]*|[ugo]))+, as in +x, u+w,
+// a=r, go-w, o=) or numeric ([-+=]?[0-7]{1,4}, as in 755, 0644, =755).
+var chmodMode = regexp.MustCompile(`^(?:[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+|[-+=]?[0-7]{1,4})(?:,(?:[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+|[-+=]?[0-7]{1,4}))*$`)
+
+// chmodPathArgs extracts the files a chmod invocation writes from its args
+// (command word excluded). chmod reads its mode from one place only, so its
+// mode slot is decided once and never reopens: by a dash-mode option (-x, -w,
+// -t: a single-dash word matching chmodMode, which no chmod flag letter
+// c/f/v/R does), by --reference (no mode operand; the reference file is only
+// read), or by the first positional. That first positional is dropped only
+// when it parses as a mode; otherwise it fails closed and stays a target, as
+// does every later positional, mode-shaped or not, because chmod treats it as
+// a file. Words after `--` are positionals.
+func chmodPathArgs(args []string, cwd string) []string {
+	var out []string
+	slotClosed, optsDone, skipNext := false, false, false
+	for _, w := range args {
+		switch {
+		case skipNext:
+			skipNext = false
+		case w == "--" && !optsDone:
+			optsDone = true
+		case strings.HasPrefix(w, "-") && !optsDone:
+			switch {
+			case strings.HasPrefix(w, "--reference="):
+				slotClosed = true
+			case w == "--reference":
+				slotClosed, skipNext = true, true
+			case strings.HasPrefix(w, "--"):
+				// other long options take no value
+			case chmodMode.MatchString(w):
+				slotClosed = true
+			}
+		case !slotClosed:
+			slotClosed = true
+			if !chmodMode.MatchString(w) {
+				out = append(out, resolvePath(cwd, w))
+			}
+		default:
+			out = append(out, resolvePath(cwd, w))
+		}
 	}
 	return out
 }
