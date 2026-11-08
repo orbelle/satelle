@@ -3,13 +3,13 @@ name: satelle-story-architecture-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Readiness (backlog → plan) multi-reviewer axis. Isolated read-only judge — does the story fit the target architecture ([[satelle-sync-architecture]]), and does the plan respect mechanism-vs-substrate and avoid putting decisions, or the user's own vendors, tools and policy, in Go when they belong in config? It may block a misfit, or push back an architecture amendment when the architecture is what is wrong. Parallel companion to satelle-story-plan-review. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Readiness (backlog → plan) multi-reviewer axis. Isolated read-only judge — does the story fit the target architecture ([[satelle-sync-architecture]]), and does the plan respect mechanism-vs-substrate and avoid putting decisions, or the user's own vendors, tools and policy, in Go when they belong in config? It may block a misfit, or push back an architecture amendment when the architecture is what is wrong. Parallel companion to satelle-story-plan-review.
 ---
 
 # Story architecture review (backlog → plan, readiness)
 
-Read-only. Judge the plan's architecture (plan-review judges coverage); open the
-`plan` doc's `path`.
+Read-only. Judge the plan's architecture (plan-review judges coverage); read the
+`plan` attachment from the record folder your prompt names (`attachments/plan`).
 
 ## How to judge
 
@@ -20,8 +20,8 @@ Read-only. Judge the plan's architecture (plan-review judges coverage); open the
   pre-existing finding owned by a named story does not block. A story that
   touches no sync, storage, scope, layering or verb surface passes in one line.
 - **Rule 3 proof is a release-step AC.** The §6 rule-3 machine-wide proof
-  (`satelle doctor --all` and a session start in each registered repo, before
-  and after `satelle update` / `satelle init --all --yes`) is evidence that
+  (a session start in each registered repo, before and after `satelle update`)
+  is evidence that
   exists only after release. Accept a plan that puts it on the release step as a
   release-step AC; reject a plan that puts it on a code or integration
   criterion ([[satelle-story-shape]]).
@@ -66,10 +66,11 @@ Read-only. Judge the plan's architecture (plan-review judges coverage); open the
 Accept when the plan's shape is sound on those axes (or it is clearly
 non-architectural). Fair gate: ACs and plan as written, not maximality.
 
-First pass (no `prior_verdicts`): raise every blocking finding at once, numbered.
+Raise every blocking finding at once, numbered; your prompt carries no earlier
+verdict.
 
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```

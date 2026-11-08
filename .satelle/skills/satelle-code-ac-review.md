@@ -3,7 +3,7 @@ name: satelle-code-ac-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: The one code review on in_progress → integration (unit tests run beside it in satelle-build-unit-check). Isolated read-only reviewer validates the engaged slice against the story's BDD and numbered ACs, the executor's per-AC test mapping, proof honesty (a named test that would pass on the engagement baseline cannot cover a fix AC) and scope (the slice stays inside this story); rejects a slice that adds user configuration to the binary. Verdict only; never runs the suite. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: The one code review on in_progress → integration (unit tests run beside it in satelle-build-unit-check). Isolated read-only reviewer validates the engaged slice against the story's BDD and numbered ACs, the executor's per-AC test mapping, proof honesty (a named test that would pass on the engagement baseline cannot cover a fix AC) and scope (the slice stays inside this story); rejects a slice that adds user configuration to the binary. Verdict only; never runs the suite.
 ---
 
 # Code vs acceptance-criteria review (in_progress → integration)
@@ -13,11 +13,17 @@ mapping. Read-only; do not run the suite or design an alternative.
 
 ## Enumeration — the slice
 
-Prefer `payload.diff` when present. Open `diff.patch_path`; the file is JSON with `files`, `stat`, and `patch`, the same shape as `satelle story diff`. That is the engaged slice. Judge those paths against the ACs, not the whole tree. When `diff.no_baseline` is true or `diff`
-is omitted, fall back to Read/Grep of the tree. Do **not** shell
-`satelle story diff`; default `[reviewer]` has no shell.
+Your prompt carries the item, its base commit, the changed paths and the diff
+since that base (cut at 200 000 bytes). That is the engaged slice. Judge those
+paths against the ACs, not the whole tree; open a changed file with Read when
+the diff is cut or the hunk alone does not settle an AC. When your prompt has no
+diff, fall back to Read/Grep of the tree. You have no shell.
 
-Open each payload `docs` entry's `path` (`ac-evidence`, `plan`) for the evidence.
+Read the executor's `ac-evidence` and the `plan` from the record folder your
+prompt names (`attachments/ac-evidence`, `attachments/plan`).
+
+The numbered ACs are the `## Acceptance criteria` section of the `plan`
+attachment when the plan has that section, else the criteria in your prompt.
 
 ## Judge (presented slice only)
 
@@ -53,11 +59,11 @@ Open each payload `docs` entry's `path` (`ac-evidence`, `plan`) for the evidence
 5. **Agent-agnostic** ([[satelle-agent-agnostic]], regardless of the ACs). When
    the slice adds or changes parsing of agent output, usage/model accounting,
    tool grants, live sessions or transport behaviour, confirm each adapter
-   under `internal/agentcli` either works or records an explicit adapter-named
-   "unavailable" (never a silent zero, empty field or Claude default). **Reject**
-   a single-provider mechanism with no stated handling for the other adapters
-   (name them), and provider model names, flags or tool names hardcoded outside
-   an adapter or configuration.
+   under `internal/agent` (claude.go, pi.go, grok.go) either works or records an
+   explicit adapter-named "unavailable" (never a silent zero, empty field or
+   Claude default). **Reject** a single-provider mechanism with no stated
+   handling for the other adapters (name them), and provider model names, flags
+   or tool names hardcoded outside an adapter or configuration.
 
 6. **User configuration in the binary** ([[satelle-mechanism-vs-substrate]],
    "User configuration is never compiled in", regardless of the ACs or who
@@ -65,14 +71,14 @@ Open each payload `docs` entry's `path` (`ac-evidence`, `plan`) for the evidence
    lists as user configuration to the binary, a closed provider list included;
    cite the file:line and name the principle's alternative. **Passes:** what the
    principle allows, plus a vendor named in test fixtures and the harness
-   adapters under `internal/agentcli`.
+   adapters under `internal/agent`.
 7. **Dispatch pointers** ([[satelle-dispatch-pointers]]). When the slice
-   assembles what an agent receives (a prompt, a stdin payload, a dispatch
+   assembles what an agent receives (a prompt, stdin input, a dispatch
    request), the receiver gets its instruction and pointers (ids, paths,
    retrieval commands). **Reject** when a dispatch embeds readable content:
    item bodies, documents or history the receiving seat can fetch itself,
-   copied into its payload, whatever its size; bounding or batching that
-   content is the same defect.
+   copied into its prompt or request, whatever its size; bounding or batching
+   that content is the same defect.
 
 8. **Scope.** This is the only code review on the edge, so it also judges
    boundedness. Every changed path must be explained by this story's ACs, its
@@ -80,9 +86,8 @@ Open each payload `docs` entry's `path` (`ac-evidence`, `plan`) for the evidence
    regenerates). Reject work that satisfies another story, naming each
    out-of-scope path and the story that should own it, and say to revert or
    split it into that story. When untracked debris (scratch files, evidence
-   dumps) is part of the reason, end the notes with a last line exactly
-   `Fix: satelle story tidy <story.id> <path> ...` naming every such path. With
-   no engagement baseline, scope is not judged.
+   dumps) is part of the reason, name every such path in the notes. When your
+   prompt has no base commit, scope is not judged.
 
 Fair gate: judge ACs **as written**; do not add requirements the story never
 stated.
@@ -90,5 +95,5 @@ stated.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```

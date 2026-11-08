@@ -1,7 +1,7 @@
 ---
 name: satelle-task-validate-after-review
 type: skill
-description: Close gate for a task run (in_progress → done). A cold, read-only judge decides from the run's own record (its attachments and ledger) whether the task's ACTION was carried out and its VERIFICATION is met. Judges, never enacts.
+description: Close gate for a task run (in_progress → done). A cold, read-only judge decides from the run's own record (its attachments) whether the task's ACTION was carried out and its VERIFICATION is met. Judges, never enacts.
 ---
 
 # Task run: validate after
@@ -13,11 +13,13 @@ a new execution, never a reopen.
 
 ## What to read
 
-- The execution and its parent task: `satelle execution get <id>` and
-  `satelle task get <parent>`. The record folder in your prompt holds the run's
-  attachments.
-- The run's attachments are its evidence. The executor attaches what the
-  VERIFICATION asks for: command output, versions, URLs and their results.
+- The run's parent task: `attachments/task` in the record folder your prompt
+  names holds the task's ACTION and VERIFICATION, attached by the run's
+  performer. No `task` attachment → **reject**, naming it: without it there is
+  nothing to judge the run against. You have no shell.
+- The run's other attachments in the record folder (`attachments/<name>`) are
+  its evidence. The executor attaches what the VERIFICATION asks for: command
+  output, versions, URLs and their results.
 - The repository (read only) when the ACTION changed files.
 
 ## How to judge

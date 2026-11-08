@@ -3,7 +3,7 @@ name: satelle-story-blocked-review
 scope: system
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate for parking an engaged story (in_progress → blocked). Isolated reviewer allowing the move when a reason is recorded — world-not-ready, a dependency, or preemption — and refusing a bare block with no reason on record. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Gate for parking an engaged story (in_progress → blocked). Isolated reviewer allowing the move when a reason is recorded — world-not-ready, a dependency, or preemption — and refusing a bare block with no reason on record.
 ---
 
 # Story blocked review (park gate)
@@ -11,26 +11,26 @@ description: Gate for parking an engaged story (in_progress → blocked). Isolat
 Isolated reviewer deciding whether a story may move to **blocked** — parked
 because the world is not ready (dependency, external gap) **or** because higher-
 priority work needs the engagement seat (preemption), not because the ACs are
-wrong. Input on stdin: `{story, from, to}` — `story` carries title, body,
-acceptance_criteria, tags. Parking is legitimate when work cannot proceed yet
+wrong. Your prompt carries the item (title, body, criteria, tags) and the move,
+and names the read-only record folder holding its attachments
+(`attachments/<name>`). Parking is legitimate when work cannot proceed yet
 **or** must yield the seat; the ACs stay frozen and the story resumes later with
 the same definition.
 
 ## Accept when
 
 The story carries a recorded **reason** for parking — a note in the body, a
-recent ledger entry, or an explicit statement of why. Legitimate reasons include:
+`blocked-by:` or `preempted-by:` tag, or an attachment in the record folder
+that states why. Legitimate reasons include:
 
 - **World not ready** — waiting on dependency `blocked-by:<id>`, external
   capability missing
 - **Preemption** — higher-priority work needs the engagement seat; ideally
   tagged `preempted-by:<id>` naming the story that needs it. Preemption needs
-  **no impediment** — the held story may be healthy. It arrives by
-  `satelle story stop-request`, which [[satelle-recognise-blockage]] derives
+  **no impediment** — the held story may be healthy.
 
 Bar is low: a clear, human-readable reason is enough. May read the repo
-(Read/Grep/Glob) and run read-only `satelle` commands to check the story's
-ledger if needed.
+(Read/Grep/Glob) if needed.
 
 ## Reject when
 
@@ -47,8 +47,7 @@ is not grounds to object.
 ## Verdict
 
 ```json
-{"verdict": "accept", "notes": "", "reviewed": "<exact words this verdict rests on>"}
+{"verdict": "accept", "notes": ""}
 ```
 
-On reject, `notes` names what is missing (may be empty on accept); `decision`
-is `"accept"` or `"reject"`.
+On reject, `notes` names what is missing (may be empty on accept).

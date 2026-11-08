@@ -65,8 +65,9 @@ func firstShellBlock(body string) string {
 	for sc.Scan() {
 		line := sc.Text()
 		trimmed := strings.TrimSpace(line)
+		_, opens := scriptFence(trimmed)
 		switch {
-		case !in && (trimmed == "```sh" || trimmed == "```check"):
+		case !in && opens:
 			in = true
 		case in && strings.HasPrefix(trimmed, "```"):
 			return strings.Join(lines, "\n") + "\n"
@@ -75,6 +76,35 @@ func firstShellBlock(body string) string {
 		}
 	}
 	return ""
+}
+
+// scriptFence reports whether a trimmed line opens a script block, and which
+// fence it is: ```sh or ```check.
+func scriptFence(trimmed string) (string, bool) {
+	switch trimmed {
+	case "```sh":
+		return "sh", true
+	case "```check":
+		return "check", true
+	}
+	return "", false
+}
+
+// Problems reports whether the skill's fences agree with its declared type.
+// v1 runs a skill's script only for type: check, so a ```check block in any
+// other skill is a v0 check that would be dispatched to an agent instead of
+// run. A ```sh block in a non-check skill is an example for its reader.
+func (s Skill) Problems() []error {
+	if s.IsCheck() {
+		return nil
+	}
+	for _, line := range strings.Split(s.Body, "\n") {
+		if fence, ok := scriptFence(strings.TrimSpace(line)); ok && fence == "check" {
+			return []error{fmt.Errorf("skill %s: holds a ```check block but its frontmatter type is %q, not check; v1 runs a script only for type: check (set type: check, or make the block ```sh if it is an example)",
+				s.Name, s.Meta["type"])}
+		}
+	}
+	return nil
 }
 
 // LoadSkills reads every <dir>/*.md. A missing directory has no skills.

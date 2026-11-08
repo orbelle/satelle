@@ -297,3 +297,30 @@ to = "z"
 		t.Fatal("a state with no performer is neither")
 	}
 }
+
+func TestSkillProblems(t *testing.T) {
+	cases := []struct {
+		name, text string
+		bad        bool
+	}{
+		{"oldcheck", "---\ntype: skill\n---\n# Old\n\n```check\nexit 0\n```\n", true},
+		{"untyped", "# Old\n\n  ```check\nexit 0\n```\n", true},
+		{"check", "---\ntype: check\n---\n# C\n\n```check\nexit 0\n```\n", false},
+		{"procedure", "---\ntype: skill\n---\n# Release\n\n```sh\nmake release\n```\n\n```sh\ngit tag\n```\n", false},
+		{"prose", "---\ntype: skill\n---\nA check is a fenced ```check block.\n", false},
+	}
+	for _, c := range cases {
+		s, err := ParseSkill(c.name, c.text)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		probs := s.Problems()
+		if got := len(probs) > 0; got != c.bad {
+			t.Errorf("%s: problems %v, want bad=%v", c.name, probs, c.bad)
+			continue
+		}
+		if c.bad && (!strings.Contains(probs[0].Error(), "skill "+c.name) || !strings.Contains(probs[0].Error(), "not check")) {
+			t.Errorf("%s: problem %q does not name the skill and its type", c.name, probs[0])
+		}
+	}
+}

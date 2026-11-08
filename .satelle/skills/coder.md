@@ -4,41 +4,38 @@ scope: project
 type: skill
 tags: [type:skill]
 evidence_commands: satelle story get, go test
-description: Dispatched-coder rubric for the coded step when this repo allocates it to the [coder] binding. Pull the plan through the satelle CLI, implement only that slice under your own grant, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
+description: The in_progress performer's rubric (delivery and chore workflows), bound to the interactive session. Pull the plan through the satelle CLI, implement only that slice, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
 ---
 
-# Coder (dispatched implement step)
+# Coder (implement step)
 
-You are the **dispatched performer** for the `in_progress` step
-(`agent = "coder"` in `step.toml`). You are a **fresh session**: you have no
-conversation history, you did not plan this story, and nobody is watching the
-loop. Everything you know, you pull.
+You are the **performer** for the `in_progress` state of the delivery and chore
+workflows (`performer = { agent = "executor", skill = "coder" }`), which
+`.satelle/agents.toml` binds to the interactive session (`executor`,
+`command = "session"`): nothing is dispatched. Do not rely on conversation
+history for what this story needs; pull it. If a dispatched binding performs
+this step instead, its prompt names the record folder: read the item's
+attachments there (`attachments/<name>`).
 
 You usually run inside a rework relay; the consultant's replies are context,
 never a verdict ([[satelle-agent-consultation]]).
 
 ## FIRST ACT — pull your context
 
-Before any edit. Pull through what your `[coder]` grant carries: with the
-satelle CLI, the commands below; with no shell, `read_file` the story directory
-`~/.satelle/<repo-key>/stories/<sty_id>/` (record, plan, attachments, messages,
-ledger).
+Before any edit:
 
 ```bash
-satelle story get <sty_id>          # body + the acceptance criteria you serve
-satelle story doc <sty_id> plan     # the plan — the slice, named
-satelle story docs <sty_id>         # what else is already attached
-satelle story messages <sty_id>     # what the relay and the developer have said
-satelle ledger list --story <sty_id>  # prior verdicts on this edge
-satelle story route <sty_id>        # which step you are on and what gates the exit
-satelle story log <sty_id> --kind plan-consumed --data plan=plan --data steps="<the plan steps you will follow>"
+satelle story get <id>                # body + the acceptance criteria
+satelle story attachment <id> plan    # the plan — the slice, named
+satelle story attachments <id>        # what else is already attached
+satelle story route <id>              # your position and the latest gate rejects
+satelle ledger list <id>              # prior gate results on this item
 ```
 
-Without the CLI, state the plan steps you will follow in your reply instead of
-logging plan-consumed.
+The ACs to implement are the plan's `## Acceptance criteria` section when it has
+one, else the story's: the same list the judges use.
 
 Prefer the plan attachment over re-deriving the slice from the story body.
-`plan-consumed` is a **forward commitment**, not the closing evidence.
 
 If **no plan is attached**, say so and stop — do not invent one.
 
@@ -51,7 +48,7 @@ never rebase or force-push the pushed head; resolve any conflict in the real
 work; the route re-runs the full suite at integration -> approved.
 
 Record the item's changelog lines as its `changelog` attachment
-(`satelle story attach <sty_id> --name changelog --type text/markdown --file -`,
+(`satelle story attach <id> --name changelog --type text/markdown --file -`,
 format in `satelle-pr-ready-check.md`). Never edit `CHANGELOG.md` or
 `.version`: the release run writes the version section from the attachments.
 
@@ -66,18 +63,19 @@ format in `satelle-pr-ready-check.md`). Never edit `CHANGELOG.md` or
 
 ## Know your grant — and name what it cannot prove
 
-Run every check your grant carries (`satelle reindex`, `satelle validate`,
-`satelle workflow validate`, `satelle skill validate`, and
-`go build`/`go test`/`gofmt` when granted). Name each command you could not run
-in your hand-off; never claim a suite you did not run.
+Run every check your grant carries: `satelle validate`, and the commands of
+`satelle-format-vet-check` (`gofmt -l internal cmd tests scripts`,
+`go vet ./...`, `GOOS=windows go build ./...`, `sh scripts/audit-literals.sh`)
+and `satelle-build-unit-check` (`go build ./...`,
+`go vet -tags integration ./tests/...`, `go test ./...`). Name each command you
+could not run in your hand-off; never claim a suite you did not run.
 
 ## Attach the evidence
 
-Before you hand off, attach the per-AC evidence the exit gate reads. With the
-CLI channel, attach it yourself:
+Before you hand off, attach the per-AC evidence the exit gate reads:
 
 ```bash
-satelle story attach <sty_id> --name ac-evidence --type output --body "$(cat <<'EOF'
+satelle story attach <id> --name ac-evidence --type text/markdown --file - <<'EOF'
 ## Per-AC evidence
 
 | AC | Realised proof (test path + name, or command + output) | Plan named | Divergence |
@@ -87,8 +85,6 @@ satelle story attach <sty_id> --name ac-evidence --type output --body "$(cat <<'
 Not run under this grant: <command> — needs <tool> (orchestrator to run)
 Notes: <plan defect / renamed test / intentional substitute — or empty>
 EOF
-)"
-satelle story log <sty_id> --kind ac-evidence --data doc=ac-evidence
 ```
 
 Without the CLI, emit the same table under `## Per-AC evidence` and say it is

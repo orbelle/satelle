@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -179,6 +180,9 @@ func (c *Config) Problems() []error {
 			}
 		}
 	}
+	for _, n := range sortedKeys(c.Skills) {
+		errs = append(errs, c.Skills[n].Problems()...)
+	}
 	errs = append(errs, c.queueProblems()...)
 	return errs
 }
@@ -212,6 +216,13 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 				if err := agent.CheckJudge(b); err != nil {
 					errs = append(errs, fmt.Errorf("workflow %s: gate %q: %w", w.Name, gname, err))
 				}
+			}
+		}
+		g := w.Gates[gname]
+		if sk, ok := c.Skills[g.Skill]; ok && len(g.Judges()) > 0 && !sk.IsCheck() {
+			if key, legacy := gate.LegacyAnswerKey(sk.Body); legacy {
+				errs = append(errs, fmt.Errorf("workflow %s: gate %q: skill %q answers with %q; a judge answers {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}, and an answer without verdict is a reject",
+					w.Name, gname, g.Skill, key))
 			}
 		}
 	}

@@ -267,3 +267,21 @@ func TestVerdictClassAndPanelMembers(t *testing.T) {
 		t.Fatal("ToOf/FromOf")
 	}
 }
+
+func TestLegacyAnswerKey(t *testing.T) {
+	for _, c := range []struct {
+		text   string
+		legacy bool
+	}{
+		{"## Verdict\n\n```json\n{\"decision\": \"accept\", \"notes\": \"\"}\n```\n", true},
+		{"{\"decision\":\"reject\"}", true},
+		{"`decision` is accept or reject.", true},
+		{"## Verdict\n\n```json\n{\"verdict\": \"accept\", \"notes\": \"\"}\n```\n", false},
+		{"Record the decision in notes; the decision is yours.", false},
+	} {
+		key, legacy := LegacyAnswerKey(c.text)
+		if legacy != c.legacy || (legacy && key != "decision") {
+			t.Errorf("LegacyAnswerKey(%q) = %q, %v; want legacy=%v", c.text, key, legacy, c.legacy)
+		}
+	}
+}

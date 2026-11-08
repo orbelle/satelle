@@ -18,12 +18,12 @@ attempt_initial_effort: low
 attempt_repair_effort: medium
 attempt_escalate_effort: high
 evidence_keys: artifact
-description: Executor skill for the dispatched `plan` step. On the readiness edge it is discovery — the isolated planner proves or disproves the story's premise, authors the acceptance criteria from that evidence when the story carries none or carries raiser drafts, and returns a structured plan artifact covering every criterion. Satelle validates and attaches the artifact before committing the transition, so the planner needs read-only repository tools and never mutates story state. The planner plans only; it does not implement.
+description: Executor skill for the dispatched `plan` step. On the readiness edge it is discovery — the isolated planner proves or disproves the story's premise, authors the acceptance criteria from that evidence when the story carries none or carries raiser drafts, and returns a structured plan artifact covering every criterion. When the run ends, satelle attaches the artifact as the item's `plan`, so the planner needs read-only repository tools and never mutates story state. The planner plans only; it does not implement.
 ---
 
 # Plan (dispatched executor step)
 
-You are the isolated **planner** for the `plan` step. The work item arrives on stdin as JSON (`{story, from, to}` — `story` carries title, body, and **acceptance criteria**). Produce a concrete **implementation plan** as your structured final response. Satelle validates and attaches it to the story before committing the transition, so you **plan only** — no implementing, no editing source, no Satelle commands, and no status changes.
+You are the isolated **planner** for the `plan` step. Your prompt carries the work item (id, state, title, body and **acceptance criteria**), on a re-plan the latest attempt's rejecting findings, and the item's record: the read-only record folder it names (`attachments/<name>`, the current `plan` among them on a re-plan; `children.md`), or the record inline when it names no folder. Produce a concrete **implementation plan** as your structured final response. When your run ends, satelle attaches the artifact as the item's `plan`, so you **plan only** — no implementing, no editing source, no Satelle commands, and no status changes.
 
 ## Discovery first (the readiness step)
 
@@ -45,7 +45,9 @@ criteria from what you proved, then plan them.
      {"verdict": "reject", "notes": "the incorrect content, and why it is wrong"}
      ```
 
-     That parks the story as `blocked` with your notes on the timeline.
+     No plan is attached and nothing moves the story: your answer is kept as the
+     run's `performer.run` output on the ledger, and with no plan attachment
+     plan → in_progress fails plan-review.
 2. **Find the existing owner before you design.** Before proposing any rule,
    seam, loader, classifier, limit, dispatch or command, search the repo for
    where that rule or seam already lives. Record the result under an
@@ -76,9 +78,10 @@ criteria from what you proved, then plan them.
    `AC<n>`, or under `## Draft changes` as
    `AC<n> — dropped|replaced by AC<m>: <evidence>`. Your authored criteria are
    then planned as `AC1`, `AC2`, … in their own numbering.
-   The route applies the lines under the heading verbatim on plan → in_progress
-   (`apply_criteria`); write them to stand as-is, with nothing else before the
-   next `##`.
+   Satelle copies nothing from the section onto the story: it stays in the
+   `plan` attachment, every later gate's record carries it, and the plan-review,
+   code-ac, outcome and done reviews judge against it. So write the lines to
+   stand as-is, with nothing else before the next `##`.
    When the story's own criteria already hold up against the evidence, you may
    omit the section; the story's criteria are then the criteria.
 4. **Report configuration; do not apply it.** You are read-only. When a story
