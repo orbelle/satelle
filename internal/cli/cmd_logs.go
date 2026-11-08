@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,7 +28,7 @@ func logsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				dir := filepath.Join(r.Runtime, "logs")
+				dir := config.LogsDir(r.Runtime)
 				if showPath {
 					fmt.Fprintln(cmd.OutOrStdout(), dir)
 					return nil

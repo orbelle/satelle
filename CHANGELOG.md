@@ -1,3 +1,8 @@
+## [1.0.39] - 2026-11-08
+
+### Changed
+- Breaking: a gate's `after` is a list only; the single-string form (`after = "publish"`) is now refused at load, naming the key and the list form to write (`after = ["publish"]`), and a gate verdict's change is now judged on the pinned diff text alone, so a verdict hashed before the diff text was pinned reads as a mismatch even at the head it recorded (re-run its judge). (sto_f3ff5f3e)
+
 ## [1.0.38] - 2026-11-08
 
 ### Added

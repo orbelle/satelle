@@ -13,6 +13,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -96,7 +97,7 @@ func Open(o Options) (*Kernel, error) {
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Agents: cfg.Agents,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues),
-		Dispatcher: agent.Runner{}, Now: time.Now, Logs: filepath.Join(o.Runtime, "logs"),
+		Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
 	repo := gitfacts.Repo{Dir: o.Dir}
 	if _, err := repo.TopLevel(); err == nil {

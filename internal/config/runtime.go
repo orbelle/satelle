@@ -209,8 +209,10 @@ func RuntimeDir(repoRoot string) string {
 	return filepath.Join(GlobalDir(), RepoKey(repoRoot))
 }
 
-// LogsDir is repoRoot's runtime logs directory.
-func LogsDir(repoRoot string) string { return filepath.Join(RuntimeDir(repoRoot), "logs") }
+// LogsDir is the logs directory under a runtime directory (RuntimeDir, or
+// the one a kernel was opened with): where dispatch logs are written and
+// satelle logs reads. It is the one owner of that path.
+func LogsDir(runtime string) string { return filepath.Join(runtime, "logs") }
 
 // RuntimeKeyDirPattern matches a home-keyed runtime directory name
 // (`<sanitised-basename>-<sha256[:8]>`). Shared by CLI list and the

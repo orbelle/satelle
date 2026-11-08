@@ -273,11 +273,11 @@ func TestJudgedChangesSurviveALanding(t *testing.T) {
 	}
 }
 
-// A verdict recorded before diffs were canonical (its hash taken over other
-// diff text) is the judged change while its branch is still at the head it
-// recorded, read as commits; read from the branch's own tree, or once the
-// branch moved past that head, its now is hashed.
-func TestALegacyVerdictAtItsBranchHeadIsTheJudgedChange(t *testing.T) {
+// A verdict whose hash was taken over other diff text (one recorded before
+// the diff text was pinned) is a mismatch, even read as commits with its
+// branch still at the head it recorded: now is the hash of the pinned diff
+// text alone, never the recorded hash.
+func TestALegacyHashAtItsBranchHeadIsAMismatch(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	js, err := k.JudgedChanges(it.ID)
 	if err != nil || len(js) != 1 {
@@ -289,25 +289,19 @@ func TestALegacyVerdictAtItsBranchHeadIsTheJudgedChange(t *testing.T) {
 	if _, err := k.append(it.ID, gate.KindRun, "ada", legacy); err != nil {
 		t.Fatal(err)
 	}
-	last := func() JudgedChange {
-		t.Helper()
-		js, err := k.JudgedChanges(it.ID)
-		if err != nil || len(js) != 2 {
-			t.Fatalf("judged = %+v, %v", js, err)
-		}
-		return js[1]
-	}
-	if j := last(); j.Now == "legacy" {
-		t.Fatalf("read from the branch's own tree: %+v, want now hashed", j)
-	}
 	gittest.Git(t, dir, "checkout", "-q", "main")
-	if j := last(); j.Now != "legacy" || j.NowHead != head {
-		t.Fatalf("read as commits at the recorded head: %+v, want now == judged", j)
+	js, err = k.JudgedChanges(it.ID)
+	if err != nil || len(js) != 2 {
+		t.Fatalf("judged = %+v, %v", js, err)
 	}
-	gittest.Git(t, dir, "checkout", "-q", "feat/x")
-	commitFile(t, dir, "later.go", "package later\n")
-	gittest.Git(t, dir, "checkout", "-q", "main")
-	if j := last(); j.Now == "legacy" {
-		t.Fatalf("branch moved past the recorded head: %+v, want now hashed", j)
+	j := js[1]
+	if j.NowHead != head {
+		t.Fatalf("now head %q, want the recorded head %q", j.NowHead, head)
+	}
+	if j.Judged != "legacy" || j.Now == j.Judged {
+		t.Fatalf("a legacy hash at its recorded head: %+v, want a mismatch", j)
+	}
+	if j.Now != js[0].Now {
+		t.Fatalf("now %q, want the pinned diff text's hash %q", j.Now, js[0].Now)
 	}
 }
