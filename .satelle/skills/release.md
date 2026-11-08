@@ -63,8 +63,13 @@ exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')                  # created
 [ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
 satelle execution set "$exe" --status in_progress                     # validate-before
 satelle execution seat "$exe"
+satelle task get "$task" | satelle execution attach "$exe" --name task --type text/plain --file - || exit 1   # validate-after judges the run against it
 satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.inputs[]'
 ```
+
+The after-review (`satelle-task-validate-after-review`) reads only the run's
+record folder, so the run carries its parent task as the attachment `task`
+(task-run.md step 2); without it the run is refused at `done`.
 
 The printed base must be origin/main's head (`git rev-parse origin/main`):
 `--base main` would resolve a local `main` branch first, which may be stale.
@@ -502,8 +507,18 @@ cleanup task and follow its run to done:
 ```sh
 cd <the main checkout>
 git fetch -q origin
-satelle task run tas_b3424a1c --base origin/main
-bash scripts/clear-worktrees.sh      # the task's ACTION; its output is the run's worktree-evidence
+task=tas_b3424a1c
+exe=$(satelle task run "$task" --base origin/main --json | jq -r '.id // empty')
+[ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
+satelle execution set "$exe" --status in_progress                     # validate-before
+satelle execution seat "$exe" --base origin/main
+satelle task get "$task" | satelle execution attach "$exe" --name task --type text/plain --file - || exit 1   # validate-after judges the run against it
+```
+
+Then the task's ACTION, whose output is the run's `worktree-evidence`:
+
+```sh
+bash scripts/clear-worktrees.sh
 ```
 
 The cleanup (`scripts/clear-worktrees.sh`) removes each linked worktree that

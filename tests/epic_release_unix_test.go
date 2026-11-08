@@ -211,7 +211,10 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 		if seatAt < 0 {
 			t.Fatalf("no seated line:\n%s", r.out)
 		}
-		got := slices.Clone(lines[seatAt+1:])
+		if seatAt+1 >= len(lines) || !strings.HasPrefix(lines[seatAt+1], "attached task to "+exe+" ") {
+			t.Fatalf("step 0 does not attach the task right after the seat:\n%s", r.out)
+		}
+		got := slices.Clone(lines[seatAt+2:])
 		slices.Sort(got)
 		slices.Sort(want)
 		if !slices.Equal(got, want) {

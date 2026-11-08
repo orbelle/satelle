@@ -38,6 +38,7 @@ base=$(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.b
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 [ -n "$base" ] && [ -n "$ver" ] || { echo "run $exe has no base_ref, or .version names no satelle.version" >&2; exit 1; }
 satelle execution seat "$exe" --base "$base"
+satelle task get "$task" | satelle execution attach "$exe" --name task --type text/plain --file - || exit 1   # validate-after judges the run against it
 d=$(satelle execution diff "$exe" --json)
 if [ "$(printf '%s' "$d" | jq -r .base)" != "$(git rev-parse "$base^{commit}")" ] || [ "$(printf '%s' "$d" | jq '.paths | length')" -eq 0 ]; then
   echo "run $exe is not judged from $base, or its diff is empty:" >&2; printf '%s\n' "$d" >&2; exit 1

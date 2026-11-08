@@ -238,7 +238,10 @@ to = "done"
 	if head := strings.TrimSpace(s.git("rev-parse", "HEAD")); !strings.HasPrefix(head, base) {
 		t.Fatalf("seat base %s is not HEAD %s", base, head)
 	}
-	got := slices.Clone(lines[seatAt+1:])
+	if seatAt+1 >= len(lines) || !strings.HasPrefix(lines[seatAt+1], "attached task to "+exe+" ") {
+		t.Fatalf("step 0 does not attach the task right after the seat:\n%s", r.out)
+	}
+	got := slices.Clone(lines[seatAt+2:])
 	slices.Sort(got)
 	want := slices.Clone(approved)
 	slices.Sort(want)
