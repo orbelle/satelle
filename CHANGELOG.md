@@ -1,3 +1,8 @@
+## [1.0.27] - 2026-11-08
+
+### Added
+- A check gate can run on a docker-local remote (`placement = "remote:<id>"` on the gate): the transition starts a container node of that remote here, hands it a git bundle of the item's pushed head (no secrets, no network for the code), runs the check skill there and records its exit and output as the gate's `gate.run` with `location: remote:<node>`, so several items' suites run at once on separate nodes; services a suite needs come up in the definition's `[setup]`, an unpushed or dirty head, a node that fails to start, a timeout or a missing result rejects naming the cause, and this repo's `integration-check` now runs `make test` on the new `.satelle/remotes/integration` node (golang:1.27-alpine) with a 40m bound (sto_da5c52e7)
+
 ## [1.0.26] - 2026-11-08
 
 ### Changed
