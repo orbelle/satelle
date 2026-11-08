@@ -1,3 +1,17 @@
+## [1.0.42] - 2026-11-08
+
+### Added
+- [ledger] store defaults to satelle.dev while signed in and to local otherwise; satelle ledger push and pull carry chains, attachment bodies and performer outputs to satelle.dev under the same conditional-append and divergence rules as a store command, take item ids to replicate only those, and satelle ledger status compares each item with the store (sto_9b98696a)
+
+### Changed
+- satelle remote fire pushes only the fired item's chain to the bound project, and refuses with exit 1 when that item diverged (sto_9b98696a)
+
+### Fixed
+- A pull of one item whose local chain is ahead of a server chain that is a pure prefix of it (satelle remote status, a remote node) no longer reports a conflict (sto_9b98696a)
+
+### Breaking
+- satelle sync is removed with no alias: use satelle ledger push, satelle ledger pull and satelle ledger status, which replicate to the [ledger] store; with no store set that is satelle.dev while signed in, and [ledger] store = "local" keeps the ledger on this machine (sto_9b98696a)
+
 ## [1.0.41] - 2026-11-08
 
 ### Fixed
