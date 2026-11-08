@@ -37,14 +37,15 @@ func (e *SetupError) Error() string {
 // and nowhere else. The environment is the node's own plus env.
 func RunSetup(ctx context.Context, dir, phase string, cmds []string, env []string, timeout time.Duration, out io.Writer) error {
 	for i, c := range cmds {
-		if reason := runSetupCommand(ctx, dir, c, env, timeout, out); reason != "" {
+		if reason := runSetupCommand(ctx, dir, c, append(os.Environ(), env...), timeout, out); reason != "" {
 			return &SetupError{Phase: phase, Index: i + 1, Reason: reason}
 		}
 	}
 	return nil
 }
 
-// runSetupCommand runs one command and returns why it failed, "" when it did not.
+// runSetupCommand runs one command, in exactly the environment env, and returns
+// why it failed, "" when it did not.
 // The reason is a fixed classification, never the command or the raw exec error.
 func runSetupCommand(ctx context.Context, dir, command string, env []string, timeout time.Duration, out io.Writer) string {
 	if strings.TrimSpace(command) == "" {
@@ -54,7 +55,7 @@ func runSetupCommand(ctx context.Context, dir, command string, env []string, tim
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "sh", "-c", command)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = env
 	cmd.Stdin = nil
 	if out != nil {
 		cmd.Stdout, cmd.Stderr = out, out

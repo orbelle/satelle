@@ -114,6 +114,8 @@ type joiner struct {
 	o   JoinOptions
 	nc  *NodeClient
 	run RunDescriptor
+	// digest is the sha256 of the remote.toml the node was served (gate.hello).
+	digest string
 
 	mu           sync.Mutex
 	progress     string
@@ -192,6 +194,9 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 	}
 	def, overlay, err := ReadBundle(bundle)
 	if err != nil {
+		return Outcome{}, err
+	}
+	if j.digest, err = DefinitionDigest(bundle); err != nil {
 		return Outcome{}, err
 	}
 	if j.run, err = j.nc.Run(parent); err != nil {
@@ -444,6 +449,11 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 		steps++
 		return json.Marshal(AgentReply{Text: res.Text, Model: res.Model, TokensIn: res.TokensIn, TokensOut: res.TokensOut})
 	})
+	// A gate check on this node (a fly-sprite remote) runs through the gate
+	// jobs, beside the agent.
+	if err := serveGateJobs(node, j.o.Dir, j.digest); err != nil {
+		return Outcome{}, err
+	}
 	j.say("serving the starter")
 	if err := node.Serve(ctx, sess, report); err != nil {
 		return Outcome{}, err

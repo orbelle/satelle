@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -56,8 +57,20 @@ func (r repo) open() (*kernel.Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
 	}
-	// A check gate placed on a docker-local remote runs on a node started here.
-	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Out: os.Stderr}
+	// A check gate placed on a docker-local remote runs on a node started
+	// here; one on a fly-sprite remote on a node satelle-server starts for the
+	// bound project, dialled only when such a check runs.
+	sprites := remotenode.ServerSprites{Placer: func(context.Context) (remotenode.NodePlacer, func(), error) {
+		p, closeFn, ok, err := hostedPlacer(k, r)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			return nil, nil, errNotBound
+		}
+		return p, closeFn, nil
+	}}
+	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
 	return k, nil
 }
