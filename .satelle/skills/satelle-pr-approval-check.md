@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-approval-check
 type: check
-description: The pr-approval gate (sto_ebcaa5aa; sto_efe81afd puts it on integration → approved after pr-ready). Passes only on the satelle GitHub app's approving review on the item's pull request head, read from GitHub and matched by the app account's numeric id, never its login. A review of an older head does not count. When the app's latest decision on the head is CHANGES_REQUESTED, attaches its body as pr-review and reopens the item at in_progress. Deterministic, no agent; reads GitHub with gh.
+description: The pr-approval gate (sto_ebcaa5aa; sto_efe81afd puts it on integration → approved after pr-ready). Passes only on the satelle GitHub app's approving review on the item's pull request head, read from GitHub and matched by the app account's numeric id, never its login, whose review_id the item's ledger records as a github.review APPROVE on that head (sto_952d4435). A review of an older head does not count, nor does one GitHub re-pointed from an older head. When the app's latest decision on the head is CHANGES_REQUESTED, attaches its body as pr-review and reopens the item at in_progress. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR approval (the satelle GitHub app's review on the head)
@@ -19,7 +19,15 @@ never count. Approval is read back from GitHub, not from satelle.dev.
 - **The decision.** Of the app's reviews on HEAD (`commit_id`), the latest
   APPROVED, CHANGES_REQUESTED or DISMISSED one decides. A COMMENTED review
   decides nothing, and a review of an older head does not count.
-  - APPROVED passes.
+  - APPROVED passes only when the item's ledger records that review's id as
+    a `github.review` APPROVE with `commit_sha` equal to HEAD, the event the
+    publish check (`satelle-pr-review-publish`) appends. GitHub re-points an
+    older approval's `commit_id` to a new head when the branch moves
+    (`tests/testdata/github/reviews/README.md`, "GitHub re-points an older
+    review's commit_id"), so `commit_id` alone is not trusted. An approval
+    the ledger records on another head is refused naming both heads; one the
+    ledger does not record is refused too. Neither refusal attaches anything
+    or moves the item.
   - CHANGES_REQUESTED attaches the review body as `pr-review` (unless the
     newest `pr-review` already holds it) and moves the item, still at
     `$SATELLE_FROM`, to `in_progress` on the rework edge, then rejects. The
@@ -54,8 +62,22 @@ state=$(printf '%s' "$review" | jq -r '.state // empty')
 url=$(printf '%s' "$review" | jq -r '.html_url // empty')
 case "$state" in
   APPROVED)
-    echo "approved by the satelle app (account $app_account, app $app) on PR #$pr head $short: $url"
-    exit 0
+    rid=$(printf '%s' "$review" | jq -r '.id')
+    events=$(satelle ledger list "$SATELLE_ITEM" --kind github.review --json) ||
+      { echo "could not read the item's github.review events"; exit 1; }
+    approvals=$(printf '%s' "$events" | jq -c --argjson rid "$rid" '[(. // [])[] | .payload | select(.event == "APPROVE" and .review_id == $rid)]') ||
+      { echo "could not read the item's github.review events"; exit 1; }
+    if printf '%s' "$approvals" | jq -e --arg h "$head" 'any(.[]; .commit_sha == $h)' >/dev/null; then
+      echo "approved by the satelle app (account $app_account, app $app) on PR #$pr head $short: $url"
+      exit 0
+    fi
+    given=$(printf '%s' "$approvals" | jq -r 'last | .commit_sha // empty')
+    if [ -n "$given" ]; then
+      echo "refused: the satelle app's approval $url (review $rid) now reports head $short, but the item's ledger records review $rid on head ${given:0:12}; GitHub re-pointed an older approval"
+    else
+      echo "refused: the satelle app's approval $url (review $rid) on head $short is not on the item's ledger as a github.review APPROVE for that head"
+    fi
+    exit 1
     ;;
   CHANGES_REQUESTED)
     body=$(printf '%s' "$review" | jq -r '.body // ""')

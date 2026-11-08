@@ -1,0 +1,44 @@
+[
+  {
+    "id": 5815187973,
+    "node_id": "PRR_kwDOTFqjRc8AAAABWpy6BQ",
+    "user": {
+      "login": "satelle[bot]",
+      "id": 344745317,
+      "node_id": "BOT_kgDOFIxlZQ",
+      "avatar_url": "https://avatars.githubusercontent.com/in/5379260?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/satelle%5Bbot%5D",
+      "html_url": "https://github.com/apps/satelle",
+      "followers_url": "https://api.github.com/users/satelle%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/satelle%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/satelle%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/satelle%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/satelle%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/satelle%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/satelle%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/satelle%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/satelle%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "satelle · project satelle · gate pr-review (reviewer-alt) on sto_e809d7d6 head 6109ffe2f71d: approve\n\nBoth AC1 and AC2 are satisfied by internal/help/topics/projects.md.",
+    "state": "APPROVED",
+    "html_url": "https://github.com/orbelle/satelle/pull/41#pullrequestreview-5815187973",
+    "pull_request_url": "https://api.github.com/repos/orbelle/satelle/pulls/41",
+    "author_association": "NONE",
+    "is_copilot_code_review": false,
+    "copilot_code_review_effort": null,
+    "_links": {
+      "html": {
+        "href": "https://github.com/orbelle/satelle/pull/41#pullrequestreview-5815187973"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/orbelle/satelle/pulls/41"
+      }
+    },
+    "submitted_at": "2026-11-07T21:58:23Z",
+    "commit_id": "@HEAD@"
+  }
+]
