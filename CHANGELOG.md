@@ -1,3 +1,9 @@
+## [1.0.30] - 2026-11-08
+
+### Fixed
+- The ac-evidence check reads its story from `SATELLE_ITEM` and its attachments through `satelle story attachments`, so it no longer rejects every `sto_` story; the dogfood check, which called removed commands and whose job the release-installed check owns, is removed; and a test now runs every check skill on the kernel and fails on any call to a command or flag the binary lacks. (sto_d4158b06)
+- The judge and performer skills read v1 inputs: each judge reads the item's attachments from the record folder its prompt names and answers with `verdict`, the session performers fetch them with `satelle <kind> attachment(s)`, and none names a removed command, a payload `docs` list or a `sty_` id. The plan-review, code-ac, outcome and done reviews take the numbered criteria from the plan's `## Acceptance criteria` section, and a task run attaches its parent task as `task` for the after-review. `satelle validate`, and so every command, now refuses a skill with a ```check block whose type is not `check`, and a judge skill that answers with the retired `decision` key; retype or rewrite such a skill as `satelle-upgrade.md` describes. (sto_44b7f22c)
+
 ## [1.0.29] - 2026-11-08
 
 ### Changed
