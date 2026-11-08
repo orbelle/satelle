@@ -3,7 +3,7 @@ name: satelle-sync-architecture
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
-description: The target architecture for satelle sync (epic sty_5345a888) — work state is a server-sequenced ledger, configuration lives in git and never syncs, scope comes from the project binding, and every slice deletes what it supersedes and introduces no new warning in any of the machine's repos, every remaining finding owned by a named story. The architecture review judges each story's fit against it and may push back an amendment.
+description: The target architecture for replicating satelle's work state (epic sty_5345a888) — work state is a server-sequenced ledger, configuration lives in git and never syncs, scope comes from the project binding, and every slice deletes what it supersedes and introduces no new warning in any of the machine's repos, every remaining finding owned by a named story. The architecture review judges each story's fit against it and may push back an amendment.
 ---
 
 # Sync architecture
@@ -17,7 +17,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 | Data | Model | Source of truth | Transport |
 |---|---|---|---|
 | Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | For satelle.dev, the Chain service: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story). For a `[ledger] store` command, one object per event at `chains/<item>/<seq:012d>.json` written by conditional create and read back verified (`satelle ledger push`, `pull`), plus its blobs at `blobs/<sha256>`. Both keep the same rule: a different hash at a sequence is refused, never merged |
-| Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the repo | git | git only; `satelle sync` never carries it |
+| Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the repo | git | git only; ledger replication never carries it |
 
 - A story row, local or hosted, is a **projection** of its chain, rebuilt from
   the chain wherever the chain is held. The server derives its rows from the
@@ -25,8 +25,9 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   hold a story's chain holds the server's derived row, read-only: never pushed,
   never a base for an append, and replaced by the rebuild once the chain is
   fetched (§3, Holdings).
-- `satelle sync` carries work state only: each item's chain of events, item
-  summaries and attachment bodies. Configuration moves between instances
+- Ledger replication (`satelle ledger push` and `pull`) carries work state
+  only: each item's chain of events, item summaries, attachment bodies and
+  performer outputs. Configuration moves between instances
   through the repo's git, which is a step's work
   ([[satelle-mechanism-vs-substrate]]); nothing is overwritten silently.
 - A second path for the same data (rows beside the chain, a page ledger beside
@@ -65,8 +66,9 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 - **Local:** the repo is unbound or the user is not signed in. Nothing leaves
   the machine. This is the default.
 - **Personal:** bound to a project in the user's personal workspace. All work
-  state syncs with it (`satelle sync push` and `pull`); the `.satelle` tree
-  stays in git.
+  state replicates with it (`satelle ledger push` and `pull`, satelle.dev being
+  the default `[ledger] store` while signed in); the `.satelle` tree stays in
+  git.
 - **Team:** bound to a project in a team workspace. Members see the work state
   according to their role (admin, contributor or viewer).
 - `*.local.*` files never leave the machine, in any scope.
@@ -85,7 +87,7 @@ API; it serves no story pages for the local UI to link to.
 **Configuration is the repo's.** satelle reads its configuration from the
 repo's `.satelle/` alone (`satelle.toml`, `agents.toml`, `workflows/`,
 `skills/`, `queues/`), in every scope. No hosted or user-level copy layers over
-it, and nothing satelle syncs writes into the tree; a change to the
+it, and nothing satelle replicates writes into the tree; a change to the
 configuration reaches other instances, and a team, through the repo's git.
 `~/.satelle/config.toml` holds this machine's settings (`satelle settings`),
 not process.
@@ -93,17 +95,23 @@ not process.
 ## 4. Commands
 
 The sync surface is `satelle init`, `satelle login`, `satelle project bind`
-and `satelle sync` with three subcommands for work state: `push` (append the
-local events the project lacks, then item summaries and attachments; a
-diverged chain is reported as a conflict and left alone), `pull` (import the
-project's events the local ledger lacks, and their attachments) and `status`
-(each item's local and remote head). Bare `satelle sync` only prints its help.
-`satelle ledger push` and `pull` replicate work state to the configured
-`[ledger] store` command (proven by `satelle ledger store-test`), with the same
-divergence rule; a missing blob is a recorded gap, and `satelle ledger verify`
-exits 3 while one remains. Until the store-configuration story (sto_9b98696a)
-makes `satelle ledger push`, `pull` and `status` the one surface, `satelle
-sync` stays the satelle.dev path (operator, 2026-11-08, via development-a3).
+and three ledger verbs for work state, the only replication path: `satelle
+ledger push` (offer the local events the store lacks, with their blobs; a
+diverged chain is reported and left alone, exit 1), `satelle ledger pull`
+(import the store's events the local ledger lacks, and their blobs; a fork is
+refused) and `satelle ledger status` (each item's local and store head). Each
+takes item ids to replicate only those. They replicate to the `[ledger] store`:
+`"satelle.dev"` (the default while signed in, over the Chain and Attachment
+services), `"local"` (the default otherwise; nothing replicates) or an adapter
+`{ command, args }` (proven by `satelle ledger store-test`, which checks only a
+configured command). Every store keeps the same rule: a different hash at a
+sequence is refused, never merged. A missing blob is a recorded gap, and
+`satelle ledger verify` exits 3 while one remains. The hot path never contacts
+the store: hooks, gates, and story and ledger reads work with the store
+unreachable. Remote paths (`satelle remote fire`, a remote placement, a node,
+`satelle remote status`) replicate only their run's item through satelle-server,
+whatever `[ledger] store` names, with the same replicator. The former sync verb
+and its state file were removed in v1.0.42 (sto_9b98696a).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
 verb is internal or removed. The checks (`satelle validate`, `satelle status`)
 report; they do not repair.
