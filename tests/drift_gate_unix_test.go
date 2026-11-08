@@ -225,7 +225,7 @@ tools = ["Read", "Grep", "Glob"]
 `)
 	s.write(".satelle/workflows/runbook.toml", repoText(t, ".satelle/workflows/runbook.toml"))
 	for _, name := range []string{"task-run", "satelle-task-validate-before-review", "satelle-task-validate-after-review", "satelle-release-kept-check",
-		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered",
+		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered", "satelle-drift-closures-check",
 		"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
@@ -538,7 +538,7 @@ func TestDriftEmptyReportPasses(t *testing.T) {
 	if st := d.status(drift); st != "done" {
 		t.Fatalf("drift run is %s, want done", st)
 	}
-	for _, gate := range []string{"drift-constitution", "drift-claims", "validate-after"} {
+	for _, gate := range []string{"drift-constitution", "drift-claims", "drift-closures", "validate-after"} {
 		if g := latestRun(d.sandbox, drift, gate); g.Result != "accept" {
 			t.Errorf("%s = %s (%q), want accept", gate, g.Result, g.Notes)
 		}
