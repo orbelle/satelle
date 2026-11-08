@@ -97,9 +97,9 @@ type Gate struct {
 	// After lists the check skills run, in order, once the gate has a verdict
 	// (accept, reject or carried): each sees the result, notes and every
 	// judge's own answer, and a non-zero exit turns the result into a reject
-	// and stops the checks after it. A single string is read as a one-entry
-	// list, the form before lists.
-	After CheckList `toml:"after"`
+	// and stops the checks after it. It is a list only: a single string is
+	// refused at parse, naming the key and the list form.
+	After []string `toml:"after"`
 	// Timeout bounds every check script this gate runs (its check skill,
 	// trigger and after), each run separately, as a Go duration; empty uses
 	// the default.
@@ -163,6 +163,9 @@ func DecodeStrict(path string, v any) error {
 func Parse(path string) (*Workflow, error) {
 	var w Workflow
 	if err := DecodeStrict(path, &w); err != nil {
+		if hint := afterNotAList(path); hint != nil {
+			return nil, hint
+		}
 		return nil, err
 	}
 	if w.Name == "" {
@@ -183,6 +186,48 @@ func Parse(path string) (*Workflow, error) {
 		}
 	}
 	return &w, nil
+}
+
+// afterNotAList names the first gate whose after is not a list of strings
+// (a single string included), with the list form to write instead, or nil.
+// Parse calls it only once the strict decode has failed, so the refusal of
+// a mistyped after says what to write rather than only the TOML types.
+func afterNotAList(path string) error {
+	var raw struct {
+		Gates map[string]map[string]any `toml:"gates"`
+	}
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(raw.Gates))
+	for name := range raw.Gates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		v, ok := raw.Gates[name]["after"]
+		if !ok {
+			continue
+		}
+		list, good := v.([]any)
+		for _, e := range list {
+			if _, isStr := e.(string); !isStr {
+				good = false
+			}
+		}
+		if good {
+			continue
+		}
+		got, example := fmt.Sprint(v), `["<check skill>"]`
+		if s, isStr := v.(string); isStr {
+			got = fmt.Sprintf("the string %q", s)
+			if s != "" {
+				example = fmt.Sprintf("[%q]", s)
+			}
+		}
+		return fmt.Errorf("%s: gates.%s.after must be a list of check skill names, not %s: write after = %s", path, name, got, example)
+	}
+	return nil
 }
 
 // Load reads every <dir>/*.toml. Two files naming the same workflow are refused.
@@ -283,33 +328,4 @@ func (w *Workflow) Targets(from, prior string) []string {
 		}
 	}
 	return out
-}
-
-// CheckList is a list of check skill names that also reads a single TOML
-// string as a one-entry list ("" as none), so a gate written before after
-// took a list still loads.
-type CheckList []string
-
-// UnmarshalTOML reads a string or an array of strings.
-func (c *CheckList) UnmarshalTOML(v any) error {
-	switch x := v.(type) {
-	case string:
-		*c = nil
-		if x != "" {
-			*c = CheckList{x}
-		}
-		return nil
-	case []any:
-		out := make(CheckList, 0, len(x))
-		for _, e := range x {
-			s, ok := e.(string)
-			if !ok {
-				return fmt.Errorf("after: %v is not a skill name (want a string or a list of strings)", e)
-			}
-			out = append(out, s)
-		}
-		*c = out
-		return nil
-	}
-	return fmt.Errorf("after: %v is not a skill name or a list of them", v)
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -225,5 +226,28 @@ func TestWorkflowFor(t *testing.T) {
 	}
 	if _, _, err := k.WorkflowFor(item.Item{Kind: "story", Workflow: "nope"}); err == nil {
 		t.Error("an unknown workflow was accepted")
+	}
+}
+
+// Open's logs dir is config.LogsDir of the runtime it opened, given or
+// defaulted.
+func TestOpenLogsIsConfigLogsDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, rt := range []string{filepath.Join(t.TempDir(), "rt"), ""} {
+		k, err := Open(Options{Root: root, Runtime: rt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := rt
+		if want == "" {
+			want = filepath.Join(root, "runtime")
+		}
+		if got := k.Logs; got != config.LogsDir(want) {
+			t.Errorf("runtime %q: Logs = %q, want %q", rt, got, config.LogsDir(want))
+		}
+		k.Close()
 	}
 }

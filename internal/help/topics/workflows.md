@@ -114,8 +114,8 @@ refuses a judged verdict, the gate.run keeps the judge's raw answer: `answer`
 for a single judge, `members[].answer` for a panel (the panel's own members
 keep their verdicts, so such a round shows no member dissent). `satelle
 validate` refuses an entry that is not a check skill and an entry listed
-twice. A single string (`after = "publish"`, the form before lists) still
-loads, as a one-entry list.
+twice. `after` is a list only: a single string (`after = "publish"`) is
+refused, naming the key and the list form to write (`after = ["publish"]`).
 
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
