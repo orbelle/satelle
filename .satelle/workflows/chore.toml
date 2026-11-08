@@ -44,8 +44,12 @@ skill = "satelle-code-ac-review"
 agent = "reviewer-alt"
 carry = true
 
+# On a node of the docker-local remote integration, against the pushed head
+# (sto_da5c52e7); the timeout bounds the whole node run.
 [gates.integration-check]
 skill = "satelle-integration-check"
+placement = "remote:integration"
+timeout = "40m"
 
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"

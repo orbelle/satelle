@@ -102,6 +102,10 @@ type Gate struct {
 	// trigger and after), each run separately, as a Go duration; empty uses
 	// the default.
 	Timeout string `toml:"timeout"`
+	// Placement is where a check gate's skill runs: "" or "local" here,
+	// "remote:<id>" on a node of that remote, against the item's pushed head.
+	// Relevance, carry and after always run here.
+	Placement string `toml:"placement"`
 }
 
 // Bound is the gate's own bound on its check scripts: 0 when it sets none.

@@ -106,9 +106,14 @@ agent = "reviewer-alt"
 carry = true
 
 # The full local suite, once, on the head that will be released (GitHub runs
-# no tests; operator, 2026-11-06).
+# no tests; operator, 2026-11-06). It runs on a node of the docker-local
+# remote integration (.satelle/remotes/integration), against the pushed head,
+# so stories' suites run at once (sto_da5c52e7); the timeout bounds the whole
+# node run: start, setup, fetch and make test.
 [gates.integration-check]
 skill = "satelle-integration-check"
+placement = "remote:integration"
+timeout = "40m"
 
 # DEV's end: the head is committed, pushed, contains origin/main and has an
 # open pull request against main. Readiness only: it does not approve; the

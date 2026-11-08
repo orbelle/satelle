@@ -13,6 +13,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -44,6 +45,8 @@ type Kernel struct {
 	Dispatcher agent.Dispatcher
 	// Remote performs steps placed remote:<id>; nil refuses them.
 	Remote RemotePerformer
+	// RemoteChecks runs check gates placed remote:<id>; nil refuses them.
+	RemoteChecks gate.RemoteChecker
 	// Cloud starts steps placed in the cloud; nil says how to start one by hand.
 	Cloud CloudLauncher
 	Now   func() time.Time

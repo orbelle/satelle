@@ -9,6 +9,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -72,6 +73,10 @@ const (
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
 	QueuesDir    = "queues"
+	// RemotesDir holds the remote definitions, one directory per remote id
+	// with its RemoteFile.
+	RemotesDir = "remotes"
+	RemoteFile = "remote.toml"
 )
 
 // LoadConfig reads root's configuration. It returns what it could load and
@@ -160,6 +165,7 @@ func (c *Config) Problems() []error {
 		w := c.Workflows[name]
 		errs = append(errs, w.Validate(skill, c.Agents.Has)...)
 		errs = append(errs, c.bindingProblems(w)...)
+		errs = append(errs, c.gatePlacementProblems(w)...)
 		for _, sname := range sortedKeys(w.States) {
 			if typ, ok := w.States[sname].Operated(); ok && !agent.ValidType(typ) {
 				errs = append(errs, fmt.Errorf("workflow %s: state %q operator type %q is not a valid attachment type (letters, digits, '.', '_', '-')",
@@ -273,4 +279,48 @@ func Validate(root string) []error {
 		errs = append(errs, err)
 	}
 	return append(errs, c.Problems()...)
+}
+
+// gatePlacementProblems checks each gate's placement: "" or local, or
+// remote:<id> on a check gate, where <id> is a docker-local remote defined
+// under RemotesDir (the provider that runs gate checks here).
+func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
+	var errs []error
+	for _, gname := range sortedKeys(w.Gates) {
+		g := w.Gates[gname]
+		p := g.Placement
+		if p == "" || p == agent.PlaceLocal {
+			continue
+		}
+		bad := func(format string, args ...any) {
+			errs = append(errs, fmt.Errorf("workflow %s: gate %q: "+format, append([]any{w.Name, gname}, args...)...))
+		}
+		id, ok := strings.CutPrefix(p, agent.PlaceRemote)
+		if !ok || id == "" {
+			bad("placement %q is not %s or %s<id>", p, agent.PlaceLocal, agent.PlaceRemote)
+			continue
+		}
+		if id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
+			bad("placement %q: %q is not a remote id", p, id)
+			continue
+		}
+		if s, ok := c.Skills[g.Skill]; ok && !s.IsCheck() {
+			bad("placement %q: skill %q is not a check; only a check gate runs on a remote", p, g.Skill)
+		}
+		file := filepath.Join(c.Root, RemotesDir, id, RemoteFile)
+		b, err := os.ReadFile(file)
+		if err != nil {
+			bad("is placed on remote %s, which has no %s: %v", id, filepath.Join(filepath.Base(c.Root), RemotesDir, id, RemoteFile), err)
+			continue
+		}
+		def, err := remotedef.Parse(b)
+		if err != nil {
+			bad("is placed on remote %s: %v", id, err)
+			continue
+		}
+		if def.Provider != remotedef.ProviderDockerLocal {
+			bad("is placed on remote %s, whose provider %s does not run gate checks here (only %s does)", id, def.Provider, remotedef.ProviderDockerLocal)
+		}
+	}
+	return errs
 }

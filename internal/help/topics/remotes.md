@@ -62,3 +62,44 @@ A binding's `placement` in agents.toml says where a state's performer runs:
   records the branch's commit and its merge base with origin/main (or
   `--base <ref>`), never HEAD; the item's gates then judge that diff, and a
   branch that adds nothing is refused. collect never changes the repository.
+
+A check gate's `placement` in a workflow (see `satelle help workflows`) places
+the gate's check skill the same way: `remote:<id>` runs it on a node of that
+docker-local remote, as below.
+
+## A gate placed on a remote
+
+A check gate with `placement = "remote:<id>"` runs its check skill on a new
+node of the docker-local remote `<id>`, started here for that one check. The
+transition (`satelle story set <id> --status <to>`) starts the container
+`satelle-node-<node>`, runs `[setup]` in it, and hands it a git bundle of the
+item's pushed head (no secrets, and no network for the code), the check
+script, its stdin and a small wrapper. The node fetches the head from the
+bundle, checks it out, runs the check in it and returns its exit code and
+output, which are recorded here as that gate's gate.run, with `location:
+remote:<node>`. No satelle runs in the node and nothing is seated.
+
+Services the check needs come up in the definition's `[setup]`, before the
+fetch and the check. A Postgres beside the suite, on an alpine image:
+
+    [setup]
+    on_create = [
+      "apk add --no-cache git make bash postgresql",
+      "mkdir -p /run/postgresql && chown postgres /run/postgresql",
+      "su postgres -c 'initdb -D /var/lib/postgresql/data'",
+    ]
+    post_start = ["su postgres -c 'pg_ctl -D /var/lib/postgresql/data -w start'"]
+
+The image must have git (or setup installs it). As for a fire, `[secrets]`
+and `[[repo]]` are refused: the check rejects naming them.
+
+Lifecycle: with `scope = "run"` an accepted check's container is removed; a
+reject or a failure leaves it to inspect, and the gate's notes say `docker rm
+-f satelle-node-<node>`; a check cut at the gate's `timeout` is removed. With
+`scope = "job"` the container is always left.
+
+Every check is its own node and container, with nothing shared, so several
+items' gates run at once on separate nodes. A long suite still holds the
+`story set` that runs it: start that command in the background (the harness's
+background command, its timeout above the gate's) and the session's other
+commands run meanwhile.

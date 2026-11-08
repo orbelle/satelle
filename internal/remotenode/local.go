@@ -41,7 +41,7 @@ import (
 const LocalNodeDir = "/node"
 
 // RemotesDir is the directory of the remote definitions under .satelle.
-const RemotesDir = "remotes"
+const RemotesDir = kernel.RemotesDir
 
 // The files a local node reads from <dir>/in and writes to <dir>/out.
 const (
@@ -248,11 +248,8 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err := recoverStale(ctx, o); err != nil {
 		return nil, err
 	}
-	if def.Machine.Image == "" {
-		fmt.Fprintf(o.Out, "building %s from %s\n", provider.NodeImage, filepath.Join(o.Tree, "Dockerfile"))
-		if err := o.Docker.BuildNodeImage(ctx, o.Tree); err != nil {
-			return nil, err
-		}
+	if err := ensureNodeImage(ctx, o.Docker, o.Tree, def, o.Out); err != nil {
+		return nil, err
 	}
 	node, err := newNodeID()
 	if err != nil {
@@ -516,4 +513,14 @@ func tailOf(s string, n int) string {
 		return s[len(s)-n:]
 	}
 	return s
+}
+
+// ensureNodeImage builds the node image from tree's Dockerfile unless the
+// definition names its own [machine] image.
+func ensureNodeImage(ctx context.Context, d provider.DockerLocal, tree string, def remotedef.Definition, out io.Writer) error {
+	if def.Machine.Image != "" {
+		return nil
+	}
+	fmt.Fprintf(out, "building %s from %s\n", provider.NodeImage, filepath.Join(tree, "Dockerfile"))
+	return d.BuildNodeImage(ctx, tree)
 }

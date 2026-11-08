@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	"github.com/bobmcallan/satelle/internal/filebundle"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
 // DefinitionFile is the definition's own file in the bundle. The node reads it
 // (remotedef.Parse) and does not install it.
-const DefinitionFile = "remote.toml"
+const DefinitionFile = kernel.RemoteFile
 
 // InstallDefinition reads the bundle's remote.toml and overlays every other
 // file of the bundle onto dataDir, the node's .satelle directory, at the same

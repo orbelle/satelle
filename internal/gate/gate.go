@@ -56,6 +56,8 @@ type Result struct {
 	Class string `json:"class,omitempty"`
 	// Members is a panel's verdict per member, in panel order.
 	Members []Member `json:"members,omitempty"`
+	// Location is where a remote-placed check ran: remote:<node>. "" is here.
+	Location string `json:"location,omitempty"`
 
 	// verdict says the result is a verdict: a check that ran, or a judge
 	// (every panel member) that answered with one. A reject that is a failure
@@ -110,6 +112,12 @@ type Run struct {
 	// Record is the item's record section (attachments and children) for the
 	// judge prompt; "" adds nothing.
 	Record string
+	// Remote runs a check gate placed remote:<id>; nil refuses it.
+	Remote RemoteChecker
+	// Head is the pushed head a remote check judges; HeadErr says why there
+	// is none. The caller sets them only when a gate is placed on a remote.
+	Head    Head
+	HeadErr error
 
 	skipWarning string // diffWarning, computed once per Execute
 }
@@ -277,7 +285,10 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		return Result{Result: Reject, Notes: fmt.Sprintf("skill %q is missing", g.Skill), Coverage: coverage}
 	}
 	var res Result
-	if skill.IsCheck() {
+	switch {
+	case skill.IsCheck() && strings.HasPrefix(g.Placement, agent.PlaceRemote):
+		res = r.remote(ctx, name, g, skill, limit, source)
+	case skill.IsCheck():
 		passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.env(), limit)
 		res = Result{Result: Reject, Notes: out}
 		if err != nil {
@@ -288,7 +299,7 @@ func (r Run) decide(ctx context.Context, name string) Result {
 				res.Result = Accept
 			}
 		}
-	} else {
+	default:
 		res = r.judge(ctx, g, skill)
 	}
 	res.Coverage = coverage

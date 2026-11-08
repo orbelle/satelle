@@ -38,6 +38,7 @@ A gate is a named judgement on a transition:
     carry = true                 # an earlier accept over unchanged coverage is carried
     after = "publish"            # a check skill run once the gate has a verdict
     timeout = "30m"              # bounds this gate's check scripts; default 10m
+    placement = "remote:integration"  # a check gate only: run its check on a node
 
 A transition runs its groups in order. A `sequential` group stops at its first
 reject (fail-fast); a `parallel` group runs every gate. Every gate's result —
@@ -78,6 +79,22 @@ it returns. A gate with a long `timeout` (see `satelle workflow show`) can
 outlast a harness's bound on one shell command: run such a move as the
 harness's background command, with that command's own timeout above the sum
 of the sequential gates' bounds.
+
+A check gate's `placement` says where its check skill runs: `local` (the
+default) here, or `remote:<id>` on a node of the docker-local remote
+`.satelle/remotes/<id>/` (see `satelle help remotes`). Only a check gate may
+be placed on a remote, and only on a docker-local one; `satelle validate`
+refuses any other. Relevance (`paths`, `trigger`), carry and `after` still run
+here, so a skipped or carried gate starts no node and an `after` keeps its
+credentials here. The node judges the item's pushed head: its collected
+branch's commit, else HEAD on its branch, which must be committed (a clean
+tree, not detached) and in the history of `origin/<branch>`; otherwise the gate
+rejects saying to push. The gate's `timeout` bounds the whole node run (start,
+setup, fetch and the check). The result is the gate's gate.run as a local
+check records it, with `location: remote:<node>` and notes that start
+`remote <id>: node <node> at <sha>: exit <code>`. A node that fails to start,
+a head that does not check out, a timeout, or a run that brings back no exit
+code rejects with the cause named; none of them is a verdict, and none passes.
 
 ### Hold
 

@@ -9,8 +9,10 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 // RemotePerformer performs a step on a node of a remote (placement
@@ -237,4 +239,68 @@ func (k *Kernel) diffSpan(s span, paths []string) (string, error) {
 		return k.Git.(BranchGit).DiffBetween(s.base, s.head, paths)
 	}
 	return k.Git.Diff(s.base, paths)
+}
+
+// remotePlaced reports whether any gate of tr is placed on a remote.
+func remotePlaced(w *workflow.Workflow, tr *workflow.Transition) bool {
+	for _, g := range tr.Groups {
+		for _, name := range g.Gates {
+			if strings.HasPrefix(w.Gates[name].Placement, agent.PlaceRemote) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pushedHead is the head a remote-placed check judges: the collected branch's
+// commit when the item has one, else the checkout's HEAD on its branch (a
+// dirty tree or a detached HEAD is refused: what a node would test is not
+// what is here). The head must be in the history of the branch's
+// remote-tracking ref on the base branch's remote (origin), which is what the
+// node is handed.
+func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
+	bg, ok := k.Git.(BranchGit)
+	if !ok {
+		return gate.Head{}, errors.New("no git work tree here: a remote check needs a pushed head")
+	}
+	var commit, branch string
+	if c, ok := collected(events); ok && sp.head != "" {
+		commit, branch = sp.head, c.Branch
+	} else {
+		if d, ok := k.Git.(interface{ Dirty() (bool, error) }); ok {
+			dirty, err := d.Dirty()
+			if err != nil {
+				return gate.Head{}, err
+			}
+			if dirty {
+				return gate.Head{}, errors.New("the working tree has uncommitted changes, which the node would not test: commit and push them")
+			}
+		}
+		var err error
+		if commit, err = k.Git.Head(); err != nil {
+			return gate.Head{}, err
+		}
+		if branch, err = bg.Branch(); err != nil {
+			return gate.Head{}, err
+		}
+		if branch == "" {
+			return gate.Head{}, fmt.Errorf("HEAD (%s) is detached: a remote check tests a pushed branch", short(commit))
+		}
+	}
+	remote, _, _ := strings.Cut(DefaultBaseBranch, "/")
+	ref := "refs/remotes/" + remote + "/" + branch
+	notPushed := fmt.Errorf("head %s is not pushed to %s/%s: push it first", short(commit), remote, branch)
+	tip, err := bg.Resolve(ref)
+	if err != nil {
+		return gate.Head{}, notPushed
+	}
+	in, err := bg.IsAncestor(commit, tip)
+	if err != nil {
+		return gate.Head{}, err
+	}
+	if !in {
+		return gate.Head{}, notPushed
+	}
+	return gate.Head{Commit: commit, Ref: ref}, nil
 }

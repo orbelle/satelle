@@ -1,0 +1,44 @@
+# The node a check gate placed remote:integration runs on (sto_da5c52e7): this
+# repo's integration-check runs `make test` here, in a container on this
+# machine, against the item's pushed head, so several stories' suites run at
+# once on separate nodes. The gate's starter hands the node a git bundle of the
+# pushed head; the node fetches and checks it out, runs the check and returns
+# its exit code and output, recorded as the gate's gate.run. No satelle runs in
+# the node, and it is given no secrets.
+#
+# The network is the bridge (best effort for the allow list below): setup's
+# apk and the suite's `go mod download` need it. The code itself comes only
+# from the bundle.
+#
+# A suite that needs a service declares it in [setup]; it is up before the
+# check runs. Postgres, for example (satelle-server's suite):
+#
+#   on_create = [
+#     "apk add --no-cache git make bash postgresql",
+#     "mkdir -p /run/postgresql && chown postgres /run/postgresql",
+#     "su postgres -c 'initdb -D /var/lib/postgresql/data'",
+#   ]
+#   post_start = ["su postgres -c 'pg_ctl -D /var/lib/postgresql/data -w start'"]
+#
+# scope = "run" removes the container of an accepted check; a reject or a
+# failure leaves it to inspect (the gate's notes name it and how to remove it),
+# and a check cut at the gate's timeout is removed.
+version = 1
+name = "integration"
+provider = "docker-local"
+satelle_version = "1.0.26"
+
+[machine]
+image = "golang:1.27-alpine"
+
+[drive]
+kind = "item"
+
+[setup]
+on_create = ["apk add --no-cache git make bash jq"]
+
+[network]
+allow = ["dl-cdn.alpinelinux.org", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+
+[lifecycle]
+scope = "run"

@@ -29,8 +29,8 @@ type CheckEnv struct {
 	Binding, Notes       string
 }
 
-// payload is the JSON object a check reads on stdin.
-func (e CheckEnv) payload() []byte {
+// Payload is the JSON object a check reads on stdin.
+func (e CheckEnv) Payload() []byte {
 	m := map[string]string{"id": e.Item, "from": e.From, "to": e.To, "base": e.Base}
 	if e.Gate != "" {
 		m["gate"], m["result"], m["binding"], m["notes"] = e.Gate, e.Result, e.Binding, e.Notes
@@ -39,7 +39,8 @@ func (e CheckEnv) payload() []byte {
 	return b
 }
 
-func (e CheckEnv) vars() []string {
+// Vars are the SATELLE_* variables a check sees, as KEY=value.
+func (e CheckEnv) Vars() []string {
 	v := []string{"SATELLE_ITEM=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
 	if e.Gate != "" {
 		v = append(v, "SATELLE_GATE="+e.Gate, "SATELLE_GATE_RESULT="+e.Result, "SATELLE_GATE_BINDING="+e.Binding)
@@ -79,8 +80,8 @@ func RunCheck(ctx context.Context, script, dir string, env CheckEnv, timeout tim
 		cmd = exec.CommandContext(ctx, "sh", "-c", script)
 	}
 	cmd.Dir = dir
-	cmd.Stdin = bytes.NewReader(env.payload())
-	cmd.Env = append(os.Environ(), env.vars()...)
+	cmd.Stdin = bytes.NewReader(env.Payload())
+	cmd.Env = append(os.Environ(), env.Vars()...)
 	procgroup.Set(cmd)
 	cmd.Cancel = func() error { return procgroup.Kill(cmd) }
 	cmd.WaitDelay = 2 * time.Second

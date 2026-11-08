@@ -9,6 +9,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/remote/provider"
+	"github.com/bobmcallan/satelle/internal/remotenode"
 )
 
 // repo is where a command runs: the .satelle directory, the working tree and
@@ -54,6 +56,8 @@ func (r repo) open() (*kernel.Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
 	}
+	// A check gate placed on a docker-local remote runs on a node started here.
+	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Out: os.Stderr}
 	watchWrites(k, r)
 	return k, nil
 }

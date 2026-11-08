@@ -188,3 +188,10 @@ func (r Repo) TrackedFiles(path string) ([]string, error) {
 	sort.Strings(files)
 	return files, nil
 }
+
+// Bundle writes a git bundle of ref (with its history) to file, outside the
+// repository; the repository itself is not changed.
+func (r Repo) Bundle(file, ref string) error {
+	_, err := r.git("bundle", "create", "-q", file, ref)
+	return err
+}

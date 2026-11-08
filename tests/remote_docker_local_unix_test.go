@@ -23,6 +23,9 @@ import (
 // the suite's build; container inspect checks the dir exists; rm removes it;
 // build only records. A file $FAKE/fail-run-local makes run-local exit 1 with
 // no outcome; $FAKE/crash-run-local kills the fire (the exec's parent) there.
+// For a gate's node: $FAKE/fail-run makes run fail; $FAKE/no-exit makes the
+// exec of the run-check wrapper exit 0 having written nothing; $FAKE/bad-bundle
+// empties the head bundle as it is copied in.
 const fakeDocker = `#!/bin/sh
 FAKE='@FAKE@'
 SATELLE='@SATELLE@'
@@ -39,6 +42,7 @@ case "$cmd" in
   build|info) exit 0 ;;
   image) exit 1 ;;
   run)
+    [ -f "$FAKE/fail-run" ] && { echo "Error: the fake daemon refused the run" >&2; exit 1; }
     name=""
     while [ $# -gt 0 ]; do
       [ "$1" = --name ] && name=$2
@@ -48,11 +52,15 @@ case "$cmd" in
     echo "$name" ;;
   container) [ -d "$FAKE/$(last "$@")" ] ;;
   rm) rm -rf "$FAKE/$(last "$@")" ;;
-  cp) cp -R "$(map "$1")" "$(map "$2")" ;;
+  cp)
+    cp -R "$(map "$1")" "$(map "$2")" || exit 1
+    [ -f "$FAKE/bad-bundle" ] && [ -f "$(map "$2")/head.bundle" ] && : > "$(map "$2")/head.bundle"
+    exit 0 ;;
   exec)
     name=$1; shift
     [ -d "$FAKE/$name" ] || { echo "Error: no such container: $name" >&2; exit 1; }
     prog=$1; shift
+    case "$prog $1" in sh\ /node/in/run-check) [ -f "$FAKE/no-exit" ] && exit 0 ;; esac
     if [ "$prog" = satelle ] && [ "$1 $2" = "node run-local" ]; then
       [ -f "$FAKE/fail-run-local" ] && { echo "the node broke" >&2; exit 1; }
       [ -f "$FAKE/crash-run-local" ] && { kill -9 $PPID; exit 1; }

@@ -308,6 +308,11 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		CheckTimeout:    k.CheckTimeout,
 		Coverage:        func(paths []string) (string, error) { return k.coverage(it, events, sp, paths) },
 		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
+		Remote:          k.RemoteChecks,
+	}
+	// A check placed on a remote judges the pushed head, not this tree.
+	if remotePlaced(w, tr) {
+		run.Head, run.HeadErr = k.pushedHead(events, sp)
 	}
 	// A judge reads the item's record; checks need none. The folder is
 	// written after the changed paths are computed, and is gitignored.
