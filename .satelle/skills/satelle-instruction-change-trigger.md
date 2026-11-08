@@ -30,6 +30,8 @@ Each is measured against the diff's `base`. A **new** file, an unmeasurable one
 (`git diff -w --word-diff`, tokens containing a letter or digit only) triggers.
 Whitespace and punctuation changes count zero. A diff with no base and
 instruction files changed also triggers. No instruction path changed means skip.
+An item that is not a story (an execution, `exe_`) has no story diff: it is
+skipped, exit 1, with a line saying so.
 
 ## Configuration
 
@@ -45,11 +47,15 @@ THRESHOLD=5
 generic='^\.satelle/(skills|principles)/|^\.satelle/constitution\.md$'
 
 command -v jq >/dev/null 2>&1 || { echo "jq is not installed"; exit 2; }
-sid=$(printf '%s' "${SATELLE_ITEM:-}" | grep -oE '^sto_[a-f0-9]+$')
-if [ -z "$sid" ]; then
-  echo "SATELLE_ITEM (${SATELLE_ITEM:-unset}) is not a story id"
+item=${SATELLE_ITEM:-}
+if ! printf '%s' "$item" | grep -qE '^[a-z]+_[A-Za-z0-9]+$'; then
+  echo "SATELLE_ITEM (${item:-unset}) is not an item id"
   exit 2
 fi
+case $item in
+  sto_*) sid=$item ;;
+  *) echo "$item is not a story: it has no story diff to judge; instruction-change review not needed"; exit 1 ;;
+esac
 if ! diff=$(satelle story diff "$sid" --json 2>&1); then
   echo "could not read the diff of $sid: $diff"
   exit 2
