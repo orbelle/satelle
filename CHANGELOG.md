@@ -1,3 +1,11 @@
+## [1.0.32] - 2026-11-08
+
+### Added
+- A check gate may be placed on a fly-sprite remote: the docker test-gate definition runs unchanged but for its provider line, on a node satelle-server starts, reached over the sealed channel, and refused when the server serves another remote.toml. (sto_257507cb)
+
+### Fixed
+- No change reaches a terminal state unjudged: every model gate's verdict records the change it saw (base, head, branch and the hash of the diff alone), and a move into a terminal state is refused, naming the gate and its transition to re-run, when the item's change now differs from the one its latest accepted judge saw (read from the judged branch, so a release presenting done from main after a merge is not refused); the move records the change it was made with, and `satelle story diff` of a terminal item lists that frozen change (`--json` adds `head` and `"frozen": true`), so later work in the tree is no longer attributed to it (sto_e2cec5df)
+
 ## [1.0.31] - 2026-11-08
 
 ### Changed
