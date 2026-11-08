@@ -4,7 +4,9 @@ package gitfacts
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"sort"
@@ -194,4 +196,22 @@ func (r Repo) TrackedFiles(path string) ([]string, error) {
 func (r Repo) Bundle(file, ref string) error {
 	_, err := r.git("bundle", "create", "-q", file, ref)
 	return err
+}
+
+// ShallowCommits lists the commits a shallow clone's history ends at (its
+// shallow file, shared by every worktree of the repository); none for a
+// full clone.
+func (r Repo) ShallowCommits() ([]string, error) {
+	p, err := r.git("rev-parse", "--path-format=absolute", "--git-path", "shallow")
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(strings.TrimSpace(p))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(b)), nil
 }

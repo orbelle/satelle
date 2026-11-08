@@ -30,6 +30,7 @@ import (
 // The files a gate node reads from <dir>/in and writes to <dir>/out.
 const (
 	gateBundle  = "head.bundle"
+	gateShallow = "shallow"
 	gateScript  = "check"
 	gatePayload = "payload.json"
 	gateWrapper = "run-check"
@@ -138,7 +139,8 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 	}
 	defer os.RemoveAll(tmp)
 	in := filepath.Join(tmp, "in")
-	if err := stageGate(g.Tree, in, c); err != nil {
+	shallow, err := stageGate(g.Tree, in, c)
+	if err != nil {
 		return fail(err, "")
 	}
 	if _, err := h.Exec(ctx, "mkdir", "-p", LocalNodeDir); err != nil {
@@ -150,14 +152,21 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 
 	phase = "fetching the head"
 	work := path.Join(LocalNodeDir, "work")
-	for _, step := range []struct {
+	type fetchStep struct {
 		name string
 		argv []string
-	}{
-		{"init", []string{"git", "init", "-q", work}},
-		{"fetch", []string{"git", "-C", work, "fetch", "-q", path.Join(LocalNodeDir, "in", gateBundle), c.Head.Ref}},
-		{"checkout", []string{"git", "-C", work, "checkout", "-q", "--detach", c.Head.Commit}},
-	} {
+	}
+	steps := []fetchStep{{"init", []string{"git", "init", "-q", work}}}
+	// A shallow tree's bundle ends at its shallow commits: the node marks them
+	// shallow too, or its fetch looks for their parents and fails.
+	if shallow {
+		steps = append(steps, fetchStep{"shallow", []string{"cp", path.Join(LocalNodeDir, "in", gateShallow), path.Join(work, ".git", gateShallow)}})
+	}
+	steps = append(steps,
+		fetchStep{"fetch", []string{"git", "-C", work, "fetch", "-q", path.Join(LocalNodeDir, "in", gateBundle), c.Head.Ref}},
+		fetchStep{"checkout", []string{"git", "-C", work, "checkout", "-q", "--detach", c.Head.Commit}},
+	)
+	for _, step := range steps {
 		if b, err := h.Exec(ctx, step.argv...); err != nil {
 			return fail(fmt.Errorf("the node could not check out the head %s (git %s): %w", c.Head.Commit, step.name, err), string(b))
 		}
@@ -228,13 +237,25 @@ func collectLog(ctx context.Context, h provider.Handle, tmp string) string {
 }
 
 // stageGate writes the node's inputs into in: the bundle of the head's ref,
-// the check script, its stdin and the wrapper that runs it.
-func stageGate(tree, in string, c gate.RemoteCheck) error {
+// the check script, its stdin and the wrapper that runs it; and, when the tree
+// is a shallow clone, its shallow commits, where the bundle's history ends. It
+// reports whether it wrote them.
+func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 	if err := os.MkdirAll(in, 0o755); err != nil {
-		return err
+		return false, err
 	}
-	if err := (gitfacts.Repo{Dir: tree}).Bundle(filepath.Join(in, gateBundle), c.Head.Ref); err != nil {
-		return err
+	repo := gitfacts.Repo{Dir: tree}
+	if err := repo.Bundle(filepath.Join(in, gateBundle), c.Head.Ref); err != nil {
+		return false, err
+	}
+	shallow, err := repo.ShallowCommits()
+	if err != nil {
+		return false, err
+	}
+	if len(shallow) > 0 {
+		if err := os.WriteFile(filepath.Join(in, gateShallow), []byte(strings.Join(shallow, "\n")+"\n"), 0o644); err != nil {
+			return false, err
+		}
 	}
 	for name, b := range map[string]string{
 		gateScript:  c.Script,
@@ -242,10 +263,10 @@ func stageGate(tree, in string, c gate.RemoteCheck) error {
 		gateWrapper: gateWrapperScript(c.Env, strings.HasPrefix(c.Script, "#!")),
 	} {
 		if err := os.WriteFile(filepath.Join(in, name), []byte(b), 0o644); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return len(shallow) > 0, nil
 }
 
 // gateWrapperScript is the sh script the node runs as `sh run-check <dir>`: it

@@ -511,3 +511,51 @@ echo "service beat fresh; head=$(git rev-parse HEAD)"`
 	}
 	t.Logf("gate.run on %s: %s", image, g[0].Notes)
 }
+
+// The head is a merge commit (origin/main merged in) on a linked worktree of a
+// shallow clone, as a story's worktree is: the bundle of its ref ends at the
+// clone's shallow commits, and the node marks them shallow as well, so its
+// fetch does not look for their parents, and the check runs on the head.
+func TestRemoteGateOnAShallowWorktreeMergeHead(t *testing.T) {
+	t.Parallel()
+	s, fake := gateSandbox(t, "", `echo "head=$(git rev-parse HEAD)"`, gateboxDef(""), true)
+	for _, n := range []string{"a", "b", "c"} {
+		s.write("hist/"+n+".txt", n+"\n")
+		s.git("add", "-A")
+		s.git("commit", "-q", "-m", "history "+n)
+	}
+	s.git("push", "-q", "origin", "main")
+	// Shallow in place, as a --depth clone is: its history ends at main.
+	s.git("fetch", "-q", "--depth=1", "origin", "main")
+	if strings.TrimSpace(s.git("rev-parse", "--is-shallow-repository")) != "true" {
+		t.Fatal("the sandbox is not shallow")
+	}
+	wt := filepath.Join(realDir(t, t.TempDir()), "wt")
+	s.git("worktree", "add", "-q", "-b", "feat", wt, "main")
+	main := s.dir
+	s.dir = wt
+	s.write("work/feat.txt", "feat\n")
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "work on feat")
+	s.dir = main
+	s.write("hist/d.txt", "d\n")
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "main moves on")
+	s.git("push", "-q", "origin", "main")
+	s.dir = wt
+	s.git("merge", "-q", "--no-ff", "-m", "merge main", "main")
+	s.git("push", "-q", "-u", "origin", "feat")
+	head := strings.TrimSpace(s.git("rev-parse", "HEAD"))
+	if parents := strings.Fields(s.git("rev-list", "--parents", "-n1", "HEAD")); len(parents) != 3 {
+		t.Fatalf("the head is not a merge: %v", parents)
+	}
+	id := s.create("story", "--title", "shallow merge head").ID
+	r := s.presentDone(id)
+	g := s.remoteRuns(id)
+	if r.code != 0 || len(g) != 1 || g[0].Result != "accept" || !strings.Contains(g[0].Notes, "head="+head) {
+		t.Fatalf("exit %d\n%s%s\n%+v\nlog:\n%s", r.code, r.out, r.err, g, fakeLog(t, fake))
+	}
+	if log := fakeLog(t, fake); !strings.Contains(log, " cp /node/in/shallow /node/work/.git/shallow") {
+		t.Fatalf("the node was not told the shallow commits:\n%s", log)
+	}
+}
