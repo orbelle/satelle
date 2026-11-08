@@ -90,3 +90,11 @@ are reviewed*).
   part of the process (operator, 2026-11-07).
 - **The user-facing GitHub app is satelle (5379260); orbelle-reviewer is
   internal** (operator, 2026-11-07).
+
+## 2026-11-08
+
+- **Doctor is read-only on git.** "doctor should not perform actions in/on git.
+  git is readonly for doctor, any further action the agent/user should be
+  advised." Doctor reads the repo and reports; any change it finds needed is
+  advice to the agent or the user, never an action it takes (operator,
+  2026-11-08).
