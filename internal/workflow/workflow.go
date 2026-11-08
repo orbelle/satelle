@@ -97,8 +97,9 @@ type Gate struct {
 	// After lists the check skills run, in order, once the gate has a verdict
 	// (accept, reject or carried): each sees the result, notes and every
 	// judge's own answer, and a non-zero exit turns the result into a reject
-	// and stops the checks after it.
-	After []string `toml:"after"`
+	// and stops the checks after it. A single string is read as a one-entry
+	// list, the form before lists.
+	After CheckList `toml:"after"`
 	// Timeout bounds every check script this gate runs (its check skill,
 	// trigger and after), each run separately, as a Go duration; empty uses
 	// the default.
@@ -282,4 +283,33 @@ func (w *Workflow) Targets(from, prior string) []string {
 		}
 	}
 	return out
+}
+
+// CheckList is a list of check skill names that also reads a single TOML
+// string as a one-entry list ("" as none), so a gate written before after
+// took a list still loads.
+type CheckList []string
+
+// UnmarshalTOML reads a string or an array of strings.
+func (c *CheckList) UnmarshalTOML(v any) error {
+	switch x := v.(type) {
+	case string:
+		*c = nil
+		if x != "" {
+			*c = CheckList{x}
+		}
+		return nil
+	case []any:
+		out := make(CheckList, 0, len(x))
+		for _, e := range x {
+			s, ok := e.(string)
+			if !ok {
+				return fmt.Errorf("after: %v is not a skill name (want a string or a list of strings)", e)
+			}
+			out = append(out, s)
+		}
+		*c = out
+		return nil
+	}
+	return fmt.Errorf("after: %v is not a skill name or a list of them", v)
 }

@@ -139,7 +139,9 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"after not a check", base + "[gates.g]\nskill = \"script\"\nafter = [\"judge\"]\n", `after "judge" is not a check skill`},
 		{"after duplicate", base + "[gates.g]\nskill = \"script\"\nafter = [\"script\", \"script\"]\n", `after lists "script" twice`},
 		{"after second not a check", base + "[gates.g]\nskill = \"script\"\nafter = [\"script\", \"judge\"]\n", `after "judge" is not a check skill`},
-		{"after as a string", base + "[gates.g]\nskill = \"script\"\nafter = \"script\"\n", "after"},
+		{"after not a string", base + "[gates.g]\nskill = \"script\"\nafter = 3\n", "is not a skill name"},
+		{"after list of non-strings", base + "[gates.g]\nskill = \"script\"\nafter = [\"script\", 3]\n", "is not a skill name"},
+		{"after as a string not a check", base + "[gates.g]\nskill = \"script\"\nafter = \"judge\"\n", `after "judge" is not a check skill`},
 		{"timeout not a duration", base + "[gates.g]\nskill = \"script\"\ntimeout = \"soon\"\n", `timeout "soon" is not a duration`},
 		{"timeout zero", base + "[gates.g]\nskill = \"script\"\ntimeout = \"0s\"\n", `timeout "0s" must be positive`},
 		{"timeout negative", base + "[gates.g]\nskill = \"script\"\ntimeout = \"-1m\"\n", `timeout "-1m" must be positive`},
@@ -324,6 +326,35 @@ func TestSkillProblems(t *testing.T) {
 		}
 		if c.bad && (!strings.Contains(probs[0].Error(), "skill "+c.name) || !strings.Contains(probs[0].Error(), "not check")) {
 			t.Errorf("%s: problem %q does not name the skill and its type", c.name, probs[0])
+		}
+	}
+}
+
+// The form before after took a list still loads: a string is a one-entry
+// list, an empty string none, and the gate validates as the list form does.
+func TestAfterStringFormLoads(t *testing.T) {
+	base := "[states.a]\nstart = true\n[states.z]\nterminal = true\n[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n"
+	for body, want := range map[string]string{
+		"after = \"script\"\n":              "script",
+		"after = [\"script\"]\n":            "script",
+		"after = [\"script\", \"other\"]\n": "script,other",
+		"after = \"\"\n":                    "",
+		"":                                  "",
+	} {
+		w, err := parse(t, base+"[gates.g]\nskill = \"script\"\n"+body)
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		if got := strings.Join(w.Gates["g"].After, ","); got != want {
+			t.Errorf("%q: after %q, want %q", body, got, want)
+		}
+		if want == "" && len(w.Gates["g"].After) != 0 {
+			t.Errorf("%q: after %q, want none", body, w.Gates["g"].After)
+		}
+		if want == "script" {
+			if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+				t.Errorf("%q: %v", body, errs)
+			}
 		}
 	}
 }
