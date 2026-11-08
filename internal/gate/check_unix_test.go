@@ -27,7 +27,7 @@ func TestCheckGatesAndTriggers(t *testing.T) {
 	r.Skills["pass"] = checkSkill(`echo "item=$SATELLE_ITEM from=$SATELLE_FROM to=$SATELLE_TO"`)
 	r.Skills["fail"] = checkSkill("echo nope >&2; exit 3")
 	r.Skills["relevant"] = checkSkill("exit 0")
-	r.Skills["irrelevant"] = checkSkill("exit 1")
+	r.Skills["irrelevant"] = checkSkill("echo nothing here; exit 1")
 	r.Dir = t.TempDir()
 	rs, pass := r.Execute(context.Background())
 	if pass || results(rs) != "quiet=skipped pass=accept fail=reject" || len(d.calls) != 0 {
@@ -35,6 +35,9 @@ func TestCheckGatesAndTriggers(t *testing.T) {
 	}
 	if rs[1].Notes != "item=i1 from=s0 to=s1" || rs[2].Notes != "nope" {
 		t.Fatalf("notes %q %q", rs[1].Notes, rs[2].Notes)
+	}
+	if rs[0].Result != Skipped || rs[0].Notes != "trigger irrelevant found nothing relevant\nnothing here" {
+		t.Fatalf("skip %q %q", rs[0].Result, rs[0].Notes)
 	}
 }
 
@@ -250,5 +253,63 @@ func TestGateBadTimeoutFailsClosed(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("check ran under an unparsable timeout")
+	}
+}
+
+// RunCheckCode reports the script's exit: its code, -1 for a signal, and a
+// timeout as an error; RunCheck passes only on 0.
+func TestRunCheckCodeReportsTheExit(t *testing.T) {
+	for script, want := range map[string]int{"exit 0": 0, "exit 1": 1, "exit 3": 3, "kill -9 $$": -1} {
+		code, _, err := RunCheckCode(context.Background(), script, t.TempDir(), CheckEnv{}, 0)
+		if err != nil || code != want {
+			t.Fatalf("%s: code %d err %v, want %d", script, code, err, want)
+		}
+		ok, _, err := RunCheck(context.Background(), script, t.TempDir(), CheckEnv{}, 0)
+		if err != nil || ok != (want == 0) {
+			t.Fatalf("RunCheck %s: %v %v", script, ok, err)
+		}
+	}
+	code, _, err := RunCheckCode(context.Background(), "sleep 30", t.TempDir(), CheckEnv{}, 200*time.Millisecond)
+	var te *TimeoutError
+	if code != -1 || !errors.As(err, &te) {
+		t.Fatalf("timeout: %d %v", code, err)
+	}
+}
+
+// A trigger that exits other than 0 or 1 has failed: the gate runs anyway
+// (it fails closed) and its notes start with the trigger's failure.
+func TestBrokenTriggerRunsTheGate(t *testing.T) {
+	r, d := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"two", "missingcmd", "signal", "judged", "failing"}}}, map[string]workflow.Gate{
+		"two":        {Skill: "pass", Trigger: "broken"},
+		"missingcmd": {Skill: "pass", Trigger: "nocmd"},
+		"signal":     {Skill: "pass", Trigger: "killed"},
+		"judged":     {Skill: "judge", Agent: "y1", Trigger: "broken"},
+		"failing":    {Skill: "fail", Trigger: "broken"},
+	})
+	r.Skills["pass"] = checkSkill("echo checked")
+	r.Skills["fail"] = checkSkill("echo nope; exit 3")
+	r.Skills["broken"] = checkSkill("echo cannot read the change; exit 2")
+	r.Skills["nocmd"] = checkSkill("nosuchcommand-xyz")
+	r.Skills["killed"] = checkSkill("kill -9 $$")
+	r.Dir = t.TempDir()
+	rs, pass := r.Execute(context.Background())
+	if pass || results(rs) != "two=accept missingcmd=accept signal=accept judged=accept failing=reject" || len(d.calls) != 1 {
+		t.Fatalf("%v %s %d", pass, results(rs), len(d.calls))
+	}
+	line := "trigger broken failed (exit 2); the gate ran\ncannot read the change"
+	if rs[0].Notes != line+"\nchecked" {
+		t.Fatalf("two notes %q", rs[0].Notes)
+	}
+	if !strings.HasPrefix(rs[1].Notes, "trigger nocmd failed (exit 127); the gate ran") || !strings.HasSuffix(rs[1].Notes, "checked") {
+		t.Fatalf("missingcmd notes %q", rs[1].Notes)
+	}
+	if !strings.HasPrefix(rs[2].Notes, "trigger killed failed (killed by a signal); the gate ran") || !strings.HasSuffix(rs[2].Notes, "checked") {
+		t.Fatalf("signal notes %q", rs[2].Notes)
+	}
+	if !strings.HasPrefix(rs[3].Notes, line) || !strings.Contains(rs[3].Notes, "fine") {
+		t.Fatalf("judged notes %q", rs[3].Notes)
+	}
+	if !strings.HasPrefix(rs[4].Notes, line) || !strings.HasSuffix(rs[4].Notes, "nope") {
+		t.Fatalf("failing notes %q", rs[4].Notes)
 	}
 }

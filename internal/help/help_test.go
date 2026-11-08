@@ -63,3 +63,16 @@ func TestQueueFilesDocumented(t *testing.T) {
 		}
 	}
 }
+
+// The workflows topic names a trigger's exit convention.
+func TestTriggerExitConventionDocumented(t *testing.T) {
+	top, ok := Get("workflows")
+	if !ok {
+		t.Fatal("no workflows topic")
+	}
+	for _, want := range []string{"exit 0 runs the gate, exit 1 skips it", "trigger <skill> failed (exit <code>); the gate ran"} {
+		if !strings.Contains(top.Body, want) {
+			t.Errorf("the workflows topic lacks %q", want)
+		}
+	}
+}
