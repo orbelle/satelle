@@ -16,7 +16,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 
 | Data | Model | Source of truth | Transport |
 |---|---|---|---|
-| Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | Chain service only: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story) |
+| Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | For satelle.dev, the Chain service: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story). For a `[ledger] store` command, one object per event at `chains/<item>/<seq:012d>.json` written by conditional create and read back verified (`satelle ledger push`, `pull`), plus its blobs at `blobs/<sha256>`. Both keep the same rule: a different hash at a sequence is refused, never merged |
 | Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the repo | git | git only; `satelle sync` never carries it |
 
 - A story row, local or hosted, is a **projection** of its chain, rebuilt from
@@ -98,6 +98,12 @@ local events the project lacks, then item summaries and attachments; a
 diverged chain is reported as a conflict and left alone), `pull` (import the
 project's events the local ledger lacks, and their attachments) and `status`
 (each item's local and remote head). Bare `satelle sync` only prints its help.
+`satelle ledger push` and `pull` replicate work state to the configured
+`[ledger] store` command (proven by `satelle ledger store-test`), with the same
+divergence rule; a missing blob is a recorded gap, and `satelle ledger verify`
+exits 3 while one remains. Until the store-configuration story (sto_9b98696a)
+makes `satelle ledger push`, `pull` and `status` the one surface, `satelle
+sync` stays the satelle.dev path (operator, 2026-11-08, via development-a3).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
 verb is internal or removed. The checks (`satelle validate`, `satelle status`)
 report; they do not repair.
