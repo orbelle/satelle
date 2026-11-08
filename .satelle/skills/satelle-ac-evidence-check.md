@@ -8,31 +8,27 @@ description: Functional-check on in_progress → integration — rejects when th
 
 # AC-evidence presence check (integration-entry functional gate)
 
-Rejects entry to `integration` when the story has no `ac-evidence` attachment; adequacy is satelle-code-ac-review's. A slice with nothing to prove attaches it with an n/a note.
+Rejects entry to `integration` when the story has no `ac-evidence` attachment; adequacy is satelle-code-ac-review's. A slice with nothing to prove attaches it with an n/a note. The story is `$SATELLE_ITEM`, and its attachments are read with `satelle story attachments <id> --json`.
 
 ```check
 #!/usr/bin/env bash
 set -uo pipefail
-payload=$(cat)
-sid=$(printf '%s' "$payload" | grep -oE '"id":"sty_[a-f0-9]+"' | head -1 | grep -oE 'sty_[a-f0-9]+')
+sid=${SATELLE_ITEM:-}
 if [ -z "$sid" ]; then
-  echo "could not read the story id from the transition payload — cannot check ac-evidence"
+  echo "SATELLE_ITEM is not set, so the story's ac-evidence cannot be checked"
   exit 1
 fi
-# --json: this check greps a specific JSON shape below, so it must not
-# receive [output] compact mode's table rendering even when this repo
-# defaults compact on for an agent caller (satelle help compact-output).
-# Fall back to plain `story docs` (no --json) for a released binary that
-# predates the flag, so the check still works pre- and post-upgrade.
-docs=$(satelle story docs "$sid" --json 2>/dev/null || satelle story docs "$sid" 2>/dev/null || true)
-case "$docs" in
-  *'"name": "ac-evidence"'*|*"\"name\":\"ac-evidence\""*)
-    echo "ac-evidence attachment present for $sid"
-    exit 0
-    ;;
-esac
-echo "missing ac-evidence attachment for $sid — attach the per-AC test mapping before retrying in_progress→integration:"
-echo "  satelle story attach $sid --name ac-evidence --type note --body '…'   # or --file <path>"
-echo "Then re-present: satelle story set $sid --status integration"
+if ! atts=$(satelle story attachments "$sid" --json 2>&1); then
+  echo "could not read the attachments of $sid:"
+  echo "$atts"
+  exit 1
+fi
+if printf '%s' "$atts" | jq -e 'any(.[]; .name == "ac-evidence")' >/dev/null 2>&1; then
+  echo "ac-evidence attachment present for $sid"
+  exit 0
+fi
+echo "missing ac-evidence attachment for $sid — attach the per-AC test mapping before retrying:"
+echo "  satelle story attach $sid --name ac-evidence --file <path>"
+echo "Then re-present: satelle story set $sid --status ${SATELLE_TO:-integration}"
 exit 1
 ```
