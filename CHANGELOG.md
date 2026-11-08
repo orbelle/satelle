@@ -1,3 +1,8 @@
+## [1.0.34] - 2026-11-08
+
+### Changed
+- The binary no longer refuses a move into a terminal state on its own when the item's change differs from the one its latest accepted judge saw: `satelle <kind> diff --json` now reports every gate verdict that recorded a change as `judged`, each with the hash the judge saw (`judged`) and the item's change now (`now`, `now_head`), and the rule is the `satelle-change-judged-check` check skill, which this repo's delivery and chore workflows run first on `approved -> done`; a repo that relied on the refusal copies that skill and places it first on each move into a terminal state no model gate judges. The diff a change is hashed over no longer follows the user's git diff config (`a/` and `b/` prefixes and the myers algorithm, whatever `diff.mnemonicPrefix`, `diff.noprefix` or `diff.algorithm` say), and a verdict read between commits ending at the head it recorded is the judged change, so a branch that landed on main unchanged after its review is no longer refused at done, as sto_b9f9d9c7 and sto_fbc2dcf1 were in v1.0.33. The move still records the change it was made with, and a terminal item's diff stays frozen (sto_035f3007)
+
 ## [1.0.33] - 2026-11-08
 
 ### Changed
