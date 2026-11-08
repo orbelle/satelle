@@ -71,6 +71,13 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
 
+# A terminal state is reached only with a change a judge accepted (sto_e2cec5df).
+# The rule was the binary's; it is this check now (sto_035f3007), first on
+# approved -> done, which has no judge of its own, so a commit made after
+# code-ac fails here before release-run reads release state.
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
 [gates.release-run]
 skill = "satelle-release-run-check"
 
@@ -116,7 +123,7 @@ groups = [{ mode = "sequential", gates = ["integration-check", "pr-ready", "pr-r
 [[transition]]
 from = ["approved"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] }]
+groups = [{ mode = "sequential", gates = ["change-judged", "release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] }]
 
 [[transition]]
 from = ["integration", "approved"]

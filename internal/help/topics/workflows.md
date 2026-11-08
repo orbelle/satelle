@@ -56,20 +56,24 @@ finding; carry never carries over it. A panel that does not pass is a reject
 when any member rejected, else an error. Other failures (a missing skill or
 agent, the reviewer-differs refusal, an answer with no verdict) stay rejects.
 
-A terminal state is reached only with a change a judge accepted. Every model
-gate's verdict (a skill that is not `type: check`) records the change it saw:
-its base, head, branch and the hash of the diff alone. A move into a terminal
-state compares the item's change now with the latest accepted one: read from
-the judged branch when it still resolves (this tree when it is that branch,
-else the branch's commits, whatever the presenting checkout's HEAD carries),
-else from the presented tree. When they differ, as when a commit landed after
-the review, the move is refused, naming the gate and its transition: return
-the item to that transition's from-state and present it again so the gate
-judges the new change. A terminal transition with its own judge is checked
-after that judge runs, so it covers the change itself. Accepts recorded before
-satelle recorded changes do not refuse. The move into a terminal state records
-the change it was made with, and `story diff` of a terminal item lists that
-frozen change; later work in the tree is not attributed to it.
+Every model gate's verdict (a skill that is not `type: check`) records the
+change it saw: its base, head, branch and the hash of the diff alone. `story
+diff --json` reports those verdicts as `judged`, each with `now`, the hash of
+the item's change today over the same base, branch and paths: read from the
+judged branch when it still resolves (this tree when it is that branch, else
+the branch's commits, whatever the presenting checkout's HEAD carries), else
+from the presented tree. The diff hashed is git's text with `a/` and `b/`
+prefixes and the myers algorithm, whatever the user's diff config says, so a
+change hashed in its own tree hashes the same once its branch lands; a
+verdict read between commits ending at the head it recorded reports `now`
+equal to `judged`. The binary does not refuse a terminal move on its
+own. A workflow that needs a terminal state reached only with a change a judge
+accepted places a check gate on that transition, as satelle's own repository
+places `satelle-change-judged-check` first on each move into `done` no model
+gate judges; that check's reject names the gate and transition to re-run. A terminal transition with its own
+judge covers the change that judge sees. The move into a terminal state
+records the change it was made with, and `story diff` of a terminal item lists
+that frozen change; later work in the tree is not attributed to it.
 
 A skill whose frontmatter says `type: check` is a deterministic check: its first
 fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and

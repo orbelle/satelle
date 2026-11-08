@@ -326,23 +326,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	if k.Git != nil {
 		run.Span = k.runSpan(events, sp)
 	}
-	// A move into a terminal state needs the item's change to be the one its
-	// latest accepted judge saw. Without a judge on this transition only the
-	// earlier results can cover it, so the move is refused before any gate
-	// runs; with one, the check waits for this attempt's verdicts.
-	terminal := w.States[to].Terminal && k.Git != nil
 	judgedHere := k.judged(w, tr)
-	var frozen *item.Span
-	if terminal && !judgedHere {
-		unc, fs, err := k.uncovered(it, to, w, sp, prior)
-		if err != nil {
-			return res, err
-		}
-		if unc != nil {
-			return res, unc
-		}
-		frozen = fs
-	}
 	// A check placed on a remote judges the pushed head, not this tree.
 	if remotePlaced(w, tr) {
 		run.Head, run.HeadErr = k.pushedHead(events, sp)
@@ -372,15 +356,13 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		}
 		return k.holdIfCapped(ctx, res, w, actor)
 	}
-	if terminal && judgedHere {
-		unc, fs, err := k.uncovered(it, to, w, sp, append(prior, results...))
-		if err != nil {
+	// A move into a terminal state records the change it was made with; it
+	// decides nothing (a workflow places a check to refuse a change).
+	var frozen *item.Span
+	if w.States[to].Terminal && k.Git != nil {
+		if frozen, err = k.frozenSpan(it, w, sp, append(prior, results...)); err != nil {
 			return res, err
 		}
-		if unc != nil {
-			return res, unc
-		}
-		frozen = fs
 	}
 	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold, Change: frozen}); err != nil {
 		return res, err
@@ -402,7 +384,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 
 // coverage hashes what a gate judges: the item's body, criteria and
 // attachments, and the diff of the gate's paths over the span judged. change
-// hashes that diff alone (changeHash), what a terminal move compares.
+// hashes that diff alone (changeHash), what diff --json reports as judged.
 func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (coverage, change string, err error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00", it.Body, strings.Join(it.Criteria, "\x1f"))
