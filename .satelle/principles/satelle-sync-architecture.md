@@ -38,8 +38,10 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 - A **location** is one enrolled machine × checkout. Enrollment uses a
   single-use code, and the device generates its own key; the server keeps only
   the public key.
-- Offline appends wait locally and re-base onto the server head on reconnect.
-  Events commute, except **status transitions**: a transition must match the
+- Offline appends wait locally and are pushed by the next automatic pass once
+  the store is reachable; an append that forks a chain another location
+  extended is refused and reported, never re-based (see the next bullet;
+  re-basing is sto_e4a6f77f). Events commute, except **status transitions**: a transition must match the
   story's fold at its position (its `from` is the folded status), or it is a
   chain break, always reported. A break never moves a story out of a state its
   governing route marks final (terminal, or a park that does not resume).
@@ -58,8 +60,9 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
   item's status and the workflow. Server-side location holds are removed.
-- Other locations see a change through `Subscribe` within seconds, not only at
-  the next pull.
+- Other locations see a change at their next automatic pass:
+  `satelle-sync.timer` runs every 30 s, so within 90 s of the write. `Subscribe`
+  may later shorten this without a second path (sto_e4a6f77f).
 
 ## 3. Scope is the project binding
 
@@ -110,7 +113,12 @@ sequence is refused, never merged. A missing blob is a recorded gap, and
 the store: hooks, gates, and story and ledger reads work with the store
 unreachable. Remote paths (`satelle remote fire`, a remote placement, a node,
 `satelle remote status`) replicate only their run's item through satelle-server,
-whatever `[ledger] store` names, with the same replicator. The former sync verb
+whatever `[ledger] store` names, with the same replicator. `satelle service
+install` also installs `satelle-sync.timer`, which runs the internal verb
+`satelle ledger autosync` every 30 s: for each project on the machine whose
+store is not local it pushes then pulls through the same replicator and records
+the outcome, which satelled's project page shows. No one runs a command for a
+machine to converge. The former sync verb
 and its state file were removed in v1.0.42 (sto_9b98696a).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
 verb is internal or removed. The checks (`satelle validate`, `satelle status`)
