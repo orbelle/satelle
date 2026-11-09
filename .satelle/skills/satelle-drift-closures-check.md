@@ -1,25 +1,28 @@
 ---
 name: satelle-drift-closures-check
 type: check
-description: The drift review run's after-review of its closures (runbook in_progress → done, drift runs only). Reads the run's attached drift-report's "Closed" and "Stayed open" lists (drift-review.md step 4) and every story's state from the kernel; rejects when a story listed closed is not done, or an open drift story is missing from the stayed-open list or listed there without a reason. Deterministic, no agent.
+description: The drift review run's after-review of its closures (runbook in_progress → done, drift runs only). Reads the run's attached drift-report's "Closed" and "Stayed open" lists (drift-review.md step 4) and every drift item's state from the kernel; rejects when an item listed closed is not done, or an open drift item (the release's fix item among them) is missing from the stayed-open list or listed there without a reason. Deterministic, no agent.
 ---
 
 # Drift closures (the report's closed and stayed-open lists hold)
 
 Step 4 of the drift review (`.satelle/skills/drift-review.md`) presents done
-each open drift story the run no longer finds that is already on the drift
-route, and re-attaches the run's `drift-report` with two sections, each a
+every open drift item but the release's fix item (`scripts/drift-fix.sh
+--close`), and re-attaches the run's `drift-report` with two sections, each a
 `## <name>` heading followed by its lines up to the next `## ` heading:
 
-- `## Closed`: `<story id>\t<drift-key>`, each story the run closed.
-- `## Stayed open`: `<story id>\t<drift-key or ->\t<reason>`, each open drift
-  story and why it stayed open.
+- `## Closed`: `<item id>\t<drift-key>`, each item the run closed.
+- `## Stayed open`: `<item id>\t<drift-key or ->\t<reason>`, each open drift
+  item (the fix item, "the fix item of v<ver>") and why it stayed open.
+
+An item carried on its own route (`## Carried`) no longer carries the drift
+tag, so it is in neither list this check reads.
 
 This check holds that list to the kernel, so the report never claims a close
-that did not happen nor leaves an open drift story unaccounted for. A story
-listed closed must be `done`; every drift story open now must be listed as
+that did not happen nor leaves an open drift item unaccounted for. An item
+listed closed must be `done`; every drift item open now must be listed as
 stayed open with a reason. A report with neither section passes only when no
-drift story is open and none is claimed closed.
+drift item is open and none is claimed closed.
 
 ```sh
 set -u
@@ -44,11 +47,11 @@ section() {
   printf '%s\n' "$report" | awk -v h="## $1" '$0 == h { on = 1; next } /^## / { on = 0 } on && NF'
 }
 if ! open=$(satelle story list --tag drift --open --json 2>&1); then
-  echo "cannot list the open drift stories: $open"
+  echo "cannot list the open drift items: $open"
   exit 1
 fi
 if ! ids=$(printf '%s' "$open" | jq -r '.[].id' 2>&1); then
-  echo "cannot read the open drift stories: $ids"
+  echo "cannot read the open drift items: $ids"
   exit 1
 fi
 closed=$(section 'Closed' | awk -F'\t' '{ print $1 }')
@@ -67,13 +70,13 @@ for id in $closed; do
 done
 for id in $ids; do
   if ! printf '%s\n' "$stayed" | awk -F'\t' -v id="$id" '$1 == id && $3 != "" { f = 1 } END { exit !f }'; then
-    echo "missing from Stayed open: the open drift story $id is not listed with a reason"
+    echo "missing from Stayed open: the open drift item $id is not listed with a reason"
     bad=1
   fi
 done
 if [ "$bad" -ne 0 ]; then
-  echo "the drift run $exe's drift-report does not match the stories' states: run drift-review.md steps 3 and 4 again"
+  echo "the drift run $exe's drift-report does not match the items' states: run drift-review.md steps 3 and 4 again"
   exit 1
 fi
-echo "the drift run $exe's drift-report holds: $(printf '%s\n' "$closed" | grep -c .) closed and done, $(printf '%s\n' "$ids" | grep -c .) open drift stories each listed as stayed open with a reason"
+echo "the drift run $exe's drift-report holds: $(printf '%s\n' "$closed" | grep -c .) closed and done, $(printf '%s\n' "$ids" | grep -c .) open drift items each listed as stayed open with a reason"
 ```

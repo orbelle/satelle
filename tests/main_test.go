@@ -351,3 +351,18 @@ func (s *sandbox) gateRuns(id string) []gateRun {
 	}
 	return out
 }
+
+// mustConfigValid fails the test unless satelle validate finds no
+// configuration problem. A sandbox that copies only part of the repo's
+// substrate (a skill that links a principle it does not copy, or names a
+// command on purpose) may have substrate findings; those are not its subject.
+func (s *sandbox) mustConfigValid() {
+	s.t.Helper()
+	r := s.run("validate", "--json")
+	var v struct {
+		Problems []string `json:"problems"`
+	}
+	if err := json.Unmarshal([]byte(r.out), &v); err != nil || len(v.Problems) != 0 {
+		s.t.Fatalf("satelle validate: exit %d, problems %v (%v)\n%s%s", r.code, v.Problems, err, r.out, r.err)
+	}
+}

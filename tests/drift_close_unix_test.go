@@ -5,6 +5,7 @@ package tests
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -84,136 +85,78 @@ func listed(report, name string) map[string][]string {
 	return m
 }
 
-// raiseDrift raises one drift story per finding with scripts/drift-stories.sh
-// and returns key -> story id.
-func (d *driftCloseSandbox) raiseDrift(findings string) map[string]string {
-	d.t.Helper()
-	r := d.exec("bash", findings, "scripts/drift-stories.sh", "0.0.2")
-	if r.code != 0 {
-		d.t.Fatalf("drift-stories.sh: exit %d\n%s%s", r.code, r.out, r.err)
-	}
-	ids := map[string]string{}
-	for key, f := range raised(d.t, r.out) {
-		ids[key] = f[0]
-	}
-	return ids
-}
-
-// The drift review closes what the run no longer finds. drift-review.md's
-// step 3 and step 4 fences run verbatim, back to back, over three drift
-// stories: one substrate finding the run no longer finds (fixed), one it still
-// finds, and one prose finding the claims judge has not yet resolved. Step 3's
-// report carries the sections the drift route's done gate (D1) reads, and the
-// gate closes the fixed story on it; the others stay open, each with its
-// reason. When the claims judge then states a RESOLVED line for the prose
-// finding, steps 3 and 4 again close it too. The run's done move checks the
-// closed and stayed-open lists against the kernel: a report omitting an open
-// story, or claiming a close that did not happen, is refused, and the correct
-// report is accepted.
+// The drift review carries or closes every older drift item. A v0.0.1 fix
+// item holds a command key the run no longer finds (fixed), a flag key it
+// still finds, and a constitution key no judge resolved. drift-review.md's
+// steps 2, 3 and 4 run verbatim: step 2 raises the v0.0.2 fix item carrying
+// the flag and constitution keys; step 3's report lists the command key under
+// No longer found and names the fix item; step 4 closes the v0.0.1 item (the
+// command key resolved on the report, the other two carried), tagged
+// drift-carried-by:<v0.0.2 id>, and lists the v0.0.2 item as stayed open. The
+// run's done move checks those lists against the kernel (sto_a1681009 AC3).
 func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	t.Parallel()
 	d := newDriftCloseSandbox(t)
 	lines := strings.Split(strings.TrimSpace(driftFindings), "\n")
-	cmdLine, proseLine := lines[0], lines[2]
-	const flagLine = `.satelle/skills/b.md:4: flag: satelle story list --nope — no such flag`
-	const flagKey = "flag:.satelle/skills/b.md:satelle story list --nope"
-	ids := d.raiseDrift(cmdLine + "\n" + flagLine + "\n" + proseLine + "\n")
-	fixed, present, prose := ids[commandKey], ids[flagKey], ids[proseKey]
-	if fixed == "" || present == "" || prose == "" {
-		t.Fatalf("drift-stories.sh did not raise all three stories: %v", ids)
+	cmdLine, conLine := lines[0], lines[1]
+	r := d.driftFix(cmdLine+"\n"+flagLine+"\n"+conLine+"\n", "0.0.1")
+	if r.code != 0 {
+		t.Fatalf("drift-fix.sh 0.0.1: exit %d\n%s%s", r.code, r.out, r.err)
 	}
+	older := parseFixed(t, r.out).id
 
 	exe := d.start(d.drift, stepSeat(t))
 	// Step 1 as drift-check reports it: the flag finding is still there, the
-	// command finding is gone; the claims judge carried the prose finding.
+	// command finding is gone.
 	d.substrate(exe, flagLine+"\n", "1")
-	d.step("## 2.")
-	d.step("## 3.")
+	out := d.step("## 2.")
+	fix := parseFixed(t, out.out).id
+	if fix == older {
+		t.Fatalf("step 2 rewrote the v0.0.1 item %s instead of raising v0.0.2's", older)
+	}
+	it := d.get(fix)
+	if !slices.Contains(it.Tags, "release:v0.0.2") || !slices.Contains(it.Tags, "drift-fix") {
+		t.Fatalf("step 2's item %s tags %v, want drift-fix and release:v0.0.2", fix, it.Tags)
+	}
+	if got := bodyLines(it.Body, "drift-key: "); !slices.Equal(got, []string{flagKey, constitutionKey}) {
+		t.Fatalf("v0.0.2's fix item keys %q, want the flag key and the carried constitution key:\n%s", got, it.Body)
+	}
 
-	// Step 3's report, as attached before step 4 presents anything, carries
-	// the sections D1's gate reads.
+	d.step("## 3.")
 	rep := d.report(exe)
 	gone := listed(rep, "No longer found")
-	if len(gone) != 2 || gone[commandKey] == nil || gone[commandKey][0] != fixed || gone[proseKey] == nil || gone[flagKey] != nil {
-		t.Fatalf("step 3's No longer found = %v, want %s and %s, not %s:\n%s", gone, commandKey, proseKey, flagKey, rep)
+	if len(gone) != 1 || gone[commandKey] == nil || gone[commandKey][0] != older {
+		t.Fatalf("step 3's No longer found = %v, want only %s of %s:\n%s", gone, commandKey, older, rep)
 	}
-	if r := reportSection(rep, "Resolved by the judges"); len(r) != 0 {
-		t.Fatalf("step 3 listed RESOLVED lines no judge stated: %v", r)
+	if fi := reportSection(rep, "Fix item"); len(fi) != 3 || fi[0][0] != fix {
+		t.Fatalf("step 3's Fix item = %v, want %s and its two keys:\n%s", fi, fix, rep)
 	}
 	if !strings.Contains(rep, "- scripts/drift-check.sh: drift-check exit 1\n") {
 		t.Fatalf("step 3's report has no drift-check exit line:\n%s", rep)
 	}
-	for _, id := range []string{fixed, present, prose} {
-		if runs := d.gateRuns(id); len(runs) != 0 {
-			t.Fatalf("%s was presented before step 4: %v", id, runs)
-		}
+	if runs := d.gateRuns(older); len(runs) != 0 {
+		t.Fatalf("%s was presented before step 4: %v", older, runs)
 	}
 
 	d.step("## 4.")
-	if g := latestRun(d.sandbox, fixed, "drift-resolved"); g.Result != "accept" || !strings.Contains(g.Notes, exe) {
-		t.Fatalf("the fixed story's drift-resolved = %s (%q), want accept on run %s", g.Result, g.Notes, exe)
+	g := latestRun(d.sandbox, older, "drift-resolved")
+	if g.Result != "accept" || !strings.Contains(g.Notes, commandKey+" is no longer found by the drift run "+exe) ||
+		!strings.Contains(g.Notes, "carried: "+flagKey) || !strings.Contains(g.Notes, "carried: "+constitutionKey) {
+		t.Fatalf("v0.0.1's drift-resolved = %s (%q), want accept: the command key resolved, the others carried", g.Result, g.Notes)
 	}
-	if st := d.get(fixed).Status; st != "done" {
-		t.Fatalf("the fixed story %s is %s, want done", fixed, st)
-	}
-	if g := latestRun(d.sandbox, prose, "drift-resolved"); g.Result != "reject" || !strings.Contains(g.Notes, "no RESOLVED line") {
-		t.Fatalf("the prose story's drift-resolved = %s (%q), want reject: no RESOLVED line", g.Result, g.Notes)
-	}
-	if runs := d.gateRuns(present); len(runs) != 0 {
-		t.Fatalf("the still-found story %s was presented: %v", present, runs)
-	}
-	for _, id := range []string{present, prose} {
-		if st := d.get(id).Status; st != "open" {
-			t.Fatalf("%s is %s, want open", id, st)
-		}
+	if it := d.get(older); it.Status != "done" || !slices.Contains(it.Tags, "drift-carried-by:"+fix) {
+		t.Fatalf("v0.0.1's item is %s with tags %v, want done tagged drift-carried-by:%s", it.Status, it.Tags, fix)
 	}
 	rep = d.report(exe)
 	closed, stayed := listed(rep, "Closed"), listed(rep, "Stayed open")
-	if len(closed) != 1 || closed[fixed] == nil || closed[fixed][0] != commandKey {
-		t.Fatalf("Closed = %v, want only %s:\n%s", closed, fixed, rep)
+	if len(closed) != 1 || closed[older] == nil || closed[older][0] != commandKey {
+		t.Fatalf("Closed = %v, want only %s:\n%s", closed, older, rep)
 	}
-	if len(stayed) != 2 || len(stayed[present]) != 2 || stayed[present][1] != "still found by this run" ||
-		len(stayed[prose]) != 2 || !strings.Contains(stayed[prose][1], "no RESOLVED line") {
-		t.Fatalf("Stayed open = %v, want %s still found and %s refused for no RESOLVED line:\n%s", stayed, present, prose, rep)
-	}
-
-	// The claims judge re-checks the prose story and finds it fixed: its
-	// RESOLVED line rejects the run's done move, so the run stays in progress.
-	resolved := "RESOLVED " + proseKey + " — the statement is gone from .satelle/principles/p.md"
-	d.setFake("verdict.claims", "reject")
-	d.setFake("notes.claims", resolved)
-	d.step("## 5.")
-	if g := latestRun(d.sandbox, exe, "drift-claims"); g.Result != "reject" || !strings.Contains(g.Notes, resolved) {
-		t.Fatalf("drift-claims = %s (%q), want reject stating %q", g.Result, g.Notes, resolved)
-	}
-	if st := d.status(exe); st != "in_progress" {
-		t.Fatalf("run is %s after the RESOLVED reject, want in_progress", st)
-	}
-	sys, err := os.ReadFile(filepath.Join(d.fake, "system.claims"))
-	if err != nil || !strings.Contains(string(sys), "RESOLVED <drift-key> — <evidence>") {
-		t.Fatalf("the claims judge's prompt does not carry the RESOLVED form (%v)", err)
-	}
-
-	d.step("## 3.")
-	if r := reportSection(d.report(exe), "Resolved by the judges"); len(r) != 1 || r[0][0] != resolved {
-		t.Fatalf("step 3's Resolved by the judges = %v, want %q", r, resolved)
-	}
-	d.step("## 4.")
-	if g := latestRun(d.sandbox, prose, "drift-resolved"); g.Result != "accept" || !strings.Contains(g.Notes, "RESOLVED "+proseKey) {
-		t.Fatalf("the prose story's drift-resolved = %s (%q), want accept on its RESOLVED line", g.Result, g.Notes)
-	}
-	if st := d.get(prose).Status; st != "done" {
-		t.Fatalf("the prose story %s is %s, want done", prose, st)
-	}
-	good := d.report(exe)
-	closed, stayed = listed(good, "Closed"), listed(good, "Stayed open")
-	if len(closed) != 2 || closed[fixed] == nil || closed[prose] == nil || len(stayed) != 1 || stayed[present] == nil {
-		t.Fatalf("after the RESOLVED line: Closed %v, Stayed open %v; want %s and %s closed, %s open:\n%s", closed, stayed, fixed, prose, present, good)
+	if len(stayed) != 1 || len(stayed[fix]) != 2 || stayed[fix][1] != "the fix item of v0.0.2" {
+		t.Fatalf("Stayed open = %v, want only %s, the fix item of v0.0.2:\n%s", stayed, fix, rep)
 	}
 
 	// The run's done move checks the lists against the kernel.
-	d.setFake("verdict.claims", "")
-	d.setFake("notes.claims", "")
 	attach := func(body string) {
 		t.Helper()
 		if r := d.exec(satelleBin, body, "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
@@ -228,90 +171,50 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 			t.Fatalf("drift-closures = %s (%q), want %s naming %q", g.Result, g.Notes, wantResult, wantNotes)
 		}
 	}
-	stayedLine := present + "\t" + flagKey + "\tstill found by this run\n"
+	good := rep
+	stayedLine := fix + "\t" + flagKey + "\tthe fix item of v0.0.2\n"
 	omitting := strings.Replace(good, stayedLine, "", 1)
 	if omitting == good {
 		t.Fatalf("the report has no stayed-open line %q:\n%s", stayedLine, good)
 	}
 	attach(omitting)
-	presentRun("reject", "missing from Stayed open: the open drift story "+present)
-	if st := d.status(exe); st != "in_progress" {
-		t.Fatalf("run is %s after a report omitting %s, want in_progress", st, present)
-	}
-	attach(strings.Replace(good, "## Closed\n", "## Closed\n"+present+"\t"+flagKey+"\n", 1))
-	presentRun("reject", "listed closed but not done: "+present+" is open")
-
+	presentRun("reject", "missing from Stayed open: the open drift item "+fix)
 	attach(good)
-	presentRun("accept", "2 closed and done, 1 open drift stories")
+	presentRun("accept", "1 closed and done, 1 open drift items")
 	if st := d.status(exe); st != "done" {
 		t.Fatalf("run is %s after the correct report, want done", st)
 	}
 }
 
-// Closing presents only stories already on the drift route. A drift story on
-// another workflow whose finding the run no longer finds is listed under No
-// longer found but never presented: it stays open with the reason that it is
-// not on the drift route. A drift story with no drift-key line stays open with
-// that reason.
-func TestDriftClosingSkipsStoriesOffTheDriftRoute(t *testing.T) {
+// The claims judge's findings are warnings: it accepts with a WARN line, step
+// 5 brings the run to done, and step 6 records the warning in the release's
+// fix item as a drift-warning line with the finding quoted (sto_a1681009 AC7).
+func TestDriftReviewRecordsWarnings(t *testing.T) {
 	t.Parallel()
 	d := newDriftCloseSandbox(t)
-	// A chore-like route whose done gate records a refusal, as chore's and
-	// delivery's release gates would for a record with no change.
-	d.write(".satelle/workflows/chore.toml", `name = "chore"
-[states.open]
-start = true
-[states.done]
-terminal = true
-[gates.released]
-skill = "fixture-refuse"
-[[transition]]
-from = ["open"]
-to = "done"
-groups = [{ mode = "sequential", gates = ["released"] }]
-`)
-	d.write(".satelle/skills/fixture-refuse.md", "---\nname: fixture-refuse\ntype: check\n---\n\n```sh\necho \"no release carries this record\"\nexit 1\n```\n")
-	d.must("validate")
-	d.git("add", "-A")
-	d.git("commit", "-q", "-m", "chore route")
-	const offKey = "command:.satelle/skills/c.md:satelle story gone"
-	off := d.create("story", "--title", "Drift: satelle story gone (.satelle/skills/c.md)", "--tag", "drift",
-		"--workflow", "chore", "--body", "drift-key: "+offKey+"\n").ID
-	bare := d.create("story", "--title", "a drift story with no drift-key line", "--tag", "drift", "--body", "no key here\n").ID
-	if it := d.get(off); it.Workflow != "chore" {
-		t.Fatalf("%s is on %s, want chore", off, it.Workflow)
-	}
-	if it := d.get(bare); it.Workflow != "drift" {
-		t.Fatalf("%s is on %s, want drift", bare, it.Workflow)
-	}
-
 	exe := d.start(d.drift, stepSeat(t))
 	d.substrate(exe, "", "0")
+	d.step("## 2.")
 	d.step("## 3.")
-	if gone := listed(d.report(exe), "No longer found"); len(gone) != 1 || gone[offKey] == nil {
-		t.Fatalf("No longer found = %v, want only %s:\n%s", gone, offKey, d.report(exe))
-	}
-	before := d.get(off).Status
 	d.step("## 4.")
-	if runs := d.gateRuns(off); len(runs) != 0 {
-		t.Fatalf("the story off the drift route %s was presented: %v", off, runs)
+	const warn = `WARN .satelle/principles/p.md:6 "queue entries live in the story chain" — internal/kernel/queue.go:62`
+	d.setFake("notes.claims", "checked .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/: 1 contradicted statements\n"+warn)
+	d.step("## 5.")
+	if g := latestRun(d.sandbox, exe, "drift-claims"); g.Result != "accept" || !strings.Contains(g.Notes, warn) {
+		t.Fatalf("drift-claims = %s (%q), want accept with the WARN line", g.Result, g.Notes)
 	}
-	if runs := d.gateRuns(bare); len(runs) != 0 {
-		t.Fatalf("the keyless story %s was presented: %v", bare, runs)
+	if st := d.status(exe); st != "done" {
+		t.Fatalf("run is %s, want done: a warning never blocks", st)
 	}
-	if st := d.get(off).Status; st != before {
-		t.Fatalf("%s moved from %s to %s", off, before, st)
+	out := d.step("## 6.")
+	fix := parseFixed(t, out.out)
+	if fix.findings != "0 findings" || fix.warnings != "1 warnings" {
+		t.Fatalf("step 6 = %+v, want one warning", fix)
 	}
-	rep := d.report(exe)
-	if c := reportSection(rep, "Closed"); len(c) != 0 {
-		t.Fatalf("Closed = %v, want none:\n%s", c, rep)
-	}
-	stayed := listed(rep, "Stayed open")
-	if len(stayed[off]) != 2 || stayed[off][0] != offKey || !strings.Contains(stayed[off][1], "on the chore workflow, not the drift route") {
-		t.Fatalf("Stayed open for %s = %v, want the reason it is not on the drift route:\n%s", off, stayed[off], rep)
-	}
-	if len(stayed[bare]) != 2 || stayed[bare][0] != "-" || !strings.Contains(stayed[bare][1], "no drift-key line") {
-		t.Fatalf("Stayed open for %s = %v, want the reason it has no drift-key line:\n%s", bare, stayed[bare], rep)
+	body := d.get(fix.id).Body
+	want := "drift-warning: " + proseKey + "\n> .satelle/principles/p.md:6: prose: queue entries live in the story chain — internal/kernel/queue.go:62\n"
+	if !strings.Contains(body, want) || strings.Contains(body, "drift-key: prose:") {
+		t.Fatalf("the fix item lacks %q, or has a prose drift-key:\n%s", want, body)
 	}
 }
 
@@ -391,7 +294,7 @@ func TestDriftReviewStep4FollowsStep3Fence(t *testing.T) {
 		t.Fatalf("drift-review.md: step 4's fence does not follow its heading directly:\n%s", head)
 	}
 	four := md[j:k]
-	for _, want := range []string{"satelle story set \"$id\" --status done", "[ \"$wf\" = drift ] || continue"} {
+	for _, want := range []string{`bash scripts/drift-fix.sh --close "$fix"`, "## Stayed open"} {
 		if !strings.Contains(four, want) {
 			t.Errorf("drift-review.md step 4 lacks %q", want)
 		}

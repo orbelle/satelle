@@ -19,7 +19,13 @@
   // default chips.
   function isItemPanel(panel) {
     var t = panel.dataset.topic;
-    return t === "stories" || t === "activity" || t === "tasks" || t === "queues";
+    return t === "stories" || t === "activity" || t === "tasks" || t === "queues" || t.indexOf("wf-") === 0;
+  }
+  // wfPanelTopics are the workflow panels' topics (a workflow that declares
+  // panel = "<name>" lists its stories on its own tab, sto_a1681009), read
+  // from the server-rendered tabs.
+  function wfPanelTopics() {
+    return [].slice.call(document.querySelectorAll(".tab[data-wf-panel]")).map(function (t) { return t.dataset.panel; });
   }
   // kind: tells a story row from a task run row on the Activity panel (the
   // stories and task runs being worked now);
@@ -62,6 +68,7 @@
     // the URL). A normal click changes the hash without reloading; we mirror the
     // hash to the active panel here. Anchors preserve the query string, so the
     // filters (stored as ?<panel>=… below) survive a tab switch and a new-tab open.
+    wfPanelTopics().forEach(function (tp) { if (PANELS.indexOf(tp) === -1) PANELS.push(tp); });
     window.addEventListener("hashchange", function () {
       showTab((location.hash || "#stories").slice(1));
     });
@@ -354,12 +361,38 @@
           var row = holder.querySelector('tr.row[data-expand-url="' + url + '"]');
           if (row && row.style.display !== "none") expandRow(row);
         });
-        var tab = document.querySelector('.tab[data-panel="' + topic + '"] .n');
-        if (tab) tab.textContent = panel.querySelectorAll("[data-rows] .row").length;
+        if (topic.indexOf("wf-") === 0) {
+          refreshPanelTab(topic);
+        } else {
+          var tab = document.querySelector('.tab[data-panel="' + topic + '"] .n');
+          if (tab) tab.textContent = panel.querySelectorAll("[data-rows] .row").length;
+        }
         if (topic === "stories") {
           refreshBacklogBadge();
           refreshEngagementBadge();
         }
+      })
+      .catch(function () {});
+  }
+
+  // refreshPanelTab reloads a workflow panel's tab from the server: the server
+  // owns its count (items not in a terminal state) and its alert class, and
+  // renders the same panelTab template at page load and at fragment/tab/<topic>.
+  // It copies the fragment's class and count onto the tab, keeping
+  // aria-selected; it counts nothing.
+  function refreshPanelTab(topic) {
+    fetch("fragment/tab/" + topic)
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var cur = document.querySelector('.tab[data-panel="' + topic + '"]');
+        if (!cur) return;
+        var tmp = document.createElement("div");
+        tmp.innerHTML = html.trim();
+        var next = tmp.querySelector(".tab");
+        if (!next) return;
+        cur.className = next.className;
+        var n = cur.querySelector(".n"), nn = next.querySelector(".n");
+        if (n && nn) n.textContent = nn.textContent;
       })
       .catch(function () {});
   }
@@ -532,6 +565,11 @@
     var detailId = detailEl ? detailEl.dataset.id : null;
     var detailTopic = detailEl ? topicForKind(detailKind) : null;
 
+    // A workflow panel is live like Stories; a story's change refetches it.
+    wfPanelTopics().forEach(function (tp) {
+      if (LIVE_TOPICS.indexOf(tp) === -1) LIVE_TOPICS.push(tp);
+      if (DERIVED_TOPICS.stories.indexOf(tp) === -1) DERIVED_TOPICS.stories.push(tp);
+    });
     var refetch = {}; // per-topic debounced panel refetch (built once, reused)
     LIVE_TOPICS.forEach(function (tp) { refetch[tp] = debounce(function () { refetchPanel(tp); }, 250); });
     var refreshProjects = isProjects ? debounce(refetchProjects, 250) : null;

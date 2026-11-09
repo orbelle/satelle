@@ -3,7 +3,7 @@ name: satelle-design-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Surface-scoped UI design-system gate (applies_to surface:ui). Isolated read-only reviewer judging that a UI slice follows THIS repo's visual language in internal/web/static/app.css — tokens, radii/badge/chip language, both-theme legibility, no emoji/icon fonts/raster icons, ◐ as the only mark. Judges, never mutates. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Surface-scoped UI design-system gate (applies_to surface:ui). Isolated read-only reviewer judging that a UI slice follows THIS repo's visual language in internal/web/static/app.css — tokens, radii/badge/chip language, both-theme legibility, no emoji/icon fonts/raster icons, ◐ as the only mark. Judges, never mutates.
 ---
 
 # Design-system review (surface:ui scoped gate)
