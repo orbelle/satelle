@@ -20,6 +20,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
@@ -85,6 +86,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 	}
 	checks = append(checks,
 		doctorCheck{"config", checkConfig},
+		doctorCheck{"substrate", checkSubstrate},
 		doctorCheck{"init", checkInit},
 		doctorCheck{"sync", checkSync},
 		doctorCheck{"seats", checkSeats},
@@ -167,6 +169,22 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate"})
 			}
 		}
+	}
+	return out, nil
+}
+
+// checkSubstrate reports each command, flag, help topic and link the repo's
+// substrate names that this binary lacks: the rules satelle validate applies
+// (internal/substrate).
+func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	found, err := substrate.Check(in.r.DataDir, substrateTree(NewRootCmd()))
+	if err != nil {
+		return []doctorIssue{{Check: "substrate", Problem: err.Error(), Fix: "satelle validate"}}, nil
+	}
+	var out []doctorIssue
+	for _, f := range found {
+		out = append(out, doctorIssue{Check: "substrate", Problem: f.String(),
+			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)"})
 	}
 	return out, nil
 }

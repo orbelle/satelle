@@ -61,12 +61,14 @@ func TestDriftCheckCleanFixtureExits0(t *testing.T) {
 	}
 }
 
-// One planted miss of each kind: exactly one line each, exit 1.
+// One planted miss of each kind: exactly one line each, exit 1. The script
+// holds no rule: it prints satelle validate's substrate findings and maps its
+// configuration problems (sto_a1681009 AC2).
 func TestDriftCheckReportsEachKind(t *testing.T) {
 	t.Parallel()
 	s := driftCheckSandbox(t)
 	s.write(".satelle/tasks/README.md", "Archive with `satelle task archive <id>`.\n")
-	s.write("internal/help/topics/x.md", "List with `satelle ledger list --story <id>`.\n")
+	s.write(".satelle/skills/flag.md", "---\nname: flag\ntype: skill\ndescription: f\n---\n\nList with `satelle ledger list --story <id>`.\n")
 	s.write(".satelle/skills/topic.md", "---\nname: topic\ntype: skill\ndescription: t\n---\n\nSee `satelle help no-such-topic`.\n")
 	s.write(".satelle/principles/dead.md", "---\nname: dead\ntype: principle\ndescription: d\n---\n\nShip small ([[satelle-start-small]]).\n")
 	wf, err := os.ReadFile(filepath.Join(s.dir, ".satelle/workflows/default.toml"))
@@ -85,10 +87,10 @@ func TestDriftCheckReportsEachKind(t *testing.T) {
 	sort.Strings(lines)
 	want := []string{
 		".satelle/principles/dead.md:7: link: satelle-start-small — ",
+		".satelle/skills/flag.md:7: flag: satelle ledger list --story — ",
 		".satelle/skills/topic.md:7: topic: satelle help no-such-topic — ",
 		".satelle/tasks/README.md:1: command: satelle task archive — ",
 		".satelle/workflows/default.toml:",
-		"internal/help/topics/x.md:1: flag: satelle ledger list --story — ",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("want %d lines, one per kind, got %d:\n%s", len(want), len(lines), r.out)
@@ -98,8 +100,8 @@ func TestDriftCheckReportsEachKind(t *testing.T) {
 			t.Errorf("line %d = %q, want prefix %q", i, lines[i], w)
 		}
 	}
-	if !strings.Contains(lines[3], ": skill: no-such-skill — ") {
-		t.Errorf("workflow line = %q, want a skill miss naming no-such-skill", lines[3])
+	if !strings.Contains(lines[4], ": skill: no-such-skill — ") {
+		t.Errorf("workflow line = %q, want a skill miss naming no-such-skill", lines[4])
 	}
 }
 
@@ -129,5 +131,21 @@ func TestDriftCheckNoBinaryExits2(t *testing.T) {
 	ee, ok := err.(*exec.ExitError)
 	if !ok || ee.ExitCode() != 2 || !strings.Contains(string(out), "satelle is not on PATH") {
 		t.Fatalf("no satelle on PATH: %v\n%s", err, out)
+	}
+}
+
+// A binary whose validate --json has no substrate list (older than the
+// substrate check) cannot check: exit 2, fail closed.
+func TestDriftCheckOldBinaryExits2(t *testing.T) {
+	t.Parallel()
+	s := driftCheckSandbox(t)
+	fake := filepath.Join(t.TempDir(), "satelle")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '{\"problems\":[]}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.env["SATELLE_BIN"] = fake
+	r := driftCheck(t, s)
+	if r.code != 2 || !strings.Contains(r.err, "no problems or substrate list") {
+		t.Fatalf("old binary: exit %d, want 2\n%s%s", r.code, r.out, r.err)
 	}
 }
