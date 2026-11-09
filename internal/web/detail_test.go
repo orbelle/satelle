@@ -148,7 +148,11 @@ func TestStoryDetailShowsRouteVerdictsAttachments(t *testing.T) {
 }
 
 func TestStoryListRendersFromPushedWorkflow(t *testing.T) {
-	srv := mirrorWith(t, fixtureSnapshot())
+	snap := fixtureSnapshot()
+	seats, home := seatsHere(t, snap.Seats)
+	snap.Seats = seats
+	srv := mirrorWith(t, snap)
+	t.Setenv("SATELLE_HOME", home)
 	body := httpGetBody(t, srv.URL+"/r/proj/fragment/stories")
 	fullRow := func(id string) string {
 		start := strings.Index(body, rowFor(body, id))
@@ -200,8 +204,10 @@ func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 			t.Errorf("legacy story page missing %q", want)
 		}
 	}
-	if !strings.Contains(httpGetBody(t, srv.URL+"/r/proj/"), "1 engaged") {
-		t.Error("a legacy story seat is not engaged")
+	// A legacy seat row records no machine: it is unverified, so not engaged
+	// here (sto_e127b2e6).
+	if page := httpGetBody(t, srv.URL+"/r/proj/"); strings.Contains(page, "engaged</") || !strings.Contains(page, "Legacy") {
+		t.Error("a legacy story seat counts as engaged here, or the page did not render")
 	}
 }
 

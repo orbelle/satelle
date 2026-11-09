@@ -58,28 +58,7 @@ whose [ledger] store is not local pushes, then pulls, by the rules of
 		Short: "Write and start the per-user units running satelled and the sync timer",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			gc, err := config.LoadGlobal()
-			if err != nil {
-				return err
-			}
-			if port > 0 {
-				gc.Service.Port = port
-			}
-			if addr != "" {
-				gc.Service.Addr = addr
-			}
-			if wd, err := os.Getwd(); err == nil {
-				gc.Service.Repo = wd
-			}
-			if err := config.SaveGlobal(gc); err != nil {
-				return err
-			}
-			daemon := resolveDaemon(bin)
-			return installUnit(cmd.OutOrStdout(), serviceUnits{
-				Daemon:      renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()),
-				SyncService: renderSyncService(resolveCLI()),
-				SyncTimer:   renderSyncTimer(),
-			})
+			return installService(cmd.OutOrStdout(), port, addr, bin)
 		},
 	}
 	install.Flags().IntVar(&port, "port", 0, "listen port (recorded in ~/.satelle/config.toml)")
@@ -123,6 +102,35 @@ whose [ledger] store is not local pushes, then pulls, by the rules of
 			},
 		})
 	return cmd
+}
+
+// installService is satelle service install, which satelle doctor --resolve
+// also runs: it records [service] (port and addr when given, and the working
+// directory as the repo), then writes and starts satelled's unit and the sync
+// service and timer.
+func installService(out io.Writer, port int, addr, bin string) error {
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	if port > 0 {
+		gc.Service.Port = port
+	}
+	if addr != "" {
+		gc.Service.Addr = addr
+	}
+	if wd, err := os.Getwd(); err == nil {
+		gc.Service.Repo = wd
+	}
+	if err := config.SaveGlobal(gc); err != nil {
+		return err
+	}
+	daemon := resolveDaemon(bin)
+	return installUnit(out, serviceUnits{
+		Daemon:      renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()),
+		SyncService: renderSyncService(resolveCLI()),
+		SyncTimer:   renderSyncTimer(),
+	})
 }
 
 // resolveDaemon picks the satelled binary: the flag, the sibling of this

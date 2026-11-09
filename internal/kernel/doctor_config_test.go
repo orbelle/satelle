@@ -117,3 +117,32 @@ func TestInitPlanIsWhatInitWrites(t *testing.T) {
 		}
 	}
 }
+
+// doctor.toml's [resolve] names the fix item --resolve opens: each key loads,
+// an absent or empty table yields kind story and tag substrate-fix, and a
+// status key is a load error (sto_e127b2e6 AC7).
+func TestDoctorResolveConfig(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	for body, want := range map[string]string{
+		"":            "story substrate-fix ",
+		"[resolve]\n": "story substrate-fix ",
+		"[resolve]\nkind = \"task\"\ntag = \"fix-me\"\ncategory = \"chore\"\n": "task fix-me chore",
+	} {
+		write(t, filepath.Join(root, DoctorFile), body)
+		c, err := LoadConfig(root)
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		s := c.Doctor.Resolve.Selection()
+		if got := s.Kind + " " + s.Tag + " " + s.Category; got != want || s.Status != "" {
+			t.Errorf("%q: selection %+v, want %q", body, s, want)
+		}
+	}
+	write(t, filepath.Join(root, DoctorFile), "[resolve]\nstatus = \"backlog\"\n")
+	if _, err := LoadConfig(root); err == nil {
+		t.Error("a [resolve] status key loaded")
+	}
+}

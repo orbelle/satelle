@@ -83,8 +83,40 @@ type Config struct {
 // table: satelle.toml is decoded strictly, so a table an older binary does not
 // know would refuse every command; an older binary ignores an extra file.
 type DoctorSettings struct {
-	Checks []DoctorCheck `toml:"check"`
-	Open   []DoctorOpen  `toml:"items"`
+	Checks  []DoctorCheck `toml:"check"`
+	Open    []DoctorOpen  `toml:"items"`
+	Resolve DoctorResolve `toml:"resolve"`
+}
+
+// DoctorResolve is doctor.toml's [resolve] table: the selection of the one
+// item satelle doctor --resolve opens for the substrate findings. Unset keys
+// take the defaults Selection applies; it has no status, which the item's
+// workflow stamps.
+type DoctorResolve struct {
+	Kind     string `toml:"kind"`
+	Tag      string `toml:"tag"`
+	Category string `toml:"category"`
+}
+
+// The fix item's default selection: a story, tagged substrate-fix, routed by
+// the repo's workflow rules like any other story.
+const (
+	DefaultResolveKind = "story"
+	DefaultResolveTag  = "substrate-fix"
+)
+
+// Selection is the fix item's selection with the defaults applied: kind
+// story and tag substrate-fix unless [resolve] names others; a category only
+// when [resolve] sets one.
+func (r DoctorResolve) Selection() item.Selection {
+	s := item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
+	if s.Kind == "" {
+		s.Kind = DefaultResolveKind
+	}
+	if s.Tag == "" {
+		s.Tag = DefaultResolveTag
+	}
+	return s
 }
 
 // DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one

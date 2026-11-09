@@ -56,6 +56,22 @@ type Kernel struct {
 	// Logs is the runtime logs dir (<Runtime>/logs, what satelle logs reads):
 	// where a judge's dispatch log is written. "" writes none.
 	Logs string
+	// Machine and Host are stamped on every seat this kernel binds: this
+	// machine's id (config.MachineID) and host name. "" records none, and the
+	// seat is then unverified wherever it is read.
+	Machine, Host string
+	// Sessions records which process owns a dispatched run's session; nil
+	// records nothing.
+	Sessions SessionOwner
+}
+
+// SessionOwner records the process a session runs in, on this machine only
+// (internal/seatlife): a dispatched run owns its session while it runs.
+type SessionOwner interface {
+	// Own records the calling process as session's owner.
+	Own(session string) error
+	// Forget removes session's record.
+	Forget(session string) error
 }
 
 // Options say where a kernel lives.

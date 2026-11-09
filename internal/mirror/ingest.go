@@ -106,12 +106,12 @@ type IdentityMeta struct {
 	Hosted *HostedMeta `json:"hosted,omitempty"`
 }
 
-// HostedMeta names the hosted project a partition syncs with and the stories this
-// machine engaged.
+// HostedMeta names the hosted project a partition syncs with. The stories
+// engaged on this machine are not pushed: satelled derives them from the seats
+// it can see are here (internal/seatlife).
 type HostedMeta struct {
-	Server         string   `json:"server"`
-	Project        string   `json:"project"`
-	MachineStories []string `json:"machine_stories"`
+	Server  string `json:"server"`
+	Project string `json:"project"`
 }
 
 // IngestHandler serves POST /ingest/change and POST /ingest/snapshot.

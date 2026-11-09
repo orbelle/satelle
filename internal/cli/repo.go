@@ -12,6 +12,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotenode"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
 // repo is where a command runs: the .satelle directory, the working tree and
@@ -70,6 +71,13 @@ func (r repo) open() (*kernel.Kernel, error) {
 		}
 		return p, closeFn, nil
 	}}
+	// Every seat records this machine (an error leaves it unrecorded, so the
+	// seat is unverified, never wrongly here), and a dispatched run records
+	// its process as its session's owner.
+	home := config.GlobalDir()
+	k.Machine, _ = config.MachineID(home)
+	k.Host, _ = os.Hostname()
+	k.Sessions = seatlife.Recorder{Home: home}
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
 	return k, nil

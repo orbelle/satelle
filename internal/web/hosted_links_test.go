@@ -20,6 +20,12 @@ import (
 // engaged and a story another machine changed a minute ago.
 func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...Item) string {
 	t.Helper()
+	return hostedPartitionSeats(t, hosted, nil, stories...)
+}
+
+// hostedPartitionSeats is hostedPartition with seats pushed as well.
+func hostedPartitionSeats(t *testing.T, hosted *mirror.HostedMeta, seats []mirror.Seat, stories ...Item) string {
+	t.Helper()
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +49,15 @@ func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...Item) s
 		rows = append(rows, mirror.ItemRow{ID: it.ID, Payload: string(b)})
 	}
 	ident, _ := json.Marshal(mirror.IdentityMeta{ProjectName: slug, RepoRoot: "/repos/hosted", Hosted: hosted})
+	var seatRows []mirror.ItemRow
+	for _, st := range seats {
+		b, _ := json.Marshal(st)
+		seatRows = append(seatRows, mirror.ItemRow{ID: st.ID, Payload: string(b)})
+	}
 	for kind, rows := range map[string][]mirror.ItemRow{
 		"story":    rows,
 		"identity": {{ID: "meta", Payload: string(ident)}},
+		"seat":     seatRows,
 	} {
 		if err := s.ReplaceKind(ctx, rk, kind, rows, now); err != nil {
 			t.Fatal(err)
@@ -56,9 +68,10 @@ func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...Item) s
 	return ts.URL + "/r/" + slug + "/"
 }
 
-// hostedProbe is the hosted block of a partition whose checkout engaged here.
-func hostedProbe(here ...string) *mirror.HostedMeta {
-	return &mirror.HostedMeta{Server: "https://satelle.example/", Project: "probe", MachineStories: here}
+// hostedProbe is the hosted block of a partition: the here-set comes from the
+// seats classed here, not from the block.
+func hostedProbe() *mirror.HostedMeta {
+	return &mirror.HostedMeta{Server: "https://satelle.example/", Project: "probe"}
 }
 
 // itemAt is a story with status, priority and tags, created and changed at at.
@@ -67,14 +80,14 @@ func itemAt(id, status, priority string, at time.Time, tags ...string) Item {
 }
 
 // everyStateFixture is a hosted partition over stories in backlog, in progress
-// and done, one engaged at this checkout and one at another location — the
-// working_on rows of the two locations resolve the here-set through
-// verb.MachineSet, as the hosted push does.
+// and done, each seated once: sty_mine here (this machine, session alive),
+// sty_other on another machine, sty_back by a session that ended, sty_done
+// with no machine recorded (fourSeatHome).
 func everyStateFixture(t *testing.T) string {
 	t.Helper()
 	now := time.Now().UTC()
-	machine := []string{"sty_mine"}
-	return hostedPartition(t, hostedProbe(machine...),
+	seats, _ := fourSeatHome(t, "sty_mine", "sty_other", "sty_back", "sty_done")
+	return hostedPartitionSeats(t, hostedProbe(), seats,
 		itemAt("sty_mine", "in_progress", "high", now.Add(-72*time.Hour), "surface:ui"),
 		itemAt("sty_other", "in_progress", "medium", now.Add(-time.Minute), "epic:x"),
 		itemAt("sty_back", "backlog", "critical", now, "epic:x", "lane:trunk"),
@@ -96,6 +109,17 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 			}
 		}
 	}
+	// Only the story seated here is marked: not one on another machine, one
+	// whose session ended, or one with no machine recorded (sto_e127b2e6 AC6).
+	for id, marked := range map[string]bool{"sty_mine": true, "sty_other": false, "sty_back": false, "sty_done": false} {
+		row, cell := rowFor(body, id), titleCellFor(body, id)
+		if got := strings.Contains(row, `data-here="1"`) && strings.Contains(cell, "◆ here"); got != marked {
+			t.Errorf("%s marked here = %v, want %v: %q %q", id, got, marked, row, cell)
+		}
+		if !marked && (strings.Contains(row, "data-here") || strings.Contains(cell, "here-mark")) {
+			t.Errorf("%s carries a here mark: %q %q", id, row, cell)
+		}
+	}
 	if strings.Contains(body, "This machine's stories") {
 		t.Errorf("the banner still claims the list is this machine's only:\n%s", body)
 	}
@@ -115,7 +139,7 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 	now := time.Now().UTC()
 	mine := itemAt("sty_mine", "in_progress", "high", now)
-	page := hostedPartition(t, hostedProbe("sty_mine"), mine)
+	page := hostedPartition(t, hostedProbe(), mine)
 	base := strings.TrimSuffix(page, "/r/hosted/")
 	if rowFor(httpGetBody(t, page+"fragment/stories"), "sty_new") != "" {
 		t.Fatal("sty_new is listed before it is ingested")

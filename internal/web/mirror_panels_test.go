@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// Engagement counts each story in a non-terminal state that a seat is bound to
-// once; a legacy row counts only as a non-stale story seat. A task's or task
-// run's seat, and a seat on a terminal story, is not a story engaged.
+// Engagement counts each story in a non-terminal state that a seat classed
+// here is bound to once; a legacy row counts only as a non-stale story seat. A
+// task's or task run's seat, a seat on a terminal story, and a seat not here
+// (elsewhere, gone, unverified) is not a story engaged.
 func TestEngagedItems(t *testing.T) {
 	stories := []Item{
 		{ID: "sto_a", Kind: "story", Status: "beta", Workflow: "flow"},
@@ -26,11 +28,17 @@ func TestEngagedItems(t *testing.T) {
 		{ID: "sty_live", StorySeat: true},
 		{ID: "sty_stale", StorySeat: true, Stale: true},
 		{ID: "sty_other"},
-	}, stories, workflows)
+		{ID: "sto_far/s9", Item: "sto_far", Session: "s9"},
+	}, append(stories, Item{ID: "sto_far", Kind: "story", Status: "beta", Workflow: "flow"}), workflows, func(s mirror.Seat) seatlife.Standing {
+		if s.Session == "s9" {
+			return seatlife.Elsewhere
+		}
+		return seatlife.Here
+	})
 	if want := []string{"sto_a", "sty_live"}; !slices.Equal(got, want) {
 		t.Fatalf("engaged = %v, want %v", got, want)
 	}
-	if n := len(engagedItems(nil, nil, nil)); n != 0 {
+	if n := len(engagedItems(nil, nil, nil, nil)); n != 0 {
 		t.Fatalf("nil seats = %d", n)
 	}
 }

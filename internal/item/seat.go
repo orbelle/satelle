@@ -17,6 +17,11 @@ type Seat struct {
 	// branch, whose merge base with HEAD the item's diff is judged from.
 	BaseRef string    `json:"base_ref,omitempty"`
 	BoundAt time.Time `json:"bound_at,omitzero"`
+	// Machine is the id of the machine the seat was bound on
+	// (config.MachineID); Host is that machine's host name, for display only.
+	// Both are empty on seats bound before seats recorded their machine.
+	Machine string `json:"machine,omitempty"`
+	Host    string `json:"host,omitempty"`
 }
 
 // SeatRelease is the payload of seat.released.

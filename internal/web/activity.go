@@ -6,14 +6,16 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
 // activityRowVM is one Activity row: an item being worked now, who or what
 // works it, and its latest step.
 type activityRowVM struct {
 	rowVM
-	// Working lists each seat as "session · location", else the current
-	// state's performer agent; empty shows —.
+	// Working lists each seat as "session · location", with a suffix for a
+	// seat not here (· elsewhere (<host>), · session gone, · unverified), else
+	// the current state's performer agent; empty shows —.
 	Working []string
 	// Step is the latest gate result or transition; StepTitle qualifies it.
 	Step, StepTitle string
@@ -37,7 +39,7 @@ func activeItem(class string, seated bool) bool {
 
 // activityRows is the Activity panel: the stories and task runs being worked
 // now, the most recent step first.
-func activityRows(stories, executions []Item, workflows map[string]*mirror.Workflow, seats []mirror.Seat, events []Entry) []activityRowVM {
+func activityRows(stories, executions []Item, workflows map[string]*mirror.Workflow, seats []mirror.Seat, events []Entry, standing seatStanding) []activityRowVM {
 	bySeat := map[string][]mirror.Seat{}
 	for _, s := range seats {
 		if id := seatItem(s); id != "" {
@@ -67,7 +69,7 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 		held := bySeat[it.ID]
 		sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
 		for _, s := range held {
-			row.Working = append(row.Working, s.Session+" · "+s.Location)
+			row.Working = append(row.Working, s.Session+" · "+s.Location+standingSuffix(s, standing(s)))
 		}
 		if len(row.Working) == 0 {
 			if st, ok := workflowState(w, it.Status); ok && st.PerformerAgent != "" {
@@ -86,6 +88,22 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// standingSuffix marks an Activity seat that is not here.
+func standingSuffix(s mirror.Seat, st seatlife.Standing) string {
+	switch st {
+	case seatlife.Here:
+		return ""
+	case seatlife.Elsewhere:
+		if s.Host != "" {
+			return " · elsewhere (" + s.Host + ")"
+		}
+		return " · elsewhere"
+	case seatlife.Gone:
+		return " · session gone"
+	}
+	return " · unverified"
 }
 
 // latestStep is the newest gate result ("<gate> <result>", titled with its

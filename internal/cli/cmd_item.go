@@ -13,9 +13,12 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/procgroup"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
 // itemCmd is the command group for one item kind. Every kind is worked alike
@@ -838,6 +841,9 @@ item's branch does not widen the diff.`,
 			if location == "" {
 				location = kernel.LocalLocation(r.Tree)
 			}
+			// The seat command runs in the session's harness too: settle the
+			// session's owner from its chain (best effort).
+			_ = seatlife.Resolve(config.GlobalDir(), session, procgroup.Ancestors(os.Getpid()))
 			s, err := k.Seat(args[0], session, location, base, actor())
 			if err != nil {
 				return err

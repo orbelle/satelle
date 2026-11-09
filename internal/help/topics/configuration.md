@@ -60,6 +60,22 @@ reports each item it selects that is not in a terminal state of its workflow.
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.
 
+`satelle doctor --resolve` fixes what doctor can prove (the service, seats
+whose session has ended on this machine) and asks about other orphaned seats.
+The config, init and `[[check]]` findings it puts on one item, for the agent to
+fix in one change through that item's workflow; it never edits or commits the
+files itself, and opens no second item while that one is open. `[resolve]`
+names the item:
+
+    [resolve]
+    kind = "story"              # default story
+    tag = "substrate-fix"       # default substrate-fix
+    category = "<category>"     # default none; routes the item by [[workflows.rule]]
+
+Every key is optional; an item's status is its workflow's to set, so there is
+no `status`. While the configuration is invalid no item can be recorded:
+`--resolve` then lists the findings with `satelle validate` first.
+
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives
 under `~/.satelle/<repo-key>/` (`satelle runtime path`), shared by every
 worktree of the repository. `~/.satelle/config.toml` holds machine settings:
