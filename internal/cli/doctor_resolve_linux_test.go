@@ -351,6 +351,75 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 	}
 }
 
+// A seat here whose session never settled an owner and whose hook processes
+// have exited is unverified, not gone: doctor reports it as an issue to ask
+// about, and --resolve never releases it unasked (sto_35c85724 AC1, AC3).
+func TestResolveAsksAboutASessionWhoseHooksExited(t *testing.T) {
+	for _, withTTY := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no terminal", true: "keep"}[withTTY], func(t *testing.T) {
+			newDoctorFixture(t)
+			id := createID(t, "story", "create", "--title", "hooks exited", "--criteria", "c")
+			must(t, "story", "seat", id, "--session", "s-hooks")
+			home := config.GlobalDir()
+			a, b := killedProc(t), killedProc(t)
+			if err := seatlife.Start(home, "s-hooks", []procgroup.Proc{a, b}); err != nil {
+				t.Fatal(err)
+			}
+			rep, _, _ := doctorJSON(t)
+			var seatIssues []doctorIssue
+			for _, is := range rep.Issues {
+				if is.Check == "seats" {
+					seatIssues = append(seatIssues, is)
+				}
+			}
+			if len(seatIssues) != 1 || seatIssues[0].Resolve != resolveAsk || !strings.Contains(seatIssues[0].Problem, id) {
+				t.Fatalf("seat issues %+v, want one %s for %s", seatIssues, resolveAsk, id)
+			}
+			for _, want := range []string{"session unverified", "never settled", fmt.Sprint(a.PID), fmt.Sprint(b.PID)} {
+				if !strings.Contains(seatIssues[0].Problem, want) {
+					t.Errorf("problem lacks %q: %s", want, seatIssues[0].Problem)
+				}
+			}
+			var note string
+			for _, n := range rep.Notes {
+				if strings.HasPrefix(n, "seats: ") {
+					note = n
+				}
+			}
+			if !strings.Contains(note, "unverified: "+id+" s-hooks") || strings.Contains(note, "gone: ") {
+				t.Errorf("seats note %q, want %s unverified and nothing gone", note, id)
+			}
+			if withTTY {
+				withTerminal(t, "keep\n")
+			} else {
+				noTerminal(t)
+			}
+			res, out, err := resolveJSON(t)
+			if withTTY {
+				if err != nil {
+					t.Fatalf("--resolve: %v\n%s", err, out)
+				}
+				if len(res.Actions) != 1 || res.Actions[0].Result != resultKept {
+					t.Errorf("actions %+v, want one %s", res.Actions, resultKept)
+				}
+			} else {
+				if ExitCodeOf(err) != 1 {
+					t.Fatalf("exit %d, want 1: %v\n%s", ExitCodeOf(err), err, out)
+				}
+				if len(res.Left) != 1 || !strings.Contains(res.Left[0].Fix, "release "+id+" --session s-hooks") {
+					t.Fatalf("left %+v, want the seat with its release command", res.Left)
+				}
+			}
+			if s := seatsOn(t, id); len(s) != 1 {
+				t.Errorf("the seat was released: %+v", s)
+			}
+			if _, ok := seatlife.Load(home, "s-hooks"); !ok {
+				t.Error("the seated session's record was pruned")
+			}
+		})
+	}
+}
+
 // fourSeats seats four open stories: here (this machine, owner alive),
 // elsewhere (another machine), gone (owner killed) and unverified (no machine
 // recorded). It returns their ids by class.
