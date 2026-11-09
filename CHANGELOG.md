@@ -1,3 +1,12 @@
+## [1.0.51] - 2026-11-09
+
+### Added
+- `satelle agents install cursor` wires satelle's hooks into the repo's `.cursor/hooks.json` (version 1), keeping every other entry, and `satelle agents remove cursor` strips only satelle's. In a cursor-agent session an edit (Write, Delete) or shell call without a seat, or into another repository's tree, is refused before it runs with the reason the claude gate gives; the operator's record verb is refused; session start carries the session id, its seats and the `[hook] inject` files; the prompt hook settles the session's owner and the stop check ends the turn. Once installed, Cursor's run of the repo's `.claude/settings.json` satelle hooks answers nothing, so nothing is judged or injected twice. Cursor's prompt event has no context channel, so there is no per-prompt seat reminder, and `cursor-agent -p` fires no prompt or stop event. (sto_e51c7fb9)
+
+### Changed
+- GPT-5.6 Sol (High, on Cursor) now judges plans and code beside Gemini 3.8 Flash: it joins the plan-review panel, and code-ac becomes a two-judge panel; every judge must accept. (sto_0dd7e7b9)
+- The planner runs Claude Fable 5.2 headless on the claude CLI (was Claude Opus 5.5 on cursor-agent). (sto_fb705349)
+
 ## [1.0.50] - 2026-11-09
 
 ### Added
