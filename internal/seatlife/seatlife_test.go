@@ -88,18 +88,22 @@ func TestResolveIgnoresAnAncestorBeyondHookDepth(t *testing.T) {
 	}
 }
 
-// A dispatched run's satelle process owns its session; the run's harness
-// session start keeps it, since it is alive and in the new chain.
-func TestStartKeepsALiveOwnerInItsChain(t *testing.T) {
+// A dispatched run's satelle process owns its session; a later session
+// start keeps it while it is alive, whether or not it is in the new chain
+// (sto_35c85724 AC2).
+func TestStartKeepsALiveOwnerOutsideItsChain(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "s1", procgroup.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := Start(home, "s1", []procgroup.Proc{killed(t), procgroup.Self(), parent(t)}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o == nil || *o != procgroup.Self() {
 		t.Fatalf("owner %+v, want self kept", o)
+	}
+	if st, ev := StandingOf(home, here, seat("s1")); st != Here {
+		t.Fatalf("standing %s (%s), want here", st, ev)
 	}
 }
 
@@ -115,6 +119,119 @@ func TestStartClearsAGoneOwner(t *testing.T) {
 	}
 	if o := owner(t, home, "s1"); o != nil {
 		t.Fatalf("owner %+v kept after it exited", o)
+	}
+}
+
+// A later hook call clears an owner that is not alive, as a session start
+// does (sto_35c85724 AC2).
+func TestResolveClearsAGoneOwner(t *testing.T) {
+	home := t.TempDir()
+	if err := Own(home, "s1", killed(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t)}); err != nil {
+		t.Fatal(err)
+	}
+	if o := owner(t, home, "s1"); o != nil {
+		t.Fatalf("owner %+v kept after it exited", o)
+	}
+}
+
+// A SessionStart that fires again in the same session with different hook
+// pids (a context re-read) leaves the session live while its owner runs
+// (sto_35c85724 AC3).
+func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
+	self := procgroup.Self()
+	t.Run("settled then re-read", func(t *testing.T) {
+		home := t.TempDir()
+		x := parent(t)
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), self, x}); err != nil {
+			t.Fatal(err)
+		}
+		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self, x}); err != nil {
+			t.Fatal(err)
+		}
+		if o := owner(t, home, "s1"); o == nil || *o != self {
+			t.Fatalf("owner %+v, want %+v", o, self)
+		}
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
+			t.Fatal(err)
+		}
+		if o := owner(t, home, "s1"); o == nil || *o != self {
+			t.Fatalf("owner %+v after the re-read, want %+v kept", o, self)
+		}
+		if st, ev := StandingOf(home, here, seat("s1")); st != Here {
+			t.Fatalf("standing %s (%s), want here", st, ev)
+		}
+	})
+	t.Run("twice before any prompt", func(t *testing.T) {
+		home := t.TempDir()
+		for range 2 {
+			if err := Start(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if o := owner(t, home, "s1"); o == nil || *o != self {
+			t.Fatalf("owner %+v, want %+v", o, self)
+		}
+		if st, ev := StandingOf(home, here, seat("s1")); st != Here {
+			t.Fatalf("standing %s (%s), want here", st, ev)
+		}
+	})
+	t.Run("a re-read from another tree", func(t *testing.T) {
+		home := t.TempDir()
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+			t.Fatal(err)
+		}
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+			t.Fatal(err)
+		}
+		if o := owner(t, home, "s1"); o == nil || *o != self {
+			t.Fatalf("owner %+v, want %+v", o, self)
+		}
+		if st, ev := StandingOf(home, here, seat("s1")); st != Here {
+			t.Fatalf("standing %s (%s), want here", st, ev)
+		}
+	})
+}
+
+// An owner settled from two hook calls makes its session gone once it exits,
+// and the gone record is pruned (sto_35c85724 AC3).
+func TestAHookSettledOwnerThatExitsIsGone(t *testing.T) {
+	home := t.TempDir()
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	_, start := procgroup.ProbeIdentity(cmd.Process.Pid)
+	o := procgroup.Proc{PID: cmd.Process.Pid, Start: start}
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), o}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), o}); err != nil {
+		t.Fatal(err)
+	}
+	if got := owner(t, home, "s1"); got == nil || *got != o {
+		t.Fatalf("owner %+v, want %+v", got, o)
+	}
+	if st, ev := StandingOf(home, here, seat("s1")); st != Here {
+		t.Fatalf("standing %s (%s), want here", st, ev)
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	st, ev := StandingOf(home, here, seat("s1"))
+	if st != Gone || !strings.Contains(string(ev), "has exited") {
+		t.Fatalf("standing %s (%s), want gone with the owner exited", st, ev)
+	}
+	if err := Prune(home, func(string) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Load(home, "s1"); ok {
+		t.Error("the gone record was not pruned")
 	}
 }
 
@@ -141,11 +258,21 @@ func TestStandingWithoutOwner(t *testing.T) {
 	if st, _ := StandingOf(home, here, seat("live")); st != Unverified {
 		t.Errorf("an alive ancestor: %s, want unverified", st)
 	}
+	if rec, _ := Load(home, "live"); rec.Lapsed() {
+		t.Error("a record with a hook process running is lapsed")
+	}
+	// Only exited hook processes, and no settled owner: unverified, never
+	// gone (sto_35c85724 AC1, AC3).
 	if err := Start(home, "dead", []procgroup.Proc{killed(t), killed(t), procgroup.Self()}); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := StandingOf(home, here, seat("dead")); st != Gone {
-		t.Errorf("every hook-depth ancestor exited: %s, want gone", st)
+	st, ev := StandingOf(home, here, seat("dead"))
+	if st != Unverified || !strings.Contains(string(ev), "have exited") {
+		t.Errorf("every hook process exited: %s (%s), want unverified with the hooks exited", st, ev)
+	}
+	rec, _ := Load(home, "dead")
+	if rec.Gone() || !rec.Lapsed() {
+		t.Errorf("gone %v lapsed %v, want not gone and lapsed", rec.Gone(), rec.Lapsed())
 	}
 }
 
@@ -182,10 +309,16 @@ func TestPruneKeepsSeatedSessions(t *testing.T) {
 	if err := Own(home, "alive", procgroup.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := Prune(home, func(s string) bool { return s == "gone-seated" }); err != nil {
+	for _, s := range []string{"lapsed-seated", "lapsed-free"} {
+		if err := Start(home, s, []procgroup.Proc{killed(t), killed(t)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seated := map[string]bool{"gone-seated": true, "lapsed-seated": true}
+	if err := Prune(home, func(s string) bool { return seated[s] }); err != nil {
 		t.Fatal(err)
 	}
-	for s, want := range map[string]bool{"gone-seated": true, "gone-free": false, "alive": true} {
+	for s, want := range map[string]bool{"gone-seated": true, "gone-free": false, "alive": true, "lapsed-seated": true, "lapsed-free": false} {
 		if _, ok := Load(home, s); ok != want {
 			t.Errorf("%s kept = %v, want %v", s, ok, want)
 		}

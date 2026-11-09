@@ -384,12 +384,15 @@ func timerIssues() ([]doctorIssue, []string) {
 }
 
 // checkSeats folds every chain read-only and classes each seat by
-// seatlife.StandingOf: here, elsewhere, gone or unverified. A seat is orphaned
-// when its session is gone, its item is terminal in its workflow, or its
-// local: worktree no longer exists and it was bound on this machine (or
-// records no machine): another machine's path cannot be checked here. Each
-// orphan is reported with its evidence; a gone session is the one --resolve
-// releases without asking. One note lists every seat's standing.
+// seatlife.Classify: here, elsewhere, gone or unverified. A seat is orphaned
+// when its session is gone, its item is terminal in its workflow, its local:
+// worktree no longer exists and it was bound on this machine (or records no
+// machine): another machine's path cannot be checked here, or it was bound
+// here and its session never settled an owner and its hook processes have
+// exited. Each orphan is reported with its evidence; a gone session (its
+// settled owner exited) is the one --resolve releases without asking, and
+// every other orphan, the unsettled one included, is asked about. One note
+// lists every seat's standing.
 func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
@@ -408,7 +411,8 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 		}
 		for _, s := range ri.seats {
 			seen++
-			st, ev := seatlife.StandingOf(home, here, s)
+			rec, ok := seatlife.Load(home, s.Session)
+			st, ev := seatlife.Classify(here, s, rec, ok)
 			switch st {
 			case seatlife.Here:
 				if !terminal {
@@ -433,6 +437,9 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 						why = "its worktree " + p + " no longer exists"
 					}
 				}
+			}
+			if why == "" && s.Machine == here && ok && rec.Lapsed() {
+				why = "session unverified: " + string(ev)
 			}
 			if why == "" {
 				continue
