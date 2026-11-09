@@ -1,3 +1,8 @@
+## [1.0.45] - 2026-11-09
+
+### Changed
+- The planner binding runs on claude (Opus 5.5) instead of pi-cursor until the cursor adapter lands (sto_e0f5372d); pi-cursor lost the planner's prompt on reconnect (sto_e9fb6f0d). (sto_f58cee64)
+
 ## [1.0.44] - 2026-11-09
 
 ### Added
