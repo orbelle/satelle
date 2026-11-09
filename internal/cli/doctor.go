@@ -399,7 +399,7 @@ func readItems(in *doctorInput) ([]readItem, error) {
 	return out, nil
 }
 
-// openItems reports each item an [[open]] entry selects that is not in a
+// openItems reports each item an [[items]] entry selects that is not in a
 // terminal state of its workflow.
 func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 	items, err := readItems(in)

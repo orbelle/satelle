@@ -84,7 +84,7 @@ type Config struct {
 // know would refuse every command; an older binary ignores an extra file.
 type DoctorSettings struct {
 	Checks []DoctorCheck `toml:"check"`
-	Open   []DoctorOpen  `toml:"open"`
+	Open   []DoctorOpen  `toml:"items"`
 }
 
 // DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one
@@ -106,7 +106,7 @@ type DoctorOpen struct {
 	Fix      string `toml:"fix"`
 }
 
-// Selection is the item selection of an [[open]] entry.
+// Selection is the item selection of an [[items]] entry.
 func (o DoctorOpen) Selection() item.Selection {
 	return item.Selection{Kind: o.Kind, Status: o.Status, Tag: o.Tag, Category: o.Category}
 }
@@ -260,16 +260,16 @@ func (c *Config) doctorProblems() []error {
 	for i, o := range c.Doctor.Open {
 		switch {
 		case o.Name == "":
-			errs = append(errs, fmt.Errorf("%s: open %d has no name", DoctorFile, i+1))
+			errs = append(errs, fmt.Errorf("%s: items %d has no name", DoctorFile, i+1))
 		case seen[o.Name]:
-			errs = append(errs, fmt.Errorf("%s: open %q is named twice", DoctorFile, o.Name))
+			errs = append(errs, fmt.Errorf("%s: items %q is named twice", DoctorFile, o.Name))
 		}
 		seen[o.Name] = true
 		if o.Kind == "" && o.Tag == "" && o.Category == "" {
-			errs = append(errs, fmt.Errorf("%s: open %q selects nothing: give at least one of kind, tag or category", DoctorFile, o.Name))
+			errs = append(errs, fmt.Errorf("%s: items %q selects nothing: give at least one of kind, tag or category", DoctorFile, o.Name))
 		}
 		if strings.TrimSpace(o.Fix) == "" {
-			errs = append(errs, fmt.Errorf("%s: open %q has no fix", DoctorFile, o.Name))
+			errs = append(errs, fmt.Errorf("%s: items %q has no fix", DoctorFile, o.Name))
 		}
 	}
 	return errs

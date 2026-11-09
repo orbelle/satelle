@@ -23,7 +23,7 @@ func TestDoctorConfig(t *testing.T) {
 skill = "probe"
 fix = "do it"
 
-[[open]]
+[[items]]
 name = "drift"
 kind = "story"
 tag = "drift"
@@ -44,9 +44,9 @@ fix = "satelle story get {id}"
 		"missing skill": "[[check]]\nskill = \"nope\"\nfix = \"x\"\n",
 		"not a check":   "[[check]]\nskill = \"prose\"\nfix = \"x\"\n",
 		"no check fix":  "[[check]]\nskill = \"probe\"\n",
-		"no selector":   "[[open]]\nname = \"a\"\nfix = \"x\"\n",
-		"no open fix":   "[[open]]\nname = \"a\"\ntag = \"t\"\n",
-		"duplicate":     "[[open]]\nname = \"a\"\ntag = \"t\"\nfix = \"x\"\n[[open]]\nname = \"a\"\ntag = \"u\"\nfix = \"x\"\n",
+		"no selector":   "[[items]]\nname = \"a\"\nfix = \"x\"\n",
+		"no open fix":   "[[items]]\nname = \"a\"\ntag = \"t\"\n",
+		"duplicate":     "[[items]]\nname = \"a\"\ntag = \"t\"\nfix = \"x\"\n[[items]]\nname = \"a\"\ntag = \"u\"\nfix = \"x\"\n",
 	}
 	for name, body := range cases {
 		write(t, filepath.Join(root, DoctorFile), body)

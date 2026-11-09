@@ -47,7 +47,7 @@ runs what `.satelle/doctor.toml` names:
     skill = "<name>"            # a type: check skill under skills/
     fix = "<command or advice>" # shown with each issue the check raises
 
-    [[open]]
+    [[items]]
     name = "<name>"             # unique; reported as open:<name>
     kind = "story"              # and/or tag, category, status (an item selection; one of kind, tag, category is required)
     tag = "<tag>"
@@ -55,7 +55,7 @@ runs what `.satelle/doctor.toml` names:
 
 A check skill runs in the working tree with no item: exit 0 is clean, exit 1
 is one issue per line it prints, any other exit (or a timeout) is one "could
-not check" issue. A doctor check must change nothing. An `[[open]]` entry
+not check" issue. A doctor check must change nothing. An `[[items]]` entry
 reports each item it selects that is not in a terminal state of its workflow.
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.

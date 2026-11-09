@@ -1,6 +1,6 @@
 # satelle doctor's repo checks (sto_3cf973ae). doctor runs these beside its
 # kernel checks, read-only: a [[check]] is a check skill (exit 0 clean, 1 one
-# issue per output line, anything else could not check); an [[open]] lists
+# issue per output line, anything else could not check); an [[items]] lists
 # each open item its selection matches. See `satelle help configuration`.
 
 # The deterministic drift checks: the substrate against the installed binary.
@@ -10,7 +10,7 @@ fix = "fix the line it names, or raise its drift story with scripts/drift-storie
 
 # Open drift items: each is fixed by changing what its drift-key names; the
 # next drift review closes it.
-[[open]]
+[[items]]
 name = "drift"
 kind = "story"
 tag = "drift"

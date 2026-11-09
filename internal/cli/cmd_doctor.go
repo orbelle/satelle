@@ -27,7 +27,7 @@ Its checks:
   seats      a seat on an item in a terminal state, or at a worktree that no
              longer exists (satelle <kind> release <id> --session <session>)
   check:<s>  each check skill .satelle/doctor.toml names
-  open:<n>   each open item a .satelle/doctor.toml [[open]] entry selects
+  open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects
 
 Outside a satelle repo only the machine checks (versions, sync) run. The
 session-start hook runs the same checks within ` + doctorHookBudget.String() + ` and prints a short

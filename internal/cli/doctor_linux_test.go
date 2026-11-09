@@ -66,7 +66,7 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 
 	must(t, "init")
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\n[ -f FAIL ] && { cat FAIL; exit 1; }\nexit 0\n```\n")
-	writeFile(t, filepath.Join(f.dir, ".satelle", "doctor.toml"), "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[open]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n")
+	writeFile(t, filepath.Join(f.dir, ".satelle", "doctor.toml"), "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[items]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n")
 	r, err := findRepo("")
 	if err != nil {
 		t.Fatal(err)
