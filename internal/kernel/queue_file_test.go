@@ -427,3 +427,73 @@ func chainLen(t *testing.T, k *Kernel, id string) int {
 	}
 	return len(events)
 }
+
+// A queue file adopting an id this runtime holds no chain for writes nothing:
+// the chain exists elsewhere and arrives with the next pull. Until it does,
+// the queue verbs refuse naming the id (sto_5c706973).
+func TestAdoptedQueueWithoutChainWritesNothing(t *testing.T) {
+	root, open := queueKernel(t)
+	queueFile(t, root, "release", "id = \"que_x\"\ntitle = \"Release\"\n[filter]\nkind = \"story\"\n")
+	k := open()
+	if n := chainLen(t, k, "que_x"); n != 0 {
+		t.Fatalf("open wrote %d events to the adopted que_x", n)
+	}
+	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
+	want := "queue release adopts que_x, which this runtime does not hold yet; it arrives with the next ledger pull (or remove id from .satelle/queues/release.toml to start a new queue)"
+	if _, err := k.Enqueue("release", []string{s.ID}, "", "me"); err == nil || err.Error() != want {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if _, _, _, err := k.QueueMembers("release"); err == nil || !strings.Contains(err.Error(), "adopts que_x") {
+		t.Fatalf("members: %v", err)
+	}
+	if _, err := k.Fire("release", "", "by hand", "me"); err == nil || !strings.Contains(err.Error(), "adopts que_x") {
+		t.Fatalf("fire: %v", err)
+	}
+	if n := chainLen(t, k, "que_x"); n != 0 {
+		t.Fatalf("a refused verb wrote %d events to que_x", n)
+	}
+}
+
+// Two runtimes holding the same chain for an adopted id, with a file newer
+// than the chain, each mirror the file as the same event: same id, time and
+// hash, so their chains never fork (sto_5c706973).
+func TestQueueMirrorIsDeterministic(t *testing.T) {
+	rootA, openA := queueKernel(t)
+	rootB, openB := queueKernel(t)
+	a := openA()
+	q := mustCreate(t, a, item.Fields{Kind: ptr(item.QueueKind), Title: ptr("old"), Inputs: &item.Selection{Kind: "task"}})
+	for _, body := range []string{"one", "two"} {
+		if _, err := a.Update(q.ID, item.Fields{Body: ptr(body)}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := a.Ledger.Read(q.ID)
+	if err != nil || len(events) != 3 {
+		t.Fatalf("chain %d events %v", len(events), err)
+	}
+	a.Close()
+	b := openB()
+	if _, err := b.Ledger.Import(events); err != nil {
+		t.Fatal(err)
+	}
+	b.Close()
+
+	file := "id = \"" + q.ID + "\"\ntitle = \"Release\"\n[filter]\nkind = \"story\"\n"
+	queueFile(t, rootA, "release", file)
+	queueFile(t, rootB, "release", file)
+	a, b = openA(), openB()
+	ea, _ := a.Ledger.Read(q.ID)
+	eb, _ := b.Ledger.Read(q.ID)
+	if len(ea) != 4 || len(eb) != 4 {
+		t.Fatalf("chains %d and %d events, want one mirror event each", len(ea), len(eb))
+	}
+	if ea[3].Hash != eb[3].Hash || ea[3].ID != eb[3].ID || !ea[3].At.Equal(events[2].At) {
+		t.Fatalf("mirror events differ: %+v vs %+v", ea[3], eb[3])
+	}
+	if ea[3].Kind != item.KindUpdated || ea[3].Actor != "satelle" {
+		t.Fatalf("mirror event %s by %s", ea[3].Kind, ea[3].Actor)
+	}
+	if err := a.Ledger.Verify(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -11,7 +11,7 @@ import (
 func TestRecordPushHeld(t *testing.T) {
 	t.Run("a replace drops ids no longer held and leaves the reason alone", func(t *testing.T) {
 		home, repo := t.TempDir(), t.TempDir()
-		if err := RecordPush(home, repo, false, "refused: archived", "", time.Now()); err != nil {
+		if err := RecordSync(home, repo, "s", "refused: archived", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := RecordPushHeld(home, repo, map[string]string{"sty_a": "uncommitted changes in /x", "sty_b": "head 1234 is not on any remote branch"}); err != nil {
@@ -24,8 +24,8 @@ func TestRecordPushHeld(t *testing.T) {
 		if len(s.PushHeld) != 1 || s.PushHeld["sty_b"] == "" {
 			t.Errorf("held must be exactly sty_b: %+v", s.PushHeld)
 		}
-		if s.PushReason != "refused: archived" {
-			t.Errorf("recording held must not touch the failure reason: %q", s.PushReason)
+		if s.SyncReason != "refused: archived" {
+			t.Errorf("recording held must not touch the failure reason: %q", s.SyncReason)
 		}
 	})
 

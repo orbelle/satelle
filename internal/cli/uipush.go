@@ -82,7 +82,7 @@ func uiRepoRoot(r repo) string { return config.CanonicalRepoRoot(filepath.Dir(r.
 func recordSnapshot(root string, full bool, err error) {
 	if err == nil {
 		if full {
-			_ = syncstate.RecordSnapshot(config.GlobalDir(), root, true, "", "", time.Now())
+			_ = syncstate.RecordSnapshot(config.GlobalDir(), root, true, "", time.Now())
 		}
 		return
 	}
@@ -90,7 +90,7 @@ func recordSnapshot(root string, full bool, err error) {
 	if full {
 		label = "seed"
 	}
-	_ = syncstate.RecordSnapshot(config.GlobalDir(), root, false, label+": "+err.Error(), "", time.Now())
+	_ = syncstate.RecordSnapshot(config.GlobalDir(), root, false, label+": "+err.Error(), time.Now())
 }
 
 // withUISource opens r's ledger and cache read-only for a push to satelled.

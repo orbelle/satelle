@@ -18,10 +18,11 @@ type site struct{ file, fn string }
 
 // TestOnlyReplicationVerbsReadTheStore proves who reads [ledger] store: the
 // selector Ledger.Store appears only in resolveStore and store-test's
-// command; resolveStore is called only by openStore, openStore only by the
-// push, pull and status commands' path (withStore); storeCommand only by
-// openStore and store-test; ledgerstore.Resolve only by resolveStore. So no
-// hook, gate, read or remote path reads the setting.
+// command; resolveStore is called only by openStore and the automatic sync
+// pass (syncRepo), openStore only by the push, pull and status commands' path
+// (withStore) and syncRepo; storeCommand only by openStore and store-test;
+// ledgerstore.Resolve only by resolveStore. So no hook, gate, read or remote
+// path reads the setting.
 func TestOnlyReplicationVerbsReadTheStore(t *testing.T) {
 	root := filepath.Join(pkgDir, "..", "..")
 	selectors := map[string][]site{}
@@ -81,8 +82,8 @@ func TestOnlyReplicationVerbsReadTheStore(t *testing.T) {
 		}
 	}
 	check("Ledger.Store", selectors["Ledger.Store"], site{"ledger_store.go", "resolveStore"}, site{"cmd_ledger.go", "ledgerStoreTestCmd"})
-	check("resolveStore()", calls["resolveStore"], site{"ledger_store.go", "openStore"})
-	check("openStore()", calls["openStore"], site{"ledger_store.go", "withStore"})
+	check("resolveStore()", calls["resolveStore"], site{"ledger_store.go", "openStore"}, site{"ledger_autosync.go", "syncRepo"})
+	check("openStore()", calls["openStore"], site{"ledger_store.go", "withStore"}, site{"ledger_autosync.go", "syncRepo"})
 	check("withStore()", calls["withStore"], site{"cmd_ledger.go", "ledgerPushCmd"}, site{"cmd_ledger.go", "ledgerPullCmd"}, site{"cmd_ledger.go", "ledgerStatusCmd"})
 	check("storeCommand()", calls["storeCommand"], site{"ledger_store.go", "openStore"}, site{"cmd_ledger.go", "ledgerStoreTestCmd"})
 	check("ledgerstore.Resolve()", calls["ledgerstore.Resolve"], site{"ledger_store.go", "resolveStore"})

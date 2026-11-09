@@ -16,6 +16,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/help"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
 // MirrorServer is the push-fed read-only UI (sty_dbdadfa0 + epic:mirror-ui-parity).
@@ -27,7 +28,7 @@ type MirrorServer struct {
 	// auto-bootstrap only seeds a serve that matches the caller's SATELLE_HOME
 	// (sty_5aa08259 / epic:mirror-hygiene).
 	InstanceID string
-	// LogPath is the satelled server.log shown next to a standing push failure.
+	// LogPath is the satelled server.log the logs page tails.
 	LogPath string
 	// Ingest is the mounted ingest handler; satelled sets its Log before serving.
 	Ingest *mirror.IngestHandler
@@ -49,12 +50,13 @@ type partitionVM struct {
 	// stale marker on a row past mirror.StaleAfter.
 	LastIngest time.Time
 	Stale      bool
-	// SyncLastSuccess / SyncReason are recorded hosted-push state
-	// (sty_30696eeb). Empty reason = no standing failure.
+	// SyncLastSuccess / SyncReason / SyncStore are the recorded outcome of the
+	// last automatic ledger sync pass (sto_5c706973). Empty reason = no
+	// standing failure.
 	SyncLastSuccess time.Time
 	SyncReason      string
 	SyncLocal       bool
-	SyncLogPath     string
+	SyncStore       string
 }
 
 // mirrorProjectsData backs the Projects landing template.
@@ -105,7 +107,7 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 		_, _ = w.Write(b)
 	})
 
-	s := &MirrorServer{Store: m, InstanceID: instanceID, hub: h, LogPath: displayedSyncLogPath()}
+	s := &MirrorServer{Store: m, InstanceID: instanceID, hub: h, LogPath: displayedServerLogPath()}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if s.InstanceID != "" {
@@ -250,19 +252,15 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 		total += len(stories)
 		lastIngest, _ := p.LastIngest()
 		st := loadPartitionSync(path)
-		logPath := ""
-		if st.PushReason != "" {
-			logPath = s.LogPath
-		}
 		pvm = append(pvm, partitionVM{
 			Slug: slug, Name: name, Path: path,
 			Stories: len(stories), Tasks: len(tasks), Workflows: workflows,
 			LastIngest:      lastIngest.Local(),
 			Stale:           p.Stale(time.Now()),
-			SyncLastSuccess: st.PushLastSuccess,
-			SyncReason:      st.PushReason,
-			SyncLocal:       st.Scope == "local",
-			SyncLogPath:     logPath,
+			SyncLastSuccess: st.SyncLastSuccess,
+			SyncReason:      st.SyncReason,
+			SyncLocal:       st.SyncStore == syncstate.LocalStore,
+			SyncStore:       st.SyncStore,
 		})
 	}
 	return pvm, total, nil

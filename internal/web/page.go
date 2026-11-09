@@ -265,12 +265,13 @@ const templatesSrc = `
      it, so the ticker leaves it alone. */}}
 {{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="No confirmed snapshot for over {{staleafter}}">stale · {{reltime .LastIngest}}</span>{{end}}{{end}}
 
-{{/* syncstate: hosted workstate plane on the project header (sty_8104248a).
-     "pushed" stays outside time.rel-time so the ticker cannot strip it.
-     Landing does not call this — it shows a Push Failing tag instead. */}}
-{{define "syncstate"}}{{if or .SyncLocal .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="work-state areas are local">local</span>{{else if .SyncReason}}<span class="sync-fail">push failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last successful hosted push at {{ftime .SyncLastSuccess}}">pushed <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
+{{/* syncstate: the last automatic ledger sync pass on the project header
+     (sto_5c706973). "synced" stays outside time.rel-time so the ticker cannot
+     strip it. Landing does not call this — it shows a Sync Failing tag
+     instead. */}}
+{{define "syncstate"}}{{if or .SyncLocal .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="the ledger store is local: nothing replicates">local</span>{{else if .SyncReason}}<span class="sync-fail">sync failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last sync with {{.SyncStore}} at {{ftime .SyncLastSuccess}}">synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
 
-{{define "syncfail"}}<div class="sync-fail-body"><span class="sync-fail-reason">{{.SyncReason}}</span>{{if .SyncLogPath}} <span class="sync-fail-log">logged to <code>{{.SyncLogPath}}</code></span>{{end}}</div>{{end}}
+{{define "syncfail"}}<div class="sync-fail-body"><span class="sync-fail-reason">{{.SyncReason}}</span>{{if isotime .SyncLastSuccess}} <span class="sync-fail-log">last synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}</div>{{end}}
 
 {{/* syncheld: stories the last push held until their code is on the remote
      (sty_c203fd62). In flight, not failing: muted, never inside syncfail. */}}
@@ -278,7 +279,7 @@ const templatesSrc = `
 
 {{/* syncfailtag: landing-only status chip. No reason, no log path — those
      stay on the project page (sty_a447695e). */}}
-{{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="hosted push is failing — see the project page">Push Failing</span>{{end}}{{end}}
+{{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="ledger sync is failing — see the project page">Sync Failing</span>{{end}}{{end}}
 
 {{define "footer"}}<footer class="site-footer"><span class="footer-version">{{buildline}}</span></footer>{{end}}
 

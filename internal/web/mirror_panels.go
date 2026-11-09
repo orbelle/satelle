@@ -66,7 +66,7 @@ func loadPartitionSync(repoPath string) syncstate.State {
 	return st
 }
 
-func displayedSyncLogPath() string {
+func displayedServerLogPath() string {
 	home := strings.TrimSpace(os.Getenv("SATELLE_HOME"))
 	if home == "" {
 		if testing.Testing() {
@@ -136,10 +136,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 
 	syncSt := loadPartitionSync(repoRoot)
-	logPath := ""
-	if syncSt.PushReason != "" {
-		logPath = displayedSyncLogPath()
-	}
 	storyRows := itemRows(stories, workflows)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
@@ -150,10 +146,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		ProjectName:     projectName,
 		LastIngest:      lastIngest,
 		Stale:           stale,
-		SyncLastSuccess: syncSt.PushLastSuccess,
-		SyncReason:      syncSt.PushReason,
-		SyncLocal:       syncSt.Scope == "local",
-		SyncLogPath:     logPath,
+		SyncLastSuccess: syncSt.SyncLastSuccess,
+		SyncReason:      syncSt.SyncReason,
+		SyncLocal:       syncSt.SyncStore == syncstate.LocalStore,
+		SyncStore:       syncSt.SyncStore,
 		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
 		BacklogCount:    backlogCount(stories, workflows),

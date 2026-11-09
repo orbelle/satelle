@@ -25,20 +25,7 @@ func projectLocalCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			gc, err := config.LoadGlobal()
-			if err != nil {
-				return err
-			}
-			if !gc.Projects.Add(path) {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s is already a project on this machine\n", path)
-			} else {
-				if err := config.SaveGlobal(gc); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%d projects on this machine)\n", path, len(gc.Projects.Paths))
-			}
-			seedUI(cmd, path)
-			return nil
+			return addLocalProject(cmd, path)
 		},
 	}
 	remove := &cobra.Command{
@@ -140,6 +127,26 @@ func localProjects() ([]localProject, error) {
 		out = append(out, lp)
 	}
 	return out, nil
+}
+
+// addLocalProject adds path to this machine's projects (~/.satelle/config.toml
+// [projects]), which satelled shows and `satelle ledger autosync` replicates,
+// and seeds its satelled partition.
+func addLocalProject(cmd *cobra.Command, path string) error {
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	if !gc.Projects.Add(path) {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s is already a project on this machine\n", path)
+	} else {
+		if err := config.SaveGlobal(gc); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%d projects on this machine)\n", path, len(gc.Projects.Paths))
+	}
+	seedUI(cmd, path)
+	return nil
 }
 
 // seedUI pushes a full snapshot of the repo at path to satelled.

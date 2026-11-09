@@ -57,6 +57,7 @@ type Server struct {
 	gh       map[string]*github // project id → GitHub binding
 	nextID   int
 	grpc     *grpc.Server
+	down     bool
 }
 
 // Call is one RPC the fake received.
@@ -121,6 +122,14 @@ func (s *Server) RevokeToken(tok string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.tokens, tok)
+}
+
+// SetDown makes every call fail with codes.Unavailable while down is set: the
+// server as an unreachable store.
+func (s *Server) SetDown(down bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.down = down
 }
 
 // SetMe replaces the principal GetMe answers.
@@ -233,6 +242,9 @@ func (s *Server) authorize(ctx context.Context, method string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, Call{Method: method, Auth: tok})
+	if s.down {
+		return status.Error(codes.Unavailable, "satelle.dev is down")
+	}
 	if tok != "" && s.tokens[tok] {
 		return nil
 	}

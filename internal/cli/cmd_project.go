@@ -100,7 +100,13 @@ on satelle.dev (satelle workspace list). See satelle help projects.`,
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Bound this repo to %s (%s) on %s.\n", p.GetSlug(), p.GetId(), srv)
-		return nil
+		// A bound repo is one of this machine's projects, so the automatic
+		// sync pass replicates it and satelled shows it (sto_5c706973).
+		path, err := repoArg(nil)
+		if err != nil {
+			return err
+		}
+		return addLocalProject(cmd, path)
 	}
 
 	bindCmd := &cobra.Command{
