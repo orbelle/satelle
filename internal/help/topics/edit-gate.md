@@ -18,7 +18,12 @@ receives the session as `SATELLE_SESSION` and the worktree as
 failure.
 
 Every seat records the machine it was bound on (an id kept in
-`~/.satelle/machine-id`, folded with the host's machine id) and its host name.
+`~/.satelle/machine-id`, folded with the host's machine id), its host name and
+the satelle user who bound it: the signed-in identity (the email `satelle
+whoami` names, else its display name), else `<OS user>@<host>`. The users
+holding a seat are the item's assignees beside any set with `--assignee`:
+`story get`, `story list --json` and satelled list them once each, marking
+the seated ones working, and a released or gone seat drops its user.
 Whether its session still runs is known only on that machine, from
 `~/.satelle/sessions/<session>.json`: the SessionStart hook records its hook
 processes, each hook call (session start, prompt, seat command) settles the

@@ -77,6 +77,9 @@ func (r repo) open() (*kernel.Kernel, error) {
 	home := config.GlobalDir()
 	k.Machine, _ = config.MachineID(home)
 	k.Host, _ = os.Hostname()
+	// The seat's user is read only when a seat binds, never on the gate
+	// hook's path, which opens the kernel on every tool call.
+	k.User = func() string { return seatUser(k.Host) }
 	k.Sessions = seatlife.Recorder{Home: home}
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
@@ -97,3 +100,20 @@ func canonical(p string) string {
 
 // sessionFromEnv is SATELLE_SESSION.
 func sessionFromEnv() string { return config.SessionFromEnv() }
+
+// seatUser is the satelle user a seat records: the signed-in identity (the
+// login's cached email, else its display name), else <OS user>@<host>, or ""
+// when there is no OS user.
+func seatUser(host string) string {
+	if u := signedInUser(); u != nil {
+		if u.Email != "" {
+			return u.Email
+		}
+		return u.Name
+	}
+	u := osUser()
+	if u == "" {
+		return ""
+	}
+	return u + "@" + host
+}

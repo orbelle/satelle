@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -152,17 +153,21 @@ func TestUpgradeEndToEnd(t *testing.T) {
 		t.Fatalf("import printed:\n%s", out)
 	}
 	type got struct {
-		ID, Kind, Title, Body, Status, Workflow, Category, Assignee string
-		Criteria, Tags                                              []string
-		Parent                                                      string `json:"parent"`
-		CreatedAt                                                   string `json:"created_at"`
+		ID, Kind, Title, Body, Status, Workflow, Category string
+		Criteria, Tags, Assignees                         []string
+		Parent                                            string `json:"parent"`
+		CreatedAt                                         string `json:"created_at"`
 	}
 	want := map[string][2]string{"sty_a1000001": {"default", "backlog"}, "sty_a1000002": {"default", "done"}, "tsk_t1000001": {"standing", "open"}, "exe_e1000001": {"default", "done"}}
 	for _, row := range oldRows {
 		var g got
 		s.mustJSON(&g, row.kind, "get", row.id)
+		var assignees []string
+		if row.assignee != "" {
+			assignees = []string{row.assignee}
+		}
 		if g.ID != row.id || g.Kind != row.kind || g.Title != row.title || g.Body != row.body || g.Category != row.category ||
-			g.Assignee != row.assignee || g.Parent != row.parent || g.Workflow != want[row.id][0] || g.Status != want[row.id][1] {
+			!slices.Equal(g.Assignees, assignees) || g.Parent != row.parent || g.Workflow != want[row.id][0] || g.Status != want[row.id][1] {
 			t.Errorf("%s = %+v", row.id, g)
 		}
 		if !strings.HasPrefix(g.CreatedAt, strings.TrimSuffix(row.created, "Z")) {

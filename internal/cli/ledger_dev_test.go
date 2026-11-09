@@ -3,9 +3,12 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
@@ -119,6 +122,43 @@ func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 		t.Errorf("status --json = %+v, %v", rows, err)
 	}
 	_ = b
+}
+
+// The item summary a push stores on the server carries the assignees, with
+// the users holding a live seat working; a release empties both
+// (sto_600b9a85 AC3).
+func TestLedgerPushCarriesAssignees(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (hosted.FileStore{}).Save(hosted.Credential{ServerURL: hosted.ConfiguredServer(gc), AccessToken: "a", RefreshToken: "r", Email: "ada@x.io"}); err != nil {
+		t.Fatal(err)
+	}
+	id := createID(t, "story", "create", "--title", "worked")
+	must(t, "story", "seat", id, "--session", "s1")
+	must(t, "ledger", "push")
+	summary := func() (assignees, working []string) {
+		t.Helper()
+		for _, it := range srv.Items("shared") {
+			if it.GetId() == id {
+				return it.GetAssignees(), it.GetWorking()
+			}
+		}
+		t.Fatalf("the server holds no summary of %s", id)
+		return nil, nil
+	}
+	if a, w := summary(); !slices.Equal(a, []string{"ada@x.io"}) || !slices.Equal(w, []string{"ada@x.io"}) {
+		t.Errorf("seated summary assignees %q working %q, want ada@x.io in both", a, w)
+	}
+	must(t, "story", "release", id, "--session", "s1")
+	must(t, "ledger", "push")
+	if a, w := summary(); len(a) != 0 || len(w) != 0 {
+		t.Errorf("released summary assignees %q working %q, want none", a, w)
+	}
 }
 
 // A push over a moved head on satelle.dev is a divergence: push and pull

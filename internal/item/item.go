@@ -73,7 +73,7 @@ type Item struct {
 	Parent    string     `json:"parent,omitempty"`
 	Category  string     `json:"category,omitempty"`
 	Workflow  string     `json:"workflow"`
-	Assignee  string     `json:"assignee,omitempty"`
+	Assignees []string   `json:"assignees,omitempty"` // the explicit assignees
 	Inputs    *Selection `json:"inputs,omitempty"`
 	Trigger   *Trigger   `json:"trigger,omitempty"` // a queue's trigger
 	Base      string     `json:"base,omitempty"`    // the commit the item was created at
@@ -85,15 +85,19 @@ type Item struct {
 // item.updated (only the fields it changes). Status is honoured only on
 // item.created; a status change is item.transitioned.
 type Fields struct {
-	Kind     *string    `json:"kind,omitempty"`
-	Title    *string    `json:"title,omitempty"`
-	Body     *string    `json:"body,omitempty"`
-	Criteria *[]string  `json:"criteria,omitempty"`
-	Status   *string    `json:"status,omitempty"`
-	Tags     *[]string  `json:"tags,omitempty"`
-	Parent   *string    `json:"parent,omitempty"`
-	Category *string    `json:"category,omitempty"`
-	Workflow *string    `json:"workflow,omitempty"`
+	Kind      *string   `json:"kind,omitempty"`
+	Title     *string   `json:"title,omitempty"`
+	Body      *string   `json:"body,omitempty"`
+	Criteria  *[]string `json:"criteria,omitempty"`
+	Status    *string   `json:"status,omitempty"`
+	Tags      *[]string `json:"tags,omitempty"`
+	Parent    *string   `json:"parent,omitempty"`
+	Category  *string   `json:"category,omitempty"`
+	Workflow  *string   `json:"workflow,omitempty"`
+	Assignees *[]string `json:"assignees,omitempty"`
+	// Assignee is the single assignee key that chains written before the
+	// list carry (upgrade imports, satelle-server's MCP creates). It is read
+	// so their fold keeps what they hold; satelle's verbs never write it.
 	Assignee *string    `json:"assignee,omitempty"`
 	Inputs   *Selection `json:"inputs,omitempty"`
 	Trigger  *Trigger   `json:"trigger,omitempty"`
@@ -174,13 +178,20 @@ func (f Fields) Apply(it *Item) {
 	set(&it.Parent, f.Parent)
 	set(&it.Category, f.Category)
 	set(&it.Workflow, f.Workflow)
-	set(&it.Assignee, f.Assignee)
 	set(&it.Base, f.Base)
 	if f.Criteria != nil {
 		it.Criteria = slices.Clone(*f.Criteria)
 	}
 	if f.Tags != nil {
 		it.Tags = slices.Clone(*f.Tags)
+	}
+	switch {
+	case f.Assignees != nil:
+		it.Assignees = slices.Clone(*f.Assignees)
+	case f.Assignee != nil && *f.Assignee != "":
+		it.Assignees = []string{*f.Assignee}
+	case f.Assignee != nil:
+		it.Assignees = nil
 	}
 	if f.Inputs != nil {
 		// The zero selection clears it: an item without inputs selects nothing.

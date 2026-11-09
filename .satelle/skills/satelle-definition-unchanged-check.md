@@ -14,7 +14,7 @@ again, so the plan gates see the edit).
 
 It reads the item's ledger: the latest accepted transition into the coding state
 (the `from` state of this transition, `$SATELLE_FROM`), then every
-`item.updated` event after it. Tags, parent, assignee and workflow are not the
+`item.updated` event after it. Tags, parent, assignees and workflow are not the
 definition and are ignored.
 
 Ported to the kernel 2026-11-06 (the old script read a transition payload and

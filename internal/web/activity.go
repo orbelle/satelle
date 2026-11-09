@@ -40,12 +40,7 @@ func activeItem(class string, seated bool) bool {
 // activityRows is the Activity panel: the stories and task runs being worked
 // now, the most recent step first.
 func activityRows(stories, executions []Item, workflows map[string]*mirror.Workflow, seats []mirror.Seat, events []Entry, standing seatStanding) []activityRowVM {
-	bySeat := map[string][]mirror.Seat{}
-	for _, s := range seats {
-		if id := seatItem(s); id != "" {
-			bySeat[id] = append(bySeat[id], s)
-		}
-	}
+	bySeat := seatsByItem(seats)
 	var active []Item
 	for _, it := range append(append([]Item(nil), stories...), executions...) {
 		if activeItem(stateClass(workflows[it.Workflow], it.Status), len(bySeat[it.ID]) > 0) {
@@ -66,6 +61,7 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 	for _, it := range active {
 		w := workflows[it.Workflow]
 		row := activityRowVM{rowVM: rowVM{Item: it, StateClass: stateClass(w, it.Status)}, StepAt: it.UpdatedAt}
+		row.Assignees = assigneeVMs(assigneesOf(it, bySeat[it.ID], standing))
 		held := bySeat[it.ID]
 		sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
 		for _, s := range held {
