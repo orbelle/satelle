@@ -1,3 +1,8 @@
+## [1.0.46] - 2026-11-09
+
+### Changed
+- satelled's footer shows three build lines: the satelle CLI installed beside satelled, the running satelled and the satelled installed on disk, each as recorded in ~/.satelle/builds.json by the binary itself or by `satelle update` and checked against the file on disk. When the running satelled differs from the installed one it marks them and names `satelle service restart`; when the installed CLI's version differs from the installed satelled's it marks them and names `satelle update`. `satelle service status` reports the installed CLI and warns by the same rule. (sto_49b6e762)
+
 ## [1.0.45] - 2026-11-09
 
 ### Changed
