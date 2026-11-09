@@ -39,9 +39,10 @@ func TestSeatCommandStampsThisMachine(t *testing.T) {
 	}
 }
 
-// The SessionStart hook records the session's process chain and the prompt
-// hook settles its owner: the harness both hooks share, here the test's
-// parent (sto_e127b2e6 AC5).
+// The SessionStart hook records the session's hook processes and a later hook
+// call settles its owner: the harness both calls share, here the test's
+// parent (sto_e127b2e6 AC5). Every hook call settles a missing owner: a prompt,
+// a second session start, or a seat command (sto_35c85724 AC2).
 func TestHooksRecordAndResolveTheSessionOwner(t *testing.T) {
 	dir := isolate(t)
 	anc := procgroup.Ancestors(os.Getpid())
@@ -55,7 +56,7 @@ func TestHooksRecordAndResolveTheSessionOwner(t *testing.T) {
 	}
 	home := config.GlobalDir()
 	rec, ok := seatlife.Load(home, "s1")
-	if !ok || len(rec.Ancestors) == 0 || rec.Ancestors[0] != anc[0] {
+	if !ok || len(rec.Hooks) == 0 || rec.Hooks[0] != anc[0] {
 		t.Fatalf("record after session start %+v (%v), want the chain from %+v", rec, ok, anc[0])
 	}
 	if out, err := run(t, payload, "hook", "prompt"); err != nil {
@@ -64,5 +65,27 @@ func TestHooksRecordAndResolveTheSessionOwner(t *testing.T) {
 	rec, _ = seatlife.Load(home, "s1")
 	if rec.Owner == nil || *rec.Owner != anc[0] {
 		t.Fatalf("owner %+v, want %+v", rec.Owner, anc[0])
+	}
+
+	payload = fmt.Sprintf(`{"session_id":"s2","cwd":%q}`, dir)
+	for range 2 {
+		if out, err := run(t, payload, "hook", "context"); err != nil {
+			t.Fatalf("hook context: %v\n%s", err, out)
+		}
+	}
+	rec, _ = seatlife.Load(home, "s2")
+	if rec.Owner == nil || *rec.Owner != anc[0] {
+		t.Fatalf("owner after two session starts %+v, want %+v", rec.Owner, anc[0])
+	}
+
+	payload = fmt.Sprintf(`{"session_id":"s3","cwd":%q}`, dir)
+	if out, err := run(t, payload, "hook", "context"); err != nil {
+		t.Fatalf("hook context: %v\n%s", err, out)
+	}
+	id := createID(t, "story", "create", "--title", "seated", "--criteria", "c")
+	must(t, "story", "seat", id, "--session", "s3")
+	rec, _ = seatlife.Load(home, "s3")
+	if rec.Owner == nil || *rec.Owner != anc[0] {
+		t.Fatalf("owner after the seat command %+v, want %+v", rec.Owner, anc[0])
 	}
 }

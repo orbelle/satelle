@@ -25,14 +25,18 @@ holding a seat are the item's assignees beside any set with `--assignee`:
 `story get`, `story list --json` and satelled list them once each, marking
 the seated ones working, and a released or gone seat drops its user.
 Whether its session still runs is known only on that machine, from
-`~/.satelle/sessions/<session>.json`: the SessionStart hook records the hook's
-process chain, the prompt hook and the seat command settle the session's
-owner (the harness both share), and a dispatched run records its own process.
-`satelle doctor` and satelled class each seat as **here** (this machine, owner
-running), **elsewhere** (another machine, or a remote or cloud location),
-**gone** (this machine, owner exited) or **unverified** (no machine recorded,
-no session record, or no proof either way). Only a seat here counts as
-engaged; `satelle doctor --resolve` releases a gone one without asking.
+`~/.satelle/sessions/<session>.json`: the SessionStart hook records its hook
+processes, each hook call (session start, prompt, seat command) settles the
+session's owner from the process it shares with an earlier call (the
+harness), and a dispatched run records its own process. A live owner is kept
+when SessionStart fires again in the same session. `satelle doctor` and
+satelled class each seat as **here** (this machine, owner running),
+**elsewhere** (another machine, or a remote or cloud location), **gone** (this
+machine, its settled owner exited) or **unverified** (no machine recorded, no
+session record, no settled owner even when its hook processes have exited, or
+no proof either way). Only a seat here counts as engaged;
+`satelle doctor --resolve` releases a gone one without asking, and asks about
+a seat here whose session never settled an owner, never releasing it unasked.
 
 Always and never:
 
