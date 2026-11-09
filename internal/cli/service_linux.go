@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
 func systemctl(args ...string) (string, error) {
@@ -79,7 +81,7 @@ func applyUnits(w io.Writer, u serviceUnits, force bool) error {
 	if daemonErr == nil {
 		fmt.Fprintf(w, "%s enabled and (re)started\n", serviceUnitName)
 	}
-	fmt.Fprintf(w, "%s enabled and started: each project on this machine syncs every %s\n", syncTimerName, syncPeriod)
+	fmt.Fprintf(w, "%s enabled and started: each project on this machine syncs every %s\n", syncTimerName, mirror.SyncPeriod)
 	return nil
 }
 

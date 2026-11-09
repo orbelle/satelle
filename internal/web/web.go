@@ -82,11 +82,13 @@ type pageData struct {
 	TopBar          topBar
 	Projects        []crumbProject // this machine's projects, for the breadcrumb switcher
 	// LastIngest is when this partition's state was last confirmed against the
-	// repo, rendered as elapsed time so the page never presents an unrepaired
-	// frame as current (sty_e6e467fe, presented per sty_226a661e).
+	// repo, by a push or the automatic sync pass (sto_128803b3), rendered as
+	// elapsed time so the page never presents a frame satelled is behind on as
+	// current (sty_e6e467fe, presented per sty_226a661e).
 	LastIngest time.Time
-	// Stale is set when LastIngest is older than mirror.StaleAfter (or absent);
-	// the header then shows the stale marker beside the elapsed time.
+	// Stale is set when LastIngest is older than mirror.StaleAfter (or absent):
+	// no sync pass has confirmed the mirror. The header then shows the stale
+	// marker beside the elapsed time.
 	Stale bool
 	// SyncLastSuccess / SyncReason / SyncStore are the recorded outcome of the
 	// last automatic ledger sync pass (syncstate's sync group, sto_5c706973);

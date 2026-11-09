@@ -5,7 +5,9 @@
 // settings and identity. A full push carries all of them; a delta carries the
 // changed items' rows, the seats, the workflows and the identity, so a
 // workflow file added or edited reaches satelled on the repo's next push.
-// satelled never asks the CLI for anything.
+// The automatic sync pass confirms the mirror (POST /ingest/confirm): it sends
+// the full snapshot's digest, and the full body only when satelled's last one
+// differs. satelled never asks the CLI for anything.
 package uipush
 
 import (

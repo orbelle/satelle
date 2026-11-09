@@ -103,6 +103,130 @@ func TestPartitionStaleness(t *testing.T) {
 	if !(Partition{UpdatedAt: "not-a-time"}).Stale(now) {
 		t.Error("an unreadable last-ingest time must read as stale, never as current")
 	}
+	// The bound's edges (sto_128803b3): just inside is fresh, just past is stale.
+	inside := Partition{UpdatedAt: now.Add(-StaleAfter + time.Second).Format(time.RFC3339Nano)}
+	if inside.Stale(now) {
+		t.Error("a partition confirmed just inside StaleAfter is not stale")
+	}
+	past := Partition{UpdatedAt: now.Add(-StaleAfter - time.Second).Format(time.RFC3339Nano)}
+	if !past.Stale(now) {
+		t.Error("a partition confirmed just past StaleAfter is stale")
+	}
+	// The bound follows the sync period, not the removed 5-minute reconcile.
+	if StaleAfter != SyncPassTimeout+2*SyncPeriod {
+		t.Errorf("StaleAfter = %s, want SyncPassTimeout + 2*SyncPeriod = %s", StaleAfter, SyncPassTimeout+2*SyncPeriod)
+	}
+	if StaleAfter >= 15*time.Minute {
+		t.Errorf("StaleAfter = %s, want under the old 15 minutes", StaleAfter)
+	}
+}
+
+// postConfirm POSTs a ConfirmEvent and returns the status code and the decoded
+// answer (nil unless 200).
+func postConfirm(t *testing.T, base string, ev ConfirmEvent) (int, map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(base+"/ingest/confirm", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return resp.StatusCode, nil
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, out
+}
+
+// TestConfirmMarksFreshOnlyWhenDigestMatches proves the sync pass's cheap
+// check (sto_128803b3): a digest equal to the last full body applied marks the
+// partition fresh without moving seq, ringing "projects" only when it was
+// stale; any other digest, an unknown partition, or a hash a delta cleared
+// answers fresh:false and touches nothing.
+func TestConfirmMarksFreshOnlyWhenDigestMatches(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	var topics []string
+	srv := httptest.NewServer(mountIngest(s, func(topic string) { topics = append(topics, topic) }))
+	defer srv.Close()
+
+	snap := Snapshot{
+		RepoKey: "rk", Slug: "demo",
+		Stories: []json.RawMessage{json.RawMessage(`{"id":"sty_1","status":"release"}`)},
+	}
+	postSnapshot(t, srv.URL, snap)
+	body, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := SnapshotDigest(body)
+	if err := s.MarkFresh(ctx, "rk", time.Now().Add(-StaleAfter-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	before := partitionOf(t, s, "rk")
+	if !before.Stale(time.Now()) {
+		t.Fatal("setup: the aged partition must read stale")
+	}
+	topics = nil
+
+	code, got := postConfirm(t, srv.URL, ConfirmEvent{RepoKey: "rk", Digest: digest})
+	if code != http.StatusOK || got["fresh"] != true {
+		t.Fatalf("matching digest: code %d, %v; want fresh:true", code, got)
+	}
+	after := partitionOf(t, s, "rk")
+	if after.Seq != before.Seq {
+		t.Errorf("a confirm moved seq: %d → %d", before.Seq, after.Seq)
+	}
+	if after.UpdatedAt == before.UpdatedAt {
+		t.Error("a confirm must move updated_at")
+	}
+	if after.Stale(time.Now()) {
+		t.Error("a confirmed partition must not read stale")
+	}
+	if len(topics) != 1 || topics[0] != "projects" {
+		t.Errorf("a stale-to-fresh confirm rings exactly projects, got %v", topics)
+	}
+
+	topics = nil
+	if code, got := postConfirm(t, srv.URL, ConfirmEvent{RepoKey: "rk", Digest: digest}); code != http.StatusOK || got["fresh"] != true {
+		t.Fatalf("second confirm: code %d, %v; want fresh:true", code, got)
+	}
+	if len(topics) != 0 {
+		t.Errorf("confirming a fresh partition rings nothing, got %v", topics)
+	}
+
+	if err := s.MarkFresh(ctx, "rk", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	aged := partitionOf(t, s, "rk")
+	if code, got := postConfirm(t, srv.URL, ConfirmEvent{RepoKey: "rk", Digest: strings.Repeat("0", 64)}); code != http.StatusOK || got["fresh"] != false {
+		t.Fatalf("wrong digest: code %d, %v; want fresh:false", code, got)
+	}
+	if partitionOf(t, s, "rk").UpdatedAt != aged.UpdatedAt {
+		t.Error("a wrong digest must not move updated_at")
+	}
+
+	if code, got := postConfirm(t, srv.URL, ConfirmEvent{RepoKey: "nope", Digest: digest}); code != http.StatusOK || got["fresh"] != false {
+		t.Fatalf("unknown partition: code %d, %v; want fresh:false", code, got)
+	}
+
+	postSnapshot(t, srv.URL, Snapshot{RepoKey: "rk", MergeKinds: []string{"story"},
+		Stories: []json.RawMessage{json.RawMessage(`{"id":"sty_1","status":"release"}`)}})
+	if code, got := postConfirm(t, srv.URL, ConfirmEvent{RepoKey: "rk", Digest: digest}); code != http.StatusOK || got["fresh"] != false {
+		t.Fatalf("after a partial snapshot cleared the hash: code %d, %v; want fresh:false", code, got)
+	}
+
+	for _, ev := range []ConfirmEvent{{RepoKey: "", Digest: digest}, {RepoKey: "rk", Digest: ""}} {
+		if code, _ := postConfirm(t, srv.URL, ev); code != http.StatusBadRequest {
+			t.Errorf("confirm %+v: code %d, want 400", ev, code)
+		}
+	}
 }
 
 func openStore(t *testing.T) *Store {

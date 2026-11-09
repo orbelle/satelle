@@ -43,20 +43,38 @@ func watchWrites(k *kernel.Kernel, r repo) {
 // flushUI pushes the items the command wrote to satelled. It is silent: a
 // satelled that is not running, or serves another home, changes nothing.
 func flushUI(ctx context.Context) {
+	r, ids := takeWritten()
+	if r == nil || len(ids) == 0 {
+		return
+	}
+	_ = withUISource(*r, func(c uipush.Client, src uipush.Source) error {
+		return c.Push(ctx, src, ids)
+	})
+}
+
+// takeWritten drains the writes watchWrites recorded: the repo and the sorted
+// ids of the items written.
+func takeWritten() (*repo, []string) {
 	written.Lock()
 	r, items := written.repo, written.items
 	written.repo, written.items = nil, nil
 	written.Unlock()
-	if r == nil || len(items) == 0 {
-		return
-	}
 	ids := make([]string, 0, len(items))
 	for id := range items {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	_ = withUISource(*r, func(c uipush.Client, src uipush.Source) error {
-		return c.Push(ctx, src, ids)
+	return r, ids
+}
+
+// confirmUI confirms satelled's mirror of r (sto_128803b3): marked fresh when
+// its digest matches, otherwise sent a full snapshot. The pending writes are
+// dropped: a full body carries them whenever the digest differs. Silent, like
+// flushUI; `satelle status` reads the recorded snapshot outcome.
+func confirmUI(ctx context.Context, r repo) {
+	_, _ = takeWritten()
+	_ = withUISource(r, func(c uipush.Client, src uipush.Source) error {
+		return c.Confirm(ctx, src)
 	})
 }
 

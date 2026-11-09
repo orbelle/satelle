@@ -303,8 +303,8 @@ header.app h1 .dot { color: var(--accent); }
    would be permanent red on a routine condition, which trains the eye to
    ignore red. It is metadata, styled as metadata (sty_226a661e). */
 .rel-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
-/* stale-flag: only past mirror.StaleAfter with no confirmed snapshot, so it is
-   rare and warn-toned, never the fail red of a push error. */
+/* stale-flag: only past mirror.StaleAfter with no sync pass confirming the
+   mirror, so it is rare and warn-toned, never the fail red of a push error. */
 .stale-flag { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail { color: var(--fail); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-local, .sync-ok { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: 6px; }

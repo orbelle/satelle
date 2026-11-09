@@ -33,8 +33,11 @@ func ledgerAutosyncCmd() *cobra.Command {
 pull the items the store is ahead on, by the rules of satelle ledger push and
 pull. An item in sync is not touched; one that diverged or was refused is
 left on both sides and named. Each project's outcome is recorded for
-satelled's project page, and the items a pull wrote are pushed to this
-machine's satelled. Exits 1 when any project's pass failed.`,
+satelled's project page, and this machine's satelled's mirror of every
+project visited, local store or not, is confirmed: marked fresh when
+unchanged, otherwise sent a full snapshot. A satelled that is not answering
+confirms nothing. Exits 1 when any project's pass failed; a confirm that
+fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -57,8 +60,8 @@ machine's satelled. Exits 1 when any project's pass failed.`,
 	}
 }
 
-// autosyncProject runs one project's pass, records its outcome and pushes
-// what it wrote to satelled. A path that is gone or holds no satelle repo is
+// autosyncProject runs one project's pass, records its outcome and confirms
+// satelled's mirror of the project (sto_128803b3). A path that is gone or holds no satelle repo is
 // skipped with nothing recorded. It reports whether the pass succeeded.
 func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
@@ -75,9 +78,11 @@ func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 	pass, summary := syncRepo(ctx, r)
 	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
 	reason := pass.Reason
-	// The kernel is closed: push this repo's writes before the next repo
-	// opens, since written holds one repo at a time.
-	flushUI(ctx)
+	// The kernel is closed: confirm this repo's mirror before the next repo
+	// opens, whatever the store outcome — a failed remote sync does not stop
+	// the local mirror being confirmed against the local ledger. Its full
+	// body, when one is needed, carries the pull's writes.
+	confirmUI(ctx, r)
 	if reason != "" {
 		fmt.Fprintf(out, "%s: sync failing: %s\n", path, reason)
 		return false

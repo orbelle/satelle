@@ -102,7 +102,8 @@ func standingHere() seatStanding {
 }
 
 // partitionFreshness reports when this partition was last confirmed against its
-// repo (sty_e6e467fe) and whether that is longer ago than mirror.StaleAfter. An
+// repo, by a push or the automatic sync pass's confirm (sty_e6e467fe,
+// sto_128803b3), and whether that is longer ago than mirror.StaleAfter. An
 // unknown partition returns the zero time and stale: the page then says it has
 // no confirmation at all, which is the honest reading.
 func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) (last time.Time, stale bool) {

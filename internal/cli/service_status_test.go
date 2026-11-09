@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
 func healthz(t *testing.T, body func(w http.ResponseWriter)) string {
@@ -132,6 +133,16 @@ func TestServiceRendersSyncTimer(t *testing.T) {
 	if !strings.HasSuffix(exec, "ledger autosync") {
 		t.Errorf("ExecStart %q does not end with ledger autosync", exec)
 	}
+	// The units read the freshness constants the stale badge derives from, so
+	// the timer and the badge share one number (sto_128803b3).
+	t.Run("units follow the mirror constants", func(t *testing.T) {
+		if want := fmt.Sprintf("OnUnitInactiveSec=%ds\n", int(mirror.SyncPeriod.Seconds())); !strings.Contains(renderSyncTimer(), want) {
+			t.Errorf("timer lacks %q:\n%s", want, renderSyncTimer())
+		}
+		if want := fmt.Sprintf("TimeoutStartSec=%d\n", int(mirror.SyncPassTimeout.Seconds())); !strings.Contains(svc, want) {
+			t.Errorf("service lacks %q:\n%s", want, svc)
+		}
+	})
 }
 
 // service install writes satelled's unit and the sync service and timer, and

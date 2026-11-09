@@ -168,6 +168,14 @@ its satelled project page: `synced` and when, or `sync failing` and why. With
 no systemd, `install.sh`, `satelle update` and `satelle service install` print
 the units instead: run `satelle ledger autosync` every 30 seconds yourself.
 
+Each pass also confirms satelled's mirror of every project it visits, local
+store or not: it sends the digest of the project's full snapshot, satelled
+marks the mirror fresh when that matches the last one it applied, and the full
+snapshot is sent only when it does not. A pass that finds satelled not
+answering confirms nothing. The project header and landing read `stale` once no
+pass has confirmed the mirror for over 6 minutes; its hover says since when
+and asks whether `satelle-sync.timer` is running.
+
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever
 `[ledger] store` names, because the node runs there, by the same replicator

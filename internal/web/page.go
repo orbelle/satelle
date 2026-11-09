@@ -53,9 +53,7 @@ var tmplFuncs = template.FuncMap{
 		return t.UTC().Format(time.RFC3339)
 	},
 	"reltime": func(t time.Time) string { return relTime(t, time.Now()) },
-	// staleafter names mirror.StaleAfter for the stale marker's hover text.
-	"staleafter": func() string { return fmt.Sprintf("%d min", int(mirror.StaleAfter.Minutes())) },
-	"lower":      strings.ToLower,
+	"lower":   strings.ToLower,
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
 	},
@@ -240,7 +238,9 @@ const templatesSrc = `
 {{define "github-svg"}}<svg viewBox="0 0 16 16" width="16" height="16" role="img" aria-hidden="true" focusable="false" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.02-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>{{end}}
 
 {{/* freshnessBare: the <time> only — LastIngest as a ticker-backed relative
-     phrase. Landing Updated cells use this bare form (sty_a447695e): no
+     phrase: the last time satelled's mirror was confirmed, by a push or by
+     the automatic sync pass (sto_128803b3). Landing Updated cells use this
+     bare form (sty_a447695e): no
      "local:" prefix, no remote clock. The header composes freshness on top
      so both surfaces render one <time> from one place.
 
@@ -254,11 +254,13 @@ const templatesSrc = `
      time.rel-time text (sty_226a661e, sty_8104248a). */}}
 {{define "freshness"}}local: updated {{template "freshnessBare" .}}{{template "stalemark" .}}{{end}}
 
-{{/* stalemark: shown only when the partition has had no confirmed snapshot
-     for longer than mirror.StaleAfter (.Stale), so a frame the serving tier
-     could not repair never reads as current. Beside the <time>, never inside
-     it, so the ticker leaves it alone. */}}
-{{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="No confirmed snapshot for over {{staleafter}}">stale · {{reltime .LastIngest}}</span>{{end}}{{end}}
+{{/* stalemark: shown only when no automatic sync pass (nor any push) has
+     confirmed the partition for longer than mirror.StaleAfter (.Stale), so a
+     mirror satelled is behind on never reads as current (sto_128803b3). The
+     age is the <time> beside it, so the mark does not repeat it; its hover
+     names since when and asks after the timer. Beside the <time>, never
+     inside it, so the ticker leaves it alone. */}}
+{{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="{{if isotime .LastIngest}}No confirmation since {{ftime .LastIngest}}{{else}}Never confirmed{{end}}; is satelle-sync.timer running?">stale</span>{{end}}{{end}}
 
 {{/* syncstate: the last automatic ledger sync pass on the project header
      (sto_5c706973). "synced" stays outside time.rel-time so the ticker cannot
