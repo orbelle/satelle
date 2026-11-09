@@ -85,14 +85,16 @@ type pageData struct {
 	// Stale is set when LastIngest is older than mirror.StaleAfter (or absent);
 	// the header then shows the stale marker beside the elapsed time.
 	Stale bool
-	// SyncLastSuccess / SyncReason are recorded hosted-push state (sty_30696eeb).
+	// SyncLastSuccess / SyncReason / SyncStore are the recorded outcome of the
+	// last automatic ledger sync pass (syncstate's sync group, sto_5c706973);
+	// SyncLocal is set when the repo's store is local.
 	SyncLastSuccess time.Time
 	SyncReason      string
 	SyncLocal       bool
-	SyncLogPath     string
+	SyncStore       string
 	// SyncHeld are the stories the last push held until their code is on the
 	// remote (sty_c203fd62). Holding is intended while a story is in flight, so
-	// they are shown apart from SyncReason, never as push failing.
+	// they are shown apart from SyncReason, never as sync failing.
 	SyncHeld []syncHeldVM
 	// Hosted, set when the server is the repo's store of record, links the
 	// server's project page; Stories still lists every story in the local store.

@@ -2,10 +2,11 @@
 // (sty_30696eeb). serve, doctor, and the mirror UI all read/write it without
 // crossing the serve→cli/hosted fences.
 //
-// Five field groups share one file (push, snapshot, substrate areas, the
-// substrate refresh attempt stamp, and story conflicts). Each writer re-loads and merges only its
-// own group (satelled and the satelle CLI are separate processes). A torn read
-// is "no state", never a parse error that fails doctor.
+// Five field groups share one file (the ledger sync pass, the held stories,
+// the snapshot, substrate areas and the substrate refresh attempt stamp). Each
+// writer re-loads and merges only its own group (satelled and the satelle CLI
+// are separate processes). A torn read is "no state", never a parse error that
+// fails doctor.
 package syncstate
 
 import (
@@ -25,21 +26,23 @@ const fileName = "workstate-sync.json"
 // State is one repo's last recorded workstate-sync outcome.
 type State struct {
 	RepoPath string `json:"repo_path"`
-	// Scope is the sync scope (local|personal|team) and Binding the [sync]
-	// project it was resolved for; ScopeAt is when a resolve first found it.
-	// The offline checks read them through RecordedScope.
-	Scope   string    `json:"scope,omitempty"`
-	Binding string    `json:"binding,omitempty"`
-	ScopeAt time.Time `json:"scope_at,omitempty"`
 
-	PushLastSuccess time.Time `json:"push_last_success,omitempty"`
-	PushLastFailure time.Time `json:"push_last_failure,omitempty"`
-	PushReason      string    `json:"push_reason,omitempty"`
-	PushPasses      int       `json:"push_passes,omitempty"`
+	// The sync group is the outcome of the last automatic ledger sync pass
+	// (`satelle ledger autosync`, sto_5c706973), written by RecordSync.
+	// SyncStore names the store the pass replicated with (LocalStore when the
+	// repo's store is local and nothing was replicated); SyncReason is why
+	// the last pass failed, empty after a success; SyncPasses is how many
+	// failures in a row gave the same reason.
+	SyncStore       string    `json:"sync_store,omitempty"`
+	SyncLastAttempt time.Time `json:"sync_last_attempt,omitempty"`
+	SyncLastSuccess time.Time `json:"sync_last_success,omitempty"`
+	SyncLastFailure time.Time `json:"sync_last_failure,omitempty"`
+	SyncReason      string    `json:"sync_reason,omitempty"`
+	SyncPasses      int       `json:"sync_passes,omitempty"`
+
 	// PushHeld is the stories the last project push held until their code is on
 	// the git remote (story id -> reason, sty_c203fd62). Holding is intended while
-	// a story is in flight, so it is kept apart from PushReason, which names only
-	// what the push failed on.
+	// a story is in flight, so it is kept apart from SyncReason.
 	PushHeld map[string]string `json:"push_held,omitempty"`
 
 	// The snapshot group is the outcome of the full or delta snapshot this
@@ -62,23 +65,6 @@ type State struct {
 	// refresh of SubstrateAreas. It only debounces that refresh; it says
 	// nothing about the areas' state.
 	SubstrateCheckedAttempt time.Time `json:"substrate_checked_attempt,omitempty"`
-	// StoryConflicts are the stories a sync pass did not apply because the local
-	// and hosted copies differ in content (sty_6e5fc41c). A pass records the
-	// disagreement and never resolves it; a later pass that applies the story, or
-	// finds both copies identical, clears it.
-	StoryConflicts map[string]StoryConflict `json:"story_conflicts,omitempty"`
-}
-
-// StoryConflict is one story the local and hosted copies disagree on: why the
-// pass left it, and when. The holders name this location and the other one that
-// last worked the story ("unknown" when none is known); Source is what found it.
-// A conflict is local sync state only: no pass writes it onto the story's chain.
-type StoryConflict struct {
-	Reason       string    `json:"reason"`
-	At           time.Time `json:"at"`
-	LocalHolder  string    `json:"local_holder,omitempty"`
-	RemoteHolder string    `json:"remote_holder,omitempty"`
-	Source       string    `json:"source,omitempty"`
 }
 
 // SubstrateArea is one area's recorded state, the files that state is about
@@ -125,21 +111,29 @@ func loadLocked(globalDir, repoPath string) (State, bool, error) {
 	return s, true, nil
 }
 
-// RecordPush merges the push-leg fields and writes atomically.
-func RecordPush(globalDir, repoPath string, success bool, reason, scope string, now time.Time) error {
-	return record(globalDir, repoPath, scope, func(s *State) {
-		if success {
-			s.PushLastSuccess = now
-			s.PushReason = ""
-			s.PushPasses = 0
+// LocalStore is the SyncStore a pass records for a repo whose ledger store is
+// local: nothing was replicated, and nothing failed.
+const LocalStore = "local"
+
+// RecordSync merges one sync pass into the sync group and writes atomically:
+// store is what the pass replicated with (LocalStore when nothing), reason is
+// why it failed ("" for a success).
+func RecordSync(globalDir, repoPath, store, reason string, now time.Time) error {
+	return record(globalDir, repoPath, func(s *State) {
+		s.SyncStore = store
+		s.SyncLastAttempt = now
+		if reason == "" || store == LocalStore {
+			s.SyncLastSuccess = now
+			s.SyncReason = ""
+			s.SyncPasses = 0
 			return
 		}
-		s.PushLastFailure = now
-		if reason != "" && reason == s.PushReason {
-			s.PushPasses++
+		s.SyncLastFailure = now
+		if reason == s.SyncReason {
+			s.SyncPasses++
 		} else {
-			s.PushReason = reason
-			s.PushPasses = 1
+			s.SyncReason = reason
+			s.SyncPasses = 1
 		}
 	})
 }
@@ -154,7 +148,7 @@ func RecordPushHeld(globalDir, repoPath string, held map[string]string) error {
 			return err
 		}
 	}
-	return record(globalDir, repoPath, "", func(s *State) {
+	return record(globalDir, repoPath, func(s *State) {
 		if len(held) == 0 {
 			s.PushHeld = nil
 			return
@@ -163,28 +157,10 @@ func RecordPushHeld(globalDir, repoPath string, held map[string]string) error {
 	})
 }
 
-// ClearPushReasonIf drops the recorded push failure when match accepts its
-// reason, leaving the failure and success times as they were: for a failure
-// something other than a successful push has healed, such as `satelle init`
-// re-stamping past the drift gate that refused it. Nothing is written when no
-// recorded reason matches, so a repo with no state gains no file.
-func ClearPushReasonIf(globalDir, repoPath string, match func(string) bool) error {
-	s, ok, err := Load(globalDir, repoPath)
-	if err != nil || !ok || s.PushReason == "" || !match(s.PushReason) {
-		return err
-	}
-	return record(globalDir, repoPath, "", func(s *State) {
-		if s.PushReason != "" && match(s.PushReason) {
-			s.PushReason = ""
-			s.PushPasses = 0
-		}
-	})
-}
-
 // RecordSnapshot merges the snapshot-leg fields (the CLI's snapshot to
 // satelled) and writes atomically.
-func RecordSnapshot(globalDir, repoPath string, success bool, reason, scope string, now time.Time) error {
-	return record(globalDir, repoPath, scope, func(s *State) {
+func RecordSnapshot(globalDir, repoPath string, success bool, reason string, now time.Time) error {
+	return record(globalDir, repoPath, func(s *State) {
 		if success {
 			s.SnapshotLastSuccess = now
 			s.SnapshotReason = ""
@@ -201,56 +177,13 @@ func RecordSnapshot(globalDir, repoPath string, success bool, reason, scope stri
 	})
 }
 
-// RecordScope records the work-state scope a pass resolved and nothing else, so
-// a pass skipped because the work state is local writes neither a success nor a
-// failure. An empty scope writes nothing.
-func RecordScope(globalDir, repoPath, scope string) error {
-	if scope == "" {
-		return nil
-	}
-	return record(globalDir, repoPath, scope, func(*State) {})
-}
-
-// RecordResolvedScope records the scope a resolve found for binding, leaving
-// every other field as it was. A resolve that finds what is already recorded
-// writes nothing, so a read-only command leaves the state as it was.
-func RecordResolvedScope(globalDir, repoPath string, scope config.Scope, binding string, now time.Time) error {
-	binding = strings.TrimSpace(binding)
-	if s, ok, err := Load(globalDir, repoPath); err == nil && ok && s.Scope == scope.String() && s.Binding == binding && !s.ScopeAt.IsZero() {
-		return nil
-	}
-	return record(globalDir, repoPath, scope.String(), func(s *State) {
-		s.Binding = binding
-		s.ScopeAt = now
-	})
-}
-
-// RecordedScope is the scope the offline checks judge sync from: the last
-// resolve's, when it was made for the current binding. An empty binding, no
-// record, or a record for another binding (a rebind since) is local.
-func RecordedScope(globalDir, repoPath, binding string) config.Scope {
-	binding = strings.TrimSpace(binding)
-	if binding == "" {
-		return config.LocalScope
-	}
-	s, ok, err := Load(globalDir, repoPath)
-	if err != nil || !ok || s.Binding != binding {
-		return config.LocalScope
-	}
-	scope, err := config.ParseScope(s.Scope)
-	if err != nil {
-		return config.LocalScope
-	}
-	return scope
-}
-
 // RecordSubstrate merges the verified check of the given areas into the
 // substrate group, leaving every other area's record as it was.
 func RecordSubstrate(globalDir, repoPath string, areas map[string]AreaCheck, now time.Time) error {
 	if len(areas) == 0 {
 		return nil
 	}
-	return record(globalDir, repoPath, "", func(s *State) {
+	return record(globalDir, repoPath, func(s *State) {
 		if s.SubstrateAreas == nil {
 			s.SubstrateAreas = map[string]SubstrateArea{}
 		}
@@ -263,58 +196,10 @@ func RecordSubstrate(globalDir, repoPath string, areas map[string]AreaCheck, now
 // MarkSubstrateAttempt stamps now as the last start of a substrate refresh,
 // leaving every other field as it was.
 func MarkSubstrateAttempt(globalDir, repoPath string, now time.Time) error {
-	return record(globalDir, repoPath, "", func(s *State) { s.SubstrateCheckedAttempt = now })
+	return record(globalDir, repoPath, func(s *State) { s.SubstrateCheckedAttempt = now })
 }
 
-// RecordStoryConflicts merges one pass's findings into the story-conflict group:
-// conflicts (id -> reason) are recorded, cleared ids are dropped, and every other
-// story's record is left as it was. Nothing is written when there is nothing to
-// change, so an in-step repo gains no state file.
-func RecordStoryConflicts(globalDir, repoPath string, conflicts map[string]string, cleared []string, now time.Time) error {
-	detailed := make(map[string]StoryConflict, len(conflicts))
-	for id, reason := range conflicts {
-		detailed[id] = StoryConflict{Reason: reason}
-	}
-	return RecordStoryConflictDetails(globalDir, repoPath, detailed, cleared, now)
-}
-
-// RecordStoryConflictDetails is RecordStoryConflicts with the holders and source
-// of each conflict. A conflict's At is set here; a story still in conflict for
-// the same reason keeps the time it was first found.
-func RecordStoryConflictDetails(globalDir, repoPath string, conflicts map[string]StoryConflict, cleared []string, now time.Time) error {
-	if len(conflicts) == 0 && len(cleared) == 0 {
-		return nil
-	}
-	if len(conflicts) == 0 {
-		s, ok, err := Load(globalDir, repoPath)
-		if err != nil || !ok || len(s.StoryConflicts) == 0 {
-			return err
-		}
-	}
-	return record(globalDir, repoPath, "", func(s *State) {
-		for _, id := range cleared {
-			delete(s.StoryConflicts, id)
-		}
-		for id, c := range conflicts {
-			if s.StoryConflicts == nil {
-				s.StoryConflicts = map[string]StoryConflict{}
-			}
-			c.At = now
-			if prev, ok := s.StoryConflicts[id]; ok && prev.Reason == c.Reason {
-				c.At = prev.At
-				if c.LocalHolder == "" && c.RemoteHolder == "" && c.Source == "" {
-					c = prev
-				}
-			}
-			s.StoryConflicts[id] = c
-		}
-		if len(s.StoryConflicts) == 0 {
-			s.StoryConflicts = nil
-		}
-	})
-}
-
-func record(globalDir, repoPath, scope string, merge func(*State)) error {
+func record(globalDir, repoPath string, merge func(*State)) error {
 	mu.Lock()
 	defer mu.Unlock()
 	s, _, err := loadLocked(globalDir, repoPath)
@@ -322,9 +207,6 @@ func record(globalDir, repoPath, scope string, merge func(*State)) error {
 		return err
 	}
 	s.RepoPath = strings.TrimSpace(repoPath)
-	if scope != "" {
-		s.Scope = scope
-	}
 	merge(&s)
 	return writeLocked(globalDir, repoPath, s)
 }

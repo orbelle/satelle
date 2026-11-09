@@ -1,6 +1,9 @@
 package kernel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -83,14 +86,18 @@ type queueMirror struct {
 // materializeQueues mirrors each queue file onto its chain, so a reader
 // folding the chain alone (a synced replica, satelle.dev) sees the file's
 // definition; the file stays its only owner, and local reads still overlay it.
-// A chain that does not exist yet is created once, its genesis carrying the
-// queue's identity (kind, workflow) and the whole definition. A queue chain
-// that exists (an earlier genesis, an adopted id) gets one item.updated with
-// the whole definition when its raw fold's title, inputs or trigger differ
-// from the file's, and nothing when they agree. Every write is a
-// compare-and-append on the tail it read, by actor satelle with cause
-// "queue file <path>": a process that wrote first wins, and the next open
-// compares again.
+// A name-derived chain (que_<name>) that does not exist yet is created once,
+// its genesis carrying the queue's identity (kind, workflow) and the whole
+// definition. A file that adopts an id names a chain that already exists
+// elsewhere: when this runtime does not hold it yet nothing is written, and
+// it arrives with the next ledger pull (sto_5c706973). A queue chain that
+// exists gets one item.updated with the whole definition when its raw fold's
+// title, inputs or trigger differ from the file's, and nothing when they
+// agree. That event is deterministic (queueMirrorEvent), so two runtimes
+// mirroring the same file onto the same head write the same event and never
+// fork the chain. Every write is a compare-and-append on the tail it read, by
+// actor satelle with cause "queue file <path>": a process that wrote first
+// wins, and the next open compares again.
 func (k *Kernel) materializeQueues() error {
 	for _, id := range sortedKeys(k.queueFiles) {
 		def := k.queueFiles[id]
@@ -99,22 +106,25 @@ func (k *Kernel) materializeQueues() error {
 			return err
 		}
 		p := queueMirror{Fields: def.Fields(), Cause: "queue file " + k.RelPath(def.File)}
-		kind, prev := item.KindCreated, ""
 		if len(events) == 0 {
+			if def.ID != "" {
+				continue // adopted: the chain arrives with the next pull
+			}
 			qk := item.QueueKind
-			name, start, err := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
-			if err != nil {
-				return fmt.Errorf("%s: %w", k.RelPath(def.File), err)
+			name, start, werr := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
+			if werr != nil {
+				return fmt.Errorf("%s: %w", k.RelPath(def.File), werr)
 			}
 			p.Kind, p.Workflow, p.Status = &qk, &name, &start
+			_, err = k.appendAfter(id, item.KindCreated, "satelle", "", p)
 		} else {
-			it, err := item.Fold(events) // raw: never the overlay, which is the file
-			if err != nil || it.Kind != item.QueueKind || !def.Differs(it) {
+			it, ferr := item.Fold(events) // raw: never the overlay, which is the file
+			if ferr != nil || it.Kind != item.QueueKind || !def.Differs(it) {
 				continue
 			}
-			kind, prev = item.KindUpdated, events[len(events)-1].Hash
+			err = k.appendMirror(id, events[len(events)-1], p)
 		}
-		if _, err := k.appendAfter(id, kind, "satelle", prev, p); err != nil {
+		if err != nil {
 			var stale *ledger.StaleTail
 			if errors.As(err, &stale) {
 				continue
@@ -123,6 +133,48 @@ func (k *Kernel) materializeQueues() error {
 		}
 	}
 	return nil
+}
+
+// queueMirrorEvent is the item.updated that mirrors payload p onto id's chain
+// after prev, built from its inputs alone: its id is the first 24 hex digits
+// of sha256(item, prev's hash, the payload's JSON) and its time is prev's, so
+// every runtime mirroring the same file onto the same head builds the same
+// event, with the same hash. VerifyChain checks links and hashes, not time
+// order, so reusing prev's time is valid.
+func queueMirrorEvent(id string, prev ledger.Event, p queueMirror) (ledger.Event, error) {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	sum := sha256.Sum256([]byte(id + "\n" + prev.Hash + "\n" + string(b)))
+	return ledger.NewEventWith(hex.EncodeToString(sum[:])[:24], prev.At, id, item.KindUpdated, "satelle", json.RawMessage(b), prev.Hash)
+}
+
+// appendMirror appends the deterministic mirror event after prev, as
+// appendAfter does.
+func (k *Kernel) appendMirror(id string, prev ledger.Event, p queueMirror) error {
+	e, err := queueMirrorEvent(id, prev, p)
+	if err != nil {
+		return err
+	}
+	if err := k.Ledger.AppendRaw(e); err != nil {
+		return err
+	}
+	return k.Cache.SyncItem(k.Ledger, id)
+}
+
+// notHeldYet refuses a queue verb on a queue whose file adopts an id this
+// runtime does not hold a chain for yet.
+func (k *Kernel) notHeldYet(id string) error {
+	def := k.queueFiles[id]
+	if def == nil || def.ID == "" {
+		return nil
+	}
+	events, err := k.Ledger.Read(id)
+	if err != nil || len(events) > 0 {
+		return err
+	}
+	return fmt.Errorf("queue %s adopts %s, which this runtime does not hold yet; it arrives with the next ledger pull (or remove id from %s to start a new queue)", def.Name, id, k.RelPath(def.File))
 }
 
 // RelPath is p relative to the working tree, when it is under it.
@@ -168,6 +220,9 @@ func (k *Kernel) checkTrigger(kind string, t *item.Trigger) error {
 
 // openQueue loads a queue that can take items: kind queue, not terminal.
 func (k *Kernel) openQueue(id string) (item.Item, error) {
+	if err := k.notHeldYet(id); err != nil {
+		return item.Item{}, err
+	}
 	q, err := k.Get(id)
 	if err != nil {
 		return q, err
@@ -208,6 +263,9 @@ func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, e
 // members and the explicit members that lapsed.
 func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Membership, error) {
 	id, _ := k.ResolveQueue(ref)
+	if err := k.notHeldYet(id); err != nil {
+		return item.Item{}, item.QueueState{}, item.Membership{}, err
+	}
 	q, events, err := k.load(id)
 	if err != nil {
 		return q, item.QueueState{}, item.Membership{}, err
@@ -333,6 +391,9 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	out := FireOutcome{Queue: queueID, Cause: cause, Inputs: []string{}}
 	if def != nil {
 		out.Name = def.Name
+	}
+	if err := k.notHeldYet(queueID); err != nil {
+		return out, err
 	}
 	q, events, err := k.load(queueID)
 	if err != nil {

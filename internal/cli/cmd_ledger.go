@@ -30,9 +30,12 @@ from it.
 
 push, pull and status are the one replication surface: they replicate the
 ledger to and from the [ledger] store (satelle.dev, a store command, or local),
-by the same rules for every store. See 'satelle help ledger-store'.`,
+by the same rules for every store. The automatic pass that
+'satelle service install' starts (satelle-sync.timer, every 30 seconds) runs
+the same push, then pull, for each project on this machine whose store is not
+local. See 'satelle help ledger-store'.`,
 	}
-	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd())
+	cmd.AddCommand(ledgerAppendCmd(), ledgerListCmd(), ledgerVerifyCmd(), ledgerRebuildCmd(), ledgerStoreTestCmd(), ledgerPushCmd(), ledgerPullCmd(), ledgerStatusCmd(), ledgerAutosyncCmd())
 	return cmd
 }
 
@@ -103,8 +106,17 @@ func storeCommand(k *kernel.Kernel, spec ledgerstore.Spec, verb string) (ledgers
 // replicationFailure is push's or pull's exit 1 when an item diverged or was
 // refused; gaps never change the exit.
 func replicationFailure(verb string, res ledgerrepl.Result) error {
+	if msg := replicationReason(verb, res); msg != "" {
+		return &exitError{code: ExitError, msg: msg}
+	}
+	return nil
+}
+
+// replicationReason names the items a push or pull diverged on or refused,
+// "" when there were none.
+func replicationReason(verb string, res ledgerrepl.Result) string {
 	if !res.Failed() {
-		return nil
+		return ""
 	}
 	var parts []string
 	if len(res.Diverged) > 0 {
@@ -113,7 +125,7 @@ func replicationFailure(verb string, res ledgerrepl.Result) error {
 	if len(res.Refused) > 0 {
 		parts = append(parts, fmt.Sprintf("%d item(s) refused: %s", len(res.Refused), strings.Join(res.Refused, "; ")))
 	}
-	return &exitError{code: ExitError, msg: verb + ": " + strings.Join(parts, "; ")}
+	return verb + ": " + strings.Join(parts, "; ")
 }
 
 func ledgerPushCmd() *cobra.Command {

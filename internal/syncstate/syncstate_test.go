@@ -16,26 +16,26 @@ func TestLoadMissingIsNotAnError(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	if err := RecordPush(home, "/repo", true, "", "personal", now); err != nil {
+	if err := RecordSync(home, "/repo", "satelle.dev project p", "", now); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := Load(home, "/repo")
 	if err != nil || !ok {
 		t.Fatalf("load: ok=%v err=%v", ok, err)
 	}
-	if !got.PushLastSuccess.Equal(now) || got.Scope != "personal" || got.PushReason != "" {
+	if !got.SyncLastSuccess.Equal(now) || got.SyncStore != "satelle.dev project p" || got.SyncReason != "" {
 		t.Fatalf("got %+v", got)
 	}
 }
 
-func TestPushMergeDoesNotClobberSnapshot(t *testing.T) {
+func TestSyncMergeDoesNotClobberSnapshot(t *testing.T) {
 	home := t.TempDir()
 	snapAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	pushAt := time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
-	if err := RecordSnapshot(home, "/repo", false, "snap fail", "", snapAt); err != nil {
+	if err := RecordSnapshot(home, "/repo", false, "snap fail", snapAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordPush(home, "/repo", true, "", "", pushAt); err != nil {
+	if err := RecordSync(home, "/repo", "s", "", pushAt); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := Load(home, "/repo")
@@ -45,15 +45,15 @@ func TestPushMergeDoesNotClobberSnapshot(t *testing.T) {
 	if got.SnapshotReason != "snap fail" || !got.SnapshotLastFailure.Equal(snapAt) {
 		t.Fatalf("snapshot clobbered: %+v", got)
 	}
-	if !got.PushLastSuccess.Equal(pushAt) {
-		t.Fatalf("push missing: %+v", got)
+	if !got.SyncLastSuccess.Equal(pushAt) {
+		t.Fatalf("sync missing: %+v", got)
 	}
 }
 
 func TestTornFileIsNoState(t *testing.T) {
 	home := t.TempDir()
 	repo := "/repo"
-	if err := RecordPush(home, repo, true, "", "", time.Now()); err != nil {
+	if err := RecordSync(home, repo, "s", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	p := pathFor(home, repo)
@@ -72,17 +72,17 @@ func TestTornFileIsNoState(t *testing.T) {
 func TestRepeatedFailureIncrementsPasses(t *testing.T) {
 	home := t.TempDir()
 	now := time.Now()
-	if err := RecordPush(home, "/r", false, "boom", "", now); err != nil {
+	if err := RecordSync(home, "/r", "s", "boom", now); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordPush(home, "/r", false, "boom", "", now.Add(time.Minute)); err != nil {
+	if err := RecordSync(home, "/r", "s", "boom", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	got, _, err := Load(home, "/r")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PushPasses != 2 || got.PushReason != "boom" {
+	if got.SyncPasses != 2 || got.SyncReason != "boom" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	pushAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	first := time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
 	second := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	if err := RecordPush(home, "/repo", true, "", "personal", pushAt); err != nil {
+	if err := RecordSync(home, "/repo", "s", "", pushAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := RecordSubstrate(home, "/repo", map[string]AreaCheck{"skills": {State: "behind"}, "documents": {State: "in step"}}, first); err != nil {
@@ -108,8 +108,8 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load: ok=%v err=%v", ok, err)
 	}
-	if !got.PushLastSuccess.Equal(pushAt) {
-		t.Fatalf("push group clobbered: %+v", got)
+	if !got.SyncLastSuccess.Equal(pushAt) {
+		t.Fatalf("sync group clobbered: %+v", got)
 	}
 	if a := got.SubstrateAreas["skills"]; a.State != "in step" || !a.CheckedAt.Equal(second) {
 		t.Fatalf("skills = %+v, want in step at %v", a, second)
@@ -119,36 +119,50 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	}
 }
 
-// RecordScope writes only Scope: a local pass neither clears an older failure
-// nor records a success, and an empty scope writes nothing (sty_3df5f95a).
-func TestRecordScopeSetsOnlyScope(t *testing.T) {
+// RecordSync: a failure keeps the last success, a success clears the reason,
+// and a local store is never a failure (sto_5c706973).
+func TestRecordSyncFailureThenSuccess(t *testing.T) {
 	home := t.TempDir()
 	okAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
-	failAt := time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
-	if err := RecordPush(home, "/repo", true, "", "personal", okAt); err != nil {
+	failAt := okAt.Add(time.Minute)
+	againAt := failAt.Add(time.Minute)
+	store := "satelle.dev project shared at https://satelle.dev"
+	if err := RecordSync(home, "/repo", store, "", okAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordPush(home, "/repo", false, "hosted 505", "", failAt); err != nil {
+	if err := RecordSync(home, "/repo", store, "rpc error: code = Unavailable", failAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordScope(home, "/repo", "local"); err != nil {
+	got, _, _ := Load(home, "/repo")
+	if got.SyncReason != "rpc error: code = Unavailable" || !got.SyncLastFailure.Equal(failAt) || !got.SyncLastSuccess.Equal(okAt) || !got.SyncLastAttempt.Equal(failAt) || got.SyncPasses != 1 || got.SyncStore != store {
+		t.Fatalf("after a failure: %+v", got)
+	}
+	if err := RecordSync(home, "/repo", store, "", againAt); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = Load(home, "/repo")
+	if got.SyncReason != "" || got.SyncPasses != 0 || !got.SyncLastSuccess.Equal(againAt) || !got.SyncLastFailure.Equal(failAt) {
+		t.Fatalf("after a success: %+v", got)
+	}
+	if err := RecordSync(home, "/local", LocalStore, "ignored", againAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := Load(home, "/local"); got.SyncStore != LocalStore || got.SyncReason != "" || !got.SyncLastSuccess.Equal(againAt) {
+		t.Fatalf("a local store: %+v", got)
+	}
+}
+
+// Keys an older satelle wrote (the removed push group) are dropped on load.
+func TestOldPushKeysAreIgnored(t *testing.T) {
+	home := t.TempDir()
+	if err := RecordSync(home, "/repo", "local", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathFor(home, "/repo"), []byte(`{"repo_path":"/repo","push_reason":"old","scope":"personal","sync_store":"local"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := Load(home, "/repo")
-	if err != nil || !ok {
-		t.Fatalf("load: ok=%v err=%v", ok, err)
-	}
-	if got.Scope != "local" {
-		t.Fatalf("Scope = %q, want local", got.Scope)
-	}
-	if got.PushReason != "hosted 505" || !got.PushLastFailure.Equal(failAt) || !got.PushLastSuccess.Equal(okAt) || got.PushPasses != 1 {
-		t.Fatalf("push leg changed: %+v", got)
-	}
-
-	if err := RecordScope(home, "/fresh", ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := Load(home, "/fresh"); err != nil || ok {
-		t.Fatalf("empty scope wrote state: ok=%v err=%v", ok, err)
+	if err != nil || !ok || got.SyncStore != "local" || got.SyncReason != "" {
+		t.Fatalf("load = %+v %v %v", got, ok, err)
 	}
 }

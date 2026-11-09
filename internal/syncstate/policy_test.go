@@ -64,7 +64,7 @@ func TestMarkPolicyAttemptLeavesListsAlone(t *testing.T) {
 
 func TestPolicyCacheIsASiblingOfWorkstateSync(t *testing.T) {
 	home := t.TempDir()
-	_ = RecordPush(home, "/repo", true, "", "", time.Now())
+	_ = RecordSync(home, "/repo", "s", "", time.Now())
 	_ = MarkPolicyAttempt(home, "/repo", time.Now())
 	if filepath.Dir(PolicyPath(home, "/repo")) != filepath.Dir(pathFor(home, "/repo")) {
 		t.Fatal("the cache must sit beside workstate-sync.json")
@@ -72,7 +72,7 @@ func TestPolicyCacheIsASiblingOfWorkstateSync(t *testing.T) {
 	if _, err := os.Stat(pathFor(home, "/repo")); err != nil {
 		t.Fatal(err)
 	}
-	if s, _, _ := Load(home, "/repo"); s.PushLastSuccess.IsZero() {
+	if s, _, _ := Load(home, "/repo"); s.SyncLastSuccess.IsZero() {
 		t.Fatal("policy writes clobbered workstate-sync.json")
 	}
 }

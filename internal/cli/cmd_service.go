@@ -21,19 +21,41 @@ import (
 // serviceUnitName is the unit that runs satelled.
 const serviceUnitName = "satelle.service"
 
+// The units that run the automatic ledger sync pass (sto_5c706973): a timer
+// starting a oneshot service that runs `satelle ledger autosync` syncPeriod
+// after the last run ended. A write therefore reaches the store within one
+// period plus a pass, and another machine within two periods plus its pass:
+// the 90-second bound the sync-architecture principle states.
+const (
+	syncServiceName = "satelle-sync.service"
+	syncTimerName   = "satelle-sync.timer"
+	syncPeriod      = 30 * time.Second
+)
+
+// serviceUnits are the unit files service install writes: satelled's and the
+// sync pass's service and timer.
+type serviceUnits struct {
+	Daemon, SyncService, SyncTimer string
+}
+
 func serviceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
 		Short: "Install, remove, inspect or restart the satelled background service",
 		Long: `service manages satelled, the local web UI, as a per-user systemd unit whose
 ExecStart runs satelled. Port and address are machine settings in
-~/.satelle/config.toml [service].`,
+~/.satelle/config.toml [service].
+
+install also writes and starts satelle-sync.timer, which runs
+'satelle ledger autosync' every 30 seconds: each of this machine's projects
+whose [ledger] store is not local pushes, then pulls, by the rules of
+'satelle ledger push' and 'pull'. See 'satelle help ledger-store'.`,
 	}
 	var port int
 	var addr, bin string
 	install := &cobra.Command{
 		Use:   "install",
-		Short: "Write and start the per-user unit running satelled",
+		Short: "Write and start the per-user units running satelled and the sync timer",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -53,8 +75,11 @@ ExecStart runs satelled. Port and address are machine settings in
 				return err
 			}
 			daemon := resolveDaemon(bin)
-			unit := renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort())
-			return installUnit(cmd.OutOrStdout(), unit)
+			return installUnit(cmd.OutOrStdout(), serviceUnits{
+				Daemon:      renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()),
+				SyncService: renderSyncService(resolveCLI()),
+				SyncTimer:   renderSyncTimer(),
+			})
 		},
 	}
 	install.Flags().IntVar(&port, "port", 0, "listen port (recorded in ~/.satelle/config.toml)")
@@ -62,7 +87,7 @@ ExecStart runs satelled. Port and address are machine settings in
 	install.Flags().StringVar(&bin, "satelled", "", "satelled binary (default: beside satelle, else on PATH)")
 	cmd.AddCommand(install,
 		&cobra.Command{
-			Use: "uninstall", Short: "Stop and remove the unit", Args: cobra.NoArgs,
+			Use: "uninstall", Short: "Stop and remove the units", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error { return uninstallUnit(cmd.OutOrStdout()) },
 		},
 		&cobra.Command{
@@ -78,6 +103,7 @@ ExecStart runs satelled. Port and address are machine settings in
 				}
 				out := cmd.OutOrStdout()
 				fmt.Fprintf(out, "unit      %s (%s)\n", unitPath(), unitState())
+				fmt.Fprintf(out, "sync      %s (%s)\n", syncTimerName, syncTimerState())
 				fmt.Fprintf(out, "config    %s (port %d, addr %s)\n", config.GlobalConfigPath(), gc.Service.ResolvePort(), gc.Service.ResolveAddr())
 				ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
 				path := ""
@@ -134,6 +160,46 @@ WantedBy=default.target
 `, daemon, addr, port)
 }
 
+// resolveCLI is the satelle binary the sync service runs: this executable.
+// satelle update replaces that file, so the next pass runs the new build.
+func resolveCLI() string {
+	if self, err := os.Executable(); err == nil {
+		return self
+	}
+	return "satelle"
+}
+
+// renderSyncService is the oneshot unit running one automatic sync pass.
+func renderSyncService(cli string) string {
+	return fmt.Sprintf(`[Unit]
+Description=satelle ledger sync pass (push then pull each project on this machine)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%s ledger autosync
+TimeoutStartSec=300
+`, cli)
+}
+
+// renderSyncTimer is the timer starting the sync pass syncPeriod after boot
+// and after each run ends; a oneshot still running is never started twice.
+func renderSyncTimer() string {
+	secs := int(syncPeriod / time.Second)
+	return fmt.Sprintf(`[Unit]
+Description=satelle ledger sync every %[1]d s
+
+[Timer]
+OnBootSec=%[1]ds
+OnUnitInactiveSec=%[1]ds
+AccuracySec=1s
+Unit=%[2]s
+
+[Install]
+WantedBy=timers.target
+`, secs, syncServiceName)
+}
+
 // unitDaemon is the binary a unit body's ExecStart runs (renderUnit's format),
 // or "" when there is none.
 func unitDaemon(unit string) string {
@@ -182,10 +248,13 @@ func reportDaemon(out io.Writer, client *http.Client, ep, installed, path string
 	}
 }
 
-func unitPath() string {
+func unitPath() string { return userUnitPath(serviceUnitName) }
+
+// userUnitPath is name's file among this user's systemd units.
+func userUnitPath(name string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
 	}
-	return filepath.Join(home, ".config", "systemd", "user", serviceUnitName)
+	return filepath.Join(home, ".config", "systemd", "user", name)
 }

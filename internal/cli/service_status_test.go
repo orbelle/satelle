@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -74,5 +77,73 @@ func TestUnitDaemonRoundTrip(t *testing.T) {
 	}
 	if got := unitDaemon(""); got != "" {
 		t.Errorf("unitDaemon(\"\") = %q", got)
+	}
+}
+
+// The sync timer runs the pass 30 s after the last one ended, to the second:
+// a write reaches another machine within two periods plus its passes, the
+// 90-second bound (sto_5c706973).
+func TestServiceRendersSyncTimer(t *testing.T) {
+	timer := renderSyncTimer()
+	for _, want := range []string{"OnBootSec=30s", "OnUnitInactiveSec=30s", "AccuracySec=1s", "Unit=" + syncServiceName, "WantedBy=timers.target"} {
+		if !strings.Contains(timer, want+"\n") {
+			t.Errorf("timer lacks %s:\n%s", want, timer)
+		}
+	}
+	svc := renderSyncService("/x/satelle")
+	if !strings.Contains(svc, "Type=oneshot\n") || !strings.Contains(svc, "TimeoutStartSec=300\n") {
+		t.Errorf("service:\n%s", svc)
+	}
+	var exec string
+	for _, line := range strings.Split(svc, "\n") {
+		if rest, ok := strings.CutPrefix(line, "ExecStart="); ok {
+			exec = rest
+		}
+	}
+	if exec != "/x/satelle ledger autosync" {
+		t.Errorf("ExecStart = %q, want the CLI's ledger autosync", exec)
+	}
+	if !strings.HasSuffix(exec, "ledger autosync") {
+		t.Errorf("ExecStart %q does not end with ledger autosync", exec)
+	}
+}
+
+// service install writes satelled's unit and the sync service and timer, and
+// enables and starts the timer (sto_5c706973).
+func TestInstallWritesSyncUnits(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the units are systemd-only")
+	}
+	isolate(t)
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "systemctl.log")
+	script := "#!/bin/sh\necho \"$@\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	must(t, "service", "install", "--satelled", "/x/satelled")
+	dir := filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
+	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s not written: %v", name, err)
+		}
+	}
+	timer, _ := os.ReadFile(filepath.Join(dir, syncTimerName))
+	if string(timer) != renderSyncTimer() {
+		t.Errorf("timer file:\n%s", timer)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "--user enable --now "+syncTimerName+"\n") {
+		t.Errorf("the timer was not enabled with --now:\n%s", calls)
+	}
+	must(t, "service", "uninstall")
+	for _, name := range []string{serviceUnitName, syncServiceName, syncTimerName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s not removed: %v", name, err)
+		}
 	}
 }

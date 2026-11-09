@@ -29,9 +29,9 @@ With no `[ledger] store` set, the store is `satelle.dev` while signed in
 (`SATELLE_TOKEN`, or a stored `satelle login`) and `local` otherwise. Any
 other value is refused when the configuration loads, naming `[ledger] store`.
 
-The local runtime stays the working copy: only push, pull and status
-resolve `[ledger] store` or contact the store (store-test reads it only to
-check a configured command). No hook, gate, story or ledger read waits on it,
+The local runtime stays the working copy: only push, pull and status, and
+the automatic pass, resolve `[ledger] store` or contact the store (store-test
+reads it only to check a configured command). No hook, gate, story or ledger read waits on it,
 so they work with the store unreachable.
 
 ## The adapter contract (what an external store command implements)
@@ -147,6 +147,23 @@ and lists chains with `Chain.Heads`. Blobs travel as attachments of their item
 (`AttachmentService`): an attachment under its own name, a performer output as
 `performer-output-<event id>`. Push also stores the item summaries the server
 lists.
+
+## Automatic sync
+
+`satelle service install` also installs and starts `satelle-sync.timer`, a
+systemd user timer. Every 30 seconds after its last run ended it runs one
+pass over this machine's projects (`~/.satelle/config.toml [projects]`;
+`satelle project bind` adds the repo): for each project whose store is not
+local, it pushes the items this runtime is ahead on, then pulls the items the
+store is ahead on, by the same rules as push and pull. An item in sync is not
+touched. One that diverged or was refused is left on both sides and named,
+never merged. A write made while the store is unreachable stays in the local
+ledger and is pushed by the next pass that reaches it. A change on one machine
+therefore reaches satelle.dev within one period plus a pass, and another
+signed-in, bound machine within 90 seconds. Each project's outcome is shown on
+its satelled project page: `synced` and when, or `sync failing` and why. With
+no systemd, `satelle service install` prints the units: run
+`satelle ledger autosync` every 30 seconds instead.
 
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever
