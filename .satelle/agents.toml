@@ -32,11 +32,13 @@ tools = ["Read", "Grep", "Glob"]
 # The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash,
 # the winner of the 2026-10-31 reviewer bake-off (old store sty_6d552f51: every
 # defect caught, no false blocker, ~1/13 of the runner-up's cost), first on pi
-# through the Cursor provider, now on Cursor's own CLI (sto_0f41dda9). grok
-# judged the first run (sto_0586c449's plan).
+# through the Cursor provider, now on Cursor's own CLI (sto_0f41dda9). The same
+# model as on pi: pi ran it at effort off, which on Cursor is the low tier
+# (Cursor's bare gemini-3.8-flash is its High tier). grok judged the first run
+# (sto_0586c449's plan).
 [agents.reviewer-alt]
 command = "cursor-agent"
-model = "gemini-3.8-flash"
+model = "gemini-3.8-flash-low"
 tools = ["Read", "Grep", "Glob"]
 
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
