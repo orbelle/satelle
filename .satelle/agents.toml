@@ -27,6 +27,15 @@ model = "cursor/gemini-3.8-flash"
 effort = "off"
 tools = ["Read", "Grep", "Glob"]
 
+# binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
+# diff three times without naming a file it judged (sto_5c706973), so the
+# reference check refused each accept. Opus 5.5 through Cursor, read-only.
+[agents.reviewer-opus]
+command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
+model = "cursor/claude-opus-5-5"
+effort = "high"
+tools = ["Read", "Grep", "Glob"]
+
 [agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]

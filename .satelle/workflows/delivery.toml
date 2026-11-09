@@ -61,7 +61,7 @@ terminal = true
 # each run shows the current set holds.
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-alt"
+agent = "reviewer-opus"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
