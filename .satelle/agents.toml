@@ -6,11 +6,23 @@
 [agents.executor]
 command = "session"
 
+# Planner and coder run on Opus 5.5 through Cursor (operator, 2026-11-09):
+# Cursor is where model tokens and cost are allocated. The planner needs no
+# shell: satelle attaches its artifact as the item's plan.
 [agents.planner]
-command = "claude"
-model = "opus"
+command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
+model = "cursor/claude-opus-5-5"
 effort = "high"
-tools = ["Read", "Grep", "Glob", "Bash(satelle story attach:*)", "Bash(satelle story get:*)"]
+tools = ["Read", "Grep", "Glob"]
+
+# Matches the machine's global pi-coder profile. Not wired to a state yet: the
+# pi adapter refuses a Bash-granted performer until satelle's pi extension
+# enforces the performer denies (sto_90945590), so in_progress stays executor.
+[agents.coder]
+command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
+model = "cursor/claude-opus-5-5"
+effort = "high"
+tools = ["Read", "Bash", "Edit", "Write", "Grep", "Glob"]
 
 [agents.reviewer]
 command = "claude"
