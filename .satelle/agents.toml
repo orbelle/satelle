@@ -6,39 +6,37 @@
 [agents.executor]
 command = "session"
 
-# The planner runs on claude (Opus 5.5) until the cursor adapter lands
-# (sto_f58cee64): on pi-cursor it lost its prompt on reconnect in 5 of 6 plan
-# dispatches on 2026-11-09 (sto_e9fb6f0d). sto_e0f5372d moves it to Cursor's own
-# CLI, where model tokens and cost are allocated (operator, 2026-11-09). The
-# planner needs no shell: satelle attaches its artifact as the item's plan.
+# The planner runs on Cursor's own CLI (cursor-agent), where model tokens and
+# cost are allocated (operator, 2026-11-09). It moved from pi-cursor, which lost
+# its prompt on reconnect in 5 of 6 plan dispatches (sto_e9fb6f0d). The planner
+# needs no shell: satelle attaches its artifact as the item's plan.
 [agents.planner]
-command = "claude"
-model = "opus"
-effort = "high"
+command = "cursor-agent"
+model = "claude-opus-5-5-high"
 tools = ["Read", "Grep", "Glob"]
 
-# Matches the machine's global pi-coder profile. Not wired to a state yet: the
-# pi adapter refuses a Bash-granted performer until satelle's pi extension
-# enforces the performer denies (sto_90945590), so in_progress stays executor.
+# Not wired to a state: in_progress stays executor. cursor-agent refuses Bash
+# because Cursor's Shell rules cannot fence satelle story set (sto_0f41dda9);
+# a shell-granted Cursor coder waits on the Cursor-orchestrator story
+# (sto_e51c7fb9).
 [agents.coder]
-command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
-model = "cursor/claude-opus-5-5"
-effort = "high"
-tools = ["Read", "Bash", "Edit", "Write", "Grep", "Glob"]
+command = "cursor-agent"
+model = "claude-opus-5-5-high"
+tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 
 [agents.reviewer]
 command = "claude"
 model = "sonnet"
 tools = ["Read", "Grep", "Glob"]
 
-# The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash
-# on pi through the Cursor provider, the winner of the 2026-10-31 reviewer
-# bake-off (old store sty_6d552f51: every defect caught, no false blocker, ~1/13
-# of the runner-up's cost). grok judged the first run (sto_0586c449's plan).
+# The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash,
+# the winner of the 2026-10-31 reviewer bake-off (old store sty_6d552f51: every
+# defect caught, no false blocker, ~1/13 of the runner-up's cost), first on pi
+# through the Cursor provider, now on Cursor's own CLI (sto_0f41dda9). grok
+# judged the first run (sto_0586c449's plan).
 [agents.reviewer-alt]
-command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
-model = "cursor/gemini-3.8-flash"
-effort = "off"
+command = "cursor-agent"
+model = "gemini-3.8-flash"
 tools = ["Read", "Grep", "Glob"]
 
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large

@@ -70,8 +70,14 @@ func (c Catalog) Validate() []error {
 	var errs []error
 	for _, name := range c.Names() {
 		b := c[name]
-		if _, err := AdapterFor(b); err != nil {
+		if a, err := AdapterFor(b); err != nil {
 			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
+		} else if !IsSession(b) {
+			// The binding as declared (its own denies, no role) must be one
+			// its adapter can express, wired to a state or not.
+			if _, err := a.Argv(Request{Binding: b}); err != nil {
+				errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
+			}
 		}
 		for _, t := range append(slices.Clone(b.Tools), b.Deny...) {
 			if err := ValidTool(t); err != nil {

@@ -3,10 +3,9 @@ package hook
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/bobmcallan/satelle/internal/agent"
 )
 
 // editGateDenyForms are the edit gate's own operator-record corpus turned into
@@ -30,63 +29,32 @@ func editGateDenyForms(fake string) []string {
 	return append(out, fmt.Sprintf("satelle execution set sto_l%d --status done", len(out)+1))
 }
 
-// cursorRuleRegexp is a Cursor Shell(...) glob as Cursor documents it: ** any
-// run of characters (newlines and / included), * any run without /, the rest
-// literal.
-func cursorRuleRegexp(rule string) *regexp.Regexp {
-	g := strings.TrimSuffix(strings.TrimPrefix(rule, "Shell("), ")")
-	var b strings.Builder
-	b.WriteString(`(?s)^`)
-	for i := 0; i < len(g); i++ {
-		switch {
-		case strings.HasPrefix(g[i:], "**"):
-			b.WriteString(`.*`)
-			i++
-		case g[i] == '*':
-			b.WriteString(`[^/]*`)
-		default:
-			b.WriteString(regexp.QuoteMeta(string(g[i])))
-		}
-	}
-	b.WriteString(`$`)
-	return regexp.MustCompile(b.String())
-}
-
-// The cursor performer's deny rule matches every form in which the edit gate
-// reads satelle: any word position, any path, behind every wrapper, control
-// word, compound operator, substitution and shell or interpreter program
-// (sto_0f41dda9 AC3). A corpus form added later that the rule misses fails
-// here.
-func TestCursorDenyRuleCoversEveryEditGateForm(t *testing.T) {
-	rules, err := agent.CursorDenies([]string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}, agent.PerformerDenies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var res []*regexp.Regexp
-	for _, r := range rules {
-		res = append(res, cursorRuleRegexp(r))
-	}
+// The live cursor test runs every form of the edit gate's corpus: one per case,
+// plus the third PerformerDenies verb, each naming satelle and its own id, so a
+// stream's shell call is tied to exactly one form (sto_0f41dda9 AC3).
+func TestEditGateDenyFormsCoverTheCorpus(t *testing.T) {
 	forms := editGateDenyForms("")
-	if len(forms) < len(operatorRecordCases)+len(operatorRecordCodeCases) {
-		t.Fatalf("only %d forms", len(forms))
+	if want := len(operatorRecordCases) + len(operatorRecordCodeCases) + 1; len(forms) != want {
+		t.Fatalf("%d forms, want %d", len(forms), want)
 	}
-	for _, f := range forms {
-		matched := false
-		for _, re := range res {
-			if re.MatchString(f) {
-				matched = true
+	ids := regexp.MustCompile(`sto_l(\d+)\b`)
+	verb := false
+	for i, f := range forms {
+		if !strings.Contains(f, "satelle") {
+			t.Errorf("form %d names no satelle: %q", i+1, f)
+		}
+		m := ids.FindAllStringSubmatch(f, -1)
+		if len(m) == 0 {
+			t.Errorf("form %d carries no id: %q", i+1, f)
+		}
+		for _, id := range m {
+			if id[1] != strconv.Itoa(i+1) {
+				t.Errorf("form %d carries %s: %q", i+1, id[0], f)
 			}
 		}
-		if !matched {
-			t.Errorf("no rule of %v matches %q", rules, f)
-		}
+		verb = verb || strings.Contains(f, "execution set")
 	}
-	// The controls a live run uses do not name satelle, so the rule leaves them.
-	for _, ok := range []string{"ctlprobe sto_l1", "printf ok > allowed_1.txt"} {
-		for _, re := range res {
-			if re.MatchString(ok) {
-				t.Errorf("the rule %s matches the control %q", re, ok)
-			}
-		}
+	if !verb {
+		t.Error("no form runs execution set")
 	}
 }

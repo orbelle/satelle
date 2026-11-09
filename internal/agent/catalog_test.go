@@ -17,7 +17,7 @@ command = "claude"
 model = "m1"
 tools = ["Read", "Grep", "Glob"]
 [agents.w]
-command = "/opt/bin/pi --foo"
+command = "/opt/bin/claude --foo"
 tools = ["Read", "Edit", "Bash(go test:*)"]
 placement = "remote:n1"
 [agents.me]
@@ -67,6 +67,17 @@ command = "session"
 	if err := CheckJudge(Binding{Name: "e", Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}); err == nil {
 		t.Fatal("an Edit-granted cursor-agent binding may judge")
 	}
+	// A grant the adapter cannot express fails at validate, wired or not: a
+	// Bash-granted cursor-agent binding is refused; an unwired pi binding
+	// granted Bash still validates.
+	shell := Catalog{"cs": {Name: "cs", Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}}}
+	if errs := shell.Validate(); len(errs) != 1 || !strings.Contains(errs[0].Error(), "agents.cs") || !strings.Contains(errs[0].Error(), "grant no Bash") {
+		t.Fatalf("a Bash-granted cursor-agent binding: %v", errs)
+	}
+	piShell := Catalog{"pc": {Name: "pc", Command: "pi", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}}}
+	if errs := piShell.Validate(); len(errs) != 0 {
+		t.Fatalf("a Bash-granted pi binding: %v", errs)
+	}
 	if a, err := AdapterFor(Binding{Command: "/opt/x/cursor-agent"}); err != nil || a.Name() != PresetCursor {
 		t.Fatalf("AdapterFor(/opt/x/cursor-agent) = %v, %v", a, err)
 	}
@@ -99,8 +110,8 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	if got := strings.Join(argv, " "); !strings.Contains(got, "--tools read,find,ls") || !strings.Contains(got, "--no-session") {
 		t.Fatalf("pi argv %s", got)
 	}
-	// cursor-agent: a read-only judge runs ask mode; a performer runs force
-	// with one text glob per denied command word.
+	// cursor-agent: a read-only judge runs ask mode; an Edit and Write
+	// performer runs force mode; any shell grant is refused.
 	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Model: "m", Tools: []string{"Read", "Grep", "Glob"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -108,24 +119,28 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	if got := strings.Join(argv, " "); !strings.Contains(got, "cursor-agent -p --output-format stream-json --trust --model m --mode ask") || strings.Contains(got, "--force") {
 		t.Fatalf("cursor judge argv %s", got)
 	}
-	full := []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}
-	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Tools: full}, Deny: PerformerDenies})
-	if err != nil || !slices.Contains(argv, "--force") || slices.Contains(argv, "ask") {
+	writer := []string{"Read", "Grep", "Glob", "Edit", "Write"}
+	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Tools: writer}, Deny: PerformerDenies})
+	if err != nil || !slices.Contains(argv, "--force") || slices.Contains(argv, "--mode") {
 		t.Fatalf("cursor performer argv %v %v", argv, err)
 	}
-	if rules, err := CursorDenies(full, PerformerDenies); err != nil || !slices.Equal(rules, []string{"Shell(**satelle**)"}) {
-		t.Fatalf("CursorDenies(full) = %v %v", rules, err)
+	if g, err := cursorFor(Binding{Tools: writer}, PerformerDenies); err != nil || !slices.Equal(g.rules, []string{cursorDenyAllShell}) {
+		t.Fatalf("cursor performer rules %v %v", g.rules, err)
 	}
-	if rules, err := CursorDenies([]string{"Read", "Grep", "Glob", "Edit", "Write"}, PerformerDenies); err != nil || !slices.Equal(rules, []string{"Shell(**)"}) {
-		t.Fatalf("CursorDenies(no Bash) = %v %v", rules, err)
+	for name, tools := range map[string][]string{
+		"Bash with Edit":    {"Read", "Grep", "Glob", "Edit", "Write", "Bash"},
+		"Bash without Edit": {"Read", "Grep", "Glob", "Bash"},
+		"scoped Bash":       {"Read", "Grep", "Glob", "Edit", "Write", "Bash(go test:*)"},
+	} {
+		if _, err := (cursor{}).Argv(Request{Binding: Binding{Command: "cursor-agent", Tools: tools}, Deny: PerformerDenies}); err == nil || !strings.Contains(err.Error(), "grant no Bash") {
+			t.Errorf("cursor %s: %v", name, err)
+		}
 	}
 	for name, b := range map[string]Binding{
-		"only Edit":         {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit"}},
-		"Bash without Edit": {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Bash"}},
-		"scoped Bash":       {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash(go test:*)"}},
-		"missing Glob":      {Command: "cursor-agent", Tools: []string{"Read", "Grep"}},
-		"glob in a deny":    {Command: "cursor-agent", Tools: full, Deny: []string{"Bash(rm*:*)"}},
-		"effort":            {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob"}, Effort: "high"},
+		"only Edit":    {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit"}},
+		"missing Glob": {Command: "cursor-agent", Tools: []string{"Read", "Grep"}},
+		"NotebookEdit": {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit"}},
+		"effort":       {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob"}, Effort: "high"},
 	} {
 		if _, err := (cursor{}).Argv(Request{Binding: b}); err == nil {
 			t.Errorf("cursor expressed %s", name)

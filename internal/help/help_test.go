@@ -143,10 +143,13 @@ func TestAgentsTopicDocumentsCursor(t *testing.T) {
 			workflows = top.Body
 		}
 	}
-	for _, want := range []string{"cursor-agent", "--mode ask", "CURSOR_CONFIG_DIR", "Shell(**)", "Shell(**satelle**)"} {
+	for _, want := range []string{"cursor-agent", "--mode ask", "--force", "CURSOR_CONFIG_DIR", "Shell(**)", "heredoc"} {
 		if !strings.Contains(agents, want) {
 			t.Errorf("agents topic lacks %q", want)
 		}
+	}
+	if strings.Contains(agents, "Shell(**satelle**)") {
+		t.Error("agents topic still names the per-command Shell(**satelle**) rule")
 	}
 	if !strings.Contains(workflows, "satelle help agents") {
 		t.Error("workflows does not point to satelle help agents")

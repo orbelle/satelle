@@ -101,6 +101,9 @@ tools = ["Read", "Grep", "Glob"]
 command = "cursor-agent"
 model = "cw"
 tools = ["Read", "Grep", "Glob", "Edit", "Write"]
+[agents.cursorshell]
+command = "cursor-agent"
+tools = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"]
 `)
 	write(t, filepath.Join(root, "skills", "s.md"), "judge\n")
 	write(t, filepath.Join(root, "workflows", "x.toml"), `
@@ -145,6 +148,10 @@ to = "z"
 		`judge "same" runs model "m1"`,
 		`performer "pishell": pi adapter cannot express the scoped deny`,
 		`agent "cursorwriter" may not judge`,
+		// A Bash-granted cursor-agent binding wired to no state is refused
+		// at validate (sto_0f41dda9 AC3).
+		`agents.cursorshell: cursor-agent cannot hold a shell`,
+		`grant no Bash`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in:\n%s", want, joined)

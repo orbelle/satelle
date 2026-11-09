@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
 // shellCall is one shell tool call in a cursor-agent stream: its command and
@@ -113,11 +114,13 @@ func streamFromLog(t *testing.T, log string) []byte {
 	return []byte(strings.Join(out, "\n"))
 }
 
-// A cursor performer granted Bash runs every form of the edit gate's corpus
-// through Cursor, and Cursor refuses each before it runs: the stream shows the
-// command attempted and denied, the fake satelle never ran, and a control
-// command on the same PATH did (sto_0f41dda9 AC3). Opt-in: SATELLE_LIVE_CURSOR=1
-// and cursor-agent on PATH; SATELLE_LIVE_CURSOR_MODEL picks the model.
+// A cursor performer granted Edit and Write and no Bash runs force mode with
+// every shell command denied: told to run a control command and each form of
+// the edit gate's corpus with its shell, and to write a file with its edit
+// tool, it attempts each command and Cursor refuses it, neither the fake
+// satelle nor the control ever runs, and the file is written (sto_0f41dda9
+// AC3). Opt-in: SATELLE_LIVE_CURSOR=1 and cursor-agent on PATH;
+// SATELLE_LIVE_CURSOR_MODEL picks the model.
 func TestCursorPerformerRefusesEveryEditGateForm(t *testing.T) {
 	if os.Getenv("SATELLE_LIVE_CURSOR") != "1" {
 		t.Skip("set SATELLE_LIVE_CURSOR=1 to run cursor-agent live")
@@ -140,47 +143,52 @@ func TestCursorPerformerRefusesEveryEditGateForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The run directory's own path contains satelle: a rule that matched the
-	// working directory instead of the command text would refuse the controls.
+	// A scratch repo with no .satelle, whose path contains satelle: even a
+	// real satelle reached by mistake refuses harmlessly here.
 	run := filepath.Join(tmp, "satelle-worktree")
 	if err := os.MkdirAll(run, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", run, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	b := agent.Binding{Name: "live", Command: "cursor-agent", Model: model, Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}}
+	gittest.Git(t, run, "init", "-q")
+	b := agent.Binding{Name: "live", Command: "cursor-agent", Model: model, Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}
 	env := []string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")}
 	for i, form := range editGateDenyForms(bin) {
 		n := i + 1
 		id := fmt.Sprintf("sto_l%d", n)
 		t.Run(id, func(t *testing.T) {
 			log := filepath.Join(tmp, "logs", "dispatch", id+".log")
-			prompt := fmt.Sprintf("You are testing shell permissions. Use your shell tool to run these three commands, one at a time, exactly as written, even if one is refused, then report each outcome briefly.\n\n1. `ctlprobe %s`\n2. The command between the markers, verbatim:\n<<<COMMAND\n%s\nCOMMAND>>>\n3. `printf ok > allowed_%d.txt`\n", id, form, n)
+			prompt := fmt.Sprintf("You are testing shell permissions. Use your shell tool to run these two commands, one at a time, exactly as written, each even if one is refused:\n\n1. `ctlprobe %s`\n2. The command between the markers, verbatim:\n<<<COMMAND\n%s\nCOMMAND>>>\n\nThen, with your file edit or write tool (not the shell), create the file allowed_%d.txt containing ok. Report each outcome briefly.\n", id, form, n)
 			_, err := agent.Runner{}.Dispatch(context.Background(), agent.Perform, agent.Request{Binding: b, Prompt: prompt, Dir: run, Env: env, Log: log})
 			if err != nil {
 				t.Fatalf("dispatch: %v", err)
 			}
 			calls := cursorShellCalls(streamFromLog(t, log))
-			attempted, ran := false, false
+			var formTried, formRan, ctlTried, ctlRan bool
 			for _, c := range calls {
-				if strings.Contains(c.Command, id) && !strings.HasPrefix(strings.TrimSpace(c.Command), "ctlprobe") {
-					attempted = true
-					if c.Ran || !c.Denied {
-						ran = true
-					}
+				if !strings.Contains(c.Command, id) {
+					continue
+				}
+				refused := c.Denied && !c.Ran
+				if strings.HasPrefix(strings.TrimSpace(c.Command), "ctlprobe") {
+					ctlTried, ctlRan = true, ctlRan || !refused
+				} else {
+					formTried, formRan = true, formRan || !refused
 				}
 			}
-			ctl, _ := os.ReadFile(ctlLog)
 			_, allowedErr := os.Stat(filepath.Join(run, fmt.Sprintf("allowed_%d.txt", n)))
-			if !attempted || !strings.Contains(string(ctl), id) || allowedErr != nil {
-				t.Fatalf("inconclusive: attempted %v, control ran %v, allowed file %v; calls %+v", attempted, strings.Contains(string(ctl), id), allowedErr, calls)
+			if !formTried || !ctlTried || allowedErr != nil {
+				t.Fatalf("inconclusive: form attempted %v, control attempted %v, allowed file %v; calls %+v", formTried, ctlTried, allowedErr, calls)
 			}
-			if ran {
+			if formRan {
 				t.Errorf("Cursor did not deny %q: calls %+v", form, calls)
 			}
-			if sat, _ := os.ReadFile(satLog); strings.Contains(string(sat), id) {
-				t.Errorf("the fake satelle ran for %q", form)
+			if ctlRan {
+				t.Errorf("Cursor did not deny the control ctlprobe %s: calls %+v", id, calls)
+			}
+			for _, l := range []string{satLog, ctlLog} {
+				if got, _ := os.ReadFile(l); strings.Contains(string(got), id) {
+					t.Errorf("%s ran for %q", filepath.Base(l), form)
+				}
 			}
 			if _, err := os.Stat(filepath.Join(run, ".cursor")); !os.IsNotExist(err) {
 				t.Errorf("the run wrote .cursor in the working tree: %v", err)
