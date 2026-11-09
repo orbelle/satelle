@@ -1,7 +1,7 @@
 ---
 name: satelle-drift-constitution-review
 type: skill
-description: Judge of the drift-constitution gate on a drift review run (runbook in_progress → done). A cold, read-only judge reads the release's change (the run's diff from the previous release tag to the released head, over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md and .satelle/principles/) against .satelle/constitution.md and every .satelle/principles/*.md, rejects with one DRIFT line per drift the run's drift-report does not yet carry, and re-checks every open constitution drift story the report lists, stating one RESOLVED line for each whose finding no longer holds. Judges, never enacts.
+description: Judge of the drift-constitution gate on a drift review run (runbook in_progress → done). A cold, read-only judge reads the release's change (the run's diff from the previous release tag to the released head, over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md and .satelle/principles/) against .satelle/constitution.md and every .satelle/principles/*.md, rejects with one DRIFT line per drift the run's drift-report does not yet carry (in its fix item), and re-checks every open constitution finding the report lists (other open drift items and the release's fix item), stating one RESOLVED line for each that no longer holds. Judges, never enacts.
 ---
 
 # Drift review: the release's binary change against the constitution
@@ -22,8 +22,9 @@ The record folder in your prompt holds the run's `drift-report`.
 - Any file at a path in the diff, in the work tree, when a hunk needs its
   context.
 - The run's `drift-report` (its path is in the record section): the findings
-  already raised, every open drift story with its drift-key, and the
-  `RESOLVED` lines already carried under `## Resolved by the judges`.
+  already raised, the release's fix item and its keys under `## Fix item`,
+  every other open drift item with its drift-key under `## Open drift items`,
+  and the `RESOLVED` lines already carried under `## Resolved by the judges`.
 
 ## What is drift
 
@@ -42,16 +43,15 @@ yours (the drift-claims gate reads the standing principles).
 
 ## Re-check the open constitution findings
 
-Every open drift story listed under `## Open drift stories` whose drift-key
-has kind `constitution` (`constitution:<file>:<principle> <symbol>`) records
-one finding. Re-check each against the released tree: read the file and the
+Every key of kind `constitution` (`constitution:<file>:<principle> <symbol>`)
+listed under `## Open drift items` or `## Fix item` records one finding. Re-check each against the released tree: read the file and the
 symbol, and the principle as it now reads. When the finding no longer holds
 (the code is gone or changed, or the principle was amended so it no longer
 contradicts it), state one line for it:
 
 `RESOLVED <drift-key> — <evidence>`
 
-`<drift-key>` is the story's key verbatim and `<evidence>` names the file and
+`<drift-key>` is the key verbatim and `<evidence>` names the file and
 line that show it fixed. A finding that still holds gets no line. Never state
 `RESOLVED` for a finding of another kind.
 
@@ -67,9 +67,9 @@ accept without those lines is turned into a reject.
 ## Verdict
 
 - **Accept** when the change contradicts no principle, or when every drift is
-  already carried in `drift-report`: a story id listed for it, or an open drift
-  story whose drift-key names the same file and symbol; and every `RESOLVED`
-  line you would state is already under `## Resolved by the judges`.
+  already carried in `drift-report`: its key is listed under `## Fix item` or
+  `## Open drift items` (a key naming the same file and symbol); and every
+  `RESOLVED` line you would state is already under `## Resolved by the judges`.
 - **Reject** otherwise. The notes hold exactly one line per drift not yet
   carried, and nothing else on lines starting `DRIFT`:
 
@@ -81,8 +81,8 @@ accept without those lines is turned into a reject.
 
   And one `RESOLVED <drift-key> — <evidence>` line per resolved finding not
   yet under `## Resolved by the judges`. A reject that carries only RESOLVED
-  lines is how the run learns to close those stories (drift-review.md step 3
-  reads them from this gate's run).
+  lines is how the run learns to stop carrying those findings
+  (drift-review.md steps 2 and 3 read them from this gate's run).
 
 End with one JSON object:
 

@@ -1,9 +1,12 @@
-# A drift story records one finding of the drift review (its `drift-key:`
-# line, raised by scripts/drift-stories.sh); the fix is other work. The record
-# is never worked here: it closes only inside a drift review run that no
-# longer finds it, on that run's drift-report (drift-resolved), so every close
-# is a gate.run on the story's ledger. A story that fails the re-check stays
-# open. Selected for stories tagged drift by the rule in satelle.toml.
+# A drift item records findings of the drift review: the release's one
+# drift-fix item (scripts/drift-fix.sh) lists every finding as a `drift-key:`
+# line and each warning as a `drift-warning:` line; older per-finding drift
+# stories carry one key. The fix is other work. An item closes only through
+# drift-resolved, so every close is a gate.run on its ledger: each of its keys
+# carried into a later fix item (tag drift-carried-by:<id>) or no longer found
+# by a drift review run (its drift-report); warnings never block. An item that
+# fails the re-check stays open. Selected for stories tagged drift by the rule
+# in satelle.toml.
 name = "drift"
 
 [states.open]

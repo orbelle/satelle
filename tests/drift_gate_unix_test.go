@@ -127,7 +127,7 @@ func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 
 // fakeDriftJudge puts a fake `claude` first on PATH that tells the two drift
 // judges and any other judge apart by their system prompt: "constitution"
-// (it defines the DRIFT line), "claims" (the CLAIM line), else "other". Each
+// (it defines the DRIFT line), "claims" (the WARN line), else "other". Each
 // records its prompt in prompt.<gate>.<pid> and answers with verdict.<gate>
 // (default accept) and notes.<gate> (by default notes that give a reason and
 // name a file, as the gates' reasons rules require).
@@ -140,7 +140,7 @@ for a in "$@"; do [ "$prev" = "--append-system-prompt" ] && sys=$a; prev=$a; don
 g=other
 case $sys in
   *'DRIFT <principle>'*) g=constitution ;;
-  *'CLAIM <file>'*) g=claims ;;
+  *'WARN <file>'*) g=claims ;;
 esac
 cat > "$FAKE_DIR/prompt.$g.$$"
 printf '%s' "$sys" > "$FAKE_DIR/system.$g"
@@ -466,7 +466,7 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 		}
 	}
 	claims := repoText(t, ".satelle/skills/satelle-drift-claims-review.md")
-	for _, want := range []string{"`CLAIM <file>:<line> \"<the statement>\"", "already carried in `drift-report`"} {
+	for _, want := range []string{"`WARN <file>:<line> \"<the statement>\"", "always **accept**"} {
 		if !strings.Contains(claims, want) {
 			t.Errorf("the claims judge skill lacks %q", want)
 		}
@@ -474,54 +474,87 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 }
 
 // The drift-claims gate runs on every release (.version changes each time):
-// judged by the reviewer binding over only the .version diff for a drift
-// run, skipped by the trigger for another task's run, and a CLAIM reject keeps
-// the run in_progress.
-func TestDriftClaimsGateRunsEveryRelease(t *testing.T) {
+// skipped by the trigger for another task's run, and for a drift run judged by
+// the reviewer binding over only the .version diff. Its verdict never blocks:
+// each example verdict in the skill's ## Verdict section (zero warnings, one
+// warning) passes the gate's real notes and reference after checks, and the
+// run reaches done; the skill states no reject, and drift-review.md step 5
+// copies no WARN or CLAIM line into judged.txt (sto_a1681009 AC8).
+func TestDriftClaimsNeverRejects(t *testing.T) {
 	t.Parallel()
-	d := newDriftSandbox(t, nil)
-	drift := d.start(d.drift, stepSeat(t))
-	other := d.start(d.other, stepSeat(t))
-
-	d.must("execution", "set", other, "--status", "done")
-	if g := latestRun(d.sandbox, other, "drift-claims"); g.Result != "skipped" || !strings.Contains(g.Notes, "trigger satelle-drift-run-trigger") {
-		t.Fatalf("other run's drift-claims = %s (%q), want skipped by the trigger", g.Result, g.Notes)
+	skill := repoText(t, ".satelle/skills/satelle-drift-claims-review.md")
+	if strings.Contains(skill, `"verdict": "reject"`) {
+		t.Fatal("the claims skill still states a reject verdict")
 	}
-	if ps := prompts(t, d.fake, "claims"); len(ps) != 0 {
-		t.Fatalf("the other run dispatched the claims judge %d time(s)", len(ps))
+	_, verdict, ok := strings.Cut(skill, "\n## Verdict\n")
+	if !ok {
+		t.Fatal("the claims skill has no ## Verdict section")
 	}
-
-	const claim = `CLAIM .satelle/principles/p.md:6 "queue entries live in the story chain" — internal/kernel/queue.go:62`
-	d.setFake("verdict.claims", "reject")
-	d.setFake("notes.claims", claim)
-	if r := d.run("execution", "set", drift, "--status", "done"); r.code == 0 {
-		t.Fatal("a CLAIM reject let the run close")
+	var examples []struct {
+		Verdict string `json:"verdict"`
+		Notes   string `json:"notes"`
 	}
-	if st := d.status(drift); st != "in_progress" {
-		t.Fatalf("drift run is %s after a CLAIM reject, want in_progress", st)
+	for _, block := range regexp.MustCompile("(?s)```json\n(.*?)\n```").FindAllStringSubmatch(verdict, -1) {
+		var v struct {
+			Verdict string `json:"verdict"`
+			Notes   string `json:"notes"`
+		}
+		if err := json.Unmarshal([]byte(block[1]), &v); err != nil {
+			t.Fatalf("example verdict %q: %v", block[1], err)
+		}
+		examples = append(examples, v)
 	}
-	if g := latestRun(d.sandbox, drift, "drift-constitution"); g.Result != "accept" {
-		t.Fatalf("drift-constitution = %s, want accept before drift-claims runs", g.Result)
+	if len(examples) != 2 || strings.Contains(examples[0].Notes, "WARN ") || !strings.Contains(examples[1].Notes, "\nWARN ") {
+		t.Fatalf("want two example verdicts, zero and one warning: %+v", examples)
 	}
-	g := latestRun(d.sandbox, drift, "drift-claims")
-	if g.Result != "reject" || g.Binding != "reviewer" {
-		t.Fatalf("drift-claims = %s by %q, want reject by reviewer", g.Result, g.Binding)
-	}
-	ps := prompts(t, d.fake, "claims")
-	if len(ps) != 1 || !strings.Contains(ps[0], "+satelle.version: 0.0.2") || strings.Contains(ps[0], "serveREST") {
-		t.Fatalf("claims prompt does not carry only the .version hunk:\n%s", strings.Join(ps, "\n----\n"))
-	}
-	sys, err := os.ReadFile(filepath.Join(d.fake, "system.claims"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{".satelle/constitution.md", ".satelle/principles/"} {
-		if !strings.Contains(string(sys), want) {
-			t.Errorf("claims judge's skill lacks the pointer %q", want)
+	for i, ex := range examples {
+		d := newDriftSandbox(t, nil)
+		drift := d.start(d.drift, stepSeat(t))
+		if i == 0 {
+			other := d.start(d.other, stepSeat(t))
+			d.must("execution", "set", other, "--status", "done")
+			if g := latestRun(d.sandbox, other, "drift-claims"); g.Result != "skipped" || !strings.Contains(g.Notes, "trigger satelle-drift-run-trigger") {
+				t.Fatalf("other run's drift-claims = %s (%q), want skipped by the trigger", g.Result, g.Notes)
+			}
+			if ps := prompts(t, d.fake, "claims"); len(ps) != 0 {
+				t.Fatalf("the other run dispatched the claims judge %d time(s)", len(ps))
+			}
+		}
+		d.exec(satelleBin, "no drift\n", "execution", "attach", drift, "--name", "drift-report", "--type", "text/markdown", "--file", "-")
+		d.setFake("verdict.claims", ex.Verdict)
+		d.setFake("notes.claims", ex.Notes)
+		if r := d.run("execution", "set", drift, "--status", "done"); r.code != 0 {
+			t.Fatalf("example %d: the run did not close: exit %d\n%s%s", i, r.code, r.out, r.err)
+		}
+		g := latestRun(d.sandbox, drift, "drift-claims")
+		if g.Result != "accept" || g.Binding != "reviewer" {
+			t.Fatalf("example %d: drift-claims = %s by %q (%q), want accept by reviewer", i, g.Result, g.Binding, g.Notes)
+		}
+		ps := prompts(t, d.fake, "claims")
+		if len(ps) != 1 || !strings.Contains(ps[0], "+satelle.version: 0.0.2") || strings.Contains(ps[0], "serveREST") {
+			t.Fatalf("claims prompt does not carry only the .version hunk:\n%s", strings.Join(ps, "\n----\n"))
+		}
+		sys, err := os.ReadFile(filepath.Join(d.fake, "system.claims"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{".satelle/constitution.md", ".satelle/principles/"} {
+			if !strings.Contains(string(sys), want) {
+				t.Errorf("claims judge's skill lacks the pointer %q", want)
+			}
 		}
 	}
-	if route := d.must("execution", "route", drift); !strings.Contains(route, claim) {
-		t.Errorf("execution route does not show the CLAIM line:\n%s", route)
+
+	review := repoText(t, ".satelle/skills/drift-review.md")
+	_, five, _ := strings.Cut(review, "\n## 5.")
+	five, _, _ = strings.Cut(five, "\n## 6.")
+	if strings.Contains(five, "CLAIM") {
+		t.Error("drift-review.md step 5 still turns CLAIM lines into findings")
+	}
+	for _, para := range strings.Split(five, "\n- ") {
+		if strings.Contains(para, "WARN") && strings.Contains(para, "judged.txt") {
+			t.Errorf("drift-review.md step 5 copies a WARN line into judged.txt:\n%s", para)
+		}
 	}
 }
 

@@ -559,6 +559,7 @@ same `--base` as the run: a seat without it records HEAD (`v$ver`), the latest
 seat's base is the one the gates judge from, and the diff the
 `drift-constitution` gate judges would be empty.
 
-A drift finding never reopens the release: it is a story (`scripts/drift-stories.sh`),
-parented on its epic, and the story is the fix. The release run is already
-done when this starts.
+A drift finding never reopens the release: it goes into the release's one
+drift-fix item (`scripts/drift-fix.sh`), and that item is the fix. The release
+run is already done when this starts; its drift gate (step 2a) already refused
+any substrate miss, so the review's findings are mostly the judges'.

@@ -24,14 +24,13 @@ func driftRule(t *testing.T) string {
 
 // driftStorySandbox is a drift sandbox that also carries the repo's drift
 // workflow, its rule, its done gate (the task= line naming the sandbox's drift
-// task) and cancel gate skills unchanged, scripts/drift-stories.sh, and the
-// hygiene and constitution epics the script parents its stories on. No skill
+// task) and cancel gate skills unchanged, and scripts/drift-fix.sh. No skill
 // is stubbed, so satelle validate passes on the repo's own configuration
 // before any case runs.
 func newDriftStorySandbox(t *testing.T) *driftSandbox {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
-		t.Fatal("bash is required by scripts/drift-stories.sh and is not on PATH")
+		t.Fatal("bash is required by scripts/drift-fix.sh and is not on PATH")
 	}
 	d := newDriftSandbox(t, nil)
 	cfg := readSandbox(t, d.sandbox, ".satelle/satelle.toml")
@@ -42,16 +41,17 @@ func newDriftStorySandbox(t *testing.T) *driftSandbox {
 	d.write(".satelle/satelle.toml", cfg[:i]+driftRule(t)+cfg[i:])
 	d.write(".satelle/workflows/drift.toml", repoText(t, ".satelle/workflows/drift.toml"))
 	d.write(".satelle/skills/satelle-story-cancel-review.md", repoText(t, ".satelle/skills/satelle-story-cancel-review.md"))
+	// A stand-in for the principle it links, so validate's substrate check
+	// finds the link's target.
+	d.write(".satelle/principles/satelle-agent-goals.md", "---\nname: satelle-agent-goals\ntype: principle\ndescription: A stand-in.\n---\n")
 	d.write(".satelle/skills/satelle-change-judged-check.md", repoText(t, ".satelle/skills/satelle-change-judged-check.md"))
 	check := regexp.MustCompile(driftTaskLine).ReplaceAllString(repoText(t, ".satelle/skills/satelle-drift-resolved-check.md"), "task="+d.drift)
 	if !strings.Contains(check, "\ntask="+d.drift+"\n") {
 		t.Fatal("satelle-drift-resolved-check.md has no task=<id> line")
 	}
 	d.write(".satelle/skills/satelle-drift-resolved-check.md", check)
-	d.write("scripts/drift-stories.sh", repoText(t, "scripts/drift-stories.sh"))
+	d.write("scripts/drift-fix.sh", repoText(t, "scripts/drift-fix.sh"))
 	d.must("validate")
-	d.create("story", "--title", "Epic: hygiene", "--tag", "epic", "--tag", "epic:hygiene")
-	d.create("story", "--title", "Epic: constitution drift", "--tag", "epic", "--tag", "epic:constitution")
 	d.git("add", "-A")
 	d.git("commit", "-q", "-m", "drift workflow")
 	return d
@@ -97,31 +97,24 @@ func (r driftReport) String() string {
 	return b.String()
 }
 
-// A drift story raised from now on starts on the drift workflow, and its only
-// way to done is the drift-resolved check against the in-progress drift run's
-// drift-report: each present below leaves its gate.run on the story's ledger.
-// Absence from the findings alone never closes a prose or constitution story.
-// A cancelled present runs the cancel review on its bound reviewer.
+// A drift story starts on the drift workflow, and its only way to done is the
+// drift-resolved check: each blocking key carried by a fix item or resolved on
+// the in-progress drift run's drift-report. Each present below leaves its
+// gate.run on the story's ledger. Absence from the findings alone never closes
+// a constitution key; a prose key never blocks. A cancelled present runs the
+// cancel review on its bound reviewer.
 func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 	t.Parallel()
 	d := newDriftStorySandbox(t)
 	lines := strings.Split(strings.TrimSpace(driftFindings), "\n")
 	cmdLine, conLine := lines[0], lines[1]
-	const flagLine = `.satelle/skills/b.md:4: flag: satelle story list --nope — no such flag`
 	const keyLess = "a drift story with no drift-key line"
 
-	r := d.exec("bash", driftFindings+flagLine+"\n", "scripts/drift-stories.sh", "0.0.2")
-	if r.code != 0 {
-		t.Fatalf("drift-stories.sh: exit %d\n%s%s", r.code, r.out, r.err)
+	old := func(key, line string) string {
+		t.Helper()
+		return d.create("story", "--title", "Drift: "+key, "--tag", "drift", "--body", oldDriftBody(key, line, true)).ID
 	}
-	ids := map[string]string{}
-	for key, f := range raised(t, r.out) {
-		ids[key] = f[0]
-	}
-	cmd, con, prose, flag := ids[commandKey], ids[constitutionKey], ids[proseKey], ids["flag:.satelle/skills/b.md:satelle story list --nope"]
-	if cmd == "" || con == "" || prose == "" || flag == "" {
-		t.Fatalf("drift-stories.sh did not raise all four stories:\n%s", r.out)
-	}
+	cmd, con, prose, flag := old(commandKey, cmdLine), old(constitutionKey, conLine), old(proseKey, lines[2]), old(flagKey, flagLine)
 	bare := d.create("story", "--title", keyLess, "--tag", "drift", "--body", "no key here\n").ID
 	for _, id := range []string{cmd, con, prose, flag, bare} {
 		if it := d.get(id); it.Workflow != "drift" || it.Status != "open" {
@@ -151,8 +144,10 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 		}
 	}
 
-	// Before any drift run: nothing closes.
+	// Before any drift run: nothing closes but a story whose only key is
+	// prose, which never blocks.
 	present(cmd, "reject", "no drift review run in progress")
+	present(prose, "accept", "only warnings, which never block")
 
 	exe := d.start(d.drift, stepSeat(t))
 	present(cmd, "reject", "no drift-report")
@@ -168,10 +163,9 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 	attach(exe, driftReport{checkExit: "0"})
 	present(cmd, "reject", "key not listed")
 
-	// Prose and constitution: absent from the findings and listed, but no
-	// RESOLVED line from this run's judges.
+	// Constitution: absent from the findings and listed, but no RESOLVED line
+	// from this run's judges.
 	attach(exe, driftReport{checkExit: "0", gone: []string{proseKey, constitutionKey}})
-	present(prose, "reject", "no RESOLVED line")
 	present(con, "reject", "no RESOLVED line")
 	// Constitution: a RESOLVED line, but the judge still raises it.
 	attach(exe, driftReport{checkExit: "0", constitution: []string{conLine}, gone: []string{constitutionKey},
@@ -189,7 +183,6 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 		},
 	})
 	present(cmd, "accept", exe)
-	present(prose, "accept", "RESOLVED "+proseKey)
 	present(con, "accept", "RESOLVED "+constitutionKey)
 	present(flag, "reject", "key not listed")
 
@@ -214,20 +207,80 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 	}
 }
 
-// --keys maps each distinct finding to the drift-key the raise writes, in
-// order, and refuses a line that is not a finding.
-func TestDriftStoriesKeys(t *testing.T) {
+// A key carried by an open fix item closes with no drift run: accepted when
+// the fix item named by the drift-carried-by tag lists it; rejected naming the
+// key when the fix item lacks it or is done; a keyless story is accepted when
+// the fix item names it in a drift-warning line (sto_a1681009 AC3, AC4).
+func TestDriftResolvedCarried(t *testing.T) {
 	t.Parallel()
-	s := newSandbox(t)
-	script, err := filepath.Abs("../scripts/drift-stories.sh")
-	if err != nil {
-		t.Fatal(err)
+	d := newDriftStorySandbox(t)
+	lines := strings.Split(strings.TrimSpace(driftFindings), "\n")
+	present := func(id, wantResult, wantNotes string) {
+		t.Helper()
+		d.run("story", "set", id, "--status", "done")
+		g := latestRun(d.sandbox, id, "drift-resolved")
+		if g.Result != wantResult || !strings.Contains(g.Notes, wantNotes) {
+			t.Fatalf("%s done: drift-resolved = %s (%q), want %s naming %q", id, g.Result, g.Notes, wantResult, wantNotes)
+		}
 	}
-	r := s.exec("bash", driftFindings+strings.Replace(driftFindings, "a.md:3:", "a.md:30:", 1), script, "--keys")
-	if want := commandKey + "\n" + constitutionKey + "\n" + proseKey + "\n"; r.code != 0 || r.out != want {
-		t.Fatalf("--keys: exit %d\n%s%s\nwant\n%s", r.code, r.out, r.err, want)
+	old := func(key, line, fix string) string {
+		t.Helper()
+		return d.create("story", "--title", "Drift: "+key, "--tag", "drift", "--tag", "drift-carried-by:"+fix, "--body", oldDriftBody(key, line, true)).ID
 	}
-	if r := s.exec("bash", "## Substrate findings\n", script, "--keys"); r.code != 2 {
-		t.Fatalf("--keys on a non-finding line: exit %d, want 2\n%s%s", r.code, r.out, r.err)
+	r := d.driftFix(lines[0]+"\n", "9.9.9")
+	fix := parseFixed(t, r.out).id
+
+	present(old(commandKey, lines[0], fix), "accept", "carried: "+commandKey+" is listed by the fix item "+fix)
+	lacking := old(constitutionKey, lines[1], fix)
+	present(lacking, "reject", constitutionKey)
+	if g := latestRun(d.sandbox, lacking, "drift-resolved"); !strings.Contains(g.Notes, "does not list it") {
+		t.Fatalf("the reject does not say the fix item lacks the key: %q", g.Notes)
 	}
+
+	bare := d.create("story", "--title", "no key", "--tag", "drift", "--tag", "drift-carried-by:"+fix, "--body", "no key here\n").ID
+	present(bare, "reject", "no drift-key")
+	r = d.driftFix(lines[0]+"\n"+bare+":1: prose: no key — carried from "+bare+"\n", "9.9.9")
+	if f := parseFixed(t, r.out); f.id != fix || f.warnings != "1 warnings" {
+		t.Fatalf("carrying the keyless story: %+v", f)
+	}
+	present(bare, "accept", "carried by "+fix+" as a warning")
+
+	// A done fix item carries nothing.
+	other := parseFixed(t, d.driftFix(lines[2]+"\n", "9.9.10").out).id
+	byDone := old(constitutionKey, lines[1], other)
+	d.must("story", "set", other, "--status", "done")
+	present(byDone, "reject", "is not open on the drift workflow")
+}
+
+// Warnings never block: an item with only drift-warning lines, a fix item
+// whose drift-key is resolved while a drift-warning is not, and an old story
+// whose only key is a prose drift-key each reach done (sto_a1681009 AC8).
+func TestDriftResolvedIgnoresWarnings(t *testing.T) {
+	t.Parallel()
+	d := newDriftStorySandbox(t)
+	lines := strings.Split(strings.TrimSpace(driftFindings), "\n")
+	done := func(id, want string) {
+		t.Helper()
+		if r := d.run("story", "set", id, "--status", "done"); r.code != 0 {
+			t.Fatalf("%s done: exit %d\n%s%s", id, r.code, r.out, r.err)
+		}
+		if g := latestRun(d.sandbox, id, "drift-resolved"); g.Result != "accept" || !strings.Contains(g.Notes, want) {
+			t.Fatalf("%s: drift-resolved = %s (%q), want accept naming %q", id, g.Result, g.Notes, want)
+		}
+	}
+	// Only warnings, no drift run in progress.
+	warnOnly := parseFixed(t, d.driftFix(lines[2]+"\n", "9.9.9").out).id
+	done(warnOnly, "only warnings, which never block")
+	// An old story whose only key is prose.
+	proseStory := d.create("story", "--title", "Drift: prose", "--tag", "drift", "--body", oldDriftBody(proseKey, lines[2], true)).ID
+	done(proseStory, "only warnings, which never block")
+
+	// A fix item with a resolved drift-key and an unresolved drift-warning.
+	fix := parseFixed(t, d.driftFix(lines[0]+"\n"+lines[2]+"\n", "9.9.10").out).id
+	exe := d.start(d.drift, stepSeat(t))
+	rep := driftReport{checkExit: "0", gone: []string{commandKey + "\t" + fix}}
+	if r := d.exec(satelleBin, rep.String(), "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
+		t.Fatalf("attach drift-report: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	done(fix, commandKey+" is no longer found by the drift run "+exe)
 }
