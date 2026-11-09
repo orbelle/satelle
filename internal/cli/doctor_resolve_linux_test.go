@@ -534,3 +534,48 @@ func newItems(t *testing.T, before []string) []item.Item {
 	}
 	return out
 }
+
+// A substrate finding (a skill naming a command this binary lacks) is a
+// fix-item issue, and --resolve opens the one fix item listing it beside the
+// other substrate findings; the tree and .git are unchanged (AC7).
+func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
+	f := newDoctorFixture(t)
+	noTerminal(t)
+	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names what the binary lacks.\n---\n\nRun `satelle nosuchcmd <id>`.\n")
+	if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, _ := doctorJSON(t)
+	var sub []doctorIssue
+	for _, is := range doc.Issues {
+		if strings.Contains(is.Problem, "satelle nosuchcmd") {
+			sub = append(sub, is)
+		}
+	}
+	if len(sub) != 1 || sub[0].Resolve != resolveFixItem {
+		t.Fatalf("substrate issues %+v, want one %s for satelle nosuchcmd (all: %+v)", sub, resolveFixItem, doc.Issues)
+	}
+	before0 := itemIDs(t)
+	before := digest(t, f.dir)
+	rep, out, err := resolveJSON(t)
+	if err != nil {
+		t.Fatalf("--resolve: %v\n%s", err, out)
+	}
+	fixes := newItems(t, before0)
+	if len(fixes) != 1 || rep.Item != fixes[0].ID {
+		t.Fatalf("items opened %+v, report item %q", fixes, rep.Item)
+	}
+	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: "} {
+		if !strings.Contains(fixes[0].Body, "- "+w) {
+			t.Errorf("fix item body lacks %q:\n%s", w, fixes[0].Body)
+		}
+	}
+	if !slices.ContainsFunc(rep.Actions, func(a resolveAction) bool {
+		return a.Check == sub[0].Check && a.Result == resultOpened && a.Detail == fixes[0].ID
+	}) {
+		t.Errorf("no %s action for the substrate finding: %+v", resultOpened, rep.Actions)
+	}
+	if d := sameDigest(before, digest(t, f.dir)); len(d) != 0 {
+		t.Fatalf("--resolve wrote the tree: %v", d)
+	}
+}
