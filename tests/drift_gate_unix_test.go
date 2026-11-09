@@ -214,7 +214,7 @@ to = "retired"
 `)
 	s.write(".satelle/agents.toml", `[agents.executor]
 command = "session"
-[agents.reviewer]
+[agents.reviewer-gpt]
 command = "claude"
 model = "rv-1"
 tools = ["Read", "Grep", "Glob"]
@@ -317,7 +317,7 @@ func (d *driftSandbox) setFake(name, body string) {
 
 // The drift-constitution gate judges only drift runs: another task's run over
 // the same diff skips it by the trigger; a drift run seated by release.md
-// step 11 is judged by the reviewer binding over its internal/ diff with the
+// step 11 is judged by the reviewer-gpt binding over its internal/ diff with the
 // skill's pointers, and a DRIFT reject keeps it in_progress. A run seated
 // without --base has an empty diff and skips the gate on paths.
 func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
@@ -349,8 +349,8 @@ func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
 		t.Fatalf("drift run is %s after a DRIFT reject, want in_progress", st)
 	}
 	g = latestRun(d.sandbox, drift, "drift-constitution")
-	if g.Result != "reject" || g.Binding != "reviewer" {
-		t.Fatalf("drift run's drift-constitution = %s by %q, want reject by reviewer", g.Result, g.Binding)
+	if g.Result != "reject" || g.Binding != "reviewer-gpt" {
+		t.Fatalf("drift run's drift-constitution = %s by %q, want reject by reviewer-gpt", g.Result, g.Binding)
 	}
 	ps := prompts(t, d.fake, "constitution")
 	if len(ps) != 1 || !strings.Contains(ps[0], "+func Foo() { serveREST() }") || strings.Contains(ps[0], "satelle.version: 0.0.2") {
@@ -475,7 +475,7 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 
 // The drift-claims gate runs on every release (.version changes each time):
 // skipped by the trigger for another task's run, and for a drift run judged by
-// the reviewer binding over only the .version diff. Its verdict never blocks:
+// the reviewer-gpt binding over only the .version diff. Its verdict never blocks:
 // each example verdict in the skill's ## Verdict section (zero warnings, one
 // warning) passes the gate's real notes and reference after checks, and the
 // run reaches done; the skill states no reject, and drift-review.md step 5
@@ -527,8 +527,8 @@ func TestDriftClaimsNeverRejects(t *testing.T) {
 			t.Fatalf("example %d: the run did not close: exit %d\n%s%s", i, r.code, r.out, r.err)
 		}
 		g := latestRun(d.sandbox, drift, "drift-claims")
-		if g.Result != "accept" || g.Binding != "reviewer" {
-			t.Fatalf("example %d: drift-claims = %s by %q (%q), want accept by reviewer", i, g.Result, g.Binding, g.Notes)
+		if g.Result != "accept" || g.Binding != "reviewer-gpt" {
+			t.Fatalf("example %d: drift-claims = %s by %q (%q), want accept by reviewer-gpt", i, g.Result, g.Binding, g.Notes)
 		}
 		ps := prompts(t, d.fake, "claims")
 		if len(ps) != 1 || !strings.Contains(ps[0], "+satelle.version: 0.0.2") || strings.Contains(ps[0], "serveREST") {
