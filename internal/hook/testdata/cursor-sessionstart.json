@@ -1,0 +1,12 @@
+{
+  "conversation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "generation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "model": "gemini-3.8-flash-high",
+  "is_background_agent": false,
+  "session_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "hook_event_name": "sessionStart",
+  "cursor_version": "2026.11.05-86047df",
+  "workspace_roots": [
+    "/work/repo"
+  ]
+}

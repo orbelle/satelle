@@ -3,7 +3,7 @@
 // A seat records the machine it was bound on (item.Seat.Machine). Whether its
 // session still runs is known only on that machine, from a session record at
 // <satelle home>/sessions/<session>.json naming the session's owner process:
-// the harness (claude, pi, grok) found from its SessionStart and
+// the harness (claude, pi, grok, cursor) found from its SessionStart and
 // UserPromptSubmit hooks or its seat command, or the satelle process of a
 // dispatched run. Records name local pids, so they are never replicated.
 //
@@ -33,8 +33,8 @@ import (
 // Dir is the directory under the satelle home holding session records.
 const Dir = "sessions"
 
-// hookSpawnDepth is how far above a hook command its harness can be: claude
-// and grok run a hook through a shell, so the harness is the hook's
+// hookSpawnDepth is how far above a hook command its harness can be: claude,
+// grok and cursor-agent run a hook through a shell, so the harness is the hook's
 // grandparent; pi spawns satelle directly, so its parent. Two hook calls of one
 // harness share it; their shells differ. A deeper common ancestor (a terminal,
 // a multiplexer) is never taken as the owner.

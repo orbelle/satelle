@@ -33,16 +33,30 @@ func File(harness string) (string, error) {
 		return ".grok/hooks/satelle.json", nil
 	case Pi:
 		return ".pi/extensions/satelle.ts", nil
+	case Cursor:
+		return ".cursor/hooks.json", nil
 	}
 	return "", fmt.Errorf("unknown harness %q (one of %s)", harness, strings.Join(Harnesses, ", "))
 }
 
 // toolMatcher is the PreToolUse matcher: the harness's edit and shell tools.
+// Cursor names its tools by type: Write (create and edit), Delete and Shell.
 func toolMatcher(harness string) string {
-	if harness == Grok {
+	switch harness {
+	case Cursor:
+		return "Write|Delete|Shell"
+	case Grok:
 		return "Edit|Write|MultiEdit|NotebookEdit|search_replace|write|Bash|run_terminal_command"
 	}
 	return "Edit|Write|MultiEdit|NotebookEdit|Bash"
+}
+
+// cursorEvents maps each hook verb to the Cursor hooks.json event that runs it.
+var cursorEvents = []struct{ event, verb string }{
+	{"preToolUse", VerbGate},
+	{"sessionStart", VerbContext},
+	{"beforeSubmitPrompt", VerbPrompt},
+	{"stop", VerbStopcheck},
 }
 
 // Install writes or updates harness's hook file under root, keeping every
@@ -116,6 +130,24 @@ func withHooks(prev []byte, harness string) ([]byte, error) {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
+	if harness == Cursor {
+		// Cursor's hooks.json (version 1) holds flat {command, matcher}
+		// entries under each event name.
+		if _, ok := doc["version"]; !ok {
+			doc["version"] = 1
+		}
+		for _, ce := range cursorEvents {
+			e := map[string]any{"command": Command(ce.verb, Cursor)}
+			if ce.verb == VerbGate {
+				e["matcher"] = toolMatcher(Cursor)
+			}
+			list, _ := hooks[ce.event].([]any)
+			hooks[ce.event] = append(list, e)
+		}
+		doc["hooks"] = hooks
+		b, err := json.MarshalIndent(doc, "", "  ")
+		return append(b, '\n'), err
+	}
 	entry := func(matcher, verb string) map[string]any {
 		g := map[string]any{"hooks": []any{map[string]any{"type": "command", "command": Command(verb, harness)}}}
 		if matcher != "" {
@@ -157,7 +189,9 @@ func writeJSON(path string, doc map[string]any) error {
 }
 
 // pruneSatelle removes every hook handler whose command is a satelle hook,
-// dropping groups and events left empty.
+// dropping groups and events left empty. A group is claude's and grok's nested
+// {matcher, hooks: [...]}; a flat entry with its own command (cursor's) is
+// kept or dropped by that command.
 func pruneSatelle(doc map[string]any) {
 	hooks, ok := doc["hooks"].(map[string]any)
 	if !ok {
@@ -170,6 +204,12 @@ func pruneSatelle(doc map[string]any) {
 			gm, ok := g.(map[string]any)
 			if !ok {
 				keptGroups = append(keptGroups, g)
+				continue
+			}
+			if _, nested := gm["hooks"]; !nested {
+				if cmd, _ := gm["command"].(string); !isSatelleCommand(cmd) {
+					keptGroups = append(keptGroups, g)
+				}
 				continue
 			}
 			hs, _ := gm["hooks"].([]any)
@@ -196,6 +236,51 @@ func pruneSatelle(doc map[string]any) {
 	if len(hooks) == 0 {
 		delete(doc, "hooks")
 	}
+}
+
+// Installed reports whether harness's hook file under root holds a satelle
+// hook entry for that harness.
+func Installed(root, harness string) bool {
+	rel, err := File(harness)
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	if harness == Pi {
+		return strings.Contains(string(b), piOwnedMarker)
+	}
+	for _, verb := range []string{VerbGate, VerbContext, VerbPrompt, VerbStopcheck} {
+		if strings.Contains(string(b), Command(verb, harness)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Defers reports whether a hook call answered for harness should stay silent
+// because Cursor sent it and Cursor's own satelle hooks answer the same event:
+// Cursor also runs a repo's .claude/settings.json hooks (its Claude Code
+// compatibility, whose payloads carry cursor_version), so once `satelle agents
+// install cursor` has run, the claude entries would judge and inject twice.
+// Only the payload marks the caller; the environment does not, so a claude
+// session started from Cursor's terminal keeps its own gate.
+func Defers(root, harness string, in Input) bool {
+	return harness != Cursor && in.Cursor && Installed(root, Cursor)
+}
+
+// ProjectDir is the project dir the calling harness pins for its hooks:
+// CLAUDE_PROJECT_DIR (claude; Cursor sets it too), else CURSOR_PROJECT_DIR.
+// "" when neither is set.
+func ProjectDir() string {
+	for _, k := range []string{"CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func isSatelleCommand(cmd string) bool {

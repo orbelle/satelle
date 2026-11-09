@@ -19,3 +19,6 @@ github.com/bobmcallan/satelle/internal/remote/provider TestDockerLocalFailedSetu
 github.com/bobmcallan/satelle/tests TestRemoteNodeOnDockerLocal needs a running docker daemon and a small local image
 github.com/bobmcallan/satelle/tests TestDockerLocalFireOnDaemon builds the node image from the repo's Dockerfile on a docker daemon, which pulls golang and alpine; runs only with SATELLE_DOCKER_BUILD=1 (TestDockerLocalFireRoundTrip always runs with a fake docker)
 github.com/bobmcallan/satelle/tests TestRemoteGateServiceOnDaemon needs a running docker daemon and a local image with git that runs as root (satelle-node:local or alpine/git); never pulls one (the fake-docker remote gate tests always run)
+
+# Live Cursor session under satelle hooks (sto_e51c7fb9): opt-in, needs cursor-agent signed in and billed.
+github.com/bobmcallan/satelle/tests TestCursorSessionRunsUnderSatelleHooks runs cursor-agent live only with SATELLE_LIVE_CURSOR=1; the hook answers are covered by the internal/cli Cursor tests that always run

@@ -8,6 +8,9 @@ default = "default"
 # workflow = "default"
 # category = "bug"        # and/or tag = "...", kind = "..."
 
+# [hook]
+# inject = ["docs/principles.md"]   # files the context hook prints at session start
+
 [rules]
 # A judge may not run the same model as the performer whose work it judges.
 reviewer_differs_from_performer = false

@@ -24,7 +24,9 @@ func hookCmd() *cobra.Command {
 		Long: `Each handler reads the harness's hook payload on stdin and answers in the
 harness's own envelope. gate is the edit gate (PreToolUse); context prints the
 session's context at session start; prompt reminds the session of its seats on
-each prompt; stopcheck answers the Stop event.`,
+each prompt; stopcheck answers the Stop event. Under cursor, a call Cursor
+sends to another harness's entries stays silent once .cursor/hooks.json holds
+satelle's own (see satelle help edit-gate).`,
 		Hidden: false,
 	}
 	var harness string
@@ -36,7 +38,7 @@ each prompt; stopcheck answers the Stop event.`,
 		{hook.VerbGate, "Judge an edit or shell command (PreToolUse)", runHookGate},
 		{hook.VerbContext, "Print the session's context (SessionStart)", runHookContext},
 		{hook.VerbPrompt, "Remind the session of its seats (UserPromptSubmit)", runHookPrompt},
-		{hook.VerbStopcheck, "Answer the Stop event", func(*cobra.Command, string, hook.Input) error { return nil }},
+		{hook.VerbStopcheck, "Answer the Stop event", runHookStopcheck},
 	} {
 		cmd.AddCommand(&cobra.Command{
 			Use:   h.verb,
@@ -64,23 +66,49 @@ func hookSession(in hook.Input) string {
 	return in.Session
 }
 
-// hookDir is the directory the session works in: the harness's pinned project
-// dir, else the payload's cwd, else the process's.
+// hookDir is the directory the session works in: satelle's pinned project dir
+// (SATELLE_PROJECT_DIR), else the harness's (hook.ProjectDir: claude's, then
+// cursor's), else the payload's cwd, else its first workspace root (cursor),
+// else the process's.
 func hookDir(in hook.Input) string {
-	for _, k := range []string{config.ProjectDirEnv, "CLAUDE_PROJECT_DIR"} {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
-		}
+	if v := strings.TrimSpace(os.Getenv(config.ProjectDirEnv)); v != "" {
+		return v
+	}
+	if v := hook.ProjectDir(); v != "" {
+		return v
 	}
 	if in.Cwd != "" {
 		return in.Cwd
+	}
+	for _, r := range in.Roots {
+		if r = strings.TrimSpace(r); r != "" {
+			return r
+		}
 	}
 	wd, _ := os.Getwd()
 	return wd
 }
 
+// hookDefers reports whether this call is Cursor running another harness's
+// satelle entries in a repo where Cursor's own are installed (hook.Defers):
+// the handler then answers nothing, so no event is judged or injected twice.
+func hookDefers(harness string, in hook.Input) bool {
+	if !in.Cursor || harness == hook.Cursor {
+		return false
+	}
+	r, err := findRepo(hookDir(in))
+	return err == nil && hook.Defers(r.Tree, harness, in)
+}
+
+// hookTempRoots are the gate's temp roots: nil is hook.TempRoots(). A test
+// whose repositories live under the temp dir narrows it to reach the fence.
+var hookTempRoots []string
+
 func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	if !in.IsEdit() && !in.IsShell() {
+		return nil
+	}
+	if hookDefers(harness, in) {
 		return nil
 	}
 	r, err := findRepo(hookDir(in))
@@ -88,7 +116,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil // not a satelle repo: nothing to gate
 	}
 	session := hookSession(in)
-	g := hook.Gate{Root: r.Tree}
+	g := hook.Gate{Root: r.Tree, TempRoots: hookTempRoots}
 	k, err := r.open()
 	if err != nil {
 		// A broken configuration refuses every edit but its own repair.
@@ -176,23 +204,47 @@ func canonicalPath(p string) string {
 	}
 }
 
-func runHookContext(cmd *cobra.Command, _ string, in hook.Input) error {
+func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
+	if hookDefers(harness, in) {
+		return nil
+	}
 	recordSession(in, seatlife.Start)
 	text, ok := sessionContext(in, true)
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context("SessionStart", text)))
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventSessionStart, text)))
 	return err
 }
 
-func runHookPrompt(cmd *cobra.Command, _ string, in hook.Input) error {
+// runHookPrompt settles the session's owner and reminds it of its seats.
+// Cursor's beforeSubmitPrompt cannot add context, so under cursor the hook
+// only settles the owner and lets the prompt through ({"continue":true}).
+func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
+	if hookDefers(harness, in) {
+		return nil
+	}
 	recordSession(in, seatlife.Resolve)
 	text, ok := sessionContext(in, false)
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context("UserPromptSubmit", text)))
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventPrompt, text)))
+	return err
+}
+
+// runHookStopcheck answers the turn's end. satelle adds nothing at a stop, so
+// the answer is the harness's empty one: none for claude, pi and grok, an
+// empty object for cursor (no followup_message, so Cursor does not continue).
+func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
+	if hookDefers(harness, in) {
+		return nil
+	}
+	a := hook.StopAnswer(harness)
+	if a == nil {
+		return nil
+	}
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(a))
 	return err
 }
 

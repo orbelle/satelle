@@ -17,6 +17,15 @@ of the performer whose work it judges.
 Every dispatched performer is denied `satelle story set`, `satelle task set`
 and `satelle execution set`: a performer never moves an item itself.
 
+## Harness hooks
+
+`satelle agents install claude|pi|grok|cursor` writes the harness's hook file
+so its interactive sessions run under the edit gate, the session-start
+context, the prompt hook and the stop check: `.claude/settings.json`,
+`.pi/extensions/satelle.ts`, `.grok/hooks/satelle.json` and
+`.cursor/hooks.json`. A `cursor-agent` session drives stories this way (see
+`satelle help edit-gate`). It writes no `.cursor/cli.json`.
+
 ## Adapters
 
 The adapter is chosen by the basename of the command's first word.

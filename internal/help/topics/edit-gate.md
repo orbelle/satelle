@@ -1,7 +1,7 @@
 # The edit gate and blocks
 
-Harness hooks (`satelle agents install claude|pi|grok`) send every edit and shell
-command a session makes to `satelle hook gate`. The gate allows an edit only
+Harness hooks (`satelle agents install claude|pi|grok|cursor`) send every edit
+and shell command a session makes to `satelle hook gate`. The gate allows an edit only
 when **the editing session holds a seat, at this worktree, on an item whose
 current state has a performer**:
 
@@ -63,6 +63,36 @@ Always and never:
 A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to
 the working directory of any interpreter running inline program text.
+
+## cursor-agent sessions
+
+`satelle agents install cursor` writes satelle's entries into the repo's
+`.cursor/hooks.json` (version 1), keeping every other entry; `satelle agents
+remove cursor` strips only satelle's. `cursor-agent` runs:
+
+- `preToolUse` (matcher `Write|Delete|Shell`) → `satelle hook gate --harness
+  cursor`. A refusal answers `permission: deny` with the same reason the claude
+  gate gives, before the file is written or the command runs. The session's
+  repo comes from `CLAUDE_PROJECT_DIR`, else `CURSOR_PROJECT_DIR` (Cursor sets
+  both), else the payload's project root; the fence applies as above.
+- `sessionStart` → `satelle hook context`: the session id (Cursor's
+  `session_id`, the same as its `conversation_id`), its seats, the doctor block
+  and the `[hook] inject` files, as `additional_context`.
+- `beforeSubmitPrompt` → `satelle hook prompt`. It settles the session's owner
+  and answers `{"continue":true}`. Cursor's prompt event has no context
+  channel, so a cursor-agent session gets no per-prompt seat reminder; the
+  seats are in its session-start context and in `satelle status`.
+- `stop` → `satelle hook stopcheck`, which answers `{}`: no `followup_message`,
+  so Cursor ends the turn.
+
+`cursor-agent -p` (print mode) fires sessionStart and preToolUse but not
+beforeSubmitPrompt or stop.
+
+Cursor also runs a repo's `.claude/settings.json` hooks. Once Cursor's own are
+installed, a claude entry called by Cursor (its payload carries
+`cursor_version`) answers nothing, so no edit is judged and no context injected
+twice. The environment does not count: a claude session started from Cursor's
+terminal keeps its gate.
 
 A **block** is a deny with its reason: the harness shows it to the agent and
 the tool call does not run. A rejected transition (`satelle story set --status`,
