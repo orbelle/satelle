@@ -2,14 +2,17 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
@@ -100,5 +103,43 @@ func TestServeAddrUsesGlobalWhenEmpty(t *testing.T) {
 	select {
 	case <-errc:
 	case <-time.After(waitBudget):
+	}
+}
+
+// satelled records its own build at start and reads the installed CLI beside it
+// from the record, never running either (sto_49b6e762).
+func TestInstalledBuilds(t *testing.T) {
+	home := t.TempDir()
+	dir := t.TempDir()
+	daemon := filepath.Join(dir, "satelled")
+	cli := filepath.Join(dir, "satelle")
+	for _, p := range []string{daemon, cli} {
+		if err := os.WriteFile(p, []byte("bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := installedBuilds(home, daemon, nil)
+	got := read()
+	if got.Daemon != buildinfo.Resolve().String() {
+		t.Errorf("Daemon = %q, want this build %q", got.Daemon, buildinfo.Resolve().String())
+	}
+	if !strings.Contains(got.CLI, "has not run since it was installed") {
+		t.Errorf("CLI before it ran = %q", got.CLI)
+	}
+	line := "satelle 9.9.9 (commit c, built b)"
+	if err := buildinfo.Record(home, cli, line); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.CLI != line {
+		t.Errorf("CLI after it recorded = %q, want %q", got.CLI, line)
+	}
+	if err := os.WriteFile(daemon, []byte("a replaced binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); !strings.Contains(got.Daemon, "changed since it last ran") {
+		t.Errorf("Daemon after replacement = %q", got.Daemon)
+	}
+	if got := installedBuilds(home, "", errors.New("no exe"))(); !strings.HasPrefix(got.CLI, "unknown (") || !strings.HasPrefix(got.Daemon, "unknown (") {
+		t.Errorf("no executable: %+v", got)
 	}
 }

@@ -123,6 +123,9 @@ type topBar struct {
 	// Active names the current nav item so its link renders accent (DS SiteHeader):
 	// "home", "projects", "help", or "" for a page no nav item represents.
 	Active string
+	// Builds is the footer's build lines: the installed satelle CLI, the
+	// running satelled and the installed satelled, with any disagreement.
+	Builds buildsVM
 }
 
 type rowVM struct {
@@ -289,7 +292,7 @@ func stripFrontmatter(s string) string {
 // newTopBar builds the top bar: uptime, the active nav item and the user this
 // machine's CLI is signed in as (from its latest push; nil when signed out).
 func newTopBar(ctx context.Context, st *mirror.Store, active string) topBar {
-	return topBar{Uptime: formatUptime(time.Since(serverStart)), Active: active, User: signedIn(ctx, st)}
+	return topBar{Uptime: formatUptime(time.Since(serverStart)), Active: active, User: signedIn(ctx, st), Builds: newBuilds()}
 }
 
 // signedIn is the avatar for the user the CLI's latest push names: the name's

@@ -71,9 +71,14 @@ input::placeholder { color: #9aa1ab; }
 button { cursor: pointer; }
 footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 
-/* Site footer — satellites .site-footer language: name · version */
-.site-footer { display: flex; align-items: center; gap: 14px; font-family: var(--mono); }
-.site-footer .footer-version { margin-left: auto; }
+/* Site footer — the three builds (sto_49b6e762): installed satelle CLI,
+   running satelled, installed satelled; a row in a disagreement and each
+   warning are amber (--warn). */
+.site-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-family: var(--mono); }
+.site-footer .footer-builds { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
+.site-footer .footer-label { color: var(--muted); opacity: 0.8; }
+.site-footer .footer-build.mismatch { color: var(--warn); }
+.site-footer .footer-warning { flex-basis: 100%; text-align: right; color: var(--warn); }
 
 /* Page width (sto_99aa0122): full width with 24px side padding, capped at
    --content-max so a wide screen never sprawls full-bleed. */

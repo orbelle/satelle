@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 // Release locations; each can be overridden from the environment (the same
@@ -88,7 +89,7 @@ satelled keeps the old binary until it is restarted ('satelle service restart').
 					return err
 				}
 			}
-			daemonPath := filepath.Join(filepath.Dir(target), buildinfo.DaemonName+exeSuffix())
+			daemonPath := filepath.Join(filepath.Dir(target), buildinfo.DaemonName+buildinfo.ExeSuffix())
 			var daemonBin []byte
 			daemonOld, daemonNew := "", ""
 			if _, err := os.Stat(daemonPath); err == nil {
@@ -115,6 +116,9 @@ satelled keeps the old binary until it is restarted ('satelle service restart').
 				if err := replaceFile(target, cliBin); err != nil {
 					return err
 				}
+				// Record the installed CLI's build, so satelled's footer names it
+				// straight after the update without running it.
+				buildinfo.Identify(ctx, config.GlobalDir(), target)
 				fmt.Fprintf(out, "satelle %s → %s\n", old, strings.TrimPrefix(tag, "v"))
 			}
 			switch {
@@ -125,6 +129,7 @@ satelled keeps the old binary until it is restarted ('satelle service restart').
 				if err := replaceFile(daemonPath, daemonBin); err != nil {
 					return err
 				}
+				buildinfo.Identify(ctx, config.GlobalDir(), daemonPath)
 				fmt.Fprintf(out, "satelled %s → %s (restart it to run the new one: satelle service restart)\n", daemonOld, daemonNew)
 			}
 			return nil
@@ -137,18 +142,10 @@ satelled keeps the old binary until it is restarted ('satelle service restart').
 // daemonVersion is the version field of satelled's identity line; "unknown" when it
 // cannot say.
 func daemonVersion(ctx context.Context, path string) string {
-	line, err := daemonIdentity(ctx, path)
-	if f := strings.Fields(line); err == nil && len(f) >= 2 {
-		return f[1]
+	if v, ok := buildinfo.VersionOf(buildinfo.Identify(ctx, config.GlobalDir(), path)); ok {
+		return v
 	}
 	return "unknown"
-}
-
-func exeSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
 }
 
 func releaseGet(ctx context.Context, url string) ([]byte, error) {
@@ -264,7 +261,7 @@ func releaseVersionLess(a, b []int) bool {
 // sha256; nothing is written.
 func fetchAsset(ctx context.Context, tag, name string) ([]byte, error) {
 	version := strings.TrimPrefix(tag, serveTagPrefix)
-	asset := fmt.Sprintf("%s-%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, exeSuffix())
+	asset := fmt.Sprintf("%s-%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, buildinfo.ExeSuffix())
 	url := strings.TrimRight(envOr(envReleaseBase, defaultBase), "/") + "/" + tag + "/" + asset
 	bin, err := releaseGet(ctx, url)
 	if err != nil {

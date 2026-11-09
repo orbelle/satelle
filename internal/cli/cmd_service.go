@@ -115,11 +115,10 @@ whose [ledger] store is not local pushes, then pulls, by the rules of
 				}
 				ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 				defer cancel()
-				installed, err := daemonIdentity(ctx, path)
-				if err != nil {
-					installed = fmt.Sprintf("unknown (%v)", err)
-				}
-				reportDaemon(out, &http.Client{Timeout: 2 * time.Second}, ep, installed, path)
+				home := config.GlobalDir()
+				installed := buildinfo.Identify(ctx, home, path)
+				cli := buildinfo.Lookup(home, buildinfo.CLIBeside(path))
+				reportDaemon(out, &http.Client{Timeout: 2 * time.Second}, ep, installed, path, cli)
 				return nil
 			},
 		})
@@ -213,21 +212,13 @@ func unitDaemon(unit string) string {
 	return ""
 }
 
-// daemonIdentity is the identity line the satelled binary at path prints
-// (buildinfo.Info.String).
-func daemonIdentity(ctx context.Context, path string) (string, error) {
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // reportDaemon prints whether satelled answers at ep, the build it runs (from
-// /healthz), the installed binary's build, and a warning when they differ: a
-// running satelled left behind after an install keeps serving the old build
-// until it is restarted.
-func reportDaemon(out io.Writer, client *http.Client, ep, installed, path string) {
+// /healthz), the installed binary's build, the installed satelle CLI beside it
+// (cli, as recorded; "" when not reported), and one warning per disagreement by
+// buildinfo.Drift, the rule satelled's footer shows: a running satelled left
+// behind after an install keeps serving the old build until it is restarted, and
+// a CLI whose version differs from satelled's is a half-done update.
+func reportDaemon(out io.Writer, client *http.Client, ep, installed, path, cli string) {
 	resp, err := client.Get(ep)
 	if err != nil {
 		fmt.Fprintf(out, "satelled  not answering at %s\n", ep)
@@ -242,9 +233,13 @@ func reportDaemon(out io.Writer, client *http.Client, ep, installed, path string
 	}
 	fmt.Fprintf(out, "running   %s\n", running)
 	fmt.Fprintf(out, "installed %s [%s]\n", installed, path)
-	fmt.Fprintf(out, "satelle   %s\n", buildinfo.Resolve().String())
-	if running != installed {
-		fmt.Fprintf(out, "warning   the running satelled (%s) differs from the installed one (%s); run 'satelle service restart'\n", running, installed)
+	if cli == "" {
+		fmt.Fprintf(out, "satelle   unknown (not reported)\n")
+	} else {
+		fmt.Fprintf(out, "satelle   %s [%s]\n", cli, buildinfo.CLIBeside(path))
+	}
+	for _, m := range buildinfo.Drift(cli, running, installed) {
+		fmt.Fprintf(out, "warning   %s; run '%s'\n", m.Text, m.Remedy)
 	}
 }
 

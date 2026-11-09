@@ -35,8 +35,13 @@ var running = buildinfo.Info{Name: "satelled", Version: "1.0.0", Commit: "aaaaaa
 
 func report(t *testing.T, ep, installed string) string {
 	t.Helper()
+	return reportWith(t, ep, installed, "")
+}
+
+func reportWith(t *testing.T, ep, installed, cli string) string {
+	t.Helper()
 	var out bytes.Buffer
-	reportDaemon(&out, http.DefaultClient, ep, installed, "/x/satelled")
+	reportDaemon(&out, http.DefaultClient, ep, installed, "/x/satelled", cli)
 	return out.String()
 }
 
@@ -59,6 +64,27 @@ func TestReportDaemonLegacyBody(t *testing.T) {
 	out := report(t, healthz(t, func(w http.ResponseWriter) { fmt.Fprintln(w, "ok") }), running.String())
 	if !strings.Contains(out, "unknown") || !strings.Contains(out, "warning") {
 		t.Fatalf("a satelled with no identity on /healthz is unknown and warned:\n%s", out)
+	}
+}
+
+// A CLI whose version differs from the installed satelled's is a half-done
+// update: status names satelle update.
+func TestReportDaemonCLIDiffers(t *testing.T) {
+	cli := buildinfo.Info{Name: "satelle", Version: "1.0.1", Commit: "cccccccccccc", BuildTime: "2026-11-06T10:00:00Z"}.String()
+	out := reportWith(t, healthz(t, serving(running)), running.String(), cli)
+	if !strings.Contains(out, "satelle   "+cli) || !strings.Contains(out, "run 'satelle update'") || strings.Contains(out, "satelle service restart") {
+		t.Fatalf("a differing CLI must be reported and warned with satelle update only:\n%s", out)
+	}
+}
+
+// The card's case (sto_49b6e762): satelled 1.0.0 still runs after update
+// installed 1.0.1 of both. Only the restart is named.
+func TestReportDaemonCardCase(t *testing.T) {
+	installed := buildinfo.Info{Name: "satelled", Version: "1.0.1", Commit: "bbbbbbbbbbbb", BuildTime: "2026-11-06T10:00:00Z"}.String()
+	cli := buildinfo.Info{Name: "satelle", Version: "1.0.1", Commit: "bbbbbbbbbbbb", BuildTime: "2026-11-06T10:00:00Z"}.String()
+	out := reportWith(t, healthz(t, serving(running)), installed, cli)
+	if strings.Count(out, "warning") != 1 || !strings.Contains(out, "run 'satelle service restart'") || strings.Contains(out, "satelle update") {
+		t.Fatalf("the card's case must warn restart only:\n%s", out)
 	}
 }
 

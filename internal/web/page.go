@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
@@ -37,10 +36,6 @@ func baseHref() string {
 // tmplFuncs are shared template helpers.
 var tmplFuncs = template.FuncMap{
 	"basehref": baseHref,
-	// buildline is the build identity line (name, version, commit, build time)
-	// the footer shows on every page, so the operator sees which
-	// satelled build is serving. It is baked into the binary: no per-page data.
-	"buildline": func() string { return buildinfo.Resolve().String() },
 	"ftime": func(t time.Time) string {
 		if t.IsZero() {
 			return "—"
@@ -281,7 +276,11 @@ const templatesSrc = `
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="ledger sync is failing — see the project page">Sync Failing</span>{{end}}{{end}}
 
-{{define "footer"}}<footer class="site-footer"><span class="footer-version">{{buildline}}</span></footer>{{end}}
+{{/* footer: the three builds (sto_49b6e762): the satelle CLI installed beside
+     satelled, the running satelled and the satelled installed on disk, each
+     row marked when it is part of a disagreement, then one warning per
+     disagreement naming its remedy (buildinfo.Drift, as satelle service status). */}}
+{{define "footer"}}<footer class="site-footer">{{with .Builds}}<span class="footer-builds"><span class="footer-build{{if index .Mark "cli"}} mismatch{{end}}"><span class="footer-label">satelle</span> {{or .CLI "unknown"}}</span><span class="footer-build{{if index .Mark "running"}} mismatch{{end}}"><span class="footer-label">running</span> <span class="footer-version">{{.Running}}</span></span><span class="footer-build{{if index .Mark "installed"}} mismatch{{end}}"><span class="footer-label">installed</span> {{or .Installed "unknown"}}</span></span>{{range .Warnings}}<span class="footer-warning" role="status">⚠ {{.Text}} — run <code>{{.Remedy}}</code></span>{{end}}{{end}}</footer>{{end}}
 
 {{/* favicon: satelle.dev ◐ monogram (animated terminator + reduced-motion static),
      one shared partial so every page <head> links the same icon — no per-page drift. */}}
@@ -386,7 +385,7 @@ const templatesSrc = `
     </table>
   </section>
 
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
@@ -543,7 +542,7 @@ const templatesSrc = `
     <h2 class="kind-h">{{.Title}} <span class="meta">{{.Name}}</span></h2>
     <article class="doc-article help-doc">{{.HTML}}</article>
   </section>{{else}}<div class="empty">no help topics</div>{{end}}
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
@@ -585,7 +584,7 @@ const templatesSrc = `
     <label><input type="checkbox" data-tlfield="model" checked> Model/agent</label>
     <label><input type="checkbox" data-tlfield="outcome" checked> Outcome</label>
   </div>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
@@ -623,7 +622,7 @@ const templatesSrc = `
     <div class="settings-actions"><button type="submit" class="settings-save">Save</button><span class="settings-note">Writes are accepted only from this machine (loopback).</span></div>
     <div class="settings-error" id="gsettings-error" role="alert" hidden></div>
   </form>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 <script>
@@ -659,7 +658,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
   </header>
   {{with .Workflow}}<section class="route">{{template "route" .}}</section>{{end}}
   <article class="doc-article">{{.HTML}}</article>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
@@ -686,7 +685,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
     <div class="meta">{{.Item.ID}}{{if .Item.Workflow}} · {{.Item.Workflow}}{{end}} · {{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</div>
   </header>
   <div id="detail-live" data-kind="{{.Item.Kind}}" data-id="{{.Item.ID}}">{{template "itemDetail" .}}</div>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
@@ -727,7 +726,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
     <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
     <tbody data-rows id="logs-live">{{template "logsLive" .}}</tbody>
   </table>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/logfile"
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -53,6 +54,10 @@ func Run(ctx context.Context, opts Options) error {
 			publishLogs()
 		}
 	})
+	// The footer names the installed builds from the record in the satelle
+	// home, never by running a binary (sto_49b6e762).
+	exe, exeErr := os.Executable()
+	web.SetInstalledBuilds(installedBuilds(config.GlobalDir(), exe, exeErr))
 	// satelled does not exec the CLI: the CLI pushes what it needs. Hosted
 	// push and the snapshot repair loop are rebuilt in B3/B4.
 	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), nil)
@@ -129,4 +134,21 @@ func loopbackClient(remoteAddr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// installedBuilds records this satelled's own build for its executable (at
+// start the file there is the binary running, so no exec is needed) and returns
+// the footer's reader of the installed builds: the satelle CLI beside satelled
+// and satelled on disk, as recorded in home. A page render costs one small read
+// and two stats.
+func installedBuilds(home, exe string, exeErr error) func() web.InstalledBuilds {
+	if exeErr != nil {
+		u := fmt.Sprintf("unknown (%v)", exeErr)
+		return func() web.InstalledBuilds { return web.InstalledBuilds{CLI: u, Daemon: u} }
+	}
+	_ = buildinfo.Record(home, exe, buildinfo.Resolve().String())
+	cli := buildinfo.CLIBeside(exe)
+	return func() web.InstalledBuilds {
+		return web.InstalledBuilds{CLI: buildinfo.Lookup(home, cli), Daemon: buildinfo.Lookup(home, exe)}
+	}
 }

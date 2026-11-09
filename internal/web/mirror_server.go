@@ -649,7 +649,7 @@ const mirrorProjectsSrc = `
     <div class="meta"><span class="n-partitions">{{len .Partitions}}</span> partition{{if ne (len .Partitions) 1}}s{{end}} · push-fed mirror</div>
   </header>
   <div id="projects-live">{{template "mirrorProjectsLive" .}}</div>
-  {{template "footer"}}
+  {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>

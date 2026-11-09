@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 // releaseServer serves a GitHub-shaped release API and download tree:
@@ -65,8 +66,8 @@ func releaseServer(t *testing.T, latest string, list []string, assets map[string
 func fakeInstall(t *testing.T, withDaemon bool) (cli, daemon string) {
 	t.Helper()
 	dir := t.TempDir()
-	cli = filepath.Join(dir, "satelle"+exeSuffix())
-	daemon = filepath.Join(dir, "satelled"+exeSuffix())
+	cli = filepath.Join(dir, "satelle"+buildinfo.ExeSuffix())
+	daemon = filepath.Join(dir, "satelled"+buildinfo.ExeSuffix())
 	if err := os.WriteFile(cli, []byte("old cli"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func fakeInstall(t *testing.T, withDaemon bool) (cli, daemon string) {
 }
 
 func asset(name, version string) string {
-	return fmt.Sprintf("%s-v%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, exeSuffix())
+	return fmt.Sprintf("%s-v%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, buildinfo.ExeSuffix())
 }
 
 func readString(t *testing.T, p string) string {
@@ -249,5 +250,32 @@ func TestUpdatePinnedSatelledWithoutAssetRefuses(t *testing.T) {
 	}
 	if got := readString(t, daemon); got != before {
 		t.Errorf("satelled was replaced: %q", got)
+	}
+}
+
+// update records the builds it installs, so satelled's footer names the new CLI
+// and satelled straight after the update without running either (sto_49b6e762).
+func TestUpdateRecordsTheInstalledBuilds(t *testing.T) {
+	isolate(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake binaries are shell scripts")
+	}
+	cli, daemon := fakeInstall(t, true)
+	cliLine := "satelle 2.0.0 (commit c, built b)"
+	daemonLine := "satelled 0.2.0 (commit d, built b)"
+	releaseServer(t, "v2.0.0", []string{"v2.0.0", "serve-v0.2.0", "serve-v0.1.0"}, map[string]string{
+		"v2.0.0/" + asset("satelle", "2.0.0"):        "#!/bin/sh\necho '" + cliLine + "'\n",
+		"serve-v0.2.0/" + asset("satelled", "0.2.0"): "#!/bin/sh\necho '" + daemonLine + "'\n",
+	}, "")
+	must(t, "update")
+	home := config.GlobalDir()
+	if got := buildinfo.Lookup(home, cli); got != cliLine {
+		t.Errorf("recorded CLI = %q, want %q", got, cliLine)
+	}
+	if got := buildinfo.Lookup(home, daemon); got != daemonLine {
+		t.Errorf("recorded satelled = %q, want %q", got, daemonLine)
+	}
+	if got := buildinfo.Lookup(home, buildinfo.CLIBeside(daemon)); got != cliLine {
+		t.Errorf("the CLI beside satelled = %q, want %q", got, cliLine)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
 )
 
 // Exit codes.
@@ -69,6 +70,10 @@ every event on an append-only ledger. Start with 'satelle init' and
 
 // Execute runs the command line.
 func Execute() error {
+	// This binary records its own build for the file on disk before the command
+	// runs, so satelled names the installed CLI without running it; an update
+	// that replaces this file mid-run records the new file itself. Best effort.
+	_ = buildinfo.RecordSelf(config.GlobalDir())
 	root := NewRootCmd()
 	err := root.Execute()
 	// satelled hears of every ledger write, whether the command succeeded or
