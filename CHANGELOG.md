@@ -1,3 +1,18 @@
+## [1.0.44] - 2026-11-09
+
+### Added
+- Work state replicates on its own: `satelle service install` now also installs `satelle-sync.timer`, which every 30 seconds pushes then pulls each project on this machine whose `[ledger] store` is not local, through the same replicator as `satelle ledger push` and `pull`. A story created, updated or moved on one machine reaches satelle.dev and every other signed-in, bound machine within 90 seconds, and a write made offline is pushed once the store is reachable. Run `satelle service install` once on each machine to start it (sto_5c706973)
+- satelled's project page shows when the project last synced with its ledger store and, when the last pass failed, why (`sync failing`, naming the diverged or refused items or the store error) (sto_5c706973)
+
+### Changed
+- The binary-scope gate is judged by grok instead of Gemini 3.8 Flash, which accepted large diffs without naming what it judged (sto_49abe9f0)
+- `satelle project bind` adds the repo to this machine's projects, so a bound repo syncs automatically and shows in satelled (sto_5c706973)
+- The planner runs on Opus 5.5 through Cursor (pi), and a pi coder binding on the same model is declared for when pi can carry the performer denies. (sto_94b22889)
+- The sync-architecture principle describes automatic replication by a 30-second timer (within 90 s), with a forked chain reported and never re-based (sto_81bf6799)
+
+### Fixed
+- A queue file whose `id` adopts an existing chain no longer creates a fresh local chain before the first pull, and its definition is mirrored as a deterministic event, so two machines never fork the queue's chain (sto_5c706973)
+
 ## [1.0.43] - 2026-11-08
 
 ### Changed
