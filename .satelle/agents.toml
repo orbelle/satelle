@@ -6,12 +6,14 @@
 [agents.executor]
 command = "session"
 
-# Planner and coder run on Opus 5.5 through Cursor (operator, 2026-11-09):
-# Cursor is where model tokens and cost are allocated. The planner needs no
-# shell: satelle attaches its artifact as the item's plan.
+# The planner runs on claude (Opus 5.5) until the cursor adapter lands
+# (sto_f58cee64): on pi-cursor it lost its prompt on reconnect in 5 of 6 plan
+# dispatches on 2026-11-09 (sto_e9fb6f0d). sto_e0f5372d moves it to Cursor's own
+# CLI, where model tokens and cost are allocated (operator, 2026-11-09). The
+# planner needs no shell: satelle attaches its artifact as the item's plan.
 [agents.planner]
-command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
-model = "cursor/claude-opus-5-5"
+command = "claude"
+model = "opus"
 effort = "high"
 tools = ["Read", "Grep", "Glob"]
 
