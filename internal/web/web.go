@@ -139,6 +139,15 @@ type rowVM struct {
 	// Here marks a story engaged at this checkout in a hosted-mode partition. It
 	// is a mark on the row, never a filter (sty_6ce071dc).
 	Here bool
+	// Assignees is every user assigned the item, each once: its explicit
+	// assignees, then each user holding a working seat (assigneesOf).
+	Assignees []assigneeVM
+}
+
+// assigneeVM is one assignee; Working marks a user holding a working seat.
+type assigneeVM struct {
+	User    string
+	Working bool
 }
 
 // panelVM is one workflow panel's tab and rows: Topic is its tab and fragment
@@ -170,6 +179,7 @@ type detailData struct {
 	// kind's own: a workflow panel's topic; "" means the kind's tab.
 	BackTab       string
 	ParentKind    string // the kind of the parent item, "" when not pushed
+	Assignees     []assigneeVM
 	Children      []childLink
 	Route         routeVM
 	Presentations []presentationVM

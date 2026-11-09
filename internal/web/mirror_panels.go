@@ -163,11 +163,19 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 
 	syncSt := loadPartitionSync(repoRoot)
+	bySeat := seatsByItem(seats)
 	storyRows := itemRows(stories, workflows)
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
+	withAssignees(storyRows, bySeat, standing)
 	storyRows, panels := splitPanels(storyRows, workflows)
+	taskRows := itemRows(tasks, workflows)
+	withAssignees(taskRows, bySeat, standing)
+	queueVMs := queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows)
+	for i := range queueVMs {
+		queueVMs[i].Assignees = assigneeVMs(assigneesOf(queueVMs[i].Item, bySeat[queueVMs[i].ID], standing))
+	}
 	lastIngest, stale := partitionFreshness(ctx, s, repoKey)
 	return pageData{
 		RepoRoot:        repoRoot,
@@ -184,8 +192,8 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		BacklogCount:    backlogCount(listed, workflows),
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
-		Tasks:           itemRows(tasks, workflows),
-		Queues:          queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows),
+		Tasks:           taskRows,
+		Queues:          queueVMs,
 		Activity:        activityRows(stories, executions, workflows, seats, events, standing),
 		DocKinds:        docKinds(docs),
 		Workflows:       workflowRows(docs),
@@ -209,6 +217,48 @@ func hostedView(h *mirror.HostedMeta, engaged []string) (map[string]bool, *hoste
 		here[id] = true
 	}
 	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
+}
+
+// seatsByItem groups seats by the item each is bound to.
+func seatsByItem(seats []mirror.Seat) map[string][]mirror.Seat {
+	by := map[string][]mirror.Seat{}
+	for _, s := range seats {
+		if id := seatItem(s); id != "" {
+			by[id] = append(by[id], s)
+		}
+	}
+	return by
+}
+
+// assigneesOf is it's assignees and those of them working it
+// (item.AssigneesOf), from seats (the item's) kept where their standing is
+// working: a seat proven gone drops its user.
+func assigneesOf(it Item, seats []mirror.Seat, standing seatStanding) (users, working []string) {
+	held := slices.Clone(seats)
+	sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
+	var live []item.Seat
+	for _, s := range held {
+		if standing(s).Working() {
+			live = append(live, item.Seat{Session: s.Session, Location: s.Location, Machine: s.Machine, Host: s.Host, User: s.User})
+		}
+	}
+	return item.AssigneesOf(it.Assignees, live)
+}
+
+// assigneeVMs is users as view rows, each in working marked.
+func assigneeVMs(users, working []string) []assigneeVM {
+	out := make([]assigneeVM, len(users))
+	for i, u := range users {
+		out[i] = assigneeVM{User: u, Working: slices.Contains(working, u)}
+	}
+	return out
+}
+
+// withAssignees sets each row's assignees from bySeat (seatsByItem).
+func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatStanding) {
+	for i := range rows {
+		rows[i].Assignees = assigneeVMs(assigneesOf(rows[i].Item, bySeat[rows[i].ID], standing))
+	}
 }
 
 // itemRows is one row per item, its status classed by its workflow.
@@ -550,8 +600,11 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	if p := panelOf(workflows, it); p != "" {
 		backTab = panelTopic(p)
 	}
+	seats, _ := decodeSeats(ctx, s, repoKey)
+	assignees := assigneeVMs(assigneesOf(it, seatsByItem(seats)[it.ID], standingHere()))
 	return detailData{
 		Item:          it,
+		Assignees:     assignees,
 		BackTab:       backTab,
 		StateClass:    stateClass(workflows[it.Workflow], it.Status),
 		ParentKind:    parentKind,

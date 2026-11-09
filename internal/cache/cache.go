@@ -23,7 +23,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS files (item TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS items (
 	id TEXT PRIMARY KEY, kind TEXT, title TEXT, body TEXT, criteria TEXT, status TEXT,
-	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignee TEXT, inputs TEXT, trigger TEXT, base TEXT,
+	tags TEXT, parent TEXT, category TEXT, workflow TEXT, assignees TEXT, inputs TEXT, trigger TEXT, base TEXT,
 	created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS item_tags (item TEXT NOT NULL, tag TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS item_tags_tag ON item_tags(tag);
@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_item ON events(item, kind);
 CREATE UNIQUE INDEX IF NOT EXISTS events_id ON events(id);
 CREATE TABLE IF NOT EXISTS seats (
-	item TEXT, session TEXT, location TEXT, base TEXT, bound_at TEXT, PRIMARY KEY (item, session));
+	item TEXT, session TEXT, location TEXT, base TEXT, bound_at TEXT,
+	machine TEXT, host TEXT, user TEXT, PRIMARY KEY (item, session));
 CREATE TABLE IF NOT EXISTS attachments (
 	item TEXT, name TEXT, sha256 TEXT, size INTEGER, media_type TEXT, at TEXT, actor TEXT);
 CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
@@ -44,8 +45,9 @@ CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 // ledger on its next Sync. A cache of a higher version was written by a newer
 // binary: Open refuses it with SchemaTooNewError and never lowers it. v3
 // makes an event id unique in events (events_id), so a cache never holds an
-// event twice.
-const schemaVersion = 3
+// event twice. v4 keeps an item's assignees as a list (items.assignees) and a
+// seat's machine, host and user.
+const schemaVersion = 4
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
@@ -250,6 +252,7 @@ func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 	if it, err := item.Fold(all); err == nil {
 		criteria, _ := json.Marshal(it.Criteria)
 		tags, _ := json.Marshal(it.Tags)
+		assignees, _ := json.Marshal(it.Assignees)
 		inputs := ""
 		if it.Inputs != nil {
 			b, _ := json.Marshal(it.Inputs)
@@ -262,7 +265,7 @@ func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			it.ID, it.Kind, it.Title, it.Body, string(criteria), it.Status, string(tags), it.Parent,
-			it.Category, it.Workflow, it.Assignee, inputs, trigger, it.Base, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
+			it.Category, it.Workflow, string(assignees), inputs, trigger, it.Base, ts(it.CreatedAt), ts(it.UpdatedAt)); err != nil {
 			return err
 		}
 		for _, tag := range it.Tags {
@@ -272,7 +275,8 @@ func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 		}
 	}
 	for _, s := range item.FoldSeats(all) {
-		if _, err := tx.Exec(`INSERT INTO seats VALUES (?,?,?,?,?)`, s.Item, s.Session, s.Location, s.Base, ts(s.BoundAt)); err != nil {
+		if _, err := tx.Exec(`INSERT INTO seats VALUES (?,?,?,?,?,?,?,?)`, s.Item, s.Session, s.Location, s.Base, ts(s.BoundAt),
+			s.Machine, s.Host, s.User); err != nil {
 			return err
 		}
 	}
@@ -323,7 +327,7 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 	add("parent = ?", q.Parent)
 	add("workflow = ?", q.Workflow)
 	add("id IN (SELECT item FROM item_tags WHERE tag = ?)", q.Tag)
-	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignee, inputs, trigger, base, created_at, updated_at FROM items`
+	sqlText := `SELECT id, kind, title, body, criteria, status, tags, parent, category, workflow, assignees, inputs, trigger, base, created_at, updated_at FROM items`
 	if len(where) > 0 {
 		sqlText += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -335,13 +339,14 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 	var out []item.Item
 	for rows.Next() {
 		var it item.Item
-		var criteria, tags, inputs, trigger, created, updated string
+		var criteria, tags, assignees, inputs, trigger, created, updated string
 		if err := rows.Scan(&it.ID, &it.Kind, &it.Title, &it.Body, &criteria, &it.Status, &tags, &it.Parent,
-			&it.Category, &it.Workflow, &it.Assignee, &inputs, &trigger, &it.Base, &created, &updated); err != nil {
+			&it.Category, &it.Workflow, &assignees, &inputs, &trigger, &it.Base, &created, &updated); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(criteria), &it.Criteria)
 		_ = json.Unmarshal([]byte(tags), &it.Tags)
+		_ = json.Unmarshal([]byte(assignees), &it.Assignees)
 		if inputs != "" {
 			it.Inputs = &item.Selection{}
 			_ = json.Unmarshal([]byte(inputs), it.Inputs)
@@ -408,7 +413,7 @@ func (c *Cache) Events(itemID, kind string) ([]ledger.Event, error) {
 // Seats returns the bound seats of a session ("" = every session), optionally
 // on one item ("" = every item).
 func (c *Cache) Seats(session, itemID string) ([]item.Seat, error) {
-	rows, err := c.db.Query(`SELECT item, session, location, base, bound_at FROM seats
+	rows, err := c.db.Query(`SELECT item, session, location, base, bound_at, machine, host, user FROM seats
 		WHERE (? = '' OR session = ?) AND (? = '' OR item = ?) ORDER BY bound_at, item`, session, session, itemID, itemID)
 	if err != nil {
 		return nil, err
@@ -418,7 +423,7 @@ func (c *Cache) Seats(session, itemID string) ([]item.Seat, error) {
 	for rows.Next() {
 		var s item.Seat
 		var at string
-		if err := rows.Scan(&s.Item, &s.Session, &s.Location, &s.Base, &at); err != nil {
+		if err := rows.Scan(&s.Item, &s.Session, &s.Location, &s.Base, &at, &s.Machine, &s.Host, &s.User); err != nil {
 			return nil, err
 		}
 		s.BoundAt = parseTS(at)

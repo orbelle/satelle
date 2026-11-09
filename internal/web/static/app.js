@@ -113,9 +113,11 @@
       if (t.key === "status") {
         hasStatus = true;
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(row.dataset.status || "") === -1) return false;
-      } else if (t.key === "tags") {
-        var tags = (row.dataset.tags || "").toLowerCase().split(",");
-        if (!t.vals.some(function (v) { return tags.indexOf(v) !== -1; })) return false;
+      } else if (t.key === "tags" || t.key === "assignee") {
+        // A list value: tags, or the assignees (sto_600b9a85) joined by commas.
+        var list = (row.dataset[t.key] || "").toLowerCase().split(",");
+        var any = t.key === "assignee" && t.vals.indexOf("all") !== -1;
+        if (!any && !t.vals.some(function (v) { return list.indexOf(v) !== -1; })) return false;
       } else {
         var val = (row.dataset[t.key] || "").toLowerCase();
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(val) === -1) return false;

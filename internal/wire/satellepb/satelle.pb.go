@@ -631,19 +631,23 @@ func (x *RegisterLocationResponse) GetUserId() string {
 }
 
 type Item struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
-	Workflow      string                 `protobuf:"bytes,5,opt,name=workflow,proto3" json:"workflow,omitempty"`
-	Parent        string                 `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
-	Category      string                 `protobuf:"bytes,7,opt,name=category,proto3" json:"category,omitempty"`
-	Tags          []string               `protobuf:"bytes,8,rep,name=tags,proto3" json:"tags,omitempty"`
-	Assignee      string                 `protobuf:"bytes,9,opt,name=assignee,proto3" json:"assignee,omitempty"` // carried for satelle-server; no behaviour in satelle
-	HeadHash      string                 `protobuf:"bytes,10,opt,name=head_hash,json=headHash,proto3" json:"head_hash,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Record        []byte                 `protobuf:"bytes,12,opt,name=record,proto3" json:"record,omitempty"` // the full folded item as JSON
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind      string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Title     string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	Status    string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	Workflow  string                 `protobuf:"bytes,5,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	Parent    string                 `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
+	Category  string                 `protobuf:"bytes,7,opt,name=category,proto3" json:"category,omitempty"`
+	Tags      []string               `protobuf:"bytes,8,rep,name=tags,proto3" json:"tags,omitempty"`
+	HeadHash  string                 `protobuf:"bytes,10,opt,name=head_hash,json=headHash,proto3" json:"head_hash,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Record    []byte                 `protobuf:"bytes,12,opt,name=record,proto3" json:"record,omitempty"` // the full folded item as JSON
+	// assignees is every user assigned the item, each once: the explicit
+	// assignees, then each user holding a live seat on it.
+	Assignees []string `protobuf:"bytes,13,rep,name=assignees,proto3" json:"assignees,omitempty"`
+	// working is the users of assignees holding a live seat, in that order.
+	Working       []string `protobuf:"bytes,14,rep,name=working,proto3" json:"working,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -734,13 +738,6 @@ func (x *Item) GetTags() []string {
 	return nil
 }
 
-func (x *Item) GetAssignee() string {
-	if x != nil {
-		return x.Assignee
-	}
-	return ""
-}
-
 func (x *Item) GetHeadHash() string {
 	if x != nil {
 		return x.HeadHash
@@ -758,6 +755,20 @@ func (x *Item) GetUpdatedAt() *timestamppb.Timestamp {
 func (x *Item) GetRecord() []byte {
 	if x != nil {
 		return x.Record
+	}
+	return nil
+}
+
+func (x *Item) GetAssignees() []string {
+	if x != nil {
+		return x.Assignees
+	}
+	return nil
+}
+
+func (x *Item) GetWorking() []string {
+	if x != nil {
+		return x.Working
 	}
 	return nil
 }
@@ -3002,7 +3013,7 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\blocation\x18\x01 \x01(\tR\blocation\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\"3\n" +
 	"\x18RegisterLocationResponse\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\"\xc8\x02\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"\xf4\x02\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -3011,13 +3022,15 @@ const file_satelle_v1_satelle_proto_rawDesc = "" +
 	"\bworkflow\x18\x05 \x01(\tR\bworkflow\x12\x16\n" +
 	"\x06parent\x18\x06 \x01(\tR\x06parent\x12\x1a\n" +
 	"\bcategory\x18\a \x01(\tR\bcategory\x12\x12\n" +
-	"\x04tags\x18\b \x03(\tR\x04tags\x12\x1a\n" +
-	"\bassignee\x18\t \x01(\tR\bassignee\x12\x1b\n" +
+	"\x04tags\x18\b \x03(\tR\x04tags\x12\x1b\n" +
 	"\thead_hash\x18\n" +
 	" \x01(\tR\bheadHash\x129\n" +
 	"\n" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x16\n" +
-	"\x06record\x18\f \x01(\fR\x06record\"S\n" +
+	"\x06record\x18\f \x01(\fR\x06record\x12\x1c\n" +
+	"\tassignees\x18\r \x03(\tR\tassignees\x12\x18\n" +
+	"\aworking\x18\x0e \x03(\tR\aworkingJ\x04\b\t\x10\n" +
+	"R\bassignee\"S\n" +
 	"\x0fPutItemsRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12&\n" +
 	"\x05items\x18\x02 \x03(\v2\x10.satelle.v1.ItemR\x05items\"*\n" +

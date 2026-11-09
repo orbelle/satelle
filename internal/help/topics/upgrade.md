@@ -47,8 +47,8 @@ the whole import before anything is written, listing each problem.
 What is imported, for every old item, open and closed:
 
 - the item, with its old id, kind, title, body, criteria (the old single text
-  split at numbered or bulleted lines), tags, parent, category, assignee and
-  created time, in the workflow and state the map gives;
+  split at numbered or bulleted lines), tags, parent, category, assignee (as
+  a one-entry assignees list) and created time, in the workflow and state the map gives;
 - each old history row as an `upgrade.imported` event carrying the row
   unchanged (kind, actor, body, payload, time);
 - each file of its old `stories/<id>/` directory as an attachment with the same

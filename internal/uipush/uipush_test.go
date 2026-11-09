@@ -145,7 +145,7 @@ func TestPushRoundTrip(t *testing.T) {
 	srv, store := satelled(t, "inst")
 	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
 
-	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Pushed"), Body: ptr("what to do"), Criteria: ptr([]string{"it lands"}), Assignee: ptr("ann")}, "ann")
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Pushed"), Body: ptr("what to do"), Criteria: ptr([]string{"it lands"}), Assignees: ptr([]string{"ann"})}, "ann")
 	if err != nil {
 		t.Fatal(err)
 	}

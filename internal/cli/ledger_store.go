@@ -66,9 +66,10 @@ func openStore(k *kernel.Kernel, r repo, verb string) (ledgerrepl.Store, func(),
 	return nil, func() {}, nil
 }
 
-// devFor is satelle.dev for project over c. It reads no setting.
+// devFor is satelle.dev for project over c. It reads no setting; its Home is
+// the satelle home, whose session records class the seats it summarises.
 func devFor(k *kernel.Kernel, c *hosted.Client, project string) *ledgerrepl.Dev {
-	return &ledgerrepl.Dev{Client: c, Project: project, Ledger: k.Ledger, Cache: k.Cache}
+	return &ledgerrepl.Dev{Client: c, Project: project, Ledger: k.Ledger, Cache: k.Cache, Home: config.GlobalDir()}
 }
 
 // newReplicator is the one replicator the CLI builds, for every store: it

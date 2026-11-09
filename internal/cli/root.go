@@ -121,10 +121,18 @@ func actor() string {
 	if s := sessionFromEnv(); s != "" {
 		return s
 	}
+	if u := osUser(); u != "" {
+		return u
+	}
+	return "cli"
+}
+
+// osUser is the OS user from USER or USERNAME, or "" when neither is set.
+func osUser() string {
 	for _, k := range []string{"USER", "USERNAME"} {
 		if u := strings.TrimSpace(os.Getenv(k)); u != "" {
 			return u
 		}
 	}
-	return "cli"
+	return ""
 }

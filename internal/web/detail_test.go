@@ -49,7 +49,7 @@ func fixtureSnapshot() mirror.Snapshot {
 		Stories: []json.RawMessage{
 			raw(mirror.Item{ID: "sto_1", Kind: "story", Title: "Detail Story", Body: "the body", Status: "beta",
 				Criteria: []string{"first criterion", "second criterion"}, Tags: []string{"k:v"}, ParentID: "sto_0",
-				Category: "cat", Workflow: "flow", Assignee: "ann", CreatedAt: t0, UpdatedAt: at(5)}),
+				Category: "cat", Workflow: "flow", Assignees: []string{"ann"}, CreatedAt: t0, UpdatedAt: at(5)}),
 			raw(mirror.Item{ID: "sto_0", Kind: "story", Title: "Parent", Status: "zed", Workflow: "flow", CreatedAt: t0, UpdatedAt: t0}),
 		},
 		Executions: []json.RawMessage{

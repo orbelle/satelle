@@ -64,14 +64,15 @@ func resolveItem(k *kernel.Kernel, kind, ref string) (string, error) {
 
 // fieldFlags are the item fields create and set take.
 type fieldFlags struct {
-	title, body, category, parent, workflow, assignee string
-	criteria, tags, addTags, removeTags               []string
-	addCriteria, removeCriteria                       []string
-	replace                                           bool
-	inKind, inStatus, inTag, inCategory               string
-	clearInputs                                       bool
-	trigTask, trigWorkflow, trigBase                  string
-	minSize                                           int
+	title, body, category, parent, workflow  string
+	criteria, tags, addTags, removeTags      []string
+	addCriteria, removeCriteria              []string
+	assignees, addAssignees, removeAssignees []string
+	replace                                  bool
+	inKind, inStatus, inTag, inCategory      string
+	clearInputs                              bool
+	trigTask, trigWorkflow, trigBase         string
+	minSize                                  int
 }
 
 func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
@@ -91,7 +92,7 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	fl.StringArrayVar(&f.tags, "tag", nil, "a tag (repeatable; on set, replaces the list only with --replace)")
 	fl.StringVar(&f.category, "category", "", "category")
 	fl.StringVar(&f.parent, "parent", "", "parent item id")
-	fl.StringVar(&f.assignee, "assignee", "", "assignee (carried, no behaviour)")
+	fl.StringArrayVar(&f.assignees, "assignee", nil, "an assignee (repeatable; on set, replaces the list only with --replace)")
 	fl.StringVar(&f.inKind, "input-kind", "", "input selection (a task's inputs, a queue's filter): item kind")
 	fl.StringVar(&f.inStatus, "input-status", "", "input selection (a task's inputs, a queue's filter): status")
 	fl.StringVar(&f.inTag, "input-tag", "", "input selection (a task's inputs, a queue's filter): tag")
@@ -103,8 +104,40 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 		fl.StringArrayVar(&f.removeTags, "remove-tag", nil, "remove a tag (repeatable)")
 		fl.StringArrayVar(&f.addCriteria, "add-criteria", nil, "add an acceptance criterion at the end of the list (repeatable)")
 		fl.StringArrayVar(&f.removeCriteria, "remove-criteria", nil, "remove an acceptance criterion, by its exact text (repeatable)")
-		fl.BoolVar(&f.replace, "replace", false, "let --criteria / --tag drop existing entries")
+		fl.StringArrayVar(&f.addAssignees, "add-assignee", nil, "add an assignee (repeatable)")
+		fl.StringArrayVar(&f.removeAssignees, "remove-assignee", nil, "remove an assignee (repeatable)")
+		fl.BoolVar(&f.replace, "replace", false, "let --criteria / --tag / --assignee drop existing entries")
 	}
+}
+
+// editList is the list a --<flag> / --add-<flag> / --remove-<flag> edit
+// leaves: set when --<flag> is given, else cur, plus each added entry not
+// already listed, less each removed one (removing an unlisted entry is
+// ignored). Entries are trimmed and blank ones dropped. Nil when no flag of
+// the three is given.
+func editList(changed func(string) bool, flag string, set, add, remove, cur []string) *[]string {
+	if !changed(flag) && !changed("add-"+flag) && !changed("remove-"+flag) {
+		return nil
+	}
+	var list []string
+	if changed(flag) {
+		list = append(list, set...)
+	} else {
+		list = append(list, cur...)
+	}
+	list = append(list, add...)
+	var drop []string
+	for _, e := range remove {
+		drop = append(drop, strings.TrimSpace(e))
+	}
+	kept := []string{}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e != "" && !contains(kept, e) && !contains(drop, e) {
+			kept = append(kept, e)
+		}
+	}
+	return &kept
 }
 
 // fields returns the Fields the flags set; cur is the item being updated (nil
@@ -121,7 +154,6 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 	str("title", f.title, &out.Title)
 	str("category", f.category, &out.Category)
 	str("parent", f.parent, &out.Parent)
-	str("assignee", f.assignee, &out.Assignee)
 	str("workflow", f.workflow, &out.Workflow)
 	if changed("body") {
 		body := f.body
@@ -176,26 +208,12 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 		}
 		out.Criteria = &kept
 	}
-	if changed("tag") || changed("add-tag") || changed("remove-tag") {
-		var tags []string
-		if changed("tag") {
-			tags = append(tags, f.tags...)
-		} else if cur != nil {
-			tags = append(tags, cur.Tags...)
-		}
-		for _, t := range f.addTags {
-			if !contains(tags, t) {
-				tags = append(tags, t)
-			}
-		}
-		kept := tags[:0]
-		for _, t := range tags {
-			if !contains(f.removeTags, t) {
-				kept = append(kept, t)
-			}
-		}
-		out.Tags = &kept
+	var curTags, curAssignees []string
+	if cur != nil {
+		curTags, curAssignees = cur.Tags, cur.Assignees
 	}
+	out.Tags = editList(changed, "tag", f.tags, f.addTags, f.removeTags, curTags)
+	out.Assignees = editList(changed, "assignee", f.assignees, f.addAssignees, f.removeAssignees, curAssignees)
 	if cur != nil && !f.replace {
 		var msg strings.Builder
 		guard := func(flag, name string, have []string, next *[]string, removed []string) {
@@ -221,6 +239,7 @@ func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, er
 		}
 		guard("criteria", "criteria", cur.Criteria, out.Criteria, f.removeCriteria)
 		guard("tag", "tags", cur.Tags, out.Tags, f.removeTags)
+		guard("assignee", "assignees", cur.Assignees, out.Assignees, f.removeAssignees)
 		if msg.Len() > 0 {
 			return out, errors.New(msg.String())
 		}
@@ -351,15 +370,20 @@ func itemGetCmd(kind string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			users, working := itemAssignees(it, seats)
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
+					// Assignees shadows the record's explicit list with every
+					// assignee, seated users included (item.AssigneesOf).
+					Assignees   []string          `json:"assignees"`
+					Working     []string          `json:"working"`
 					Attachments []item.Attachment `json:"attachments"`
 					Seats       []item.Seat       `json:"seats"`
 					Held        *item.Hold        `json:"held,omitempty"`
-				}{it, atts, seats, held})
+				}{it, users, working, atts, seats, held})
 			}
-			printItem(out, it)
+			printItem(out, it, users, working)
 			if held != nil {
 				fmt.Fprintf(out, "held       after %d rejected rounds leaving %s; dissent %s; accepted %s\n",
 					held.Rounds, held.State, dissentKeys(*held), orNone(held.Accepted))
@@ -368,7 +392,11 @@ func itemGetCmd(kind string) *cobra.Command {
 				fmt.Fprintf(out, "attachment %s (%s, %d bytes)\n", a.Name, a.MediaType, a.Size)
 			}
 			for _, s := range seats {
-				fmt.Fprintf(out, "seat       %s at %s\n", s.Session, s.Location)
+				fmt.Fprintf(out, "seat       %s at %s", s.Session, s.Location)
+				if s.User != "" {
+					fmt.Fprintf(out, " by %s", s.User)
+				}
+				fmt.Fprintln(out)
 			}
 			return nil
 		},
@@ -381,10 +409,35 @@ func itemGetCmd(kind string) *cobra.Command {
 	return cmd
 }
 
-func printItem(w io.Writer, it item.Item) {
+// itemAssignees is it's assignees and those of them working it, from seats
+// (the item's bound seats) less those proven gone on this machine.
+func itemAssignees(it item.Item, seats []item.Seat) (users, working []string) {
+	if len(seats) == 0 {
+		return item.AssigneesOf(it.Assignees, nil)
+	}
+	home := config.GlobalDir()
+	here, _ := config.ReadMachineID(home)
+	return item.AssigneesOf(it.Assignees, seatlife.Working(home, here, seats))
+}
+
+// assigneesText is users joined by ", ", each user working it marked
+// " (working)".
+func assigneesText(users, working []string) string {
+	parts := make([]string, len(users))
+	for i, u := range users {
+		parts[i] = u
+		if contains(working, u) {
+			parts[i] += " (working)"
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// printItem prints it, with its assignees (users) and those of them working it.
+func printItem(w io.Writer, it item.Item, users, working []string) {
 	fmt.Fprintf(w, "%s  %s\n", it.ID, it.Title)
 	fmt.Fprintf(w, "kind       %s\nstatus     %s\nworkflow   %s\n", it.Kind, it.Status, it.Workflow)
-	for _, kv := range [][2]string{{"category", it.Category}, {"parent", it.Parent}, {"assignee", it.Assignee}, {"tags", strings.Join(it.Tags, ", ")}} {
+	for _, kv := range [][2]string{{"category", it.Category}, {"parent", it.Parent}, {"assignees", assigneesText(users, working)}, {"tags", strings.Join(it.Tags, ", ")}} {
 		if kv[1] != "" {
 			fmt.Fprintf(w, "%-10s %s\n", kv[0], kv[1])
 		}
@@ -439,10 +492,26 @@ func itemListCmd(kind string) *cobra.Command {
 				items = kept
 			}
 			if *asJSON {
-				if items == nil {
-					items = []item.Item{}
+				seats, err := k.Cache.Seats("", "")
+				if err != nil {
+					return err
 				}
-				return writeJSON(cmd.OutOrStdout(), items)
+				byItem := map[string][]item.Seat{}
+				for _, s := range seats {
+					byItem[s.Item] = append(byItem[s.Item], s)
+				}
+				type row struct {
+					item.Item
+					// Assignees shadows the record's explicit list, as in get.
+					Assignees []string `json:"assignees"`
+					Working   []string `json:"working"`
+				}
+				rows := []row{}
+				for _, it := range items {
+					users, working := itemAssignees(it, byItem[it.ID])
+					rows = append(rows, row{it, users, working})
+				}
+				return writeJSON(cmd.OutOrStdout(), rows)
 			}
 			for _, it := range items {
 				fmt.Fprintf(cmd.OutOrStdout(), "%-14s %-14s %s\n", it.ID, it.Status, it.Title)

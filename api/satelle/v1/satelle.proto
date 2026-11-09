@@ -94,10 +94,16 @@ message Item {
   string parent = 6;
   string category = 7;
   repeated string tags = 8;
-  string assignee = 9; // carried for satelle-server; no behaviour in satelle
+  reserved 9;
+  reserved "assignee";
   string head_hash = 10;
   google.protobuf.Timestamp updated_at = 11;
   bytes record = 12; // the full folded item as JSON
+  // assignees is every user assigned the item, each once: the explicit
+  // assignees, then each user holding a live seat on it.
+  repeated string assignees = 13;
+  // working is the users of assignees holding a live seat, in that order.
+  repeated string working = 14;
 }
 message PutItemsRequest {
   string project = 1;

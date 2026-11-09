@@ -643,6 +643,7 @@ Each is a ruling the contract does not make. The inventory records a lean; Phase
     **Ruled:** configured selection rules on category or tags, first match else default. (Operator rulings)
 4. **Q-fields.** Kernel 1 lists id, title, body, AC, status, tags, parent/child. Keep `priority`, `category`, `archived`, `assignee`?
     **Ruled:** keep category, kind, workflow; `assignee` carried, no behaviour; `priority` becomes a tag; `archived` goes. (Operator rulings)
+    **Changed 2026-11-10** (operator directive, sto_600b9a85): `assignees` is a list, and every user holding a live seat is an assignee, marked working.
 5. **Q-criteria.** Are per-criterion verdicts (verb/criteria.go, agentstep/criteria.go) part of "verdict = accept/reject plus notes"?
     **Ruled:** no; accept/reject plus notes. (Operator rulings)
 6. **Q-executor.** `[executor]` (the in-loop session) and `[reviewer]` (default gate seat) are struct fields and built-in meanings in config, agentstep, wfdot and the hook. Lean: the agents catalog is a free map, and the in-loop/performing binding is named by the workflow.
@@ -774,8 +775,10 @@ the contract above disagree, the ruling wins.
   and friends go.
 - **Q-transitions.** Transitions are written out explicitly in configuration.
 - **Q-fields.** Kept: id, title, body, acceptance criteria, status, tags,
-  parent, kind, category, workflow. `assignee` is carried through sync for
-  satelle-server and has no behaviour in satelle. `priority` becomes a tag.
+  parent, kind, category, workflow. `assignees` (a list, since 2026-11-10;
+  before, a carried `assignee` string) holds the explicit assignees; the
+  users holding a live seat join them, marked working (sto_600b9a85).
+  `priority` becomes a tag.
   `archived` goes.
 - **Q-criteria.** A verdict is accept/reject plus notes.
 
@@ -1165,7 +1168,8 @@ appends `attachment.added` named by the artifact (media type
 nothing (sto_42f9cae5). Any other kind may be appended by `ledger append` and is carried, never read.
 
 **Items.** Fields: id, kind, title, body, criteria, status, tags, parent,
-category, workflow, assignee (carried for sync; no behaviour). The workflow is
+category, workflow, assignees (a list; every user holding a live seat is
+also an assignee, marked working). The workflow is
 chosen at create (explicit `--workflow`, else the first matching rule, else the
 default) and stamped on the item. Status starts at the workflow's start state.
 An item that arrives from the server without a workflow (satelle-server never

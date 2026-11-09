@@ -22,6 +22,9 @@ type Seat struct {
 	// Both are empty on seats bound before seats recorded their machine.
 	Machine string `json:"machine,omitempty"`
 	Host    string `json:"host,omitempty"`
+	// User is the satelle user who bound the seat: the signed-in identity,
+	// else <OS user>@<host>. Empty on seats bound before seats recorded it.
+	User string `json:"user,omitempty"`
 }
 
 // SeatRelease is the payload of seat.released.

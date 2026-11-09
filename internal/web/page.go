@@ -59,6 +59,15 @@ var tmplFuncs = template.FuncMap{
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
 	},
+	// users is the assignees' users joined by commas: a row's data-assignee
+	// filter value and its search text.
+	"users": func(as []assigneeVM) string {
+		us := make([]string, len(as))
+		for i, a := range as {
+			us[i] = a.User
+		}
+		return strings.Join(us, ",")
+	},
 	// evdot maps a timeline event to its dot's outcome class from the gate
 	// result in the payload: a reject is a fail dot, an error (a judge that
 	// could not be asked) an error dot, an accept or carry a pass dot; every
@@ -334,7 +343,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
     </table>
   </section>
@@ -359,7 +368,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Tasks}}</tbody>
     </table>
   </section>
@@ -396,7 +405,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Rows}}</tbody>
     </table>
   </section>
@@ -424,19 +433,21 @@ const templatesSrc = `
      handles 0↔n. Count = non-terminal stories holding a non-stale seat. */}}
 {{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
+
+{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
   <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
-  <td class="meta">{{if .Assignee}}{{.Assignee}}{{else}}—{{end}}</td>
+  <td class="meta">{{template "assignees" .Assignees}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
 
 {{/* activityRows: the items being worked now, one condensed line each: who
      or what works it (seats, else the state's performer) and its latest step.
      Same row attributes as workitemRows, so the filters and expand work. */}}
-{{define "activityRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.StepAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "activityRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.StepAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta act-kind">{{.Kind}}</span>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{with $task}} {{tagchip (printf "task:%s" .)}}{{end}}</div></td>
   <td>{{template "statebadge" .}}</td>
@@ -448,7 +459,7 @@ const templatesSrc = `
 {{/* queueRows: one row per queue — its filter, members now (added or by
      filter), trigger and last fire with its run's status. Same row attributes
      as workitemRows, so the filters and expand work. */}}
-{{define "queueRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}" data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID .Trigger | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "queueRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}" data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID .Trigger | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta q-filter">filter {{.Filter}}</span></div></td>
   <td class="meta q-members"><span class="n">{{len .Members}}</span>{{range .Members}}<br><span class="q-member" data-member="{{.ID}}">{{.ID}} <span class="badge">{{.Status}}</span>{{if .Explicit}} added{{end}}</span>{{end}}</td>
@@ -505,7 +516,7 @@ const templatesSrc = `
     <dt>Status</dt><dd>{{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</dd>
     <dt>Workflow</dt><dd>{{if .Item.Workflow}}{{.Item.Workflow}}{{else}}—{{end}}</dd>
     {{if .Item.Category}}<dt>Category</dt><dd>{{.Item.Category}}</dd>{{end}}
-    {{if .Item.Assignee}}<dt>Assignee</dt><dd>{{.Item.Assignee}}</dd>{{end}}
+    {{if .Assignees}}<dt>Assignees</dt><dd>{{template "assignees" .Assignees}}</dd>{{end}}
     {{if .Item.ParentID}}<dt>Parent</dt><dd>{{if .ParentKind}}<a href="{{.ParentKind}}/{{.Item.ParentID}}">{{.Item.ParentID}}</a>{{else}}{{.Item.ParentID}}{{end}}</dd>{{end}}
     {{if .Children}}<dt>Children</dt><dd><ul class="child-list">{{range .Children}}<li><a href="{{.Kind}}/{{.ID}}">{{.ID}}</a> {{.Title}} <span class="badge">{{.Status}}</span></li>{{end}}</ul></dd>{{end}}
     {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip .}}{{end}}</dd>{{end}}

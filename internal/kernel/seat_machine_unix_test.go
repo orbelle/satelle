@@ -11,12 +11,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// Every seat.bound records the kernel's machine and host, on the chain and
-// through FoldSeats, for a seat command and for a dispatched run's seat
-// (sto_e127b2e6 AC4).
+// Every seat.bound records the kernel's machine, host and user, on the chain
+// and through FoldSeats, for a seat command and for a dispatched run's seat
+// (sto_e127b2e6 AC4, sto_600b9a85 AC1).
 func TestSeatRecordsTheMachine(t *testing.T) {
 	k, _ := lineKernel(t, "", "")
 	k.Machine, k.Host = "m1", "h1"
+	k.User = func() string { return "ada@x.io" }
 	it := newItem(t, k)
 	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
 		t.Fatal(err)
@@ -44,8 +45,8 @@ func TestSeatRecordsTheMachine(t *testing.T) {
 		}
 		bound++
 		var s item.Seat
-		if err := e.Decode(&s); err != nil || s.Machine != "m1" || s.Host != "h1" {
-			t.Errorf("seat.bound payload %+v (%v), want machine m1 host h1", s, err)
+		if err := e.Decode(&s); err != nil || s.Machine != "m1" || s.Host != "h1" || s.User != "ada@x.io" {
+			t.Errorf("seat.bound payload %+v (%v), want machine m1 host h1 user ada@x.io", s, err)
 		}
 	}
 	if bound != 2 {
@@ -55,8 +56,8 @@ func TestSeatRecordsTheMachine(t *testing.T) {
 		t.Fatalf("seats during the run = %+v", during)
 	}
 	for _, s := range during {
-		if s.Machine != "m1" || s.Host != "h1" {
-			t.Errorf("folded seat %+v lacks the machine", s)
+		if s.Machine != "m1" || s.Host != "h1" || s.User != "ada@x.io" {
+			t.Errorf("folded seat %+v lacks the machine or user", s)
 		}
 	}
 }

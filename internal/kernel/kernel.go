@@ -60,6 +60,9 @@ type Kernel struct {
 	// machine's id (config.MachineID) and host name. "" records none, and the
 	// seat is then unverified wherever it is read.
 	Machine, Host string
+	// User is asked once per seat this kernel binds, for the satelle user who
+	// bound it (item.Seat.User); nil records none.
+	User func() string
 	// Sessions records which process owns a dispatched run's session; nil
 	// records nothing.
 	Sessions SessionOwner
