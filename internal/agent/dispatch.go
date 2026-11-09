@@ -61,6 +61,7 @@ const (
 	PresetClaude  = "claude"
 	PresetPi      = "pi"
 	PresetGrok    = "grok"
+	PresetCursor  = "cursor-agent"
 	PresetSession = "session"
 )
 
@@ -77,10 +78,12 @@ func AdapterFor(b Binding) (Adapter, error) {
 		return pi{}, nil
 	case PresetGrok:
 		return grok{}, nil
+	case PresetCursor:
+		return cursor{}, nil
 	case PresetSession:
 		return session{}, nil
 	}
-	return nil, fmt.Errorf("command %q names no adapter (%s, %s, %s or %s)", b.Command, PresetClaude, PresetPi, PresetGrok, PresetSession)
+	return nil, fmt.Errorf("command %q names no adapter (%s, %s, %s, %s or %s)", b.Command, PresetClaude, PresetPi, PresetGrok, PresetCursor, PresetSession)
 }
 
 // IsSession reports whether the binding is performed by the interactive session.
@@ -118,6 +121,11 @@ func CheckJudge(b Binding) error {
 	}
 	if !a.EnforcesGrants() {
 		return fmt.Errorf("agent %q may not judge: the %s adapter does not enforce tool grants", b.Name, a.Name())
+	}
+	// The judge's grant must be expressible to its harness, so a binding the
+	// adapter cannot hold to its grant fails at satelle validate.
+	if _, err := a.Argv(Request{Binding: b}); err != nil {
+		return fmt.Errorf("agent %q may not judge: %w", b.Name, err)
 	}
 	return nil
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestTopicsShipWithTitles(t *testing.T) {
-	want := map[string]bool{"satelle": false, "workflows": false, "edit-gate": false, "configuration": false, "ledger-store": false}
+	want := map[string]bool{"satelle": false, "workflows": false, "edit-gate": false, "configuration": false, "ledger-store": false, "agents": false}
 	for _, top := range List() {
 		if top.Title == "" || top.Body == "" {
 			t.Errorf("topic %q has no title or body", top.Name)
@@ -128,5 +128,27 @@ func TestLedgerStoreChoiceDocumented(t *testing.T) {
 	}
 	if strings.Contains(top.Body, "satelle sync") {
 		t.Error("the ledger-store topic names the removed satelle sync")
+	}
+}
+
+// The agents topic documents the cursor-agent adapter, and workflows points to
+// it (sto_0f41dda9 AC5).
+func TestAgentsTopicDocumentsCursor(t *testing.T) {
+	var agents, workflows string
+	for _, top := range List() {
+		switch top.Name {
+		case "agents":
+			agents = top.Body
+		case "workflows":
+			workflows = top.Body
+		}
+	}
+	for _, want := range []string{"cursor-agent", "--mode ask", "CURSOR_CONFIG_DIR", "Shell(**)", "Shell(**satelle**)"} {
+		if !strings.Contains(agents, want) {
+			t.Errorf("agents topic lacks %q", want)
+		}
+	}
+	if !strings.Contains(workflows, "satelle help agents") {
+		t.Error("workflows does not point to satelle help agents")
 	}
 }

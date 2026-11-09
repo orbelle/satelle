@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/repo","session_id":"d9a8b49d-b65a-42c0-be6a-5a8d6fac0ef4","model":"Claude Opus 5.5 300K Medium","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"reply with OK"}]},"session_id":"d9a8b49d-b65a-42c0-be6a-5a8d6fac0ef4"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"d9a8b49d-b65a-42c0-be6a-5a8d6fac0ef4"}
+{"type":"result","subtype":"success","duration_ms":3738,"duration_api_ms":3738,"is_error":false,"result":"OK","session_id":"d9a8b49d-b65a-42c0-be6a-5a8d6fac0ef4","request_id":"cd442c4a-a419-4ead-8179-90171eefac53","usage":{"inputTokens":4,"outputTokens":4,"cacheReadTokens":9854,"cacheWriteTokens":10126}}

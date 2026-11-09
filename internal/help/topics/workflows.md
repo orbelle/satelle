@@ -294,15 +294,4 @@ record inline only. The session reads any version itself with
 
 ## Agents
 
-`.satelle/agents.toml` is a free catalog of bindings:
-
-    [agents.reviewer]
-    command = "claude"           # claude | pi | grok | session, or a command line
-    model = "..."
-    tools = ["Read", "Grep", "Glob"]
-
-Permissions are tool grants, declared up front and enforced by the adapter. A
-binding that judges a gate must have a read-only grant on an adapter that
-enforces grants, or `satelle validate` refuses the configuration. With
-`[rules] reviewer_differs_from_performer = true`, a judge may not run the model
-of the performer whose work it judges.
+Bindings and adapters: satelle help agents.

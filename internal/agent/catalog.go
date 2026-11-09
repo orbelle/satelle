@@ -1,6 +1,6 @@
 // Package agent is the agents catalog (agents.toml), satelle's tool-grant
-// vocabulary, and the thin adapters that run a binding: claude, pi and grok,
-// plus session (the interactive session performs; nothing is dispatched).
+// vocabulary, and the thin adapters that run a binding: claude, pi, grok and
+// cursor-agent, plus session (the interactive session performs; nothing is dispatched).
 package agent
 
 import (

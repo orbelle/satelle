@@ -93,6 +93,14 @@ command = "session"
 [agents.pishell]
 command = "pi"
 tools = ["Bash"]
+[agents.cursorjudge]
+command = "cursor-agent"
+model = "cj"
+tools = ["Read", "Grep", "Glob"]
+[agents.cursorwriter]
+command = "cursor-agent"
+model = "cw"
+tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 `)
 	write(t, filepath.Join(root, "skills", "s.md"), "judge\n")
 	write(t, filepath.Join(root, "workflows", "x.toml"), `
@@ -112,10 +120,16 @@ agent = "unenforced"
 [gates.m]
 skill = "s"
 agent = "same"
+[gates.cj]
+skill = "s"
+agent = "cursorjudge"
+[gates.cw]
+skill = "s"
+agent = "cursorwriter"
 [[transition]]
 from = ["a"]
 to = "b"
-groups = [{ gates = ["w", "u", "m"] }]
+groups = [{ gates = ["w", "u", "m", "cj", "cw"] }]
 [[transition]]
 from = ["b"]
 to = "z"
@@ -130,10 +144,15 @@ to = "z"
 		`agent "unenforced" may not judge`,
 		`judge "same" runs model "m1"`,
 		`performer "pishell": pi adapter cannot express the scoped deny`,
+		`agent "cursorwriter" may not judge`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in:\n%s", want, joined)
 		}
+	}
+	// A read-only cursor-agent judge validates (sto_0f41dda9 AC2).
+	if strings.Contains(joined, "cursorjudge") {
+		t.Errorf("a read-only cursor-agent judge was refused:\n%s", joined)
 	}
 }
 
