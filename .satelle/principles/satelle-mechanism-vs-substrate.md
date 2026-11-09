@@ -28,7 +28,8 @@ User configuration is never hardcoded in the binary. It is:
 The binary offers a generic mechanism that runs what configuration names. A
 closed provider list ("unknown provider (want azure, aws)") is the defect.
 Naming a vendor in help, comments or examples is fine; requiring it in code is
-not. The agent-harness adapters in `internal/agentcli` are mechanism
+not. The agent adapters, dispatch (`internal/agent`) and harness hooks
+(`internal/hook`, including each harness's hook file location), are mechanism
 ([[satelle-agent-agnostic]]). This applies whoever raised the story, including
 the operator.
 
