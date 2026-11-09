@@ -10,20 +10,18 @@ import (
 	"testing"
 )
 
-// This repo's doctor.toml runs the drift check and lists open drift items
-// through the real binary: a skill that names a command the binary lacks is a
-// check:satelle-drift-substrate-check issue with the configured fix, and an
-// open story tagged drift is an open:drift issue with its id in the fix
-// (sto_3cf973ae AC1).
+// This repo's doctor.toml lists open drift items, and doctor's built-in
+// substrate check (the rules satelle validate applies, sto_a1681009) reports
+// a skill naming a command the binary lacks, through the real binary: the
+// stale line is a substrate issue, and an open story tagged drift is an
+// open:drift issue with its id in the fix (sto_3cf973ae AC1).
 func TestDoctorRunsThisRepoDriftChecks(t *testing.T) {
 	s := driftCheckSandbox(t)
-	for _, rel := range []string{".satelle/doctor.toml", ".satelle/skills/satelle-drift-substrate-check.md", "scripts/drift-check.sh"} {
-		b, err := os.ReadFile(filepath.Join("..", rel))
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.write(rel, string(b))
+	b, err := os.ReadFile(filepath.Join("..", ".satelle/doctor.toml"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	s.write(".satelle/doctor.toml", string(b))
 	s.write(".satelle/skills/stale.md", "---\nname: stale\ntype: skill\ndescription: Names a removed command.\n---\n\nRun `satelle story docs <id>`.\n")
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "doctor substrate")
@@ -41,8 +39,7 @@ func TestDoctorRunsThisRepoDriftChecks(t *testing.T) {
 	}
 	var drift, open bool
 	for _, is := range rep.Issues {
-		if is.Check == "check:satelle-drift-substrate-check" && strings.Contains(is.Problem, ".satelle/skills/stale.md") &&
-			strings.Contains(is.Problem, "satelle story docs") && strings.Contains(is.Fix, "drift-stories.sh") {
+		if is.Check == "substrate" && strings.HasPrefix(is.Problem, ".satelle/skills/stale.md:7: command: satelle story docs — ") {
 			drift = true
 		}
 		if is.Check == "open:drift" && strings.Contains(is.Problem, id) && strings.Contains(is.Fix, "satelle story get "+id) {
@@ -50,6 +47,6 @@ func TestDoctorRunsThisRepoDriftChecks(t *testing.T) {
 		}
 	}
 	if !drift || !open {
-		t.Fatalf("drift check found %v, open drift found %v in:\n%s", drift, open, r.out)
+		t.Fatalf("substrate found %v, open drift found %v in:\n%s", drift, open, r.out)
 	}
 }

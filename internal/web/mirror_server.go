@@ -138,6 +138,10 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
 	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentBadge("engagementBadge"))
 	mux.HandleFunc("GET /r/{slug}/fragment/backlog", s.fragmentBadge("backlogBadge"))
+	// A workflow panel's rows and its tab (count and alert), by topic; the
+	// literal fragment routes above take precedence.
+	mux.HandleFunc("GET /r/{slug}/fragment/{topic}", s.fragmentPanel("workitemRows"))
+	mux.HandleFunc("GET /r/{slug}/fragment/tab/{topic}", s.fragmentPanel("panelTab"))
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
 	mux.HandleFunc("GET /r/{slug}/fragment/task/{id}", s.itemFragment("task"))
 	mux.HandleFunc("GET /r/{slug}/fragment/execution/{id}", s.itemFragment("execution"))
@@ -245,9 +249,10 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 		if path == "" {
 			path = p.RepoKey
 		}
-		stories, _ := decodeItems(ctx, s.Store, p.RepoKey, "story")
-		tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
 		docs, _ := decodeDocs(ctx, s.Store, p.RepoKey)
+		all, _ := decodeItems(ctx, s.Store, p.RepoKey, "story")
+		stories := offPanels(all, workflowsOf(docs))
+		tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
 		workflows := len(workflowRows(docs))
 		total += len(stories)
 		lastIngest, _ := p.LastIngest()
@@ -378,6 +383,37 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 			return
 		}
 		mirrorRender(w, tmplName, base, payload)
+	}
+}
+
+// fragmentPanel renders one workflow panel by its topic: its rows
+// (workitemRows) or its tab (panelTab, the one renderer of the tab's count and
+// alert). An unknown topic is 404.
+func (s *MirrorServer) fragmentPanel(tmplName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := r.PathValue("slug")
+		repoKey, err := s.resolveSlug(r.Context(), slug)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		data, _, err := mirrorLoadPanels(r.Context(), s.Store, repoKey, slug)
+		if err != nil {
+			httpError(w, err)
+			return
+		}
+		for _, p := range data.Panels {
+			if p.Topic != r.PathValue("topic") {
+				continue
+			}
+			var payload any = p
+			if tmplName == "workitemRows" {
+				payload = p.Rows
+			}
+			mirrorRender(w, tmplName, s.projectBase(slug), payload)
+			return
+		}
+		http.NotFound(w, r)
 	}
 }
 

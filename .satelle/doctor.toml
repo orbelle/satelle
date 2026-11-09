@@ -1,17 +1,13 @@
 # satelle doctor's repo checks (sto_3cf973ae). doctor runs these beside its
-# kernel checks, read-only: a [[check]] is a check skill (exit 0 clean, 1 one
-# issue per output line, anything else could not check); an [[items]] lists
-# each open item its selection matches. See `satelle help configuration`.
+# kernel checks, read-only; its built-in substrate check is the deterministic
+# half of the drift review (sto_a1681009), so no [[check]] repeats it here. An
+# [[items]] lists each open item its selection matches. See
+# `satelle help configuration`.
 
-# The deterministic drift checks: the substrate against the installed binary.
-[[check]]
-skill = "satelle-drift-substrate-check"
-fix = "fix the line it names, or raise its drift story with scripts/drift-stories.sh (.satelle/skills/drift-review.md step 2)"
-
-# Open drift items: each is fixed by changing what its drift-key names; the
-# next drift review closes it.
+# Open drift items: the release's drift-fix item (scripts/drift-fix.sh) lists
+# every finding; it closes when a later drift review no longer finds them.
 [[items]]
 name = "drift"
 kind = "story"
 tag = "drift"
-fix = "satelle story get {id}: fix what its drift-key names; the next drift review closes it"
+fix = "satelle story get {id}: fix what each drift-key under its Findings names; the next drift review closes it"

@@ -28,11 +28,22 @@ const (
 
 // Workflow is one workflows/<name>.toml.
 type Workflow struct {
-	Name        string           `toml:"name"`
+	Name string `toml:"name"`
+	// Panel, when set, names the satelled tab that lists this workflow's
+	// items instead of the Stories tab. Nil: they are listed on Stories.
+	Panel       *string          `toml:"panel"`
 	States      map[string]State `toml:"states"`
 	Gates       map[string]Gate  `toml:"gates"`
 	Transitions []Transition     `toml:"transition"`
 	File        string           `toml:"-"`
+}
+
+// PanelName is the panel the workflow declares, or "" when it declares none.
+func (w *Workflow) PanelName() string {
+	if w.Panel == nil {
+		return ""
+	}
+	return strings.TrimSpace(*w.Panel)
 }
 
 // State is one state of a workflow.

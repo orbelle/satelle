@@ -72,7 +72,7 @@ attachment when the plan has that section, else the criteria in your prompt.
    cite the file:line and name the principle's alternative. **Passes:** what the
    principle allows, plus a vendor named in test fixtures and the harness
    adapters under `internal/agent`.
-7. **Dispatch pointers** ([[satelle-dispatch-pointers]]). When the slice
+7. **Dispatch pointers**. When the slice
    assembles what an agent receives (a prompt, stdin input, a dispatch
    request), the receiver gets its instruction and pointers (ids, paths,
    retrieval commands). **Reject** when a dispatch embeds readable content:

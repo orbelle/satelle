@@ -1,3 +1,19 @@
+## [1.0.48] - 2026-11-09
+
+### Added
+- This repo carries the shipped `satelle-upgrade` skill that `satelle init` adds. (sto_90c8e368)
+- `satelle validate` checks every repo's substrate against the running binary: each `satelle` command, flag and help topic its skills, principles, tasks, workflows and queues name, and each `[[link]]`, is reported as `<file>:<line>: <kind>: <subject> — <why>` (under `substrate` with `--json`) and fails the check, while the kernel still opens; `satelle doctor` reports the same findings as its built-in substrate check (sto_a1681009)
+- A workflow may declare `panel = "<name>"`: satelled lists its stories on their own tab instead of Stories, counting those not yet terminal and highlighting the tab while that count is above zero (sto_a1681009)
+- `satelle service refresh` does the same by hand: it installs missing units, repoints any naming another binary, restarts satelled and starts the sync timer. (sto_1b6a7ed3)
+
+### Changed
+- Drift is resolved like an upgrade: a release checks its candidate's substrate with a binary built from it and fixes any miss in the same run before the suite, so substrate drift cannot ship; the drift review raises one drift-fix item per release listing every finding, with the claims judge's findings as warnings that never block, and the open drift stories are consolidated into one fix item, each closed or linked with `drift-carried-by:<id>` (sto_a1681009)
+- Installing or updating satelle installs and refreshes the service: `scripts/install.sh` and `satelle update` install satelled's unit and `satelle-sync.timer` when missing, repoint a unit naming another binary, restart satelled onto the new build, start the sync timer and print `satelle service status`, so every machine syncs by default; without systemd they print the units and the autosync command. `--no-service` or `SATELLE_NO_SERVICE=1` skips every unit change. (sto_1b6a7ed3)
+
+### Removed
+- `scripts/drift-stories.sh` and its `--reshape` and `--rehome` modes: `scripts/drift-fix.sh` raises the release's one fix item, and `--close` re-homes and closes older drift items (sto_a1681009)
+- The satelle-drift-substrate-check skill and its `.satelle/doctor.toml` check: doctor's built-in substrate check replaces it (sto_a1681009)
+
 ## [1.0.47] - 2026-11-09
 
 ### Added

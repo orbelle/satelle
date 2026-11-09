@@ -150,8 +150,11 @@ lists.
 
 ## Automatic sync
 
-`satelle service install` also installs and starts `satelle-sync.timer`, a
-systemd user timer. Every 30 seconds after its last run ended it runs one
+Installing or updating satelle (`scripts/install.sh`, `satelle update`)
+installs and starts `satelle-sync.timer`, a systemd user timer, so syncing is
+the default; `--no-service` or `SATELLE_NO_SERVICE=1` opts out, and
+`satelle service install` or `satelle service refresh` installs it later.
+Every 30 seconds after its last run ended it runs one
 pass over this machine's projects (`~/.satelle/config.toml [projects]`;
 `satelle project bind` adds the repo): for each project whose store is not
 local, it pushes the items this runtime is ahead on, then pulls the items the
@@ -162,8 +165,8 @@ ledger and is pushed by the next pass that reaches it. A change on one machine
 therefore reaches satelle.dev within one period plus a pass, and another
 signed-in, bound machine within 90 seconds. Each project's outcome is shown on
 its satelled project page: `synced` and when, or `sync failing` and why. With
-no systemd, `satelle service install` prints the units: run
-`satelle ledger autosync` every 30 seconds instead.
+no systemd, `install.sh`, `satelle update` and `satelle service install` print
+the units instead: run `satelle ledger autosync` every 30 seconds yourself.
 
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever

@@ -173,6 +173,9 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 			b, _ := os.ReadFile(p)
 			writeFile(t, p, string(b)+"\nbogus_key = 1\n")
 		}, want: []want{{"config", "bogus_key", "satelle validate"}}},
+		{name: "substrate drift", setup: func(t *testing.T, f *doctorFixture) {
+			writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names a removed command.\n---\n\nRun `satelle story docs <id>`.\n")
+		}, want: []want{{"substrate", ".satelle/skills/stale.md:7: command: satelle story docs", "satelle help"}}},
 		{name: "init would add", setup: func(t *testing.T, f *doctorFixture) {
 			if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
 				t.Fatal(err)
@@ -357,5 +360,41 @@ func TestHookContextDoctorBudget(t *testing.T) {
 	}
 	if !strings.Contains(ctx, "not checked within 2s at session start: check:fixture-check") {
 		t.Fatalf("the cut check is not named:\n%s", ctx)
+	}
+}
+
+// On a machine with satelled's unit but no sync timer, doctor reports the
+// sync issue; after satelle update (both binaries current) it reports none,
+// because update installed and started the timer (sto_1b6a7ed3 AC4).
+func TestUpdateClearsTheSyncIssue(t *testing.T) {
+	f := newDoctorFixture(t)
+	timer := filepath.Join(f.home, ".config", "systemd", "user", syncTimerName)
+	if err := os.Remove(timer); err != nil {
+		t.Fatal(err)
+	}
+	rep, text, _ := doctorJSON(t)
+	if !slices.ContainsFunc(rep.Issues, func(i doctorIssue) bool {
+		return i.Check == "sync" && strings.Contains(i.Problem, "is not installed")
+	}) {
+		t.Fatalf("before update doctor does not report the missing timer:\n%s", text)
+	}
+	t.Setenv(envNoService, "")
+	prev := updateTarget
+	updateTarget = func() (string, error) { return filepath.Join(f.bin, "satelle"), nil }
+	t.Cleanup(func() { updateTarget = prev })
+	releaseServer(t, "v"+buildinfo.Version, []string{"serve-v" + doctorBuild.Version}, nil, "")
+	if out, err := run(t, "", "update"); err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	}
+	for _, p := range []string{timer, filepath.Join(f.home, ".config", "systemd", "user", syncServiceName)} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("update did not install %s: %v", p, err)
+		}
+	}
+	rep, text, _ = doctorJSON(t)
+	for _, i := range rep.Issues {
+		if i.Check == "sync" {
+			t.Errorf("after update doctor still reports a sync issue: %+v\n%s", i, text)
+		}
 	}
 }

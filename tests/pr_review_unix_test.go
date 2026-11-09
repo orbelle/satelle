@@ -207,7 +207,7 @@ esac
 
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "config")
-	s.must("validate")
+	s.mustConfigValid()
 	p := &prSandbox{sandbox: s, srv: srv, fake: fake}
 	p.old = strings.TrimSpace(s.git("rev-parse", "HEAD"))
 	s.write("src/main.go", "package main\n")

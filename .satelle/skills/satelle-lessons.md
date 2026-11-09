@@ -8,10 +8,10 @@ description: Post-release friction capture — attach a typed lessons document r
 
 # Lessons (post-release friction capture)
 
-Dispatched after close (`satelle story retrospect`). Capture satelle's own friction from this story.
+Dispatched after close. Capture satelle's own friction from this story.
 
 **Attach only.** Do not change story status, do not edit code, do not file
-improvement stories (that is the epic retrospective, relayed with `satelle story retrospect`).
+improvement stories (that is the epic retrospective).
 
 ## 1. Reconstruct
 
@@ -85,7 +85,7 @@ that caused it; a bare over- or under-estimate is a number, not a lesson.
 ## 5. Attach
 
 ```bash
-satelle story attach <id> --name lessons --type lessons --body "…"
+echo "…" | satelle story attach <id> --name lessons --type text/markdown --file -
 ```
 
 Exactly **one** lessons document per story. Body shape (markdown):
@@ -105,5 +105,3 @@ Exactly **one** lessons document per story. Body shape (markdown):
 
 Omit `## Unverified` when it would be empty. Keep every claim traceable to
 something you actually read.
-
-See [[satelle-agent-model]], [[satelle-residency]].

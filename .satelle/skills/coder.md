@@ -106,5 +106,4 @@ BLOCKED: <what you cannot do under this grant or these ACs>
 
 Do not emit `READY` / `NOT READY`; those are the consultant's.
 
-See [[satelle-agent-consultation]], [[satelle-agent-model]] and
-[[satelle-executor-deliverables]].
+See [[satelle-agent-consultation]].

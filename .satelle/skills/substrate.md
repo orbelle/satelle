@@ -19,12 +19,9 @@ under `.satelle/` (workflows, skills, principles, documents, tasks, config) and/
 1. **Author the slice** named by the story body and ACs — smallest honest edit.
 2. **Keep it substrate-only.** Paths outside `.satelle/`, `docs/`, and
    `[gate] edit_exempt_paths` will fail `satelle-substrate-only-check` on close.
-3. **Reindex / validate** so the index and structure stay green:
+3. **Validate** so the configuration and the substrate stay green:
    ```bash
-   satelle reindex
-   satelle agent validate
-   satelle workflow validate
-   satelle skill validate
+   satelle validate
    ```
 4. **Commit + push (where substrate is tracked in git) while engaged** at `in_progress` (the commit gate requires an
    engaged story). Conventional subject ending with the story id; **no** AI
@@ -38,4 +35,4 @@ under `.satelle/` (workflows, skills, principles, documents, tasks, config) and/
 - Cut a release or tag for markdown-only work.
 - Leave the story open after the slice is pushed — drive to `done` or `cancelled`.
 
-See [[satelle-agent-model]], the substrate workflow prose, and [[satelle-mechanism-vs-substrate]].
+See the substrate workflow prose and [[satelle-mechanism-vs-substrate]].

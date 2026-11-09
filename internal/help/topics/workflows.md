@@ -27,6 +27,12 @@ for that evidence exits 2; any other refusal exits 1; neither writes anything.
 `satelle workflow select --kind <k> [--tag <t>]... [--category <c>]` prints the
 workflow and start state the rules choose for those fields.
 
+A workflow may name a panel, `panel = "<name>"` at the top of its file: satelled
+lists its stories on a tab of that name instead of Stories (they leave the
+Stories count, its backlog badge and the projects list's count), and the tab
+counts those not in a terminal state, highlighted while that count is above
+zero. Workflows naming the same panel share its tab. A blank panel is refused.
+
 A state may name queues an item entering it joins, `enqueue = ["<name>"]`,
 each a `.satelle/queues/<name>.toml`: `satelle validate` refuses a name with no
 file, and the move is refused when the queue is closed (`satelle help

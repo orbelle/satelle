@@ -279,6 +279,11 @@ header.app h1 .dot { color: var(--accent); }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .tab[aria-selected="true"] .tab-label { font-weight: 600; }
 .tab .n { color: var(--muted); font-size: 12px; margin-left: 5px; }
+/* A workflow panel's tab (panel = "<name>", sto_a1681009) while it has items
+   not in a terminal state: the label and count take the warn colour, the count
+   as a chip, so the tab reads as something to resolve. */
+.tab.tab-alert, .tab.tab-alert:hover { color: var(--warn); }
+.tab.tab-alert .n { color: var(--warn); border: 1px solid var(--warn); padding: 0 5px; font-size: 11px; line-height: 1.4; }
 /* Shared chip treatment for backlog + engaged (sty_c7ab5180): same size, padding,
    line-height, border, and baseline. Engaged is a sibling of the Stories tab <a>
    (sty_e4632f45 / sty_01ba9482); chip only renders when count > 0. */

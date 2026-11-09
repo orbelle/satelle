@@ -15,6 +15,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
@@ -71,29 +72,54 @@ func validateCmd() *cobra.Command {
 	var asJSON *bool
 	cmd := &cobra.Command{
 		Use:   "validate",
-		Short: "Validate this repo's .satelle configuration",
-		Args:  cobra.NoArgs,
+		Short: "Validate this repo's .satelle configuration and its substrate",
+		Long: `validate checks this repo's .satelle configuration (the problems that stop
+the kernel opening) and its substrate against this binary: every satelle
+command, flag and help topic its skills, principles, tasks, workflows and
+queues name in code, and every [[link]], must exist. A substrate finding is
+printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
+substrate key with --json) and fails the check, but never stops the kernel opening.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
 			if err != nil {
 				return err
 			}
 			problems := kernel.Validate(r.DataDir)
+			drift, err := substrate.Check(r.DataDir, substrateTree(NewRootCmd()))
+			if err != nil {
+				return fmt.Errorf("checking the substrate in %s: %w", r.DataDir, err)
+			}
+			if drift == nil {
+				drift = []substrate.Finding{}
+			}
+			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
 				for _, p := range problems {
 					msgs = append(msgs, p.Error())
 				}
-				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": len(problems) == 0, "problems": msgs}); err != nil {
+				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift}); err != nil {
 					return err
 				}
-			} else if len(problems) == 0 {
+			} else if valid {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
 			}
-			if len(problems) > 0 {
-				return problemsError(r.DataDir, errors.Join(problems...))
+			if valid {
+				return nil
 			}
-			return nil
+			var errs []error
+			if len(problems) > 0 {
+				errs = append(errs, problemsError(r.DataDir, errors.Join(problems...)))
+			}
+			if len(drift) > 0 {
+				lines := make([]string, len(drift))
+				for i, f := range drift {
+					lines[i] = f.String()
+				}
+				errs = append(errs, fmt.Errorf("substrate in %s names what this binary lacks:\n%s", r.DataDir, strings.Join(lines, "\n")))
+			}
+			return errors.Join(errs...)
 		},
 	}
 	asJSON = jsonFlag(cmd)

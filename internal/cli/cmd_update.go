@@ -28,6 +28,7 @@ const (
 	envReleaseAPI     = "SATELLE_RELEASE_API"      // JSON of the latest release
 	envReleaseListAPI = "SATELLE_RELEASE_LIST_API" // JSON list of releases, newest first
 	envReleaseBase    = "SATELLE_RELEASE_BASE"     // <base>/<tag>/<asset>
+	envNoService      = "SATELLE_NO_SERVICE"       // non-empty and not 0: change no unit
 
 	releaseRepo     = "bobmcallan/satelle"
 	defaultAPI      = "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
@@ -53,8 +54,22 @@ func envOr(k, def string) string {
 	return def
 }
 
+// serviceOptOut reports whether update (and scripts/install.sh, by the same
+// rule) must leave the service units alone: --no-service, or
+// SATELLE_NO_SERVICE set to anything but empty or 0. why names the opt-out.
+func serviceOptOut(flag bool) (skip bool, why string) {
+	if flag {
+		return true, "--no-service"
+	}
+	if v := strings.TrimSpace(os.Getenv(envNoService)); v != "" && v != "0" {
+		return true, envNoService + "=" + v
+	}
+	return false, ""
+}
+
 func updateCmd() *cobra.Command {
 	var version string
+	var noService bool
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Replace satelle (and satelled beside it) with a GitHub release",
@@ -63,8 +78,16 @@ architecture, checks it against the release's .sha256, and replaces the running
 binary. A satelled beside it is replaced the same way with the satelled release
 of the highest version (serve-v<version> tags, compared numerically), or with
 serve-v<version> when --version is given. Every download is checked before
-anything is replaced, so a refusal leaves both binaries as they were. A running
-satelled keeps the old binary until it is restarted ('satelle service restart').`,
+anything is replaced, so a refusal leaves both binaries as they were.
+
+Then, even when both were current, update installs and refreshes the service
+as 'satelle service refresh' does: it installs satelled's unit and
+satelle-sync.timer when missing, repoints a unit naming another binary,
+restarts satelled onto the new build, starts the sync timer and prints
+'satelle service status'; with no systemd user manager it prints the units and
+the autosync command. --no-service or SATELLE_NO_SERVICE=1 skips every unit
+change; a running satelled then keeps the old build until
+'satelle service restart'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), downloadTimeout)
@@ -130,11 +153,23 @@ satelled keeps the old binary until it is restarted ('satelle service restart').
 					return err
 				}
 				buildinfo.Identify(ctx, config.GlobalDir(), daemonPath)
-				fmt.Fprintf(out, "satelled %s → %s (restart it to run the new one: satelle service restart)\n", daemonOld, daemonNew)
+				fmt.Fprintf(out, "satelled %s → %s\n", daemonOld, daemonNew)
+			}
+			if skip, why := serviceOptOut(noService); skip {
+				fmt.Fprintf(out, "service: not installed or changed (%s); a running satelled keeps its old build until 'satelle service restart'\n", why)
+				return nil
+			}
+			daemon := daemonPath
+			if _, err := os.Stat(daemon); err != nil {
+				daemon = resolveDaemon("")
+			}
+			if err := refreshService(ctx, out, target, daemon); err != nil {
+				return fmt.Errorf("the binaries are updated, but the service is not: %w; rerun 'satelle service refresh', or pass --no-service", err)
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&noService, "no-service", false, "change no service unit: leave satelled's unit and the sync timer as they are (also "+envNoService+"=1)")
 	cmd.Flags().StringVar(&version, "version", "", "install this version of satelle, and of satelled (serve-v<version>) beside it, instead of the latest")
 	return cmd
 }

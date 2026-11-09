@@ -18,6 +18,9 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 	bad := func(format string, args ...any) {
 		errs = append(errs, fmt.Errorf("workflow %s: "+format, append([]any{w.Name}, args...)...))
 	}
+	if w.Panel != nil && strings.TrimSpace(*w.Panel) == "" {
+		bad("panel is blank")
+	}
 	var starts, terminals []string
 	for _, name := range w.stateNames() {
 		st := w.States[name]

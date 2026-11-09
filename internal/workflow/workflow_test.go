@@ -368,3 +368,24 @@ func TestAfterIsAListOnly(t *testing.T) {
 		}
 	}
 }
+
+// A workflow may declare panel = "<name>": it parses, an absent panel is valid
+// and names none, and a blank one is a problem (sto_a1681009 AC6).
+func TestPanelKey(t *testing.T) {
+	states := "[states.a]\nstart = true\n[states.z]\nterminal = true\n[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n"
+	w, err := parse(t, "panel = \"Drift\"\n"+states)
+	if err != nil || w.PanelName() != "Drift" || len(w.Validate(skillOf, agentOf)) != 0 {
+		t.Fatalf("panel = Drift: %v, panel %q, problems %v", err, w.PanelName(), w.Validate(skillOf, agentOf))
+	}
+	w, err = parse(t, states)
+	if err != nil || w.PanelName() != "" || w.Panel != nil || len(w.Validate(skillOf, agentOf)) != 0 {
+		t.Fatalf("no panel: %v, panel %q", err, w.PanelName())
+	}
+	w, err = parse(t, "panel = \"  \"\n"+states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) != 1 || !strings.Contains(errs[0].Error(), "panel is blank") {
+		t.Fatalf("blank panel: %v", errs)
+	}
+}

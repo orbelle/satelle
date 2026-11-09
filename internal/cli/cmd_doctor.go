@@ -18,6 +18,9 @@ runtime or git state is written, and it never contacts the ledger store.
 
 Its checks:
   config     the configuration is invalid (satelle validate)
+  substrate  a satelle command, flag, help topic or [[link]] the repo's
+             .satelle skills, principles, tasks, workflows or queues name that
+             this binary lacks (satelle validate)
   init       files satelle init would add (satelle init)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)

@@ -53,7 +53,8 @@ satelle story create --title "Ship the thing" --priority high
 satelle task create  --title "write release notes"
 satelle reindex        # index authored markdown under .satelle/
 satelle status         # config, database, and store counts
-satelle service install   # always-on UI (prefers satelled); or: satelled --port 8787
+satelle service install   # always-on UI and sync; scripts/install.sh and `satelle update` do this
+                          # for you (opt out: --no-service or SATELLE_NO_SERVICE=1)
 ```
 
 The UI is a **push-fed read-only mirror** (not a live DB browser). Project pages
@@ -64,9 +65,11 @@ live under `/r/<slug>/` on the Projects page (`http://127.0.0.1:8787/`).
 The web UI is a **read-only mirror** fed by the CLI (serve-split architecture;
 serve-adoption onboarding):
 
-1. Run the UI: `satelled` (or `satelle service install`, which prefers the
-   dedicated binary). `satelle serve` remains a **deprecated alias** that prints
-   a migration notice and runs the same mirror.
+1. Run the UI: `scripts/install.sh` and `satelle update` install and start
+   satelled's unit and the sync timer (`--no-service` or
+   `SATELLE_NO_SERVICE=1` opts out); or run `satelled` yourself.
+   `satelle serve` remains a **deprecated alias** that prints a migration
+   notice and runs the same mirror.
 2. Add the project to this machine's projects and seed the mirror in one verb:
    ```sh
    satelle project add         # add + seed; bootstraps endpoint when a matching serve is up

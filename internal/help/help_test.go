@@ -155,3 +155,17 @@ func TestAgentsTopicDocumentsCursor(t *testing.T) {
 		t.Error("workflows does not point to satelle help agents")
 	}
 }
+
+// The automatic sync section says installing or updating satelle starts the
+// timer and names the opt-out (sto_1b6a7ed3 AC3).
+func TestLedgerStoreSyncInstalledByInstallAndUpdate(t *testing.T) {
+	top, ok := Get("ledger-store")
+	if !ok {
+		t.Fatal("no ledger-store topic")
+	}
+	for _, want := range []string{"satelle update", "install.sh", "--no-service", "SATELLE_NO_SERVICE=1"} {
+		if !strings.Contains(top.Body, want) {
+			t.Errorf("ledger-store lacks %q", want)
+		}
+	}
+}
