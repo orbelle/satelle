@@ -225,7 +225,10 @@ func TestEngagedBadgeIgnoresTaskRunSeats(t *testing.T) {
 		if chip == "" {
 			t.Fatalf("%s: no engaged chip:\n%s", name, html)
 		}
-		for _, want := range []string{`data-engagement-count="2"`, `title="engaged: sto_lost_seat, sto_seat"`, ">2 engaged<"} {
+		if strings.Contains(html, "n-elsewhere") {
+			t.Errorf("%s: every seat is here, yet an elsewhere chip shows:\n%s", name, html)
+		}
+		for _, want := range []string{`data-engagement-count="2"`, `title="engaged here: sto_lost_seat, sto_seat"`, ">2 engaged<"} {
 			if !strings.Contains(chip, want) {
 				t.Errorf("%s: chip lacks %s: %s", name, want, chip)
 			}

@@ -32,7 +32,7 @@ func TestAssigneesOfDropsGoneSeats(t *testing.T) {
 		return seatlife.Here
 	}
 	rows := []rowVM{{Item: it}}
-	withAssignees(rows, seatsByItem(seats), standing)
+	withAssignees(rows, seatsByItem(seats), func(s mirror.Seat) (seatlife.Standing, seatlife.Evidence) { return standing(s), "" })
 	want := []assigneeVM{{User: "ann"}, {User: "bob", Working: true}, {User: "dee", Working: true}}
 	got := rows[0].Assignees
 	if len(got) != len(want) {

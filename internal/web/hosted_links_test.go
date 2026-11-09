@@ -109,15 +109,45 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 			}
 		}
 	}
-	// Only the story seated here is marked: not one on another machine, one
-	// whose session ended, or one with no machine recorded (sto_e127b2e6 AC6).
-	for id, marked := range map[string]bool{"sty_mine": true, "sty_other": false, "sty_back": false, "sty_done": false} {
+	// The story seated here is marked ◆ here; the one on another machine
+	// carries a mark at that machine; the one whose session ended carries
+	// nothing. A seat with no machine recorded is unverified and counts as
+	// here (◇ here), and a story with no pushed workflow cannot be proven
+	// terminal, so sty_done is marked too (sto_44a18f5b).
+	for id, w := range map[string]struct{ engaged, here, where, title string }{
+		"sty_mine":  {engaged: "here", here: "◆ here"},
+		"sty_other": {engaged: "elsewhere", where: "◆ other-host", title: "on other-host (m-other)"},
+		"sty_back":  {},
+		"sty_done":  {engaged: "here", here: "◇ here", title: "unverified: no machine recorded"},
+	} {
 		row, cell := rowFor(body, id), titleCellFor(body, id)
-		if got := strings.Contains(row, `data-here="1"`) && strings.Contains(cell, "◆ here"); got != marked {
-			t.Errorf("%s marked here = %v, want %v: %q %q", id, got, marked, row, cell)
+		if w.engaged == "" {
+			if strings.Contains(row, "data-engaged") || strings.Contains(cell, "here-mark") || strings.Contains(cell, "where-mark") {
+				t.Errorf("%s carries an engaged mark: %q %q", id, row, cell)
+			}
+			continue
 		}
-		if !marked && (strings.Contains(row, "data-here") || strings.Contains(cell, "here-mark")) {
-			t.Errorf("%s carries a here mark: %q %q", id, row, cell)
+		if !strings.Contains(row, `data-engaged="`+w.engaged+`"`) {
+			t.Errorf("%s lacks data-engaged=%q: %q", id, w.engaged, row)
+		}
+		if w.here != "" {
+			if !strings.Contains(cell, ">"+w.here+"<") || strings.Contains(cell, "where-mark") {
+				t.Errorf("%s is not marked %s alone: %q", id, w.here, cell)
+			}
+			if unv := strings.Contains(cell, "here-unverified"); unv != (w.here == "◇ here") {
+				t.Errorf("%s here-unverified = %v: %q", id, unv, cell)
+			}
+		} else if strings.Contains(cell, `class="here-mark`) || strings.Count(cell, `class="where-mark"`) != 1 || !strings.Contains(cell, ">"+w.where+"<") {
+			t.Errorf("%s is not marked %s alone: %q", id, w.where, cell)
+		}
+		if w.title != "" {
+			mark := w.here
+			if mark == "" {
+				mark = w.where
+			}
+			if got := markTitle(t, cell, mark); !strings.Contains(got, w.title) {
+				t.Errorf("%s's %s hover %q lacks %q", id, mark, got, w.title)
+			}
 		}
 	}
 	if strings.Contains(body, "This machine's stories") {
@@ -182,7 +212,7 @@ func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 	if rowFor(rows, "sty_new") == "" || rowFor(rows, "sty_mine") == "" {
 		t.Errorf("the refetched stories fragment does not list the unseen story beside the held one:\n%s", rows)
 	}
-	if strings.Contains(rowFor(rows, "sty_new"), "data-here") {
+	if strings.Contains(rowFor(rows, "sty_new"), "data-engaged") {
 		t.Errorf("a story not engaged here is marked as here: %q", rowFor(rows, "sty_new"))
 	}
 }
@@ -222,13 +252,14 @@ func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 			t.Errorf("app.js no longer filters on %s", read)
 		}
 	}
-	if strings.Contains(string(js), "dataset.here") {
-		t.Error("app.js reads the here mark: no list may filter by it")
+	if strings.Contains(string(js), "dataset.engaged") {
+		t.Error("app.js reads the engaged mark: no list filters by it until sto_18f1e94d's chip does")
 	}
 }
 
-// sty_0dc600e1 AC6: a local partition keeps its full story list, links nothing
-// to a server and marks no story as here (sty_6ce071dc AC2).
+// sty_0dc600e1 AC6: a local partition keeps its full story list and links
+// nothing to a server. Nothing is seated, so no story is marked: the marks
+// follow seats in every mode, not whether the page is hosted (sto_44a18f5b).
 func TestLocalProjectPageListsEveryStoryWithNoServerLinks(t *testing.T) {
 	body := httpGetBody(t, hostedPartition(t, nil))
 	for _, id := range []string{"sty_mine", "sty_other"} {
@@ -236,7 +267,7 @@ func TestLocalProjectPageListsEveryStoryWithNoServerLinks(t *testing.T) {
 			t.Errorf("the local page does not list %s:\n%s", id, body)
 		}
 	}
-	if strings.Contains(body, "hosted-links") || strings.Contains(body, "here-mark") || strings.Contains(body, "data-here") {
+	if strings.Contains(body, "hosted-links") || strings.Contains(body, "here-mark") || strings.Contains(body, "where-mark") || strings.Contains(body, "data-engaged") {
 		t.Errorf("a local page links to a server or marks a story:\n%s", body)
 	}
 }

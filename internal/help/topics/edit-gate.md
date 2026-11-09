@@ -31,8 +31,11 @@ owner (the harness both share), and a dispatched run records its own process.
 `satelle doctor` and satelled class each seat as **here** (this machine, owner
 running), **elsewhere** (another machine, or a remote or cloud location),
 **gone** (this machine, owner exited) or **unverified** (no machine recorded,
-no session record, or no proof either way). Only a seat here counts as
-engaged; `satelle doctor --resolve` releases a gone one without asking.
+no session record, or no proof either way). satelle doctor's engaged-here
+note counts only a seat here and lists unverified ones apart. satelled marks
+the story ◆ here for a seat here and ◇ here for an unverified one, with the
+reason on hover, and shows each seat elsewhere on the row at its user and
+place. `satelle doctor --resolve` releases a gone one without asking.
 
 Always and never:
 

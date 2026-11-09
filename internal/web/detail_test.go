@@ -204,10 +204,15 @@ func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 			t.Errorf("legacy story page missing %q", want)
 		}
 	}
-	// A legacy seat row records no machine: it is unverified, so not engaged
-	// here (sto_e127b2e6).
-	if page := httpGetBody(t, srv.URL+"/r/proj/"); strings.Contains(page, "engaged</") || !strings.Contains(page, "Legacy") {
-		t.Error("a legacy story seat counts as engaged here, or the page did not render")
+	// A legacy seat row records no location: it is elsewhere, not engaged
+	// here (sto_e127b2e6), and its row says the location is not recorded
+	// (sto_44a18f5b).
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	if strings.Contains(page, "n-engaged") || !strings.Contains(page, ">1 elsewhere<") || !strings.Contains(page, "Legacy") {
+		t.Error("a legacy story seat counts as engaged here, is not counted elsewhere, or the page did not render")
+	}
+	if cell := titleCellFor(page, "sty_1"); strings.Count(cell, `class="where-mark"`) != 1 || !strings.Contains(cell, ">◆ location not recorded<") {
+		t.Errorf("the legacy seat's row lacks its one where-mark: %q", cell)
 	}
 }
 
