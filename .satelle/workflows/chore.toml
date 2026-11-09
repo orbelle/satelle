@@ -29,7 +29,7 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-opus"
+agent = "reviewer-grok"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.format-vet]

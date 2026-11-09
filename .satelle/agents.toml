@@ -28,14 +28,9 @@ effort = "off"
 tools = ["Read", "Grep", "Glob"]
 
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
-# diff three times without naming a file it judged (sto_5c706973), so the
-# reference check refused each accept. Opus 5.5 through Cursor, read-only.
-[agents.reviewer-opus]
-command = "pi -e /home/bobmcallan/.pi/agent/npm/node_modules/@rahularya01/pi-cursor"
-model = "cursor/claude-opus-5-5"
-effort = "high"
-tools = ["Read", "Grep", "Glob"]
-
+# diff three times without naming a file it judged (sto_5c706973). grok, not
+# Opus 5.5: binary-scope also judges the planner's plan, and the planner runs
+# Opus 5.5 ([rules] reviewer_differs_from_performer; sto_49abe9f0).
 [agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]
