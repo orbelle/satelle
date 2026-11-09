@@ -19,7 +19,19 @@
 # reads it: the directory release assets are downloaded from, one subdirectory
 # per tag (<base>/v<version>/<asset>).
 #
-# Next: `satelle init` in a repo, then `satelle service install`.
+# Installing is the service's upgrade path (operator's ruling, 2026-11-09,
+# sto_1b6a7ed3): when satelle is installed the service is installed, and the
+# default is to sync. After the binaries, this script runs
+# `satelle service refresh`: it installs satelled's unit and satelle-sync.timer
+# when missing, repoints a unit naming another binary, restarts satelled onto
+# the new build, starts the sync timer and prints `satelle service status`;
+# with no systemd user manager it prints the units and the autosync command.
+# Provisioning, CI or a curl-to-shell run that must not touch the service opts
+# out, the same way `satelle update` does:
+#
+#   ... | sh -s -- --no-service           # or SATELLE_NO_SERVICE=1 (any value but 0)
+#
+# Next: `satelle init` in a repo.
 set -eu
 
 REPO="bobmcallan/satelle"
@@ -41,13 +53,25 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 base="${SATELLE_RELEASE_BASE:-https://github.com/$REPO/releases/download}"
-version="${1:-}"
+version=""
+no_service=""
+for arg in "$@"; do
+	case "$arg" in
+		--no-service) no_service="--no-service" ;;
+		-*) echo "satelle install: unknown option '$arg' (the only option is --no-service)" >&2; exit 1 ;;
+		*) version="$arg" ;;
+	esac
+done
+if [ -z "$no_service" ] && [ -n "${SATELLE_NO_SERVICE:-}" ] && [ "${SATELLE_NO_SERVICE}" != "0" ]; then
+	no_service="SATELLE_NO_SERVICE=$SATELLE_NO_SERVICE"
+fi
 
 if [ -n "$version" ]; then
 	# --- CLI (pinned: the tag is named, so nothing is looked up) ---
+	given=$version
 	version="${version#v}"
 	case "$version" in
-		"" | *[!0-9.]*) echo "satelle install: version '$1' is not MAJOR.MINOR.PATCH" >&2; exit 1 ;;
+		"" | *[!0-9.]*) echo "satelle install: version '$given' is not MAJOR.MINOR.PATCH" >&2; exit 1 ;;
 	esac
 	tag="v$version"
 else
@@ -153,26 +177,31 @@ case ":$PATH:" in
 	*) echo "satelle install: add $INSTALL_DIR to your PATH (e.g. export PATH=\"$INSTALL_DIR:\$PATH\")" ;;
 esac
 
+# --- service (installing is its upgrade path; sto_1b6a7ed3) ---
+echo
+if [ -n "$no_service" ]; then
+	echo "satelle install: service: not installed or changed ($no_service); 'satelle service install' installs it later"
+elif ! "$INSTALL_DIR/satelle" help service 2>/dev/null | grep -q '^  refresh '; then
+	# A pinned older CLI has no refresh; it installs nothing here.
+	echo "satelle install: this satelle has no 'service refresh'; run 'satelle service install' to install the service and sync timer"
+elif ! "$INSTALL_DIR/satelle" service refresh; then
+	echo "satelle install: the binaries are installed, but the service is not (above); fix it and run 'satelle service refresh', or rerun with --no-service" >&2
+	exit 1
+fi
+
 # Installing and upgrading are the same command, and this script cannot reliably
 # tell which one it just did. So it names BOTH cases rather than guessing
 # (sty_0f471251): a fresh install ignores the second block, and an upgrade — which
 # has just invalidated the scaffolding of every repo already on this machine —
 # finally gets told.
 echo
+echo "The service and sync timer were installed and refreshed by this script, unless"
+echo "skipped (--no-service / SATELLE_NO_SERVICE=1): every machine syncs by default."
+echo
 echo "Next (a new repo):"
 echo "  cd <your-repo>"
 echo "  satelle init             # scaffold .satelle/ (config, db, authored dirs)"
-echo "  satelle service install  # always-on web project page (uses satelled when present)"
 echo
-# This script INFORMS about the running service; it never restarts it
-# (sty_a7b2cd3c). `satelle update` restarts without asking because it is a verb
-# the operator invoked interactively about satelle's own installed state, with a
-# --no-restart opt-out, and it reports the outcome. This is a curl-to-shell
-# script: often non-interactive, may run under provisioning or CI, offers no
-# opt-out the operator saw before piping it to a shell, and one system unit can
-# serve a whole estate of repos. Cycling shared always-on infrastructure is a
-# side effect nobody asked for — the consent given here was "install a binary".
 echo "Repos you already have (if this was an upgrade):"
 echo "  satelle doctor            # read-only: what is wrong here, each with its fix"
 echo "  satelle init              # adds what an older satelle did not scaffold; leaves existing files alone"
-echo "  satelle service restart  # a running service stays on the OLD binary until restarted"

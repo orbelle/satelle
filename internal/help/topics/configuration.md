@@ -3,6 +3,21 @@
 Everything satelle runs lives in `.satelle/`, in git, owned by you. An unknown
 key refuses to run; `satelle validate` lists every problem.
 
+## The substrate check
+
+`satelle validate` also checks the substrate against the running binary: every
+`satelle` command, subcommand, flag and `satelle help` topic named in code in
+the files of `skills/`, `principles/`, `tasks/`, `workflows/` and `queues/`
+(backtick spans and fenced or indented blocks of `.md` files, backtick spans of
+`.toml` files, every line of `.sh` files; not under `testdata/`), and every
+`[[name]]` link outside code, which must name `principles/<name>.md` or
+`skills/<name>.md`. A mention whose next word is a placeholder (`<...>`,
+`$...`) is not checked. Each miss is one line,
+`<file>:<line>: <kind>: <subject> — <why>`, of kind command, flag, topic or
+link; with `--json` they are the `substrate` list beside `problems`. Any miss
+fails `satelle validate` and is a `substrate` issue of `satelle doctor`, but
+the kernel still opens: only a configuration problem stops it.
+
 - `satelle.toml` — settings:
 
       [workflows]
@@ -40,7 +55,8 @@ key refuses to run; `satelle validate` lists every problem.
 
 `satelle doctor` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
-within 2 s. Besides its kernel checks (config, init, versions, sync, seats) it
+within 2 s. Besides its kernel checks (config, substrate, init, versions,
+sync, seats) it
 runs what `.satelle/doctor.toml` names:
 
     [[check]]
@@ -62,7 +78,7 @@ that does not know it ignores it.
 
 `satelle doctor --resolve` fixes what doctor can prove (the service, seats
 whose session has ended on this machine) and asks about other orphaned seats.
-The config, init and `[[check]]` findings it puts on one item, for the agent to
+The config, substrate, init and `[[check]]` findings it puts on one item, for the agent to
 fix in one change through that item's workflow; it never edits or commits the
 files itself, and opens no second item while that one is open. `[resolve]`
 names the item:

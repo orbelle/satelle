@@ -173,3 +173,27 @@ func TestInstallWritesSyncUnits(t *testing.T) {
 		}
 	}
 }
+
+// A second refresh finds every unit naming the binaries it would write, and
+// keeps all three (sto_1b6a7ed3).
+func TestServiceRefreshKeepsMatchingUnits(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the units are systemd-only")
+	}
+	isolate(t)
+	t.Setenv(envNoService, "")
+	fakeSystemctl(t, "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "satelled"), []byte("#!/bin/sh\necho 'satelled 0.1.0 (commit x, built y)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	first := must(t, "service", "refresh")
+	if strings.Count(first, "(missing)") != 3 {
+		t.Fatalf("first refresh:\n%s", first)
+	}
+	second := must(t, "service", "refresh")
+	if strings.Count(second, "kept ") != 3 || strings.Contains(second, "wrote ") {
+		t.Errorf("second refresh rewrote a unit:\n%s", second)
+	}
+}

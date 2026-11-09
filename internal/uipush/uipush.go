@@ -245,7 +245,7 @@ func workflowDocs(src Source) ([]json.RawMessage, error) {
 }
 
 func wireWorkflow(w *workflow.Workflow) *mirror.Workflow {
-	out := &mirror.Workflow{Name: w.Name, States: []mirror.WorkflowState{}, Transitions: []mirror.WorkflowTransition{}}
+	out := &mirror.Workflow{Name: w.Name, Panel: w.PanelName(), States: []mirror.WorkflowState{}, Transitions: []mirror.WorkflowTransition{}}
 	for _, n := range sortedKeys(w.States) {
 		s := w.States[n]
 		ws := mirror.WorkflowState{Name: n, Start: s.Start, Terminal: s.Terminal, Park: s.Park, Resumes: s.Resumes}

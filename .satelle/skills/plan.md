@@ -111,7 +111,7 @@ Read the repository (Read/Grep/Glob) to ground the plan in the real code, then w
 
 - **Covers every acceptance criterion.** The criteria are your `## Acceptance criteria` section when you wrote one, otherwise the story's. For EACH numbered criterion, labelled `AC1`, `AC2`, …, name concretely how it will be satisfied — files/functions to change, the approach, and the test that proves it. A criterion with no plan entry is a gap the plan-review gate will reject.
 - **Names the slice.** Files to add/change and briefly why each. The slice never edits `CHANGELOG.md` or `.version`: a story's changelog lines are recorded as the item's `changelog` attachment (the `### <Section>` and `- <line>` format `scripts/changelog-items.sh` reads), and the release writes `CHANGELOG.md` from those attachments. Name the section and the line in the plan instead.
-- **Names what each dispatch's receiver reads for itself.** For every dispatch the plan designs (a seat, a reviewer, a summariser, any agent the change hands work to), name the receiving seat, its grant, and what it reads for itself (the CLI, the files on disk); send it the instruction and pointers (ids, paths, retrieval commands), never content it can fetch ([[satelle-dispatch-pointers]]).
+- **Names what each dispatch's receiver reads for itself.** For every dispatch the plan designs (a seat, a reviewer, a summariser, any agent the change hands work to), name the receiving seat, its grant, and what it reads for itself (the CLI, the files on disk); send it the instruction and pointers (ids, paths, retrieval commands), never content it can fetch.
 - **Keeps the card's constraints.** A partial solution or technical decision the story card records as context is a constraint on the implementation: list each under a `## Constraints from the card` heading, quoting it, and say how the plan honours it. Never drop, replace or contradict one silently; if the evidence says it cannot hold, say so and why.
 - **Calls out risks / decisions.** Anything the implementer shouldn't have to re-derive (a seam, an ordering constraint, a config knob, a migration).
 - Stays a PLAN — no code, just the shape of the change and the evidence each AC needs.
@@ -135,5 +135,3 @@ On a first plan `answers` is `[]`; on a re-plan it holds one entry per
 rejecting finding, and nothing about the findings goes in `body`.
 
 Label every criterion `AC<n>`; no prose or fence around the JSON.
-
-See [[satelle-agent-model]].

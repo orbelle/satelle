@@ -119,7 +119,10 @@ type Doc struct {
 
 // Workflow is a workflow's states, gates and explicit transitions.
 type Workflow struct {
-	Name        string               `json:"name"`
+	Name string `json:"name"`
+	// Panel names the satelled tab that lists the workflow's items instead
+	// of Stories; empty when it declares none.
+	Panel       string               `json:"panel,omitempty"`
 	States      []WorkflowState      `json:"states"`
 	Gates       []WorkflowGate       `json:"gates,omitempty"`
 	Transitions []WorkflowTransition `json:"transitions"`

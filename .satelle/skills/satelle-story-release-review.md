@@ -3,7 +3,7 @@ name: satelle-story-release-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate on release → done. Isolated read-only reviewer — the behavior on the card holds, the recorded release evidence (conventional commit, green CI, published tag, dogfood triad) is present, the ACs are met, and a dispatched coder consumed the plan; plan adherence is reported as a metric. Verdict rules follow [[satelle-reviewer-verdict]].
+description: Gate on release → done. Isolated read-only reviewer — the behavior on the card holds, the recorded release evidence (conventional commit, green CI, published tag, dogfood triad) is present, the ACs are met, and a dispatched coder consumed the plan; plan adherence is reported as a metric.
 ---
 
 # Story release review (release → done)
@@ -12,7 +12,7 @@ Read-only. May the story close? Judge the **recorded** evidence — open each pa
 
 ## 0. Behavior, then the ACs
 
-Name the behavior the story body states and judge the shipped slice against it as criterion `0`. Reject criterion `0` when the behavior does not hold, even if every numbered AC is met. Then walk each numbered AC against the same evidence. A criterion the slice cannot meet while the behavior holds is recorded `unmet` ([[satelle-reviewer-verdict]]).
+Name the behavior the story body states and judge the shipped slice against it as criterion `0`. Reject criterion `0` when the behavior does not hold, even if every numbered AC is met. Then walk each numbered AC against the same evidence. A criterion the slice cannot meet while the behavior holds is recorded `unmet`.
 
 ## 1. Release evidence
 
@@ -21,7 +21,7 @@ Name the behavior the story body states and judge the shipped slice against it a
 - **CI and tag**: the summary records the `test` and `release` run URLs with conclusions and the published tag `v<satelle.version>`. Reject when a run is absent, unconcluded or failed.
 - **Dogfood triad** — reject naming the check whose evidence is missing or only implied:
   - `check_cli_version`: the recorded `satelle version` output shows `.version`'s `satelle.version` with the pushed commit's SHA prefix.
-  - `check_live_footer`: the live service shows the version of the binary its unit runs — `satelled <satelled.version>` (or the legacy satelle-serve name) for satelled, `satelle <satelle.version>` for the deprecated `satelle serve` alias. Serve and CLI versions differing is normal; do not reject for it. Reject when the service is unmentioned or reports a stale prior version.
+  - `check_live_footer`: the live service shows the version of the binary its unit runs — `satelled <satelled.version>` (or the legacy satelle-serve name) for satelled, `satelle <satelle.version>` for the deprecated serve alias. Serve and CLI versions differing is normal; do not reject for it. Reject when the service is unmentioned or reports a stale prior version.
   - `check_persistent_supervisor`: a persistent supervisor (systemd system unit, or a user manager with lingering) owns the service; an ephemeral `nohup`/`setsid` process fails.
 - **Summary**: a `story-implementation-summary` attachment records what shipped.
 
@@ -44,5 +44,3 @@ Accept only when criterion `0` accepts, sections 1 and 2 hold (a waived check ho
 ```json
 {"verdict": "accept", "notes": "plan-adherence: 4/4 — deviations: none", "reviewed": "<exact words this verdict rests on>"}
 ```
-
-See [[satelle-done-is-last]].

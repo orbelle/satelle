@@ -2,18 +2,14 @@
 
 package cli
 
-import (
-	"errors"
-	"fmt"
-	"io"
-)
+import "io"
 
-var errNoSystemd = errors.New("the satelled service unit is systemd-only; run satelled directly on this platform")
+// systemdUser is false: the units are systemd-only.
+func systemdUser() bool { return false }
 
-func installUnit(w io.Writer, u serviceUnits) error {
-	fmt.Fprintf(w, "no systemd here; run satelled directly. The unit would be:\n\n%s", u.Daemon)
-	fmt.Fprintf(w, "\nand run satelle ledger autosync every %d s. The sync units would be:\n\n%s\n%s",
-		int(syncPeriod.Seconds()), u.SyncService, u.SyncTimer)
+// applyUnits prints the units: there is no systemd here.
+func applyUnits(w io.Writer, u serviceUnits, _ bool) error {
+	printUnits(w, u)
 	return errNoSystemd
 }
 

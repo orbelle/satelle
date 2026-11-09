@@ -93,7 +93,7 @@ to = "retired"
 	s.write(".satelle/workflows/checks.toml", checksRoute(t, c.checks))
 	s.write(".version", "satelle.version: 0.0.1\nsatelled.version: 0.0.1\nsatelle.build: "+time.Now().UTC().Format(time.RFC3339)+"\n")
 	s.write("CHANGELOG.md", "# Changelog\n\n## [0.0.1] - 2026-11-08\n\n### Fixed\n\n- A fixture entry.\n")
-	s.must("validate")
+	s.mustConfigValid()
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "checks fixture")
 	s.git("push", "-q", "origin", "main")

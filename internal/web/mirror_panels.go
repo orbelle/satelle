@@ -144,8 +144,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		return pageData{}, id, err
 	}
 	standing := standingHere()
-	engagedIDs := engagedItems(seats, stories, workflows, standing)
-	here, links := hostedView(id.Hosted, engagedIDs)
+	listed := offPanels(stories, workflows)
+	engagedIDs := engagedItems(seats, listed, workflows, standing)
+	// The here-mark covers every story row, on the Stories tab or a panel.
+	here, links := hostedView(id.Hosted, engagedItems(seats, stories, workflows, standing))
 	events, err := decodeLedger(ctx, s, repoKey, "")
 	if err != nil {
 		return pageData{}, id, err
@@ -165,6 +167,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	for i := range storyRows {
 		storyRows[i].Here = here[storyRows[i].ID]
 	}
+	storyRows, panels := splitPanels(storyRows, workflows)
 	lastIngest, stale := partitionFreshness(ctx, s, repoKey)
 	return pageData{
 		RepoRoot:        repoRoot,
@@ -177,7 +180,8 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncStore:       syncSt.SyncStore,
 		SyncHeld:        syncHeldRows(syncSt.PushHeld),
 		Stories:         storyRows,
-		BacklogCount:    backlogCount(stories, workflows),
+		Panels:          panels,
+		BacklogCount:    backlogCount(listed, workflows),
 		EngagementCount: len(engagedIDs),
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
@@ -378,6 +382,77 @@ func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mir
 	return slices.Sorted(maps.Keys(set))
 }
 
+// panelOf is the panel the item's workflow declares, or "".
+func panelOf(workflows map[string]*mirror.Workflow, it Item) string {
+	if w := workflows[it.Workflow]; w != nil {
+		return w.Panel
+	}
+	return ""
+}
+
+// offPanels is the stories listed on the Stories tab: those whose workflow
+// declares no panel. The tab's count, its backlog badge and the engaged count
+// read these alone.
+func offPanels(stories []Item, workflows map[string]*mirror.Workflow) []Item {
+	var out []Item
+	for _, it := range stories {
+		if panelOf(workflows, it) == "" {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// panelTopic is a panel's tab and fragment key: "wf-" and the name's
+// lowercase slug, so it never collides with a built-in tab.
+func panelTopic(name string) string {
+	var b strings.Builder
+	b.WriteString("wf-")
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			if dash && b.Len() > len("wf-") {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		dash = true
+	}
+	return b.String()
+}
+
+// splitPanels moves each story row whose workflow declares a panel off the
+// Stories rows onto that panel. Every pushed workflow that declares a panel
+// yields one, even with no rows; workflows sharing a panel name share it.
+// Panels are sorted by name; Open counts rows not in a terminal state.
+func splitPanels(rows []rowVM, workflows map[string]*mirror.Workflow) ([]rowVM, []panelVM) {
+	byName := map[string]*panelVM{}
+	for _, w := range workflows {
+		if w != nil && w.Panel != "" && byName[w.Panel] == nil {
+			byName[w.Panel] = &panelVM{Name: w.Panel, Topic: panelTopic(w.Panel), Rows: []rowVM{}}
+		}
+	}
+	stories := make([]rowVM, 0, len(rows))
+	for _, r := range rows {
+		p := byName[panelOf(workflows, r.Item)]
+		if p == nil {
+			stories = append(stories, r)
+			continue
+		}
+		p.Rows = append(p.Rows, r)
+		if r.StateClass != "terminal" {
+			p.Open++
+		}
+	}
+	panels := make([]panelVM, 0, len(byName))
+	for _, n := range slices.Sorted(maps.Keys(byName)) {
+		panels = append(panels, *byName[n])
+	}
+	return stories, panels
+}
+
 // backlogCount is the number of stories in backlog, the Stories tab's
 // 'N backlog' badge: those whose state is their workflow's start state, read
 // from the pushed workflow, never a state name. A story whose workflow is
@@ -471,8 +546,13 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 
 	idMeta := mirrorIdentity(ctx, s, repoKey)
 	route := buildRoute(workflows[it.Workflow], it.Workflow, it.Status, events)
+	backTab := ""
+	if p := panelOf(workflows, it); p != "" {
+		backTab = panelTopic(p)
+	}
 	return detailData{
 		Item:          it,
+		BackTab:       backTab,
 		StateClass:    stateClass(workflows[it.Workflow], it.Status),
 		ParentKind:    parentKind,
 		Children:      children,

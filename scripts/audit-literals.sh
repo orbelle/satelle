@@ -20,10 +20,13 @@ pat=$(printf '"%s"|' $names); pat=${pat%|}
 #   "open" (the drift workflow's start state) in cli/cmd_item.go is the
 #   --open list flag; in hosted/browser.go the macOS open command; in
 #   web/detail.go the page's outcome word for a presented move that did not move.
+#   "substrate" (the substrate workflow and skill) in substrate/substrate.go
+#   is the name of the substrate check's findings: validate's JSON key and
+#   doctor's check.
 #   "in_progress" nowhere expected; "story"/"task" are item kinds (ruling Q-tasks),
 #   so no workflow, state or gate of this repo may be named after them.
 allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
-allow="$allow"'|^internal/cli/cmd_item\.go:.*BoolVar\(&onlyOpen, "open",|^internal/hosted/browser\.go:.*name, args = "open",|^internal/web/detail\.go:[0-9]+:(// drew\. Outcome is "moved", "refused" or "open"|	outcomeOpen += "open"$)'
+allow="$allow"'|^internal/substrate/substrate\.go:[0-9]+:const Field = "substrate"$|^internal/cli/cmd_item\.go:.*BoolVar\(&onlyOpen, "open",|^internal/hosted/browser\.go:.*name, args = "open",|^internal/web/detail\.go:[0-9]+:(// drew\. Outcome is "moved", "refused" or "open"|	outcomeOpen += "open"$)'
 allow="$allow"'|^internal/cli/doctor_resolve\.go:[0-9]+:	answerRelease += "release"'
 hits=$(find internal cmd -name '*.go' ! -name '*_test.go' -print0 | xargs -0 grep -nE "$pat" | grep -vE "$allow" || true)
 echo "names checked: $(echo "$names" | wc -l)"

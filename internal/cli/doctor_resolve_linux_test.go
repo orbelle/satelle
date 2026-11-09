@@ -82,13 +82,14 @@ func loggingSystemctl(t *testing.T, f *doctorFixture) string {
 	return log
 }
 
-// systemctlCalls is the logged calls other than is-active probes.
+// systemctlCalls is the logged calls other than is-active and
+// show-environment probes.
 func systemctlCalls(t *testing.T, log string) []string {
 	t.Helper()
 	b, _ := os.ReadFile(log)
 	var out []string
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		if l != "" && !strings.Contains(l, "is-active") {
+		if l != "" && !strings.Contains(l, "is-active") && !strings.Contains(l, "show-environment") {
 			out = append(out, strings.TrimPrefix(l, "--user "))
 		}
 	}

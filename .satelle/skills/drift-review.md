@@ -1,7 +1,7 @@
 ---
 name: drift-review
 type: skill
-description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh), raise a story per finding (scripts/drift-stories.sh), attach drift-report with the open drift stories this run no longer finds and the judges' RESOLVED lines, present each of those already on the drift route done (its drift-resolved gate re-checks it) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, the drift-claims gate judges the principles' statements of mechanism against the released source, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT or CLAIM line becomes a story too. Fixes nothing inline.
+description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, the drift-claims gate lists the principles' statements of mechanism the released source does not implement as warnings (it never blocks), and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item, each WARN line a warning in it. Fixes nothing inline.
 ---
 
 # Drift review (after every release)
@@ -11,19 +11,23 @@ binary: `.satelle/` names commands, flags, topics, links or skills the released
 binary no longer has, or states a mechanism the source does not implement. And
 the binary drifts from the constitution, which matters more: a release puts
 process in Go, adds a non-gRPC interface, couples to one agent, or leaves dead
-code.
+code. The release itself refuses a candidate whose substrate names what its
+binary lacks (release.md, `### Drift gate on the candidate`), so a substrate
+finding here is rare.
 
 This run is the review. It runs from the main checkout at the released tag,
 after the release run and the worktree cleanup (release.md steps 10 and 11).
 Its base is the previous release's tag, so its diff is exactly what the release
 changed.
 
-**Never edit code or substrate in this run.** Every finding becomes a story
-(`scripts/drift-stories.sh`), and the stories are the fix. The run closes the
-drift stories whose finding it no longer finds (step 4); the fix itself was
-other work. A gate that rejects
-is answered by raising stories, never by changing what it judged. An empty
-report is a pass.
+**Never edit code or substrate in this run.** Drift is fixed like an upgrade:
+every finding goes into the release's one drift-fix item
+(`scripts/drift-fix.sh`), tagged drift, drift-fix and `release:v<ver>`, and
+that item is the fix. The run closes every older drift item, each carried into
+the fix item or no longer found (step 4); the fix itself is other work. The
+drift-claims judge's findings are warnings in the fix item and never block. A
+gate that rejects is answered by recording its lines in the fix item, never by
+changing what it judged. An empty report is a pass.
 
 Shell variables do not survive between the session's separate commands, so
 each block finds the in-progress run and the run-local directory
@@ -63,35 +67,59 @@ bash scripts/drift-check.sh > "$rd/substrate.txt"; echo "drift-check exit $?" | 
 cat "$rd/substrate.txt"
 ```
 
-Exit 1 means misses (one line each); exit 2 means it could not check: stop and
-report its reason.
+drift-check prints `satelle validate`'s substrate findings and configuration
+problems, one line each. Exit 1 means misses; exit 2 means it could not check:
+stop and report its reason.
 
-## 2. Raise a story per finding
+## 2. Raise the release's fix item
 
 ```sh
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
-touch "$rd/judged.txt" "$rd/stories.txt"
-cat "$rd/substrate.txt" "$rd/judged.txt" | bash scripts/drift-stories.sh "$ver" > "$rd/stories.txt.new" && mv "$rd/stories.txt.new" "$rd/stories.txt"
-cat "$rd/stories.txt"
+touch "$rd/judged.txt"
+satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
+jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
+bash scripts/drift-fix.sh --open-findings > "$rd/open-findings.tsv" || exit 1
+awk -F'\t' -v res="$rd/resolved.txt" '
+  BEGIN { while ((getline l < res) > 0) { sub(/^RESOLVED /, "", l); i = index(l, " — "); if (i) l = substr(l, 1, i - 1); r[l] = 1 } }
+  {
+    id = $1; line = $2
+    i = index(line, ":"); file = substr(line, 1, i - 1); rest = substr(line, i + 1)
+    i = index(rest, ": "); rest = substr(rest, i + 2)
+    i = index(rest, ": "); kind = substr(rest, 1, i - 1); rest = substr(rest, i + 2)
+    i = index(rest, " — "); subj = i ? substr(rest, 1, i - 1) : rest
+    key = kind ":" file ":" subj
+    if ((kind == "constitution" && !(key in r) || kind == "prose" && file == id) && !seen[key]++) print line
+  }' "$rd/open-findings.tsv" > "$rd/carried.txt"
+cat "$rd/substrate.txt" "$rd/judged.txt" "$rd/carried.txt" > "$rd/findings.txt"
+cat "$rd/findings.txt" $([ -f "$rd/warnings.txt" ] && echo "$rd/warnings.txt") | bash scripts/drift-fix.sh "$ver" > "$rd/fix.txt" || exit 1
+cat "$rd/fix.txt"
 ```
 
-Each line is `<drift-key>\t<story id>\tnew|existing`. A finding an open drift
-story already carries is not raised twice. Exit 2 stops the run and names what
-is missing (for example an epic tag with no open epic).
+`findings.txt` is every finding this run makes or carries: drift-check's
+lines, the drift-constitution judge's DRIFT lines as constitution findings
+(`judged.txt`, step 5), and every open drift item's constitution finding that
+no judge of this run stated `RESOLVED` (`carried.txt`): a constitution finding
+stays open until a judge re-checks it. An older drift item with no key line at
+all is carried as a warning that names it, so it can close. A substrate finding needs no carrying:
+drift-check finds it again while it holds. `fix.txt` is one line,
+`<id>\tnew|updated\t<n> findings\t<m> warnings`, or empty when there is
+nothing to record (no fix item for this release). A rerun rewrites the same
+item. Exit 2 stops the run and names what failed.
 
 ## 3. Attach drift-report
 
-The report carries what this run finds and what it no longer finds. `No
-longer found` lists each open drift story whose drift-key is not among this
-run's findings, the key first and its story id after a tab; `Resolved by the
-judges` holds every `RESOLVED <drift-key> — <evidence>` line this run's
-drift-constitution and drift-claims judges stated, read from their gate runs
-on the run's ledger. These are the sections the drift route's done gate reads
-(`.satelle/skills/satelle-drift-resolved-check.md`), so the report is attached
-before step 4 presents any story.
+The report carries what this run finds, the fix item, every other open drift
+item's keys, and the keys it no longer finds. `No longer found` lists each
+blocking key (any kind but prose) of an older open drift item that this run
+neither finds nor carries into the fix item, the key first and its item id
+after a tab; `Resolved by the judges` holds every
+`RESOLVED <drift-key> — <evidence>` line this run's drift-constitution judge
+stated, read from its gate runs on the run's ledger. These are the sections the
+drift route's done gate reads (`.satelle/skills/satelle-drift-resolved-check.md`),
+so the report is attached before step 4 presents any item.
 
 ```sh
 task=tas_a45ba066
@@ -99,11 +127,12 @@ exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 base=$(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.base_ref')
-touch "$rd/judged.txt" "$rd/stories.txt"
+touch "$rd/judged.txt" "$rd/findings.txt" "$rd/fix.txt"
+fix=$(cut -f1 "$rd/fix.txt" | head -1); [ -n "$fix" ] || fix=-
 satelle story list --tag drift --open --json > "$rd/open.json" || exit 1
-jq -r '.[] | [.id, ((.body // "") | split("\n") | map(select(startswith("drift-key: "))) | .[0] // "" | ltrimstr("drift-key: "))] | @tsv' "$rd/open.json" > "$rd/open.tsv" || exit 1
-cat "$rd/substrate.txt" "$rd/judged.txt" | bash scripts/drift-stories.sh --keys > "$rd/found.txt" || exit 1
-awk -F'\t' -v found="$rd/found.txt" 'BEGIN { while ((getline l < found) > 0) f[l] = 1 } $2 != "" && !($2 in f) { print $2 "\t" $1 }' "$rd/open.tsv" > "$rd/gone.txt"
+jq -r --arg fix "$fix" '.[] | select(.id != $fix) | .id as $id | (.body // "") | split("\n")[] | select(startswith("drift-key: ")) | [$id, ltrimstr("drift-key: ")] | @tsv' "$rd/open.json" > "$rd/open.tsv" || exit 1
+bash scripts/drift-fix.sh --keys < "$rd/findings.txt" > "$rd/found.txt" || exit 1
+awk -F'\t' -v found="$rd/found.txt" 'BEGIN { while ((getline l < found) > 0) f[l] = 1 } $2 !~ /^prose:/ && !($2 in f) { print $2 "\t" $1 }' "$rd/open.tsv" > "$rd/gone.txt"
 satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
 jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 {
@@ -118,78 +147,79 @@ jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-
   echo
   echo "## Substrate findings"; cat "$rd/substrate.txt"; echo
   echo "## Constitution findings"; grep ': constitution: ' "$rd/judged.txt"; echo
-  echo "## Claim findings"; grep ': prose: ' "$rd/judged.txt"; echo
-  echo "## Open drift stories"; awk -F'\t' '{ print $1 " " $2 }' "$rd/open.tsv"; echo
-  echo "## Stories"; cat "$rd/stories.txt"; echo
+  echo "## Claim warnings"; [ -f "$rd/warnings.txt" ] && cat "$rd/warnings.txt"; echo
+  echo "## Fix item"; [ "$fix" != - ] && { echo "$fix"; cat "$rd/found.txt"; }; echo
+  echo "## Open drift items"; awk -F'\t' '{ print $1 " " $2 }' "$rd/open.tsv"; echo
   echo "## No longer found"; cat "$rd/gone.txt"; echo
   echo "## Resolved by the judges"; cat "$rd/resolved.txt"
 } > "$rd/drift-report.md"
 satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report.md"
 ```
 
-## 4. Close what the run no longer finds
+## 4. Close every older drift item
 
 ```sh
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
+ver=$(sed -n 's/^satelle\.version: *//p' .version)
 tab=$(printf '\t')
-touch "$rd/closed.txt"
-: > "$rd/refused.txt"
-while IFS="$tab" read -r key id; do
-  wf=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .workflow' "$rd/open.json")
-  [ "$wf" = drift ] || continue
-  if out=$(satelle story set "$id" --status done 2>&1); then
-    printf '%s\t%s\n' "$id" "$key" >> "$rd/closed.txt"
-  else
-    printf '%s\t%s\n' "$id" "$(printf '%s' "$out" | tr '\t\n' '  ')" >> "$rd/refused.txt"
-  fi
-done < "$rd/gone.txt"
+fix=$(cut -f1 "$rd/fix.txt" | head -1); [ -n "$fix" ] || fix=-
+bash scripts/drift-fix.sh --close "$fix" > "$rd/close.txt"
+[ $? -le 1 ] || exit 1
+key() { jq -r --arg id "$1" '.[] | select(.id == $id) | (.body // "") | split("\n") | map(select(startswith("drift-key: ") or startswith("drift-warning: "))) | .[0] // "-" | sub("^drift-(key|warning): "; "")' "$rd/open.json"; }
+: > "$rd/closed.txt"; : > "$rd/carried-out.txt"; : > "$rd/refused.txt"
+while IFS="$tab" read -r id what why; do
+  case $what in
+    closed) printf '%s\t%s\n' "$id" "$(key "$id")" >> "$rd/closed.txt" ;;
+    carried) printf '%s\t%s\tcarried: %s\n' "$id" "$(key "$id")" "$why" >> "$rd/carried-out.txt" ;;
+    refused) printf '%s\t%s\n' "$id" "$why" >> "$rd/refused.txt" ;;
+  esac
+done < "$rd/close.txt"
 satelle story list --tag drift --open --json > "$rd/still-open.json" || exit 1
-jq -r '.[] | [.id, .workflow, ((.body // "") | split("\n") | map(select(startswith("drift-key: "))) | .[0] // "" | ltrimstr("drift-key: "))] | @tsv' "$rd/still-open.json" |
-  awk -F'\t' -v found="$rd/found.txt" -v refused="$rd/refused.txt" '
-    BEGIN {
-      while ((getline l < found) > 0) f[l] = 1
-      while ((getline l < refused) > 0) { i = index(l, "\t"); r[substr(l, 1, i - 1)] = substr(l, i + 1) }
-    }
+jq -r '.[] | [.id, ((.body // "") | split("\n") | map(select(startswith("drift-key: ") or startswith("drift-warning: "))) | .[0] // "-" | sub("^drift-(key|warning): "; ""))] | @tsv' "$rd/still-open.json" |
+  awk -F'\t' -v fix="$fix" -v ver="$ver" -v refused="$rd/refused.txt" '
+    BEGIN { while ((getline l < refused) > 0) { i = index(l, "\t"); r[substr(l, 1, i - 1)] = substr(l, i + 1) } }
     {
-      id = $1; wf = $2; key = $3
-      if (key == "") { print id "\t-\tno drift-key line in its body, so no run can find it gone"; next }
-      if (wf != "drift") { print id "\t" key "\ton the " wf " workflow, not the drift route: re-homing moves it onto drift before it can close"; next }
-      if (key in f) { print id "\t" key "\tstill found by this run"; next }
-      if (id in r) { print id "\t" key "\tthe drift route refused done: " r[id]; next }
-      print id "\t" key "\tnot under No longer found: run step 3 again"
+      if ($1 == fix) { print $1 "\t" $2 "\tthe fix item of v" ver; next }
+      if ($1 in r) { print $1 "\t" $2 "\tthe drift route refused done: " r[$1]; next }
+      print $1 "\t" $2 "\tnot presented: run step 4 again"
     }' > "$rd/stayed.txt"
 {
   cat "$rd/drift-report.md"
   echo
-  echo "## Closed"; awk '!seen[$0]++' "$rd/closed.txt"; echo
+  echo "## Closed"; cat "$rd/closed.txt"; echo
+  echo "## Carried"; cat "$rd/carried-out.txt"; echo
   echo "## Stayed open"; cat "$rd/stayed.txt"
 } > "$rd/drift-report-closed.md"
 satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report-closed.md"
 cat "$rd/drift-report-closed.md"
 ```
 
-Step 4 presents `done` only the stories step 3 listed under `No longer found`
-that are already on the drift workflow. A drift story still on chore,
-delivery or any other workflow is never presented: its route's own gates
-would judge a change that does not exist and record a refusal. It stays open
-with that reason until re-homing moves it onto the drift route. The drift
-route's done gate re-checks each presented story against step 3's report and
-leaves a gate.run on its ledger, accept or reject.
+`drift-fix.sh --close` presents done every open drift item but the fix item:
+an item not on the drift workflow is first reselected onto it, and one its
+workflow has moved or judged keeps that route, its drift tag swapped for
+`drift-carried-by:<fix id>`. Each presented item is tagged
+`drift-carried-by:<fix id>`, and the drift route's done gate re-checks each
+of its keys: carried when the fix item lists it, resolved when step 3's
+report lists it under `No longer found` and the re-check holds. It leaves a
+gate.run on the item's ledger, accept or reject. No item is cancelled.
 
-The report attached after step 4 adds two sections the run's done move checks
+The report attached after step 4 adds the sections the run's done move checks
 (the `drift-closures` gate, `.satelle/skills/satelle-drift-closures-check.md`):
 
-- `## Closed`: `<story id>\t<drift-key>`, every story this run closed.
-- `## Stayed open`: `<story id>\t<drift-key or ->\t<reason>`, every open drift
-  story, with why it stayed open (no drift-key line, not on the drift route,
-  still found, or the drift route's refusal).
+- `## Closed`: `<item id>\t<drift-key>`, every item this run closed.
+- `## Carried`: `<item id>\t<drift-key>\tcarried: on <workflow>/<state>`,
+  every item that left the drift set on its own route, carried by the fix
+  item.
+- `## Stayed open`: `<item id>\t<drift-key or ->\t<reason>`, every open
+  drift item, with why it stayed open: the fix item of this release, or the
+  drift route's refusal.
 
 Steps 3 and 4 always run together, in that order: step 4 reads the files step
 3 wrote.
 
-## 5. Present done; answer each reject with stories
+## 5. Present done
 
 ```sh
 task=tas_a45ba066
@@ -203,23 +233,47 @@ The move runs `drift-constitution`, then `drift-claims`, then
 
 - A `drift-constitution` reject: turn each
   `DRIFT <principle> <file>:<line> <symbol> — <what>` line into
-  `<file>:<line>: constitution: <principle> <symbol> — <what>`.
-- A `drift-claims` reject: turn each
-  `CLAIM <file>:<line> "<quote>" — <evidence>` line into
-  `<file>:<line>: prose: <quote> — <evidence>`.
-- A `RESOLVED <drift-key> — <evidence>` line from either judge needs no
-  copying: step 3 reads it from the judge's gate run on the run's ledger.
+  `<file>:<line>: constitution: <principle> <symbol> — <what>` and append it
+  to `$rd/judged.txt`. A `RESOLVED <drift-key> — <evidence>` line needs no
+  copying: steps 2 and 3 read it from the judge's gate run on the run's
+  ledger. Run steps 2, 3 and 4 again, and present again.
+- `drift-claims` accepts by its skill, whatever it finds: its WARN lines are
+  recorded in step 6. If its judge rejects anyway, it has departed from its
+  skill: turn each `WARN <file>:<line> "<statement>" — <evidence>` line of the
+  reject into `<file>:<line>: prose: <statement> — <evidence>` in
+  `$rd/warnings.txt` and present again. A second reject stops the run: raise a
+  story against `.satelle/skills/satelle-drift-claims-review.md`.
 - A `drift-closures` reject: the attached report's `Closed` or `Stayed open`
-  list does not match the stories' states; run steps 3 and 4 again.
+  list does not match the items' states; run steps 3 and 4 again.
 
-Append the DRIFT and CLAIM lines to `$rd/judged.txt`, run steps 2, 3 and 4
-again, and present again. An after-check reject (`diff truncated at ... the
-judge did not read`) has nothing to raise: present again once. If the same
-reject comes back, stop and report it to the operator as a structural gap.
-Never present the run any other way, and never change the code or substrate a
-gate judged.
+An after-check reject (`diff truncated at ... the judge did not read`) has
+nothing to record: present again once. If the same reject comes back, stop and
+report it to the operator as a structural gap. Never present the run any
+other way, and never change the code or substrate a gate judged.
 
-## 6. Release the seat
+## 6. Record the warnings
+
+```sh
+task=tas_a45ba066
+exe=$(satelle execution list --parent "$task" --status done --json | jq -r '.[0].id')
+rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
+ver=$(sed -n 's/^satelle\.version: *//p' .version)
+touch "$rd/findings.txt" "$rd/warnings.txt"
+satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
+jq -r '[.[] | .payload | select(.gate == "drift-claims" and .result == "accept")] | last | .notes // ""' "$rd/gate-runs.json" |
+  sed -n 's/^WARN \([^ ]*\) "\(.*\)" — \(.*\)$/\1: prose: \2 — \3/p' >> "$rd/warnings.txt"
+awk '!seen[$0]++' "$rd/warnings.txt" > "$rd/warnings.new" && mv "$rd/warnings.new" "$rd/warnings.txt"
+cat "$rd/findings.txt" "$rd/warnings.txt" | bash scripts/drift-fix.sh "$ver" | tee "$rd/fix.txt"
+```
+
+Each `WARN <file>:<line> "<statement>" — <evidence>` line of the accepting
+drift-claims run becomes `<file>:<line>: prose: <statement> — <evidence>`, a
+`drift-warning:` line under the fix item's `## Warnings`, never a
+`drift-key:` line: a warning never holds the fix item open. With no fix item
+yet and at least one warning, this raises the release's fix item with only
+warnings.
+
+## 7. Release the seat
 
 ```sh
 task=tas_a45ba066

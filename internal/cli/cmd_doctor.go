@@ -19,6 +19,9 @@ ledger store.
 
 Its checks:
   config     the configuration is invalid (satelle validate)
+  substrate  a satelle command, flag, help topic or [[link]] the repo's
+             .satelle skills, principles, tasks, workflows or queues name that
+             this binary lacks (satelle validate)
   init       files satelle init would add (satelle init)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
@@ -47,10 +50,10 @@ when it finds nothing and 1 when it finds an issue.
   - every other orphaned seat: it shows the evidence and asks on the
     controlling terminal, release or keep (keep is the default); with no
     terminal it only lists it;
-  - config, init and .satelle/doctor.toml check findings: it opens one item
-    listing them all, for the agent to fix in one change through the item's
-    workflow (a story tagged substrate-fix, or what doctor.toml [resolve]
-    names), and opens no second one while that is open. With an invalid
+  - config, substrate, init and .satelle/doctor.toml check findings: it
+    opens one item listing them all, for the agent to fix in one change
+    through the item's workflow (a story tagged substrate-fix, or what
+    doctor.toml [resolve] names), and opens no second one while that is open. With an invalid
     configuration no item can be recorded: it lists them, satelle validate
     first.
 It never edits or commits files and runs no git command. Everything else is

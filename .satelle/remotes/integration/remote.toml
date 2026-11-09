@@ -35,7 +35,7 @@ image = "golang:1.27-alpine"
 kind = "item"
 
 [setup]
-on_create = ["apk add --no-cache git make bash jq"]
+on_create = ["apk add --no-cache git make bash jq curl"]
 
 [network]
 allow = ["dl-cdn.alpinelinux.org", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]

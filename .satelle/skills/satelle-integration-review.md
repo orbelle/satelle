@@ -3,7 +3,7 @@ name: satelle-integration-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate on outcome → release. Isolated read-only reviewer validates PRESENTED integration tests against the story ACs/change (adequacy, not suite execution). satelle-integration-check runs the suite separately. A re-presented edge follows [[satelle-reviewer-verdict]].
+description: Gate on outcome → release. Isolated read-only reviewer validates PRESENTED integration tests against the story ACs/change (adequacy, not suite execution). satelle-integration-check runs the suite separately.
 ---
 
 # Integration test review (outcome → release)

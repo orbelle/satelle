@@ -321,6 +321,7 @@ const templatesSrc = `
     <a class="tab" role="tab" data-panel="tasks" href="#tasks"><span class="tab-label" data-text="Tasks">Tasks</span> <span class="n">{{len .Tasks}}</span></a>
     <a class="tab" role="tab" data-panel="queues" href="#queues"><span class="tab-label" data-text="Queues">Queues</span> <span class="n">{{len .Queues}}</span></a>
     <a class="tab" role="tab" data-panel="workflow" href="#workflow"><span class="tab-label" data-text="Workflow">Workflow</span> <span class="n">{{len .Workflows}}</span></a>
+    {{range .Panels}}{{template "panelTab" .}}{{end}}
   </div>
 
   <section class="panel" data-topic="stories" id="panel-stories">
@@ -385,11 +386,33 @@ const templatesSrc = `
     </table>
   </section>
 
+  {{range .Panels}}
+  <section class="panel" data-topic="{{.Topic}}" id="panel-{{.Topic}}">
+    <div class="filterbar">
+      <div class="filter-input">
+        <input type="text" placeholder="filter… e.g. status:all workflow:name tags:key:value order:updated" aria-label="filter {{.Name}}">
+        <span class="filter-count" aria-live="polite"></span>
+      </div>
+      <div class="chips"></div>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "workitemRows" .Rows}}</tbody>
+    </table>
+  </section>
+  {{end}}
+
   {{template "footer" .TopBar}}
 </div>
 <script src="/static/app.js"></script>
 </body>
 </html>{{end}}
+
+{{/* panelTab: a workflow panel's tab, the one renderer of its count (its
+     items not in a terminal state) and its alert (tab-alert while that count
+     is above 0). Rendered at page load and served at fragment/tab/<topic>;
+     app.js copies the fragment onto the tab on each live refresh. */}}
+{{define "panelTab"}}<a class="tab tab-wf{{if gt .Open 0}} tab-alert{{end}}" role="tab" data-panel="{{.Topic}}" data-wf-panel href="#{{.Topic}}"><span class="tab-label" data-text="{{.Name}}">{{.Name}}</span> <span class="n">{{.Open}}</span></a>{{end}}
 
 {{/* backlogBadge: the Stories tab's 'N backlog' chip when BacklogCount > 0; emits
      nothing at 0. Rendered inside the tab anchor at page load and live-refreshed via
@@ -678,7 +701,7 @@ fetch('settings/global',{method:'POST',headers:{'X-Satelle-Settings':'1'},body:n
 <body>
 {{template "topbar" .TopBar}}
 <div class="wrap">
-  <nav class="crumbs"><a class="back-link" href="{{basehref}}?expand={{.Item.ID}}#{{tabof .Item.Kind}}" aria-label="Back to project">←</a> <a href="{{basehref}}">project</a> <span class="sep">/</span> <a href="{{basehref}}#{{tabof .Item.Kind}}">{{.Item.Kind}}</a> <span class="sep">/</span> <span class="cur">{{.Item.ID}}</span></nav>
+  <nav class="crumbs"><a class="back-link" href="{{basehref}}?expand={{.Item.ID}}#{{if .BackTab}}{{.BackTab}}{{else}}{{tabof .Item.Kind}}{{end}}" aria-label="Back to project">←</a> <a href="{{basehref}}">project</a> <span class="sep">/</span> <a href="{{basehref}}#{{if .BackTab}}{{.BackTab}}{{else}}{{tabof .Item.Kind}}{{end}}">{{.Item.Kind}}</a> <span class="sep">/</span> <span class="cur">{{.Item.ID}}</span></nav>
   <header class="app">
     <div class="kind-h">{{.Item.Kind}}</div>
     <h1>{{.Item.Title}}</h1>

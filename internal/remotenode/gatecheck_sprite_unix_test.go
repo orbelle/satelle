@@ -215,7 +215,7 @@ func TestGateOnTheFlySpriteIntegrationRemoteReachesTheSpriteStart(t *testing.T) 
 			t.Fatalf("%s: the sprite start got\n%+v\nwant\n%+v", c.script, got.Definition, want)
 		}
 		if got.Definition.Machine.Image != "golang:1.27-alpine" ||
-			!reflect.DeepEqual(got.Definition.Setup.OnCreate, []string{"apk add --no-cache git make bash jq"}) {
+			!reflect.DeepEqual(got.Definition.Setup.OnCreate, []string{"apk add --no-cache git make bash jq curl"}) {
 			t.Fatalf("%s: image %q setup %q", c.script, got.Definition.Machine.Image, got.Definition.Setup.OnCreate)
 		}
 		sum := sha256.Sum256([]byte(f.swapped))
