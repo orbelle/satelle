@@ -27,6 +27,9 @@ func isolate(t *testing.T) string {
 	t.Setenv("SATELLE_SESSION", "")
 	t.Setenv("SATELLE_PROJECT_DIR", "")
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	// No test's update reaches this machine's user manager; a test of the
+	// service clears it and puts a fake systemctl first on PATH.
+	t.Setenv(envNoService, "1")
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

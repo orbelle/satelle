@@ -131,7 +131,7 @@ func TestUpdateToAVersionWithoutSatelled(t *testing.T) {
 		"v1.5.0/" + asset("satelle", "1.5.0"): "pinned cli",
 	}, "")
 	out := must(t, "update", "--version", "1.5.0")
-	if !strings.Contains(out, "→ 1.5.0") || strings.Contains(out, "satelled") {
+	if !strings.Contains(out, "→ 1.5.0") || strings.Contains(out, "\nsatelled ") {
 		t.Errorf("update printed:\n%s", out)
 	}
 	if got := readString(t, cli); got != "pinned cli" {
@@ -277,5 +277,193 @@ func TestUpdateRecordsTheInstalledBuilds(t *testing.T) {
 	}
 	if got := buildinfo.Lookup(home, buildinfo.CLIBeside(daemon)); got != cliLine {
 		t.Errorf("the CLI beside satelled = %q, want %q", got, cliLine)
+	}
+}
+
+// fakeSystemctl puts a systemctl first on PATH that appends each call's
+// arguments to the returned log and exits 1 on any call containing failOn
+// (never, when ""), and points [service] at a port nothing answers on, so no
+// test reaches this machine's user manager or satelled.
+func fakeSystemctl(t *testing.T, failOn string) (log string) {
+	t.Helper()
+	bin := t.TempDir()
+	log = filepath.Join(t.TempDir(), "systemctl.log")
+	script := "#!/bin/sh\necho \"$@\" >> " + log + "\n"
+	if failOn != "" {
+		script += "case \"$*\" in *" + failOn + "*) exit 1;; esac\n"
+	}
+	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.MkdirAll(config.GlobalDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config.GlobalDir(), config.GlobalConfigName), []byte("[service]\nport = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return log
+}
+
+func userUnitDir() string {
+	return filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
+}
+
+// inOrder reports whether each of want occurs in s, each after the last.
+func inOrder(s string, want ...string) bool {
+	for _, w := range want {
+		i := strings.Index(s, w)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(w):]
+	}
+	return true
+}
+
+// satelle update installs and refreshes the service: a missing unit is
+// written, one naming another binary is repointed, satelled is restarted and
+// the sync timer started, then the status is printed; with no systemd user
+// manager the units are printed and update still succeeds (sto_1b6a7ed3 AC1).
+func TestUpdateInstallsTheServiceAndTimer(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the units are systemd-only")
+	}
+	cases := []struct {
+		name     string
+		unit     func(daemon string) string // satelled's unit before the update; "" = none
+		failOn   string
+		check    func(t *testing.T, out, calls, daemon, cli string)
+		noUnits  bool
+		wantKept bool
+	}{
+		{name: "unit present, no timer", unit: func(d string) string { return renderUnit(d, "127.0.0.1", 1) }, wantKept: true},
+		{name: "unit names another binary", unit: func(string) string { return renderUnit("/old/satelled", "127.0.0.1", 1) },
+			check: func(t *testing.T, out, _, daemon, _ string) {
+				if !strings.Contains(out, "(was /old/satelled)") {
+					t.Errorf("the repoint is not reported:\n%s", out)
+				}
+				if got := unitDaemon(readString(t, filepath.Join(userUnitDir(), serviceUnitName))); got != daemon {
+					t.Errorf("unit runs %q, want %q", got, daemon)
+				}
+			}},
+		{name: "no units at all", unit: func(string) string { return "" },
+			check: func(t *testing.T, out, _, daemon, _ string) {
+				if got := unitDaemon(readString(t, filepath.Join(userUnitDir(), serviceUnitName))); got != daemon {
+					t.Errorf("unit runs %q, want %q", got, daemon)
+				}
+				if strings.Count(out, "(missing)") != 3 {
+					t.Errorf("want three units written as missing:\n%s", out)
+				}
+			}},
+		{name: "no systemd user manager", unit: func(string) string { return "" }, failOn: "show-environment", noUnits: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			isolate(t)
+			t.Setenv(envNoService, "")
+			log := fakeSystemctl(t, tc.failOn)
+			cli, daemon := fakeInstall(t, true)
+			releaseServer(t, "v"+buildinfo.Version, []string{"serve-v0.1.0"}, nil, "")
+			unitFile := filepath.Join(userUnitDir(), serviceUnitName)
+			if body := tc.unit(daemon); body != "" {
+				if err := os.MkdirAll(userUnitDir(), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(unitFile, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, _ := os.ReadFile(unitFile)
+			out, err := run(t, "", "update")
+			if err != nil {
+				t.Fatalf("update: %v\n%s", err, out)
+			}
+			calls, _ := os.ReadFile(log)
+			if tc.noUnits {
+				if !strings.Contains(out, "[Unit]") || !strings.Contains(out, "satelle ledger autosync") {
+					t.Errorf("the units and the autosync command are not printed:\n%s", out)
+				}
+				if _, err := os.Stat(userUnitDir()); !os.IsNotExist(err) {
+					t.Errorf("a unit was written without systemd: %v", err)
+				}
+				if strings.Contains(string(calls), "restart") {
+					t.Errorf("systemctl restarted without a user manager:\n%s", calls)
+				}
+				return
+			}
+			if got := readString(t, filepath.Join(userUnitDir(), syncTimerName)); got != renderSyncTimer() {
+				t.Errorf("timer file:\n%s", got)
+			}
+			if !strings.Contains(readString(t, filepath.Join(userUnitDir(), syncServiceName)), "ExecStart="+cli+" ledger autosync\n") {
+				t.Errorf("the sync service does not run %s ledger autosync", cli)
+			}
+			if tc.wantKept {
+				if !strings.Contains(out, "kept "+unitFile) || readString(t, unitFile) != string(before) {
+					t.Errorf("satelled's unit was not kept:\n%s", out)
+				}
+			}
+			if !inOrder(string(calls), "--user daemon-reload\n", "--user enable "+serviceUnitName+"\n",
+				"--user restart "+serviceUnitName+"\n", "--user enable --now "+syncTimerName+"\n") {
+				t.Errorf("systemctl calls:\n%s", calls)
+			}
+			for _, want := range []string{"\nunit ", "\nsync ", "\nconfig "} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the status line %q is not printed:\n%s", want, out)
+				}
+			}
+			if tc.check != nil {
+				tc.check(t, out, string(calls), daemon, cli)
+			}
+		})
+	}
+}
+
+// --no-service and SATELLE_NO_SERVICE=1 change no unit and run no systemctl,
+// and say what was skipped and how to restart (sto_1b6a7ed3 AC2).
+func TestUpdateNoServiceSkips(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake systemctl and satelled are shell scripts")
+	}
+	for _, tc := range []struct{ name, env, why string }{
+		{name: "flag", why: "--no-service"},
+		{name: "env", env: "1", why: "SATELLE_NO_SERVICE=1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolate(t)
+			t.Setenv(envNoService, tc.env)
+			log := fakeSystemctl(t, "")
+			fakeInstall(t, true)
+			releaseServer(t, "v"+buildinfo.Version, []string{"serve-v0.1.0"}, nil, "")
+			args := []string{"update"}
+			if tc.env == "" {
+				args = append(args, "--no-service")
+			}
+			out, err := run(t, "", args...)
+			if err != nil {
+				t.Fatalf("update: %v\n%s", err, out)
+			}
+			if _, err := os.Stat(userUnitDir()); !os.IsNotExist(err) {
+				t.Errorf("a unit dir was created: %v", err)
+			}
+			if _, err := os.Stat(log); !os.IsNotExist(err) {
+				t.Errorf("systemctl ran: %v", err)
+			}
+			if !strings.Contains(out, "("+tc.why+")") || !strings.Contains(out, "satelle service restart") {
+				t.Errorf("the skip line does not name %s and the restart:\n%s", tc.why, out)
+			}
+		})
+	}
+}
+
+// satelle help service says install and update install the service and sync,
+// and names the opt-out and refresh (sto_1b6a7ed3 AC3).
+func TestHelpServiceNamesInstallUpdateAndOptOut(t *testing.T) {
+	isolate(t)
+	out := must(t, "help", "service")
+	for _, want := range []string{"satelle update", "install.sh", "--no-service", "SATELLE_NO_SERVICE=1", "refresh"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help service lacks %q:\n%s", want, out)
+		}
 	}
 }
