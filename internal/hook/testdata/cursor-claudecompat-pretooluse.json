@@ -1,0 +1,17 @@
+{
+  "conversation_id": "b1dd0ab1-64be-4f4e-928d-730b55082f0e",
+  "generation_id": "b1dd0ab1-64be-4f4e-928d-730b55082f0e",
+  "model": "gemini-3.8-flash",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/work/repo/ok2.txt",
+    "content": "ok\n"
+  },
+  "tool_use_id": "0_tool_4de9cb8b-76f9-471c-b69c-a927b5876",
+  "session_id": "b1dd0ab1-64be-4f4e-928d-730b55082f0e",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.11.05-86047df",
+  "workspace_roots": [
+    "/work/repo"
+  ]
+}

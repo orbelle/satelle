@@ -1,0 +1,19 @@
+{
+  "conversation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "generation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "model": "gemini-3.8-flash",
+  "tool_name": "Shell",
+  "tool_input": {
+    "command": "echo deny-me",
+    "cwd": "",
+    "timeout": 30000
+  },
+  "tool_use_id": "84e66260-a6de-4077-8d07-a9abd332641f",
+  "cwd": "",
+  "session_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.11.05-86047df",
+  "workspace_roots": [
+    "/work/repo"
+  ]
+}

@@ -14,8 +14,9 @@ func agentsCmd() *cobra.Command {
 		Use:   "agents",
 		Short: "Install or remove harness hook files (" + strings.Join(hook.Harnesses, ", ") + ")",
 		Long: `agents install writes a harness's hook file so its sessions call satelle's
-hook handlers: claude (.claude/settings.json), grok (.grok/hooks/satelle.json)
-and pi (.pi/extensions/satelle.ts). Entries that are not satelle's are kept.
+hook handlers: claude (.claude/settings.json), grok (.grok/hooks/satelle.json),
+pi (.pi/extensions/satelle.ts) and cursor (.cursor/hooks.json). Entries that
+are not satelle's are kept.
 agents remove strips satelle's entries again.`,
 	}
 	for _, verb := range []string{"install", "remove"} {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -33,9 +34,12 @@ type GateSettings struct {
 	LockedPaths     []string `toml:"locked_paths"`
 }
 
-// HookSettings is the [hook] section: files the context hook prints.
+// HookSettings is the [hook] section: files the context hook prints, and the
+// command prefixes the gate hook lets an interactive session run without its
+// harness's own approval (empty: none).
 type HookSettings struct {
 	Inject []string `toml:"inject"`
+	Allow  []string `toml:"allow"`
 }
 
 // RuleSettings is the [rules] section.
@@ -267,6 +271,18 @@ func (c *Config) Problems() []error {
 	}
 	errs = append(errs, c.queueProblems()...)
 	errs = append(errs, c.doctorProblems()...)
+	errs = append(errs, c.hookProblems()...)
+	return errs
+}
+
+// hookProblems checks [hook] allow: every entry is plain command words.
+func (c *Config) hookProblems() []error {
+	var errs []error
+	for i, e := range c.Settings.Hook.Allow {
+		if _, err := hook.ParseAllow(e); err != nil {
+			errs = append(errs, fmt.Errorf("%s: [hook] allow entry %d %q: %v", SettingsFile, i+1, e, err))
+		}
+	}
 	return errs
 }
 

@@ -3,7 +3,7 @@
 // A seat records the machine it was bound on (item.Seat.Machine). Whether its
 // session still runs is known only on that machine, from a session record at
 // <satelle home>/sessions/<session>.json naming the session's owner process:
-// the harness (claude, pi, grok) found from its SessionStart and
+// the harness (claude, pi, grok, cursor) found from its SessionStart and
 // UserPromptSubmit hooks or its seat command, or the satelle process of a
 // dispatched run. Records name local pids, so they are never replicated.
 //

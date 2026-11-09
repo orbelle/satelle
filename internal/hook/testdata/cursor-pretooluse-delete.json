@@ -1,0 +1,16 @@
+{
+  "conversation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "generation_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "model": "gemini-3.8-flash",
+  "tool_name": "Delete",
+  "tool_input": {
+    "file_path": "/work/repo/deny-me-del.txt"
+  },
+  "tool_use_id": "0_tool_0596537c-a1ff-4337-ba19-fe03b3ff4",
+  "session_id": "6af68708-c93b-49f4-a8fe-f4e496c035ea",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.11.05-86047df",
+  "workspace_roots": [
+    "/work/repo"
+  ]
+}

@@ -1,8 +1,10 @@
 package hook
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -140,8 +142,50 @@ func TestParseInputAcrossHarnesses(t *testing.T) {
 	if !grokShell.IsShell() {
 		t.Errorf("grok shell: %+v", grokShell)
 	}
-	if (ParseInput([]byte(`not json`)) != Input{}) {
+	if !reflect.DeepEqual(ParseInput([]byte(`not json`)), Input{}) {
 		t.Error("unreadable input is not the zero Input")
+	}
+}
+
+// cursorFixture reads a Cursor hook payload captured by the sto_e51c7fb9
+// probe (cursor-agent 2026.11.05; user_email and transcript_path removed, the
+// scratch repo's path replaced by /work/repo).
+func cursorFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "cursor-"+name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestParseInputCursorFixtures(t *testing.T) {
+	start := ParseInput(cursorFixture(t, "sessionstart"))
+	if start.Session == "" || !start.Cursor || start.Event != "sessionStart" || !slices.Equal(start.Roots, []string{"/work/repo"}) {
+		t.Fatalf("sessionStart: %+v", start)
+	}
+	write := ParseInput(cursorFixture(t, "pretooluse-write"))
+	if !write.IsEdit() || write.IsShell() || write.Path != "/work/repo/ok.txt" || write.Session != start.Session || !write.Cursor {
+		t.Errorf("Write: %+v (session start %q)", write, start.Session)
+	}
+	del := ParseInput(cursorFixture(t, "pretooluse-delete"))
+	if !del.IsEdit() || del.Path != "/work/repo/deny-me-del.txt" || del.Session != start.Session {
+		t.Errorf("Delete: %+v", del)
+	}
+	sh := ParseInput(cursorFixture(t, "pretooluse-shell"))
+	if !sh.IsShell() || sh.IsEdit() || sh.Command != "echo deny-me" || sh.Cwd != "" || sh.Session != start.Session {
+		t.Errorf("Shell: %+v", sh)
+	}
+	compat := ParseInput(cursorFixture(t, "claudecompat-pretooluse"))
+	if !compat.Cursor || !compat.IsEdit() {
+		t.Errorf("Cursor's run of a .claude/settings.json hook does not mark Cursor: %+v", compat)
+	}
+	conv := ParseInput([]byte(`{"conversation_id":"c1","cursor_version":"x"}`))
+	if conv.Session != "c1" {
+		t.Errorf("conversation_id is not the session fallback: %+v", conv)
+	}
+	if ParseInput([]byte(`{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/a"}}`)).Cursor {
+		t.Error("a claude payload reads as Cursor's")
 	}
 }
 
@@ -155,8 +199,136 @@ func TestDenyEnvelopes(t *testing.T) {
 	if d := string(Deny(Grok, "no")); d != `{"decision":"deny","reason":"no"}` {
 		t.Errorf("grok deny: %s", d)
 	}
-	if c := string(Context("SessionStart", "hi")); !strings.Contains(c, `"additionalContext":"hi"`) {
+	if c := string(Context(Claude, EventSessionStart, "hi")); !strings.Contains(c, `"additionalContext":"hi"`) {
 		t.Errorf("context: %s", c)
+	}
+	if d := string(Deny(Cursor, "no")); d != `{"permission":"deny","user_message":"no","agent_message":"no"}` {
+		t.Errorf("cursor deny: %s", d)
+	}
+	if a := string(Allow(Cursor)); a != `{"permission":"allow"}` {
+		t.Errorf("cursor allow: %s", a)
+	}
+	for _, h := range []string{Claude, Pi, Grok} {
+		if Allow(h) != nil || StopAnswer(h) != nil {
+			t.Errorf("%s has an allow or stop answer", h)
+		}
+	}
+	if c := string(Context(Cursor, EventSessionStart, "hi")); c != `{"additional_context":"hi"}` {
+		t.Errorf("cursor sessionStart context: %s", c)
+	}
+	if c := string(Context(Cursor, EventPrompt, "hi")); c != `{"continue":true}` {
+		t.Errorf("cursor beforeSubmitPrompt answer: %s", c)
+	}
+	if s := string(StopAnswer(Cursor)); s != `{}` {
+		t.Errorf("cursor stop answer: %s", s)
+	}
+}
+
+// agents install cursor writes flat entries into .cursor/hooks.json beside the
+// user's own, and remove strips only satelle's (sto_e51c7fb9 AC2).
+func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	user := `{"version":1,"hooks":{"sessionStart":[{"command":"./mine.sh"}],"afterFileEdit":[{"command":"fmt.sh"}]}}`
+	if err := os.WriteFile(path, []byte(user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // idempotent
+		if _, err := Install(root, Cursor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var doc struct {
+		Version int `json:"version"`
+		Hooks   map[string][]struct {
+			Command string `json:"command"`
+			Matcher string `json:"matcher"`
+		} `json:"hooks"`
+	}
+	b, _ := os.ReadFile(path)
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("installed file does not decode: %v\n%s", err, b)
+	}
+	if doc.Version != 1 {
+		t.Errorf("version %d", doc.Version)
+	}
+	for event, verb := range map[string]string{"preToolUse": VerbGate, "sessionStart": VerbContext, "beforeSubmitPrompt": VerbPrompt, "stop": VerbStopcheck} {
+		n := 0
+		for _, e := range doc.Hooks[event] {
+			if e.Command == Command(verb, Cursor) {
+				n++
+				if verb == VerbGate && e.Matcher != "Write|Delete|Shell" {
+					t.Errorf("preToolUse matcher %q", e.Matcher)
+				}
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: %d satelle entries, want 1\n%s", event, n, b)
+		}
+	}
+	if !strings.Contains(string(b), "./mine.sh") || !strings.Contains(string(b), "fmt.sh") {
+		t.Fatalf("user entries lost:\n%s", b)
+	}
+	if !Installed(root, Cursor) || Installed(root, Claude) {
+		t.Error("Installed misreports")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
+		t.Error("installing cursor touched .claude")
+	}
+	if _, err := Remove(root, Cursor); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(path)
+	var got, want any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal([]byte(user), &want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("after remove:\n%s\nwant %s", b, user)
+	}
+	if Installed(root, Cursor) {
+		t.Error("Installed after remove")
+	}
+
+	fresh := t.TempDir()
+	if _, err := Remove(fresh, Cursor); err != nil {
+		t.Errorf("remove with no file: %v", err)
+	}
+	if _, err := Install(fresh, Cursor); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(fresh, ".cursor", "hooks.json"))
+	if !strings.Contains(string(b), `"version": 1`) {
+		t.Errorf("a new file lacks version 1:\n%s", b)
+	}
+	if _, err := Install(fresh, Claude); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := os.ReadFile(filepath.Join(fresh, ".cursor", "hooks.json")); string(c) != string(b) {
+		t.Error("installing claude touched .cursor/hooks.json")
+	}
+}
+
+// Defers holds only for Cursor's run of another harness's entries, and only
+// once Cursor's own are installed.
+func TestDefersToCursorInstall(t *testing.T) {
+	root := t.TempDir()
+	fromCursor := Input{Cursor: true}
+	if Defers(root, Claude, fromCursor) {
+		t.Error("defers with no cursor install")
+	}
+	if _, err := Install(root, Cursor); err != nil {
+		t.Fatal(err)
+	}
+	if !Defers(root, Claude, fromCursor) {
+		t.Error("Cursor's call into the claude entries does not defer")
+	}
+	if Defers(root, Cursor, fromCursor) || Defers(root, Claude, Input{}) {
+		t.Error("cursor's own call, or claude's, defers")
 	}
 }
 
