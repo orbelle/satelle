@@ -137,15 +137,6 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	if !v.Allow && session == "" {
 		v.Reason += " (no session id: the harness sent none and SATELLE_SESSION is unset)"
 	}
-	if v.Allow && in.IsShell() && sessionFromEnv() == "" && hook.Allowed(k.Settings.Hook.Allow, in.Command) {
-		// [hook] allow: an interactive session's configured commands run
-		// without the harness's own approval, where the harness has an allow
-		// answer. A dispatched run (SATELLE_SESSION set) never gets one.
-		if a := hook.Allow(harness); a != nil {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), string(a))
-			return err
-		}
-	}
 	return writeVerdict(cmd, harness, v)
 }
 

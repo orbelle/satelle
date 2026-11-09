@@ -205,12 +205,9 @@ func TestDenyEnvelopes(t *testing.T) {
 	if d := string(Deny(Cursor, "no")); d != `{"permission":"deny","user_message":"no","agent_message":"no"}` {
 		t.Errorf("cursor deny: %s", d)
 	}
-	if a := string(Allow(Cursor)); a != `{"permission":"allow"}` {
-		t.Errorf("cursor allow: %s", a)
-	}
 	for _, h := range []string{Claude, Pi, Grok} {
-		if Allow(h) != nil || StopAnswer(h) != nil {
-			t.Errorf("%s has an allow or stop answer", h)
+		if StopAnswer(h) != nil {
+			t.Errorf("%s has a stop answer", h)
 		}
 	}
 	if c := string(Context(Cursor, EventSessionStart, "hi")); c != `{"additional_context":"hi"}` {

@@ -32,7 +32,6 @@ the kernel still opens: only a configuration problem stops it.
 
       [hook]
       inject = []                 # files the context hook prints at session start
-      allow = []                  # command prefixes a Cursor session runs unprompted (satelle help edit-gate)
 
       [rules]
       reviewer_differs_from_performer = false

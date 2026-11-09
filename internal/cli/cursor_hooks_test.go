@@ -183,16 +183,31 @@ func TestCursorGateMatchesClaudeGate(t *testing.T) {
 			t.Errorf("%s: cursor reason\n%q\nclaude reason\n%q", fx, got, want)
 		}
 	}
+	// A shell write into this repo's own tree reaches the seat check (the
+	// operator-verb and fence checks pass it): unseated, it is refused with
+	// the claude gate's seat reason.
+	shellWrite := "echo x > " + main
+	raw, doc := cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", shellWrite), "gate")
+	gotSh := cursorDeny(t, raw, doc)
+	wantSh := claudeDenyReason(t, claudePayload("c-1", dir, "Bash", "", shellWrite))
+	if wantSh == "" || gotSh != wantSh || !strings.Contains(gotSh, "seat") {
+		t.Errorf("unseated shell write: cursor reason\n%q\nclaude reason\n%q", gotSh, wantSh)
+	}
 	record := "satelle story record " + id + " --file note.md"
-	raw, doc := cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", record), "gate")
+	raw, doc = cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", record), "gate")
 	if got := cursorDeny(t, raw, doc); got != hook.OperatorRecordDenied || got != claudeDenyReason(t, claudePayload("c-1", dir, "Bash", "", record)) {
 		t.Errorf("operator record: cursor reason %q", got)
 	}
 
 	must(t, "story", "set", id, "--status", "st-two")
 	must(t, "story", "seat", id, "--session", "c-1")
-	if raw, _ := cursorAnswer(t, cursorPayload(t, "pretooluse-write", "c-1", dir, main, ""), "gate"); raw != "" {
-		t.Errorf("a seated Cursor edit was answered: %s", raw)
+	for _, fx := range []string{"pretooluse-write", "pretooluse-delete"} {
+		if raw, _ := cursorAnswer(t, cursorPayload(t, fx, "c-1", dir, main, ""), "gate"); raw != "" {
+			t.Errorf("%s: a seated Cursor edit was answered: %s", fx, raw)
+		}
+	}
+	if raw, _ := cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", shellWrite), "gate"); raw != "" {
+		t.Errorf("a seated Cursor shell write in this repo was answered: %s", raw)
 	}
 	raw, doc = cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", record), "gate")
 	if cursorDeny(t, raw, doc) != hook.OperatorRecordDenied {
@@ -355,51 +370,5 @@ func TestClaudeHooksDeferToCursorInstall(t *testing.T) {
 	t.Setenv("CURSOR_VERSION", "2026.11.05")
 	if gate(claudePayload("c-d", dir, "Edit", main, "")) == "" {
 		t.Error("CURSOR_VERSION in the environment silenced a claude payload")
-	}
-}
-
-// [hook] allow is configuration: a Cursor shell call matching an entry gets
-// {"permission":"allow"} in an interactive session; nothing for a dispatched
-// run, an unlisted command, another harness, or no setting; the operator
-// verb stays refused (sto_e51c7fb9 AC4).
-func TestCursorGateAllowsConfiguredCommands(t *testing.T) {
-	dir := isolateCursor(t)
-	must(t, "init")
-	id := createID(t, "story", "create", "--title", "x")
-	set := "satelle story set " + id + " --status doing"
-	shell := func(cmd string) string { return cursorPayload(t, "pretooluse-shell", "c-a", dir, "", cmd) }
-
-	if raw, _ := cursorAnswer(t, shell(set), "gate"); raw != "" {
-		t.Errorf("with no [hook] allow, the set call was answered: %s", raw)
-	}
-	appendSettings(t, dir, "\n[hook]\nallow = [\"satelle story set\"]\n")
-	must(t, "validate")
-	if raw, _ := cursorAnswer(t, shell(set), "gate"); raw != `{"permission":"allow"}` {
-		t.Errorf("configured command answer %q", raw)
-	}
-	if raw, _ := cursorAnswer(t, shell("satelle status"), "gate"); raw != "" {
-		t.Errorf("unlisted command answered: %s", raw)
-	}
-	raw, doc := cursorAnswer(t, shell("satelle story record "+id+" --file f"), "gate")
-	if cursorDeny(t, raw, doc) != hook.OperatorRecordDenied {
-		t.Error("operator verb not refused")
-	}
-	if out, _ := run(t, claudePayload("c-a", dir, "Bash", "", set), "hook", "gate", "--harness", "claude"); strings.TrimSpace(out) != "" {
-		t.Errorf("claude harness answered the set call: %s", out)
-	}
-	t.Setenv("SATELLE_SESSION", "perform_x")
-	if raw, _ := cursorAnswer(t, shell(set), "gate"); raw != "" {
-		t.Errorf("a dispatched run was allowed: %s", raw)
-	}
-}
-
-// An invalid [hook] allow entry is a configuration problem.
-func TestValidateRefusesABadHookAllowEntry(t *testing.T) {
-	dir := isolateCursor(t)
-	must(t, "init")
-	appendSettings(t, dir, "\n[hook]\nallow = [\"satelle story set\", \"satelle *\"]\n")
-	_, err := run(t, "", "validate")
-	if err == nil || !strings.Contains(err.Error(), `[hook] allow entry 2 "satelle *"`) {
-		t.Fatalf("validate: %v", err)
 	}
 }

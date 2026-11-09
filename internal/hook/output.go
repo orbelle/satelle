@@ -41,18 +41,6 @@ func Deny(harness, reason string) []byte {
 	return marshal(doc)
 }
 
-// Allow returns harness's PreToolUse answer that lets a tool call run without
-// the harness's own approval: cursor's {"permission":"allow"}. Claude, pi and
-// grok have none here (their allow channel is permission rules), so it is nil.
-func Allow(harness string) []byte {
-	if harness == Cursor {
-		return marshal(struct {
-			Permission string `json:"permission"`
-		}{"allow"})
-	}
-	return nil
-}
-
 // SessionStart and UserPromptSubmit are the context events in claude's names.
 const (
 	EventSessionStart = "SessionStart"

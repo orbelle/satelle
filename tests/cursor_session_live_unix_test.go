@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/hook"
 )
 
@@ -84,13 +85,15 @@ func readCursorStream(t *testing.T, out string) cursorStream {
 	return st
 }
 
-// A Cursor session in a repo with `satelle agents install cursor` runs under
-// satelle's hooks (sto_e51c7fb9 AC3): its session-start context carries the
-// session id and the injected principles; an unseated edit is refused before
-// it is written with the claude gate's reason; the operator-only verb is
-// refused by the gate; once the session is seated in a performing state, the
-// resumed session's edit is written. cursor-agent runs in print mode without
-// --force. Opt-in: SATELLE_LIVE_CURSOR=1 and cursor-agent on PATH, signed in;
+// A cursor-agent session in a repo with `satelle agents install cursor` runs
+// under satelle's hooks (sto_e51c7fb9 AC3, AC4): its session-start context
+// carries the session id and the injected principles; an unseated edit is
+// refused before it is written with the claude gate's reason; the
+// operator-only verb is refused by the gate; once the session is seated in a
+// performing state, the resumed session's edit is written, while an edit and a
+// shell write into another repository's working tree are refused with the
+// claude gate's fence reason. cursor-agent runs in print mode without --force.
+// Opt-in: SATELLE_LIVE_CURSOR=1 and cursor-agent on PATH, signed in;
 // SATELLE_LIVE_CURSOR_MODEL picks the model.
 func TestCursorSessionRunsUnderSatelleHooks(t *testing.T) {
 	if os.Getenv("SATELLE_LIVE_CURSOR") != "1" {
@@ -147,6 +150,30 @@ to = "finished"
 		t.Fatal(err)
 	}
 	id := s.create("story", "--title", "cursor live").ID
+
+	// Another repository, outside the temp roots: the gate allows any path
+	// outside the session's root under the temp dir, so a foreign repo there
+	// would never reach the fence.
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := os.MkdirTemp(cache, "satelle-live-fence-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(foreign) })
+	if foreign, err = filepath.EvalSymlinks(foreign); err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, foreign, "init", "-q")
+	gittest.Git(t, foreign, "commit", "-q", "--allow-empty", "-m", "init")
+	fencedEdit := filepath.Join(foreign, "fenced.txt")
+	fencedShell := filepath.Join(foreign, "fenced-sh.txt")
+	shellWrite := "echo x > " + fencedShell
 
 	cfg := t.TempDir()
 	if err := os.Symlink(auth, filepath.Join(cfg, "auth.json")); err != nil {
@@ -217,11 +244,45 @@ to = "finished"
 
 	s.must("story", "set", id, "--status", "doing")
 	s.must("story", "seat", id, "--session", first.Session)
-	second := agent("With your file write tool (not the shell), create seated.txt containing ok. Report the outcome.\n", "--resume", first.Session)
+	second := agent("Do each step, continuing even if one is refused, and read no files: "+
+		"1) With your file write tool (not the shell), create seated.txt containing ok. "+
+		"2) With your file write tool (not the shell), create "+fencedEdit+" containing x. "+
+		"3) With your shell, run exactly: "+shellWrite+" "+
+		"Report each outcome and any refusal reason verbatim.\n", "--resume", first.Session)
 	if second.Session != first.Session {
 		t.Errorf("resumed session %q, want %q", second.Session, first.Session)
 	}
 	if _, err := os.Stat(filepath.Join(s.dir, "seated.txt")); err != nil {
 		t.Errorf("the seated edit was not written: %v; calls %+v", err, second.Calls)
+	}
+	for _, f := range []string{fencedEdit, fencedShell} {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("a write into another repository's tree happened: %s: %v", f, err)
+		}
+	}
+	_, wantEdit := s.gate(first.Session, "Edit", fencedEdit, "")
+	_, wantShell := s.gate(first.Session, "Bash", "", shellWrite)
+	for _, w := range []string{wantEdit, wantShell} {
+		if !strings.Contains(w, "another repository's working tree") {
+			t.Fatalf("the claude gate's reason is not the fence: %q", w)
+		}
+	}
+	var editFenced, shellFenced bool
+	for _, c := range second.Calls {
+		switch {
+		case c.Kind == "editToolCall" && strings.HasSuffix(c.Target, "fenced.txt"):
+			editFenced = c.Rejected && strings.HasPrefix(c.Reason, wantEdit)
+			if !editFenced {
+				t.Errorf("foreign edit: rejected %v reason %q, want the claude gate's %q", c.Rejected, c.Reason, wantEdit)
+			}
+		case c.Kind == "shellToolCall" && strings.Contains(c.Target, "fenced-sh.txt"):
+			shellFenced = c.Rejected && strings.HasPrefix(c.Reason, wantShell)
+			if !shellFenced {
+				t.Errorf("foreign shell write: rejected %v reason %q, want the claude gate's %q", c.Rejected, c.Reason, wantShell)
+			}
+		}
+	}
+	if !editFenced || !shellFenced {
+		t.Fatalf("fence inconclusive or failed: calls %+v", second.Calls)
 	}
 }

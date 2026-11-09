@@ -10,9 +10,6 @@ default = "default"
 
 # [hook]
 # inject = ["docs/principles.md"]   # files the context hook prints at session start
-# Command prefixes an interactive Cursor session runs without Cursor's approval
-# (plain words only; empty by default). See `satelle help edit-gate`.
-# allow = ["satelle story set", "satelle story get"]
 
 [rules]
 # A judge may not run the same model as the performer whose work it judges.

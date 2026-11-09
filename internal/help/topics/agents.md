@@ -23,7 +23,7 @@ and `satelle execution set`: a performer never moves an item itself.
 so its interactive sessions run under the edit gate, the session-start
 context, the prompt hook and the stop check: `.claude/settings.json`,
 `.pi/extensions/satelle.ts`, `.grok/hooks/satelle.json` and
-`.cursor/hooks.json`. A Cursor session drives stories this way (see
+`.cursor/hooks.json`. A `cursor-agent` session drives stories this way (see
 `satelle help edit-gate`). It writes no `.cursor/cli.json`.
 
 ## Adapters
