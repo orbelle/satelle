@@ -17,6 +17,18 @@ receives the session as `SATELLE_SESSION` and the worktree as
 `SATELLE_PROJECT_DIR`, and the seat is released when the run ends, also on
 failure.
 
+Every seat records the machine it was bound on (an id kept in
+`~/.satelle/machine-id`, folded with the host's machine id) and its host name.
+Whether its session still runs is known only on that machine, from
+`~/.satelle/sessions/<session>.json`: the SessionStart hook records the hook's
+process chain, the prompt hook and the seat command settle the session's
+owner (the harness both share), and a dispatched run records its own process.
+`satelle doctor` and satelled class each seat as **here** (this machine, owner
+running), **elsewhere** (another machine, or a remote or cloud location),
+**gone** (this machine, owner exited) or **unverified** (no machine recorded,
+no session record, or no proof either way). Only a seat here counts as
+engaged; `satelle doctor --resolve` releases a gone one without asking.
+
 Always and never:
 
 - `[gate] edit_exempt_paths` (globs relative to the worktree) are always allowed.

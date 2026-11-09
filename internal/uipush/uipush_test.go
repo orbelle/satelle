@@ -184,7 +184,9 @@ func TestPushRoundTrip(t *testing.T) {
 	if i := strings.Index(page, `aria-current="step"`); i < 0 || !strings.HasPrefix(strings.TrimSpace(page[i+len(`aria-current="step">`):]), `<span class="wf-node">second</span>`) {
 		t.Error("the route does not mark the item's current state")
 	}
-	if home := get(t, srv.URL+"/r/proj/"); !strings.Contains(home, "1 engaged") {
+	// The kernel records no machine here, so the seat shows on Activity as
+	// unverified rather than engaged (sto_e127b2e6).
+	if home := get(t, srv.URL+"/r/proj/"); !strings.Contains(home, "sess · local:/x · unverified") {
 		t.Error("the seat was not pushed")
 	}
 	if wf := get(t, srv.URL+"/r/proj/doc/workflows/flow"); !strings.Contains(wf, ".satelle/workflows/flow.toml") {
@@ -521,5 +523,38 @@ func TestReportSeesRefusedSnapshot(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("an unreachable satelled reported %+v", got)
+	}
+}
+
+// Pushed seat rows carry the machine and host the chain records for each seat
+// (sto_e127b2e6 AC6); a seat bound without one carries none.
+func TestPushedSeatsCarryTheMachine(t *testing.T) {
+	k, src := fixture(t)
+	a, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.Machine, k.Host = "m1", "h1"
+	if _, err := k.Seat(a.ID, "s-here", "local:/x", "", "ann"); err != nil {
+		t.Fatal(err)
+	}
+	k.Machine, k.Host = "", ""
+	if _, err := k.Seat(a.ID, "s-old", "local:/x", "", "ann"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := uipush.Full(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range snap.Seats {
+		var s mirror.Seat
+		if err := json.Unmarshal(r, &s); err != nil {
+			t.Fatal(err)
+		}
+		got[s.Session] = s.Machine + "/" + s.Host
+	}
+	if got["s-here"] != "m1/h1" || got["s-old"] != "/" || len(got) != 2 {
+		t.Fatalf("seat rows %v, want s-here m1/h1 and s-old with none", got)
 	}
 }

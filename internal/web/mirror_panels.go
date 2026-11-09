@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/mirror"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"maps"
 	"net/url"
@@ -52,12 +54,9 @@ func loadPartitionSync(repoPath string) syncstate.State {
 	if strings.TrimSpace(repoPath) == "" {
 		return syncstate.State{}
 	}
-	home := strings.TrimSpace(os.Getenv("SATELLE_HOME"))
+	home := homeDir()
 	if home == "" {
-		if testing.Testing() {
-			return syncstate.State{}
-		}
-		home = config.GlobalDir()
+		return syncstate.State{}
 	}
 	st, _, err := syncstate.Load(home, repoPath)
 	if err != nil {
@@ -67,14 +66,39 @@ func loadPartitionSync(repoPath string) syncstate.State {
 }
 
 func displayedServerLogPath() string {
-	home := strings.TrimSpace(os.Getenv("SATELLE_HOME"))
+	home := homeDir()
 	if home == "" {
-		if testing.Testing() {
-			return filepath.Join(mirror.DefaultDirName, "server.log")
-		}
-		home = config.GlobalDir()
+		return filepath.Join(mirror.DefaultDirName, "server.log")
 	}
 	return mirror.ServerLogPath(home)
+}
+
+// homeDir is the satelle home satelled reads machine state from:
+// SATELLE_HOME, else empty under go test (a unit test never reads the real
+// home), else config.GlobalDir().
+func homeDir() string {
+	if home := strings.TrimSpace(os.Getenv("SATELLE_HOME")); home != "" {
+		return home
+	}
+	if testing.Testing() {
+		return ""
+	}
+	return config.GlobalDir()
+}
+
+// seatStanding classes a pushed seat from this machine (seatlife.StandingOf):
+// here, elsewhere, gone or unverified. satelled reads the machine id and the
+// session records and never writes either.
+type seatStanding func(mirror.Seat) seatlife.Standing
+
+// standingHere is the seatStanding of this machine's home.
+func standingHere() seatStanding {
+	home := homeDir()
+	here, _ := config.ReadMachineID(home)
+	return func(s mirror.Seat) seatlife.Standing {
+		st, _ := seatlife.StandingOf(home, here, item.Seat{Session: s.Session, Location: s.Location, Machine: s.Machine, Host: s.Host})
+		return st
+	}
 }
 
 // partitionFreshness reports when this partition was last confirmed against its
@@ -98,7 +122,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
-	here, links := hostedView(id.Hosted)
 	tasks, err := decodeItems(ctx, s, repoKey, "task")
 	if err != nil {
 		return pageData{}, id, err
@@ -120,8 +143,11 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	if err != nil {
 		return pageData{}, id, err
 	}
+	standing := standingHere()
 	listed := offPanels(stories, workflows)
-	engagedIDs := engagedItems(seats, listed, workflows)
+	engagedIDs := engagedItems(seats, listed, workflows, standing)
+	// The here-mark covers every story row, on the Stories tab or a panel.
+	here, links := hostedView(id.Hosted, engagedItems(seats, stories, workflows, standing))
 	events, err := decodeLedger(ctx, s, repoKey, "")
 	if err != nil {
 		return pageData{}, id, err
@@ -160,7 +186,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		EngagedStoryIDs: engagedIDs,
 		Tasks:           itemRows(tasks, workflows),
 		Queues:          queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows),
-		Activity:        activityRows(stories, executions, workflows, seats, events),
+		Activity:        activityRows(stories, executions, workflows, seats, events, standing),
 		DocKinds:        docKinds(docs),
 		Workflows:       workflowRows(docs),
 		Uptime:          formatUptime(time.Since(serverStart)),
@@ -169,16 +195,17 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}, id, nil
 }
 
-// hostedView is a hosted-mode partition's here-set — the stories engaged at this
-// checkout, which the list marks but never filters on — and the link to the
-// server's project page. Every story row in the local store is listed whatever
-// engaged it (sty_6ce071dc). A local partition marks nothing and links nothing.
-func hostedView(h *mirror.HostedMeta) (map[string]bool, *hostedLinksVM) {
+// hostedView is a hosted-mode partition's here-set — the stories engaged on
+// this machine (engaged, from seats classed here), which the list marks but
+// never filters on — and the link to the server's project page. Every story
+// row in the local store is listed whatever engaged it (sty_6ce071dc). A local
+// partition marks nothing and links nothing.
+func hostedView(h *mirror.HostedMeta, engaged []string) (map[string]bool, *hostedLinksVM) {
 	if h == nil || h.Server == "" || h.Project == "" {
 		return nil, nil
 	}
-	here := make(map[string]bool, len(h.MachineStories))
-	for _, id := range h.MachineStories {
+	here := make(map[string]bool, len(engaged))
+	for _, id := range engaged {
 		here[id] = true
 	}
 	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
@@ -332,12 +359,13 @@ func seatItem(seat mirror.Seat) string {
 	return id
 }
 
-// engagedItems is the sorted set of stories engaged now: the items the seats
-// are bound to that are stories in a non-terminal state. A task run's
-// (execution's) seat is not a story engaged — Activity lists it instead — and a
-// story whose workflow does not name its state counts, since the page cannot
-// prove it terminal.
-func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow) []string {
+// engagedItems is the sorted set of stories engaged here now: the items the
+// seats classed here (bound on this machine, session alive) are bound to that
+// are stories in a non-terminal state. A seat elsewhere, gone or unverified is
+// not counted. A task run's (execution's) seat is not a story engaged —
+// Activity lists it instead — and a story whose workflow does not name its
+// state counts, since the page cannot prove it terminal.
+func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow, standing seatStanding) []string {
 	byID := make(map[string]Item, len(stories))
 	for _, it := range stories {
 		byID[it.ID] = it
@@ -346,7 +374,7 @@ func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mir
 	for _, seat := range seats {
 		id := seatItem(seat)
 		it, ok := byID[id]
-		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" {
+		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" || standing(seat) != seatlife.Here {
 			continue
 		}
 		set[id] = true

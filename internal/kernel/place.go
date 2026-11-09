@@ -87,12 +87,19 @@ func LocalLocation(tree string) string {
 // session of its own, handed to the performer as SATELLE_SESSION with the tree
 // as SATELLE_PROJECT_DIR, so its harness's edit gate admits its edits. The
 // seat carries the item's recorded base, so it never moves what the gates
-// judge, and it is released when the run ends, also on failure or panic.
+// judge, and it is released when the run ends, also on failure or panic. The
+// run's process owns the session's record (k.Sessions) until then.
 func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger.Event, req agent.Request, actor string) (res agent.Result, err error) {
 	session := item.NewID("perform")
 	base, ref := k.base(it, events)
 	if _, err := k.bindSeat(it.ID, item.Seat{Session: session, Location: LocalLocation(k.Dir), Base: base, BaseRef: ref}, actor); err != nil {
 		return agent.Result{}, err
+	}
+	// The run's process owns its session while it runs, so a seat left by a
+	// run that died is provably gone (internal/seatlife). Best effort: a
+	// session without a record is only ever unverified.
+	if k.Sessions != nil {
+		_ = k.Sessions.Own(session)
 	}
 	defer func() {
 		rerr := k.Release(it.ID, session, actor)
@@ -100,6 +107,9 @@ func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger
 			err = rerr
 		} else if rerr != nil {
 			err = errors.Join(err, rerr)
+		}
+		if k.Sessions != nil {
+			_ = k.Sessions.Forget(session)
 		}
 	}()
 	req.Env = append(append([]string{}, req.Env...), config.SessionEnv+"="+session, config.ProjectDirEnv+"="+k.Dir)

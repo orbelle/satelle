@@ -141,9 +141,23 @@ func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
+	// The cache's seat rows carry no machine; the chain does.
+	folded := map[string]map[string]item.Seat{}
 	for _, s := range seats {
+		bySession, ok := folded[s.Item]
+		if !ok {
+			bySession = map[string]item.Seat{}
+			if evs, err := src.Cache.Events(s.Item, ""); err == nil {
+				for _, f := range item.FoldSeats(evs) {
+					bySession[f.Session] = f
+				}
+			}
+			folded[s.Item] = bySession
+		}
+		f := bySession[s.Session]
 		snap.Seats = append(snap.Seats, mustJSON(mirror.Seat{
 			ID: s.Item + "/" + s.Session, Item: s.Item, Session: s.Session, Location: s.Location, Base: s.Base, BoundAt: s.BoundAt,
+			Machine: f.Machine, Host: f.Host,
 		}))
 	}
 	return snap, nil

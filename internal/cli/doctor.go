@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
@@ -35,12 +37,30 @@ const (
 )
 
 // doctorIssue is one finding and the command that fixes it. Doctor never runs
-// a fix.
+// a fix; Resolve names what satelle doctor --resolve does about it ("" leaves
+// it for the user). item and session name a seat finding's seat.
 type doctorIssue struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
 	Fix     string `json:"fix"`
+	Resolve string `json:"resolve,omitempty"`
+	item    string
+	session string
 }
+
+// What satelle doctor --resolve does about an issue (doctorIssue.Resolve).
+const (
+	// resolveInstallService installs the service and the sync timer.
+	resolveInstallService = "install-service"
+	// resolveRestartService restarts satelled.
+	resolveRestartService = "restart-service"
+	// resolveReleaseSeat releases a seat proven orphaned, without asking.
+	resolveReleaseSeat = "release-seat"
+	// resolveAsk asks at the terminal whether to release an orphaned seat.
+	resolveAsk = "ask"
+	// resolveFixItem lists the finding on the one substrate-fix item.
+	resolveFixItem = "fix-item"
+)
 
 // doctorReport is everything one doctor run found: issues, the checks it could
 // not finish within its budget, and notes that are facts, not issues.
@@ -166,7 +186,7 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	for _, err := range kernel.Validate(in.r.DataDir) {
 		for _, line := range strings.Split(err.Error(), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
-				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate"})
+				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate", Resolve: resolveFixItem})
 			}
 		}
 	}
@@ -175,16 +195,17 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 
 // checkSubstrate reports each command, flag, help topic and link the repo's
 // substrate names that this binary lacks: the rules satelle validate applies
-// (internal/substrate).
+// (internal/substrate). Each finding goes on the substrate-fix item
+// satelle doctor --resolve opens.
 func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	found, err := substrate.Check(in.r.DataDir, substrateTree(NewRootCmd()))
 	if err != nil {
-		return []doctorIssue{{Check: substrate.Field, Problem: err.Error(), Fix: "satelle validate"}}, nil
+		return []doctorIssue{{Check: substrate.Field, Problem: err.Error(), Fix: "satelle validate", Resolve: resolveFixItem}}, nil
 	}
 	var out []doctorIssue
 	for _, f := range found {
 		out = append(out, doctorIssue{Check: substrate.Field, Problem: f.String(),
-			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)"})
+			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)", Resolve: resolveFixItem})
 	}
 	return out, nil
 }
@@ -192,11 +213,11 @@ func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string
 func checkInit(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	plan, err := kernel.InitPlan(in.r.DataDir)
 	if err != nil {
-		return []doctorIssue{{Check: "init", Problem: fmt.Sprintf("cannot read the init template: %v", err), Fix: "satelle init"}}, nil
+		return []doctorIssue{{Check: "init", Problem: fmt.Sprintf("cannot read the init template: %v", err), Fix: "satelle init", Resolve: resolveFixItem}}, nil
 	}
 	var out []doctorIssue
 	for _, rel := range plan {
-		out = append(out, doctorIssue{Check: "init", Problem: "satelle init would add .satelle/" + rel, Fix: "satelle init"})
+		out = append(out, doctorIssue{Check: "init", Problem: "satelle init would add .satelle/" + rel, Fix: "satelle init", Resolve: resolveFixItem})
 	}
 	return out, nil
 }
@@ -214,10 +235,13 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 	if path == "" {
 		path = resolveDaemon("")
 	}
+	var out []doctorIssue
 	if unitErr != nil {
 		if _, err := os.Stat(path); err != nil {
 			return nil, []string{"versions: no satelled unit or binary is installed on this machine (satelle service install)"}
 		}
+		out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("%s is not installed, so %s (%s) does not run", serviceUnitName, buildinfo.DaemonName, path),
+			Fix: "satelle service install", Resolve: resolveInstallService})
 	}
 	home := config.GlobalDir()
 	installed := buildinfo.Lookup(home, path)
@@ -229,7 +253,6 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 		cancel()
 	}
 	cli := doctorCLILine(home, path)
-	var out []doctorIssue
 	running := ""
 	if unitErr == nil {
 		gc, err := config.LoadGlobal()
@@ -239,13 +262,20 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 		ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
 		r, ok := healthzBuild(ctx, ep)
 		if !ok {
-			out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("satelled is installed but not answering at %s", ep), Fix: "satelle service restart"})
+			out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("satelled is installed but not answering at %s", ep), Fix: "satelle service restart", Resolve: resolveRestartService})
 		} else {
 			running = r
 		}
 	}
 	for _, m := range buildinfo.Drift(cli, running, installed) {
-		out = append(out, doctorIssue{Check: "versions", Problem: m.Text, Fix: m.Remedy})
+		// A running satelled behind the installed one is put right by a
+		// restart; any other mismatch (the CLI's) needs satelle update, which
+		// --resolve leaves for the user.
+		res := ""
+		if slices.Contains(m.Lines, "running") {
+			res = resolveRestartService
+		}
+		out = append(out, doctorIssue{Check: "versions", Problem: m.Text, Fix: m.Remedy, Resolve: res})
 	}
 	return out, nil
 }
@@ -345,41 +375,112 @@ func timerIssues() ([]doctorIssue, []string) {
 		return nil, []string{"sync: the sync timer is systemd-only; run `satelle ledger autosync` yourself"}
 	}
 	if _, err := os.Stat(userUnitPath(syncTimerName)); err != nil {
-		return []doctorIssue{{Check: "sync", Problem: syncTimerName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install"}}, nil
+		return []doctorIssue{{Check: "sync", Problem: syncTimerName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
 	if s := syncTimerState(); s != "active" {
-		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncTimerName, s), Fix: "satelle service install"}}, nil
+		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncTimerName, s), Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
 	return nil, nil
 }
 
-// checkSeats folds every chain read-only and reports each seat whose item is
-// terminal in its workflow or whose local: worktree no longer exists.
+// checkSeats folds every chain read-only and classes each seat by
+// seatlife.StandingOf: here, elsewhere, gone or unverified. A seat is orphaned
+// when its session is gone, its item is terminal in its workflow, or its
+// local: worktree no longer exists and it was bound on this machine (or
+// records no machine): another machine's path cannot be checked here. Each
+// orphan is reported with its evidence; a gone session is the one --resolve
+// releases without asking. One note lists every seat's standing.
 func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
 		return []doctorIssue{{Check: "seats", Problem: err.Error(), Fix: "satelle ledger verify"}}, nil
 	}
+	home := config.GlobalDir()
+	here, _ := config.ReadMachineID(home)
 	var out []doctorIssue
+	engaged := map[string]bool{}
+	var elsewhere, gone, unverified []string
+	seen := 0
 	for _, ri := range items {
+		terminal := false
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+			terminal = true
+		}
 		for _, s := range ri.seats {
+			seen++
+			st, ev := seatlife.StandingOf(home, here, s)
+			switch st {
+			case seatlife.Here:
+				if !terminal {
+					engaged[ri.it.ID] = true
+				}
+			case seatlife.Elsewhere:
+				elsewhere = append(elsewhere, fmt.Sprintf("%s %s %s", ri.it.ID, s.Session, ev))
+			case seatlife.Gone:
+				gone = append(gone, fmt.Sprintf("%s %s (%s)", ri.it.ID, s.Session, ev))
+			default:
+				unverified = append(unverified, fmt.Sprintf("%s %s (%s)", ri.it.ID, s.Session, ev))
+			}
 			why := ""
-			if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+			switch {
+			case st == seatlife.Gone:
+				why = "session gone: " + string(ev)
+			case terminal:
 				why = fmt.Sprintf("its item is %s, a terminal state", ri.it.Status)
-			} else if p, ok := strings.CutPrefix(s.Location, kernel.LocationLocal); ok {
-				if _, err := os.Stat(p); err != nil {
-					why = "its worktree " + p + " no longer exists"
+			case s.Machine == "" || s.Machine == here:
+				if p, ok := strings.CutPrefix(s.Location, kernel.LocationLocal); ok {
+					if _, err := os.Stat(p); err != nil {
+						why = "its worktree " + p + " no longer exists"
+					}
 				}
 			}
 			if why == "" {
 				continue
 			}
+			res := resolveAsk
+			if st == seatlife.Gone {
+				res = resolveReleaseSeat
+			}
 			out = append(out, doctorIssue{Check: "seats",
-				Problem: fmt.Sprintf("%s is seated by session %s at %s, but %s", ri.it.ID, s.Session, s.Location, why),
-				Fix:     fmt.Sprintf("satelle %s release %s --session %s", ri.it.Kind, ri.it.ID, s.Session)})
+				Problem: fmt.Sprintf("%s is seated by session %s at %s, but %s (item %s; machine: %s; session %s: %s (%s); bound %s)",
+					ri.it.ID, s.Session, s.Location, why, ri.it.Status, seatMachine(s, here), s.Session, st, ev, seatBound(s)),
+				Fix:     fmt.Sprintf("satelle %s release %s --session %s", ri.it.Kind, ri.it.ID, s.Session),
+				Resolve: res, item: ri.it.ID, session: s.Session})
 		}
 	}
-	return out, nil
+	if seen == 0 {
+		return out, nil
+	}
+	note := fmt.Sprintf("seats: %d engaged here", len(engaged))
+	for _, part := range []struct {
+		name string
+		list []string
+	}{{"elsewhere", elsewhere}, {"gone", gone}, {"unverified", unverified}} {
+		if len(part.list) > 0 {
+			note += "; " + part.name + ": " + strings.Join(part.list, ", ")
+		}
+	}
+	return out, []string{note}
+}
+
+// seatMachine names the machine a seat was bound on, as doctor shows it.
+func seatMachine(s item.Seat, here string) string {
+	switch {
+	case s.Machine == "":
+		return "not recorded"
+	case s.Machine == here:
+		return "this machine"
+	case s.Host != "":
+		return fmt.Sprintf("%s (%s)", s.Host, s.Machine)
+	}
+	return s.Machine
+}
+
+func seatBound(s item.Seat) string {
+	if s.BoundAt.IsZero() {
+		return "at an unknown time"
+	}
+	return s.BoundAt.Local().Format("2006-01-02 15:04:05")
 }
 
 // readItem is one folded chain and its bound seats.
@@ -458,14 +559,16 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	case code == 0:
 		return nil, nil
 	case code == 1:
+		// A doctor.toml check is the repo's own substrate check: its findings
+		// go on the substrate-fix item.
 		var issues []doctorIssue
 		for _, line := range strings.Split(out, "\n") {
 			if line = strings.TrimSpace(line); line != "" {
-				issues = append(issues, doctorIssue{Check: name, Problem: line, Fix: c.Fix})
+				issues = append(issues, doctorIssue{Check: name, Problem: line, Fix: c.Fix, Resolve: resolveFixItem})
 			}
 		}
 		if len(issues) == 0 {
-			issues = append(issues, doctorIssue{Check: name, Problem: "the check failed and printed nothing", Fix: c.Fix})
+			issues = append(issues, doctorIssue{Check: name, Problem: "the check failed and printed nothing", Fix: c.Fix, Resolve: resolveFixItem})
 		}
 		return issues, nil
 	default:

@@ -212,8 +212,10 @@ var engagedChipRE = regexp.MustCompile(`<span class="n-engaged[^>]*>[^<]*</span>
 // run's seat shows on Activity instead.
 func TestEngagedBadgeIgnoresTaskRunSeats(t *testing.T) {
 	snap := activitySnapshot("beta")
-	snap.Seats = append(snap.Seats, raw(mirror.Seat{ID: "exe_run/s1", Item: "exe_run", Session: "s1", Location: "local:/x", BoundAt: activityT0}))
+	seats, home := seatsHere(t, append(snap.Seats, raw(mirror.Seat{ID: "exe_run/s1", Item: "exe_run", Session: "s1", Location: "local:/x", BoundAt: activityT0})))
+	snap.Seats = seats
 	srv := mirrorWith(t, snap)
+	t.Setenv("SATELLE_HOME", home)
 	page := httpGetBody(t, srv.URL+"/r/proj/")
 	for name, html := range map[string]string{
 		"page":     page,

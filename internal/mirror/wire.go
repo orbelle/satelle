@@ -91,6 +91,10 @@ type Seat struct {
 	Location string    `json:"location,omitempty"`
 	Base     string    `json:"base,omitempty"`
 	BoundAt  time.Time `json:"bound_at,omitzero"`
+	// Machine and Host are the machine the seat was bound on (item.Seat);
+	// empty on seats bound before seats recorded it.
+	Machine string `json:"machine,omitempty"`
+	Host    string `json:"host,omitempty"`
 	// Legacy seat rows named the item by id and flagged story seats.
 	StorySeat bool `json:"story_seat,omitempty"`
 	Stale     bool `json:"stale,omitempty"`

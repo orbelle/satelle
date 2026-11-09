@@ -13,6 +13,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/procgroup"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
 func hookCmd() *cobra.Command {
@@ -175,6 +177,7 @@ func canonicalPath(p string) string {
 }
 
 func runHookContext(cmd *cobra.Command, _ string, in hook.Input) error {
+	recordSession(in, seatlife.Start)
 	text, ok := sessionContext(in, true)
 	if !ok {
 		return nil
@@ -184,12 +187,32 @@ func runHookContext(cmd *cobra.Command, _ string, in hook.Input) error {
 }
 
 func runHookPrompt(cmd *cobra.Command, _ string, in hook.Input) error {
+	recordSession(in, seatlife.Resolve)
 	text, ok := sessionContext(in, false)
 	if !ok {
 		return nil
 	}
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context("UserPromptSubmit", text)))
 	return err
+}
+
+// recordSession records this hook's process chain for its session on this
+// machine (internal/seatlife): SessionStart starts the record, a prompt
+// settles its owner; only inside a satelle repo. Errors are ignored and the hook's output is unchanged; a
+// session without a record is only ever unverified.
+func recordSession(in hook.Input, record func(home, session string, ancestors []procgroup.Proc) error) {
+	session := hookSession(in)
+	if session == "" {
+		return
+	}
+	if _, err := findRepo(hookDir(in)); err != nil {
+		return // not a satelle repo: no seat to stand for
+	}
+	anc := procgroup.Ancestors(os.Getpid())
+	if len(anc) == 0 {
+		return
+	}
+	_ = record(config.GlobalDir(), session, anc)
 }
 
 // sessionContext is what the context hook prints: the session id, its seats
