@@ -8,6 +8,9 @@
 # fails the re-check stays open. Selected for stories tagged drift by the rule
 # in satelle.toml.
 name = "drift"
+# satelled lists drift items on their own Drift tab, not Stories, counting
+# those still open (sto_a1681009).
+panel = "Drift"
 
 [states.open]
 start = true
