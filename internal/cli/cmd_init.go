@@ -25,8 +25,10 @@ func initCmd() *cobra.Command {
 		Short: "Create .satelle/ here with a two-state workflow, then validate it",
 		Long: `init writes the starter configuration into ./.satelle (satelle.toml,
 agents.toml and workflows/default.toml: backlog → done, no gates), leaving any
-file that already exists alone, and validates the result. The configuration is
-yours to edit and replace.
+file that already exists alone, and validates the result. In a repo that
+already has a satelle.toml it writes no starter workflow: the repo keeps its own
+routes. The configuration is yours to edit and replace. 'satelle doctor' lists
+what init would add.
 
 --hooks installs harness hook files as well (claude when given bare; or name
 them: --hooks claude,pi,grok). Without it no harness file is touched; see

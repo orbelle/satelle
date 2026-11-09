@@ -1,0 +1,487 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/syncstate"
+)
+
+// Doctor's budgets. The session-start hook runs every check under one budget
+// (a session waits on SessionStart output); a check unfinished at the
+// deadline is listed as not checked and runs in full under `satelle doctor`.
+// Each configured check is bounded on demand too.
+const (
+	doctorHookBudget   = 2 * time.Second
+	doctorCheckTimeout = 2 * time.Minute
+	doctorProbeTimeout = 2 * time.Second
+)
+
+// doctorIssue is one finding and the command that fixes it. Doctor never runs
+// a fix.
+type doctorIssue struct {
+	Check   string `json:"check"`
+	Problem string `json:"problem"`
+	Fix     string `json:"fix"`
+}
+
+// doctorReport is everything one doctor run found: issues, the checks it could
+// not finish within its budget, and notes that are facts, not issues.
+type doctorReport struct {
+	Issues    []doctorIssue `json:"issues"`
+	Unchecked []string      `json:"unchecked"`
+	Notes     []string      `json:"notes"`
+}
+
+// doctorInput is what the checks read. inRepo is false outside a satelle repo,
+// where only the machine checks run. cfg is what loaded (a partial load when
+// the configuration is invalid).
+type doctorInput struct {
+	inRepo bool
+	r      repo
+	cfg    *kernel.Config
+	cfgErr error
+}
+
+// doctorCheck is one named check; it returns its issues and notes.
+type doctorCheck struct {
+	name string
+	run  func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string)
+}
+
+// loadDoctorInput reads the repo at dir and its configuration without opening
+// the kernel, the cache or the ledger for writing.
+func loadDoctorInput(dir string) *doctorInput {
+	r, err := findRepo(dir)
+	if err != nil {
+		return &doctorInput{}
+	}
+	cfg, cerr := kernel.LoadConfig(r.DataDir)
+	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr}
+}
+
+// doctorChecks lists the checks for in: the machine checks always, the repo
+// checks and the repo's doctor.toml entries inside a repo.
+func doctorChecks(in *doctorInput) []doctorCheck {
+	checks := []doctorCheck{{"versions", checkVersions}}
+	if !in.inRepo {
+		return append(checks, doctorCheck{"sync", checkSyncTimerOnly})
+	}
+	checks = append(checks,
+		doctorCheck{"config", checkConfig},
+		doctorCheck{"init", checkInit},
+		doctorCheck{"sync", checkSync},
+		doctorCheck{"seats", checkSeats},
+	)
+	if in.cfg != nil {
+		for _, c := range in.cfg.Doctor.Checks {
+			c := c
+			checks = append(checks, doctorCheck{"check:" + c.Skill, func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string) {
+				return runConfiguredCheck(ctx, in, c)
+			}})
+		}
+		for _, o := range in.cfg.Doctor.Open {
+			o := o
+			checks = append(checks, doctorCheck{"open:" + o.Name, func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string) {
+				return openItems(in, o)
+			}})
+		}
+	}
+	return checks
+}
+
+// errUnchecked marks a check cut by the run's deadline.
+var errUnchecked = errors.New("not checked within the budget")
+
+// runDoctor runs every check concurrently and collects what finished by ctx's
+// deadline; the rest are listed as unchecked. It changes nothing.
+func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
+	checks := doctorChecks(in)
+	type result struct {
+		issues []doctorIssue
+		notes  []string
+		done   bool
+	}
+	results := make([]result, len(checks))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for i, c := range checks {
+		wg.Add(1)
+		go func(i int, c doctorCheck) {
+			defer wg.Done()
+			issues, notes := c.run(ctx, in)
+			mu.Lock()
+			defer mu.Unlock()
+			if ctx.Err() != nil && len(issues) == 1 && issues[0].Problem == errUnchecked.Error() {
+				return
+			}
+			results[i] = result{issues: issues, notes: notes, done: true}
+		}(i, c)
+	}
+	finished := make(chan struct{})
+	go func() { wg.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		// Give a check that was killed at the deadline a moment to return.
+		select {
+		case <-finished:
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	rep := doctorReport{Issues: []doctorIssue{}, Unchecked: []string{}, Notes: []string{}}
+	for i, c := range checks {
+		if !results[i].done {
+			rep.Unchecked = append(rep.Unchecked, c.name)
+			continue
+		}
+		rep.Issues = append(rep.Issues, results[i].issues...)
+		rep.Notes = append(rep.Notes, results[i].notes...)
+	}
+	return rep
+}
+
+func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	var out []doctorIssue
+	for _, err := range kernel.Validate(in.r.DataDir) {
+		for _, line := range strings.Split(err.Error(), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate"})
+			}
+		}
+	}
+	return out, nil
+}
+
+func checkInit(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	plan, err := kernel.InitPlan(in.r.DataDir)
+	if err != nil {
+		return []doctorIssue{{Check: "init", Problem: fmt.Sprintf("cannot read the init template: %v", err), Fix: "satelle init"}}, nil
+	}
+	var out []doctorIssue
+	for _, rel := range plan {
+		out = append(out, doctorIssue{Check: "init", Problem: "satelle init would add .satelle/" + rel, Fix: "satelle init"})
+	}
+	return out, nil
+}
+
+// checkVersions compares the installed satelle CLI, the running satelled and
+// the installed satelled by buildinfo.Drift, the rule satelle service status
+// and satelled's footer use. It reads the builds record and probes satelled's
+// --version without recording, so it writes nothing.
+func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string) {
+	unitBody, unitErr := os.ReadFile(unitPath())
+	path := ""
+	if unitErr == nil {
+		path = unitDaemon(string(unitBody))
+	}
+	if path == "" {
+		path = resolveDaemon("")
+	}
+	if unitErr != nil {
+		if _, err := os.Stat(path); err != nil {
+			return nil, []string{"versions: no satelled unit or binary is installed on this machine (satelle service install)"}
+		}
+	}
+	home := config.GlobalDir()
+	installed := buildinfo.Lookup(home, path)
+	if !buildinfo.Known(installed) {
+		pctx, cancel := context.WithTimeout(ctx, doctorProbeTimeout)
+		if line, err := buildinfo.Probe(pctx, path); err == nil {
+			installed = line
+		}
+		cancel()
+	}
+	cli := doctorCLILine(home, path)
+	var out []doctorIssue
+	running := ""
+	if unitErr == nil {
+		gc, err := config.LoadGlobal()
+		if err != nil {
+			return []doctorIssue{{Check: "versions", Problem: err.Error(), Fix: "satelle settings"}}, nil
+		}
+		ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
+		r, ok := healthzBuild(ctx, ep)
+		if !ok {
+			out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("satelled is installed but not answering at %s", ep), Fix: "satelle service restart"})
+		} else {
+			running = r
+		}
+	}
+	for _, m := range buildinfo.Drift(cli, running, installed) {
+		out = append(out, doctorIssue{Check: "versions", Problem: m.Text, Fix: m.Remedy})
+	}
+	return out, nil
+}
+
+// doctorCLILine is the installed satelle CLI's identity: this binary's own when
+// it is the CLI beside satelled, else the record. It never runs the CLI, whose
+// every run records itself.
+func doctorCLILine(home, daemonPath string) string {
+	cli := buildinfo.CLIBeside(daemonPath)
+	if self, err := os.Executable(); err == nil {
+		if a, b := canonicalFile(self), canonicalFile(cli); a != "" && a == b {
+			return buildinfo.Resolve().String()
+		}
+	}
+	return buildinfo.Lookup(home, cli)
+}
+
+func canonicalFile(p string) string {
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return ""
+	}
+	return r
+}
+
+// healthzBuild is the identity line satelled answers on /healthz.
+func healthzBuild(ctx context.Context, ep string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, doctorProbeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep, nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	var info buildinfo.Info
+	if json.NewDecoder(resp.Body).Decode(&info) != nil || info.Version == "" {
+		return "unknown (this satelled reports no build identity on /healthz)", true
+	}
+	return info.String(), true
+}
+
+// replicates reports whether this repo replicates its ledger, from its last
+// recorded automatic pass: a store other than local. Doctor never reads the
+// [ledger] store setting, which only the replication verbs read
+// (TestOnlyReplicationVerbsReadTheStore).
+func replicates(st syncstate.State, ok bool) bool {
+	return ok && st.SyncStore != "" && st.SyncStore != syncstate.LocalStore
+}
+
+// checkSync reads the last automatic sync pass from the sync state (never the
+// store) and the sync timer's state.
+func checkSync(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	st, ok, err := syncstate.Load(config.GlobalDir(), uiRepoRoot(in.r))
+	if err != nil {
+		return []doctorIssue{{Check: "sync", Problem: err.Error(), Fix: "satelle ledger status"}}, nil
+	}
+	if !replicates(st, ok) {
+		return nil, nil
+	}
+	// A failed pass comes first: it is what the session-start line shows.
+	var out []doctorIssue
+	if ok && st.SyncReason != "" {
+		out = append(out, doctorIssue{Check: "sync", Problem: "the last sync pass failed: " + st.SyncReason, Fix: "satelle ledger status"})
+	}
+	timer, notes := timerIssues()
+	out = append(out, timer...)
+	if ok && !st.SyncLastAttempt.IsZero() {
+		notes = append(notes, fmt.Sprintf("sync: last pass %s with %s: pushed %d item(s), pulled %d item(s), forked %d%s",
+			st.SyncLastAttempt.Local().Format("2006-01-02 15:04:05"), st.SyncStore, st.SyncPushed, st.SyncPulled, len(st.SyncForked), forkedList(st.SyncForked)))
+	} else {
+		notes = append(notes, "sync: no automatic pass recorded for this repo yet")
+	}
+	return out, notes
+}
+
+func forkedList(f []string) string {
+	if len(f) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(f, ", ")
+}
+
+// checkSyncTimerOnly is the sync check outside a repo: the timer alone.
+func checkSyncTimerOnly(context.Context, *doctorInput) ([]doctorIssue, []string) {
+	if _, err := os.Stat(unitPath()); err != nil {
+		return nil, nil
+	}
+	return timerIssues()
+}
+
+func timerIssues() ([]doctorIssue, []string) {
+	if runtime.GOOS != "linux" {
+		return nil, []string{"sync: the sync timer is systemd-only; run `satelle ledger autosync` yourself"}
+	}
+	if _, err := os.Stat(userUnitPath(syncTimerName)); err != nil {
+		return []doctorIssue{{Check: "sync", Problem: syncTimerName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install"}}, nil
+	}
+	if s := syncTimerState(); s != "active" {
+		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncTimerName, s), Fix: "satelle service install"}}, nil
+	}
+	return nil, nil
+}
+
+// checkSeats folds every chain read-only and reports each seat whose item is
+// terminal in its workflow or whose local: worktree no longer exists.
+func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	items, err := readItems(in)
+	if err != nil {
+		return []doctorIssue{{Check: "seats", Problem: err.Error(), Fix: "satelle ledger verify"}}, nil
+	}
+	var out []doctorIssue
+	for _, ri := range items {
+		for _, s := range ri.seats {
+			why := ""
+			if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+				why = fmt.Sprintf("its item is %s, a terminal state", ri.it.Status)
+			} else if p, ok := strings.CutPrefix(s.Location, kernel.LocationLocal); ok {
+				if _, err := os.Stat(p); err != nil {
+					why = "its worktree " + p + " no longer exists"
+				}
+			}
+			if why == "" {
+				continue
+			}
+			out = append(out, doctorIssue{Check: "seats",
+				Problem: fmt.Sprintf("%s is seated by session %s at %s, but %s", ri.it.ID, s.Session, s.Location, why),
+				Fix:     fmt.Sprintf("satelle %s release %s --session %s", ri.it.Kind, ri.it.ID, s.Session)})
+		}
+	}
+	return out, nil
+}
+
+// readItem is one folded chain and its bound seats.
+type readItem struct {
+	it    item.Item
+	seats []item.Seat
+}
+
+// readItems folds every chain in the repo's runtime without creating it: a
+// repo that never ran has no items.
+func readItems(in *doctorInput) ([]readItem, error) {
+	st, err := ledger.OpenExisting(in.r.Runtime)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ids, err := st.Items()
+	if err != nil {
+		return nil, err
+	}
+	var out []readItem
+	for _, id := range ids {
+		evs, err := st.Read(id)
+		if err != nil {
+			continue
+		}
+		it, err := item.Fold(evs)
+		if err != nil {
+			continue
+		}
+		out = append(out, readItem{it: it, seats: item.FoldSeats(evs)})
+	}
+	return out, nil
+}
+
+// openItems reports each item an [[items]] entry selects that is not in a
+// terminal state of its workflow.
+func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
+	items, err := readItems(in)
+	if err != nil {
+		return []doctorIssue{{Check: "open:" + o.Name, Problem: err.Error(), Fix: "satelle ledger verify"}}, nil
+	}
+	sel := o.Selection()
+	var out []doctorIssue
+	for _, ri := range items {
+		if !sel.Matches(ri.it) {
+			continue
+		}
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+			continue
+		}
+		out = append(out, doctorIssue{Check: "open:" + o.Name,
+			Problem: fmt.Sprintf("%s is %s: %s", ri.it.ID, ri.it.Status, ri.it.Title),
+			Fix:     strings.ReplaceAll(o.Fix, "{id}", ri.it.ID)})
+	}
+	return out, nil
+}
+
+// runConfiguredCheck runs a doctor.toml check skill in the tree: exit 0 is
+// clean, exit 1 is one issue per output line, anything else could not check.
+func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorCheck) ([]doctorIssue, []string) {
+	name := "check:" + c.Skill
+	sk, ok := in.cfg.Skills[c.Skill]
+	if !ok || !sk.IsCheck() {
+		return []doctorIssue{{Check: name, Problem: fmt.Sprintf("skill %s is not a check skill", c.Skill), Fix: "satelle validate"}}, nil
+	}
+	code, out, err := gate.RunCheckCode(ctx, sk.Script, in.r.Tree, gate.CheckEnv{}, doctorCheckTimeout)
+	if ctx.Err() != nil {
+		return []doctorIssue{{Check: name, Problem: errUnchecked.Error()}}, nil
+	}
+	switch {
+	case err != nil:
+		return []doctorIssue{{Check: name, Problem: "could not check: " + err.Error(), Fix: "run the script in .satelle/skills/" + c.Skill + ".md"}}, nil
+	case code == 0:
+		return nil, nil
+	case code == 1:
+		var issues []doctorIssue
+		for _, line := range strings.Split(out, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				issues = append(issues, doctorIssue{Check: name, Problem: line, Fix: c.Fix})
+			}
+		}
+		if len(issues) == 0 {
+			issues = append(issues, doctorIssue{Check: name, Problem: "the check failed and printed nothing", Fix: c.Fix})
+		}
+		return issues, nil
+	default:
+		return []doctorIssue{{Check: name, Problem: fmt.Sprintf("could not check (exit %d): %s", code, strings.TrimSpace(out)), Fix: "run the script in .satelle/skills/" + c.Skill + ".md"}}, nil
+	}
+}
+
+// doctorBlock is the session-start summary of a report: one line per check
+// with its count, first problem and first fix, then any checks the budget cut.
+// It is empty when there is nothing to say.
+func doctorBlock(rep doctorReport, budget time.Duration) string {
+	if len(rep.Issues) == 0 && len(rep.Unchecked) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if len(rep.Issues) > 0 {
+		fmt.Fprintf(&b, "satelle doctor: %d issue(s) (read-only; `satelle doctor` lists each with its fix)\n", len(rep.Issues))
+		byCheck := map[string][]doctorIssue{}
+		var order []string
+		for _, is := range rep.Issues {
+			if _, ok := byCheck[is.Check]; !ok {
+				order = append(order, is.Check)
+			}
+			byCheck[is.Check] = append(byCheck[is.Check], is)
+		}
+		for _, c := range order {
+			first := byCheck[c][0]
+			fmt.Fprintf(&b, "  %s (%d): %s — fix: %s\n", c, len(byCheck[c]), first.Problem, first.Fix)
+		}
+	}
+	if len(rep.Unchecked) > 0 {
+		u := append([]string(nil), rep.Unchecked...)
+		sort.Strings(u)
+		fmt.Fprintf(&b, "  not checked within %s at session start: %s; `satelle doctor` runs them\n", budget, strings.Join(u, ", "))
+	}
+	return b.String()
+}

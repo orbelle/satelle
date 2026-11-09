@@ -194,7 +194,13 @@ func TestAutosyncTwoMachinesDisjointStories(t *testing.T) {
 	runOn(t, a, "story", "create", "--title", "only on a", "--criteria", "c")
 	runOn(t, b, "story", "create", "--title", "only on b", "--criteria", "c")
 	autosync(t, a)
+	if st := syncStateOf(t); st.SyncPushed != 1 || st.SyncPulled != 0 {
+		t.Errorf("A's first pass recorded pushed %d, pulled %d; want 1, 0", st.SyncPushed, st.SyncPulled)
+	}
 	autosync(t, b)
+	if st := syncStateOf(t); st.SyncPushed != 1 || st.SyncPulled != 1 {
+		t.Errorf("B's pass recorded pushed %d, pulled %d; want 1, 1", st.SyncPushed, st.SyncPulled)
+	}
 	autosync(t, a)
 
 	onA, onB := storyIDs(t, a), storyIDs(t, b)

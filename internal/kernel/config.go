@@ -73,11 +73,48 @@ type Config struct {
 	Skills    map[string]workflow.Skill
 	Agents    agent.Catalog
 	Queues    map[string]*workflow.Queue // by name
+	// Doctor is .satelle/doctor.toml: the repo's own checks and open-item
+	// selections satelle doctor runs beside its kernel checks (empty when the
+	// file is absent).
+	Doctor DoctorSettings
+}
+
+// DoctorSettings is doctor.toml. It is a file of its own, not a satelle.toml
+// table: satelle.toml is decoded strictly, so a table an older binary does not
+// know would refuse every command; an older binary ignores an extra file.
+type DoctorSettings struct {
+	Checks []DoctorCheck `toml:"check"`
+	Open   []DoctorOpen  `toml:"items"`
+}
+
+// DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one
+// issue per output line, anything else could not check. Fix is shown with each
+// issue it raises.
+type DoctorCheck struct {
+	Skill string `toml:"skill"`
+	Fix   string `toml:"fix"`
+}
+
+// DoctorOpen reports each open (non-terminal) item the selection matches as an
+// issue; {id} in Fix is replaced with the item's id.
+type DoctorOpen struct {
+	Name     string `toml:"name"`
+	Kind     string `toml:"kind"`
+	Status   string `toml:"status"`
+	Tag      string `toml:"tag"`
+	Category string `toml:"category"`
+	Fix      string `toml:"fix"`
+}
+
+// Selection is the item selection of an [[items]] entry.
+func (o DoctorOpen) Selection() item.Selection {
+	return item.Selection{Kind: o.Kind, Status: o.Status, Tag: o.Tag, Category: o.Category}
 }
 
 // Config file and directory names under the root.
 const (
 	SettingsFile = "satelle.toml"
+	DoctorFile   = "doctor.toml"
 	AgentsFile   = "agents.toml"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
@@ -99,6 +136,11 @@ func LoadConfig(root string) (*Config, error) {
 	}
 	if err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &c.Settings); err != nil {
 		errs = append(errs, err)
+	}
+	if p := filepath.Join(root, DoctorFile); exists(p) {
+		if err := workflow.DecodeStrict(p, &c.Doctor); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if p := filepath.Join(root, AgentsFile); exists(p) {
 		cat, err := agent.LoadCatalog(p)
@@ -192,6 +234,44 @@ func (c *Config) Problems() []error {
 		errs = append(errs, c.Skills[n].Problems()...)
 	}
 	errs = append(errs, c.queueProblems()...)
+	errs = append(errs, c.doctorProblems()...)
+	return errs
+}
+
+// doctorProblems checks doctor.toml: each check names a check skill and a fix;
+// each open entry has a unique name, at least one selector and a fix.
+func (c *Config) doctorProblems() []error {
+	var errs []error
+	for i, ch := range c.Doctor.Checks {
+		sk, ok := c.Skills[ch.Skill]
+		switch {
+		case ch.Skill == "":
+			errs = append(errs, fmt.Errorf("%s: check %d names no skill", DoctorFile, i+1))
+		case !ok:
+			errs = append(errs, fmt.Errorf("%s: check %d names skill %q, which has no %s/%s.md", DoctorFile, i+1, ch.Skill, SkillsDir, ch.Skill))
+		case !sk.IsCheck():
+			errs = append(errs, fmt.Errorf("%s: check %d names skill %q, which is not a check (type: check)", DoctorFile, i+1, ch.Skill))
+		}
+		if strings.TrimSpace(ch.Fix) == "" {
+			errs = append(errs, fmt.Errorf("%s: check %d (%s) has no fix", DoctorFile, i+1, ch.Skill))
+		}
+	}
+	seen := map[string]bool{}
+	for i, o := range c.Doctor.Open {
+		switch {
+		case o.Name == "":
+			errs = append(errs, fmt.Errorf("%s: items %d has no name", DoctorFile, i+1))
+		case seen[o.Name]:
+			errs = append(errs, fmt.Errorf("%s: items %q is named twice", DoctorFile, o.Name))
+		}
+		seen[o.Name] = true
+		if o.Kind == "" && o.Tag == "" && o.Category == "" {
+			errs = append(errs, fmt.Errorf("%s: items %q selects nothing: give at least one of kind, tag or category", DoctorFile, o.Name))
+		}
+		if strings.TrimSpace(o.Fix) == "" {
+			errs = append(errs, fmt.Errorf("%s: items %q has no fix", DoctorFile, o.Name))
+		}
+	}
 	return errs
 }
 

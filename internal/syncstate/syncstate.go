@@ -39,6 +39,12 @@ type State struct {
 	SyncLastFailure time.Time `json:"sync_last_failure,omitempty"`
 	SyncReason      string    `json:"sync_reason,omitempty"`
 	SyncPasses      int       `json:"sync_passes,omitempty"`
+	// SyncPushed and SyncPulled are how many items the last pass pushed and
+	// pulled; SyncForked names each item it left unsynced, "<item> (<state>)".
+	// satelle doctor reports them without contacting the store (sto_3cf973ae).
+	SyncPushed int      `json:"sync_pushed,omitempty"`
+	SyncPulled int      `json:"sync_pulled,omitempty"`
+	SyncForked []string `json:"sync_forked,omitempty"`
 
 	// PushHeld is the stories the last project push held until their code is on
 	// the git remote (story id -> reason, sty_c203fd62). Holding is intended while
@@ -115,24 +121,39 @@ func loadLocked(globalDir, repoPath string) (State, bool, error) {
 // local: nothing was replicated, and nothing failed.
 const LocalStore = "local"
 
+// Pass is one sync pass's outcome: the store it replicated with (LocalStore
+// when nothing), why it failed ("" for a success), and its counts.
+type Pass struct {
+	Store, Reason  string
+	Pushed, Pulled int
+	Forked         []string
+}
+
 // RecordSync merges one sync pass into the sync group and writes atomically:
 // store is what the pass replicated with (LocalStore when nothing), reason is
 // why it failed ("" for a success).
 func RecordSync(globalDir, repoPath, store, reason string, now time.Time) error {
+	return RecordPass(globalDir, repoPath, Pass{Store: store, Reason: reason}, now)
+}
+
+// RecordPass is RecordSync with the pass's counts, which replace the last
+// pass's.
+func RecordPass(globalDir, repoPath string, p Pass, now time.Time) error {
 	return record(globalDir, repoPath, func(s *State) {
-		s.SyncStore = store
+		s.SyncStore = p.Store
 		s.SyncLastAttempt = now
-		if reason == "" || store == LocalStore {
+		s.SyncPushed, s.SyncPulled, s.SyncForked = p.Pushed, p.Pulled, p.Forked
+		if p.Reason == "" || p.Store == LocalStore {
 			s.SyncLastSuccess = now
 			s.SyncReason = ""
 			s.SyncPasses = 0
 			return
 		}
 		s.SyncLastFailure = now
-		if reason == s.SyncReason {
+		if p.Reason == s.SyncReason {
 			s.SyncPasses++
 		} else {
-			s.SyncReason = reason
+			s.SyncReason = p.Reason
 			s.SyncPasses = 1
 		}
 	})

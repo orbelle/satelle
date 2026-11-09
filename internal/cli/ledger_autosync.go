@@ -72,8 +72,9 @@ func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
 	defer cancel()
-	store, summary, reason := syncRepo(ctx, r)
-	_ = syncstate.RecordSync(config.GlobalDir(), uiRepoRoot(r), store, reason, time.Now())
+	pass, summary := syncRepo(ctx, r)
+	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
+	reason := pass.Reason
 	// The kernel is closed: push this repo's writes before the next repo
 	// opens, since written holds one repo at a time.
 	flushUI(ctx)
@@ -86,13 +87,13 @@ func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 }
 
 // syncRepo opens r's kernel and runs one Sync pass with its store. It
-// returns the store's description (syncstate.LocalStore when nothing
-// replicates), a one-line summary, and why the pass failed ("" for a
-// success).
-func syncRepo(ctx context.Context, r repo) (store, summary, reason string) {
+// returns the pass (the store's description, syncstate.LocalStore when
+// nothing replicates; why it failed, "" for a success; and its counts) and a
+// one-line summary.
+func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
 	k, err := r.open()
 	if err != nil {
-		return "", "", err.Error()
+		return syncstate.Pass{Reason: err.Error()}, ""
 	}
 	defer k.Close()
 	spec, defaulted := resolveStore(k)
@@ -100,24 +101,28 @@ func syncRepo(ctx context.Context, r repo) (store, summary, reason string) {
 		// satelle.dev only because this machine is signed in: an unbound
 		// repo has nothing to replicate with, as for the local store.
 		if _, ok, err := loadBinding(r); err == nil && !ok {
-			return syncstate.LocalStore, "ledger store is local: nothing replicates", ""
+			return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"
 		}
 	}
 	s, closeFn, err := openStore(k, r, "autosync")
 	defer closeFn()
 	if err != nil {
-		return spec.Kind, "", hosted.Describe("ledger autosync", err).Error()
+		return syncstate.Pass{Store: spec.Kind, Reason: hosted.Describe("ledger autosync", err).Error()}, ""
 	}
 	if s == nil {
-		return syncstate.LocalStore, "ledger store is local: nothing replicates", ""
+		return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"
 	}
 	res, err := newReplicator(k, s, io.Discard).Sync(ctx)
 	if err != nil {
-		return s.Describe(), "", hosted.Describe("ledger autosync", err).Error()
+		return syncstate.Pass{Store: s.Describe(), Reason: hosted.Describe("ledger autosync", err).Error()}, ""
 	}
-	summary = fmt.Sprintf("synced with %s: pushed %d event(s) on %d item(s), pulled %d event(s) on %d item(s)",
+	summary := fmt.Sprintf("synced with %s: pushed %d event(s) on %d item(s), pulled %d event(s) on %d item(s)",
 		s.Describe(), res.Push.Events, res.Push.Items, res.Pull.Events, res.Pull.Items)
-	return s.Describe(), summary, syncReason(res)
+	forked := make([]string, 0, len(res.Unsynced))
+	for _, u := range res.Unsynced {
+		forked = append(forked, u.Item+" ("+u.State+")")
+	}
+	return syncstate.Pass{Store: s.Describe(), Reason: syncReason(res), Pushed: res.Push.Items, Pulled: res.Pull.Items, Forked: forked}, summary
 }
 
 // syncReason is why a Sync pass failed, "" when it did not: push's and

@@ -1,3 +1,12 @@
+## [1.0.47] - 2026-11-09
+
+### Added
+- `satelle doctor` reports what is wrong here, each with the command that fixes it: an invalid configuration, what `satelle init` would add, satelle and satelled versions that differ, a missing or failing sync timer and the last automatic sync pass (pushed, pulled, forked), orphaned seats, and the checks and open items `.satelle/doctor.toml` names. It changes nothing and exits 1 when it finds an issue. (sto_3cf973ae)
+- The session-start hook prints doctor's warnings, within 2 s and without contacting the ledger store. (sto_3cf973ae)
+
+### Fixed
+- `satelle init` in a repo that already has a satelle.toml no longer writes the starter workflow (workflows/default.toml). (sto_3cf973ae)
+
 ## [1.0.46] - 2026-11-09
 
 ### Changed

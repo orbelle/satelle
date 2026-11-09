@@ -58,7 +58,7 @@ every event on an append-only ledger. Start with 'satelle init' and
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(
-		initCmd(), validateCmd(), statusCmd(), versionCmd(),
+		initCmd(), validateCmd(), statusCmd(), versionCmd(), doctorCmd(),
 		itemCmd("story", true), itemCmd("task", true), itemCmd("execution", false), itemCmd("queue", true),
 		ledgerCmd(), workflowCmd(), hookCmd(), agentsCmd(),
 		loginCmd(), logoutCmd(), whoamiCmd(), projectCmd(), remoteCmd(), nodeCmd(),

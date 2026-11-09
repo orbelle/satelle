@@ -166,3 +166,23 @@ func TestOldPushKeysAreIgnored(t *testing.T) {
 		t.Fatalf("load = %+v %v %v", got, ok, err)
 	}
 }
+
+// A pass's counts are recorded and a later pass replaces them (sto_3cf973ae).
+func TestRecordPassCounts(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Reason: "1 item(s) not synced: sto_x (diverged)", Pushed: 2, Pulled: 3, Forked: []string{"sto_x (diverged)"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := Load(home, "/repo")
+	if err != nil || !ok || st.SyncPushed != 2 || st.SyncPulled != 3 || len(st.SyncForked) != 1 || st.SyncForked[0] != "sto_x (diverged)" || st.SyncReason == "" {
+		t.Fatalf("recorded %+v %v %v", st, ok, err)
+	}
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Pushed: 1}, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = Load(home, "/repo")
+	if st.SyncPushed != 1 || st.SyncPulled != 0 || len(st.SyncForked) != 0 || st.SyncReason != "" {
+		t.Fatalf("a later pass did not replace the counts: %+v", st)
+	}
+}
