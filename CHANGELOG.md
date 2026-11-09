@@ -1,3 +1,21 @@
+## [1.0.50] - 2026-11-09
+
+### Added
+- Seats show the satelle user who bound them: the signed-in identity, else `<OS user>@<host>`. (sto_600b9a85)
+- An item's assignees are a list. Set them with `--assignee` (repeatable), `--add-assignee` and `--remove-assignee`. Every user holding a live seat is added and listed as working, in story get, story list --json, satelled and the item summary satelle-server lists. (sto_600b9a85)
+- satelled shows every other place a story is engaged on its row (user@host for another machine, remote:<node>, cloud), with the user and location on hover, and an `N elsewhere` count beside `N engaged`. (sto_44a18f5b)
+
+### Changed
+- satelled marks a story engaged on this machine with a green ◆ here in its title, in local and hosted mode alike. A seat bound before 1.0.49, or one whose session cannot be proven live, counts too and is drawn ◇ here, with the reason on hover. (sto_44a18f5b)
+- Every gate judge now runs another model family than the planner and coder (new principle satelle-agent-alt-reviewer); the drift gates' judge moves from Claude Sonnet to Gemini 3.8 Flash High. (sto_2e235651)
+
+### Fixed
+- satelled's project header and landing no longer read `stale` for a repo that was merely quiet. Each automatic sync pass (`satelle-sync.timer`, every 30 s) now confirms satelled's mirror of every project it visits: it marks the mirror fresh when its snapshot digest matches, and pushes a full snapshot when it does not. `stale` now means no pass has confirmed the mirror for over 6 minutes, shows once instead of repeating the age, and its hover says since when and asks whether `satelle-sync.timer` is running. (sto_128803b3)
+- satelle doctor no longer calls a live session gone because its hook processes exited. A session is gone only when its settled owner (the harness) has exited; a session whose hook processes exited before an owner was settled is unverified, and `satelle doctor --resolve` asks about its seats instead of releasing them. A SessionStart that fires again in the same session (a context re-read) keeps a live owner, and each hook call (session start, prompt, seat) settles a missing one. (sto_35c85724)
+
+### Breaking
+- story get and story list --json print `assignees` as a list of users, with a `working` list beside it, in place of the `assignee` string. story set --assignee replaces the list only with --replace. ItemService.PutItems carries `assignees` (field 13) and `working` (field 14) in place of field 9; satelle-server ships its counterpart. Nothing to run: the cache rebuilds itself at schema v4 on the next command. (sto_600b9a85)
+
 ## [1.0.49] - 2026-11-09
 
 ### Added
