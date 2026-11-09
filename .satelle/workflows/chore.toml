@@ -40,9 +40,12 @@ carry = true
 skill = "satelle-build-unit-check"
 carry = true
 
+# Gemini and GPT-5.6 Sol judge the code; both must accept (operator,
+# 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-agent = "reviewer-alt"
+panel = ["reviewer-alt", "reviewer-gpt"]
+combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 

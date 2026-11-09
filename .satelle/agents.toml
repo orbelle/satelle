@@ -48,3 +48,13 @@ tools = ["Read", "Grep", "Glob"]
 [agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]
+
+# The second judge on plan-review and code-ac (operator, 2026-11-10): GPT-5.6
+# Sol, the latest Sol on Cursor, at its High tier. GPT, not Claude: the planner
+# and the session coder are Claude, and a judge runs another family than the
+# author (satelle-agent-alt-reviewer). It judges beside Gemini (reviewer-alt);
+# both must accept.
+[agents.reviewer-gpt]
+command = "cursor-agent"
+model = "gpt-5.6-sol-high"
+tools = ["Read", "Grep", "Glob"]
