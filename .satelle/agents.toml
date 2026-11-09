@@ -6,13 +6,15 @@
 [agents.executor]
 command = "session"
 
-# The planner runs on Cursor's own CLI (cursor-agent), where model tokens and
-# cost are allocated (operator, 2026-11-09). It moved from pi-cursor, which lost
-# its prompt on reconnect in 5 of 6 plan dispatches (sto_e9fb6f0d). The planner
-# needs no shell: satelle attaches its artifact as the item's plan.
+# The planner runs Claude Fable 5.2 headless on the claude CLI (operator,
+# 2026-11-10: "claude cli / headless not cursor"; sto_fb705349). Cursor lists
+# no Fable 5.2. It ran Opus 5.5 on cursor-agent (2026-11-09), and before that
+# pi-cursor, which lost its prompt on reconnect in 5 of 6 plan dispatches
+# (sto_e9fb6f0d). Its judges stay another family (satelle-agent-alt-reviewer).
+# The planner needs no shell: satelle attaches its artifact as the item's plan.
 [agents.planner]
-command = "cursor-agent"
-model = "claude-opus-5-5-high"
+command = "claude"
+model = "claude-fable-5-2"
 tools = ["Read", "Grep", "Glob"]
 
 # Not wired to a state: in_progress stays executor. cursor-agent refuses Bash
@@ -47,8 +49,8 @@ tools = ["Read", "Grep", "Glob"]
 
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
 # diff three times without naming a file it judged (sto_5c706973). grok, not
-# Opus 5.5: binary-scope also judges the planner's plan, and the planner runs
-# Opus 5.5 ([rules] reviewer_differs_from_performer; sto_49abe9f0).
+# Claude: binary-scope also judges the planner's plan, and the planner runs
+# Claude (Fable 5.2; satelle-agent-alt-reviewer, sto_49abe9f0).
 [agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]
