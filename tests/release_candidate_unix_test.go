@@ -61,7 +61,10 @@ func newCandidateSandbox(t *testing.T, red bool) *candidateSandbox {
 	s.write(".version", "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n")
 	s.write("CHANGELOG.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), repoText(t, "scripts/changelog-items.sh"), 0o755)
-	s.git("add", "Makefile", "a.txt", ".version", "CHANGELOG.md", "scripts/changelog-items.sh")
+	// The drift gate runs the candidate's own drift-check.sh over its own
+	// .satelle (sto_a1681009).
+	writeFile(t, filepath.Join(s.dir, "scripts", "drift-check.sh"), repoText(t, "scripts/drift-check.sh"), 0o755)
+	s.git("add", "Makefile", "a.txt", ".version", "CHANGELOG.md", "scripts/changelog-items.sh", "scripts/drift-check.sh", ".satelle")
 	s.git("commit", "-q", "-m", "base")
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	s.git("fetch", "-q", "origin")
@@ -104,6 +107,15 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	c.fake = realDir(t, t.TempDir())
 	writeFile(t, filepath.Join(c.fake, "gh"), fakeStateGH, 0o755)
 	writeFile(t, filepath.Join(c.fake, "prs.json"), "[]", 0o644)
+	// A fake go: building the candidate's satelle copies the binary built from
+	// this branch, whose validate has the substrate check.
+	writeFile(t, filepath.Join(c.fake, "go"), `#!/bin/sh
+out=; prev=
+for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
+[ "$1" = build ] && [ -n "$out" ] || { echo "fake go: unexpected $*" >&2; exit 1; }
+cp "$SATELLE_BIN" "$out"
+`, 0o755)
+	s.env["SATELLE_BIN"] = satelleBin
 	s.path = append(s.path, c.fake)
 	s.env["FAKE_DIR"] = c.fake
 	return c
@@ -143,6 +155,13 @@ func (c *candidateSandbox) mustBlock(heading string) string {
 		c.t.Fatalf("%s: exit %d\n%s%s", heading, r.code, r.out, r.err)
 	}
 	return r.out
+}
+
+// driftGate runs release.md's drift gate on the candidate and fails the test
+// unless it passes.
+func (c *candidateSandbox) driftGate() string {
+	c.t.Helper()
+	return c.mustBlock("### Drift gate on the candidate")
 }
 
 // fire runs step 0 and returns the run and its state directory.
@@ -248,6 +267,7 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	if out := c.mustBlock("### Send back"); out != "" {
 		t.Fatalf("send back with nothing to send:\n%s", out)
 	}
+	c.driftGate()
 	c.mustBlock("### Test the candidate once")
 	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != cand {
 		t.Fatalf("make test ran on %v, want once on the candidate %s", runs, cand)
@@ -371,6 +391,7 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 	if got := c.must("story", "attachment", idH, "release-sendback"); strings.TrimSpace(got) != heldWhy || c.status(idH) != "in_progress" {
 		t.Fatalf("held %s: %s, release-sendback %q", idH, c.status(idH), got)
 	}
+	c.driftGate()
 	c.mustBlock("### Test the candidate once")
 	if runs := c.suiteRuns(); len(runs) != 1 {
 		t.Fatalf("make test ran %d times", len(runs))
@@ -401,6 +422,7 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 	_, rd := c.fire()
 
 	c.mustBlock("### Build the candidate")
+	c.driftGate()
 	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "make test failed") {
 		t.Fatalf("2d on a red candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -525,6 +547,7 @@ to = "cancelled"
 		t.Fatalf("R1 build lines: %q", got)
 	}
 	c.mustBlock("### Send back")
+	c.driftGate()
 	c.mustBlock("### Test the candidate once")
 	wt1 := filepath.Join(rd1, "candidate")
 	if r := c.exec("bash", "", "-c", changelogBlock(t, wt1, "1.0.1", idA)); r.code != 0 {
@@ -618,6 +641,7 @@ to = "cancelled"
 	if got := c.must("story", "attachment", idC, "release-sendback"); !strings.Contains(got, "no open pull request against main") {
 		t.Fatalf("release-sendback on %s: %q", idC, got)
 	}
+	c.driftGate()
 	c.mustBlock("### Test the candidate once")
 	if runs := c.suiteRuns(); len(runs) != 2 || runs[1] != main {
 		t.Fatalf("make test ran on %v, want R2's once on origin/main %s", runs, main)
@@ -667,5 +691,78 @@ to = "cancelled"
 	}
 	if c.ancestor(headC, "origin/main") {
 		t.Fatal("the control's head landed")
+	}
+}
+
+// sto_a1681009 AC1: a candidate whose substrate names a command its own binary
+// lacks is refused by the drift gate before the suite; the test block and step
+// 4 refuse it too and nothing is pushed. The release fixes the line in the
+// candidate and commits; the gate passes on that sha, the suite runs once on
+// it, and step 4 pushes it with release-drift naming the fixed miss. A commit
+// after the gate passed is refused by the test block.
+func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
+	c := newCandidateSandbox(t, false)
+	c.item("x", ".satelle/skills/x.md", "---\nname: x\ntype: skill\ndescription: x\n---\n\nRun `satelle nosuchcmd <id>`.\n")
+	oldMain := c.rev("origin/main")
+	run, rd := c.fire()
+	out := c.mustBlock("### Build the candidate")
+	wt := candidateRE.FindStringSubmatch(out)[2]
+
+	r := c.block("### Drift gate on the candidate")
+	if r.code != 1 || !strings.Contains(r.out, ".satelle/skills/x.md:7: command: satelle nosuchcmd — ") || !strings.Contains(r.err, "names what its binary lacks") {
+		t.Fatalf("drift gate on a drifted candidate: exit %d, want 1 naming the line\n%s%s", r.code, r.out, r.err)
+	}
+	if _, err := os.Stat(filepath.Join(rd, "drift-checked")); !os.IsNotExist(err) {
+		t.Fatalf("drift-checked written for a refused candidate: %v", err)
+	}
+	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
+		t.Fatalf("test block on an unchecked candidate: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if runs := c.suiteRuns(); len(runs) != 0 {
+		t.Fatalf("make test ran on a candidate the drift gate refused: %v", runs)
+	}
+	if r := c.block("## 4."); r.code == 0 {
+		t.Fatalf("step 4 pushed a refused candidate:\n%s", r.out)
+	}
+	c.git("fetch", "-q", "origin")
+	if got := c.rev("origin/main"); got != oldMain {
+		t.Fatalf("origin/main moved to %s", got)
+	}
+
+	// The release fixes the miss in the candidate, in this run.
+	writeFile(t, filepath.Join(wt, ".satelle/skills/x.md"), "---\nname: x\ntype: skill\ndescription: x\n---\n\nRun `satelle story list`.\n", 0o644)
+	c.exec("git", "", "-C", wt, "add", ".satelle/skills/x.md")
+	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): substrate drift fix ("+run+")")
+	fixCommit := strings.TrimSpace(c.exec("git", "", "-C", wt, "rev-parse", "HEAD").out)
+	c.driftGate()
+	if b, _ := os.ReadFile(filepath.Join(rd, "drift-checked")); strings.TrimSpace(string(b)) != fixCommit {
+		t.Fatalf("drift-checked %q, want the fixed candidate %s", b, fixCommit)
+	}
+
+	// A commit after the gate passed is refused until the gate runs again.
+	writeFile(t, filepath.Join(wt, "late.txt"), "late\n", 0o644)
+	c.exec("git", "", "-C", wt, "add", "late.txt")
+	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "late")
+	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
+		t.Fatalf("test block after a later commit: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	c.exec("git", "", "-C", wt, "reset", "-q", "--hard", fixCommit)
+	c.driftGate()
+	c.mustBlock("### Test the candidate once")
+	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != fixCommit {
+		t.Fatalf("make test ran on %v, want once on %s", runs, fixCommit)
+	}
+
+	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\n", 0o644)
+	c.exec("git", "", "-C", wt, "add", ".version")
+	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
+	c.mustBlock("## 4.")
+	c.git("fetch", "-q", "origin")
+	if !c.ancestor(fixCommit, "origin/main") {
+		t.Fatal("origin/main does not carry the drift-fix commit")
+	}
+	got := c.must("execution", "attachment", run, "release-drift")
+	if !strings.HasPrefix(got, "drift-check exit 0 on "+fixCommit+"\nfixed in this run:\n") || !strings.Contains(got, ".satelle/skills/x.md:7: command: satelle nosuchcmd — ") {
+		t.Fatalf("release-drift:\n%s", got)
 	}
 }

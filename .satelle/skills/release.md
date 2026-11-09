@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), check the candidate's substrate with a satelle built from it (scripts/drift-check.sh) and fix any miss in the candidate before the suite, so substrate drift cannot ship, run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
 ---
 
 # Release (CI/CD)
@@ -40,16 +40,19 @@ before step 7.
 
 Never: run any suite but step 2d's one run; rebase; force-push; merge on main
 itself (merges exist only in the candidate); push to main anything but the
-tested candidate and its bump commit; take an item not in the run's inputs; or
-close an item before step 8 passes.
+tested candidate and its bump commit (the tested candidate may carry the run's
+own drift-fix commits, made before the suite); push a candidate the drift gate
+has not passed; take an item not in the run's inputs; or close an item before
+step 8 passes.
 
 Shell variables do not survive between the session's separate commands, so
 from step 2 on the run keeps its state in one run-local directory,
 `rd="${TMPDIR:-/tmp}/satelle-release-$exe"`: the candidate worktree
-`$rd/candidate` (`$wt` below) and the files `kept`, `sendback`, `ff`,
-`tested` and `suite.log`. Each block finds the in-progress run and `rd` again
+`$rd/candidate` (`$wt` below), the candidate's binary `bin/satelle` and the
+files `kept`, `sendback`, `ff`, `drift.txt`, `drift-fixed`, `drift-checked`,
+`release-drift`, `tested` and `suite.log`. Each block finds the in-progress run and `rd` again
 the same way. The durable record stays on the items (`release-sendback`) and
-the run (`release-kept`, step 4, and `release-evidence`).
+the run (`release-kept` and `release-drift`, step 4, and `release-evidence`).
 
 ## 0. Start and read the run
 
@@ -153,7 +156,10 @@ already in the candidate.
 
 ## 2. Build the candidate, test it once
 
-a. Judge each item's changelog, then build the candidate.
+a. Judge each item's changelog, build the candidate, then pass the drift gate
+   on it: a substrate miss the candidate's own binary finds is fixed in the
+   candidate, in this run, before the suite. The tested candidate may carry
+   those drift-fix commits.
 
 ### Each kept item's changelog
 
@@ -271,6 +277,64 @@ done
 echo "candidate $(git -C "$wt" rev-parse HEAD) at $wt"
 ```
 
+### Drift gate on the candidate
+
+Once the candidate is built, and again after each drift-fix commit, before the
+suite runs. It builds the candidate's own satelle into `$rd/bin/satelle` and
+runs the candidate's own `scripts/drift-check.sh` with it in the candidate
+worktree: the rules are that binary's `satelle validate` substrate check, so a
+release whose substrate names a command, flag, help topic, skill or link the
+candidate binary lacks is refused here, before anything is tested or pushed.
+On exit 0 it records the candidate's sha in `$rd/drift-checked` and writes
+`$rd/release-drift`, which step 4 attaches to the run; `### Test the candidate
+once` and step 4 refuse a candidate whose sha is not in `$rd/drift-checked`.
+
+```sh
+task=tas_42301d36
+exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r 'if length == 1 then .[0].id else empty end')
+[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
+rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
+[ -d "$wt" ] && [ -s "$rd/ff" ] || { echo "no candidate at $wt: build it (step 2a) first" >&2; exit 1; }
+rm -f "$rd/drift-checked"
+cand=$(git -C "$wt" rev-parse HEAD)
+mkdir -p "$rd/bin" || exit 2
+go build -C "$wt" -o "$rd/bin/satelle" ./cmd/satelle || { echo "cannot build the candidate binary: stop the run" >&2; exit 2; }
+SATELLE_BIN="$rd/bin/satelle" bash "$wt/scripts/drift-check.sh" "$wt" >"$rd/drift.txt"
+code=$?
+case $code in
+  0)
+    echo "$cand" >"$rd/drift-checked"
+    { echo "drift-check exit 0 on $cand"; echo "fixed in this run:"; if [ -s "$rd/drift-fixed" ]; then cat "$rd/drift-fixed"; else echo none; fi; } >"$rd/release-drift"
+    echo "the drift gate passed on the candidate $cand"
+    ;;
+  1)
+    cat "$rd/drift.txt" >>"$rd/drift-fixed"
+    cat "$rd/drift.txt"
+    echo "the candidate $cand names what its binary lacks: fix each line in $wt, commit, and run this block again" >&2
+    exit 1
+    ;;
+  *)
+    echo "drift-check could not check the candidate (exit $code): stop the run" >&2
+    exit 2
+    ;;
+esac
+```
+
+The release fixes a miss in the same run, before the suite:
+
+1. Seat the run at the candidate, so the edit gate judges the edits there:
+   `satelle execution seat "$exe" --location "local:$wt" --base origin/main`.
+2. For each `<file>:<line>` the block printed, edit that line in `$wt` so it
+   names what the candidate binary has: read it from
+   `"$rd/bin/satelle" <command> --help` and `"$rd/bin/satelle" help`.
+3. Commit only those files in `$wt` as
+   `chore(release): substrate drift fix (<exe>)`, and run this block again
+   until it exits 0. Each miss it printed is listed in `release-drift` as
+   fixed in this run.
+4. A miss that needs a binary change (the substrate is right and the binary
+   lost what it names) stops the run: record it in `release-evidence`, push
+   nothing, and raise a story for it.
+
 b. The tree that presents the moves below must carry the config being
    released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh`,
    with `tip` the candidate's HEAD, else stop with "check out the run's tip
@@ -312,7 +376,8 @@ d. Test the candidate once.
 ### Test the candidate once
 
 `make test`, the full suite, runs once, on the final candidate and on no other
-tree, in the foreground. On a pass the candidate's sha is recorded in
+tree, in the foreground, and only after the drift gate passed on that candidate
+(its sha in `$rd/drift-checked`): drift fixes come before the one suite run. On a pass the candidate's sha is recorded in
 `$rd/tested`, which step 4 pushes only if nothing but the bump changed. On a
 failure every item that entered the candidate by merge (its head is not in
 `$rd/ff`) goes on the send-back list; an item in the fast-forward prefix stays
@@ -328,6 +393,7 @@ rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
 [ -d "$wt" ] && [ -s "$rd/ff" ] || { echo "no candidate at $wt: build it (step 2a) first" >&2; exit 1; }
 rm -f "$rd/tested"
 cand=$(git -C "$wt" rev-parse HEAD)
+[ "$(cat "$rd/drift-checked" 2>/dev/null)" = "$cand" ] || { echo "the drift gate has not passed on the candidate $cand: run ### Drift gate on the candidate first" >&2; exit 1; }
 if make -C "$wt" test >"$rd/suite.log" 2>&1; then
   echo "$cand" >"$rd/tested"
   echo "make test passed on the candidate $cand"
@@ -400,7 +466,11 @@ these two files; a file added to the bump is added to both lists.
 Pushes only the tested candidate and the bump on top of it. It stops with
 "the candidate changed after the suite ran" when the suite has not passed on
 this candidate (`$rd/tested` is missing), the tested commit is not under HEAD,
-or HEAD differs from it outside `.version` and `CHANGELOG.md`.
+or HEAD differs from it outside `.version` and `CHANGELOG.md`; and with
+"drift-check has not passed on the tested candidate" when the drift gate's sha
+(`$rd/drift-checked`) is not the tested one. Beside `release-kept` it attaches
+`release-drift`: the drift gate's exit on the tested sha and every miss the run
+fixed.
 
 Before the push it attaches `$rd/kept` to the run as `release-kept`, the
 items the run lands, `<id> <head>` in landing order. The runbook's
@@ -420,7 +490,9 @@ if [ -z "$tested" ] || ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
   echo "the candidate changed after the suite ran (or the suite has not passed on it): stop the run" >&2
   exit 1
 fi
+[ "$(cat "$rd/drift-checked" 2>/dev/null)" = "$tested" ] || { echo "drift-check has not passed on the tested candidate $tested: stop the run" >&2; exit 1; }
 satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" || exit 1   # before the push: landed items are never unrecorded
+satelle execution attach "$exe" --name release-drift --type text/plain --file "$rd/release-drift" || exit 1
 git -C "$wt" push origin HEAD:refs/heads/main || exit 1   # a plain push: refused unless it fast-forwards; never forced
 echo "main is $(git -C "$wt" rev-parse HEAD)"
 git worktree remove --force "$wt"   # pushed; --force only drops the suite's build output
