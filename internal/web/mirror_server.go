@@ -45,7 +45,7 @@ type partitionVM struct {
 	Tasks     int
 	Workflows int
 	// LastIngest carries the same freshness signal as the project page, so a
-	// partition the serving tier could not reconcile is visible on the landing
+	// partition no sync pass has confirmed is visible on the landing
 	// too (sty_e6e467fe) — as elapsed time on every row (sty_226a661e), plus the
 	// stale marker on a row past mirror.StaleAfter.
 	LastIngest time.Time

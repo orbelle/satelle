@@ -143,8 +143,9 @@ ON CONFLICT(repo_key) DO UPDATE SET
 // MarkFresh records that the partition was confirmed current at now WITHOUT
 // claiming anything changed: updated_at moves so the staleness badge clears,
 // seq does not, so no viewer is told to re-render (sty_e6e467fe). Used by the
-// reconcile path when the re-requested snapshot is byte-identical to the one
-// already stored, and after every snapshot apply that commits. No-op success
+// sync pass's confirm (/ingest/confirm, sto_128803b3) and a full snapshot
+// byte-identical to the one already stored, both when the digest matches, and
+// after every snapshot apply that commits. No-op success
 // for an unknown repo_key.
 func (s *Store) MarkFresh(ctx context.Context, repoKey string, now time.Time) error {
 	repoKey = strings.TrimSpace(repoKey)

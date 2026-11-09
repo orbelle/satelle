@@ -113,9 +113,11 @@
       if (t.key === "status") {
         hasStatus = true;
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(row.dataset.status || "") === -1) return false;
-      } else if (t.key === "tags") {
-        var tags = (row.dataset.tags || "").toLowerCase().split(",");
-        if (!t.vals.some(function (v) { return tags.indexOf(v) !== -1; })) return false;
+      } else if (t.key === "tags" || t.key === "assignee") {
+        // A list value: tags, or the assignees (sto_600b9a85) joined by commas.
+        var list = (row.dataset[t.key] || "").toLowerCase().split(",");
+        var any = t.key === "assignee" && t.vals.indexOf("all") !== -1;
+        if (!any && !t.vals.some(function (v) { return list.indexOf(v) !== -1; })) return false;
       } else {
         var val = (row.dataset[t.key] || "").toLowerCase();
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(val) === -1) return false;
@@ -424,26 +426,35 @@
       .catch(function () {});
   }
 
-  // refreshEngagementBadge reloads the story-seat count chip from the server
-  // (sty_01ba9482 / sty_e4632f45). Engagement is not derivable from story rows
-  // alone — seats live in a separate mirror kind. At count 0 the fragment is
-  // empty and the chip is absent; handle swap, insert (0→n), and remove (n→0).
+  // refreshEngagementBadge reloads the 'N engaged' and 'N elsewhere' chips
+  // from the server (sty_01ba9482 / sty_e4632f45). Engagement is not derivable
+  // from story rows alone — seats live in a separate mirror kind. At count 0 a
+  // chip is absent from the fragment; each chip is swapped, inserted (0→n) or
+  // removed (n→0) on its own. An inserted engaged chip goes before the
+  // elsewhere chip; an inserted elsewhere chip goes last in the cluster.
   function refreshEngagementBadge() {
     fetch("fragment/engagement")
       .then(function (r) { return r.text(); })
       .then(function (html) {
         var tmp = document.createElement("div");
         tmp.innerHTML = html.trim();
-        var next = tmp.querySelector(".n-engaged");
-        var cur = document.querySelector(".tabs .n-engaged");
-        if (next && cur && cur.parentNode) {
-          cur.parentNode.replaceChild(next, cur);
-        } else if (next && !cur) {
-          var cl = document.querySelector(".tabs .tab-cluster");
-          if (cl) cl.appendChild(next);
-        } else if (!next && cur) {
-          cur.remove();
-        }
+        var cl = document.querySelector(".tabs .tab-cluster");
+        ["n-engaged", "n-elsewhere"].forEach(function (cls) {
+          var next = tmp.querySelector("." + cls);
+          var cur = document.querySelector(".tabs ." + cls);
+          if (next && cur && cur.parentNode) {
+            cur.parentNode.replaceChild(next, cur);
+          } else if (next && !cur && cl) {
+            var after = cls === "n-engaged" ? cl.querySelector(".n-elsewhere") : null;
+            if (after) {
+              cl.insertBefore(next, after);
+            } else {
+              cl.appendChild(next);
+            }
+          } else if (!next && cur) {
+            cur.remove();
+          }
+        });
       })
       .catch(function () {});
   }

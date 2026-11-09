@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -87,22 +88,27 @@ func homeDir() string {
 }
 
 // seatStanding classes a pushed seat from this machine (seatlife.StandingOf):
-// here, elsewhere, gone or unverified. satelled reads the machine id and the
-// session records and never writes either.
-type seatStanding func(mirror.Seat) seatlife.Standing
+// here, elsewhere, gone or unverified, with the evidence for it. satelled
+// reads the machine id and the session records and never writes either.
+type seatStanding func(mirror.Seat) (seatlife.Standing, seatlife.Evidence)
 
 // standingHere is the seatStanding of this machine's home.
 func standingHere() seatStanding {
 	home := homeDir()
 	here, _ := config.ReadMachineID(home)
-	return func(s mirror.Seat) seatlife.Standing {
-		st, _ := seatlife.StandingOf(home, here, item.Seat{Session: s.Session, Location: s.Location, Machine: s.Machine, Host: s.Host})
-		return st
+	return func(s mirror.Seat) (seatlife.Standing, seatlife.Evidence) {
+		return seatlife.StandingOf(home, here, seatOf(s))
 	}
 }
 
+// seatOf is a pushed seat row as the item.Seat it was folded from.
+func seatOf(s mirror.Seat) item.Seat {
+	return item.Seat{Item: s.Item, Session: s.Session, Location: s.Location, Base: s.Base, BoundAt: s.BoundAt, Machine: s.Machine, Host: s.Host, User: s.User}
+}
+
 // partitionFreshness reports when this partition was last confirmed against its
-// repo (sty_e6e467fe) and whether that is longer ago than mirror.StaleAfter. An
+// repo, by a push or the automatic sync pass's confirm (sty_e6e467fe,
+// sto_128803b3), and whether that is longer ago than mirror.StaleAfter. An
 // unknown partition returns the zero time and stale: the page then says it has
 // no confirmation at all, which is the honest reading.
 func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) (last time.Time, stale bool) {
@@ -145,9 +151,10 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 	standing := standingHere()
 	listed := offPanels(stories, workflows)
-	engagedIDs := engagedItems(seats, listed, workflows, standing)
-	// The here-mark covers every story row, on the Stories tab or a panel.
-	here, links := hostedView(id.Hosted, engagedItems(seats, stories, workflows, standing))
+	// One rule marks every story row, on the Stories tab or a panel, in every
+	// mode, and the Stories tab's counts read the same marks.
+	eng := engagements(seats, stories, workflows, standing)
+	engagedIDs, elsewhereIDs := engagedCounts(eng, listed)
 	events, err := decodeLedger(ctx, s, repoKey, "")
 	if err != nil {
 		return pageData{}, id, err
@@ -163,52 +170,98 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 
 	syncSt := loadPartitionSync(repoRoot)
+	bySeat := seatsByItem(seats)
 	storyRows := itemRows(stories, workflows)
 	for i := range storyRows {
-		storyRows[i].Here = here[storyRows[i].ID]
+		storyRows[i].Engaged = eng[storyRows[i].ID]
 	}
+	withAssignees(storyRows, bySeat, standing)
 	storyRows, panels := splitPanels(storyRows, workflows)
+	taskRows := itemRows(tasks, workflows)
+	withAssignees(taskRows, bySeat, standing)
+	queueVMs := queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows)
+	for i := range queueVMs {
+		queueVMs[i].Assignees = assigneeVMs(assigneesOf(queueVMs[i].Item, bySeat[queueVMs[i].ID], standing))
+	}
 	lastIngest, stale := partitionFreshness(ctx, s, repoKey)
 	return pageData{
-		RepoRoot:        repoRoot,
-		ProjectName:     projectName,
-		LastIngest:      lastIngest,
-		Stale:           stale,
-		SyncLastSuccess: syncSt.SyncLastSuccess,
-		SyncReason:      syncSt.SyncReason,
-		SyncLocal:       syncSt.SyncStore == syncstate.LocalStore,
-		SyncStore:       syncSt.SyncStore,
-		SyncHeld:        syncHeldRows(syncSt.PushHeld),
-		Stories:         storyRows,
-		Panels:          panels,
-		BacklogCount:    backlogCount(listed, workflows),
-		EngagementCount: len(engagedIDs),
-		EngagedStoryIDs: engagedIDs,
-		Tasks:           itemRows(tasks, workflows),
-		Queues:          queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows),
-		Activity:        activityRows(stories, executions, workflows, seats, events, standing),
-		DocKinds:        docKinds(docs),
-		Workflows:       workflowRows(docs),
-		Uptime:          formatUptime(time.Since(serverStart)),
-		TopBar:          newTopBar(ctx, s, ""),
-		Hosted:          links,
+		RepoRoot:          repoRoot,
+		ProjectName:       projectName,
+		LastIngest:        lastIngest,
+		Stale:             stale,
+		SyncLastSuccess:   syncSt.SyncLastSuccess,
+		SyncReason:        syncSt.SyncReason,
+		SyncLocal:         syncSt.SyncStore == syncstate.LocalStore,
+		SyncStore:         syncSt.SyncStore,
+		SyncHeld:          syncHeldRows(syncSt.PushHeld),
+		Stories:           storyRows,
+		Panels:            panels,
+		BacklogCount:      backlogCount(listed, workflows),
+		EngagementCount:   len(engagedIDs),
+		EngagedStoryIDs:   engagedIDs,
+		ElsewhereCount:    len(elsewhereIDs),
+		ElsewhereStoryIDs: elsewhereIDs,
+		Tasks:             taskRows,
+		Queues:            queueVMs,
+		Activity:          activityRows(stories, executions, workflows, seats, events, standing),
+		DocKinds:          docKinds(docs),
+		Workflows:         workflowRows(docs),
+		Uptime:            formatUptime(time.Since(serverStart)),
+		TopBar:            newTopBar(ctx, s, ""),
+		Hosted:            hostedLinks(id.Hosted),
 	}, id, nil
 }
 
-// hostedView is a hosted-mode partition's here-set — the stories engaged on
-// this machine (engaged, from seats classed here), which the list marks but
-// never filters on — and the link to the server's project page. Every story
-// row in the local store is listed whatever engaged it (sty_6ce071dc). A local
-// partition marks nothing and links nothing.
-func hostedView(h *mirror.HostedMeta, engaged []string) (map[string]bool, *hostedLinksVM) {
+// hostedLinks is a hosted-mode partition's link to the server's project
+// page; a local partition links nothing. Every story row in the local store
+// is listed whatever engaged it (sty_6ce071dc).
+func hostedLinks(h *mirror.HostedMeta) *hostedLinksVM {
 	if h == nil || h.Server == "" || h.Project == "" {
-		return nil, nil
+		return nil
 	}
-	here := make(map[string]bool, len(engaged))
-	for _, id := range engaged {
-		here[id] = true
+	return &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
+}
+
+// seatsByItem groups seats by the item each is bound to.
+func seatsByItem(seats []mirror.Seat) map[string][]mirror.Seat {
+	by := map[string][]mirror.Seat{}
+	for _, s := range seats {
+		if id := seatItem(s); id != "" {
+			by[id] = append(by[id], s)
+		}
 	}
-	return here, &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
+	return by
+}
+
+// assigneesOf is it's assignees and those of them working it
+// (item.AssigneesOf), from seats (the item's) kept where their standing is
+// working: a seat proven gone drops its user.
+func assigneesOf(it Item, seats []mirror.Seat, standing seatStanding) (users, working []string) {
+	held := slices.Clone(seats)
+	sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
+	var live []item.Seat
+	for _, s := range held {
+		if st, _ := standing(s); st.Working() {
+			live = append(live, item.Seat{Session: s.Session, Location: s.Location, Machine: s.Machine, Host: s.Host, User: s.User})
+		}
+	}
+	return item.AssigneesOf(it.Assignees, live)
+}
+
+// assigneeVMs is users as view rows, each in working marked.
+func assigneeVMs(users, working []string) []assigneeVM {
+	out := make([]assigneeVM, len(users))
+	for i, u := range users {
+		out[i] = assigneeVM{User: u, Working: slices.Contains(working, u)}
+	}
+	return out
+}
+
+// withAssignees sets each row's assignees from bySeat (seatsByItem).
+func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatStanding) {
+	for i := range rows {
+		rows[i].Assignees = assigneeVMs(assigneesOf(rows[i].Item, bySeat[rows[i].ID], standing))
+	}
 }
 
 // itemRows is one row per item, its status classed by its workflow.
@@ -359,27 +412,136 @@ func seatItem(seat mirror.Seat) string {
 	return id
 }
 
-// engagedItems is the sorted set of stories engaged here now: the items the
-// seats classed here (bound on this machine, session alive) are bound to that
-// are stories in a non-terminal state. A seat elsewhere, gone or unverified is
-// not counted. A task run's (execution's) seat is not a story engaged —
-// Activity lists it instead — and a story whose workflow does not name its
-// state counts, since the page cannot prove it terminal.
-func engagedItems(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow, standing seatStanding) []string {
+// engagements is where each story is engaged, by id; a story engaged
+// nowhere is absent. It is the one rule satelled maps a seat's standing to a
+// mark by. A seat counts when it is bound to one of stories in a state its
+// pushed workflow does not class terminal (a story whose workflow is not
+// pushed, or does not name its state, counts, since the page cannot prove it
+// terminal). Then by its standing:
+//   - here or unverified: the story is engaged here — a seat counts as here
+//     until it is proven elsewhere or gone — and the mark is verified when any
+//     such seat is here;
+//   - elsewhere: one mark per place (elsewhereLabel), seats sharing a label
+//     sharing the mark;
+//   - gone: nothing.
+//
+// A task's or task run's seat is not a story's: Activity shows it.
+func engagements(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow, standing seatStanding) map[string]*engagementVM {
 	byID := make(map[string]Item, len(stories))
 	for _, it := range stories {
 		byID[it.ID] = it
 	}
-	set := map[string]bool{}
-	for _, seat := range seats {
+	held := slices.Clone(seats)
+	sort.SliceStable(held, func(i, j int) bool {
+		if !held[i].BoundAt.Equal(held[j].BoundAt) {
+			return held[i].BoundAt.Before(held[j].BoundAt)
+		}
+		return held[i].ID < held[j].ID
+	})
+	type marks struct {
+		here      []string
+		verified  bool
+		elsewhere map[string][]string
+	}
+	by := map[string]*marks{}
+	for _, seat := range held {
 		id := seatItem(seat)
 		it, ok := byID[id]
-		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" || standing(seat) != seatlife.Here {
+		if id == "" || !ok || stateClass(workflows[it.Workflow], it.Status) == "terminal" {
 			continue
 		}
-		set[id] = true
+		st, ev := standing(seat)
+		if st == seatlife.Gone {
+			continue
+		}
+		m := by[id]
+		if m == nil {
+			m = &marks{elsewhere: map[string][]string{}}
+			by[id] = m
+		}
+		switch st {
+		case seatlife.Here:
+			m.verified = true
+			m.here = append(m.here, fmt.Sprintf("engaged here %s, session %s (%s)", seatWho(seat), seatSession(seat), ev))
+		case seatlife.Unverified:
+			m.here = append(m.here, fmt.Sprintf("engaged here, unverified: %s, %s, session %s", ev, seatWho(seat), seatSession(seat)))
+		default:
+			label, title := elsewhereMark(seat)
+			m.elsewhere[label] = append(m.elsewhere[label], title)
+		}
 	}
-	return slices.Sorted(maps.Keys(set))
+	out := make(map[string]*engagementVM, len(by))
+	for id, m := range by {
+		e := &engagementVM{}
+		if len(m.here) > 0 {
+			e.Here = &markVM{Label: "here", Title: strings.Join(m.here, "; "), Unverified: !m.verified}
+		}
+		for _, label := range slices.Sorted(maps.Keys(m.elsewhere)) {
+			e.Elsewhere = append(e.Elsewhere, markVM{Label: label, Title: strings.Join(m.elsewhere[label], "; ")})
+		}
+		out[id] = e
+	}
+	return out
+}
+
+// engagedCounts is the sorted ids of stories engaged here and of those with a
+// seat elsewhere, from eng (engagements): the Stories tab's two badges.
+func engagedCounts(eng map[string]*engagementVM, stories []Item) (here, elsewhere []string) {
+	for _, it := range stories {
+		e := eng[it.ID]
+		if e == nil {
+			continue
+		}
+		if e.Here != nil {
+			here = append(here, it.ID)
+		}
+		if len(e.Elsewhere) > 0 {
+			elsewhere = append(elsewhere, it.ID)
+		}
+	}
+	slices.Sort(here)
+	slices.Sort(elsewhere)
+	return here, elsewhere
+}
+
+// elsewhereMark is a seat elsewhere's mark label and hover entry: on another
+// machine, "<user's name>@<host>" (the place alone when no user is recorded)
+// and "engaged by <user> on <host> (<machine id>)"; at a remote or cloud
+// location, the place (seatlife.Where) and "engaged by <user> at <location>".
+func elsewhereMark(seat mirror.Seat) (label, title string) {
+	place, machine := seatlife.Where(seatOf(seat))
+	if machine {
+		label = place
+		if name, _, _ := strings.Cut(seat.User, "@"); name != "" {
+			label = name + "@" + place
+		}
+		host := seat.Host
+		if host == "" {
+			host = "an unnamed host"
+		}
+		return label, fmt.Sprintf("engaged %s on %s (%s), session %s", seatWho(seat), host, seat.Machine, seatSession(seat))
+	}
+	loc := strings.TrimSpace(seat.Location)
+	if loc == "" {
+		loc = "location not recorded"
+	}
+	return place, fmt.Sprintf("engaged %s at %s, session %s", seatWho(seat), loc, seatSession(seat))
+}
+
+// seatWho is "by <user>" for a seat's hover, or "by an unrecorded user".
+func seatWho(seat mirror.Seat) string {
+	if u := strings.TrimSpace(seat.User); u != "" {
+		return "by " + u
+	}
+	return "by an unrecorded user"
+}
+
+// seatSession is a seat's session for its hover, or "not recorded".
+func seatSession(seat mirror.Seat) string {
+	if s := strings.TrimSpace(seat.Session); s != "" {
+		return s
+	}
+	return "not recorded"
 }
 
 // panelOf is the panel the item's workflow declares, or "".
@@ -550,8 +712,11 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	if p := panelOf(workflows, it); p != "" {
 		backTab = panelTopic(p)
 	}
+	seats, _ := decodeSeats(ctx, s, repoKey)
+	assignees := assigneeVMs(assigneesOf(it, seatsByItem(seats)[it.ID], standingHere()))
 	return detailData{
 		Item:          it,
+		Assignees:     assignees,
 		BackTab:       backTab,
 		StateClass:    stateClass(workflows[it.Workflow], it.Status),
 		ParentKind:    parentKind,

@@ -49,7 +49,7 @@ func fixtureSnapshot() mirror.Snapshot {
 		Stories: []json.RawMessage{
 			raw(mirror.Item{ID: "sto_1", Kind: "story", Title: "Detail Story", Body: "the body", Status: "beta",
 				Criteria: []string{"first criterion", "second criterion"}, Tags: []string{"k:v"}, ParentID: "sto_0",
-				Category: "cat", Workflow: "flow", Assignee: "ann", CreatedAt: t0, UpdatedAt: at(5)}),
+				Category: "cat", Workflow: "flow", Assignees: []string{"ann"}, CreatedAt: t0, UpdatedAt: at(5)}),
 			raw(mirror.Item{ID: "sto_0", Kind: "story", Title: "Parent", Status: "zed", Workflow: "flow", CreatedAt: t0, UpdatedAt: t0}),
 		},
 		Executions: []json.RawMessage{
@@ -204,10 +204,15 @@ func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 			t.Errorf("legacy story page missing %q", want)
 		}
 	}
-	// A legacy seat row records no machine: it is unverified, so not engaged
-	// here (sto_e127b2e6).
-	if page := httpGetBody(t, srv.URL+"/r/proj/"); strings.Contains(page, "engaged</") || !strings.Contains(page, "Legacy") {
-		t.Error("a legacy story seat counts as engaged here, or the page did not render")
+	// A legacy seat row records no location: it is elsewhere, not engaged
+	// here (sto_e127b2e6), and its row says the location is not recorded
+	// (sto_44a18f5b).
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	if strings.Contains(page, "n-engaged") || !strings.Contains(page, ">1 elsewhere<") || !strings.Contains(page, "Legacy") {
+		t.Error("a legacy story seat counts as engaged here, is not counted elsewhere, or the page did not render")
+	}
+	if cell := titleCellFor(page, "sty_1"); strings.Count(cell, `class="where-mark"`) != 1 || !strings.Contains(cell, ">◆ location not recorded<") {
+		t.Errorf("the legacy seat's row lacks its one where-mark: %q", cell)
 	}
 }
 

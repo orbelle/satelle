@@ -17,20 +17,20 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
 // serviceUnitName is the unit that runs satelled.
 const serviceUnitName = "satelle.service"
 
 // The units that run the automatic ledger sync pass (sto_5c706973): a timer
-// starting a oneshot service that runs `satelle ledger autosync` syncPeriod
-// after the last run ended. A write therefore reaches the store within one
+// starting a oneshot service that runs `satelle ledger autosync`
+// mirror.SyncPeriod after the last run ended, bounded by mirror.SyncPassTimeout. A write therefore reaches the store within one
 // period plus a pass, and another machine within two periods plus its pass:
 // the 90-second bound the sync-architecture principle states.
 const (
 	syncServiceName = "satelle-sync.service"
 	syncTimerName   = "satelle-sync.timer"
-	syncPeriod      = 30 * time.Second
 )
 
 // serviceUnits are the unit files service install and refresh write: satelled's and the
@@ -121,7 +121,7 @@ func printUnits(w io.Writer, u serviceUnits) {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "\nand run satelle ledger autosync every %d s. The sync units would be:\n\n%s\n%s",
-		int(syncPeriod.Seconds()), u.SyncService, u.SyncTimer)
+		int(mirror.SyncPeriod.Seconds()), u.SyncService, u.SyncTimer)
 }
 
 // sameBinary reports whether a and b name one binary: the same path, or paths
@@ -270,14 +270,14 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=%s ledger autosync
-TimeoutStartSec=300
-`, cli)
+TimeoutStartSec=%d
+`, cli, int(mirror.SyncPassTimeout/time.Second))
 }
 
-// renderSyncTimer is the timer starting the sync pass syncPeriod after boot
+// renderSyncTimer is the timer starting the sync pass mirror.SyncPeriod after boot
 // and after each run ends; a oneshot still running is never started twice.
 func renderSyncTimer() string {
-	secs := int(syncPeriod / time.Second)
+	secs := int(mirror.SyncPeriod / time.Second)
 	return fmt.Sprintf(`[Unit]
 Description=satelle ledger sync every %[1]d s
 

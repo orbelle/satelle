@@ -5,7 +5,9 @@
 // settings and identity. A full push carries all of them; a delta carries the
 // changed items' rows, the seats, the workflows and the identity, so a
 // workflow file added or edited reaches satelled on the repo's next push.
-// satelled never asks the CLI for anything.
+// The automatic sync pass confirms the mirror (POST /ingest/confirm): it sends
+// the full snapshot's digest, and the full body only when satelled's last one
+// differs. satelled never asks the CLI for anything.
 package uipush
 
 import (
@@ -141,23 +143,10 @@ func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	// The cache's seat rows carry no machine; the chain does.
-	folded := map[string]map[string]item.Seat{}
 	for _, s := range seats {
-		bySession, ok := folded[s.Item]
-		if !ok {
-			bySession = map[string]item.Seat{}
-			if evs, err := src.Cache.Events(s.Item, ""); err == nil {
-				for _, f := range item.FoldSeats(evs) {
-					bySession[f.Session] = f
-				}
-			}
-			folded[s.Item] = bySession
-		}
-		f := bySession[s.Session]
 		snap.Seats = append(snap.Seats, mustJSON(mirror.Seat{
 			ID: s.Item + "/" + s.Session, Item: s.Item, Session: s.Session, Location: s.Location, Base: s.Base, BoundAt: s.BoundAt,
-			Machine: f.Machine, Host: f.Host,
+			Machine: s.Machine, Host: s.Host, User: s.User,
 		}))
 	}
 	return snap, nil
@@ -170,7 +159,7 @@ func itemRow(it item.Item) mirror.Item {
 	}
 	return mirror.Item{
 		ID: it.ID, Kind: it.Kind, Title: it.Title, Body: it.Body, Status: it.Status, Criteria: it.Criteria,
-		Tags: tags, ParentID: it.Parent, Category: it.Category, Workflow: it.Workflow, Assignee: it.Assignee,
+		Tags: tags, ParentID: it.Parent, Category: it.Category, Workflow: it.Workflow, Assignees: it.Assignees,
 		Inputs: it.Inputs, Trigger: it.Trigger, CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
 	}
 }

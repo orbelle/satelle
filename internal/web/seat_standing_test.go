@@ -54,9 +54,11 @@ func fourSeatHome(t *testing.T, here, elsewhere, gone, unverified string) ([]mir
 	}, home
 }
 
-// satelled classes each of four seats: only the one bound here with its
-// session alive is engaged (the badge reads 1 engaged); Activity marks the
-// other three elsewhere (with the host), session gone and unverified
+// satelled classes each of four seats: the one bound here with its session
+// alive and the unverified one (no machine recorded) count as engaged here
+// (the badge reads 2 engaged, sto_44a18f5b), the one on another machine as
+// engaged elsewhere (1 elsewhere), and the gone one as neither; Activity marks
+// the other three elsewhere (with the host), session gone and unverified
 // (sto_e127b2e6 AC6, AC8 "remote-machine seat shown as elsewhere").
 func TestSatelledClassesEverySeat(t *testing.T) {
 	seats, home := fourSeatHome(t, "sto_here", "sto_far", "sto_gone", "sto_old")
@@ -73,14 +75,17 @@ func TestSatelledClassesEverySeat(t *testing.T) {
 	byStory := map[string]seatlife.Standing{}
 	standing := standingHere()
 	for _, s := range seats {
-		byStory[s.Item] = standing(s)
+		byStory[s.Item], _ = standing(s)
 	}
 	want := map[string]seatlife.Standing{"sto_here": seatlife.Here, "sto_far": seatlife.Elsewhere, "sto_gone": seatlife.Gone, "sto_old": seatlife.Unverified}
 	if !maps.Equal(byStory, want) {
 		t.Fatalf("standings %v, want %v", byStory, want)
 	}
 	page := httpGetBody(t, srv.URL+"/r/proj/")
-	for _, want := range []string{`data-engagement-count="1"`, `title="engaged: sto_here"`, ">1 engaged<"} {
+	for _, want := range []string{
+		`data-engagement-count="2"`, `title="engaged here: sto_here, sto_old"`, ">2 engaged<",
+		`data-elsewhere-count="1"`, `title="engaged elsewhere: sto_far"`, ">1 elsewhere<",
+	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the engaged badge lacks %s", want)
 		}

@@ -2,6 +2,7 @@ package item
 
 import (
 	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -92,5 +93,76 @@ func TestFoldedAndSinceEntered(t *testing.T) {
 	}
 	if got := SinceEntered(events[:2]); len(got) != 2 {
 		t.Errorf("never moved: SinceEntered = %+v", got)
+	}
+}
+
+// Explicit assignees are a list on item.created and item.updated; a chain's
+// legacy assignee string folds as a one-entry list (sto_600b9a85 AC2).
+func TestFoldAssignees(t *testing.T) {
+	fold := func(t *testing.T, payloads ...Fields) []string {
+		t.Helper()
+		s, _ := ledger.Open(t.TempDir())
+		for i, f := range payloads {
+			kind := KindUpdated
+			if i == 0 {
+				kind = KindCreated
+			}
+			s.Append("i", kind, "me", f)
+		}
+		events, _ := s.Read("i")
+		it, err := Fold(events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return it.Assignees
+	}
+	cases := []struct {
+		name     string
+		payloads []Fields
+		want     []string
+	}{
+		{"created", []Fields{{Title: ptr("t"), Assignees: ptr([]string{"a", "b"})}}, []string{"a", "b"}},
+		{"updated", []Fields{{Title: ptr("t"), Assignees: ptr([]string{"a", "b"})}, {Assignees: ptr([]string{"c"})}}, []string{"c"}},
+		{"legacy", []Fields{{Title: ptr("t"), Assignee: ptr("usr_1")}}, []string{"usr_1"}},
+		{"legacy empty clears", []Fields{{Title: ptr("t"), Assignees: ptr([]string{"a"})}, {Assignee: ptr("")}}, nil},
+		{"list wins", []Fields{{Title: ptr("t"), Assignee: ptr("usr_1"), Assignees: ptr([]string{"a"})}}, []string{"a"}},
+		{"untouched", []Fields{{Title: ptr("t"), Assignees: ptr([]string{"a"})}, {Title: ptr("u")}}, []string{"a"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := fold(t, c.payloads...); !slices.Equal(got, c.want) {
+				t.Fatalf("assignees %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// AssigneesOf lists explicit users then seated ones, each once, marking the
+// seated ones working (sto_600b9a85 AC3).
+func TestAssigneesOf(t *testing.T) {
+	cases := []struct {
+		name           string
+		assigned       []string
+		seats          []Seat
+		users, working []string
+	}{
+		{"none", nil, nil, []string{}, []string{}},
+		{"explicit only", []string{"ann"}, nil, []string{"ann"}, []string{}},
+		{"seated in bind order", nil, []Seat{{User: "bob"}, {User: "ada"}}, []string{"bob", "ada"}, []string{"bob", "ada"}},
+		{"explicit then seated", []string{"ann"}, []Seat{{User: "bob"}}, []string{"ann", "bob"}, []string{"bob"}},
+		{"listed and seated once", []string{"ann", "bob"}, []Seat{{User: "bob"}, {User: "bob"}}, []string{"ann", "bob"}, []string{"bob"}},
+		{"empty user skipped", nil, []Seat{{User: ""}, {User: "cy"}}, []string{"cy"}, []string{"cy"}},
+		{"explicit dupes", []string{"ann", "ann"}, nil, []string{"ann"}, []string{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			users, working := AssigneesOf(c.assigned, c.seats)
+			if users == nil || working == nil {
+				t.Fatalf("nil result: %v %v", users, working)
+			}
+			if !slices.Equal(users, c.users) || !slices.Equal(working, c.working) {
+				t.Fatalf("got %q working %q, want %q working %q", users, working, c.users, c.working)
+			}
+		})
 	}
 }

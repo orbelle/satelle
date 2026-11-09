@@ -1,15 +1,21 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
@@ -262,5 +268,130 @@ func TestAutosyncAdoptedQueueDoesNotFork(t *testing.T) {
 	}
 	if got, _ := runtimeLedger(t).Read(que); len(got) != len(events) || got[len(got)-1].Hash != events[len(events)-1].Hash {
 		t.Fatalf("A holds %d events of %s, B %d", len(got), que, len(events))
+	}
+}
+
+// localWithUI is a machine with its own satelled whose repo is added with
+// satelle project add (its store is local), which seeds the mirror and its
+// snapshot hash. It returns the machine and the partition's repo_key.
+func localWithUI(t *testing.T) (machine, string) {
+	t.Helper()
+	m := newMachineWithUI(t)
+	m.use(t)
+	must(t, "project", "add")
+	parts, err := m.ms.ListPartitions(context.Background())
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("satelled partitions after project add = %d, %v; want 1", len(parts), err)
+	}
+	return m, parts[0].RepoKey
+}
+
+// partitionOn is m's satelled's partition key.
+func partitionOn(t *testing.T, m machine, key string) mirror.Partition {
+	t.Helper()
+	p, ok, err := m.ms.GetPartition(context.Background(), key)
+	if err != nil || !ok {
+		t.Fatalf("partition %s: ok=%v err=%v", key, ok, err)
+	}
+	return p
+}
+
+// agePartition backdates key's last confirmation past StaleAfter.
+func agePartition(t *testing.T, m machine, key string) {
+	t.Helper()
+	if err := m.ms.MarkFresh(context.Background(), key, time.Now().Add(-mirror.StaleAfter-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !partitionOn(t, m, key).Stale(time.Now()) {
+		t.Fatal("setup: the aged partition must read stale")
+	}
+}
+
+// closedEndpoint is the URL of a satelled that is no longer answering.
+func closedEndpoint(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+	return srv.URL
+}
+
+// AC3 (sto_128803b3): a quiet repo with the timer passing stays fresh. Each
+// pass confirms the mirror with only a digest: the partition reads fresh,
+// seq does not move (no snapshot applied), and the recorded snapshot success
+// moves. The project page carries no stale marker.
+func TestAutosyncConfirmsQuietMirror(t *testing.T) {
+	m, key := localWithUI(t)
+	for i := range 3 {
+		agePartition(t, m, key)
+		before := partitionOn(t, m, key)
+		prev := syncStateOf(t).SnapshotLastSuccess
+		time.Sleep(2 * time.Millisecond) // time-subject: timestamp separation, so the recorded success visibly moves
+		autosync(t, m)
+		after := partitionOn(t, m, key)
+		if after.Stale(time.Now()) {
+			t.Fatalf("pass %d: a quiet repo reads stale after a pass", i)
+		}
+		if after.Seq != before.Seq {
+			t.Fatalf("pass %d: a quiet repo's confirm applied a snapshot: seq %d → %d", i, before.Seq, after.Seq)
+		}
+		if st := syncStateOf(t); !st.SnapshotLastSuccess.After(prev) || st.SnapshotReason != "" {
+			t.Fatalf("pass %d: recorded snapshot state %+v, want a success after %s", i, st, prev)
+		}
+	}
+	resp, err := http.Get(m.ui + "/r/" + partitionOn(t, m, key).Slug + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	page, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(page), `class="stale-flag"`) {
+		t.Errorf("a confirmed project page carries the stale marker:\n%s", page)
+	}
+}
+
+// AC1 (sto_128803b3): a push a command dropped (satelled not answering) is
+// repaired by the next pass: the digest differs, so the full snapshot is sent.
+func TestAutosyncRepairsADroppedPush(t *testing.T) {
+	m, key := localWithUI(t)
+	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	id := createID(t, "story", "create", "--title", "dropped push", "--criteria", "repaired")
+	flushUI(context.Background())
+	if strings.Contains(storiesOn(t, m), id) {
+		t.Fatal("setup: the story reached satelled although its push was dropped")
+	}
+	before := partitionOn(t, m, key)
+	autosync(t, m)
+	if frag := storiesOn(t, m); !strings.Contains(frag, id) || !strings.Contains(frag, "dropped push") {
+		t.Fatalf("the pass did not repair the dropped push:\n%s", frag)
+	}
+	after := partitionOn(t, m, key)
+	if after.Seq == before.Seq {
+		t.Error("repairing a dropped push must apply a snapshot")
+	}
+	if after.Stale(time.Now()) {
+		t.Error("a repaired partition reads stale")
+	}
+}
+
+// AC3 (sto_128803b3): a pass that finds satelled not answering confirms
+// nothing: the partition stays stale and unchanged, and no snapshot outcome
+// is recorded.
+func TestAutosyncSatelledDownConfirmsNothing(t *testing.T) {
+	m, key := localWithUI(t)
+	agePartition(t, m, key)
+	before := partitionOn(t, m, key)
+	st := syncStateOf(t)
+	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	must(t, "ledger", "autosync")
+	after := partitionOn(t, m, key)
+	if after.UpdatedAt != before.UpdatedAt || after.Seq != before.Seq {
+		t.Errorf("a pass with satelled down changed the partition: %+v → %+v", before, after)
+	}
+	if !after.Stale(time.Now()) {
+		t.Error("a partition no pass confirmed must still read stale")
+	}
+	got := syncStateOf(t)
+	if !got.SnapshotLastSuccess.Equal(st.SnapshotLastSuccess) || !got.SnapshotLastFailure.Equal(st.SnapshotLastFailure) || got.SnapshotReason != st.SnapshotReason {
+		t.Errorf("a pass with satelled down recorded a snapshot outcome: %+v → %+v", st, got)
 	}
 }

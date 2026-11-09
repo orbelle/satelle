@@ -58,8 +58,9 @@ func Run(ctx context.Context, opts Options) error {
 	// home, never by running a binary (sto_49b6e762).
 	exe, exeErr := os.Executable()
 	web.SetInstalledBuilds(installedBuilds(config.GlobalDir(), exe, exeErr))
-	// satelled does not exec the CLI: the CLI pushes what it needs. Hosted
-	// push and the snapshot repair loop are rebuilt in B3/B4.
+	// satelled does not exec the CLI: the CLI pushes what it needs, and the
+	// automatic sync pass confirms each mirror (/ingest/confirm, sto_128803b3)
+	// in place of a snapshot repair loop. Hosted push is rebuilt in B3/B4.
 	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), nil)
 	webSrv.Ingest.Log = logLine
 	publishLogs = func() { webSrv.Publish("logs") }

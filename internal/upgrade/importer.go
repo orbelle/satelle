@@ -183,11 +183,15 @@ func planItem(it OldItem, src *Source, m *StatusMap) (itemPlan, error) {
 	for _, s := range []struct {
 		v   string
 		dst **string
-	}{{it.Parent, &f.Parent}, {it.Category, &f.Category}, {it.Assignee, &f.Assignee}} {
+	}{{it.Parent, &f.Parent}, {it.Category, &f.Category}} {
 		if s.v != "" {
 			v := s.v
 			*s.dst = &v
 		}
+	}
+	if it.Assignee != "" {
+		// The old store's single assignee is the list's one entry.
+		f.Assignees = &[]string{it.Assignee}
 	}
 	type step struct {
 		at      time.Time

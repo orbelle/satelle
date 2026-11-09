@@ -28,10 +28,10 @@ type Item struct {
 	ParentID           string          `json:"parent_id,omitempty"`
 	Category           string          `json:"category,omitempty"`
 	Workflow           string          `json:"workflow,omitempty"`
-	Assignee           string          `json:"assignee,omitempty"`
-	Priority           string          `json:"priority,omitempty"` // legacy; carried, not shown
-	Inputs             *item.Selection `json:"inputs,omitempty"`   // a task's inputs, a queue's filter
-	Trigger            *item.Trigger   `json:"trigger,omitempty"`  // a queue's trigger
+	Assignees          []string        `json:"assignees,omitempty"` // the explicit assignees
+	Priority           string          `json:"priority,omitempty"`  // legacy; carried, not shown
+	Inputs             *item.Selection `json:"inputs,omitempty"`    // a task's inputs, a queue's filter
+	Trigger            *item.Trigger   `json:"trigger,omitempty"`   // a queue's trigger
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 }
@@ -95,6 +95,9 @@ type Seat struct {
 	// empty on seats bound before seats recorded it.
 	Machine string `json:"machine,omitempty"`
 	Host    string `json:"host,omitempty"`
+	// User is the satelle user who bound the seat (item.Seat); empty on
+	// seats bound before seats recorded it.
+	User string `json:"user,omitempty"`
 	// Legacy seat rows named the item by id and flagged story seats.
 	StorySeat bool `json:"story_seat,omitempty"`
 	Stale     bool `json:"stale,omitempty"`

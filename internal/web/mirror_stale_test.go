@@ -29,7 +29,9 @@ func seedFresh(t *testing.T, s *mirror.Store, repoKey, slug string, at time.Time
 // is never indistinguishable from one that was. The elapsed time says it on
 // EVERY row (sty_226a661e), and a partition past StaleAfter also carries the
 // stale marker, on the landing row and the project header, while one inside it
-// carries none.
+// carries none. The marker does not repeat the age; its hover names since when
+// and asks after satelle-sync.timer, or says it was never confirmed
+// (sto_128803b3).
 func TestFreshnessShownForEveryPartition(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -40,6 +42,10 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 	seedFresh(t, s, "rk-stale", "stale-repo", stale)
 	// Just inside the threshold: the other side of it.
 	seedFresh(t, s, "rk-fresh", "fresh-repo", time.Now().UTC().Add(-mirror.StaleAfter+time.Minute))
+	// Never confirmed: a partition no ingest has committed to.
+	if _, err := s.TouchPartition(context.Background(), "rk-never", "never-repo", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := httptest.NewServer(NewMirror(s).Handler)
 	t.Cleanup(srv.Close)
@@ -47,20 +53,27 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 	stamp := stale.Local().Format("2006-01-02 15:04")
 	landing := get(t, srv.URL+"/")
 
-	// The stale marker is on the stale row only, naming the age.
-	if n := strings.Count(landing, `class="stale-flag"`); n != 1 {
-		t.Errorf("want exactly one stale marker on the landing, got %d:\n%s", n, landing)
+	// The stale marker is on the stale and never-confirmed rows only, and
+	// reads just "stale": the <time> beside it already gives the age.
+	if n := strings.Count(landing, `class="stale-flag"`); n != 2 {
+		t.Errorf("want exactly two stale markers on the landing, got %d:\n%s", n, landing)
 	}
-	if !strings.Contains(landing, `>stale · 1 hr ago</span>`) {
-		t.Errorf("the stale marker must name the age:\n%s", landing)
+	if strings.Count(landing, `>stale</span>`) != 2 || strings.Contains(landing, "stale · ") {
+		t.Errorf("the stale marker must read just %q, not repeat the age:\n%s", "stale", landing)
 	}
-	// AC1: a column, and a stamp on EVERY row — not only the stale one. Two
-	// partitions were seeded, so two rel-times; the old badge would have been 1.
+	if !strings.Contains(landing, `title="No confirmation since `+stamp+`; is satelle-sync.timer running?">stale</span>`) {
+		t.Errorf("the stale marker's hover must name since when and ask after the timer:\n%s", landing)
+	}
+	if !strings.Contains(landing, `title="Never confirmed; is satelle-sync.timer running?">stale</span>`) {
+		t.Errorf("a never-confirmed partition's hover must say so:\n%s", landing)
+	}
+	// AC1: a column, and a stamp on EVERY row — not only the stale one. Three
+	// partitions were seeded, so three rel-times; the old badge would have been 1.
 	if !strings.Contains(landing, "<th>Updated</th>") {
 		t.Error("the landing needs an Updated column header")
 	}
-	if n := strings.Count(landing, `class="rel-time"`); n != 2 {
-		t.Errorf("every row carries its freshness: want 2 rel-times, got %d:\n%s", n, landing)
+	if n := strings.Count(landing, `class="rel-time"`); n != 3 {
+		t.Errorf("every row carries its freshness: want 3 rel-times, got %d:\n%s", n, landing)
 	}
 	// AC3: the absolute stamp survives, on hover.
 	if !strings.Contains(landing, `title="Last confirmed against the repository at `+stamp) {
@@ -71,13 +84,14 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 		t.Errorf("the stale row needs an absolute datetime for the client ticker:\n%s", landing)
 	}
 	// AC1, the point of the change: the row reads as elapsed time, not a flag.
-	// The fixture is StaleAfter (15m) + 1h, so floor-hours is exactly 1.
+	// The fixture is StaleAfter (6m) + 1h, so floor-hours is exactly 1.
 	if !strings.Contains(landing, ">1 hr ago</time>") {
 		t.Errorf("the stale partition should read %q:\n%s", "1 hr ago", landing)
 	}
 	// …and the fresh one is distinguishable from it below the threshold.
-	if !strings.Contains(landing, ">14 mins ago</time>") {
-		t.Errorf("the partition inside the threshold should read %q:\n%s", "14 mins ago", landing)
+	inside := relTime(time.Now().Add(-mirror.StaleAfter+time.Minute), time.Now())
+	if !strings.Contains(landing, ">"+inside+"</time>") {
+		t.Errorf("the partition inside the threshold should read %q:\n%s", inside, landing)
 	}
 
 	// Second surface: both project pages show the freshness inline; only the

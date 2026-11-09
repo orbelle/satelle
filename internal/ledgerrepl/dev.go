@@ -10,9 +10,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bobmcallan/satelle/internal/cache"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/seatlife"
 	"github.com/bobmcallan/satelle/internal/wire"
 	"github.com/bobmcallan/satelle/internal/wire/chainpb"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
@@ -40,6 +42,10 @@ type Dev struct {
 	Server string
 	Ledger *ledger.Store
 	Cache  *cache.Cache
+	// Home is the satelle home whose session records class a seat's
+	// standing: a summary's working users drop a seat proven gone there. ""
+	// keeps every bound seat (a remote node, which holds no records).
+	Home string
 
 	chains map[string][]ledger.Event // each item's chain, read once per run
 	atts   map[string]bool           // item/name/sha256 of every stored attachment
@@ -252,16 +258,17 @@ func (d *Dev) GetBlob(ctx context.Context, item string, ref ledger.BlobRef) ([]b
 	return a.GetBody(), true, nil
 }
 
-// Summary is an item's wire summary with its head hash.
-func Summary(it item.Item, head string) (*satellepb.Item, error) {
+// Summary is an item's wire summary with its head hash, its assignees (users)
+// and those of them working it (item.AssigneesOf).
+func Summary(it item.Item, head string, users, working []string) (*satellepb.Item, error) {
 	record, err := json.Marshal(it)
 	if err != nil {
 		return nil, err
 	}
 	return &satellepb.Item{
 		Id: it.ID, Kind: it.Kind, Title: it.Title, Status: it.Status, Workflow: it.Workflow,
-		Parent: it.Parent, Category: it.Category, Tags: it.Tags, Assignee: it.Assignee,
-		HeadHash: head, UpdatedAt: timestamppb.New(it.UpdatedAt), Record: record,
+		Parent: it.Parent, Category: it.Category, Tags: it.Tags,
+		Assignees: users, Working: working, HeadHash: head, UpdatedAt: timestamppb.New(it.UpdatedAt), Record: record,
 	}, nil
 }
 
@@ -271,6 +278,7 @@ func (d *Dev) PutSummaries(ctx context.Context, ids []string) error {
 		return nil
 	}
 	req := &satellepb.PutItemsRequest{Project: d.Project}
+	here, _ := config.ReadMachineID(d.Home)
 	for _, id := range ids {
 		it, ok, err := d.Cache.Item(id)
 		if err != nil {
@@ -283,7 +291,12 @@ func (d *Dev) PutSummaries(ctx context.Context, ids []string) error {
 		if err != nil {
 			return err
 		}
-		sum, err := Summary(it, h)
+		seats, err := d.Cache.Seats("", id)
+		if err != nil {
+			return err
+		}
+		users, working := item.AssigneesOf(it.Assignees, seatlife.Working(d.Home, here, seats))
+		sum, err := Summary(it, h, users, working)
 		if err != nil {
 			return err
 		}

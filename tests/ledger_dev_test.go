@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,7 +193,7 @@ func TestLedgerDevPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 	}
 	got := a.get(id)
 	if got.ID != id || got.Workflow != "bugflow" || got.Status != "triage" || strings.Join(got.Criteria, ",") != "one,two" ||
-		strings.Join(got.Tags, ",") != "x" || got.Parent != parent || got.Category != "bug" || got.Assignee != "usr_1" {
+		strings.Join(got.Tags, ",") != "x" || got.Parent != parent || got.Category != "bug" || !slices.Equal(got.Assignees, []string{"usr_1"}) {
 		t.Fatalf("placed item = %+v", got)
 	}
 	if p := a.get(parent); p.Workflow != "default" || p.Status != "backlog" {

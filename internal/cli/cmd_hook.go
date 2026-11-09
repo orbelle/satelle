@@ -258,8 +258,9 @@ func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
 }
 
 // recordSession records this hook's process chain for its session on this
-// machine (internal/seatlife): SessionStart starts the record, a prompt
-// settles its owner; only inside a satelle repo. Errors are ignored and the hook's output is unchanged; a
+// machine (internal/seatlife): SessionStart starts or updates the record, and
+// each hook call settles a missing owner from the process it shares with an
+// earlier call; only inside a satelle repo. Errors are ignored and the hook's output is unchanged; a
 // session without a record is only ever unverified.
 func recordSession(in hook.Input, record func(home, session string, ancestors []procgroup.Proc) error) {
 	session := hookSession(in)

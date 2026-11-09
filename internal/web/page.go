@@ -53,11 +53,18 @@ var tmplFuncs = template.FuncMap{
 		return t.UTC().Format(time.RFC3339)
 	},
 	"reltime": func(t time.Time) string { return relTime(t, time.Now()) },
-	// staleafter names mirror.StaleAfter for the stale marker's hover text.
-	"staleafter": func() string { return fmt.Sprintf("%d min", int(mirror.StaleAfter.Minutes())) },
-	"lower":      strings.ToLower,
+	"lower":   strings.ToLower,
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
+	},
+	// users is the assignees' users joined by commas: a row's data-assignee
+	// filter value and its search text.
+	"users": func(as []assigneeVM) string {
+		us := make([]string, len(as))
+		for i, a := range as {
+			us[i] = a.User
+		}
+		return strings.Join(us, ",")
 	},
 	// evdot maps a timeline event to its dot's outcome class from the gate
 	// result in the payload: a reject is a fail dot, an error (a judge that
@@ -240,7 +247,9 @@ const templatesSrc = `
 {{define "github-svg"}}<svg viewBox="0 0 16 16" width="16" height="16" role="img" aria-hidden="true" focusable="false" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.02-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>{{end}}
 
 {{/* freshnessBare: the <time> only — LastIngest as a ticker-backed relative
-     phrase. Landing Updated cells use this bare form (sty_a447695e): no
+     phrase: the last time satelled's mirror was confirmed, by a push or by
+     the automatic sync pass (sto_128803b3). Landing Updated cells use this
+     bare form (sty_a447695e): no
      "local:" prefix, no remote clock. The header composes freshness on top
      so both surfaces render one <time> from one place.
 
@@ -254,11 +263,13 @@ const templatesSrc = `
      time.rel-time text (sty_226a661e, sty_8104248a). */}}
 {{define "freshness"}}local: updated {{template "freshnessBare" .}}{{template "stalemark" .}}{{end}}
 
-{{/* stalemark: shown only when the partition has had no confirmed snapshot
-     for longer than mirror.StaleAfter (.Stale), so a frame the serving tier
-     could not repair never reads as current. Beside the <time>, never inside
-     it, so the ticker leaves it alone. */}}
-{{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="No confirmed snapshot for over {{staleafter}}">stale · {{reltime .LastIngest}}</span>{{end}}{{end}}
+{{/* stalemark: shown only when no automatic sync pass (nor any push) has
+     confirmed the partition for longer than mirror.StaleAfter (.Stale), so a
+     mirror satelled is behind on never reads as current (sto_128803b3). The
+     age is the <time> beside it, so the mark does not repeat it; its hover
+     names since when and asks after the timer. Beside the <time>, never
+     inside it, so the ticker leaves it alone. */}}
+{{define "stalemark"}}{{if .Stale}} <span class="stale-flag" title="{{if isotime .LastIngest}}No confirmation since {{ftime .LastIngest}}{{else}}Never confirmed{{end}}; is satelle-sync.timer running?">stale</span>{{end}}{{end}}
 
 {{/* syncstate: the last automatic ledger sync pass on the project header
      (sto_5c706973). "synced" stays outside time.rel-time so the ticker cannot
@@ -334,7 +345,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
     </table>
   </section>
@@ -359,7 +370,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Tasks}}</tbody>
     </table>
   </section>
@@ -396,7 +407,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignee</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Rows}}</tbody>
     </table>
   </section>
@@ -419,24 +430,28 @@ const templatesSrc = `
      GET fragment/backlog — JS swaps, inserts or removes it. */}}
 {{define "backlogBadge"}}{{if gt .BacklogCount 0}}<span class="n-backlog" title="stories in the open backlog" data-backlog-count="{{.BacklogCount}}">{{.BacklogCount}} backlog</span>{{end}}{{end}}
 
-{{/* engagementBadge: engaged-story count chip when EngagementCount > 0; emits nothing
-     at 0 (sty_e4632f45). Live-refreshed via GET fragment/engagement — JS insert/remove
-     handles 0↔n. Count = non-terminal stories holding a non-stale seat. */}}
-{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{end}}
+{{/* engagementBadge: the 'N engaged' chip (stories engaged here) and the
+     'N elsewhere' chip (stories with a seat elsewhere), each emitting nothing at 0
+     (sty_e4632f45). Both read engagements, the rule the row marks read.
+     Live-refreshed via GET fragment/engagement — JS swaps, inserts or removes
+     each chip on its own. */}}
+{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere">{{if eq $m 1}}{{with index $eids 0}}<a class="n-elsewhere-link" href="story/{{.}}">1 elsewhere</a>{{end}}{{else}}{{$m}} elsewhere{{end}}</span>{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}"{{if .Here}} data-here="1"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
+
+{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{if .Here}} <span class="here-mark" title="engaged at this checkout">◆ here</span>{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
+  <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
   <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
-  <td class="meta">{{if .Assignee}}{{.Assignee}}{{else}}—{{end}}</td>
+  <td class="meta">{{template "assignees" .Assignees}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
 
 {{/* activityRows: the items being worked now, one condensed line each: who
      or what works it (seats, else the state's performer) and its latest step.
      Same row attributes as workitemRows, so the filters and expand work. */}}
-{{define "activityRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.StepAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID .Assignee (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "activityRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}" data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.StepAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta act-kind">{{.Kind}}</span>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{with $task}} {{tagchip (printf "task:%s" .)}}{{end}}</div></td>
   <td>{{template "statebadge" .}}</td>
@@ -448,7 +463,7 @@ const templatesSrc = `
 {{/* queueRows: one row per queue — its filter, members now (added or by
      filter), trigger and last fire with its run's status. Same row attributes
      as workitemRows, so the filters and expand work. */}}
-{{define "queueRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}" data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{.Assignee}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID .Trigger | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "queueRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}" data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s" .Title .ID .Trigger | lower}}" data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}</div><div class="wi-tags"><span class="meta q-filter">filter {{.Filter}}</span></div></td>
   <td class="meta q-members"><span class="n">{{len .Members}}</span>{{range .Members}}<br><span class="q-member" data-member="{{.ID}}">{{.ID}} <span class="badge">{{.Status}}</span>{{if .Explicit}} added{{end}}</span>{{end}}</td>
@@ -505,7 +520,7 @@ const templatesSrc = `
     <dt>Status</dt><dd>{{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</dd>
     <dt>Workflow</dt><dd>{{if .Item.Workflow}}{{.Item.Workflow}}{{else}}—{{end}}</dd>
     {{if .Item.Category}}<dt>Category</dt><dd>{{.Item.Category}}</dd>{{end}}
-    {{if .Item.Assignee}}<dt>Assignee</dt><dd>{{.Item.Assignee}}</dd>{{end}}
+    {{if .Assignees}}<dt>Assignees</dt><dd>{{template "assignees" .Assignees}}</dd>{{end}}
     {{if .Item.ParentID}}<dt>Parent</dt><dd>{{if .ParentKind}}<a href="{{.ParentKind}}/{{.Item.ParentID}}">{{.Item.ParentID}}</a>{{else}}{{.Item.ParentID}}{{end}}</dd>{{end}}
     {{if .Children}}<dt>Children</dt><dd><ul class="child-list">{{range .Children}}<li><a href="{{.Kind}}/{{.ID}}">{{.ID}}</a> {{.Title}} <span class="badge">{{.Status}}</span></li>{{end}}</ul></dd>{{end}}
     {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip .}}{{end}}</dd>{{end}}

@@ -110,6 +110,68 @@ func (c Client) Push(ctx context.Context, src Source, ids []string) error {
 	return err
 }
 
+// Confirm confirms satelled's mirror of src: it posts only the digest of the
+// full snapshot to /ingest/confirm, and satelled marks the partition fresh
+// when that matches the last full body it applied. Otherwise the same bytes
+// are posted as a full snapshot. A satelled that is not reachable or serves
+// another home is sent nothing and nothing is reported (sto_128803b3).
+func (c Client) Confirm(ctx context.Context, src Source) error {
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	snap, err := Full(src)
+	if err != nil {
+		c.report(true, err)
+		return err
+	}
+	body, err := c.encode(snap)
+	if err != nil {
+		c.report(true, err)
+		return err
+	}
+	fresh, err := c.confirm(ctx, src.RepoKey, mirror.SnapshotDigest(body))
+	if err != nil {
+		c.report(true, err)
+		return err
+	}
+	if fresh {
+		c.report(true, nil)
+		return nil
+	}
+	_, err = c.postBody(ctx, body)
+	c.report(true, err)
+	return err
+}
+
+// confirm posts one digest and reports whether satelled marked it fresh.
+func (c Client) confirm(ctx context.Context, repoKey, digest string) (bool, error) {
+	ev, err := json.Marshal(mirror.ConfirmEvent{RepoKey: repoKey, Digest: digest})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/ingest/confirm"), bytes.NewReader(ev))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return false, fmt.Errorf("uipush: confirm: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	var out struct {
+		Fresh bool `json:"fresh"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, fmt.Errorf("uipush: confirm: %w", err)
+	}
+	return out.Fresh, nil
+}
+
 // full builds and posts a full snapshot of src.
 func (c Client) full(ctx context.Context, src Source) error {
 	snap, err := Full(src)
@@ -159,11 +221,21 @@ func topics(src Source, ids []string) []string {
 
 // post sends a snapshot and returns satelled's status code.
 func (c Client) post(ctx context.Context, snap mirror.Snapshot) (int, error) {
-	snap.Origin = c.Origin
-	body, err := json.Marshal(snap)
+	body, err := c.encode(snap)
 	if err != nil {
 		return 0, err
 	}
+	return c.postBody(ctx, body)
+}
+
+// encode stamps the client's origin on snap and marshals it.
+func (c Client) encode(snap mirror.Snapshot) ([]byte, error) {
+	snap.Origin = c.Origin
+	return json.Marshal(snap)
+}
+
+// postBody sends an encoded snapshot and returns satelled's status code.
+func (c Client) postBody(ctx context.Context, body []byte) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/ingest/snapshot"), bytes.NewReader(body))
 	if err != nil {
 		return 0, err

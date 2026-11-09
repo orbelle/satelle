@@ -47,13 +47,13 @@ func TestSyncQueryRebuild(t *testing.T) {
 	}
 	defer c.Close()
 
-	l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k1"), Title: ptr("A"), Status: ptr("s0"), Tags: ptr([]string{"x", "y"}), Category: ptr("cat"), Workflow: ptr("w1")})
+	l.Append("a", item.KindCreated, "me", item.Fields{Kind: ptr("k1"), Title: ptr("A"), Status: ptr("s0"), Tags: ptr([]string{"x", "y"}), Category: ptr("cat"), Workflow: ptr("w1"), Assignees: ptr([]string{"ann", "bob"})})
 	l.Append("b", item.KindCreated, "me", item.Fields{Kind: ptr("k2"), Title: ptr("B"), Status: ptr("s0"), Parent: ptr("a"), Workflow: ptr("w2")})
 	if err := c.Sync(l); err != nil {
 		t.Fatal(err)
 	}
 	l.Append("a", item.KindTransitioned, "me", item.Move{From: "s0", To: "s1"})
-	l.Append("a", item.KindSeatBound, "me", item.Seat{Session: "sess", Location: "local:/x", Base: "h"})
+	l.Append("a", item.KindSeatBound, "me", item.Seat{Session: "sess", Location: "local:/x", Base: "h", Machine: "m1", Host: "h1", User: "ada@x.io"})
 	l.Append("a", item.KindAttachmentAdd, "me", item.Attachment{Name: "n", SHA256: "ab", Size: 2, MediaType: "text/plain"})
 	if err := c.Sync(l); err != nil {
 		t.Fatal(err)
@@ -87,10 +87,10 @@ func TestSyncQueryRebuild(t *testing.T) {
 	if ev, _ := c.Events("a", item.KindTransitioned); len(ev) != 1 {
 		t.Fatalf("events by kind: %d", len(ev))
 	}
-	if s, _ := c.Seats("sess", ""); len(s) != 1 || s[0].Item != "a" {
+	if s, _ := c.Seats("sess", ""); len(s) != 1 || s[0].Item != "a" || s[0].Machine != "m1" || s[0].Host != "h1" || s[0].User != "ada@x.io" {
 		t.Fatalf("seats %+v", s)
 	}
-	if it, ok, _ := c.Item("a"); !ok || it.Status != "s1" || len(it.Tags) != 2 {
+	if it, ok, _ := c.Item("a"); !ok || it.Status != "s1" || len(it.Tags) != 2 || !reflect.DeepEqual(it.Assignees, []string{"ann", "bob"}) {
 		t.Fatalf("item %+v", it)
 	}
 
@@ -252,7 +252,7 @@ func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
 		t.Fatalf("events after rebuild %v", eventIDs(got))
 	}
 	var version int
-	if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 3 {
+	if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("user_version %d (%v)", version, err)
 	}
 	noDuplicateIDs(t, c)

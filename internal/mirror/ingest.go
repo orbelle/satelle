@@ -46,6 +46,14 @@ type ChangeEvent struct {
 	Origin  IngestOrigin `json:"origin,omitempty"`
 }
 
+// ConfirmEvent is POSTed to /ingest/confirm by the automatic sync pass: the
+// digest of the full snapshot the CLI would post. satelled marks the partition
+// fresh when it matches the last full body applied, and applies nothing.
+type ConfirmEvent struct {
+	RepoKey string `json:"repo_key"`
+	Digest  string `json:"digest"`
+}
+
 // RemoveEvent is POSTed to /ingest/remove to purge a partition (sty_eb61be02).
 // Same trust model as snapshot ingest (localhost push-fed; CLI sole writer).
 type RemoveEvent struct {
@@ -114,7 +122,9 @@ type HostedMeta struct {
 	Project string `json:"project"`
 }
 
-// IngestHandler serves POST /ingest/change and POST /ingest/snapshot.
+// IngestHandler serves POST /ingest/change, /ingest/snapshot, /ingest/confirm
+// and /ingest/remove. The sync pass's confirm (sto_128803b3) keeps a quiet
+// partition fresh without re-posting it.
 // OnChange is optional (SSE doorbell). OnIngest is optional (hosted push
 // trigger); it receives the body's origin so it can ignore hosted-origin changes.
 type IngestHandler struct {
@@ -173,6 +183,63 @@ func (h *IngestHandler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/ingest/change", h.handleChange)
 	mux.HandleFunc("/ingest/snapshot", h.handleSnapshot)
 	mux.HandleFunc("/ingest/remove", h.handleRemove)
+	mux.HandleFunc("/ingest/confirm", h.handleConfirm)
+}
+
+// confirmFresh marks repoKey fresh and seeded when digest equals the last full
+// snapshot applied to it, and reports whether it did. A missing or different
+// digest touches nothing. Moving a stale partition fresh rings "projects", so
+// an open landing drops its stale flag; a fresh one rings nothing.
+func (h *IngestHandler) confirmFresh(ctx context.Context, repoKey, digest string, now time.Time) (bool, error) {
+	prev, err := h.Store.SnapshotHash(ctx, repoKey)
+	if err != nil {
+		return false, err
+	}
+	if prev == "" || prev != digest {
+		return false, nil
+	}
+	p, ok, err := h.Store.GetPartition(ctx, repoKey)
+	if err != nil {
+		return false, err
+	}
+	wasStale := ok && p.Stale(now)
+	if err := h.Store.MarkFresh(ctx, repoKey, now); err != nil {
+		return false, err
+	}
+	if err := h.Store.MarkSeeded(ctx, repoKey); err != nil {
+		return false, err
+	}
+	if wasStale && h.OnChange != nil {
+		h.OnChange("projects")
+	}
+	return true, nil
+}
+
+// handleConfirm answers the sync pass's cheap check: fresh is true when the
+// posted digest matched and the partition was marked fresh; false tells the
+// CLI to post the full body. It does not call OnIngest: a confirm reports no
+// store change.
+func (h *IngestHandler) handleConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var ev ConfirmEvent
+	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(ev.RepoKey) == "" || strings.TrimSpace(ev.Digest) == "" {
+		http.Error(w, "repo_key and digest required", http.StatusBadRequest)
+		return
+	}
+	fresh, err := h.confirmFresh(r.Context(), ev.RepoKey, ev.Digest, time.Now())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "fresh": fresh})
 }
 
 func (h *IngestHandler) handleRemove(w http.ResponseWriter, r *http.Request) {
@@ -274,22 +341,21 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	ctx := r.Context()
 	partial := len(snap.Kinds) > 0 || len(snap.MergeKinds) > 0
-	// A periodic reconcile re-posts the same FULL state most of the time. When
-	// the body is byte-identical to the one already applied, record freshness
-	// and stop (sty_e6e467fe). Partial drains never own snap_hash — skip the
-	// short-circuit so a light body cannot suppress a later full re-seed.
-	digest := snapshotDigest(body)
+	// A full body byte-identical to the one already applied (a seed repeated,
+	// or the sync pass's confirm falling back) records freshness and stops
+	// (sty_e6e467fe), through the same helper as /ingest/confirm. Partial
+	// drains never own snap_hash — skip the short-circuit so a light body
+	// cannot suppress a later full re-seed.
+	digest := SnapshotDigest(body)
 	if !partial {
-		if prev, err := h.Store.SnapshotHash(ctx, snap.RepoKey); err == nil && prev != "" && prev == digest {
-			err := h.Store.MarkFresh(ctx, snap.RepoKey, now)
-			if err == nil {
-				err = h.Store.MarkSeeded(ctx, snap.RepoKey)
-			}
+		fresh, err := h.confirmFresh(ctx, snap.RepoKey, digest, now)
+		if err != nil {
 			lap(&tm.apply)
-			if err != nil {
-				fail(err.Error(), http.StatusInternalServerError)
-				return
-			}
+			fail(err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if fresh {
+			lap(&tm.apply)
 			// Unchanged bytes can still coincide with a hosted-side gap; the
 			// push is a cursor no-op when there is nothing to send (sty_c526753a).
 			if h.OnIngest != nil {
@@ -350,7 +416,7 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only full bodies may set snap_hash. Partial applies clear it so the next
-	// reconcile cannot short-circuit against a light digest (sty_3562c820).
+	// confirm cannot short-circuit against a light digest (sty_3562c820).
 	hash := digest
 	if partial {
 		hash = ""
@@ -456,10 +522,10 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 	return replace, merge
 }
 
-// snapshotDigest fingerprints a snapshot body. Snapshot JSON is deterministic
+// SnapshotDigest fingerprints a snapshot body. Snapshot JSON is deterministic
 // for unchanged repo state (ordered queries, sorted map keys), so equal digests
-// mean equal state.
-func snapshotDigest(body []byte) string {
+// mean equal state. The CLI's confirm hashes with this same function.
+func SnapshotDigest(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }

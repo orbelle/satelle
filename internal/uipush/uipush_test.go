@@ -145,7 +145,7 @@ func TestPushRoundTrip(t *testing.T) {
 	srv, store := satelled(t, "inst")
 	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
 
-	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Pushed"), Body: ptr("what to do"), Criteria: ptr([]string{"it lands"}), Assignee: ptr("ann")}, "ann")
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Pushed"), Body: ptr("what to do"), Criteria: ptr([]string{"it lands"}), Assignees: ptr([]string{"ann"})}, "ann")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,5 +556,88 @@ func TestPushedSeatsCarryTheMachine(t *testing.T) {
 	}
 	if got["s-here"] != "m1/h1" || got["s-old"] != "/" || len(got) != 2 {
 		t.Fatalf("seat rows %v, want s-here m1/h1 and s-old with none", got)
+	}
+}
+
+// Confirm seeds an empty mirror, then keeps an unchanged one fresh with only
+// a digest; a delta clears the hash, so the next Confirm re-applies a full
+// body. An unreachable satelled is sent nothing and nothing is reported
+// (sto_128803b3).
+func TestConfirm(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Confirmed")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		full bool
+		err  error
+	}
+	var got []outcome
+	record := func(full bool, err error) { got = append(got, outcome{full, err}) }
+	srv, store := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst", Report: record}
+
+	if err := c.Confirm(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	first, ok, err := store.GetPartition(ctx, "rk-test")
+	if err != nil || !ok {
+		t.Fatalf("Confirm on an empty mirror did not create the partition: ok=%v err=%v", ok, err)
+	}
+	row, err := store.GetItem(ctx, "rk-test", "story", it.ID)
+	if err != nil || !strings.Contains(row, "Confirmed") {
+		t.Fatalf("Confirm on an empty mirror did not post the story row: %q %v", row, err)
+	}
+
+	if err := c.Confirm(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	second, _, _ := store.GetPartition(ctx, "rk-test")
+	if second.Seq != first.Seq {
+		t.Errorf("an unchanged Confirm applied a snapshot: seq %d → %d", first.Seq, second.Seq)
+	}
+	if second.UpdatedAt == first.UpdatedAt {
+		t.Error("an unchanged Confirm did not move updated_at")
+	}
+	if again, _ := store.GetItem(ctx, "rk-test", "story", it.ID); again != row {
+		t.Error("an unchanged Confirm touched the story row")
+	}
+
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	afterDelta, _, _ := store.GetPartition(ctx, "rk-test")
+	if err := c.Confirm(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	third, _, _ := store.GetPartition(ctx, "rk-test")
+	if third.Seq == afterDelta.Seq {
+		t.Error("Confirm after a delta (which clears the hash) must apply a full body")
+	}
+	var confirms []outcome
+	for _, o := range got {
+		if o.full {
+			confirms = append(confirms, o)
+		}
+	}
+	if len(confirms) != 3 {
+		t.Fatalf("Report saw %+v, want three full outcomes from Confirm", got)
+	}
+	for _, o := range confirms {
+		if o.err != nil {
+			t.Errorf("Confirm reported %v", o.err)
+		}
+	}
+
+	got = nil
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	if err := (uipush.Client{Endpoint: closed.URL, InstanceID: "inst", Report: record}).Confirm(ctx, src); err == nil {
+		t.Fatal("a Confirm to nothing listening reported success")
+	}
+	if len(got) != 0 {
+		t.Fatalf("an unreachable satelled reported %+v", got)
 	}
 }

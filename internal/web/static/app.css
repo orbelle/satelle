@@ -117,7 +117,9 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .dispatch-warn { color: var(--warn); font-weight: 600; }
 /* A story engaged at this checkout, in a hosted-mode list of every story: a mark
    on the row, never a filter (sty_6ce071dc). */
-.here-mark { margin-left: 6px; font-size: 10.5px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.here-mark { margin-left: 6px; font-size: 10.5px; font-weight: 600; color: var(--ok); white-space: nowrap; }
+.here-mark.here-unverified { border-bottom: 1px dashed var(--ok); }
+.where-mark { margin-left: 6px; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 /* Epic wave (sty_a42f4add): the epic's roll-up of its children's indicators and the
    wave column of its members table. */
 .epic-rollup { font-weight: 600; }
@@ -289,22 +291,26 @@ header.app h1 .dot { color: var(--accent); }
    (sty_e4632f45 / sty_01ba9482); chip only renders when count > 0. */
 .tab .n-backlog,
 .n-stories .n-backlog,
-.tabs .n-engaged {
+.tabs .n-engaged,
+.tabs .n-elsewhere {
   color: var(--accent); font-size: 11px; padding: 1px 6px;
   border: 1px solid var(--line); border-radius: 0; line-height: 1.4; white-space: nowrap;
 }
 .tab .n-backlog,
 .n-stories .n-backlog { margin-left: 5px; }
-.tabs .n-engaged { margin-left: -6px; }
-.tabs .n-engaged .n-engaged-link { color: inherit; text-decoration: none; }
-.tabs .n-engaged .n-engaged-link:hover { text-decoration: underline; }
+.tabs .n-engaged,
+.tabs .n-elsewhere { margin-left: -6px; }
+.tabs .n-engaged .n-engaged-link,
+.tabs .n-elsewhere .n-elsewhere-link { color: inherit; text-decoration: none; }
+.tabs .n-engaged .n-engaged-link:hover,
+.tabs .n-elsewhere .n-elsewhere-link:hover { text-decoration: underline; }
 /* rel-time: how long ago this view was last confirmed against the repository.
    Deliberately NOT alarm-coloured — it renders on every row, so a fail tint
    would be permanent red on a routine condition, which trains the eye to
    ignore red. It is metadata, styled as metadata (sty_226a661e). */
 .rel-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
-/* stale-flag: only past mirror.StaleAfter with no confirmed snapshot, so it is
-   rare and warn-toned, never the fail red of a push error. */
+/* stale-flag: only past mirror.StaleAfter with no sync pass confirming the
+   mirror, so it is rare and warn-toned, never the fail red of a push error. */
 .stale-flag { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail { color: var(--fail); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-local, .sync-ok { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: 6px; }

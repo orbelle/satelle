@@ -531,6 +531,9 @@ func (k *Kernel) bindSeat(id string, s item.Seat, actor string) (item.Seat, erro
 		return item.Seat{}, fmt.Errorf("item %s is in terminal state %q", id, it.Status)
 	}
 	s.Machine, s.Host = k.Machine, k.Host
+	if k.User != nil {
+		s.User = k.User()
+	}
 	e, err := k.append(id, item.KindSeatBound, actor, s)
 	s.Item, s.BoundAt = id, e.At
 	return s, err
