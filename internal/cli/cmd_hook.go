@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -203,6 +204,9 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 	k, err := r.open()
 	if err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
+		if inject {
+			b.WriteString(sessionDoctor(hookDir(in)))
+		}
 		return b.String(), true
 	}
 	defer k.Close()
@@ -214,6 +218,9 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 		printSeats(&b, seats)
 	}
 	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate`.\n")
+	if inject {
+		b.WriteString(sessionDoctor(hookDir(in)))
+	}
 	if inject {
 		for _, f := range k.Settings.Hook.Inject {
 			p := f
@@ -229,4 +236,13 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 		}
 	}
 	return b.String(), true
+}
+
+// sessionDoctor runs satelle doctor's checks within doctorHookBudget for the
+// session-start context. It never blocks the session (a check still running
+// at the deadline is named as not checked) and never contacts the ledger store.
+func sessionDoctor(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), doctorHookBudget)
+	defer cancel()
+	return doctorBlock(runDoctor(ctx, loadDoctorInput(dir)), doctorHookBudget)
 }

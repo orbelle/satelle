@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
@@ -82,4 +85,28 @@ func TestHotPathMakesNoStoreCall(t *testing.T) {
 			t.Fatalf("push to an unreachable server: %v", err)
 		}
 	})
+}
+
+// The session-start doctor reads the last automatic pass from the sync state,
+// never the store: with an unreachable store configured, the hook names the
+// recorded forked item and its fix, and makes no store call (sto_3cf973ae AC2).
+func TestHookContextReadsTheLastAutosyncResult(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	calls := recordingStore(t, dir)
+	r, err := findRepo("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), syncstate.Pass{Store: "cmd", Reason: "1 item(s) not synced: sto_x (diverged at 2)", Forked: []string{"sto_x (diverged at 2)"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, `{"session_id":"hot-1","cwd":"`+dir+`"}`, "hook", "context")
+	if err != nil {
+		t.Fatalf("hook context: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "sto_x (diverged at 2)") || !strings.Contains(out, "satelle ledger status") {
+		t.Fatalf("the hook does not name the recorded fork and its fix:\n%s", out)
+	}
+	noStoreCall(t, calls)
 }

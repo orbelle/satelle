@@ -173,6 +173,6 @@ echo
 # serve a whole estate of repos. Cycling shared always-on infrastructure is a
 # side effect nobody asked for — the consent given here was "install a binary".
 echo "Repos you already have (if this was an upgrade):"
-echo "  satelle doctor --all     # read-only: scaffolding written by an older satelle is stale"
-echo "  satelle init --all       # dry-run: what healing them would change (--yes applies)"
+echo "  satelle doctor            # read-only: what is wrong here, each with its fix"
+echo "  satelle init              # adds what an older satelle did not scaffold; leaves existing files alone"
 echo "  satelle service restart  # a running service stays on the OLD binary until restarted"

@@ -139,7 +139,6 @@ var v0Patterns = []v0Pattern{
 	{regexp.MustCompile(`satelle reindex`), "satelle reindex is removed"},
 	{regexp.MustCompile(`workflow validate`), "satelle workflow validate is removed; use satelle validate"},
 	{regexp.MustCompile(`skill validate`), "satelle skill validate is removed; use satelle validate"},
-	{regexp.MustCompile(`satelle doctor`), "satelle doctor is removed"},
 	{regexp.MustCompile(`init --all`), "satelle init has no --all"},
 	{regexp.MustCompile(`init --yes`), "satelle init has no --yes"},
 	// Claims no v1 code backs.

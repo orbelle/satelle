@@ -44,6 +44,21 @@ func Open(dir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
+// OpenExisting opens the store rooted at dir only when its ledger directory
+// exists, creating nothing: a read-only reader (satelle doctor) uses it so a
+// repo that never ran stays without a runtime. A missing ledger is an error
+// wrapping os.ErrNotExist.
+func OpenExisting(dir string) (*Store, error) {
+	st, err := os.Stat(filepath.Join(dir, "ledger"))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: %w", err)
+	}
+	if !st.IsDir() {
+		return nil, fmt.Errorf("ledger: %s is not a directory: %w", filepath.Join(dir, "ledger"), os.ErrNotExist)
+	}
+	return &Store{dir: dir}, nil
+}
+
 // Dir is the store's root.
 func (s *Store) Dir() string { return s.dir }
 
