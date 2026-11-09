@@ -35,4 +35,4 @@ the after-review gate can judge. You do **not** advance status.
   CI release is in scope only when the ACTION names it, as the release task's
   ACTION does (`.satelle/skills/release.md`).
 
-See [[satelle-agent-model]] and the task-workflow prose.
+See the task-workflow prose.

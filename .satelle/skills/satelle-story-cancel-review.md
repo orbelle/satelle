@@ -64,8 +64,8 @@ If the reason claims the work was **delivered under another story or commit**:
 
 ### Sibling bundling (canonical reject)
 
-The definition of sibling bundling is [[satelle-story-scope-review]] (implementation
-exit). On cancel, apply it as follows and put all four items in **notes**:
+Sibling bundling is one story cancelled as delivered by a sibling (same
+parent or epic) that does not cover all of its criteria. On cancel, apply it as follows and put all four items in **notes**:
 
 1. The cancelled story id and the named deliverer id
 2. That they are siblings (same parent/epic)

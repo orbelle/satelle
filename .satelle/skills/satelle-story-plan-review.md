@@ -103,7 +103,7 @@ plan** (approach and/or files, and what evidence will prove it).
 - **Root cause** — for a fix, the premise evidence must locate where the wrong
   state is produced, not only where it surfaced; a plan that guards the symptom
   site is a finding.
-- **Dispatch pointers** ([[satelle-dispatch-pointers]]) — for every dispatch
+- **Dispatch pointers** — for every dispatch
   the plan designs, it must name what the receiving seat reads for itself (its
   grant, the CLI, the files on disk). A plan that embeds readable content in a
   dispatch — items, documents or history the seat can fetch, copied into its

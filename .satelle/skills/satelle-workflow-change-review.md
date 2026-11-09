@@ -23,7 +23,7 @@ Decide whether this slice touches **workflow substrate**:
   embed path under the binary's substrate `workflows/` (in this product tree:
   `internal/config/substrate/workflows/**`). Category-`substrate` markdown under
   `.satelle/` / `docs/` is **not** this gate — that lane is
-  [[satelle-substrate-only-check]].
+  the substrate route's own close check.
 
 Infer from your prompt (body, ACs, the changed paths and diff), the plan, and
 files that exist in the tree for this slice — you have **no git**. Absence of
