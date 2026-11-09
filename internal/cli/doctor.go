@@ -86,7 +86,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 	}
 	checks = append(checks,
 		doctorCheck{"config", checkConfig},
-		doctorCheck{"substrate", checkSubstrate},
+		doctorCheck{substrate.Field, checkSubstrate},
 		doctorCheck{"init", checkInit},
 		doctorCheck{"sync", checkSync},
 		doctorCheck{"seats", checkSeats},
@@ -179,11 +179,11 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	found, err := substrate.Check(in.r.DataDir, substrateTree(NewRootCmd()))
 	if err != nil {
-		return []doctorIssue{{Check: "substrate", Problem: err.Error(), Fix: "satelle validate"}}, nil
+		return []doctorIssue{{Check: substrate.Field, Problem: err.Error(), Fix: "satelle validate"}}, nil
 	}
 	var out []doctorIssue
 	for _, f := range found {
-		out = append(out, doctorIssue{Check: "substrate", Problem: f.String(),
+		out = append(out, doctorIssue{Check: substrate.Field, Problem: f.String(),
 			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)"})
 	}
 	return out, nil

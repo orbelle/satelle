@@ -24,6 +24,11 @@ const (
 	KindLink    = "link"
 )
 
+// Field names these findings wherever they are reported: the key of
+// `satelle validate --json`'s list of them and the name of satelle doctor's
+// check that reports them.
+const Field = "substrate"
+
 // Dirs are the directories under the data dir whose files are substrate.
 var Dirs = []string{"skills", "principles", "tasks", "workflows", "queues"}
 

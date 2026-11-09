@@ -77,8 +77,8 @@ func validateCmd() *cobra.Command {
 the kernel opening) and its substrate against this binary: every satelle
 command, flag and help topic its skills, principles, tasks, workflows and
 queues name in code, and every [[link]], must exist. A substrate finding is
-printed as <file>:<line>: <kind>: <subject> — <why> (under "substrate" with
---json) and fails the check, but never stops the kernel opening.`,
+printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
+substrate key with --json) and fails the check, but never stops the kernel opening.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -99,7 +99,7 @@ printed as <file>:<line>: <kind>: <subject> — <why> (under "substrate" with
 				for _, p := range problems {
 					msgs = append(msgs, p.Error())
 				}
-				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, "substrate": drift}); err != nil {
+				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift}); err != nil {
 					return err
 				}
 			} else if valid {
