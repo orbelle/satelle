@@ -26,15 +26,6 @@ command = "cursor-agent"
 model = "claude-opus-5-5-high"
 tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 
-# The drift gates' judge (drift-constitution, drift-claims). Gemini 3.8 Flash
-# at Cursor's High tier, not Claude: the planner and the session coder are
-# Claude, and a judge runs another family than the author
-# (satelle-agent-alt-reviewer; operator, 2026-11-10). It was claude sonnet.
-[agents.reviewer]
-command = "cursor-agent"
-model = "gemini-3.8-flash-high"
-tools = ["Read", "Grep", "Glob"]
-
 # The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash,
 # the winner of the 2026-10-31 reviewer bake-off (old store sty_6d552f51: every
 # defect caught, no false blocker, ~1/13 of the runner-up's cost), first on pi

@@ -45,14 +45,18 @@ skill = "satelle-release-kept-check"
 # step 4) against the kernel.
 [gates.drift-constitution]
 skill = "satelle-drift-constitution-review"
-agent = "reviewer"
+# GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
+# reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
+agent = "reviewer-gpt"
 trigger = "satelle-drift-run-trigger"
 paths = ["cmd/**", "internal/**", "go.mod", "go.sum", ".satelle/constitution.md", ".satelle/principles/**"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-diff-covered"]
 
 [gates.drift-claims]
 skill = "satelle-drift-claims-review"
-agent = "reviewer"
+# GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
+# reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
+agent = "reviewer-gpt"
 trigger = "satelle-drift-run-trigger"
 paths = [".version"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
