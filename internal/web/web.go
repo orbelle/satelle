@@ -60,6 +60,9 @@ type pageData struct {
 	ProjectName string
 	DBPath      string
 	Stories     []rowVM
+	// Panels are the tabs of workflows that declare a panel: their stories
+	// are listed there instead of on Stories (sto_a1681009).
+	Panels []panelVM
 	// BacklogCount is the number of stories in backlog, the Stories tab's
 	// 'N backlog' badge; rendered at page load and refetched live.
 	BacklogCount int
@@ -138,6 +141,16 @@ type rowVM struct {
 	Here bool
 }
 
+// panelVM is one workflow panel's tab and rows: Topic is its tab and fragment
+// key ("wf-" and the name's slug), Open the count of its rows not in a
+// terminal state, the tab's count and alert.
+type panelVM struct {
+	Name  string
+	Topic string
+	Rows  []rowVM
+	Open  int
+}
+
 type docRowVM struct {
 	Name     string
 	Headline string
@@ -151,8 +164,11 @@ type kindGroup struct {
 }
 
 type detailData struct {
-	Item          Item
-	StateClass    string
+	Item       Item
+	StateClass string
+	// BackTab is the project tab the item is listed on when it is not its
+	// kind's own: a workflow panel's topic; "" means the kind's tab.
+	BackTab       string
 	ParentKind    string // the kind of the parent item, "" when not pushed
 	Children      []childLink
 	Route         routeVM
