@@ -66,21 +66,26 @@ type pageData struct {
 	// BacklogCount is the number of stories in backlog, the Stories tab's
 	// 'N backlog' badge; rendered at page load and refetched live.
 	BacklogCount int
-	// EngagementCount is the number of stories in a non-terminal state that hold
-	// a non-stale seat; a task run's seat is not counted (Activity shows it).
-	// Always rendered in project chrome — 0 is visible, not hidden (sty_01ba9482).
+	// EngagementCount is the number of Stories-tab stories engaged here
+	// (engagements): a non-terminal story with a seat here or unverified; a
+	// task run's seat is not counted (Activity shows it). The chip emits
+	// nothing at 0.
 	EngagementCount int
-	// EngagedStoryIDs lists those seated stories' ids (sorted); empty when count is 0.
+	// EngagedStoryIDs lists those stories' ids (sorted); empty when count is 0.
 	EngagedStoryIDs []string
-	Tasks           []rowVM
-	Queues          []queueVM
-	Activity        []activityRowVM // stories and task runs being worked now
-	DocKinds        []kindGroup
-	Workflows       []workflowRowVM
-	Uptime          string
-	Theme           string
-	TopBar          topBar
-	Projects        []crumbProject // this machine's projects, for the breadcrumb switcher
+	// ElsewhereCount is the number of Stories-tab stories with a seat
+	// elsewhere (engagements); ElsewhereStoryIDs lists their ids, sorted.
+	ElsewhereCount    int
+	ElsewhereStoryIDs []string
+	Tasks             []rowVM
+	Queues            []queueVM
+	Activity          []activityRowVM // stories and task runs being worked now
+	DocKinds          []kindGroup
+	Workflows         []workflowRowVM
+	Uptime            string
+	Theme             string
+	TopBar            topBar
+	Projects          []crumbProject // this machine's projects, for the breadcrumb switcher
 	// LastIngest is when this partition's state was last confirmed against the
 	// repo, by a push or the automatic sync pass (sto_128803b3), rendered as
 	// elapsed time so the page never presents a frame satelled is behind on as
@@ -138,12 +143,39 @@ type rowVM struct {
 	// StateClass is the status's class in the item's workflow: start,
 	// terminal, park or active ("" when the workflow was not pushed).
 	StateClass string
-	// Here marks a story engaged at this checkout in a hosted-mode partition. It
-	// is a mark on the row, never a filter (sty_6ce071dc).
-	Here bool
+	// Engaged is where the story is engaged (engagements), nil when nowhere:
+	// marks on the row's title and its data-engaged, in every mode.
+	Engaged *engagementVM
 	// Assignees is every user assigned the item, each once: its explicit
 	// assignees, then each user holding a working seat (assigneesOf).
 	Assignees []assigneeVM
+}
+
+// engagementVM is where a story is engaged: Here is its mark for seats here
+// or unverified (nil when none), Elsewhere one mark per other place, sorted
+// by label.
+type engagementVM struct {
+	Here      *markVM
+	Elsewhere []markVM
+}
+
+// Attr is the row's data-engaged: "here", "elsewhere" or "here,elsewhere".
+func (e *engagementVM) Attr() string {
+	var parts []string
+	if e.Here != nil {
+		parts = append(parts, "here")
+	}
+	if len(e.Elsewhere) > 0 {
+		parts = append(parts, "elsewhere")
+	}
+	return strings.Join(parts, ",")
+}
+
+// markVM is one engagement mark: Label its text, Title its hover (one entry
+// per seat making it), Unverified a here mark no seat proves live.
+type markVM struct {
+	Label, Title string
+	Unverified   bool
 }
 
 // assigneeVM is one assignee; Working marks a user holding a working seat.

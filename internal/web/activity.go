@@ -14,7 +14,7 @@ import (
 type activityRowVM struct {
 	rowVM
 	// Working lists each seat as "session · location", with a suffix for a
-	// seat not here (· elsewhere (<host>), · session gone, · unverified), else
+	// seat not here (· elsewhere (<place>, seatlife.Where), · session gone, · unverified), else
 	// the current state's performer agent; empty shows —.
 	Working []string
 	// Step is the latest gate result or transition; StepTitle qualifies it.
@@ -65,7 +65,8 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 		held := bySeat[it.ID]
 		sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
 		for _, s := range held {
-			row.Working = append(row.Working, s.Session+" · "+s.Location+standingSuffix(s, standing(s)))
+			st, _ := standing(s)
+			row.Working = append(row.Working, s.Session+" · "+s.Location+standingSuffix(s, st))
 		}
 		if len(row.Working) == 0 {
 			if st, ok := workflowState(w, it.Status); ok && st.PerformerAgent != "" {
@@ -92,10 +93,8 @@ func standingSuffix(s mirror.Seat, st seatlife.Standing) string {
 	case seatlife.Here:
 		return ""
 	case seatlife.Elsewhere:
-		if s.Host != "" {
-			return " · elsewhere (" + s.Host + ")"
-		}
-		return " · elsewhere"
+		place, _ := seatlife.Where(seatOf(s))
+		return " · elsewhere (" + place + ")"
 	case seatlife.Gone:
 		return " · session gone"
 	}

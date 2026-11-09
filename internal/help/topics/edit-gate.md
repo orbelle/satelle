@@ -34,7 +34,9 @@ satelled class each seat as **here** (this machine, owner running),
 **elsewhere** (another machine, or a remote or cloud location), **gone** (this
 machine, its settled owner exited) or **unverified** (no machine recorded, no
 session record, no settled owner even when its hook processes have exited, or
-no proof either way). Only a seat here counts as engaged;
+no proof either way). satelled marks the story ◆ here for a seat here and
+◇ here for an unverified one, with the reason on hover, and shows each seat
+elsewhere on the row at its user and place.
 `satelle doctor --resolve` releases a gone one without asking, and asks about
 a seat here whose session never settled an owner, never releasing it unasked.
 
