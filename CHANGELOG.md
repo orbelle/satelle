@@ -1,3 +1,9 @@
+## [1.0.52] - 2026-11-09
+
+### Changed
+- The drift gates (drift-constitution, drift-claims) are judged by GPT-5.6 Sol instead of Gemini 3.8 Flash High, which gave verdicts without reasons; the unused `reviewer` binding is removed. (sto_ac7edb34)
+- The agent-agnostic principle names where provider specifics live: dispatch adapters in `internal/agent` and harness hook adapters in `internal/hook` (it named a non-existent `internal/agentcli`). (sto_78ee2415)
+
 ## [1.0.51] - 2026-11-09
 
 ### Added
