@@ -1,3 +1,15 @@
+## [1.0.49] - 2026-11-09
+
+### Added
+- A cursor-agent adapter: performers and judges run headless through Cursor's CLI on Cursor-billed models (command = cursor-agent). Read-only bindings run in ask mode and can judge; Edit and Write bindings run in force mode; every run is denied every shell command through its own Cursor config, and a Bash grant is refused at satelle validate. See satelle help agents. (sto_0f41dda9)
+- satelle doctor --resolve fixes what doctor can prove: it installs or restarts satelled and the sync timer, releases seats on this machine whose session has ended, and opens one item listing every substrate, config, init and check finding for the agent to fix in one change (a story tagged substrate-fix, or what .satelle/doctor.toml [resolve] names). Every other orphaned seat is shown with its evidence and released or kept on your answer at the terminal; with no terminal it is only listed. It never edits or commits files. (sto_e127b2e6)
+- Seats keep the machine they were bound on. satelle doctor and satelled count a seat as engaged here only while it is on this machine and its session is still running; a seat from another machine shows as elsewhere. (sto_e127b2e6)
+
+### Changed
+- The planner, coder and reviewer-alt bindings run on cursor-agent instead of pi-cursor and the interim claude planner; the coder has no shell and stays unwired. (sto_0f41dda9)
+- satelle validate refuses an agent binding whose grant its adapter cannot express, wired to a state or not. (sto_0f41dda9)
+- satelled's engaged count leaves out seats bound before this release (shown as unverified) until they are seated again. (sto_e127b2e6)
+
 ## [1.0.48] - 2026-11-09
 
 ### Added
