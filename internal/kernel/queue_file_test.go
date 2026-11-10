@@ -2,13 +2,17 @@ package kernel
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -495,5 +499,138 @@ func TestQueueMirrorIsDeterministic(t *testing.T) {
 	}
 	if err := a.Ledger.Verify(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// genesisOf opens a kernel and returns the events of the chain ref resolves to.
+func genesisOf(t *testing.T, open func(...string) *Kernel, ref string) (*Kernel, string, []ledger.Event) {
+	t.Helper()
+	k := open()
+	id, _ := k.ResolveQueue(ref)
+	events, err := k.Ledger.Read(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k, id, events
+}
+
+// Two runtimes that read the same queue file under the same configuration,
+// neither having synced, write the same genesis: same id, time, prev and hash,
+// built from the chain id and payload alone at the fixed genesis time
+// (sto_2b0b59cd AC1, AC2).
+func TestQueueGenesisIsDeterministic(t *testing.T) {
+	rootA, openA := queueKernel(t)
+	rootB, openB := queueKernel(t)
+	file := "title = \"Release\"\n[filter]\nkind = \"story\"\n"
+	queueFile(t, rootA, "release", file)
+	queueFile(t, rootB, "release", file)
+	a, idA, ea := genesisOf(t, openA, "release")
+	b, idB, eb := genesisOf(t, openB, "release")
+	if idA != idB || len(ea) != 1 || len(eb) != 1 {
+		t.Fatalf("chains %s %d events, %s %d events, want one each", idA, len(ea), idB, len(eb))
+	}
+	ga, gb := ea[0], eb[0]
+	if ga.ID != gb.ID || !ga.At.Equal(gb.At) || ga.Prev != gb.Prev || ga.Hash != gb.Hash {
+		t.Fatalf("genesis events differ:\n%+v\n%+v", ga, gb)
+	}
+	if ga.Kind != item.KindCreated || ga.Actor != "satelle" || ga.Prev != "" {
+		t.Fatalf("genesis %s by %s after %q", ga.Kind, ga.Actor, ga.Prev)
+	}
+	if want := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC); !ga.At.Equal(want) {
+		t.Fatalf("genesis time %s, want %s", ga.At, want)
+	}
+	sum := sha256.Sum256([]byte(idA + "\n" + "" + "\n" + string(ga.Payload)))
+	if want := hex.EncodeToString(sum[:])[:24]; ga.ID != want {
+		t.Fatalf("genesis id %s, want %s", ga.ID, want)
+	}
+	for _, k := range []*Kernel{a, b} {
+		if err := k.Ledger.Verify(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A queue chain held before this change, its genesis written with a random id
+// and the wall clock, keeps that event and still takes the mirror event
+// (sto_2b0b59cd AC4).
+func TestQueueGenesisLeavesExistingChain(t *testing.T) {
+	root, open := queueKernel(t)
+	k := open()
+	qk, wf, st := item.QueueKind, "default", ""
+	if name, start, err := k.WorkflowFor(item.Item{Kind: qk, Title: "legacy"}); err == nil {
+		wf, st = name, start
+	}
+	old, err := k.Ledger.Append("que_legacy", item.KindCreated, "satelle", item.Fields{Kind: &qk, Workflow: &wf, Status: &st, Title: ptr("old")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.Close()
+	queueFile(t, root, "legacy", "title = \"Legacy\"\n[filter]\nkind = \"story\"\n")
+	for range 2 {
+		k = open()
+		events, err := k.Ledger.Read("que_legacy")
+		if err != nil || len(events) != 2 {
+			t.Fatalf("que_legacy %d events %v, want genesis and one mirror", len(events), err)
+		}
+		if events[0].ID != old.ID || events[0].Hash != old.Hash || events[0].At.Equal(queueGenesisAt) {
+			t.Fatalf("held genesis changed: %+v, was %+v", events[0], old)
+		}
+		if events[1].Kind != item.KindUpdated || !events[1].At.Equal(events[0].At) {
+			t.Fatalf("mirror event %+v", events[1])
+		}
+		k.Close()
+	}
+}
+
+// Files that differ still give different genesis events, and only because
+// they differ: two runtimes sharing a variant agree with each other. Editing a
+// file to match later never rewrites its genesis (sto_2b0b59cd AC5).
+func TestQueueGenesisDiffersWithFile(t *testing.T) {
+	base := "title = \"Release\"\n[filter]\nkind = \"story\"\n"
+	baseRoot, openBase := queueKernel(t)
+	queueFile(t, baseRoot, "release", base)
+	bk, _, be := genesisOf(t, openBase, "release")
+	defer bk.Close()
+	queueRule := "[workflows]\ndefault = \"default\"\n[[workflows.rule]]\nworkflow = \"runbook\"\nkind = \"execution\"\n[[workflows.rule]]\nworkflow = \"triage\"\nkind = \"queue\"\n"
+	cases := []struct{ name, file, settings string }{
+		{"title", "title = \"Other\"\n[filter]\nkind = \"story\"\n", ""},
+		{"filter", "title = \"Release\"\n[filter]\nkind = \"task\"\n", ""},
+		{"trigger", base + "[trigger]\nworkflow = \"triage\"\n", ""},
+		{"workflow rule", base, queueRule},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var hashes []string
+			var root string
+			var open func(...string) *Kernel
+			for range 2 {
+				root, open = queueKernel(t)
+				if c.settings != "" {
+					write(t, filepath.Join(root, "satelle.toml"), c.settings)
+				}
+				queueFile(t, root, "release", c.file)
+				k, _, events := genesisOf(t, open, "release")
+				if len(events) != 1 {
+					t.Fatalf("%d events", len(events))
+				}
+				hashes = append(hashes, events[0].Hash)
+				k.Close()
+			}
+			if hashes[0] != hashes[1] {
+				t.Fatalf("two runtimes with one variant disagree: %v", hashes)
+			}
+			if hashes[0] == be[0].Hash {
+				t.Fatalf("variant genesis equals the base genesis %s", hashes[0])
+			}
+			if c.name != "title" {
+				return
+			}
+			queueFile(t, root, "release", base)
+			k, _, events := genesisOf(t, open, "release")
+			defer k.Close()
+			if len(events) != 2 || events[0].Hash != hashes[1] || events[0].Hash == be[0].Hash || events[1].Kind != item.KindUpdated {
+				t.Fatalf("after matching the base file: %d events, genesis %s", len(events), events[0].Hash)
+			}
+		})
 	}
 }

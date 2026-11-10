@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -88,16 +89,19 @@ type queueMirror struct {
 // definition; the file stays its only owner, and local reads still overlay it.
 // A name-derived chain (que_<name>) that does not exist yet is created once,
 // its genesis carrying the queue's identity (kind, workflow) and the whole
-// definition. A file that adopts an id names a chain that already exists
-// elsewhere: when this runtime does not hold it yet nothing is written, and
-// it arrives with the next ledger pull (sto_5c706973). A queue chain that
-// exists gets one item.updated with the whole definition when its raw fold's
-// title, inputs or trigger differ from the file's, and nothing when they
-// agree. That event is deterministic (queueMirrorEvent), so two runtimes
-// mirroring the same file onto the same head write the same event and never
-// fork the chain. Every write is a compare-and-append on the tail it read, by
-// actor satelle with cause "queue file <path>": a process that wrote first
-// wins, and the next open compares again.
+// definition. The genesis is built from its inputs alone (queueFileEvent at
+// queueGenesisAt, empty prev), so two runtimes that read the same file under
+// the same tracked configuration before either has synced write the same
+// event and never fork the chain at event 0 (sto_2b0b59cd). A file that adopts
+// an id names a chain that already exists elsewhere: when this runtime does
+// not hold it yet nothing is written, and it arrives with the next ledger pull
+// (sto_5c706973). A queue chain that exists gets one item.updated with the
+// whole definition when its raw fold's title, inputs or trigger differ from
+// the file's, and nothing when they agree. That event is deterministic too, so
+// two runtimes mirroring the same file onto the same head write the same
+// event. Every write is a compare-and-append on the tail it read, by actor
+// satelle with cause "queue file <path>": a process that wrote first wins, and
+// the next open compares again.
 func (k *Kernel) materializeQueues() error {
 	for _, id := range sortedKeys(k.queueFiles) {
 		def := k.queueFiles[id]
@@ -116,13 +120,14 @@ func (k *Kernel) materializeQueues() error {
 				return fmt.Errorf("%s: %w", k.RelPath(def.File), werr)
 			}
 			p.Kind, p.Workflow, p.Status = &qk, &name, &start
-			_, err = k.appendAfter(id, item.KindCreated, "satelle", "", p)
+			err = k.appendFileEvent(id, item.KindCreated, "", queueGenesisAt, p)
 		} else {
 			it, ferr := item.Fold(events) // raw: never the overlay, which is the file
 			if ferr != nil || it.Kind != item.QueueKind || !def.Differs(it) {
 				continue
 			}
-			err = k.appendMirror(id, events[len(events)-1], p)
+			last := events[len(events)-1]
+			err = k.appendFileEvent(id, item.KindUpdated, last.Hash, last.At, p)
 		}
 		if err != nil {
 			var stale *ledger.StaleTail
@@ -135,25 +140,35 @@ func (k *Kernel) materializeQueues() error {
 	return nil
 }
 
-// queueMirrorEvent is the item.updated that mirrors payload p onto id's chain
-// after prev, built from its inputs alone: its id is the first 24 hex digits
-// of sha256(item, prev's hash, the payload's JSON) and its time is prev's, so
-// every runtime mirroring the same file onto the same head builds the same
-// event, with the same hash. VerifyChain checks links and hashes, not time
-// order, so reusing prev's time is valid.
-func queueMirrorEvent(id string, prev ledger.Event, p queueMirror) (ledger.Event, error) {
+// queueGenesisAt is the time of every file-built queue genesis. It is fixed,
+// not the wall clock, so every runtime builds the same genesis from the same
+// file; it must never change, since changing it changes every new genesis's
+// hash. It is not Go's zero time (read as unset by the web and mirror layers)
+// nor the Unix epoch (an all-zero protobuf Timestamp a server may read back as
+// absent).
+var queueGenesisAt = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+// queueFileEvent is an event that mirrors payload p onto id's chain after the
+// event whose hash is prevHash ("" for the genesis), built from its inputs
+// alone: its id is the first 24 hex digits of sha256(item, prevHash, the
+// payload's JSON) and its time is at (the previous event's time for a mirror
+// item.updated, queueGenesisAt for the genesis), so every runtime mirroring
+// the same file onto the same head builds the same event, with the same hash.
+// VerifyChain checks links and hashes, not time order, so reusing a time is
+// valid.
+func queueFileEvent(id, kind, prevHash string, at time.Time, p queueMirror) (ledger.Event, error) {
 	b, err := json.Marshal(p)
 	if err != nil {
 		return ledger.Event{}, err
 	}
-	sum := sha256.Sum256([]byte(id + "\n" + prev.Hash + "\n" + string(b)))
-	return ledger.NewEventWith(hex.EncodeToString(sum[:])[:24], prev.At, id, item.KindUpdated, "satelle", json.RawMessage(b), prev.Hash)
+	sum := sha256.Sum256([]byte(id + "\n" + prevHash + "\n" + string(b)))
+	return ledger.NewEventWith(hex.EncodeToString(sum[:])[:24], at, id, kind, "satelle", json.RawMessage(b), prevHash)
 }
 
-// appendMirror appends the deterministic mirror event after prev, as
-// appendAfter does.
-func (k *Kernel) appendMirror(id string, prev ledger.Event, p queueMirror) error {
-	e, err := queueMirrorEvent(id, prev, p)
+// appendFileEvent appends the deterministic queue-file event after prevHash,
+// as appendAfter does: a compare-and-append on the tail.
+func (k *Kernel) appendFileEvent(id, kind, prevHash string, at time.Time, p queueMirror) error {
+	e, err := queueFileEvent(id, kind, prevHash, at, p)
 	if err != nil {
 		return err
 	}
