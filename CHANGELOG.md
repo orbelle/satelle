@@ -1,3 +1,8 @@
+## [1.0.54] - 2026-11-10
+
+### Fixed
+- A file-defined queue with no id now gets a genesis built from its file (fixed time, id from the content), so two machines or a fresh clone that run a command before syncing write the same que_<name> event and no longer diverge at event 0 (sto_2b0b59cd)
+
 ## [1.0.53] - 2026-11-10
 
 ### Fixed
