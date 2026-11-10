@@ -70,6 +70,15 @@ accept without those lines is turned into a reject.
   already carried in `drift-report`: its key is listed under `## Fix item` or
   `## Open drift items` (a key naming the same file and symbol); and every
   `RESOLVED` line you would state is already under `## Resolved by the judges`.
+  An accept's notes are always exactly this one line, never empty:
+
+  `checked <n> changed paths against .satelle/constitution.md and its principles; carried in attachments/drift-report: <keys>`
+
+  with `<n>` the number of changed paths you judged and `<keys>` the
+  drift-report keys that already carry this change's drift, comma-separated,
+  or `none`. That line gives the gate's notes and reference after checks
+  (`satelle-verdict-notes-check`, `satelle-verdict-reference-check`) what they
+  need, so an accept of an all-carried change stands.
 - **Reject** otherwise. The notes hold exactly one line per drift not yet
   carried, and nothing else on lines starting `DRIFT`:
 
@@ -84,8 +93,20 @@ accept without those lines is turned into a reject.
   lines is how the run learns to stop carrying those findings
   (drift-review.md steps 2 and 3 read them from this gate's run).
 
-End with one JSON object:
+End with one JSON object. A reject:
 
 ```json
 {"verdict": "reject", "notes": "DRIFT satelle-operator-rulings internal/x/http.go:40 Serve — adds a REST listener beside gRPC"}
+```
+
+An accept whose drift is all carried:
+
+```json
+{"verdict": "accept", "notes": "checked 27 changed paths against .satelle/constitution.md and its principles; carried in attachments/drift-report: satelle-agent-agnostic:internal/cli/cmd_hook.go:hookDefers"}
+```
+
+An accept with no drift:
+
+```json
+{"verdict": "accept", "notes": "checked 3 changed paths against .satelle/constitution.md and its principles; carried in attachments/drift-report: none"}
 ```
