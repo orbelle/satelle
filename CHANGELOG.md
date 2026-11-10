@@ -1,3 +1,8 @@
+## [1.0.53] - 2026-11-10
+
+### Fixed
+- A drift review whose drift is all carried by the fix item no longer stalls: the drift-constitution judge accepts with one line naming what it checked and the drift-report keys it relies on, which the notes and reference after-checks accept. (sto_94b3e596)
+
 ## [1.0.52] - 2026-11-09
 
 ### Changed
