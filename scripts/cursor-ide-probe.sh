@@ -65,6 +65,17 @@ ancestors() {
 	done
 }
 
+# ide_runtime prints the executable $ide_dir/cursor execs when that launcher
+# is a shell script (`exec /usr/lib/${name}/electron ...`), else nothing.
+ide_runtime() {
+	local l=$ide_dir/cursor name path
+	[ -f "$l" ] && head -c 2 "$l" | grep -q '#!' || return 0
+	name=$(sed -n 's/^name=//p' "$l" | head -1)
+	path=$(grep -o 'exec [^ ]*' "$l" | tail -1 | cut -d' ' -f2)
+	path=${path//\$\{name\}/$name}
+	case $path in /*) printf '%s' "$path" ;; esac
+}
+
 cmd_record() {
 	[ $# -ge 2 ] || die "usage: record <capture dir> <label> [command...]"
 	local cap=$1 label=$2
@@ -217,7 +228,14 @@ cmd_collect() {
 	local all
 	all=$(find "$dir/captures" -name '*.json' -type f | sort)
 	[ -n "$all" ] || die "no captures in $dir/captures: the IDE ran no recorded hook"
-	# Refusals: the evidence must be the IDE's own session and repo.
+	# Refusals: the evidence must be the IDE's own session and repo. A
+	# packaged IDE whose launcher is a script (Arch's cursor-bin execs
+	# /usr/lib/electron<N>/electron) shows that runtime as the ancestor, not a
+	# binary under $ide_dir; it counts only when the hook also saw
+	# CURSOR_VERSION equal to the installed IDE's version.
+	local version runtime
+	version=$(jq -r '.version // "unknown"' "$ide_dir/resources/app/product.json" 2>/dev/null || echo unknown)
+	runtime=$(ide_runtime)
 	local f bad=""
 	for f in $all; do
 		if jq -e '.env.SATELLE_SESSION != null or .env.SATELLE_PROJECT_DIR != null' "$f" >/dev/null; then
@@ -225,7 +243,9 @@ cmd_collect() {
 		fi
 		if jq -e '.ancestors | any(test("cursor-agent"))' "$f" >/dev/null; then
 			bad="$bad\n  $f: a cursor-agent process is among the hook's ancestors"
-		elif ! jq -e --arg ide "$ide_dir/" '.ancestors | any(startswith($ide))' "$f" >/dev/null; then
+		elif ! jq -e --arg ide "$ide_dir/" --arg rt "$runtime" --arg ver "$version" '
+			(.ancestors | any(startswith($ide)))
+			or ($rt != "" and (.ancestors | any(. == $rt)) and .env.CURSOR_VERSION == $ver)' "$f" >/dev/null; then
 			bad="$bad\n  $f: no process of the Cursor IDE ($ide_dir) is among the hook's ancestors"
 		fi
 	done
@@ -234,8 +254,7 @@ cmd_collect() {
 		echo "Launch the IDE with: env -u SATELLE_SESSION -u SATELLE_PROJECT_DIR $ide_dir/cursor <repo>" >&2
 		exit 1
 	fi
-	local out="$dir/cursor-ide-run.md" version
-	version=$(jq -r '.version // "unknown"' "$ide_dir/resources/app/product.json" 2>/dev/null || echo unknown)
+	local out="$dir/cursor-ide-run.md"
 	{
 		echo "# Cursor IDE run (sto_bf491f0d)"
 		echo

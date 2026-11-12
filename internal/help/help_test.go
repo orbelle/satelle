@@ -156,6 +156,37 @@ func TestAgentsTopicDocumentsCursor(t *testing.T) {
 	}
 }
 
+// The edit-gate topic says what a Cursor IDE session gets, from the IDE run's
+// evidence (sto_bf491f0d AC6, AC7), and the agents topic names the IDE.
+func TestEditGateTopicDocumentsCursorIDE(t *testing.T) {
+	gate, ok := Get("edit-gate")
+	if !ok {
+		t.Fatal("no edit-gate topic")
+	}
+	agents, ok := Get("agents")
+	if !ok {
+		t.Fatal("no agents topic")
+	}
+	body := strings.Join(strings.Fields(gate.Body), " ")
+	if !strings.Contains(gate.Body, "\n## Cursor IDE sessions\n") {
+		t.Error("edit-gate lacks the ## Cursor IDE sessions heading")
+	}
+	for _, want := range []string{
+		"Cursor IDE 3.28.7",
+		"Cursor's prompt event has no context channel, so the seats are in the session-start context and in `satelle status`",
+		"A repo wired only for claude (`satelle agents install claude`, no `.cursor/hooks.json`) is gated in the Cursor IDE too",
+		"attempt to write a readonly database",
+		"`satelle story release <id>`",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit-gate topic lacks %q", want)
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(agents.Body), " "), "the Cursor IDE's agent") {
+		t.Error("agents topic does not name the Cursor IDE's agent")
+	}
+}
+
 // The automatic sync section says installing or updating satelle starts the
 // timer and names the opt-out (sto_1b6a7ed3 AC3).
 func TestLedgerStoreSyncInstalledByInstallAndUpdate(t *testing.T) {

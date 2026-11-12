@@ -147,6 +147,32 @@ func TestCursorIDEProbeCollect(t *testing.T) {
 			t.Fatalf("exit %d: %s", code, errOut)
 		}
 	})
+	t.Run("accepts the runtime a script launcher execs, only with the IDE's version", func(t *testing.T) {
+		ideDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(ideDir, "resources", "app"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(ideDir, "resources", "app", "product.json"), []byte(`{"version":"9.9.9"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		launcher := "#!/bin/bash\nname=electron99\nELECTRON_RUN_AS_NODE=1 exec /usr/lib/${name}/electron " + ideDir + "/resources/app/out/cli.js \"$@\"\n"
+		if err := os.WriteFile(filepath.Join(ideDir, "cursor"), []byte(launcher), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		chain := []string{"/usr/bin/bash", "/usr/lib/electron99/electron"}
+		for _, tc := range []struct {
+			version string
+			ok      bool
+		}{{"9.9.9", true}, {"1.0.0", false}} {
+			dir := t.TempDir()
+			writeCapture(t, dir, "1", map[string]any{"label": "context@sessionStart", "payload": map[string]any{}, "stdout": "", "exit": 0,
+				"ancestors": chain, "env": map[string]any{"SATELLE_SESSION": nil, "SATELLE_PROJECT_DIR": nil, "CURSOR_VERSION": tc.version}})
+			_, errOut, code := probe(t, "", []string{"CURSOR_IDE_DIR=" + ideDir}, "collect", dir)
+			if (code == 0) != tc.ok {
+				t.Errorf("CURSOR_VERSION %s: exit %d: %s", tc.version, code, errOut)
+			}
+		}
+	})
 	t.Run("marks a shell command no gate saw", func(t *testing.T) {
 		dir := t.TempDir()
 		writeCapture(t, dir, "1", map[string]any{"label": "observe@beforeShellExecution", "payload": map[string]any{"command": "echo x > unseated-shell.txt"},

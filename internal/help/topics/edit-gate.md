@@ -94,6 +94,47 @@ installed, a claude entry called by Cursor (its payload carries
 twice. The environment does not count: a claude session started from Cursor's
 terminal keeps its gate.
 
+## Cursor IDE sessions
+
+Validated on the Cursor IDE 3.28.7 (its payloads carry `cursor_version`
+3.28.7), in the agent pane's default agent mode, by
+`scripts/cursor-ide-probe.sh` (sto_bf491f0d). The IDE's agent runs the same
+`.cursor/hooks.json` entries as cursor-agent, above: sessionStart,
+beforeSubmitPrompt, preToolUse and stop all fire, with the same payload fields
+and one id (`session_id` equals `conversation_id`). Its file writes arrive as
+tool `Write` and its shell commands as tool `Shell` on preToolUse, so the gate
+judges both: an edit or a shell redirect with no seat is refused with the
+gate's reason, and the same edit passes once the session is seated. Cursor's
+prompt event has no context channel, so the seats are in the session-start
+context and in `satelle status`, as for cursor-agent.
+
+Where an IDE session differs:
+
+- The IDE sets both `CLAUDE_PROJECT_DIR` and `CURSOR_PROJECT_DIR` to the open
+  folder, which is the repo the gate judges. Only a single-folder window was
+  validated; a multi-root workspace was not. An IDE started from a shell that
+  exports `SATELLE_SESSION` or `SATELLE_PROJECT_DIR` is judged by those, so
+  start it without them.
+- The agent's shell runs in Cursor's sandbox by default, which cannot write
+  satelle's runtime under `~/.satelle`: a `satelle story set` there fails with
+  `attempt to write a readonly database`. Run satelle commands outside the
+  sandbox (the agent offers to rerun them), or allow them in Cursor's settings.
+- The IDE's hook processes exit after each event, so `satelle doctor` reports
+  the session's seat as unverified rather than engaged; release it with
+  `satelle story release <id>` when the chat is done.
+- A user-level `~/.cursor/hooks.json` entry that answers `allow` on preToolUse
+  or beforeShellExecution does not override satelle's deny: the refused write
+  and the refused shell redirect were not made.
+- Cloud and background agents (`is_background_agent`) were not validated.
+
+A repo wired only for claude (`satelle agents install claude`, no
+`.cursor/hooks.json`) is gated in the Cursor IDE too: the IDE runs its
+`.claude/settings.json` hooks (SessionStart, UserPromptSubmit, PreToolUse,
+Stop) and honours their answers, so the agent gets the session-start context
+and an unseated edit or shell redirect is refused. `satelle status` still
+shows cursor as not installed there; `satelle agents install cursor` gives the
+IDE its own entries.
+
 A **block** is a deny with its reason: the harness shows it to the agent and
 the tool call does not run. A rejected transition (`satelle story set --status`,
 exit 2) is the other block: the item stays where it is, and the rejecting gates'
