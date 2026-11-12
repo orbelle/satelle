@@ -6,42 +6,47 @@
 [agents.executor]
 command = "session"
 
-# The planner runs Claude Fable 5.2 headless on the claude CLI (operator,
-# 2026-11-10: "claude cli / headless not cursor"; sto_fb705349). Cursor lists
-# no Fable 5.2. It ran Opus 5.5 on cursor-agent (2026-11-09), and before that
-# pi-cursor, which lost its prompt on reconnect in 5 of 6 plan dispatches
-# (sto_e9fb6f0d). Its judges stay another family (satelle-agent-alt-reviewer).
-# The planner needs no shell: satelle attaches its artifact as the item's plan.
+# The planner runs Opus 5.5 at effort medium on Cursor's own CLI, as
+# id4me.azure's does (operator, 2026-11-12: "update agents to follow
+# id4me.azure's agents.toml", same models per role, this repo's names kept;
+# sto_d17f7eb5). Before that it ran Fable 5.2 on the claude CLI (operator,
+# 2026-11-10: "claude cli / headless not cursor"; sto_fb705349), Opus 5.5 on
+# cursor-agent (2026-11-09), and pi-cursor, which lost its prompt on reconnect
+# in 5 of 6 plan dispatches (sto_e9fb6f0d). Cursor's model id folds the effort
+# in. Its judges stay another family (satelle-agent-alt-reviewer). The planner
+# needs no shell: satelle attaches its artifact as the item's plan.
 [agents.planner]
-command = "claude"
-model = "claude-fable-5-2"
+command = "cursor-agent"
+model = "claude-opus-5-5-medium"
 tools = ["Read", "Grep", "Glob"]
 
-# Not wired to a state: in_progress stays executor. cursor-agent refuses Bash
-# because Cursor's Shell rules cannot fence satelle story set (sto_0f41dda9);
-# a shell-granted Cursor coder waits on the Cursor-orchestrator story
-# (sto_e51c7fb9).
+# Opus 5.5 at effort medium, as id4me.azure's coder (operator, 2026-11-12;
+# sto_d17f7eb5); it ran at effort high. Not wired to a state: in_progress
+# stays executor. cursor-agent refuses Bash because Cursor's Shell rules
+# cannot fence satelle story set (sto_0f41dda9); a shell-granted Cursor coder
+# waits on the Cursor-orchestrator story (sto_e51c7fb9).
 [agents.coder]
 command = "cursor-agent"
-model = "claude-opus-5-5-high"
+model = "claude-opus-5-5-medium"
 tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 
 # The gates' judge during the dogfood (operator, 2026-11-06): Gemini 3.8 flash,
 # the winner of the 2026-10-31 reviewer bake-off (old store sty_6d552f51: every
 # defect caught, no false blocker, ~1/13 of the runner-up's cost), first on pi
-# through the Cursor provider, now on Cursor's own CLI (sto_0f41dda9). The same
-# model as on pi: pi ran it at effort off, which on Cursor is the low tier
-# (Cursor's bare gemini-3.8-flash is its High tier). grok judged the first run
-# (sto_0586c449's plan).
+# through the Cursor provider, now on Cursor's own CLI (sto_0f41dda9). It ran
+# the low tier (pi's effort off); it now runs the high tier, as id4me.azure's
+# reviewer (operator, 2026-11-12; sto_d17f7eb5). Gemini, not Claude: the
+# planner and the session coder are Claude (satelle-agent-alt-reviewer). grok
+# judged the first run (sto_0586c449's plan).
 [agents.reviewer-alt]
 command = "cursor-agent"
-model = "gemini-3.8-flash-low"
+model = "gemini-3.8-flash-high"
 tools = ["Read", "Grep", "Glob"]
 
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
 # diff three times without naming a file it judged (sto_5c706973). grok, not
 # Claude: binary-scope also judges the planner's plan, and the planner runs
-# Claude (Fable 5.2; satelle-agent-alt-reviewer, sto_49abe9f0).
+# Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0).
 [agents.reviewer-grok]
 command = "grok"
 tools = ["Read", "Grep", "Glob"]
