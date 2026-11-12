@@ -2,13 +2,16 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/help"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
@@ -104,10 +107,77 @@ func TestHelpTopicsNameTheBinary(t *testing.T) {
 // reReadmeTarget is a markdown link's target: [text](target).
 var reReadmeTarget = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
+// reReadmeSpan is a backtick span outside a fenced block.
+var reReadmeSpan = regexp.MustCompile("`([^`]+)`")
+
+// reReadmeFile is a span that names a file by its extension.
+var reReadmeFile = regexp.MustCompile(`\.(md|toml|json|ts|sh|go|yml|yaml|version)$`)
+
+// readmePath reports whether a backtick span names a file path to resolve: one
+// word with a slash or a file extension, and no placeholder (<name>), home
+// (~), variable ($), glob (*) or flag (--).
+func readmePath(span string) bool {
+	if strings.ContainsAny(span, " <>~$*") || strings.HasPrefix(span, "-") || strings.Contains(span, "://") {
+		return false
+	}
+	return strings.Contains(span, "/") || reReadmeFile.MatchString(span)
+}
+
+// readmePathMisses lists what text, a README, names that is not there: each
+// relative link target and each inline file path (readmePath) must be a path
+// under root, a file under root/.satelle (the configuration it describes) or a
+// harness hook file (hook.File), which satelle writes in the repo it is run in.
+func readmePathMisses(root, text string) []string {
+	written := map[string]bool{}
+	for _, h := range hook.Harnesses {
+		if f, err := hook.File(h); err == nil {
+			written[f] = true
+		}
+	}
+	exists := func(p string) bool {
+		p = filepath.FromSlash(strings.TrimSuffix(p, "/"))
+		for _, base := range []string{root, filepath.Join(root, config.DefaultDataDir)} {
+			if _, err := os.Stat(filepath.Join(base, p)); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	fence := false
+	for n, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
+		var paths []string
+		for _, m := range reReadmeTarget.FindAllStringSubmatch(line, -1) {
+			if t := m[1]; !strings.Contains(t, "://") && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, "mailto:") {
+				t, _, _ = strings.Cut(t, "#")
+				paths = append(paths, t)
+			}
+		}
+		for _, m := range reReadmeSpan.FindAllStringSubmatch(line, -1) {
+			if readmePath(m[1]) {
+				paths = append(paths, m[1])
+			}
+		}
+		for _, p := range paths {
+			if !written[p] && !exists(p) {
+				out = append(out, fmt.Sprintf("README.md:%d: path: %s — not in this repo, its .satelle, or a harness hook file", n+1, p))
+			}
+		}
+	}
+	return out
+}
+
 // README.md is the first thing a new user's agent reads, and it is outside
 // the substrate satelle validate checks. It names only commands, flags and
-// help topics this binary has, and every relative link in it names a path in
-// this repo (sto_33132ea7).
+// help topics this binary has, and every relative link and inline file path in
+// it names a path that exists (sto_33132ea7).
 func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 	root := filepath.Join("..", "..")
 	b, err := os.ReadFile(filepath.Join(root, "README.md"))
@@ -117,16 +187,16 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 	for _, f := range substrate.CheckText("README.md", "md", string(b), substrateTree(NewRootCmd()), repoLinks(t)) {
 		t.Error(f.String())
 	}
-	for n, line := range strings.Split(string(b), "\n") {
-		for _, m := range reReadmeTarget.FindAllStringSubmatch(line, -1) {
-			target := m[1]
-			if strings.Contains(target, "://") || strings.HasPrefix(target, "#") || strings.HasPrefix(target, "mailto:") {
-				continue
-			}
-			target, _, _ = strings.Cut(target, "#")
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); err != nil {
-				t.Errorf("README.md:%d: path: %s — not in this repo", n+1, target)
-			}
-		}
+	for _, miss := range readmePathMisses(root, string(b)) {
+		t.Error(miss)
+	}
+
+	// The path rule itself: a link and an inline path that are absent are each
+	// reported; a placeholder, a home path and a harness hook file are not.
+	stale := "See [the spec](./docs/spec.md) and `docs/agent-model.md`.\n" +
+		"Kept: `skills/<name>.md`, `~/.satelle/config.toml`, `.cursor/hooks.json`, `satelle.toml`, [LICENSE](./LICENSE).\n"
+	got := readmePathMisses(root, stale)
+	if len(got) != 2 || !strings.Contains(got[0], "./docs/spec.md") || !strings.Contains(got[1], "docs/agent-model.md") {
+		t.Errorf("stale text: want the two absent docs paths reported, got %q", got)
 	}
 }

@@ -32,10 +32,15 @@ version.
 
 ## Quick start
 
-Run these in the repo satelle is to govern. Each line is followed by what it
-prints.
+Install, then run the rest in the repo satelle is to govern. Each line is
+followed by what it prints.
 
 ```sh
+curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/install.sh | sh
+# one "installed <path> (<tag>)" line for each of the two binaries,
+# the service status, then "Next (a new repo):"
+
+cd <your-repo>
 satelle init
 # initialised <repo>/.satelle (configuration valid)
 
