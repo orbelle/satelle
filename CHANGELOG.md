@@ -1,3 +1,12 @@
+## [1.0.55] - 2026-11-12
+
+### Added
+- **An agent asked to check satelle gets an answer.** `satelle doctor` has a harness check: an unwired calling harness is an issue with its fix (`satelle agents install <harness>`), and a hook file an ignore rule hides from git is a note. `satelle status` shows each harness's wiring, `satelle init` names the harnesses it left unwired, and init writes `.satelle/README.md` so a session with no hooks can find `satelle doctor` and `satelle help`. (sto_f58ed5fa)
+
+### Changed
+- README.md describes v1: the install line, a quick start of `satelle init`, `satelle agents install <harness>` and `satelle doctor` with what each prints, and what an agent asked to install or check satelle runs. A test keeps it naming only commands, flags, help topics and paths that exist. (sto_33132ea7)
+- This repo's planner runs Opus 5.5 at effort medium on cursor-agent (it ran Fable 5.2 on the claude CLI), the unwired coder binding Opus 5.5 at effort medium, and the reviewer-alt judge Gemini 3.8 Flash at its high tier (it ran the low tier), as id4me.azure's bindings do. (sto_d17f7eb5)
+
 ## [1.0.54] - 2026-11-10
 
 ### Fixed
