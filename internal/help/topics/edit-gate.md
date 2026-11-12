@@ -112,7 +112,7 @@ Where an IDE session differs:
 
 - The IDE sets both `CLAUDE_PROJECT_DIR` and `CURSOR_PROJECT_DIR` to the open
   folder, which is the repo the gate judges. Only a single-folder window was
-  validated; a multi-root workspace was not. An IDE started from a shell that
+  validated; a window holding several folders was not. An IDE started from a shell that
   exports `SATELLE_SESSION` or `SATELLE_PROJECT_DIR` is judged by those, so
   start it without them.
 - The agent's shell runs in Cursor's sandbox by default, which cannot write
