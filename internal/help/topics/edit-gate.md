@@ -100,8 +100,12 @@ Validated on the Cursor IDE 3.28.7 (its payloads carry `cursor_version`
 3.28.7), in the agent pane's default agent mode, by
 `scripts/cursor-ide-probe.sh` (sto_bf491f0d). The IDE's agent runs the same
 `.cursor/hooks.json` entries as cursor-agent, above: sessionStart,
-beforeSubmitPrompt, preToolUse and stop all fire, with the same payload fields
-and one id (`session_id` equals `conversation_id`). Its file writes arrive as
+beforeSubmitPrompt, preToolUse and stop all fire, each with one id
+(`session_id` equals `conversation_id`), which is the session satelle uses.
+The IDE's payloads carry fields cursor-agent's do not (`transcript_path`,
+`user_email`, and on sessionStart, beforeSubmitPrompt and stop `model_id`,
+`model_params` and `composer_mode`), and its sessionStart `generation_id` is
+empty where cursor-agent's equals the session id; satelle reads none of these. Its file writes arrive as
 tool `Write` and its shell commands as tool `Shell` on preToolUse, so the gate
 judges both: an edit or a shell redirect with no seat is refused with the
 gate's reason, and the same edit passes once the session is seated. Cursor's
