@@ -141,8 +141,8 @@ The session-start context names the session id. See `satelle help edit-gate`.
 per-user service beside a timer that syncs each project's ledger.
 `satelle service status` reports the unit and whether satelled answers;
 `satelle service install`, `satelle service refresh` and
-`satelle service restart` manage it. `satelle project
-add` adds a repo to this machine's projects.
+`satelle service restart` manage it. `satelle project add` adds a repo to
+this machine's projects.
 
 Signing in is optional: satelle runs locally without it. `satelle login` signs
 in to satelle.dev, and `satelle project bind <project>` binds this repo to a

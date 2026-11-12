@@ -230,6 +230,10 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 		if fence {
 			continue
 		}
+		// The checks read one line at a time, so a span never crosses a line.
+		if strings.Count(line, "`")%2 != 0 {
+			t.Errorf("README.md:%d: a backtick span crosses the line end, where no check reads it; keep each span on one line", n+1)
+		}
 		for _, m := range reReadmeSpan.FindAllStringSubmatch(line, -1) {
 			span := m[1]
 			if strings.HasPrefix(span, "satelle ") || bare[span] || strings.ContainsAny(span, "/~") || reReadmeFile.MatchString(span) {
