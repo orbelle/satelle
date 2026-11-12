@@ -1,14 +1,14 @@
 # satelle
 
-Local-first substrate for agent-driven work. Satelle governs the
-authored process — stories, tasks, an evidence ledger, and authored markdown
-(documents, workflows, principles, skills) — backed by a per-repo SQLite
-database. Work moves through a **gated workflow**: the agent executes; isolated
-reviewers gate every status change. satelle runs **100% locally**: pure-Go
-static binaries (CLI + optional `satelled` UI), no external server, no cgo.
+satelle is a stateless, generic CLI for agent-driven work. You define your
+process as configuration under `.satelle/` (workflows, the gates on their
+transitions, the performers of their states and the agents that do the work),
+and satelle runs it. Every event is appended to a hash-chained ledger. The
+binary holds no process of its own: every state, gate, skill and agent name
+comes from your configuration.
 
-> V6 rebrand of `satellites`. See [`docs/`](./docs) for the product spec, port
-> architecture, and the operating model.
+Two static, pure-Go binaries: `satelle` (the CLI) and `satelled` (a local web
+UI). The CLI's own manual is `satelle help`; this file is the way in.
 
 ## Install
 
@@ -16,283 +16,171 @@ static binaries (CLI + optional `satelled` UI), no external server, no cgo.
 curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/install.sh | sh
 ```
 
-Downloads the latest **CLI** release for your platform (and the latest
-**satelled** when a `serve-v*` release exists), sha256-verifies each, and
-installs to `~/.local/bin` (override with `SATELLE_INSTALL_DIR`). Or build from
-source: `make install` (builds both `satelle` and `satelled`).
+The script downloads the latest `satelle` and `satelled` for your platform,
+checks each against its sha256, and installs them to `~/.local/bin` (override
+with `SATELLE_INSTALL_DIR`). It then installs and starts the background
+service (satelled and the sync timer) as `satelle service refresh` does. Pass
+`--no-service` (`... | sh -s -- --no-service`) or set `SATELLE_NO_SERVICE=1` to
+leave the service alone.
 
-CLI and daemon carry **independent versions** in `.version`
-(`satelle.version` / `satelled.version`). GitHub tags are `vX` for the CLI
-(always `releases/latest`) and `serve-vY` for the UI binary (not latest).
-`satelle version`, `satelled --version`, satelled's top bar and its `/healthz`
-show `<name> <version> (commit, built)`; `satelle.build` is RFC 3339 UTC, and
-`satelle service status` warns when the running satelled is not the installed one.
+From source: `make install` builds both binaries and places them in
+`~/.local/bin`.
 
-Already installed? `satelle update` self-updates the CLI and refreshes
-`satelled` from its own channel, then restarts the background service.
-`satelle update --check` reports availability without installing.
+Already installed: `satelle update` replaces both binaries with the latest
+release and refreshes the service. `satelle version` prints the installed
+version.
 
-A matching version string is not treated as proof the installed bytes match the
-published release: when versions already match, update compares the local file
-against the published asset checksum and reinstalls on a mismatch (a retagged
-version, or a machine-wide `make install` of unreleased code). To reinstall the
-published asset even when version and checksum already look equal:
+## Quick start
+
+Run these in the repo satelle is to govern. Each line is followed by what it
+prints.
 
 ```sh
-satelle update --force
+satelle init
+# initialised <repo>/.satelle (configuration valid)
+
+satelle agents install claude
+# installed claude hooks: .claude/settings.json
+
+satelle doctor
+# no issues
 ```
 
-## Quickstart
+- `satelle init` writes the starter configuration into `.satelle/`
+  (`satelle.toml`, `agents.toml` and a two-state workflow, backlog to done, no
+  gates), leaves any file that already exists alone, and validates the result.
+  The configuration is yours to edit and is tracked in git.
+- `satelle agents install <harness>` wires an agent harness to satelle, so its
+  sessions are told about satelle at session start and their edits pass through
+  the edit gate. The harnesses are `claude`, `pi`, `grok` and `cursor`; name
+  each one you use. `satelle init --hooks` does both steps in one. Commit the
+  file it writes so a clone is wired too.
+- `satelle doctor` reports what is wrong here, each issue with the command that
+  fixes it, and changes nothing. It exits 0 with `no issues`, or 1 with each
+  issue as `<check>: <problem>` and a `fix:` line under it, then a count.
+  `satelle status` shows the repo's configuration, item counts and the
+  session's seats.
+
+Then drive work:
 
 ```sh
-make install           # build + install satelle and satelled to ~/.local/bin
-
-cd your-repo
-satelle init           # scaffold .satelle/ + validate
-satelle story create --title "Ship the thing" --priority high
-satelle task create  --title "write release notes"
-satelle reindex        # index authored markdown under .satelle/
-satelle status         # config, database, and store counts
-satelle service install   # always-on UI and sync; scripts/install.sh and `satelle update` do this
-                          # for you (opt out: --no-service or SATELLE_NO_SERVICE=1)
+satelle story create --title "Ship the thing"   # starts in the workflow's start state
+satelle story set <id> --status <state>         # presents a transition; its gates judge it
+satelle story route <id>                        # where the item is, and every gate result
+satelle story seat <id>                         # bind this session here, for the edit gate
 ```
 
-The UI is a **push-fed read-only mirror** (not a live DB browser). Project pages
-live under `/r/<slug>/` on the Projects page (`http://127.0.0.1:8787/`).
+`satelle story set --status` exits 0 when the item moved and 2 when a gate
+rejected the move, listing each rejecting gate and its notes.
 
-### Push-fed UI (CLI → satelled)
+## An agent asked to install or check satelle
 
-The web UI is a **read-only mirror** fed by the CLI (serve-split architecture;
-serve-adoption onboarding):
+- **Is it installed?** `satelle version`. If the command is missing, run the
+  install line above.
+- **Is this repo set up?** `satelle status` in the repo. No `.satelle/` means
+  `satelle init` has not been run.
+- **Is anything wrong?** `satelle doctor`, and `satelle validate` for the
+  configuration alone.
+- **Is this harness wired?** The harness's hook file is in the repo with
+  satelle's entries: `.claude/settings.json`, `.pi/extensions/satelle.ts`,
+  `.grok/hooks/satelle.json` or `.cursor/hooks.json`. If not,
+  `satelle agents install <harness>`.
+- **What can it do?** `satelle help`, then `satelle help workflows`,
+  `satelle help edit-gate` and `satelle help agents`.
 
-1. Run the UI: `scripts/install.sh` and `satelle update` install and start
-   satelled's unit and the sync timer (`--no-service` or
-   `SATELLE_NO_SERVICE=1` opts out); or run `satelled` yourself.
-   `satelle serve` remains a **deprecated alias** that prints a migration
-   notice and runs the same mirror.
-2. Add the project to this machine's projects and seed the mirror in one verb:
-   ```sh
-   satelle project add         # add + seed; bootstraps endpoint when a matching serve is up
-   satelle project partitions  # list mirror partitions (repo_key, path, counts)
-   satelle project prune <repo_key> [--force]  # remove orphan/junk partitions
-   satelle project remove      # remove + purge that project's partition
-   ```
-   `[server] endpoint` usually lives in **gitignored** `.satelle/satelle.local.toml`
-   (per machine). When unset and a local serve answers at the service port
-   (default `http://127.0.0.1:8787`) **and** reports a matching `X-Satelle-Instance`
-   for this `SATELLE_HOME`, `project add` writes that endpoint into
-   local.toml and seeds in the same command. Without a matching serve it still
-   registers, prints seed skipped, and exits 0. Hermetic tests set
-   `SATELLE_SERVER_ENDPOINT=none` so they never auto-probe a live operator serve.
-   Mutating verbs drain change + one snapshot before process exit (no manual
-   reconcile step).
+## What satelle keeps
 
-`satelle ui` / `satelle ui push` were **removed** — they print a pointer to
-`satelle project add`.
+- **Work items.** Stories, tasks and executions: id, title, body, acceptance
+  criteria, status, tags, parent, category and the workflow the item runs
+  under. Queues select items for a task.
+- **The ledger.** Every event (an item created or updated, a transition, each
+  gate's result, a seat bound or released, an attachment) is appended to a
+  hash-chained ledger, one chain per item, under `~/.satelle/<repo-key>/`,
+  outside the repo. The sqlite cache is rebuilt from it
+  (`satelle ledger rebuild`).
+- **Configuration**, in the repo under `.satelle/` and tracked in git:
+  `satelle.toml`, `agents.toml`, `workflows/<name>.toml` and `skills/<name>.md`.
+  An unknown key refuses to run; `satelle validate` lists every problem. See
+  `satelle help configuration`.
 
-Serve never opens per-repo runtime DBs — only `~/.satelle/serve/mirror.db`,
-partitioned by repo-key.
+## Workflows, gates and agents
 
-### Substrate freshness without serve
+A workflow is states and the transitions between them. A transition carries
+gates; a state may name a performer. Presenting a transition
+(`satelle story set <id> --status <state>`) runs its gates in their configured
+order and records every result on the ledger; the item moves only when no gate
+rejects. A gate is a skill: a deterministic check, or a rubric judged by an
+agent with a read-only grant. Agents are bindings in `.satelle/agents.toml`,
+each a command, a model and the tools it is granted.
 
-The CLI keeps the doc index, task store, and story-backlog view current **without
-a running serve process**:
+Process is configuration: change a workflow or a skill and the process changes,
+with no new binary. `satelle workflow show` prints the configured workflows.
+See `satelle help workflows` and `satelle help agents`.
 
-1. **SessionStart hook** — `satelle init` scaffolds `satelle reindex` on every agent session.
-2. **Explicit `satelle reindex`** — full on-demand pass (docs + tasks + backlog view).
-3. **Post-story-verb** — `story create` / `story set` best-effort regenerate the disposable backlog view.
+## The edit gate
 
-Hand-edited tasks or authored markdown still need a reindex (or the next session
-start) to land in the store/index. See `satelle reindex --help`.
-
-### Always-on service
-
-Prefer the dedicated **`satelled`** binary for the UI process. Install both
-artifacts, then install the service (it picks `satelled` next to the CLI when
-present; falls back to `satelle serve` with a notice):
+With a harness wired, every edit and shell command a session makes is judged by
+`satelle hook gate`. An edit is allowed only while the session holds a seat, at
+this worktree, on an item whose current state has a performer:
 
 ```sh
-make install                 # build + place satelle and satelled on PATH
-cd your-repo
-satelle service install      # systemd user unit (Linux/WSL); --system for persistent system unit
-satelle service status       # show state + URL
+satelle story seat <id> --session <session>
+satelle story release <id> --session <session>
 ```
 
-Foreground: `satelled --addr 0.0.0.0 --port 8787`. The old `satelle serve`
-subcommand still works as a deprecated alias.
+The session-start context names the session id. See `satelle help edit-gate`.
 
-Settings live in the machine-wide `~/.satelle/config.toml` (`[service]` port /
-addr / repo). Change the port there (or pass `--port`) and re-run
-`satelle service install`. The service binds `0.0.0.0` by default, so in **WSL**
-it's reachable from a Windows browser at `http://localhost:<port>`. On native
-Windows (no systemd), `service install` prints Task Scheduler steps instead.
+## The service and satelle.dev
 
-`init` is idempotent and writes a managed `.gitignore` block (the local
-`.satelle/satelle.db` stays out of git; the config and authored markdown are
-committed). It's also optional — a repo with no `.satelle/satelle.toml` runs
-zero-config on defaults, with data in `.satelle/satelle.db` travelling with the
-repo it governs.
+`satelled` is a local, read-only web UI over this machine's projects, run as a
+per-user service beside a timer that syncs each project's ledger.
+`satelle service status` reports the unit and whether satelled answers;
+`satelle service install`, `refresh` and `restart` manage it. `satelle project
+add` adds a repo to this machine's projects.
+
+Signing in is optional: satelle runs locally without it. `satelle login` signs
+in to satelle.dev, and `satelle project bind <project>` binds this repo to a
+project there, so its ledger syncs between machines. See
+`satelle help projects` and `satelle help ledger-store`.
+
+A repo set up by a pre-1.0 satelle is moved with `satelle upgrade`; see
+`satelle help upgrade`.
 
 ## Commands
 
-| Group | Verbs |
-|-------|-------|
-| `story` / `task` | `create`, `get`, `list`, `set` |
-| `task` (only) | `archive` — dispose of a superseded header (record archived + files moved to `.satelle/backups/`) |
-| `ledger` | `append`, `list` |
-| `doc` | `list`, `get` |
-| `hosted` | `login`, `logout`, `whoami` — authenticate to a hosted satelle-server (OAuth 2.1 + PKCE); optional, the local service runs standalone without it |
-| `project` | `create`, `list`, `bind`, `show` — manage projects on the hosted satelle-server; `bind` records which hosted project this repo's personal sync targets. Requires `login` for create/list |
-| `sync` | `scopes`, `config` (push/deploy), `documents` (push/pull), `workstate` (push/pull), `rehydrate`/`pull` (no push) — personal opt-in targets **this repo's bound hosted project only**; local is the default. `*.local` files are never pushed, at any scope. **Recover after clone/wipe:** install → `login` → `project bind <slug>` → `sync rehydrate` (config deploy first, then documents + workstate pull) |
-| `publish` | `push`, `list`, `adopt`, `check` — team catalog (select local artifacts to share; not a second home for the repo). Distinct from personal `sync` |
-| `settings` | Read/write config in two scopes: repo `<key> [value]` (committed `.satelle/satelle.toml`; no args lists all) is the default; `--global server <url>` sets the machine-wide hosted server in `~/.satelle/config.toml` (no login; sign in after via the UI or `login`) |
-| | `init`, `reindex`, `status`, `version` |
-| `project` | this machine's projects: `add` (add + seed mirror), `remove`, `list`, `partitions`, `prune`; the satelle.dev project each is bound to: `bind`, `create`, `show`, `list --hosted` |
-| `workspace` | `list` your satelle.dev workspaces (collections of projects) |
-| UI process | `satelled` (dedicated binary); `satelle serve` is a deprecated alias |
+| Group | What it does |
+|-------|--------------|
+| `init`, `validate`, `doctor`, `status` | set a repo up, check its configuration, report what is wrong, show where it stands |
+| `story`, `task`, `execution`, `queue` | work with items: `get`, `list`, `set`, `route`, `seat`, `release`, `attach`, `perform`, and `create` for a story, task or queue |
+| `workflow` | show the configured workflows |
+| `agents` | install or remove harness hook files |
+| `ledger` | list events, rebuild the cache, and push or pull the ledger store |
+| `remote` | fire a remote for an item and follow its run |
+| `project`, `workspace`, `login`, `logout`, `whoami` | this machine's projects and satelle.dev |
+| `service`, `settings`, `logs`, `runtime` | the background service, machine settings, logs and runtime dirs |
+| `update`, `upgrade`, `version` | replace the binaries, move a pre-1.0 repo to v1, print the version |
 
-The CLI is the sole writer into repo stores. The UI process only serves the
-push-fed mirror (plus ingest).
-
-## Workflows & gates — the agent model
-
-satelle governs work as a **gated workflow**: a story or task moves through a
-lifecycle of **steps**, and it is `done` only when its status says so — reached
-through every gate on the path.
-
-- **The agent is the executor** — it does the work and drives the story forward.
-- **satelle is the gatekeeper of status** — each forward transition is judged by
-  an isolated, fresh-context **reviewer** (an `agent -p` rubric, or a deterministic
-  functional check). Accept enacts the transition; reject pushes notes back. A
-  reviewer is **read-only** — it judges, never mutates. Each gate is one isolated,
-  fresh-context call over a payload satelle builds; satelle does the context
-  selection, the reviewer reads what it needs through its read-only tools.
-
-The lifecycle is **authored substrate**, and satelle DERIVES it from two files
-under `.satelle/workflows`: `done.toml` declares what done means per category (an
-ordered list of obligations, plus the park and cancel states), and `step.toml` is
-the catalogue of steps and always-on gates that discharge them — each step
-keyed by the obligation it discharges, naming what it `requires`, its `agent`,
-and the `reviewers` gating entry to it. The binary owns ORDER (a topological sort of the
-prerequisites) and topology (cancel, park, backward movement), so neither is
-authored. The embedded route (`backlog → in_progress → done`, plus container and
-task-run sections) is the order-zero default a repo edits or overrides. A repo
-that still carries a retired DOT graph governs nothing until it converts —
-satelle refuses transitions under it, naming `satelle help workflow-convert`,
-rather than silently dropping every gate it authored. How each agent runs is bound in
-`.satelle/workflows/agents.toml` — the reviewer's
-agent CLI (`claude` and `grok` presets — see
-`satelle help agent-dispatch`) and its read-only grant; the executor runs
-in-loop. `satelle agents install claude|grok|pi|all` installs launchers and
-repo compliance hooks (`.claude` / `.grok`) so governed edits need
-an engaged story.
-
-Process is configuration — change the workflow or its skills, change the process,
-with no binary release. See `satelle help reviewer-checks` and the
-`satelle-agent-model` and `satelle-route-standard` principles.
-
-Optional **step-scoped command policy** (`[gate.command_allow]` in
-`satelle.toml`): restrict named git subcommands (e.g. `push = ["release"]`) to
-permitted story statuses while engaged. Opt-in only — unset leaves the
-commitgate as engage-only. See `satelle hook commitgate --help` and the init
-scaffold comments.
-
-### Seat concurrency — who may engage at once
-
-A story in a performing state holds the project's **engagement seat**. By
-default the seat is single-occupancy: one performing story, everything else
-refused. That default is what makes "is work in flight?" a one-lease question.
-
-A repo may widen it per project:
-
-```toml
-[engagement]
-parallel = "none"   # default — one performing story at a time
-parallel = "epic"   # children of one parent may engage concurrently
-```
-
-Under `epic` the seat is claimed at the **parent**, not the story: the first
-engagement keys the seat on its `parent_id`, and further engagements are
-admitted only if they share that parent **and** run from a **distinct git
-working tree**. A story under a different parent — or none — is refused while
-that seat is held, and the refusal names the parent holding it. A parentless
-story engaging first claims the seat as a singleton, which is `none` for its
-duration. The seat frees when the last sub-lease frees.
-
-Two rules follow, and both are load-bearing:
-
-- **One working tree per lease.** Each lease records the tree it was engaged
-  from; a second engagement from an already-leased tree is refused, even for a
-  valid sibling — two engaged stories sharing a tree would attribute each
-  other's edits. `satelle story diff` is anchored to the recorded tree for the
-  same reason: run it elsewhere and it refuses, naming where to run it.
-- **The parent is not engaged unless its route says so.** Its id is the
-  arbitration key, not a lease, and a container idling at a `waits_on_children`
-  step holds none. A container step may declare `after_children = "<obligation>"`:
-  entry is refused until every child has discharged that obligation on its own
-  route, and the step may name a performer, which then takes a seat under the
-  same key so parent and children co-hold from distinct worktrees. The binary
-  only gates that entry and seat; what the step does, a merge included, is a
-  skill the route names.
-
-**What satelle does not own.** Satelle arbitrates concurrent *engagement*. It
-does not define how concurrent work *converges* — merge order, whether a batch
-pays for one integration suite at its head, citation, one push, one CI watch.
-That is workflow, and workflow is the repo's own substrate (`done.toml`,
-`step.toml`, skills), which already expresses it: categories are free-form and
-ledger `cite-run` already crosses stories. Whether a given parent's children run
-as a wave is decided per parent by its user or agent, from that parent's
-contents, inside the workflow the repo already has — no dedicated lane,
-category or extra concept to learn.
-
-Satelle performs **no sibling-contention policing**: no file-overlap detection
-between concurrent stories, no merge ordering, no batch semantics. That is a
-design choice, not a gap. A repo that turns the mode on with a workflow that
-does not suit it has a substrate defect in that repo, not a satelle issue.
-
-## Architecture
-
-- **Pure-Go SQLite** (`modernc.org/sqlite`, no cgo) — one static binary.
-- **Gated workflows:** authored DOT lifecycles drive each story; isolated
-  reviewers gate status transitions, with the agent backend bound per repo.
-- **System-of-record split:** stories/tasks/ledger are dynamic SQLite rows;
-  authored markdown is the source of truth, synced into a SQLite index by a
-  directory monitor.
-- **Config:** per-repo `.satelle/satelle.toml` with defaults for every setting
-  and a gitignored `satelle.local.toml` overlay. Optional `stories_keep_closed`
-  (count) and `stories_keep_days` (age) prune closed stories' attachment dirs
-  under the home-keyed runtime plane (`~/.satelle/<repo-key>/stories/`), moving
-  them to the runtime backups tree; a non-terminal story's dir is always kept.
-
-See [`docs/spec.md`](./docs/spec.md), [`docs/architecture.md`](./docs/architecture.md),
-and [`docs/agent-model.md`](./docs/agent-model.md) (the operating
-model: reviewer premise, DOT workflows, isolated fresh-context review).
+`satelle <command> --help` gives each command's usage, and `satelle help` lists
+the topics.
 
 ## Development
 
 ```sh
-go test ./...           # every package, the integration suite under tests/ included
-make test               # the same under credguard and a hermetic HOME (STRICT=1 optional)
-make integration        # only the integration suite
+go test ./...        # the unit tests of every package
+make test            # every package and the integration suite under tests/, in a hermetic home
+make integration     # only the integration suite
+make install         # build both binaries into ~/.local/bin
 ```
 
-The integration suite (`tests/`) builds `satelle` and `satelled` once and drives
-them as a user would, each test in its own home and fresh git repo: `init` and a
-walk to done, a user-defined workflow judged by a fake `claude` on `PATH`, the
-edit gate, attachments, task runs, sync between two homes over the in-process
-fake satelle-server, satelled's pages, and a docker-local node (skipped without
-a docker daemon and a small local image). No test reaches past loopback.
+The integration suite builds `satelle` and `satelled` once and drives them as a
+user would, each test in its own home and a fresh git repo.
 
-GitHub runs no tests: build, vet, gofmt, the windows cross-build, `make test`
-and the literal audit (`scripts/audit-literals.sh`) run locally in this repo's
-satelle gates. Releases are cut only when asked, by running
-`.github/workflows/release.yml` (workflow_dispatch) once the local tests pass;
-it publishes each CLI or serve version in `.version` that has no tag yet
-(`vX` / `serve-vY`), and `satelle update` installs them.
-
-`make judgment` runs the opt-in LLM rubric fixtures under `tests/llm/`
-(`-tags llm`). They cost tokens and call a live model; never in default CI.
+GitHub runs no tests: they run locally, in this repo's own satelle gates.
+satelle is built with satelle; its process is the configuration under
+[`.satelle/`](./.satelle). A release is cut by that process, which dispatches
+[`.github/workflows/release.yml`](./.github/workflows/release.yml); a push to
+main publishes nothing. `.version` holds the version of each binary.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
