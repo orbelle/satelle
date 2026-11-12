@@ -140,7 +140,8 @@ The session-start context names the session id. See `satelle help edit-gate`.
 `satelled` is a local, read-only web UI over this machine's projects, run as a
 per-user service beside a timer that syncs each project's ledger.
 `satelle service status` reports the unit and whether satelled answers;
-`satelle service install`, `refresh` and `restart` manage it. `satelle project
+`satelle service install`, `satelle service refresh` and
+`satelle service restart` manage it. `satelle project
 add` adds a repo to this machine's projects.
 
 Signing in is optional: satelle runs locally without it. `satelle login` signs
@@ -153,17 +154,17 @@ A repo set up by a pre-1.0 satelle is moved with `satelle upgrade`; see
 
 ## Commands
 
-| Group | What it does |
-|-------|--------------|
-| `init`, `validate`, `doctor`, `status` | set a repo up, check its configuration, report what is wrong, show where it stands |
-| `story`, `task`, `execution`, `queue` | work with items: `get`, `list`, `set`, `route`, `seat`, `release`, `attach`, `perform`, and `create` for a story, task or queue |
-| `workflow` | show the configured workflows |
-| `agents` | install or remove harness hook files |
-| `ledger` | list events, rebuild the cache, and push or pull the ledger store |
-| `remote` | fire a remote for an item and follow its run |
-| `project`, `workspace`, `login`, `logout`, `whoami` | this machine's projects and satelle.dev |
-| `service`, `settings`, `logs`, `runtime` | the background service, machine settings, logs and runtime dirs |
-| `update`, `upgrade`, `version` | replace the binaries, move a pre-1.0 repo to v1, print the version |
+| Commands | What they do |
+|----------|--------------|
+| `satelle init`, `satelle validate`, `satelle doctor`, `satelle status` | set a repo up, check its configuration, report what is wrong, show where it stands |
+| `satelle story`, `satelle task`, `satelle execution`, `satelle queue` | work with items: create, show, list, update, present a transition, seat, attach, dispatch a performer |
+| `satelle workflow show` | show the configured workflows |
+| `satelle agents install`, `satelle agents remove` | install or remove harness hook files |
+| `satelle ledger` | list events, rebuild the cache, and push or pull the ledger store |
+| `satelle remote` | fire a remote for an item and follow its run |
+| `satelle project`, `satelle workspace`, `satelle login`, `satelle logout`, `satelle whoami` | this machine's projects and satelle.dev |
+| `satelle service`, `satelle settings`, `satelle logs`, `satelle runtime` | the background service, machine settings, logs and runtime dirs |
+| `satelle update`, `satelle upgrade`, `satelle version` | replace the binaries, move a pre-1.0 repo to v1, print the version |
 
 `satelle <command> --help` gives each command's usage, and `satelle help` lists
 the topics.

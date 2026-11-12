@@ -115,16 +115,17 @@ var reReadmeFile = regexp.MustCompile(`\.(md|toml|json|ts|sh|go|yml|yaml|version
 
 // readmePath reports whether a backtick span names a file path to resolve: one
 // word with a slash or a file extension, and no placeholder (<name>), home
-// (~), variable ($), glob (*) or flag (--).
+// (~), variable ($), glob (*), package pattern (./...), URL or flag (--).
 func readmePath(span string) bool {
-	if strings.ContainsAny(span, " <>~$*") || strings.HasPrefix(span, "-") || strings.Contains(span, "://") {
+	if strings.ContainsAny(span, " <>~$*|") || strings.HasPrefix(span, "-") || strings.Contains(span, "://") || strings.Contains(span, "...") {
 		return false
 	}
 	return strings.Contains(span, "/") || reReadmeFile.MatchString(span)
 }
 
 // readmePathMisses lists what text, a README, names that is not there: each
-// relative link target and each inline file path (readmePath) must be a path
+// relative link target and each file path (readmePath) in a backtick span or
+// a fenced block must be a path
 // under root, a file under root/.satelle (the configuration it describes) or a
 // harness hook file (hook.File), which satelle writes in the repo it is run in.
 func readmePathMisses(root, text string) []string {
@@ -150,10 +151,15 @@ func readmePathMisses(root, text string) []string {
 			fence = !fence
 			continue
 		}
-		if fence {
-			continue
-		}
 		var paths []string
+		if fence {
+			// A fenced line is shell: each word that is a path is resolved.
+			for _, w := range strings.Fields(line) {
+				if w = strings.Trim(w, "\"'(),:;"); readmePath(w) {
+					paths = append(paths, w)
+				}
+			}
+		}
 		for _, m := range reReadmeTarget.FindAllStringSubmatch(line, -1) {
 			if t := m[1]; !strings.Contains(t, "://") && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, "mailto:") {
 				t, _, _ = strings.Cut(t, "#")
@@ -194,9 +200,42 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 	// The path rule itself: a link and an inline path that are absent are each
 	// reported; a placeholder, a home path and a harness hook file are not.
 	stale := "See [the spec](./docs/spec.md) and `docs/agent-model.md`.\n" +
-		"Kept: `skills/<name>.md`, `~/.satelle/config.toml`, `.cursor/hooks.json`, `satelle.toml`, [LICENSE](./LICENSE).\n"
+		"Kept: `skills/<name>.md`, `~/.satelle/config.toml`, `.cursor/hooks.json`, `satelle.toml`, [LICENSE](./LICENSE).\n" +
+		"```sh\ncat docs/gone.md   # and go test ./... with scripts/install.sh\n```\n"
 	got := readmePathMisses(root, stale)
-	if len(got) != 2 || !strings.Contains(got[0], "./docs/spec.md") || !strings.Contains(got[1], "docs/agent-model.md") {
-		t.Errorf("stale text: want the two absent docs paths reported, got %q", got)
+	if len(got) != 3 || !strings.Contains(got[0], "./docs/spec.md") || !strings.Contains(got[1], "docs/agent-model.md") || !strings.Contains(got[2], "docs/gone.md") {
+		t.Errorf("stale text: want the three absent docs paths reported, got %q", got)
+	}
+
+	// A command the binary lacks is reported wherever the README writes it in
+	// full, as the Commands table does: a span, a table cell, a fenced line.
+	for _, text := range []string{"Run `satelle reindex`.\n", "| `satelle story`, `satelle sync` | items |\n", "```sh\nsatelle serve\n```\n"} {
+		if len(substrate.CheckText("README.md", "md", text, substrateTree(NewRootCmd()), nil)) != 1 {
+			t.Errorf("stale command not reported in %q", text)
+		}
+	}
+
+	// Every backtick span outside a fence is a satelle command written in full,
+	// a path, or one of the bare words below (names that are not commands), so
+	// a command cannot be named in a form the checks above do not read.
+	bare := map[string]bool{"satelle": true, "satelled": true, "claude": true, "pi": true, "grok": true, "cursor": true,
+		"SATELLE_INSTALL_DIR": true, "SATELLE_NO_SERVICE=1": true, "--no-service": true, "no issues": true,
+		"<check>: <problem>": true, "fix:": true, "make install": true, "... | sh -s -- --no-service": true}
+	fence := false
+	for n, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
+		for _, m := range reReadmeSpan.FindAllStringSubmatch(line, -1) {
+			span := m[1]
+			if strings.HasPrefix(span, "satelle ") || bare[span] || strings.ContainsAny(span, "/~") || reReadmeFile.MatchString(span) {
+				continue
+			}
+			t.Errorf("README.md:%d: span `%s` is neither a satelle command written in full, a path, nor a known bare word", n+1, span)
+		}
 	}
 }
