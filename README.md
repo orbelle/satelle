@@ -43,6 +43,8 @@ curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/instal
 cd <your-repo>
 satelle init
 # initialised <repo>/.satelle (configuration valid)
+# harness hooks not installed: claude, pi, grok, cursor
+#   and the command that wires one
 
 satelle agents install claude
 # installed claude hooks: .claude/settings.json
@@ -54,7 +56,9 @@ satelle doctor
 - `satelle init` writes the starter configuration into `.satelle/`
   (`satelle.toml`, `agents.toml` and a two-state workflow, backlog to done, no
   gates), leaves any file that already exists alone, and validates the result.
-  The configuration is yours to edit and is tracked in git.
+  The configuration is yours to edit and is tracked in git. It also writes
+  `.satelle/README.md`, which tells an agent whose harness is not wired what
+  satelle is and what to run, and it ends by naming the harnesses left unwired.
 - `satelle agents install <harness>` wires an agent harness to satelle, so its
   sessions are told about satelle at session start and their edits pass through
   the edit gate. The harnesses are `claude`, `pi`, `grok` and `cursor`; name
@@ -63,8 +67,8 @@ satelle doctor
 - `satelle doctor` reports what is wrong here, each issue with the command that
   fixes it, and changes nothing. It exits 0 with `no issues`, or 1 with each
   issue as `<check>: <problem>` and a `fix:` line under it, then a count.
-  `satelle status` shows the repo's configuration, item counts and the
-  session's seats.
+  An unwired harness is one of its checks. `satelle status` shows the repo's
+  configuration, each harness's wiring, item counts and the session's seats.
 
 Then drive work:
 
@@ -86,8 +90,9 @@ rejected the move, listing each rejecting gate and its notes.
   `satelle init` has not been run.
 - **Is anything wrong?** `satelle doctor`, and `satelle validate` for the
   configuration alone.
-- **Is this harness wired?** The harness's hook file is in the repo with
-  satelle's entries: `.claude/settings.json`, `.pi/extensions/satelle.ts`,
+- **Is this harness wired?** `satelle status` lists each harness as installed
+  or not, and `satelle doctor` reports the calling harness when it is not. The
+  hook file is in the repo with satelle's entries: `.claude/settings.json`, `.pi/extensions/satelle.ts`,
   `.grok/hooks/satelle.json` or `.cursor/hooks.json`. If not,
   `satelle agents install <harness>`.
 - **What can it do?** `satelle help`, then `satelle help workflows`,

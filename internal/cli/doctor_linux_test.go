@@ -64,7 +64,8 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 	writeFile(t, filepath.Join(units, serviceUnitName), renderUnit(satelled, "127.0.0.1", port))
 	writeFile(t, filepath.Join(units, syncTimerName), renderSyncTimer())
 
-	must(t, "init")
+	// Wired for claude, so the harness check finds nothing in the clean fixture.
+	must(t, "init", "--hooks=claude")
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\n[ -f FAIL ] && { cat FAIL; exit 1; }\nexit 0\n```\n")
 	writeFile(t, filepath.Join(f.dir, ".satelle", "doctor.toml"), "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[items]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n")
 	r, err := findRepo("")

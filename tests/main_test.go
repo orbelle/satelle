@@ -72,7 +72,7 @@ type sandbox struct {
 
 // scrubbed are inherited variables that would leak the host's satelle,
 // session or harness into a test.
-var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_"}
+var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_", "CLAUDECODE", "CURSOR_", "PI_", "GROK_"}
 
 // newSandbox makes a fresh home and an empty, committed git repo.
 func newSandbox(t *testing.T) *sandbox {

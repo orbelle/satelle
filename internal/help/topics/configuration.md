@@ -55,7 +55,7 @@ the kernel still opens: only a configuration problem stops it.
 
 `satelle doctor` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
-within 2 s. Besides its kernel checks (config, substrate, init, versions,
+within 2 s. Besides its kernel checks (config, substrate, init, harness, versions,
 sync, seats) it
 runs what `.satelle/doctor.toml` names:
 

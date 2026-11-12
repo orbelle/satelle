@@ -83,7 +83,8 @@ func (r resolveReport) failed() bool {
 // it installs or restarts the service, releases seats on this machine whose
 // session has ended, and opens one item listing every substrate finding. Every
 // other orphaned seat is asked about on the controlling terminal, and only
-// listed without one. It runs no git command and never edits the repo tree:
+// listed without one. Its only git commands are doctor's read-only queries
+// (gitfacts TopLevel and IgnoredBy), and it never edits the repo tree:
 // its writes are the user's unit files and [service], ledger events and the
 // session records.
 func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {

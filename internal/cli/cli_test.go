@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gittest"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
@@ -27,6 +28,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("SATELLE_SESSION", "")
 	t.Setenv("SATELLE_PROJECT_DIR", "")
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	clearCallerMarkers(t)
 	// No test's update reaches this machine's user manager; a test of the
 	// service clears it and puts a fake systemctl first on PATH.
 	t.Setenv(envNoService, "1")
@@ -38,6 +40,25 @@ func isolate(t *testing.T) string {
 	gittest.Git(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
 	t.Chdir(dir)
 	return dir
+}
+
+// clearCallerMarkers unsets every harness session marker (hook.CallerMarkers),
+// so a test run from an agent's shell sees no calling harness unless it sets
+// one.
+func clearCallerMarkers(t *testing.T) {
+	t.Helper()
+	names, prefixes := hook.CallerMarkers()
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		for _, p := range prefixes {
+			if strings.HasPrefix(name, p) {
+				names = append(names, name)
+			}
+		}
+	}
+	for _, n := range names {
+		t.Setenv(n, "")
+	}
 }
 
 // run executes one satelle command line with stdin, returning its output.

@@ -26,6 +26,16 @@ context, the prompt hook and the stop check: `.claude/settings.json`,
 `.cursor/hooks.json`. A `cursor-agent` session drives stories this way (see
 `satelle help edit-gate`). It writes no `.cursor/cli.json`.
 
+`satelle status` shows each harness's wiring in the repo (`installed`,
+`not installed`, or `installed but git-ignored` with the ignore rule), and
+`satelle doctor` has a `harness` check: the calling session's harness unwired
+is an issue with its fix, the other unwired harnesses are a note, and an
+installed hook file an ignore rule hides from git is a note, since a clone
+would not be wired. The caller is told from the session marker its harness
+sets in the environment; when it cannot be told, no harness wired at all is
+the issue. `satelle init` names the harnesses it left unwired, and writes
+`.satelle/README.md`, which tells an agent with no hooks to run these.
+
 ## Adapters
 
 The adapter is chosen by the basename of the command's first word.

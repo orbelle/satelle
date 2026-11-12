@@ -23,6 +23,11 @@ Its checks:
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)
   init       files satelle init would add (satelle init)
+  harness    a harness (claude, pi, grok, cursor) whose hook file is absent or
+             holds no satelle hooks: the calling session's is an issue, the
+             others a note, and with the caller unknown, no harness wired at
+             all is the issue; a hook file an ignore rule hides from git is a
+             note (satelle agents install <harness>)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
   sync       the sync timer is missing or not active, or the last automatic
@@ -56,7 +61,9 @@ when it finds nothing and 1 when it finds an issue.
     doctor.toml [resolve] names), and opens no second one while that is open. With an invalid
     configuration no item can be recorded: it lists them, satelle validate
     first.
-It never edits or commits files and runs no git command. Everything else is
+It never edits or commits files, and the only git commands doctor runs, with
+or without --resolve, are read-only queries: the repo's top level, and
+git check-ignore for the harness check. Everything else is
 listed with its fix. --resolve exits 0 when nothing is left and no action
 failed, else 1.`,
 		Args: cobra.NoArgs,

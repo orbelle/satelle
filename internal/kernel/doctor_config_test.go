@@ -69,10 +69,31 @@ func TestInitWritesNoStarterWorkflowIntoAConfiguredRepo(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, WorkflowsDir, "default.toml")); !os.IsNotExist(err) {
 		t.Fatalf("init wrote the starter workflow into a configured repo: %v", err)
 	}
-	for _, f := range []string{AgentsFile, ".gitignore", filepath.Join(SkillsDir, "satelle-upgrade.md")} {
+	for _, f := range []string{AgentsFile, ".gitignore", "README.md", filepath.Join(SkillsDir, "satelle-upgrade.md")} {
 		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
 			t.Errorf("init did not add the missing %s: %v", f, err)
 		}
+	}
+}
+
+// Init writes the README that tells an unwired agent what satelle is, and
+// leaves one that is already there alone (sto_f58ed5fa AC4).
+func TestInitLeavesAnExistingReadmeAlone(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil || !strings.Contains(string(b), "satelle doctor") {
+		t.Fatalf("init wrote no README naming satelle doctor: %v\n%s", err, b)
+	}
+	own := filepath.Join(t.TempDir(), ".satelle")
+	write(t, filepath.Join(own, "README.md"), "# ours\n")
+	if err := Init(own); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(own, "README.md")); string(b) != "# ours\n" {
+		t.Fatalf("init changed an existing README:\n%s", b)
 	}
 }
 

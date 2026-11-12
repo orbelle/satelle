@@ -31,7 +31,7 @@
 #
 #   ... | sh -s -- --no-service           # or SATELLE_NO_SERVICE=1 (any value but 0)
 #
-# Next: `satelle init` in a repo.
+# Next: `satelle init` in a repo, then `satelle agents install <harness>`.
 set -eu
 
 REPO="bobmcallan/satelle"
@@ -201,6 +201,8 @@ echo
 echo "Next (a new repo):"
 echo "  cd <your-repo>"
 echo "  satelle init             # scaffold .satelle/ (config, db, authored dirs)"
+echo "  satelle agents install <harness>   # claude | pi | grok | cursor: wire your agent's sessions to satelle"
+echo "  satelle doctor           # read-only: what is wrong here, each with its fix"
 echo
 echo "Repos you already have (if this was an upgrade):"
 echo "  satelle doctor            # read-only: what is wrong here, each with its fix"

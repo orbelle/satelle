@@ -33,7 +33,8 @@ what init would add.
 
 --hooks installs harness hook files as well (claude when given bare; or name
 them: --hooks claude,pi,grok). Without it no harness file is touched; see
-'satelle agents install'.`,
+'satelle agents install'. init ends by naming each harness it left unwired and
+the command that wires one.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
@@ -55,6 +56,19 @@ them: --hooks claude,pi,grok). Without it no harness file is touched; see
 					return err
 				}
 				fmt.Fprintf(out, "installed %s hooks: %s\n", h, path)
+			}
+			// Name what is left unwired, at the root doctor and status read.
+			if r, err := findRepo(""); err == nil {
+				var unwired []string
+				for _, w := range hook.WiringOf(r.Tree) {
+					if !w.Wired() {
+						unwired = append(unwired, w.Harness)
+					}
+				}
+				if len(unwired) > 0 {
+					fmt.Fprintf(out, "harness hooks not installed: %s\n", strings.Join(unwired, ", "))
+					fmt.Fprintf(out, "  %s   # gives that harness's sessions satelle's context and the edit gate; commit the file it writes\n", wireFix("<harness>"))
+				}
 			}
 			return nil
 		},
@@ -128,10 +142,12 @@ substrate key with --json) and fails the check, but never stops the kernel openi
 
 // statusReport is `satelle status --json`.
 type statusReport struct {
-	Root      string         `json:"root"`
-	Tree      string         `json:"tree"`
-	Runtime   string         `json:"runtime"`
-	Workflows []string       `json:"workflows"`
+	Root      string   `json:"root"`
+	Tree      string   `json:"tree"`
+	Runtime   string   `json:"runtime"`
+	Workflows []string `json:"workflows"`
+	// Harnesses is each harness's wiring in this repo (hook.WiringOf).
+	Harnesses []hook.Wiring  `json:"harnesses"`
 	Items     map[string]int `json:"items"` // "<kind> <status>" → count
 	Session   string         `json:"session,omitempty"`
 	Seats     []seatView     `json:"seats,omitempty"`
@@ -169,7 +185,7 @@ func statusCmd() *cobra.Command {
 				return err
 			}
 			defer k.Close()
-			rep := statusReport{Root: r.DataDir, Tree: r.Tree, Runtime: r.Runtime, Items: map[string]int{}, Session: session}
+			rep := statusReport{Root: r.DataDir, Tree: r.Tree, Runtime: r.Runtime, Harnesses: hook.WiringOf(r.Tree), Items: map[string]int{}, Session: session}
 			for name := range k.Workflows {
 				rep.Workflows = append(rep.Workflows, name)
 			}
@@ -199,6 +215,14 @@ func statusCmd() *cobra.Command {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
+			fmt.Fprintln(out, "harness")
+			for _, w := range rep.Harnesses {
+				line := fmt.Sprintf("  %-8s %-26s %s", w.Harness, w.State, w.File)
+				if w.Rule != "" {
+					line += " (" + w.Rule + ")"
+				}
+				fmt.Fprintln(out, line)
+			}
 			fmt.Fprintln(out, "items")
 			for _, key := range keys {
 				fmt.Fprintf(out, "  %-30s %d\n", key, rep.Items[key])

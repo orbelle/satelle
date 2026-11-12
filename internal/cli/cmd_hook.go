@@ -209,7 +209,7 @@ func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	recordSession(in, seatlife.Start)
-	text, ok := sessionContext(in, true)
+	text, ok := sessionContext(in, harness, true)
 	if !ok {
 		return nil
 	}
@@ -225,7 +225,7 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	recordSession(in, seatlife.Resolve)
-	text, ok := sessionContext(in, false)
+	text, ok := sessionContext(in, harness, false)
 	if !ok {
 		return nil
 	}
@@ -269,8 +269,9 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 }
 
 // sessionContext is what the context hook prints: the session id, its seats
-// and, at session start, the [hook] inject files. ok is false outside a repo.
-func sessionContext(in hook.Input, inject bool) (string, bool) {
+// and, at session start, the doctor block (judged for harness, the hook's
+// caller) and the [hook] inject files. ok is false outside a repo.
+func sessionContext(in hook.Input, harness string, inject bool) (string, bool) {
 	r, err := findRepo(hookDir(in))
 	if err != nil {
 		return "", false
@@ -281,7 +282,7 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 	if err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
 		if inject {
-			b.WriteString(sessionDoctor(hookDir(in)))
+			b.WriteString(sessionDoctor(hookDir(in), harness))
 		}
 		return b.String(), true
 	}
@@ -295,7 +296,7 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 	}
 	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate`.\n")
 	if inject {
-		b.WriteString(sessionDoctor(hookDir(in)))
+		b.WriteString(sessionDoctor(hookDir(in), harness))
 	}
 	if inject {
 		for _, f := range k.Settings.Hook.Inject {
@@ -317,8 +318,10 @@ func sessionContext(in hook.Input, inject bool) (string, bool) {
 // sessionDoctor runs satelle doctor's checks within doctorHookBudget for the
 // session-start context. It never blocks the session (a check still running
 // at the deadline is named as not checked) and never contacts the ledger store.
-func sessionDoctor(dir string) string {
+func sessionDoctor(dir, harness string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorHookBudget)
 	defer cancel()
-	return doctorBlock(runDoctor(ctx, loadDoctorInput(dir)), doctorHookBudget)
+	in := loadDoctorInput(dir)
+	in.harness = harness
+	return doctorBlock(runDoctor(ctx, in), doctorHookBudget)
 }

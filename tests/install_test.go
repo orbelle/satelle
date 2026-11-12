@@ -140,3 +140,21 @@ func TestInstallScriptInstallsTheService(t *testing.T) {
 		}
 	})
 }
+
+// The installer's next steps for a new repo wire a harness after init, then
+// check with doctor (sto_f58ed5fa AC3).
+func TestInstallScriptNextStepsWireAHarness(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "scripts", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, next, ok := strings.Cut(string(b), `echo "Next (a new repo):"`)
+	if !ok {
+		t.Fatal("install.sh has no Next (a new repo) block")
+	}
+	next, _, _ = strings.Cut(next, "Repos you already have")
+	i, j, k := strings.Index(next, "satelle init"), strings.Index(next, "satelle agents install <harness>"), strings.Index(next, "satelle doctor")
+	if i < 0 || j < i || k < j {
+		t.Fatalf("Next (a new repo) is not init, agents install, doctor in that order:\n%s", next)
+	}
+}

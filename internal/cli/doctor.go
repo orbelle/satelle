@@ -18,6 +18,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -78,6 +79,9 @@ type doctorInput struct {
 	r      repo
 	cfg    *kernel.Config
 	cfgErr error
+	// harness is the harness whose agent is asking, "" when it cannot be
+	// told: hook.Caller from the environment, or the hook's --harness.
+	harness string
 }
 
 // doctorCheck is one named check; it returns its issues and notes.
@@ -94,7 +98,7 @@ func loadDoctorInput(dir string) *doctorInput {
 		return &doctorInput{}
 	}
 	cfg, cerr := kernel.LoadConfig(r.DataDir)
-	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr}
+	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr, harness: hook.Caller()}
 }
 
 // doctorChecks lists the checks for in: the machine checks always, the repo
@@ -108,6 +112,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 		doctorCheck{"config", checkConfig},
 		doctorCheck{substrate.Field, checkSubstrate},
 		doctorCheck{"init", checkInit},
+		doctorCheck{checkHarnessName, checkHarness},
 		doctorCheck{"sync", checkSync},
 		doctorCheck{"seats", checkSeats},
 	)
@@ -220,6 +225,52 @@ func checkInit(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 		out = append(out, doctorIssue{Check: "init", Problem: "satelle init would add .satelle/" + rel, Fix: "satelle init", Resolve: resolveFixItem})
 	}
 	return out, nil
+}
+
+// checkHarnessName is the harness check's name.
+const checkHarnessName = "harness"
+
+// wireFix is the command that wires harness h.
+func wireFix(h string) string { return "satelle agents install " + h }
+
+// checkHarness reports which harnesses are wired to satelle in this repo
+// (hook.WiringOf). The calling harness unwired is an issue: its session has no
+// satelle context and no edit gate. With the caller unknown, no harness wired
+// at all is the issue. Every other unwired harness is one note, and an
+// installed hook file an ignore rule hides from git is a note naming the rule.
+// It reads the hook files and asks git one read-only question.
+func checkHarness(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	var issues []doctorIssue
+	var notes, unwired []string
+	anyWired := false
+	for _, w := range hook.WiringOf(in.r.Tree) {
+		switch {
+		case w.State == hook.WiringIgnored:
+			anyWired = true
+			notes = append(notes, fmt.Sprintf("%s: %s is installed, but %s hides %s from git, so a clone is not wired", checkHarnessName, w.Harness, w.Rule, w.File))
+		case w.Wired():
+			anyWired = true
+		case w.Harness == in.harness:
+			what := "is absent"
+			if w.Present {
+				what = "holds no satelle hooks"
+			}
+			issues = append(issues, doctorIssue{Check: checkHarnessName,
+				Problem: fmt.Sprintf("%s: %s %s, so this session has no satelle context or edit gate", w.Harness, w.File, what),
+				Fix:     wireFix(w.Harness)})
+		default:
+			unwired = append(unwired, w.Harness)
+		}
+	}
+	if in.harness == "" && !anyWired {
+		return []doctorIssue{{Check: checkHarnessName,
+			Problem: fmt.Sprintf("no harness is wired (%s): no agent session here gets satelle's context or edit gate", strings.Join(hook.Harnesses, ", ")),
+			Fix:     wireFix("<harness>")}}, notes
+	}
+	if len(unwired) > 0 {
+		notes = append(notes, fmt.Sprintf("%s: not wired: %s (%s)", checkHarnessName, strings.Join(unwired, ", "), wireFix("<harness>")))
+	}
+	return issues, notes
 }
 
 // checkVersions compares the installed satelle CLI, the running satelled and

@@ -199,3 +199,41 @@ func TestDiffTextIgnoresTheUsersDiffConfig(t *testing.T) {
 		}
 	}
 }
+
+// IgnoredBy names the rule hiding an untracked path, and reports neither an
+// unignored path, a tracked one, nor one a `!` rule re-includes.
+func TestIgnoredBy(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".gitignore", "hidden/\nkept/*\n!kept/back.json\ntracked/\n")
+	for _, f := range []string{"hidden/a.json", "plain/a.json", "kept/back.json", "tracked/a.json"} {
+		write(f, "{}\n")
+	}
+	gittest.Git(t, dir, "add", "-f", "tracked/a.json")
+	got, err := Repo{Dir: dir}.IgnoredBy("hidden/a.json", "plain/a.json", "kept/back.json", "tracked/a.json", "absent/a.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got["hidden/a.json"] != ".gitignore:1: hidden/" {
+		t.Fatalf("ignored = %v, want only hidden/a.json by .gitignore:1: hidden/", got)
+	}
+	if got, err := (Repo{Dir: dir}).IgnoredBy(); err != nil || len(got) != 0 {
+		t.Fatalf("no paths: %v %v", got, err)
+	}
+	if _, err := (Repo{Dir: t.TempDir()}).IgnoredBy("a"); err == nil {
+		t.Fatal("outside a repository: want an error")
+	}
+}

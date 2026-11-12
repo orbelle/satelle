@@ -136,6 +136,43 @@ func (r Repo) IsAncestor(a, b string) (bool, error) {
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", a, b, err, strings.TrimSpace(errb.String()))
 }
 
+// IgnoredBy reports which of paths (relative to Dir) an ignore rule hides from
+// git: untracked and matched by a rule. The value is the rule, as
+// `<source>:<line>: <pattern>`. A tracked path is never reported, nor one a
+// `!` rule re-includes. An error when Dir is not in a repository.
+func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(paths) == 0 {
+		return out, nil
+	}
+	cmd := exec.Command("git", append([]string{"-C", r.Dir, "check-ignore", "-v", "--"}, paths...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	var stdout, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &errb
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			return nil, fmt.Errorf("git check-ignore: %w: %s", err, strings.TrimSpace(errb.String()))
+		}
+	}
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		rule, path, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		// <source>:<line>:<pattern>; the source may itself hold a colon.
+		i := strings.LastIndex(rule, ":")
+		if i < 0 {
+			continue
+		}
+		where, pattern := rule[:i], rule[i+1:]
+		if strings.HasPrefix(pattern, "!") {
+			continue
+		}
+		out[path] = where + ": " + pattern
+	}
+	return out, nil
+}
+
 // Branch returns the checkout's current branch, "" on a detached HEAD.
 func (r Repo) Branch() (string, error) {
 	cmd := exec.Command("git", "-C", r.Dir, "symbolic-ref", "--short", "-q", "HEAD")
