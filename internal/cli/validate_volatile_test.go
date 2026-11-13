@@ -172,7 +172,9 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 				t.Errorf("this repo's model-id does not match %s: %v", id, got)
 			}
 		}
-		for _, miss := range []string{"claude-code", "reviewer-grok"} {
+		// A reviewer is named after its model (sto_e65b2d30): the model id
+		// inside an agent name is not reported, while the bare id above is.
+		for _, miss := range []string{"claude-code", "reviewer-grok", "reviewer-gpt-5.6-sol-high", "reviewer-gemini-3.8-flash-high", "reviewer-grok-4.7", "`reviewer-grok-4.7`"} {
 			if got := substrate.VolatileText("f.md", "uses "+miss, set); len(got) != 0 {
 				t.Errorf("this repo's model-id matches %s: %v", miss, got)
 			}
