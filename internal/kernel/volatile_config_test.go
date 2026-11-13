@@ -37,7 +37,9 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 	for _, p := range c.Volatile.Patterns {
 		names = append(names, p.Name)
 	}
-	if want := []string{"version", "present-tense", "model-id", "current-item"}; !slices.Equal(names, want) {
+	// The template ships no model-id pattern: which model vendors a repo uses
+	// is the repo's own configuration (it is a commented example there).
+	if want := []string{"version", "present-tense", "current-item"}; !slices.Equal(names, want) {
 		t.Fatalf("default patterns %v, want %v", names, want)
 	}
 	if _, err := substrate.CompileVolatile(c.Volatile); err != nil {
@@ -74,10 +76,6 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 		"present-tense": {
 			match: []string{"the latest release", "This is currently broken.", "At the moment it fails", "use the `current` build", "the limit now is 5"},
 			miss:  []string{".../releases/latest/download/install.sh", "the current_state field", "pass --latest"},
-		},
-		"model-id": {
-			match: []string{"runs on claude-opus-4-1", "gpt-4o is the reviewer", "gemini-2.5-pro", "grok-4"},
-			miss:  []string{"claude-code", "reviewer-grok", "the gpt reviewer"},
 		},
 		"current-item": {
 			match: []string{"the current epic is epi_1a2b3c4d", "currently in review: sto_0f76dd4e", "the active story sto_3846bea3"},
@@ -160,8 +158,10 @@ func TestVolatilePatternsAreOnlyConfiguration(t *testing.T) {
 		}
 		return got
 	}
-	if got := findings(); len(got) != 4 {
-		t.Fatalf("defaults: want the four patterns on line 7, got %v", got)
+	// The three shipped defaults fire on line 7; the model id there is not
+	// flagged, because the template ships no vendor list.
+	if got := findings(); len(got) != 3 {
+		t.Fatalf("defaults: want the three shipped patterns on line 7, got %v", got)
 	}
 	if err := os.Remove(filepath.Join(root, VolatileFile)); err != nil {
 		t.Fatal(err)

@@ -29,10 +29,13 @@ match = '(^|[^0-9.])v?[0-9]+\.[0-9]+\.[0-9]+([^0-9.]|\.([^0-9]|$)|$)'
 name = "present-tense"
 match = '(?i)(^|[^a-z0-9/_-])(latest|current|currently|now is|at the moment)([^a-z0-9/_-]|$)'
 
-# A model id: a vendor prefix, a hyphen and a version digit.
-[[pattern]]
-name = "model-id"
-match = '\b(claude|gpt|gemini|grok)-[a-z0-9.-]*[0-9][a-z0-9.-]*\b'
+# A model id names its vendor, and which vendors a repo uses is that repo's
+# own configuration, so satelle ships no vendor list. To flag model ids,
+# uncomment and list the vendors whose models this repo binds, e.g.:
+#
+# [[pattern]]
+# name = "model-id"
+# match = '\b(vendor-a|vendor-b)-[a-z0-9.-]*[0-9][a-z0-9.-]*\b'
 
 # An item id presented as the current one.
 [[pattern]]
