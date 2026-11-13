@@ -12,6 +12,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
+	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -84,6 +85,11 @@ type Config struct {
 	// selections satelle doctor runs beside its kernel checks (empty when the
 	// file is absent).
 	Doctor DoctorSettings
+	// Volatile is .satelle/volatile.toml: the volatile-literal patterns, the
+	// exemption marker and the extra and excluded paths satelle validate and
+	// satelle doctor apply (empty, so nothing is reported, when the file is
+	// absent). A file of its own for the reason DoctorSettings is.
+	Volatile substrate.VolatileRules
 }
 
 // DoctorSettings is doctor.toml. It is a file of its own, not a satelle.toml
@@ -154,6 +160,7 @@ func (o DoctorOpen) Selection() item.Selection {
 const (
 	SettingsFile = "satelle.toml"
 	DoctorFile   = "doctor.toml"
+	VolatileFile = "volatile.toml"
 	AgentsFile   = "agents.toml"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
@@ -187,6 +194,11 @@ func LoadConfig(root string) (*Config, error) {
 	}
 	if p := filepath.Join(root, DoctorFile); exists(p) {
 		if err := workflow.DecodeStrict(p, &c.Doctor); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if p := filepath.Join(root, VolatileFile); exists(p) {
+		if err := workflow.DecodeStrict(p, &c.Volatile); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -283,7 +295,17 @@ func (c *Config) Problems() []error {
 	}
 	errs = append(errs, c.queueProblems()...)
 	errs = append(errs, c.doctorProblems()...)
+	for _, err := range c.Volatile.Problems() {
+		errs = append(errs, fmt.Errorf("%s: %w", VolatileFile, err))
+	}
 	return errs
+}
+
+// VolatileFindings is each line of the substrate, and of the files
+// volatile.toml names, that matches one of its patterns (substrate.Volatile).
+// It is the one call satelle validate and satelle doctor make.
+func (c *Config) VolatileFindings() ([]substrate.Finding, error) {
+	return substrate.Volatile(c.Root, c.Volatile)
 }
 
 // doctorProblems checks doctor.toml: each check names a check skill and a fix;
