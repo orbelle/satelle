@@ -133,7 +133,10 @@ failing; `satelle doctor` reports each as a `volatile` issue, and `--resolve`
 puts them on the substrate-fix item. With no `volatile.toml`, or no
 `[[pattern]]` in it, nothing is reported: satelle holds no patterns of its
 own. `satelle init` writes the default patterns when the file is absent, and
-the repo edits its copy to change, add or remove them. It is its own file for
+the repo edits its copy to change, add or remove them. The shipped file flags
+version strings, present-tense words and item ids presented as current, and
+holds a commented `model-id` pattern that a repo enables by uncommenting it
+and listing the vendors whose models it uses: satelle ships no vendor list. It is its own file for
 the reason `doctor.toml` is.
 
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives

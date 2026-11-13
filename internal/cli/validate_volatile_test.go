@@ -135,10 +135,26 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 	for _, p := range cfg.Volatile.Patterns {
 		names = append(names, p.Name)
 	}
-	for _, n := range []string{"version", "present-tense", "model-id", "current-item"} {
-		if !slices.Contains(names, n) {
-			t.Errorf("this repo's volatile.toml lacks the default pattern %q (has %v)", n, names)
+	// This repo carries every pattern the init template ships, plus a model-id
+	// pattern the template does not load (AC6): compared with what a fresh
+	// init writes, not with a hardcoded list.
+	fresh := filepath.Join(t.TempDir(), ".satelle")
+	if err := kernel.Init(fresh); err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := kernel.LoadConfig(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shipped []string
+	for _, p := range tmpl.Volatile.Patterns {
+		shipped = append(shipped, p.Name)
+		if !slices.Contains(names, p.Name) {
+			t.Errorf("this repo's volatile.toml lacks the template's pattern %q (has %v)", p.Name, names)
 		}
+	}
+	if slices.Contains(shipped, "model-id") || !slices.Contains(names, "model-id") {
+		t.Errorf("model-id: the template loads %v and this repo %v; want it in this repo's only", shipped, names)
 	}
 	// AC6: this repo enables model-id with its own vendors: one model id from
 	// each family satelle-agent-alt-reviewer.md names for this repo matches,
