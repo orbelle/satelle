@@ -1,3 +1,11 @@
+## [1.0.58] - 2026-11-13
+
+### Changed
+- The sync timer's pass may run doctor's provable, answer-free fixes; replication stays the only path for work state. (sto_3846bea3)
+
+### Fixed
+- A pre-1.0 project registered on this machine is 'needs upgrade', not a failure: satelle ledger autosync skips it with one line and exits 0, satelled shows 'Upgrade needed' with `satelle upgrade --archive` instead of Sync Failing, satelle doctor and session start in such a repo give that one line (to the user as well, where the harness has a user channel) instead of the unknown-key list, and satelle update lists each such project after installing (sto_0f76dd4e)
+
 ## [1.0.57] - 2026-11-13
 
 ### Changed
