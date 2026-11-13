@@ -1,3 +1,9 @@
+## [1.0.56] - 2026-11-13
+
+### Changed
+- satelle help edit-gate has a Cursor IDE sessions section: what a session in the Cursor IDE's agent gets from satelle agents install cursor (validated on Cursor 3.28.7), where it differs from cursor-agent (the sandboxed shell cannot write satelle's runtime, the seat shows as unverified), and that a repo wired only for claude is gated there too. scripts/cursor-ide-probe.sh repeats the validation on a later Cursor. (sto_bf491f0d)
+- The planner runs Claude Fable 5.2 headless on the claude CLI. (sto_ab6b055c)
+
 ## [1.0.55] - 2026-11-12
 
 ### Added
