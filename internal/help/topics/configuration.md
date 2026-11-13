@@ -77,7 +77,8 @@ reports each item it selects that is not in a terminal state of its workflow.
 that does not know it ignores it.
 
 `satelle doctor --resolve` fixes what doctor can prove (the service, seats
-whose session has ended on this machine) and asks about other orphaned seats.
+whose session has ended on this machine or whose item is in a terminal state)
+and asks about other orphaned seats.
 The config, substrate, init and `[[check]]` findings it puts on one item, for the agent to
 fix in one change through that item's workflow; it never edits or commits the
 files itself, and opens no second item while that one is open. `[resolve]`

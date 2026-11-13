@@ -37,8 +37,9 @@ session record, no settled owner even when its hook processes have exited, or
 no proof either way). satelled marks the story ◆ here for a seat here and
 ◇ here for an unverified one, with the reason on hover, and shows each seat
 elsewhere on the row at its user and place.
-`satelle doctor --resolve` releases a gone one without asking, and asks about
-a seat here whose session never settled an owner, never releasing it unasked.
+`satelle doctor --resolve` releases a gone one, and a seat on an item in a
+terminal state wherever its session ran, without asking, and asks about a seat
+here whose session never settled an owner, never releasing it unasked.
 
 Always and never:
 

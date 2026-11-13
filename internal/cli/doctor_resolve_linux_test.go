@@ -146,15 +146,34 @@ func seatsOn(t *testing.T, id string) []item.Seat { return item.FoldSeats(chain(
 // host: another machine's seat, or a legacy one recording none.
 func seatAs(t *testing.T, id, session, machine, host string) {
 	t.Helper()
-	k, r, err := openKernel()
+	r, err := findRepo("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatAt(t, id, session, machine, host, kernel.LocalLocation(r.Tree))
+}
+
+// seatAt binds session on id at location from a kernel stamping machine and
+// host.
+func seatAt(t *testing.T, id, session, machine, host, location string) {
+	t.Helper()
+	k, _, err := openKernel()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer k.Close()
 	k.Machine, k.Host = machine, host
-	if _, err := k.Seat(id, session, kernel.LocalLocation(r.Tree), "", "test"); err != nil {
+	if _, err := k.Seat(id, session, location, "", "test"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// missingWorktree is a local: location on this machine whose path does not
+// exist.
+func missingWorktree(t *testing.T) (path, location string) {
+	t.Helper()
+	path = filepath.Join(t.TempDir(), "gone")
+	return path, kernel.LocationLocal + path
 }
 
 // --resolve runs the service install action when satelle.service or the sync
@@ -276,24 +295,32 @@ func TestResolveReleasesAProvenOrphan(t *testing.T) {
 	}
 }
 
-// Every other orphan is shown with its evidence and released or kept on the
-// answer at the terminal; without one it is only listed and --resolve exits 1
-// (AC3, AC8 "orphan asked about").
+// Every other orphan (here, an open item's seat at a worktree of this machine
+// that no longer exists) is shown with its evidence and released or kept on
+// the answer at the terminal; without one it is listed, saying there was no
+// terminal to ask at, and --resolve exits 1 (AC3, AC8 "orphan asked about";
+// sto_75c6b584 AC2).
 func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 	rows := []struct {
 		name    string
-		seat    func(t *testing.T, id string)
+		seat    func(t *testing.T, id, location string)
 		machine string
 		session string
 	}{
-		{name: "this machine, session alive", seat: func(t *testing.T, id string) {
-			must(t, "story", "seat", id, "--session", "s-live")
-			if err := seatlife.Own(config.GlobalDir(), "s-live", procgroup.Self()); err != nil {
+		{name: "this machine, session alive", seat: func(t *testing.T, id, location string) {
+			home := config.GlobalDir()
+			here, err := config.MachineID(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			host, _ := os.Hostname()
+			seatAt(t, id, "s-live", here, host, location)
+			if err := seatlife.Own(home, "s-live", procgroup.Self()); err != nil {
 				t.Fatal(err)
 			}
 		}, machine: "machine: this machine", session: "session s-live: here (pid "},
-		{name: "no machine recorded", seat: func(t *testing.T, id string) {
-			seatAs(t, id, "s-live", "", "")
+		{name: "no machine recorded", seat: func(t *testing.T, id, location string) {
+			seatAt(t, id, "s-live", "", "", location)
 		}, machine: "machine: not recorded", session: "session s-live: unverified (no machine recorded)"},
 	}
 	outcomes := []struct {
@@ -308,10 +335,10 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 	for _, row := range rows {
 		for _, oc := range outcomes {
 			t.Run(row.name+"/"+oc.name, func(t *testing.T) {
-				f := newDoctorFixture(t)
-				id := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
-				row.seat(t, id)
-				must(t, "story", "set", id, "--status", "done")
+				newDoctorFixture(t)
+				id := createID(t, "story", "create", "--title", "open", "--criteria", "c")
+				missing, location := missingWorktree(t)
+				row.seat(t, id, location)
 				var tty *fakeTTY
 				if oc.answer != "" {
 					tty = withTerminal(t, oc.answer)
@@ -326,7 +353,7 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 				if released != oc.released {
 					t.Errorf("released %v, want %v", released, oc.released)
 				}
-				evidence := []string{"done, a terminal state", "local:" + f.dir, row.machine, row.session}
+				evidence := []string{"its worktree " + missing + " no longer exists", location, row.machine, row.session}
 				var shown string
 				switch {
 				case tty != nil:
@@ -339,6 +366,9 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 					if len(rep.Left) != 1 || !strings.Contains(rep.Left[0].Fix, "release "+id+" --session s-live") {
 						t.Fatalf("left %+v, want the seat with its release command", rep.Left)
 					}
+					if !strings.Contains(rep.Left[0].Why, leftNoTTY) {
+						t.Errorf("left why %q, want %q", rep.Left[0].Why, leftNoTTY)
+					}
 					shown = rep.Left[0].Problem
 				}
 				for _, e := range evidence {
@@ -349,6 +379,179 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A seat on an item in a terminal state is released without asking wherever
+// its session ran: here with its owner alive, on another machine, or with no
+// machine recorded; with no terminal, and with one that is never used
+// (sto_75c6b584 AC1).
+func TestResolveReleasesSeatsOnTerminalItems(t *testing.T) {
+	rows := []struct {
+		name, session string
+		seat          func(t *testing.T, id string)
+	}{
+		{name: "here, owner alive", session: "s-here", seat: func(t *testing.T, id string) {
+			must(t, "story", "seat", id, "--session", "s-here")
+			if err := seatlife.Own(config.GlobalDir(), "s-here", procgroup.Self()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "elsewhere", session: "s-elsewhere", seat: func(t *testing.T, id string) {
+			seatAs(t, id, "s-elsewhere", "m-other", "other-host")
+		}},
+		{name: "unverified", session: "s-u", seat: func(t *testing.T, id string) {
+			seatAs(t, id, "s-u", "", "")
+		}},
+	}
+	for _, row := range rows {
+		for _, withTTY := range []bool{false, true} {
+			t.Run(row.name+"/"+map[bool]string{false: "no terminal", true: "terminal"}[withTTY], func(t *testing.T) {
+				newDoctorFixture(t)
+				id := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
+				row.seat(t, id)
+				must(t, "story", "set", id, "--status", "done")
+				var tty *fakeTTY
+				if withTTY {
+					tty = withTerminal(t, "")
+				} else {
+					noTerminal(t)
+				}
+				doc, _, _ := doctorJSON(t)
+				var seatIssues []doctorIssue
+				for _, is := range doc.Issues {
+					if is.Check == "seats" {
+						seatIssues = append(seatIssues, is)
+					}
+				}
+				if len(seatIssues) != 1 || seatIssues[0].Resolve != resolveReleaseSeat || !strings.Contains(seatIssues[0].Problem, "done, a terminal state") {
+					t.Fatalf("seat issues %+v, want one %s on the done item", seatIssues, resolveReleaseSeat)
+				}
+				rep, out, err := resolveJSON(t)
+				if err != nil {
+					t.Fatalf("--resolve: %v\n%s", err, out)
+				}
+				if len(rep.Left) != 0 {
+					t.Errorf("left %+v", rep.Left)
+				}
+				if len(rep.Actions) != 1 || rep.Actions[0].Result != resultReleased || rep.Actions[0].Resolve != resolveReleaseSeat {
+					t.Errorf("actions %+v, want one %s", rep.Actions, resultReleased)
+				}
+				if s := seatsOn(t, id); len(s) != 0 {
+					t.Errorf("the seat is still bound: %+v", s)
+				}
+				evs := chain(t, id)
+				last := evs[len(evs)-1]
+				var rel item.SeatRelease
+				if last.Kind != item.KindSeatReleased || last.Decode(&rel) != nil || rel.Session != row.session {
+					t.Errorf("chain ends in %s %s, want seat.released for %s", last.Kind, last.Payload, row.session)
+				}
+				if tty != nil && (tty.reads != 0 || tty.shown.Len() != 0) {
+					t.Errorf("the terminal was used: %d reads, shown %q", tty.reads, tty.shown.String())
+				}
+			})
+		}
+	}
+}
+
+// An issue doctor cannot prove a fix for is left saying so, and the text
+// report prints a why: line under every left: line (sto_75c6b584 AC2).
+func TestResolveLeftNamesWhy(t *testing.T) {
+	newDoctorFixture(t)
+	noTerminal(t)
+	createID(t, "story", "create", "--title", "a drift", "--criteria", "c", "--tag", "drift")
+	rep, out, err := resolveJSON(t)
+	if ExitCodeOf(err) != 1 {
+		t.Fatalf("exit %d, want 1: %v\n%s", ExitCodeOf(err), err, out)
+	}
+	if !slices.ContainsFunc(rep.Left, func(l resolveLeft) bool { return l.Check == "open:drift" }) {
+		t.Fatalf("left %+v, want the open:drift issue", rep.Left)
+	}
+	for _, l := range rep.Left {
+		if l.Why != leftNoFix {
+			t.Errorf("left %s: why %q, want %q", l.Check, l.Why, leftNoFix)
+		}
+	}
+	text, _ := run(t, "", "doctor", "--resolve")
+	lines := strings.Split(text, "\n")
+	n := 0
+	for i, l := range lines {
+		if !strings.HasPrefix(l, "left: ") {
+			continue
+		}
+		n++
+		if i+1 >= len(lines) || lines[i+1] != "  why: "+leftNoFix {
+			t.Errorf("left line %q is not followed by its why:\n%s", l, text)
+		}
+	}
+	if n != len(rep.Left) {
+		t.Errorf("%d left: lines, want %d:\n%s", n, len(rep.Left), text)
+	}
+}
+
+// Plain doctor's "acts on N" line counts what --resolve acts on from this
+// terminal context: a seat it would ask about only with a terminal attached,
+// and no ledger action under an invalid configuration (sto_75c6b584 AC3).
+func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
+	t.Run("valid configuration", func(t *testing.T) {
+		newDoctorFixture(t)
+		done := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
+		seatAs(t, done, "s-done", "", "")
+		must(t, "story", "set", done, "--status", "done")
+		open := createID(t, "story", "create", "--title", "open", "--criteria", "c")
+		_, location := missingWorktree(t)
+		seatAt(t, open, "s-open", "", "", location)
+
+		tty := withTerminal(t, "keep\n")
+		text, _ := run(t, "", "doctor")
+		if !strings.Contains(text, "satelle doctor --resolve acts on 2 of them") {
+			t.Errorf("with a terminal, doctor does not count 2:\n%s", text)
+		}
+		if tty.reads != 0 || tty.shown.Len() != 0 {
+			t.Errorf("plain doctor used the terminal: %d reads, shown %q", tty.reads, tty.shown.String())
+		}
+
+		noTerminal(t)
+		text, _ = run(t, "", "doctor")
+		if !strings.Contains(text, "satelle doctor --resolve acts on 1 of them") {
+			t.Errorf("without a terminal, doctor does not count 1:\n%s", text)
+		}
+		rep, out, _ := resolveJSON(t)
+		if len(rep.Actions) != 1 || rep.Actions[0].Result != resultReleased || !strings.Contains(rep.Actions[0].Problem, done) {
+			t.Errorf("actions %+v, want the done item's seat released\n%s", rep.Actions, out)
+		}
+		if len(rep.Left) != 1 || !strings.Contains(rep.Left[0].Problem, open) || !strings.Contains(rep.Left[0].Why, leftNoTTY) {
+			t.Errorf("left %+v, want the open item's seat, no terminal to ask at", rep.Left)
+		}
+	})
+	t.Run("invalid configuration", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		done := createID(t, "story", "create", "--title", "finished", "--criteria", "c")
+		seatAs(t, done, "s-done", "", "")
+		must(t, "story", "set", done, "--status", "done")
+		p := filepath.Join(f.dir, ".satelle", "satelle.toml")
+		b, _ := os.ReadFile(p)
+		writeFile(t, p, string(b)+"\nbogus_key = 1\n")
+		withTerminal(t, "")
+		doc, _, _ := doctorJSON(t)
+		if !slices.ContainsFunc(doc.Issues, func(is doctorIssue) bool {
+			return is.Check == "seats" && is.Resolve == resolveReleaseSeat && strings.Contains(is.Problem, done)
+		}) {
+			t.Fatalf("doctor reports no %s for the done item's seat: %+v", resolveReleaseSeat, doc.Issues)
+		}
+		text, _ := run(t, "", "doctor")
+		if strings.Contains(text, "acts on") {
+			t.Errorf("doctor counts ledger actions under an invalid configuration:\n%s", text)
+		}
+		rep, _, _ := resolveJSON(t)
+		if len(rep.Actions) != 0 {
+			t.Errorf("actions %+v under an invalid configuration", rep.Actions)
+		}
+		if !slices.ContainsFunc(rep.Left, func(l resolveLeft) bool {
+			return l.Check == "seats" && strings.Contains(l.Problem, done) && l.Why == leftConfig
+		}) {
+			t.Errorf("left %+v, want the seat with %q", rep.Left, leftConfig)
+		}
+	})
 }
 
 // A seat here whose session never settled an owner and whose hook processes
@@ -408,6 +611,9 @@ func TestResolveAsksAboutASessionWhoseHooksExited(t *testing.T) {
 				}
 				if len(res.Left) != 1 || !strings.Contains(res.Left[0].Fix, "release "+id+" --session s-hooks") {
 					t.Fatalf("left %+v, want the seat with its release command", res.Left)
+				}
+				if !strings.Contains(res.Left[0].Why, leftNoTTY) {
+					t.Errorf("left why %q, want %q", res.Left[0].Why, leftNoTTY)
 				}
 			}
 			if s := seatsOn(t, id); len(s) != 1 {
@@ -527,6 +733,11 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 				}
 				if len(rep.Left) == 0 || rep.Left[0].Check != "config" || !strings.Contains(rep.Left[0].Problem, "bogus_key") {
 					t.Fatalf("the config finding is not first: %+v", rep.Left)
+				}
+				for _, l := range rep.Left {
+					if l.Why != leftConfig {
+						t.Errorf("left %s: %s: why %q, want %q", l.Check, l.Problem, l.Why, leftConfig)
+					}
 				}
 				for _, w := range findings {
 					if !slices.ContainsFunc(rep.Left, func(l resolveLeft) bool {
