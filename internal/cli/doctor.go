@@ -647,9 +647,11 @@ func doctorGroups(issues []doctorIssue) (order []string, byCheck map[string][]do
 }
 
 // doctorNotice is the user's short view of a report at session start: the
-// issue count, then one line per check with its count and first fix, and no
-// problem text (that stays in doctorBlock, the model's context). It is empty
-// when there are no issues; checks the budget cut alone give no notice.
+// issue count, then one line per check with its count and a fix, and no
+// problem text (that stays in doctorBlock, the model's context). A check's fix
+// is the first non-empty fix among its issues; when none of them has one, it
+// is noticeFallbackFix, so every line names an action. It is empty when there
+// are no issues; checks the budget cut alone give no notice.
 func doctorNotice(rep doctorReport) string {
 	if len(rep.Issues) == 0 {
 		return ""
@@ -658,14 +660,21 @@ func doctorNotice(rep doctorReport) string {
 	fmt.Fprintf(&b, "satelle doctor: %d issue(s); run `satelle doctor` for each\n", len(rep.Issues))
 	order, byCheck := doctorGroups(rep.Issues)
 	for _, c := range order {
-		fmt.Fprintf(&b, "  %s (%d)", c, len(byCheck[c]))
-		if fix := byCheck[c][0].Fix; fix != "" {
-			fmt.Fprintf(&b, " — fix: %s", fix)
+		fix := noticeFallbackFix
+		for _, is := range byCheck[c] {
+			if is.Fix != "" {
+				fix = is.Fix
+				break
+			}
 		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "  %s (%d) — fix: %s\n", c, len(byCheck[c]), fix)
 	}
 	return b.String()
 }
+
+// noticeFallbackFix is the notice's fix for a check none of whose issues
+// records one: doctor itself lists each issue with what it knows.
+const noticeFallbackFix = "satelle doctor (lists each issue)"
 
 // doctorBlock is the session-start summary of a report: one line per check
 // with its count, first problem and first fix, then any checks the budget cut.
