@@ -87,7 +87,11 @@ restarts satelled onto the new build, starts the sync timer and prints
 'satelle service status'; with no systemd user manager it prints the units and
 the autosync command. --no-service or SATELLE_NO_SERVICE=1 skips every unit
 change; a running satelled then keeps the old build until
-'satelle service restart'.`,
+'satelle service restart'.
+
+Last, whether or not anything was replaced, update lists each registered
+project whose .satelle is pre-1.0, with 'satelle upgrade --archive' to run in
+it: this satelle cannot read them.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), downloadTimeout)
@@ -155,15 +159,21 @@ change; a running satelled then keeps the old build until
 				buildinfo.Identify(ctx, config.GlobalDir(), daemonPath)
 				fmt.Fprintf(out, "satelled %s → %s\n", daemonOld, daemonNew)
 			}
+			// The registered pre-1.0 projects are the last thing printed, on
+			// every path: never before the replace-or-current lines.
+			legacy := registeredLegacy()
 			if skip, why := serviceOptOut(noService); skip {
 				fmt.Fprintf(out, "service: not installed or changed (%s); a running satelled keeps its old build until 'satelle service restart'\n", why)
+				printNeedsUpgrade(out, legacy)
 				return nil
 			}
 			daemon := daemonPath
 			if _, err := os.Stat(daemon); err != nil {
 				daemon = resolveDaemon("")
 			}
-			if err := refreshService(ctx, out, target, daemon); err != nil {
+			err = refreshService(ctx, out, target, daemon)
+			printNeedsUpgrade(out, legacy)
+			if err != nil {
 				return fmt.Errorf("the binaries are updated, but the service is not: %w; rerun 'satelle service refresh', or pass --no-service", err)
 			}
 			return nil

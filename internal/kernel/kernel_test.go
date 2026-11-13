@@ -184,15 +184,16 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "skills", "satelle-upgrade.md")); err != nil {
+	// UpgradeSkill is the name every needs-upgrade line prints (sto_0f76dd4e).
+	if _, err := os.Stat(filepath.Join(root, "skills", UpgradeSkill+".md")); err != nil {
 		t.Fatal(err)
 	}
 	c, err := LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sk, ok := c.Skills["satelle-upgrade"]
-	if !ok || sk.Meta["name"] != "satelle-upgrade" || sk.IsCheck() {
+	sk, ok := c.Skills[UpgradeSkill]
+	if !ok || sk.Meta["name"] != UpgradeSkill || sk.IsCheck() {
 		t.Fatalf("skill = %+v, %v", sk.Meta, ok)
 	}
 	if probs := Validate(root); len(probs) != 0 {

@@ -684,3 +684,71 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 		t.Fatalf("satelle.dev holds %d events of que_release, A pushed %d", n, len(aChain))
 	}
 }
+
+// AC1 (sto_0f76dd4e): a registered pre-1.0 project is skipped with one
+// needs-upgrade line, recorded as needing upgrade (not failing), and does not
+// fail the pass; nothing but its sync record is written into its runtime dir.
+// A v1 project whose configuration is broken still fails the pass alone.
+func TestAutosyncSkipsAPreV1Project(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	oldA, _ := newPreV1Repo(t)
+	oldB, _ := newPreV1Repo(t)
+	registerProjects(t, oldA, dir, oldB)
+	out := must(t, "ledger", "autosync")
+	for _, p := range []string{oldA, oldB} {
+		var lines []string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, p+":") {
+				lines = append(lines, l)
+			}
+		}
+		if len(lines) != 1 || !strings.Contains(lines[0], "needs upgrade") || !strings.Contains(lines[0], "satelle upgrade --archive") {
+			t.Errorf("%s: want one needs-upgrade line, got %q\n%s", p, lines, out)
+		}
+		r, err := findRepo(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, _, err := syncstate.Load(config.GlobalDir(), uiRepoRoot(r))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.SyncUpgrade != "satelle upgrade --archive" || st.SyncReason != "" {
+			t.Errorf("%s recorded %+v, want an upgrade and no reason", p, st)
+		}
+		// The runtime dir holds the sync record (syncstate keeps it there)
+		// and nothing else: no ledger, no repo-path marker, nothing opened.
+		ents, err := os.ReadDir(r.Runtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ents) != 1 || ents[0].Name() != "workstate-sync.json" {
+			var names []string
+			for _, e := range ents {
+				names = append(names, e.Name())
+			}
+			t.Errorf("the pass wrote into %s's runtime dir %s: %v", p, r.Runtime, names)
+		}
+	}
+	if strings.Contains(out, "unknown key") || strings.Contains(out, "sync failing") {
+		t.Errorf("the pass reported a pre-1.0 project as failing:\n%s", out)
+	}
+	if !strings.Contains(out, dir+": ledger store is local") {
+		t.Errorf("the v1 project's summary is missing:\n%s", out)
+	}
+
+	t.Run("a broken v1 project still fails the pass alone", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(dir, ".satelle", "satelle.toml"), []byte("[mystery]\nx = 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := run(t, "", "ledger", "autosync")
+		if err == nil || ExitCodeOf(err) != ExitError {
+			t.Fatalf("want exit 1, got %v\n%s", err, out)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "1 of 3 project(s) failed: "+dir) || strings.Contains(msg, oldA) || strings.Contains(msg, oldB) {
+			t.Errorf("failed message %q, want only %s", msg, dir)
+		}
+	})
+}

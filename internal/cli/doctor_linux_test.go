@@ -422,3 +422,177 @@ func TestUpdateClearsTheSyncIssue(t *testing.T) {
 		}
 	}
 }
+
+// AC1 (sto_0f76dd4e): doctor names each registered pre-1.0 project as needing
+// upgrade. In a v1 repo the others are notes, never issues; inside a pre-1.0
+// repo that repo is the one upgrade issue, no v1-only check runs, nothing
+// dumps the unknown keys, and --resolve leaves it and changes nothing.
+func TestDoctorNamesPreV1Repos(t *testing.T) {
+	f := newDoctorFixture(t)
+	oldA, _ := newPreV1Repo(t)
+	oldB, mB := newPreV1Repo(t)
+	registerProjects(t, f.dir, oldA, oldB)
+	noDump := func(t *testing.T, rep doctorReport) {
+		t.Helper()
+		for _, is := range rep.Issues {
+			if strings.Contains(is.Problem, "unknown key") || strings.Contains(is.Problem, "sync pass failed") {
+				t.Errorf("issue dumps the configuration: %+v", is)
+			}
+		}
+		for _, n := range rep.Notes {
+			if strings.Contains(n, "unknown key") {
+				t.Errorf("note dumps the configuration: %s", n)
+			}
+		}
+	}
+
+	rep, _, err := doctorJSON(t)
+	if err != nil {
+		t.Fatalf("a clean v1 repo with pre-1.0 neighbours failed doctor: %v %+v", err, rep)
+	}
+	var notes []string
+	for _, n := range rep.Notes {
+		if strings.HasPrefix(n, "upgrade: ") {
+			notes = append(notes, n)
+		}
+	}
+	if len(notes) != 2 {
+		t.Fatalf("want two upgrade notes, got %q", rep.Notes)
+	}
+	for i, p := range []string{oldA, oldB} {
+		if !strings.HasPrefix(notes[i], "upgrade: "+p+": needs upgrade") || !strings.Contains(notes[i], "satelle upgrade --archive") {
+			t.Errorf("note %d = %q, want %s needing upgrade", i, notes[i], p)
+		}
+	}
+	for _, is := range rep.Issues {
+		if is.Check == "upgrade" {
+			t.Errorf("a v1 repo raised an upgrade issue: %+v", is)
+		}
+	}
+	noDump(t, rep)
+
+	t.Chdir(oldB)
+	rep, text, err := doctorJSON(t)
+	if err == nil || ExitCodeOf(err) != ExitError {
+		t.Fatalf("doctor in a pre-1.0 repo: want exit 1, got %v", err)
+	}
+	if len(rep.Issues) != 1 || rep.Issues[0].Check != "upgrade" || rep.Issues[0].Fix != "satelle upgrade --archive" ||
+		rep.Issues[0].Problem != needsUpgradeLine(oldB, mB) {
+		t.Fatalf("issues %+v, want the one upgrade issue", rep.Issues)
+	}
+	for _, n := range rep.Notes {
+		if strings.Contains(n, oldB) {
+			t.Errorf("the repo doctor runs in is also a note: %s", n)
+		}
+	}
+	noDump(t, rep)
+	if strings.Contains(text, "unknown key") || !strings.Contains(text, "fix: satelle upgrade --archive") {
+		t.Errorf("doctor text:\n%s", text)
+	}
+
+	r, err := findRepo("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := digest(t, oldB, os.Getenv("SATELLE_HOME"), r.Runtime)
+	out, err := run(t, "", "doctor", "--resolve", "--json")
+	if err == nil {
+		t.Fatalf("--resolve left nothing:\n%s", out)
+	}
+	var res resolveReport
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("doctor --resolve --json: %v\n%s", jerr, out)
+	}
+	if len(res.Actions) != 0 || len(res.Left) != 1 || res.Left[0].Check != "upgrade" || res.Left[0].Fix != "satelle upgrade --archive" {
+		t.Errorf("--resolve = %+v, want the upgrade issue left and no action", res)
+	}
+	if d := sameDigest(before, digest(t, oldB, os.Getenv("SATELLE_HOME"), r.Runtime)); len(d) != 0 {
+		t.Errorf("--resolve in a pre-1.0 repo changed %v", d)
+	}
+}
+
+// AC3 (sto_0f76dd4e): session start in a pre-1.0 repo is the one
+// needs-upgrade line, to the agent and, where the harness has a user channel,
+// to the user; the prompt hook gives the agent the same line. A v1 repo's
+// session start is unchanged.
+func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
+	f := newDoctorFixture(t)
+	dir, m := newPreV1Repo(t)
+	want := needsUpgradeLine(dir, m) + "\n"
+	if strings.Count(want, "\n") != 1 || !strings.Contains(want, "satelle upgrade --archive") || !strings.Contains(want, "satelle-upgrade skill") {
+		t.Fatalf("the line is not one line naming the command and skill: %q", want)
+	}
+	noDump := func(t *testing.T, raw string) {
+		t.Helper()
+		for _, bad := range []string{"unknown key", "configuration is invalid", "satelle doctor"} {
+			if strings.Contains(raw, bad) {
+				t.Errorf("output holds %q:\n%s", bad, raw)
+			}
+		}
+	}
+	type envelope struct {
+		Hook struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+		Message *string `json:"systemMessage"`
+	}
+	hookRun := func(t *testing.T, verb, harness string) (envelope, string) {
+		t.Helper()
+		args := []string{"hook", verb}
+		if harness != "" {
+			args = append(args, "--harness", harness)
+		}
+		out, err := run(t, fmt.Sprintf(`{"session_id":"s-old","cwd":%q}`, dir), args...)
+		if err != nil {
+			t.Fatalf("hook %v: %v\n%s", args, err, out)
+		}
+		var env envelope
+		if err := json.Unmarshal([]byte(out), &env); err != nil {
+			t.Fatalf("hook %v output: %v\n%s", args, err, out)
+		}
+		return env, out
+	}
+
+	t.Run("claude", func(t *testing.T) {
+		ctx, msg, raw := hookContextText(t, dir)
+		if ctx != want || msg != want {
+			t.Errorf("additionalContext %q, systemMessage %q, want both %q", ctx, msg, want)
+		}
+		noDump(t, raw)
+	})
+	t.Run("pi", func(t *testing.T) {
+		env, raw := hookRun(t, "context", "pi")
+		if env.Hook.Context != want || env.Message == nil || *env.Message != want {
+			t.Errorf("pi:\n%s", raw)
+		}
+		noDump(t, raw)
+	})
+	t.Run("grok", func(t *testing.T) {
+		env, raw := hookRun(t, "context", "grok")
+		if env.Hook.Context != want || env.Message != nil {
+			t.Errorf("grok:\n%s", raw)
+		}
+		noDump(t, raw)
+	})
+	t.Run("cursor", func(t *testing.T) {
+		payload := `{"conversation_id":"c-old","generation_id":"c-old","session_id":"c-old","cursor_version":"2026.11.05-86047df","workspace_roots":[` + jsonString(dir) + `],"hook_event_name":"sessionStart"}`
+		raw, doc := cursorAnswer(t, payload, "context")
+		if len(doc) != 1 || doc["additional_context"] != want {
+			t.Errorf("cursor answer %s, want only additional_context %q", raw, want)
+		}
+		noDump(t, raw)
+	})
+	t.Run("claude prompt", func(t *testing.T) {
+		env, raw := hookRun(t, "prompt", "")
+		if env.Hook.Context != want || env.Message != nil {
+			t.Errorf("prompt:\n%s", raw)
+		}
+		noDump(t, raw)
+	})
+	t.Run("a v1 repo is unchanged", func(t *testing.T) {
+		ctx, _, _ := hookContextText(t, f.dir)
+		if !strings.Contains(ctx, "satelle session: s-hook") || !strings.Contains(ctx, "Edits are allowed only while this session holds a seat") {
+			t.Errorf("v1 session start:\n%s", ctx)
+		}
+	})
+}

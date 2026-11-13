@@ -275,9 +275,13 @@ const templatesSrc = `
      (sto_5c706973). "synced" stays outside time.rel-time so the ticker cannot
      strip it. Landing does not call this — it shows a Sync Failing tag
      instead. */}}
-{{define "syncstate"}}{{if or .SyncLocal .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="the ledger store is local: nothing replicates">local</span>{{else if .SyncReason}}<span class="sync-fail">sync failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last sync with {{.SyncStore}} at {{ftime .SyncLastSuccess}}">synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
+{{define "syncstate"}}{{if or .SyncLocal .SyncUpgrade .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="the ledger store is local: nothing replicates">local</span>{{else if .SyncUpgrade}}<span class="sync-upgrade" title="pre-1.0 .satelle: this satelle cannot read it">upgrade needed</span>{{else if .SyncReason}}<span class="sync-fail">sync failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last sync with {{.SyncStore}} at {{ftime .SyncLastSuccess}}">synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
 
 {{define "syncfail"}}<div class="sync-fail-body"><span class="sync-fail-reason">{{.SyncReason}}</span>{{if isotime .SyncLastSuccess}} <span class="sync-fail-log">last synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}</div>{{end}}
+
+{{/* syncupgrade: a pre-1.0 repo the sync pass skipped (sto_0f76dd4e). It
+     needs upgrading in the repo; nothing failed, so never inside syncfail. */}}
+{{define "syncupgrade"}}<div class="sync-upgrade-body">run <code>{{.SyncUpgrade}}</code> in this repo (see <code>satelle help upgrade</code>)</div>{{end}}
 
 {{/* syncheld: stories the last push held until their code is on the remote
      (sty_c203fd62). In flight, not failing: muted, never inside syncfail. */}}
@@ -286,6 +290,11 @@ const templatesSrc = `
 {{/* syncfailtag: landing-only status chip. No reason, no log path — those
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="ledger sync is failing — see the project page">Sync Failing</span>{{end}}{{end}}
+
+{{/* syncupgradetag: landing chip for a pre-1.0 repo (sto_0f76dd4e), with the
+     command to run in it. The upgrade outcome clears SyncReason, so it never
+     shows beside syncfailtag. */}}
+{{define "syncupgradetag"}}{{if .SyncUpgrade}}<span class="sync-tag-upgrade" title="pre-1.0 .satelle: run it in the repo">Upgrade needed: <code>{{.SyncUpgrade}}</code></span>{{end}}{{end}}
 
 {{/* footer: the three builds (sto_49b6e762): the satelle CLI installed beside
      satelled, the running satelled and the satelled installed on disk, each
@@ -316,6 +325,7 @@ const templatesSrc = `
     <h1>{{.ProjectName}}</h1>
     <div class="meta">{{.RepoRoot}} · <a href="help">help →</a> · <a href="settings">settings →</a> · {{template "freshness" .}} · {{template "syncstate" .}}</div>
     {{if and .SyncReason (not .SyncLocal)}}{{template "syncfail" .}}{{end}}
+    {{if .SyncUpgrade}}{{template "syncupgrade" .}}{{end}}
     {{if and .SyncHeld (not .SyncLocal)}}{{template "syncheld" .}}{{end}}
   </header>
 

@@ -57,6 +57,9 @@ type partitionVM struct {
 	SyncReason      string
 	SyncLocal       bool
 	SyncStore       string
+	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
+	// (sto_0f76dd4e): the landing shows Upgrade needed, not Sync Failing.
+	SyncUpgrade string
 }
 
 // mirrorProjectsData backs the Projects landing template.
@@ -266,6 +269,7 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 			SyncReason:      st.SyncReason,
 			SyncLocal:       st.SyncStore == syncstate.LocalStore,
 			SyncStore:       st.SyncStore,
+			SyncUpgrade:     st.SyncUpgrade,
 		})
 	}
 	return pvm, total, nil
@@ -659,7 +663,7 @@ const mirrorProjectsSrc = `
              Project cell and pushed the name around (sty_226a661e). Landing
              shows local ingest only; a standing fail is a tag, not a log
              dump (sty_a447695e). */}}
-        <td class="updated-cell">{{template "freshnessBare" .}}{{template "stalemark" .}}{{template "syncfailtag" .}}</td>
+        <td class="updated-cell">{{template "freshnessBare" .}}{{template "stalemark" .}}{{template "syncfailtag" .}}{{template "syncupgradetag" .}}</td>
       </tr>{{end}}
     </tbody>
   </table>

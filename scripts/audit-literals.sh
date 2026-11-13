@@ -23,11 +23,15 @@ pat=$(printf '"%s"|' $names); pat=${pat%|}
 #   "substrate" (the substrate workflow and skill) in substrate/substrate.go
 #   is the name of the substrate check's findings: validate's JSON key and
 #   doctor's check.
+#   "satelle-upgrade" (a skill) in kernel/legacy.go is UpgradeSkill: the skill
+#   the binary's own init template ships and satelle upgrade --archive writes
+#   into every repo, named by every needs-upgrade line (sto_0f76dd4e).
 #   "in_progress" nowhere expected; "story"/"task" are item kinds (ruling Q-tasks),
 #   so no workflow, state or gate of this repo may be named after them.
 allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
 allow="$allow"'|^internal/substrate/substrate\.go:[0-9]+:const Field = "substrate"$|^internal/cli/cmd_item\.go:.*BoolVar\(&onlyOpen, "open",|^internal/hosted/browser\.go:.*name, args = "open",|^internal/web/detail\.go:[0-9]+:(// drew\. Outcome is "moved", "refused" or "open"|	outcomeOpen += "open"$)'
 allow="$allow"'|^internal/cli/doctor_resolve\.go:[0-9]+:	answerRelease += "release"'
+allow="$allow"'|^internal/kernel/legacy\.go:[0-9]+:const UpgradeSkill = "satelle-upgrade"$'
 hits=$(find internal cmd -name '*.go' ! -name '*_test.go' -print0 | xargs -0 grep -nE "$pat" | grep -vE "$allow" || true)
 echo "names checked: $(echo "$names" | wc -l)"
 if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
