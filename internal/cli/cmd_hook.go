@@ -209,11 +209,11 @@ func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	recordSession(in, seatlife.Start)
-	text, ok := sessionContext(in, harness, true)
+	text, notice, ok := sessionContext(in, harness, true)
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventSessionStart, text)))
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventSessionStart, text, notice)))
 	return err
 }
 
@@ -225,11 +225,11 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	recordSession(in, seatlife.Resolve)
-	text, ok := sessionContext(in, harness, false)
+	text, _, ok := sessionContext(in, harness, false)
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventPrompt, text)))
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventPrompt, text, "")))
 	return err
 }
 
@@ -270,11 +270,13 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 
 // sessionContext is what the context hook prints: the session id, its seats
 // and, at session start, the doctor block (judged for harness, the hook's
-// caller) and the [hook] inject files. ok is false outside a repo.
-func sessionContext(in hook.Input, harness string, inject bool) (string, bool) {
+// caller) and the [hook] inject files. notice is doctor's short summary for
+// the user, empty when inject is false or doctor found no issue. ok is false
+// outside a repo.
+func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
 	r, err := findRepo(hookDir(in))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	session := hookSession(in)
 	var b strings.Builder
@@ -282,9 +284,11 @@ func sessionContext(in hook.Input, harness string, inject bool) (string, bool) {
 	if err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
 		if inject {
-			b.WriteString(sessionDoctor(hookDir(in), harness))
+			block, n := sessionDoctor(hookDir(in), harness)
+			b.WriteString(block)
+			notice = n
 		}
-		return b.String(), true
+		return b.String(), notice, true
 	}
 	defer k.Close()
 	if session == "" {
@@ -296,7 +300,9 @@ func sessionContext(in hook.Input, harness string, inject bool) (string, bool) {
 	}
 	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate`.\n")
 	if inject {
-		b.WriteString(sessionDoctor(hookDir(in), harness))
+		block, n := sessionDoctor(hookDir(in), harness)
+		b.WriteString(block)
+		notice = n
 	}
 	if inject {
 		for _, f := range k.Settings.Hook.Inject {
@@ -312,16 +318,18 @@ func sessionContext(in hook.Input, harness string, inject bool) (string, bool) {
 			fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(string(body), "\n"))
 		}
 	}
-	return b.String(), true
+	return b.String(), notice, true
 }
 
 // sessionDoctor runs satelle doctor's checks within doctorHookBudget for the
 // session-start context. It never blocks the session (a check still running
 // at the deadline is named as not checked) and never contacts the ledger store.
-func sessionDoctor(dir, harness string) string {
+// It returns the block for the model's context and the notice for the user.
+func sessionDoctor(dir, harness string) (block, notice string) {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorHookBudget)
 	defer cancel()
 	in := loadDoctorInput(dir)
 	in.harness = harness
-	return doctorBlock(runDoctor(ctx, in), doctorHookBudget)
+	rep := runDoctor(ctx, in)
+	return doctorBlock(rep, doctorHookBudget), doctorNotice(rep)
 }

@@ -637,6 +637,48 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	}
 }
 
+// doctorGroups groups issues by check, the checks in first-seen order.
+func doctorGroups(issues []doctorIssue) (order []string, byCheck map[string][]doctorIssue) {
+	byCheck = map[string][]doctorIssue{}
+	for _, is := range issues {
+		if _, ok := byCheck[is.Check]; !ok {
+			order = append(order, is.Check)
+		}
+		byCheck[is.Check] = append(byCheck[is.Check], is)
+	}
+	return order, byCheck
+}
+
+// doctorNotice is the user's short view of a report at session start: the
+// issue count, then one line per check with its count and a fix, and no
+// problem text (that stays in doctorBlock, the model's context). A check's fix
+// is the first non-empty fix among its issues; when none of them has one, it
+// is noticeFallbackFix, so every line names an action. It is empty when there
+// are no issues; checks the budget cut alone give no notice.
+func doctorNotice(rep doctorReport) string {
+	if len(rep.Issues) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "satelle doctor: %d issue(s); run `satelle doctor` for each\n", len(rep.Issues))
+	order, byCheck := doctorGroups(rep.Issues)
+	for _, c := range order {
+		fix := noticeFallbackFix
+		for _, is := range byCheck[c] {
+			if is.Fix != "" {
+				fix = is.Fix
+				break
+			}
+		}
+		fmt.Fprintf(&b, "  %s (%d) — fix: %s\n", c, len(byCheck[c]), fix)
+	}
+	return b.String()
+}
+
+// noticeFallbackFix is the notice's fix for a check none of whose issues
+// records one: doctor itself lists each issue with what it knows.
+const noticeFallbackFix = "satelle doctor (lists each issue)"
+
 // doctorBlock is the session-start summary of a report: one line per check
 // with its count, first problem and first fix, then any checks the budget cut.
 // It is empty when there is nothing to say.
@@ -647,14 +689,7 @@ func doctorBlock(rep doctorReport, budget time.Duration) string {
 	var b strings.Builder
 	if len(rep.Issues) > 0 {
 		fmt.Fprintf(&b, "satelle doctor: %d issue(s) (read-only; `satelle doctor` lists each with its fix)\n", len(rep.Issues))
-		byCheck := map[string][]doctorIssue{}
-		var order []string
-		for _, is := range rep.Issues {
-			if _, ok := byCheck[is.Check]; !ok {
-				order = append(order, is.Check)
-			}
-			byCheck[is.Check] = append(byCheck[is.Check], is)
-		}
+		order, byCheck := doctorGroups(rep.Issues)
 		for _, c := range order {
 			first := byCheck[c][0]
 			fmt.Fprintf(&b, "  %s (%d): %s — fix: %s\n", c, len(byCheck[c]), first.Problem, first.Fix)

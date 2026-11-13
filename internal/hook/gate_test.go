@@ -199,8 +199,17 @@ func TestDenyEnvelopes(t *testing.T) {
 	if d := string(Deny(Grok, "no")); d != `{"decision":"deny","reason":"no"}` {
 		t.Errorf("grok deny: %s", d)
 	}
-	if c := string(Context(Claude, EventSessionStart, "hi")); !strings.Contains(c, `"additionalContext":"hi"`) {
+	if c := string(Context(Claude, EventSessionStart, "hi", "warn")); !strings.Contains(c, `"additionalContext":"hi"`) || !strings.Contains(c, `"systemMessage":"warn"`) {
 		t.Errorf("context: %s", c)
+	}
+	if c := string(Context(Claude, EventSessionStart, "hi", "")); strings.Contains(c, "systemMessage") {
+		t.Errorf("claude context with no notice carries a systemMessage: %s", c)
+	}
+	if c := string(Context(Pi, EventSessionStart, "hi", "warn")); !strings.Contains(c, `"systemMessage":"warn"`) {
+		t.Errorf("pi context: %s", c)
+	}
+	if c := string(Context(Grok, EventSessionStart, "hi", "warn")); strings.Contains(c, "systemMessage") || !strings.Contains(c, `"additionalContext":"hi"`) {
+		t.Errorf("grok context: %s", c)
 	}
 	if d := string(Deny(Cursor, "no")); d != `{"permission":"deny","user_message":"no","agent_message":"no"}` {
 		t.Errorf("cursor deny: %s", d)
@@ -210,10 +219,10 @@ func TestDenyEnvelopes(t *testing.T) {
 			t.Errorf("%s has a stop answer", h)
 		}
 	}
-	if c := string(Context(Cursor, EventSessionStart, "hi")); c != `{"additional_context":"hi"}` {
+	if c := string(Context(Cursor, EventSessionStart, "hi", "warn")); c != `{"additional_context":"hi"}` {
 		t.Errorf("cursor sessionStart context: %s", c)
 	}
-	if c := string(Context(Cursor, EventPrompt, "hi")); c != `{"continue":true}` {
+	if c := string(Context(Cursor, EventPrompt, "hi", "")); c != `{"continue":true}` {
 		t.Errorf("cursor beforeSubmitPrompt answer: %s", c)
 	}
 	if s := string(StopAnswer(Cursor)); s != `{}` {
@@ -368,6 +377,11 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 	pi, _ := os.ReadFile(filepath.Join(root, ".pi", "extensions", "satelle.ts"))
 	if !strings.Contains(string(pi), piOwnedMarker) || strings.Contains(string(pi), "__SATELLE_") {
 		t.Fatalf("pi extension not rendered:\n%s", pi)
+	}
+	if i, j := strings.Index(string(pi), `pi.on("session_start"`), strings.Index(string(pi), `pi.on("before_agent_start"`); i < 0 || j < i {
+		t.Errorf("pi extension handlers not found in order:\n%s", pi)
+	} else if h := string(pi)[i:j]; !strings.Contains(h, "noticeOf(") || !strings.Contains(h, "ui?.notify?.(") {
+		t.Errorf("pi session_start does not notify the user of the hook's systemMessage:\n%s", h)
 	}
 	if _, err := Remove(root, Pi); err != nil {
 		t.Fatal(err)
