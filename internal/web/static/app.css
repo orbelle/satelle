@@ -327,6 +327,14 @@ header.app h1 .dot { color: var(--accent); }
   color: var(--fail); font-size: 11px; padding: 1px 6px;
   border: 1px solid var(--fail); border-radius: 0; line-height: 1.4; white-space: nowrap;
 }
+/* A pre-1.0 repo needs upgrading, it is not failing (sto_0f76dd4e): warn-toned. */
+.sync-upgrade { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
+.sync-upgrade-body { color: var(--warn); font-size: 12px; margin-top: 4px; max-width: 72rem; }
+.sync-tag-upgrade {
+  display: block; width: fit-content; margin-top: 4px;
+  color: var(--warn); font-size: 11px; padding: 1px 6px;
+  border: 1px solid var(--warn); border-radius: 0; line-height: 1.4; white-space: nowrap;
+}
 td.updated-cell { white-space: nowrap; }
 .logs-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .logs-filter a {

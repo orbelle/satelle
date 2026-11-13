@@ -186,3 +186,40 @@ func TestRecordPassCounts(t *testing.T) {
 		t.Fatalf("a later pass did not replace the counts: %+v", st)
 	}
 }
+
+// An upgrade pass (a pre-1.0 repo the pass skipped, sto_0f76dd4e) records the
+// command and clears the failure, keeping when the repo last synced and last
+// failed; the next ordinary pass clears it.
+func TestRecordPassUpgrade(t *testing.T) {
+	home := t.TempDir()
+	ok1 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	fail := ok1.Add(time.Hour)
+	up := fail.Add(time.Hour)
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Pushed: 1}, ok1); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Reason: "unknown key review", Forked: []string{"x (y)"}}, fail); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPass(home, "/repo", Pass{Upgrade: "satelle upgrade --archive"}, up); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := Load(home, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SyncUpgrade != "satelle upgrade --archive" || got.SyncReason != "" || got.SyncPasses != 0 ||
+		got.SyncStore != "" || got.SyncPushed != 0 || len(got.SyncForked) != 0 {
+		t.Fatalf("upgrade pass recorded %+v", got)
+	}
+	if !got.SyncLastAttempt.Equal(up) || !got.SyncLastSuccess.Equal(ok1) || !got.SyncLastFailure.Equal(fail) {
+		t.Fatalf("upgrade pass moved the stamps: %+v", got)
+	}
+	next := up.Add(time.Minute)
+	if err := RecordPass(home, "/repo", Pass{Store: LocalStore}, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := Load(home, "/repo"); got.SyncUpgrade != "" || !got.SyncLastSuccess.Equal(next) {
+		t.Fatalf("an ordinary pass kept the upgrade: %+v", got)
+	}
+}

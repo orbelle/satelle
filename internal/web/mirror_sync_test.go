@@ -372,6 +372,13 @@ func TestLandingLocalHidesStaleFailure(t *testing.T) {
 // the recorded sync state record writes.
 func projectPageWithSync(t *testing.T, record func(repo string)) string {
 	t.Helper()
+	return pageWithSync(t, "/r/demo/", record)
+}
+
+// pageWithSync renders path ("/" the landing, "/r/demo/" the project page)
+// over one partition whose repo has the recorded sync state record writes.
+func pageWithSync(t *testing.T, path string, record func(repo string)) string {
+	t.Helper()
 	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -390,8 +397,54 @@ func projectPageWithSync(t *testing.T, record func(repo string)) string {
 	}
 	record(repo)
 	rr := httptest.NewRecorder()
-	NewMirror(s).Handler.ServeHTTP(rr, httptest.NewRequest("GET", "/r/demo/", nil))
+	NewMirror(s).Handler.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
 	return rr.Body.String()
+}
+
+// recordUpgradeAfterFailure records a failing pass and then the upgrade
+// outcome autosync records for a pre-1.0 repo (sto_0f76dd4e).
+func recordUpgradeAfterFailure(t *testing.T) func(repo string) {
+	return func(repo string) {
+		if err := recordFailure(config.GlobalDir(), repo); err != nil {
+			t.Fatal(err)
+		}
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Upgrade: "satelle upgrade --archive"}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// AC2 (sto_0f76dd4e): the landing shows a pre-1.0 repo as Upgrade needed with
+// the command, not Sync Failing.
+func TestLandingShowsUpgradeNeeded(t *testing.T) {
+	cell := updatedCell(t, pageWithSync(t, "/", recordUpgradeAfterFailure(t)))
+	for _, want := range []string{"Upgrade needed", `class="sync-tag-upgrade"`, "<code>satelle upgrade --archive</code>"} {
+		if !strings.Contains(cell, want) {
+			t.Errorf("Updated cell lacks %q:\n%s", want, cell)
+		}
+	}
+	for _, gone := range []string{"Sync Failing", "sync-tag-fail"} {
+		if strings.Contains(cell, gone) {
+			t.Errorf("Updated cell must not contain %q:\n%s", gone, cell)
+		}
+	}
+}
+
+// AC2 (sto_0f76dd4e): the project page reads upgrade needed and names the
+// command to run in the repo; nothing reads sync failing.
+func TestProjectPageShowsUpgradeNeeded(t *testing.T) {
+	body := projectPageWithSync(t, recordUpgradeAfterFailure(t))
+	if !strings.Contains(body, `remote: <span class="sync-upgrade"`) {
+		t.Fatalf("project header must read upgrade needed:\n%s", body)
+	}
+	if up := sectionOf(t, body, `<div class="sync-upgrade-body"`); !strings.Contains(up, "<code>satelle upgrade --archive</code>") {
+		t.Errorf("the upgrade body must name the command:\n%s", up)
+	}
+	for _, gone := range []string{"sync failing", "sync-fail-body"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("project page must not contain %q:\n%s", gone, body)
+		}
+	}
 }
 
 // sty_c203fd62 AC1: a push that only held stories shows them as held — neutral

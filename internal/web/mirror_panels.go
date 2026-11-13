@@ -193,6 +193,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncReason:        syncSt.SyncReason,
 		SyncLocal:         syncSt.SyncStore == syncstate.LocalStore,
 		SyncStore:         syncSt.SyncStore,
+		SyncUpgrade:       syncSt.SyncUpgrade,
 		SyncHeld:          syncHeldRows(syncSt.PushHeld),
 		Stories:           storyRows,
 		Panels:            panels,

@@ -114,7 +114,11 @@ the installed binary: each harness in use gets satelle's current hooks, and a
 hook naming a satelle command the binary lacks is removed. It names each file
 git tracks and each repo whose .satelle/satelle.toml sets [hook] refresh =
 false, and leaves them. A refresh that does not finish (a --version pin to a
-build without agents refresh among the causes) makes update exit 1.`,
+build without agents refresh among the causes) makes update exit 1.
+
+Last, whether or not anything was replaced, update lists each registered
+project whose .satelle is pre-1.0, with 'satelle upgrade --archive' to run in
+it: this satelle cannot read them.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), downloadTimeout)
@@ -190,15 +194,21 @@ build without agents refresh among the causes) makes update exit 1.`,
 			} else if failed := refreshAllHooks(out); failed > 0 {
 				hookErr = hookFailure(fmt.Errorf("%d harness file(s) or project(s) not refreshed", failed))
 			}
+			// The registered pre-1.0 projects are the last thing printed, on
+			// every path: never before the replace-or-current lines.
+			legacy := registeredLegacy()
 			if skip, why := serviceOptOut(noService); skip {
 				fmt.Fprintf(out, "service: not installed or changed (%s); a running satelled keeps its old build until 'satelle service restart'\n", why)
+				printNeedsUpgrade(out, legacy)
 				return hookErr
 			}
 			daemon := daemonPath
 			if _, err := os.Stat(daemon); err != nil {
 				daemon = resolveDaemon("")
 			}
-			if err := refreshService(ctx, out, target, daemon); err != nil {
+			err = refreshService(ctx, out, target, daemon)
+			printNeedsUpgrade(out, legacy)
+			if err != nil {
 				return errors.Join(fmt.Errorf("the binaries are updated, but the service is not: %w; rerun 'satelle service refresh', or pass --no-service", err), hookErr)
 			}
 			return hookErr

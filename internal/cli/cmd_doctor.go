@@ -34,6 +34,8 @@ Its checks:
              (satelle agents install <harness>)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
+  upgrade    this repo's .satelle is pre-1.0 (satelle upgrade --archive, run
+             here); each other registered pre-1.0 project is a note
   sync       the sync timer is missing or not active, or the last automatic
              sync pass failed; the last pass's pushed, pulled and forked items
              are a note (read from the recorded pass, never the store)
@@ -45,7 +47,8 @@ Its checks:
   check:<s>  each check skill .satelle/doctor.toml names
   open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects
 
-Outside a satelle repo only the machine checks (versions, sync) run. The
+Outside a satelle repo only the machine checks (versions, upgrade, sync)
+run; in a pre-1.0 repo only versions, upgrade and the sync timer are checked. The
 session-start hook runs the same checks within ` + doctorHookBudget.String() + ` and prints a short
 summary; a check still running then is listed as not checked. doctor exits 0
 when it finds nothing and 1 when it finds an issue.

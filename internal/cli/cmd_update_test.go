@@ -470,3 +470,113 @@ func TestHelpServiceNamesInstallUpdateAndOptOut(t *testing.T) {
 		}
 	}
 }
+
+// legacySetup is a v1 repo (the working directory), two registered pre-1.0
+// projects and a registered path that is gone, as update reads them
+// (sto_0f76dd4e).
+func legacySetup(t *testing.T, dir string) (oldA, oldB, gone string) {
+	t.Helper()
+	must(t, "init")
+	oldA, _ = newPreV1Repo(t)
+	oldB, _ = newPreV1Repo(t)
+	gone = filepath.Join(t.TempDir(), "gone")
+	registerProjects(t, oldA, dir, gone, oldB)
+	return oldA, oldB, gone
+}
+
+// checkUpgradeList asserts that out, after the line holding after, lists
+// exactly olds, in order, as needing upgrade, and that nothing about them is
+// printed before it.
+func checkUpgradeList(t *testing.T, out, after, dir, gone string, olds ...string) {
+	t.Helper()
+	i := strings.Index(out, after)
+	if i < 0 {
+		t.Fatalf("no %q line:\n%s", after, out)
+	}
+	if strings.Contains(out[:i], "needs upgrade") || strings.Contains(out[:i], "upgrade --archive") {
+		t.Errorf("a pre-1.0 project was printed before the replacement:\n%s", out)
+	}
+	rest := out[i:]
+	head := fmt.Sprintf("%d registered project(s) need `satelle upgrade --archive`:\n", len(olds))
+	if !strings.Contains(rest, head) {
+		t.Fatalf("no %q after %q:\n%s", head, after, out)
+	}
+	var lines []string
+	for _, l := range strings.Split(rest, "\n") {
+		if strings.Contains(l, "needs upgrade") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != len(olds) {
+		t.Fatalf("needs-upgrade lines %q, want %d", lines, len(olds))
+	}
+	for i, p := range olds {
+		if !strings.HasPrefix(lines[i], p+": needs upgrade") || !strings.Contains(lines[i], "satelle upgrade --archive") {
+			t.Errorf("line %d = %q, want %s", i, lines[i], p)
+		}
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, dir+":") || strings.HasPrefix(l, gone+":") {
+			t.Errorf("a v1 or missing project is listed: %q", l)
+		}
+	}
+}
+
+// AC4 (sto_0f76dd4e): after installing, update lists every registered pre-1.0
+// project with the command to run in it, and prints nothing about them before
+// the replacement; it does so when current too, and when the service refresh
+// fails.
+func TestUpdateListsProjectsThatNeedUpgrade(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake satelled is a shell script")
+	}
+	t.Run("replaced", func(t *testing.T) {
+		dir := isolate(t)
+		oldA, oldB, gone := legacySetup(t, dir)
+		cli, _ := fakeInstall(t, false)
+		releaseServer(t, "v2.0.0", nil, map[string]string{"v2.0.0/" + asset("satelle", "2.0.0"): "new cli"}, "")
+		out := must(t, "update")
+		if got := readString(t, cli); got != "new cli" {
+			t.Errorf("cli = %q", got)
+		}
+		checkUpgradeList(t, out, "satelle "+buildinfo.Version+" → 2.0.0", dir, gone, oldA, oldB)
+	})
+	t.Run("current", func(t *testing.T) {
+		dir := isolate(t)
+		oldA, oldB, gone := legacySetup(t, dir)
+		fakeInstall(t, false)
+		releaseServer(t, "v"+buildinfo.Version, nil, nil, "")
+		out := must(t, "update")
+		checkUpgradeList(t, out, "satelle "+buildinfo.Version+" is current", dir, gone, oldA, oldB)
+	})
+	t.Run("service refresh fails", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("the units are systemd-only")
+		}
+		dir := isolate(t)
+		t.Setenv(envNoService, "")
+		fakeSystemctl(t, "daemon-reload")
+		oldA, oldB, gone := legacySetup(t, dir)
+		fakeInstall(t, true)
+		releaseServer(t, "v"+buildinfo.Version, []string{"serve-v0.1.0"}, nil, "")
+		out, err := run(t, "", "update")
+		if err == nil || !strings.Contains(err.Error(), "the service is not") {
+			t.Fatalf("want the service error, got %v\n%s", err, out)
+		}
+		checkUpgradeList(t, out, "satelle "+buildinfo.Version+" is current", dir, gone, oldA, oldB)
+	})
+}
+
+// AC4 (sto_0f76dd4e): with no pre-1.0 project registered, update says
+// nothing about upgrading.
+func TestUpdateQuietWithoutPreV1Projects(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	registerProjects(t, dir)
+	fakeInstall(t, false)
+	releaseServer(t, "v"+buildinfo.Version, nil, nil, "")
+	out := must(t, "update")
+	if strings.Contains(out, "needs upgrade") || strings.Contains(out, "satelle upgrade") {
+		t.Errorf("update named an upgrade with none registered:\n%s", out)
+	}
+}

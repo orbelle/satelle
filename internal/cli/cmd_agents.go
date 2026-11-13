@@ -248,6 +248,13 @@ func refreshAllHooks(out io.Writer) (failed int) {
 	stale := staleHook(substrateTree(NewRootCmd()))
 	n := 0
 	for _, r := range repos {
+		// A pre-1.0 repo cannot be read by this satelle: it is listed as
+		// needing upgrade (sto_0f76dd4e), and its harness files are left for
+		// satelle upgrade --archive, so it is neither refreshed nor a failure.
+		if len(kernel.LegacyMarkers(r.DataDir)) > 0 {
+			fmt.Fprintf(out, "left %s: pre-1.0 .satelle; run '%s' there\n", r.Tree, kernel.UpgradeCommand)
+			continue
+		}
 		pr := refreshProject(r, stale)
 		if pr.OptedOut {
 			fmt.Fprintf(out, "left %s: [hook] refresh = false in .satelle/%s\n", r.Tree, kernel.SettingsFile)

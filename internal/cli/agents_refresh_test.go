@@ -480,3 +480,20 @@ func TestAutosyncRefreshesHarnessFiles(t *testing.T) {
 		t.Error("the second pass rewrote a current file")
 	}
 }
+
+// A registered pre-1.0 repo is left to satelle upgrade --archive: agents
+// refresh names it, writes nothing there and does not fail (sto_0f76dd4e).
+func TestAgentsRefreshLeavesAPreV1Repo(t *testing.T) {
+	isolate(t)
+	old := harnessProject(t, true)
+	putFile(t, filepath.Join(old, config.DefaultDataDir, "workflows", "step.toml"), "[meta]\nname = \"step\"\n")
+	file := staleHarness(t, old, hook.Claude)
+	state := pin(t, file)
+	out := must(t, "agents", "refresh")
+	if !state.unchanged(t, file) {
+		t.Error("the pre-1.0 repo's hook file changed")
+	}
+	if want := "left " + old + ": pre-1.0 .satelle; run '" + kernel.UpgradeCommand + "' there"; !strings.Contains(out, want) {
+		t.Errorf("agents refresh lacks %q:\n%s", want, out)
+	}
+}

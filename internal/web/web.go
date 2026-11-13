@@ -102,6 +102,9 @@ type pageData struct {
 	SyncReason      string
 	SyncLocal       bool
 	SyncStore       string
+	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
+	// (sto_0f76dd4e), shown as upgrade needed, never as sync failing.
+	SyncUpgrade string
 	// SyncHeld are the stories the last push held until their code is on the
 	// remote (sty_c203fd62). Holding is intended while a story is in flight, so
 	// they are shown apart from SyncReason, never as sync failing.

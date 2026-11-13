@@ -271,12 +271,21 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 // sessionContext is what the context hook prints: the session id, its seats
 // and, at session start, the doctor block (judged for harness, the hook's
 // caller) and the [hook] inject files. notice is doctor's short summary for
-// the user, empty when inject is false or doctor found no issue. ok is false
-// outside a repo.
+// the user, empty when inject is false or doctor found no issue. In a pre-1.0
+// repo both are the one needs-upgrade line. ok is false outside a repo.
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
 	r, err := findRepo(hookDir(in))
 	if err != nil {
 		return "", "", false
+	}
+	// A pre-1.0 repo is fixed in the repo (sto_0f76dd4e): the agent and the
+	// user get the one line naming the upgrade, not the configuration dump.
+	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
+		line := needsUpgradeLine(r.Tree, m) + "\n"
+		if inject {
+			notice = line
+		}
+		return line, notice, true
 	}
 	session := hookSession(in)
 	var b strings.Builder

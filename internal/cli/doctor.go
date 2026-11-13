@@ -86,6 +86,9 @@ type doctorInput struct {
 	// harness is the harness whose agent is asking, "" when it cannot be
 	// told: hook.Caller from the environment, or the hook's --harness.
 	harness string
+	// legacy is the pre-1.0 marker files found in the repo's .satelle, none
+	// for a v1 repo: its configuration is not loaded (sto_0f76dd4e).
+	legacy []string
 }
 
 // doctorCheck is one named check; it returns its issues and notes.
@@ -101,15 +104,21 @@ func loadDoctorInput(dir string) *doctorInput {
 	if err != nil {
 		return &doctorInput{}
 	}
+	// A pre-1.0 .satelle needs upgrading in the repo; loading it would only
+	// list every key v1 does not know.
+	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
+		return &doctorInput{inRepo: true, r: r, legacy: m, cfgErr: errors.New(needsUpgradeLine(r.Tree, m)), harness: hook.Caller()}
+	}
 	cfg, cerr := kernel.LoadConfig(r.DataDir)
 	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr, harness: hook.Caller()}
 }
 
 // doctorChecks lists the checks for in: the machine checks always, the repo
-// checks and the repo's doctor.toml entries inside a repo.
+// checks and the repo's doctor.toml entries inside a repo. In a pre-1.0 repo
+// only the machine checks run: the repo checks read a v1 .satelle.
 func doctorChecks(in *doctorInput) []doctorCheck {
-	checks := []doctorCheck{{"versions", checkVersions}}
-	if !in.inRepo {
+	checks := []doctorCheck{{"versions", checkVersions}, {"upgrade", checkUpgrade}}
+	if !in.inRepo || len(in.legacy) > 0 {
 		return append(checks, doctorCheck{"sync", checkSyncTimerOnly})
 	}
 	checks = append(checks,
@@ -188,6 +197,27 @@ func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
 		rep.Notes = append(rep.Notes, results[i].notes...)
 	}
 	return rep
+}
+
+// checkUpgrade names the pre-1.0 repos: the one doctor runs in is an issue,
+// fixed only in that repo by the user; each other registered one is a note,
+// as checkHarness splits the caller's harness from the others.
+func checkUpgrade(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	var issues []doctorIssue
+	var notes []string
+	here := ""
+	if in.inRepo {
+		here = filepath.Dir(in.r.DataDir)
+	}
+	if len(in.legacy) > 0 {
+		issues = append(issues, doctorIssue{Check: "upgrade", Problem: needsUpgradeLine(in.r.Tree, in.legacy), Fix: kernel.UpgradeCommand})
+	}
+	for _, p := range registeredLegacy() {
+		if p.Root != here {
+			notes = append(notes, "upgrade: "+needsUpgradeLine(p.Path, p.Markers))
+		}
+	}
+	return issues, notes
 }
 
 func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {

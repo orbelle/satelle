@@ -5,6 +5,15 @@ v1 is a clean rewrite: a pre-1.0 `.satelle` (its `satelle.toml` keys, its
 command names `satelle upgrade --archive`. While it does not load, the edit
 gate allows edits under `.satelle/` only. The way across has two steps.
 
+satelle names a pre-1.0 repo, each time with the same one line, `<path>:
+needs upgrade: ...`, naming `satelle upgrade --archive` to run there and the
+satelle-upgrade skill it writes: at session start in that repo (to the agent,
+and to you where the harness has a user channel), in `satelle doctor` (an
+`upgrade` issue in that repo, a note for each other registered one), in the
+automatic sync pass (which skips it without failing), on satelled's project
+page and landing (`upgrade needed`, with the command), and at the end of
+`satelle update`, after it installs. The fix is always run in that repo.
+
 ## 1. Archive and start fresh
 
     satelle upgrade --archive --dry-run   # what it would move, and where

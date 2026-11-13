@@ -12,6 +12,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/syncstate"
@@ -36,10 +37,12 @@ left on both sides and named. Each project's outcome is recorded for
 satelled's project page, and this machine's satelled's mirror of every
 project visited, local store or not, is confirmed: marked fresh when
 unchanged, otherwise sent a full snapshot. A satelled that is not answering
-confirms nothing. Exits 1 when any project's pass failed; a confirm that
-fails does not fail the pass. Each project's untracked harness hook files in
-use are refreshed first, as satelle agents refresh does; a refresh failure is
-printed and does not fail the pass.`,
+confirms nothing. A pre-1.0 project is skipped with one "needs upgrade" line
+naming satelle upgrade --archive, is recorded so satelled shows it, and does
+not fail the pass. Each other project's untracked harness hook files in use
+are refreshed first, as satelle agents refresh does; a refresh failure is
+printed and does not fail the pass. Exits 1 when any project's pass failed; a
+confirm that fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -77,6 +80,15 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	r, err := findRepo(path)
 	if err != nil {
 		fmt.Fprintf(out, "%s: skipped: %v\n", path, err)
+		return true
+	}
+	// A pre-1.0 repo cannot be read by this satelle: it needs upgrading in
+	// the repo, which is not a failed pass (sto_0f76dd4e). Nothing is opened,
+	// so nothing is written into its runtime dir, and its harness files are
+	// left for satelle upgrade --archive.
+	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
+		fmt.Fprintln(out, needsUpgradeLine(path, m))
+		_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), syncstate.Pass{Upgrade: kernel.UpgradeCommand}, time.Now())
 		return true
 	}
 	hooks := refreshProject(r, stale)

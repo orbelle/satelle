@@ -45,6 +45,10 @@ type State struct {
 	SyncPushed int      `json:"sync_pushed,omitempty"`
 	SyncPulled int      `json:"sync_pulled,omitempty"`
 	SyncForked []string `json:"sync_forked,omitempty"`
+	// SyncUpgrade is the command the repo needs before this satelle can sync
+	// it (a pre-1.0 .satelle, sto_0f76dd4e), empty for none. The pass that
+	// records it skips the repo: nothing synced and nothing failed.
+	SyncUpgrade string `json:"sync_upgrade,omitempty"`
 
 	// PushHeld is the stories the last project push held until their code is on
 	// the git remote (story id -> reason, sty_c203fd62). Holding is intended while
@@ -122,11 +126,14 @@ func loadLocked(globalDir, repoPath string) (State, bool, error) {
 const LocalStore = "local"
 
 // Pass is one sync pass's outcome: the store it replicated with (LocalStore
-// when nothing), why it failed ("" for a success), and its counts.
+// when nothing), why it failed ("" for a success), and its counts. Upgrade,
+// when set, is the command the repo needs before it can be synced: the pass
+// skipped it.
 type Pass struct {
 	Store, Reason  string
 	Pushed, Pulled int
 	Forked         []string
+	Upgrade        string
 }
 
 // RecordSync merges one sync pass into the sync group and writes atomically:
@@ -137,9 +144,19 @@ func RecordSync(globalDir, repoPath, store, reason string, now time.Time) error 
 }
 
 // RecordPass is RecordSync with the pass's counts, which replace the last
-// pass's.
+// pass's. A pass with Upgrade set records the command and clears the store,
+// reason and counts, leaving the last success and failure as they were;
+// every other pass clears SyncUpgrade.
 func RecordPass(globalDir, repoPath string, p Pass, now time.Time) error {
 	return record(globalDir, repoPath, func(s *State) {
+		if p.Upgrade != "" {
+			s.SyncUpgrade = p.Upgrade
+			s.SyncLastAttempt = now
+			s.SyncStore, s.SyncReason, s.SyncPasses = "", "", 0
+			s.SyncPushed, s.SyncPulled, s.SyncForked = 0, 0, nil
+			return
+		}
+		s.SyncUpgrade = ""
 		s.SyncStore = p.Store
 		s.SyncLastAttempt = now
 		s.SyncPushed, s.SyncPulled, s.SyncForked = p.Pushed, p.Pulled, p.Forked
