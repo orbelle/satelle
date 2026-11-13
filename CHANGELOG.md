@@ -1,3 +1,12 @@
+## [1.0.60] - 2026-11-13
+
+### Added
+- `satelle validate` and `satelle doctor` report lines in `.satelle` markdown (and the paths `.satelle/volatile.toml` names) that match a configured volatile pattern, such as a version string or "currently"; a line with a YYYY-MM-DD date or the configured marker is exempt, the files `exclude` names are not read, and `satelle init` writes the defaults. (sto_3de33a72)
+
+### Changed
+- A plan that reaches its cap of rejected review rounds is blocked for the operator instead of held. (sto_730671a5)
+- Code review and PR review block a story after 3 rejected rounds in a row, as plan review does, instead of looping. (sto_c2722ac3)
+
 ## [1.0.59] - 2026-11-13
 
 ### Fixed
