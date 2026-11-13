@@ -47,16 +47,11 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 			active = append(active, it)
 		}
 	}
-	byItem := map[string][]Entry{}
 	ids := map[string]bool{}
 	for _, it := range active {
 		ids[it.ID] = true
 	}
-	for _, e := range events {
-		if ids[e.Item] {
-			byItem[e.Item] = append(byItem[e.Item], e)
-		}
-	}
+	byItem := eventsByItem(events, ids)
 	out := make([]activityRowVM, 0, len(active))
 	for _, it := range active {
 		w := workflows[it.Workflow]
@@ -85,6 +80,18 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// eventsByItem groups events by item, keeping each item's in the order given;
+// only the items in ids are kept.
+func eventsByItem(events []Entry, ids map[string]bool) map[string][]Entry {
+	byItem := map[string][]Entry{}
+	for _, e := range events {
+		if ids[e.Item] {
+			byItem[e.Item] = append(byItem[e.Item], e)
+		}
+	}
+	return byItem
 }
 
 // standingSuffix marks an Activity seat that is not here.

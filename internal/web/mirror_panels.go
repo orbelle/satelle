@@ -176,6 +176,11 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		storyRows[i].Engaged = eng[storyRows[i].ID]
 	}
 	withAssignees(storyRows, bySeat, standing)
+	storyIDs := map[string]bool{}
+	for _, it := range stories {
+		storyIDs[it.ID] = true
+	}
+	withProgress(storyRows, eventsByItem(events, storyIDs), bySeat, workflows, standing)
 	storyRows, panels := splitPanels(storyRows, workflows)
 	taskRows := itemRows(tasks, workflows)
 	withAssignees(taskRows, bySeat, standing)
@@ -262,6 +267,15 @@ func assigneeVMs(users, working []string) []assigneeVM {
 func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatStanding) {
 	for i := range rows {
 		rows[i].Assignees = assigneeVMs(assigneesOf(rows[i].Item, bySeat[rows[i].ID], standing))
+	}
+}
+
+// withProgress sets each row's step chips (progressOf) from its events
+// (eventsByItem, oldest first), its seats (seatsByItem) and its workflow.
+func withProgress(rows []rowVM, byItem map[string][]Entry, bySeat map[string][]mirror.Seat, workflows map[string]*mirror.Workflow, standing seatStanding) {
+	for i := range rows {
+		it := rows[i].Item
+		rows[i].Progress = progressOf(workflows[it.Workflow], it, byItem[it.ID], bySeat[it.ID], standing)
 	}
 }
 
@@ -714,9 +728,16 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		backTab = panelTopic(p)
 	}
 	seats, _ := decodeSeats(ctx, s, repoKey)
-	assignees := assigneeVMs(assigneesOf(it, seatsByItem(seats)[it.ID], standingHere()))
+	standing := standingHere()
+	itemSeats := seatsByItem(seats)[it.ID]
+	assignees := assigneeVMs(assigneesOf(it, itemSeats, standing))
+	var progress []stageVM
+	if group == "story" {
+		progress = progressOf(workflows[it.Workflow], it, events, itemSeats, standing)
+	}
 	return detailData{
 		Item:          it,
+		Progress:      progress,
 		Assignees:     assignees,
 		BackTab:       backTab,
 		StateClass:    stateClass(workflows[it.Workflow], it.Status),

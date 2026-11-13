@@ -152,6 +152,8 @@ type rowVM struct {
 	// Assignees is every user assigned the item, each once: its explicit
 	// assignees, then each user holding a working seat (assigneesOf).
 	Assignees []assigneeVM
+	// Progress is a story row's step chips (progressOf); nil on other rows.
+	Progress []stageVM
 }
 
 // engagementVM is where a story is engaged: Here is its mark for seats here
@@ -214,10 +216,13 @@ type detailData struct {
 	StateClass string
 	// BackTab is the project tab the item is listed on when it is not its
 	// kind's own: a workflow panel's topic; "" means the kind's tab.
-	BackTab       string
-	ParentKind    string // the kind of the parent item, "" when not pushed
-	Assignees     []assigneeVM
-	Children      []childLink
+	BackTab    string
+	ParentKind string // the kind of the parent item, "" when not pushed
+	Assignees  []assigneeVM
+	Children   []childLink
+	// Progress is a story's step chips with their rejected rounds; nil for
+	// other kinds.
+	Progress      []stageVM
 	Route         routeVM
 	Presentations []presentationVM
 	Attachments   []attachmentVM

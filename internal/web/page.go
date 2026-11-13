@@ -355,8 +355,8 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
-      <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
     </table>
   </section>
 
@@ -417,8 +417,8 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
-      <tbody data-rows>{{template "workitemRows" .Rows}}</tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
     </table>
   </section>
   {{end}}
@@ -449,14 +449,31 @@ const templatesSrc = `
 
 {{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{/* workitemLead and workitemTrail: a work item row's opening and its
+     ID, Title and Status cells; then its Workflow, Assignees and Updated cells
+     and its close. workitemRows (tasks) joins them; storyRows puts the
+     Progress cell between. */}}
+{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
-  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
+{{end}}
+{{define "workitemTrail"}}  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
   <td class="meta">{{template "assignees" .Assignees}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
-</tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+</tr>{{end}}
+
+{{define "workitemRows"}}{{range .}}{{template "workitemLead" .}}{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{/* storyRows: story rows, with the Progress cell (one stageChip per step
+     reached, progressOf) after Status. */}}
+{{define "storyRows"}}{{range .}}{{template "workitemLead" .}}  <td class="col-reviews">{{range .Progress}}{{template "stageChip" .}}{{else}}—{{end}}</td>
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="7" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{/* stageChip: one step chip in the old shape: <step> <gates> <rej> <blk>,
+     the gates count always drawn, rej and blk absent at 0; its title says the
+     same in words. */}}
+{{define "stageChip"}}<span class="stage-chip {{if .Performing}}stage-performing{{else if .Current}}stage-current{{else}}stage-done{{end}}" title="{{.Title}}">{{.Name}} <b class="gates {{if .Passed}}tone-ok{{else}}tone-idle{{end}}">{{len .Gates}}</b>{{if .Rounds}} <b class="rej">{{.Rounds}}</b>{{end}}{{if .Parks}} <b class="blk">{{.Parks}}</b>{{end}}</span>{{end}}
 
 {{/* activityRows: the items being worked now, one condensed line each: who
      or what works it (seats, else the state's performer) and its latest step.
@@ -538,6 +555,8 @@ const templatesSrc = `
   </dl>
   {{if .Item.Body}}<h4>Description</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
   {{if .Item.Criteria}}<h4>Criteria</h4><ul class="criteria">{{range .Item.Criteria}}<li>{{.}}</li>{{end}}</ul>{{else if .Item.AcceptanceCriteria}}<h4>Criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
+  {{if .Progress}}<h4>Progress</h4>
+  <ol class="stage-rejections">{{range .Progress}}<li>{{template "stageChip" .}}{{if .Rejected}}<ol>{{range .Rejected}}<li><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="meta">{{ftime .At}}</span>{{range .Verdicts}}<div class="stage-rejection">{{.Gate}} <span class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</span>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</div>{{end}}</li>{{end}}</ol>{{end}}</li>{{end}}</ol>{{end}}
   <h4>Route</h4>
   <section class="route" data-workflow="{{.Route.Workflow}}">{{template "route" .Route}}</section>
   <h4>Verdicts</h4>
