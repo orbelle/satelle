@@ -36,6 +36,11 @@ This repo's `.satelle/queues/release.toml`:
   `queue file <path>`), and nothing when they agree. An absent `[filter]` or
   `[trigger]` is written as an empty value, meaning cleared: inputs `{}`, a
   trigger with neither `task` nor `workflow`.
+- A `que_<name>` chain the file wrote before this runtime's first ledger pull
+  gives way to the store's chain for that id: while it holds only the file's
+  mirror events, pull and sync replace it with the store's chain and mirror the
+  file onto that. Once it holds any other event (a `queue add`, a fire), a fork
+  is refused like any other.
 - `satelle validate` refuses an unknown key, a missing title, an empty
   `[filter]`, a trigger naming both or neither target, a negative `min_size`, a
   trigger workflow that is not configured, and two files binding one chain.

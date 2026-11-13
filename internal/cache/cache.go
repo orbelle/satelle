@@ -157,7 +157,7 @@ func (c *Cache) Sync(l *ledger.Store) error {
 		return err
 	}
 	for _, id := range items {
-		if err := c.syncItem(l, id); err != nil {
+		if err := c.syncItem(l, id, false); err != nil {
 			return err
 		}
 	}
@@ -165,9 +165,17 @@ func (c *Cache) Sync(l *ledger.Store) error {
 }
 
 // SyncItem ingests one item's unseen tail.
-func (c *Cache) SyncItem(l *ledger.Store, id string) error { return c.syncItem(l, id) }
+func (c *Cache) SyncItem(l *ledger.Store, id string) error { return c.syncItem(l, id, false) }
 
-func (c *Cache) syncItem(l *ledger.Store, id string) error {
+// ResetItem drops what the cache holds for one item and ingests its whole
+// chain again, in one write transaction: for a chain replaced in place
+// (ledger.Store.Replace), whose new file may be larger than, or exactly as
+// large as, the offset the cache last read.
+func (c *Cache) ResetItem(l *ledger.Store, id string) error { return c.syncItem(l, id, true) }
+
+// syncItem ingests one item's unseen tail; with reset it starts the item over
+// from offset 0 whatever offset the cache holds.
+func (c *Cache) syncItem(l *ledger.Store, id string, reset bool) error {
 	// Cheap pre-check outside the write lock: an unchanged item takes no lock.
 	var offset int64
 	err := c.db.QueryRow(`SELECT offset FROM files WHERE item = ?`, id).Scan(&offset)
@@ -178,7 +186,7 @@ func (c *Cache) syncItem(l *ledger.Store, id string) error {
 	if err != nil {
 		return err
 	}
-	if size == offset {
+	if size == offset && !reset {
 		return nil
 	}
 	// BEGIN IMMEDIATE: this process now holds the write lock. Re-read the
@@ -198,10 +206,10 @@ func (c *Cache) syncItem(l *ledger.Store, id string) error {
 	if size, err = l.Size(id); err != nil {
 		return err
 	}
-	if size == offset {
+	if size == offset && !reset {
 		return nil
 	}
-	if size < offset { // the file shrank: start the item over
+	if size < offset || reset { // the file shrank, or was replaced: start the item over
 		offset = 0
 	}
 	fresh, next, err := l.ReadFrom(id, offset)

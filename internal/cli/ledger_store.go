@@ -76,7 +76,7 @@ func devFor(k *kernel.Kernel, c *hosted.Client, project string) *ledgerrepl.Dev 
 // refreshes the cache after a pull and places a pulled item that arrived
 // without a workflow by this repo's rules.
 func newReplicator(k *kernel.Kernel, s ledgerrepl.Store, out io.Writer) *ledgerrepl.Replicator {
-	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: s, Refs: kernel.BlobRefs, Out: out, Cache: k.Cache, Choose: k}
+	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: s, Refs: kernel.BlobRefs, Out: out, Cache: k.Cache, Choose: k, Mirrors: k}
 }
 
 // withStore runs fn with the replicator for the resolved store, after naming
