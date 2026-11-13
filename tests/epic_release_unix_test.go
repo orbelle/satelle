@@ -96,11 +96,7 @@ kind = "task"
 	for _, name := range []string{"satelle-story-done-review", "satelle-story-blocked-review", "satelle-story-cancel-review"} {
 		s.write(".satelle/skills/"+name+".md", "---\nname: "+name+"\n---\nJudge it.\n")
 	}
-	s.write(".satelle/agents.toml", `[agents.reviewer-alt]
-command = "claude"
-model = "ra-1"
-tools = ["Read", "Grep", "Glob"]
-`)
+	s.write(".satelle/agents.toml", judgeAgentsTOML(t, "", "ra-1", ".satelle/workflows/epic.toml"))
 	s.write(".satelle/workflows/runbook.toml", `name = "runbook"
 [states.backlog]
 start = true
