@@ -1,3 +1,8 @@
+## [1.0.59] - 2026-11-13
+
+### Fixed
+- satelle update and the sync pass refresh the harness hook files of every registered project: each harness in use (run by agents.toml, or configured in the repo) gets satelle's current hooks, and a hook whose first word is satelle naming a command the installed binary lacks, such as the pre-v1 satelle reindex, is removed. A command that wraps satelle is left as it is. Files git tracks and repos with [hook] refresh = false are named and left; satelle agents install applies the same rule by hand, satelle agents refresh runs it on demand, and satelle doctor reports each in-use harness that differs. (sto_6e3d4755)
+
 ## [1.0.58] - 2026-11-13
 
 ### Changed
