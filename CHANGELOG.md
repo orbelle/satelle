@@ -1,3 +1,11 @@
+## [1.0.61] - 2026-11-13
+
+### Added
+- satelled's story rows show a Progress column again: one chip per step the story reached, with its exit gates (green when the step was left with its gates accepted, grey otherwise), rejected rounds and parks, said in words on hover with the agent that performed the step; the story page lists each step's rejected gates with their notes. (sto_a496227b)
+
+### Changed
+- The satelle repo tracks its harness wiring (.claude/settings.json, .grok, .pi, .cursor); only machine-local files and secrets stay ignored. (sto_d9a4a42a)
+
 ## [1.0.60] - 2026-11-13
 
 ### Added
