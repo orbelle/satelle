@@ -72,6 +72,11 @@ function contextOf(r: Run): string {
 	return typeof add === "string" ? add : "";
 }
 
+function noticeOf(r: Run): string {
+	const msg = r.ok ? parse(r.stdout)?.systemMessage : undefined;
+	return typeof msg === "string" ? msg : "";
+}
+
 export default function (pi: ExtensionAPI) {
 	let sessionContext = "";
 
@@ -89,7 +94,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event: any, ctx: any) => {
-		sessionContext = contextOf(await run(VERBS.context, { ...base("SessionStart", ctx), source: "startup" }, workdir(ctx)));
+		const r = await run(VERBS.context, { ...base("SessionStart", ctx), source: "startup" }, workdir(ctx));
+		sessionContext = contextOf(r);
+		const msg = noticeOf(r);
+		if (msg) {
+			try {
+				ctx?.ui?.notify?.(msg, "warning");
+			} catch {}
+		}
 	});
 
 	pi.on("before_agent_start", async (event: any, ctx: any) => {

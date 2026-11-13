@@ -50,10 +50,13 @@ const (
 // Context returns harness's answer that adds text to the model's context for
 // event (EventSessionStart or EventPrompt). Claude, pi and grok read claude's
 // shape (the pi extension forwards additionalContext into its system prompt).
-// Cursor's sessionStart reads additional_context; its beforeSubmitPrompt has
-// no context channel (it answers only continue and user_message), so a
-// cursor prompt answer is PromptContinue instead.
-func Context(harness, event, text string) []byte {
+// notice is the user's channel: claude shows a top-level systemMessage to the
+// user, and the pi extension shows it through ctx.ui.notify; an empty notice
+// emits no systemMessage. Grok and cursor have no proven user field, so their
+// envelopes drop the notice. Cursor's sessionStart reads additional_context;
+// its beforeSubmitPrompt has no context channel (it answers only continue and
+// user_message), so a cursor prompt answer is PromptContinue instead.
+func Context(harness, event, text, notice string) []byte {
 	if harness == Cursor {
 		if event == EventSessionStart {
 			return marshal(struct {
@@ -62,14 +65,19 @@ func Context(harness, event, text string) []byte {
 		}
 		return PromptContinue()
 	}
+	if harness == Grok {
+		notice = ""
+	}
 	var doc struct {
 		HookSpecificOutput struct {
 			HookEventName     string `json:"hookEventName"`
 			AdditionalContext string `json:"additionalContext"`
 		} `json:"hookSpecificOutput"`
+		SystemMessage string `json:"systemMessage,omitempty"`
 	}
 	doc.HookSpecificOutput.HookEventName = event
 	doc.HookSpecificOutput.AdditionalContext = text
+	doc.SystemMessage = notice
 	return marshal(doc)
 }
 

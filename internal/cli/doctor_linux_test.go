@@ -298,7 +298,10 @@ func TestDoctorCreatesNoRuntime(t *testing.T) {
 	}
 }
 
-func hookContextText(t *testing.T, dir string) string {
+// hookContextText runs the session-start hook in dir and returns its
+// additionalContext (the model's), its top-level systemMessage (the user's)
+// and the raw stdout.
+func hookContextText(t *testing.T, dir string) (ctx, msg, raw string) {
 	t.Helper()
 	out, err := run(t, fmt.Sprintf(`{"session_id":"s-hook","cwd":%q}`, dir), "hook", "context")
 	if err != nil {
@@ -308,11 +311,12 @@ func hookContextText(t *testing.T, dir string) string {
 		Hook struct {
 			Context string `json:"additionalContext"`
 		} `json:"hookSpecificOutput"`
+		Message string `json:"systemMessage"`
 	}
 	if err := json.Unmarshal([]byte(out), &env); err != nil {
 		t.Fatalf("hook output: %v\n%s", err, out)
 	}
-	return env.Hook.Context
+	return env.Hook.Context, env.Message, out
 }
 
 // The session-start hook runs the same checks and prints one line per check
@@ -325,7 +329,7 @@ func TestHookContextRunsTheDoctorChecks(t *testing.T) {
 	createID(t, "story", "create", "--title", "a drift", "--criteria", "c", "--tag", "drift")
 	writeFile(t, filepath.Join(f.dir, "FAIL"), "one\ntwo\n")
 	rep, _, _ := doctorJSON(t)
-	ctx := hookContextText(t, f.dir)
+	ctx, msg, _ := hookContextText(t, f.dir)
 	if !strings.Contains(ctx, fmt.Sprintf("satelle doctor: %d issue(s)", len(rep.Issues))) {
 		t.Fatalf("no doctor block for %d issues:\n%s", len(rep.Issues), ctx)
 	}
@@ -342,10 +346,26 @@ func TestHookContextRunsTheDoctorChecks(t *testing.T) {
 			t.Errorf("the block lacks %s (%d) with fix %q:\n%s", c, n, first[c], ctx)
 		}
 	}
-	// A clean fixture prints no block.
+	// The model keeps the problem text; the user's systemMessage is the short
+	// view: the issue count, then each check's count and first fix.
+	if !strings.Contains(ctx, "  check:fixture-check (2): one — fix: fix what it names\n") {
+		t.Errorf("the block lacks the fixture check's problem and fix:\n%s", ctx)
+	}
+	if !strings.HasPrefix(msg, fmt.Sprintf("satelle doctor: %d issue(s)", len(rep.Issues))) {
+		t.Fatalf("no systemMessage for %d issues:\n%s", len(rep.Issues), msg)
+	}
+	for c, n := range counts {
+		if !strings.Contains(msg, fmt.Sprintf("  %s (%d)", c, n)) || (first[c] != "" && !strings.Contains(msg, "fix: "+first[c])) {
+			t.Errorf("the systemMessage lacks %s (%d) with fix %q:\n%s", c, n, first[c], msg)
+		}
+	}
+	if !strings.Contains(msg, "  check:fixture-check (2) — fix: fix what it names\n") || strings.Contains(msg, ": one") {
+		t.Errorf("the systemMessage is not the fixture check's count and fix alone:\n%s", msg)
+	}
+	// A clean fixture prints no block and no systemMessage.
 	clean := newDoctorFixture(t)
-	if ctx := hookContextText(t, clean.dir); strings.Contains(ctx, "satelle doctor:") || strings.Contains(ctx, "not checked") {
-		t.Errorf("a clean repo printed a doctor block:\n%s", ctx)
+	if ctx, _, raw := hookContextText(t, clean.dir); strings.Contains(ctx, "satelle doctor:") || strings.Contains(ctx, "not checked") || strings.Contains(raw, "systemMessage") {
+		t.Errorf("a clean repo printed a doctor block or a systemMessage:\n%s", raw)
 	}
 }
 
@@ -355,12 +375,15 @@ func TestHookContextDoctorBudget(t *testing.T) {
 	f := newDoctorFixture(t)
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\nsleep 30\n```\n")
 	start := time.Now()
-	ctx := hookContextText(t, f.dir)
+	ctx, _, raw := hookContextText(t, f.dir)
 	if el := time.Since(start); el > 4*time.Second {
 		t.Fatalf("hook context took %v", el)
 	}
 	if !strings.Contains(ctx, "not checked within 2s at session start: check:fixture-check") {
 		t.Fatalf("the cut check is not named:\n%s", ctx)
+	}
+	if strings.Contains(raw, "systemMessage") {
+		t.Errorf("a cut check with no issues gave a systemMessage:\n%s", raw)
 	}
 }
 
