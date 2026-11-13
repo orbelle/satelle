@@ -140,6 +140,28 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 			t.Errorf("this repo's volatile.toml lacks the default pattern %q (has %v)", n, names)
 		}
 	}
+	// AC6: this repo enables model-id with its own vendors: one model id from
+	// each family satelle-agent-alt-reviewer.md names for this repo matches,
+	// and the near misses do not. The samples are test literals.
+	for _, p := range cfg.Volatile.Patterns {
+		if p.Name != "model-id" {
+			continue
+		}
+		set, err := substrate.CompileVolatile(substrate.VolatileRules{Patterns: []substrate.VolatilePattern{p}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"claude-fable-5-2", "gpt-5.6-sol-high", "gemini-3.8-flash-high", "grok-4"} {
+			if got := substrate.VolatileText("f.md", "runs on "+id, set); len(got) != 1 {
+				t.Errorf("this repo's model-id does not match %s: %v", id, got)
+			}
+		}
+		for _, miss := range []string{"claude-code", "reviewer-grok"} {
+			if got := substrate.VolatileText("f.md", "uses "+miss, set); len(got) != 0 {
+				t.Errorf("this repo's model-id matches %s: %v", miss, got)
+			}
+		}
+	}
 	found, err := cfg.VolatileFindings()
 	if err != nil {
 		t.Fatal(err)

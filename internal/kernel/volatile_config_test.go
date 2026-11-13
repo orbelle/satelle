@@ -222,3 +222,70 @@ func TestNoVolatilePatternIsAGoLiteral(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// AC5: the template satelle ships holds exactly three active defaults and a
+// commented model-id opt-in whose vendors are placeholders, so satelle ships
+// no vendor list. The test reads the embedded file and requires Init to have
+// written those same bytes, so what is asserted is what ships. It holds sample
+// lines, pattern names and comment prefixes only, never pattern text.
+func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
+	shipped, err := fs.ReadFile(template, "template/"+VolatileFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, c := initVolatile(t)
+	written, err := os.ReadFile(filepath.Join(root, VolatileFile))
+	if err != nil || string(written) != string(shipped) {
+		t.Fatalf("init did not write the embedded template (%v)", err)
+	}
+
+	// Three active defaults, each matching its shape.
+	samples := map[string]string{
+		"version":       "uses v1.0.57 of the binary",
+		"present-tense": "the latest release",
+		"current-item":  "currently on sto_0f76dd4e",
+	}
+	var names []string
+	for _, p := range c.Volatile.Patterns {
+		names = append(names, p.Name)
+		set, err := substrate.CompileVolatile(substrate.VolatileRules{Patterns: []substrate.VolatilePattern{p}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := substrate.VolatileText("f.md", samples[p.Name], set); len(got) != 1 {
+			t.Errorf("%s does not match %q: %v", p.Name, samples[p.Name], got)
+		}
+	}
+	if want := []string{"version", "present-tense", "current-item"}; !slices.Equal(names, want) {
+		t.Fatalf("active patterns %v, want %v", names, want)
+	}
+
+	// The model-id example: three consecutive commented lines, not loaded,
+	// whose alternation holds only placeholder vendors.
+	lines := strings.Split(string(shipped), "\n")
+	at := slices.Index(lines, `# name = "model-id"`)
+	if at < 1 || lines[at-1] != "# [[pattern]]" || at+1 >= len(lines) || !strings.HasPrefix(lines[at+1], "# match = '") {
+		t.Fatalf("no commented model-id example (# [[pattern]], # name, # match) in the template")
+	}
+	match := lines[at+1]
+	open, close := strings.Index(match, "("), strings.Index(match, ")")
+	if open < 0 || close < open {
+		t.Fatalf("model-id example has no vendor group: %q", match)
+	}
+	for _, v := range strings.Split(match[open+1:close], "|") {
+		if !strings.HasPrefix(v, "vendor-") {
+			t.Errorf("model-id example names %q: the template ships placeholders, not a vendor list", v)
+		}
+	}
+
+	// Uncommented, the example is valid configuration with a fourth pattern.
+	un := strings.Join(slices.Concat(lines[:at-1], []string{"[[pattern]]", `name = "model-id"`, strings.TrimPrefix(match, "# ")}, lines[at+2:]), "\n")
+	write(t, filepath.Join(root, VolatileFile), un)
+	c2, err := LoadConfig(root)
+	if err != nil {
+		t.Fatalf("the uncommented example does not load: %v", err)
+	}
+	if n := len(c2.Volatile.Patterns); n != 4 {
+		t.Fatalf("uncommented template has %d patterns, want 4", n)
+	}
+}
