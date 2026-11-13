@@ -102,3 +102,13 @@ are reviewed*).
   Git it runs in a throwaway scratch repo it creates for one run (a remote
   node's workspace; the docker check gate's node) is not a git action on the
   repo: "Does not count ... and the rule holds" (operator, 2026-11-08).
+
+## 2026-11-13
+
+- **At least one judge of another family.** "the plan reviewer(s) and code
+  reviewer(s) there should be at least 1 non-matching llm. eg. claude vs gpt
+  vs grok models." and "Can be more than 1 reviewer, however, at least 1 is a
+  different model." A gate's single judge is of another model family than
+  the work's author. A panel needs at least one member of another family, and
+  its other members may share the author's family (operator, 2026-11-13;
+  satelle-agent-alt-reviewer).
