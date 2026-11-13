@@ -116,3 +116,22 @@ are reviewed*).
   posted to the user." What satelle can prove it fixes unattended (the sync
   timer's pass runs doctor's answer-free fixes); only what it cannot fix
   reaches the operator (operator, 2026-11-13; satelle-sync-architecture §4).
+- **Blocked, not held.** "'Held' status should be removed. It is not common
+  language. 'Blocked' is correct and provides there is reason, and unblocking
+  is required." A capped plan goes to blocked with its reason and the command
+  that unblocks it (operator, 2026-11-13).
+- **A blocked plan is a positive outcome.** "When the plan is blocked, that is
+  actually a positive outcome, as many times, the plan was passed. The
+  proposed stories are not always in the right direction, or achievable." A
+  plan that cannot pass review stops a story before any code is written; it is
+  reported, not worked around (operator, 2026-11-13).
+- **satelle ships its system processes.** "there are reasons that satelle
+  implements 'system' processes, satelle maintenance and substrate alignment,
+  ensuring agents understand how to use satelle and optimal skill rules (eg.
+  reference over content)." The init template's substrate is shipped into each
+  repo and overridable there (operator, 2026-11-13;
+  satelle-mechanism-vs-substrate).
+- **All panel members must agree, for now.** "Panel - lets maintain all must
+  agree (for now) but ... open up the discussion." Panels keep combine = "all";
+  consultation inside the reviewer circle before the cold gate is the
+  discussion (operator, 2026-11-13).

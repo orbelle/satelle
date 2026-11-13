@@ -14,9 +14,11 @@ start = true
 performer = { agent = "planner", skill = "plan" }
 # Round cap (sto_216e2027): plan review was rejected 8 rounds running on one
 # dissenter (satelle-server sto_7094c283). After 3 rejected rounds in a row the
-# item is held for the operator instead of re-planned; 3 is the plan skill's
-# own attempt budget.
-hold = { rounds = 3, to = "held" }
+# item is blocked for the operator instead of re-planned; 3 is the plan skill's
+# own attempt budget. A blocked plan is a positive outcome: it stops a story
+# that is not in the right direction, or not achievable, before any code
+# (operator, 2026-11-13).
+hold = { rounds = 3, to = "blocked" }
 
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
@@ -35,8 +37,9 @@ enqueue = ["release"]
 park = true
 resumes = true
 
-# Where a state's round cap holds an item for the operator. Only the operator
-# moves it out (held -> @prior, or cancelled); the driving session stops.
+# Retired (operator, 2026-11-13: "'Held' status should be removed ...
+# 'Blocked' is correct"): the plan hold now goes to blocked. held stays only
+# for the items still in it; once none is, a follow-up removes it.
 [states.held]
 park = true
 resumes = true
@@ -235,7 +238,16 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
-# The hold's move: gateless, so the hold cannot itself be rejected.
+# The plan hold's move: gateless, so the hold cannot itself be rejected; the
+# hold's dissent summary is its reason. Only the operator moves it out
+# (blocked -> @prior, or cancelled); the driving session stops.
+[[transition]]
+from = ["plan"]
+to = "blocked"
+
+# Retired held state: its items leave as before. plan -> held stays declared
+# only so validate finds held reachable while items remain in it; no hold
+# targets it, and the follow-up that removes held removes both.
 [[transition]]
 from = ["plan"]
 to = "held"
@@ -244,8 +256,9 @@ to = "held"
 from = ["held"]
 to = "@prior"
 
+# Every other move into blocked is judged: the reason must hold.
 [[transition]]
-from = ["*"]
+from = ["backlog", "in_progress", "integration", "approved"]
 to = "blocked"
 groups = [{ mode = "sequential", gates = ["blocked-review"] }]
 
