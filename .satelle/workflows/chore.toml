@@ -35,7 +35,7 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-grok"
+agent = "reviewer-grok-4.7"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.format-vet]
@@ -50,7 +50,7 @@ carry = true
 # 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-alt", "reviewer-gpt"]
+panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -73,7 +73,7 @@ skill = "satelle-pr-ready-check"
 # the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
 
@@ -104,12 +104,12 @@ skill = "satelle-release-installed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 [[transition]]
