@@ -177,6 +177,9 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 		{name: "substrate drift", setup: func(t *testing.T, f *doctorFixture) {
 			writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names a removed command.\n---\n\nRun `satelle story docs <id>`.\n")
 		}, want: []want{{"substrate", ".satelle/skills/stale.md:7: command: satelle story docs", "satelle help"}}},
+		{name: "volatile literal", setup: func(t *testing.T, f *doctorFixture) {
+			writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names a release.\n---\n\nUses v1.0.57 of the binary.\n")
+		}, want: []want{{"volatile", ".satelle/skills/stale.md:7: volatile: version", "volatile.toml"}}},
 		{name: "init would add", setup: func(t *testing.T, f *doctorFixture) {
 			if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
 				t.Fatal(err)

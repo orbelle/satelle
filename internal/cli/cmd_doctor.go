@@ -22,6 +22,11 @@ Its checks:
   substrate  a satelle command, flag, help topic or [[link]] the repo's
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)
+  volatile   a line of the substrate Markdown, or of a file
+             .satelle/volatile.toml names under paths, that matches one of its
+             volatile patterns (a version string, "currently", a model id),
+             unless it carries a YYYY-MM-DD date or the exempt marker; files
+             its exclude globs match are not read (reword, date or mark it)
   init       files satelle init would add (satelle init)
   harness    a harness in use (agents.toml runs it, or the repo has its
              .claude, .cursor, .grok or .pi directory) whose hook file differs
@@ -63,7 +68,7 @@ when it finds nothing and 1 when it finds an issue.
   - every other orphaned seat: it shows the evidence and asks on the
     controlling terminal, release or keep (keep is the default); with no
     terminal it lists it, saying there was no terminal to ask at;
-  - config, substrate, init and .satelle/doctor.toml check findings: it
+  - config, substrate, volatile, init and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (a story tagged substrate-fix, or what
     doctor.toml [resolve] names), and opens no second one while that is open. With an invalid

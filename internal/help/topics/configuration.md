@@ -56,13 +56,15 @@ the kernel still opens: only a configuration problem stops it.
 - `skills/<name>.md` — the skills performers, gates and checks follow.
 - `doctor.toml` — optional: the repo's own checks and open-item lists
   `satelle doctor` runs beside its kernel checks (below).
+- `volatile.toml` — optional: the volatile-literal patterns `satelle validate`
+  and `satelle doctor` apply to the substrate (below).
 
 ## doctor.toml
 
 `satelle doctor` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
-within 2 s. Besides its kernel checks (config, substrate, init, harness, versions,
-sync, seats) it
+within 2 s. Besides its kernel checks (config, substrate, volatile, init, harness,
+versions, sync, seats) it
 runs what `.satelle/doctor.toml` names:
 
     [[check]]
@@ -85,7 +87,7 @@ that does not know it ignores it.
 `satelle doctor --resolve` fixes what doctor can prove (the service, seats
 whose session has ended on this machine or whose item is in a terminal state)
 and asks about other orphaned seats.
-The config, substrate, init and `[[check]]` findings it puts on one item, for the agent to
+The config, substrate, volatile, init and `[[check]]` findings it puts on one item, for the agent to
 fix in one change through that item's workflow; it never edits or commits the
 files itself, and opens no second item while that one is open. `[resolve]`
 names the item:
@@ -98,6 +100,44 @@ names the item:
 Every key is optional; an item's status is its workflow's to set, so there is
 no `status`. While the configuration is invalid no item can be recorded:
 `--resolve` then lists the findings with `satelle validate` first.
+
+## volatile.toml
+
+A volatile literal is text that goes stale on its own: a version string,
+"currently", a model id, an item id presented as the current one.
+`.satelle/volatile.toml` names the patterns that find them:
+
+    paths   = ["<glob>"]        # extra files to read, of any extension
+    exclude = ["<glob>"]        # files never read, whichever list found them
+    exempt  = "<marker>"        # a line containing it is not reported; "" = no marker
+
+    [[pattern]]
+    name  = "<name>"            # unique; named in each finding
+    match = '<regexp>'          # Go regular expression (RE2), run on each line
+
+The files read are every `*.md` under `.satelle`, plus every regular file a
+`paths` glob matches, minus every file an `exclude` glob matches; a file is
+read once however many lists find it, and a symlink is never followed. Globs
+are slash-separated and relative to the directory that holds `.satelle`; `**`
+stands for any number of whole segments. A glob may not be empty or absolute
+or hold an empty, `.` or `..` segment: that, a nameless or duplicate pattern,
+or a `match` that does not compile is a configuration problem. The shipped
+`exclude` leaves out run records (`.satelle/runs`), testdata fixtures and
+`.git`; the list is the repo's to change, and nothing else is left out.
+
+A line is not reported when it carries a YYYY-MM-DD date (dated history) or
+the `exempt` marker. Each other line gives one finding per pattern it
+matches: `<file>:<line>: volatile: <pattern> — "<text>" matches <regexp>`.
+`satelle validate` lists them (the `volatile` list with `--json`) without
+failing; `satelle doctor` reports each as a `volatile` issue, and `--resolve`
+puts them on the substrate-fix item. With no `volatile.toml`, or no
+`[[pattern]]` in it, nothing is reported: satelle holds no patterns of its
+own. `satelle init` writes the default patterns when the file is absent, and
+the repo edits its copy to change, add or remove them. The shipped file flags
+version strings, present-tense words and item ids presented as current, and
+holds a commented `model-id` pattern that a repo enables by uncommenting it
+and listing the vendors whose models it uses: satelle ships no vendor list. It is its own file for
+the reason `doctor.toml` is.
 
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives
 under `~/.satelle/<repo-key>/` (`satelle runtime path`), shared by every

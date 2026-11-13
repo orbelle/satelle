@@ -78,6 +78,21 @@ func problemsError(dataDir string, err error) error {
 	return fmt.Errorf("configuration in %s is invalid:\n%w", dataDir, err)
 }
 
+// volatileFindings is the volatile-literal findings of the repo at dataDir,
+// never nil. A configuration that does not load, or whose volatile.toml has a
+// problem, gives none and no error: kernel.Validate already lists the cause.
+func volatileFindings(dataDir string) ([]substrate.Finding, error) {
+	cfg, _ := kernel.LoadConfig(dataDir)
+	if cfg == nil || len(cfg.Volatile.Problems()) > 0 {
+		return []substrate.Finding{}, nil
+	}
+	found, err := cfg.VolatileFindings()
+	if err != nil || found == nil {
+		return []substrate.Finding{}, err
+	}
+	return found, nil
+}
+
 func validateCmd() *cobra.Command {
 	var asJSON *bool
 	cmd := &cobra.Command{
@@ -88,7 +103,16 @@ the kernel opening) and its substrate against this binary: every satelle
 command, flag and help topic its skills, principles, tasks, workflows and
 queues name in code, and every [[link]], must exist. A substrate finding is
 printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
-substrate key with --json) and fails the check, but never stops the kernel opening.`,
+substrate key with --json) and fails the check, but never stops the kernel opening.
+
+It also lists each line of the substrate Markdown, and of the files
+.satelle/volatile.toml names under paths, that matches one of that file's
+volatile patterns (a version string, "currently", a model id), as
+<file>:<line>: volatile: <pattern> — <why> (under the volatile key with
+--json). A line carrying a YYYY-MM-DD date, or the file's exempt marker, is
+not listed, and no file its exclude globs match is read. Volatile lines are
+listed without failing the check; satelle doctor reports each as an issue.
+With no volatile.toml, or no pattern in it, none is listed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -103,17 +127,30 @@ substrate key with --json) and fails the check, but never stops the kernel openi
 			if drift == nil {
 				drift = []substrate.Finding{}
 			}
+			volatile, err := volatileFindings(r.DataDir)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("%s: %w", substrate.VolatileField, err))
+			}
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
 				for _, p := range problems {
 					msgs = append(msgs, p.Error())
 				}
-				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift}); err != nil {
+				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
+					substrate.VolatileField: volatile}); err != nil {
 					return err
 				}
-			} else if valid {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
+			} else {
+				if valid {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
+				}
+				if len(volatile) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "volatile literals in %s (%d):\n", r.DataDir, len(volatile))
+					for _, f := range volatile {
+						fmt.Fprintln(cmd.OutOrStdout(), f.String())
+					}
+				}
 			}
 			if valid {
 				return nil

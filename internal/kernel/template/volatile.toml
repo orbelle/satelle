@@ -1,0 +1,43 @@
+# Volatile literals: satelle validate lists, and satelle doctor reports, each
+# line of this repo's .satelle Markdown (and of the files `paths` names) that
+# matches a [[pattern]] below: text that goes stale on its own, such as a
+# version string, "currently" or a model id. This file is the repo's to edit:
+# change, add or remove patterns; with no [[pattern]] nothing is reported.
+#
+# A line is never reported when it is dated history (it carries a YYYY-MM-DD
+# date) or when it contains the `exempt` marker.
+#
+# Globs are slash-separated and relative to the directory that holds .satelle;
+# "**" stands for any number of whole segments. A glob may not be absolute or
+# hold a "." or ".." segment.
+#   paths    extra files to read, of any extension, inside or outside .satelle
+#   exclude  files never read, whichever list found them (run records,
+#            testdata fixtures and .git by default)
+# See `satelle help configuration`.
+
+paths = []
+exclude = [".satelle/runs/**", "**/testdata/**", ".git/**"]
+exempt = "volatile-ok"
+
+# A three-part version number, with or without a leading v.
+[[pattern]]
+name = "version"
+match = '(^|[^0-9.])v?[0-9]+\.[0-9]+\.[0-9]+([^0-9.]|\.([^0-9]|$)|$)'
+
+# A word that says "as of now".
+[[pattern]]
+name = "present-tense"
+match = '(?i)(^|[^a-z0-9/_-])(latest|current|currently|now is|at the moment)([^a-z0-9/_-]|$)'
+
+# A model id names its vendor, and which vendors a repo uses is that repo's
+# own configuration, so satelle ships no vendor list. To flag model ids,
+# uncomment and list the vendors whose models this repo binds, e.g.:
+#
+# [[pattern]]
+# name = "model-id"
+# match = '\b(vendor-a|vendor-b)-[a-z0-9.-]*[0-9][a-z0-9.-]*\b'
+
+# An item id presented as the current one.
+[[pattern]]
+name = "current-item"
+match = '(?i)\b(current|currently|latest|active|now)\b[^.]*\b[a-z]{3}_[0-9a-f]{8}\b'

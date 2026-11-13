@@ -817,11 +817,12 @@ func newItems(t *testing.T, before []string) []item.Item {
 
 // A substrate finding (a skill naming a command this binary lacks) is a
 // fix-item issue, and --resolve opens the one fix item listing it beside the
-// other substrate findings; the tree and .git are unchanged (AC7).
+// other substrate findings, a volatile literal among them (sto_3de33a72); the
+// tree and .git are unchanged (AC7).
 func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	f := newDoctorFixture(t)
 	noTerminal(t)
-	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names what the binary lacks.\n---\n\nRun `satelle nosuchcmd <id>`.\n")
+	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names what the binary lacks.\n---\n\nRun `satelle nosuchcmd <id>`.\n\nUses v1.0.57 of the binary.\n")
 	if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
 		t.Fatal(err)
 	}
@@ -845,7 +846,8 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	if len(fixes) != 1 || rep.Item != fixes[0].ID {
 		t.Fatalf("items opened %+v, report item %q", fixes, rep.Item)
 	}
-	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: "} {
+	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: ",
+		"volatile: .satelle/skills/stale.md:9: volatile: version — "} {
 		if !strings.Contains(fixes[0].Body, "- "+w) {
 			t.Errorf("fix item body lacks %q:\n%s", w, fixes[0].Body)
 		}

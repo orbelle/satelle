@@ -124,6 +124,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 	checks = append(checks,
 		doctorCheck{"config", checkConfig},
 		doctorCheck{substrate.Field, checkSubstrate},
+		doctorCheck{substrate.VolatileField, checkVolatile},
 		doctorCheck{"init", checkInit},
 		doctorCheck{checkHarnessName, checkHarness},
 		doctorCheck{"sync", checkSync},
@@ -245,6 +246,31 @@ func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string
 	for _, f := range found {
 		out = append(out, doctorIssue{Check: substrate.Field, Problem: f.String(),
 			Fix: "edit that line to name what this binary has (satelle help, satelle <command> --help)", Resolve: resolveFixItem})
+	}
+	return out, nil
+}
+
+// checkVolatile reports each line of the substrate, and of the files
+// .satelle/volatile.toml names, that matches one of its volatile patterns
+// (kernel.Config.VolatileFindings). A volatile.toml with a problem is the
+// config check's to report. Each finding goes on the substrate-fix item
+// satelle doctor --resolve opens.
+func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	if in.cfg == nil || len(in.cfg.Volatile.Problems()) > 0 {
+		return nil, nil
+	}
+	found, err := in.cfg.VolatileFindings()
+	if err != nil {
+		return []doctorIssue{{Check: substrate.VolatileField, Problem: err.Error(), Fix: "satelle validate", Resolve: resolveFixItem}}, nil
+	}
+	fix := "reword the line so it stays true, date it (YYYY-MM-DD) if it is history"
+	if m := in.cfg.Volatile.Exempt; m != "" {
+		fix += ", or mark it " + m
+	}
+	fix += "; patterns: .satelle/" + kernel.VolatileFile
+	var out []doctorIssue
+	for _, f := range found {
+		out = append(out, doctorIssue{Check: substrate.VolatileField, Problem: f.String(), Fix: fix, Resolve: resolveFixItem})
 	}
 	return out, nil
 }
