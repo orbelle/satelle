@@ -30,14 +30,17 @@ type Objects interface {
 // lists the blobs a chain references; Out receives one line per divergence,
 // refusal, gap, fill and skipped entry. Cache, when set, is refreshed after
 // every pull. Choose, when set, places an item a pull brought in without a
-// workflow by this repo's rules.
+// workflow by this repo's rules. Mirrors, when set, lets a pull replace a
+// forked local chain that holds only this repo's configuration-file mirror
+// events with the store's chain; nil adopts nothing.
 type Replicator struct {
-	Ledger *ledger.Store
-	Store  Store
-	Refs   func([]ledger.Event) []ledger.BlobRef
-	Out    io.Writer
-	Cache  *cache.Cache
-	Choose Chooser
+	Ledger  *ledger.Store
+	Store   Store
+	Refs    func([]ledger.Event) []ledger.BlobRef
+	Out     io.Writer
+	Cache   *cache.Cache
+	Choose  Chooser
+	Mirrors FileMirrors
 }
 
 // Chooser picks the workflow an item belongs in and its start state (the
@@ -45,6 +48,17 @@ type Replicator struct {
 // default).
 type Chooser interface {
 	WorkflowFor(it item.Item) (workflow, start string, err error)
+}
+
+// FileMirrors is the repo's knowledge of chains it writes from its own
+// configuration files (the kernel's queue files).
+type FileMirrors interface {
+	// MirrorOnly reports whether every event of local was written from this
+	// repo's configuration files, so the store's chain may replace it.
+	MirrorOnly(id string, local []ledger.Event) bool
+	// Remirror applies the file's definition to the chain now held; wrote
+	// reports whether it appended an event.
+	Remirror(id string) (wrote bool, err error)
 }
 
 // Actor records the events satelle itself appends (placing a pulled item).
@@ -90,6 +104,23 @@ type Result struct {
 	// this repo's rules; Unplaced could not be (local events unpushed, or
 	// the store kept moving).
 	Placed, Unplaced []string
+	// Adopted are items whose local chain, only file-mirror events, a pull
+	// replaced with the store's chain.
+	Adopted []string
+}
+
+// add folds o into r: counts are summed and lists appended.
+func (r *Result) add(o Result) {
+	r.Events += o.Events
+	r.Blobs += o.Blobs
+	r.Items += o.Items
+	r.Gaps = append(r.Gaps, o.Gaps...)
+	r.Diverged = append(r.Diverged, o.Diverged...)
+	r.Refused = append(r.Refused, o.Refused...)
+	r.Written = append(r.Written, o.Written...)
+	r.Placed = append(r.Placed, o.Placed...)
+	r.Unplaced = append(r.Unplaced, o.Unplaced...)
+	r.Adopted = append(r.Adopted, o.Adopted...)
 }
 
 // Failed reports whether an item diverged or was refused. Gaps never fail.

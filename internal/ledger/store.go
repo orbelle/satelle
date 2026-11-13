@@ -149,6 +149,80 @@ func (s *Store) AppendRaw(e Event) error {
 	})
 }
 
+// Replace swaps item's whole chain for events, a complete chain from
+// elsewhere (a store's), when the chain's tail is still head. It replaces a
+// chain the caller has shown this runtime alone wrote (a queue file's mirror
+// events), never one carrying anyone's work. head must be non-empty (a
+// replace is not a create), events non-empty, every event must name item and
+// the chain must verify. A tail that moved is refused with *StaleTail and
+// nothing is written. The new chain is written to a synced temporary file
+// renamed over the old one, so a reader sees either chain whole and never an
+// empty one; OnWrite is then called for each event.
+func (s *Store) Replace(item, head string, events []Event) error {
+	if !ValidItem(item) {
+		return fmt.Errorf("ledger: invalid item id %q", item)
+	}
+	if head == "" {
+		return fmt.Errorf("ledger: replace %s: no head given; a replace is not a create", item)
+	}
+	if len(events) == 0 {
+		return fmt.Errorf("ledger: replace %s: no events given", item)
+	}
+	if err := VerifyChain(item, events); err != nil {
+		return fmt.Errorf("ledger: replace %s: %w", item, err)
+	}
+	var body bytes.Buffer
+	for _, e := range events {
+		line, err := Encode(e)
+		if err != nil {
+			return err
+		}
+		body.Write(line)
+		body.WriteByte('\n')
+	}
+	return s.withLock(func() error {
+		tail, err := s.tailHash(item)
+		if err != nil {
+			return err
+		}
+		if tail != head {
+			return &StaleTail{Event: events[0].ID, Prev: head, Tail: tail}
+		}
+		if err := s.replaceFile(item, body.Bytes()); err != nil {
+			return fmt.Errorf("ledger: replace %s: %w", item, err)
+		}
+		if s.OnWrite != nil {
+			for _, e := range events {
+				s.OnWrite(e)
+			}
+		}
+		return nil
+	})
+}
+
+// replaceFile writes body to item's chain file through a synced temporary
+// file in the ledger directory, renamed over it.
+func (s *Store) replaceFile(item string, body []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(s.path(item)), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(body)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), s.path(item))
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+	}
+	return err
+}
+
 // StaleTail is AppendRaw's refusal of an event that does not link to the
 // chain's current tail.
 type StaleTail struct{ Event, Prev, Tail string }

@@ -131,7 +131,12 @@ The rules are the same for every store:
   whatever their lengths, and finds the fork point when it differs. A chain
   that forked, in a longer, an equal-length or a shorter store chain, is
   refused, `diverged: <item> at event <seq>: ...; nothing appended`, nothing is
-  appended to it, and pull exits 1. A store chain that is a prefix of the
+  appended to it, and pull exits 1. The one exception is a fork whose local
+  chain holds only a queue file's mirror events (actor `satelle`, cause
+  `queue file <path>`), written before the first pull: it is not refused; the
+  store's chain replaces it, `adopted: <item>: ...`, then the file is mirrored
+  onto it as one `item.updated` when they differ. A chain with any other event
+  is still refused. A store chain that is a prefix of the
   local one, for a pull of every item or of one, is not a conflict: pull
   imports nothing, exits 0, and the next push writes the rest. New events are
   verified with the local chain before any is appended; one that does not
@@ -160,7 +165,9 @@ pass over this machine's projects (`~/.satelle/config.toml [projects]`;
 local, it pushes the items this runtime is ahead on, then pulls the items the
 store is ahead on, by the same rules as push and pull. An item in sync is not
 touched. One that diverged or was refused is left on both sides and named,
-never merged. A write made while the store is unreachable stays in the local
+never merged, except a fork whose local chain holds only a queue file's mirror
+events: it is pulled, the store's chain replacing it, and its mirror event is
+pushed in the same pass. A write made while the store is unreachable stays in the local
 ledger and is pushed by the next pass that reaches it. A change on one machine
 therefore reaches satelle.dev within one period plus a pass, and another
 signed-in, bound machine within 90 seconds. Each project's outcome is shown on

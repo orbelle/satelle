@@ -396,7 +396,7 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 // project, by the rules every store uses.
 func (j *joiner) replicator(k *kernel.Kernel) *ledgerrepl.Replicator {
 	store := &ledgerrepl.Dev{Client: j.nc.Hosted(), Project: j.run.Project, Server: j.o.Server, Ledger: k.Ledger, Cache: k.Cache}
-	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: store, Refs: kernel.BlobRefs, Out: j.o.Log, Cache: k.Cache, Choose: k}
+	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: store, Refs: kernel.BlobRefs, Out: j.o.Log, Cache: k.Cache, Choose: k, Mirrors: k}
 }
 
 // pullRun pulls the run's item; a diverged or refused chain is an error.

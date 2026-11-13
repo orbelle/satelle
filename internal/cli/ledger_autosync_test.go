@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -9,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
@@ -393,5 +396,291 @@ func TestAutosyncSatelledDownConfirmsNothing(t *testing.T) {
 	got := syncStateOf(t)
 	if !got.SnapshotLastSuccess.Equal(st.SnapshotLastSuccess) || !got.SnapshotLastFailure.Equal(st.SnapshotLastFailure) || got.SnapshotReason != st.SnapshotReason {
 		t.Errorf("a pass with satelled down recorded a snapshot outcome: %+v → %+v", st, got)
+	}
+}
+
+// releaseFile is the queue file the adoption tests give a machine.
+const releaseFile = "title = \"Release\"\n[filter]\nkind = \"story\"\n"
+
+// legacyRelease appends a que_release genesis straight to the current
+// machine's runtime ledger, as a queue made before file genesis was
+// deterministic: a random id, the wall clock, title "old" (sto_80da4589).
+func legacyRelease(t *testing.T) ledger.Event {
+	t.Helper()
+	k, _, err := openKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	qk, title := item.QueueKind, "old"
+	wf, start, err := k.WorkflowFor(item.Item{Kind: qk, Title: "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := k.Ledger.Append("que_release", item.KindCreated, "satelle", item.Fields{Kind: &qk, Workflow: &wf, Status: &start, Title: &title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// queueFileOn writes .satelle/queues/release.toml in m's repo.
+func queueFileOn(t *testing.T, m machine, body string) {
+	t.Helper()
+	file := filepath.Join(m.dir, ".satelle", "queues", "release.toml")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// releaseChain is the current machine's que_release chain.
+func releaseChain(t *testing.T) []ledger.Event {
+	t.Helper()
+	events, err := runtimeLedger(t).Read("que_release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+// releaseStatus is the que_release row of the current machine's ledger
+// status: its local and store counts and its state.
+func releaseStatus(t *testing.T) (local, store, state string) {
+	t.Helper()
+	out := must(t, "ledger", "status")
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) >= 4 && f[0] == "que_release" {
+			return f[1], f[2], strings.Join(f[3:], " ")
+		}
+	}
+	t.Fatalf("ledger status has no que_release row:\n%s", out)
+	return "", "", ""
+}
+
+// mirrorOnB binds a fresh machine B to shared, gives it body as the release
+// queue file and lets one command write the file's genesis; it returns B and
+// the chain B wrote, every event a mirror event by satelle.
+func mirrorOnB(t *testing.T, srv *fakeserver.Server, bodies ...string) (machine, []ledger.Event) {
+	t.Helper()
+	b := newMachine(t)
+	must(t, "project", "bind", "shared", "--server", srv.URL)
+	for _, body := range bodies {
+		queueFileOn(t, b, body)
+		must(t, "queue", "show", "release")
+	}
+	events := releaseChain(t)
+	if len(events) != len(bodies) {
+		t.Fatalf("B wrote %d que_release events, want %d", len(events), len(bodies))
+	}
+	for _, e := range events {
+		if e.Actor != "satelle" || !strings.Contains(string(e.Payload), `"cause":"queue file .satelle/queues/release.toml"`) {
+			t.Fatalf("B's event %s by %s is not a file mirror: %s", e.Kind, e.Actor, e.Payload)
+		}
+	}
+	return b, events
+}
+
+// adoptsA checks one pass on B took A's whole chain (aChain), none of B's own
+// events remain, and B's chain ends with exactly one mirror event of the file
+// (Release, filtered), pushed in the pass; ledger status reads in sync.
+func adoptsA(t *testing.T, srv *fakeserver.Server, b machine, aChain, own []ledger.Event) {
+	t.Helper()
+	b.use(t)
+	out := autosync(t, b)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("B's pass: %s\n%s", st.SyncReason, out)
+	}
+	got := releaseChain(t)
+	if len(got) != len(aChain)+1 {
+		t.Fatalf("B holds %d events, want A's %d and one mirror event", len(got), len(aChain))
+	}
+	for i, e := range aChain {
+		if got[i].Hash != e.Hash {
+			t.Fatalf("B's event %d is %s, the store's %s", i, got[i].Hash, e.Hash)
+		}
+	}
+	for _, mine := range own {
+		for _, e := range got {
+			if e.Hash == mine.Hash {
+				t.Fatalf("B's own event %s survived the adoption", mine.Hash)
+			}
+		}
+	}
+	last := got[len(got)-1]
+	var p struct {
+		Title string `json:"title"`
+		Cause string `json:"cause"`
+	}
+	if err := json.Unmarshal(last.Payload, &p); err != nil || last.Kind != item.KindUpdated || last.Actor != "satelle" ||
+		p.Cause != "queue file .satelle/queues/release.toml" || p.Title != "Release" {
+		t.Fatalf("B's last event %s by %s: %s", last.Kind, last.Actor, last.Payload)
+	}
+	if n := len(srv.Events("shared", "que_release")); n != len(got) {
+		t.Fatalf("satelle.dev holds %d events of que_release, B %d: the mirror event was not pushed in the pass", n, len(got))
+	}
+	if _, _, state := releaseStatus(t); state != "in sync" {
+		t.Fatalf("B's que_release is %s, want in sync", state)
+	}
+}
+
+// legacyA is machine A on project shared holding a legacy que_release with
+// one story queued, synced; it returns A, its story and its chain.
+func legacyA(t *testing.T, srv *fakeserver.Server) (machine, string, []ledger.Event) {
+	t.Helper()
+	a := newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	legacyRelease(t)
+	sto := createID(t, "story", "create", "--title", "from a", "--criteria", "c")
+	must(t, "queue", "add", "que_release", sto)
+	autosync(t, a)
+	return a, sto, releaseChain(t)
+}
+
+// AC1, AC2 (sto_80da4589): a fresh runtime whose queue file wrote que_release
+// before its first pull takes the store's chain at its first pass, mirrors
+// the file onto it as one item.updated and pushes it in the same pass.
+func TestAutosyncFileQueueAdoptsStoreChain(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	a, sto, aChain := legacyA(t, srv)
+	b, own := mirrorOnB(t, srv, releaseFile)
+	adoptsA(t, srv, b, aChain, own)
+	if out := must(t, "queue", "show", "release"); !strings.Contains(out, sto) {
+		t.Fatalf("B's queue show lacks A's story %s:\n%s", sto, out)
+	}
+	if out := autosync(t, b); !strings.Contains(out, "pushed 0 event(s) on 0 item(s), pulled 0 event(s) on 0 item(s)") {
+		t.Fatalf("B's second pass wrote:\n%s", out)
+	}
+	bHead := releaseChain(t)
+	autosync(t, a)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("A's pass: %s", st.SyncReason)
+	}
+	if got := releaseChain(t); len(got) != len(bHead) || got[len(got)-1].Hash != bHead[len(bHead)-1].Hash {
+		t.Fatalf("A holds %d events of que_release, B %d", len(got), len(bHead))
+	}
+}
+
+// AC1 (sto_80da4589): a local chain of a genesis and a mirror item.updated,
+// both the file's, is adopted the same way.
+func TestAutosyncFileQueueAdoptsOverSeveralMirrorEvents(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	_, _, aChain := legacyA(t, srv)
+	b, own := mirrorOnB(t, srv, "title = \"Draft\"\n", releaseFile)
+	if own[0].Kind != item.KindCreated || own[1].Kind != item.KindUpdated {
+		t.Fatalf("B's chain is %s, %s", own[0].Kind, own[1].Kind)
+	}
+	adoptsA(t, srv, b, aChain, own)
+}
+
+// AC2 (sto_80da4589): when the adopted chain already carries the file's
+// definition, nothing is appended and the pass pushes nothing.
+func TestAutosyncFileQueueAdoptsMatchingChainAppendsNothing(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	a := newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	legacyRelease(t)
+	queueFileOn(t, a, releaseFile)
+	must(t, "queue", "show", "release") // A's open mirrors the file onto the legacy genesis
+	autosync(t, a)
+	aChain := releaseChain(t)
+	if len(aChain) != 2 {
+		t.Fatalf("A holds %d que_release events, want the legacy genesis and one mirror", len(aChain))
+	}
+	stored := len(srv.Events("shared", "que_release"))
+
+	b, _ := mirrorOnB(t, srv, releaseFile)
+	out := autosync(t, b)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("B's pass: %s\n%s", st.SyncReason, out)
+	}
+	if !strings.Contains(out, "pushed 0 event(s) on 0 item(s)") {
+		t.Fatalf("B's pass pushed:\n%s", out)
+	}
+	got := releaseChain(t)
+	if len(got) != len(aChain) {
+		t.Fatalf("B holds %d events, A %d", len(got), len(aChain))
+	}
+	for i := range aChain {
+		if got[i].Hash != aChain[i].Hash {
+			t.Fatalf("B's event %d is not A's", i)
+		}
+	}
+	if n := len(srv.Events("shared", "que_release")); n != stored {
+		t.Fatalf("satelle.dev holds %d events of que_release, was %d", n, stored)
+	}
+	if _, _, state := releaseStatus(t); state != "in sync" {
+		t.Fatalf("B's que_release is %s", state)
+	}
+}
+
+// AC3 (sto_80da4589): satelle-server's observed shape, a local que_release of
+// one file-mirror event against a store chain of 22 with another genesis,
+// reads in sync with 22 events after one autosync pass and no other command.
+func TestAutosyncReleaseQueueShapeSyncsUnattended(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	a := newMachine(t)
+	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
+	legacyRelease(t)
+	queueFileOn(t, a, releaseFile)
+	ids := []string{"queue", "add", "que_release"}
+	for i := range 20 {
+		ids = append(ids, createID(t, "story", "create", "--title", "s"+strconv.Itoa(i), "--criteria", "c"))
+	}
+	must(t, ids...)
+	aChain := releaseChain(t)
+	if len(aChain) != 22 {
+		t.Fatalf("A holds %d que_release events, want 22", len(aChain))
+	}
+	autosync(t, a)
+
+	b, _ := mirrorOnB(t, srv, releaseFile)
+	if local, store, state := releaseStatus(t); local != "1" || store != "22" || state != "diverged at 0" {
+		t.Fatalf("B's que_release before the pass: %s %s %s, want 1 22 diverged at 0", local, store, state)
+	}
+	autosync(t, b)
+	if st := syncStateOf(t); st.SyncReason != "" {
+		t.Fatalf("B's pass: %s", st.SyncReason)
+	}
+	got := releaseChain(t)
+	if len(got) != 22 || got[21].Hash != aChain[21].Hash {
+		t.Fatalf("B holds %d events, want A's 22", len(got))
+	}
+	if local, store, state := releaseStatus(t); local != "22" || store != "22" || state != "in sync" {
+		t.Fatalf("B's que_release after the pass: %s %s %s", local, store, state)
+	}
+}
+
+// AC4 (sto_80da4589): a file-defined chain that holds any other event (here a
+// queue add on B) is never dropped: the pass leaves its bytes and the store
+// as they were and names the divergence.
+func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	_, _, aChain := legacyA(t, srv)
+	b, _ := mirrorOnB(t, srv, releaseFile)
+	mine := createID(t, "story", "create", "--title", "on b", "--criteria", "c")
+	must(t, "queue", "add", "release", mine)
+	if got := releaseChain(t); len(got) != 2 || got[1].Kind != item.KindQueueAdded {
+		t.Fatalf("B's chain is %d events", len(got))
+	}
+	path := runtimeLedger(t).Path("que_release")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.use(t)
+	if _, err := run(t, "", "ledger", "autosync"); err == nil {
+		t.Fatal("autosync of a worked fork succeeded")
+	}
+	if st := syncStateOf(t); !strings.Contains(st.SyncReason, "que_release (diverged at 0)") {
+		t.Fatalf("B's pass reason: %q", st.SyncReason)
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+		t.Fatal("B's worked que_release chain changed")
+	}
+	if n := len(srv.Events("shared", "que_release")); n != len(aChain) {
+		t.Fatalf("satelle.dev holds %d events of que_release, A pushed %d", n, len(aChain))
 	}
 }

@@ -25,7 +25,9 @@ func (e *refusal) Error() string { return e.line }
 // items, else only the named ones (one the store lacks is refused). For each
 // item it finds the prefix both chains share, comparing at the last sequence
 // both hold whatever their lengths: a fork is refused naming the item and
-// fork point and nothing is appended; a store chain that is the local chain
+// fork point and nothing is appended, unless Mirrors shows the local chain
+// holds only file-mirror events: then the store's chain replaces it and the
+// file is mirrored onto it (adopted); a store chain that is the local chain
 // or a prefix of it needs nothing and is no conflict; a longer one has its
 // new events fetched in order, verified with the local chain, then appended.
 // An item that arrived without a workflow is placed when Choose is set. Then
@@ -134,6 +136,9 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 		return err
 	}
 	if s < min(n, len(local)) {
+		if r.Mirrors != nil && r.Mirrors.MirrorOnly(item, local) {
+			return r.adopt(ctx, res, item, c, local)
+		}
 		r.diverge(res, Divergence{Item: item, Seq: s, StoreHash: seen[s], LocalHash: local[s].Hash}, "nothing appended")
 		return nil
 	}
@@ -165,6 +170,54 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 		res.Written = append(res.Written, item)
 	}
 	return err
+}
+
+// adopt replaces a forked local chain that holds only file-mirror events
+// with the store's whole chain, verified, under a check that the local tail
+// has not moved; then the cache is reset for the item and the file is
+// mirrored onto the adopted chain when they differ.
+func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chain, local []ledger.Event) error {
+	fetched, err := r.Store.Events(ctx, item, 0, c.Len)
+	if err != nil {
+		return err
+	}
+	for i, e := range fetched {
+		if e.Item != item {
+			return &refusal{fmt.Sprintf("%s event %d from the store names item %q; nothing replaced", item, i, e.Item)}
+		}
+	}
+	if err := ledger.VerifyChain(item, fetched); err != nil {
+		var b *ledger.BrokenLink
+		if errors.As(err, &b) {
+			return &refusal{fmt.Sprintf("%s event %d from the store does not verify: %s; nothing replaced", item, b.Index, b.Reason)}
+		}
+		return &refusal{fmt.Sprintf("%s from the store does not verify: %v; nothing replaced", item, err)}
+	}
+	if err := r.Ledger.Replace(item, local[len(local)-1].Hash, fetched); err != nil {
+		var stale *ledger.StaleTail
+		if errors.As(err, &stale) {
+			return &refusal{fmt.Sprintf("%s changed in this runtime while adopting the store's chain; nothing replaced", item)}
+		}
+		return err
+	}
+	if r.Cache != nil {
+		if err := r.Cache.ResetItem(r.Ledger, item); err != nil {
+			return err
+		}
+	}
+	r.printf("adopted: %s: this runtime's %d queue-file event(s) replaced by the store's %d\n", item, len(local), len(fetched))
+	res.Events += len(fetched)
+	res.Items++
+	res.Written = append(res.Written, item)
+	res.Adopted = append(res.Adopted, item)
+	wrote, err := r.Mirrors.Remirror(item)
+	if err != nil {
+		return err
+	}
+	if wrote {
+		r.printf("mirrored: %s: the file's definition as one item.updated\n", item)
+	}
+	return nil
 }
 
 // fillBlobs fetches each blob a chain of items references and this runtime

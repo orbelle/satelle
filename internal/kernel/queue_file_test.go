@@ -634,3 +634,71 @@ func TestQueueGenesisDiffersWithFile(t *testing.T) {
 		})
 	}
 }
+
+// TestMirrorOnlyRefusesAnyOtherEvent: a chain is mirror-only only while every
+// event is a queue file's mirror event (actor satelle, cause "queue file
+// <path>": a created genesis, then item.updated) on a name-derived chain a
+// file here defines; any other event makes it someone's work (sto_80da4589).
+func TestMirrorOnlyRefusesAnyOtherEvent(t *testing.T) {
+	root, open := queueKernel(t)
+	var mirrors [][]ledger.Event // after one, two and three mirror events
+	for _, title := range []string{"Draft", "Release", "Final"} {
+		queueFile(t, root, "release", "title = \""+title+"\"\n[filter]\nkind = \"story\"\n")
+		k := open()
+		events, err := k.Ledger.Read("que_release")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mirrors = append(mirrors, events)
+		k.Close()
+	}
+	queueFile(t, root, "adopted", "id = \"que_adopted\"\ntitle = \"Adopted\"\n")
+	k := open()
+	defer k.Close()
+	for i, m := range mirrors {
+		if len(m) != i+1 {
+			t.Fatalf("fixture: %d mirror events, want %d", len(m), i+1)
+		}
+	}
+	after := func(chain []ledger.Event, kind, actor string, payload any) []ledger.Event {
+		t.Helper()
+		last := chain[len(chain)-1]
+		e, err := ledger.NewEventWith("ext_"+kind+actor, last.At, last.Item, kind, actor, payload, last.Hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(slices.Clone(chain), e)
+	}
+	genesis := mirrors[0][0]
+	byOther, err := ledger.NewEventWith(genesis.ID, genesis.At, genesis.Item, genesis.Kind, "me", genesis.Payload, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name  string
+		id    string
+		chain []ledger.Event
+		want  bool
+	}{
+		{"genesis alone", "que_release", mirrors[0], true},
+		{"genesis and one mirror update", "que_release", mirrors[1], true},
+		{"genesis and two mirror updates", "que_release", mirrors[2], true},
+		{"plus a queue.added", "que_release", after(mirrors[1], item.KindQueueAdded, "me", item.QueueEntry{Item: "sto_1"}), false},
+		{"plus a user's title update", "que_release", after(mirrors[1], item.KindUpdated, "me", item.Fields{Title: ptr("mine")}), false},
+		{"plus a satelle event with no cause", "que_release", after(mirrors[1], item.KindUpdated, "satelle", item.Fields{Title: ptr("x")}), false},
+		{"plus a queue.fired", "que_release", after(mirrors[0], item.KindQueueFired, "satelle", item.QueueFire{Run: "exe_1", Cause: "queue file x"}), false},
+		{"a genesis by another actor", "que_release", []ledger.Event{byOther}, false},
+		{"an id a file adopts", "que_adopted", mirrors[0], false},
+		{"an id no file defines", "que_nofile", mirrors[0], false},
+		{"an empty chain", "que_release", nil, false},
+	}
+	for _, c := range cases {
+		if got := k.MirrorOnly(c.id, c.chain); got != c.want {
+			t.Errorf("%s: MirrorOnly = %v, want %v", c.name, got, c.want)
+		}
+	}
+	// Remirror on the chain held writes nothing when the file agrees.
+	if wrote, err := k.Remirror("que_release"); err != nil || wrote {
+		t.Fatalf("Remirror on an agreeing chain: wrote %v, %v", wrote, err)
+	}
+}

@@ -104,41 +104,94 @@ type queueMirror struct {
 // the next open compares again.
 func (k *Kernel) materializeQueues() error {
 	for _, id := range sortedKeys(k.queueFiles) {
-		def := k.queueFiles[id]
-		events, err := k.Ledger.Read(id)
-		if err != nil {
+		if _, err := k.materializeQueue(id); err != nil {
 			return err
-		}
-		p := queueMirror{Fields: def.Fields(), Cause: "queue file " + k.RelPath(def.File)}
-		if len(events) == 0 {
-			if def.ID != "" {
-				continue // adopted: the chain arrives with the next pull
-			}
-			qk := item.QueueKind
-			name, start, werr := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
-			if werr != nil {
-				return fmt.Errorf("%s: %w", k.RelPath(def.File), werr)
-			}
-			p.Kind, p.Workflow, p.Status = &qk, &name, &start
-			err = k.appendFileEvent(id, item.KindCreated, "", queueGenesisAt, p)
-		} else {
-			it, ferr := item.Fold(events) // raw: never the overlay, which is the file
-			if ferr != nil || it.Kind != item.QueueKind || !def.Differs(it) {
-				continue
-			}
-			last := events[len(events)-1]
-			err = k.appendFileEvent(id, item.KindUpdated, last.Hash, last.At, p)
-		}
-		if err != nil {
-			var stale *ledger.StaleTail
-			if errors.As(err, &stale) {
-				continue
-			}
-			return fmt.Errorf("%s: mirroring queue %s: %w", k.RelPath(def.File), id, err)
 		}
 	}
 	return nil
 }
+
+// materializeQueue mirrors the queue file defining id onto its chain by
+// materializeQueues' rule; wrote reports whether it appended an event. A tail
+// another process moved first is not written and is no error.
+func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
+	def := k.queueFiles[id]
+	if def == nil {
+		return false, nil
+	}
+	events, err := k.Ledger.Read(id)
+	if err != nil {
+		return false, err
+	}
+	p := queueMirror{Fields: def.Fields(), Cause: queueMirrorCause + k.RelPath(def.File)}
+	if len(events) == 0 {
+		if def.ID != "" {
+			return false, nil // adopted: the chain arrives with the next pull
+		}
+		qk := item.QueueKind
+		name, start, werr := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
+		if werr != nil {
+			return false, fmt.Errorf("%s: %w", k.RelPath(def.File), werr)
+		}
+		p.Kind, p.Workflow, p.Status = &qk, &name, &start
+		err = k.appendFileEvent(id, item.KindCreated, "", queueGenesisAt, p)
+	} else {
+		it, ferr := item.Fold(events) // raw: never the overlay, which is the file
+		if ferr != nil || it.Kind != item.QueueKind || !def.Differs(it) {
+			return false, nil
+		}
+		last := events[len(events)-1]
+		err = k.appendFileEvent(id, item.KindUpdated, last.Hash, last.At, p)
+	}
+	if err != nil {
+		var stale *ledger.StaleTail
+		if errors.As(err, &stale) {
+			return false, nil
+		}
+		return false, fmt.Errorf("%s: mirroring queue %s: %w", k.RelPath(def.File), id, err)
+	}
+	return true, nil
+}
+
+// queueMirrorCause prefixes the cause of every queue-file mirror event; the
+// file's path follows it.
+const queueMirrorCause = "queue file "
+
+// MirrorOnly reports whether every event of a chain was written by this
+// runtime from a queue file (ledgerrepl.FileMirrors), so a store's chain for
+// id may replace it: id is a name-derived queue chain a file here defines (a
+// file with an id writes no genesis), the chain is not empty, its first event
+// is item.created and every later one item.updated, and every event is by
+// actor satelle with a payload whose cause is "queue file <path>". Any other
+// event (a queue.added, a fire, a user's update, a satelle event with no
+// cause) is someone's work and makes it false.
+func (k *Kernel) MirrorOnly(id string, events []ledger.Event) bool {
+	def := k.queueFiles[id]
+	if def == nil || def.ID != "" || len(events) == 0 {
+		return false
+	}
+	for i, e := range events {
+		want := item.KindUpdated
+		if i == 0 {
+			want = item.KindCreated
+		}
+		if e.Kind != want || e.Actor != "satelle" {
+			return false
+		}
+		var p struct {
+			Cause string `json:"cause"`
+		}
+		if json.Unmarshal(e.Payload, &p) != nil || !strings.HasPrefix(p.Cause, queueMirrorCause) {
+			return false
+		}
+	}
+	return true
+}
+
+// Remirror applies the queue file defining id to the chain this runtime now
+// holds (ledgerrepl.FileMirrors), after a pull replaced it: one item.updated
+// when the chain's raw fold differs from the file, nothing when they agree.
+func (k *Kernel) Remirror(id string) (wrote bool, err error) { return k.materializeQueue(id) }
 
 // queueGenesisAt is the time of every file-built queue genesis. It is fixed,
 // not the wall clock, so every runtime builds the same genesis from the same
