@@ -55,7 +55,9 @@ const (
 	resolveInstallService = "install-service"
 	// resolveRestartService restarts satelled.
 	resolveRestartService = "restart-service"
-	// resolveReleaseSeat releases a seat proven orphaned, without asking.
+	// resolveReleaseSeat releases a seat proven orphaned, without asking: its
+	// session is gone, or its item is in a terminal state wherever the session
+	// ran.
 	resolveReleaseSeat = "release-seat"
 	// resolveAsk asks at the terminal whether to release an orphaned seat.
 	resolveAsk = "ask"
@@ -441,9 +443,10 @@ func timerIssues() ([]doctorIssue, []string) {
 // machine): another machine's path cannot be checked here, or it was bound
 // here and its session never settled an owner and its hook processes have
 // exited. Each orphan is reported with its evidence; a gone session (its
-// settled owner exited) is the one --resolve releases without asking, and
-// every other orphan, the unsettled one included, is asked about. One note
-// lists every seat's standing.
+// settled owner exited) and a seat on a terminal item (wherever its session
+// ran: nothing more can be done under it) are the two --resolve releases
+// without asking, and every other orphan, the unsettled one included, is
+// asked about. One note lists every seat's standing.
 func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
@@ -496,7 +499,7 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				continue
 			}
 			res := resolveAsk
-			if st == seatlife.Gone {
+			if st == seatlife.Gone || terminal {
 				res = resolveReleaseSeat
 			}
 			out = append(out, doctorIssue{Check: "seats",

@@ -36,6 +36,14 @@ const (
 // no command can record an item until it validates.
 const configFirst = "fix the configuration first (satelle validate); then: "
 
+// Why --resolve left an issue (resolveLeft.Why); an ask left for want of a
+// terminal says so with the open error.
+const (
+	leftNoFix  = "doctor cannot prove a fix for it"
+	leftConfig = "the configuration is invalid, so nothing can be recorded until it validates"
+	leftNoTTY  = "no controlling terminal to ask at"
+)
+
 // resolveAction is one action --resolve took on an issue.
 type resolveAction struct {
 	Check   string `json:"check"`
@@ -45,10 +53,12 @@ type resolveAction struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-// resolveLeft is an issue --resolve left for the user, with its fix.
+// resolveLeft is an issue --resolve left for the user, with why it was left
+// and its fix.
 type resolveLeft struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
+	Why     string `json:"why"`
 	Fix     string `json:"fix"`
 }
 
@@ -65,8 +75,8 @@ func (r *resolveReport) act(is doctorIssue, result, detail string) {
 	r.Actions = append(r.Actions, resolveAction{Check: is.Check, Problem: is.Problem, Resolve: is.Resolve, Result: result, Detail: detail})
 }
 
-func (r *resolveReport) leave(is doctorIssue, prefix string) {
-	r.Left = append(r.Left, resolveLeft{Check: is.Check, Problem: is.Problem, Fix: prefix + is.Fix})
+func (r *resolveReport) leave(is doctorIssue, prefix, why string) {
+	r.Left = append(r.Left, resolveLeft{Check: is.Check, Problem: is.Problem, Why: why, Fix: prefix + is.Fix})
 }
 
 // failed reports whether any action failed.
@@ -80,10 +90,11 @@ func (r resolveReport) failed() bool {
 }
 
 // resolveDoctor acts on what doctor found in in. What it can prove it fixes:
-// it installs or restarts the service, releases seats on this machine whose
-// session has ended, and opens one item listing every substrate finding. Every
-// other orphaned seat is asked about on the controlling terminal, and only
-// listed without one. Its only git commands are doctor's read-only queries
+// it installs or restarts the service, releases seats whose session has ended
+// on this machine or whose item is in a terminal state, and opens one item
+// listing every substrate finding. Every other orphaned seat is asked about on
+// the controlling terminal, and without one listed with that reason. Every
+// issue it leaves is listed with why. Its only git commands are doctor's read-only queries
 // (gitfacts TopLevel and IgnoredBy), and it never edits the repo tree:
 // its writes are the user's unit files and [service], ledger events and the
 // session records.
@@ -111,27 +122,23 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		}
 	}
 	for _, is := range by[""] {
-		rep.leave(is, "")
+		rep.leave(is, "", leftNoFix)
 	}
 
 	// The kernel refuses to open on any configuration problem, so nothing can
 	// be recorded: list every ledger action as left, the configuration first.
-	broken := in.cfgErr != nil
-	for _, is := range doc.Issues {
-		broken = broken || is.Check == "config"
-	}
 	ledgerIssues := append(append(append([]doctorIssue{}, by[resolveFixItem]...), by[resolveReleaseSeat]...), by[resolveAsk]...)
-	if broken {
+	if configBroken(in, doc.Issues) {
 		var rest []doctorIssue
 		for _, is := range ledgerIssues {
 			if is.Check == "config" {
-				rep.leave(is, "")
+				rep.leave(is, "", leftConfig)
 			} else {
 				rest = append(rest, is)
 			}
 		}
 		for _, is := range rest {
-			rep.leave(is, configFirst)
+			rep.leave(is, configFirst, leftConfig)
 		}
 		return rep
 	}
@@ -153,6 +160,20 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	return rep
 }
 
+// configBroken reports whether the configuration is invalid, so no ledger
+// action can be recorded: it failed to load, or doctor reported a config issue.
+func configBroken(in *doctorInput, issues []doctorIssue) bool {
+	if in.cfgErr != nil {
+		return true
+	}
+	for _, is := range issues {
+		if is.Check == "config" {
+			return true
+		}
+	}
+	return false
+}
+
 func outcome(err error) string {
 	if err != nil {
 		return resultFailed
@@ -170,7 +191,7 @@ func detail(out string, err error) string {
 
 // resolveSeats releases each proven orphan without asking, then asks about
 // each other one on the controlling terminal, opened once and only when there
-// is one to ask about. Without a terminal those are left.
+// is one to ask about. Without a terminal those are left, saying so.
 func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssue) {
 	for _, is := range proven {
 		if err := k.Release(is.item, is.session, actor()); err != nil {
@@ -185,7 +206,7 @@ func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssu
 	tty, err := openTerminal()
 	if err != nil {
 		for _, is := range ask {
-			rep.leave(is, "")
+			rep.leave(is, "", leftNoTTY+" ("+err.Error()+")")
 		}
 		return
 	}
@@ -297,7 +318,7 @@ func printResolve(out io.Writer, rep resolveReport) {
 		fmt.Fprintf(out, "substrate findings opened as %s\n", rep.Item)
 	}
 	for _, l := range rep.Left {
-		fmt.Fprintf(out, "left: %s: %s\n  fix: %s\n", l.Check, l.Problem, l.Fix)
+		fmt.Fprintf(out, "left: %s: %s\n  why: %s\n  fix: %s\n", l.Check, l.Problem, l.Why, l.Fix)
 	}
 	if len(rep.Actions) == 0 && len(rep.Left) == 0 {
 		fmt.Fprintln(out, "no issues")

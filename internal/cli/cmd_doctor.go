@@ -50,11 +50,12 @@ when it finds nothing and 1 when it finds an issue.
   - a missing satelle.service or sync timer, or a timer not active: it runs
     the satelle service install action; satelled not answering or running
     another build than the installed one: satelle service restart;
-  - a seat bound on this machine whose session's process has exited: it
+  - a seat bound on this machine whose session's process has exited, or a
+    seat on an item in a terminal state wherever its session ran: it
     releases it, without asking;
   - every other orphaned seat: it shows the evidence and asks on the
     controlling terminal, release or keep (keep is the default); with no
-    terminal it only lists it;
+    terminal it lists it, saying there was no terminal to ask at;
   - config, substrate, init and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (a story tagged substrate-fix, or what
@@ -63,9 +64,12 @@ when it finds nothing and 1 when it finds an issue.
     first.
 It never edits or commits files, and the only git commands doctor runs, with
 or without --resolve, are read-only queries: the repo's top level, and
-git check-ignore for the harness check. Everything else is
-listed with its fix. --resolve exits 0 when nothing is left and no action
-failed, else 1.`,
+git check-ignore for the harness check. Everything else is listed with its
+fix, and each issue left with a why: line saying why it was left. Plain
+doctor's "acts on N" line counts what --resolve would act on from this
+terminal: the seats it would ask about only when a terminal is attached, and
+no ledger action under an invalid configuration. --resolve exits 0 when
+nothing is left and no action failed, else 1.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -85,7 +89,8 @@ failed, else 1.`,
 				}
 				return nil
 			}
-			rep := runDoctor(cmd.Context(), loadDoctorInput(""))
+			in := loadDoctorInput("")
+			rep := runDoctor(cmd.Context(), in)
 			if asJSON {
 				b, err := json.MarshalIndent(rep, "", "  ")
 				if err != nil {
@@ -107,7 +112,7 @@ failed, else 1.`,
 				} else {
 					fmt.Fprintf(out, "%d issue(s)\n", len(rep.Issues))
 				}
-				if n := resolvable(rep.Issues); n > 0 {
+				if n := resolvable(in, rep.Issues, terminalAttached()); n > 0 {
 					fmt.Fprintf(out, "satelle doctor --resolve acts on %d of them\n", n)
 				}
 			}
@@ -122,12 +127,25 @@ failed, else 1.`,
 	return cmd
 }
 
-// resolvable counts the issues satelle doctor --resolve acts on.
-func resolvable(issues []doctorIssue) int {
+// resolvable counts the issues satelle doctor --resolve acts on from this
+// terminal context, as resolveDoctor does: the service always, the ledger
+// actions only when the configuration validates, and the seats it asks about
+// only when tty (a controlling terminal is attached).
+func resolvable(in *doctorInput, issues []doctorIssue, tty bool) int {
+	broken := configBroken(in, issues)
 	n := 0
 	for _, is := range issues {
-		if is.Resolve != "" {
+		switch is.Resolve {
+		case resolveInstallService, resolveRestartService:
 			n++
+		case resolveFixItem, resolveReleaseSeat:
+			if !broken {
+				n++
+			}
+		case resolveAsk:
+			if !broken && tty {
+				n++
+			}
 		}
 	}
 	return n

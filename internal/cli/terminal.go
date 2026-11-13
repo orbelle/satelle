@@ -15,6 +15,17 @@ var openTerminal = func() (io.ReadWriteCloser, error) {
 	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
 }
 
+// terminalAttached reports whether a controlling terminal opens. It only opens
+// and closes it: nothing is read or written.
+func terminalAttached() bool {
+	tty, err := openTerminal()
+	if err != nil {
+		return false
+	}
+	_ = tty.Close()
+	return true
+}
+
 // confirmOnTerminal asks the person at the controlling terminal to retype the
 // item id before the operator's word on it is recorded. It never reads stdin:
 // an agent's tool call has no terminal of its own, and when it shares the
