@@ -121,14 +121,17 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 					}
 				}
 			}
-			var last *presentationVM
-			for j := range all {
-				if all[j].From != name || all[j].To != t.To {
-					continue
-				}
-				last = &all[j]
-				if rejected(all[j]) {
+			// Rounds are counted over the whole history; the tone reads the
+			// latest presentation since the latest placement only.
+			for _, p := range all {
+				if p.From == name && p.To == t.To && rejected(p) {
 					c.Rounds++
+				}
+			}
+			var last *presentationVM
+			for j := range recent {
+				if recent[j].From == name && recent[j].To == t.To {
+					last = &recent[j]
 				}
 			}
 			switch {

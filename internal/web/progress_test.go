@@ -348,6 +348,17 @@ func TestProgressExitGates(t *testing.T) {
 		t.Errorf("the row draws a running tone: %s", row)
 	}
 
+	// A reselect: an accepted exit before the latest placement does not tone
+	// the step reached again after it; its rejected rounds still count.
+	rs0 := newHist("sto_re", same).place("s0").move("s0", "s1").
+		gate("s1", "s2", "g1", "reject", "j1", "", "A").
+		gate("s1", "s2", "g1", "accept", "j1", "", "B").gate("s1", "s2", "g2", "accept", "j2", "", "B").move("s1", "s2")
+	rs0.add(mirror.EventUpdated, map[string]string{"workflow": "pw"}).add(mirror.EventTransitioned, map[string]string{"from": "s2", "to": "s0"})
+	rs0.move("s0", "s1")
+	if c = chip(t, chipsFor(t, w, "s1", rs0), "s1"); c.Passed || c.ToneWord != toneNotRun || c.Rounds != 1 {
+		t.Errorf("s1 after a reselect: %+v, want grey, not yet run, 1 round from the whole history", c)
+	}
+
 	// A refused cancel from the start, then the real exit.
 	rc := newHist("sto_rc", same).place("s0").gate("s0", "t2", "g3", "reject", "j3", "keep it", "A").move("s0", "s1")
 	if c = chip(t, chipsFor(t, w, "s1", rc), "s0"); c.To != "s1" || len(c.Gates) != 0 || !c.Passed || c.Rounds != 0 {
