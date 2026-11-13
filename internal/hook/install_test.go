@@ -331,3 +331,18 @@ func TestCommandsListsEveryHandler(t *testing.T) {
 		t.Errorf("pi Commands = %q, %v", got, err)
 	}
 }
+
+// ForCLI maps each harness's command-line program to the harness, and nothing
+// else: the registry, not the CLI layer, owns which programs are harnesses.
+func TestForCLI(t *testing.T) {
+	for cli, want := range map[string]string{"claude": Claude, "pi": Pi, "grok": Grok, "cursor-agent": Cursor} {
+		if got, ok := ForCLI(cli); !ok || got != want {
+			t.Errorf("ForCLI(%q) = %q, %v; want %q", cli, got, ok, want)
+		}
+	}
+	for _, cli := range []string{"session", "cursor", "codex", ""} {
+		if h, ok := ForCLI(cli); ok {
+			t.Errorf("ForCLI(%q) = %q; want no harness", cli, h)
+		}
+	}
+}

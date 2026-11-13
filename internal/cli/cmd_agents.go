@@ -104,21 +104,14 @@ func installHooks(out io.Writer, tree string, harnesses []string, stale func(str
 	return nil
 }
 
-// harnessOfPreset maps an agents.toml binding's CLI preset to its harness.
-var harnessOfPreset = map[string]string{
-	agent.PresetClaude: hook.Claude,
-	agent.PresetPi:     hook.Pi,
-	agent.PresetGrok:   hook.Grok,
-	agent.PresetCursor: hook.Cursor,
-}
-
 // harnessesInUse lists, in hook.Harnesses order, the harnesses in use in the
-// working tree at tree: one a binding of cat runs (its command's CLI), or one
-// whose configuration directory the tree has.
+// working tree at tree: one a binding of cat runs (its command's CLI, looked up
+// in the hook package's harness registry), or one whose configuration
+// directory the tree has.
 func harnessesInUse(tree string, cat agent.Catalog) []string {
 	run := map[string]bool{}
 	for _, b := range cat {
-		if h, ok := harnessOfPreset[agent.Preset(b)]; ok {
+		if h, ok := hook.ForCLI(agent.Preset(b)); ok {
 			run[h] = true
 		}
 	}

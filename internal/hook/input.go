@@ -21,6 +21,21 @@ const (
 // Harnesses lists the harnesses satelle installs hooks for.
 var Harnesses = []string{Claude, Pi, Grok, Cursor}
 
+// harnessCLI is each harness's command-line program, the binary an
+// agents.toml binding's command names when it runs that harness.
+var harnessCLI = map[string]string{Claude: "claude", Pi: "pi", Grok: "grok", Cursor: "cursor-agent"}
+
+// ForCLI returns the harness whose command-line program is cli (a binding's
+// command basename), and false when cli runs none of them.
+func ForCLI(cli string) (string, bool) {
+	for h, c := range harnessCLI {
+		if c == cli {
+			return h, true
+		}
+	}
+	return "", false
+}
+
 // Input is the part of a harness hook payload satelle reads.
 type Input struct {
 	Event      string // hook_event_name
