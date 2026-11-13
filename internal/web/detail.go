@@ -218,9 +218,8 @@ func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM
 // buildPresentations groups an item's gate.run events by the presentation of
 // a transition they belong to, oldest first: a presentation ends at the move it
 // made, at a verdict on another transition, or when a gate it judged is judged
-// again. A result whose attempt is set and differs from the open
-// presentation's starts a new one (the kernel's round key). A move made with no
-// gate is a presentation with no verdicts.
+// again (newRound: by the kernel's attempt key when a result carries one). A
+// move made with no gate is a presentation with no verdicts.
 func buildPresentations(events []Entry) []presentationVM {
 	var out []presentationVM
 	cur := -1 // index of the presentation still open, -1 when none
@@ -233,7 +232,7 @@ func buildPresentations(events []Entry) []presentationVM {
 				continue
 			}
 			// A gate judged again is the transition presented again.
-			if cur < 0 || key != g.Transition || judged(out[cur], g.Gate) || (g.Attempt != "" && g.Attempt != out[cur].Attempt) {
+			if cur < 0 || key != g.Transition || newRound(out[cur], g) {
 				closeOpen(out, cur)
 				from, to, _ := strings.Cut(g.Transition, mirror.TransitionSep)
 				out = append(out, presentationVM{From: from, To: to, At: e.At, Attempt: g.Attempt})
@@ -256,6 +255,17 @@ func buildPresentations(events []Entry) []presentationVM {
 	}
 	closeOpen(out, cur)
 	return out
+}
+
+// newRound reports whether g, on the open presentation p's transition, starts
+// a new presentation: by the kernel's attempt key when either carries one (one
+// attempt is one presentation, whatever gates repeat in it), else when g's
+// gate already has a verdict in p.
+func newRound(p presentationVM, g mirror.GateRun) bool {
+	if g.Attempt != "" || p.Attempt != "" {
+		return g.Attempt != p.Attempt
+	}
+	return judged(p, g.Gate)
 }
 
 // judged reports whether gate already has a verdict in p.

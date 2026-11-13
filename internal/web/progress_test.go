@@ -433,6 +433,14 @@ func TestProgressRoundsAndParks(t *testing.T) {
 		t.Errorf("the row does not draw 3 rejected rounds and 2 parks on s1: %s", row)
 	}
 
+	// One attempt is one round, even when a gate repeats in it.
+	rep := newHist("sto_r", same).place("s0").move("s0", "s1").
+		gate("s1", "s2", "g1", "reject", "j1", "", "A").gate("s1", "s2", "g1", "reject", "j2", "", "A").
+		gate("s1", "s2", "g1", "reject", "j1", "", "B")
+	if c := chip(t, chipsFor(t, w, "s1", rep), "s1"); c.Rounds != 2 || len(c.Rejected) != 2 || len(c.Rejected[0].Verdicts) != 2 {
+		t.Errorf("a gate repeated in one attempt: %d rounds, %d listed; want 2 and 2 (the first with both verdicts)", c.Rounds, len(c.Rejected))
+	}
+
 	q := newHist("sto_q", same).place("s0").move("s0", "s1").move("s1", "qk")
 	if c := chip(t, chipsFor(t, w, "qk", q), "s1"); c.Parks != 0 || !c.Current {
 		t.Errorf("into qk: %+v, want 0 parks and s1 current", c)

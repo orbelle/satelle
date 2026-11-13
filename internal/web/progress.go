@@ -156,7 +156,7 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 			c.Current = true
 			if len(working) > 0 {
 				c.Performing = true
-				c.Agent = performerOf(byName[name], it, working, standing, binding, at, recorded)
+				c.Agent = performerOf(byName[name], working, standing, binding, at, recorded)
 			} else if recorded {
 				c.Agent = binding
 			}
@@ -329,7 +329,7 @@ func agentOf(events []Entry, step string) (binding string, at time.Time, ok bool
 // when it was recorded after every working seat was bound (a seat with no bind
 // time cannot date it). Otherwise: the state's performer agent, else the
 // working seats' users, else a session.
-func performerOf(s mirror.WorkflowState, it Item, working []mirror.Seat, standing seatStanding, binding string, at time.Time, recorded bool) string {
+func performerOf(s mirror.WorkflowState, working []mirror.Seat, standing seatStanding, binding string, at time.Time, recorded bool) string {
 	if recorded {
 		dated := true
 		var bound time.Time
