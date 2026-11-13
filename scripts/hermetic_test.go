@@ -208,27 +208,43 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 		}
 	}
 
-	t.Run("shell write", func(t *testing.T) {
-		code, out := run(t, `mkdir -p "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"`)
-		caught(t, code, 1, out, "~/.satelle/config.toml")
+	// refused: the write fails where it happens (the guard is read-only), so
+	// the run fails and nothing lands under the wrapper's ~/.satelle.
+	refused := func(t *testing.T, code int, out string) {
+		t.Helper()
+		if code == 0 || !strings.Contains(strings.ToLower(out), "permission denied") {
+			t.Fatalf("exit %d, want non-zero with a permission-denied write; output:\n%s", code, out)
+		}
+	}
+	t.Run("shell write is refused at the write", func(t *testing.T) {
+		code, out := run(t, `echo a > "$HOME/.satelle/config.toml"`)
+		refused(t, code, out)
 	})
-	t.Run("satelle binary with no home registers a project", func(t *testing.T) {
+	t.Run("satelle binary with no home cannot register a project", func(t *testing.T) {
 		project := filepath.Join(t.TempDir(), "003")
 		if err := os.Mkdir(project, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		code, out := run(t, `SATELLE_SERVER_ENDPOINT=none "$1" project add "$2"`, bin, project)
-		caught(t, code, 1, out, "~/.satelle/config.toml")
+		refused(t, code, out)
 		if b, err := os.ReadFile(filepath.Join(caller, "config.toml")); err != nil || string(b) != "a = 1\n" {
 			t.Errorf("caller's config.toml = %q, %v; want it untouched", b, err)
 		}
 	})
-	t.Run("write at depth", func(t *testing.T) {
-		code, out := run(t, `mkdir -p "$HOME/.satelle/serve" && echo w > "$HOME/.satelle/serve/mirror.db"`)
+	t.Run("a write that unlocks the guard is caught", func(t *testing.T) {
+		code, out := run(t, `chmod u+w "$HOME/.satelle" && mkdir -p "$HOME/.satelle/serve" && echo w > "$HOME/.satelle/serve/mirror.db"`)
 		caught(t, code, 1, out, "~/.satelle/serve/mirror.db")
 	})
+	t.Run("a write removed before exit is caught", func(t *testing.T) {
+		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml" && rm -rf "$HOME/.satelle"`)
+		caught(t, code, 1, out, "guard directory was removed")
+	})
+	t.Run("a write cleaned out of the guard before exit is caught", func(t *testing.T) {
+		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml" && rm -f "$HOME/.satelle/config.toml"`)
+		caught(t, code, 1, out, "made writable")
+	})
 	t.Run("the command's failure status is kept", func(t *testing.T) {
-		code, out := run(t, `mkdir -p "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"; exit 3`)
+		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"; exit 3`)
 		caught(t, code, 3, out, "~/.satelle/config.toml")
 	})
 	t.Run("a run that writes no satelle home passes", func(t *testing.T) {

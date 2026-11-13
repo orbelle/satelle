@@ -27,12 +27,13 @@
 # The wrapper does not change which tests exist; operator-config checks stay
 # behind the `operatorconfig` build tag (make operator-check).
 #
-# After the command, the wrapper fails the run when anything exists under its
-# own HOME's ~/.satelle (sto_e3c6bfb6): a tree inside this mktemp dir that no
-# process outside the run knows, so whatever is there was written by a suite
-# process that resolved the home with no SATELLE_HOME of its own. No path is
-# exempt. It names the files on stderr and exits 1 when the command passed,
-# else keeps the command's status.
+# The wrapper's own ~/.satelle is an empty read-only directory (sto_e3c6bfb6),
+# so a suite process that resolved the home with no SATELLE_HOME of its own
+# fails at the moment it writes there. After the command the wrapper fails the
+# run unless the guard is still that empty 0555 directory (written into,
+# removed, replaced or made writable all count), so a write cleaned up before
+# exit is caught too. No path is exempt. It names what it found on stderr and
+# exits 1 when the command passed, else keeps the command's status.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -83,14 +84,29 @@ set -- \
 	"SATELLE_RELEASE_BASE=http://127.0.0.1:9/hermetic/dl" \
 	"$@"
 
+# The wrapper's ~/.satelle is an empty read-only directory: a process that
+# resolves the home and writes under it fails at that write (permission
+# denied), and a write cleaned up before exit cannot pass unseen, because the
+# guard must still be exactly that empty 0555 directory afterwards (removed,
+# replaced, made writable or written into all count).
+leak="$work/home/.satelle"
+mkdir "$leak" && chmod 0555 "$leak" || {
+	rm -rf "$work"
+	exit 2
+}
+
 env -i "$@"
 status=$?
-leak="$work/home/.satelle"
-if [ -e "$leak" ] || [ -L "$leak" ]; then
+if [ -L "$leak" ] || [ ! -d "$leak" ] || [ "$(stat -c %a "$leak" 2>/dev/null)" != 555 ] || [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
 	echo "hermetic: the run wrote to ~/.satelle (a satelle process resolved the home with no SATELLE_HOME of its own):" >&2
-	find "$leak" | sed "s|^$work/home/|~/|" | awk -v max=20 'NR <= max { print "  " $0 } END { if (NR > max) print "  ... and " NR - max " more" }' >&2
+	if [ -d "$leak" ] && [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
+		find "$leak" -mindepth 1 | sed "s|^$work/home/|~/|" | awk -v max=20 'NR <= max { print "  " $0 } END { if (NR > max) print "  ... and " NR - max " more" }' >&2
+	else
+		echo "  ~/.satelle: the read-only guard directory was removed, replaced or made writable" >&2
+	fi
 	echo "hermetic: a test sets SATELLE_HOME to its own temp dir for every satelle process it starts" >&2
 	[ "$status" -eq 0 ] && status=1
 fi
+chmod -R u+w "$work" 2>/dev/null
 rm -rf "$work"
 exit "$status"
