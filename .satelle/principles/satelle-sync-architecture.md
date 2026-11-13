@@ -118,7 +118,13 @@ install` also installs `satelle-sync.timer`, which runs the internal verb
 `satelle ledger autosync` every 30 s: for each project on the machine whose
 store is not local it pushes then pulls through the same replicator and records
 the outcome, which satelled's project page shows. No one runs a command for a
-machine to converge. The former sync verb
+machine to converge. The same pass may also run doctor's provable fixes that
+need no answer: releasing a seat whose item is in a terminal state or whose
+session is gone, and restarting satelled on a version skew. It logs each
+action it takes, and what it leaves is reported to the operator at session
+start (operator, 2026-11-13). Replication stays the only path for work state:
+a fix the pass makes is a ledger event like any other and replicates through
+push and pull. The former sync verb
 and its state file were removed in v1.0.42 (sto_9b98696a).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
 verb is internal or removed. The checks (`satelle validate`, `satelle status`)

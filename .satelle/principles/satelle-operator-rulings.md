@@ -112,3 +112,7 @@ are reviewed*).
   the work's author. A panel needs at least one member of another family, and
   its other members may share the author's family (operator, 2026-11-13;
   satelle-agent-alt-reviewer).
+- **satelle manages itself.** "satelle should self manage with exceptions
+  posted to the user." What satelle can prove it fixes unattended (the sync
+  timer's pass runs doctor's answer-free fixes); only what it cannot fix
+  reaches the operator (operator, 2026-11-13; satelle-sync-architecture §4).
