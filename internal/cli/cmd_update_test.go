@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,9 +78,10 @@ func fakeInstall(t *testing.T, withDaemon bool) (cli, daemon string) {
 			t.Fatal(err)
 		}
 	}
-	prev := updateTarget
+	prev, prevRefresh := updateTarget, updateRefresh
 	updateTarget = func() (string, error) { return cli, nil }
-	t.Cleanup(func() { updateTarget = prev })
+	updateRefresh = func(context.Context, string, io.Writer, io.Writer) error { return nil }
+	t.Cleanup(func() { updateTarget, updateRefresh = prev, prevRefresh })
 	return cli, daemon
 }
 

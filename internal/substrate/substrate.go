@@ -92,6 +92,35 @@ var (
 	reFlagStart = regexp.MustCompile(`^--[a-z]`)
 )
 
+// notCommand is why word is no command at path: "<word> is not a command of
+// satelle" at the root, else "<word> is not a subcommand of satelle <path>".
+func notCommand(path, word string) string {
+	if path == "" {
+		return word + " is not a command of satelle"
+	}
+	return word + " is not a subcommand of satelle " + path
+}
+
+// Lacks reports whether the command path words (the words after "satelle")
+// names a command the tree lacks. It descends from the root and stops, not
+// lacking, at a word that is not a plain command word or at a path with no
+// subcommands; a word that is not a subcommand of a path that has some is
+// lacking: subject is "satelle <path> <word>" and why says which. Flags are
+// not judged.
+func (t Tree) Lacks(words []string) (subject, why string, lacks bool) {
+	path := ""
+	for _, w := range words {
+		if !reWord.MatchString(w) || len(t.Subs[path]) == 0 {
+			return "", "", false
+		}
+		if !t.Subs[path][w] {
+			return "satelle" + pathSuffix(path) + " " + w, notCommand(path, w), true
+		}
+		path = strings.TrimSpace(path + " " + w)
+	}
+	return "", "", false
+}
+
 // checker walks one file's text.
 type checker struct {
 	file  string
@@ -165,11 +194,7 @@ func (c *checker) check(rest string, quoted bool) {
 			if path == "" && quoted {
 				return
 			}
-			where := "command of satelle"
-			if path != "" {
-				where = "subcommand of satelle " + path
-			}
-			c.miss(KindCommand, words+" "+t, t+" is not a "+where)
+			c.miss(KindCommand, words+" "+t, notCommand(path, t))
 			return
 		}
 		if path == "" {

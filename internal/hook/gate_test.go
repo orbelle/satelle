@@ -243,7 +243,7 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 { // idempotent
-		if _, err := Install(root, Cursor); err != nil {
+		if _, _, err := Install(root, Cursor, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -304,14 +304,14 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 	if _, err := Remove(fresh, Cursor); err != nil {
 		t.Errorf("remove with no file: %v", err)
 	}
-	if _, err := Install(fresh, Cursor); err != nil {
+	if _, _, err := Install(fresh, Cursor, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(filepath.Join(fresh, ".cursor", "hooks.json"))
 	if !strings.Contains(string(b), `"version": 1`) {
 		t.Errorf("a new file lacks version 1:\n%s", b)
 	}
-	if _, err := Install(fresh, Claude); err != nil {
+	if _, _, err := Install(fresh, Claude, nil); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := os.ReadFile(filepath.Join(fresh, ".cursor", "hooks.json")); string(c) != string(b) {
@@ -327,7 +327,7 @@ func TestDefersToCursorInstall(t *testing.T) {
 	if Defers(root, Claude, fromCursor) {
 		t.Error("defers with no cursor install")
 	}
-	if _, err := Install(root, Cursor); err != nil {
+	if _, _, err := Install(root, Cursor, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !Defers(root, Claude, fromCursor) {
@@ -349,7 +349,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 { // idempotent
-		if _, err := Install(root, Claude); err != nil {
+		if _, _, err := Install(root, Claude, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -371,7 +371,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 		t.Fatalf("after remove:\n%s", b)
 	}
 
-	if _, err := Install(root, Pi); err != nil {
+	if _, _, err := Install(root, Pi, nil); err != nil {
 		t.Fatal(err)
 	}
 	pi, _ := os.ReadFile(filepath.Join(root, ".pi", "extensions", "satelle.ts"))
@@ -389,7 +389,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".pi", "extensions", "satelle.ts")); !os.IsNotExist(err) {
 		t.Error("pi extension survived remove")
 	}
-	if _, err := Install(root, Grok); err != nil {
+	if _, _, err := Install(root, Grok, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Remove(root, Grok); err != nil {

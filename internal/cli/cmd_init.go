@@ -50,12 +50,8 @@ the command that wires one.`,
 				return problemsError(dataDir, err)
 			}
 			fmt.Fprintf(out, "initialised %s (configuration valid)\n", dataDir)
-			for _, h := range hooks {
-				path, err := hook.Install(cwd, h)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "installed %s hooks: %s\n", h, path)
+			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
+				return err
 			}
 			// Name what is left unwired, at the root doctor and status read.
 			if r, err := findRepo(""); err == nil {

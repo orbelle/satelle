@@ -15,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
@@ -235,36 +237,64 @@ const checkHarnessName = "harness"
 // wireFix is the command that wires harness h.
 func wireFix(h string) string { return "satelle agents install " + h }
 
-// checkHarness reports which harnesses are wired to satelle in this repo
-// (hook.WiringOf). The calling harness unwired is an issue: its session has no
-// satelle context and no edit gate. With the caller unknown, no harness wired
-// at all is the issue. Every other unwired harness is one note, and an
-// installed hook file an ignore rule hides from git is a note naming the rule.
-// It reads the hook files and asks git one read-only question.
+// checkHarness reports the harnesses of this repo (hook.WiringOf). Each
+// harness in use (harnessesInUse: agents.toml runs it, or the repo has its
+// configuration directory) whose hook file differs from what satelle agents
+// install would write is an issue: absent, holding no satelle hooks, running a
+// satelle command this binary lacks (one issue per command), or holding
+// satelle hooks other than the current set; a file git tracks or a repo with
+// [hook] refresh = false says satelle update leaves it. A harness not in use
+// is judged as before: the calling harness unwired is an issue, any other
+// unwired one a note. With the caller unknown, nothing wired and nothing in
+// use, no harness wired is the issue. An installed hook file an ignore rule
+// hides from git is a note naming the rule. It reads the hook files and asks
+// git read-only questions.
 func checkHarness(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	tree := substrateTree(NewRootCmd())
+	stale := staleHook(tree)
+	var cat agent.Catalog
+	optedOut := false
+	if in.cfg != nil {
+		cat = in.cfg.Agents
+		optedOut = !in.cfg.Settings.Hook.Refreshes()
+	}
+	inUse := harnessesInUse(in.r.Tree, cat)
 	var issues []doctorIssue
 	var notes, unwired []string
 	anyWired := false
 	for _, w := range hook.WiringOf(in.r.Tree) {
-		switch {
-		case w.State == hook.WiringIgnored:
+		if w.Wired() {
 			anyWired = true
+		}
+		if w.State == hook.WiringIgnored {
 			notes = append(notes, fmt.Sprintf("%s: %s is installed, but %s hides %s from git, so a clone is not wired", checkHarnessName, w.Harness, w.Rule, w.File))
-		case w.Wired():
-			anyWired = true
-		case w.Harness == in.harness:
-			what := "is absent"
-			if w.Present {
-				what = "holds no satelle hooks"
+		}
+		if slices.Contains(inUse, w.Harness) {
+			problems := inUseHarnessProblems(in, w, tree, stale)
+			if len(problems) == 0 {
+				continue
 			}
-			issues = append(issues, doctorIssue{Check: checkHarnessName,
-				Problem: fmt.Sprintf("%s: %s %s, so this session has no satelle context or edit gate", w.Harness, w.File, what),
-				Fix:     wireFix(w.Harness)})
+			suffix := ""
+			if tracked, err := (gitfacts.Repo{Dir: in.r.Tree}).Tracks(w.File); err == nil && tracked {
+				suffix += "; git tracks this file, so satelle update leaves it: reinstall and commit the change in this repo"
+			}
+			if optedOut {
+				suffix += "; [hook] refresh = false, so satelle update leaves it"
+			}
+			for _, p := range problems {
+				issues = append(issues, doctorIssue{Check: checkHarnessName, Problem: p + suffix, Fix: wireFix(w.Harness)})
+			}
+			continue
+		}
+		switch {
+		case w.Wired():
+		case w.Harness == in.harness:
+			issues = append(issues, doctorIssue{Check: checkHarnessName, Problem: unwiredProblem(in, w), Fix: wireFix(w.Harness)})
 		default:
 			unwired = append(unwired, w.Harness)
 		}
 	}
-	if in.harness == "" && !anyWired {
+	if in.harness == "" && !anyWired && len(inUse) == 0 {
 		return []doctorIssue{{Check: checkHarnessName,
 			Problem: fmt.Sprintf("no harness is wired (%s): no agent session here gets satelle's context or edit gate", strings.Join(hook.Harnesses, ", ")),
 			Fix:     wireFix("<harness>")}}, notes
@@ -273,6 +303,50 @@ func checkHarness(_ context.Context, in *doctorInput) ([]doctorIssue, []string) 
 		notes = append(notes, fmt.Sprintf("%s: not wired: %s (%s)", checkHarnessName, strings.Join(unwired, ", "), wireFix("<harness>")))
 	}
 	return issues, notes
+}
+
+// unwiredProblem is the problem of harness w holding no satelle hooks: its file
+// is absent or holds none, and for the calling harness, what its session
+// lacks.
+func unwiredProblem(in *doctorInput, w hook.Wiring) string {
+	what := "is absent"
+	if w.Present {
+		what = "holds no satelle hooks"
+	}
+	p := fmt.Sprintf("%s: %s %s", w.Harness, w.File, what)
+	if w.Harness == in.harness {
+		p += ", so this session has no satelle context or edit gate"
+	}
+	return p
+}
+
+// inUseHarnessProblems lists how in-use harness w's hook file differs from what
+// satelle agents install would write (hook.Pending with stale): none when it
+// is current.
+func inUseHarnessProblems(in *doctorInput, w hook.Wiring, tree substrate.Tree, stale func(string) bool) []string {
+	_, changed, err := hook.Pending(in.r.Tree, w.Harness, stale)
+	switch {
+	case errors.Is(err, hook.ErrNotOwned):
+		return []string{fmt.Sprintf("%s: %s is not satelle's file, so %s sessions here get no satelle hooks", w.Harness, w.File, w.Harness)}
+	case err != nil:
+		return []string{fmt.Sprintf("%s: %v", w.Harness, err)}
+	case !changed:
+		return nil
+	}
+	var out []string
+	cmds, _ := hook.Commands(in.r.Tree, w.Harness)
+	for _, c := range cmds {
+		if why, bad := staleCall(tree, c); bad {
+			out = append(out, fmt.Sprintf("%s: %s runs `%s`, which this binary lacks (%s)", w.Harness, w.File, c, why))
+		}
+	}
+	switch {
+	case !w.Wired():
+		out = append(out, unwiredProblem(in, w))
+	case len(out) == 0:
+		out = append(out, fmt.Sprintf("%s: %s's satelle hooks are not this binary's current set", w.Harness, w.File))
+	}
+	return out
 }
 
 // checkVersions compares the installed satelle CLI, the running satelled and

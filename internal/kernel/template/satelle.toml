@@ -10,6 +10,7 @@ default = "default"
 
 # [hook]
 # inject = ["docs/principles.md"]   # files the context hook prints at session start
+# refresh = true                    # false: satelle update and the sync pass leave this repo's harness hook files
 
 [rules]
 # A judge may not run the same model as the performer whose work it judges.

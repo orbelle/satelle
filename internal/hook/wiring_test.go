@@ -31,7 +31,7 @@ func TestWiringOf(t *testing.T) {
 	// claude: installed. grok: installed and ignored. cursor: the user's own
 	// hooks file with no satelle entry. pi: absent.
 	for _, h := range []string{Claude, Grok} {
-		if _, err := Install(dir, h); err != nil {
+		if _, _, err := Install(dir, h, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -66,7 +66,7 @@ func TestWiringOf(t *testing.T) {
 
 	// Outside a repository git cannot answer, and nothing is reported hidden.
 	plain := t.TempDir()
-	if _, err := Install(plain, Claude); err != nil {
+	if _, _, err := Install(plain, Claude, nil); err != nil {
 		t.Fatal(err)
 	}
 	if w := WiringOf(plain)[0]; w.State != WiringInstalled {

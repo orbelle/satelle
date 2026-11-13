@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/substrate"
@@ -236,4 +237,107 @@ func TestInitWritesTheAgentReadme(t *testing.T) {
 	if !found {
 		t.Fatalf("doctor did not report the missing README: %+v", rep.Issues)
 	}
+}
+
+// doctor reports each harness in use whose hook file differs from satelle's
+// current set, with the install fix, and says when update leaves the file
+// (git tracks it, or the repo opts out); a current file with the user's own
+// handlers, wrapped satelle calls included, is no issue (sto_6e3d4755 AC5,
+// AC6).
+func TestDoctorReportsInUseHarnessesThatDiffer(t *testing.T) {
+	harnessIssuesOf := func(t *testing.T, h string) []doctorIssue {
+		t.Helper()
+		issues, _ := harnessFindings(t)
+		var out []doctorIssue
+		for _, is := range issues {
+			if strings.HasPrefix(is.Problem, h+": ") {
+				out = append(out, is)
+			}
+		}
+		return out
+	}
+	settings := func(dir string) string { return filepath.Join(dir, ".claude", "settings.json") }
+	t.Run("a satelle command this binary lacks", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		staleHarness(t, dir, hook.Claude)
+		issues := harnessIssuesOf(t, hook.Claude)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "runs `satelle reindex`, which this binary lacks (reindex is not a command of satelle)") ||
+			issues[0].Fix != "satelle agents install claude" || issues[0].Resolve != "" {
+			t.Fatalf("issues %+v", issues)
+		}
+		if strings.Contains(issues[0].Problem, "git tracks") || strings.Contains(issues[0].Problem, "refresh = false") {
+			t.Errorf("an untracked, refreshing repo's issue says update leaves it: %s", issues[0].Problem)
+		}
+	})
+	t.Run("agents.toml runs grok, no .grok", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		putFile(t, filepath.Join(dir, ".satelle", kernel.AgentsFile), "[agents.g]\ncommand = \"grok\"\n")
+		issues := harnessIssuesOf(t, hook.Grok)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, ".grok/hooks/satelle.json is absent") || issues[0].Fix != "satelle agents install grok" {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run(".cursor with no satelle hooks", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		putFile(t, filepath.Join(dir, ".cursor", "hooks.json"), `{"version":1,"hooks":{"stop":[{"command":"echo mine"}]}}`)
+		issues := harnessIssuesOf(t, hook.Cursor)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, ".cursor/hooks.json holds no satelle hooks") || issues[0].Fix != "satelle agents install cursor" {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run("an older set", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init", "--hooks=claude")
+		b := readString(t, settings(dir))
+		putFile(t, settings(dir), strings.Replace(b, `"Edit|Write|MultiEdit|NotebookEdit|Bash"`, `"Edit|Write"`, 1))
+		issues := harnessIssuesOf(t, hook.Claude)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, ".claude/settings.json's satelle hooks are not this binary's current set") {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run("tracked", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		staleHarness(t, dir, hook.Claude)
+		gittest.Git(t, dir, "add", ".claude")
+		gittest.Git(t, dir, "commit", "-qm", "hooks")
+		issues := harnessIssuesOf(t, hook.Claude)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "git tracks this file") || !strings.Contains(issues[0].Problem, "commit the change in this repo") ||
+			issues[0].Fix != "satelle agents install claude" {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run("opted out", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		p := filepath.Join(dir, ".satelle", kernel.SettingsFile)
+		putFile(t, p, readString(t, p)+"\n[hook]\nrefresh = false\n")
+		staleHarness(t, dir, hook.Claude)
+		issues := harnessIssuesOf(t, hook.Claude)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "[hook] refresh = false, so satelle update leaves it") {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run("current, with the user's handlers", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		putFile(t, settings(dir), `{"hooks":{"Stop":[{"hooks":[`+
+			`{"type":"command","command":"satelle doctor"},{"type":"command","command":"sh -c \"satelle reindex\""},`+
+			`{"type":"command","command":"echo satelle is great"},{"type":"command","command":"echo hi"}]}]}}`)
+		must(t, "agents", "install", "claude")
+		if issues := harnessIssuesOf(t, hook.Claude); len(issues) != 0 {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
+	t.Run("not in use, not the caller", func(t *testing.T) {
+		isolate(t)
+		must(t, "init", "--hooks=claude")
+		issues, notes := harnessFindings(t)
+		if len(issues) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, grok, cursor") {
+			t.Fatalf("issues %+v, notes %q", issues, notes)
+		}
+	})
 }

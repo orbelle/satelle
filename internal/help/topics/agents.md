@@ -36,6 +36,30 @@ sets in the environment; when it cannot be told, no harness wired at all is
 the issue. `satelle init` names the harnesses it left unwired, and writes
 `.satelle/README.md`, which tells an agent with no hooks to run these.
 
+satelle's entries in a hook file are the commands whose first word is
+`satelle` (by basename): `satelle hook ...` entries are replaced by the current
+set, and one naming a command this binary lacks (such as pre-v1's `reindex`)
+is removed. Every other entry is kept, a satelle command the binary has
+(`satelle doctor`) included. Only the first word is read, never shell syntax:
+a command that wraps satelle (`sh -c "..."`, `env`, `timeout`, `NAME=value`,
+an if-block) is not satelle's and is left as it is, so edit a wrapped hook by
+hand. A file whose hooks would not change is not written.
+
+A harness is in use in a repo when `.satelle/agents.toml` runs its CLI
+(`claude`, `cursor-agent`, `grok`, `pi`) or the repo has its configuration
+directory (`.claude/`, `.cursor/`, `.grok/`, `.pi/`). `satelle agents refresh`
+applies the install rule to each harness in use in every registered project
+(`satelle help projects`); `satelle update` runs it after replacing the
+binaries, and the sync pass (`satelle ledger autosync`) runs it per project.
+These never write a file git tracks: they name it, `satelle doctor` reports
+it, and `satelle agents install <harness>` there writes the working tree for
+you to commit in that repo. They also leave a `.pi/extensions/satelle.ts` that
+is not satelle's, and every file of a repo whose `.satelle/satelle.toml` sets
+`[hook] refresh = false`. `satelle doctor` reports each harness in use whose
+file differs from the current set (absent, holding none, running a satelle
+command this binary lacks, or an older set), with `satelle agents install
+<harness>` as the fix.
+
 ## Adapters
 
 The adapter is chosen by the basename of the command's first word.

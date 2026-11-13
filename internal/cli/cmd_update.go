@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -45,6 +46,24 @@ var updateTarget = func() (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(p)
+}
+
+// updateRefresh runs the replaced CLI's agents refresh, so the new binary's
+// command tree judges every registered project's harness files; tests
+// replace it.
+var updateRefresh = func(ctx context.Context, target string, stdout, stderr io.Writer) error {
+	c := exec.CommandContext(ctx, target, "agents", "refresh")
+	c.Stdout, c.Stderr = stdout, stderr
+	return c.Run()
+}
+
+// hookFailure is update's error when the harness refresh did not finish, nil
+// when it did.
+func hookFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("the binaries are updated, but the harness files are not refreshed: %w; run 'satelle agents refresh'", err)
 }
 
 func envOr(k, def string) string {
@@ -87,7 +106,15 @@ restarts satelled onto the new build, starts the sync timer and prints
 'satelle service status'; with no systemd user manager it prints the units and
 the autosync command. --no-service or SATELLE_NO_SERVICE=1 skips every unit
 change; a running satelled then keeps the old build until
-'satelle service restart'.`,
+'satelle service restart'.
+
+Before the service step, whatever --no-service says, update refreshes the
+harness hook files of every registered project (satelle agents refresh) with
+the installed binary: each harness in use gets satelle's current hooks, and a
+hook naming a satelle command the binary lacks is removed. It names each file
+git tracks and each repo whose .satelle/satelle.toml sets [hook] refresh =
+false, and leaves them. A refresh that does not finish (a --version pin to a
+build without agents refresh among the causes) makes update exit 1.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), downloadTimeout)
@@ -155,18 +182,26 @@ change; a running satelled then keeps the old build until
 				buildinfo.Identify(ctx, config.GlobalDir(), daemonPath)
 				fmt.Fprintf(out, "satelled %s → %s\n", daemonOld, daemonNew)
 			}
+			// Hook files are not service units: --no-service does not skip
+			// them. A replaced CLI judges with its own tree.
+			var hookErr error
+			if cliBin != nil {
+				hookErr = hookFailure(updateRefresh(ctx, target, out, cmd.ErrOrStderr()))
+			} else if failed := refreshAllHooks(out); failed > 0 {
+				hookErr = hookFailure(fmt.Errorf("%d harness file(s) or project(s) not refreshed", failed))
+			}
 			if skip, why := serviceOptOut(noService); skip {
 				fmt.Fprintf(out, "service: not installed or changed (%s); a running satelled keeps its old build until 'satelle service restart'\n", why)
-				return nil
+				return hookErr
 			}
 			daemon := daemonPath
 			if _, err := os.Stat(daemon); err != nil {
 				daemon = resolveDaemon("")
 			}
 			if err := refreshService(ctx, out, target, daemon); err != nil {
-				return fmt.Errorf("the binaries are updated, but the service is not: %w; rerun 'satelle service refresh', or pass --no-service", err)
+				return errors.Join(fmt.Errorf("the binaries are updated, but the service is not: %w; rerun 'satelle service refresh', or pass --no-service", err), hookErr)
 			}
-			return nil
+			return hookErr
 		},
 	}
 	cmd.Flags().BoolVar(&noService, "no-service", false, "change no service unit: leave satelled's unit and the sync timer as they are (also "+envNoService+"=1)")

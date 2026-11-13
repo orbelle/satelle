@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -235,6 +236,31 @@ func (r Repo) TrackedFiles(path string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// Tracks reports whether git tracks the file at path (relative to Dir). Not
+// in any repository (no .git entry in Dir or a parent) is false; a repository
+// git cannot read is the error, so a caller writing only untracked files
+// fails closed.
+func (r Repo) Tracks(path string) (bool, error) {
+	files, err := r.TrackedFiles(path)
+	if err == nil {
+		return len(files) > 0, nil
+	}
+	dir, aerr := filepath.Abs(r.Dir)
+	if aerr != nil {
+		return false, err
+	}
+	for {
+		if _, serr := os.Lstat(filepath.Join(dir, ".git")); serr == nil {
+			return false, err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false, nil
+		}
+		dir = parent
+	}
 }
 
 // Bundle writes a git bundle of ref (with its history) to file, outside the

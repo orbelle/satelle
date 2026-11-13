@@ -148,3 +148,33 @@ func TestCheckWalksSubstrate(t *testing.T) {
 		t.Fatalf("empty data dir: %v %v", got, err)
 	}
 }
+
+// Lacks judges a hook's command path: a word that is no subcommand of a path
+// with subcommands is lacking; a word that is not a plain command word, or a
+// path with no subcommands, stops the walk, not lacking.
+func TestTreeLacks(t *testing.T) {
+	tree := fixtureTree()
+	tree.AddSub("", "hook")
+	tree.AddSub("hook", "gate")
+	tree.AddSub("", "doctor")
+	for _, c := range []struct {
+		words        []string
+		subject, why string
+	}{
+		{[]string{"reindex"}, "satelle reindex", "reindex is not a command of satelle"},
+		{[]string{"story", "nosuch"}, "satelle story nosuch", "nosuch is not a subcommand of satelle story"},
+		{[]string{"reindex", "&&", "echo", "done"}, "satelle reindex", "reindex is not a command of satelle"},
+	} {
+		subject, why, lacks := tree.Lacks(c.words)
+		if !lacks || subject != c.subject || why != c.why {
+			t.Errorf("Lacks(%q) = %q, %q, %v; want %q, %q, true", c.words, subject, why, lacks, c.subject, c.why)
+		}
+	}
+	for _, words := range [][]string{
+		{"hook", "gate"}, {"doctor"}, {}, {"doctor", "||", "true"}, {"story", "sto_123"}, {"reindex;"},
+	} {
+		if subject, _, lacks := tree.Lacks(words); lacks {
+			t.Errorf("Lacks(%q) lacks %q; want not", words, subject)
+		}
+	}
+}

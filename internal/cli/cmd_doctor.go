@@ -23,11 +23,15 @@ Its checks:
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)
   init       files satelle init would add (satelle init)
-  harness    a harness (claude, pi, grok, cursor) whose hook file is absent or
-             holds no satelle hooks: the calling session's is an issue, the
-             others a note, and with the caller unknown, no harness wired at
-             all is the issue; a hook file an ignore rule hides from git is a
-             note (satelle agents install <harness>)
+  harness    a harness in use (agents.toml runs it, or the repo has its
+             .claude, .cursor, .grok or .pi directory) whose hook file differs
+             from satelle's current hooks: absent, holding none, running a
+             satelle command this binary lacks, or an older set; one git tracks
+             is committed in the repo. Of the others, the calling session's
+             unwired harness is an issue and the rest a note, and with the
+             caller unknown, nothing wired and nothing in use is the issue; a
+             hook file an ignore rule hides from git is a note
+             (satelle agents install <harness>)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
   sync       the sync timer is missing or not active, or the last automatic

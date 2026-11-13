@@ -32,6 +32,7 @@ the kernel still opens: only a configuration problem stops it.
 
       [hook]
       inject = []                 # files the context hook prints at session start
+      refresh = true              # false: update and the sync pass leave the harness hook files
 
       [rules]
       reviewer_differs_from_performer = false
@@ -44,6 +45,11 @@ the kernel still opens: only a configuration problem stops it.
 
       [ledger]                    # optional; see satelle help ledger-store
       store = { command = "...", args = ["..."] }   # or "satelle.dev" / "local"; unset: satelle.dev signed in, else local
+
+  `[hook] refresh = false` opts the repo out of the harness hook refresh that
+  `satelle update` and the sync pass run (see `satelle help agents`).
+  `satelle.toml` is decoded strictly, so a repo that sets `refresh` needs
+  satelle at this version or later on every machine that opens it.
 
 - `agents.toml` — the agents catalog (see `satelle help workflows`).
 - `workflows/<name>.toml` — one workflow per file.

@@ -164,7 +164,7 @@ A repo set up by a pre-1.0 satelle is moved with `satelle upgrade`; see
 | `satelle init`, `satelle validate`, `satelle doctor`, `satelle status` | set a repo up, check its configuration, report what is wrong, show where it stands |
 | `satelle story`, `satelle task`, `satelle execution`, `satelle queue` | work with items: create, show, list, update, present a transition, seat, attach, dispatch a performer |
 | `satelle workflow show` | show the configured workflows |
-| `satelle agents install`, `satelle agents remove` | install or remove harness hook files |
+| `satelle agents install`, `satelle agents remove`, `satelle agents refresh` | install, remove or refresh harness hook files |
 | `satelle ledger` | list events, rebuild the cache, and push or pull the ledger store |
 | `satelle remote` | fire a remote for an item and follow its run |
 | `satelle project`, `satelle workspace`, `satelle login`, `satelle logout`, `satelle whoami` | this machine's projects and satelle.dev |

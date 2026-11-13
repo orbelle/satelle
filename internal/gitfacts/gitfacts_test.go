@@ -237,3 +237,35 @@ func TestIgnoredBy(t *testing.T) {
 		t.Fatal("outside a repository: want an error")
 	}
 }
+
+// Tracks: a committed file is tracked, an untracked one is not, a directory
+// in no repository is not (no error), and a repository git cannot read is an
+// error.
+func TestTracks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1\n"), 0o644)
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "one")
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("2\n"), 0o644)
+	r := Repo{Dir: dir}
+	if ok, err := r.Tracks("a.txt"); !ok || err != nil {
+		t.Errorf("Tracks(committed) = %v, %v; want true", ok, err)
+	}
+	if ok, err := r.Tracks("b.txt"); ok || err != nil {
+		t.Errorf("Tracks(untracked) = %v, %v; want false", ok, err)
+	}
+	plain := t.TempDir()
+	if ok, err := (Repo{Dir: plain}).Tracks("a.txt"); ok || err != nil {
+		t.Errorf("Tracks(no repository) = %v, %v; want false, nil", ok, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Tracks("a.txt"); err == nil {
+		t.Error("Tracks over a garbage index answered; want an error")
+	}
+}

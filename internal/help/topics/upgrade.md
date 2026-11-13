@@ -14,8 +14,10 @@ This moves the old `.satelle`, verified file by file (paths, modes, bytes,
 symlink targets), to `<runtime>/archive/<UTC stamp>/.satelle` (`satelle
 runtime path` names the runtime dir); nothing is deleted. It then writes a
 fresh v1 `.satelle` (as `satelle init` does), which validates, so the edit gate
-works again. Reinstall the harness hooks with `satelle agents install
-<harness>`: pre-1.0 hooks call commands v1 does not have.
+works again. Pre-1.0 hooks call commands v1 does not have: `satelle update`
+and the sync pass refresh the untracked hook files of each harness in use in a
+registered project; for a hook file git tracks, and in a repo that is not
+registered, run `satelle agents install <harness>` (and commit the change).
 
 The fresh `.satelle` holds one starter workflow and the upgrade skill. The
 archive step writes `.satelle/skills/satelle-upgrade.md`: have your session

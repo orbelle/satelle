@@ -33,10 +33,17 @@ type GateSettings struct {
 	LockedPaths     []string `toml:"locked_paths"`
 }
 
-// HookSettings is the [hook] section: files the context hook prints.
+// HookSettings is the [hook] section: files the context hook prints, and
+// whether satelle update and the sync pass refresh this repo's harness hook
+// files (refresh, default true).
 type HookSettings struct {
-	Inject []string `toml:"inject"`
+	Inject  []string `toml:"inject"`
+	Refresh *bool    `toml:"refresh"`
 }
+
+// Refreshes reports whether update and the sync pass refresh this repo's
+// harness hook files: true unless [hook] refresh = false.
+func (h HookSettings) Refreshes() bool { return h.Refresh == nil || *h.Refresh }
 
 // RuleSettings is the [rules] section.
 type RuleSettings struct {
@@ -157,6 +164,13 @@ const (
 	RemoteFile = "remote.toml"
 )
 
+// LoadSettings reads root's satelle.toml strictly.
+func LoadSettings(root string) (Settings, error) {
+	var st Settings
+	err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &st)
+	return st, err
+}
+
 // LoadConfig reads root's configuration. It returns what it could load and
 // every load error; Problems adds the validation errors.
 func LoadConfig(root string) (*Config, error) {
@@ -166,7 +180,9 @@ func LoadConfig(root string) (*Config, error) {
 	if err := legacyProblem(root); err != nil {
 		errs = append(errs, err)
 	}
-	if err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &c.Settings); err != nil {
+	st, err := LoadSettings(root)
+	c.Settings = st
+	if err != nil {
 		errs = append(errs, err)
 	}
 	if p := filepath.Join(root, DoctorFile); exists(p) {

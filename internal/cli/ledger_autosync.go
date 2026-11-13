@@ -37,7 +37,9 @@ satelled's project page, and this machine's satelled's mirror of every
 project visited, local store or not, is confirmed: marked fresh when
 unchanged, otherwise sent a full snapshot. A satelled that is not answering
 confirms nothing. Exits 1 when any project's pass failed; a confirm that
-fails does not fail the pass.`,
+fails does not fail the pass. Each project's untracked harness hook files in
+use are refreshed first, as satelle agents refresh does; a refresh failure is
+printed and does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -45,9 +47,10 @@ fails does not fail the pass.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
+			stale := staleHook(substrateTree(NewRootCmd()))
 			var failed []string
 			for _, path := range gc.Projects.Paths {
-				if !autosyncProject(cmd.Context(), out, path) {
+				if !autosyncProject(cmd.Context(), out, path, stale) {
 					failed = append(failed, path)
 				}
 			}
@@ -62,8 +65,11 @@ fails does not fail the pass.`,
 
 // autosyncProject runs one project's pass, records its outcome and confirms
 // satelled's mirror of the project (sto_128803b3). A path that is gone or holds no satelle repo is
-// skipped with nothing recorded. It reports whether the pass succeeded.
-func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
+// skipped with nothing recorded. First it refreshes the project's untracked
+// harness files in use by stale, as satelle agents refresh does; a hook
+// failure is printed, but is not a sync outcome and does not fail the pass.
+// It reports whether the pass succeeded.
+func autosyncProject(ctx context.Context, out io.Writer, path string, stale func(string) bool) bool {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
 		fmt.Fprintf(out, "%s: skipped: no such directory\n", path)
 		return true
@@ -72,6 +78,13 @@ func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 	if err != nil {
 		fmt.Fprintf(out, "%s: skipped: %v\n", path, err)
 		return true
+	}
+	hooks := refreshProject(r, stale)
+	for _, f := range hooks.Changed {
+		fmt.Fprintf(out, "%s: refreshed %s hooks\n", f.Path, f.Harness)
+	}
+	for _, f := range hooks.Failures {
+		fmt.Fprintf(out, "%s: harness file not refreshed: %s\n", f.Path, f.Err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
 	defer cancel()
