@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,12 +55,7 @@ func projectLocalCmds() []*cobra.Command {
 	partitions := &cobra.Command{
 		Use: "partitions", Short: "List satelled's partitions (one per project it has been sent)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ms, err := mirror.Open(mirror.DefaultPath(config.GlobalDir()))
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-			details, err := ms.ListPartitionDetails(cmd.Context())
+			details, err := homePartitions(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -74,12 +71,7 @@ func projectLocalCmds() []*cobra.Command {
 	prune := &cobra.Command{
 		Use: "prune <repo_key>", Short: "Drop a partition whose project is gone", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ms, err := mirror.Open(mirror.DefaultPath(config.GlobalDir()))
-			if err != nil {
-				return err
-			}
-			details, err := ms.ListPartitionDetails(cmd.Context())
-			ms.Close()
+			details, err := homePartitions(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -97,6 +89,22 @@ func projectLocalCmds() []*cobra.Command {
 	}
 	prune.Flags().BoolVar(&force, "force", false, "drop the partition even though its project still exists")
 	return []*cobra.Command{add, remove, partitions, prune}
+}
+
+// homePartitions lists this machine's satelled partitions with their recorded
+// project path, read from this home's mirror database. With no mirror database
+// it returns none and creates nothing. The store is closed before it returns.
+func homePartitions(ctx context.Context) ([]mirror.PartitionDetail, error) {
+	path := mirror.DefaultPath(config.GlobalDir())
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	ms, err := mirror.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer ms.Close()
+	return ms.ListPartitionDetails(ctx)
 }
 
 // localProject is one of this machine's projects, as project list shows it.

@@ -2,9 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,8 +40,11 @@ left on both sides and named. Each project's outcome is recorded for
 satelled's project page, and this machine's satelled's mirror of every
 project visited, local store or not, is confirmed: marked fresh when
 unchanged, otherwise sent a full snapshot. A satelled that is not answering
-confirms nothing. Exits 1 when any project's pass failed; a confirm that
-fails does not fail the pass.`,
+confirms nothing. A project whose path no longer exists is removed from
+this machine's projects, and each partition of this machine's satelled whose
+recorded project path no longer exists is removed; a satelled that is not
+answering removes no partition. Exits 1 when any project's pass failed; a
+confirm or a prune that fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -45,18 +52,87 @@ fails does not fail the pass.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
+			gc = pruneGoneProjects(gc, out)
 			var failed []string
 			for _, path := range gc.Projects.Paths {
 				if !autosyncProject(cmd.Context(), out, path) {
 					failed = append(failed, path)
 				}
 			}
+			pruneGonePartitions(cmd.Context(), out)
 			if len(failed) > 0 {
 				return &exitError{code: ExitError, msg: fmt.Sprintf("ledger autosync: %d of %d project(s) failed: %s",
 					len(failed), len(gc.Projects.Paths), strings.Join(failed, ", "))}
 			}
 			return nil
 		},
+	}
+}
+
+// projectPathGone reports whether path is an absolute path that no longer
+// exists: the only state that lets the unattended pass remove a project
+// (sto_e3c6bfb6). An empty or relative path, a path that exists (directory or
+// file) and any other stat error (permission, I/O) are not gone.
+func projectPathGone(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err != nil && errors.Is(err, fs.ErrNotExist)
+}
+
+// pruneGoneProjects removes from this machine's projects (~/.satelle/config.toml
+// [projects] paths) each entry whose path is gone, saving the config once. With
+// nothing gone it returns gc unchanged and writes nothing; on a save error it
+// reports it and returns gc as loaded.
+func pruneGoneProjects(gc config.GlobalConfig, out io.Writer) config.GlobalConfig {
+	var gone []string
+	for _, p := range gc.Projects.Paths {
+		if projectPathGone(p) {
+			gone = append(gone, p)
+		}
+	}
+	if len(gone) == 0 {
+		return gc
+	}
+	pruned := gc
+	pruned.Projects.Paths = slices.Clone(gc.Projects.Paths)
+	for _, p := range gone {
+		pruned.Projects.Remove(p)
+	}
+	if err := config.SaveGlobal(pruned); err != nil {
+		fmt.Fprintf(out, "projects not pruned: %v\n", err)
+		return gc
+	}
+	for _, p := range gone {
+		fmt.Fprintf(out, "%s: removed from this machine's projects: path no longer exists\n", p)
+	}
+	return pruned
+}
+
+// pruneGonePartitions removes, through this machine's satelled only, each
+// mirror partition whose recorded project path is gone. It removes by the
+// stored repo_key, never falls back to the database directly (a satelled that
+// is not answering changes no partition) and never fails the pass.
+func pruneGonePartitions(ctx context.Context, out io.Writer) {
+	c, ok := uiClient()
+	if !ok {
+		return
+	}
+	details, err := homePartitions(ctx)
+	if err != nil {
+		fmt.Fprintf(out, "partitions not pruned: %v\n", err)
+		return
+	}
+	for _, d := range details {
+		if !projectPathGone(d.Path) {
+			continue
+		}
+		if err := c.Remove(ctx, d.RepoKey); err != nil {
+			fmt.Fprintf(out, "partitions not pruned: %v\n", err)
+			return
+		}
+		fmt.Fprintf(out, "%s: partition %s pruned: project path no longer exists\n", d.Path, d.RepoKey)
 	}
 }
 

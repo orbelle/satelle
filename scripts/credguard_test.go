@@ -169,9 +169,8 @@ func TestCredguard(t *testing.T) {
 }
 
 // fakeHost builds a temporary HOME holding the layout the host guard watches
-// (sty_1b739a74) and returns the env that points the guard at it. The real
-// SATELLE_TEST_HOST_HOME is cleared so the fake HOME is the one resolved, and
-// the Go caches are pinned to the real ones so the helper still builds offline.
+// (sty_1b739a74) and returns the env that points the guard at it. The Go
+// caches are pinned to the real ones so the helper still builds offline.
 //
 // Go telemetry is switched off in the fake HOME (sty_095d1f5b): with the default
 // "local" mode the go command that credguard.sh runs writes counter files under
@@ -223,7 +222,6 @@ func fakeHost(t *testing.T) (home string, env []string) {
 	return home, []string{
 		"HOME=" + home,
 		"XDG_CONFIG_HOME=" + filepath.Join(home, ".config"),
-		"SATELLE_TEST_HOST_HOME=",
 		"GOCACHE=" + goenv("GOCACHE"),
 		"GOMODCACHE=" + goenv("GOMODCACHE"),
 	}

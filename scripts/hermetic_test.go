@@ -1,9 +1,11 @@
 package scripts_test
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -65,14 +67,16 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 	if v, ok := got["SATELLE_HOME"]; ok {
 		t.Errorf("SATELLE_HOME = %q leaked into the wrapped command", v)
 	}
-	if got["SATELLE_TEST_HOST_SATELLE_HOME"] != "/x" {
-		t.Errorf("SATELLE_TEST_HOST_SATELLE_HOME = %q, want /x", got["SATELLE_TEST_HOST_SATELLE_HOME"])
-	}
-	if got["SATELLE_TEST_HOST_HOME"] != callerHome {
-		t.Errorf("SATELLE_TEST_HOST_HOME = %q, want the caller's %q", got["SATELLE_TEST_HOST_HOME"], callerHome)
-	}
-	if want := filepath.Join(callerHome, ".config"); got["SATELLE_TEST_HOST_XDG_CONFIG_HOME"] != want {
-		t.Errorf("SATELLE_TEST_HOST_XDG_CONFIG_HOME = %q, want %q", got["SATELLE_TEST_HOST_XDG_CONFIG_HOME"], want)
+	// No path of the caller's home reaches the command (sto_e3c6bfb6): the
+	// only ~/.satelle a test can reach by HOME is the wrapper's own.
+	callerPaths := []string{callerHome, filepath.Join(callerHome, ".satelle"), filepath.Join(callerHome, ".config"), "/x"}
+	for k, v := range got {
+		if strings.HasPrefix(k, "SATELLE_TEST_HOST_") {
+			t.Errorf("%s = %q passed to the wrapped command", k, v)
+		}
+		if slices.Contains(callerPaths, v) {
+			t.Errorf("%s = %q is a path of the caller's home", k, v)
+		}
 	}
 	if got["SATELLE_TEST_PROBE_X"] != "1" {
 		t.Errorf("SATELLE_TEST_PROBE_X = %q, want it forwarded", got["SATELLE_TEST_PROBE_X"])
@@ -132,4 +136,115 @@ func TestHermeticWrapperCleansUpAndKeepsStatus(t *testing.T) {
 	if _, serr := os.Stat(string(home)); !os.IsNotExist(serr) {
 		t.Errorf("sandbox HOME %s still exists after exit (stat err %v)", home, serr)
 	}
+}
+
+// readTree is every file under dir (relative path -> contents), with each
+// directory recorded by its relative path and an empty body.
+func readTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	tree := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		if d.IsDir() {
+			tree[rel+"/"] = ""
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		tree[rel] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+// TestHermeticFailsRunThatWritesSatelleHome proves the guard of make test and
+// make integration (sto_e3c6bfb6): a run that writes ~/.satelle -- by shell, at
+// any depth, or by a real satelle binary started with no home of its own, the
+// route of the 2026-10 '003' leak -- fails, naming the files, while the
+// caller's own .satelle (a fake host home standing in for the operator's) is
+// left byte-identical. A run that writes no satelle home, or whose satelle has
+// its own SATELLE_HOME, passes.
+func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
+	home, env := fakeHost(t)
+	env = append(env, "PATH="+os.Getenv("PATH"))
+	caller := filepath.Join(home, ".satelle")
+	bin := filepath.Join(t.TempDir(), "satelle")
+	build := exec.Command("go", "build", "-o", bin, "../cmd/satelle")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build satelle: %v\n%s", err, out)
+	}
+	const wrote = "wrote to ~/.satelle"
+	run := func(t *testing.T, script string, args ...string) (int, string) {
+		t.Helper()
+		before := readTree(t, caller)
+		cmd := exec.Command("sh", append([]string{"hermetic.sh", "--", "sh", "-c", script, "sh"}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("hermetic.sh: %v", err)
+		}
+		if after := readTree(t, caller); !maps.Equal(before, after) {
+			t.Errorf("the run changed the caller's .satelle:\n%v\n->\n%v", before, after)
+		}
+		return code, string(out)
+	}
+	caught := func(t *testing.T, code, want int, out string, files ...string) {
+		t.Helper()
+		if code != want || !strings.Contains(out, wrote) {
+			t.Fatalf("exit %d, want %d with %q; output:\n%s", code, want, wrote, out)
+		}
+		for _, f := range files {
+			if !strings.Contains(out, f) {
+				t.Errorf("output does not name %s:\n%s", f, out)
+			}
+		}
+	}
+
+	t.Run("shell write", func(t *testing.T) {
+		code, out := run(t, `mkdir -p "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"`)
+		caught(t, code, 1, out, "~/.satelle/config.toml")
+	})
+	t.Run("satelle binary with no home registers a project", func(t *testing.T) {
+		project := filepath.Join(t.TempDir(), "003")
+		if err := os.Mkdir(project, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		code, out := run(t, `SATELLE_SERVER_ENDPOINT=none "$1" project add "$2"`, bin, project)
+		caught(t, code, 1, out, "~/.satelle/config.toml")
+		if b, err := os.ReadFile(filepath.Join(caller, "config.toml")); err != nil || string(b) != "a = 1\n" {
+			t.Errorf("caller's config.toml = %q, %v; want it untouched", b, err)
+		}
+	})
+	t.Run("write at depth", func(t *testing.T) {
+		code, out := run(t, `mkdir -p "$HOME/.satelle/serve" && echo w > "$HOME/.satelle/serve/mirror.db"`)
+		caught(t, code, 1, out, "~/.satelle/serve/mirror.db")
+	})
+	t.Run("the command's failure status is kept", func(t *testing.T) {
+		code, out := run(t, `mkdir -p "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"; exit 3`)
+		caught(t, code, 3, out, "~/.satelle/config.toml")
+	})
+	t.Run("a run that writes no satelle home passes", func(t *testing.T) {
+		code, out := run(t, "true")
+		if code != 0 || strings.Contains(out, "hermetic:") {
+			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
+		}
+	})
+	t.Run("a test that sets its own home passes", func(t *testing.T) {
+		own, project := t.TempDir(), t.TempDir()
+		code, out := run(t, `SATELLE_HOME="$2" SATELLE_SERVER_ENDPOINT=none "$1" project add "$3"`, bin, own, project)
+		if code != 0 || strings.Contains(out, "hermetic:") {
+			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
+		}
+		if _, err := os.Stat(filepath.Join(own, "config.toml")); err != nil {
+			t.Errorf("the satelle with its own home did not write %s: %v", filepath.Join(own, "config.toml"), err)
+		}
+	})
 }

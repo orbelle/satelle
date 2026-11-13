@@ -14,10 +14,9 @@
 #   - GOMODCACHE, GOCACHE and GOPATH read from `go env` BEFORE HOME is replaced,
 #     so the wrapped run uses the real module and build caches (no network, a warm
 #     local cache still hits);
-#   - the caller's real host, for the few checks that must still watch it, as
-#     SATELLE_TEST_HOST_HOME, SATELLE_TEST_HOST_XDG_CONFIG_HOME (the caller's
-#     XDG_CONFIG_HOME, else $HOME/.config) and SATELLE_TEST_HOST_SATELLE_HOME
-#     (only when the caller has SATELLE_HOME set);
+#   - no SATELLE_HOME and no path of the caller's home, .satelle dir, XDG config
+#     dir or SATELLE_HOME, so the only ~/.satelle a test can reach by HOME is the
+#     wrapper's own (sto_e3c6bfb6);
 #   - SATELLE_RELEASE_API, SATELLE_RELEASE_LIST_API and SATELLE_RELEASE_BASE fixed
 #     to a closed loopback endpoint, whatever the caller exports, so a release
 #     check started by a session-start hook in a test never reaches GitHub or
@@ -27,6 +26,13 @@
 #     SATELLE_TEST_PROBE_* variable. Anything else is dropped.
 # The wrapper does not change which tests exist; operator-config checks stay
 # behind the `operatorconfig` build tag (make operator-check).
+#
+# After the command, the wrapper fails the run when anything exists under its
+# own HOME's ~/.satelle (sto_e3c6bfb6): a tree inside this mktemp dir that no
+# process outside the run knows, so whatever is there was written by a suite
+# process that resolved the home with no SATELLE_HOME of its own. No path is
+# exempt. It names the files on stderr and exits 1 when the command passed,
+# else keeps the command's status.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -62,13 +68,7 @@ for name in $ALLOW $names; do
 	set -- "$name=$val" "$@"
 done
 
-host_xdg=${XDG_CONFIG_HOME:-${HOME:-}/.config}
-if [ -n "${SATELLE_HOME+x}" ]; then
-	set -- "SATELLE_TEST_HOST_SATELLE_HOME=$SATELLE_HOME" "$@"
-fi
 set -- \
-	"SATELLE_TEST_HOST_HOME=${HOME:-}" \
-	"SATELLE_TEST_HOST_XDG_CONFIG_HOME=$host_xdg" \
 	"HOME=$work/home" \
 	"XDG_CONFIG_HOME=$work/xdg/config" \
 	"XDG_DATA_HOME=$work/xdg/data" \
@@ -85,5 +85,12 @@ set -- \
 
 env -i "$@"
 status=$?
+leak="$work/home/.satelle"
+if [ -e "$leak" ] || [ -L "$leak" ]; then
+	echo "hermetic: the run wrote to ~/.satelle (a satelle process resolved the home with no SATELLE_HOME of its own):" >&2
+	find "$leak" | sed "s|^$work/home/|~/|" | awk -v max=20 'NR <= max { print "  " $0 } END { if (NR > max) print "  ... and " NR - max " more" }' >&2
+	echo "hermetic: a test sets SATELLE_HOME to its own temp dir for every satelle process it starts" >&2
+	[ "$status" -eq 0 ] && status=1
+fi
 rm -rf "$work"
 exit "$status"

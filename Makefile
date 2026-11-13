@@ -56,14 +56,14 @@ uninstall:
 	@echo "removed $(INSTALL_DIR)/$(BIN) and $(INSTALL_DIR)/$(SERVE_BIN) (run 'satelle service uninstall' first if the service is installed)"
 
 # Every go test target below runs under scripts/credguard.sh, which fails the
-# target if the suite changed the operator's host credentials file (sty_18403814),
-# the top level of the real ~/.satelle, or the installed satelle/satelled
-# binaries (sty_1b739a74).
+# target if the suite changed the operator's host credentials file (sty_18403814).
 CREDGUARD := sh scripts/credguard.sh --
 
 # HERMETIC runs a command under an empty test-owned HOME/XDG and a minimal PATH so
-# the suites do not depend on the operator's machine (sty_ec30f859). Test flags go
-# through TESTFLAGS. credguard stays OUTSIDE it so it keeps watching the real host.
+# the suites do not depend on the operator's machine (sty_ec30f859). It passes no
+# path of the caller's home, and fails the target, naming the files, when the run
+# wrote that test-owned HOME's ~/.satelle (sto_e3c6bfb6). Test flags go through
+# TESTFLAGS. credguard stays OUTSIDE it so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 
 # STRICT=1 is the strict local mode (sty_53c3f311): tests run repeated and
