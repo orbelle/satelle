@@ -282,6 +282,25 @@ func TestTrackedHarnessFilesAreNeverRewritten(t *testing.T) {
 				t.Errorf("git status after %s:\n%s", args, st)
 			}
 			if args[0] == "ledger" {
+				// The sync pass does not print tracked files every 30 s
+				// (plan: doctor reports them). Prove the pass did reach the
+				// refresh, so "unchanged" above is not vacuous: an untracked
+				// stale harness file in the same repo is refreshed by a pass
+				// over the same tree, which still leaves the tracked ones.
+				if err := os.MkdirAll(filepath.Join(dir, ".grok"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				grok := staleHarness(t, dir, hook.Grok)
+				gittest.Git(t, dir, "rm", "-q", "--cached", "--ignore-unmatch", grok)
+				out, _ := run(t, "", args...)
+				if !strings.Contains(out, grok+": refreshed grok hooks") {
+					t.Fatalf("the sync pass did not refresh the untracked %s:\n%s", grok, out)
+				}
+				for i, f := range files {
+					if !states[i].unchanged(t, f) {
+						t.Errorf("%s rewrote the tracked %s on the pass that refreshed %s", args, f, grok)
+					}
+				}
 				return
 			}
 			for i, h := range []string{hook.Claude, hook.Cursor} {
