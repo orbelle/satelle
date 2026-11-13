@@ -135,3 +135,18 @@ are reviewed*).
   agree (for now) but ... open up the discussion." Panels keep combine = "all";
   consultation inside the reviewer circle before the cold gate is the
   discussion (operator, 2026-11-13).
+- **Every review has the plan's round cap.** "all review processes should have
+  the same process as planner." Code and PR review block after the same number
+  of rejected rounds in a row as plan review (operator, 2026-11-13).
+- **The repo's workflow resolves issues in tracked content.** "If satelle finds
+  issues, the repo workflow/path to resolve is used. eg. .satelle is git
+  tracked, hence that is an update to the repo. The repo is protected by the
+  users method, hence satelle should advise the user (warning) and ask how to
+  resolve. If not resolved the warning will turn into an error." (operator,
+  2026-11-13; satelle-mechanism-vs-substrate).
+- **A mirror-only queue chain adopts the store's.** Asked whether the sync
+  principle or the queue adoption gives, the operator amended the principle
+  (operator, 2026-11-13; satelle-sync-architecture §4).
+- **Only team-workspace bindings are tracked.** A repo's satelle.dev binding is
+  committed only when the project is a team workspace's; a personal binding
+  stays on the machine (operator, 2026-11-13; sto_9931cd73).

@@ -108,7 +108,11 @@ takes item ids to replicate only those. They replicate to the `[ledger] store`:
 services), `"local"` (the default otherwise; nothing replicates) or an adapter
 `{ command, args }` (proven by `satelle ledger store-test`, which checks only a
 configured command). Every store keeps the same rule: a different hash at a
-sequence is refused, never merged. A missing blob is a recorded gap, and
+sequence is refused, never merged. The one exception is a file-defined
+queue's chain that holds only satelle's own file-mirror events: no work was
+done on it, so it takes the store's chain for that id and the file is mirrored
+onto that (operator, 2026-11-13; sto_80da4589). A chain with any other event
+is never replaced. A missing blob is a recorded gap, and
 `satelle ledger verify` exits 3 while one remains. The hot path never contacts
 the store: hooks, gates, and story and ledger reads work with the store
 unreachable. Remote paths (`satelle remote fire`, a remote placement, a node,

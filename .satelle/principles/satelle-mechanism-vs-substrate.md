@@ -75,6 +75,14 @@ a plan that moves process into it is refused at plan review
 (satelle-binary-scope-review). The binary's existing git use is debt,
 inventoried with a decision per call in sty_042c7fa3.
 
+The binary also changes no git-tracked content of the user's repo. The repo is
+protected by the user's own method, so an issue there is resolved through the
+repo's workflow: satelle advises with a warning that names the fix and asks how
+to resolve it, and a warning left unresolved turns into an error (operator,
+2026-11-13; sto_c26c300c). Untracked, machine-local files satelle put there
+(the harness hooks it installed, its runtime records) are satelle's to
+maintain.
+
 ## Secrets arrive as environment
 
 A secret reaches a script or an agent only through its environment, set when

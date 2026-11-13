@@ -20,10 +20,14 @@ performer = { agent = "planner", skill = "plan" }
 # (operator, 2026-11-13).
 hold = { rounds = 3, to = "blocked" }
 
+# Code and PR review have the plan's round cap (operator, 2026-11-13: "all
+# review processes should have the same process as planner").
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
+hold = { rounds = 3, to = "blocked" }
 
 [states.integration]
+hold = { rounds = 3, to = "blocked" }
 
 # DEV ends here: an open, approved pull request whose head is tested and
 # contains main. A run of the release task takes the item; a release run that
@@ -238,11 +242,11 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
-# The plan hold's move: gateless, so the hold cannot itself be rejected; the
-# hold's dissent summary is its reason. Only the operator moves it out
-# (blocked -> @prior, or cancelled); the driving session stops.
+# The review caps' moves (plan, code, PR review): gateless, so a cap cannot
+# itself be rejected; the dissent summary is its reason. Only the operator
+# moves it out (blocked -> @prior, or cancelled); the driving session stops.
 [[transition]]
-from = ["plan"]
+from = ["plan", "in_progress", "integration"]
 to = "blocked"
 
 # Retired held state: its items leave as before. plan -> held stays declared
@@ -258,7 +262,7 @@ to = "@prior"
 
 # Every other move into blocked is judged: the reason must hold.
 [[transition]]
-from = ["backlog", "in_progress", "integration", "approved"]
+from = ["backlog", "approved"]
 to = "blocked"
 groups = [{ mode = "sequential", gates = ["blocked-review"] }]
 
