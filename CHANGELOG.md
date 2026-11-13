@@ -1,3 +1,13 @@
+## [1.0.57] - 2026-11-13
+
+### Changed
+- A gate needs at least one judge of another model family than the work's author; a panel's other members may share the author's family. (sto_976932e8)
+
+### Fixed
+- **`satelle doctor --resolve` releases a seat on a done or cancelled item without asking, wherever its session ran.** Before, such a seat was asked about, and with no controlling terminal (any agent) it was silently left. Each issue `--resolve` leaves now names why (`why:` in text, `why` in JSON), and the `acts on N` line counts the seats it would ask about only when a terminal is attached, so it matches what the run does. (sto_75c6b584)
+- Session start shows doctor's warnings to the user again: Claude Code gets a short `systemMessage` (each check's count and its fix) and pi shows it via `notify`, while the full doctor text stays in the model's context. Grok and Cursor have no user channel and are unchanged. (sto_4d645aa4)
+- A file-defined queue whose `que_<name>` chain was written from its file before the first pull now takes the store's chain for that id instead of forking it at event 0: pull and sync replace a local chain holding only the queue file's mirror events with the store's, mirror the file onto it as one `item.updated` when they differ, and push that in the same pass; a chain with any other event is still refused. (sto_80da4589)
+
 ## [1.0.56] - 2026-11-13
 
 ### Changed
