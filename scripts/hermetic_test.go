@@ -243,6 +243,10 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml" && rm -f "$HOME/.satelle/config.toml"`)
 		caught(t, code, 1, out, "made writable")
 	})
+	t.Run("a write cleaned up with the guard's mode restored is caught", func(t *testing.T) {
+		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml" && rm -f "$HOME/.satelle/config.toml" && chmod 0555 "$HOME/.satelle"`)
+		caught(t, code, 1, out, "written into")
+	})
 	t.Run("the command's failure status is kept", func(t *testing.T) {
 		code, out := run(t, `chmod u+w "$HOME/.satelle" && echo a > "$HOME/.satelle/config.toml"; exit 3`)
 		caught(t, code, 3, out, "~/.satelle/config.toml")

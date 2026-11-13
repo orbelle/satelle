@@ -30,9 +30,10 @@
 # The wrapper's own ~/.satelle is an empty read-only directory (sto_e3c6bfb6),
 # so a suite process that resolved the home with no SATELLE_HOME of its own
 # fails at the moment it writes there. After the command the wrapper fails the
-# run unless the guard is still that empty 0555 directory (written into,
-# removed, replaced or made writable all count), so a write cleaned up before
-# exit is caught too. No path is exempt. It names what it found on stderr and
+# run unless the guard is still that empty directory with the same inode, mode
+# and change time (written into, removed, replaced or chmodded all count, and
+# ctime cannot be set back), so a write cleaned up before exit, even with the
+# mode restored, is caught too. No path is exempt. It names what it found on stderr and
 # exits 1 when the command passed, else keeps the command's status.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
@@ -86,23 +87,25 @@ set -- \
 
 # The wrapper's ~/.satelle is an empty read-only directory: a process that
 # resolves the home and writes under it fails at that write (permission
-# denied), and a write cleaned up before exit cannot pass unseen, because the
-# guard must still be exactly that empty 0555 directory afterwards (removed,
-# replaced, made writable or written into all count).
+# denied). Afterwards the guard must be the same inode with the same mode and
+# the same change time (ctime): any chmod, and any entry created or removed in
+# it, moves ctime, which no process can set back, so a write cleaned up before
+# exit, even with the mode restored, cannot pass unseen.
 leak="$work/home/.satelle"
-mkdir "$leak" && chmod 0555 "$leak" || {
+snap() { stat -c '%i %a %z' "$1" 2>/dev/null || stat -f '%i %Lp %Fc' "$1" 2>/dev/null; }
+mkdir "$leak" && chmod 0555 "$leak" && guard=$(snap "$leak") && [ -n "$guard" ] || {
 	rm -rf "$work"
 	exit 2
 }
 
 env -i "$@"
 status=$?
-if [ -L "$leak" ] || [ ! -d "$leak" ] || [ "$(stat -c %a "$leak" 2>/dev/null)" != 555 ] || [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
+if [ -L "$leak" ] || [ ! -d "$leak" ] || [ "$(snap "$leak")" != "$guard" ] || [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
 	echo "hermetic: the run wrote to ~/.satelle (a satelle process resolved the home with no SATELLE_HOME of its own):" >&2
 	if [ -d "$leak" ] && [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
 		find "$leak" -mindepth 1 | sed "s|^$work/home/|~/|" | awk -v max=20 'NR <= max { print "  " $0 } END { if (NR > max) print "  ... and " NR - max " more" }' >&2
 	else
-		echo "  ~/.satelle: the read-only guard directory was removed, replaced or made writable" >&2
+		echo "  ~/.satelle: the read-only guard directory was removed, replaced, made writable or written into" >&2
 	fi
 	echo "hermetic: a test sets SATELLE_HOME to its own temp dir for every satelle process it starts" >&2
 	[ "$status" -eq 0 ] && status=1
