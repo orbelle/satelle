@@ -6,18 +6,18 @@
 [agents.executor]
 command = "session"
 
-# The planner runs Opus 5.5 at effort medium on Cursor's own CLI, as
-# id4me.azure's does (operator, 2026-11-12: "update agents to follow
-# id4me.azure's agents.toml", same models per role, this repo's names kept;
-# sto_d17f7eb5). Before that it ran Fable 5.2 on the claude CLI (operator,
-# 2026-11-10: "claude cli / headless not cursor"; sto_fb705349), Opus 5.5 on
-# cursor-agent (2026-11-09), and pi-cursor, which lost its prompt on reconnect
-# in 5 of 6 plan dispatches (sto_e9fb6f0d). Cursor's model id folds the effort
-# in. Its judges stay another family (satelle-agent-alt-reviewer). The planner
-# needs no shell: satelle attaches its artifact as the item's plan.
+# The planner runs Fable 5.2, the latest Fable, headless on the claude CLI
+# (operator, 2026-11-13: "update the planner to fable latest", "use claude cli
+# for the fable planner"; sto_ab6b055c). Before that it ran Opus 5.5 medium on
+# cursor-agent, as id4me.azure's does (2026-11-12; sto_d17f7eb5), Fable 5.2 on
+# the claude CLI (2026-11-10; sto_fb705349), Opus 5.5 on cursor-agent
+# (2026-11-09), and pi-cursor, which lost its prompt on reconnect in 5 of 6
+# plan dispatches (sto_e9fb6f0d). Its judges stay another family
+# (satelle-agent-alt-reviewer). The planner needs no shell: satelle attaches
+# its artifact as the item's plan.
 [agents.planner]
-command = "cursor-agent"
-model = "claude-opus-5-5-medium"
+command = "claude"
+model = "claude-fable-5-2"
 tools = ["Read", "Grep", "Glob"]
 
 # Opus 5.5 at effort medium, as id4me.azure's coder (operator, 2026-11-12;
