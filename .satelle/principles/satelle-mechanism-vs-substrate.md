@@ -33,6 +33,15 @@ not. The agent adapters, dispatch (`internal/agent`) and harness hooks
 ([[satelle-agent-agnostic]]). This applies whoever raised the story, including
 the operator.
 
+**satelle's own system processes are shipped substrate, not compiled-in
+configuration.** The init template is substrate the binary ships and writes
+into each repo's `.satelle/`, where the repo owns and overrides it: satelle's
+maintenance and substrate-alignment processes, how agents use satelle, and its
+skill rules (for example reference over content). The binary reads the repo's
+copy, never the embedded one, so a default the template names (a pattern, a
+principle's text, a route) is the repo's configuration once written (operator,
+2026-11-13).
+
 ## Route, dispatch, quality
 
 - **No route as judgement.** An agent may add steps or remediation, never drop
