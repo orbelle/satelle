@@ -1,3 +1,8 @@
+## [1.0.73] - 2026-11-14
+
+### Changed
+- A release run whose landed items change nothing the satelle or satelled build compiles or embeds lands on main with no version, tag, publish or install; its changelog lines are written into the next version section, and the drift review judges main from the published tag (sto_da9775c1)
+
 ## [1.0.72] - 2026-11-14
 
 ### Added
