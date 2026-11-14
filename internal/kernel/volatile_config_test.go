@@ -74,8 +74,10 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 			miss:  []string{"listens on 10.0.0.1", "see section 3.2"},
 		},
 		"present-tense": {
-			match: []string{"the latest release", "This is currently broken.", "At the moment it fails", "use the `current` build", "the limit now is 5"},
-			miss:  []string{".../releases/latest/download/install.sh", "the current_state field", "pass --latest"},
+			match: []string{"This is currently broken.", "At the moment it fails", "the limit now is 5"},
+			// Bare current and latest are relational, not "as of now" (sto_1ee018c8).
+			miss: []string{".../releases/latest/download/install.sh", "the current_state field", "pass --latest",
+				"the latest release", "use the `current` build", "the item's current state", "its latest run"},
 		},
 		"current-item": {
 			match: []string{"the current epic is epi_1a2b3c4d", "currently in review: sto_0f76dd4e", "the active story sto_3846bea3"},
@@ -111,14 +113,15 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 func TestVolatileConfigProblems(t *testing.T) {
 	root, _ := initVolatile(t)
 	cases := map[string]string{
-		"unknown key":  "bogus = 1\n",
-		"nameless":     "[[pattern]]\nmatch = 'x'\n",
-		"duplicate":    "[[pattern]]\nname = 'a'\nmatch = 'x'\n[[pattern]]\nname = 'a'\nmatch = 'y'\n",
-		"bad match":    "[[pattern]]\nname = 'a'\nmatch = '('\n",
-		"bad exclude":  "exclude = ['[']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
-		"dotdot paths": "paths = ['../outside/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
-		"absolute":     "paths = ['/etc/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
-		"inner dotdot": "exclude = ['a/../b/**']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
+		"unknown key":        "bogus = 1\n",
+		"nameless":           "[[pattern]]\nmatch = 'x'\n",
+		"duplicate":          "[[pattern]]\nname = 'a'\nmatch = 'x'\n[[pattern]]\nname = 'a'\nmatch = 'y'\n",
+		"bad match":          "[[pattern]]\nname = 'a'\nmatch = '('\n",
+		"bad exclude":        "exclude = ['[']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
+		"dotdot paths":       "paths = ['../outside/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
+		"absolute":           "paths = ['/etc/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
+		"inner dotdot":       "exclude = ['a/../b/**']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
+		"ownerless upstream": "[[upstream]]\nfiles = ['a.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -242,7 +245,7 @@ func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 	// Three active defaults, each matching its shape.
 	samples := map[string]string{
 		"version":       "uses v1.0.57 of the binary",
-		"present-tense": "the latest release",
+		"present-tense": "This is currently broken.",
 		"current-item":  "currently on sto_0f76dd4e",
 	}
 	var names []string

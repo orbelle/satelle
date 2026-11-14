@@ -3,6 +3,7 @@ package substrate
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,6 +94,9 @@ func TestVolatileRulesProblems(t *testing.T) {
 		{"dot", VolatileRules{Patterns: ok, Exclude: []string{"./a"}}, `has a . segment`},
 		{"empty segment", VolatileRules{Patterns: ok, Exclude: []string{"a//b"}}, `has an empty segment`},
 		{"malformed", VolatileRules{Patterns: ok, Exclude: []string{"["}}, `exclude glob "[" has a malformed segment`},
+		{"upstream no files", VolatileRules{Patterns: ok, Upstream: []VolatileUpstream{{Owner: "o"}}}, `upstream 1 names no files`},
+		{"upstream dotdot", VolatileRules{Patterns: ok, Upstream: []VolatileUpstream{{Files: []string{"../x.md"}, Owner: "o"}}}, `upstream 1 files glob "../x.md" has a .. segment`},
+		{"upstream ownerless", VolatileRules{Patterns: ok, Upstream: []VolatileUpstream{{Files: []string{"a.md"}}}}, `upstream 1 names no owner`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,5 +259,49 @@ func TestVolatileWithNoPatternReportsNothing(t *testing.T) {
 	put(t, filepath.Join(data, "skills", "x.md"), staleLine)
 	if got := volatile(t, data, VolatileRules{Exempt: "volatile-ok", Paths: []string{"**"}}); len(got) != 0 {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// sto_1ee018c8 AC2: in a Markdown file no line of a fenced block (``` or ~~~,
+// any info string, the fences too) is read; outside a fence, or in another
+// file type, the same lines are.
+func TestVolatileTextSkipsFencedBlocks(t *testing.T) {
+	s, err := CompileVolatile(VolatileRules{Patterns: []VolatilePattern{{Name: "latest", Match: `latest`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "latest outside\n```sh\nlatest=$(git tag | tail -1)\n```\n~~~\nlatest inside tilde\n~~~\nlatest after\n"
+	var lines []int
+	for _, f := range VolatileText("f.md", text, s) {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{1, 8}; !slices.Equal(lines, want) {
+		t.Errorf("f.md lines %v, want %v", lines, want)
+	}
+	if got := VolatileText("f.txt", text, s); len(got) != 4 {
+		t.Errorf("f.txt: %d findings, want 4 (no fences outside Markdown): %v", len(got), got)
+	}
+}
+
+// sto_1ee018c8 AC3: a file an [[upstream]] entry matches is still read, and
+// each finding names its owner; the first matching entry wins.
+func TestVolatileUpstreamNamesTheOwner(t *testing.T) {
+	r := VolatileRules{
+		Patterns: []VolatilePattern{{Name: "v", Match: `v[0-9]+`}},
+		Upstream: []VolatileUpstream{{Files: []string{"skills/lane-*.md"}, Owner: "id4me.pipelines satelle-lane/"}, {Files: []string{"skills/**"}, Owner: "second"}},
+	}
+	s, err := CompileVolatile(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := VolatileText("skills/lane-a.md", "uses v1\n", s)
+	if len(got) != 1 || !strings.HasSuffix(got[0].Why, "; owned by id4me.pipelines satelle-lane/") {
+		t.Errorf("lane file: %+v", got)
+	}
+	if got := VolatileText("other.md", "uses v1\n", s); len(got) != 1 || strings.Contains(got[0].Why, "owned by") {
+		t.Errorf("unowned file: %+v", got)
+	}
+	if u, ok := r.UpstreamOf("skills/x.md"); !ok || u.Owner != "second" {
+		t.Errorf("UpstreamOf(skills/x.md) = %+v %v", u, ok)
 	}
 }

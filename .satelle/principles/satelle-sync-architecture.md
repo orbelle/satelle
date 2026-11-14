@@ -129,7 +129,7 @@ action it takes, and what it leaves is reported to the operator at session
 start (operator, 2026-11-13). Replication stays the only path for work state:
 a fix the pass makes is a ledger event like any other and replicates through
 push and pull. The former sync verb
-and its state file were removed in v1.0.42 (sto_9b98696a).
+and its state file were removed (sto_9b98696a).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
 verb is internal or removed. The checks (`satelle validate --session <session>`, `satelle status --session <session>`)
 report; they do not repair.

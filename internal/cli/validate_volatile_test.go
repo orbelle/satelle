@@ -152,6 +152,15 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 		if !slices.Contains(names, p.Name) {
 			t.Errorf("this repo's volatile.toml lacks the template's pattern %q (has %v)", p.Name, names)
 		}
+		// sto_1ee018c8 AC5: this repo keeps the template's narrowed
+		// present-tense match, not the wide one.
+		if p.Name == "present-tense" {
+			for _, q := range cfg.Volatile.Patterns {
+				if q.Name == p.Name && q.Match != p.Match {
+					t.Errorf("present-tense: this repo matches %q, a fresh init %q", q.Match, p.Match)
+				}
+			}
+		}
 	}
 	if slices.Contains(shipped, "model-id") || !slices.Contains(names, "model-id") {
 		t.Errorf("model-id: the template loads %v and this repo %v; want it in this repo's only", shipped, names)
@@ -197,5 +206,67 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 		if lines := strings.Count(string(b), "\n") + 1; f.Line < 1 || f.Line > lines {
 			t.Errorf("%s: line outside the file's %d lines", f, lines)
 		}
+	}
+}
+
+// sto_1ee018c8 AC3: a file an [[upstream]] entry owns is still checked;
+// validate names its owner, and doctor's fix says to fix it at the owner and
+// not in place, while an unowned file keeps the reword fix.
+func TestDoctorNamesTheUpstreamOwner(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	data := filepath.Join(dir, ".satelle")
+	for _, n := range []string{"vendored", "local"} {
+		writeFile(t, filepath.Join(data, "skills", n+".md"), "---\nname: "+n+"\ntype: skill\ndescription: A skill.\n---\n\nUses v1.0.57 of the binary.\n")
+	}
+	vt := filepath.Join(data, kernel.VolatileFile)
+	b, err := os.ReadFile(vt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, vt, string(b)+"\n[[upstream]]\nfiles = [\".satelle/skills/vendored.md\"]\nowner = \"lane-repo satelle-lane/\"\nfix = \"satelle-lane/sync\"\n")
+	out := must(t, "validate")
+	if !strings.Contains(out, "vendored.md:7: volatile: version") || !strings.Contains(out, "owned by lane-repo satelle-lane/") {
+		t.Errorf("validate does not name the vendored file's owner:\n%s", out)
+	}
+	if !strings.Contains(out, "local.md:7: volatile: version") {
+		t.Errorf("validate lacks the local file:\n%s", out)
+	}
+	doc, _ := run(t, "", "doctor")
+	var vendored, local string
+	lines := strings.Split(doc, "\n")
+	for i, l := range lines {
+		if i+1 < len(lines) && strings.Contains(l, "vendored.md:7") {
+			vendored = lines[i+1]
+		}
+		if i+1 < len(lines) && strings.Contains(l, "local.md:7") {
+			local = lines[i+1]
+		}
+	}
+	if !strings.Contains(vendored, "owned by lane-repo satelle-lane/") || !strings.Contains(vendored, "satelle-lane/sync") || !strings.Contains(vendored, "do not edit it in place") {
+		t.Errorf("doctor's fix for the vendored file: %q\n%s", vendored, doc)
+	}
+	if !strings.Contains(local, "reword the line") {
+		t.Errorf("doctor's fix for the local file: %q", local)
+	}
+}
+
+// sto_1ee018c8 AC4: init says when it adds volatile.toml and how many lines
+// the check flags; an init that adds nothing says nothing.
+func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
+	dir := isolate(t)
+	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 0 line(s)") {
+		t.Errorf("first init:\n%s", out)
+	}
+	data := filepath.Join(dir, ".satelle")
+	if err := os.Remove(filepath.Join(data, kernel.VolatileFile)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\nUses v1.0.57 of the binary.\nThis is currently broken.\n")
+	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 2 line(s)") {
+		t.Errorf("init that adds volatile.toml to an existing repo:\n%s", out)
+	}
+	if out := must(t, "init"); strings.Contains(out, "volatile check enabled") {
+		t.Errorf("an init that adds nothing announced the check:\n%s", out)
 	}
 }

@@ -1,7 +1,7 @@
 ---
 name: satelle-change-judged-check
 type: check
-description: Rejects a move when the item's change now is not the one its latest accepting model gate saw, so a commit made after the review cannot reach a terminal state unjudged. Reads the ledger and `diff --json`; deterministic, no agent.
+description: Rejects a move when the item's change is no longer the one its latest accepting model gate saw, so a commit made after the review cannot reach a terminal state unjudged. Reads the ledger and `diff --json`; deterministic, no agent.
 ---
 
 # Change judged

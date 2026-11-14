@@ -4,9 +4,11 @@ package substrate
 // of the files .satelle/volatile.toml names, that matches a configured
 // volatile pattern (a version string, "currently", a model id) is a finding,
 // unless the line is dated history or carries the configured exemption
-// marker. The patterns, the marker, the extra paths and the exclusions are all
-// configuration: this file holds none of them. The one fixed rule is the date
-// exemption, which the story fixes (sto_3de33a72).
+// marker. The patterns, the marker, the extra paths, the exclusions and the
+// upstream owners are all configuration: this file holds none of them. Two
+// rules are fixed: the date exemption (sto_3de33a72), and that a fenced code
+// block in a Markdown file is not read, by the fence the substrate check
+// already owns (reFence; sto_1ee018c8).
 
 import (
 	"errors"
@@ -41,11 +43,37 @@ type VolatilePattern struct {
 // the files never read, both slash-separated globs relative to the directory
 // that holds .satelle, in which "**" stands for any number of whole segments.
 // A line containing Exempt ("" = no marker) is not reported.
+// Upstream names the files another repo or path owns: they are still read,
+// and each of their findings names the owner.
 type VolatileRules struct {
-	Paths    []string          `toml:"paths"`
-	Exclude  []string          `toml:"exclude"`
-	Exempt   string            `toml:"exempt"`
-	Patterns []VolatilePattern `toml:"pattern"`
+	Paths    []string           `toml:"paths"`
+	Exclude  []string           `toml:"exclude"`
+	Exempt   string             `toml:"exempt"`
+	Patterns []VolatilePattern  `toml:"pattern"`
+	Upstream []VolatileUpstream `toml:"upstream"`
+}
+
+// VolatileUpstream is one [[upstream]] of volatile.toml: the files (globs, as
+// paths and exclude are) that Owner owns, and an optional Fix, the command that
+// brings the fixed files here. A finding in such a file is fixed at the owner,
+// not in place.
+type VolatileUpstream struct {
+	Files []string `toml:"files"`
+	Owner string   `toml:"owner"`
+	Fix   string   `toml:"fix"`
+}
+
+// UpstreamOf returns the first [[upstream]] entry, in configuration order,
+// whose files glob matches file.
+func (r VolatileRules) UpstreamOf(file string) (VolatileUpstream, bool) {
+	for _, u := range r.Upstream {
+		for _, g := range u.Files {
+			if gate.Match(g, file) {
+				return u, true
+			}
+		}
+	}
+	return VolatileUpstream{}, false
 }
 
 // Problems returns each problem of the rules: a pattern with no name, a name
@@ -77,6 +105,19 @@ func (r VolatileRules) Problems() []error {
 			if why := globProblem(g); why != "" {
 				errs = append(errs, fmt.Errorf("%s glob %q %s", key.name, g, why))
 			}
+		}
+	}
+	for i, u := range r.Upstream {
+		if len(u.Files) == 0 {
+			errs = append(errs, fmt.Errorf("upstream %d names no files", i+1))
+		}
+		for _, g := range u.Files {
+			if why := globProblem(g); why != "" {
+				errs = append(errs, fmt.Errorf("upstream %d files glob %q %s", i+1, g, why))
+			}
+		}
+		if strings.TrimSpace(u.Owner) == "" {
+			errs = append(errs, fmt.Errorf("upstream %d names no owner", i+1))
 		}
 	}
 	return errs
@@ -114,6 +155,7 @@ type VolatileSet struct {
 	exempt   string
 	paths    []string
 	exclude  []string
+	rules    VolatileRules
 }
 
 type compiledPattern struct {
@@ -126,7 +168,7 @@ func CompileVolatile(r VolatileRules) (*VolatileSet, error) {
 	if errs := r.Problems(); len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	s := &VolatileSet{exempt: r.Exempt, paths: r.Paths, exclude: r.Exclude}
+	s := &VolatileSet{exempt: r.Exempt, paths: r.Paths, exclude: r.Exclude, rules: r}
 	for _, p := range r.Patterns {
 		s.patterns = append(s.patterns, compiledPattern{name: p.Name, match: p.Match, re: regexp.MustCompile(p.Match)})
 	}
@@ -137,15 +179,29 @@ func CompileVolatile(r VolatileRules) (*VolatileSet, error) {
 var reDated = regexp.MustCompile(`\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b`)
 
 // VolatileText returns the findings of one file's text, named file: one per
-// pattern a line matches, in configuration order, skipping a dated line and a
-// line holding the exemption marker. A nil set reports nothing.
+// pattern a line matches, in configuration order, skipping, in a Markdown file,
+// every line of a fenced code block (the fences too), then a dated line and a
+// line holding the exemption marker. A file an [[upstream]] entry matches has
+// each finding's Why end in "; owned by <owner>". A nil set reports nothing.
 func VolatileText(file, text string, s *VolatileSet) []Finding {
 	if s == nil {
 		return nil
 	}
+	owner := ""
+	if u, ok := s.rules.UpstreamOf(file); ok {
+		owner = "; owned by " + u.Owner
+	}
+	md, fence := strings.HasSuffix(file, ".md"), false
 	var out []Finding
 	for i, line := range strings.Split(text, "\n") {
 		line = strings.TrimSuffix(line, "\r")
+		if md && reFence.MatchString(line) {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
 		if reDated.MatchString(line) || (s.exempt != "" && strings.Contains(line, s.exempt)) {
 			continue
 		}
@@ -155,7 +211,7 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 				continue
 			}
 			out = append(out, Finding{File: file, Line: i + 1, Kind: KindVolatile, Subject: p.name,
-				Why: fmt.Sprintf("%q matches %s", strings.TrimSpace(m), p.match)})
+				Why: fmt.Sprintf("%q matches %s", strings.TrimSpace(m), p.match) + owner})
 		}
 	}
 	return out

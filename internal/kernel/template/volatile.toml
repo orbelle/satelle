@@ -5,7 +5,8 @@
 # change, add or remove patterns; with no [[pattern]] nothing is reported.
 #
 # A line is never reported when it is dated history (it carries a YYYY-MM-DD
-# date) or when it contains the `exempt` marker.
+# date) or when it contains the `exempt` marker. In a Markdown file no line of
+# a fenced code block (``` or ~~~) is read.
 #
 # Globs are slash-separated and relative to the directory that holds .satelle;
 # "**" stands for any number of whole segments. A glob may not be absolute or
@@ -13,6 +14,16 @@
 #   paths    extra files to read, of any extension, inside or outside .satelle
 #   exclude  files never read, whichever list found them (run records,
 #            testdata fixtures and .git by default)
+#   [[upstream]]  files another repo or path owns: still read, and each of
+#            their findings names the owner and is fixed there, not in place.
+#            Keys: files (globs), owner, fix (optional: the command that
+#            brings the fixed files here). A satelle older than the one that
+#            reads [[upstream]] refuses the table, so add one only once every
+#            machine runs it:
+#              [[upstream]]
+#              files = ["<glob>"]
+#              owner = "<repo or path that owns these files>"
+#              fix = "<command that brings the fixed files here>"
 # See `satelle help configuration`.
 
 paths = []
@@ -24,10 +35,11 @@ exempt = "volatile-ok"
 name = "version"
 match = '(^|[^0-9.])v?[0-9]+\.[0-9]+\.[0-9]+([^0-9.]|\.([^0-9]|$)|$)'
 
-# A word that says "as of now".
+# A phrase that says "as of now". Bare "current" and "latest" are not flagged:
+# they are mostly relational ("the item's current state", "its latest run").
 [[pattern]]
 name = "present-tense"
-match = '(?i)(^|[^a-z0-9/_-])(latest|current|currently|now is|at the moment)([^a-z0-9/_-]|$)'
+match = '(?i)(^|[^a-z0-9/_-])(currently|now is|at the moment)([^a-z0-9/_-]|$)'
 
 # A model id names its vendor, and which vendors a repo uses is that repo's
 # own configuration, so satelle ships no vendor list. To flag model ids,

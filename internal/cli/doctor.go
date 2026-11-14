@@ -270,7 +270,17 @@ func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string)
 	fix += "; patterns: .satelle/" + kernel.VolatileFile
 	var out []doctorIssue
 	for _, f := range found {
-		out = append(out, doctorIssue{Check: substrate.VolatileField, Problem: f.String(), Fix: fix, Resolve: resolveFixItem})
+		fx := fix
+		if u, ok := in.cfg.Volatile.UpstreamOf(f.File); ok {
+			// A file another repo owns is fixed there and brought here, never
+			// edited in place (sto_1ee018c8).
+			fx = "this file is owned by " + u.Owner + ": fix the line there and bring the fixed file here"
+			if u.Fix != "" {
+				fx += " (" + u.Fix + ")"
+			}
+			fx += "; do not edit it in place"
+		}
+		out = append(out, doctorIssue{Check: substrate.VolatileField, Problem: f.String(), Fix: fx, Resolve: resolveFixItem})
 	}
 	return out, nil
 }

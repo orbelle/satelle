@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,8 @@ agents.toml and workflows/default.toml: backlog → done, no gates), leaving any
 file that already exists alone, and validates the result. In a repo that
 already has a satelle.toml it writes no starter workflow: the repo keeps its own
 routes. The configuration is yours to edit and replace. 'satelle doctor' lists
-what init would add.
+what init would add. When init adds volatile.toml it says so, and how many
+lines the volatile check then flags.
 
 --hooks installs harness hook files as well (claude when given bare; or name
 them: --hooks claude,pi,grok). Without it no harness file is touched; see
@@ -46,10 +48,22 @@ the command that wires one.`,
 				return fmt.Errorf("%s is satelle's machine-wide home, not a repo", dataDir)
 			}
 			out := cmd.OutOrStdout()
+			// Whether this init adds volatile.toml, which turns the volatile
+			// check on (sto_1ee018c8); an InitPlan error is Init's to return.
+			plan, _ := kernel.InitPlan(dataDir)
+			addsVolatile := slices.Contains(plan, kernel.VolatileFile)
 			if err := kernel.Init(dataDir); err != nil {
 				return problemsError(dataDir, err)
 			}
 			fmt.Fprintf(out, "initialised %s (configuration valid)\n", dataDir)
+			if addsVolatile {
+				rel := filepath.Join(config.DefaultDataDir, kernel.VolatileFile)
+				if found, err := volatileFindings(dataDir); err != nil {
+					fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
+				} else {
+					fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(found))
+				}
+			}
 			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
 				return err
 			}
@@ -110,8 +124,10 @@ It also lists each line of the substrate Markdown, and of the files
 volatile patterns (a version string, "currently", a model id), as
 <file>:<line>: volatile: <pattern> — <why> (under the volatile key with
 --json). A line carrying a YYYY-MM-DD date, or the file's exempt marker, is
-not listed, and no file its exclude globs match is read. Volatile lines are
-listed without failing the check; satelle doctor reports each as an issue.
+not listed, no file its exclude globs match is read, and no line of a fenced
+code block in Markdown is read. A line in a file an [[upstream]] entry owns
+names that owner. Volatile lines are listed without failing the check;
+satelle doctor reports each as an issue.
 With no volatile.toml, or no pattern in it, none is listed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

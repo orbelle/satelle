@@ -115,6 +115,11 @@ A volatile literal is text that goes stale on its own: a version string,
     name  = "<name>"            # unique; named in each finding
     match = '<regexp>'          # Go regular expression (RE2), run on each line
 
+    [[upstream]]
+    files = ["<glob>"]          # files another repo or path owns
+    owner = "<owner>"           # named in each of their findings
+    fix   = "<command>"         # optional: brings the fixed files here
+
 The files read are every `*.md` under `.satelle`, plus every regular file a
 `paths` glob matches, minus every file an `exclude` glob matches; a file is
 read once however many lists find it, and a symlink is never followed. Globs
@@ -126,7 +131,9 @@ or a `match` that does not compile is a configuration problem. The shipped
 `.git`; the list is the repo's to change, and nothing else is left out.
 
 A line is not reported when it carries a YYYY-MM-DD date (dated history) or
-the `exempt` marker. Each other line gives one finding per pattern it
+the `exempt` marker, and in a Markdown file no line of a fenced code block
+(``` or ~~~, the fences too) is read: a script's variables are not prose. Each
+other line gives one finding per pattern it
 matches: `<file>:<line>: volatile: <pattern> — "<text>" matches <regexp>`.
 `satelle validate --session <session>` lists them (the `volatile` list with `--json`) without
 failing; `satelle doctor --session <session>` reports each as a `volatile` issue, and `--resolve`
@@ -134,10 +141,25 @@ puts them on the substrate-fix item. With no `volatile.toml`, or no
 `[[pattern]]` in it, nothing is reported: satelle holds no patterns of its
 own. `satelle init --session <session>` writes the default patterns when the file is absent, and
 the repo edits its copy to change, add or remove them. The shipped file flags
-version strings, present-tense words and item ids presented as current, and
+version strings, the present-tense phrases "currently", "now is" and "at the
+moment" (not bare "current" or "latest", which are mostly relational: "the
+item's current state"), and item ids presented as current, and
 holds a commented `model-id` pattern that a repo enables by uncommenting it
 and listing the vendors whose models it uses: satelle ships no vendor list. It is its own file for
 the reason `doctor.toml` is.
+
+An `[[upstream]]` entry names files another repo or path owns, such as skills
+vendored from a lane repo that must match it byte for byte. They are still
+read, so a real hit is never dropped: each finding's text ends `owned by
+<owner>`, and doctor's fix says to fix the line at the owner and bring the
+file here (running `fix` when given), not to edit it in place. An entry with
+no `files`, a bad glob or no `owner` is a configuration problem. A satelle that
+predates `[[upstream]]` refuses the table, so add one only once every machine
+runs a satelle that reads it.
+
+When `satelle init --session <session>` adds `volatile.toml` to a repo it says so on one
+line with the number of lines the check then flags, so a repo that gains the
+check sees what it turned on.
 
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives
 under `~/.satelle/<repo-key>/` (`satelle runtime path --session <session>`), shared by every

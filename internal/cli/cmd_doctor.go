@@ -26,7 +26,9 @@ Its checks:
              .satelle/volatile.toml names under paths, that matches one of its
              volatile patterns (a version string, "currently", a model id),
              unless it carries a YYYY-MM-DD date or the exempt marker; files
-             its exclude globs match are not read (reword, date or mark it)
+             its exclude globs match are not read, nor is a fenced code block
+             in Markdown (reword, date or mark it; a file an [[upstream]]
+             entry owns names its owner and is fixed there)
   init       files satelle init would add (satelle init)
   harness    a harness in use (agents.toml runs it, or the repo has its
              .claude, .cursor, .grok or .pi directory) whose hook file differs
