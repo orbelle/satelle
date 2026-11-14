@@ -15,6 +15,10 @@ import (
 // principleLink matches a [[name]] link in substrate markdown.
 var principleLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
+// codeSpan is a backtick code span; a [[link]] inside one is text, not a link,
+// as the substrate check reads it.
+var codeSpan = regexp.MustCompile("`[^`]*`")
+
 // TestPrincipleLinksResolve proves every [[link]] in the constitution and the
 // principles names an existing principle: a file whose frontmatter carries that
 // name, type principle and a description. Each dead link is reported with its
@@ -41,7 +45,7 @@ func TestPrincipleLinksResolve(t *testing.T) {
 		}
 		sc := bufio.NewScanner(f)
 		for n := 1; sc.Scan(); n++ {
-			for _, m := range principleLink.FindAllStringSubmatch(sc.Text(), -1) {
+			for _, m := range principleLink.FindAllStringSubmatch(codeSpan.ReplaceAllString(sc.Text(), ""), -1) {
 				name := m[1]
 				seen[name] = true
 				p, ok := principles[name]

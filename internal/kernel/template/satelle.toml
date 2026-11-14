@@ -10,7 +10,7 @@ default = "default"
 
 [hook]
 # Files the context hook prints at session start.
-inject = [".satelle/skills/satelle-workflow-standard.md"]
+inject = [".satelle/skills/satelle-workflow-standard.md", ".satelle/principles/satelle-reference-not-restate.md"]
 # refresh = true                    # false: satelle update and the sync pass leave this repo's harness hook files
 
 [rules]

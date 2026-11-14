@@ -63,8 +63,8 @@ func TestInitWritesTheWorkflowStandardSkill(t *testing.T) {
 		t.Fatalf("init's [hook] holds %v, want only inject", hook)
 	}
 	inject, _ := hook["inject"].([]any)
-	if len(inject) != 1 || inject[0] != workflowStandardSkill {
-		t.Fatalf("init's [hook] inject is %v, want [%s]", hook["inject"], workflowStandardSkill)
+	if !slices.Contains(inject, any(workflowStandardSkill)) {
+		t.Fatalf("init's [hook] inject is %v, want it to hold %s", hook["inject"], workflowStandardSkill)
 	}
 
 	var own struct {

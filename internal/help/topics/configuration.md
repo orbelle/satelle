@@ -65,6 +65,11 @@ the kernel still opens: only a configuration problem stops it.
   against the repo's workflow standard. The repo edits its `Standard:` line to
   name where the standard is. The template `satelle.toml` injects it at
   session start; an existing repo adds the path to `[hook] inject`.
+- `principles/satelle-reference-not-restate.md` — written by
+  `satelle init --session <session>`: the principle that a page names the
+  command, file or link answering a changing fact rather than writing the
+  fact down. The template `satelle.toml` injects it at session start; an
+  existing repo adds the path to `[hook] inject`.
 - `doctor.toml` — the repo's own checks and open-item lists
   `satelle doctor --session <session>` runs beside its kernel checks, and the
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).

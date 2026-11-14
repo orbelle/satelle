@@ -464,18 +464,13 @@ func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 	if _, err := toml.DecodeFile(filepath.Join(root, "satelle.toml"), &conf); err != nil {
 		t.Fatal(err)
 	}
-	principles := 0
-	for _, f := range conf.Hook.Inject {
-		if !strings.HasPrefix(f, ".satelle/principles/") {
-			continue
+	for _, f := range []string{".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-operator-rulings.md"} {
+		if !slices.Contains(conf.Hook.Inject, f) {
+			t.Errorf("satelle.toml does not inject %s", f)
 		}
-		principles++
 		if !strings.Contains(read(filepath.Join("..", f)), "queue fire") {
 			t.Errorf("injected %s does not name the queue fire", f)
 		}
-	}
-	if principles == 0 {
-		t.Fatal("satelle.toml injects no principle")
 	}
 	arch := read(filepath.Join(root, "principles", "satelle-story-task-release-architecture.md"))
 	if !strings.Contains(arch, "queue fire") {
