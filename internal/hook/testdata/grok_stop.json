@@ -1,0 +1,13 @@
+{
+  "hookEventName": "stop",
+  "hook_event_name": "Stop",
+  "sessionId": "grok-session-0001",
+  "cwd": "/work/repo",
+  "workspaceRoot": "/work/repo",
+  "permissionMode": "default",
+  "promptId": "prompt-0001",
+  "stopHookActive": false,
+  "lastAssistantMessage": "Done.",
+  "reason": "end_turn",
+  "timestamp": "2026-11-14T09:05:00Z"
+}

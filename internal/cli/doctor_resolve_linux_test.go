@@ -689,27 +689,43 @@ func TestDoctorClassesEverySeat(t *testing.T) {
 }
 
 // --resolve opens one item listing every init and configured-check finding,
-// opens no second one while it is open, honours doctor.toml [resolve], and
-// with an invalid configuration records nothing; it never writes the tree or
-// .git (AC7, AC8 "one fix item for several findings").
+// opens no second one while it is open, takes the item's kind and tag from
+// doctor.toml [resolve] (the template's, or the repo's own), and with an
+// invalid configuration records nothing. With [resolve] kind or tag unset it
+// records nothing and lists each finding naming the key to set (sto_a5cdb024
+// AC2). It never writes the tree or .git (AC7, AC8 "one fix item for several
+// findings").
 func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 	cases := []struct {
-		name, resolve string
-		category, tag string
-		invalid       bool
+		name string
+		// doctorToml, when set, replaces the fixture's doctor.toml.
+		doctorToml          string
+		kind, category, tag string // "" kind and tag: what LoadConfig reads
+		unset               string // the keys the left why names
+		invalid             bool
 	}{
-		{name: "no [resolve]", tag: kernel.DefaultResolveTag},
-		{name: "[resolve]", resolve: "\n[resolve]\ncategory = \"chore\"\ntag = \"fix-me\"\n", category: "chore", tag: "fix-me"},
+		{name: "template [resolve]"},
+		{name: "[resolve] set", doctorToml: fixtureDoctorChecks + "\n[resolve]\nkind = \"task\"\ncategory = \"chore\"\ntag = \"fix-me\"\n", kind: "task", category: "chore", tag: "fix-me"},
+		{name: "no [resolve]", doctorToml: fixtureDoctorChecks, unset: "kind and tag"},
+		{name: "kind only", doctorToml: fixtureDoctorChecks + "\n[resolve]\nkind = \"task\"\n", unset: "tag"},
 		{name: "invalid configuration", invalid: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newDoctorFixture(t)
 			noTerminal(t)
-			if tc.resolve != "" {
-				p := filepath.Join(f.dir, ".satelle", "doctor.toml")
-				b, _ := os.ReadFile(p)
-				writeFile(t, p, string(b)+tc.resolve)
+			if tc.doctorToml != "" {
+				writeFile(t, filepath.Join(f.dir, ".satelle", "doctor.toml"), tc.doctorToml)
+			}
+			if tc.kind == "" && tc.unset == "" && !tc.invalid {
+				c, err := kernel.LoadConfig(filepath.Join(f.dir, ".satelle"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				tc.kind, tc.tag = c.Doctor.Resolve.Kind, c.Doctor.Resolve.Tag
+				if tc.kind == "" || tc.tag == "" {
+					t.Fatalf("the fixture's template doctor.toml sets kind %q tag %q", tc.kind, tc.tag)
+				}
 			}
 			before0 := itemIDs(t)
 			if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
@@ -724,7 +740,25 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 			before := digest(t, f.dir)
 			rep, out, err := resolveJSON(t)
 			findings := []string{"init: satelle init would add .satelle/agents.toml", "check:fixture-check: skills/a.md:1: first finding", "check:fixture-check: skills/b.md:2: second finding"}
-			if tc.invalid {
+			if tc.unset != "" {
+				if ExitCodeOf(err) != 1 {
+					t.Fatalf("exit %d, want 1\n%s", ExitCodeOf(err), out)
+				}
+				if got := itemIDs(t); !slices.Equal(got, before0) {
+					t.Fatalf("an item was recorded with [resolve] %s unset: %v", tc.unset, got)
+				}
+				if rep.Item != "" {
+					t.Errorf("report names item %q", rep.Item)
+				}
+				why := ".satelle/doctor.toml [resolve] " + tc.unset + " is not set"
+				for _, w := range findings {
+					if !slices.ContainsFunc(rep.Left, func(l resolveLeft) bool {
+						return l.Check+": "+l.Problem == w && strings.HasPrefix(l.Why, why) && strings.HasPrefix(l.Fix, resolveUnsetFirst)
+					}) {
+						t.Errorf("left lacks %q with why %q and fix prefixed %q: %+v", w, why, resolveUnsetFirst, rep.Left)
+					}
+				}
+			} else if tc.invalid {
 				if ExitCodeOf(err) != 1 {
 					t.Fatalf("exit %d, want 1\n%s", ExitCodeOf(err), out)
 				}
@@ -755,8 +789,8 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 					t.Fatalf("items opened %+v, report item %q", fixes, rep.Item)
 				}
 				it := fixes[0]
-				if it.Kind != kernel.DefaultResolveKind || !slices.Contains(it.Tags, tc.tag) || it.Category != tc.category {
-					t.Errorf("item kind %q tags %v category %q, want story, %q, %q", it.Kind, it.Tags, it.Category, tc.tag, tc.category)
+				if it.Kind != tc.kind || !slices.Contains(it.Tags, tc.tag) || it.Category != tc.category {
+					t.Errorf("item kind %q tags %v category %q, want %q, %q, %q", it.Kind, it.Tags, it.Category, tc.kind, tc.tag, tc.category)
 				}
 				for _, w := range findings {
 					if !strings.Contains(it.Body, "- "+w+" — fix: ") {
@@ -817,11 +851,12 @@ func newItems(t *testing.T, before []string) []item.Item {
 
 // A substrate finding (a skill naming a command this binary lacks) is a
 // fix-item issue, and --resolve opens the one fix item listing it beside the
-// other substrate findings; the tree and .git are unchanged (AC7).
+// other substrate findings, a volatile literal among them (sto_3de33a72); the
+// tree and .git are unchanged (AC7).
 func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	f := newDoctorFixture(t)
 	noTerminal(t)
-	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names what the binary lacks.\n---\n\nRun `satelle nosuchcmd <id>`.\n")
+	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names what the binary lacks.\n---\n\nRun `satelle nosuchcmd <id>`.\n\nUses v1.0.57 of the binary.\n")
 	if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
 		t.Fatal(err)
 	}
@@ -845,7 +880,8 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	if len(fixes) != 1 || rep.Item != fixes[0].ID {
 		t.Fatalf("items opened %+v, report item %q", fixes, rep.Item)
 	}
-	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: "} {
+	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: ",
+		"volatile: .satelle/skills/stale.md:9: volatile: version — "} {
 		if !strings.Contains(fixes[0].Body, "- "+w) {
 			t.Errorf("fix item body lacks %q:\n%s", w, fixes[0].Body)
 		}
@@ -858,4 +894,50 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	if d := sameDigest(before, digest(t, f.dir)); len(d) != 0 {
 		t.Fatalf("--resolve wrote the tree: %v", d)
 	}
+}
+
+// sto_2a41b9e4 AC2: doctor --resolve --session records its writes as that
+// session, although its checks build command trees on other goroutines
+// before it records (doctor.go, doctor_resolve.go).
+func TestResolveRecordsTheSessionFlag(t *testing.T) {
+	t.Run("fix item", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		noTerminal(t)
+		t.Setenv("SATELLE_SESSION", "")
+		before := itemIDs(t)
+		if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(f.dir, "FAIL"), "skills/a.md:1: a finding\n")
+		out, err := run(t, "", "doctor", "--resolve", "--json", "--session", "s-doc")
+		if err != nil {
+			t.Fatalf("--resolve: %v\n%s", err, out)
+		}
+		fixes := newItems(t, before)
+		if len(fixes) != 1 {
+			t.Fatalf("items opened %+v", fixes)
+		}
+		evs := chain(t, fixes[0].ID)
+		if evs[0].Kind != "item.created" || evs[0].Actor != "s-doc" {
+			t.Errorf("the fix item was created by %q (%s), want s-doc", evs[0].Actor, evs[0].Kind)
+		}
+	})
+	t.Run("seat release", func(t *testing.T) {
+		newDoctorFixture(t)
+		noTerminal(t)
+		id := createID(t, "story", "create", "--title", "orphan", "--criteria", "c")
+		must(t, "story", "seat", id, "--session", "s-gone")
+		dead := killedProc(t)
+		if err := seatlife.Own(config.GlobalDir(), "s-gone", dead); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SATELLE_SESSION", "")
+		if out, err := run(t, "", "doctor", "--resolve", "--session", "s-doc"); err != nil {
+			t.Fatalf("--resolve: %v\n%s", err, out)
+		}
+		evs := chain(t, id)
+		if last := evs[len(evs)-1]; last.Kind != item.KindSeatReleased || last.Actor != "s-doc" {
+			t.Errorf("chain ends in %s by %q, want seat.released by s-doc", last.Kind, last.Actor)
+		}
+	})
 }

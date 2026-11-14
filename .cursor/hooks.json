@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "satelle hook prompt --harness cursor"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "satelle hook gate --harness cursor",
+        "matcher": "Write|Delete|Shell"
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "satelle hook context --harness cursor"
+      }
+    ],
+    "stop": [
+      {
+        "command": "satelle hook stopcheck --harness cursor"
+      }
+    ]
+  },
+  "version": 1
+}

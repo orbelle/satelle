@@ -33,17 +33,17 @@ rm -f "${tmp}"
 
 # 2. Deploy: (re)install/restart the background service (satelle's own mechanism),
 #    or fall back to a detached serve when systemd is unavailable.
-if command -v systemctl >/dev/null 2>&1 && "${BIN}" service install >/tmp/satelle-deploy.log 2>&1; then
+if command -v systemctl >/dev/null 2>&1 && "${BIN}" service install --session <session> >/tmp/satelle-deploy.log 2>&1; then
   echo "deploy: systemd service (re)installed."
 else
-  PORT="$("${BIN}" service status 2>/dev/null | awk -F'[: ]+' '/^config:/{for(i=1;i<=NF;i++) if($i=="port") print $(i+1)}')"
+  PORT="$("${BIN}" service status --session <session> 2>/dev/null | awk -F'[: ]+' '/^config:/{for(i=1;i<=NF;i++) if($i=="port") print $(i+1)}')"
   PORT="${PORT:-8787}"
   echo "deploy: no systemd — detached serve on :${PORT}."
   setsid nohup "${BIN}" serve --addr 0.0.0.0 --port "${PORT}" >/tmp/satelle-serve.log 2>&1 & disown || true
 fi
 
 # 3. Resolve the live URL and health-check the web UI.
-URL="$("${BIN}" service status 2>/dev/null | awk '/^url:/{print $2}')"
+URL="$("${BIN}" service status --session <session> 2>/dev/null | awk '/^url:/{print $2}')"
 URL="${URL:-http://localhost:8787}"
 ok=""
 for _ in $(seq 1 40); do
@@ -58,6 +58,6 @@ done
 echo "deploy: web UI healthy and LIVE at ${URL}."
 
 # 4. Health-check the CLI.
-"${BIN}" status >/dev/null 2>&1 || { echo "deploy: 'satelle status' failed" >&2; exit 1; }
+"${BIN}" status --session <session> >/dev/null 2>&1 || { echo "deploy: 'satelle status --session <session>' failed" >&2; exit 1; }
 echo "deploy: PASS — service deployed and LIVE at ${URL} (web + CLI healthy)."
 ```

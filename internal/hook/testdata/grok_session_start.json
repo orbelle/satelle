@@ -1,0 +1,9 @@
+{
+  "hookEventName": "session_start",
+  "hook_event_name": "SessionStart",
+  "sessionId": "grok-session-0001",
+  "cwd": "/work/repo",
+  "workspaceRoot": "/work/repo",
+  "permissionMode": "default",
+  "timestamp": "2026-11-14T09:00:00Z"
+}

@@ -12,16 +12,18 @@ import (
 
 // Gate is the edit gate for one session working in one tree. An edit is
 // allowed only while the session holds a seat, at this tree's location, on an
-// item whose current state has a performer. Configured exemptions are always
-// allowed, locked paths never; temp dirs and paths in no working tree are
-// outside its concern; another repository's tree is refused (the fence).
+// item whose current state's performer may change the tree. A seat there on a
+// state whose performer produces only attachments refuses every path of the
+// tree, exempt and locked paths included. Otherwise configured exemptions are
+// always allowed, locked paths never; temp dirs and paths in no working tree
+// are outside its concern; another repository's tree is refused (the fence).
 type Gate struct {
 	Root   string   // the session's working tree, absolute
 	Exempt []string // [gate] edit_exempt_paths, globs relative to a tree
 	Locked []string // [gate] locked_paths
-	// Seated reports whether the session holds a seat at local:<tree> on an
-	// item whose current state has a performer.
-	Seated func(tree string) bool
+	// Grant reports what the session's seats at local:<tree> allow there.
+	// Nil: the session holds none.
+	Grant func(tree string) Grant
 	// TempRoots are dirs whose contents are always editable; nil means
 	// TempRoots().
 	TempRoots []string
@@ -33,11 +35,31 @@ type Gate struct {
 	IsFile func(string) bool
 }
 
+// Grant is what a session's seats at one tree allow. Tree and AttachOnly may
+// both be set: any attachments-only seat refuses the tree whatever else the
+// session holds there.
+type Grant struct {
+	// Tree: a seat there is on an item whose state's performer may change
+	// the tree.
+	Tree bool
+	// AttachOnly: a seat there is on a state whose performer produces only
+	// attachments, or whose edit scope could not be read.
+	AttachOnly bool
+	// Item and State name the attachments-only seat's item and its state
+	// (both empty when the session's seats themselves could not be read).
+	Item, State string
+	// Unread says why that seat's edit scope could not be read; empty when
+	// it was read.
+	Unread string
+}
+
 // Verdict is the gate's answer for one tool call.
 type Verdict struct {
 	Allow  bool
 	Path   string // the path a deny is about
 	Reason string
+	// AttachOnly marks a refusal because of an attachments-only seat.
+	AttachOnly bool
 }
 
 var allow = Verdict{Allow: true}
@@ -104,6 +126,13 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 			abs, tree, root)}
 	}
 	rel := relSlash(tree, abs)
+	var grant Grant
+	if g.Grant != nil {
+		grant = g.Grant(tree)
+	}
+	if grant.AttachOnly {
+		return Verdict{Path: abs, AttachOnly: true, Reason: attachOnlyReason(rel, "local:"+tree, grant)}
+	}
 	if matchAny(g.Locked, rel) {
 		return Verdict{Path: abs, Reason: fmt.Sprintf(
 			"satelle: %s is a locked path ([gate] locked_paths); no seat allows editing it.", rel)}
@@ -111,12 +140,28 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 	if matchAny(g.Exempt, rel) {
 		return allow
 	}
-	if g.Seated != nil && g.Seated(tree) {
+	if grant.Tree {
 		return allow
 	}
 	return Verdict{Path: abs, Reason: fmt.Sprintf(
-		"satelle: edit to %s blocked. Edits are allowed only while this session holds a seat at %s on an item whose current state has a performer. "+
-			"Seat one with `satelle story seat <id>` (see `satelle status` and `satelle help edit-gate`).", rel, "local:"+tree)}
+		"satelle: edit to %s blocked. Edits are allowed only while this session holds a seat at %s on an item whose current state's performer may change the tree. "+
+			"Seat one with `satelle story seat <id> --session <session>` (see `satelle status --session <session>` and `satelle help edit-gate --session <session>`).", rel, "local:"+tree)}
+}
+
+// attachOnlyReason is the refusal of a path from an attachments-only seat.
+func attachOnlyReason(rel, loc string, g Grant) string {
+	const record = "Record the work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>` (a file under a temp dir, or --file - for stdin). " +
+		"See `satelle help edit-gate --session <session>`."
+	if g.Item == "" {
+		return fmt.Sprintf("satelle: edit to %s blocked. This session's seats at %s cannot be read (%s), so they are treated as seats on a state whose performer produces an attachment, not a change to the tree; "+
+			"no path of this tree is editable, [gate] edit_exempt_paths and locked_paths included. %s", rel, loc, g.Unread, record)
+	}
+	why := "whose performer produces an attachment, not a change to the tree"
+	if g.Unread != "" {
+		why = fmt.Sprintf("whose edit scope cannot be read (%s), so it is treated as a state whose performer produces an attachment, not a change to the tree", g.Unread)
+	}
+	return fmt.Sprintf("satelle: edit to %s blocked. This session's seat at %s is on %s in state \"%s\", %s; "+
+		"no path of this tree is editable from that seat, [gate] edit_exempt_paths and locked_paths included. %s", rel, loc, g.Item, g.State, why, record)
 }
 
 func (g Gate) underTemp(abs string) bool {

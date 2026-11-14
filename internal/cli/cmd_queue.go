@@ -20,7 +20,7 @@ func triggerText(t item.Trigger) string {
 	if t.Workflow != "" {
 		target = "workflow " + t.Workflow
 	}
-	when := "by hand only (min size 0)"
+	when := "on satelle queue fire only (min size 0)"
 	if t.MinSize > 0 {
 		when = fmt.Sprintf("at %d members", t.MinSize)
 	}
@@ -224,12 +224,13 @@ func queueFireCmd() *cobra.Command {
 	var base string
 	cmd := &cobra.Command{
 		Use:   "fire <que>",
-		Short: "Fire a queue's trigger by hand: start its run over the members now",
+		Short: "Fire a queue's trigger now: start its run over the members",
 		Long: `fire runs the queue's trigger over its members now, in this process: it
 records queue.fired on the queue and creates the run (an execution under the
 trigger's task, or under the queue in the trigger's workflow) whose task.run
 lists the members it took. Satelle schedules and watches nothing; a queue fires
-only here, or when an enqueue reaches its minimum size.
+only here, or when an enqueue reaches its minimum size. Any session may fire,
+normally the one whose items the queue holds, at any time.
 
 It exits 0 when it fired or the queue had no members, and 2 when the last
 fire's run is still open or the queue changed while firing.`,
@@ -243,7 +244,7 @@ fire's run is still open or the queue changed while firing.`,
 			if args[0], err = resolveItem(k, item.QueueKind, args[0]); err != nil {
 				return err
 			}
-			f, err := k.Fire(args[0], base, "by hand", actor())
+			f, err := k.Fire(args[0], base, "queue fire", actor())
 			if err != nil {
 				return fireRefusal(err)
 			}

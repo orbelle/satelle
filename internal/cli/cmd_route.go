@@ -32,6 +32,7 @@ type stateView struct {
 	Performer string   `json:"performer,omitempty"` // agent/skill
 	Enqueue   []string `json:"enqueue,omitempty"`   // queues an item entering it joins
 	Hold      string   `json:"hold,omitempty"`      // the round cap: "<rounds> -> <park state>"
+	Waits     string   `json:"waits,omitempty"`     // what the state's exit waits on outside the session
 	Current   bool     `json:"current,omitempty"`
 }
 
@@ -77,6 +78,7 @@ func buildRoute(w *workflow.Workflow, it item.Item, results []gate.Result) route
 		if len(st.Enqueue) > 0 {
 			sv.Enqueue = st.Enqueue
 		}
+		sv.Waits = st.Waits
 		if h := st.Hold; h != nil {
 			sv.Hold = fmt.Sprintf("%d -> %s", h.Rounds, h.To)
 		}
@@ -137,6 +139,9 @@ func printRoute(w io.Writer, v routeView) {
 		}
 		if s.Hold != "" {
 			tags = append(tags, "hold "+s.Hold)
+		}
+		if s.Waits != "" {
+			tags = append(tags, "waits "+s.Waits)
 		}
 		if len(s.Enqueue) > 0 {
 			tags = append(tags, "enqueue "+strings.Join(s.Enqueue, ","))

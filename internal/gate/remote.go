@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -66,16 +67,9 @@ func (r Run) remote(ctx context.Context, name string, g workflow.Gate, skill wor
 		return Result{Result: Reject, Notes: prefix + checkFailure(err, source, bound([]byte(out.Output))), Location: loc}
 	}
 	res := Result{Result: Reject, Location: loc, verdict: true}
-	res.Notes = fmt.Sprintf("%snode %s at %s: exit %d\n%s", prefix, out.Node, shortSHA(r.Head.Commit), out.Exit, bound([]byte(out.Output)))
+	res.Notes = fmt.Sprintf("%snode %s at %s: exit %d\n%s", prefix, out.Node, ledger.ShortHash(r.Head.Commit), out.Exit, bound([]byte(out.Output)))
 	if out.Exit == 0 {
 		res.Result = Accept
 	}
 	return res
-}
-
-func shortSHA(s string) string {
-	if len(s) > 12 {
-		return s[:12]
-	}
-	return s
 }

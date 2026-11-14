@@ -6,16 +6,18 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// performing reports whether an agent performs the item's current state: an
-// operator state has no agent performer, so its seat allows no edits.
-func performing(k *kernel.Kernel, it item.Item) bool {
+// editScope is what a seat on the item lets its session change: the item's
+// current state's workflow.State.EditScope, empty for an unknown workflow or
+// a state no agent performs.
+func editScope(k *kernel.Kernel, it item.Item) string {
 	w, ok := k.Workflows[it.Workflow]
 	if !ok {
-		return false
+		return ""
 	}
-	return w.States[it.Status].Agent() != nil
+	return w.States[it.Status].EditScope()
 }
 
 // seatsOf lists session's bound seats with their items' positions.
@@ -33,7 +35,8 @@ func seatsOf(k *kernel.Kernel, session string) ([]seatView, error) {
 		if !ok {
 			continue
 		}
-		out = append(out, seatView{Item: it.ID, Title: it.Title, Status: it.Status, Location: s.Location, Performing: performing(k, it)})
+		edits := editScope(k, it)
+		out = append(out, seatView{Item: it.ID, Title: it.Title, Status: it.Status, Location: s.Location, Performing: edits != "", Edits: edits})
 	}
 	return out, nil
 }
@@ -45,9 +48,14 @@ func printSeats(w io.Writer, seats []seatView) {
 	}
 	fmt.Fprintln(w, "seats")
 	for _, s := range seats {
-		mark := ""
-		if s.Performing {
-			mark = " (performing: edits allowed at this location)"
+		var mark string
+		switch s.Edits {
+		case workflow.EditsTree:
+			mark = fmt.Sprintf(" (performing %s: edits allowed at this location)", s.Status)
+		case workflow.EditsAttachments:
+			mark = fmt.Sprintf(" (performing %s: attachments only)", s.Status)
+		default:
+			mark = fmt.Sprintf(" (%s: no edits)", s.Status)
 		}
 		fmt.Fprintf(w, "  %s  %s  [%s] at %s%s\n", s.Item, s.Title, s.Status, s.Location, mark)
 	}

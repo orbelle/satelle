@@ -30,6 +30,8 @@ func TestWireConstantsAreTheKernels(t *testing.T) {
 		mirror.EventGateRun:         gate.KindRun,
 		mirror.EventTransitioned:    item.KindTransitioned,
 		mirror.EventAttachmentAdded: item.KindAttachmentAdd,
+		mirror.EventUpdated:         item.KindUpdated,
+		mirror.EventPerformerRun:    kernel.KindPerformerRun,
 		mirror.GateReject:           gate.Reject,
 		mirror.GateError:            gate.Error,
 		mirror.TransitionSep:        gate.TransitionKey("", ""),

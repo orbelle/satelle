@@ -1,7 +1,9 @@
 # The release queue: approved stories wait here for the release task (CI/CD).
 # The delivery and chore workflows' approved states enqueue into it by name;
 # its filter also takes any approved story. min_size = 0: nothing fires on
-# enqueue; release step 0 (.satelle/skills/release.md) fires it.
+# enqueue. The session whose story reaches approved fires it, at any time,
+# with satelle queue fire release --session <session> (release step 0,
+# .satelle/skills/release.md), and drives the run until its items are done.
 # id adopts the queue created on the ledger before queues were files.
 id = "que_65bc4edc"
 title = "Release queue: approved stories"

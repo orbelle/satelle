@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
@@ -57,6 +58,12 @@ every event on an append-only ledger. Start with 'satelle init' and
 		SilenceErrors: true,
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
+	// --session and -C are root flags, so every command takes them, before or
+	// after its name. Neither is bound to a variable: a tree built inside a
+	// running command (doctor, validate) writes nothing (sto_2a41b9e4).
+	root.PersistentFlags().String(sessionFlag, "", "the session this command acts as (default $"+config.SessionEnv+")")
+	root.PersistentFlags().StringP(directoryFlag, "C", "", "run as if satelle was started in this directory, like git -C")
+	root.PersistentPreRunE = rootPreRun
 	root.AddCommand(
 		initCmd(), validateCmd(), statusCmd(), versionCmd(), doctorCmd(),
 		itemCmd("story", true), itemCmd("task", true), itemCmd("execution", false), itemCmd("queue", true),
@@ -66,6 +73,39 @@ every event on an append-only ledger. Start with 'satelle init' and
 	)
 	root.SetHelpCommand(helpCmd(root))
 	return root
+}
+
+// The root flags' names.
+const (
+	sessionFlag   = "session"
+	directoryFlag = "directory"
+)
+
+// rootPreRun runs once, on the executed command, after its flags are parsed
+// and before it runs: it changes into -C's directory, then makes a non-empty
+// --session the call's SATELLE_SESSION, the one carrier actor(), the hooks, a
+// gate's check script and a dispatched performer already read. An empty
+// --session leaves the environment as it is, so the flag never makes a call
+// look like the operator's.
+func rootPreRun(cmd *cobra.Command, _ []string) error {
+	flags := cmd.Root().PersistentFlags()
+	if dir, _ := flags.GetString(directoryFlag); dir != "" {
+		if err := os.Chdir(dir); err != nil {
+			return fmt.Errorf("-C %s: %w", dir, err)
+		}
+	}
+	if s := strings.TrimSpace(flagString(flags, sessionFlag)); s != "" {
+		if err := os.Setenv(config.SessionEnv, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// flagString is a string flag's value, "" when it is not defined.
+func flagString(fs *pflag.FlagSet, name string) string {
+	v, _ := fs.GetString(name)
+	return v
 }
 
 // Execute runs the command line.

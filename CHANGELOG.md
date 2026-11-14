@@ -1,3 +1,112 @@
+## [1.0.71] - 2026-11-14
+
+### Changed
+- The volatile check's dated-history exemption is the `dated` expression in `.satelle/volatile.toml`, which satelle init ships matching a YYYY-MM-DD date. A repo with its own volatile.toml adds `dated = '\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b'` to keep it; without the key a dated line is reported. (sto_a5cdb024)
+- `satelle doctor --resolve` takes the fix item's kind and tag from `.satelle/doctor.toml` `[resolve]`, which satelle init now writes. A repo whose doctor.toml sets neither adds them; until then `--resolve` opens no item and names the key to set. (sto_a5cdb024)
+
+## [1.0.70] - 2026-11-14
+
+### Changed
+- The hook defer decision lives in the hook adapter alone, and caller detection (the harness check of satelle doctor) reads only session markers captured in live cursor-agent, pi and grok sessions; a marker no captured session set is no longer read. (sto_1f4dc85d)
+
+## [1.0.69] - 2026-11-14
+
+### Changed
+- The session guidance and the drive rule that the context, prompt and stop hooks print come from .satelle/session.md, which satelle init writes and the repo edits. A repo without the file gets a line naming it, and satelle doctor reports it until satelle init adds it. (sto_a92a6444)
+
+## [1.0.68] - 2026-11-14
+
+### Changed
+- The mirror's event kinds refer to their owning constants in package item, which now owns the performer.run kind and the seat location prefixes the kernel and seatlife share (sto_1fb966b0)
+- One helper, ledger.ShortHash, cuts a hash to 12 characters for the gate, kernel, ledger replicator and `satelle ledger` output (sto_1fb966b0)
+- Removed the unused syncstate.RecordSync, the unreached non-linux systemdUser stub and the fork-load reproduction test; TestShebangCheckIsReadNotExecuted stays the proof for sto_cb34e3e3 (sto_1fb966b0)
+
+## [1.0.67] - 2026-11-14
+
+### Added
+- A workflow state can say what its performer may change: `edits = "attachments"` makes the edit gate refuse every edit and shell write to the tree, exempt and locked paths included, while the session's seat is on that state; `satelle <kind> attach` still works. (sto_6344add2)
+- `satelle-tree-unchanged-check`, a check skill `satelle init` writes, refuses a move when the item's branch already differs from where it left origin/main, or the branch on origin of the item it is stacked on, so a plan is judged before any code. (sto_6344add2)
+
+### Changed
+- The seat line in the session context and `satelle status` names the state and what it allows, for example `performing plan: attachments only`. (sto_6344add2)
+- A ledger store command ended by a signal is reported with the signal's name, the command's pid and its process group. (sto_e13dd924)
+
+### Fixed
+- A drift review's close judge (validate-after) is told which lines of the drift report to quote (the version, the drift-check exit, and the fix item or no drift), an accept that leaves one out is refused naming it, and the gate is judged by GPT-5.6 Sol instead of Gemini 3.8 Flash High, so a drift review that finds no drift closes without the operator. (sto_09b81217)
+
+## [1.0.66] - 2026-11-14
+
+### Added
+- `satelle hook stopcheck` blocks a turn's end once when the session holds a seat on an item whose next move is its own, naming the item and the move (a transition, `satelle queue fire <queue>`, or the open run to drive); the stop straight after is let through. A workflow state declares an outside wait with `waits = "<on what>"`, and the session-start and prompt context state the rule. (sto_2ac90ab6)
+
+### Changed
+- A queue with min size 0 is described as fired by `satelle queue fire`, by any session, instead of 'by hand only'; `queue fire` records the cause `queue fire`. (sto_2ac90ab6)
+
+### Fixed
+- A grok session receives satelle's session-start context: it is sent as the top-level `systemMessage` grok reads, and the prompt hook, whose output grok discards, prints nothing. (sto_2ac90ab6)
+
+## [1.0.65] - 2026-11-14
+
+### Removed
+- The retired held state is gone from the satelle repo's delivery workflow; a hold parks an item at blocked, and the workflows help topic's hold example says so. (sto_54e73cfa)
+
+## [1.0.64] - 2026-11-14
+
+### Added
+- volatile.toml `[[upstream]]` (files, owner, fix): a file owned elsewhere is still checked, and satelle validate and satelle doctor name its owner instead of asking for an in-place edit. (sto_1ee018c8)
+- satelle init says when it adds volatile.toml and how many lines the volatile check flags. (sto_1ee018c8)
+
+### Changed
+- The shipped volatile present-tense pattern flags only "currently", "now is" and "at the moment"; bare "current" and "latest" are no longer flagged. A repo with its own volatile.toml edits its copy to match. (sto_1ee018c8)
+- The volatile check does not read fenced code blocks in Markdown. (sto_1ee018c8)
+
+## [1.0.63] - 2026-11-14
+
+### Added
+- `--session <id>` on every satelle command names the acting session, as `SATELLE_SESSION` does, and `satelle -C <dir>` runs a command in another directory, like `git -C`. (sto_2a41b9e4)
+
+### Changed
+- The session-start and prompt context line tells a session to pass `--session` on every satelle command and to run each on its own, and no longer suggests exporting `SATELLE_SESSION`; help topics, the README, the `.satelle` READMEs and the skills show `--session` on every command. (sto_2a41b9e4)
+
+## [1.0.62] - 2026-11-14
+
+### Changed
+- Each reviewer agent in the satelle repo is named after the model it runs (reviewer-gemini-3.8-flash-high, reviewer-gpt-5.6-sol-high, reviewer-grok-4.7), so workflows and gate results show which model judged. (sto_e65b2d30)
+
+### Fixed
+- satelled's Progress column pulses a story's current chip only while the story is engaged (a seat here or elsewhere, a dispatched run's included); a story merely at a step shows a still, highlighted chip, and the hover says "current, not being worked" or who is performing and where. (sto_96f0ad26)
+- A check script starting with #! is run by its interpreter instead of being executed as a file, so a gate check can no longer fail with "text file busy" when another gate starts a process at the same moment; the same applies to checks placed on a remote. (sto_cb34e3e3)
+
+## [1.0.61] - 2026-11-13
+
+### Added
+- satelled's story rows show a Progress column again: one chip per step the story reached, with its exit gates (green when the step was left with its gates accepted, grey otherwise), rejected rounds and parks, said in words on hover with the agent that performed the step; the story page lists each step's rejected gates with their notes. (sto_a496227b)
+
+### Changed
+- The satelle repo tracks its harness wiring (.claude/settings.json, .grok, .pi, .cursor); only machine-local files and secrets stay ignored. (sto_d9a4a42a)
+
+## [1.0.60] - 2026-11-13
+
+### Added
+- `satelle validate` and `satelle doctor` report lines in `.satelle` markdown (and the paths `.satelle/volatile.toml` names) that match a configured volatile pattern, such as a version string or "currently"; a line with a YYYY-MM-DD date or the configured marker is exempt, the files `exclude` names are not read, and `satelle init` writes the defaults. (sto_3de33a72)
+
+### Changed
+- A plan that reaches its cap of rejected review rounds is blocked for the operator instead of held. (sto_730671a5)
+- Code review and PR review block a story after 3 rejected rounds in a row, as plan review does, instead of looping. (sto_c2722ac3)
+
+## [1.0.59] - 2026-11-13
+
+### Fixed
+- satelle update and the sync pass refresh the harness hook files of every registered project: each harness in use (run by agents.toml, or configured in the repo) gets satelle's current hooks, and a hook whose first word is satelle naming a command the installed binary lacks, such as the pre-v1 satelle reindex, is removed. A command that wraps satelle is left as it is. Files git tracks and repos with [hook] refresh = false are named and left; satelle agents install applies the same rule by hand, satelle agents refresh runs it on demand, and satelle doctor reports each in-use harness that differs. (sto_6e3d4755)
+
+## [1.0.58] - 2026-11-13
+
+### Changed
+- The sync timer's pass may run doctor's provable, answer-free fixes; replication stays the only path for work state. (sto_3846bea3)
+
+### Fixed
+- A pre-1.0 project registered on this machine is 'needs upgrade', not a failure: satelle ledger autosync skips it with one line and exits 0, satelled shows 'Upgrade needed' with `satelle upgrade --archive` instead of Sync Failing, satelle doctor and session start in such a repo give that one line (to the user as well, where the harness has a user channel) instead of the unknown-key list, and satelle update lists each such project after installing (sto_0f76dd4e)
+
 ## [1.0.57] - 2026-11-13
 
 ### Changed

@@ -57,7 +57,7 @@ digraph satelle_workflow {
   release     [agent=executor, prompt="@skill:release"] // IN-LOOP: driving session releases
   // Terminal success. Nothing fires on entry: under FLAT DISPATCH the
   // orchestrator is the sole scheduler, so the lessons corpus is captured by the
-  // orchestrator running `satelle story retrospect <id>` after close, not by the
+  // orchestrator running `satelle story retrospect <id> --session <session>` after close, not by the
   // state dispatching an agent at itself.
   done        [shape=Msquare]
   cancelled   [agent=reviewer, prompt="@skill:satelle-story-cancel-review"]
@@ -77,7 +77,7 @@ digraph satelle_workflow {
   // `make integration  # example: your local integration suite command` on entry to release — i.e. on the integration -> release edge,
   // alongside that edge's satelle-integration-review — so integration is a VISIBLE step.
   // estimate: tags only. Producer = driving session (not planner):
-  //   satelle story estimate before in_progress; satelle story actual before done.
+  //   satelle story estimate before in_progress --session <session>; satelle story actual before done. --session <session>
   // See @skill:plan and documents/estimate-and-lessons.md (<story-id>).
   estimate    [agent=reviewer, prompt="@skill:satelle-estimate-actual-review", on="in_progress,done"]
   intcheck    [agent=reviewer, prompt="@skill:satelle-integration-check", on="release"]
@@ -123,7 +123,7 @@ the reviewer gates (`satelle-story-intent-review`, `satelle-story-plan-review`,
 `satelle-story-release-review`, `satelle-estimate-actual-review`,
 `satelle-story-cancel-review`, `satelle-step-summary`), and the post-release
 lessons capture (`satelle-lessons`, run by the ORCHESTRATOR after close via
-`satelle story retrospect <id>` on the
+`satelle story retrospect <id> --session <session>` on the
 `[retrospective]` binding) are authored in the adopting repo's `.satelle/skills` — so
 there is no dangling `@skill:` reference and a story drives to a terminal state
 without a missing-skill block. `satelle-workflow-change-review` (CSV sibling on

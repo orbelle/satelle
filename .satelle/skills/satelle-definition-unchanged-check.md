@@ -9,8 +9,11 @@ description: Rejects leaving the coding step when the item's definition (title, 
 The plan gates judged the item's definition when it moved into coding. An edit
 to the title, body, acceptance criteria or category after that move was never
 judged, so this check refuses to let the work out of coding until the item goes
-back through planning (`satelle story set <id> --status plan`, then forward
-again, so the plan gates see the edit).
+back through planning (`satelle story set <id> --status plan --session <session>`, then forward
+again, so the plan gates see the edit). The forward move out of planning now
+also needs a tree unchanged since the item's branch left its base branch on
+origin (`satelle-tree-unchanged-check`), so code already on the branch must be
+moved off it first.
 
 It reads the item's ledger: the latest accepted transition into the coding state
 (the `from` state of this transition, `$SATELLE_FROM`), then every

@@ -1,5 +1,8 @@
-# This repo's route for a story. DEV: plan, code, integrate, and end at
-# approved (tested locally, pushed, an open pull request, approved). CI/CD: a
+# This repo's route for a story. DEV: plan, code, integrate, and reach
+# approved (tested locally, pushed, an open pull request, approved). Approved
+# is not the end of the session's drive: the session that took the story there
+# fires the release queue (satelle queue fire release --session <session>) and
+# drives the run until the story is done. CI/CD: a
 # run of the release task takes the approved items, builds one candidate from
 # their heads (fast-forward or merge, in queue order), tests it once, bumps
 # the version once on top, fast-forwards main to it, releases and installs,
@@ -12,32 +15,38 @@ start = true
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }
+# The planner's work is the plan attachment, not code (sto_6344add2): a seat
+# here refuses every tree edit at its worktree; attach the plan instead.
+edits = "attachments"
 # Round cap (sto_216e2027): plan review was rejected 8 rounds running on one
 # dissenter (satelle-server sto_7094c283). After 3 rejected rounds in a row the
-# item is held for the operator instead of re-planned; 3 is the plan skill's
-# own attempt budget.
-hold = { rounds = 3, to = "held" }
+# item is blocked for the operator instead of re-planned; 3 is the plan skill's
+# own attempt budget. A blocked plan is a positive outcome: it stops a story
+# that is not in the right direction, or not achievable, before any code
+# (operator, 2026-11-13).
+hold = { rounds = 3, to = "blocked" }
 
+# Code and PR review have the plan's round cap (operator, 2026-11-13: "all
+# review processes should have the same process as planner").
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
+hold = { rounds = 3, to = "blocked" }
 
 [states.integration]
+hold = { rounds = 3, to = "blocked" }
 
-# DEV ends here: an open, approved pull request whose head is tested and
-# contains main. A run of the release task takes the item; a release run that
-# cannot land it sends it back to in_progress with the reason.
+# DEV's work is done here: an open, approved pull request whose head is tested
+# and contains main. The session that drove the story here then fires the
+# release queue (satelle queue fire release --session <session>, release step
+# 0) and drives that run; a release run that cannot land the item sends it back
+# to in_progress with the reason.
 [states.approved]
-# Reaching approved adds the story to the release queue (fired by hand in
-# release step 0); the queue is .satelle/queues/release.toml.
+# Reaching approved adds the story to the release queue
+# (.satelle/queues/release.toml); the session that reached approved fires it,
+# at any time.
 enqueue = ["release"]
 
 [states.blocked]
-park = true
-resumes = true
-
-# Where a state's round cap holds an item for the operator. Only the operator
-# moves it out (held -> @prior, or cancelled); the driving session stops.
-[states.held]
 park = true
 resumes = true
 
@@ -61,12 +70,12 @@ terminal = true
 # each run shows the current set holds.
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-grok"
+agent = "reviewer-grok-4.7"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.plan-review]
@@ -75,13 +84,20 @@ skill = "satelle-story-plan-review"
 # on sto_0586c449, so it judges plans beside Gemini; both must accept. Judges
 # read the attached plan from the item's record folder (sto_cdf94c34).
 # GPT-5.6 Sol joins them (operator, 2026-11-10; sto_0dd7e7b9).
-panel = ["reviewer-alt", "reviewer-grok", "reviewer-gpt"]
+panel = ["reviewer-gemini-3.8-flash-high", "reviewer-grok-4.7", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
+
+# A plan is judged before any code (sto_6344add2): refuses plan -> in_progress
+# while the item's branch already differs from where it left origin/main (or a
+# stacked parent item's branch on origin). Deterministic, no agent, no carry:
+# it runs on every presentation.
+[gates.tree-unchanged]
+skill = "satelle-tree-unchanged-check"
 
 [gates.format-vet]
 skill = "satelle-format-vet-check"
@@ -93,13 +109,13 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 trigger = "satelle-instruction-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -110,7 +126,7 @@ skill = "satelle-ac-evidence-check"
 # 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-alt", "reviewer-gpt"]
+panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -125,9 +141,11 @@ skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
-# DEV's end: the head is committed, pushed, contains origin/main and has an
-# open pull request against main. Readiness only: it does not approve; the
-# satelle GitHub app's review (pr-review, pr-approval) decides after it.
+# The hand-off to the release run: the head is committed, pushed, contains
+# origin/main and has an open pull request against main. Readiness only: it does
+# not approve; the satelle GitHub app's review (pr-review, pr-approval) decides
+# after it. Once approved, the session fires the release queue
+# (satelle queue fire release --session <session>).
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
@@ -139,7 +157,7 @@ skill = "satelle-pr-ready-check"
 # the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
 
@@ -172,22 +190,22 @@ skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 # ---- transitions ----
@@ -200,7 +218,7 @@ to = "plan"
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["binary-scope", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "binary-scope", "plan-review"] },
 ]
 
 [[transition]]
@@ -235,17 +253,16 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
-# The hold's move: gateless, so the hold cannot itself be rejected.
+# The review caps' moves (plan, code, PR review): gateless, so a cap cannot
+# itself be rejected; the dissent summary is its reason. Only the operator
+# moves it out (blocked -> @prior, or cancelled); the driving session stops.
 [[transition]]
-from = ["plan"]
-to = "held"
+from = ["plan", "in_progress", "integration"]
+to = "blocked"
 
+# Every other move into blocked is judged: the reason must hold.
 [[transition]]
-from = ["held"]
-to = "@prior"
-
-[[transition]]
-from = ["*"]
+from = ["backlog", "approved"]
 to = "blocked"
 groups = [{ mode = "sequential", gates = ["blocked-review"] }]
 
@@ -259,6 +276,6 @@ to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]
 
 [[transition]]
-from = ["blocked", "held"]
+from = ["blocked"]
 to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]

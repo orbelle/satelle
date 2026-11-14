@@ -7,6 +7,11 @@ import (
 
 // The session markers a harness sets in the environment of the commands its
 // agent runs. A marker is the exact name, or a name prefix where so noted.
+// Each cursor, pi and grok marker was captured set in a live session
+// (internal/hook/testdata/caller-*.json): cursor-agent 2026.11.13-eacade1,
+// pi 1.5.2 and grok 1.0.77. grok sets GROK_AGENT for its shell tool only, not
+// for its hook commands. CLAUDECODE was observed set to 1 in a Claude Code
+// shell.
 // Names that look alike are not markers: CURSOR_VERSION, CURSOR_PROJECT_DIR,
 // CURSOR_CONFIG_DIR and XCURSOR_SIZE are set outside a cursor agent's shell,
 // CLAUDE_PROJECT_DIR is set by cursor too, and CLAUDE_CODE_OAUTH_TOKEN is a

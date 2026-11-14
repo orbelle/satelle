@@ -8,8 +8,8 @@ run and secrets, fetches the declared repos read-only, runs setup, then drives
 the item on its workflow (or runs the task once and drives the execution),
 brings the ledger back and concludes with a verdict.
 
-    satelle remote fire <remote-id> <item>     # fire a run of the remote for the item
-    satelle remote status <remote-id> <item>   # the run, and its verdict and notes
+    satelle remote fire <remote-id> <item> --session <session>     # fire a run of the remote for the item
+    satelle remote status <remote-id> <item> --session <session>   # the run, and its verdict and notes
 
 Providers: `docker-local` runs the definition as a local container, here;
 `fly-sprite` nodes are started by satelle-server.
@@ -20,8 +20,8 @@ A docker-local remote runs locally, not through satelle-server (which serves
 no remotes yet). It needs docker, and no sign-in or bound project. The
 smallest one is `docker-probe`:
 
-    satelle remote fire docker-probe <item> --steps 1
-    satelle remote status docker-probe <item> [--wait 5m]
+    satelle remote fire docker-probe <item> --steps 1 --session <session>
+    satelle remote status docker-probe <item> [--wait 5m] --session <session>
 
 `remote fire` builds the node image from the repo's Dockerfile as
 `satelle-node:local` (unless `[machine] image` names another), starts the
@@ -58,12 +58,12 @@ A binding's `placement` in agents.toml says where a state's performer runs:
 - `remote:<id>`: `satelle story perform` starts a node of that remote, seats it
   at `remote:<node>` and sends the step over the sealed channel.
 - `cloud`: a cloud session performs the step, seated at `cloud:<url>`. When its
-  work comes back on a branch, `satelle story collect <id> --branch <b>`
+  work comes back on a branch, `satelle story collect <id> --branch <b> --session <session>`
   records the branch's commit and its merge base with origin/main (or
   `--base <ref>`), never HEAD; the item's gates then judge that diff, and a
   branch that adds nothing is refused. collect never changes the repository.
 
-A check gate's `placement` in a workflow (see `satelle help workflows`) places
+A check gate's `placement` in a workflow (see `satelle help workflows --session <session>`) places
 the gate's check skill the same way: `remote:<id>` runs it on a node of that
 docker-local remote, as below.
 
@@ -71,7 +71,7 @@ docker-local remote, as below.
 
 A check gate with `placement = "remote:<id>"` runs its check skill on a new
 node of the docker-local remote `<id>`, started here for that one check. The
-transition (`satelle story set <id> --status <to>`) starts the container
+transition (`satelle story set <id> --status <to> --session <session>`) starts the container
 `satelle-node-<node>`, runs `[setup]` in it, and hands it a git bundle of the
 item's pushed head (no secrets, and no network for the code), the check
 script, its stdin and a small wrapper. The node fetches the head from the

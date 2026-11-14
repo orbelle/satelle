@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,8 @@ agents.toml and workflows/default.toml: backlog → done, no gates), leaving any
 file that already exists alone, and validates the result. In a repo that
 already has a satelle.toml it writes no starter workflow: the repo keeps its own
 routes. The configuration is yours to edit and replace. 'satelle doctor' lists
-what init would add.
+what init would add. When init adds volatile.toml it says so, and how many
+lines the volatile check then flags.
 
 --hooks installs harness hook files as well (claude when given bare; or name
 them: --hooks claude,pi,grok). Without it no harness file is touched; see
@@ -46,16 +48,29 @@ the command that wires one.`,
 				return fmt.Errorf("%s is satelle's machine-wide home, not a repo", dataDir)
 			}
 			out := cmd.OutOrStdout()
+			// Whether this init adds volatile.toml, which turns the volatile
+			// check on (sto_1ee018c8); an InitPlan error is Init's to return.
+			plan, _ := kernel.InitPlan(dataDir)
+			addsVolatile := slices.Contains(plan, kernel.VolatileFile)
 			if err := kernel.Init(dataDir); err != nil {
 				return problemsError(dataDir, err)
 			}
 			fmt.Fprintf(out, "initialised %s (configuration valid)\n", dataDir)
-			for _, h := range hooks {
-				path, err := hook.Install(cwd, h)
-				if err != nil {
-					return err
+			if addsVolatile {
+				rel := filepath.Join(config.DefaultDataDir, kernel.VolatileFile)
+				if found, err := volatileFindings(dataDir); err != nil {
+					fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
+				} else {
+					// Lines, not findings: a line two patterns match is one line.
+					lines := map[string]bool{}
+					for _, f := range found {
+						lines[fmt.Sprintf("%s:%d", f.File, f.Line)] = true
+					}
+					fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(lines))
 				}
-				fmt.Fprintf(out, "installed %s hooks: %s\n", h, path)
+			}
+			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
+				return err
 			}
 			// Name what is left unwired, at the root doctor and status read.
 			if r, err := findRepo(""); err == nil {
@@ -82,6 +97,21 @@ func problemsError(dataDir string, err error) error {
 	return fmt.Errorf("configuration in %s is invalid:\n%w", dataDir, err)
 }
 
+// volatileFindings is the volatile-literal findings of the repo at dataDir,
+// never nil. A configuration that does not load, or whose volatile.toml has a
+// problem, gives none and no error: kernel.Validate already lists the cause.
+func volatileFindings(dataDir string) ([]substrate.Finding, error) {
+	cfg, _ := kernel.LoadConfig(dataDir)
+	if cfg == nil || len(cfg.Volatile.Problems()) > 0 {
+		return []substrate.Finding{}, nil
+	}
+	found, err := cfg.VolatileFindings()
+	if err != nil || found == nil {
+		return []substrate.Finding{}, err
+	}
+	return found, nil
+}
+
 func validateCmd() *cobra.Command {
 	var asJSON *bool
 	cmd := &cobra.Command{
@@ -92,7 +122,18 @@ the kernel opening) and its substrate against this binary: every satelle
 command, flag and help topic its skills, principles, tasks, workflows and
 queues name in code, and every [[link]], must exist. A substrate finding is
 printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
-substrate key with --json) and fails the check, but never stops the kernel opening.`,
+substrate key with --json) and fails the check, but never stops the kernel opening.
+
+It also lists each line of the substrate Markdown, and of the files
+.satelle/volatile.toml names under paths, that matches one of that file's
+volatile patterns (a version string, "currently", a model id), as
+<file>:<line>: volatile: <pattern> — <why> (under the volatile key with
+--json). A line its dated expression matches (shipped: a YYYY-MM-DD date),
+or holding the file's exempt marker, is not listed, no file its exclude globs
+match is read, and no line of a fenced code block in Markdown is read. A line in a file an [[upstream]] entry owns
+names that owner. Volatile lines are listed without failing the check;
+satelle doctor reports each as an issue.
+With no volatile.toml, or no pattern in it, none is listed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -107,17 +148,30 @@ substrate key with --json) and fails the check, but never stops the kernel openi
 			if drift == nil {
 				drift = []substrate.Finding{}
 			}
+			volatile, err := volatileFindings(r.DataDir)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("%s: %w", substrate.VolatileField, err))
+			}
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
 				for _, p := range problems {
 					msgs = append(msgs, p.Error())
 				}
-				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift}); err != nil {
+				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
+					substrate.VolatileField: volatile}); err != nil {
 					return err
 				}
-			} else if valid {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
+			} else {
+				if valid {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
+				}
+				if len(volatile) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "volatile literals in %s (%d):\n", r.DataDir, len(volatile))
+					for _, f := range volatile {
+						fmt.Fprintln(cmd.OutOrStdout(), f.String())
+					}
+				}
 			}
 			if valid {
 				return nil
@@ -170,16 +224,19 @@ type seatView struct {
 	Status     string `json:"status"`
 	Location   string `json:"location"`
 	Performing bool   `json:"performing"`
+	// Edits is what the seat lets the session change: tree, attachments,
+	// or empty when no agent performs the state.
+	Edits string `json:"edits,omitempty"`
 }
 
 func statusCmd() *cobra.Command {
 	var asJSON *bool
-	var session string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show this repo's configuration, item counts and the session's seats",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			session := sessionFromEnv()
 			k, r, err := openKernel()
 			if err != nil {
 				return err
@@ -239,6 +296,5 @@ func statusCmd() *cobra.Command {
 		},
 	}
 	asJSON = jsonFlag(cmd)
-	cmd.Flags().StringVar(&session, "session", sessionFromEnv(), "the session whose seats to show (default $SATELLE_SESSION)")
 	return cmd
 }

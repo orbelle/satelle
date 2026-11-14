@@ -13,6 +13,10 @@
 // owner, or the owner cannot be proven either way). Hook processes that exited
 // before an owner was settled never make a session gone. Doctor and satelled both call Standing; neither
 // re-derives it.
+//
+// Beside a session's record, <satelle home>/sessions/<session>.stop marks that
+// the session's last stop was blocked (Stop), so the stop straight after it is
+// let through; it needs no record and no process chain.
 package seatlife
 
 import (
@@ -39,11 +43,6 @@ const Dir = "sessions"
 // harness share it; their shells differ. A deeper common ancestor (a terminal,
 // a multiplexer) is never taken as the owner.
 const hookSpawnDepth = 2
-
-// locationLocal is the prefix of a seat at a working tree on the machine that
-// bound it (kernel.LocationLocal; kernel imports this package's caller, not
-// this package).
-const locationLocal = "local:"
 
 // Record is one session's record on this machine.
 type Record struct {
@@ -200,16 +199,57 @@ func Own(home, session string, p procgroup.Proc) error {
 	return write(home, Record{Session: session, Owner: &p, At: time.Now().UTC()})
 }
 
-// Forget removes session's record.
+// Forget removes session's record and its stop marker.
 func Forget(home, session string) error {
 	p, err := recordPath(home, session)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	var errs []error
+	for _, f := range []string{p, stopPath(p)} {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+// stopSuffix names a session's stop marker: <session>.stop beside its record.
+const stopSuffix = ".stop"
+
+// stopPath is the stop marker beside the record at p.
+func stopPath(record string) string {
+	return strings.TrimSuffix(record, ".json") + stopSuffix
+}
+
+// Stop answers a turn's end for session: whether to block it. owed is
+// whether the session's seated items owe a move. A stop that owes nothing
+// clears the marker and passes; the first stop that owes a move sets the
+// marker and blocks; the stop straight after a blocked one clears it and
+// passes, so a session is never trapped. A session id that cannot name a
+// file, or a marker that cannot be written, lets the stop through.
+func Stop(home, session string, owed bool) bool {
+	p, err := recordPath(home, session)
+	if err != nil {
+		return false
+	}
+	marker := stopPath(p)
+	_, statErr := os.Stat(marker)
+	present := statErr == nil
+	if !owed || present {
+		if present {
+			_ = os.Remove(marker)
+		}
+		return false
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return false
+	}
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return false
+	}
+	return f.Close() == nil
 }
 
 // Recorder is kernel.SessionOwner over the records in Home: the calling
@@ -302,7 +342,7 @@ func (r Record) Lapsed() bool {
 //  5. an owner alive is here, exited is gone, unprobeable unverified;
 //  6. no owner is unverified, whatever its hook processes show.
 func Classify(here string, seat item.Seat, rec Record, ok bool) (Standing, Evidence) {
-	if !strings.HasPrefix(seat.Location, locationLocal) {
+	if !strings.HasPrefix(seat.Location, item.LocationLocal) {
 		return Elsewhere, Evidence("at " + seat.Location)
 	}
 	if seat.Machine == "" {
@@ -336,7 +376,8 @@ func StandingOf(home, here string, seat item.Seat) (Standing, Evidence) {
 }
 
 // Prune removes each record that keep rejects whose session is gone (its
-// settled owner exited) or lapsed (no owner, and its hook processes exited).
+// settled owner exited) or lapsed (no owner, and its hook processes exited),
+// with its stop marker, and each stop marker keep rejects that has no record.
 func Prune(home string, keep func(session string) bool) error {
 	entries, err := os.ReadDir(filepath.Join(home, Dir))
 	if errors.Is(err, os.ErrNotExist) {
@@ -347,8 +388,17 @@ func Prune(home string, keep func(session string) bool) error {
 	}
 	var errs []error
 	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if session, ok := strings.CutSuffix(e.Name(), stopSuffix); ok {
+			if _, has := Load(home, session); !has && !keep(session) {
+				errs = append(errs, Forget(home, session))
+			}
+			continue
+		}
 		session, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || e.IsDir() {
+		if !ok {
 			continue
 		}
 		r, ok := Load(home, session)

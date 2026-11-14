@@ -177,6 +177,17 @@ func commandFields(b Binding) (bin string, args []string, err error) {
 	return f[0], f[1:], nil
 }
 
+// Preset is the adapter preset of b's command (claude, pi, grok,
+// cursor-agent, session): the basename of its first token. "" when b has no
+// command.
+func Preset(b Binding) string {
+	bin, _, err := commandFields(b)
+	if err != nil {
+		return ""
+	}
+	return preset(bin)
+}
+
 // preset returns the adapter preset a command's first token names.
 func preset(bin string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(bin)), ".exe")

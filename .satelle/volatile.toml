@@ -1,0 +1,57 @@
+# Volatile literals: satelle validate lists, and satelle doctor reports, each
+# line of this repo's .satelle Markdown (and of the files `paths` names) that
+# matches a [[pattern]] below: text that goes stale on its own, such as a
+# version string, "currently" or a model id. This file is the repo's to edit:
+# change, add or remove patterns; with no [[pattern]] nothing is reported.
+#
+# A line is never reported when it matches `dated` (shipped: a YYYY-MM-DD
+# date, so dated history stays) or when it contains the `exempt` marker; with
+# `dated` removed no line is exempt for carrying a date. A satelle older than
+# the one that reads `dated` refuses the key. In a Markdown file no line of a
+# fenced code block (``` or ~~~) is read.
+#
+# Globs are slash-separated and relative to the directory that holds .satelle;
+# "**" stands for any number of whole segments. A glob may not be absolute or
+# hold a "." or ".." segment.
+#   paths    extra files to read, of any extension, inside or outside .satelle
+#   exclude  files never read, whichever list found them (run records,
+#            testdata fixtures and .git by default)
+#   [[upstream]]  files another repo or path owns: still read, and each of
+#            their findings names the owner and is fixed there, not in place.
+#            Keys: files (globs), owner, fix (optional: the command that
+#            brings the fixed files here). A satelle older than the one that
+#            reads [[upstream]] refuses the table, so add one only once every
+#            machine runs it:
+#              [[upstream]]
+#              files = ["<glob>"]
+#              owner = "<repo or path that owns these files>"
+#              fix = "<command that brings the fixed files here>"
+# See `satelle help configuration`.
+
+paths = []
+exclude = [".satelle/runs/**", "**/testdata/**", ".git/**"]
+exempt = "volatile-ok"
+dated = '\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b'
+
+# A three-part version number, with or without a leading v.
+[[pattern]]
+name = "version"
+match = '(^|[^0-9.])v?[0-9]+\.[0-9]+\.[0-9]+([^0-9.]|\.([^0-9]|$)|$)'
+
+# A phrase that says "as of now". Bare "current" and "latest" are not flagged:
+# they are mostly relational ("the item's current state", "its latest run").
+[[pattern]]
+name = "present-tense"
+match = '(?i)(^|[^a-z0-9/_-])(currently|now is|at the moment)([^a-z0-9/_-]|$)'
+
+# A model id: a vendor prefix, a hyphen and a version digit. A model id inside
+# an agent name (reviewer-gpt-5.6-sol-high) is not reported: a reviewer is named
+# after its model on purpose (sto_e65b2d30), and the name changes with it.
+[[pattern]]
+name = "model-id"
+match = '(^|[^a-z0-9-])(claude|gpt|gemini|grok)-[a-z0-9.-]*[0-9][a-z0-9.-]*\b'
+
+# An item id presented as the current one.
+[[pattern]]
+name = "current-item"
+match = '(?i)\b(current|currently|latest|active|now)\b[^.]*\b[a-z]{3}_[0-9a-f]{8}\b'

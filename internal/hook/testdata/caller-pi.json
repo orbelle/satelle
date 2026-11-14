@@ -1,0 +1,43 @@
+{
+  "harness": "pi",
+  "cli": "pi",
+  "version": "1.5.2",
+  "captured": "2026-11-14",
+  "hook": {
+    "label": "gate@pi",
+    "ancestors": [
+      "/work/.local/share/mise/installs/pi/1.5.2/pi/pi",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "PI_CODING_AGENT=true",
+      "PI_INTERCOM_SESSION_ID=01a1d947-2220-756e-b2fd-4e3a04f45a54",
+      "XCURSOR_SIZE=24"
+    ]
+  },
+  "shell": {
+    "ancestors": [
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/pi/1.5.2/pi/pi",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "PI_CODING_AGENT=true",
+      "PI_INTERCOM_SESSION_ID=01a1d947-2220-756e-b2fd-4e3a04f45a54",
+      "PI_MODEL=claude-opus-5-5",
+      "PI_PROVIDER=anthropic",
+      "PI_REASONING_LEVEL=medium",
+      "PI_SESSION_FILE=/work/.pi/agent/sessions/--work-.cache-satelle-buildtmp-caller-probe-pi--/2026-11-14T08-58-00-096Z_01a1d947-2220-756e-b2fd-4e3a04f45a54.jsonl",
+      "PI_SESSION_ID=01a1d947-2220-756e-b2fd-4e3a04f45a54",
+      "XCURSOR_SIZE=24"
+    ]
+  }
+}

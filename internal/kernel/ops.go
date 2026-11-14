@@ -19,7 +19,7 @@ import (
 
 // Event kinds the kernel appends beyond the item folds and gate.run.
 const (
-	KindPerformerRun = "performer.run"
+	KindPerformerRun = item.KindPerformerRun
 	KindTaskRun      = "task.run"
 )
 
@@ -668,6 +668,20 @@ type TaskRunRecord struct {
 	Inputs  []string `json:"inputs"`
 	BaseRef string   `json:"base_ref,omitempty"`
 	Queue   string   `json:"queue,omitempty"`
+}
+
+// runInputs is the items a run took: the inputs its task.run records; nil
+// when the run has none.
+func (k *Kernel) runInputs(run string) []string {
+	ev, err := k.Cache.Events(run, KindTaskRun)
+	if err != nil || len(ev) == 0 {
+		return nil
+	}
+	var rec TaskRunRecord
+	if ev[0].Decode(&rec) != nil {
+		return nil
+	}
+	return rec.Inputs
 }
 
 // TaskRun runs a task once: it selects the task's inputs and creates an

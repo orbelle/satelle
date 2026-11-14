@@ -220,7 +220,8 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 	// a command cannot be named in a form the checks above do not read.
 	bare := map[string]bool{"satelle": true, "satelled": true, "claude": true, "pi": true, "grok": true, "cursor": true,
 		"SATELLE_INSTALL_DIR": true, "SATELLE_NO_SERVICE=1": true, "--no-service": true, "no issues": true,
-		"<check>: <problem>": true, "fix:": true, "make install": true, "... | sh -s -- --no-service": true}
+		"<check>: <problem>": true, "fix:": true, "make install": true, "... | sh -s -- --no-service": true,
+		"<session>": true, "--session": true}
 	fence := false
 	for n, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {

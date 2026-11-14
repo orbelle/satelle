@@ -21,7 +21,7 @@ under `.satelle/` (workflows, skills, principles, documents, tasks, config) and/
    `[gate] edit_exempt_paths` will fail `satelle-substrate-only-check` on close.
 3. **Validate** so the configuration and the substrate stay green:
    ```bash
-   satelle validate
+   satelle validate --session <session>
    ```
 4. **Commit + push (where substrate is tracked in git) while engaged** at `in_progress` (the commit gate requires an
    engaged story). Conventional subject ending with the story id; **no** AI

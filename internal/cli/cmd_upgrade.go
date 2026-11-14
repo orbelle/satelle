@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -119,4 +121,62 @@ func runArchive(cmd *cobra.Command, r repo, dryRun bool) error {
 	}
 	fmt.Fprintln(out, "next: reinstall harness hooks with `satelle agents install <harness>`; have your agent port the archived workflows and write a status map; then run `satelle upgrade --from <old store> --map <file> --dry-run` (see `satelle help upgrade`)")
 	return nil
+}
+
+// needsUpgradeLine is the one line every surface prints for a pre-1.0 repo
+// (sto_0f76dd4e): autosync, update, doctor and session start. It names the
+// command to run in that repo and the skill the command writes.
+func needsUpgradeLine(path string, markers []string) string {
+	return fmt.Sprintf("%s: needs upgrade: pre-1.0 .satelle (found: %s); run `%s` there, then follow the %s skill it writes (see `satelle help upgrade`)",
+		path, strings.Join(markers, ", "), kernel.UpgradeCommand, kernel.UpgradeSkill)
+}
+
+// legacyProject is a registered project whose .satelle is pre-1.0: the path
+// as registered, its root (the .satelle's parent) and the markers found.
+type legacyProject struct {
+	Path    string
+	Root    string
+	Markers []string
+}
+
+// registeredLegacy lists, in registration order, this machine's registered
+// projects whose .satelle is pre-1.0, once per root. It runs no git and opens
+// nothing; an unreadable machine config lists none (the report is best
+// effort).
+func registeredLegacy() []legacyProject {
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return nil
+	}
+	var out []legacyProject
+	seen := map[string]bool{}
+	for _, path := range gc.Projects.Paths {
+		if st, err := os.Stat(path); err != nil || !st.IsDir() {
+			continue
+		}
+		dataDir, ok := config.FindDataDir(path)
+		if !ok {
+			continue
+		}
+		m := kernel.LegacyMarkers(dataDir)
+		root := filepath.Dir(dataDir)
+		if len(m) == 0 || seen[root] {
+			continue
+		}
+		seen[root] = true
+		out = append(out, legacyProject{Path: path, Root: root, Markers: m})
+	}
+	return out
+}
+
+// printNeedsUpgrade prints the registered pre-1.0 projects, one
+// needsUpgradeLine each under a count; nothing when there are none.
+func printNeedsUpgrade(out io.Writer, ps []legacyProject) {
+	if len(ps) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "%d registered project(s) need `%s`:\n", len(ps), kernel.UpgradeCommand)
+	for _, p := range ps {
+		fmt.Fprintln(out, needsUpgradeLine(p.Path, p.Markers))
+	}
 }

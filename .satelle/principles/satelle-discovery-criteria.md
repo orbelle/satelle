@@ -18,9 +18,9 @@ reviewer cites.
   seat's findings (`findings_to_answer`); message it only with a decision of
   your own, such as a scope ruling.
 - **A rejected readiness round takes no edge.** `satelle story set <id>
-  --status plan` takes backlog → plan; read the plan the planner attaches with
-  `satelle story attachment <id> plan`. `satelle story set <id> --status
-  in_progress` presents it to the readiness reviewers, and a rejection leaves
+  --status plan --session <session>` takes backlog → plan; read the plan the planner attaches with
+  `satelle story attachment <id> plan --session <session>`. `satelle story set <id> --status
+  in_progress --session <session>` presents it to the readiness reviewers, and a rejection leaves
   the story at plan.
 - **The route applies the criteria** on plan → in_progress (`apply_criteria`);
   run no `story set --acceptance`. Where a route declares none, apply the lines

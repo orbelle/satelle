@@ -157,14 +157,12 @@ func (r *Replicator) diverge(res *Result, d Divergence, tail string) {
 		d.Item, d.Seq, short(d.StoreHash), short(d.LocalHash), tail)
 }
 
+// short is an event hash cut by ledger.ShortHash, "(no event hash)" for none.
 func short(h string) string {
-	if len(h) > 12 {
-		return h[:12]
-	}
 	if h == "" {
 		return "(no event hash)"
 	}
-	return h
+	return ledger.ShortHash(h)
 }
 
 func holeLine(item string, seq int) string {

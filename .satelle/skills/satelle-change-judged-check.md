@@ -1,14 +1,14 @@
 ---
 name: satelle-change-judged-check
 type: check
-description: Rejects a move when the item's change now is not the one its latest accepting model gate saw, so a commit made after the review cannot reach a terminal state unjudged. Reads the ledger and `diff --json`; deterministic, no agent.
+description: Rejects a move when the item's change is no longer the one its latest accepting model gate saw, so a commit made after the review cannot reach a terminal state unjudged. Reads the ledger and `diff --json`; deterministic, no agent.
 ---
 
 # Change judged
 
 A terminal state is reached only with a change a judge accepted. Every model
 gate (a skill that is not `type: check`) records the change it saw: its base,
-head, branch and the hash of the diff alone. `satelle <kind> diff <id> --json`
+head, branch and the hash of the diff alone. `satelle <kind> diff <id> --json --session <session>`
 reports those verdicts as `judged`, each with `now`, the hash of the item's
 change today over the same base, branch and paths (the judged branch when it
 still resolves, else the presented tree).

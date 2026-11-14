@@ -57,6 +57,9 @@ type partitionVM struct {
 	SyncReason      string
 	SyncLocal       bool
 	SyncStore       string
+	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
+	// (sto_0f76dd4e): the landing shows Upgrade needed, not Sync Failing.
+	SyncUpgrade string
 }
 
 // mirrorProjectsData backs the Projects landing template.
@@ -131,7 +134,7 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	// rows when the served set changes) without a full-page reload flash.
 	mux.HandleFunc("GET /fragment/projects", s.landingFragment)
 	mux.HandleFunc("GET /r/{slug}/{$}", s.projectHome)
-	mux.HandleFunc("GET /r/{slug}/fragment/stories", s.fragmentRows("workitemRows", "stories"))
+	mux.HandleFunc("GET /r/{slug}/fragment/stories", s.fragmentRows("storyRows", "stories"))
 	mux.HandleFunc("GET /r/{slug}/fragment/tasks", s.fragmentRows("workitemRows", "tasks"))
 	mux.HandleFunc("GET /r/{slug}/fragment/queues", s.fragmentRows("queueRows", "queues"))
 	mux.HandleFunc("GET /r/{slug}/fragment/activity", s.fragmentRows("activityRows", "activity"))
@@ -140,7 +143,7 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/fragment/backlog", s.fragmentBadge("backlogBadge"))
 	// A workflow panel's rows and its tab (count and alert), by topic; the
 	// literal fragment routes above take precedence.
-	mux.HandleFunc("GET /r/{slug}/fragment/{topic}", s.fragmentPanel("workitemRows"))
+	mux.HandleFunc("GET /r/{slug}/fragment/{topic}", s.fragmentPanel("storyRows"))
 	mux.HandleFunc("GET /r/{slug}/fragment/tab/{topic}", s.fragmentPanel("panelTab"))
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
 	mux.HandleFunc("GET /r/{slug}/fragment/task/{id}", s.itemFragment("task"))
@@ -266,6 +269,7 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 			SyncReason:      st.SyncReason,
 			SyncLocal:       st.SyncStore == syncstate.LocalStore,
 			SyncStore:       st.SyncStore,
+			SyncUpgrade:     st.SyncUpgrade,
 		})
 	}
 	return pvm, total, nil
@@ -387,7 +391,7 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 }
 
 // fragmentPanel renders one workflow panel by its topic: its rows
-// (workitemRows) or its tab (panelTab, the one renderer of the tab's count and
+// (storyRows) or its tab (panelTab, the one renderer of the tab's count and
 // alert). An unknown topic is 404.
 func (s *MirrorServer) fragmentPanel(tmplName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -407,7 +411,7 @@ func (s *MirrorServer) fragmentPanel(tmplName string) http.HandlerFunc {
 				continue
 			}
 			var payload any = p
-			if tmplName == "workitemRows" {
+			if tmplName == "storyRows" {
 				payload = p.Rows
 			}
 			mirrorRender(w, tmplName, s.projectBase(slug), payload)
@@ -659,7 +663,7 @@ const mirrorProjectsSrc = `
              Project cell and pushed the name around (sty_226a661e). Landing
              shows local ingest only; a standing fail is a tag, not a log
              dump (sty_a447695e). */}}
-        <td class="updated-cell">{{template "freshnessBare" .}}{{template "stalemark" .}}{{template "syncfailtag" .}}</td>
+        <td class="updated-cell">{{template "freshnessBare" .}}{{template "stalemark" .}}{{template "syncfailtag" .}}{{template "syncupgradetag" .}}</td>
       </tr>{{end}}
     </tbody>
   </table>

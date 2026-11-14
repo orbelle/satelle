@@ -1695,6 +1695,9 @@ func operatorRecordDataToken(t bashTok, depth int) bool {
 // (satelle story "record"), heredoc bodies do not, and a subshell or
 // substitution opener or closer glued to a word ((satelle, $(satelle, record))
 // is stripped before comparing.
+// A word before record shields it only when that word is a flag that takes a
+// separate value (takesSeparateValue); a glued flag-and-value word such as
+// -C. or --session=s does not, so the verb behind it is seen (sto_2a41b9e4).
 func operatorRecordWords(toks []bashTok) bool {
 	words := commandArgWords(toks)
 	for i, w := range words {
@@ -1707,12 +1710,23 @@ func operatorRecordWords(toks []bashTok) bool {
 			continue
 		}
 		for j := i + 1; j < len(words); j++ {
-			if strings.TrimRight(words[j], ")`") == operatorRecordVerb && !strings.HasPrefix(words[j-1], "-") {
+			if strings.TrimRight(words[j], ")`") == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// takesSeparateValue reports whether w is a flag that takes its value as the
+// next word: it starts with -, holds no =, and is a long flag or exactly two
+// characters (-C, not -C. or -C/w). Any other form fails closed: the next
+// word is not taken as its value.
+func takesSeparateValue(w string) bool {
+	if !strings.HasPrefix(w, "-") || strings.Contains(w, "=") {
+		return false
+	}
+	return strings.HasPrefix(w, "--") || len(w) == 2
 }
 
 // dataSegment reports whether a segment's quoted text is only data: its command

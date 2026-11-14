@@ -191,15 +191,29 @@ type GateRun struct {
 	TokensIn   int    `json:"tokens_in"`
 	TokensOut  int    `json:"tokens_out"`
 	DurationMS int64  `json:"duration_ms"`
+	// Attempt is shared by every result of one presentation (gate.Result.Attempt):
+	// the kernel's round key. Empty on events recorded before it was set.
+	Attempt string `json:"attempt,omitempty"`
 }
 
-// The kernel event kinds the web reads (gate.KindRun, item.KindTransitioned,
-// item.KindAttachmentAdd; uipush's tests pin them equal). Every other kind is
-// shown on the timeline as it is.
+// PerformerRun is the part of a performer.run ledger event's payload the web
+// reads (kernel.PerformerRun): the state performed and the binding that ran.
+// The event is appended when the run ends.
+type PerformerRun struct {
+	State   string `json:"state"`
+	Binding string `json:"binding,omitempty"`
+}
+
+// The kernel event kinds the web reads. Every other kind is shown on the
+// timeline as it is. The item kinds refer to their owner; gate.run repeats
+// gate.KindRun (the mirror does not import the gate; uipush's tests pin it
+// equal).
 const (
 	EventGateRun         = "gate.run"
-	EventTransitioned    = "item.transitioned"
-	EventAttachmentAdded = "attachment.added"
+	EventTransitioned    = item.KindTransitioned
+	EventAttachmentAdded = item.KindAttachmentAdd
+	EventUpdated         = item.KindUpdated
+	EventPerformerRun    = item.KindPerformerRun
 	// GateReject is the gate.run result that refuses a transition
 	// (gate.Reject).
 	GateReject = "reject"

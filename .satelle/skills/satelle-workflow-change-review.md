@@ -56,7 +56,7 @@ skills it names). Judge:
  `on` written as a step key silently never fires, so reject it. Prefer the step table's own `reviewers`. A gate in
  a shared catalogue also needs `for = [...]` — the categories whose route it
  belongs to — or it fires on lanes it was never meant for. See `satelle help
- workflows`.
+ workflows --session <session>`.
 
 3. **Prose agrees with the route** — description and `[meta]` should not
  contradict the steps and gates the two halves declare.

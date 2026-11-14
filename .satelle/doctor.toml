@@ -11,3 +11,10 @@ name = "drift"
 kind = "story"
 tag = "drift"
 fix = "satelle story get {id}: fix what each drift-key under its Findings names; the next drift review closes it"
+
+# The one item satelle doctor --resolve puts the config, substrate, volatile,
+# init and [[check]] findings on. Kind and tag are required: with either unset
+# --resolve opens no item and names the key to set.
+[resolve]
+kind = "story"
+tag = "substrate-fix"

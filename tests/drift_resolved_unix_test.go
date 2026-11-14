@@ -192,8 +192,12 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 	if r := d.run("story", "set", flag, "--status", "cancelled"); r.code == 0 {
 		t.Fatalf("a rejected cancel review cancelled %s:\n%s", flag, r.out)
 	}
-	if g := latestRun(d.sandbox, flag, "cancel-review"); g.Result != "reject" || g.Binding != "reviewer-alt" {
-		t.Fatalf("cancel-review = %s by %q, want reject by reviewer-alt", g.Result, g.Binding)
+	judge := repoGateAgents(t, ".satelle/workflows/drift.toml")["cancel-review"]
+	if len(judge) != 1 {
+		t.Fatalf("the repo's drift workflow binds cancel-review to %v, want one judge", judge)
+	}
+	if g := latestRun(d.sandbox, flag, "cancel-review"); g.Result != "reject" || g.Binding != judge[0] {
+		t.Fatalf("cancel-review = %s by %q, want reject by %s", g.Result, g.Binding, judge[0])
 	}
 	if st := d.get(flag).Status; st != "open" {
 		t.Fatalf("%s is %s after a rejected cancel, want open", flag, st)
@@ -202,8 +206,8 @@ func TestDriftStoryClosesOnTheRunsReport(t *testing.T) {
 	if r := d.run("story", "set", flag, "--status", "cancelled"); r.code != 0 {
 		t.Fatalf("an accepted cancel review did not cancel %s: exit %d\n%s%s", flag, r.code, r.out, r.err)
 	}
-	if g := latestRun(d.sandbox, flag, "cancel-review"); g.Result != "accept" || g.Binding != "reviewer-alt" {
-		t.Fatalf("cancel-review = %s by %q, want accept by reviewer-alt", g.Result, g.Binding)
+	if g := latestRun(d.sandbox, flag, "cancel-review"); g.Result != "accept" || g.Binding != judge[0] {
+		t.Fatalf("cancel-review = %s by %q, want accept by %s", g.Result, g.Binding, judge[0])
 	}
 }
 

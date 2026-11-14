@@ -21,8 +21,8 @@ The project workflow's `estimate` gate (`on=in_progress,done`, skill
 | entering `done` | `actual-minutes:…`, `actual-tokens:…` | **Driving session** — before requesting `release → done` (usually in the release step) |
 
 ```bash
-satelle story estimate <id> --time <dur> --tokens <n>   # plan estimate → tags
-satelle story actual   <id> --tokens <n> [--time <dur>] # close actual → tags
+satelle story estimate <id> --time <dur> --tokens <n> --session <session>   # plan estimate → tags
+satelle story actual   <id> --tokens <n> [--time <dur>] --session <session> # close actual → tags
 ```
 
 The **planner does not** run `story estimate` / `story actual`. Optionally note a
@@ -42,10 +42,10 @@ Read the repository (Read/Grep/Glob) to ground the plan in the real code, then w
 
 ## Capture it as a story artifact
 
-Attach the plan to the story so it travels with it (implementer reads via `satelle story doc <story-id> plan`):
+Attach the plan to the story so it travels with it (implementer reads via `satelle story doc <story-id> plan --session <session>`):
 
 ```bash
-satelle story attach <story-id> --name plan --type plan --body "<the plan markdown>"
+satelle story attach <story-id> --name plan --type plan --body "<the plan markdown>" --session <session>
 ```
 
 Use the story id from the payload. Attaching is your final act; don't advance status — the `plan → in_progress` gate (`satelle-story-plan-review`) judges whether the plan covers the acceptance criteria before work begins.

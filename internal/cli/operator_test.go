@@ -210,6 +210,14 @@ func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 	refused("an agent session (s-1) may not record the operator's word")
 	t.Setenv("SATELLE_SESSION", "")
 
+	// A session named by --session, the environment empty (sto_2a41b9e4).
+	if _, err := run(t, "", "story", "record", id, "--file", "evidence.md", "--session", "s-1"); err == nil || !strings.Contains(err.Error(), "an agent session (s-1) may not record the operator's word") {
+		t.Fatalf("record --session s-1: %v", err)
+	}
+	if n := countEvents(t, id, "attachment.added"); n != 0 {
+		t.Fatalf("attachment.added on the chain after record --session: %d", n)
+	}
+
 	// env -u SATELLE_SESSION: no controlling terminal.
 	useTerminal(t, nil)
 	refused("no controlling terminal")

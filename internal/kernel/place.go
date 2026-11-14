@@ -33,11 +33,11 @@ type CloudLauncher interface {
 	Launch(ctx context.Context, it item.Item, req agent.Request) (url string, err error)
 }
 
-// Seat location prefixes.
+// Seat location prefixes (owned by package item).
 const (
-	LocationLocal  = "local:"
-	LocationRemote = "remote:"
-	LocationCloud  = "cloud:"
+	LocationLocal  = item.LocationLocal
+	LocationRemote = item.LocationRemote
+	LocationCloud  = item.LocationCloud
 )
 
 // KindBranchCollected records a branch a step's work came back on.
@@ -203,7 +203,7 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	}
 	if len(paths) == 0 {
 		return Collected{}, fmt.Errorf("branch %s (%s) adds nothing over %s (base %s): its gates would judge an empty diff. Collect a branch with the item's work, or pass --base <ref> for the branch it is stacked on",
-			branch, short(commit), ref, short(base))
+			branch, ledger.ShortHash(commit), ref, ledger.ShortHash(base))
 	}
 	c := Collected{Branch: branch, Commit: commit, Base: base, BaseRef: ref}
 	_, err = k.append(id, KindBranchCollected, actor, c)
@@ -295,12 +295,12 @@ func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
 			return gate.Head{}, err
 		}
 		if branch == "" {
-			return gate.Head{}, fmt.Errorf("HEAD (%s) is detached: a remote check tests a pushed branch", short(commit))
+			return gate.Head{}, fmt.Errorf("HEAD (%s) is detached: a remote check tests a pushed branch", ledger.ShortHash(commit))
 		}
 	}
 	remote, _, _ := strings.Cut(DefaultBaseBranch, "/")
 	ref := "refs/remotes/" + remote + "/" + branch
-	notPushed := fmt.Errorf("head %s is not pushed to %s/%s: push it first", short(commit), remote, branch)
+	notPushed := fmt.Errorf("head %s is not pushed to %s/%s: push it first", ledger.ShortHash(commit), remote, branch)
 	tip, err := bg.Resolve(ref)
 	if err != nil {
 		return gate.Head{}, notPushed

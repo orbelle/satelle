@@ -13,11 +13,11 @@ runs this script before it is enqueued: **exit 0 runs the gate, exit 1 skips
 it** and its output is noted, and any other exit means the trigger is broken,
 so the gate runs anyway.
 
-The story's change set is the `paths` of `satelle story diff <id> --json`, the
+The story's change set is the `paths` of `satelle story diff <id> --json --session <session>`, the
 id being `$SATELLE_ITEM`. When any path in it matches `WORKFLOW_PATHS`, the
 review runs. Otherwise it is skipped. `WORKFLOW_PATHS` names the two places
 workflows are loaded from (`internal/kernel/config.go`, `WorkflowsDir`): this
-repo's route files, `.satelle/workflows/`, and the default route `satelle init`
+repo's route files, `.satelle/workflows/`, and the default route `satelle init --session <session>`
 writes into a new repo, embedded from `internal/kernel/template/workflows/`.
 An item that is not a story (an execution, `exe_`) has no story diff: it is
 skipped, exit 1, with a line saying so.

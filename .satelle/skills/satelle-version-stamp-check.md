@@ -9,8 +9,8 @@ description: CI/CD gate on approved → done. origin/main's .version bumps satel
 Every release bumps the version once (the release run does it). This check reads
 `origin/main:.version` and compares each version with the latest published tag
 other than its own, as bare versions: the `v` / `serve-v` prefix is stripped
-before `sort -V`, which orders digits before letters, so an unstripped `1.0.4`
-would sort below `v1.0.3`.
+before `sort -V`, which orders digits before letters, so an unstripped bare
+version would sort below every `v`-prefixed tag.
 
 ```sh
 set -u

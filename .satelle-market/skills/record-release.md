@@ -26,11 +26,11 @@ Write a short PR-style summary (what shipped, why, the SHA, run URLs/conclusions
 satelle story attach <story-id> \
   --name "commit-summary-<story-id>" \
   --type story-implementation-summary \
-  --file /tmp/summary-<story-id>.md
+  --file /tmp/summary-<story-id>.md --session <session>
 ```
 
 Do NOT write into `.satelle/documents/` — the old `story-implementation-summary` sub-bundle is retired; summaries belong with their story.
 
 ## Hand-off to the gate
 
-You never enact your own status advance. The `done` gate (`satelle-story-done-review`) reads what you recorded — the attached summary (`satelle story docs <id>`), the ledger, and the op-log — and judges the close.
+You never enact your own status advance. The `done` gate (`satelle-story-done-review`) reads what you recorded — the attached summary (`satelle story docs <id> --session <session>`), the ledger, and the op-log — and judges the close.

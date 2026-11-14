@@ -1,0 +1,43 @@
+{
+  "harness": "grok",
+  "cli": "grok",
+  "version": "grok 1.0.77 (50ca579fa996) [stable]",
+  "captured": "2026-11-14",
+  "hook": {
+    "label": "gate@PreToolUse",
+    "ancestors": [
+      "/work/.local/share/mise/installs/grok/1.0.77/grok",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "CLAUDE_PROJECT_DIR=/work/.cache/satelle-buildtmp/caller-probe/grok",
+      "GROK_FOLDER_TRUST=0",
+      "GROK_HOOK_EVENT=pre_tool_use",
+      "GROK_HOOK_NAME=project/satelle:pre_tool_use[0].hooks[0]",
+      "GROK_SESSION_ID=01a1d947-f8af-72a3-8ac3-2a95cedab0af",
+      "GROK_WORKSPACE_ROOT=/work/.cache/satelle-buildtmp/caller-probe/grok",
+      "XCURSOR_SIZE=24"
+    ]
+  },
+  "shell": {
+    "ancestors": [
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/grok/1.0.77/grok",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "GROK_AGENT=1",
+      "GROK_FOLDER_TRUST=0",
+      "GROK_SESSION_ID=01a1d947-f8af-72a3-8ac3-2a95cedab0af",
+      "XCURSOR_SIZE=24"
+    ]
+  }
+}

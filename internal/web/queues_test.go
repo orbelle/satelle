@@ -62,7 +62,7 @@ func TestQueuesPanel(t *testing.T) {
 	frag := httpGetBody(t, srv.URL+"/r/proj/fragment/queues")
 	inOrder(t, frag, "que_1", "Release queue", "filter kind:story status:alpha",
 		`<span class="n">2</span>`, `data-member="sto_add"`, "added", `data-member="sto_a"`,
-		"task tas_1, by hand", "by hand", `data-run="exe_q"`, ">beta<", "2 items")
+		"task tas_1, on queue fire", "by hand", `data-run="exe_q"`, ">beta<", "2 items")
 	if strings.Contains(frag, `data-member="sto_b"`) || strings.Contains(frag, `data-member="sto_old"`) ||
 		strings.Contains(frag, `data-member="sto_back"`) || strings.Contains(frag, `data-member="sto_end"`) {
 		t.Fatalf("lists a non-member:\n%s", frag)

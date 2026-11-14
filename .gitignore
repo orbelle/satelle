@@ -1,11 +1,14 @@
-# Harness / agent local dirs — operator-owned, never tracked.
+# Harness wiring (.claude/, .grok/, .pi/, .cursor/) is tracked, so every clone
+# gets the same hooks and settings. In .claude/ only the shared settings.json
+# is tracked; Claude Code's runtime files there (locks, worktrees, checkpoints,
+# settings.local.json) stay out. The !.claude/ re-include overrides a
+# machine-wide git ignore that lists .claude/. Secrets (.env) stay out.
+!.claude/
 .claude/*
-.grok/
-.cursor/
-.pi/
+!.claude/settings.json
+.env
 AGENTS.md
 CLAUDE.md
-.claude/settings*.json
 
 # satelle process substrate (.satelle/) is tracked: workflows, skills,
 # principles, constitution, satelle.toml and agents.toml. Its run-time part

@@ -303,3 +303,21 @@ func rowFor(body, id string) string {
 	}
 	return body[start:end]
 }
+
+// fullRowFor is id's whole story row in body, from its <tr through the first
+// </tr> after it (a story row nests no row), or "" when it is absent.
+func fullRowFor(body, id string) string {
+	end := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
+	if end < 0 {
+		return ""
+	}
+	start := strings.LastIndex(body[:end], "<tr")
+	if start < 0 {
+		return ""
+	}
+	close := strings.Index(body[end:], "</tr>")
+	if close < 0 {
+		return ""
+	}
+	return body[start : end+close+len("</tr>")]
+}

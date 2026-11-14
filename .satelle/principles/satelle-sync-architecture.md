@@ -16,7 +16,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 
 | Data | Model | Source of truth | Transport |
 |---|---|---|---|
-| Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | For satelle.dev, the Chain service: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story). For a `[ledger] store` command, one object per event at `chains/<item>/<seq:012d>.json` written by conditional create and read back verified (`satelle ledger push`, `pull`), plus its blobs at `blobs/<sha256>`. Both keep the same rule: a different hash at a sequence is refused, never merged |
+| Work state (stories, executions, ledger events) | **Ledger**: one append-only chain per story | the chain | For satelle.dev, the Chain service: `Append` (compare-and-append on the base), `Read` and `Subscribe` (one cursor per story). For a `[ledger] store` command, one object per event at `chains/<item>/<seq:012d>.json` written by conditional create and read back verified (`satelle ledger push --session <session>`, `pull`), plus its blobs at `blobs/<sha256>`. Both keep the same rule: a different hash at a sequence is refused, never merged |
 | Configuration (`.satelle/` workflows, principles, skills, constitution, agents, queues, settings) | Files in the repo | git | git only; ledger replication never carries it |
 
 - A story row, local or hosted, is a **projection** of its chain, rebuilt from
@@ -25,7 +25,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   hold a story's chain holds the server's derived row, read-only: never pushed,
   never a base for an append, and replaced by the rebuild once the chain is
   fetched (§3, Holdings).
-- Ledger replication (`satelle ledger push` and `pull`) carries work state
+- Ledger replication (`satelle ledger push --session <session>` and `pull`) carries work state
   only: each item's chain of events, item summaries, attachment bodies and
   performer outputs. Configuration moves between instances
   through the repo's git, which is a step's work
@@ -55,7 +55,8 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   chain that binds a session at a location (a worktree) to the item; `satelle
   story release` ends it. The edit gate enforces seats: a session's edit is
   allowed only while it holds a seat at that location on an item whose current
-  state has a performer. A seat is not a lock: several sessions may hold seats
+  state's performer may change the tree; a seat on a state that allows
+  attachments only (`edits = "attachments"`) refuses every tree edit there. A seat is not a lock: several sessions may hold seats
   on one item, and there is no lease. Changes to one area of code run one after
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
@@ -69,7 +70,7 @@ not fit is rejected, or the architecture is amended first (see "Amending").
 - **Local:** the repo is unbound or the user is not signed in. Nothing leaves
   the machine. This is the default.
 - **Personal:** bound to a project in the user's personal workspace. All work
-  state replicates with it (`satelle ledger push` and `pull`, satelle.dev being
+  state replicates with it (`satelle ledger push --session <session>` and `pull`, satelle.dev being
   the default `[ledger] store` while signed in); the `.satelle` tree stays in
   git.
 - **Team:** bound to a project in a team workspace. Members see the work state
@@ -92,36 +93,46 @@ repo's `.satelle/` alone (`satelle.toml`, `agents.toml`, `workflows/`,
 `skills/`, `queues/`), in every scope. No hosted or user-level copy layers over
 it, and nothing satelle replicates writes into the tree; a change to the
 configuration reaches other instances, and a team, through the repo's git.
-`~/.satelle/config.toml` holds this machine's settings (`satelle settings`),
+`~/.satelle/config.toml` holds this machine's settings (`satelle settings --session <session>`),
 not process.
 
 ## 4. Commands
 
-The sync surface is `satelle init`, `satelle login`, `satelle project bind`
+The sync surface is `satelle init --session <session>`, `satelle login --session <session>`, `satelle project bind`
 and three ledger verbs for work state, the only replication path: `satelle
-ledger push` (offer the local events the store lacks, with their blobs; a
-diverged chain is reported and left alone, exit 1), `satelle ledger pull`
+ledger push --session <session>` (offer the local events the store lacks, with their blobs; a
+diverged chain is reported and left alone, exit 1), `satelle ledger pull --session <session>`
 (import the store's events the local ledger lacks, and their blobs; a fork is
-refused) and `satelle ledger status` (each item's local and store head). Each
+refused) and `satelle ledger status --session <session>` (each item's local and store head). Each
 takes item ids to replicate only those. They replicate to the `[ledger] store`:
 `"satelle.dev"` (the default while signed in, over the Chain and Attachment
 services), `"local"` (the default otherwise; nothing replicates) or an adapter
-`{ command, args }` (proven by `satelle ledger store-test`, which checks only a
+`{ command, args }` (proven by `satelle ledger store-test --session <session>`, which checks only a
 configured command). Every store keeps the same rule: a different hash at a
-sequence is refused, never merged. A missing blob is a recorded gap, and
-`satelle ledger verify` exits 3 while one remains. The hot path never contacts
+sequence is refused, never merged. The one exception is a file-defined
+queue's chain that holds only satelle's own file-mirror events: no work was
+done on it, so it takes the store's chain for that id and the file is mirrored
+onto that (operator, 2026-11-13; sto_80da4589). A chain with any other event
+is never replaced. A missing blob is a recorded gap, and
+`satelle ledger verify --session <session>` exits 3 while one remains. The hot path never contacts
 the store: hooks, gates, and story and ledger reads work with the store
 unreachable. Remote paths (`satelle remote fire`, a remote placement, a node,
 `satelle remote status`) replicate only their run's item through satelle-server,
 whatever `[ledger] store` names, with the same replicator. `satelle service
-install` also installs `satelle-sync.timer`, which runs the internal verb
-`satelle ledger autosync` every 30 s: for each project on the machine whose
+install --session <session>` also installs `satelle-sync.timer`, which runs the internal verb
+`satelle ledger autosync --session <session>` every 30 s: for each project on the machine whose
 store is not local it pushes then pulls through the same replicator and records
 the outcome, which satelled's project page shows. No one runs a command for a
-machine to converge. The former sync verb
-and its state file were removed in v1.0.42 (sto_9b98696a).
+machine to converge. The same pass may also run doctor's provable fixes that
+need no answer: releasing a seat whose item is in a terminal state or whose
+session is gone, and restarting satelled on a version skew. It logs each
+action it takes, and what it leaves is reported to the operator at session
+start (operator, 2026-11-13). Replication stays the only path for work state:
+a fix the pass makes is a ledger event like any other and replicates through
+push and pull. The former sync verb
+and its state file were removed (sto_9b98696a).
 Every other sync, reconcile, rehydrate, deploy, bindings, publish or repair
-verb is internal or removed. The checks (`satelle validate`, `satelle status`)
+verb is internal or removed. The checks (`satelle validate --session <session>`, `satelle status --session <session>`)
 report; they do not repair.
 
 ## 5. Server
@@ -142,14 +153,14 @@ key by project; River and the derive job; story data out of Snapshot.
    deprecated alias or "kept for now".
 2. **Declare breaking changes.** A `### Breaking` entry in CHANGELOG states what
    broke and the exact command that heals it. `init-heals:` only when `satelle
-   init` alone heals it.
+   init --session <session>` alone heals it.
 3. **No new warnings across the machine.** The binary and the web service are
-   machine-wide and serve every registered repo at once; one `satelle update`
+   machine-wide and serve every registered repo at once; one `satelle update --session <session>`
    moves them all, including sessions already running. A slice introduces no
    validation error and no satelle session-start warning in any registered
-   repo (`satelle project list`): it is proven by `satelle validate` and a
+   repo (`satelle project list --session <session>`): it is proven by `satelle validate --session <session>` and a
    session start in each registered repo, captured before the release and
-   after `satelle update` (and `satelle init` where the release's breaking
+   after `satelle update --session <session>` (and `satelle init --session <session>` where the release's breaking
    change says it heals), and attached to the story. Every validation error or
    warning present after the release is
    either fixed or pre-existing and owned by a named story; none is unowned.

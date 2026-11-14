@@ -327,6 +327,14 @@ header.app h1 .dot { color: var(--accent); }
   color: var(--fail); font-size: 11px; padding: 1px 6px;
   border: 1px solid var(--fail); border-radius: 0; line-height: 1.4; white-space: nowrap;
 }
+/* A pre-1.0 repo needs upgrading, it is not failing (sto_0f76dd4e): warn-toned. */
+.sync-upgrade { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
+.sync-upgrade-body { color: var(--warn); font-size: 12px; margin-top: 4px; max-width: 72rem; }
+.sync-tag-upgrade {
+  display: block; width: fit-content; margin-top: 4px;
+  color: var(--warn); font-size: 11px; padding: 1px 6px;
+  border: 1px solid var(--warn); border-radius: 0; line-height: 1.4; white-space: nowrap;
+}
 td.updated-cell { white-space: nowrap; }
 .logs-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .logs-filter a {
@@ -379,19 +387,22 @@ td.updated-cell { white-space: nowrap; }
 .id-copy.copied { color: var(--accent); }
 .tag { font-size: 11.5px; color: var(--muted); }
 
-/* Progress column — the stages a story has completed (plus the one it is in),
-   each reading "<step> <total>/<running> <failed>": .gates the exit gates
-   declared, its tone the step's state (.tone-idle grey: not yet run or nothing
-   running; .tone-live orange: gates running; .tone-ok green: all passed),
-   .run.live the gates still running (pulsing, absent at 0) and .rej how many
-   times they rejected the step's work (absent at 0). No indices: a number here
-   is a count, never a stage. The chip's title spells the same counts in words. */
+/* Progress column — one chip per step a story reached, in the order first
+   reached, reading "<step> <gates> <rej> <blk>": .gates the exit gates (the
+   gates on the transition leaving the step), its tone the step's exit
+   (.tone-ok green: left through it with its gates accepted; .tone-idle grey:
+   not yet run, or its last round rejected or errored; .tone-live and .run.live
+   are kept for gates still running, which sto_b13e3fcb brings), .rej the exit's
+   rejected rounds and .blk the parks taken in the step (both absent at 0). A
+   number here is a count, never a stage. The chip's title spells the same
+   counts in words. .stage-performing pulses: the story is engaged (a seat
+   here or elsewhere). .stage-current is highlighted and still: the story is
+   at that step and nobody is working it (sto_96f0ad26). */
 .col-reviews { white-space: normal; width: 14rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }
 .stage-done { color: var(--muted); }
-.stage-current { border-color: var(--warn); color: var(--warn);
-  animation: review-pulse 1.4s ease-in-out infinite; }
+.stage-current { border-color: var(--warn); color: var(--warn); }
 .stage-performing { border-color: var(--accent); color: var(--accent);
   animation: review-pulse 1.4s ease-in-out infinite; }
 .stage-chip .blk { color: var(--warn); font-weight: 600; }
@@ -403,6 +414,12 @@ td.updated-cell { white-space: nowrap; }
   animation: review-pulse 1.4s ease-in-out infinite; }
 .rej { color: var(--fail); font-weight: 600; }
 @keyframes review-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+/* The story page's Progress section: each chip with the rejected rounds of
+   every transition leaving its step, each gate's notes under it. */
+.stage-rejections { list-style: none; padding: 0; margin: 0 0 12px; }
+.stage-rejections > li { margin: 0 0 6px; }
+.stage-rejections ol { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }
+.stage-rejection { margin: 2px 0 0 12px; }
 
 /* Status badges / pills — UPPERCASE, SUBTLE pills (sty_aed93a00, softening
    sty_970dbef3 to the satellites language): the per-status --badge-c hue drives a

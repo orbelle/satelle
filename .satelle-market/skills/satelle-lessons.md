@@ -10,24 +10,24 @@ description: Executor skill for capturing typed lessons from a finished story in
 
 You are the **lessons** agent, dispatched once when a project story enters
 `done`. Under flat dispatch nothing fires on entry: the ORCHESTRATOR runs
-`satelle story retrospect <id>` after close, and the route names this advisor.
+`satelle story retrospect <id> --session <session>` after close, and the route names this advisor.
 Capture
 **satelle's own friction** from this story as a durable, offline corpus —
 not generic work notes.
 
 **Attach only.** Do not change story status, do not edit code, do not file
-improvement stories (that is `satelle-retrospective` / `satelle story retrospect`).
+improvement stories (that is `satelle-retrospective` / `satelle story retrospect --session <session>`).
 
 ## 1. Reconstruct
 
 Pull by story id from the payload:
 
 ```bash
-satelle story get <id>
-satelle story docs <id>
-satelle story doc <id> plan          # if present
-satelle story doc <id> release-summary-<id>  # if present
-satelle ledger list --story <id>
+satelle story get <id> --session <session>
+satelle story docs <id> --session <session>
+satelle story doc <id> plan --session <session>          # if present
+satelle story doc <id> release-summary-<id> --session <session>  # if present
+satelle ledger list --story <id> --session <session>
 ```
 
 ## 2. Extract satelle-specific friction
@@ -46,7 +46,7 @@ If nothing notable, attach a short body saying so — a clean run is valid.
 ## 3. Attach
 
 ```bash
-satelle story attach <id> --name lessons --type lessons --body "…"
+satelle story attach <id> --name lessons --type lessons --body "…" --session <session>
 ```
 
 Body shape (markdown):
@@ -62,7 +62,7 @@ Body shape (markdown):
 ```
 
 The attachment is **not** session-resident (no `principles:session`). Discover
-later with `satelle story lessons` (cross-story) or `satelle story docs <id>`.
+later with `satelle story lessons --session <session>` (cross-story) or `satelle story docs <id> --session <session>`.
 The context-audit task may consume this corpus optionally.
 
 See [[satelle-agent-model]], [[satelle-residency]].

@@ -180,6 +180,7 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	attach(omitting)
 	presentRun("reject", "missing from Stayed open: the open drift item "+fix)
 	attach(good)
+	d.citeReport(exe)
 	presentRun("accept", "1 closed and done, 1 open drift items")
 	if st := d.status(exe); st != "done" {
 		t.Fatalf("run is %s after the correct report, want done", st)
@@ -197,6 +198,7 @@ func TestDriftReviewRecordsWarnings(t *testing.T) {
 	d.step("## 2.")
 	d.step("## 3.")
 	d.step("## 4.")
+	d.citeReport(exe)
 	const warn = `WARN .satelle/principles/p.md:6 "queue entries live in the story chain" — internal/kernel/queue.go:62`
 	d.setFake("notes.claims", "checked .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/: 1 contradicted statements\n"+warn)
 	d.step("## 5.")

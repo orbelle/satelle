@@ -13,14 +13,14 @@ Isolated, **read-only** reviewer: may the story close (`release → done`)? The 
 ## 1. Judge release evidence
 
 Read the repo and recorded evidence (payload `docs` for summary/plan attachments;
-`satelle story docs`/`doc` when shell is granted; also `git show HEAD`, ledger/op-log).
+`satelle story docs --session <session>`/`doc` when shell is granted; also `git show HEAD`, ledger/op-log).
 Never in-repo `.satelle/stories/` (<story-id>):
 
 - **Version bump**: `.version` in `HEAD` carries an incremented `satelle.version` and a fresh `satelle.build` stamp (`git show HEAD --stat` shows `.version`).
 - **Commit convention**: subject is a conventional commit ending with the story id in parens; **NO AI attribution** — no `Co-Authored-By`, no "generated with" trailer.
 - **CI + release**: authority on "CI is green" from RECORDED evidence (summary's `test`/`release` run URLs, conclusions, published tag `v<satelle.version>`). **Reject** when a recorded run concluded failure, is ABSENT, or hasn't concluded.
 - **Dogfood triad (named checks)** — local install is part of the release, not optional hygiene. The summary must evidence **all three**; reject naming the failed check:
-  - **`check_cli_version`**: CLI at the new version (`satelle version` reports `$VER` / matching commit). Reject when missing or only implied.
+  - **`check_cli_version`**: CLI at the new version (`satelle version --session <session>` reports `$VER` / matching commit). Reject when missing or only implied.
   - **`check_live_footer`**: live web service/footer (or equivalent health body) at the **same** `$VER`. Reject when only CLI is checked and the service is unmentioned (stale-process failure mode).
   - **`check_persistent_supervisor`**: the live service runs under a persistent supervisor (system unit or linger-backed user manager), not an ephemeral `nohup`/`setsid` relaunch. Reject when the summary only records a throwaway serve.
 - **Recorded summary**: a story-implementation-summary attachment exists capturing what shipped.
@@ -32,7 +32,7 @@ Walk the numbered ACs; confirm each is satisfied by evidence in the shipped slic
 ## 3. Plan adherence (metric, not gate)
 
 Read the story's **plan** attachment when present (payload `docs` entry named
-`plan`, or `satelle story doc` with shell). Compare it against what shipped
+`plan`, or `satelle story doc --session <session>` with shell). Compare it against what shipped
 (step summaries, the release summary, `git show HEAD` when useful).
 
 Always put a structured plan-adherence line in **notes** on both accept and
@@ -55,10 +55,10 @@ evidence must show the coder consumed the plan before implementing:
 - a `plan-consumed` ledger row **written by satelle at dispatch** — a
   `telemetry_event` of kind `plan-consumed` with `source: dispatch`, the dispatched
   agent as actor, and `attachment`, `content_hash` and `attempt` in its data (read it
-  with `satelle ledger list --story <id>`). Satelle writes it before the coder runs,
+  with `satelle ledger list --story <id> --session <session>`). Satelle writes it before the coder runs,
   whenever the coder's payload carried the plan attachment, so it **alone satisfies**
   the check and the coder need not say anything; **or**
-- a typed `plan-consumed` event a driver logged (`satelle story log … --kind plan-consumed`), **or**
+- a typed `plan-consumed` event a driver logged (`satelle story log … --kind plan-consumed --session <session>`), **or**
 - a `PLAN-CONSUMED:` (or plan-consumed) statement in the recorded run output
   (dispatch sink under `.satelle/logs/dispatch/`, or `executor.log`) naming the
   plan attachment and the plan steps followed.
@@ -75,7 +75,7 @@ absent. An **in-loop-implemented** story (no coder dispatch on the path) is
 ## 5. Waivers (developer-attested)
 
 The payload may carry `waivers`: decisions the **developer** recorded
-(`satelle story waive`) for this story against this gate. Each has `gate`,
+(`satelle story waive --session <session>`) for this story against this gate. Each has `gate`,
 `check`, `reason` and `actor`. Honour one only when **all** hold:
 
 - its `actor` is `developer`, and its `gate` is `satelle-story-release-review`;

@@ -8,6 +8,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 // MaxDriveSteps bounds a headless drive: a workflow with a cycle stops here.
@@ -94,13 +95,7 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 			}
 			step.Performed = true
 		}
-		next := ""
-		for _, t := range w.Targets(it.Status, item.PriorStatus(events)) {
-			if s, ok := w.States[t]; ok && !s.Park {
-				next = t
-				break
-			}
-		}
+		next := nextTarget(w, it.Status, item.PriorStatus(events))
 		if next == "" {
 			res.Steps = append(res.Steps, step)
 			return stop(it, VerdictReject, fmt.Sprintf("no transition leaves %s", it.Status))
@@ -134,6 +129,18 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 		return res, err
 	}
 	return stop(it, VerdictReject, fmt.Sprintf("stopped after %d steps", MaxDriveSteps))
+}
+
+// nextTarget is the transition a drive takes from status: the first of the
+// workflow's targets (prior resolving @prior) whose state is not a park
+// state; "" when none leaves status.
+func nextTarget(w *workflow.Workflow, status, prior string) string {
+	for _, t := range w.Targets(status, prior) {
+		if s, ok := w.States[t]; ok && !s.Park {
+			return t
+		}
+	}
+	return ""
 }
 
 func firstLine(s string) string {

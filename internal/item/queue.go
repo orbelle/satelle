@@ -12,7 +12,7 @@ import (
 
 // QueueKind is the kind of a queue item. A queue gathers items by its filter
 // (Item.Inputs) and by explicit adds, and its trigger runs a task or a
-// workflow over them when it fills or when fired by hand.
+// workflow over them when it fills or when satelle queue fire fires it.
 const QueueKind = "queue"
 
 // Event kinds on a queue's chain.
@@ -23,7 +23,7 @@ const (
 )
 
 // Trigger is what a queue runs and when. Exactly one of Task and Workflow is
-// set. MinSize 0 fires only by hand; N > 0 fires when an enqueue leaves the
+// set. MinSize 0 fires only on queue fire; N > 0 fires when an enqueue leaves the
 // queue holding N or more members. Base is the default ref a fired run's
 // base comes from ("" means HEAD).
 type Trigger struct {
@@ -39,7 +39,7 @@ func (t Trigger) Validate() error {
 		return errors.New("a trigger names exactly one of a task and a workflow")
 	}
 	if t.MinSize < 0 {
-		return errors.New("a trigger's minimum size is 0 (fire by hand) or more")
+		return errors.New("a trigger's minimum size is 0 (fires only on queue fire) or more")
 	}
 	return nil
 }

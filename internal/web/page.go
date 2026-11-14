@@ -275,9 +275,13 @@ const templatesSrc = `
      (sto_5c706973). "synced" stays outside time.rel-time so the ticker cannot
      strip it. Landing does not call this — it shows a Sync Failing tag
      instead. */}}
-{{define "syncstate"}}{{if or .SyncLocal .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="the ledger store is local: nothing replicates">local</span>{{else if .SyncReason}}<span class="sync-fail">sync failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last sync with {{.SyncStore}} at {{ftime .SyncLastSuccess}}">synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
+{{define "syncstate"}}{{if or .SyncLocal .SyncUpgrade .SyncReason (isotime .SyncLastSuccess)}}remote: {{end}}{{if .SyncLocal}}<span class="sync-local" title="the ledger store is local: nothing replicates">local</span>{{else if .SyncUpgrade}}<span class="sync-upgrade" title="pre-1.0 .satelle: this satelle cannot read it">upgrade needed</span>{{else if .SyncReason}}<span class="sync-fail">sync failing</span>{{else if isotime .SyncLastSuccess}}<span class="sync-ok" title="Last sync with {{.SyncStore}} at {{ftime .SyncLastSuccess}}">synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}{{end}}
 
 {{define "syncfail"}}<div class="sync-fail-body"><span class="sync-fail-reason">{{.SyncReason}}</span>{{if isotime .SyncLastSuccess}} <span class="sync-fail-log">last synced <time class="rel-time" datetime="{{isotime .SyncLastSuccess}}">{{reltime .SyncLastSuccess}}</time></span>{{end}}</div>{{end}}
+
+{{/* syncupgrade: a pre-1.0 repo the sync pass skipped (sto_0f76dd4e). It
+     needs upgrading in the repo; nothing failed, so never inside syncfail. */}}
+{{define "syncupgrade"}}<div class="sync-upgrade-body">run <code>{{.SyncUpgrade}}</code> in this repo (see <code>satelle help upgrade</code>)</div>{{end}}
 
 {{/* syncheld: stories the last push held until their code is on the remote
      (sty_c203fd62). In flight, not failing: muted, never inside syncfail. */}}
@@ -286,6 +290,11 @@ const templatesSrc = `
 {{/* syncfailtag: landing-only status chip. No reason, no log path — those
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="ledger sync is failing — see the project page">Sync Failing</span>{{end}}{{end}}
+
+{{/* syncupgradetag: landing chip for a pre-1.0 repo (sto_0f76dd4e), with the
+     command to run in it. The upgrade outcome clears SyncReason, so it never
+     shows beside syncfailtag. */}}
+{{define "syncupgradetag"}}{{if .SyncUpgrade}}<span class="sync-tag-upgrade" title="pre-1.0 .satelle: run it in the repo">Upgrade needed: <code>{{.SyncUpgrade}}</code></span>{{end}}{{end}}
 
 {{/* footer: the three builds (sto_49b6e762): the satelle CLI installed beside
      satelled, the running satelled and the satelled installed on disk, each
@@ -316,6 +325,7 @@ const templatesSrc = `
     <h1>{{.ProjectName}}</h1>
     <div class="meta">{{.RepoRoot}} · <a href="help">help →</a> · <a href="settings">settings →</a> · {{template "freshness" .}} · {{template "syncstate" .}}</div>
     {{if and .SyncReason (not .SyncLocal)}}{{template "syncfail" .}}{{end}}
+    {{if .SyncUpgrade}}{{template "syncupgrade" .}}{{end}}
     {{if and .SyncHeld (not .SyncLocal)}}{{template "syncheld" .}}{{end}}
   </header>
 
@@ -345,8 +355,8 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
-      <tbody data-rows>{{template "workitemRows" .Stories}}</tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
     </table>
   </section>
 
@@ -407,8 +417,8 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
-      <tbody data-rows>{{template "workitemRows" .Rows}}</tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
     </table>
   </section>
   {{end}}
@@ -439,14 +449,31 @@ const templatesSrc = `
 
 {{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
 
-{{define "workitemRows"}}{{range .}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{/* workitemLead and workitemTrail: a work item row's opening and its
+     ID, Title and Status cells; then its Workflow, Assignees and Updated cells
+     and its close. workitemRows (tasks) joins them; storyRows puts the
+     Progress cell between. */}}
+{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
-  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
+{{end}}
+{{define "workitemTrail"}}  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
   <td class="meta">{{template "assignees" .Assignees}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
-</tr>{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+</tr>{{end}}
+
+{{define "workitemRows"}}{{range .}}{{template "workitemLead" .}}{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{/* storyRows: story rows, with the Progress cell (one stageChip per step
+     reached, progressOf) after Status. */}}
+{{define "storyRows"}}{{range .}}{{template "workitemLead" .}}  <td class="col-reviews">{{range .Progress}}{{template "stageChip" .}}{{else}}—{{end}}</td>
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="7" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{/* stageChip: one step chip in the old shape: <step> <gates> <rej> <blk>,
+     the gates count always drawn, rej and blk absent at 0; its title says the
+     same in words. */}}
+{{define "stageChip"}}<span class="stage-chip {{if .Performing}}stage-performing{{else if .Current}}stage-current{{else}}stage-done{{end}}" title="{{.Title}}">{{.Name}} <b class="gates {{if .Passed}}tone-ok{{else}}tone-idle{{end}}">{{len .Gates}}</b>{{if .Rounds}} <b class="rej">{{.Rounds}}</b>{{end}}{{if .Parks}} <b class="blk">{{.Parks}}</b>{{end}}</span>{{end}}
 
 {{/* activityRows: the items being worked now, one condensed line each: who
      or what works it (seats, else the state's performer) and its latest step.
@@ -528,6 +555,8 @@ const templatesSrc = `
   </dl>
   {{if .Item.Body}}<h4>Description</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
   {{if .Item.Criteria}}<h4>Criteria</h4><ul class="criteria">{{range .Item.Criteria}}<li>{{.}}</li>{{end}}</ul>{{else if .Item.AcceptanceCriteria}}<h4>Criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
+  {{if .Progress}}<h4>Progress</h4>
+  <ol class="stage-rejections">{{range .Progress}}<li>{{template "stageChip" .}}{{if .Rejected}}<ol>{{range .Rejected}}<li><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="meta">{{ftime .At}}</span>{{range .Verdicts}}<div class="stage-rejection">{{.Gate}} <span class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</span>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</div>{{end}}</li>{{end}}</ol>{{end}}</li>{{end}}</ol>{{end}}
   <h4>Route</h4>
   <section class="route" data-workflow="{{.Route.Workflow}}">{{template "route" .Route}}</section>
   <h4>Verdicts</h4>

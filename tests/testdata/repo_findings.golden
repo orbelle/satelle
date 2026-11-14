@@ -1,0 +1,4 @@
+# base: 885751cf20d1c4a4109cfc35db4d4d6eeeb06600
+# captured by: SATELLE_FINDINGS_TREE=<base worktree> SATELLE_FINDINGS_BIN=<binary built from it> SATELLE_FINDINGS_WRITE=1 go test -tags integration -run '^TestRepoFindingsMatchTheRecordedBase$' ./tests/
+validate exit 0
+validate valid true

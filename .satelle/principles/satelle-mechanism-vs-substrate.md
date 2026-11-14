@@ -33,6 +33,15 @@ not. The agent adapters, dispatch (`internal/agent`) and harness hooks
 ([[satelle-agent-agnostic]]). This applies whoever raised the story, including
 the operator.
 
+**satelle's own system processes are shipped substrate, not compiled-in
+configuration.** The init template is substrate the binary ships and writes
+into each repo's `.satelle/`, where the repo owns and overrides it: satelle's
+maintenance and substrate-alignment processes, how agents use satelle, and its
+skill rules (for example reference over content). The binary reads the repo's
+copy, never the embedded one, so a default the template names (a pattern, a
+principle's text, a route) is the repo's configuration once written (operator,
+2026-11-13).
+
 ## Route, dispatch, quality
 
 - **No route as judgement.** An agent may add steps or remediation, never drop
@@ -59,12 +68,20 @@ commits, pushes, merges, branches, tags or rewrites them (operator,
 node's workspace, the docker check gate's node) is mechanism, not a git action
 on the repo. Commits, pushes, merges, pull requests, reviews and commit
 statuses are a step skill's actions, which the agent performs under the step's
-configuration; a forge verb the binary carries (`satelle github review`)
+configuration; a forge verb the binary carries (`satelle github review --session <session>`)
 publishes only what the calling step gives it. The binary stays a small
 mechanism that runs the user's configuration through its reviewers and gates;
 a plan that moves process into it is refused at plan review
 (satelle-binary-scope-review). The binary's existing git use is debt,
 inventoried with a decision per call in sty_042c7fa3.
+
+The binary also changes no git-tracked content of the user's repo. The repo is
+protected by the user's own method, so an issue there is resolved through the
+repo's workflow: satelle advises with a warning that names the fix and asks how
+to resolve it, and a warning left unresolved turns into an error (operator,
+2026-11-13; sto_c26c300c). Untracked, machine-local files satelle put there
+(the harness hooks it installed, its runtime records) are satelle's to
+maintain.
 
 ## Secrets arrive as environment
 

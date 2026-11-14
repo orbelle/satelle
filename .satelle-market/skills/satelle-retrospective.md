@@ -18,11 +18,11 @@ SMALL number of concrete improvement PROPOSALS so the process improves itself.
 
 Pull the story's record by id with the read-only CLI:
 
-- `satelle story get <id>` — the acceptance criteria and final state.
-- `satelle story docs <id>` then `satelle story doc <id> plan` and the
+- `satelle story get <id> --session <session>` — the acceptance criteria and final state.
+- `satelle story docs <id> --session <session>` then `satelle story doc <id> plan --session <session>` and the
   `release-summary-*` / step-summary docs — the plan and how the work actually
   went (what reviewers caught, what was deferred).
-- `satelle ledger list --story <id>` — the transitions and review verdicts.
+- `satelle ledger list --story <id> --session <session>` — the transitions and review verdicts.
 - Read the shipped diff/files (Read/Grep/Glob) where a proposal needs it.
 
 ## 2. Identify 1–3 improvements — quality over quantity
@@ -45,7 +45,7 @@ not a failure. Do not invent busywork.
 Tag each so it traces to this retrospective:
 
 ```bash
-satelle story create --title "<concrete title>" \
+satelle story create --title "<concrete title>" --session <session> \
   --category <feature|refactor|substrate|...> \
   --tags "retrospective:<story-id>" \
   --body "<what + why, referencing the source story and the evidence>" \

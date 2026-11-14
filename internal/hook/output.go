@@ -48,14 +48,19 @@ const (
 )
 
 // Context returns harness's answer that adds text to the model's context for
-// event (EventSessionStart or EventPrompt). Claude, pi and grok read claude's
-// shape (the pi extension forwards additionalContext into its system prompt).
-// notice is the user's channel: claude shows a top-level systemMessage to the
-// user, and the pi extension shows it through ctx.ui.notify; an empty notice
-// emits no systemMessage. Grok and cursor have no proven user field, so their
-// envelopes drop the notice. Cursor's sessionStart reads additional_context;
-// its beforeSubmitPrompt has no context channel (it answers only continue and
-// user_message), so a cursor prompt answer is PromptContinue instead.
+// event (EventSessionStart or EventPrompt), nil when the harness reads
+// nothing from that event. Claude and pi read claude's shape (the pi
+// extension forwards additionalContext into its system prompt). notice is
+// the user's channel: claude shows a top-level systemMessage to the user, and
+// the pi extension shows it through ctx.ui.notify; an empty notice emits no
+// systemMessage. Cursor's sessionStart reads additional_context; its
+// beforeSubmitPrompt has no context channel (it answers only continue and
+// user_message), so a cursor prompt answer is PromptContinue instead. Grok's
+// hook guide (user-guide/10-hooks.md) says only a top-level systemMessage is
+// read from a SessionStart hook's stdout, so grok's session start is
+// {"systemMessage": text} (text already holds the doctor block notice
+// summarises); and it discards an allowing UserPromptSubmit hook's stdout, so
+// grok's prompt answer is nil.
 func Context(harness, event, text, notice string) []byte {
 	if harness == Cursor {
 		if event == EventSessionStart {
@@ -66,7 +71,12 @@ func Context(harness, event, text, notice string) []byte {
 		return PromptContinue()
 	}
 	if harness == Grok {
-		notice = ""
+		if event != EventSessionStart {
+			return nil
+		}
+		return marshal(struct {
+			SystemMessage string `json:"systemMessage"`
+		}{text})
 	}
 	var doc struct {
 		HookSpecificOutput struct {
@@ -100,8 +110,17 @@ func StopAnswer(harness string) []byte {
 	return nil
 }
 
-// StopBlock returns a Stop answer that refuses the stop with reason.
-func StopBlock(reason string) []byte {
+// StopBlock returns harness's Stop answer that refuses the turn's end with
+// reason. Claude, pi (its extension sends reason as a user message) and grok
+// (fed back to the model as a user message, the agent runs another round)
+// read {decision: block, reason}; cursor submits a followup_message as the
+// next prompt.
+func StopBlock(harness, reason string) []byte {
+	if harness == Cursor {
+		return marshal(struct {
+			FollowupMessage string `json:"followup_message"`
+		}{reason})
+	}
 	return marshal(struct {
 		Decision string `json:"decision"`
 		Reason   string `json:"reason"`

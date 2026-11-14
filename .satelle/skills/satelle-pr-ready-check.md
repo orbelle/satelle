@@ -1,13 +1,16 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's end (integration → approved). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to the release run (integration → approved); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
-# PR ready (DEV → CI/CD hand-off)
+# PR ready (DEV → CI/CD hand-off; the session then fires the release)
 
-DEV ends at an approved pull request (operator, 2026-11-06; modelled on
-satelle-server's pr-ready). The coding gates judged the change and the
+DEV's work reaches an approved pull request (operator, 2026-11-06; modelled on
+satelle-server's pr-ready). Approved is the hand-off to the release run, not
+the session's end: the session that drove the item there fires the release
+queue (`satelle queue fire release --session <session>`) and drives the run
+until the item is done. The coding gates judged the change and the
 integration check ran the full local suite on this HEAD; this check makes that
 head the one the release takes: the pull request's head is HEAD, and HEAD
 already contains `origin/main`. A release run fast-forwards to it or merges it
@@ -28,7 +31,7 @@ Before presenting integration → approved, the session:
 2. commits without touching `CHANGELOG.md` or `.version` (the release run
    writes the version section and bumps the version once), and records its
    changelog lines on the item as an attachment named `changelog`:
-   `satelle story attach <id> --name changelog --type text/markdown --file -`;
+   `satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`;
 3. pushes: `git push -u origin <branch>`;
 4. opens the pull request:
    `gh pr create --base main --title "<title> (<id>)" --body "<id>: <criteria>"`.
@@ -69,11 +72,11 @@ if ! git merge-base --is-ancestor origin/main "$head"; then
   exit 1
 fi
 if ! git diff --quiet origin/main "$head" -- CHANGELOG.md; then
-  echo "HEAD ${head:0:12} edits CHANGELOG.md; the release run writes it. Restore it (git checkout origin/main -- CHANGELOG.md), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file -"
+  echo "HEAD ${head:0:12} edits CHANGELOG.md; the release run writes it. Restore it (git checkout origin/main -- CHANGELOG.md), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session>"
   exit 1
 fi
 if ! cl=$(satelle story attachment "$SATELLE_ITEM" changelog 2>/dev/null); then
-  echo "no changelog attachment on $SATELLE_ITEM: satelle story attach $SATELLE_ITEM --name changelog --file - (### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking, then one - line per entry)"
+  echo "no changelog attachment on $SATELLE_ITEM: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session> (### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking, then one - line per entry)"
   exit 1
 fi
 if ! why=$(printf '%s\n' "$cl" | bash scripts/changelog-items.sh lines "$SATELLE_ITEM" 2>&1 >/dev/null); then

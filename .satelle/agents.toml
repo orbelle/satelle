@@ -1,6 +1,11 @@
 # This repo's agent bindings. A workflow names which binding performs a state
 # or judges a gate. A judge's grant must be read-only and its adapter must
 # enforce grants.
+#
+# A reviewer is named after the model it runs, reviewer-<model>, so a workflow
+# and every gate result show which model judged (operator, 2026-11-14;
+# sto_e65b2d30). Changing a reviewer's model renames the agent and every gate
+# that names it, in the same change.
 
 # The interactive session performs coding; nothing is dispatched.
 [agents.executor]
@@ -38,7 +43,7 @@ tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 # reviewer (operator, 2026-11-12; sto_d17f7eb5). Gemini, not Claude: the
 # planner and the session coder are Claude (satelle-agent-alt-reviewer). grok
 # judged the first run (sto_0586c449's plan).
-[agents.reviewer-alt]
+[agents."reviewer-gemini-3.8-flash-high"]
 command = "cursor-agent"
 model = "gemini-3.8-flash-high"
 tools = ["Read", "Grep", "Glob"]
@@ -47,16 +52,20 @@ tools = ["Read", "Grep", "Glob"]
 # diff three times without naming a file it judged (sto_5c706973). grok, not
 # Claude: binary-scope also judges the planner's plan, and the planner runs
 # Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0).
-[agents.reviewer-grok]
+[agents."reviewer-grok-4.7"]
 command = "grok"
+model = "grok-4.7"
 tools = ["Read", "Grep", "Glob"]
 
 # The second judge on plan-review and code-ac (operator, 2026-11-10): GPT-5.6
 # Sol, the latest Sol on Cursor, at its High tier. GPT, not Claude: the planner
 # and the session coder are Claude, and a judge runs another family than the
-# author (satelle-agent-alt-reviewer). It judges beside Gemini (reviewer-alt);
-# both must accept.
-[agents.reviewer-gpt]
+# author (satelle-agent-alt-reviewer). It judges beside Gemini
+# (reviewer-gemini-3.8-flash-high); both must accept. It also judges runbook's
+# close gates: drift-constitution and drift-claims (sto_ac7edb34) and
+# validate-after (operator, 2026-11-14; sto_09b81217), each moved from Gemini
+# 3.8 Flash High for verdicts that named no record path.
+[agents."reviewer-gpt-5.6-sol-high"]
 command = "cursor-agent"
 model = "gpt-5.6-sol-high"
 tools = ["Read", "Grep", "Glob"]

@@ -7,7 +7,7 @@ description: CI/CD's last gate on approved → done. This machine runs the relea
 # Release installed
 
 satelle's release ends with the published build installed here and satelled
-restarted onto it. `satelle service status` pads each label to ten columns, so
+restarted onto it. `satelle service status --session <session>` pads each label to ten columns, so
 every label is matched with ` +`.
 
 ```sh

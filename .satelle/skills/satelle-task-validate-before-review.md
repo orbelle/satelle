@@ -6,7 +6,7 @@ description: Entry gate for a task run (backlog → in_progress). Accepts an exe
 
 # Task run: validate before
 
-A run executes a task: `satelle task run <task>` creates the execution with the
+A run executes a task: `satelle task run <task> --session <session>` creates the execution with the
 task as its parent. This check refuses a run that names no task, or a task that
 does not exist, before any work starts.
 
@@ -14,7 +14,7 @@ does not exist, before any work starts.
 set -eu
 parent=$(satelle execution get "$SATELLE_ITEM" --json | jq -r '.parent // ""')
 if [ -z "$parent" ]; then
-  echo "execution $SATELLE_ITEM names no parent task: a run is created by 'satelle task run <task>'"
+  echo "execution $SATELLE_ITEM names no parent task: a run is created by 'satelle task run <task> --session <session>'"
   exit 1
 fi
 kind=$(satelle task get "$parent" --json 2>/dev/null | jq -r '.kind // ""') || kind=""

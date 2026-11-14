@@ -41,7 +41,7 @@ func TestQueueCommands(t *testing.T) {
 		t.Fatalf("list %+v", list)
 	}
 	show := must(t, "queue", "show", que)
-	for _, want := range []string{`filter     kind="story" status="done"`, "trigger    task " + task + ", fires by hand only", "members (2)", s1, s2, "last fire  never"} {
+	for _, want := range []string{`filter     kind="story" status="done"`, "trigger    task " + task + ", fires on satelle queue fire only", "members (2)", s1, s2, "last fire  never"} {
 		if !strings.Contains(show, want) {
 			t.Fatalf("show lacks %q:\n%s", want, show)
 		}

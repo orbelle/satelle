@@ -45,7 +45,10 @@ are reviewed*).
   backlog to an approved pull request; CI/CD is a task over approved items that
   merges, tests and releases. The agent merges and releases. There are two
   environments, dev (local) and prod; there is no staging, so local testing is
-  the staging and matters.
+  the staging and matters. The session that took the story to approved then
+  fires the release queue (`satelle queue fire release --session <session>`)
+  and drives the run until its items are done; approved is not the end of its
+  drive.
 - **GitHub holds the code and shows gate status; it runs no tests.** Tests run
   locally first and then on sprites as part of CI/CD; their results are
   published to GitHub as commit statuses by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
@@ -54,12 +57,12 @@ are reviewed*).
   rewrite, in satelle and satelle-server alike: no backward compatibility in the
   wire (no REST beside gRPC), storage or configuration. The users are the
   operator and a few testers; satelle provides the way across (`satelle
-  upgrade`), client and server ship together, and the previous install is
+  upgrade --session <session>`), client and server ship together, and the previous install is
   backed up before a swap.
 - **A clean, efficient codebase.** No redundant artifacts, functions, files,
   skills, scripts or tests: what nothing reaches is deleted, not kept "in
   case". The one exception is the story ledger of the operator's other repos,
-  which `satelle upgrade` migrates into v1; satelle, satelle-server,
+  which `satelle upgrade --session <session>` migrates into v1; satelle, satelle-server,
   satelle-delivery and satelle-server-infra start clean (their old backlog is
   irrelevant to the rewrite; satelle-server-infra is migrated by the
   satelle-server session with a backlog of 0).
@@ -112,3 +115,55 @@ are reviewed*).
   the work's author. A panel needs at least one member of another family, and
   its other members may share the author's family (operator, 2026-11-13;
   satelle-agent-alt-reviewer).
+- **satelle manages itself.** "satelle should self manage with exceptions
+  posted to the user." What satelle can prove it fixes unattended (the sync
+  timer's pass runs doctor's answer-free fixes); only what it cannot fix
+  reaches the operator (operator, 2026-11-13; satelle-sync-architecture §4).
+- **Blocked, not held.** "'Held' status should be removed. It is not common
+  language. 'Blocked' is correct and provides there is reason, and unblocking
+  is required." A capped plan goes to blocked with its reason and the command
+  that unblocks it (operator, 2026-11-13).
+- **A blocked plan is a positive outcome.** "When the plan is blocked, that is
+  actually a positive outcome, as many times, the plan was passed. The
+  proposed stories are not always in the right direction, or achievable." A
+  plan that cannot pass review stops a story before any code is written; it is
+  reported, not worked around (operator, 2026-11-13).
+- **satelle ships its system processes.** "there are reasons that satelle
+  implements 'system' processes, satelle maintenance and substrate alignment,
+  ensuring agents understand how to use satelle and optimal skill rules (eg.
+  reference over content)." The init template's substrate is shipped into each
+  repo and overridable there (operator, 2026-11-13;
+  satelle-mechanism-vs-substrate).
+- **All panel members must agree, for now.** "Panel - lets maintain all must
+  agree (for now) but ... open up the discussion." Panels keep combine = "all";
+  consultation inside the reviewer circle before the cold gate is the
+  discussion (operator, 2026-11-13).
+- **Every review has the plan's round cap.** "all review processes should have
+  the same process as planner." Code and PR review block after the same number
+  of rejected rounds in a row as plan review (operator, 2026-11-13).
+- **The repo's workflow resolves issues in tracked content.** "If satelle finds
+  issues, the repo workflow/path to resolve is used. eg. .satelle is git
+  tracked, hence that is an update to the repo. The repo is protected by the
+  users method, hence satelle should advise the user (warning) and ask how to
+  resolve. If not resolved the warning will turn into an error." (operator,
+  2026-11-13; satelle-mechanism-vs-substrate).
+- **A mirror-only queue chain adopts the store's.** Asked whether the sync
+  principle or the queue adoption gives, the operator amended the principle
+  (operator, 2026-11-13; satelle-sync-architecture §4).
+- **Only team-workspace bindings are tracked.** A repo's satelle.dev binding is
+  committed only when the project is a team workspace's; a personal binding
+  stays on the machine (operator, 2026-11-13; sto_9931cd73).
+
+## 2026-11-14
+
+- **A session drives its items to a terminal state.** "The agent drives the
+  satelle story to done (terminal)... The agent should not stall, at any
+  point. Watchers should only occur if awaiting an external party, like user
+  PR approval." A min-size-0 queue is fired by a session, at any time: "that
+  is NOT correct, can fire any time." The session whose story reaches
+  approved fires the release queue
+  (`satelle queue fire release --session <session>`) and drives the run to
+  done; a turn may end short of a terminal state only at a park state or a
+  state that declares `waits`; otherwise the Stop hook blocks the stop once,
+  naming the next move, and lets the stop straight after through, so a
+  session is never trapped (operator, 2026-11-14; sto_2ac90ab6 AC2).

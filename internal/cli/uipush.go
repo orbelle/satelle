@@ -121,21 +121,12 @@ func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	}
 	root := uiRepoRoot(r)
 	c.Report = func(full bool, err error) { recordSnapshot(root, full, err) }
-	led, err := ledger.Open(r.Runtime)
-	if err != nil {
-		recordSnapshot(root, true, err)
-		return err
-	}
-	ch, err := cache.Open(filepath.Join(r.Runtime, "cache.db"))
+	led, ch, err := openRecord(r)
 	if err != nil {
 		recordSnapshot(root, true, err)
 		return err
 	}
 	defer ch.Close()
-	if err := ch.Sync(led); err != nil {
-		recordSnapshot(root, true, err)
-		return err
-	}
 	wfs, _ := workflow.Load(filepath.Join(r.DataDir, kernel.WorkflowsDir))
 	cfg, _ := kernel.LoadConfig(r.DataDir)
 	return fn(c, uipush.Source{
@@ -143,6 +134,24 @@ func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 		RepoRoot: root, RepoKey: config.RepoKey(root), Slug: config.RepoName(root),
 		User: signedInUser(), Queues: kernel.QueueIndex(cfg.Settings, cfg.Queues),
 	})
+}
+
+// openRecord opens r's ledger and its cache, synced, without reading the
+// repo's configuration. The caller closes the cache.
+func openRecord(r repo) (*ledger.Store, *cache.Cache, error) {
+	led, err := ledger.Open(r.Runtime)
+	if err != nil {
+		return nil, nil, err
+	}
+	ch, err := cache.Open(filepath.Join(r.Runtime, "cache.db"))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ch.Sync(led); err != nil {
+		ch.Close()
+		return nil, nil, err
+	}
+	return led, ch, nil
 }
 
 // signedInUser is who this machine's CLI is signed in as: the name and email

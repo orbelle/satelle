@@ -242,15 +242,12 @@ store or network call.`,
 	return cmd
 }
 
-// short is a hash cut to 12 characters, "-" for none.
+// short is a hash cut by ledger.ShortHash, "-" for none.
 func short(h string) string {
-	if len(h) > 12 {
-		return h[:12]
-	}
 	if h == "" {
 		return "-"
 	}
-	return h
+	return ledger.ShortHash(h)
 }
 
 func ledgerAppendCmd() *cobra.Command {

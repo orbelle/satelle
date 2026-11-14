@@ -35,8 +35,8 @@ Pushing to `main` triggers **`test`** (build, vet, gofmt, unit tests, static bui
    ```bash
    gh release view "v$(awk '$1=="satelle.version:"{print $2}' .version)"
    ```
-   `satelle update --check` should then report the new version available.
-4. **Refresh the local service.** No deploy gate restarts the running `satelle serve`, so reinstall from pushed code: `make install  # example: optional local install from the working tree && satelle service install`. Use `make install  # example: optional local install from the working tree` (not a bare `go build`) so the service's PATH binary updates; confirm `satelle version` reports the pushed commit + new version.
+   `satelle update --check --session <session>` should then report the new version available.
+4. **Refresh the local service.** No deploy gate restarts the running `satelle serve`, so reinstall from pushed code: `make install  # example: optional local install from the working tree && satelle service install --session <session>`. Use `make install  # example: optional local install from the working tree` (not a bare `go build`) so the service's PATH binary updates; confirm `satelle version --session <session>` reports the pushed commit + new version.
 5. **Record the evidence.** Capture on the story (ledger note or tag): the SHA, the `test` run URL + conclusion, the `release` run URL + conclusion, and the published `v<version>` tag. `record-release` and the `done` gate read exactly this.
 
 ## When it fails

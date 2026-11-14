@@ -112,6 +112,8 @@ type prSandbox struct {
 	head string
 	old  string
 	prs  []map[string]any
+	// reviewer is the agent the repo binds pr-review to.
+	reviewer string
 }
 
 func newPRSandbox(t *testing.T) *prSandbox {
@@ -127,9 +129,12 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	srv.BindGitHub("acme", "orbelle/acme")
 
 	review, approval := repoPRGates(t)
-	if review.Skill != "satelle-code-ac-review" || review.Agent != "reviewer-alt" ||
+	// pr-review's judge is one of code-ac's (the same model, prompt and inputs;
+	// satelle-pr-review-publish.md), whatever the repo names it.
+	codeAC := repoGateAgents(t, ".satelle/workflows/delivery.toml")["code-ac"]
+	if review.Skill != "satelle-code-ac-review" || review.Agent == "" || !slices.Contains(codeAC, review.Agent) ||
 		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"}) {
-		t.Fatalf("pr-review is %+v, want the code-ac judge on reviewer-alt with the reasons rules, then the publish after", review)
+		t.Fatalf("pr-review is %+v, want the code-ac judge (one of %v) with the reasons rules, then the publish after", review, codeAC)
 	}
 	if approval.Skill != "satelle-pr-approval-check" || approval.Agent != "" || len(approval.After) != 0 {
 		t.Fatalf("pr-approval is %+v", approval)
@@ -146,8 +151,7 @@ func newPRSandbox(t *testing.T) *prSandbox {
 		s.write(".satelle/skills/"+filepath.Base(f), string(b))
 	}
 	s.write(".satelle/satelle.toml", "[workflows]\ndefault = \"delivery\"\n")
-	s.write(".satelle/agents.toml", `[agents.reviewer-alt]
-command = "claude"
+	s.write(".satelle/agents.toml", fmt.Sprintf("[agents.%q]\n", review.Agent)+`command = "claude"
 model = "ra-1"
 tools = ["Read", "Grep", "Glob"]
 [agents.executor]
@@ -208,7 +212,7 @@ esac
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "config")
 	s.mustConfigValid()
-	p := &prSandbox{sandbox: s, srv: srv, fake: fake}
+	p := &prSandbox{sandbox: s, srv: srv, fake: fake, reviewer: review.Agent}
 	p.old = strings.TrimSpace(s.git("rev-parse", "HEAD"))
 	s.write("src/main.go", "package main\n")
 	s.git("add", "-A")
@@ -584,7 +588,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 21 {
 		t.Fatalf("published %v", rv)
 	}
-	for _, want := range []string{"project acme", "gate pr-review (reviewer-alt) on " + approved, "head " + p.head[:12] + ": approve", "every criterion is met"} {
+	for _, want := range []string{"project acme", "gate pr-review (" + p.reviewer + ") on " + approved, "head " + p.head[:12] + ": approve", "every criterion is met"} {
 		if !strings.Contains(rv.GetBody(), want) {
 			t.Errorf("body lacks %q:\n%s", want, rv.GetBody())
 		}
@@ -823,7 +827,7 @@ func shBlock0(t *testing.T, rel string) string {
 	if !ok {
 		t.Fatalf("%s: unclosed sh block", rel)
 	}
-	return block
+	return bindSession(block)
 }
 
 // idBlock is shBlock's sibling for a block run once per item: the first ```sh
@@ -851,5 +855,5 @@ func idBlock(t *testing.T, rel, heading, id string) string {
 	if len(re.FindAllString(block, -1)) != 1 {
 		t.Fatalf("%s: the block has no single id= line:\n%s", rel, block)
 	}
-	return re.ReplaceAllString(block, "id="+id)
+	return bindSession(re.ReplaceAllString(block, "id="+id))
 }

@@ -1,0 +1,11 @@
+# Harnesses that cursor-ide-probe.sh caller-setup / caller-collect capture
+# (sto_1f4dc85d). Configuration, not script: each harness's CLI and the
+# headless launch form live here, never in the script (satelle-agent-agnostic
+# criterion 5). Tab-separated: harness, cli, launch. In launch, {dir} is the
+# capture dir; the script runs it from {dir}/<harness> behind its env prefix.
+#
+# grok: GROK_FOLDER_TRUST=0 because a headless run skips an untrusted folder's
+# project hooks, and --trust would write ~/.grok/trusted_folders.toml.
+cursor	cursor-agent	cursor-agent -p --output-format stream-json --trust <{dir}/cursor.prompt
+pi	pi	PATH={dir}/shim:$PATH pi -p --approve "$(cat {dir}/pi.prompt)"
+grok	grok	GROK_FOLDER_TRUST=0 grok --prompt-file {dir}/grok.prompt --output-format json --always-approve

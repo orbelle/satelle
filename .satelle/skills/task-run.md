@@ -15,15 +15,15 @@ the after-review gate can judge. You do **not** advance status.
 ## Do
 
 1. Read the execution and its parent task (title, body, action, verification):
-   `satelle execution get <id>`, `satelle task get <parent>`, and what the run
-   already carries, `satelle execution attachments <id>` and
-   `satelle execution attachment <id> <name>`.
+   `satelle execution get <id> --session <session>`, `satelle task get <parent> --session <session>`, and what the run
+   already carries, `satelle execution attachments <id> --session <session>` and
+   `satelle execution attachment <id> <name> --session <session>`.
 2. Attach the parent task to the run, because the after-review cannot read the
    task itself (it reads only the run's record folder):
-   `satelle task get <parent> | satelle execution attach <id> --name task --type text/plain --file -`.
+   `satelle task get <parent> --session <session> | satelle execution attach <id> --name task --type text/plain --file - --session <session>`.
 3. Carry out the **ACTION** exactly — no scope expansion into unrelated story work.
 4. Leave **VERIFICATION** evidence the after-gate expects as attachments on the
-   execution (`satelle execution attach <id> --name <name> --file -`), or the
+   execution (`satelle execution attach <id> --name <name> --file - --session <session>`), or the
    files the task named.
 5. Stop. The `in_progress → done` edge is gated by
    `satelle-task-validate-after-review`.

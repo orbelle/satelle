@@ -12,7 +12,7 @@ You are the **executor** in the `commit` step. The slice is built and prior gate
 
 ## Why the bump is mandatory
 
-`.version` is the **single source of truth** for the release tag (`v<satelle.version>`) and the build identity baked into the binary. `release` cuts a tag **only when `.version` changed** — a commit that doesn't bump leaves the released binary (what `satelle update` serves) stale (binary-drift trap). **Every** commit on this step bumps the patch version and stamps the build date.
+`.version` is the **single source of truth** for the release tag (`v<satelle.version>`) and the build identity baked into the binary. `release` cuts a tag **only when `.version` changed** — a commit that doesn't bump leaves the released binary (what `satelle update --session <session>` serves) stale (binary-drift trap). **Every** commit on this step bumps the patch version and stamps the build date.
 
 ## What to do
 

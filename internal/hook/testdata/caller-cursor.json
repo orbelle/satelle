@@ -1,0 +1,46 @@
+{
+  "harness": "cursor",
+  "cli": "cursor-agent",
+  "version": "2026.11.13-eacade1",
+  "captured": "2026-11-14",
+  "hook": {
+    "label": "gate@preToolUse",
+    "ancestors": [
+      "/usr/bin/bash",
+      "/work/.local/share/cursor-agent/versions/2026.11.13-eacade1/node",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "CLAUDE_PROJECT_DIR=/work/.cache/satelle-buildtmp/caller-probe/cursor",
+      "CURSOR_INVOKED_AS=cursor-agent",
+      "CURSOR_PROJECT_DIR=/work/.cache/satelle-buildtmp/caller-probe/cursor",
+      "CURSOR_RIPGREP_PATH=/work/.local/share/cursor-agent/versions/2026.11.13-eacade1/rg",
+      "CURSOR_USER_EMAIL=redacted",
+      "CURSOR_VERSION=2026.11.13-eacade1",
+      "XCURSOR_SIZE=24"
+    ]
+  },
+  "shell": {
+    "ancestors": [
+      "/usr/bin/bash",
+      "/work/.local/share/cursor-agent/versions/2026.11.13-eacade1/node",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.323/node_modules/.mise/@anthropic-ai+claude-code@2.1.323/node_modules/@anthropic-ai/claude-code/bin/claude.exe (deleted)",
+      "/usr/bin/bash",
+      "/usr/lib/zed/zed-editor",
+      "not read"
+    ],
+    "env": [
+      "CURSOR_AGENT=1",
+      "CURSOR_CONVERSATION_ID=ea6cb213-bf80-4da3-bf4c-ba0cd05cbb9b",
+      "CURSOR_INVOKED_AS=cursor-agent",
+      "CURSOR_REQUEST_ID=42e324ba-481c-4f7f-9f0b-3c60bb4df3b7",
+      "CURSOR_RIPGREP_PATH=/work/.local/share/cursor-agent/versions/2026.11.13-eacade1/rg",
+      "XCURSOR_SIZE=24"
+    ]
+  }
+}

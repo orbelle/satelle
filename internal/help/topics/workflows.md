@@ -20,11 +20,11 @@ transitions between them, written out explicitly.
 An item gets its workflow at create: `--workflow`, else the first
 `[[workflows.rule]]` in `satelle.toml` whose `category`, `tag` and `kind` all
 match, else `[workflows] default`. It keeps that workflow, with one
-exception: `satelle <kind> set <id> --reselect <w>` moves it to `<w>`'s start
+exception: `satelle <kind> set <id> --reselect <w> --session <session>` moves it to `<w>`'s start
 state when the rules now select `<w>` for it and its workflow has neither
 moved it nor judged it (no transition out of a status, no gate run). A refusal
 for that evidence exits 2; any other refusal exits 1; neither writes anything.
-`satelle workflow select --kind <k> [--tag <t>]... [--category <c>]` prints the
+`satelle workflow select --kind <k> [--tag <t>]... [--category <c>] --session <session>` prints the
 workflow and start state the rules choose for those fields.
 
 A workflow may name a panel, `panel = "<name>"` at the top of its file: satelled
@@ -34,9 +34,20 @@ counts those not in a terminal state, highlighted while that count is above
 zero. Workflows naming the same panel share its tab. A blank panel is refused.
 
 A state may name queues an item entering it joins, `enqueue = ["<name>"]`,
-each a `.satelle/queues/<name>.toml`: `satelle validate` refuses a name with no
+each a `.satelle/queues/<name>.toml`: `satelle validate --session <session>` refuses a name with no
 file, and the move is refused when the queue is closed (`satelle help
-queues`).
+queues --session <session>`).
+
+A state may declare what its exit waits on outside the session that drives
+the item, `waits = "<on what>"` (a person's approval, an outside CI or
+score). It is free text, shown by `satelle story route <id> --session
+<session>`, and refused on a terminal or park state and when blank. It is the
+one place a wait is declared: a session drives each seated item to a terminal
+state, and its turn may end with one short of that only at a park state, a
+`waits` state or the operator's state; otherwise the stop is blocked once,
+naming the next move (`satelle help edit-gate --session <session>`). A queue
+an outside party fires is declared by `waits` on the state that enqueues into
+it.
 
 ## Gates
 
@@ -119,7 +130,7 @@ reject with its output, and the checks after it do not run: each is noted
 refuses a judged verdict, the gate.run keeps the judge's raw answer: `answer`
 for a single judge, `members[].answer` for a panel (the panel's own members
 keep their verdicts, so such a round shows no member dissent). `satelle
-validate` refuses an entry that is not a check skill and an entry listed
+validate --session <session>` refuses an entry that is not a check skill and an entry listed
 twice. `after` is a list only: a single string (`after = "publish"`) is
 refused, naming the key and the list form to write (`after = ["publish"]`).
 
@@ -129,14 +140,14 @@ hold at least 40 non-whitespace characters) and, on gates that judge a plan or
 a change, `satelle-verdict-reference-check` (an accept quotes the work or names
 a file, criterion or record path); a refusal's notes say `the judge gave no
 reasons`. The rules live in those skills, not in the binary: a gate that
-declares none records its judge's verdict as given, and `satelle init` declares
+declares none records its judge's verdict as given, and `satelle init --session <session>` declares
 none. The `pr-review` gate lists its publish check last, so a refused verdict
-is never published to the PR (`satelle github review`).
+is never published to the PR (`satelle github review --session <session>`).
 
 A gate's `timeout` (a Go duration such as `"30m"` or `"1h30m"`, positive)
 bounds each check script the gate runs — its check skill, its trigger and its
 `after` — each run separately; without it the default of 10m applies.
-`satelle validate` refuses a timeout that does not parse, one that is not
+`satelle validate --session <session>` refuses a timeout that does not parse, one that is not
 positive, and one on a gate that runs no check script (a judge with no trigger
 and no `after`). A check cut at its bound rejects the gate, and the notes
 name the bound and where it came from: `timed out after 30m0s (gates.full-test
@@ -145,16 +156,16 @@ timeout)`, or `timed out after 10m0s (default; set timeout on
 `trigger <skill>: ` or `after <skill>: ` prefix. A timeout is a failure, not a
 verdict, so `after` does not run on it.
 
-`satelle story set <id> --status <to>` runs the gates in that command before
-it returns. A gate with a long `timeout` (see `satelle workflow show`) can
+`satelle story set <id> --status <to> --session <session>` runs the gates in that command before
+it returns. A gate with a long `timeout` (see `satelle workflow show --session <session>`) can
 outlast a harness's bound on one shell command: run such a move as the
 harness's background command, with that command's own timeout above the sum
 of the sequential gates' bounds.
 
 A check gate's `placement` says where its check skill runs: `local` (the
 default) here, or `remote:<id>` on a node of the docker-local or fly-sprite
-remote `.satelle/remotes/<id>/` (see `satelle help remotes`). Only a check
-gate may be placed on a remote; `satelle validate` refuses any other.
+remote `.satelle/remotes/<id>/` (see `satelle help remotes --session <session>`). Only a check
+gate may be placed on a remote; `satelle validate --session <session>` refuses any other.
 Relevance (`paths`, `trigger`), carry and `after` still run
 here, so a skipped or carried gate starts no node and an `after` keeps its
 credentials here. The node judges the item's pushed head: its collected
@@ -173,16 +184,16 @@ A state may cap the rejected rounds of leaving it, and name the park state
 that holds the item for the operator once the cap is reached:
 
     [states.plan]
-    hold = { rounds = 3, to = "held" }
-    [states.held]
+    hold = { rounds = 3, to = "blocked" }
+    [states.blocked]
     park = true
     resumes = true
 
     [[transition]]
     from = ["plan"]
-    to = "held"                  # declared, and gateless
+    to = "blocked"               # declared, and gateless
     [[transition]]
-    from = ["held"]
+    from = ["blocked"]
     to = "@prior"
 
 A round is one presentation of a transition leaving the state, to a target
@@ -197,20 +208,20 @@ verdicts that accepted in the last round. `story set` exits 2 and prints it;
 `story get` shows it while the item stays held. A park state has no performer,
 so the item is not performed again.
 
-`satelle validate` refuses a hold whose `rounds` is below 1, whose `to` is not
+`satelle validate --session <session>` refuses a hold whose `rounds` is below 1, whose `to` is not
 a park state, that sits on a terminal or park state, or that has no declared
 transition from the state to `to`, or one that carries gates.
 
 The move out of the hold is the operator's, never the driving session's: the
 session reports the hold and stops. Once the operator has decided, they run
-`satelle <kind> set <id> --status <state>` (for a resuming park, the state it
+`satelle <kind> set <id> --status <state> --session <session>` (for a resuming park, the state it
 was held from), which starts the count again.
 
 ## The base
 
 `SATELLE_BASE` is the item's diff base: the commit its gates judge the change
 from. A seat records it: HEAD when the seat is taken, or the commit
-`satelle story seat <id> --base <ref>` names (a stacked branch is seated on the
+`satelle story seat <id> --base <ref> --session <session>` names (a stacked branch is seated on the
 branch it is stacked on). When HEAD's history no longer contains the base (the
 branch was rebased or reset), every transition with gates refuses before any
 gate runs, naming the base, HEAD and the re-seat that fixes it; gateless moves
@@ -232,9 +243,40 @@ A state may carry a performer, an agent plus a skill:
     [states.build]
     performer = { agent = "builder", skill = "build" }
 
-`satelle story perform <id>` dispatches it. A performer whose agent's command is
+`satelle story perform <id> --session <session>` dispatches it. A performer whose agent's command is
 `session` is the interactive session itself: nothing is dispatched, and the
 session does the work under the edit gate.
+
+### What a performer may change
+
+A state with an agent performer says what that performer may change with
+`edits`: `edits = "tree"` (the default when the key is absent) lets a seat on
+the state edit the worktree; `edits = "attachments"` lets it record only the
+item's attachments, so the edit gate refuses every edit and shell write to the
+tree from that seat, exempt and locked paths included (see
+`satelle help edit-gate --session <session>`):
+
+    [states.plan]
+    performer = { agent = "planner", skill = "plan" }
+    edits = "attachments"
+
+`satelle validate --session <session>` refuses any other value, and the key on
+a state with no agent performer (no performer, or the operator's).
+
+A planning state is judged before any code, so the move out of it can also
+refuse a branch that already holds code. `satelle init --session <session>`
+writes the check skill `satelle-tree-unchanged-check`, which refuses the move
+when the item's tree differs from where its branch left origin/main (or the
+branch on origin of an item it is stacked on) outside `.satelle/runs`; its file
+in `.satelle/skills/` states the rule. Wire it first on the move:
+
+    [gates.tree-unchanged]
+    skill = "satelle-tree-unchanged-check"
+
+    [[transition]]
+    from = ["plan"]
+    to = "in_progress"
+    groups = [{ gates = ["tree-unchanged", "plan-review"] }]
 
 ### The operator's states
 
@@ -252,8 +294,8 @@ operator has recorded an attachment of the declared type since the item last
 entered the state; a record from an earlier visit does not count. The
 transition then runs its configured gates as usual.
 
-The operator records it from their own terminal, with `SATELLE_SESSION`
-unset:
+The operator records it from their own terminal, with no session named
+(`SATELLE_SESSION` unset and no `--session`):
 
     satelle story record <id> --file F [--name N] [--type-media M]
 
@@ -262,7 +304,7 @@ anything the verb asks for the item id to be retyped on the controlling
 terminal (`/dev/tty`); it never reads stdin, and without a terminal it refuses.
 
 Three checks refuse an agent: the kernel refuses any call made with an agent
-session (`SATELLE_SESSION`), the edit-gate hook refuses the verb in any agent
+session (`--session` or `SATELLE_SESSION`), the edit-gate hook refuses the verb in any agent
 shell call (behind wrappers such as `env`, `timeout` or `xargs`, and named in
 quoted, heredoc or `-c` program text), and the terminal retype needs the
 person at the keyboard. The operator mark is set only by this verb: `attach`,
@@ -282,10 +324,10 @@ A judge answers with a JSON object `{"verdict": "accept"|"reject", "notes":
 is a reject.
 
 Each judge's dispatch is logged under the runtime logs dir (`satelle logs
---path`, then `dispatch/`), one file per dispatch named for the binding, the
+--path --session <session>`, then `dispatch/`), one file per dispatch named for the binding, the
 time and the item: the command line, then for `pi` every RPC line written
 (`> `) and read (`< `) in order, for `claude` and `grok` their stdout (`< `),
-then stderr. `satelle logs` shows the newest. Only the newest few are kept,
+then stderr. `satelle logs --session <session>` shows the newest. Only the newest few are kept,
 as many as the rotated log files; they hold prompts and tool output, stay on
 this machine and are never written to the ledger.
 
@@ -296,7 +338,7 @@ names every file in the prompt, and removes it after the run; small bodies are
 also inlined, up to 16 KiB each and 64 KiB in all, newest first, each cut
 marked with the bytes shown and the file to read. A detached run gets the
 record inline only. The session reads any version itself with
-`satelle story attachment <id> <name> [--sha S]`.
+`satelle story attachment <id> <name> [--sha S] --session <session>`.
 
 ## Agents
 

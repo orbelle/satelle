@@ -1,12 +1,14 @@
 package hook
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -59,30 +61,152 @@ var cursorEvents = []struct{ event, verb string }{
 	{"stop", VerbStopcheck},
 }
 
-// Install writes or updates harness's hook file under root, keeping every
-// entry that is not satelle's. It returns the file it wrote.
-func Install(root, harness string) (string, error) {
+// ErrNotOwned is a pi extension file at satelle's path that does not carry
+// satelle's owned marker: Refresh and Pending leave it, a hand-run Install
+// replaces it.
+var ErrNotOwned = errors.New("not satelle's file")
+
+// ConfigDir is the repo-relative configuration directory of harness: the first
+// path element of its hook file (.claude, .grok, .pi, .cursor). "" for an
+// unknown harness.
+func ConfigDir(harness string) string {
 	rel, err := File(harness)
 	if err != nil {
-		return "", err
+		return ""
+	}
+	first, _, _ := strings.Cut(rel, "/")
+	return first
+}
+
+// SatelleCall reads cmd's first whitespace-separated word: ok when it is the
+// satelle binary (by lower-cased basename, .exe trimmed), and words are the
+// words after it up to, not including, the first that starts with "-". No
+// shell syntax is read: a command that wraps satelle (sh -c, env, timeout,
+// NAME=value, if-blocks) has another first word and is not a satelle call.
+func SatelleCall(cmd string) (words []string, ok bool) {
+	f := strings.Fields(cmd)
+	if len(f) == 0 || strings.TrimSuffix(strings.ToLower(filepath.Base(f[0])), ".exe") != "satelle" {
+		return nil, false
+	}
+	for _, w := range f[1:] {
+		if strings.HasPrefix(w, "-") {
+			break
+		}
+		words = append(words, w)
+	}
+	return words, true
+}
+
+// ownsCommand reports whether cmd is one of satelle's own hook entries, which
+// an install replaces with the current set: a satelle call whose first word is
+// hook, or the legacy satelle-hook.sh script.
+func ownsCommand(cmd string) bool {
+	if words, ok := SatelleCall(cmd); ok && len(words) > 0 && words[0] == "hook" {
+		return true
+	}
+	return strings.Contains(cmd, "satelle-hook.sh")
+}
+
+// plan computes harness's hook file under root as an install would leave it:
+// satelle's own entries replaced by the current set, and every handler stale
+// reports removed (stale may be nil). changed is false when the resulting
+// hooks equal the file's as JSON values (any indentation or key order), or,
+// for pi, when the rendered extension equals the file's bytes. ownedOnly
+// refuses a present pi extension without satelle's marker with ErrNotOwned.
+func plan(root, harness string, stale func(string) bool, ownedOnly bool) (path string, body []byte, changed bool, err error) {
+	rel, err := File(harness)
+	if err != nil {
+		return "", nil, false, err
+	}
+	path = filepath.Join(root, filepath.FromSlash(rel))
+	prev, err := os.ReadFile(path)
+	absent := errors.Is(err, os.ErrNotExist)
+	if err != nil && !absent {
+		return path, nil, false, err
+	}
+	if harness == Pi {
+		if ownedOnly && !absent && !strings.Contains(string(prev), piOwnedMarker) {
+			return path, nil, false, ErrNotOwned
+		}
+		body = piExtension()
+		return path, body, absent || !bytes.Equal(prev, body), nil
+	}
+	if body, err = withHooks(prev, harness, stale); err != nil {
+		return path, nil, false, fmt.Errorf("%s: %w", path, err)
+	}
+	if absent {
+		return path, body, true, nil
+	}
+	before, err := decodeObject(prev)
+	if err != nil {
+		return path, nil, false, fmt.Errorf("%s: %w", path, err)
+	}
+	after, err := decodeObject(body)
+	if err != nil {
+		return path, nil, false, fmt.Errorf("%s: %w", path, err)
+	}
+	return path, body, !reflect.DeepEqual(before["hooks"], after["hooks"]), nil
+}
+
+func writePlanned(path string, body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o644)
+}
+
+// Install writes or updates harness's hook file under root, keeping every
+// entry that is not satelle's and dropping each one stale reports (stale may
+// be nil). A file whose hooks would not change is not written. It returns the
+// file and whether it wrote it. A pi extension that is not satelle's is
+// replaced.
+func Install(root, harness string, stale func(string) bool) (string, bool, error) {
+	path, body, changed, err := plan(root, harness, stale, false)
+	if err != nil || !changed {
+		return path, false, err
+	}
+	return path, true, writePlanned(path, body)
+}
+
+// Refresh is Install for an unattended pass: a present pi extension that is
+// not satelle's is never written (ErrNotOwned).
+func Refresh(root, harness string, stale func(string) bool) (string, bool, error) {
+	path, body, changed, err := plan(root, harness, stale, true)
+	if err != nil || !changed {
+		return path, false, err
+	}
+	return path, true, writePlanned(path, body)
+}
+
+// Pending reports what Refresh would do, writing nothing.
+func Pending(root, harness string, stale func(string) bool) (string, bool, error) {
+	path, _, changed, err := plan(root, harness, stale, true)
+	return path, changed, err
+}
+
+// Commands lists every handler command of harness's JSON hook file under
+// root, nested groups and flat entries alike. Nil for pi and for an absent
+// file.
+func Commands(root, harness string) ([]string, error) {
+	rel, err := File(harness)
+	if err != nil || harness == Pi {
+		return nil, err
 	}
 	path := filepath.Join(root, filepath.FromSlash(rel))
-	var body []byte
-	if harness == Pi {
-		body = piExtension()
-	} else {
-		prev, err := os.ReadFile(path)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return path, err
-		}
-		if body, err = withHooks(prev, harness); err != nil {
-			return path, fmt.Errorf("%s: %w", path, err)
-		}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return path, err
+	if err != nil {
+		return nil, err
 	}
-	return path, os.WriteFile(path, body, 0o644)
+	doc, err := decodeObject(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var out []string
+	walkHandlers(doc, func(cmd string) bool { out = append(out, cmd); return false })
+	return out, nil
 }
 
 // Remove strips satelle's entries from harness's hook file under root. A file
@@ -111,7 +235,7 @@ func Remove(root, harness string) (string, error) {
 	if err != nil {
 		return path, fmt.Errorf("%s: %w", path, err)
 	}
-	pruneSatelle(doc)
+	pruneSatelle(doc, nil)
 	if len(doc) == 0 && harness == Grok {
 		return path, os.Remove(path)
 	}
@@ -119,13 +243,14 @@ func Remove(root, harness string) (string, error) {
 }
 
 // withHooks returns prev (a JSON settings document, possibly empty) with
-// satelle's hook entries replaced by the current ones.
-func withHooks(prev []byte, harness string) ([]byte, error) {
+// satelle's hook entries replaced by the current ones and every handler stale
+// reports removed.
+func withHooks(prev []byte, harness string, stale func(string) bool) ([]byte, error) {
 	doc, err := decodeObject(prev)
 	if err != nil {
 		return nil, err
 	}
-	pruneSatelle(doc)
+	pruneSatelle(doc, stale)
 	hooks, _ := doc["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
@@ -188,17 +313,28 @@ func writeJSON(path string, doc map[string]any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-// pruneSatelle removes every hook handler whose command is a satelle hook,
-// dropping groups and events left empty. A group is claude's and grok's nested
-// {matcher, hooks: [...]}; a flat entry with its own command (cursor's) is
-// kept or dropped by that command.
-func pruneSatelle(doc map[string]any) {
+// pruneSatelle removes every hook handler that is satelle's own entry
+// (ownsCommand) or that stale reports (stale may be nil), dropping groups and
+// events left empty.
+func pruneSatelle(doc map[string]any, stale func(string) bool) {
+	walkHandlers(doc, func(cmd string) bool { return ownsCommand(cmd) || (stale != nil && stale(cmd)) })
+}
+
+// walkHandlers calls drop with every handler command in doc's hooks and
+// removes the handlers it returns true for, dropping groups and events left
+// empty. A group is claude's and grok's nested {matcher, hooks: [...]}; a
+// flat entry with its own command (cursor's) is kept or dropped by that
+// command.
+func walkHandlers(doc map[string]any, drop func(cmd string) bool) {
 	hooks, ok := doc["hooks"].(map[string]any)
 	if !ok {
 		return
 	}
 	for event, val := range hooks {
-		groups, _ := val.([]any)
+		groups, ok := val.([]any)
+		if !ok {
+			continue
+		}
 		var keptGroups []any
 		for _, g := range groups {
 			gm, ok := g.(map[string]any)
@@ -207,7 +343,7 @@ func pruneSatelle(doc map[string]any) {
 				continue
 			}
 			if _, nested := gm["hooks"]; !nested {
-				if cmd, _ := gm["command"].(string); !isSatelleCommand(cmd) {
+				if cmd, isStr := gm["command"].(string); !isStr || !drop(cmd) {
 					keptGroups = append(keptGroups, g)
 				}
 				continue
@@ -216,7 +352,7 @@ func pruneSatelle(doc map[string]any) {
 			var kept []any
 			for _, h := range hs {
 				if hm, ok := h.(map[string]any); ok {
-					if cmd, _ := hm["command"].(string); isSatelleCommand(cmd) {
+					if cmd, isStr := hm["command"].(string); isStr && drop(cmd) {
 						continue
 					}
 				}
@@ -266,9 +402,16 @@ func Installed(root, harness string) bool {
 // compatibility, whose payloads carry cursor_version), so once `satelle agents
 // install cursor` has run, the claude entries would judge and inject twice.
 // Only the payload marks the caller; the environment does not, so a claude
-// session started from Cursor's terminal keeps its own gate.
-func Defers(root, harness string, in Input) bool {
-	return harness != Cursor && in.Cursor && Installed(root, Cursor)
+// session started from Cursor's terminal keeps its own gate. root resolves
+// the repo's root; it is called, once, only for a Cursor payload answered for
+// another harness, so every other call pays no repo lookup. ok false (not a
+// repo) never defers.
+func Defers(harness string, in Input, root func() (string, bool)) bool {
+	if harness == Cursor || !in.Cursor {
+		return false
+	}
+	tree, ok := root()
+	return ok && Installed(tree, Cursor)
 }
 
 // ProjectDir is the project dir the calling harness pins for its hooks:
@@ -281,10 +424,6 @@ func ProjectDir() string {
 		}
 	}
 	return ""
-}
-
-func isSatelleCommand(cmd string) bool {
-	return strings.Contains(cmd, "satelle hook ") || strings.Contains(cmd, "satelle-hook.sh")
 }
 
 const piOwnedMarker = "// satelle-owned:"

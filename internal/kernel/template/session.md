@@ -1,0 +1,5 @@
+Pass `--session <session>` on every satelle command, where `<session>` is the id on the satelle session: line. Run each satelle command on its own, as one simple command, not joined to cd, export, ; or &&; for another worktree use `satelle -C <dir> <command>`.
+
+Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state's performer may change the tree: `satelle story seat <id> --session <session>`. A seat on a state that allows attachments only refuses every tree edit there; record its work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>`. See `satelle help edit-gate --session <session>`.
+
+Drive each seated item to a terminal state of its workflow. A turn may end with one short of that only at a park state or at a state that declares it waits on an external party (waits: a person's approval, an outside CI or score). Otherwise the stop is blocked once, naming the next move: make it. The stop straight after a blocked one is let through.

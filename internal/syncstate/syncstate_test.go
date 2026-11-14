@@ -16,7 +16,7 @@ func TestLoadMissingIsNotAnError(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	if err := RecordSync(home, "/repo", "satelle.dev project p", "", now); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: "satelle.dev project p"}, now); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := Load(home, "/repo")
@@ -35,7 +35,7 @@ func TestSyncMergeDoesNotClobberSnapshot(t *testing.T) {
 	if err := RecordSnapshot(home, "/repo", false, "snap fail", snapAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordSync(home, "/repo", "s", "", pushAt); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: "s"}, pushAt); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := Load(home, "/repo")
@@ -53,7 +53,7 @@ func TestSyncMergeDoesNotClobberSnapshot(t *testing.T) {
 func TestTornFileIsNoState(t *testing.T) {
 	home := t.TempDir()
 	repo := "/repo"
-	if err := RecordSync(home, repo, "s", "", time.Now()); err != nil {
+	if err := RecordPass(home, repo, Pass{Store: "s"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	p := pathFor(home, repo)
@@ -72,10 +72,10 @@ func TestTornFileIsNoState(t *testing.T) {
 func TestRepeatedFailureIncrementsPasses(t *testing.T) {
 	home := t.TempDir()
 	now := time.Now()
-	if err := RecordSync(home, "/r", "s", "boom", now); err != nil {
+	if err := RecordPass(home, "/r", Pass{Store: "s", Reason: "boom"}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordSync(home, "/r", "s", "boom", now.Add(time.Minute)); err != nil {
+	if err := RecordPass(home, "/r", Pass{Store: "s", Reason: "boom"}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	got, _, err := Load(home, "/r")
@@ -92,7 +92,7 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	pushAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	first := time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
 	second := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	if err := RecordSync(home, "/repo", "s", "", pushAt); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: "s"}, pushAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := RecordSubstrate(home, "/repo", map[string]AreaCheck{"skills": {State: "behind"}, "documents": {State: "in step"}}, first); err != nil {
@@ -119,32 +119,32 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	}
 }
 
-// RecordSync: a failure keeps the last success, a success clears the reason,
+// RecordPass: a failure keeps the last success, a success clears the reason,
 // and a local store is never a failure (sto_5c706973).
-func TestRecordSyncFailureThenSuccess(t *testing.T) {
+func TestRecordPassFailureThenSuccess(t *testing.T) {
 	home := t.TempDir()
 	okAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	failAt := okAt.Add(time.Minute)
 	againAt := failAt.Add(time.Minute)
 	store := "satelle.dev project shared at https://satelle.dev"
-	if err := RecordSync(home, "/repo", store, "", okAt); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: store}, okAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordSync(home, "/repo", store, "rpc error: code = Unavailable", failAt); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: store, Reason: "rpc error: code = Unavailable"}, failAt); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _ := Load(home, "/repo")
 	if got.SyncReason != "rpc error: code = Unavailable" || !got.SyncLastFailure.Equal(failAt) || !got.SyncLastSuccess.Equal(okAt) || !got.SyncLastAttempt.Equal(failAt) || got.SyncPasses != 1 || got.SyncStore != store {
 		t.Fatalf("after a failure: %+v", got)
 	}
-	if err := RecordSync(home, "/repo", store, "", againAt); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: store}, againAt); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _ = Load(home, "/repo")
 	if got.SyncReason != "" || got.SyncPasses != 0 || !got.SyncLastSuccess.Equal(againAt) || !got.SyncLastFailure.Equal(failAt) {
 		t.Fatalf("after a success: %+v", got)
 	}
-	if err := RecordSync(home, "/local", LocalStore, "ignored", againAt); err != nil {
+	if err := RecordPass(home, "/local", Pass{Store: LocalStore, Reason: "ignored"}, againAt); err != nil {
 		t.Fatal(err)
 	}
 	if got, _, _ := Load(home, "/local"); got.SyncStore != LocalStore || got.SyncReason != "" || !got.SyncLastSuccess.Equal(againAt) {
@@ -155,7 +155,7 @@ func TestRecordSyncFailureThenSuccess(t *testing.T) {
 // Keys an older satelle wrote (the removed push group) are dropped on load.
 func TestOldPushKeysAreIgnored(t *testing.T) {
 	home := t.TempDir()
-	if err := RecordSync(home, "/repo", "local", "", time.Now()); err != nil {
+	if err := RecordPass(home, "/repo", Pass{Store: "local"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(pathFor(home, "/repo"), []byte(`{"repo_path":"/repo","push_reason":"old","scope":"personal","sync_store":"local"}`), 0o644); err != nil {
@@ -184,5 +184,42 @@ func TestRecordPassCounts(t *testing.T) {
 	st, _, _ = Load(home, "/repo")
 	if st.SyncPushed != 1 || st.SyncPulled != 0 || len(st.SyncForked) != 0 || st.SyncReason != "" {
 		t.Fatalf("a later pass did not replace the counts: %+v", st)
+	}
+}
+
+// An upgrade pass (a pre-1.0 repo the pass skipped, sto_0f76dd4e) records the
+// command and clears the failure, keeping when the repo last synced and last
+// failed; the next ordinary pass clears it.
+func TestRecordPassUpgrade(t *testing.T) {
+	home := t.TempDir()
+	ok1 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	fail := ok1.Add(time.Hour)
+	up := fail.Add(time.Hour)
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Pushed: 1}, ok1); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPass(home, "/repo", Pass{Store: "s", Reason: "unknown key review", Forked: []string{"x (y)"}}, fail); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPass(home, "/repo", Pass{Upgrade: "satelle upgrade --archive"}, up); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := Load(home, "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SyncUpgrade != "satelle upgrade --archive" || got.SyncReason != "" || got.SyncPasses != 0 ||
+		got.SyncStore != "" || got.SyncPushed != 0 || len(got.SyncForked) != 0 {
+		t.Fatalf("upgrade pass recorded %+v", got)
+	}
+	if !got.SyncLastAttempt.Equal(up) || !got.SyncLastSuccess.Equal(ok1) || !got.SyncLastFailure.Equal(fail) {
+		t.Fatalf("upgrade pass moved the stamps: %+v", got)
+	}
+	next := up.Add(time.Minute)
+	if err := RecordPass(home, "/repo", Pass{Store: LocalStore}, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := Load(home, "/repo"); got.SyncUpgrade != "" || !got.SyncLastSuccess.Equal(next) {
+		t.Fatalf("an ordinary pass kept the upgrade: %+v", got)
 	}
 }

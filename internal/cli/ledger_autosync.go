@@ -16,6 +16,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/syncstate"
@@ -40,11 +41,15 @@ left on both sides and named. Each project's outcome is recorded for
 satelled's project page, and this machine's satelled's mirror of every
 project visited, local store or not, is confirmed: marked fresh when
 unchanged, otherwise sent a full snapshot. A satelled that is not answering
-confirms nothing. A project whose path no longer exists is removed from
-this machine's projects, and each partition of this machine's satelled whose
-recorded project path no longer exists is removed; a satelled that is not
-answering removes no partition. Exits 1 when any project's pass failed; a
-confirm or a prune that fails does not fail the pass.`,
+confirms nothing. A pre-1.0 project is skipped with one "needs upgrade" line
+naming satelle upgrade --archive, is recorded so satelled shows it, and does
+not fail the pass. Each other project's untracked harness hook files in use
+are refreshed first, as satelle agents refresh does; a refresh failure is
+printed and does not fail the pass. A project whose path no longer exists is
+removed from this machine's projects, and each partition of this machine's
+satelled whose recorded project path no longer exists is removed; a satelled
+that is not answering removes no partition. Exits 1 when any project's pass
+failed; a confirm or a prune that fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			gc, err := config.LoadGlobal()
@@ -53,9 +58,10 @@ confirm or a prune that fails does not fail the pass.`,
 			}
 			out := cmd.OutOrStdout()
 			gc = pruneGoneProjects(gc, out)
+			stale := staleHook(substrateTree(NewRootCmd()))
 			var failed []string
 			for _, path := range gc.Projects.Paths {
-				if !autosyncProject(cmd.Context(), out, path) {
+				if !autosyncProject(cmd.Context(), out, path, stale) {
 					failed = append(failed, path)
 				}
 			}
@@ -138,8 +144,11 @@ func pruneGonePartitions(ctx context.Context, out io.Writer) {
 
 // autosyncProject runs one project's pass, records its outcome and confirms
 // satelled's mirror of the project (sto_128803b3). A path that is gone or holds no satelle repo is
-// skipped with nothing recorded. It reports whether the pass succeeded.
-func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
+// skipped with nothing recorded. First it refreshes the project's untracked
+// harness files in use by stale, as satelle agents refresh does; a hook
+// failure is printed, but is not a sync outcome and does not fail the pass.
+// It reports whether the pass succeeded.
+func autosyncProject(ctx context.Context, out io.Writer, path string, stale func(string) bool) bool {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
 		fmt.Fprintf(out, "%s: skipped: no such directory\n", path)
 		return true
@@ -148,6 +157,22 @@ func autosyncProject(ctx context.Context, out io.Writer, path string) bool {
 	if err != nil {
 		fmt.Fprintf(out, "%s: skipped: %v\n", path, err)
 		return true
+	}
+	// A pre-1.0 repo cannot be read by this satelle: it needs upgrading in
+	// the repo, which is not a failed pass (sto_0f76dd4e). Nothing is opened,
+	// so nothing is written into its runtime dir, and its harness files are
+	// left for satelle upgrade --archive.
+	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
+		fmt.Fprintln(out, needsUpgradeLine(path, m))
+		_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), syncstate.Pass{Upgrade: kernel.UpgradeCommand}, time.Now())
+		return true
+	}
+	hooks := refreshProject(r, stale)
+	for _, f := range hooks.Changed {
+		fmt.Fprintf(out, "%s: refreshed %s hooks\n", f.Path, f.Harness)
+	}
+	for _, f := range hooks.Failures {
+		fmt.Fprintf(out, "%s: harness file not refreshed: %s\n", f.Path, f.Err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
 	defer cancel()

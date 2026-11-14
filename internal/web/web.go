@@ -102,6 +102,9 @@ type pageData struct {
 	SyncReason      string
 	SyncLocal       bool
 	SyncStore       string
+	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
+	// (sto_0f76dd4e), shown as upgrade needed, never as sync failing.
+	SyncUpgrade string
 	// SyncHeld are the stories the last push held until their code is on the
 	// remote (sty_c203fd62). Holding is intended while a story is in flight, so
 	// they are shown apart from SyncReason, never as sync failing.
@@ -149,6 +152,8 @@ type rowVM struct {
 	// Assignees is every user assigned the item, each once: its explicit
 	// assignees, then each user holding a working seat (assigneesOf).
 	Assignees []assigneeVM
+	// Progress is a story row's step chips (progressOf); nil on other rows.
+	Progress []stageVM
 }
 
 // engagementVM is where a story is engaged: Here is its mark for seats here
@@ -169,6 +174,23 @@ func (e *engagementVM) Attr() string {
 		parts = append(parts, "elsewhere")
 	}
 	return strings.Join(parts, ",")
+}
+
+// Words is the engagement in words for a Progress chip's hover: the here
+// mark's title, then each elsewhere mark's, joined by "; " ("" for nil). It
+// formats the marks' own text and decides nothing.
+func (e *engagementVM) Words() string {
+	if e == nil {
+		return ""
+	}
+	var parts []string
+	if e.Here != nil {
+		parts = append(parts, e.Here.Title)
+	}
+	for _, m := range e.Elsewhere {
+		parts = append(parts, m.Title)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // markVM is one engagement mark: Label its text, Title its hover (one entry
@@ -211,10 +233,13 @@ type detailData struct {
 	StateClass string
 	// BackTab is the project tab the item is listed on when it is not its
 	// kind's own: a workflow panel's topic; "" means the kind's tab.
-	BackTab       string
-	ParentKind    string // the kind of the parent item, "" when not pushed
-	Assignees     []assigneeVM
-	Children      []childLink
+	BackTab    string
+	ParentKind string // the kind of the parent item, "" when not pushed
+	Assignees  []assigneeVM
+	Children   []childLink
+	// Progress is a story's step chips with their rejected rounds; nil for
+	// other kinds.
+	Progress      []stageVM
 	Route         routeVM
 	Presentations []presentationVM
 	Attachments   []attachmentVM

@@ -389,3 +389,146 @@ func TestPanelKey(t *testing.T) {
 		t.Fatalf("blank panel: %v", errs)
 	}
 }
+
+func TestValidateWaits(t *testing.T) {
+	body := func(review, park, end string) string {
+		return "[states.a]\nstart = true\n[states.review]\n" + review + "\n[states.p]\npark = true\n" + park + "\n[states.z]\nterminal = true\n" + end + "\n" +
+			"[[transition]]\nfrom = [\"a\"]\nto = \"review\"\n[[transition]]\nfrom = [\"review\"]\nto = \"z\"\n[[transition]]\nfrom = [\"a\"]\nto = \"p\"\n"
+	}
+	const review = `waits = "the reviewer's approval"`
+	w, err := parse(t, body(review, "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("waits on an open state refused: %v", errs)
+	}
+	if got := w.States["review"].Waits; got != "the reviewer's approval" {
+		t.Fatalf("waits decoded as %q", got)
+	}
+	cases := []struct{ name, body, want string }{
+		{"on a terminal state", body(review, "", `waits = "x"`), `state "z" waits, but a terminal or park state`},
+		{"on a park state", body(review, `waits = "x"`, ""), `state "p" waits, but a terminal or park state`},
+		{"blank", body(`waits = "  "`, "", ""), `state "review" waits is blank`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := parse(t, c.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var msgs []string
+			for _, e := range w.Validate(skillOf, agentOf) {
+				msgs = append(msgs, e.Error())
+			}
+			if joined := strings.Join(msgs, "\n"); !strings.Contains(joined, c.want) {
+				t.Fatalf("want %q in:\n%s", c.want, joined)
+			}
+		})
+	}
+}
+
+const editsWorkflow = `
+[states.s0]
+start = true
+[states.plan]
+performer = { agent = "a1", skill = "work" }
+edits = "attachments"
+[states.build]
+performer = { agent = "a1", skill = "work" }
+[states.review]
+performer = { operator = "approval" }
+[states.end]
+terminal = true
+
+[[transition]]
+from = ["s0"]
+to = "plan"
+[[transition]]
+from = ["plan"]
+to = "build"
+[[transition]]
+from = ["build"]
+to = "review"
+[[transition]]
+from = ["review"]
+to = "end"
+`
+
+func TestStateEdits(t *testing.T) {
+	w, err := parse(t, editsWorkflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("unexpected problems: %v", errs)
+	}
+	for state, want := range map[string]string{"plan": EditsAttachments, "build": EditsTree, "s0": "", "review": "", "end": ""} {
+		if got := w.States[state].EditScope(); got != want {
+			t.Errorf("state %s EditScope = %q, want %q", state, got, want)
+		}
+	}
+	tree := strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "tree"`, 1)
+	if w, err = parse(t, tree); err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("edits = tree: unexpected problems: %v", errs)
+	}
+	if got := w.States["plan"].EditScope(); got != EditsTree {
+		t.Fatalf("edits = tree: EditScope = %q", got)
+	}
+	for _, c := range []struct{ name, body, want string }{
+		{"unknown value", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "plan"`, 1), `state "plan" edits "plan" is not tree or attachments`},
+		{"no performer", strings.Replace(editsWorkflow, "[states.s0]\nstart = true", "[states.s0]\nstart = true\nedits = \"attachments\"", 1), `state "s0" sets edits but has no agent performer`},
+		{"operator state", strings.Replace(editsWorkflow, `performer = { operator = "approval" }`, "performer = { operator = \"approval\" }\nedits = \"tree\"", 1), `state "review" sets edits but has no agent performer`},
+	} {
+		w, err := parse(t, c.body)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		errs := w.Validate(skillOf, agentOf)
+		if !strings.Contains(fmt.Sprint(errs), c.want) {
+			t.Errorf("%s: problems %v do not contain %q", c.name, errs, c.want)
+		}
+	}
+}
+
+func TestStateEditScopeReadsOneState(t *testing.T) {
+	write := func(t *testing.T, files map[string]string) string {
+		t.Helper()
+		dir := t.TempDir()
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	lenient := editsWorkflow + "\nbogus_key = 1\n[gates.g]\nskill = \"nowhere\"\n[[transition]]\nfrom = [\"end\"]\nto = \"s0\"\ngroups = [{ gates = [\"undefined\"] }]\n"
+	dir := write(t, map[string]string{"flow.toml": lenient, "other.toml": "this is [not toml"})
+	for state, want := range map[string]string{"plan": EditsAttachments, "build": EditsTree, "review": ""} {
+		got, err := StateEditScope(dir, "flow", state)
+		if err != nil || got != want {
+			t.Errorf("state %s: got %q, %v; want %q", state, got, err, want)
+		}
+	}
+	named := write(t, map[string]string{"x.toml": "name = \"named\"\n" + editsWorkflow})
+	if got, err := StateEditScope(named, "named", "plan"); err != nil || got != EditsAttachments {
+		t.Errorf("named workflow: got %q, %v", got, err)
+	}
+	for _, c := range []struct{ name, body, state string }{
+		{"syntax error", editsWorkflow + "\n[states.broken\n", "plan"},
+		{"missing state", editsWorkflow, "nowhere"},
+		{"edits not a string", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = 3`, 1), "plan"},
+		{"edits unknown", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "nothing"`, 1), "plan"},
+	} {
+		dir := write(t, map[string]string{"flow.toml": c.body})
+		if got, err := StateEditScope(dir, "flow", c.state); err == nil {
+			t.Errorf("%s: got %q and no error", c.name, got)
+		}
+	}
+	if got, err := StateEditScope(dir, "absent", "plan"); err == nil {
+		t.Errorf("absent workflow: got %q and no error", got)
+	}
+}

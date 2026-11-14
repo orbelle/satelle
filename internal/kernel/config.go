@@ -12,6 +12,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
+	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -33,10 +34,17 @@ type GateSettings struct {
 	LockedPaths     []string `toml:"locked_paths"`
 }
 
-// HookSettings is the [hook] section: files the context hook prints.
+// HookSettings is the [hook] section: files the context hook prints, and
+// whether satelle update and the sync pass refresh this repo's harness hook
+// files (refresh, default true).
 type HookSettings struct {
-	Inject []string `toml:"inject"`
+	Inject  []string `toml:"inject"`
+	Refresh *bool    `toml:"refresh"`
 }
+
+// Refreshes reports whether update and the sync pass refresh this repo's
+// harness hook files: true unless [hook] refresh = false.
+func (h HookSettings) Refreshes() bool { return h.Refresh == nil || *h.Refresh }
 
 // RuleSettings is the [rules] section.
 type RuleSettings struct {
@@ -77,6 +85,11 @@ type Config struct {
 	// selections satelle doctor runs beside its kernel checks (empty when the
 	// file is absent).
 	Doctor DoctorSettings
+	// Volatile is .satelle/volatile.toml: the volatile-literal patterns, the
+	// exemption marker and the extra and excluded paths satelle validate and
+	// satelle doctor apply (empty, so nothing is reported, when the file is
+	// absent). A file of its own for the reason DoctorSettings is.
+	Volatile substrate.VolatileRules
 }
 
 // DoctorSettings is doctor.toml. It is a file of its own, not a satelle.toml
@@ -89,34 +102,32 @@ type DoctorSettings struct {
 }
 
 // DoctorResolve is doctor.toml's [resolve] table: the selection of the one
-// item satelle doctor --resolve opens for the substrate findings. Unset keys
-// take the defaults Selection applies; it has no status, which the item's
-// workflow stamps.
+// item satelle doctor --resolve opens for the substrate findings. Kind and tag
+// are required for --resolve to open the item, and satelle holds no default
+// for either: satelle init writes them (template doctor.toml). Category is
+// optional. It has no status, which the item's workflow stamps.
 type DoctorResolve struct {
 	Kind     string `toml:"kind"`
 	Tag      string `toml:"tag"`
 	Category string `toml:"category"`
 }
 
-// The fix item's default selection: a story, tagged substrate-fix, routed by
-// the repo's workflow rules like any other story.
-const (
-	DefaultResolveKind = "story"
-	DefaultResolveTag  = "substrate-fix"
-)
-
-// Selection is the fix item's selection with the defaults applied: kind
-// story and tag substrate-fix unless [resolve] names others; a category only
-// when [resolve] sets one.
+// Selection is the fix item's selection, the three keys as configured.
 func (r DoctorResolve) Selection() item.Selection {
-	s := item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
-	if s.Kind == "" {
-		s.Kind = DefaultResolveKind
+	return item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
+}
+
+// Unset names each required key [resolve] leaves empty, in the order kind,
+// tag; empty when --resolve can open the fix item.
+func (r DoctorResolve) Unset() []string {
+	var out []string
+	if r.Kind == "" {
+		out = append(out, "kind")
 	}
-	if s.Tag == "" {
-		s.Tag = DefaultResolveTag
+	if r.Tag == "" {
+		out = append(out, "tag")
 	}
-	return s
+	return out
 }
 
 // DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one
@@ -147,7 +158,11 @@ func (o DoctorOpen) Selection() item.Selection {
 const (
 	SettingsFile = "satelle.toml"
 	DoctorFile   = "doctor.toml"
+	VolatileFile = "volatile.toml"
 	AgentsFile   = "agents.toml"
+	// SessionFile is the session guidance the context, prompt and stop
+	// hooks print: shipped by satelle init, owned and edited by the repo.
+	SessionFile  = "session.md"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
 	QueuesDir    = "queues"
@@ -156,6 +171,13 @@ const (
 	RemotesDir = "remotes"
 	RemoteFile = "remote.toml"
 )
+
+// LoadSettings reads root's satelle.toml strictly.
+func LoadSettings(root string) (Settings, error) {
+	var st Settings
+	err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &st)
+	return st, err
+}
 
 // LoadConfig reads root's configuration. It returns what it could load and
 // every load error; Problems adds the validation errors.
@@ -166,11 +188,18 @@ func LoadConfig(root string) (*Config, error) {
 	if err := legacyProblem(root); err != nil {
 		errs = append(errs, err)
 	}
-	if err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &c.Settings); err != nil {
+	st, err := LoadSettings(root)
+	c.Settings = st
+	if err != nil {
 		errs = append(errs, err)
 	}
 	if p := filepath.Join(root, DoctorFile); exists(p) {
 		if err := workflow.DecodeStrict(p, &c.Doctor); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if p := filepath.Join(root, VolatileFile); exists(p) {
+		if err := workflow.DecodeStrict(p, &c.Volatile); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -267,7 +296,17 @@ func (c *Config) Problems() []error {
 	}
 	errs = append(errs, c.queueProblems()...)
 	errs = append(errs, c.doctorProblems()...)
+	for _, err := range c.Volatile.Problems() {
+		errs = append(errs, fmt.Errorf("%s: %w", VolatileFile, err))
+	}
 	return errs
+}
+
+// VolatileFindings is each line of the substrate, and of the files
+// volatile.toml names, that matches one of its patterns (substrate.Volatile).
+// It is the one call satelle validate and satelle doctor make.
+func (c *Config) VolatileFindings() ([]substrate.Finding, error) {
+	return substrate.Volatile(c.Root, c.Volatile)
 }
 
 // doctorProblems checks doctor.toml: each check names a check skill and a fix;

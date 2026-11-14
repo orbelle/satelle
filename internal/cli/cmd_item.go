@@ -81,7 +81,7 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 		fl.StringVar(&f.trigTask, "trigger-task", "", "the task the queue's trigger runs (an execution under it)")
 		fl.StringVar(&f.trigWorkflow, "trigger-workflow", "", "the workflow the queue's trigger starts a run in")
 		fl.StringVar(&f.trigBase, "trigger-base", "", "the ref a fired run's base comes from (default HEAD)")
-		fl.IntVar(&f.minSize, "min-size", 0, "fire when an enqueue leaves this many members (0: only by hand)")
+		fl.IntVar(&f.minSize, "min-size", 0, "fire when an enqueue leaves this many members (0: only on queue fire)")
 	}
 	if !create && (kind == "task" || kind == item.QueueKind) {
 		fl.BoolVar(&f.clearInputs, "clear-inputs", false, "clear the input selection")
@@ -559,7 +559,7 @@ Nothing is written on a refusal.`,
 			if cmd.Flags().Changed("reselect") {
 				var others []string
 				cmd.Flags().Visit(func(fl *pflag.Flag) {
-					if fl.Name != "reselect" && fl.Name != "json" {
+					if fl.Name != "reselect" && fl.Name != "json" && fl.Name != sessionFlag && fl.Name != directoryFlag {
 						others = append(others, "--"+fl.Name)
 					}
 				})
@@ -765,7 +765,7 @@ func recordCmd(kind string) *cobra.Command {
 operator's (performer = { operator = "<type>" }): the file is recorded with the
 state's declared type, marked as the operator's, and only such a record since
 the item entered the state lets it leave. The operator runs it in their own
-terminal with SATELLE_SESSION unset; it asks for the item id to be retyped on
+terminal with no session named (SATELLE_SESSION unset, no --session); it asks for the item id to be retyped on
 the controlling terminal and never reads stdin. An agent session may not run it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -877,14 +877,15 @@ sha256 or a unique hex prefix of at least 7 characters).`,
 }
 
 func seatCmd(kind string) *cobra.Command {
-	var session, location, base string
+	var location, base string
 	cmd := &cobra.Command{
 		Use:   "seat <id>",
 		Short: "Bind this session, at this worktree, to an item",
 		Long: `seat binds a session at a location to an item. While the item's current
-state has a performer, the edit gate allows the seated session's edits at that
-location. The session defaults to $SATELLE_SESSION (the context hook prints
-it); the location defaults to local:<this worktree>.
+state's performer may change the tree, the edit gate allows the seated
+session's edits at that location; a state that allows attachments only
+(edits = "attachments") refuses every tree edit there. The session is --session <id> (the context hook prints it; it
+defaults to $SATELLE_SESSION); the location defaults to local:<this worktree>.
 
 The seat records the item's diff base: the commit its gates judge the change
 from. It is HEAD unless --base names a branch, tag or commit (resolved now, and
@@ -904,8 +905,9 @@ item's branch does not widen the diff.`,
 			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
+			session := sessionFromEnv()
 			if session == "" {
-				return errors.New("no session: pass --session or set SATELLE_SESSION")
+				return errors.New("no session: pass --session <id>")
 			}
 			if location == "" {
 				location = kernel.LocalLocation(r.Tree)
@@ -925,14 +927,12 @@ item's branch does not widen the diff.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&session, "session", sessionFromEnv(), "session (default $SATELLE_SESSION)")
 	cmd.Flags().StringVar(&location, "location", "", "local:<path>, remote:<node> or cloud:<url> (default: this worktree)")
 	cmd.Flags().StringVar(&base, "base", "", "the commit the item's diff is judged from: a branch, tag or SHA, resolved now (default HEAD)")
 	return cmd
 }
 
 func releaseCmd(kind string) *cobra.Command {
-	var session string
 	cmd := &cobra.Command{
 		Use:   "release <id>",
 		Short: "Release this session's seat on an item",
@@ -946,8 +946,9 @@ func releaseCmd(kind string) *cobra.Command {
 			if args[0], err = resolveItem(k, kind, args[0]); err != nil {
 				return err
 			}
+			session := sessionFromEnv()
 			if session == "" {
-				return errors.New("no session: pass --session or set SATELLE_SESSION")
+				return errors.New("no session: pass --session <id>")
 			}
 			if err := k.Release(args[0], session, actor()); err != nil {
 				return err
@@ -956,7 +957,6 @@ func releaseCmd(kind string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&session, "session", sessionFromEnv(), "session (default $SATELLE_SESSION)")
 	return cmd
 }
 
