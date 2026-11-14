@@ -35,5 +35,6 @@ If the `satelle` command is missing, install it first:
 
     satelle story list --session <session>                       # the work items
     satelle story route <id> --session <session>                 # where an item is, and its gate results
+    satelle gate run <workflow>/<gate> --item <id> --session <session>  # dry-run one gate, recording nothing
     satelle story set <id> --status <state> --session <session>  # present a transition; its gates judge it
     satelle workflow show --session <session>                    # the configured workflows

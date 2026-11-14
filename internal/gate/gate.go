@@ -204,6 +204,14 @@ func (r Run) Execute(ctx context.Context) ([]Result, bool) {
 	return all, true
 }
 
+// Gate runs the one named gate as Execute would within its group: relevance,
+// carry, its check or every judge, and its after checks. It is a dry run's
+// entry; the result carries no Attempt, and the caller records nothing.
+func (r Run) Gate(ctx context.Context, name string) Result {
+	r.skipWarning = r.diffWarning()
+	return r.one(ctx, name)
+}
+
 func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
 func (r Run) env() CheckEnv { return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base} }

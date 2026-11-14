@@ -345,58 +345,11 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		}
 		queues = append(queues, q)
 	}
-	sp := span{}
-	if k.Git != nil {
-		sp = k.spanOf(it, events)
+	run, sp, done, err := k.gateRun(it, events, w, tr, it.Status, to)
+	if err != nil {
+		return res, err
 	}
-	if len(tr.Groups) > 0 {
-		if stale := k.staleBase(it, sp); stale != nil {
-			return res, stale
-		}
-	}
-	base := sp.base
-	var changed []string
-	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
-		if changed, err = k.changed(sp); err != nil {
-			return res, err
-		}
-	}
-	var prior []gate.Result
-	for _, e := range events {
-		var r gate.Result
-		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
-			prior = append(prior, r)
-		}
-	}
-	run := gate.Run{
-		Item: it, From: it.Status, To: to, Transition: tr, Workflow: w,
-		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
-		Dir: k.Dir, Base: base, Changed: changed, Prior: prior,
-		ReviewerDiffers: k.Settings.Rules.ReviewerDiffersFromPerformer,
-		CheckTimeout:    k.CheckTimeout,
-		Coverage:        func(paths []string) (string, string, error) { return k.coverage(it, events, sp, paths) },
-		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
-		Remote:          k.RemoteChecks,
-		Logs:            k.Logs,
-	}
-	if k.Git != nil {
-		run.Span = k.runSpan(events, sp)
-	}
-	judgedHere := k.judged(w, tr)
-	// A check placed on a remote judges the pushed head, not this tree.
-	if remotePlaced(w, tr) {
-		run.Head, run.HeadErr = k.pushedHead(events, sp)
-	}
-	// A judge reads the item's record; checks need none. The folder is
-	// written after the changed paths are computed, and is gitignored.
-	if judgedHere {
-		rec, err := k.record(it, events, true)
-		if err != nil {
-			return res, err
-		}
-		defer rec.Close()
-		run.Record = rec.Section
-	}
+	defer done()
 	results, pass := run.Execute(ctx)
 	res.Gates = results
 	attempt := item.NewID("att")
@@ -416,7 +369,7 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	// decides nothing (a workflow places a check to refuse a change).
 	var frozen *item.Span
 	if w.States[to].Terminal && k.Git != nil {
-		if frozen, err = k.frozenSpan(it, w, sp, append(prior, results...)); err != nil {
+		if frozen, err = k.frozenSpan(it, w, sp, append(run.Prior, results...)); err != nil {
 			return res, err
 		}
 	}

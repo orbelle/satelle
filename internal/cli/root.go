@@ -70,6 +70,7 @@ every event on an append-only ledger. Start with 'satelle init' and
 		ledgerCmd(), workflowCmd(), hookCmd(), agentsCmd(),
 		loginCmd(), logoutCmd(), whoamiCmd(), projectCmd(), remoteCmd(), nodeCmd(),
 		serviceCmd(), workspaceCmd(), runtimeCmd(), logsCmd(), updateCmd(), settingsCmd(), upgradeCmd(), githubCmd(),
+		gateCmd(),
 	)
 	root.SetHelpCommand(helpCmd(root))
 	return root
