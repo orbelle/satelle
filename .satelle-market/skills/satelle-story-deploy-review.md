@@ -58,6 +58,6 @@ done
 echo "deploy: web UI healthy and LIVE at ${URL}."
 
 # 4. Health-check the CLI.
-"${BIN}" status >/dev/null 2>&1 || { echo "deploy: 'satelle status' failed" >&2; exit 1; }
+"${BIN}" status >/dev/null 2>&1 || { echo "deploy: 'satelle status --session <session>' failed" >&2; exit 1; }
 echo "deploy: PASS — service deployed and LIVE at ${URL} (web + CLI healthy)."
 ```

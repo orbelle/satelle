@@ -206,7 +206,7 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 		"interface", "park", "cancel", "recover",
 		// AC2: the judge rule and the resume rule.
 		"session", "claude", "pi", "grok", "read-only",
-		"@prior", "resumes = true", "satelle workflow show",
+		"@prior", "resumes = true", "satelle workflow show --session <session>",
 		// AC6: retype and command renames.
 		"type: check", "story attachment <id> <name>", "story attachments <id>",
 		"ledger list <id>", "--file -",

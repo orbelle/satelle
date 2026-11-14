@@ -1,12 +1,12 @@
 # Configuration
 
 Everything satelle runs lives in `.satelle/`, in git, owned by you. An unknown
-key refuses to run; `satelle validate` lists every problem.
+key refuses to run; `satelle validate --session <session>` lists every problem.
 
 ## The substrate check
 
-`satelle validate` also checks the substrate against the running binary: every
-`satelle` command, subcommand, flag and `satelle help` topic named in code in
+`satelle validate --session <session>` also checks the substrate against the running binary: every
+`satelle` command, subcommand, flag and `satelle help --session <session>` topic named in code in
 the files of `skills/`, `principles/`, `tasks/`, `workflows/` and `queues/`
 (backtick spans and fenced or indented blocks of `.md` files, backtick spans of
 `.toml` files, every line of `.sh` files; not under `testdata/`), and every
@@ -15,7 +15,7 @@ the files of `skills/`, `principles/`, `tasks/`, `workflows/` and `queues/`
 `$...`) is not checked. Each miss is one line,
 `<file>:<line>: <kind>: <subject> — <why>`, of kind command, flag, topic or
 link; with `--json` they are the `substrate` list beside `problems`. Any miss
-fails `satelle validate` and is a `substrate` issue of `satelle doctor`, but
+fails `satelle validate --session <session>` and is a `substrate` issue of `satelle doctor --session <session>`, but
 the kernel still opens: only a configuration problem stops it.
 
 - `satelle.toml` — settings:
@@ -47,21 +47,21 @@ the kernel still opens: only a configuration problem stops it.
       store = { command = "...", args = ["..."] }   # or "satelle.dev" / "local"; unset: satelle.dev signed in, else local
 
   `[hook] refresh = false` opts the repo out of the harness hook refresh that
-  `satelle update` and the sync pass run (see `satelle help agents`).
+  `satelle update --session <session>` and the sync pass run (see `satelle help agents --session <session>`).
   `satelle.toml` is decoded strictly, so a repo that sets `refresh` needs
   satelle at this version or later on every machine that opens it.
 
-- `agents.toml` — the agents catalog (see `satelle help workflows`).
+- `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.
 - `doctor.toml` — optional: the repo's own checks and open-item lists
-  `satelle doctor` runs beside its kernel checks (below).
-- `volatile.toml` — optional: the volatile-literal patterns `satelle validate`
-  and `satelle doctor` apply to the substrate (below).
+  `satelle doctor --session <session>` runs beside its kernel checks (below).
+- `volatile.toml` — optional: the volatile-literal patterns `satelle validate --session <session>`
+  and `satelle doctor --session <session>` apply to the substrate (below).
 
 ## doctor.toml
 
-`satelle doctor` reports what is wrong here, each issue with the command that
+`satelle doctor --session <session>` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
 within 2 s. Besides its kernel checks (config, substrate, volatile, init, harness,
 versions, sync, seats) it
@@ -84,7 +84,7 @@ reports each item it selects that is not in a terminal state of its workflow.
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.
 
-`satelle doctor --resolve` fixes what doctor can prove (the service, seats
+`satelle doctor --resolve --session <session>` fixes what doctor can prove (the service, seats
 whose session has ended on this machine or whose item is in a terminal state)
 and asks about other orphaned seats.
 The config, substrate, volatile, init and `[[check]]` findings it puts on one item, for the agent to
@@ -99,7 +99,7 @@ names the item:
 
 Every key is optional; an item's status is its workflow's to set, so there is
 no `status`. While the configuration is invalid no item can be recorded:
-`--resolve` then lists the findings with `satelle validate` first.
+`--resolve` then lists the findings with `satelle validate --session <session>` first.
 
 ## volatile.toml
 
@@ -128,11 +128,11 @@ or a `match` that does not compile is a configuration problem. The shipped
 A line is not reported when it carries a YYYY-MM-DD date (dated history) or
 the `exempt` marker. Each other line gives one finding per pattern it
 matches: `<file>:<line>: volatile: <pattern> — "<text>" matches <regexp>`.
-`satelle validate` lists them (the `volatile` list with `--json`) without
-failing; `satelle doctor` reports each as a `volatile` issue, and `--resolve`
+`satelle validate --session <session>` lists them (the `volatile` list with `--json`) without
+failing; `satelle doctor --session <session>` reports each as a `volatile` issue, and `--resolve`
 puts them on the substrate-fix item. With no `volatile.toml`, or no
 `[[pattern]]` in it, nothing is reported: satelle holds no patterns of its
-own. `satelle init` writes the default patterns when the file is absent, and
+own. `satelle init --session <session>` writes the default patterns when the file is absent, and
 the repo edits its copy to change, add or remove them. The shipped file flags
 version strings, present-tense words and item ids presented as current, and
 holds a commented `model-id` pattern that a repo enables by uncommenting it
@@ -140,6 +140,6 @@ and listing the vendors whose models it uses: satelle ships no vendor list. It i
 the reason `doctor.toml` is.
 
 Runtime state — the ledger, attachment blobs, the sqlite cache and logs — lives
-under `~/.satelle/<repo-key>/` (`satelle runtime path`), shared by every
+under `~/.satelle/<repo-key>/` (`satelle runtime path --session <session>`), shared by every
 worktree of the repository. `~/.satelle/config.toml` holds machine settings:
-satelled's port and address, this machine's projects (`satelle help projects`) and the hosted server.
+satelled's port and address, this machine's projects (`satelle help projects --session <session>`) and the hosted server.

@@ -54,12 +54,12 @@ are reviewed*).
   rewrite, in satelle and satelle-server alike: no backward compatibility in the
   wire (no REST beside gRPC), storage or configuration. The users are the
   operator and a few testers; satelle provides the way across (`satelle
-  upgrade`), client and server ship together, and the previous install is
+  upgrade --session <session>`), client and server ship together, and the previous install is
   backed up before a swap.
 - **A clean, efficient codebase.** No redundant artifacts, functions, files,
   skills, scripts or tests: what nothing reaches is deleted, not kept "in
   case". The one exception is the story ledger of the operator's other repos,
-  which `satelle upgrade` migrates into v1; satelle, satelle-server,
+  which `satelle upgrade --session <session>` migrates into v1; satelle, satelle-server,
   satelle-delivery and satelle-server-infra start clean (their old backlog is
   irrelevant to the rewrite; satelle-server-infra is migrated by the
   satelle-server session with a backlog of 0).

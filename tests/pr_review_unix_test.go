@@ -823,7 +823,7 @@ func shBlock0(t *testing.T, rel string) string {
 	if !ok {
 		t.Fatalf("%s: unclosed sh block", rel)
 	}
-	return block
+	return bindSession(block)
 }
 
 // idBlock is shBlock's sibling for a block run once per item: the first ```sh
@@ -851,5 +851,5 @@ func idBlock(t *testing.T, rel, heading, id string) string {
 	if len(re.FindAllString(block, -1)) != 1 {
 		t.Fatalf("%s: the block has no single id= line:\n%s", rel, block)
 	}
-	return re.ReplaceAllString(block, "id="+id)
+	return bindSession(re.ReplaceAllString(block, "id="+id))
 }

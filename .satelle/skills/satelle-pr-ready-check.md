@@ -28,7 +28,7 @@ Before presenting integration → approved, the session:
 2. commits without touching `CHANGELOG.md` or `.version` (the release run
    writes the version section and bumps the version once), and records its
    changelog lines on the item as an attachment named `changelog`:
-   `satelle story attach <id> --name changelog --type text/markdown --file -`;
+   `satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`;
 3. pushes: `git push -u origin <branch>`;
 4. opens the pull request:
    `gh pr create --base main --title "<title> (<id>)" --body "<id>: <criteria>"`.
@@ -69,11 +69,11 @@ if ! git merge-base --is-ancestor origin/main "$head"; then
   exit 1
 fi
 if ! git diff --quiet origin/main "$head" -- CHANGELOG.md; then
-  echo "HEAD ${head:0:12} edits CHANGELOG.md; the release run writes it. Restore it (git checkout origin/main -- CHANGELOG.md), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file -"
+  echo "HEAD ${head:0:12} edits CHANGELOG.md; the release run writes it. Restore it (git checkout origin/main -- CHANGELOG.md), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session>"
   exit 1
 fi
 if ! cl=$(satelle story attachment "$SATELLE_ITEM" changelog 2>/dev/null); then
-  echo "no changelog attachment on $SATELLE_ITEM: satelle story attach $SATELLE_ITEM --name changelog --file - (### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking, then one - line per entry)"
+  echo "no changelog attachment on $SATELLE_ITEM: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session> (### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking, then one - line per entry)"
   exit 1
 fi
 if ! why=$(printf '%s\n' "$cl" | bash scripts/changelog-items.sh lines "$SATELLE_ITEM" 2>&1 >/dev/null); then

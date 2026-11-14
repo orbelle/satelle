@@ -28,7 +28,7 @@ Two reviewer gates bracket the run and are the ONLY gates: the begin-run edge
 (`backlog → in_progress`) is gated by **satelle-task-validate-before-review** —
 a CODED structural check (no agent run): the run names a parent task header
 that exists and is structurally valid, the same contract as
-`satelle task validate`; the close edge
+`satelle task validate --session <session>`; the close edge
 (`in_progress → done`) is gated by **satelle-task-validate-after-review** — the
 ACTION was carried out and its VERIFICATION is satisfied. There is **no** commit,
 push, release, estimate, or integration machinery — an execution is a

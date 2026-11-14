@@ -21,7 +21,7 @@ has a verdict, with `SATELLE_GATE`, `SATELLE_GATE_RESULT` and
    `REQUEST_CHANGES`. The body's first line names the project, the gate, its
    binding, the item and the head. The judge's notes follow.
 3. The item's own `github.review` events (`satelle ledger list <id> --kind
-   github.review`) decide whether to publish on this head. Only an approval is
+   github.review --session <session>`) decide whether to publish on this head. Only an approval is
    ever withheld:
    - an `APPROVE` after a `REQUEST_CHANGES` on the same head is not published
      (never override requested changes; the approval check reads the app's
@@ -64,7 +64,7 @@ case "$result" in
   *) echo "unexpected gate result '$result'"; exit 1 ;;
 esac
 slug=$(satelle project show 2>&1 | sed -n 's/^slug: *//p')
-[ -n "$slug" ] || { echo "satelle project show named no project: bind this repo (satelle project bind <project>)"; exit 1; }
+[ -n "$slug" ] || { echo "satelle project show named no project: bind this repo (satelle project bind <project> --session <session>)"; exit 1; }
 body=$(printf 'satelle · project %s · gate %s (%s) on %s head %s: %s\n\n%s' "$slug" "$SATELLE_GATE" "$SATELLE_GATE_BINDING" "$SATELLE_ITEM" "$short" "$verdict" "$notes")
 sum=$(printf '%s' "$body" | sha256sum | cut -d' ' -f1)
 recorded=$(satelle ledger list "$SATELLE_ITEM" --kind github.review --json | jq -c --arg h "$head" '[.[] | .payload | select(.commit_sha == $h)]') ||

@@ -213,7 +213,7 @@ func TestInitWritesTheAgentReadme(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"`satelle doctor`", "`satelle help`", "`satelle agents install <harness>`", "`satelle status`"} {
+	for _, want := range []string{"`satelle doctor --session <session>`", "`satelle help --session <session>`", "`satelle agents install <harness> --session <session>`", "`satelle status --session <session>`"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf(".satelle/README.md lacks %s", want)
 		}

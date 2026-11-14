@@ -15,7 +15,7 @@ an epic's children are driven to `approved` and released together
 1. **Act from the story's own worktree.** An edit, commit or command is
    attributed by the tree it targets; run each story's work from its worktree,
    one story per command.
-2. **Keep live runs away from a running integration suite.** A `satelle update`,
+2. **Keep live runs away from a running integration suite.** A `satelle update --session <session>`,
    dogfood or scratch-repo run while a suite runs fails it for a reason outside
    the slice. The suite runs alone.
 3. **Overlap only what touches no shared host state**: readiness rounds,

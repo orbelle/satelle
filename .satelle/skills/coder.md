@@ -25,11 +25,11 @@ never a verdict ([[satelle-agent-consultation]]).
 Before any edit:
 
 ```bash
-satelle story get <id>                # body + the acceptance criteria
-satelle story attachment <id> plan    # the plan — the slice, named
-satelle story attachments <id>        # what else is already attached
-satelle story route <id>              # your position and the latest gate rejects
-satelle ledger list <id>              # prior gate results on this item
+satelle story get <id> --session <session>                # body + the acceptance criteria
+satelle story attachment <id> plan --session <session>    # the plan — the slice, named
+satelle story attachments <id> --session <session>        # what else is already attached
+satelle story route <id> --session <session>              # your position and the latest gate rejects
+satelle ledger list <id> --session <session>              # prior gate results on this item
 ```
 
 The ACs to implement are the plan's `## Acceptance criteria` section when it has
@@ -48,7 +48,7 @@ never rebase or force-push the pushed head; resolve any conflict in the real
 work; the route re-runs the full suite at integration -> approved.
 
 Record the item's changelog lines as its `changelog` attachment
-(`satelle story attach <id> --name changelog --type text/markdown --file -`,
+(`satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`,
 format in `satelle-pr-ready-check.md`). Never edit `CHANGELOG.md` or
 `.version`: the release run writes the version section from the attachments.
 
@@ -63,7 +63,7 @@ format in `satelle-pr-ready-check.md`). Never edit `CHANGELOG.md` or
 
 ## Know your grant — and name what it cannot prove
 
-Run every check your grant carries: `satelle validate`, and the commands of
+Run every check your grant carries: `satelle validate --session <session>`, and the commands of
 `satelle-format-vet-check` (`gofmt -l internal cmd tests scripts`,
 `go vet ./...`, `GOOS=windows go build ./...`, `sh scripts/audit-literals.sh`)
 and `satelle-build-unit-check` (`go build ./...`,
@@ -75,7 +75,7 @@ could not run in your hand-off; never claim a suite you did not run.
 Before you hand off, attach the per-AC evidence the exit gate reads:
 
 ```bash
-satelle story attach <id> --name ac-evidence --type text/markdown --file - <<'EOF'
+satelle story attach <id> --name ac-evidence --type text/markdown --file - --session <session> <<'EOF'
 ## Per-AC evidence
 
 | AC | Realised proof (test path + name, or command + output) | Plan named | Divergence |

@@ -52,7 +52,7 @@ func shBlockVar(t *testing.T, rel, heading, name, value string) string {
 	if len(re.FindAllString(block, -1)) != 1 {
 		t.Fatalf("%s: the block has no single %s= line:\n%s", rel, name, block)
 	}
-	return re.ReplaceAllString(block, name+"="+value)
+	return bindSession(re.ReplaceAllString(block, name+"="+value))
 }
 
 // releaseSandbox is a repo whose main is pushed to a bare origin, carrying
@@ -371,4 +371,11 @@ func repoReleaseQueue(t *testing.T) string {
 		t.Fatalf(".satelle/queues/release.toml %+v", def)
 	}
 	return string(b)
+}
+
+// bindSession fills a procedure block's session=<session> line the way a
+// session does with its id: here with the sandbox's own $SATELLE_SESSION
+// (sto_2a41b9e4). An unfilled line is a shell syntax error by design.
+func bindSession(block string) string {
+	return regexp.MustCompile(`(?m)^session=<session>`).ReplaceAllString(block, `session="${SATELLE_SESSION:-}"`)
 }

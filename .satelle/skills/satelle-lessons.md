@@ -18,11 +18,11 @@ improvement stories (that is the epic retrospective).
 Pull by story id from the payload:
 
 ```bash
-satelle story get <id>
-satelle story attachments <id>
-satelle story attachment <id> plan          # if present
-satelle story attachment <id> ac-evidence   # if present — the per-AC realised-test map
-satelle ledger list <id>
+satelle story get <id> --session <session>
+satelle story attachments <id> --session <session>
+satelle story attachment <id> plan --session <session>          # if present
+satelle story attachment <id> ac-evidence --session <session>   # if present — the per-AC realised-test map
+satelle ledger list <id> --session <session>
 ```
 
 ## 2. What the ledger is evidence OF
@@ -85,7 +85,7 @@ that caused it; a bare over- or under-estimate is a number, not a lesson.
 ## 5. Attach
 
 ```bash
-echo "…" | satelle story attach <id> --name lessons --type text/markdown --file -
+echo "…" | satelle story attach <id> --name lessons --type text/markdown --file - --session <session>
 ```
 
 Exactly **one** lessons document per story. Body shape (markdown):

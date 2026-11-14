@@ -1,6 +1,6 @@
 # The edit gate and blocks
 
-Harness hooks (`satelle agents install claude|pi|grok|cursor`) send every edit
+Harness hooks (`satelle agents install claude --session <session>|pi|grok|cursor`) send every edit
 and shell command a session makes to `satelle hook gate`. The gate allows an edit only
 when **the editing session holds a seat, at this worktree, on an item whose
 current state has a performer**:
@@ -8,8 +8,10 @@ current state has a performer**:
     satelle story seat <id> --session <session>    # location defaults to local:<worktree>
     satelle story release <id> --session <session>
 
-The session id comes from the harness's hook payload, or from
-`SATELLE_SESSION`; the context hook prints it at session start.
+The session id comes from the harness's hook payload, and the context hook
+prints it at session start. A session passes it as `--session <session>` on
+every satelle command, each run on its own as one simple command, with
+`satelle -C <worktree> ... --session <session>` for another worktree.
 
 A performer satelle dispatches here (`satelle <kind> perform`, or a drive) is
 seated for its run as session `perform_<hex>` at `local:<worktree>`. It
@@ -20,7 +22,7 @@ failure.
 Every seat records the machine it was bound on (an id kept in
 `~/.satelle/machine-id`, folded with the host's machine id), its host name and
 the satelle user who bound it: the signed-in identity (the email `satelle
-whoami` names, else its display name), else `<OS user>@<host>`. The users
+whoami --session <session>` names, else its display name), else `<OS user>@<host>`. The users
 holding a seat are the item's assignees beside any set with `--assignee`:
 `story get`, `story list --json` and satelled list them once each, marking
 the seated ones working, and a released or gone seat drops its user.
@@ -29,7 +31,7 @@ Whether its session still runs is known only on that machine, from
 processes, each hook call (session start, prompt, seat command) settles the
 session's owner from the process it shares with an earlier call (the
 harness), and a dispatched run records its own process. A live owner is kept
-when SessionStart fires again in the same session. `satelle doctor` and
+when SessionStart fires again in the same session. `satelle doctor --session <session>` and
 satelled class each seat as **here** (this machine, owner running),
 **elsewhere** (another machine, or a remote or cloud location), **gone** (this
 machine, its settled owner exited) or **unverified** (no machine recorded, no
@@ -37,7 +39,7 @@ session record, no settled owner even when its hook processes have exited, or
 no proof either way). satelled marks the story ◆ here for a seat here and
 ◇ here for an unverified one, with the reason on hover, and shows each seat
 elsewhere on the row at its user and place.
-`satelle doctor --resolve` releases a gone one, and a seat on an item in a
+`satelle doctor --resolve --session <session>` releases a gone one, and a seat on an item in a
 terminal state wherever its session ran, without asking, and asks about a seat
 here whose session never settled an owner, never releasing it unasked.
 
@@ -67,9 +69,9 @@ the working directory of any interpreter running inline program text.
 
 ## cursor-agent sessions
 
-`satelle agents install cursor` writes satelle's entries into the repo's
+`satelle agents install cursor --session <session>` writes satelle's entries into the repo's
 `.cursor/hooks.json` (version 1), keeping every other entry; `satelle agents
-remove cursor` strips only satelle's. `cursor-agent` runs:
+remove cursor --session <session>` strips only satelle's. `cursor-agent` runs:
 
 - `preToolUse` (matcher `Write|Delete|Shell`) → `satelle hook gate --harness
   cursor`. A refusal answers `permission: deny` with the same reason the claude
@@ -82,7 +84,7 @@ remove cursor` strips only satelle's. `cursor-agent` runs:
 - `beforeSubmitPrompt` → `satelle hook prompt`. It settles the session's owner
   and answers `{"continue":true}`. Cursor's prompt event has no context
   channel, so a cursor-agent session gets no per-prompt seat reminder; the
-  seats are in its session-start context and in `satelle status`.
+  seats are in its session-start context and in `satelle status --session <session>`.
 - `stop` → `satelle hook stopcheck`, which answers `{}`: no `followup_message`,
   so Cursor ends the turn.
 
@@ -111,7 +113,7 @@ tool `Write` and its shell commands as tool `Shell` on preToolUse, so the gate
 judges both: an edit or a shell redirect with no seat is refused with the
 gate's reason, and the same edit passes once the session is seated. Cursor's
 prompt event has no context channel, so the seats are in the session-start
-context and in `satelle status`, as for cursor-agent.
+context and in `satelle status --session <session>`, as for cursor-agent.
 
 Where an IDE session differs:
 
@@ -124,20 +126,20 @@ Where an IDE session differs:
   satelle's runtime under `~/.satelle`: a `satelle story set` there fails with
   `attempt to write a readonly database`. Run satelle commands outside the
   sandbox (the agent offers to rerun them), or allow them in Cursor's settings.
-- The IDE's hook processes exit after each event, so `satelle doctor` reports
+- The IDE's hook processes exit after each event, so `satelle doctor --session <session>` reports
   the session's seat as unverified rather than engaged; release it with
-  `satelle story release <id>` when the chat is done.
+  `satelle story release <id> --session <session>` when the chat is done.
 - A user-level `~/.cursor/hooks.json` entry that answers `allow` on preToolUse
   or beforeShellExecution does not override satelle's deny: the refused write
   and the refused shell redirect were not made.
 - Cloud and background agents (`is_background_agent`) were not validated.
 
-A repo wired only for claude (`satelle agents install claude`, no
+A repo wired only for claude (`satelle agents install claude --session <session>`, no
 `.cursor/hooks.json`) is gated in the Cursor IDE too: the IDE runs its
 `.claude/settings.json` hooks (SessionStart, UserPromptSubmit, PreToolUse,
 Stop) and honours their answers, so the agent gets the session-start context
-and an unseated edit or shell redirect is refused. `satelle status` still
-shows cursor as not installed there; `satelle agents install cursor` gives the
+and an unseated edit or shell redirect is refused. `satelle status --session <session>` still
+shows cursor as not installed there; `satelle agents install cursor --session <session>` gives the
 IDE its own entries.
 
 A **block** is a deny with its reason: the harness shows it to the agent and

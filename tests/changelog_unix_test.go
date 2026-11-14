@@ -202,7 +202,7 @@ func changelogBlock(t *testing.T, wt, ver string, ids ...string) string {
 		}
 		block = re.ReplaceAllLiteralString(block, name+"="+val)
 	}
-	return "wt=" + wt + "\n" + block
+	return "wt=" + wt + "\n" + bindSession(block)
 }
 
 // bump writes .version's satelle.version in wt, commits only .version and

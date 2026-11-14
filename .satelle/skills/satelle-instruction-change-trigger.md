@@ -16,7 +16,7 @@ whole decision.
 
 ## What counts
 
-The story's change set is the `paths` of `satelle story diff <id> --json`, the
+The story's change set is the `paths` of `satelle story diff <id> --json --session <session>`, the
 id being `$SATELLE_ITEM`, filtered to instruction paths:
 
 - generic: `.satelle/skills/**`, `.satelle/principles/**`,

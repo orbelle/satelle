@@ -68,13 +68,14 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
    takes every approved story in the queue, the epic's children among them.
 4. After the release run and the drift run are `done`, run the readiness block
    again. When it says "close it", present
-   `satelle story set <epic> --status done`. The children-closed and
+   `satelle story set <epic> --status done --session <session>`. The children-closed and
    done-review gates judge the move.
 
 ```sh
+session=<session>   # this session's id, from the context line
 epic=EPIC_ID
-satelle story get "$epic" >/dev/null || exit 2
-open=$(satelle story list --parent "$epic" --open --json) || exit 2
+satelle story get "$epic" --session "$session" >/dev/null || exit 2
+open=$(satelle story list --parent "$epic" --open --json --session "$session") || exit 2
 if [ "$(printf '%s\n' "$open" | jq length)" -eq 0 ]; then
   echo "no open child of $epic: close it"
   exit 0
@@ -90,7 +91,7 @@ echo "every open child of $epic is approved: fire the release"
 
 **A child the release sends back** is `in_progress` again, with a
 `release-sendback` attachment naming the reason (read it with
-`satelle story attachment <id> release-sendback`). The epic stays `underway`,
+`satelle story attachment <id> release-sendback --session <session>`). The epic stays `underway`,
 because children-closed refuses the epic's done move while that child is open.
 Drive that child again to `approved` before the next fire. Then rerun the
 readiness block and fire again before closing the epic.

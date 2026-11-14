@@ -2,31 +2,31 @@
 
 v1 is a clean rewrite: a pre-1.0 `.satelle` (its `satelle.toml` keys, its
 `workflows/step.toml`, `done.toml` and `agents.toml`) does not load, and every
-command names `satelle upgrade --archive`. While it does not load, the edit
+command names `satelle upgrade --archive --session <session>`. While it does not load, the edit
 gate allows edits under `.satelle/` only. The way across has two steps.
 
 satelle names a pre-1.0 repo, each time with the same one line, `<path>:
-needs upgrade: ...`, naming `satelle upgrade --archive` to run there and the
+needs upgrade: ...`, naming `satelle upgrade --archive --session <session>` to run there and the
 satelle-upgrade skill it writes: at session start in that repo (to the agent,
-and to you where the harness has a user channel), in `satelle doctor` (an
+and to you where the harness has a user channel), in `satelle doctor --session <session>` (an
 `upgrade` issue in that repo, a note for each other registered one), in the
 automatic sync pass (which skips it without failing), on satelled's project
 page and landing (`upgrade needed`, with the command), and at the end of
-`satelle update`, after it installs. The fix is always run in that repo.
+`satelle update --session <session>`, after it installs. The fix is always run in that repo.
 
 ## 1. Archive and start fresh
 
-    satelle upgrade --archive --dry-run   # what it would move, and where
-    satelle upgrade --archive
+    satelle upgrade --archive --dry-run --session <session>   # what it would move, and where
+    satelle upgrade --archive --session <session>
 
 This moves the old `.satelle`, verified file by file (paths, modes, bytes,
 symlink targets), to `<runtime>/archive/<UTC stamp>/.satelle` (`satelle
-runtime path` names the runtime dir); nothing is deleted. It then writes a
-fresh v1 `.satelle` (as `satelle init` does), which validates, so the edit gate
-works again. Pre-1.0 hooks call commands v1 does not have: `satelle update`
+runtime path --session <session>` names the runtime dir); nothing is deleted. It then writes a
+fresh v1 `.satelle` (as `satelle init --session <session>` does), which validates, so the edit gate
+works again. Pre-1.0 hooks call commands v1 does not have: `satelle update --session <session>`
 and the sync pass refresh the untracked hook files of each harness in use in a
 registered project; for a hook file git tracks, and in a repo that is not
-registered, run `satelle agents install <harness>` (and commit the change).
+registered, run `satelle agents install <harness> --session <session>` (and commit the change).
 
 The fresh `.satelle` holds one starter workflow and the upgrade skill. The
 archive step writes `.satelle/skills/satelle-upgrade.md`: have your session
@@ -47,8 +47,8 @@ workflow and state of the new `.satelle`:
 
 A `<kind>/<status>` key wins over a bare `<status>` key. Then:
 
-    satelle upgrade --from <old store> --map <file> --dry-run
-    satelle upgrade --from <old store> --map <file>
+    satelle upgrade --from <old store> --map <file> --dry-run --session <session>
+    satelle upgrade --from <old store> --map <file> --session <session>
 
 The dry run prints each mapping rule with its item count, the totals and the
 map's sha256, and writes nothing. An old status the map does not name, a

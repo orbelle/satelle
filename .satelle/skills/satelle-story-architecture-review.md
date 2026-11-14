@@ -20,7 +20,7 @@ Read-only. Judge the plan's architecture (plan-review judges coverage); read the
   pre-existing finding owned by a named story does not block. A story that
   touches no sync, storage, scope, layering or verb surface passes in one line.
 - **Rule 3 proof is a release-step AC.** The §6 rule-3 machine-wide proof
-  (a session start in each registered repo, before and after `satelle update`)
+  (a session start in each registered repo, before and after `satelle update --session <session>`)
   is evidence that
   exists only after release. Accept a plan that puts it on the release step as a
   release-step AC; reject a plan that puts it on a code or integration

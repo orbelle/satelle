@@ -23,7 +23,7 @@ under `.satelle/` (workflows, skills, principles, documents, tasks, config) and/
    ```bash
    satelle reindex
    satelle agent validate
-   satelle workflow validate
+   satelle workflow validate --session <session>
    satelle skill validate
    ```
 4. **Commit + push while engaged** at `in_progress` (the commit gate requires an

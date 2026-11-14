@@ -1,7 +1,7 @@
 # Ledger store adapters
 
 A ledger store is where a repo's ledger replicates off the machine.
-`satelle ledger push`, `satelle ledger pull` and `satelle ledger status` are
+`satelle ledger push --session <session>`, `satelle ledger pull --session <session>` and `satelle ledger status --session <session>` are
 the one replication surface, with the same rules for every store.
 
 ## Choosing the store
@@ -15,7 +15,7 @@ Configure it in `satelle.toml`:
 
 - `"satelle.dev"` replicates to the project this repo is bound to
   (`satelle project bind`), through satelle-server's Chain and Attachment
-  services. It needs a sign-in (`satelle login`) and a binding; unbound,
+  services. It needs a sign-in (`satelle login --session <session>`) and a binding; unbound,
   push, pull and status exit 1 naming both ways out.
 - `"local"` replicates nothing: push, pull and status say
   `ledger store is local` and make no store or network call.
@@ -26,7 +26,7 @@ Configure it in `satelle.toml`:
   own environment instead.
 
 With no `[ledger] store` set, the store is `satelle.dev` while signed in
-(`SATELLE_TOKEN`, or a stored `satelle login`) and `local` otherwise. Any
+(`SATELLE_TOKEN`, or a stored `satelle login --session <session>`) and `local` otherwise. Any
 other value is refused when the configuration loads, naming `[ledger] store`.
 
 The local runtime stays the working copy: only push, pull and status, and
@@ -43,7 +43,7 @@ satelle runs the command once per operation, with the configured args, then the 
 - `list <prefix> [<after-key>]`: prints the keys under the prefix, one per line, sorted, starting after `<after-key>` when given. Exit 0, including when there are none.
 - Errors: exit 1 for a transient failure (satelle may retry), and exit 2 for a permanent one (bad config, access denied). Either way the command prints one line to stderr, `error: <code>: <message>`, where `<code>` is one of `auth`, `not-found`, `conflict`, `unavailable`, `invalid`. satelle shows that line as the cause and never prints the command's environment.
 - Keys are ASCII `[A-Za-z0-9._/-]`, at most 512 bytes; bodies are at most 64 MiB.
-- satelle ships a conformance test the adapter author can run: `satelle ledger store-test` drives these operations against the configured store (it creates and reads keys under a `conformance/` prefix only).
+- satelle ships a conformance test the adapter author can run: `satelle ledger store-test --session <session>` drives these operations against the configured store (it creates and reads keys under a `conformance/` prefix only).
 
 Three rules complete it:
 
@@ -80,7 +80,7 @@ Three rules complete it:
 
 ## Proving an adapter
 
-    satelle ledger store-test
+    satelle ledger store-test --session <session>
 
 runs eight checks against the configured command, one line each (`ok    <check>`
 or `FAIL  <check>: <reason>`), and exits 0 only when every check passes; it
@@ -109,9 +109,9 @@ POSIX sh implementation over a directory:
 
 ## Push, pull and status
 
-    satelle ledger push [<item>...]
-    satelle ledger pull [<item>...]
-    satelle ledger status [--json]
+    satelle ledger push [<item>...] --session <session>
+    satelle ledger pull [<item>...] --session <session>
+    satelle ledger status [--json] --session <session>
 
 replicate every item's chain, or only the named items', to and from the store.
 An ephemeral container's ledger survives it: push before it exits, pull into
@@ -155,10 +155,10 @@ lists.
 
 ## Automatic sync
 
-Installing or updating satelle (`scripts/install.sh`, `satelle update`)
+Installing or updating satelle (`scripts/install.sh`, `satelle update --session <session>`)
 installs and starts `satelle-sync.timer`, a systemd user timer, so syncing is
 the default; `--no-service` or `SATELLE_NO_SERVICE=1` opts out, and
-`satelle service install` or `satelle service refresh` installs it later.
+`satelle service install --session <session>` or `satelle service refresh --session <session>` installs it later.
 Every 30 seconds after its last run ended it runs one
 pass over this machine's projects (`~/.satelle/config.toml [projects]`;
 `satelle project bind` adds the repo): for each project whose store is not
@@ -173,10 +173,10 @@ therefore reaches satelle.dev within one period plus a pass, and another
 signed-in, bound machine within 90 seconds. Each project's outcome is shown on
 its satelled project page: `synced` and when, or `sync failing` and why. A
 pre-1.0 project is skipped with one `needs upgrade` line and does not fail the
-pass; its page reads `upgrade needed` with `satelle upgrade --archive`, the
+pass; its page reads `upgrade needed` with `satelle upgrade --archive --session <session>`, the
 command to run in it. With
-no systemd, `install.sh`, `satelle update` and `satelle service install` print
-the units instead: run `satelle ledger autosync` every 30 seconds yourself.
+no systemd, `install.sh`, `satelle update --session <session>` and `satelle service install --session <session>` print
+the units instead: run `satelle ledger autosync --session <session>` every 30 seconds yourself.
 
 Each pass also confirms satelled's mirror of every project it visits, local
 store or not: it sends the digest of the project's full snapshot, satelled
@@ -229,6 +229,6 @@ store`); pull names one the store lacks (`not in the store`) or holds with
 other bytes (`the store's body hashes to <sha256>; not stored`). A blob that
 arrives later is checked against its sha256 before it fills the gap
 (`filled: <item> event <seq> blob <sha256>`). Gaps never change push's or
-pull's exit code. `satelle ledger verify` exits 3 while any gap remains (every
+pull's exit code. `satelle ledger verify --session <session>` exits 3 while any gap remains (every
 chain intact, a referenced blob missing or corrupt), so a pipeline can gate on
 it; it exits 1 for a broken chain and 0 when everything is held.

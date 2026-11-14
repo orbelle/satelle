@@ -36,16 +36,17 @@ each block finds the in-progress run and the run-local directory
 ## 0. Find the run, seat it on its base
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id // empty')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id // empty')
 [ -n "$exe" ] || { echo "no in-progress run of $task: release.md step 11 starts it" >&2; exit 1; }
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"; mkdir -p "$rd"
-base=$(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.base_ref // empty')
+base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.base_ref // empty')
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 [ -n "$base" ] && [ -n "$ver" ] || { echo "run $exe has no base_ref, or .version names no satelle.version" >&2; exit 1; }
-satelle execution seat "$exe" --base "$base"
-satelle task get "$task" | satelle execution attach "$exe" --name task --type text/plain --file - || exit 1   # validate-after judges the run against it
-d=$(satelle execution diff "$exe" --json)
+satelle execution seat "$exe" --base "$base" --session "$session"
+satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1   # validate-after judges the run against it
+d=$(satelle execution diff "$exe" --json --session "$session")
 if [ "$(printf '%s' "$d" | jq -r .base)" != "$(git rev-parse "$base^{commit}")" ] || [ "$(printf '%s' "$d" | jq '.paths | length')" -eq 0 ]; then
   echo "run $exe is not judged from $base, or its diff is empty:" >&2; printf '%s\n' "$d" >&2; exit 1
 fi
@@ -60,26 +61,28 @@ and `drift-constitution` would be skipped before it judged anything.
 ## 1. Substrate against the binary
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 bash scripts/drift-check.sh > "$rd/substrate.txt"; echo "drift-check exit $?" | tee "$rd/substrate.exit"
 cat "$rd/substrate.txt"
 ```
 
-drift-check prints `satelle validate`'s substrate findings and configuration
+drift-check prints `satelle validate --session <session>`'s substrate findings and configuration
 problems, one line each. Exit 1 means misses; exit 2 means it could not check:
 stop and report its reason.
 
 ## 2. Raise the release's fix item
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 touch "$rd/judged.txt"
-satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
+satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
 jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 bash scripts/drift-fix.sh --open-findings > "$rd/open-findings.tsv" || exit 1
 awk -F'\t' -v res="$rd/resolved.txt" '
@@ -122,25 +125,26 @@ drift route's done gate reads (`.satelle/skills/satelle-drift-resolved-check.md`
 so the report is attached before step 4 presents any item.
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
-base=$(satelle ledger list "$exe" --kind task.run --json | jq -r '.[0].payload.base_ref')
+base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.base_ref')
 touch "$rd/judged.txt" "$rd/findings.txt" "$rd/fix.txt"
 fix=$(cut -f1 "$rd/fix.txt" | head -1); [ -n "$fix" ] || fix=-
-satelle story list --tag drift --open --json > "$rd/open.json" || exit 1
+satelle story list --tag drift --open --json --session "$session" > "$rd/open.json" || exit 1
 jq -r --arg fix "$fix" '.[] | select(.id != $fix) | .id as $id | (.body // "") | split("\n")[] | select(startswith("drift-key: ")) | [$id, ltrimstr("drift-key: ")] | @tsv' "$rd/open.json" > "$rd/open.tsv" || exit 1
 bash scripts/drift-fix.sh --keys < "$rd/findings.txt" > "$rd/found.txt" || exit 1
 awk -F'\t' -v found="$rd/found.txt" 'BEGIN { while ((getline l < found) > 0) f[l] = 1 } $2 !~ /^prose:/ && !($2 in f) { print $2 "\t" $1 }' "$rd/open.tsv" > "$rd/gone.txt"
-satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
+satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
 jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 {
   echo "# Drift review of v$ver"
   echo
   if [ ! -s "$rd/substrate.txt" ] && [ ! -s "$rd/judged.txt" ]; then echo "no drift"; echo; fi
   echo "## Checks"
-  echo "- satelle $(satelle version 2>/dev/null | head -1)"
+  echo "- satelle $(satelle version --session "$session" 2>/dev/null | head -1)"
   echo "- scripts/drift-check.sh: $(cat "$rd/substrate.exit")"
   echo "- drift-constitution: $base..v$ver over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/"
   echo "- drift-claims: .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/ at v$ver"
@@ -153,14 +157,15 @@ jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-
   echo "## No longer found"; cat "$rd/gone.txt"; echo
   echo "## Resolved by the judges"; cat "$rd/resolved.txt"
 } > "$rd/drift-report.md"
-satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report.md"
+satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report.md" --session "$session"
 ```
 
 ## 4. Close every older drift item
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 tab=$(printf '\t')
@@ -176,7 +181,7 @@ while IFS="$tab" read -r id what why; do
     refused) printf '%s\t%s\n' "$id" "$why" >> "$rd/refused.txt" ;;
   esac
 done < "$rd/close.txt"
-satelle story list --tag drift --open --json > "$rd/still-open.json" || exit 1
+satelle story list --tag drift --open --json --session "$session" > "$rd/still-open.json" || exit 1
 jq -r '.[] | [.id, ((.body // "") | split("\n") | map(select(startswith("drift-key: ") or startswith("drift-warning: "))) | .[0] // "-" | sub("^drift-(key|warning): "; ""))] | @tsv' "$rd/still-open.json" |
   awk -F'\t' -v fix="$fix" -v ver="$ver" -v refused="$rd/refused.txt" '
     BEGIN { while ((getline l < refused) > 0) { i = index(l, "\t"); r[substr(l, 1, i - 1)] = substr(l, i + 1) } }
@@ -192,7 +197,7 @@ jq -r '.[] | [.id, ((.body // "") | split("\n") | map(select(startswith("drift-k
   echo "## Carried"; cat "$rd/carried-out.txt"; echo
   echo "## Stayed open"; cat "$rd/stayed.txt"
 } > "$rd/drift-report-closed.md"
-satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report-closed.md"
+satelle execution attach "$exe" --name drift-report --type text/markdown --file "$rd/drift-report-closed.md" --session "$session"
 cat "$rd/drift-report-closed.md"
 ```
 
@@ -222,14 +227,15 @@ Steps 3 and 4 always run together, in that order: step 4 reads the files step
 ## 5. Present done
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[0].id')
-satelle execution set "$exe" --status done || satelle execution route "$exe"
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+satelle execution set "$exe" --status done --session "$session" || satelle execution route "$exe" --session "$session"
 ```
 
 The move runs `drift-constitution`, then `drift-claims`, then
 `drift-closures`, then `validate-after`. On a reject, read the notes in
-`satelle execution route "$exe"`:
+`satelle execution route "$exe" --session <session>`:
 
 - A `drift-constitution` reject: turn each
   `DRIFT <principle> <file>:<line> <symbol> — <what>` line into
@@ -254,12 +260,13 @@ other way, and never change the code or substrate a gate judged.
 ## 6. Record the warnings
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 touch "$rd/findings.txt" "$rd/warnings.txt"
-satelle ledger list "$exe" --kind gate.run --json > "$rd/gate-runs.json" || exit 1
+satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
 jq -r '[.[] | .payload | select(.gate == "drift-claims" and .result == "accept")] | last | .notes // ""' "$rd/gate-runs.json" |
   sed -n 's/^WARN \([^ ]*\) "\(.*\)" — \(.*\)$/\1: prose: \2 — \3/p' >> "$rd/warnings.txt"
 awk '!seen[$0]++' "$rd/warnings.txt" > "$rd/warnings.new" && mv "$rd/warnings.new" "$rd/warnings.txt"
@@ -276,7 +283,8 @@ warnings.
 ## 7. Release the seat
 
 ```sh
+session=<session>   # this session's id, from the context line
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json | jq -r '.[0].id')
-satelle execution release "$exe"
+exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
+satelle execution release "$exe" --session "$session"
 ```

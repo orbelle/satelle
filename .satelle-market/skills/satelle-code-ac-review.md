@@ -28,7 +28,7 @@ no running the suite (that is a later gate).
    `.satelle/logs/operations.log` (or equivalent evidence) — do not reject
    solely because state is invisible in the tree.
 4. **Plan fidelity (when a plan attachment exists).** If `satelle story doc
-   <id> plan` (or an attached plan) is present, the presented tree must
+   <id> plan --session <session>` (or an attached plan) is present, the presented tree must
    implement the plan's **named slice** (files/approach it commits to), or the
    executor must have **noted a plan defect** instead of silently building a
    competing design. **Hard-reject** only when the tree clearly ignores the

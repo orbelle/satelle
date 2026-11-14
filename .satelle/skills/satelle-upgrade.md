@@ -1,30 +1,30 @@
 ---
 name: satelle-upgrade
 type: skill
-description: Followed by the session agent after `satelle upgrade --archive`. It reads the archived pre-1.0 .satelle, proposes the v1 workflows, gates, performers and agent bindings that keep each old route's intent (optimised), applies only what the user confirms, writes a status map the user confirms, then runs the import, satelle validate and satelle ledger verify.
+description: Followed by the session agent after `satelle upgrade --archive --session <session>`. It reads the archived pre-1.0 .satelle, proposes the v1 workflows, gates, performers and agent bindings that keep each old route's intent (optimised), applies only what the user confirms, writes a status map the user confirms, then runs the import, satelle validate and satelle ledger verify.
 ---
 
 # Upgrade a pre-1.0 repo onto v1
 
 You port this repo's archived process into the fresh v1 `.satelle` that
-`satelle upgrade --archive` wrote, with the user. You propose; the user
+`satelle upgrade --archive --session <session>` wrote, with the user. You propose; the user
 confirms; you apply only what was confirmed. Learn v1 first:
-`satelle help upgrade`, `satelle help workflows`, `satelle help configuration`,
-and `satelle workflow show <name>` for any workflow.
+`satelle help upgrade --session <session>`, `satelle help workflows --session <session>`, `satelle help configuration --session <session>`,
+and `satelle workflow show <name> --session <session>` for any workflow.
 
 ## 1. When and inputs
 
-- Follow this after `satelle upgrade --archive`.
+- Follow this after `satelle upgrade --archive --session <session>`.
 - **The archive** is the `<dest>` of the `archived <src> (<n> files) to <dest>`
   line the archive printed. Without that output, list
-  `<satelle runtime path>/archive/` and ask the user which stamp.
+  `<satelle runtime path>/archive/ --session <session>` and ask the user which stamp.
 - **The old store** is the `old store: <dir>` line. The archive prints it only
   when it found `satelle.db` in the runtime directory or in the archived
   `.satelle`. Without that line, ask the user for the directory that holds the
   pre-1.0 `satelle.db`, and check the file is there. Never use
-  `satelle runtime path` as the old store: it names the v1 runtime.
+  `satelle runtime path --session <session>` as the old store: it names the v1 runtime.
 - The archive is read-only to you. When the old store's directory is read-only,
-  import from a copy, as `satelle help upgrade` says.
+  import from a copy, as `satelle help upgrade --session <session>` says.
 - Your working files are `upgrade-proposal.md` and `status-map.toml` in the
   archive's stamp directory (the parent of `<dest>`).
 
@@ -37,12 +37,12 @@ and `satelle workflow show <name>` for any workflow.
 - Never propose a gate whose skill the new `.satelle` lacks.
 - **Never make `session` a judge.** Every gate's `agent` and every `panel`
   member is a `claude`, `pi` or `grok` binding with a `read-only` grant
-  (`Read`, `Grep`, `Glob`), as `satelle help workflows` (Agents) states and
-  `satelle validate` enforces. `session` only performs.
+  (`Read`, `Grep`, `Glob`), as `satelle help workflows --session <session>` (Agents) states and
+  `satelle validate --session <session>` enforces. `session` only performs.
 - **Leave no sink.** Every state that is not terminal has a transition out. A
   park state has its `@prior` resume edge and is named in the cancel edge's
-  `from`. `satelle validate` checks reachability from start, not that a state
-  can be left, so check each workflow with `satelle workflow show` after Apply.
+  `from`. `satelle validate --session <session>` checks reachability from start, not that a state
+  can be left, so check each workflow with `satelle workflow show --session <session>` after Apply.
 - When an old element's intent is unclear, ask the user; do not guess.
 
 ## 3. Read the archive
@@ -249,23 +249,23 @@ skill the new `.satelle` already holds.
   `story route <id>` is v1's workflow position and gate results, not history.
   Imported items keep their old `sty_` ids and new items get `sto_`, so an id
   pattern that accepts only `sty_` must also accept `sto_`.
-- Rewrite a judge skill's answer to the verdict object `satelle help workflows`
+- Rewrite a judge skill's answer to the verdict object `satelle help workflows --session <session>`
   documents, and checks to read `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO`
   and `SATELLE_BASE`.
 - Carry the principles the user keeps into `.satelle/principles/`, and list in
   `[hook] inject` the ones the session should see.
-- Run `satelle validate` until it reports nothing. Then run
-  `satelle workflow show <name>` for each workflow and check the no-sink rule:
+- Run `satelle validate --session <session>` until it reports nothing. Then run
+  `satelle workflow show <name> --session <session>` for each workflow and check the no-sink rule:
   each park state shows its `@prior` edge and appears in the cancel edge. Then
-  `satelle agents install <harness>`. If a global gitignore hides
+  `satelle agents install <harness> --session <session>`. If a global gitignore hides
   `.claude/settings.json`, tell the user.
 
 ## 8. Status map
 
 - List every old status: the step.toml statuses, plus a dry run with the map so
-  far: `satelle upgrade --from <store> --map <map> --dry-run` refuses and lists
+  far: `satelle upgrade --from <store> --map <map> --dry-run --session <session>` refuses and lists
   every unmapped `<kind> <status>: n item(s)`.
-- Write `status-map.toml` in the format of section 2 of `satelle help upgrade`.
+- Write `status-map.toml` in the format of section 2 of `satelle help upgrade --session <session>`.
 - **Categories that share a status.** A map key is `<kind>/<status>` or
   `<status>`, never a category, and the import writes the key's workflow onto
   every item it matches. An imported item keeps that workflow: v1 refuses a
@@ -273,8 +273,8 @@ skill the new `.satelle` already holds.
   workflows hold items of the same kind and status, one key sends them all to
   one workflow. Find each case before the import:
   - Tell the user, then rehearse the import in a throwaway runtime: under
-    `SATELLE_HOME=$(mktemp -d)`, run `satelle upgrade --from <store> --map <map>`,
-    then `satelle <kind> list --json` for each kind the dry run lists (`--json` gives each item's category, workflow and status). Delete
+    `SATELLE_HOME=$(mktemp -d)`, run `satelle upgrade --from <store> --map <map> --session <session>`,
+    then `satelle <kind> list --json --session <session>` for each kind the dry run lists (`--json` gives each item's category, workflow and status). Delete
     the directory after.
   - Count items by kind, category, workflow and status. A category should have
     the workflow its `[[workflows.rule]]` selects in the proposal; an item with
@@ -296,7 +296,7 @@ skill the new `.satelle` already holds.
 ## 9. Import and validate
 
 - Run the dry run and show the user its output.
-- Run the import, then `satelle validate` and `satelle ledger verify`.
+- Run the import, then `satelle validate --session <session>` and `satelle ledger verify --session <session>`.
 - Run the category check of section 8 again in this repo's runtime, and report
   that every item off its category's route is in a row the user confirmed.
 - Report each output, and where the proposal and the map are.

@@ -68,7 +68,7 @@ commits, pushes, merges, branches, tags or rewrites them (operator,
 node's workspace, the docker check gate's node) is mechanism, not a git action
 on the repo. Commits, pushes, merges, pull requests, reviews and commit
 statuses are a step skill's actions, which the agent performs under the step's
-configuration; a forge verb the binary carries (`satelle github review`)
+configuration; a forge verb the binary carries (`satelle github review --session <session>`)
 publishes only what the calling step gives it. The binary stays a small
 mechanism that runs the user's configuration through its reviewers and gates;
 a plan that moves process into it is refused at plan review
