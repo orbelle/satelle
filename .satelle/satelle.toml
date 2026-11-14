@@ -28,6 +28,12 @@ workflow = "drift"
 kind = "story"
 tag = "drift"
 
+# A substrate item changes .satelle/ only and lands without a release
+# (.satelle/workflows/substrate.toml); after drift, so a drift item stays one.
+[[workflows.rule]]
+workflow = "substrate"
+category = "substrate"
+
 [[workflows.rule]]
 workflow = "chore"
 category = "chore"

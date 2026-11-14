@@ -3,36 +3,103 @@ name: substrate
 scope: project
 type: skill
 tags: [type:skill]
-description: In-loop executor skill for the substrate route's in_progress step. Author the markdown-only slice under .satelle/ and/or docs/, reindex/validate, commit and push (where substrate is tracked in git) while engaged — no version bump, no release. Close is gated by satelle-substrate-only-check.
+description: The in_progress performer of this repo's substrate workflow, bound to the interactive session. Edit .satelle/ only, on the item's own branch; write references, not restated values; validate; commit; present done, whose gates are the validation; once they accept, fast-forward main to the branch. No version, tag, publish or install.
 ---
 
-# Substrate (in-loop executor step)
+# Substrate (in_progress performer)
 
-You are the **executor** for a **substrate-only** story (`category: substrate`),
-in-loop on the driving session (`agent=executor`). The slice is authored markdown
-under `.satelle/` (workflows, skills, principles, documents, tasks, config) and/or
-`docs/` — **not** Go code. There is no plan/code-ac/integration/release path and
-**no `.version` bump**.
+You are the performer of `in_progress` in the substrate workflow
+(`.satelle/workflows/substrate.toml`), bound to the interactive session
+(`executor`, `command = "session"`): nothing is dispatched. A substrate item
+changes this repo's process under `.satelle/` (workflows, skills, principles,
+tasks, configuration) and nothing else. It has no plan state, no integration
+and no release: the gates on `in_progress -> done` are the validation, and the
+landing is a fast-forward of main to the item's branch.
 
-## Do
+A change that needs any file outside `.satelle/` (Go, a test under `tests/`, a
+script, docs) is not substrate: it belongs on a chore or delivery item. Say so
+and cancel or re-raise this one; do not carry it here.
 
-1. **Author the slice** named by the story body and ACs — smallest honest edit.
-2. **Keep it substrate-only.** Paths outside `.satelle/`, `docs/`, and
-   `[gate] edit_exempt_paths` will fail `satelle-substrate-only-check` on close.
-3. **Validate** so the configuration and the substrate stay green:
-   ```bash
-   satelle validate --session <session>
-   ```
-4. **Commit + push (where substrate is tracked in git) while engaged** at `in_progress` (the commit gate requires an
-   engaged story). Conventional subject ending with the story id; **no** AI
-   attribution; **no** version bump.
-5. **Stop for the close gate** — request `done`; do not self-enact around
-   `satelle-substrate-only-check`.
+## 1. Pull the item
+
+```bash
+satelle story get <id> --session <session>            # the card: what to change and why
+satelle story attachments <id> --session <session>    # notes already on it
+satelle story attachment <id> <name> --session <session>
+satelle story route <id> --session <session>          # the gates and the latest rejects
+```
+
+When the item is back at `in_progress` after a rejected round, each rejecting
+gate's notes are the work: answer every one before presenting again.
+
+## 2. Branch and seat
+
+Work on a branch named by the item id, cut from `origin/main`, in its own
+worktree, and seat the item there:
+
+```bash
+git fetch origin
+git worktree add -b <id> ../<id> origin/main
+satelle -C ../<id> story seat <id> --session <session>
+```
+
+## 3. Edit `.satelle/` only
+
+- Make the smallest edit the card asks for.
+- Write a reference, not a restated value ([[satelle-reference-not-restate]]):
+  name the command, file or `[[link]]` that answers a version, count, status or
+  list, in prose and in code examples alike. A fact that must be recorded is
+  dated history, with the date it held. No marker exempts a line.
+- Process stays substrate ([[satelle-mechanism-vs-substrate]]): nothing here
+  asks the binary to know about it.
+
+## 4. Validate and commit
+
+```bash
+satelle validate --session <session>
+```
+
+It must report the configuration valid with no substrate finding and no
+volatile line. Commit on the item's branch with a conventional subject ending
+in the item id. Push the branch (`git push -u origin <id>`) so the work is
+not only local.
+
+## 5. Present done
+
+```bash
+satelle story set <id> --status done --session <session>
+```
+
+The gates on that move (`satelle workflow show substrate --session
+<session>`) check that every changed path is under `.satelle/`, that the
+configuration validates, that no volatile line is listed, and have the reference
+judge read the diff. A reject returns the notes; fix each finding and present
+again. After the round cap the item is held at `blocked`: follow
+`.satelle/session.md`.
+
+## 6. Land: fast-forward main
+
+Only after the item is `done`, land exactly the commits the gates judged:
+
+```bash
+git fetch origin
+git push origin <id>:main
+```
+
+The push is a plain fast-forward: git refuses it when `origin/main` has moved
+past the branch's base. Then rebase the branch onto `origin/main`
+(`git rebase origin/main`), run `satelle validate --session <session>` on the
+result, and push it the same way. A rebase that conflicts is not resolved in a
+done item: report it to the operator with the conflicting paths and stop.
+
+Then bring the main checkout to `origin/main`
+(`git -C <main checkout> merge --ff-only origin/main`) and remove the item's
+worktree.
 
 ## Do not
 
-- Touch `internal/`, `cmd/`, `tests/`, or other binary sources under this workflow.
-- Cut a release or tag for markdown-only work.
-- Leave the story open after the slice is pushed — drive to `done` or `cancelled`.
-
-See the substrate workflow prose and [[satelle-mechanism-vs-substrate]].
+- Edit a path outside `.satelle/`; the paths gate refuses it.
+- Bump a version, edit `CHANGELOG.md`, tag, publish, or install: the binary is
+  unchanged, so nothing is released.
+- Merge to main before the item is `done`, or merge anything but a fast-forward.
+- Move past a rejecting gate, or change the item's status any other way.

@@ -51,7 +51,9 @@ tools = ["Read", "Grep", "Glob"]
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
 # diff three times without naming a file it judged (sto_5c706973). grok, not
 # Claude: binary-scope also judges the planner's plan, and the planner runs
-# Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0).
+# Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0). It is also the
+# substrate workflow's one judge (reference-review): the performer there is the
+# session, whose harness runs Claude or GPT, and grok is neither family.
 [agents."reviewer-grok-4.7"]
 command = "grok"
 model = "grok-4.7"
