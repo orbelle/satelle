@@ -1,3 +1,14 @@
+## [1.0.66] - 2026-11-14
+
+### Added
+- `satelle hook stopcheck` blocks a turn's end once when the session holds a seat on an item whose next move is its own, naming the item and the move (a transition, `satelle queue fire <queue>`, or the open run to drive); the stop straight after is let through. A workflow state declares an outside wait with `waits = "<on what>"`, and the session-start and prompt context state the rule. (sto_2ac90ab6)
+
+### Changed
+- A queue with min size 0 is described as fired by `satelle queue fire`, by any session, instead of 'by hand only'; `queue fire` records the cause `queue fire`. (sto_2ac90ab6)
+
+### Fixed
+- A grok session receives satelle's session-start context: it is sent as the top-level `systemMessage` grok reads, and the prompt hook, whose output grok discards, prints nothing. (sto_2ac90ab6)
+
 ## [1.0.65] - 2026-11-14
 
 ### Removed
