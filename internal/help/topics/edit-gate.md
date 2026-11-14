@@ -3,7 +3,9 @@
 Harness hooks (`satelle agents install claude|pi|grok|cursor --session <session>`) send every edit
 and shell command a session makes to `satelle hook gate`. The gate allows an edit only
 when **the editing session holds a seat, at this worktree, on an item whose
-current state has a performer**:
+current state's performer may change the tree** (a state with an agent
+performer and `edits` unset or `edits = "tree"`, see
+`satelle help workflows --session <session>`):
 
     satelle story seat <id> --session <session>    # location defaults to local:<worktree>
     satelle story release <id> --session <session>
@@ -45,8 +47,23 @@ here whose session never settled an owner, never releasing it unasked.
 
 Always and never:
 
-- `[gate] edit_exempt_paths` (globs relative to the worktree) are always allowed.
-- `[gate] locked_paths` are never allowed, whatever the seat.
+- `[gate] edit_exempt_paths` (globs relative to the worktree) are always allowed,
+  except from an attachments-only seat (below).
+- `[gate] locked_paths` are never allowed, whatever the seat; from an
+  attachments-only seat they are refused with that seat's reason.
+- A seat at this worktree on an item in a state that allows attachments only
+  (`edits = "attachments"`, for example plan) refuses every path of the tree,
+  exempt and locked paths included, also when the session holds another seat
+  there on a state whose performer may change the tree: the refusal names the
+  state and that its performer produces an attachment. Record that state's work
+  with `satelle <kind> attach <id> --name <name> --file <file> --session <session>`
+  (draft the file under a temp dir, or pass `--file -` for stdin); temp-dir
+  writes and the attach command still work. To edit the tree, move the item on
+  or release the seat (`satelle story release <id> --session <session>`). While
+  the configuration is invalid, a seat's state is read leniently from its
+  workflow file; a seat whose edit scope cannot be read counts as
+  attachments-only, so repair the configuration from a session holding no seat
+  at that worktree, or in the operator's own editor.
 - Temp directories, and paths in no git working tree, are outside the gate.
 - Another repository's working tree is refused (the fence); a linked worktree of
   this repository is judged by the seat at that worktree.

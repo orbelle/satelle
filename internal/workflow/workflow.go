@@ -64,6 +64,30 @@ type State struct {
 	// presentations in a row are rejected, the item moves to the hold's park
 	// state for the operator. Nil: the state is never held.
 	Hold *Hold `toml:"hold"`
+	// Edits says what the state's agent performer may change: EditsTree (the
+	// working tree, the default when unset) or EditsAttachments (only the
+	// item's attachments; the edit gate refuses every tree write from a seat
+	// on the state). Set only on a state with an agent performer.
+	Edits string `toml:"edits"`
+}
+
+// The values of a state's edits key.
+const (
+	EditsTree        = "tree"
+	EditsAttachments = "attachments"
+)
+
+// EditScope is what a seat on the state lets its session change: "" when no
+// agent performs the state (no performer, or the operator's state), else the
+// state's edits, EditsTree when it sets none.
+func (s State) EditScope() string {
+	if s.Agent() == nil {
+		return ""
+	}
+	if s.Edits == "" {
+		return EditsTree
+	}
+	return s.Edits
 }
 
 // Hold is a state's round cap and the park state it holds the item in.

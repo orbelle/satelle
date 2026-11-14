@@ -510,3 +510,259 @@ func TestSetReselectConflicts(t *testing.T) {
 		t.Errorf("reselected story at %s/%s", it.Workflow, it.Status)
 	}
 }
+
+// writePlanWorkflow adds a workflow st-one -> st-plan -> st-build -> st-done
+// whose st-plan performer produces only attachments (edits = "attachments")
+// and whose st-build performer may change the tree, with notes/** exempt and
+// locked/** locked.
+func writePlanWorkflow(t *testing.T, dir string) {
+	t.Helper()
+	files := map[string]string{
+		".satelle/agents.toml": "[agents.agent-x9]\ncommand = \"session\"\n",
+		".satelle/workflows/planned.toml": `name = "planned"
+[states.st-one]
+start = true
+[states.st-plan]
+performer = { agent = "agent-x9", skill = "work" }
+edits = "attachments"
+[states.st-build]
+performer = { agent = "agent-x9", skill = "work" }
+[states.st-done]
+terminal = true
+[[transition]]
+from = ["st-one"]
+to = "st-plan"
+[[transition]]
+from = ["st-plan"]
+to = "st-build"
+[[transition]]
+from = ["st-build"]
+to = "st-done"
+`,
+		".satelle/skills/work.md": "---\nname: work\n---\nDo it.\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("\n[gate]\nedit_exempt_paths = [\"notes/**\"]\nlocked_paths = [\"locked/**\"]\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateEditsKey(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writePlanWorkflow(t, dir)
+	must(t, "validate")
+	p := filepath.Join(dir, ".satelle", "workflows", "planned.toml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(strings.Replace(string(b), `edits = "attachments"`, `edits = "nothing"`, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), `state "st-plan" edits "nothing"`) {
+		t.Fatalf("validate with edits = nothing: %v", err)
+	}
+}
+
+// hookContext runs the context hook for session.
+func hookContext(t *testing.T, session string) string {
+	t.Helper()
+	out, err := run(t, `{"session_id":"`+session+`"}`, "hook", "context", "--harness", "claude")
+	if err != nil {
+		t.Fatalf("hook context: %v\n%s", err, out)
+	}
+	return hookText(out)
+}
+
+func TestEditGateAttachmentsOnlyState(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writePlanWorkflow(t, dir)
+	a := createID(t, "story", "create", "--title", "planned", "--workflow", "planned")
+	b := createID(t, "story", "create", "--title", "built", "--workflow", "planned")
+	must(t, "story", "seat", a, "--session", "s-1")
+	if out := must(t, "status", "--session", "s-1"); !strings.Contains(out, "(st-one: no edits)") {
+		t.Errorf("status in a state no agent performs:\n%s", out)
+	}
+	must(t, "story", "set", a, "--status", "st-plan")
+
+	attach := []string{"st-plan", a, "produces an attachment", "`satelle <kind> attach <id> --name <name> --file <file> --session <session>`"}
+	refused := func(what string, deny bool, why string) {
+		t.Helper()
+		if !deny {
+			t.Errorf("%s: allowed from a seat on an attachments-only state", what)
+			return
+		}
+		for _, w := range attach {
+			if !strings.Contains(why, w) {
+				t.Errorf("%s: reason does not contain %q: %s", what, w, why)
+			}
+		}
+	}
+	deny, why := hookGate(t, dir, "s-1", "Edit", "main.go", "")
+	refused("Edit main.go", deny, why)
+	deny, why = hookGate(t, dir, "s-1", "Write", "main.go", "")
+	refused("Write main.go", deny, why)
+	deny, why = hookGate(t, dir, "s-1", "Edit", "notes/a.md", "")
+	refused("Edit exempt notes/a.md", deny, why)
+	deny, why = hookGate(t, dir, "s-1", "Edit", "locked/x", "")
+	refused("Edit locked locked/x", deny, why)
+	if strings.Contains(why, "is a locked path") {
+		t.Errorf("locked path refused with the locked reason, not the seat's: %s", why)
+	}
+	deny, why = hookGate(t, dir, "s-1", "Bash", "", "echo hi > out.txt")
+	refused("shell write", deny, why)
+	if deny, why := hookGate(t, dir, "s-2", "Edit", "notes/a.md", ""); deny {
+		t.Errorf("an unseated session was denied an exempt path: %s", why)
+	}
+	if deny, why := hookGate(t, dir, "s-1", "Bash", "", "satelle story attach "+a+" --name plan --file - --session s-1"); deny {
+		t.Errorf("attach was denied: %s", why)
+	}
+	draft := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(draft, []byte("# the plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	must(t, "story", "attach", a, "--name", "plan", "--file", draft)
+	if body := must(t, "story", "attachment", a, "plan"); body != "# the plan\n" {
+		t.Errorf("attachment body %q", body)
+	}
+
+	for _, out := range map[string]string{"status": must(t, "status", "--session", "s-1"), "context": hookContext(t, "s-1")} {
+		if !strings.Contains(out, "performing st-plan: attachments only") {
+			t.Errorf("seat line does not name the attachments-only state:\n%s", out)
+		}
+	}
+	ctx := hookContext(t, "s-1")
+	for _, w := range []string{"`satelle help edit-gate --session <session>`", "`satelle <kind> attach <id> --name <name> --file <file> --session <session>`"} {
+		if !strings.Contains(ctx, w) {
+			t.Errorf("context does not contain %s:\n%s", w, ctx)
+		}
+	}
+	var st struct {
+		Seats []seatView `json:"seats"`
+	}
+	if err := json.Unmarshal([]byte(must(t, "status", "--json", "--session", "s-1")), &st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Seats) != 1 || st.Seats[0].Edits != "attachments" || !st.Seats[0].Performing {
+		t.Errorf("status --json seats %+v, want one with edits attachments", st.Seats)
+	}
+
+	// A second seat at the same worktree on a tree state does not lift it.
+	must(t, "story", "set", b, "--status", "st-plan")
+	must(t, "story", "set", b, "--status", "st-build")
+	must(t, "story", "seat", b, "--session", "s-1")
+	deny, why = hookGate(t, dir, "s-1", "Edit", "main.go", "")
+	refused("Edit with a second, tree seat", deny, why)
+	must(t, "story", "release", a, "--session", "s-1")
+	if deny, why := hookGate(t, dir, "s-1", "Edit", "main.go", ""); deny {
+		t.Errorf("released the plan seat; the tree seat's edit was denied: %s", why)
+	}
+	must(t, "story", "release", b, "--session", "s-1")
+
+	must(t, "story", "seat", a, "--session", "s-1")
+	must(t, "story", "set", a, "--status", "st-build")
+	if deny, why := hookGate(t, dir, "s-1", "Edit", "main.go", ""); deny {
+		t.Errorf("an edit in the tree state was denied: %s", why)
+	}
+	if deny, why := hookGate(t, dir, "s-1", "Bash", "", "echo hi > out.txt"); deny {
+		t.Errorf("a shell write in the tree state was denied: %s", why)
+	}
+	for _, out := range map[string]string{"status": must(t, "status", "--session", "s-1"), "context": hookContext(t, "s-1")} {
+		if !strings.Contains(out, "performing st-build: edits allowed") {
+			t.Errorf("seat line does not name the tree state:\n%s", out)
+		}
+	}
+	if ctx := hookContext(t, "s-1"); !strings.Contains(ctx, "`satelle help edit-gate --session <session>`") {
+		t.Errorf("context lost the edit-gate help:\n%s", ctx)
+	}
+	if err := json.Unmarshal([]byte(must(t, "status", "--json", "--session", "s-1")), &st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Seats) != 1 || st.Seats[0].Edits != "tree" {
+		t.Errorf("status --json seats %+v, want one with edits tree", st.Seats)
+	}
+}
+
+func TestEditGateAttachmentsOnlyInvalidConfig(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writePlanWorkflow(t, dir)
+	a := createID(t, "story", "create", "--title", "planned", "--workflow", "planned")
+	b := createID(t, "story", "create", "--title", "built", "--workflow", "planned")
+	must(t, "story", "set", a, "--status", "st-plan")
+	must(t, "story", "set", b, "--status", "st-plan")
+	must(t, "story", "set", b, "--status", "st-build")
+	must(t, "story", "seat", a, "--session", "s-1")
+	must(t, "story", "seat", b, "--session", "s-3")
+
+	settings := filepath.Join(dir, ".satelle", "satelle.toml")
+	flow := filepath.Join(dir, ".satelle", "workflows", "planned.toml")
+	read := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	write := func(p, body string) {
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	goodSettings, goodFlow := read(settings), read(flow)
+	check := func(name string) {
+		t.Helper()
+		if _, err := run(t, "", "validate"); err == nil {
+			t.Fatalf("%s: the configuration is valid", name)
+		}
+		for _, p := range []string{".satelle/satelle.toml", "main.go"} {
+			deny, why := hookGate(t, dir, "s-1", "Edit", p, "")
+			if !deny || !strings.Contains(why, "st-plan") || !strings.Contains(why, "produces an attachment") || !strings.Contains(why, "configuration is also invalid") {
+				t.Errorf("%s: s-1 (plan seat) edit of %s: deny %v, %s", name, p, deny, why)
+			}
+		}
+		for _, s := range []string{"s-3", "s-2"} {
+			if deny, why := hookGate(t, dir, s, "Edit", ".satelle/satelle.toml", ""); deny {
+				t.Errorf("%s: %s was denied the configuration's repair: %s", name, s, why)
+			}
+			deny, why := hookGate(t, dir, s, "Edit", "main.go", "")
+			if !deny || !strings.Contains(why, "configuration is invalid, so only its own files may be edited") {
+				t.Errorf("%s: %s edit of main.go: deny %v, %s", name, s, deny, why)
+			}
+		}
+	}
+	write(settings, goodSettings+"\n[mystery]\nx = 1\n")
+	check("unknown settings key")
+	write(settings, goodSettings)
+	write(flow, goodFlow+"\nmystery = 1\n")
+	check("unknown workflow key")
+
+	write(flow, goodFlow+"\n[states.broken\n")
+	if _, err := run(t, "", "validate"); err == nil {
+		t.Fatal("syntax error: the configuration is valid")
+	}
+	for _, s := range []struct{ session, state string }{{"s-1", "st-plan"}, {"s-3", "st-build"}} {
+		deny, why := hookGate(t, dir, s.session, "Edit", ".satelle/workflows/planned.toml", "")
+		if !deny || !strings.Contains(why, s.state) || !strings.Contains(why, "cannot be read") {
+			t.Errorf("syntax error: %s edit of the workflow file: deny %v, %s", s.session, deny, why)
+		}
+	}
+	if deny, why := hookGate(t, dir, "s-2", "Edit", ".satelle/workflows/planned.toml", ""); deny {
+		t.Errorf("syntax error: the unseated session was denied the repair: %s", why)
+	}
+}

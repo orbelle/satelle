@@ -15,6 +15,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/procgroup"
 	"github.com/bobmcallan/satelle/internal/seatlife"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func hookCmd() *cobra.Command {
@@ -125,9 +126,13 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 		// A broken configuration refuses every edit but its own repair.
 		rel, _ := filepath.Rel(r.Tree, r.DataDir)
 		g.Exempt = []string{filepath.ToSlash(rel) + "/**"}
-		g.Seated = func(string) bool { return false }
+		g.Grant = func(tree string) hook.Grant { return grantUnconfigured(r, session, tree) }
 		v := judgeHook(g, in)
-		if !v.Allow {
+		switch {
+		case v.Allow:
+		case v.AttachOnly:
+			v.Reason += " This repo's configuration is also invalid; repair it from a session that holds no seat at this tree, or in the operator's own editor (`satelle validate --session <session>` lists every problem).\n" + err.Error()
+		default:
 			v.Reason = "satelle: this repo's configuration is invalid, so only its own files may be edited until `satelle validate` passes.\n" + err.Error()
 		}
 		return writeVerdict(cmd, harness, v)
@@ -135,7 +140,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	defer k.Close()
 	g.Exempt = k.Settings.Gate.EditExemptPaths
 	g.Locked = k.Settings.Gate.LockedPaths
-	g.Seated = func(tree string) bool { return seated(k, session, tree) }
+	g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
 	v := judgeHook(g, in)
 	if !v.Allow && session == "" {
 		v.Reason += " (no session id: the harness sent none and SATELLE_SESSION is unset)"
@@ -167,26 +172,83 @@ func writeVerdict(cmd *cobra.Command, harness string, v hook.Verdict) error {
 	return err
 }
 
-// seated reports whether session holds a seat at tree on an item whose
-// current state has a performer.
-func seated(k *kernel.Kernel, session, tree string) bool {
+// grantAt is what session's seats at tree allow: a seat on a state whose
+// performer may change the tree grants the tree; the first seat on an
+// attachments-only state marks the grant attachments-only, naming its item
+// and state.
+func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
+	var g hook.Grant
 	if session == "" {
-		return false
+		return g
 	}
 	seats, err := k.Cache.Seats(session, "")
 	if err != nil {
-		return false
+		return g
 	}
 	want := kernel.LocalLocation(tree)
 	for _, s := range seats {
 		if s.Location != want {
 			continue
 		}
-		if it, ok, err := k.Cache.Item(s.Item); err == nil && ok && performing(k, it) {
-			return true
+		it, ok, err := k.Cache.Item(s.Item)
+		if err != nil || !ok {
+			continue
+		}
+		switch editScope(k, it) {
+		case workflow.EditsTree:
+			g.Tree = true
+		case workflow.EditsAttachments:
+			if !g.AttachOnly {
+				g.AttachOnly, g.Item, g.State = true, it.ID, it.Status
+			}
 		}
 	}
-	return false
+	return g
+}
+
+// grantUnconfigured is grantAt while the repo's configuration does not load:
+// the session's seats come from the ledger and cache, opened without it, and
+// each seat's edit scope from a lenient read of its workflow file
+// (workflow.StateEditScope). A scope that cannot be read, or seats that
+// cannot be read, count as attachments-only. Tree is never granted here: a
+// broken configuration refuses every edit but its own repair.
+func grantUnconfigured(r repo, session, tree string) hook.Grant {
+	var g hook.Grant
+	if session == "" {
+		return g
+	}
+	_, ch, err := openRecord(r)
+	if err != nil {
+		return hook.Grant{AttachOnly: true, Unread: "this session's seats cannot be read: " + err.Error()}
+	}
+	defer ch.Close()
+	seats, err := ch.Seats(session, "")
+	if err != nil {
+		return hook.Grant{AttachOnly: true, Unread: "this session's seats cannot be read: " + err.Error()}
+	}
+	want := kernel.LocalLocation(tree)
+	dir := filepath.Join(r.DataDir, kernel.WorkflowsDir)
+	for _, s := range seats {
+		if s.Location != want || g.AttachOnly {
+			continue
+		}
+		it, ok, err := ch.Item(s.Item)
+		if err != nil {
+			g = hook.Grant{AttachOnly: true, Unread: "this session's seats cannot be read: " + err.Error()}
+			continue
+		}
+		if !ok {
+			continue
+		}
+		scope, err := workflow.StateEditScope(dir, it.Workflow, it.Status)
+		switch {
+		case err != nil:
+			g = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status, Unread: err.Error()}
+		case scope == workflow.EditsAttachments:
+			g = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status}
+		}
+	}
+	return g
 }
 
 // canonicalPath resolves symlinks in the longest existing prefix of p, so a
@@ -324,7 +386,7 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 		seats, _ := seatsOf(k, session)
 		printSeats(&b, seats)
 	}
-	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate --session <session>`.\n")
+	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state's performer may change the tree: `satelle story seat <id> --session <session>`. A seat on a state that allows attachments only refuses every tree edit there; record its work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>`. See `satelle help edit-gate --session <session>`.\n")
 	fmt.Fprintf(&b, "%s Otherwise the stop is blocked once, naming the next move. See `satelle help edit-gate --session <session>`.\n", driveRule)
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)

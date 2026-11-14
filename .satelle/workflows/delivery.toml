@@ -15,6 +15,9 @@ start = true
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }
+# The planner's work is the plan attachment, not code (sto_6344add2): a seat
+# here refuses every tree edit at its worktree; attach the plan instead.
+edits = "attachments"
 # Round cap (sto_216e2027): plan review was rejected 8 rounds running on one
 # dissenter (satelle-server sto_7094c283). After 3 rejected rounds in a row the
 # item is blocked for the operator instead of re-planned; 3 is the plan skill's
@@ -88,6 +91,13 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
+
+# A plan is judged before any code (sto_6344add2): refuses plan -> in_progress
+# while the item's branch already differs from where it left origin/main (or a
+# stacked parent item's branch on origin). Deterministic, no agent, no carry:
+# it runs on every presentation.
+[gates.tree-unchanged]
+skill = "satelle-tree-unchanged-check"
 
 [gates.format-vet]
 skill = "satelle-format-vet-check"
@@ -208,7 +218,7 @@ to = "plan"
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["binary-scope", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "binary-scope", "plan-review"] },
 ]
 
 [[transition]]

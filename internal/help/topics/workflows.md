@@ -247,6 +247,37 @@ A state may carry a performer, an agent plus a skill:
 `session` is the interactive session itself: nothing is dispatched, and the
 session does the work under the edit gate.
 
+### What a performer may change
+
+A state with an agent performer says what that performer may change with
+`edits`: `edits = "tree"` (the default when the key is absent) lets a seat on
+the state edit the worktree; `edits = "attachments"` lets it record only the
+item's attachments, so the edit gate refuses every edit and shell write to the
+tree from that seat, exempt and locked paths included (see
+`satelle help edit-gate --session <session>`):
+
+    [states.plan]
+    performer = { agent = "planner", skill = "plan" }
+    edits = "attachments"
+
+`satelle validate --session <session>` refuses any other value, and the key on
+a state with no agent performer (no performer, or the operator's).
+
+A planning state is judged before any code, so the move out of it can also
+refuse a branch that already holds code. `satelle init --session <session>`
+writes the check skill `satelle-tree-unchanged-check`, which refuses the move
+when the item's tree differs from where its branch left origin/main (or the
+branch on origin of an item it is stacked on) outside `.satelle/runs`; its file
+in `.satelle/skills/` states the rule. Wire it first on the move:
+
+    [gates.tree-unchanged]
+    skill = "satelle-tree-unchanged-check"
+
+    [[transition]]
+    from = ["plan"]
+    to = "in_progress"
+    groups = [{ gates = ["tree-unchanged", "plan-review"] }]
+
 ### The operator's states
 
 A state can be the operator's alone: no agent performs it, and leaving it needs

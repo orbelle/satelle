@@ -39,7 +39,7 @@ func TestEditGateTable(t *testing.T) {
 		Exempt:    []string{"docs/**", "*.md"},
 		Locked:    []string{"locked/**"},
 		TempRoots: []string{temp},
-		Seated:    func(tree string) bool { return seats[tree] },
+		Grant:     func(tree string) Grant { return Grant{Tree: seats[tree]} },
 	}
 	type tc struct {
 		name   string
@@ -96,12 +96,92 @@ func TestEditGateTable(t *testing.T) {
 	}
 }
 
+// TestEditGateAttachmentsOnly pins that a seat on a state whose performer
+// produces only attachments refuses every path of its tree, exempt and locked
+// paths included and whatever other seat the session holds there, naming the
+// state; a temp-dir write still passes.
+func TestEditGateAttachmentsOnly(t *testing.T) {
+	root := newRepo(t)
+	temp, _ := filepath.EvalSymlinks(t.TempDir())
+	var grant Grant
+	g := Gate{
+		Root:      root,
+		Exempt:    []string{"docs/**", "*.md"},
+		Locked:    []string{"secrets/**"},
+		TempRoots: []string{temp},
+		Grant:     func(string) Grant { return grant },
+	}
+	plan := Grant{AttachOnly: true, Item: "sto_1", State: "st-plan"}
+	both := plan
+	both.Tree = true
+	unread := plan
+	unread.Unread = "flow.toml: syntax error"
+	type tc struct {
+		name   string
+		grant  Grant
+		edit   string
+		bash   string
+		allow  bool
+		want   []string
+		reject []string
+	}
+	attach := []string{"st-plan", "sto_1", "produces an attachment", "`satelle <kind> attach <id> --name <name> --file <file> --session <session>`", "`satelle help edit-gate --session <session>`"}
+	for _, c := range []tc{
+		{name: "edit refused", grant: plan, edit: "main.go", want: attach},
+		{name: "shell redirect refused", grant: plan, bash: "echo hi > out.txt", want: attach},
+		{name: "exempt path refused", grant: plan, edit: "docs/a/b.txt", want: attach},
+		{name: "exempt basename refused", grant: plan, edit: "sub/notes.md", want: attach},
+		{name: "exempt shell redirect refused", grant: plan, bash: "echo hi >> docs/log.txt", want: attach},
+		{name: "locked path refused as attachments-only", grant: plan, edit: "secrets/key", want: attach, reject: []string{"is a locked path"}},
+		{name: "inline interpreter refused", grant: plan, bash: `python3 -c 'print(1)'`, want: []string{"st-plan"}},
+		{name: "temp dir allowed", grant: plan, edit: filepath.Join(temp, "plan.md"), allow: true},
+		{name: "shell write to temp allowed", grant: plan, bash: "cat > " + filepath.Join(temp, "plan.md"), allow: true},
+		{name: "attach command allowed", grant: plan, bash: "satelle story attach sto_1 --name plan --file - --session s-1 < " + filepath.Join(temp, "plan.md"), allow: true},
+		{name: "two seats at one tree still refused", grant: both, edit: "main.go", want: attach},
+		{name: "unread scope refused", grant: unread, edit: "main.go", want: []string{"st-plan", "cannot be read", "syntax error", "produces an attachment"}},
+		{name: "unread seats refused", grant: Grant{AttachOnly: true, Unread: "ledger locked"}, edit: ".satelle/satelle.toml", want: []string{"cannot be read", "ledger locked", "produces an attachment"}},
+		{name: "tree seat allows", grant: Grant{Tree: true}, edit: "main.go", allow: true},
+		{name: "tree seat locked reason", grant: Grant{Tree: true}, edit: "secrets/key", want: []string{"is a locked path"}},
+		{name: "no seat exempt allowed", edit: "docs/a/b.txt", allow: true},
+		{name: "no seat edit refused", edit: "main.go", want: []string{"performer may change the tree", "`satelle story seat <id> --session <session>`"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			grant = c.grant
+			var v Verdict
+			if c.bash != "" {
+				v = g.Bash(c.bash, root)
+			} else {
+				v = g.Edit(c.edit)
+			}
+			if v.Allow != c.allow {
+				t.Fatalf("allow = %v, want %v (%s)", v.Allow, c.allow, v.Reason)
+			}
+			if v.Allow {
+				return
+			}
+			if v.AttachOnly != c.grant.AttachOnly {
+				t.Errorf("AttachOnly = %v, want %v", v.AttachOnly, c.grant.AttachOnly)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(v.Reason, w) {
+					t.Errorf("reason does not contain %q: %s", w, v.Reason)
+				}
+			}
+			for _, w := range c.reject {
+				if strings.Contains(v.Reason, w) {
+					t.Errorf("reason contains %q: %s", w, v.Reason)
+				}
+			}
+		})
+	}
+}
+
 // TestGateChmodModeOperand pins that chmod's mode is not judged as an edit:
 // from an unseated repo cwd a scratch-file chmod is allowed, and an in-repo
 // chmod is refused naming the file, never the mode.
 func TestGateChmodModeOperand(t *testing.T) {
 	root := newRepo(t)
-	g := Gate{Root: root, TempRoots: []string{"/tmp"}, Seated: func(string) bool { return false }}
+	g := Gate{Root: root, TempRoots: []string{"/tmp"}, Grant: func(string) Grant { return Grant{} }}
 	for _, cmd := range []string{"chmod +x /tmp/x.sh", "chmod u+w /tmp/x.sh", "chmod 755 /tmp/x.sh", "chmod a=r /tmp/x.sh"} {
 		if v := g.Bash(cmd, root); !v.Allow {
 			t.Errorf("%q: denied (%s), want allowed", cmd, v.Reason)
@@ -446,7 +526,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 // names the verb only as data is allowed.
 func TestGateRefusesOperatorRecord(t *testing.T) {
 	root := newRepo(t)
-	g := Gate{Root: root, Seated: func(string) bool { return true }}
+	g := Gate{Root: root, Grant: func(string) Grant { return Grant{Tree: true} }}
 	for _, c := range append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...) {
 		if v := g.Bash(c, root); v.Allow || v.Reason != OperatorRecordDenied {
 			t.Errorf("%q: %+v", c, v)

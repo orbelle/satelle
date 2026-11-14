@@ -427,3 +427,108 @@ func TestValidateWaits(t *testing.T) {
 		})
 	}
 }
+
+const editsWorkflow = `
+[states.s0]
+start = true
+[states.plan]
+performer = { agent = "a1", skill = "work" }
+edits = "attachments"
+[states.build]
+performer = { agent = "a1", skill = "work" }
+[states.review]
+performer = { operator = "approval" }
+[states.end]
+terminal = true
+
+[[transition]]
+from = ["s0"]
+to = "plan"
+[[transition]]
+from = ["plan"]
+to = "build"
+[[transition]]
+from = ["build"]
+to = "review"
+[[transition]]
+from = ["review"]
+to = "end"
+`
+
+func TestStateEdits(t *testing.T) {
+	w, err := parse(t, editsWorkflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("unexpected problems: %v", errs)
+	}
+	for state, want := range map[string]string{"plan": EditsAttachments, "build": EditsTree, "s0": "", "review": "", "end": ""} {
+		if got := w.States[state].EditScope(); got != want {
+			t.Errorf("state %s EditScope = %q, want %q", state, got, want)
+		}
+	}
+	tree := strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "tree"`, 1)
+	if w, err = parse(t, tree); err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("edits = tree: unexpected problems: %v", errs)
+	}
+	if got := w.States["plan"].EditScope(); got != EditsTree {
+		t.Fatalf("edits = tree: EditScope = %q", got)
+	}
+	for _, c := range []struct{ name, body, want string }{
+		{"unknown value", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "plan"`, 1), `state "plan" edits "plan" is not tree or attachments`},
+		{"no performer", strings.Replace(editsWorkflow, "[states.s0]\nstart = true", "[states.s0]\nstart = true\nedits = \"attachments\"", 1), `state "s0" sets edits but has no agent performer`},
+		{"operator state", strings.Replace(editsWorkflow, `performer = { operator = "approval" }`, "performer = { operator = \"approval\" }\nedits = \"tree\"", 1), `state "review" sets edits but has no agent performer`},
+	} {
+		w, err := parse(t, c.body)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		errs := w.Validate(skillOf, agentOf)
+		if !strings.Contains(fmt.Sprint(errs), c.want) {
+			t.Errorf("%s: problems %v do not contain %q", c.name, errs, c.want)
+		}
+	}
+}
+
+func TestStateEditScopeReadsOneState(t *testing.T) {
+	write := func(t *testing.T, files map[string]string) string {
+		t.Helper()
+		dir := t.TempDir()
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	lenient := editsWorkflow + "\nbogus_key = 1\n[gates.g]\nskill = \"nowhere\"\n[[transition]]\nfrom = [\"end\"]\nto = \"s0\"\ngroups = [{ gates = [\"undefined\"] }]\n"
+	dir := write(t, map[string]string{"flow.toml": lenient, "other.toml": "this is [not toml"})
+	for state, want := range map[string]string{"plan": EditsAttachments, "build": EditsTree, "review": ""} {
+		got, err := StateEditScope(dir, "flow", state)
+		if err != nil || got != want {
+			t.Errorf("state %s: got %q, %v; want %q", state, got, err, want)
+		}
+	}
+	named := write(t, map[string]string{"x.toml": "name = \"named\"\n" + editsWorkflow})
+	if got, err := StateEditScope(named, "named", "plan"); err != nil || got != EditsAttachments {
+		t.Errorf("named workflow: got %q, %v", got, err)
+	}
+	for _, c := range []struct{ name, body, state string }{
+		{"syntax error", editsWorkflow + "\n[states.broken\n", "plan"},
+		{"missing state", editsWorkflow, "nowhere"},
+		{"edits not a string", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = 3`, 1), "plan"},
+		{"edits unknown", strings.Replace(editsWorkflow, `edits = "attachments"`, `edits = "nothing"`, 1), "plan"},
+	} {
+		dir := write(t, map[string]string{"flow.toml": c.body})
+		if got, err := StateEditScope(dir, "flow", c.state); err == nil {
+			t.Errorf("%s: got %q and no error", c.name, got)
+		}
+	}
+	if got, err := StateEditScope(dir, "absent", "plan"); err == nil {
+		t.Errorf("absent workflow: got %q and no error", got)
+	}
+}

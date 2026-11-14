@@ -882,8 +882,9 @@ func seatCmd(kind string) *cobra.Command {
 		Use:   "seat <id>",
 		Short: "Bind this session, at this worktree, to an item",
 		Long: `seat binds a session at a location to an item. While the item's current
-state has a performer, the edit gate allows the seated session's edits at that
-location. The session is --session <id> (the context hook prints it; it
+state's performer may change the tree, the edit gate allows the seated
+session's edits at that location; a state that allows attachments only
+(edits = "attachments") refuses every tree edit there. The session is --session <id> (the context hook prints it; it
 defaults to $SATELLE_SESSION); the location defaults to local:<this worktree>.
 
 The seat records the item's diff base: the commit its gates judge the change

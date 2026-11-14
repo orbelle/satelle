@@ -224,6 +224,9 @@ type seatView struct {
 	Status     string `json:"status"`
 	Location   string `json:"location"`
 	Performing bool   `json:"performing"`
+	// Edits is what the seat lets the session change: tree, attachments,
+	// or empty when no agent performs the state.
+	Edits string `json:"edits,omitempty"`
 }
 
 func statusCmd() *cobra.Command {

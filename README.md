@@ -134,7 +134,9 @@ See `satelle help workflows --session <session>` and `satelle help agents --sess
 
 With a harness wired, every edit and shell command a session makes is judged by
 `satelle hook gate`. An edit is allowed only while the session holds a seat, at
-this worktree, on an item whose current state has a performer:
+this worktree, on an item whose current state's performer may change the tree
+(a state whose performer produces only attachments, such as plan, allows no
+tree edits; record its work as an attachment):
 
 ```sh
 satelle story seat <id> --session <session>

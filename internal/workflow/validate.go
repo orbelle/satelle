@@ -60,6 +60,14 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 		if _, ok := st.Operated(); ok && (st.Performer.Agent != "" || st.Performer.Skill != "") {
 			bad("state %q performer is the operator; it takes no agent or skill", name)
 		}
+		if st.Edits != "" {
+			switch {
+			case st.Edits != EditsTree && st.Edits != EditsAttachments:
+				bad("state %q edits %q is not %s or %s", name, st.Edits, EditsTree, EditsAttachments)
+			case st.Agent() == nil:
+				bad("state %q sets edits but has no agent performer; edits says what the state's performer may change", name)
+			}
+		}
 		if p := st.Agent(); p != nil {
 			if p.Agent == "" || !agent(p.Agent) {
 				bad("state %q performer agent %q is not in the agents catalog", name, p.Agent)

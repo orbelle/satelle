@@ -55,7 +55,8 @@ not fit is rejected, or the architecture is amended first (see "Amending").
   chain that binds a session at a location (a worktree) to the item; `satelle
   story release` ends it. The edit gate enforces seats: a session's edit is
   allowed only while it holds a seat at that location on an item whose current
-  state has a performer. A seat is not a lock: several sessions may hold seats
+  state's performer may change the tree; a seat on a state that allows
+  attachments only (`edits = "attachments"`) refuses every tree edit there. A seat is not a lock: several sessions may hold seats
   on one item, and there is no lease. Changes to one area of code run one after
   another ([[satelle-start-small]]). An edit belongs to the item seated at the
   worktree that holds its target path, and what it may do follows from that
