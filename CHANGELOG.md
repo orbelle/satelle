@@ -1,3 +1,8 @@
+## [1.0.65] - 2026-11-14
+
+### Removed
+- The retired held state is gone from the satelle repo's delivery workflow; a hold parks an item at blocked, and the workflows help topic's hold example says so. (sto_54e73cfa)
+
 ## [1.0.64] - 2026-11-14
 
 ### Added
