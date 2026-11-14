@@ -68,12 +68,12 @@ terminal = true
 # each run shows the current set holds.
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-grok"
+agent = "reviewer-grok-4.7"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.plan-review]
@@ -82,7 +82,7 @@ skill = "satelle-story-plan-review"
 # on sto_0586c449, so it judges plans beside Gemini; both must accept. Judges
 # read the attached plan from the item's record folder (sto_cdf94c34).
 # GPT-5.6 Sol joins them (operator, 2026-11-10; sto_0dd7e7b9).
-panel = ["reviewer-alt", "reviewer-grok", "reviewer-gpt"]
+panel = ["reviewer-gemini-3.8-flash-high", "reviewer-grok-4.7", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -100,13 +100,13 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 trigger = "satelle-instruction-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -117,7 +117,7 @@ skill = "satelle-ac-evidence-check"
 # 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-alt", "reviewer-gpt"]
+panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -146,7 +146,7 @@ skill = "satelle-pr-ready-check"
 # the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
 
@@ -179,22 +179,22 @@ skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
 # ---- transitions ----

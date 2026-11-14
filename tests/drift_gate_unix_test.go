@@ -4,6 +4,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 // The drift review's task id as the repo's substrate writes it, and the files
@@ -32,6 +35,58 @@ func repoText(t *testing.T, rel string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// repoGateAgents maps each gate of a repo workflow file to the agents that
+// judge it (its agent, then its panel), as the repo's substrate binds them,
+// so a fixture follows a rename instead of naming the repo's reviewers.
+func repoGateAgents(t *testing.T, rel string) map[string][]string {
+	t.Helper()
+	var wf struct {
+		Gates map[string]struct {
+			Agent string   `toml:"agent"`
+			Panel []string `toml:"panel"`
+		} `toml:"gates"`
+	}
+	if _, err := toml.Decode(repoText(t, rel), &wf); err != nil {
+		t.Fatalf("%s: %v", rel, err)
+	}
+	out := map[string][]string{}
+	for name, g := range wf.Gates {
+		if g.Agent != "" {
+			out[name] = append(out[name], g.Agent)
+		}
+		out[name] = append(out[name], g.Panel...)
+	}
+	return out
+}
+
+// judgeAgentsTOML is an agents.toml that binds every judge the named repo
+// workflow files use to the claude stand-in, each on model (its own stand-in model when
+// model is empty), after extra (already TOML).
+func judgeAgentsTOML(t *testing.T, extra, model string, rels ...string) string {
+	t.Helper()
+	var names []string
+	for _, rel := range rels {
+		for _, agents := range repoGateAgents(t, rel) {
+			for _, a := range agents {
+				if !slices.Contains(names, a) {
+					names = append(names, a)
+				}
+			}
+		}
+	}
+	slices.Sort(names)
+	var b strings.Builder
+	b.WriteString(extra)
+	for i, n := range names {
+		m := model
+		if m == "" {
+			m = fmt.Sprintf("judge-%d", i+1)
+		}
+		fmt.Fprintf(&b, "[agents.%q]\ncommand = \"claude\"\nmodel = %q\ntools = [\"Read\", \"Grep\", \"Glob\"]\n", n, m)
+	}
+	return b.String()
 }
 
 // driftTaskID is the one task id release.md, drift-review.md and the trigger
@@ -212,17 +267,8 @@ terminal = true
 from = ["defined"]
 to = "retired"
 `)
-	s.write(".satelle/agents.toml", `[agents.executor]
-command = "session"
-[agents.reviewer-gpt]
-command = "claude"
-model = "rv-1"
-tools = ["Read", "Grep", "Glob"]
-[agents.reviewer-alt]
-command = "claude"
-model = "ra-1"
-tools = ["Read", "Grep", "Glob"]
-`)
+	s.write(".satelle/agents.toml", judgeAgentsTOML(t, "[agents.executor]\ncommand = \"session\"\n", "",
+		".satelle/workflows/runbook.toml", ".satelle/workflows/drift.toml"))
 	s.write(".satelle/workflows/runbook.toml", repoText(t, ".satelle/workflows/runbook.toml"))
 	for _, name := range []string{"task-run", "satelle-task-validate-before-review", "satelle-task-validate-after-review", "satelle-release-kept-check",
 		"satelle-drift-constitution-review", "satelle-drift-claims-review", "satelle-drift-diff-covered", "satelle-drift-closures-check",
@@ -317,7 +363,7 @@ func (d *driftSandbox) setFake(name, body string) {
 
 // The drift-constitution gate judges only drift runs: another task's run over
 // the same diff skips it by the trigger; a drift run seated by release.md
-// step 11 is judged by the reviewer-gpt binding over its internal/ diff with the
+// step 11 is judged by the runbook's drift-constitution binding over its internal/ diff with the
 // skill's pointers, and a DRIFT reject keeps it in_progress. A run seated
 // without --base has an empty diff and skips the gate on paths.
 func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
@@ -349,8 +395,8 @@ func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
 		t.Fatalf("drift run is %s after a DRIFT reject, want in_progress", st)
 	}
 	g = latestRun(d.sandbox, drift, "drift-constitution")
-	if g.Result != "reject" || g.Binding != "reviewer-gpt" {
-		t.Fatalf("drift run's drift-constitution = %s by %q, want reject by reviewer-gpt", g.Result, g.Binding)
+	if want := repoGateAgents(t, ".satelle/workflows/runbook.toml")["drift-constitution"]; g.Result != "reject" || len(want) != 1 || g.Binding != want[0] {
+		t.Fatalf("drift run's drift-constitution = %s by %q, want reject by the runbook's judge %v", g.Result, g.Binding, want)
 	}
 	ps := prompts(t, d.fake, "constitution")
 	if len(ps) != 1 || !strings.Contains(ps[0], "+func Foo() { serveREST() }") || strings.Contains(ps[0], "satelle.version: 0.0.2") {
@@ -475,7 +521,7 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 
 // The drift-claims gate runs on every release (.version changes each time):
 // skipped by the trigger for another task's run, and for a drift run judged by
-// the reviewer-gpt binding over only the .version diff. Its verdict never blocks:
+// the runbook's drift-claims binding over only the .version diff. Its verdict never blocks:
 // each example verdict in the skill's ## Verdict section (zero warnings, one
 // warning) passes the gate's real notes and reference after checks, and the
 // run reaches done; the skill states no reject, and drift-review.md step 5
@@ -527,8 +573,8 @@ func TestDriftClaimsNeverRejects(t *testing.T) {
 			t.Fatalf("example %d: the run did not close: exit %d\n%s%s", i, r.code, r.out, r.err)
 		}
 		g := latestRun(d.sandbox, drift, "drift-claims")
-		if g.Result != "accept" || g.Binding != "reviewer-gpt" {
-			t.Fatalf("example %d: drift-claims = %s by %q (%q), want accept by reviewer-gpt", i, g.Result, g.Binding, g.Notes)
+		if want := repoGateAgents(t, ".satelle/workflows/runbook.toml")["drift-claims"]; g.Result != "accept" || len(want) != 1 || g.Binding != want[0] {
+			t.Fatalf("example %d: drift-claims = %s by %q (%q), want accept by the runbook's judge %v", i, g.Result, g.Binding, g.Notes, want)
 		}
 		ps := prompts(t, d.fake, "claims")
 		if len(ps) != 1 || !strings.Contains(ps[0], "+satelle.version: 0.0.2") || strings.Contains(ps[0], "serveREST") {
