@@ -1,3 +1,8 @@
+## [1.0.69] - 2026-11-14
+
+### Changed
+- The session guidance and the drive rule that the context, prompt and stop hooks print come from .satelle/session.md, which satelle init writes and the repo edits. A repo without the file gets a line naming it, and satelle doctor reports it until satelle init adds it. (sto_a92a6444)
+
 ## [1.0.68] - 2026-11-14
 
 ### Changed
