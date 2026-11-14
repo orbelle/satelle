@@ -861,3 +861,49 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 		t.Fatalf("--resolve wrote the tree: %v", d)
 	}
 }
+
+// sto_2a41b9e4 AC2: doctor --resolve --session records its writes as that
+// session, although its checks build command trees on other goroutines
+// before it records (doctor.go, doctor_resolve.go).
+func TestResolveRecordsTheSessionFlag(t *testing.T) {
+	t.Run("fix item", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		noTerminal(t)
+		t.Setenv("SATELLE_SESSION", "")
+		before := itemIDs(t)
+		if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(f.dir, "FAIL"), "skills/a.md:1: a finding\n")
+		out, err := run(t, "", "doctor", "--resolve", "--json", "--session", "s-doc")
+		if err != nil {
+			t.Fatalf("--resolve: %v\n%s", err, out)
+		}
+		fixes := newItems(t, before)
+		if len(fixes) != 1 {
+			t.Fatalf("items opened %+v", fixes)
+		}
+		evs := chain(t, fixes[0].ID)
+		if evs[0].Kind != "item.created" || evs[0].Actor != "s-doc" {
+			t.Errorf("the fix item was created by %q (%s), want s-doc", evs[0].Actor, evs[0].Kind)
+		}
+	})
+	t.Run("seat release", func(t *testing.T) {
+		newDoctorFixture(t)
+		noTerminal(t)
+		id := createID(t, "story", "create", "--title", "orphan", "--criteria", "c")
+		must(t, "story", "seat", id, "--session", "s-gone")
+		dead := killedProc(t)
+		if err := seatlife.Own(config.GlobalDir(), "s-gone", dead); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SATELLE_SESSION", "")
+		if out, err := run(t, "", "doctor", "--resolve", "--session", "s-doc"); err != nil {
+			t.Fatalf("--resolve: %v\n%s", err, out)
+		}
+		evs := chain(t, id)
+		if last := evs[len(evs)-1]; last.Kind != item.KindSeatReleased || last.Actor != "s-doc" {
+			t.Errorf("chain ends in %s by %q, want seat.released by s-doc", last.Kind, last.Actor)
+		}
+	})
+}
