@@ -44,11 +44,6 @@ const Dir = "sessions"
 // a multiplexer) is never taken as the owner.
 const hookSpawnDepth = 2
 
-// locationLocal is the prefix of a seat at a working tree on the machine that
-// bound it (kernel.LocationLocal; kernel imports this package's caller, not
-// this package).
-const locationLocal = "local:"
-
 // Record is one session's record on this machine.
 type Record struct {
 	Session string `json:"session"`
@@ -347,7 +342,7 @@ func (r Record) Lapsed() bool {
 //  5. an owner alive is here, exited is gone, unprobeable unverified;
 //  6. no owner is unverified, whatever its hook processes show.
 func Classify(here string, seat item.Seat, rec Record, ok bool) (Standing, Evidence) {
-	if !strings.HasPrefix(seat.Location, locationLocal) {
+	if !strings.HasPrefix(seat.Location, item.LocationLocal) {
 		return Elsewhere, Evidence("at " + seat.Location)
 	}
 	if seat.Machine == "" {

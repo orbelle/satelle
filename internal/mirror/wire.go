@@ -204,16 +204,16 @@ type PerformerRun struct {
 	Binding string `json:"binding,omitempty"`
 }
 
-// The kernel event kinds the web reads (gate.KindRun, item.KindTransitioned,
-// item.KindAttachmentAdd, item.KindUpdated, kernel.KindPerformerRun; uipush's
-// tests pin them equal). Every other kind is
-// shown on the timeline as it is.
+// The kernel event kinds the web reads. Every other kind is shown on the
+// timeline as it is. The item kinds refer to their owner; gate.run repeats
+// gate.KindRun (the mirror does not import the gate; uipush's tests pin it
+// equal).
 const (
 	EventGateRun         = "gate.run"
-	EventTransitioned    = "item.transitioned"
-	EventAttachmentAdded = "attachment.added"
-	EventUpdated         = "item.updated"
-	EventPerformerRun    = "performer.run"
+	EventTransitioned    = item.KindTransitioned
+	EventAttachmentAdded = item.KindAttachmentAdd
+	EventUpdated         = item.KindUpdated
+	EventPerformerRun    = item.KindPerformerRun
 	// GateReject is the gate.run result that refuses a transition
 	// (gate.Reject).
 	GateReject = "reject"

@@ -20,10 +20,10 @@ const devStore = "satelle.dev project shared at https://satelle.dev"
 func TestProjectPageNamesFailureAndLastSync(t *testing.T) {
 	okAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "", okAt); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, okAt); err != nil {
 			t.Fatal(err)
 		}
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "rpc error: code = Unavailable desc = down", time.Now()); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "rpc error: code = Unavailable desc = down"}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -43,7 +43,7 @@ func TestProjectPageNamesFailureAndLastSync(t *testing.T) {
 func TestProjectPageShowsLastSyncWithStore(t *testing.T) {
 	okAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "", okAt); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, okAt); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -61,7 +61,7 @@ func TestProjectPageShowsLastSyncWithStore(t *testing.T) {
 // sto_5c706973 AC5: a repo whose store is local reads local.
 func TestProjectPageShowsLocalStore(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, syncstate.LocalStore, "", time.Now()); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: syncstate.LocalStore}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -87,7 +87,7 @@ func TestLandingRendersStandingSyncFailure(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "hosted 505", time.Now()); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "hosted 505", time.Now()); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,7 +192,7 @@ func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "", time.Now().Add(-time.Hour)); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	ms := NewMirror(s)
@@ -227,7 +227,7 @@ func TestProjectPageNamesBothTimes(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "", time.Now().Add(-time.Hour)); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	ms := NewMirror(s)
@@ -262,7 +262,7 @@ func TestLandingRendersLocalOnly(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, syncstate.LocalStore, "", time.Now()); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: syncstate.LocalStore}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	ms := NewMirror(s)
@@ -321,7 +321,7 @@ func renderLocalAfter(t *testing.T, path string, record func(home, repo string) 
 	if err := record(config.GlobalDir(), repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncstate.RecordSync(config.GlobalDir(), repo, syncstate.LocalStore, "", time.Now()); err != nil {
+	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: syncstate.LocalStore}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	rr := httptest.NewRecorder()
@@ -330,7 +330,7 @@ func renderLocalAfter(t *testing.T, path string, record func(home, repo string) 
 }
 
 func recordFailure(home, repo string) error {
-	return syncstate.RecordSync(home, repo, devStore, "hosted 505", time.Now())
+	return syncstate.RecordPass(home, repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now())
 }
 
 func TestProjectPageLocalHidesStaleFailure(t *testing.T) {
@@ -347,7 +347,7 @@ func TestProjectPageLocalHidesStaleFailure(t *testing.T) {
 
 func TestProjectPageLocalHidesStaleSuccess(t *testing.T) {
 	body := renderLocalAfter(t, "/r/demo/", func(home, repo string) error {
-		return syncstate.RecordSync(home, repo, devStore, "", time.Now().Add(-time.Hour))
+		return syncstate.RecordPass(home, repo, syncstate.Pass{Store: devStore}, time.Now().Add(-time.Hour))
 	})
 	if !strings.Contains(body, `class="sync-local"`) {
 		t.Fatalf("project header must read local:\n%s", body)
@@ -451,7 +451,7 @@ func TestProjectPageShowsUpgradeNeeded(t *testing.T) {
 // class, ids and reasons — and never as sync failing.
 func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "", time.Now()); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{
@@ -478,7 +478,7 @@ func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
 // refusal as its reason; the held story is shown apart, as held.
 func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordSync(config.GlobalDir(), repo, devStore, "the story sty_r was not published: archived task refused", time.Now()); err != nil {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "the story sty_r was not published: archived task refused"}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{

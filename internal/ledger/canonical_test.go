@@ -38,3 +38,17 @@ func TestCanonicalMatchesTheWireContract(t *testing.T) {
 		t.Fatalf("string escaping canonical =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// ShortHash cuts a hash to 12 characters and leaves a shorter one whole.
+func TestShortHash(t *testing.T) {
+	for in, want := range map[string]string{
+		"0123456789abcdef0123": "0123456789ab",
+		"0123456789ab":         "0123456789ab",
+		"abc":                  "abc",
+		"":                     "",
+	} {
+		if got := ShortHash(in); got != want {
+			t.Errorf("ShortHash(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -4,9 +4,6 @@ package cli
 
 import "io"
 
-// systemdUser is false: the units are systemd-only.
-func systemdUser() bool { return false }
-
 // applyUnits prints the units: there is no systemd here.
 func applyUnits(w io.Writer, u serviceUnits, _ bool) error {
 	printUnits(w, u)

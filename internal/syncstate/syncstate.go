@@ -28,7 +28,7 @@ type State struct {
 	RepoPath string `json:"repo_path"`
 
 	// The sync group is the outcome of the last automatic ledger sync pass
-	// (`satelle ledger autosync`, sto_5c706973), written by RecordSync.
+	// (`satelle ledger autosync`, sto_5c706973), written by RecordPass.
 	// SyncStore names the store the pass replicated with (LocalStore when the
 	// repo's store is local and nothing was replicated); SyncReason is why
 	// the last pass failed, empty after a success; SyncPasses is how many
@@ -136,14 +136,9 @@ type Pass struct {
 	Upgrade        string
 }
 
-// RecordSync merges one sync pass into the sync group and writes atomically:
-// store is what the pass replicated with (LocalStore when nothing), reason is
-// why it failed ("" for a success).
-func RecordSync(globalDir, repoPath, store, reason string, now time.Time) error {
-	return RecordPass(globalDir, repoPath, Pass{Store: store, Reason: reason}, now)
-}
-
-// RecordPass is RecordSync with the pass's counts, which replace the last
+// RecordPass merges one sync pass into the sync group and writes atomically:
+// its store is what the pass replicated with (LocalStore when nothing), its
+// reason is why it failed ("" for a success), and its counts replace the last
 // pass's. A pass with Upgrade set records the command and clears the store,
 // reason and counts, leaving the last success and failure as they were;
 // every other pass clears SyncUpgrade.

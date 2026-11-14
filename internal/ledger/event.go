@@ -66,6 +66,15 @@ func HashOf(e Event) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ShortHash is a hash (an event hash, a sha256, a commit) cut to its first 12
+// characters, for a line a person reads. A shorter hash is returned whole.
+func ShortHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
+}
+
 // Decode unmarshals the event's payload into v.
 func (e Event) Decode(v any) error {
 	if len(e.Payload) == 0 {

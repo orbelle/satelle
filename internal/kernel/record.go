@@ -236,7 +236,7 @@ func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, child
 	if dir != "" {
 		fmt.Fprintf(&b, "%s%s:\n", RecordLead, dir)
 		for i, a := range atts {
-			fmt.Fprintf(&b, "- %s (%s, %s, %d bytes, sha256 %s)\n", paths[i], a.Name, a.MediaType, a.Size, short(a.SHA256))
+			fmt.Fprintf(&b, "- %s (%s, %s, %d bytes, sha256 %s)\n", paths[i], a.Name, a.MediaType, a.Size, ledger.ShortHash(a.SHA256))
 		}
 		fmt.Fprintf(&b, "- %s (%d children)\n", childrenPath, len(children))
 		b.WriteString("Read a file there for its full body; a body below may be cut.\n")
@@ -292,11 +292,4 @@ func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, child
 		}
 	}
 	return b.String()
-}
-
-func short(sha string) string {
-	if len(sha) > 12 {
-		return sha[:12]
-	}
-	return sha
 }

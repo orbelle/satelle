@@ -22,6 +22,19 @@ const (
 	KindAttachmentAdd = "attachment.added"
 )
 
+// KindPerformerRun is the event the kernel appends when a performer's run of a
+// step ends. The folds do not read it; the kernel writes it and the mirror's
+// web reads it, so it is owned here, below both.
+const KindPerformerRun = "performer.run"
+
+// Seat location prefixes: where a seat's session runs. Owned here, below the
+// kernel that binds seats and the seatlife records that read them.
+const (
+	LocationLocal  = "local:"
+	LocationRemote = "remote:"
+	LocationCloud  = "cloud:"
+)
+
 // Folded reports whether kind is one the folds read, the kinds above. Only
 // satelle's own verbs write these; a raw append may not.
 func Folded(kind string) bool {

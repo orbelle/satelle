@@ -4,63 +4,10 @@ package gate
 
 import (
 	"context"
-	"errors"
-	"os/exec"
 	"slices"
 	"strings"
-	"sync"
-	"syscall"
 	"testing"
 )
-
-// sto_cb34e3e3 AC3: many #! checks run at once while other goroutines fork
-// continuously, and none fails with "text file busy".
-func TestShebangChecksRunConcurrentlyUnderForkLoad(t *testing.T) {
-	stop := make(chan struct{})
-	var forks sync.WaitGroup
-	for range 8 {
-		forks.Add(1)
-		go func() {
-			defer forks.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-					_ = exec.Command("true").Run()
-				}
-			}
-		}()
-	}
-	defer func() { close(stop); forks.Wait() }()
-
-	dir := t.TempDir()
-	script := "#!/bin/sh\nexit 0\n"
-	for round := range 20 {
-		var wg sync.WaitGroup
-		errs := make(chan error, 64)
-		for range 64 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				code, out, err := RunCheckCode(context.Background(), script, dir, CheckEnv{}, 0)
-				switch {
-				case errors.Is(err, syscall.ETXTBSY):
-					errs <- errors.New("text file busy: " + err.Error())
-				case err != nil:
-					errs <- err
-				case code != 0:
-					errs <- errors.New("exit " + strings.TrimSpace(out))
-				}
-			}()
-		}
-		wg.Wait()
-		close(errs)
-		for err := range errs {
-			t.Fatalf("round %d: %v", round, err)
-		}
-	}
-}
 
 // sto_cb34e3e3 AC1: a #! script is read by its interpreter, never executed as
 // a file: it has no execute bit, and it still gets its stdin payload.

@@ -19,7 +19,7 @@ import (
 
 // Event kinds the kernel appends beyond the item folds and gate.run.
 const (
-	KindPerformerRun = "performer.run"
+	KindPerformerRun = item.KindPerformerRun
 	KindTaskRun      = "task.run"
 )
 
