@@ -39,8 +39,27 @@ func newMachine(t *testing.T) machine {
 // the web server over it, which only this machine's CLI pushes to.
 func newMachineWithUI(t *testing.T) machine {
 	t.Helper()
+	return serveMirror(t, newMachine(t), filepath.Join(t.TempDir(), "m.db"))
+}
+
+// newMachineWithHomeUI is newMachineWithUI whose satelled serves this home's
+// own mirror database (mirror.DefaultPath), the file the CLI's partition
+// readers open, so m.ms and the CLI read the same partitions.
+func newMachineWithHomeUI(t *testing.T) machine {
+	t.Helper()
 	m := newMachine(t)
-	ms, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	path := mirror.DefaultPath(config.GlobalDir())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return serveMirror(t, m, path)
+}
+
+// serveMirror gives m a satelled: a mirror store at path and the web server
+// over it, which only this machine's CLI pushes to.
+func serveMirror(t *testing.T, m machine, path string) machine {
+	t.Helper()
+	ms, err := mirror.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

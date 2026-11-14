@@ -23,4 +23,6 @@ The app that reviews this repo's pull requests is the satelle GitHub app (app
 
 satelled keeps one partition per project it has been sent:
 `satelle project partitions --session <session>` lists them and `satelle project prune <repo_key> --session <session>`
-drops one whose project is gone.
+drops one whose project is gone. The automatic sync pass removes a project
+whose path no longer exists from `[projects] paths` and drops its satelled
+partition; `satelle project add <path> --session <session>` registers it again.

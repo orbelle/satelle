@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -279,7 +280,21 @@ func TestAutosyncAdoptedQueueDoesNotFork(t *testing.T) {
 // snapshot hash. It returns the machine and the partition's repo_key.
 func localWithUI(t *testing.T) (machine, string) {
 	t.Helper()
-	m := newMachineWithUI(t)
+	return localOn(t, newMachineWithUI)
+}
+
+// localWithHomeUI is localWithUI whose satelled serves this home's own mirror
+// database, the one the pass's partition prune reads.
+func localWithHomeUI(t *testing.T) (machine, string) {
+	t.Helper()
+	return localOn(t, newMachineWithHomeUI)
+}
+
+// localOn builds the machine with newM and adds its repo with satelle project
+// add, returning the machine and the partition's repo_key.
+func localOn(t *testing.T, newM func(*testing.T) machine) (machine, string) {
+	t.Helper()
+	m := newM(t)
 	m.use(t)
 	must(t, "project", "add")
 	parts, err := m.ms.ListPartitions(context.Background())
@@ -682,6 +697,235 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 	}
 	if n := len(srv.Events("shared", "que_release")); n != len(aChain) {
 		t.Fatalf("satelle.dev holds %d events of que_release, A pushed %d", n, len(aChain))
+	}
+}
+
+// seedPartition gives m's satelled the partition key, with an identity whose
+// recorded repo_root is root ("" records no identity), as a push would.
+func seedPartition(t *testing.T, m machine, key, root string) {
+	t.Helper()
+	ctx, now := context.Background(), time.Now()
+	if _, err := m.ms.TouchPartition(ctx, key, key, now); err != nil {
+		t.Fatal(err)
+	}
+	if root == "" {
+		return
+	}
+	if err := m.ms.UpsertItem(ctx, key, "identity", "meta", mirror.IdentityMeta{ProjectName: key, RepoRoot: root}, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hasPartition reports whether m's satelled holds the partition key.
+func hasPartition(t *testing.T, m machine, key string) bool {
+	t.Helper()
+	_, ok, err := m.ms.GetPartition(context.Background(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ok
+}
+
+// goneProject registers a temp project named 003 with satelle project add and
+// then deletes its directory, as a test's temp project is.
+func goneProject(t *testing.T) string {
+	t.Helper()
+	gone := filepath.Join(t.TempDir(), "003")
+	if err := os.Mkdir(gone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	must(t, "project", "add", gone)
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(gc.Projects.Paths, gone) {
+		t.Fatalf("setup: %s not in [projects] paths %v", gone, gc.Projects.Paths)
+	}
+	return gone
+}
+
+// AC1 (sto_e3c6bfb6): a registered project whose path no longer exists is
+// pruned by the automatic pass, from [projects] paths in config.toml and from
+// this machine's satelled; every entry and partition whose path exists, or
+// that records no path, is kept.
+func TestAutosyncPrunesGoneProject(t *testing.T) {
+	m, key := localWithHomeUI(t)
+	gc, err := config.LoadGlobal()
+	if err != nil || len(gc.Projects.Paths) != 1 {
+		t.Fatalf("setup: [projects] paths %v, %v; want the machine's repo", gc.Projects.Paths, err)
+	}
+	repo := gc.Projects.Paths[0]
+	gone := goneProject(t)
+	file := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPartition(t, m, "rk-gone", gone)
+	seedPartition(t, m, "rk-file", file)
+	seedPartition(t, m, "rk-norecord", "")
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	out := autosync(t, m)
+
+	gc, err = config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(gc.Projects.Paths, gone) || !slices.Contains(gc.Projects.Paths, repo) {
+		t.Errorf("[projects] paths after the pass = %v; want %s gone and %s kept", gc.Projects.Paths, gone, repo)
+	}
+	raw, err := os.ReadFile(config.GlobalConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), gone) {
+		t.Errorf("config.toml still names %s:\n%s", gone, raw)
+	}
+	if list := must(t, "project", "list"); strings.Contains(list, gone) {
+		t.Errorf("project list still shows %s:\n%s", gone, list)
+	}
+	if !strings.Contains(out, gone) || !strings.Contains(out, "removed from this machine's projects") {
+		t.Errorf("the pass did not report the removal:\n%s", out)
+	}
+	if strings.Contains(out, "skipped: no such directory") {
+		t.Errorf("the pass still visited the pruned path:\n%s", out)
+	}
+
+	if hasPartition(t, m, "rk-gone") {
+		t.Error("partition rk-gone, whose path is gone, survived the pass")
+	}
+	if !strings.Contains(out, "rk-gone") || !strings.Contains(out, "pruned") {
+		t.Errorf("the pass did not report the partition prune:\n%s", out)
+	}
+	for _, k := range []string{key, "rk-file", "rk-norecord"} {
+		if !hasPartition(t, m, k) {
+			t.Errorf("partition %s, whose path exists or is not recorded, was pruned", k)
+		}
+	}
+}
+
+// AC1 (sto_e3c6bfb6): a pass whose satelled is not answering, or whose push
+// is disabled, removes no partition (no direct-database fallback); the
+// registry prune does not depend on satelled.
+func TestAutosyncSatelledDownPrunesNoPartition(t *testing.T) {
+	m, _ := localWithHomeUI(t)
+	gone := goneProject(t)
+	seedPartition(t, m, "rk-gone", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	out := must(t, "ledger", "autosync")
+	if !hasPartition(t, m, "rk-gone") {
+		t.Fatal("a pass with satelled not answering removed a partition")
+	}
+	if !strings.Contains(out, "partitions not pruned") {
+		t.Errorf("the pass did not report the failed partition prune:\n%s", out)
+	}
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(gc.Projects.Paths, gone) {
+		t.Errorf("[projects] paths %v still holds %s with satelled down", gc.Projects.Paths, gone)
+	}
+
+	t.Setenv("SATELLE_SERVER_ENDPOINT", "none")
+	must(t, "ledger", "autosync")
+	if !hasPartition(t, m, "rk-gone") {
+		t.Fatal("a pass with the push disabled removed a partition")
+	}
+}
+
+// AC1 (sto_e3c6bfb6): a pass with no gone project keeps every entry and does
+// not rewrite config.toml.
+func TestAutosyncKeepsExistingProjects(t *testing.T) {
+	m := newMachine(t)
+	// The second project is a satelle repo of its own, so the pass syncs it
+	// wherever the temp root is (a bare dir under a TMPDIR inside the user's
+	// home would resolve to that home's .satelle).
+	other, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, other, "init", "-q")
+	gittest.Git(t, other, "commit", "-q", "--allow-empty", "-m", "init")
+	t.Chdir(other)
+	must(t, "init")
+	t.Chdir(m.dir)
+	must(t, "project", "add", m.dir)
+	must(t, "project", "add", other)
+	path := config.GlobalConfigPath()
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stBefore, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond) // time-subject: a rewrite would visibly move the modification time
+
+	must(t, "ledger", "autosync")
+
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{m.dir, other} {
+		if !slices.Contains(gc.Projects.Paths, p) {
+			t.Errorf("[projects] paths %v lost the existing %s", gc.Projects.Paths, p)
+		}
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stAfter, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) || !stAfter.ModTime().Equal(stBefore.ModTime()) {
+		t.Errorf("a pass with nothing to prune rewrote config.toml:\n%s\n→\n%s", before, after)
+	}
+}
+
+// AC1 (sto_e3c6bfb6): the pass's partition read creates no mirror database
+// when this home has none.
+func TestAutosyncCreatesNoMirror(t *testing.T) {
+	newMachine(t)
+	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	must(t, "project", "add")
+	must(t, "ledger", "autosync")
+	if _, err := os.Stat(mirror.DefaultPath(config.GlobalDir())); !os.IsNotExist(err) {
+		t.Errorf("the pass created %s (stat err %v)", mirror.DefaultPath(config.GlobalDir()), err)
+	}
+}
+
+// AC1 (sto_e3c6bfb6): only a missing absolute path is gone.
+func TestProjectPathGone(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, path string
+		want       bool
+	}{
+		{"missing absolute path", filepath.Join(dir, "missing"), true},
+		{"existing directory", dir, false},
+		{"existing file", file, false},
+		{"empty string", "", false},
+		{"missing relative path", "no-such-relative-dir", false},
+	} {
+		if got := projectPathGone(c.path); got != c.want {
+			t.Errorf("%s: projectPathGone(%q) = %v, want %v", c.name, c.path, got, c.want)
+		}
 	}
 }
 
