@@ -74,7 +74,9 @@ Three rules complete it:
   above 64 MiB, an exit code the operation does not define, a `list` line that
   is not a key under the prefix, out of order, repeated or not after the
   after-key, and an exit 1 or 2 with no `error:` line are each a broken
-  contract. The cause line is the last stderr line matching
+  contract. A command ended by a signal is a broken contract too; the error
+  names the signal, the command's pid and its process group. The cause line is
+  the last stderr line matching
   `^error: (auth|not-found|conflict|unavailable|invalid): .+$`; satelle shows
   only that line, never the rest of stderr or stdout.
 
