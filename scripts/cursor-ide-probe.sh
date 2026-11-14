@@ -45,8 +45,8 @@ env_names="SATELLE_SESSION SATELLE_PROJECT_DIR SATELLE_HOME CLAUDE_PROJECT_DIR C
 # stored as redacted.
 caller_prefixes='^(X?CURSOR|PI_|GROK|CLAUDE)'
 secret_names='TOKEN|KEY|SECRET|PASSWORD|AUTH|EMAIL'
-# The harnesses caller-setup wires.
-callers="cursor pi grok"
+# The harnesses caller-setup wires: every harness line of caller-harnesses.tsv.
+callers=$(awk -F'\t' '!/^#/ && NF >= 3 { print $1 }' "$(dirname "${BASH_SOURCE[0]}")/caller-harnesses.tsv" | tr '\n' ' ')
 
 die() { echo "cursor-ide-probe: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is not installed"; }
@@ -376,12 +376,17 @@ cmd_collect() {
 	echo "wrote $out"
 }
 
-caller_cli() {
-	case $1 in
-	cursor) echo cursor-agent ;;
-	*) echo "$1" ;;
-	esac
+# caller_conf prints column $2 (2 = cli, 3 = launch) of harness $1's line in
+# caller-harnesses.tsv, the configuration that owns each harness's CLI and
+# launch form; it dies naming the file when the harness has no line.
+caller_conf() {
+	local conf
+	conf="$(dirname "${BASH_SOURCE[0]}")/caller-harnesses.tsv"
+	awk -F'\t' -v h="$1" -v c="$2" '!/^#/ && $1 == h { print $c; found = 1; exit } END { exit !found }' "$conf" ||
+		die "no line for harness $1 in $conf"
 }
+
+caller_cli() { caller_conf "$1" 2; }
 
 # caller_unset is the env prefix a capture session is launched with: no
 # satelle session, no other harness's marker, and none of the CLAUDE names
@@ -421,20 +426,15 @@ cmd_caller_setup() {
 exec $self record $dir/captures/pi "\$2@pi" $bin "\$@"
 EOF
 	chmod +x "$dir/shim/satelle"
-	local u
+	local u launch
 	u=$(caller_unset)
+	echo "Scratch repos are ready in $dir. Run each session from your own terminal"
+	echo "(launch forms from scripts/caller-harnesses.tsv):"
+	for h in $callers; do
+		launch=$(caller_conf "$h" 3)
+		printf '\n%s:\n  cd %s/%s && %s %s\n' "$h" "$dir" "$h" "$u" "${launch//\{dir\}/$dir}"
+	done
 	cat <<EOF
-Scratch repos are ready in $dir. Run each session from your own terminal:
-
-cursor:
-  cd $dir/cursor && $u cursor-agent -p --output-format stream-json --trust <$dir/cursor.prompt
-
-pi:
-  cd $dir/pi && $u PATH=$dir/shim:\$PATH pi -p --approve "\$(cat $dir/pi.prompt)"
-
-grok (GROK_FOLDER_TRUST=0: a headless run skips an untrusted folder's
-project hooks, and --trust would write ~/.grok/trusted_folders.toml):
-  cd $dir/grok && $u GROK_FOLDER_TRUST=0 grok --prompt-file $dir/grok.prompt --output-format json --always-approve
 
 An interactive session given the prompt in $dir/<harness>.prompt is equally
 valid. Then run: $self caller-collect $dir
