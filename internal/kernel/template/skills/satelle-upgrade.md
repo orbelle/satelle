@@ -17,7 +17,7 @@ and `satelle workflow show <name> --session <session>` for any workflow.
 - Follow this after `satelle upgrade --archive --session <session>`.
 - **The archive** is the `<dest>` of the `archived <src> (<n> files) to <dest>`
   line the archive printed. Without that output, list
-  `<satelle runtime path>/archive/ --session <session>` and ask the user which stamp.
+  `<satelle runtime path>/archive/` and ask the user which stamp.
 - **The old store** is the `old store: <dir>` line. The archive prints it only
   when it found `satelle.db` in the runtime directory or in the archived
   `.satelle`. Without that line, ask the user for the directory that holds the

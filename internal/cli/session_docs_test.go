@@ -220,6 +220,11 @@ func commandsIn(root *cobra.Command, word *regexp.Regexp, s string, code bool) [
 	var out []shownCmd
 	for _, m := range word.FindAllStringSubmatchIndex(s, -1) {
 		at := m[0] + len(s[m[2]:m[3]])
+		if inPlaceholder(s[:at]) {
+			// <... of satelle service status>, <satelle runtime path>: a
+			// placeholder's words, not a command.
+			continue
+		}
 		ext := extent(s, at, code)
 		fields := strings.Fields(ext)
 		if len(fields) == 0 {
@@ -654,5 +659,37 @@ func TestTheScannerReadsAliasesAndAlternatives(t *testing.T) {
 		if len(got) != c.n || (c.n > 0 && got[0].HasSession() != c.ok) {
 			t.Errorf("%q: %+v, want %d command(s), --session %v", c.text, got, c.n, c.ok)
 		}
+	}
+}
+
+// inPlaceholder reports whether the text before an occurrence leaves a
+// <placeholder> open: a < followed by a word, not yet closed by >.
+func inPlaceholder(prefix string) bool {
+	open := -1
+	for i := 0; i < len(prefix); i++ {
+		switch {
+		case prefix[i] == '<' && (i+1 == len(prefix) || prefix[i+1] != ' ' && prefix[i+1] != '<' && prefix[i+1] != '(' && prefix[i+1] != '='):
+			open = i
+		case prefix[i] == '>' && open >= 0:
+			open = -1
+		}
+	}
+	return open >= 0
+}
+
+// An occurrence inside a <placeholder> is the placeholder's words, so a flag
+// appended there is not a command's (code-ac round 2 of sto_2a41b9e4).
+func TestTheScannerSkipsPlaceholders(t *testing.T) {
+	tree := NewRootCmd()
+	for _, text := range []string{
+		"```sh\ndbin=<the path in the installed line of satelle service status>\n```\n",
+		"List `<satelle runtime path>/archive/` first.",
+	} {
+		if got := scanDoc(tree, text); len(got) != 0 {
+			t.Errorf("%q: found %+v, want none", text, got)
+		}
+	}
+	if got := scanDoc(tree, "Run `satelle story get <id>` now."); len(got) != 1 {
+		t.Errorf("a placeholder after the command hid it: %+v", got)
 	}
 }
