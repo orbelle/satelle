@@ -9,14 +9,25 @@
 # The command runs under `env -i`. It gets:
 #   - HOME and XDG_{CONFIG,DATA,CACHE,STATE}_HOME as fresh empty dirs inside one
 #     mktemp dir, removed on exit; the command's exit status is kept;
-#   - PATH=$(go env GOROOT)/bin:/usr/local/bin:/usr/bin:/bin -- the Go toolchain
-#     and the system bin dirs, no version-manager shims;
-#   - GOMODCACHE, GOCACHE and GOPATH read from `go env` BEFORE HOME is replaced,
-#     so the wrapped run uses the real module and build caches (no network, a warm
-#     local cache still hits);
+#   - PATH=$GOROOT/bin:/usr/local/bin:/usr/bin:/bin -- the Go toolchain and the
+#     system bin dirs, no version-manager shims;
+#   - GOROOT, GOMODCACHE, GOCACHE and GOPATH read from `go env` BEFORE HOME is
+#     replaced, so the wrapped run uses the real toolchain and the real module
+#     and build caches (no network, a warm local cache still hits);
 #   - no SATELLE_HOME and no path of the caller's home, .satelle dir, XDG config
 #     dir or SATELLE_HOME, so the only ~/.satelle a test can reach by HOME is the
 #     wrapper's own (sto_e3c6bfb6);
+#   - no value that names the caller's HOME at all (sto_e3c6bfb6): a path the
+#     command needs that lies under it (GOROOT, the Go caches, GOPATH,
+#     SATELLE_BIN, the starting directory and so PWD, ...) is handed over as a
+#     symlink in /tmp/satelle-hermetic-<uid> (mode 0700, owned by the caller),
+#     named by a checksum of the target and kept between runs, so the Go build
+#     cache's keys stay stable and nothing is re-downloaded or rebuilt. Any other passed-through value containing the
+#     caller's HOME is dropped with a warning. A TMPDIR under the caller's HOME
+#     is not linked (tests compare t.TempDir() paths with the physical working
+#     directory a subprocess reports): the run gets a fresh TMPDIR in its own
+#     temp dir under /tmp instead. The suite is thus given no path from which to
+#     form the caller's ~/.satelle;
 #   - SATELLE_RELEASE_API, SATELLE_RELEASE_LIST_API and SATELLE_RELEASE_BASE fixed
 #     to a closed loopback endpoint, whatever the caller exports, so a release
 #     check started by a session-start hook in a test never reaches GitHub or
@@ -36,19 +47,16 @@
 # mode restored, is caught too. No path is exempt. It names what it found on stderr and
 # exits 1 when the command passed, else keeps the command's status.
 #
-# The caller's REAL satelle home is watched too (sto_e3c6bfb6): $SATELLE_HOME
-# and $HOME/.satelle as the caller has them, resolved before HOME is replaced.
-# A test that reaches it by a path of its own -- e.g. one derived from
-# GOMODCACHE, GOCACHE or GOPATH, which stay the caller's real caches so modules
-# are not re-downloaded -- does not go through the wrapper's HOME, so the
-# wrapper snapshots every path under it (type, size, mtime, ctime, inode) before
-# the command and again after, and fails the run, naming each path added,
-# removed or changed, by the same exit rule. Excluded are only the paths the
-# host's own satelle rewrites on its own schedule while a suite runs (the sync
-# timer every 30 s, satelled, every satelle command of a parallel session):
-# serve/, sessions/, builds.json (and its .tmp) and the per-repo runtime dirs
-# <name>-<8 hex>/. The project registry config.toml, machine-id and every other
-# path, at any depth, are compared.
+# As detection on top of that, the caller's real satelle home is snapshotted
+# (sto_e3c6bfb6): $SATELLE_HOME and $HOME/.satelle as the caller has them. Every
+# path under it is recorded (type, size, mtime, ctime, inode) before the command
+# and again after, and the run fails, by the same exit rule, naming each path
+# added, removed or changed. The guard catches any change EXCEPT to the paths
+# the host's own satelle rewrites on its own schedule while a suite runs (the
+# sync timer every 30 s, satelled, every satelle command of a parallel session),
+# which it leaves out: serve/, sessions/, builds.json (and its .tmp) and the
+# per-repo runtime dirs <name>-<8 hex>/. The project registry config.toml,
+# machine-id and every other path, at any depth, are compared.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -66,6 +74,51 @@ fi
 gomodcache=$(go env GOMODCACHE) || exit 2
 gocache=$(go env GOCACHE) || exit 2
 gopath=$(go env GOPATH) || exit 2
+
+# hide prints $1 unchanged unless it names the caller's HOME; then it prints a
+# symlink to it in $hidebase, so the command is handed no path of the caller's
+# home (sto_e3c6bfb6). The link's name is a checksum of the target (plus the
+# target's base name), so the same target always gets the same link: links are
+# never replaced, concurrent runs agree, and the Go build cache, whose keys
+# include source directories, keeps hitting across runs.
+hidebase="/tmp/satelle-hermetic-$(id -u)"
+mkdir -m 0700 "$hidebase" 2>/dev/null
+if [ -L "$hidebase" ] || [ ! -d "$hidebase" ] || [ ! -O "$hidebase" ] || ! chmod 0700 "$hidebase"; then
+	echo "hermetic: $hidebase is not a directory owned by this user; failing closed" >&2
+	exit 2
+fi
+for l in $(find "$hidebase" -mindepth 1 -maxdepth 1 -type l -mmin +60 2>/dev/null); do
+	[ -e "$l" ] || rm -f "$l"
+done
+# underhome reports whether $1 is the caller's HOME or under it, as given or
+# with HOME's symlinks resolved.
+home=${HOME:-/nonexistent-home}
+homephys=$(cd "$home" 2>/dev/null && pwd -P) || homephys=$home
+underhome() {
+	case "$1" in
+	"$home" | "$home"/* | "$homephys" | "$homephys"/*) return 0 ;;
+	esac
+	return 1
+}
+hide() {
+	underhome "$1" || {
+		printf '%s\n' "$1"
+		return 0
+	}
+	name=$(printf %s "$1" | cksum | cut -d' ' -f1)
+	[ "$1" = "$HOME" ] || name="$name-$(basename "$1")"
+	link="$hidebase/$name"
+	[ -L "$link" ] || ln -s "$1" "$link" 2>/dev/null
+	if [ "$(readlink "$link")" != "$1" ]; then
+		echo "hermetic: $link does not point at the expected target; failing closed" >&2
+		return 1
+	fi
+	printf '%s\n' "$link"
+}
+goroot=$(hide "$goroot") || exit 2
+gomodcache=$(hide "$gomodcache") || exit 2
+gocache=$(hide "$gocache") || exit 2
+gopath=$(hide "$gopath") || exit 2
 
 # The caller's real satelle homes, before HOME is replaced (sto_e3c6bfb6).
 real1=${SATELLE_HOME:-}
@@ -96,9 +149,16 @@ hostsnap() {
 before1=$(hostsnap "$real1")
 before2=$(hostsnap "$real2")
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/hermetic.XXXXXX") || exit 2
+# A TMPDIR under the caller's HOME is replaced by $work/tmp, with $work in /tmp.
+workroot=${TMPDIR:-/tmp}
+ownTMP=
+if underhome "$workroot"; then
+	workroot=/tmp
+	ownTMP=1
+fi
+work=$(mktemp -d "$workroot/hermetic.XXXXXX") || exit 2
 trap 'rm -rf "$work"' HUP INT TERM
-mkdir -p "$work/home" "$work/xdg/config" "$work/xdg/data" "$work/xdg/cache" "$work/xdg/state" || {
+mkdir -p "$work/home" "$work/xdg/config" "$work/xdg/data" "$work/xdg/cache" "$work/xdg/state" "$work/tmp" || {
 	rm -rf "$work"
 	exit 2
 }
@@ -110,6 +170,14 @@ for name in $ALLOW $names; do
 	eval "isset=\${$name+x}"
 	[ -n "$isset" ] || continue
 	eval "val=\${$name}"
+	[ "$name" = TMPDIR ] && [ -n "$ownTMP" ] && val="$work/tmp"
+	val=$(hide "$val") || { rm -rf "$work"; exit 2; }
+	case "$val" in
+	*"$home"* | *"$homephys"*)
+		echo "hermetic: $name names the caller's HOME and is not a path under it; dropped" >&2
+		continue
+		;;
+	esac
 	set -- "$name=$val" "$@"
 done
 
@@ -120,6 +188,7 @@ set -- \
 	"XDG_CACHE_HOME=$work/xdg/cache" \
 	"XDG_STATE_HOME=$work/xdg/state" \
 	"PATH=$goroot/bin:/usr/local/bin:/usr/bin:/bin" \
+	"GOROOT=$goroot" \
 	"GOMODCACHE=$gomodcache" \
 	"GOCACHE=$gocache" \
 	"GOPATH=$gopath" \
@@ -140,6 +209,14 @@ mkdir "$leak" && chmod 0555 "$leak" && guard=$(snap "$leak") && [ -n "$guard" ] 
 	rm -rf "$work"
 	exit 2
 }
+
+# The command starts in the same directory, reached through its link when it
+# lies under the caller's HOME, so PWD names no path of that home either.
+here=$(hide "$(pwd)") && cd "$here" || {
+	rm -rf "$work"
+	exit 2
+}
+set -- "PWD=$here" "$@"
 
 env -i "$@"
 status=$?

@@ -60,11 +60,13 @@ uninstall:
 CREDGUARD := sh scripts/credguard.sh --
 
 # HERMETIC runs a command under an empty test-owned HOME/XDG and a minimal PATH so
-# the suites do not depend on the operator's machine (sty_ec30f859). It passes no
-# path of the caller's home, and fails the target, naming the files, when the run
-# wrote that test-owned HOME's ~/.satelle, or changed the caller's real satelle
-# home by any other route: a snapshot before and after, leaving out only the
-# paths the host's own satelle rewrites during a run (sto_e3c6bfb6). Test flags go through
+# the suites do not depend on the operator's machine (sty_ec30f859). The suite is
+# given no path to the caller's home: the Go toolchain, caches and the starting
+# directory are passed as stable symlinks in /tmp/satelle-hermetic-<uid>, and a
+# TMPDIR under that home is replaced by a fresh dir under /tmp (sto_e3c6bfb6). It fails the target, naming the files, when the run wrote the
+# test-owned HOME's ~/.satelle, and, from a snapshot before and after, when the
+# run changed the caller's real satelle home anywhere except the paths the host's
+# own satelle rewrites during a run, which it names. Test flags go through
 # TESTFLAGS. credguard stays OUTSIDE it so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 
