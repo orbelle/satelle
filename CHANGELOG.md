@@ -1,3 +1,8 @@
+## [1.0.70] - 2026-11-14
+
+### Changed
+- The hook defer decision lives in the hook adapter alone, and caller detection (the harness check of satelle doctor) reads only session markers captured in live cursor-agent, pi and grok sessions; a marker no captured session set is no longer read. (sto_1f4dc85d)
+
 ## [1.0.69] - 2026-11-14
 
 ### Changed
