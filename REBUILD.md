@@ -963,8 +963,8 @@ when it can.
     (tasks). The plan-stage reviewer `binary-scope` runs first on
     plan → in_progress (fail-fast), again on in_progress → integration over the
     diff, and its skill states "no exemption".
-  - Check skills are `type: check`. A script starting with `#!` runs as a
-    file; the transition is passed in the environment and as JSON on stdin.
+  - Check skills are `type: check`. A script starting with `#!` is run by the
+    interpreter that line names (the file itself is never executed); the transition is passed in the environment and as JSON on stdin.
   - Verdict JSON key is `verdict`.
   - `satelle init` in an empty git directory, then `story create` and
     `story set --status done`, walks backlog → done; `ledger verify` passes.

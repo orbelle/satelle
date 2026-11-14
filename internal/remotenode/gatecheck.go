@@ -354,10 +354,14 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 			return false, err
 		}
 	}
+	wrapper, err := gateWrapperScript(c.Env, c.Script)
+	if err != nil {
+		return false, err
+	}
 	for name, b := range map[string]string{
 		gateScript:  c.Script,
 		gatePayload: string(c.Env.Payload()),
-		gateWrapper: gateWrapperScript(c.Env, strings.HasPrefix(c.Script, "#!")),
+		gateWrapper: wrapper,
 	} {
 		if err := os.WriteFile(filepath.Join(in, name), []byte(b), 0o644); err != nil {
 			return false, err
@@ -368,10 +372,16 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 
 // gateWrapperScript is the sh script the node runs as `sh run-check <dir>`: it
 // runs the check in <dir>/work as a local check runs (a script starting with
-// "#!" as a file, any other through sh), with the transition in the
-// environment and on stdin, its output to <dir>/out/log and its exit code to
-// <dir>/out/exit. The root is an argument so no node path is written into it.
-func gateWrapperScript(env gate.CheckEnv, shebang bool) string {
+// "#!" by the interpreter that line names, gate.ScriptInterpreter, with the
+// script as a file argument and never executed; any other through sh), with
+// the transition in the environment and on stdin, its output to <dir>/out/log
+// and its exit code to <dir>/out/exit. The root is an argument so no node path
+// is written into it. A "#!" naming no interpreter is an error.
+func gateWrapperScript(env gate.CheckEnv, script string) (string, error) {
+	argv, shebang, err := gate.ScriptInterpreter(script)
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	b.WriteString("# Runs a gate's check on this node; written by satelle.\nset -u\nroot=$1\nmkdir -p \"$root/out\" || exit 1\n")
 	for _, kv := range env.Vars() {
@@ -381,13 +391,15 @@ func gateWrapperScript(env gate.CheckEnv, shebang bool) string {
 	b.WriteString("cd \"$root/work\" || exit 1\n")
 	redirect := ` < "$root/in/` + gatePayload + `" > "$root/out/` + gateLog + `" 2>&1`
 	if shebang {
-		b.WriteString(`chmod 700 "$root/in/` + gateScript + `" || exit 1` + "\n")
+		for _, a := range argv {
+			b.WriteString(shQuote(a) + " ")
+		}
 		b.WriteString(`"$root/in/` + gateScript + `"` + redirect + "\n")
 	} else {
 		b.WriteString(`sh "$root/in/` + gateScript + `"` + redirect + "\n")
 	}
 	b.WriteString(`echo $? > "$root/out/` + gateExit + `"` + "\n")
-	return b.String()
+	return b.String(), nil
 }
 
 // parseExit reads the exit file the wrapper wrote: one integer.
