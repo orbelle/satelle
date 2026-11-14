@@ -77,7 +77,8 @@ groups = [
 ]
 
 # The review cap's move: gateless, so a cap cannot itself be rejected; the
-# dissent summary is its reason. Only the operator moves it out.
+# dissent summary is its reason. The driving session runs the block breaker on
+# it before anything else (.satelle/session.md).
 [[transition]]
 from = ["in_progress"]
 to = "blocked"

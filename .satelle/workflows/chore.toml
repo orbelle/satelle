@@ -156,7 +156,10 @@ to = "in_progress"
 
 # The review caps' moves: gateless, so a cap cannot itself be rejected; the
 # dissent summary is the reason. A hold's move into a park must be gateless, so
-# backlog's voluntary park is unjudged too. Only the operator moves it out.
+# backlog's voluntary park is unjudged too. The driving session runs the block
+# breaker on the held item and restarts it only on a resolution that changes a
+# driver note alone; otherwise only the operator moves it out
+# (.satelle/session.md).
 [[transition]]
 from = ["backlog", "in_progress", "integration"]
 to = "blocked"

@@ -276,8 +276,10 @@ to = "plan"
 # The review caps' moves (story, plan, code, PR review): gateless, so a cap
 # cannot itself be rejected; the dissent summary is its reason. A hold's move
 # into a park must be gateless, so backlog's voluntary park is unjudged too.
-# Only the operator moves it out (blocked -> @prior, or cancelled); the
-# driving session stops.
+# The driving session runs the block breaker on the held item; it restarts
+# the item (blocked -> @prior) only on a resolution that changes the plan or a
+# driver note alone. Otherwise only the operator moves it out (blocked ->
+# @prior, or cancelled) and the session stops (.satelle/session.md).
 [[transition]]
 from = ["backlog", "plan", "in_progress", "integration"]
 to = "blocked"
