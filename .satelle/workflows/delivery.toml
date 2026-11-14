@@ -4,9 +4,11 @@
 # fires the release queue (satelle queue fire release --session <session>) and
 # drives the run until the story is done. CI/CD: a
 # run of the release task takes the approved items, builds one candidate from
-# their heads (fast-forward or merge, in queue order), tests it once, bumps
-# the version once on top, fast-forwards main to it, releases and installs,
-# and only then moves them to done
+# their heads (fast-forward or merge, in queue order), tests it once, decides
+# whether it changes the shipped binaries, and only when it does bumps the
+# version once on top, fast-forwards main to it, releases and installs (a
+# binary-unchanged candidate fast-forwards main with no bump, tag, release or
+# install), and only then moves them to done
 # (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
@@ -172,7 +174,9 @@ skill = "satelle-pr-approval-check"
 skill = "satelle-change-judged-check"
 
 # CI/CD's gates on approved -> done, all reading origin/main: only a run of the
-# release task closes an item, after the bump, the release and the install.
+# release task closes an item, after the bump, the release and the install; on
+# a binary-unchanged run the version gates accept on the run's release-binary
+# decision instead (release.md, ### Decide: did the binary change).
 [gates.release-run]
 skill = "satelle-release-run-check"
 

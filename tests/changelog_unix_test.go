@@ -56,6 +56,8 @@ func newChangelogSandbox(t *testing.T) *changelogSandbox {
 	s.write(".version", "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n")
 	s.write("CHANGELOG.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
+	// changelog-entry reads the release run's binary decision through it.
+	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "base")
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
@@ -297,7 +299,9 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	c.bump(wt, "1.0.1")
 
 	// changelog-entry, from a checkout of the pushed main.
-	check := shBlock0(t, ".satelle/skills/satelle-changelog-entry-check.md")
+	// No release run of this task exists, so the decision is unrecorded and
+	// the check applies its full rules.
+	check := shBlock(t, ".satelle/skills/satelle-changelog-entry-check.md", "", "tas_00000000")
 	gate := c.worktree("origin/main", true)
 	c.assertFixtures(nil, gate)
 	entry := func(id string) result {
