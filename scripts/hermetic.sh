@@ -79,7 +79,10 @@
 # missing (tests of the refusal and of snapshot mode); the refusal still applies.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
-ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
+# SATELLE_HERMETIC_ALLOW_SNAPSHOT and SATELLE_HERMETIC_FORCE_NO_BWRAP reach the
+# command, so a nested hermetic.sh run (the scripts tests) inherits the outer
+# run's opt-in and forced mode (sto_e3c6bfb6).
+ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB SATELLE_HERMETIC_ALLOW_SNAPSHOT SATELLE_HERMETIC_FORCE_NO_BWRAP"
 
 [ "$1" = "--" ] && shift
 if [ "$#" -eq 0 ]; then

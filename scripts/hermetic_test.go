@@ -25,6 +25,7 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 		"SATELLE_TEST_PROBE_X=1",
 		"UNLISTED=1",
 	}
+	callerEnv = append(callerEnv, optIn()...)
 	// The caller's module cache, as go resolves it in the caller's environment.
 	goEnv := exec.Command("go", "env", "GOMODCACHE")
 	goEnv.Env = callerEnv
@@ -102,6 +103,7 @@ func TestHermeticWrapperPinsReleaseEndpoints(t *testing.T) {
 		"SATELLE_RELEASE_LIST_API=https://api.github.com/y",
 		"SATELLE_RELEASE_BASE=https://github.com/z",
 	}
+	cmd.Env = append(cmd.Env, optIn()...)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("hermetic.sh: %v", err)
@@ -175,6 +177,7 @@ func readTree(t *testing.T, dir string) map[string]string {
 func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 	home, env := fakeHost(t)
 	env = append(env, "PATH="+os.Getenv("PATH"))
+	env = append(env, optIn()...)
 	caller := filepath.Join(home, ".satelle")
 	bin := filepath.Join(t.TempDir(), "satelle")
 	build := exec.Command("go", "build", "-o", bin, "../cmd/satelle")
@@ -302,6 +305,7 @@ func callerWithGoUnderHome(t *testing.T) (home string, env []string, dir string)
 		"TMPDIR="+filepath.Join(home, "tmp"),
 		"SATELLE_BIN="+filepath.Join(home, "bin", "satelle"),
 	)
+	env = append(env, optIn()...)
 	return home, env, dir
 }
 
@@ -410,8 +414,31 @@ func asCaller(t *testing.T, extraEnv []string, prep func(home string), script st
 	return home, code, string(b)
 }
 
-// bwrapWorks reports whether bubblewrap can run here, as hermetic.sh probes it.
+// optIn is the environment a test hands hermetic.sh so the wrapper runs its
+// command where this test process runs: the outer run's
+// SATELLE_HERMETIC_ALLOW_SNAPSHOT and SATELLE_HERMETIC_FORCE_NO_BWRAP when set
+// (a container's integration check exports them), and the snapshot opt-in when
+// bwrap cannot run here at all. On a bwrap host with neither set it is empty,
+// so the tests exercise bwrap mode. A test of the refusal overrides it.
+func optIn() []string {
+	var env []string
+	for _, k := range []string{"SATELLE_HERMETIC_ALLOW_SNAPSHOT", "SATELLE_HERMETIC_FORCE_NO_BWRAP"} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	if ok, _ := bwrapWorks(); !ok && os.Getenv("SATELLE_HERMETIC_ALLOW_SNAPSHOT") == "" {
+		env = append(env, "SATELLE_HERMETIC_ALLOW_SNAPSHOT=1")
+	}
+	return env
+}
+
+// bwrapWorks reports whether hermetic.sh would run in bwrap mode here: bwrap
+// is installed, its probe passes and SATELLE_HERMETIC_FORCE_NO_BWRAP is unset.
 func bwrapWorks() (bool, string) {
+	if os.Getenv("SATELLE_HERMETIC_FORCE_NO_BWRAP") != "" {
+		return false, "SATELLE_HERMETIC_FORCE_NO_BWRAP is set"
+	}
 	bw, err := exec.LookPath("bwrap")
 	if err != nil {
 		return false, "bwrap is not installed"
@@ -514,7 +541,7 @@ func TestHermeticRefusesWithoutBwrap(t *testing.T) {
 	const script = `touch "$3"`
 	t.Run("no opt-in: refused, the command never runs", func(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "ran")
-		_, code, out := asCaller(t, []string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1"}, nil, script, marker)
+		_, code, out := asCaller(t, []string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1", "SATELLE_HERMETIC_ALLOW_SNAPSHOT="}, nil, script, marker)
 		if code != 2 {
 			t.Errorf("exit %d, want 2; output:\n%s", code, out)
 		}
@@ -638,4 +665,36 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
 		}
 	})
+}
+
+// TestHermeticNestedRunInheritsOptIn proves the outer run's snapshot opt-in and
+// forced mode reach the command, so a nested hermetic.sh (the scripts tests
+// under make test in a container with no bwrap) runs instead of refusing
+// (sto_e3c6bfb6).
+func TestHermeticNestedRunInheritsOptIn(t *testing.T) {
+	script, err := filepath.Abs("hermetic.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", script, "--", "sh", "-c",
+		`env | grep '^SATELLE_HERMETIC_'; sh "$1" -- sh -c 'echo inner-ran'`, "sh", script)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + t.TempDir(),
+		"SATELLE_HERMETIC_FORCE_NO_BWRAP=1",
+		"SATELLE_HERMETIC_ALLOW_SNAPSHOT=1",
+	}
+	b, err := cmd.CombinedOutput()
+	out := string(b)
+	if err != nil {
+		t.Fatalf("hermetic.sh: %v\n%s", err, out)
+	}
+	for _, want := range []string{"SATELLE_HERMETIC_ALLOW_SNAPSHOT=1", "SATELLE_HERMETIC_FORCE_NO_BWRAP=1", "inner-ran"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "hermetic: mode snapshot"); n != 2 || strings.Contains(out, "refusing to run") {
+		t.Errorf("want the outer and the nested run both in snapshot mode, got %d mode lines:\n%s", n, out)
+	}
 }
