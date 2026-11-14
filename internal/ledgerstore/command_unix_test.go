@@ -289,3 +289,44 @@ func TestLimitsAreCheckedBeforeTheCommandRuns(t *testing.T) {
 		t.Errorf("the command ran for a refused operation (%v)", err)
 	}
 }
+
+func TestASignalEndNamesSignalPidAndGroup(t *testing.T) {
+	for _, tc := range []struct{ sig, name string }{
+		{"TERM", "SIGTERM"},
+		{"KILL", "SIGKILL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, dir := stub(t, `echo $$ > "$d/pid"; kill -`+tc.sig+` $$`)
+			_, _, err := c.Get(ctx, "k")
+			b, rerr := os.ReadFile(filepath.Join(dir, "pid"))
+			if rerr != nil {
+				t.Fatalf("the stub wrote no pid: %v (err %v)", rerr, err)
+			}
+			p := strings.TrimSpace(string(b))
+			var se *Error
+			if !errors.As(err, &se) || se.Exit != -1 || se.Retryable {
+				t.Fatalf("got %#v", err)
+			}
+			want := "ledger store: get k (permanent): the command broke the contract: a signal ended it before it exited (signal " + tc.name + ", pid " + p + ", process group " + p + ")"
+			if got := err.Error(); got != want {
+				t.Errorf("Error() =\n %q\nwant\n %q", got, want)
+			}
+		})
+	}
+}
+
+func TestANonZeroExitKeepsItsWording(t *testing.T) {
+	c, _ := stub(t, "exit 3")
+	_, _, err := c.Get(ctx, "k")
+	if err == nil {
+		t.Fatal("exit 3 from get was accepted")
+	}
+	want := "ledger store: get k: exit 3 (permanent): the command broke the contract: exit 3 is not an outcome of get (exit 1 is transient, 2 permanent)"
+	got := err.Error()
+	if got != want {
+		t.Errorf("Error() =\n %q\nwant\n %q", got, want)
+	}
+	if strings.Contains(got, "signal") || strings.Contains(got, "process group") {
+		t.Errorf("a plain exit names a signal or group: %q", got)
+	}
+}

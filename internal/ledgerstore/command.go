@@ -54,8 +54,10 @@ type Command struct {
 // Error is a failed store operation. Exit is the command's exit code, -1 when
 // it has none (it could not start, a signal killed it, or it timed out). Line
 // is the command's 'error: <code>: <message>' line, verbatim, when it printed
-// one; Reason says what went wrong otherwise. Retryable is true for exit 1 and
-// a timeout. The command's stdout, raw stderr and environment are never held.
+// one; Reason says what went wrong otherwise, and for a signal end it names the
+// signal, the command's pid and its process group. Retryable is true for exit 1
+// and a timeout. The command's stdout, raw stderr and environment are never
+// held.
 type Error struct {
 	Op        string
 	Key       string // the operands, space-separated
@@ -210,7 +212,8 @@ func failure(op string, ops []string, r result) error {
 // run executes the command once: Path Args... op operands..., with stdin as
 // its standard input. It returns the exit code, the stdout and the cause line.
 // An error is a run that has no exit code to read (it could not start, timed
-// out, was killed by a signal, or printed more than MaxBodyBytes).
+// out, was killed by a signal, or printed more than MaxBodyBytes). A signal end
+// names the signal, the command's pid and its process group in the Reason.
 func (c Command) run(ctx context.Context, op string, operands []string, stdin []byte) (result, error) {
 	key := strings.Join(operands, " ")
 	timeout := c.Timeout
@@ -245,7 +248,11 @@ func (c Command) run(ctx context.Context, op string, operands []string, stdin []
 	if exit != nil {
 		r.exit = exit.ExitCode()
 		if r.exit < 0 {
-			return result{}, &Error{Op: op, Key: key, Exit: -1, Reason: "the command broke the contract: a signal ended it before it exited"}
+			reason := "the command broke the contract: a signal ended it before it exited"
+			if desc := signalEnd(cmd); desc != "" {
+				reason += " (" + desc + ")"
+			}
+			return result{}, &Error{Op: op, Key: key, Exit: -1, Reason: reason}
 		}
 	}
 	if stdout.total > MaxBodyBytes {
