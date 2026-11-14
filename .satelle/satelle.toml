@@ -36,7 +36,7 @@ category = "chore"
 edit_exempt_paths = [".satelle/**", ".claude/**", ".grok/**", ".gitignore"]
 
 [hook]
-inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-operator-rulings.md"]
+inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-operator-rulings.md", ".satelle/skills/satelle-workflow-standard.md"]
 
 [rules]
 reviewer_differs_from_performer = true

@@ -224,12 +224,7 @@ func TestAgentsRefreshRewritesRegisteredProjects(t *testing.T) {
 func TestRefreshLeavesAnOptedOutRepo(t *testing.T) {
 	isolate(t)
 	dir := harnessProject(t, true)
-	settings := filepath.Join(dir, ".satelle", kernel.SettingsFile)
-	b, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	putFile(t, settings, string(b)+"\n[hook]\nrefresh = false\n")
+	writeHookSettings(t, dir, "refresh = false\n")
 	file := staleHarness(t, dir, hook.Claude)
 	state := pin(t, file)
 	fakeInstall(t, false)

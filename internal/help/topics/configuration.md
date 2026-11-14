@@ -31,7 +31,7 @@ the kernel still opens: only a configuration problem stops it.
       locked_paths = []           # globs never editable
 
       [hook]
-      inject = []                 # files the session needs once, printed at session start
+      inject = [".satelle/skills/satelle-workflow-standard.md"]   # files the session needs once, printed at session start
       refresh = true              # false: update and the sync pass leave the harness hook files
 
       [rules]
@@ -60,6 +60,11 @@ the kernel still opens: only a configuration problem stops it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.
+- `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
+  the agent's instructions for creating, changing or checking a workflow
+  against the repo's workflow standard. The repo edits its `Standard:` line to
+  name where the standard is. The template `satelle.toml` injects it at
+  session start; an existing repo adds the path to `[hook] inject`.
 - `doctor.toml` — the repo's own checks and open-item lists
   `satelle doctor --session <session>` runs beside its kernel checks, and the
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).

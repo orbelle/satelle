@@ -8,8 +8,9 @@ default = "default"
 # workflow = "default"
 # category = "bug"        # and/or tag = "...", kind = "..."
 
-# [hook]
-# inject = ["docs/principles.md"]   # files the context hook prints at session start
+[hook]
+# Files the context hook prints at session start.
+inject = [".satelle/skills/satelle-workflow-standard.md"]
 # refresh = true                    # false: satelle update and the sync pass leave this repo's harness hook files
 
 [rules]
