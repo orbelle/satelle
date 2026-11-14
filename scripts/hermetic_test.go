@@ -1,6 +1,7 @@
 package scripts_test
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -254,14 +255,14 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 	})
 	t.Run("a run that writes no satelle home passes", func(t *testing.T) {
 		code, out := run(t, "true")
-		if code != 0 || strings.Contains(out, "hermetic:") {
+		if code != 0 || guardLine(out) {
 			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
 		}
 	})
 	t.Run("a test that sets its own home passes", func(t *testing.T) {
 		own, project := t.TempDir(), t.TempDir()
 		code, out := run(t, `SATELLE_HOME="$2" SATELLE_SERVER_ENDPOINT=none "$1" project add "$3"`, bin, own, project)
-		if code != 0 || strings.Contains(out, "hermetic:") {
+		if code != 0 || guardLine(out) {
 			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
 		}
 		if _, err := os.Stat(filepath.Join(own, "config.toml")); err != nil {
@@ -370,36 +371,156 @@ func TestHermeticGivesNoPathOfCallerHome(t *testing.T) {
 	}
 }
 
-// TestHermeticCatchesWriteToCallerRealSatelleHome proves the snapshot guard on
-// the caller's real satelle home (sto_e3c6bfb6), on a fake caller standing in
-// for the operator (the operator's home is never touched). The reviewer's route
-// -- strip /go/pkg/mod from GOMODCACHE and write <home>/.satelle -- no longer
-// reaches the caller's home, because GOMODCACHE is a link outside it. A write
-// by a path the test was handed anyway (here as an argument) is caught, naming
-// each path; the paths the host's own satelle rewrites while a suite runs
-// (serve/, sessions/, builds.json, the per-repo runtime dirs) are left out.
-func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
-	const changed = "changed the caller's real satelle home"
-	// run runs script with $1 the caller's .satelle and $2 its HOME.
-	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
+// guardLine reports whether the wrapper printed a guard failure: a line from
+// hermetic.sh other than the one naming the mode it ran in.
+func guardLine(out string) bool {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "hermetic:") && !strings.HasPrefix(l, "hermetic: mode ") {
+			return true
+		}
+	}
+	return false
+}
+
+// asCaller runs script through hermetic.sh for a fresh fake caller
+// (callerWithGoUnderHome), with $1 the caller's .satelle and $2 its HOME, then
+// args. prep, when set, changes the fake caller's home before the run.
+func asCaller(t *testing.T, extraEnv []string, prep func(home string), script string, args ...string) (home string, code int, out string) {
+	t.Helper()
+	home, env, dir := callerWithGoUnderHome(t)
+	env = append(env, extraEnv...)
+	if prep != nil {
+		prep(home)
+	}
+	path, err := filepath.Abs("hermetic.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = append([]string{filepath.Join(home, ".satelle"), home}, args...)
+	cmd := exec.Command("sh", append([]string{path, "--", "sh", "-c", script, "sh"}, args...)...)
+	cmd.Env = env
+	cmd.Dir = dir
+	b, err := cmd.CombinedOutput()
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("hermetic.sh: %v", err)
+	}
+	return home, code, string(b)
+}
+
+// bwrapWorks reports whether bubblewrap can run here, as hermetic.sh probes it.
+func bwrapWorks() (bool, string) {
+	bw, err := exec.LookPath("bwrap")
+	if err != nil {
+		return false, "bwrap is not installed"
+	}
+	if out, err := exec.Command(bw, "--dev-bind", "/", "/", "true").CombinedOutput(); err != nil {
+		return false, fmt.Sprintf("bwrap cannot run here: %v %s", err, out)
+	}
+	return true, ""
+}
+
+// TestHermeticBwrapMakesCallerSatelleHomeReadOnly proves AC2's "cannot write"
+// where bubblewrap runs (sto_e3c6bfb6): the wrapped command sees the caller's
+// satelle home read-only, so a write by any route -- a direct path, the
+// reviewer's readlink of the GOMODCACHE link, the caller's SATELLE_HOME, or
+// creating the home when it does not exist -- fails with EROFS and leaves it
+// unchanged, while the rest of the caller's home (the Go caches, the source
+// tree) stays writable. Fake callers stand in for the operator.
+func TestHermeticBwrapMakesCallerSatelleHomeReadOnly(t *testing.T) {
+	if ok, why := bwrapWorks(); !ok {
+		t.Skip(why)
+	}
+	const erofs = "Read-only file system"
+	const mode = "hermetic: mode bwrap:"
+	// refused asserts the run ran under bwrap, the write failed with EROFS and
+	// the script went on to report it (exit 0 after the failed write).
+	refused := func(t *testing.T, code int, out string) {
 		t.Helper()
-		home, env, dir := callerWithGoUnderHome(t)
-		env = append(env, extraEnv...)
-		path, err := filepath.Abs("hermetic.sh")
-		if err != nil {
+		if code != 0 || !strings.Contains(out, mode) || !strings.Contains(out, erofs) || !strings.Contains(out, "write-refused") || guardLine(out) {
+			t.Fatalf("exit %d; want 0 under bwrap with %q and write-refused; output:\n%s", code, erofs, out)
+		}
+	}
+	unchanged := func(t *testing.T, home string) {
+		t.Helper()
+		if b, err := os.ReadFile(filepath.Join(home, ".satelle", "config.toml")); err != nil || string(b) != "a = 1\n" {
+			t.Errorf("caller's config.toml = %q, %v; want it untouched", b, err)
+		}
+	}
+
+	t.Run("a direct write fails", func(t *testing.T) {
+		home, code, out := asCaller(t, nil, nil, `echo leak >> "$1/config.toml" || echo write-refused`)
+		refused(t, code, out)
+		unchanged(t, home)
+	})
+	t.Run("a write through readlink of the GOMODCACHE link fails", func(t *testing.T) {
+		home, code, out := asCaller(t, nil, nil, `h=$(readlink "$GOMODCACHE"); h=${h%/go/pkg/mod}; `+
+			`[ "$h" = "$2" ] || { echo "readlink gave $h, want the caller's home" >&2; exit 9; }; `+
+			`echo leak >> "$h/.satelle/config.toml" || echo write-refused`)
+		refused(t, code, out)
+		unchanged(t, home)
+	})
+	t.Run("a new file and a removal fail", func(t *testing.T) {
+		home, code, out := asCaller(t, nil, nil, `mkdir -p "$1/projects/003" && exit 1; rm "$1/config.toml" && exit 1; echo write-refused`)
+		refused(t, code, out)
+		unchanged(t, home)
+		if _, err := os.Stat(filepath.Join(home, ".satelle", "projects")); !os.IsNotExist(err) {
+			t.Errorf("projects/ was created in the caller's home (stat err %v)", err)
+		}
+	})
+	t.Run("the caller's SATELLE_HOME is read-only too", func(t *testing.T) {
+		own := t.TempDir()
+		if err := os.WriteFile(filepath.Join(own, "config.toml"), []byte("b = 2\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		args = append([]string{filepath.Join(home, ".satelle"), home}, args...)
-		cmd := exec.Command("sh", append([]string{path, "--", "sh", "-c", script, "sh"}, args...)...)
-		cmd.Env = env
-		cmd.Dir = dir
-		b, err := cmd.CombinedOutput()
-		if ee, ok := err.(*exec.ExitError); ok {
-			code = ee.ExitCode()
-		} else if err != nil {
-			t.Fatalf("hermetic.sh: %v", err)
+		_, code, out := asCaller(t, []string{"SATELLE_HOME=" + own}, nil, `echo leak >> "$3/config.toml" || echo write-refused`, own)
+		refused(t, code, out)
+		if b, _ := os.ReadFile(filepath.Join(own, "config.toml")); string(b) != "b = 2\n" {
+			t.Errorf("caller's SATELLE_HOME config.toml = %q, want it untouched", b)
 		}
-		return home, code, string(b)
+	})
+	t.Run("an absent home cannot be created and the rest of the home stays writable", func(t *testing.T) {
+		gone := func(home string) {
+			if err := os.RemoveAll(filepath.Join(home, ".satelle")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		home, code, out := asCaller(t, nil, gone, `mkdir "$1" || echo write-refused; `+
+			`echo ok > "$2/project/written" && echo ok > "$GOCACHE/written" && echo rest-writable`)
+		refused(t, code, out)
+		if !strings.Contains(out, "rest-writable") {
+			t.Errorf("the rest of the caller's home was not writable:\n%s", out)
+		}
+		if _, err := os.Lstat(filepath.Join(home, ".satelle")); !os.IsNotExist(err) {
+			t.Errorf("the run created the caller's absent .satelle (lstat err %v)", err)
+		}
+		for _, f := range []string{filepath.Join(home, "project", "written"), filepath.Join(home, "go-build", "written")} {
+			if _, err := os.Stat(f); err != nil {
+				t.Errorf("%s was not written: %v", f, err)
+			}
+		}
+	})
+}
+
+// TestHermeticCatchesWriteToCallerRealSatelleHome proves the fallback mode, used
+// where bubblewrap is missing or cannot run (forced here with
+// SATELLE_HERMETIC_NO_BWRAP), on a fake caller standing in for the operator
+// (sto_e3c6bfb6). The reviewer's route -- strip /go/pkg/mod from GOMODCACHE and
+// write <home>/.satelle -- does not reach the caller's home, because
+// GOMODCACHE is a link outside it. A write by a path the test was handed anyway
+// (here as an argument) is caught by the snapshot, naming each path; in this
+// mode the paths the host's own satelle rewrites while a suite runs (serve/,
+// sessions/, builds.json, the per-repo runtime dirs) are not checked.
+func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
+	const changed = "changed the caller's real satelle home"
+	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
+		t.Helper()
+		home, code, out = asCaller(t, append([]string{"SATELLE_HERMETIC_NO_BWRAP=1"}, extraEnv...), nil, script, args...)
+		if !strings.Contains(out, "hermetic: mode snapshot (SATELLE_HERMETIC_NO_BWRAP is set)") {
+			t.Fatalf("the run did not say it ran in snapshot mode:\n%s", out)
+		}
+		return home, code, out
 	}
 	caught := func(t *testing.T, code, want int, out string, paths ...string) {
 		t.Helper()
@@ -417,7 +538,7 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		home, code, out := run(t, nil, `h=${GOMODCACHE%/go/pkg/mod}; echo "derived=$h/.satelle"; `+
 			`case "$h" in "$2"*) echo "derived path is in the caller's home" >&2; exit 9;; esac; `+
 			`echo leak >> "$h/.satelle/config.toml" 2>/dev/null; exit 0`)
-		if code != 0 || strings.Contains(out, "hermetic:") {
+		if code != 0 || guardLine(out) {
 			t.Fatalf("exit %d, want 0 and no guard line; output:\n%s", code, out)
 		}
 		if !strings.Contains(out, "derived=/") || strings.Contains(out, home) {
@@ -468,7 +589,7 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		_, code, out := run(t, nil, `echo w2 > "$1/serve/mirror.db-wal" && echo l > "$1/serve/server.log" && `+
 			`echo w2 > "$1/repo-0123abcd/db-wal" && mkdir -p "$1/other-89abcdef" "$1/sessions" && `+
 			`echo p > "$1/other-89abcdef/repo.path" && echo s > "$1/sessions/s.json" && echo b > "$1/builds.json"`)
-		if code != 0 || strings.Contains(out, "hermetic:") {
+		if code != 0 || guardLine(out) {
 			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
 		}
 	})

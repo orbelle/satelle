@@ -22,12 +22,14 @@
 #     SATELLE_BIN, the starting directory and so PWD, ...) is handed over as a
 #     symlink in /tmp/satelle-hermetic-<uid> (mode 0700, owned by the caller),
 #     named by a checksum of the target and kept between runs, so the Go build
-#     cache's keys stay stable and nothing is re-downloaded or rebuilt. Any other passed-through value containing the
-#     caller's HOME is dropped with a warning. A TMPDIR under the caller's HOME
-#     is not linked (tests compare t.TempDir() paths with the physical working
-#     directory a subprocess reports): the run gets a fresh TMPDIR in its own
-#     temp dir under /tmp instead. The suite is thus given no path from which to
-#     form the caller's ~/.satelle;
+#     cache's keys stay stable and nothing is re-downloaded or rebuilt. Any
+#     other passed-through value containing the caller's HOME is dropped with a
+#     warning. A TMPDIR under the caller's HOME is not linked (tests compare
+#     t.TempDir() paths with the physical working directory a subprocess
+#     reports): the run gets a fresh TMPDIR in its own temp dir under /tmp
+#     instead. A link's target is still readable (readlink), so this hides the
+#     home from the environment; it is the bwrap mode below that makes the
+#     caller's satelle home unwritable;
 #   - SATELLE_RELEASE_API, SATELLE_RELEASE_LIST_API and SATELLE_RELEASE_BASE fixed
 #     to a closed loopback endpoint, whatever the caller exports, so a release
 #     check started by a session-start hook in a test never reaches GitHub or
@@ -47,16 +49,29 @@
 # mode restored, is caught too. No path is exempt. It names what it found on stderr and
 # exits 1 when the command passed, else keeps the command's status.
 #
-# As detection on top of that, the caller's real satelle home is snapshotted
-# (sto_e3c6bfb6): $SATELLE_HOME and $HOME/.satelle as the caller has them. Every
-# path under it is recorded (type, size, mtime, ctime, inode) before the command
-# and again after, and the run fails, by the same exit rule, naming each path
-# added, removed or changed. The guard catches any change EXCEPT to the paths
-# the host's own satelle rewrites on its own schedule while a suite runs (the
-# sync timer every 30 s, satelled, every satelle command of a parallel session),
-# which it leaves out: serve/, sessions/, builds.json (and its .tmp) and the
-# per-repo runtime dirs <name>-<8 hex>/. The project registry config.toml,
-# machine-id and every other path, at any depth, are compared.
+# The caller's real satelle home -- $SATELLE_HOME and $HOME/.satelle as the
+# caller has them -- is protected in one of two modes (sto_e3c6bfb6), named on
+# one stderr line per run:
+#   - bwrap (when bubblewrap is installed and `bwrap --dev-bind / / true`
+#     works): the command runs as `bwrap --dev-bind / / --ro-bind H H -- ...`,
+#     same uid, same filesystem, with each caller satelle home H mounted
+#     read-only. The suite CANNOT write there by any route (a path from HOME,
+#     readlink of a cache link, a guessed absolute path): every write fails with
+#     EROFS. A home that does not exist yet stays absent: its nearest existing
+#     parent is mounted read-only and each entry already in that parent is
+#     bound back writable, so the home cannot be created while everything else
+#     (the Go caches, the source tree) stays writable. The host's own satelle,
+#     outside the sandbox, keeps writing its home as usual.
+#   - snapshot (fallback: no bwrap, the probe fails, a home whose nearest
+#     existing parent is /, or SATELLE_HERMETIC_NO_BWRAP set, e.g. on macOS):
+#     the run hides the home (above) and detects writes. Every path under each
+#     home is recorded (type, size, mtime, ctime, inode) before the command and
+#     again after, and the run fails, by the same exit rule, naming each path
+#     added, removed or changed, EXCEPT the paths the host's own satelle
+#     rewrites on its own schedule while a suite runs (the sync timer every
+#     30 s, satelled, every satelle command of a parallel session): serve/,
+#     sessions/, builds.json (and its .tmp) and the per-repo runtime dirs
+#     <name>-<8 hex>/. Those exclusions apply in this mode only.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -146,8 +161,61 @@ hostsnap() {
 	(cd "$1" && find . -mindepth 1 -exec stat $fmt "$spec" {} + 2>/dev/null) |
 		sed 's|^[.]/||' | grep -Ev "$live" | LC_ALL=C sort
 }
-before1=$(hostsnap "$real1")
-before2=$(hostsnap "$real2")
+
+# Mode: bwrap when it is installed, works here and can protect every home;
+# otherwise snapshot. SATELLE_HERMETIC_NO_BWRAP forces snapshot (tests).
+mode=snapshot
+why="SATELLE_HERMETIC_NO_BWRAP is set"
+if [ -z "${SATELLE_HERMETIC_NO_BWRAP:-}" ]; then
+	why="bwrap is not installed"
+	if bwrap=$(command -v bwrap 2>/dev/null) && [ -n "$bwrap" ]; then
+		why="bwrap cannot run here (bwrap --dev-bind / / true failed)"
+		"$bwrap" --dev-bind / / true >/dev/null 2>&1 && mode=bwrap
+	fi
+fi
+
+# robind prints, one per line, the bwrap arguments that make $1 read-only, or,
+# when $1 does not exist, that make its nearest existing parent read-only with
+# each entry already in it bound back writable, so $1 cannot be created. It
+# fails when that parent is /.
+robind() {
+	if [ -e "$1" ]; then
+		p=$(cd "$1" 2>/dev/null && pwd -P) || p=$1
+		printf '%s\n%s\n%s\n' --ro-bind "$p" "$p"
+		return 0
+	fi
+	a=$(dirname "$1")
+	while [ ! -e "$a" ]; do a=$(dirname "$a"); done
+	a=$(cd "$a" && pwd -P) || return 1
+	[ "$a" != / ] || return 1
+	printf '%s\n%s\n%s\n' --ro-bind "$a" "$a"
+	for e in "$a"/* "$a"/.[!.]* "$a"/..?*; do
+		[ -e "$e" ] && [ ! -L "$e" ] || continue
+		printf '%s\n%s\n%s\n' --bind "$e" "$e"
+	done
+}
+binds=
+if [ "$mode" = bwrap ]; then
+	for h in "$real1" "$real2"; do
+		[ -n "$h" ] || continue
+		case "$h" in *"
+"*) mode=snapshot why="a satelle home path holds a newline" ;; esac
+		b=$(robind "$h") || {
+			mode=snapshot
+			why="$h is absent and its nearest existing parent is /"
+			break
+		}
+		binds="$binds$b
+"
+	done
+fi
+if [ "$mode" = bwrap ]; then
+	echo "hermetic: mode bwrap: the caller's satelle home is read-only for the run ($(printf %s "$real1 $real2" | sed 's/^ //; s/ $//'))" >&2
+else
+	echo "hermetic: mode snapshot ($why): the caller's satelle home is checked after the run; serve/, sessions/, builds.json and per-repo runtime dirs are not checked" >&2
+	before1=$(hostsnap "$real1")
+	before2=$(hostsnap "$real2")
+fi
 
 # A TMPDIR under the caller's HOME is replaced by $work/tmp, with $work in /tmp.
 workroot=${TMPDIR:-/tmp}
@@ -218,7 +286,23 @@ here=$(hide "$(pwd)") && cd "$here" || {
 }
 set -- "PWD=$here" "$@"
 
-env -i "$@"
+set -- env -i "$@"
+if [ "$mode" = bwrap ]; then
+	# Prepend the bind arguments (one per line in $binds) in order, then bwrap.
+	set -- -- "$@"
+	rev=$(printf '%s' "$binds" | awk 'NF || length { l[n++] = $0 } END { for (i = n - 1; i >= 0; i--) print l[i] }')
+	oldifs=$IFS
+	IFS='
+'
+	set -f
+	for a in $rev; do
+		set -- "$a" "$@"
+	done
+	set +f
+	IFS=$oldifs
+	set -- "$bwrap" --dev-bind / / "$@"
+fi
+"$@"
 status=$?
 if [ -L "$leak" ] || [ ! -d "$leak" ] || [ "$(snap "$leak")" != "$guard" ] || [ -n "$(ls -A "$leak" 2>/dev/null)" ]; then
 	echo "hermetic: the run wrote to ~/.satelle (a satelle process resolved the home with no SATELLE_HOME of its own):" >&2
@@ -242,8 +326,10 @@ hostcheck() {
 	echo "hermetic: a test never writes outside its own temp dirs; give every satelle process it starts SATELLE_HOME under t.TempDir()" >&2
 	[ "$status" -eq 0 ] && status=1
 }
-hostcheck "$real1" "$before1"
-hostcheck "$real2" "$before2"
+if [ "$mode" = snapshot ]; then
+	hostcheck "$real1" "$before1"
+	hostcheck "$real2" "$before2"
+fi
 chmod -R u+w "$work" 2>/dev/null
 rm -rf "$work"
 exit "$status"
