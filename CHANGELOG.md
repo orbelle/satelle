@@ -1,3 +1,9 @@
+## [1.0.71] - 2026-11-14
+
+### Changed
+- The volatile check's dated-history exemption is the `dated` expression in `.satelle/volatile.toml`, which satelle init ships matching a YYYY-MM-DD date. A repo with its own volatile.toml adds `dated = '\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b'` to keep it; without the key a dated line is reported. (sto_a5cdb024)
+- `satelle doctor --resolve` takes the fix item's kind and tag from `.satelle/doctor.toml` `[resolve]`, which satelle init now writes. A repo whose doctor.toml sets neither adds them; until then `--resolve` opens no item and names the key to set. (sto_a5cdb024)
+
 ## [1.0.70] - 2026-11-14
 
 ### Changed
