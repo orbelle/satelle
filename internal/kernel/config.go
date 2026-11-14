@@ -162,6 +162,9 @@ const (
 	DoctorFile   = "doctor.toml"
 	VolatileFile = "volatile.toml"
 	AgentsFile   = "agents.toml"
+	// SessionFile is the session guidance the context, prompt and stop
+	// hooks print: shipped by satelle init, owned and edited by the repo.
+	SessionFile  = "session.md"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
 	QueuesDir    = "queues"

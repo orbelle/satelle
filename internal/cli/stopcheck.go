@@ -54,22 +54,21 @@ func stopCheck(in hook.Input) (reason string, block bool) {
 	if !seatlife.Stop(config.GlobalDir(), session, len(moves) > 0) {
 		return "", false
 	}
-	return stopReason(moves, session), true
+	return stopReason(moves, session, sessionGuidance(r)), true
 }
 
-// stopReason is a blocked stop's reason: the drive rule, one line per seated
-// item that owes a move, and the promise that the next stop passes.
-func stopReason(moves []kernel.Move, session string) string {
+// stopReason is a blocked stop's reason: the session line, one line per
+// seated item that owes a move, then the repo's session guidance (the drive
+// rule and the promise that the next stop passes are its wording).
+func stopReason(moves []kernel.Move, session, guidance string) string {
 	var b strings.Builder
-	b.WriteString("satelle: ")
-	b.WriteString(driveRule)
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "satelle session: %s\n", session)
 	for _, mv := range moves {
 		b.WriteString(moveLine(mv, session))
 		b.WriteString("\n")
 	}
-	b.WriteString("Make the move. A stop straight after this one is let through.")
-	return b.String()
+	b.WriteString(guidance)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // moveLine names one seated item's next move as the command that makes it.

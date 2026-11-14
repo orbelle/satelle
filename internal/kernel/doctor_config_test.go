@@ -167,3 +167,31 @@ func TestDoctorResolveConfig(t *testing.T) {
 		t.Error("a [resolve] status key loaded")
 	}
 }
+
+// sto_a92a6444 AC1, AC5: Init writes the session guidance the hooks print,
+// byte for byte the embedded template, and InitPlan names it for a
+// configured repo that lacks it (doctor's `init` issue).
+func TestInitWritesTheSessionGuidance(t *testing.T) {
+	shipped, err := fs.ReadFile(template, "template/"+SessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(filepath.Join(root, SessionFile))
+	if err != nil || string(written) != string(shipped) {
+		t.Fatalf("init did not write the embedded %s (%v)", SessionFile, err)
+	}
+	if err := os.Remove(filepath.Join(root, SessionFile)); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := InitPlan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(plan, SessionFile) {
+		t.Errorf("InitPlan for a configured repo lacking %s: %v", SessionFile, plan)
+	}
+}

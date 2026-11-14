@@ -594,8 +594,6 @@ func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
 	})
 	t.Run("a v1 repo is unchanged", func(t *testing.T) {
 		ctx, _, _ := hookContextText(t, f.dir)
-		if !strings.Contains(ctx, "satelle session: s-hook") || !strings.Contains(ctx, "Edits are allowed only while this session holds a seat") {
-			t.Errorf("v1 session start:\n%s", ctx)
-		}
+		hasAll(t, "v1 session start", ctx, append([]string{"satelle session: s-hook"}, guidanceLines(t, f.dir)...)...)
 	})
 }

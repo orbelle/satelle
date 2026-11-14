@@ -164,4 +164,6 @@ are reviewed*).
   approved fires the release queue
   (`satelle queue fire release --session <session>`) and drives the run to
   done; a turn may end short of a terminal state only at a park state or a
-  state that declares `waits` (operator, 2026-11-14; sto_2ac90ab6).
+  state that declares `waits`; otherwise the Stop hook blocks the stop once,
+  naming the next move, and lets the stop straight after through, so a
+  session is never trapped (operator, 2026-11-14; sto_2ac90ab6 AC2).

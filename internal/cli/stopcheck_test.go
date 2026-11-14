@@ -148,8 +148,8 @@ func TestStopcheckBlocksOnceNamingTheFire(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "s1", "in_progress", "approved")
 	reason := blockReason(t, stopcheck(t, dir, "s1", "claude"))
-	hasAll(t, "reason", reason, id, "approved", "satelle queue fire release --session s1", "not an external wait",
-		"terminal state of its workflow", "park state", "waits on an external party", "A stop straight after this one is let through")
+	hasAll(t, "reason", reason, id, "approved", "satelle queue fire release --session s1", "not an external wait")
+	hasAll(t, "reason", reason, guidanceLines(t, dir)...)
 	if out := stopcheck(t, dir, "s1", "claude"); out != "" {
 		t.Errorf("the second stop in a row printed %q", out)
 	}
@@ -290,8 +290,8 @@ func TestStopcheckCursorEnvelope(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || len(doc) != 1 {
 		t.Fatalf("cursor block %q: %v", out, err)
 	}
-	hasAll(t, "followup_message", doc["followup_message"], id, "satelle queue fire release --session c1",
-		"terminal state of its workflow", "park state", "waits on an external party")
+	hasAll(t, "followup_message", doc["followup_message"], id, "satelle queue fire release --session c1")
+	hasAll(t, "followup_message", doc["followup_message"], guidanceLines(t, dir)...)
 	if out := stopWith(t, payload, "cursor"); out != "{}" {
 		t.Errorf("cursor pass %q, want {}", out)
 	}
@@ -323,8 +323,8 @@ func TestStopcheckGrok(t *testing.T) {
 	if strings.Count(out, "\n") != 0 {
 		t.Errorf("grok block is not one JSON object: %q", out)
 	}
-	hasAll(t, "grok reason", blockReason(t, out), id, "satelle queue fire release --session grok-session-0001",
-		"terminal state of its workflow", "park state", "waits on an external party")
+	hasAll(t, "grok reason", blockReason(t, out), id, "satelle queue fire release --session grok-session-0001")
+	hasAll(t, "grok reason", blockReason(t, out), guidanceLines(t, dir)...)
 	if out := stopWith(t, payload("shutdown"), "grok"); out != "" {
 		t.Errorf("a shutdown Stop printed %q", out)
 	}

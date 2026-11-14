@@ -192,10 +192,12 @@ func TestBuildingATreeKeepsTheCallSession(t *testing.T) {
 	}
 }
 
-// sto_2a41b9e4 AC3: the context line names only --session.
+// sto_2a41b9e4 AC3: the context names only --session: Go's session line and
+// the repo's session guidance (sto_a92a6444), and neither names the variable.
 func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
+	lines := guidanceLines(t, dir)
 	payload := fmt.Sprintf(`{"session_id":"s-line","cwd":%q}`, dir)
 	for _, ev := range []string{"context", "prompt"} {
 		raw, err := run(t, payload, "hook", ev, "--harness", "claude")
@@ -203,16 +205,8 @@ func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 			t.Fatalf("hook %s: %v", ev, err)
 		}
 		out := hookText(raw)
-		for _, want := range []string{"satelle session: s-line", "Pass --session s-line on every satelle command",
-			"not joined to cd, export, ; or &&", "satelle -C <dir>", "`satelle help edit-gate --session <session>`"} {
-			if !strings.Contains(out, want) {
-				t.Errorf("hook %s lacks %q:\n%s", ev, want, out)
-			}
-		}
-		for _, line := range strings.Split(out, "\n") {
-			if !strings.HasPrefix(line, "satelle session:") && !strings.HasPrefix(line, "Edits are allowed") {
-				continue
-			}
+		hasAll(t, "hook "+ev, out, append([]string{"satelle session: s-line"}, lines...)...)
+		for _, line := range append(lines, "satelle session: s-line") {
 			if strings.Contains(line, "SATELLE_SESSION") || strings.Contains(line, "export SATELLE") {
 				t.Errorf("hook %s line names the variable: %q", ev, line)
 			}
@@ -220,15 +214,15 @@ func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 	}
 }
 
-// sto_2ac90ab6 AC1: the drive rule is on every channel each harness gives
-// satelle: claude and pi at session start and on each prompt; cursor at
+// sto_2ac90ab6 AC1: the drive rule, as the repo's session guidance states it
+// (sto_a92a6444), is on every channel each harness gives satelle: claude and pi at session start and on each prompt; cursor at
 // session start and in the stop's followup_message (its prompt event has no
 // context channel); grok in the SessionStart systemMessage and the stop's
 // reason (it discards a prompt hook's output).
 func TestHookContextStatesTheDriveRule(t *testing.T) {
 	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
-	rule := []string{"terminal state of its workflow", "park state", "waits on an external party"}
+	rule := guidanceLines(t, dir)
 	claudePayload := fmt.Sprintf(`{"session_id":"s-rule","cwd":%q}`, dir)
 	for _, h := range []string{"claude", "pi"} {
 		for _, ev := range []string{"context", "prompt"} {

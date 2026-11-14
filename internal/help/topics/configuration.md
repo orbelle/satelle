@@ -31,7 +31,7 @@ the kernel still opens: only a configuration problem stops it.
       locked_paths = []           # globs never editable
 
       [hook]
-      inject = []                 # files the context hook prints at session start
+      inject = []                 # files the session needs once, printed at session start
       refresh = true              # false: update and the sync pass leave the harness hook files
 
       [rules]
@@ -51,6 +51,12 @@ the kernel still opens: only a configuration problem stops it.
   `satelle.toml` is decoded strictly, so a repo that sets `refresh` needs
   satelle at this version or later on every machine that opens it.
 
+- `session.md` — the session guidance: how to pass `--session`, the edit
+  gate and the drive rule. The context hook (at session start), the prompt
+  hook and a blocked stop's reason print it whole, read on every call, so an
+  edit takes effect with no rebuild. `satelle init --session <session>` writes it and the
+  repo edits it; a repo without it gets a line naming the missing file, and
+  `satelle doctor --session <session>` reports it until `satelle init --session <session>` adds it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.

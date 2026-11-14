@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +28,9 @@ func hookCmd() *cobra.Command {
 harness's own envelope. gate is the edit gate (PreToolUse); context prints the
 session's context at session start; prompt reminds the session of its seats on
 each prompt; stopcheck answers the Stop event, blocking a turn's end once
-when a seated item owes the session's own next move. Grok reads the session
+when a seated item owes the session's own next move. The context, the
+prompt and a blocked stop's reason carry the repo's .satelle/session.md,
+the session guidance satelle init writes and the repo edits. Grok reads the session
 context as its SessionStart systemMessage and discards a prompt hook's output,
 so the prompt hook prints nothing for grok. Under cursor, a call Cursor
 sends to another harness's entries stays silent once .cursor/hooks.json holds
@@ -342,16 +346,12 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 	_ = record(config.GlobalDir(), session, anc)
 }
 
-// driveRule is the rule a session drives its seated items by, stated in the
-// session context and at the head of a blocked stop's reason. It names no
-// state: what a workflow declares decides.
-const driveRule = "Drive each seated item to a terminal state of its workflow. A turn may end with one short of that only at a park state or at a state that declares it waits on an external party (waits: a person's approval, an outside CI or score)."
-
-// sessionContext is what the context hook prints: the session id, its seats
-// and, at session start, the doctor block (judged for harness, the hook's
-// caller) and the [hook] inject files. notice is doctor's short summary for
-// the user, empty when inject is false or doctor found no issue. In a pre-1.0
-// repo both are the one needs-upgrade line. ok is false outside a repo.
+// sessionContext is what the context hook prints: the session id, its seats,
+// the repo's session guidance (.satelle/session.md, see sessionGuidance) and,
+// at session start, the doctor block (judged for harness, the hook's caller)
+// and the [hook] inject files. notice is doctor's short summary for the user,
+// empty when inject is false or doctor found no issue. In a pre-1.0 repo both
+// are the one needs-upgrade line. ok is false outside a repo.
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
 	r, err := findRepo(hookDir(in))
 	if err != nil {
@@ -382,32 +382,60 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	if session == "" {
 		b.WriteString("satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n")
 	} else {
-		fmt.Fprintf(&b, "satelle session: %s. Pass --session %s on every satelle command. Run each satelle command on its own, as one simple command, not joined to cd, export, ; or &&; for another worktree use satelle -C <dir> <command>.\n", session, session)
+		fmt.Fprintf(&b, "satelle session: %s\n", session)
 		seats, _ := seatsOf(k, session)
 		printSeats(&b, seats)
 	}
-	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state's performer may change the tree: `satelle story seat <id> --session <session>`. A seat on a state that allows attachments only refuses every tree edit there; record its work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>`. See `satelle help edit-gate --session <session>`.\n")
-	fmt.Fprintf(&b, "%s Otherwise the stop is blocked once, naming the next move. See `satelle help edit-gate --session <session>`.\n", driveRule)
+	if g := sessionGuidance(r); g != "" {
+		b.WriteString(g)
+		b.WriteString("\n")
+	}
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)
 		b.WriteString(block)
 		notice = n
-	}
-	if inject {
 		for _, f := range k.Settings.Hook.Inject {
-			p := f
-			if !filepath.IsAbs(p) {
-				p = filepath.Join(r.Tree, f)
-			}
-			body, err := os.ReadFile(p)
+			body, err := contextFile(r, f)
 			if err != nil {
 				fmt.Fprintf(&b, "\nsatelle: [hook] inject file %s: %v\n", f, err)
 				continue
 			}
-			fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(string(body), "\n"))
+			fmt.Fprintf(&b, "\n%s\n", body)
 		}
 	}
 	return b.String(), notice, true
+}
+
+// contextFile reads a repo file for the hook context: path is taken against
+// the repo tree unless absolute, and the body loses its trailing newlines. It
+// is the one reader for the session guidance and the [hook] inject files.
+func contextFile(r repo, path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(r.Tree, path)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(body), "\n"), nil
+}
+
+// sessionGuidance is the repo's own session guidance, .satelle/session.md
+// (kernel.SessionFile), printed by the context and prompt hooks and in a
+// blocked stop's reason: the command guidance and the drive rule are
+// substrate the repo owns, read on every call. A missing or unreadable file
+// is named in one line; the binary never prints its embedded copy.
+func sessionGuidance(r repo) string {
+	body, err := contextFile(r, filepath.Join(r.DataDir, kernel.SessionFile))
+	if err == nil {
+		return body
+	}
+	name := filepath.ToSlash(filepath.Join(filepath.Base(r.DataDir), kernel.SessionFile))
+	line := fmt.Sprintf("satelle: %s is missing, so this session has no command guidance; satelle init writes it.", name)
+	if !errors.Is(err, fs.ErrNotExist) {
+		line += fmt.Sprintf(" (%v)", err)
+	}
+	return line
 }
 
 // sessionDoctor runs satelle doctor's checks within doctorHookBudget for the

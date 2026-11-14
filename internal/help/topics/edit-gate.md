@@ -88,7 +88,8 @@ the working directory of any interpreter running inline program text.
 
 A session drives each item it holds a seat on to a terminal state of its
 workflow. The session-start context, and each prompt where the harness takes
-context, states this rule. A turn may end with a seated item short of a
+context, states this rule, in the wording of the repo's `.satelle/session.md`
+(see `satelle help configuration --session <session>`). A turn may end with a seated item short of a
 terminal state only at a park state, at a state that declares what it waits
 on (`waits = "<on what>"`, see `satelle help workflows --session <session>`),
 or at the operator's state. Otherwise `satelle hook stopcheck` blocks the
@@ -100,7 +101,9 @@ the queue's open run to seat or drive. A run another session holds, or a
 queue that cannot fire (terminal, no trigger, a base that names no commit),
 names nothing. The stop straight after a blocked one is let through, so a
 session is never trapped; a marker at `~/.satelle/sessions/<session>.stop`
-records the block. A dispatched run (its session comes from
+records the block. The block's reason is the session line, the move lines
+and the repo's `.satelle/session.md`; when that file is missing, a line
+names it in its place. A dispatched run (its session comes from
 `SATELLE_SESSION`) is never blocked, and every failure lets the stop through.
 
 Each harness receives the block in its own envelope: claude, pi (its
@@ -131,8 +134,9 @@ remove cursor --session <session>` strips only satelle's. `cursor-agent` runs:
   repo comes from `CLAUDE_PROJECT_DIR`, else `CURSOR_PROJECT_DIR` (Cursor sets
   both), else the payload's project root; the fence applies as above.
 - `sessionStart` → `satelle hook context`: the session id (Cursor's
-  `session_id`, the same as its `conversation_id`), its seats, the doctor block
-  and the `[hook] inject` files, as `additional_context`.
+  `session_id`, the same as its `conversation_id`), its seats, the repo's
+  `.satelle/session.md`, the doctor block and the `[hook] inject` files, as
+  `additional_context`.
 - `beforeSubmitPrompt` → `satelle hook prompt`. It settles the session's owner
   and answers `{"continue":true}`. Cursor's prompt event has no context
   channel, so a cursor-agent session gets no per-prompt seat reminder; the
