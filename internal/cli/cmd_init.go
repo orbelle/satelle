@@ -61,7 +61,12 @@ the command that wires one.`,
 				if found, err := volatileFindings(dataDir); err != nil {
 					fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
 				} else {
-					fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(found))
+					// Lines, not findings: a line two patterns match is one line.
+					lines := map[string]bool{}
+					for _, f := range found {
+						lines[fmt.Sprintf("%s:%d", f.File, f.Line)] = true
+					}
+					fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(lines))
 				}
 			}
 			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {

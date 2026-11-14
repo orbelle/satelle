@@ -191,15 +191,25 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 	if u, ok := s.rules.UpstreamOf(file); ok {
 		owner = "; owned by " + u.Owner
 	}
-	md, fence := strings.HasSuffix(file, ".md"), false
+	md := strings.HasSuffix(file, ".md")
+	fence := "" // the open fence's run of ``` or ~~~, "" outside a fence
 	var out []Finding
 	for i, line := range strings.Split(text, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		if md && reFence.MatchString(line) {
-			fence = !fence
+			run := fenceRun(line)
+			switch {
+			case fence == "":
+				fence = run
+			case run[0] == fence[0] && len(run) >= len(fence) && strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), run[:1])) == "":
+				// Closed only by the same character, at least as long, with
+				// nothing after it (CommonMark): a ~~~ inside a ``` block
+				// is the block's text.
+				fence = ""
+			}
 			continue
 		}
-		if fence {
+		if fence != "" {
 			continue
 		}
 		if reDated.MatchString(line) || (s.exempt != "" && strings.Contains(line, s.exempt)) {
@@ -346,4 +356,15 @@ func (s *VolatileSet) walkGlob(base, g string, files map[string]string) error {
 		}
 	}
 	return s.walk(base, dir, func(name string) bool { return gate.Match(g, name) }, files)
+}
+
+// fenceRun is the run of fence characters (``` or ~~~, three or more) a fence
+// line opens with, after its indent.
+func fenceRun(line string) string {
+	s := strings.TrimLeft(line, " \t")
+	n := 0
+	for n < len(s) && s[n] == s[0] {
+		n++
+	}
+	return s[:n]
 }

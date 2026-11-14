@@ -262,11 +262,31 @@ func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
 	if err := os.Remove(filepath.Join(data, kernel.VolatileFile)); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\nUses v1.0.57 of the binary.\nThis is currently broken.\n")
-	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 2 line(s)") {
+	// Three lines, four findings: the last line matches two patterns and is
+	// one line.
+	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\nUses v1.0.57 of the binary.\nThis is currently broken.\nCurrently on v1.0.58.\n")
+	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 3 line(s)") {
 		t.Errorf("init that adds volatile.toml to an existing repo:\n%s", out)
 	}
 	if out := must(t, "init"); strings.Contains(out, "volatile check enabled") {
 		t.Errorf("an init that adds nothing announced the check:\n%s", out)
+	}
+}
+
+// sto_1ee018c8 AC5: with the narrowed pattern and the fence rule, this repo's
+// own substrate has no volatile line left: every finding it had was relational
+// wording, a script variable or a line now reworded. Against the base tree,
+// which carried the wide pattern and no fence rule, this fails.
+func TestRepoHasNoVolatileLine(t *testing.T) {
+	cfg, err := kernel.LoadConfig(filepath.Join("..", "..", ".satelle"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := cfg.VolatileFindings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range found {
+		t.Errorf("volatile line: %s", f.String())
 	}
 }

@@ -305,3 +305,21 @@ func TestVolatileUpstreamNamesTheOwner(t *testing.T) {
 		t.Errorf("UpstreamOf(skills/x.md) = %+v %v", u, ok)
 	}
 }
+
+// A fence closes only on the same character, at least as long, with nothing
+// after it: a ~~~ inside a ``` block, or a longer fence's shorter run, is the
+// block's text (code-ac round 1 of sto_1ee018c8).
+func TestVolatileTextFencesCloseOnTheirOwnMarker(t *testing.T) {
+	s, err := CompileVolatile(VolatileRules{Patterns: []VolatilePattern{{Name: "latest", Match: `latest`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "```sh\n~~~\nlatest=1\n```\nlatest after\n````md\n```\nlatest inner\n````\nlatest end\n"
+	var lines []int
+	for _, f := range VolatileText("f.md", text, s) {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{5, 10}; !slices.Equal(lines, want) {
+		t.Errorf("lines %v, want %v", lines, want)
+	}
+}
