@@ -31,3 +31,8 @@ description: Every gate has at least one judge whose model is of another family 
    review is good when the implementation it led to or let through holds up.
    Change a binding when the ledger's outcomes say so, and record why on the
    binding.
+5. **A reviewer is named after its model.** A judge binding is
+   `reviewer-<model>`, its `model` value verbatim, so a workflow's gates and
+   every gate result say which model judged (operator, 2026-11-14;
+   sto_e65b2d30). A binding changed to another model is renamed, with every
+   gate that names it, in the same change.

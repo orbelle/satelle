@@ -20,7 +20,7 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-agent = "reviewer-alt"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 # A run that landed items (release.md step 4 attaches its kept list as
@@ -47,7 +47,7 @@ skill = "satelle-release-kept-check"
 skill = "satelle-drift-constitution-review"
 # GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
 # reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
-agent = "reviewer-gpt"
+agent = "reviewer-gpt-5.6-sol-high"
 trigger = "satelle-drift-run-trigger"
 paths = ["cmd/**", "internal/**", "go.mod", "go.sum", ".satelle/constitution.md", ".satelle/principles/**"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-diff-covered"]
@@ -56,7 +56,7 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 skill = "satelle-drift-claims-review"
 # GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
 # reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
-agent = "reviewer-gpt"
+agent = "reviewer-gpt-5.6-sol-high"
 trigger = "satelle-drift-run-trigger"
 paths = [".version"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]

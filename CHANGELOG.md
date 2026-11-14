@@ -1,3 +1,12 @@
+## [1.0.62] - 2026-11-14
+
+### Changed
+- Each reviewer agent in the satelle repo is named after the model it runs (reviewer-gemini-3.8-flash-high, reviewer-gpt-5.6-sol-high, reviewer-grok-4.7), so workflows and gate results show which model judged. (sto_e65b2d30)
+
+### Fixed
+- satelled's Progress column pulses a story's current chip only while the story is engaged (a seat here or elsewhere, a dispatched run's included); a story merely at a step shows a still, highlighted chip, and the hover says "current, not being worked" or who is performing and where. (sto_96f0ad26)
+- A check script starting with #! is run by its interpreter instead of being executed as a file, so a gate check can no longer fail with "text file busy" when another gate starts a process at the same moment; the same applies to checks placed on a remote. (sto_cb34e3e3)
+
 ## [1.0.61] - 2026-11-13
 
 ### Added

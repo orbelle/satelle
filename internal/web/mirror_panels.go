@@ -271,11 +271,13 @@ func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatS
 }
 
 // withProgress sets each row's step chips (progressOf) from its events
-// (eventsByItem, oldest first), its seats (seatsByItem) and its workflow.
+// (eventsByItem, oldest first), its seats (seatsByItem), its workflow and its
+// own Engaged, so a row's pulse and its data-engaged read one value. Set each
+// row's Engaged before calling it.
 func withProgress(rows []rowVM, byItem map[string][]Entry, bySeat map[string][]mirror.Seat, workflows map[string]*mirror.Workflow, standing seatStanding) {
 	for i := range rows {
 		it := rows[i].Item
-		rows[i].Progress = progressOf(workflows[it.Workflow], it, byItem[it.ID], bySeat[it.ID], standing)
+		rows[i].Progress = progressOf(workflows[it.Workflow], it, byItem[it.ID], bySeat[it.ID], standing, rows[i].Engaged)
 	}
 }
 
@@ -733,7 +735,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	assignees := assigneeVMs(assigneesOf(it, itemSeats, standing))
 	var progress []stageVM
 	if group == "story" {
-		progress = progressOf(workflows[it.Workflow], it, events, itemSeats, standing)
+		progress = progressOf(workflows[it.Workflow], it, events, itemSeats, standing, engagements(itemSeats, []Item{it}, workflows, standing)[it.ID])
 	}
 	return detailData{
 		Item:          it,

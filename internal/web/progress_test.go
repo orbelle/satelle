@@ -91,18 +91,32 @@ func (h *hist) perf(state, binding string) *hist {
 	return h.add(mirror.EventPerformerRun, mirror.PerformerRun{State: h.n(state), Binding: h.n(binding)})
 }
 
-// stubStanding: a session named work* is here and working, gone* is gone.
+// stubStanding: a session named gone* is gone, far* is elsewhere, any other
+// is here and working.
 func stubStanding(s mirror.Seat) (seatlife.Standing, seatlife.Evidence) {
-	if strings.HasPrefix(s.Session, "gone") {
+	switch {
+	case strings.HasPrefix(s.Session, "gone"):
 		return seatlife.Gone, ""
+	case strings.HasPrefix(s.Session, "far"):
+		return seatlife.Elsewhere, ""
 	}
 	return seatlife.Here, ""
+}
+
+// engOf is the item's engagement as the Stories list computes it.
+func engOf(w *mirror.Workflow, it Item, seats []mirror.Seat) *engagementVM {
+	return engagements(seats, []Item{it}, map[string]*mirror.Workflow{w.Name: w}, stubStanding)[it.ID]
+}
+
+// pOf is progressOf with the engagement the list would pass.
+func pOf(w *mirror.Workflow, it Item, evs []Entry, seats []mirror.Seat) []stageVM {
+	return progressOf(w, it, evs, seats, stubStanding, engOf(w, it, seats))
 }
 
 func chipsFor(t *testing.T, w *mirror.Workflow, status string, h *hist, seats ...mirror.Seat) []stageVM {
 	t.Helper()
 	it := Item{ID: h.id, Kind: "story", Status: h.n(status), Workflow: w.Name}
-	return progressOf(w, it, h.evs, seats, stubStanding)
+	return pOf(w, it, h.evs, seats)
 }
 
 func names(cs []stageVM) []string {
@@ -254,6 +268,28 @@ func TestProgressChipStates(t *testing.T) {
 		if c := chip(t, chipsFor(t, w, "s2", at, seats...), "s2"); !c.Current || c.Performing {
 			t.Errorf("s2 with seats %v: %+v, want current, not performing", seats, c)
 		}
+	}
+	// sto_96f0ad26 AC1: the chip is Performing exactly when the story is
+	// engaged, wherever the seat is: here, a dispatched run's seat, a remote,
+	// another machine.
+	for _, s := range []mirror.Seat{
+		{Item: "sto_1", Session: "perform_ab12", Location: "local:/p", BoundAt: at.last()},
+		{Item: "sto_1", Session: "far1", Location: "remote:nod_7", BoundAt: at.last()},
+		{Item: "sto_1", Session: "far2", Location: "local:/p", Machine: "m-other", Host: "other-host", BoundAt: at.last()},
+	} {
+		cs := chipsFor(t, w, "s2", at, s)
+		if c := chip(t, cs, "s2"); !c.Performing {
+			t.Errorf("s2 engaged through %s at %s: %+v, want performing", s.Session, s.Location, c)
+		}
+		for _, n := range []string{"s0", "s1"} {
+			if c := chip(t, cs, n); c.Current || c.Performing {
+				t.Errorf("%s with %s: %+v, want done", n, s.Session, c)
+			}
+		}
+	}
+	// AC2: a story at a step that nobody works draws a still current chip.
+	if row := renderRows(t, []rowVM{rowOf(w, "s2", at, chipsFor(t, w, "s2", at))}); !strings.Contains(row, "stage-chip stage-current") || strings.Contains(row, "stage-performing") {
+		t.Errorf("an unworked story's row: want stage-current and no stage-performing:\n%s", row)
 	}
 
 	quiet := func(label string, cs []stageVM, row string) {
@@ -481,6 +517,8 @@ func TestProgressHoverAndDetailNotes(t *testing.T) {
 	}
 
 	has("performing, no run", title("s2", "s2", h, seat("work1", h.last())), "performing (pa2)")
+	// sto_96f0ad26 AC3: an unworked current chip says so.
+	has("current, no seat", title("s2", "s2", h), "s2: current, not being worked")
 	has("s1", title("s2", "s1", h), "2 exit gates", "g1, g2", "2 rejected rounds", "0 parks")
 	if s := title("s2", "s1", h); strings.Contains(s, "performed by") {
 		t.Errorf("s1 with no run names an agent: %q", s)
@@ -506,14 +544,14 @@ func TestProgressHoverAndDetailNotes(t *testing.T) {
 	noAgent := progressWorkflow(same)
 	noAgent.States[2].PerformerAgent = ""
 	it := Item{ID: "sto_1", Kind: "story", Status: "s2", Workflow: "pw"}
-	if c := chip(t, progressOf(noAgent, it, two.evs, []mirror.Seat{seat("work1", time.Time{})}, stubStanding), "s2"); !strings.Contains(c.Title, "performing (user-work1)") {
+	if c := chip(t, pOf(noAgent, it, two.evs, []mirror.Seat{seat("work1", time.Time{})}), "s2"); !strings.Contains(c.Title, "performing (user-work1)") {
 		t.Errorf("no performer agent, a seat's user: %q", c.Title)
 	}
-	if c := chip(t, progressOf(noAgent, it, two.evs, []mirror.Seat{{Item: "sto_1", Session: "work1"}}, stubStanding), "s2"); !strings.Contains(c.Title, "performing ("+agentUnknown+")") {
+	if c := chip(t, pOf(noAgent, it, two.evs, []mirror.Seat{{Item: "sto_1", Session: "work1"}}), "s2"); !strings.Contains(c.Title, "performing ("+agentUnknown+")") {
 		t.Errorf("no agent and no user: %q", c.Title)
 	}
 	fresh := newHist("sto_1", same).place("s0").move("s0", "s1").move("s1", "s2")
-	if c := chip(t, progressOf(noAgent, it, fresh.evs, []mirror.Seat{seat("work1", fresh.last())}, stubStanding), "s2"); !strings.Contains(c.Title, "performing (user-work1)") {
+	if c := chip(t, pOf(noAgent, it, fresh.evs, []mirror.Seat{seat("work1", fresh.last())}), "s2"); !strings.Contains(c.Title, "performing (user-work1)") {
 		t.Errorf("no run, no performer agent: %q", c.Title)
 	}
 	done := newHist("sto_1", same).place("s0").move("s0", "s1").perf("s1", "b1").move("s1", "s2")
@@ -593,6 +631,23 @@ func TestProgressMarkupKeepsOldShape(t *testing.T) {
 			t.Errorf("app.css lacks %s", sel)
 		}
 	}
+	// sto_96f0ad26 AC2: the current chip is highlighted and still; only the
+	// performing chip pulses.
+	rule := func(sel string) string {
+		s := string(css)
+		i := strings.Index(s, "\n"+sel+" {")
+		if i < 0 {
+			t.Fatalf("app.css has no %s rule", sel)
+		}
+		s = s[i:]
+		return s[:strings.Index(s, "}")]
+	}
+	if r := rule(".stage-current"); !strings.Contains(r, "border-color") || strings.Contains(r, "animation") {
+		t.Errorf(".stage-current must be highlighted and still: %q", r)
+	}
+	if r := rule(".stage-performing"); !strings.Contains(r, "review-pulse") {
+		t.Errorf(".stage-performing must pulse: %q", r)
+	}
 }
 
 func TestProgressNamesFromWorkflow(t *testing.T) {
@@ -611,7 +666,7 @@ func TestProgressNamesFromWorkflow(t *testing.T) {
 			gate("s1", "s2", "g1", "reject", "j1", "why", "A").gate("s1", "t2", "g3", "reject", "j3", "nope", "B").
 			gate("s1", "s2", "g1", "accept", "j1", "", "C").gate("s1", "s2", "g2", "accept", "j2", "", "C").move("s1", "s2").move("s2", "pk")
 		it := Item{ID: "sto_1", Kind: "story", Title: "One", Status: n("pk"), Workflow: w.Name}
-		for _, c := range progressOf(w, it, h.evs, []mirror.Seat{{Item: "sto_1", Session: "work1", BoundAt: h.last()}}, stubStanding) {
+		for _, c := range pOf(w, it, h.evs, []mirror.Seat{{Item: "sto_1", Session: "work1", BoundAt: h.last()}}) {
 			titles, chips = append(titles, c.Title), append(chips, c.Name)
 		}
 		srv := mirrorWith(t, progressSnapshot([]*mirror.Workflow{w}, []Item{it}, nil, h.evs, nil))

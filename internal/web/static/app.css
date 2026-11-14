@@ -395,13 +395,14 @@ td.updated-cell { white-space: nowrap; }
    are kept for gates still running, which sto_b13e3fcb brings), .rej the exit's
    rejected rounds and .blk the parks taken in the step (both absent at 0). A
    number here is a count, never a stage. The chip's title spells the same
-   counts in words. */
+   counts in words. .stage-performing pulses: the story is engaged (a seat
+   here or elsewhere). .stage-current is highlighted and still: the story is
+   at that step and nobody is working it (sto_96f0ad26). */
 .col-reviews { white-space: normal; width: 14rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }
 .stage-done { color: var(--muted); }
-.stage-current { border-color: var(--warn); color: var(--warn);
-  animation: review-pulse 1.4s ease-in-out infinite; }
+.stage-current { border-color: var(--warn); color: var(--warn); }
 .stage-performing { border-color: var(--accent); color: var(--accent);
   animation: review-pulse 1.4s ease-in-out infinite; }
 .stage-chip .blk { color: var(--warn); font-weight: 600; }
