@@ -39,6 +39,13 @@ if [ -n "$svc_pid" ]; then
   svc_before="$svc_pid:$(readlink -f /proc/$svc_pid/exe 2>/dev/null || true)"
 fi
 
+# The integration node is a throwaway container (/.dockerenv) with no bwrap and
+# no operator home directory to protect; the container is the isolation, so the suite
+# opts into hermetic's detection-only snapshot mode there. On any other host
+# without bwrap, make test fails closed (sto_e3c6bfb6).
+if [ -f /.dockerenv ] && ! bwrap --dev-bind / / true >/dev/null 2>&1; then
+  export SATELLE_HERMETIC_ALLOW_SNAPSHOT=1
+fi
 make test
 suite_ec=$?
 
