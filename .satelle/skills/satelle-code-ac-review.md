@@ -92,6 +92,26 @@ attachment when the plan has that section, else the criteria in your prompt.
 Fair gate: judge ACs **as written**; do not add requirements the story never
 stated.
 
+## Stay inside the card
+
+This gate is held to the card's behaviour. Breadth (whether the story should
+exist, its intent, its alignment with the constitution and the principles) is
+judged once, before any plan, by the story-review judge
+(`satelle-story-review`); it is not re-litigated here.
+
+- **Each reject names the card criterion or scenario it fails, and why**:
+  the AC (`AC<n>`) or scenario, the changed path and line that fails it, and
+  what it does instead. The standing rules items 5 to 8 state (agent-agnostic,
+  user configuration in the binary, dispatch pointers, scope) hold for every
+  card: a reject under one names that rule and the changed path that breaks
+  it. A finding that names no criterion, scenario or standing rule of this
+  skill is not a blocker.
+- **A concern outside the card's behaviour is a note in an accept, never a
+  reject**: style, naming, code the slice does not change, a better design
+  the card did not ask for, or a principle the card does not touch. Write it
+  in the accept's notes as `note: ...`, so the driver can raise it as its own
+  story.
+
 ## Verdict
 
 ```json
