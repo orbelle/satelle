@@ -1,3 +1,11 @@
+## [1.0.63] - 2026-11-14
+
+### Added
+- `--session <id>` on every satelle command names the acting session, as `SATELLE_SESSION` does, and `satelle -C <dir>` runs a command in another directory, like `git -C`. (sto_2a41b9e4)
+
+### Changed
+- The session-start and prompt context line tells a session to pass `--session` on every satelle command and to run each on its own, and no longer suggests exporting `SATELLE_SESSION`; help topics, the README, the `.satelle` READMEs and the skills show `--session` on every command. (sto_2a41b9e4)
+
 ## [1.0.62] - 2026-11-14
 
 ### Changed
