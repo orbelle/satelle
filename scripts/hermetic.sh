@@ -35,6 +35,20 @@
 # ctime cannot be set back), so a write cleaned up before exit, even with the
 # mode restored, is caught too. No path is exempt. It names what it found on stderr and
 # exits 1 when the command passed, else keeps the command's status.
+#
+# The caller's REAL satelle home is watched too (sto_e3c6bfb6): $SATELLE_HOME
+# and $HOME/.satelle as the caller has them, resolved before HOME is replaced.
+# A test that reaches it by a path of its own -- e.g. one derived from
+# GOMODCACHE, GOCACHE or GOPATH, which stay the caller's real caches so modules
+# are not re-downloaded -- does not go through the wrapper's HOME, so the
+# wrapper snapshots every path under it (type, size, mtime, ctime, inode) before
+# the command and again after, and fails the run, naming each path added,
+# removed or changed, by the same exit rule. Excluded are only the paths the
+# host's own satelle rewrites on its own schedule while a suite runs (the sync
+# timer every 30 s, satelled, every satelle command of a parallel session):
+# serve/, sessions/, builds.json (and its .tmp) and the per-repo runtime dirs
+# <name>-<8 hex>/. The project registry config.toml, machine-id and every other
+# path, at any depth, are compared.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -52,6 +66,35 @@ fi
 gomodcache=$(go env GOMODCACHE) || exit 2
 gocache=$(go env GOCACHE) || exit 2
 gopath=$(go env GOPATH) || exit 2
+
+# The caller's real satelle homes, before HOME is replaced (sto_e3c6bfb6).
+real1=${SATELLE_HOME:-}
+real2=
+[ -n "${HOME:-}" ] && [ "$HOME/.satelle" != "$real1" ] && real2="$HOME/.satelle"
+
+# hostsnap prints one line per path under $1 (relative path, type, size, mtime,
+# ctime, inode), sorted, leaving out the paths the host's own satelle writes
+# while a suite runs; "absent" when $1 does not exist.
+live='^(serve|sessions|builds[.]json|builds[.]json[.][^/|]*[.]tmp|[^/|]*-[0-9a-f]{8})[/|]'
+hostsnap() {
+	[ -n "$1" ] || return 0
+	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+		echo "absent"
+		return 0
+	fi
+	if stat -c %n . >/dev/null 2>&1; then
+		fmt="-c"
+		spec='%n|%F|%s|%.9Y|%.9Z|%i'
+	else
+		fmt="-f"
+		spec='%N|%HT|%z|%Fm|%Fc|%i'
+	fi
+	echo ".|$(stat -L $fmt "$(echo "$spec" | cut -d'|' -f2)" "$1" 2>/dev/null)"
+	(cd "$1" && find . -mindepth 1 -exec stat $fmt "$spec" {} + 2>/dev/null) |
+		sed 's|^[.]/||' | grep -Ev "$live" | LC_ALL=C sort
+}
+before1=$(hostsnap "$real1")
+before2=$(hostsnap "$real2")
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/hermetic.XXXXXX") || exit 2
 trap 'rm -rf "$work"' HUP INT TERM
@@ -110,6 +153,20 @@ if [ -L "$leak" ] || [ ! -d "$leak" ] || [ "$(snap "$leak")" != "$guard" ] || [ 
 	echo "hermetic: a test sets SATELLE_HOME to its own temp dir for every satelle process it starts" >&2
 	[ "$status" -eq 0 ] && status=1
 fi
+# hostcheck fails the run when the caller's real satelle home $1 changed
+# between the snapshot $2 and now, naming every path added, removed or changed.
+hostcheck() {
+	[ -n "$1" ] || return 0
+	after=$(hostsnap "$1")
+	[ "$after" = "$2" ] && return 0
+	echo "hermetic: the run changed the caller's real satelle home $1 (a test wrote there by a path of its own):" >&2
+	printf '%s\n%s\n' "$2" "$after" | LC_ALL=C sort | uniq -u | cut -d'|' -f1 | LC_ALL=C sort -u |
+		awk -v dir="$1" -v max=20 'NR <= max { print "  " ($0 == "." || $0 == "absent" ? dir : dir "/" $0) } END { if (NR > max) print "  ... and " NR - max " more" }' >&2
+	echo "hermetic: a test never writes outside its own temp dirs; give every satelle process it starts SATELLE_HOME under t.TempDir()" >&2
+	[ "$status" -eq 0 ] && status=1
+}
+hostcheck "$real1" "$before1"
+hostcheck "$real2" "$before2"
 chmod -R u+w "$work" 2>/dev/null
 rm -rf "$work"
 exit "$status"

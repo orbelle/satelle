@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
@@ -844,7 +845,18 @@ func TestAutosyncSatelledDownPrunesNoPartition(t *testing.T) {
 // not rewrite config.toml.
 func TestAutosyncKeepsExistingProjects(t *testing.T) {
 	m := newMachine(t)
-	other := t.TempDir()
+	// The second project is a satelle repo of its own, so the pass syncs it
+	// wherever the temp root is (a bare dir under a TMPDIR inside the user's
+	// home would resolve to that home's .satelle).
+	other, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, other, "init", "-q")
+	gittest.Git(t, other, "commit", "-q", "--allow-empty", "-m", "init")
+	t.Chdir(other)
+	must(t, "init")
+	t.Chdir(m.dir)
 	must(t, "project", "add", m.dir)
 	must(t, "project", "add", other)
 	path := config.GlobalConfigPath()

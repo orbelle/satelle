@@ -268,3 +268,92 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 		}
 	})
 }
+
+// TestHermeticCatchesWriteToCallerRealSatelleHome proves the second half of
+// the guard (sto_e3c6bfb6): a test that reaches the caller's REAL satelle home
+// by a path of its own, not through HOME, fails the run, naming what changed.
+// The route is the one the wrapper cannot close without moving the Go caches:
+// GOMODCACHE stays the caller's (here $HOME/go/pkg/mod of a fake caller HOME),
+// so a test can strip /go/pkg/mod and write <home>/.satelle. The fake caller
+// stands in for the operator; the operator's home is never touched. The paths
+// the host's own satelle rewrites while a suite runs (serve/, sessions/,
+// builds.json, the per-repo runtime dirs) pass.
+func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
+	// derive is the reviewer's route: the caller's home from GOMODCACHE.
+	const derive = `h=${GOMODCACHE%/go/pkg/mod}; [ -d "$h/.satelle" ] || { echo "no caller home at $h" >&2; exit 9; }; `
+	const changed = "changed the caller's real satelle home"
+	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
+		t.Helper()
+		home, env := fakeHost(t)
+		env = append(env, "PATH="+os.Getenv("PATH"), "GOMODCACHE="+filepath.Join(home, "go", "pkg", "mod"))
+		env = append(env, extraEnv...)
+		cmd := exec.Command("sh", append([]string{"hermetic.sh", "--", "sh", "-c", derive + script, "sh"}, args...)...)
+		cmd.Env = env
+		b, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("hermetic.sh: %v", err)
+		}
+		return home, code, string(b)
+	}
+	caught := func(t *testing.T, code, want int, out string, paths ...string) {
+		t.Helper()
+		if code != want || !strings.Contains(out, changed) {
+			t.Fatalf("exit %d, want %d with %q; output:\n%s", code, want, changed, out)
+		}
+		for _, p := range paths {
+			if !strings.Contains(out, "  "+p+"\n") {
+				t.Errorf("output does not name %s:\n%s", p, out)
+			}
+		}
+	}
+
+	t.Run("a write by a path derived from GOMODCACHE is caught", func(t *testing.T) {
+		home, code, out := run(t, nil, `echo leak >> "$h/.satelle/config.toml"`)
+		caller := filepath.Join(home, ".satelle")
+		caught(t, code, 1, out, filepath.Join(caller, "config.toml"))
+		// The write really reached the caller's home: the route is live and
+		// the guard, not the wrapper's HOME, is what caught it.
+		if b, err := os.ReadFile(filepath.Join(caller, "config.toml")); err != nil || !strings.Contains(string(b), "leak") {
+			t.Fatalf("caller's config.toml = %q, %v; the fixture's write did not land", b, err)
+		}
+	})
+	t.Run("a new project registered at depth is caught", func(t *testing.T) {
+		home, code, out := run(t, nil, `mkdir -p "$h/.satelle/projects/003" && echo x > "$h/.satelle/projects/003/repo.toml"`)
+		caller := filepath.Join(home, ".satelle")
+		caught(t, code, 1, out, filepath.Join(caller, "projects"), filepath.Join(caller, "projects", "003", "repo.toml"))
+	})
+	t.Run("a removed file is caught", func(t *testing.T) {
+		home, code, out := run(t, nil, `rm "$h/.satelle/document-sync-state.json"`)
+		caught(t, code, 1, out, filepath.Join(home, ".satelle", "document-sync-state.json"))
+	})
+	t.Run("a rewrite with the same bytes is caught", func(t *testing.T) {
+		home, code, out := run(t, nil, `cat "$h/.satelle/config.toml" > "$h/.satelle/config.toml.new" && cat "$h/.satelle/config.toml.new" > "$h/.satelle/config.toml" && rm "$h/.satelle/config.toml.new"`)
+		caught(t, code, 1, out, filepath.Join(home, ".satelle", "config.toml"))
+	})
+	t.Run("the home removed is caught", func(t *testing.T) {
+		home, code, out := run(t, nil, `rm -r "$h/.satelle"`)
+		caught(t, code, 1, out, filepath.Join(home, ".satelle"))
+	})
+	t.Run("the caller's SATELLE_HOME is watched too", func(t *testing.T) {
+		own := t.TempDir()
+		if err := os.WriteFile(filepath.Join(own, "config.toml"), []byte("b = 2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, code, out := run(t, []string{"SATELLE_HOME=" + own}, `echo leak >> "$1/config.toml"`, own)
+		caught(t, code, 1, out, filepath.Join(own, "config.toml"))
+	})
+	t.Run("the command's failure status is kept", func(t *testing.T) {
+		home, code, out := run(t, nil, `echo leak >> "$h/.satelle/config.toml"; exit 3`)
+		caught(t, code, 3, out, filepath.Join(home, ".satelle", "config.toml"))
+	})
+	t.Run("the host's own satelle writes pass", func(t *testing.T) {
+		_, code, out := run(t, nil, `echo w2 > "$h/.satelle/serve/mirror.db-wal" && echo l > "$h/.satelle/serve/server.log" && `+
+			`echo w2 > "$h/.satelle/repo-0123abcd/db-wal" && mkdir -p "$h/.satelle/other-89abcdef" "$h/.satelle/sessions" && `+
+			`echo p > "$h/.satelle/other-89abcdef/repo.path" && echo s > "$h/.satelle/sessions/s.json" && echo b > "$h/.satelle/builds.json"`)
+		if code != 0 || strings.Contains(out, "hermetic:") {
+			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
+		}
+	})
+}
