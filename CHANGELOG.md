@@ -1,3 +1,8 @@
+## [1.0.72] - 2026-11-14
+
+### Added
+- `satelle init` writes the skill `satelle-workflow-standard`, and the template `satelle.toml` injects it at session start: before creating, changing or checking a workflow the agent reads the standard the skill names and cites its rule ids. The repo edits the skill's `Standard:` line; an existing repo runs `satelle init` and adds the skill's path to `[hook] inject`. (sto_5692efef)
+
 ## [1.0.71] - 2026-11-14
 
 ### Changed
