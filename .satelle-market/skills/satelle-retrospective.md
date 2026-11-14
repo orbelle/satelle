@@ -45,8 +45,8 @@ not a failure. Do not invent busywork.
 Tag each so it traces to this retrospective:
 
 ```bash
-satelle story create --title "<concrete title>" \
-  --category <feature --session <session>|refactor|substrate|...> \
+satelle story create --title "<concrete title>" --session <session> \
+  --category <feature|refactor|substrate|...> \
   --tags "retrospective:<story-id>" \
   --body "<what + why, referencing the source story and the evidence>" \
   --acceptance "1. <checkable outcome>\n2. …"

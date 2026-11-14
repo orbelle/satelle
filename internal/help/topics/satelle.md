@@ -37,7 +37,7 @@ creates an execution recording which items it took, and prints the base its
 diff is judged from (HEAD, or `satelle task run <id> --base <ref> --session <session>` for a run
 worked on another branch, such as a release on main). satelle runs a task when
 asked; repeating it is up to cron, a remote or a routine. An execution is
-worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id>`.
+worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id> --session <session>`.
 
 Topics: `satelle help workflows --session <session>`, `satelle help edit-gate --session <session>`,
 `satelle help configuration --session <session>`, `satelle help remotes --session <session>`, `satelle help projects --session <session>`,

@@ -67,10 +67,39 @@ type shownCmd struct {
 
 // HasSession reports whether the command carries --session.
 func (c shownCmd) HasSession() bool {
-	return regexp.MustCompile(`(^|\s)--session(\s|=|$)`).MatchString(c.Text)
+	// The flag counts outside <...> and [...] and with a value that is not an
+	// alternative (--session x|pi is a malformed edit, not the flag).
+	depth := 0
+	fields := strings.Fields(c.Text)
+	for i, f := range fields {
+		if depth == 0 && (f == "--session" && i+1 < len(fields) && !strings.Contains(fields[i+1], "|") ||
+			strings.HasPrefix(f, "--session=") && !strings.Contains(f, "|")) {
+			return true
+		}
+		depth += strings.Count(f, "<") + strings.Count(f, "[") - strings.Count(f, ">") - strings.Count(f, "]")
+		if depth < 0 {
+			depth = 0
+		}
+	}
+	return false
 }
 
 var satelleWord = regexp.MustCompile(`(^|[^A-Za-z0-9_./-])satelle(\s|$)`)
+
+// binaryWord matches the satelle binary in text: the word satelle, or a
+// shell variable the text sets to it (sbin=$(command -v satelle),
+// BIN="./satelle"), as "$sbin", $sbin or "${BIN}".
+func binaryWord(text string) *regexp.Regexp {
+	var names []string
+	for _, m := range regexp.MustCompile(`(?m)(\w+)=(?:\$\(command -v satelle\b|"?[^"\s]*/satelle"?$)`).FindAllStringSubmatch(text, -1) {
+		names = append(names, regexp.QuoteMeta(m[1]))
+	}
+	if len(names) == 0 {
+		return satelleWord
+	}
+	alt := strings.Join(names, "|")
+	return regexp.MustCompile(`(^|[^A-Za-z0-9_./-])(?:satelle|"\$\{?(?:` + alt + `)\}?"|\$\{?(?:` + alt + `)\}?)(\s|$)`)
+}
 
 // scanDoc returns the satelle commands text shows: each occurrence of the
 // word satelle followed by a root subcommand, on a code-block line (fenced or
@@ -80,6 +109,7 @@ var satelleWord = regexp.MustCompile(`(^|[^A-Za-z0-9_./-])satelle(\s|$)`)
 // command that cannot run with no operand).
 func scanDoc(root *cobra.Command, text string) []shownCmd {
 	root.InitDefaultHelpCmd()
+	word := binaryWord(text)
 	lines := strings.Split(text, "\n")
 	var out []shownCmd
 	inFence := false
@@ -103,7 +133,7 @@ func scanDoc(root *cobra.Command, text string) []shownCmd {
 					line = para[k]
 				}
 			}
-			for _, c := range commandsIn(root, sp.text, false) {
+			for _, c := range commandsIn(root, word, sp.text, false) {
 				c.Line = line + 1
 				out = append(out, c)
 			}
@@ -139,7 +169,7 @@ func scanDoc(root *cobra.Command, text string) []shownCmd {
 				i++
 				full = strings.TrimSuffix(strings.TrimRight(full, " "), "\\") + " " + strings.TrimSpace(lines[i])
 			}
-			for _, c := range commandsIn(root, full, true) {
+			for _, c := range commandsIn(root, word, full, true) {
 				c.Line = start + 1
 				out = append(out, c)
 			}
@@ -186,12 +216,16 @@ func inlineSpans(s string) []span {
 }
 
 // commandsIn finds the commands in one code line or one inline span.
-func commandsIn(root *cobra.Command, s string, code bool) []shownCmd {
+func commandsIn(root *cobra.Command, word *regexp.Regexp, s string, code bool) []shownCmd {
 	var out []shownCmd
-	for _, m := range satelleWord.FindAllStringSubmatchIndex(s, -1) {
+	for _, m := range word.FindAllStringSubmatchIndex(s, -1) {
 		at := m[0] + len(s[m[2]:m[3]])
-		ext := extent(s, at)
-		words := strings.Fields(strings.TrimPrefix(ext, "satelle"))
+		ext := extent(s, at, code)
+		fields := strings.Fields(ext)
+		if len(fields) == 0 {
+			continue
+		}
+		words := fields[1:]
 		path, after, ok := resolvePath(root, words)
 		if !ok {
 			continue
@@ -208,7 +242,7 @@ func commandsIn(root *cobra.Command, s string, code bool) []shownCmd {
 // ), backtick, redirection or # comment, or the closing quote of a quote it
 // sits in. A $( opens a fresh quoting context, so "$(satelle ... "$id")" is
 // read as the command inside the substitution.
-func extent(s string, at int) string {
+func extent(s string, at int, code bool) string {
 	var q byte
 	nested := false // a 'quoted' part inside a double-quoted string
 	for i := 0; i < at; i++ {
@@ -232,12 +266,19 @@ func extent(s string, at int) string {
 	}
 	inner := q
 	q = 0
+	depth := 0 // inside <placeholder> or [optional] syntax, where | means "or"
 	for i := at; i < len(s); i++ {
 		c := s[i]
 		if inner != 0 && q == 0 && c == inner {
 			return strings.TrimSpace(s[at:i])
 		}
 		switch {
+		case q == 0 && c == '[', q == 0 && c == '<' && i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '<' && s[i+1] != '(':
+			depth++
+		case q == 0 && depth > 0 && (c == ']' || c == '>'):
+			depth--
+		case q == 0 && c == '|' && (depth > 0 || !code):
+			// An alternative (claude|pi, <a|b>, [F|-]), not a pipe.
 		case q == 0 && (c == '"' || c == '\'') && c != inner:
 			q = c
 		case q != 0 && c == q:
@@ -587,6 +628,31 @@ func TestTheScannerReadsNestedQuotes(t *testing.T) {
 		got := scanDoc(tree, c.text)
 		if len(got) != 1 || got[0].HasSession() != c.ok {
 			t.Errorf("%q: %+v, want one command with --session %v", c.text, got, c.ok)
+		}
+	}
+}
+
+// A variable the document sets to the satelle binary is read as satelle,
+// and | is an alternative in a span or inside <...> and [...] (code-ac round
+// 1 of sto_2a41b9e4).
+func TestTheScannerReadsAliasesAndAlternatives(t *testing.T) {
+	tree := NewRootCmd()
+	for _, c := range []struct {
+		text string
+		n    int
+		ok   bool
+	}{
+		{"```sh\nsbin=$(command -v satelle)\n\"$sbin\" update --version 1\n```\n", 1, false},
+		{"```sh\nsbin=$(command -v satelle)\n\"$sbin\" update --version 1 --session x\n```\n", 1, true},
+		{"```sh\nBIN=\"${HOME}/.local/bin/satelle\"\n\"${BIN}\" status >/dev/null\n```\n", 1, false},
+		{"Run `satelle agents install claude --session x|pi|grok`.", 1, false},
+		{"Run `satelle agents install claude|pi|grok --session x`.", 1, true},
+		{"```sh\nsatelle story create --category <a --session x|b>\n```\n", 1, false},
+		{"Run `satelle github review --body-file F --session x|-`.", 1, false},
+	} {
+		got := scanDoc(tree, c.text)
+		if len(got) != c.n || (c.n > 0 && got[0].HasSession() != c.ok) {
+			t.Errorf("%q: %+v, want %d command(s), --session %v", c.text, got, c.n, c.ok)
 		}
 	}
 }

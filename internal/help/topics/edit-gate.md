@@ -1,6 +1,6 @@
 # The edit gate and blocks
 
-Harness hooks (`satelle agents install claude --session <session>|pi|grok|cursor`) send every edit
+Harness hooks (`satelle agents install claude|pi|grok|cursor --session <session>`) send every edit
 and shell command a session makes to `satelle hook gate`. The gate allows an edit only
 when **the editing session holds a seat, at this worktree, on an item whose
 current state has a performer**:

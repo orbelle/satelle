@@ -19,7 +19,7 @@ and `satelle execution set`: a performer never moves an item itself.
 
 ## Harness hooks
 
-`satelle agents install claude --session <session>|pi|grok|cursor` writes the harness's hook file
+`satelle agents install claude|pi|grok|cursor --session <session>` writes the harness's hook file
 so its interactive sessions run under the edit gate, the session-start
 context, the prompt hook and the stop check: `.claude/settings.json`,
 `.pi/extensions/satelle.ts`, `.grok/hooks/satelle.json` and
