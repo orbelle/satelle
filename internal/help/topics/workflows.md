@@ -173,16 +173,16 @@ A state may cap the rejected rounds of leaving it, and name the park state
 that holds the item for the operator once the cap is reached:
 
     [states.plan]
-    hold = { rounds = 3, to = "held" }
-    [states.held]
+    hold = { rounds = 3, to = "blocked" }
+    [states.blocked]
     park = true
     resumes = true
 
     [[transition]]
     from = ["plan"]
-    to = "held"                  # declared, and gateless
+    to = "blocked"               # declared, and gateless
     [[transition]]
-    from = ["held"]
+    from = ["blocked"]
     to = "@prior"
 
 A round is one presentation of a transition leaving the state, to a target

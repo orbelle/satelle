@@ -41,13 +41,6 @@ enqueue = ["release"]
 park = true
 resumes = true
 
-# Retired (operator, 2026-11-13: "'Held' status should be removed ...
-# 'Blocked' is correct"): the plan hold now goes to blocked. held stays only
-# for the items still in it; once none is, a follow-up removes it.
-[states.held]
-park = true
-resumes = true
-
 [states.done]
 terminal = true
 
@@ -249,17 +242,6 @@ to = "plan"
 from = ["plan", "in_progress", "integration"]
 to = "blocked"
 
-# Retired held state: its items leave as before. plan -> held stays declared
-# only so validate finds held reachable while items remain in it; no hold
-# targets it, and the follow-up that removes held removes both.
-[[transition]]
-from = ["plan"]
-to = "held"
-
-[[transition]]
-from = ["held"]
-to = "@prior"
-
 # Every other move into blocked is judged: the reason must hold.
 [[transition]]
 from = ["backlog", "approved"]
@@ -276,6 +258,6 @@ to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]
 
 [[transition]]
-from = ["blocked", "held"]
+from = ["blocked"]
 to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]

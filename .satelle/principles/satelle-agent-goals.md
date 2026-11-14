@@ -35,8 +35,8 @@ drive; an epic, or `drive epic <id> to done`, starts *Driving an epic*.
 
 **A named performer hands the drive back here.** The step's agent does the step
 and does not change status. When it returns, this session runs the next
-`satelle story set` the workflow names, unless the item is held: then it
-reports the hold and stops. A refusal there fences source edits. The
+`satelle story set` the workflow names, unless a hold has parked the item
+(blocked): then it reports the hold and stops. A refusal there fences source edits. The
 drive stays in this session.
 
 **One story at a time — outside an epic.**
