@@ -62,15 +62,17 @@ CREDGUARD := sh scripts/credguard.sh --
 # HERMETIC runs a command under an empty test-owned HOME/XDG and a minimal PATH so
 # the suites do not depend on the operator's machine (sty_ec30f859). It fails the
 # target, naming the files, when the run wrote the test-owned HOME's ~/.satelle.
-# The caller's real satelle home (sto_e3c6bfb6): where bubblewrap runs, the suite
-# runs under bwrap with that home mounted read-only, so the suite cannot write
-# it by any route. Elsewhere (no bwrap, e.g. macOS) the suite is given no path
-# to the caller's home (the Go toolchain, caches and starting directory arrive as
-# stable symlinks in /tmp/satelle-hermetic-<uid>, a TMPDIR under the home is
-# replaced by one under /tmp) and a snapshot before and after fails the target on
-# any change to that home except the paths the host's own satelle rewrites during
-# a run (serve/, sessions/, builds.json, per-repo runtime dirs). The script names
-# its mode on stderr. Test flags go through TESTFLAGS. credguard stays OUTSIDE it
+# The caller's real satelle home (sto_e3c6bfb6): by default the suite runs under
+# bwrap with that home mounted read-only, so the suite cannot write it by any
+# route; where bwrap is missing or cannot run, the target refuses to run (exit 2)
+# and says to install bubblewrap. SATELLE_HERMETIC_ALLOW_SNAPSHOT=1 opts in to
+# snapshot mode, which only detects: the suite is given no path to the caller's
+# home (the Go toolchain, caches and starting directory arrive as stable
+# symlinks in /tmp/satelle-hermetic-<uid>, a TMPDIR under the home is replaced by
+# one under /tmp) and a snapshot before and after fails the target on any change
+# to that home except the paths the host's own satelle rewrites during a run
+# (serve/, sessions/, builds.json, per-repo runtime dirs). The script names its
+# mode on stderr. Test flags go through TESTFLAGS. credguard stays OUTSIDE it
 # so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 

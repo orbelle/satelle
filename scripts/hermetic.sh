@@ -50,9 +50,11 @@
 # exits 1 when the command passed, else keeps the command's status.
 #
 # The caller's real satelle home -- $SATELLE_HOME and $HOME/.satelle as the
-# caller has them -- is protected in one of two modes (sto_e3c6bfb6), named on
-# one stderr line per run:
-#   - bwrap (when bubblewrap is installed and `bwrap --dev-bind / / true`
+# caller has them -- is protected (sto_e3c6bfb6). By default the suite CANNOT
+# write it: the wrapper runs it under bwrap, and when bwrap is missing or cannot
+# run it refuses to run the command at all (exit 2, fail closed) and says how
+# to fix that. The mode is named on one stderr line per run:
+#   - bwrap (the default; bubblewrap is installed and `bwrap --dev-bind / / true`
 #     works): the command runs as `bwrap --dev-bind / / --ro-bind H H -- ...`,
 #     same uid, same filesystem, with each caller satelle home H mounted
 #     read-only. The suite CANNOT write there by any route (a path from HOME,
@@ -62,9 +64,10 @@
 #     bound back writable, so the home cannot be created while everything else
 #     (the Go caches, the source tree) stays writable. The host's own satelle,
 #     outside the sandbox, keeps writing its home as usual.
-#   - snapshot (fallback: no bwrap, the probe fails, a home whose nearest
-#     existing parent is /, or SATELLE_HERMETIC_NO_BWRAP set, e.g. on macOS):
-#     the run hides the home (above) and detects writes. Every path under each
+#   - snapshot (explicit opt-in, detection only: SATELLE_HERMETIC_ALLOW_SNAPSHOT=1
+#     where bwrap is missing or cannot run, e.g. on macOS, or for a home whose
+#     nearest existing parent is /): the run hides the home (above) and detects
+#     writes; it does not prevent them. Every path under each
 #     home is recorded (type, size, mtime, ctime, inode) before the command and
 #     again after, and the run fails, by the same exit rule, naming each path
 #     added, removed or changed, EXCEPT the paths the host's own satelle
@@ -72,6 +75,8 @@
 #     30 s, satelled, every satelle command of a parallel session): serve/,
 #     sessions/, builds.json (and its .tmp) and the per-repo runtime dirs
 #     <name>-<8 hex>/. Those exclusions apply in this mode only.
+# SATELLE_HERMETIC_FORCE_NO_BWRAP=1 makes the wrapper act as if bwrap were
+# missing (tests of the refusal and of snapshot mode); the refusal still applies.
 
 # SATELLE_CHROME points the browser e2e tests at a non-default Chrome path (sty_53c3f311).
 ALLOW="TERM TMPDIR SATELLE_BIN SATELLE_CHROME GOFLAGS GOPROXY GOTOOLCHAIN GONOSUMDB GOPRIVATE GONOPROXY GOSUMDB"
@@ -163,11 +168,12 @@ hostsnap() {
 }
 
 # Mode: bwrap when it is installed, works here and can protect every home;
-# otherwise snapshot. SATELLE_HERMETIC_NO_BWRAP forces snapshot (tests).
+# otherwise snapshot, which runs only with SATELLE_HERMETIC_ALLOW_SNAPSHOT set
+# (below). SATELLE_HERMETIC_FORCE_NO_BWRAP acts as if bwrap were missing.
 mode=snapshot
-why="SATELLE_HERMETIC_NO_BWRAP is set"
-if [ -z "${SATELLE_HERMETIC_NO_BWRAP:-}" ]; then
-	why="bwrap is not installed"
+why="bwrap is missing (SATELLE_HERMETIC_FORCE_NO_BWRAP is set)"
+if [ -z "${SATELLE_HERMETIC_FORCE_NO_BWRAP:-}" ]; then
+	why="bwrap is missing"
 	if bwrap=$(command -v bwrap 2>/dev/null) && [ -n "$bwrap" ]; then
 		why="bwrap cannot run here (bwrap --dev-bind / / true failed)"
 		"$bwrap" --dev-bind / / true >/dev/null 2>&1 && mode=bwrap
@@ -209,10 +215,14 @@ if [ "$mode" = bwrap ]; then
 "
 	done
 fi
+if [ "$mode" = snapshot ] && [ -z "${SATELLE_HERMETIC_ALLOW_SNAPSHOT:-}" ]; then
+	echo "hermetic: refusing to run: $why, so the caller's satelle home cannot be made read-only; install bubblewrap, or set SATELLE_HERMETIC_ALLOW_SNAPSHOT=1 to run in detection-only snapshot mode" >&2
+	exit 2
+fi
 if [ "$mode" = bwrap ]; then
 	echo "hermetic: mode bwrap: the caller's satelle home is read-only for the run ($(printf %s "$real1 $real2" | sed 's/^ //; s/ $//'))" >&2
 else
-	echo "hermetic: mode snapshot ($why): the caller's satelle home is checked after the run; serve/, sessions/, builds.json and per-repo runtime dirs are not checked" >&2
+	echo "hermetic: mode snapshot ($why; SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only, writes to the caller's satelle home are not prevented; changes are checked after the run except under serve/, sessions/, builds.json and the per-repo runtime dirs <name>-<8 hex>/" >&2
 	before1=$(hostsnap "$real1")
 	before2=$(hostsnap "$real2")
 fi

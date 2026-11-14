@@ -12,15 +12,16 @@ import (
 )
 
 // TestHermeticWrapperEnvironment runs hermetic.sh over `env` with a caller
-// environment carrying a real-looking HOME, GOPROXY=off, SATELLE_HOME=/x and an
+// environment carrying a real-looking HOME, GOPROXY=off, a SATELLE_HOME and an
 // unlisted variable, and asserts what the wrapped command actually sees.
 func TestHermeticWrapperEnvironment(t *testing.T) {
 	callerHome := t.TempDir()
+	callerSatelleHome := filepath.Join(t.TempDir(), "x")
 	callerEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + callerHome,
 		"GOPROXY=off",
-		"SATELLE_HOME=/x",
+		"SATELLE_HOME=" + callerSatelleHome,
 		"SATELLE_TEST_PROBE_X=1",
 		"UNLISTED=1",
 	}
@@ -71,7 +72,7 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 	}
 	// No path of the caller's home reaches the command (sto_e3c6bfb6): the
 	// only ~/.satelle a test can reach by HOME is the wrapper's own.
-	callerPaths := []string{callerHome, filepath.Join(callerHome, ".satelle"), filepath.Join(callerHome, ".config"), "/x"}
+	callerPaths := []string{callerHome, filepath.Join(callerHome, ".satelle"), filepath.Join(callerHome, ".config"), callerSatelleHome}
 	for k, v := range got {
 		if strings.HasPrefix(k, "SATELLE_TEST_HOST_") {
 			t.Errorf("%s = %q passed to the wrapped command", k, v)
@@ -503,9 +504,53 @@ func TestHermeticBwrapMakesCallerSatelleHomeReadOnly(t *testing.T) {
 	})
 }
 
-// TestHermeticCatchesWriteToCallerRealSatelleHome proves the fallback mode, used
-// where bubblewrap is missing or cannot run (forced here with
-// SATELLE_HERMETIC_NO_BWRAP), on a fake caller standing in for the operator
+// TestHermeticRefusesWithoutBwrap proves the wrapper fails closed (sto_e3c6bfb6):
+// where bwrap is missing (forced with SATELLE_HERMETIC_FORCE_NO_BWRAP) and the
+// caller has not opted in to snapshot mode, it exits 2 naming the cause and
+// the fix, and the command never runs (it would create a marker file). With
+// SATELLE_HERMETIC_ALLOW_SNAPSHOT=1 the command runs in snapshot mode, which
+// says it only detects and names the paths it does not check.
+func TestHermeticRefusesWithoutBwrap(t *testing.T) {
+	const script = `touch "$3"`
+	t.Run("no opt-in: refused, the command never runs", func(t *testing.T) {
+		marker := filepath.Join(t.TempDir(), "ran")
+		_, code, out := asCaller(t, []string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1"}, nil, script, marker)
+		if code != 2 {
+			t.Errorf("exit %d, want 2; output:\n%s", code, out)
+		}
+		for _, want := range []string{"hermetic: refusing to run: bwrap is missing", "install bubblewrap", "SATELLE_HERMETIC_ALLOW_SNAPSHOT=1", "detection-only snapshot mode"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output does not say %q:\n%s", want, out)
+			}
+		}
+		if n := strings.Count(strings.TrimSpace(out), "\n"); n != 0 {
+			t.Errorf("want one stderr line, got %d:\n%s", n+1, out)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Errorf("the command ran: %s exists (stat err %v)", marker, err)
+		}
+	})
+	t.Run("opt-in: snapshot mode runs the command and says it only detects", func(t *testing.T) {
+		marker := filepath.Join(t.TempDir(), "ran")
+		_, code, out := asCaller(t, []string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1", "SATELLE_HERMETIC_ALLOW_SNAPSHOT=1"}, nil, script, marker)
+		if code != 0 || guardLine(out) {
+			t.Fatalf("exit %d; want 0 and no guard line; output:\n%s", code, out)
+		}
+		for _, want := range []string{"hermetic: mode snapshot", "detection only", "serve/, sessions/, builds.json and the per-repo runtime dirs"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("mode line does not say %q:\n%s", want, out)
+			}
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("the command did not run: %v", err)
+		}
+	})
+}
+
+// TestHermeticCatchesWriteToCallerRealSatelleHome proves the snapshot mode, the
+// explicit detection-only opt-in (SATELLE_HERMETIC_ALLOW_SNAPSHOT) where
+// bubblewrap is missing or cannot run (forced here with
+// SATELLE_HERMETIC_FORCE_NO_BWRAP), on a fake caller standing in for the operator
 // (sto_e3c6bfb6). The reviewer's route -- strip /go/pkg/mod from GOMODCACHE and
 // write <home>/.satelle -- does not reach the caller's home, because
 // GOMODCACHE is a link outside it. A write by a path the test was handed anyway
@@ -516,8 +561,8 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 	const changed = "changed the caller's real satelle home"
 	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
 		t.Helper()
-		home, code, out = asCaller(t, append([]string{"SATELLE_HERMETIC_NO_BWRAP=1"}, extraEnv...), nil, script, args...)
-		if !strings.Contains(out, "hermetic: mode snapshot (SATELLE_HERMETIC_NO_BWRAP is set)") {
+		home, code, out = asCaller(t, append([]string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1", "SATELLE_HERMETIC_ALLOW_SNAPSHOT=1"}, extraEnv...), nil, script, args...)
+		if !strings.Contains(out, "hermetic: mode snapshot (bwrap is missing (SATELLE_HERMETIC_FORCE_NO_BWRAP is set); SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only") {
 			t.Fatalf("the run did not say it ran in snapshot mode:\n%s", out)
 		}
 		return home, code, out
