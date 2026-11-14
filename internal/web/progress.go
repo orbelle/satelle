@@ -21,8 +21,13 @@ import (
 type stageVM struct {
 	Name string
 	// Current marks the step the story is at (or, while parked, the step it
-	// parked from); Performing marks it while a seat on the story is working.
+	// parked from); Performing marks the current chip while the story is
+	// engaged (engagements: a seat here or elsewhere, a dispatched run's
+	// included). Only a Performing chip pulses.
 	Current, Performing bool
+	// Engaged is the story's engagement in words (where and by whom), set only
+	// on a Performing chip.
+	Engaged string
 	// Agent is the binding that performs a Performing chip's step, or that
 	// performed a done or current chip's step ("" when none is known).
 	Agent string
@@ -56,8 +61,12 @@ const (
 )
 
 // progressOf builds an item's chips from its workflow, its events (oldest
-// first) and its seats. An item whose workflow was not pushed has none.
-func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat, standing seatStanding) []stageVM {
+// first), its seats and its engagement (engagements' value for the item, nil
+// when it is engaged nowhere). An item whose workflow was not pushed has none.
+// The current chip is Performing exactly when eng is not nil, the same value
+// the row's data-engaged and the header badges read; the seats only name the
+// performing agent.
+func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat, standing seatStanding, eng *engagementVM) []stageVM {
 	if w == nil {
 		return nil
 	}
@@ -154,9 +163,10 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 		binding, at, recorded := agentOf(win, name)
 		if name == cur {
 			c.Current = true
-			if len(working) > 0 {
+			if eng != nil {
 				c.Performing = true
 				c.Agent = performerOf(byName[name], working, standing, binding, at, recorded)
+				c.Engaged = eng.Words()
 			} else if recorded {
 				c.Agent = binding
 			}
@@ -386,11 +396,14 @@ func stageTitle(c stageVM) string {
 	case c.Performing:
 		state = "performing (" + c.Agent + ")"
 	case c.Current:
-		state = "current"
+		state = "current, not being worked"
 	default:
 		state = "complete"
 	}
 	parts := []string{c.Name + ": " + state}
+	if c.Engaged != "" {
+		parts = append(parts, c.Engaged)
+	}
 	if !c.Performing && c.Agent != "" {
 		parts = append(parts, "performed by "+c.Agent)
 	}

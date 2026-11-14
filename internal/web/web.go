@@ -176,6 +176,23 @@ func (e *engagementVM) Attr() string {
 	return strings.Join(parts, ",")
 }
 
+// Words is the engagement in words for a Progress chip's hover: the here
+// mark's title, then each elsewhere mark's, joined by "; " ("" for nil). It
+// formats the marks' own text and decides nothing.
+func (e *engagementVM) Words() string {
+	if e == nil {
+		return ""
+	}
+	var parts []string
+	if e.Here != nil {
+		parts = append(parts, e.Here.Title)
+	}
+	for _, m := range e.Elsewhere {
+		parts = append(parts, m.Title)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // markVM is one engagement mark: Label its text, Title its hover (one entry
 // per seat making it), Unverified a here mark no seat proves live.
 type markVM struct {
