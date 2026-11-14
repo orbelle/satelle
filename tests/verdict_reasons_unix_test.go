@@ -86,6 +86,12 @@ func TestVerdictNotesRule(t *testing.T) {
 	}
 }
 
+// exe9a209ff1Notes are the notes reviewer-gemini-3.8-flash-high gave with its
+// accept on validate-after of v1.0.65's drift review run exe_9a209ff1, first
+// presentation (2026-11-14T03:59:42Z), copied from that run's gate.run: they
+// describe the drift-report but name no record path (sto_09b81217).
+const exe9a209ff1Notes = "drift-report confirms satelle 1.0.65 checked with drift-check exit 0; base..head is v1.0.64..v1.0.65 with no new DRIFT lines or claim warnings; open drift fix item sto_49749bc9 lists carried findings; 'no drift' reported and no changes made inline."
+
 // AC2: the reference rule refuses an accept that neither quotes the work nor
 // names a file, criterion or record path; a reject passes it.
 func TestVerdictReferenceRule(t *testing.T) {
@@ -102,6 +108,15 @@ func TestVerdictReferenceRule(t *testing.T) {
 		{"accept", "the edit to gate.go keeps the panel order", true},
 		{"accept", "criterion 3 is met", true},
 		{"reject", "looks wrong to me, not acceptable at all", true},
+		// sto_09b81217 AC2: the notes exe_9a209ff1 was refused for, and the
+		// same notes once they name a record path of the run.
+		{"accept", exe9a209ff1Notes, false},
+		{"accept", exe9a209ff1Notes + " (attachments/task)", true},
+		{"accept", exe9a209ff1Notes + " (attachments/drift-report)", true},
+		{"accept", exe9a209ff1Notes + " (attachments/release-drift)", true},
+		{"accept", exe9a209ff1Notes + " (attachments/release-kept)", true},
+		{"accept", exe9a209ff1Notes + " (attachments/release-evidence)", true},
+		{"accept", exe9a209ff1Notes + " (.satelle/runs/exe_9a209ff1/attachments/drift-report)", true},
 	} {
 		passed, out := runRule(t, referenceRule, judgeSaid(c.result, c.notes))
 		if passed != c.pass {

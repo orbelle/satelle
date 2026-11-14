@@ -25,6 +25,7 @@ var driftTaskFiles = []string{
 	".satelle/skills/drift-review.md",
 	".satelle/skills/satelle-drift-run-trigger.md",
 	".satelle/skills/satelle-drift-resolved-check.md",
+	".satelle/skills/satelle-drift-accept-quoted.md",
 }
 
 // repoText reads a file of this repo.
@@ -275,15 +276,21 @@ to = "retired"
 		"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
-	// The trigger as the repo has it until the drift task exists; then its id.
-	s.write(".satelle/skills/satelle-drift-run-trigger.md", repoText(t, ".satelle/skills/satelle-drift-run-trigger.md"))
+	// The trigger and validate-after's drift check as the repo has them until
+	// the drift task exists; then its id.
+	bound := []string{"satelle-drift-run-trigger", "satelle-drift-accept-quoted"}
+	for _, name := range bound {
+		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
+	}
 	d.drift = s.create("task", "--title", "Drift review after a release", "--input-kind", "story", "--input-tag", "drift").ID
 	d.other = s.create("task", "--title", "Remove finished worktrees", "--input-kind", "story").ID
-	trigger := regexp.MustCompile(driftTaskLine).ReplaceAllString(repoText(t, ".satelle/skills/satelle-drift-run-trigger.md"), "task="+d.drift)
-	if !strings.Contains(trigger, "\ntask="+d.drift+"\n") {
-		t.Fatal("satelle-drift-run-trigger.md has no task=<id> line")
+	for _, name := range bound {
+		body := regexp.MustCompile(driftTaskLine).ReplaceAllString(repoText(t, ".satelle/skills/"+name+".md"), "task="+d.drift)
+		if !strings.Contains(body, "\ntask="+d.drift+"\n") {
+			t.Fatalf("%s.md has no task=<id> line", name)
+		}
+		s.write(".satelle/skills/"+name+".md", body)
 	}
-	s.write(".satelle/skills/satelle-drift-run-trigger.md", trigger)
 	s.must("validate")
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "config")
@@ -359,6 +366,128 @@ func (d *driftSandbox) setFake(name, body string) {
 		return
 	}
 	writeFile(d.t, p, body, 0o644)
+}
+
+const acceptQuoted = ".satelle/skills/satelle-drift-accept-quoted.md"
+
+// acceptQuotedLiterals are the report's line forms satelle-drift-accept-quoted
+// restates, each a name='value' line of its script.
+func acceptQuotedLiterals(t *testing.T) map[string]string {
+	t.Helper()
+	text := repoText(t, acceptQuoted)
+	out := map[string]string{}
+	for _, name := range []string{"version_prefix", "exit_prefix", "fix_heading", "no_drift"} {
+		m := regexp.MustCompile(`(?m)^` + name + `='([^']*)'$`).FindStringSubmatch(text)
+		if m == nil {
+			t.Fatalf("%s has no %s='...' line", acceptQuoted, name)
+		}
+		out[name] = m[1]
+	}
+	return out
+}
+
+// fixtureDriftReport is a drift-report in drift-review.md steps 3 and 4's shape for
+// the sandbox's release v0.0.2, finding nothing; fix, when not empty, is its
+// "## Fix item" lines (the id, then the keys it carries).
+func fixtureDriftReport(fix string) string {
+	return "# Drift review of v0.0.2\n\nno drift\n\n## Checks\n" +
+		"- satelle satelle 0.0.2 (fixture)\n" +
+		"- scripts/drift-check.sh: drift-check exit 0\n" +
+		"- drift-constitution: v0.0.1..v0.0.2 over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/\n" +
+		"- drift-claims: .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/ at v0.0.2\n\n" +
+		"## Substrate findings\n\n## Constitution findings\n\n## Claim warnings\n\n" +
+		"## Fix item\n" + fix + "\n" +
+		"## Open drift items\n\n## No longer found\n\n## Resolved by the judges\n\n" +
+		"## Closed\n\n## Carried\n\n## Stayed open\n"
+}
+
+// noDriftReport is fixtureDriftReport with an empty "## Fix item".
+func noDriftReport() string { return fixtureDriftReport("") }
+
+// attachReport attaches body as exe's drift-report.
+func (d *driftSandbox) attachReport(exe, body string) {
+	d.t.Helper()
+	if r := d.exec(satelleBin, body, "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
+		d.t.Fatalf("attach drift-report: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+}
+
+// driftQuotes are the three lines of exe's attached drift-report an accept
+// quotes, found by satelle-drift-accept-quoted's own line forms: the version
+// line and the drift-check exit line without their "- ", and the fix item's
+// id or the line "no drift".
+func (d *driftSandbox) driftQuotes(exe string) []string {
+	d.t.Helper()
+	lit := acceptQuotedLiterals(d.t)
+	rep := d.must("execution", "attachment", exe, "drift-report")
+	var version, exit string
+	for _, f := range reportSection(rep, "Checks") {
+		l := strings.TrimRight(strings.Join(f, "\t"), " \t\r")
+		if version == "" && strings.HasPrefix(l, lit["version_prefix"]) {
+			version = strings.TrimPrefix(l, "- ")
+		}
+		if exit == "" && strings.HasPrefix(l, lit["exit_prefix"]) {
+			exit = strings.TrimPrefix(l, "- ")
+		}
+	}
+	fix := lit["no_drift"]
+	if fi := reportSection(rep, strings.TrimPrefix(lit["fix_heading"], "## ")); len(fi) > 0 {
+		fix = strings.Fields(fi[0][0])[0]
+	}
+	if version == "" || exit == "" {
+		d.t.Fatalf("%s's drift-report has no version or exit line:\n%s", exe, rep)
+	}
+	return []string{version, exit, fix}
+}
+
+// skillDriftAccept is the drift accept the validate-after judge's skill shows
+// in its ## Verdict section, its three placeholders filled in order with
+// quotes.
+func skillDriftAccept(t *testing.T, quotes ...string) string {
+	t.Helper()
+	_, verdict, ok := strings.Cut(repoText(t, ".satelle/skills/satelle-task-validate-after-review.md"), "\n## Verdict\n")
+	if !ok {
+		t.Fatal("the validate-after skill has no ## Verdict section")
+	}
+	notes := ""
+	for _, block := range regexp.MustCompile("(?s)```json\n(.*?)\n```").FindAllStringSubmatch(verdict, -1) {
+		var v struct {
+			Verdict string `json:"verdict"`
+			Notes   string `json:"notes"`
+		}
+		if err := json.Unmarshal([]byte(block[1]), &v); err != nil {
+			t.Fatalf("example verdict %q: %v", block[1], err)
+		}
+		if v.Verdict == "accept" && strings.Contains(v.Notes, "attachments/drift-report") {
+			notes = v.Notes
+		}
+	}
+	if notes == "" {
+		t.Fatal("the validate-after skill shows no accept naming attachments/drift-report")
+	}
+	ph := regexp.MustCompile(`<[^<>]*>`)
+	if n := len(ph.FindAllString(notes, -1)); n != 3 || len(quotes) != 3 {
+		t.Fatalf("the skill's drift accept has %d placeholders, given %d quotes: %q", n, len(quotes), notes)
+	}
+	i := 0
+	return ph.ReplaceAllStringFunc(notes, func(string) string { i++; return quotes[i-1] })
+}
+
+// citeReport makes the validate-after judge answer the skill's drift accept
+// quoting exe's own drift-report.
+func (d *driftSandbox) citeReport(exe string) {
+	d.t.Helper()
+	d.setFake("notes.other", skillDriftAccept(d.t, d.driftQuotes(exe)...))
+}
+
+// gatesAccepted fails unless each gate's latest run on exe accepted.
+func (d *driftSandbox) gatesAccepted(exe string, gates ...string) {
+	d.t.Helper()
+	for _, gate := range gates {
+		if g := latestRun(d.sandbox, exe, gate); g.Result != "accept" {
+			d.t.Errorf("%s = %s (%q), want accept", gate, g.Result, g.Notes)
+		}
+	}
 }
 
 // The drift-constitution gate judges only drift runs: another task's run over
@@ -566,7 +695,8 @@ func TestDriftClaimsNeverRejects(t *testing.T) {
 				t.Fatalf("the other run dispatched the claims judge %d time(s)", len(ps))
 			}
 		}
-		d.exec(satelleBin, "no drift\n", "execution", "attach", drift, "--name", "drift-report", "--type", "text/markdown", "--file", "-")
+		d.attachReport(drift, noDriftReport())
+		d.citeReport(drift)
 		d.setFake("verdict.claims", ex.Verdict)
 		d.setFake("notes.claims", ex.Notes)
 		if r := d.run("execution", "set", drift, "--status", "done"); r.code != 0 {
@@ -605,27 +735,193 @@ func TestDriftClaimsNeverRejects(t *testing.T) {
 }
 
 // An empty report is a pass: a drift run whose drift-report says "no drift"
-// and whose judges all accept closes, with both drift gates judged.
+// and whose judges all accept, validate-after's quoting the report, closes,
+// with both drift gates judged.
 func TestDriftEmptyReportPasses(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
 	drift := d.start(d.drift, stepSeat(t))
-	d.exec(satelleBin, "no drift\n", "execution", "attach", drift, "--name", "drift-report", "--type", "text/markdown", "--file", "-")
+	d.attachReport(drift, noDriftReport())
+	d.citeReport(drift)
 	if r := d.run("execution", "set", drift, "--status", "done"); r.code != 0 {
 		t.Fatalf("an all-accept drift run did not close: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if st := d.status(drift); st != "done" {
 		t.Fatalf("drift run is %s, want done", st)
 	}
-	for _, gate := range []string{"drift-constitution", "drift-claims", "drift-closures", "validate-after"} {
-		if g := latestRun(d.sandbox, drift, gate); g.Result != "accept" {
-			t.Errorf("%s = %s (%q), want accept", gate, g.Result, g.Notes)
-		}
-	}
+	d.gatesAccepted(drift, "release-kept", "drift-constitution", "drift-claims", "drift-closures", "validate-after")
 	for _, gate := range []string{"constitution", "claims"} {
 		ps := prompts(t, d.fake, gate)
 		if len(ps) != 1 || !strings.Contains(ps[0], "drift-report") {
 			t.Errorf("the %s judge's prompt does not name the drift-report file:\n%s", gate, strings.Join(ps, "\n----\n"))
 		}
+	}
+}
+
+// presentDone presents exe done with notes as the validate-after judge's
+// answer and returns validate-after's run.
+func (d *driftSandbox) presentDone(exe, notes string) (result, gateRun) {
+	d.t.Helper()
+	d.setFake("notes.other", notes)
+	r := d.run("execution", "set", exe, "--status", "done")
+	return r, latestRun(d.sandbox, exe, "validate-after")
+}
+
+// sto_09b81217 AC1: on a drift review run, validate-after's accept stands only
+// when it names attachments/drift-report and quotes that report's version
+// line, drift-check exit line and fix item (or its no drift line). Each one
+// left out, or invented, is refused by satelle-drift-accept-quoted naming the
+// report's own text, with every other gate accepting; the skill's own drift
+// accept with the run's values closes it. Another task's run, and a judge's
+// reject, never reach the check.
+func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
+	t.Parallel()
+	d := newDriftSandbox(t, nil)
+	exe := d.start(d.drift, stepSeat(t))
+	d.attachReport(exe, noDriftReport())
+	q := d.driftQuotes(exe)
+	if want := []string{"satelle satelle 0.0.2 (fixture)", "scripts/drift-check.sh: drift-check exit 0", "no drift"}; !slices.Equal(q, want) {
+		t.Fatalf("the fixture's quotes %q, want %q", q, want)
+	}
+	refused := func(name, notes, want string) {
+		t.Helper()
+		r, g := d.presentDone(exe, notes)
+		if r.code == 0 {
+			t.Fatalf("%s: the run closed:\n%s", name, r.out)
+		}
+		if st := d.status(exe); st != "in_progress" {
+			t.Fatalf("%s: run is %s, want in_progress", name, st)
+		}
+		if g.Result != "reject" || !strings.Contains(g.Notes, "after satelle-drift-accept-quoted:") || !strings.Contains(g.Notes, want) {
+			t.Fatalf("%s: validate-after = %s (%q), want a reject by satelle-drift-accept-quoted naming %q", name, g.Result, g.Notes, want)
+		}
+		d.gatesAccepted(exe, "release-kept", "drift-constitution", "drift-claims", "drift-closures")
+	}
+	refused("no report path", strings.ReplaceAll(skillDriftAccept(t, q...), "attachments/drift-report", "attachments/report"),
+		"accepted without naming attachments/drift-report")
+	refused("invented version", skillDriftAccept(t, "satelle 9.9.9", q[1], q[2]),
+		"accepted without quoting attachments/drift-report's version line: satelle satelle 0.0.2 (fixture)")
+	refused("no exit", skillDriftAccept(t, q[0], "", q[2]),
+		"accepted without quoting attachments/drift-report's drift-check exit line: scripts/drift-check.sh: drift-check exit 0")
+	refused("invented fix item", skillDriftAccept(t, q[0], q[1], "sto_00000000"),
+		"accepted without quoting attachments/drift-report's line: no drift")
+
+	// A judge's reject is its own finding: the check does not run on it.
+	d.setFake("verdict.other", "reject")
+	_, g := d.presentDone(exe, "attachments/drift-report lacks the evidence the VERIFICATION asks for")
+	if g.Result != "reject" || strings.Contains(g.Notes, "satelle-drift-accept-quoted") {
+		t.Fatalf("judge's reject: validate-after = %s (%q), want the judge's reject with no satelle-drift-accept-quoted line", g.Result, g.Notes)
+	}
+	d.setFake("verdict.other", "")
+
+	// Another task's run passes the check with no output.
+	other := d.start(d.other, stepSeat(t))
+	d.setFake("notes.other", "")
+	d.must("execution", "set", other, "--status", "done")
+	if g := latestRun(d.sandbox, other, "validate-after"); g.Result != "accept" || strings.Contains(g.Notes, "satelle-drift-accept-quoted") {
+		t.Fatalf("other run's validate-after = %s (%q), want accept with no satelle-drift-accept-quoted line", g.Result, g.Notes)
+	}
+
+	// A report with a fix item: the id is the quote, not no drift.
+	d.attachReport(exe, fixtureDriftReport("sto_12345678\nflag:cmd/x.go:--y\n"))
+	q = d.driftQuotes(exe)
+	if q[2] != "sto_12345678" {
+		t.Fatalf("the fix-item report's third quote is %q, want sto_12345678", q[2])
+	}
+	refused("no drift for a fix item", skillDriftAccept(t, q[0], q[1], "no drift"),
+		"accepted without quoting attachments/drift-report's fix item: sto_12345678")
+	d.citeReport(exe)
+	r := d.run("execution", "set", exe, "--status", "done")
+	g = latestRun(d.sandbox, exe, "validate-after")
+	if r.code != 0 {
+		t.Fatalf("the cited accept did not close the run: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if g.Result != "accept" || !strings.Contains(g.Notes, "the accept quotes attachments/drift-report: satelle satelle 0.0.2 (fixture); scripts/drift-check.sh: drift-check exit 0; sto_12345678") {
+		t.Fatalf("validate-after = %s (%q), want accept quoting the report", g.Result, g.Notes)
+	}
+	if st := d.status(exe); st != "done" {
+		t.Fatalf("run is %s, want done", st)
+	}
+}
+
+// satelle-drift-accept-quoted restates its owners: the judge skill's drift
+// paragraph names each line it requires, the report path and the check;
+// drift-review.md step 3 writes each line form; runbook's validate-after lists
+// it third, behind the notes and reference rules.
+func TestDriftAcceptCheckMirrorsItsOwners(t *testing.T) {
+	lit := acceptQuotedLiterals(t)
+	skill := repoText(t, ".satelle/skills/satelle-task-validate-after-review.md")
+	_, judge, ok := strings.Cut(skill, "\n## How to judge\n")
+	if !ok {
+		t.Fatal("the validate-after skill has no ## How to judge section")
+	}
+	judge, _, _ = strings.Cut(judge, "\n## ")
+	for _, want := range []string{lit["version_prefix"], lit["exit_prefix"], lit["fix_heading"], lit["no_drift"], "attachments/drift-report", "satelle-drift-accept-quoted"} {
+		if !strings.Contains(judge, want) {
+			t.Errorf("the validate-after skill's ## How to judge lacks %q", want)
+		}
+	}
+	review := repoText(t, driftReview)
+	_, three, _ := strings.Cut(review, "\n## 3.")
+	three, _, _ = strings.Cut(three, "\n## 4.")
+	for _, want := range []string{`echo "` + lit["version_prefix"], `echo "` + lit["exit_prefix"], `echo "` + lit["fix_heading"] + `"`, `echo "` + lit["no_drift"] + `"`} {
+		if !strings.Contains(three, want) {
+			t.Errorf("drift-review.md step 3 does not write %q", want)
+		}
+	}
+	var wf struct {
+		Gates map[string]struct {
+			After []string `toml:"after"`
+		} `toml:"gates"`
+	}
+	if _, err := toml.Decode(repoText(t, ".satelle/workflows/runbook.toml"), &wf); err != nil {
+		t.Fatal(err)
+	}
+	if after := wf.Gates["validate-after"].After; len(after) != 3 || after[2] != "satelle-drift-accept-quoted" {
+		t.Errorf("runbook's validate-after after = %v, want satelle-drift-accept-quoted third", after)
+	}
+}
+
+// sto_09b81217 AC4: a no-drift run with every other gate accepting stays
+// in_progress on the notes exe_9a209ff1's judge gave (no record path), and
+// closes on an accept quoting its own report's version, exit and no drift
+// lines, judged by the runbook's validate-after binding.
+func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
+	t.Parallel()
+	d := newDriftSandbox(t, nil)
+	exe := d.start(d.drift, stepSeat(t))
+	d.attachReport(exe, noDriftReport())
+
+	r, g := d.presentDone(exe, exe9a209ff1Notes)
+	if r.code == 0 {
+		t.Fatalf("exe_9a209ff1's notes closed the run:\n%s", r.out)
+	}
+	if g.Result != "reject" || !strings.Contains(g.Notes, "the judge gave no reasons") || !strings.Contains(g.Notes, "after satelle-drift-accept-quoted: not run") {
+		t.Fatalf("validate-after = %s (%q), want a reject: the judge gave no reasons", g.Result, g.Notes)
+	}
+	if st := d.status(exe); st != "in_progress" {
+		t.Fatalf("run is %s, want in_progress", st)
+	}
+	d.gatesAccepted(exe, "release-kept", "drift-constitution", "drift-claims", "drift-closures")
+
+	d.citeReport(exe)
+	if r := d.run("execution", "set", exe, "--status", "done"); r.code != 0 {
+		t.Fatalf("the cited accept did not close the run: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	d.gatesAccepted(exe, "release-kept", "drift-constitution", "drift-claims", "drift-closures", "validate-after")
+	g = latestRun(d.sandbox, exe, "validate-after")
+	if want := repoGateAgents(t, ".satelle/workflows/runbook.toml")["validate-after"]; len(want) != 1 || g.Binding != want[0] {
+		t.Fatalf("validate-after judged by %q, want the runbook's judge %v", g.Binding, want)
+	}
+	// AC3: the rebind on recorded evidence (attachment judge-evidence) is to
+	// GPT-5.6 Sol; the baseline Gemini binding fails here.
+	if want := "reviewer-gpt-5.6-sol-high"; g.Binding != want {
+		t.Fatalf("validate-after judged by %q, want %q: validate-after is rebound on the judge evidence", g.Binding, want)
+	}
+	if !strings.Contains(g.Notes, "the accept quotes attachments/drift-report: satelle satelle 0.0.2 (fixture); scripts/drift-check.sh: drift-check exit 0; no drift") || strings.Contains(g.Notes, "the judge gave no reasons") {
+		t.Fatalf("validate-after notes %q, want the accept quoting the report", g.Notes)
+	}
+	if st := d.status(exe); st != "done" {
+		t.Fatalf("run is %s, want done", st)
 	}
 }
