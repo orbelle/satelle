@@ -62,6 +62,12 @@ func TestScanBashTargets(t *testing.T) {
 // record verb, by every wrapper and text form the scan covers.
 var operatorRecordCases = []string{
 	"satelle story record sto_1 --file f",
+	// sto_2a41b9e4: the root flags, separate and glued.
+	"satelle -C /w story record sto_1 --file f",
+	"satelle --session s story record sto_1",
+	"satelle story -C. record sto_1",
+	"satelle story -C=/w record sto_1",
+	"satelle story --session=s record sto_1",
 	"sh -c 'satelle task record t_1 --file f'",
 	"FOO=1 /usr/local/bin/satelle story record sto_1 --file f",
 	"env -u SATELLE_SESSION satelle story record sto_1 --file f",
@@ -122,6 +128,7 @@ var operatorRecordDataCases = []string{
 // notOperatorRecordCases name satelle or record without running the verb.
 var notOperatorRecordCases = []string{
 	"satelle story attach sto_1 --name record --file f",
+	"satelle story attach sto_1 --session record --file f",
 	"satelle story get sto_1",
 	"git log --grep record",
 	"echo record; satelle status",

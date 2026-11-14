@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -61,9 +62,23 @@ func clearCallerMarkers(t *testing.T) {
 	}
 }
 
-// run executes one satelle command line with stdin, returning its output.
+// run executes one satelle command line with stdin, returning its output. A
+// real call is its own process, so a --session (which sets SATELLE_SESSION for
+// the call) and a -C (which changes directory) end with it: run puts both back.
 func run(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
+	prev, had := os.LookupEnv(config.SessionEnv)
+	wd, wdErr := os.Getwd()
+	defer func() {
+		if had {
+			os.Setenv(config.SessionEnv, prev)
+		} else {
+			os.Unsetenv(config.SessionEnv)
+		}
+		if wdErr == nil {
+			_ = os.Chdir(wd)
+		}
+	}()
 	root := NewRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)

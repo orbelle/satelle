@@ -207,12 +207,12 @@ type seatView struct {
 
 func statusCmd() *cobra.Command {
 	var asJSON *bool
-	var session string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show this repo's configuration, item counts and the session's seats",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			session := sessionFromEnv()
 			k, r, err := openKernel()
 			if err != nil {
 				return err
@@ -272,6 +272,5 @@ func statusCmd() *cobra.Command {
 		},
 	}
 	asJSON = jsonFlag(cmd)
-	cmd.Flags().StringVar(&session, "session", sessionFromEnv(), "the session whose seats to show (default $SATELLE_SESSION)")
 	return cmd
 }

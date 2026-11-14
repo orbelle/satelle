@@ -16,7 +16,7 @@ type OperatorRecordError struct {
 }
 
 func (e *OperatorRecordError) Error() string {
-	return fmt.Sprintf("%s: state %s is the operator's, and leaving it needs the operator's %s record since the item entered it. The operator records it from their own terminal, with SATELLE_SESSION unset: satelle %s record %s --file F",
+	return fmt.Sprintf("%s: state %s is the operator's, and leaving it needs the operator's %s record since the item entered it. The operator records it from their own terminal, with no session named (SATELLE_SESSION unset, no --session): satelle %s record %s --file F",
 		e.Item, e.State, e.Type, e.Kind, e.Item)
 }
 
@@ -86,7 +86,7 @@ func operatorRecorded(events []ledger.Event, typ string) bool {
 // operator's word is never an agent's.
 func OperatorSession(session string) error {
 	if session != "" {
-		return fmt.Errorf("an agent session (%s) may not record the operator's word; the operator records it from their own terminal with SATELLE_SESSION unset", session)
+		return fmt.Errorf("an agent session (%s) may not record the operator's word; the operator records it from their own terminal with no session named (SATELLE_SESSION unset, no --session)", session)
 	}
 	return nil
 }

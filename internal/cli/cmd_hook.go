@@ -303,11 +303,11 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	if session == "" {
 		b.WriteString("satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n")
 	} else {
-		fmt.Fprintf(&b, "satelle session: %s (pass it as --session, or export SATELLE_SESSION=%s).\n", session, session)
+		fmt.Fprintf(&b, "satelle session: %s. Pass --session %s on every satelle command. Run each satelle command on its own, as one simple command, not joined to cd, export, ; or &&; for another worktree use satelle -C <dir> <command>.\n", session, session)
 		seats, _ := seatsOf(k, session)
 		printSeats(&b, seats)
 	}
-	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate`.\n")
+	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate --session <session>`.\n")
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)
 		b.WriteString(block)
