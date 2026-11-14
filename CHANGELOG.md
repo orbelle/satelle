@@ -1,3 +1,8 @@
+## [1.0.74] - 2026-11-14
+
+### Added
+- `satelle init` ships a principle, `.satelle/principles/satelle-reference-not-restate.md`, and lists it in a new repo's `[hook] inject`, so every session reads it: name the command, file or link that answers a volatile question instead of writing its answer. In an existing repo `satelle init` adds the file; add its path to `[hook] inject` in `satelle.toml` to have sessions read it (sto_7e024b28). (sto_7e024b28)
+
 ## [1.0.73] - 2026-11-14
 
 ### Changed
