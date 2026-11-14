@@ -79,10 +79,17 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 		}
 		return r
 	}
+	// A row pulses when one of its chips carries a class the served
+	// stylesheet animates: what the operator sees, not only the class name.
+	animated := animatedClasses(t, httpGetBody(t, srv.URL+"/static/app.css"))
+	chipClass := regexp.MustCompile(`class="stage-chip ([^"]*)"`)
 	var pulsing, chipped []string
 	for _, id := range ids {
-		if strings.Contains(row(id), "stage-performing") {
-			pulsing = append(pulsing, id)
+		for _, m := range chipClass.FindAllStringSubmatch(row(id), -1) {
+			if animated[m[1]] {
+				pulsing = append(pulsing, id)
+				break
+			}
 		}
 		if strings.Contains(row(id), "stage-chip") {
 			chipped = append(chipped, id)
@@ -120,7 +127,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	if r := row("sto_parked"); !strings.Contains(r, "stage-chip stage-current") || strings.Contains(r, "stage-performing") || strings.Contains(r, "data-engaged") {
 		t.Errorf("the parked-at-step story must show a still current chip and no engagement:\n%s", r)
 	}
-	chipClass := regexp.MustCompile(`class="stage-chip ([^"]*)"`)
 	for _, id := range ids {
 		for _, m := range chipClass.FindAllStringSubmatch(row(id), -1) {
 			if !slices.Contains([]string{"stage-done", "stage-current", "stage-performing"}, m[1]) {
@@ -156,6 +162,22 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	if got := titleOf("sto_parked", "stage-current"); !strings.Contains(got, "s2: current, not being worked") || strings.Contains(got, "performing") || strings.Contains(got, "engaged") {
 		t.Errorf("sto_parked: hover %q", got)
 	}
+}
+
+// animatedClasses is the set of single-class .stage-* selectors css gives an
+// animation, read from each rule's own body.
+func animatedClasses(t *testing.T, css string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\.(stage-[a-z-]+) \{([^}]*)\}`).FindAllStringSubmatch(css, -1) {
+		if strings.Contains(m[2], "animation") {
+			out[m[1]] = true
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("the served stylesheet animates no .stage-* class")
+	}
+	return out
 }
 
 func sorted(s []string) []string {
