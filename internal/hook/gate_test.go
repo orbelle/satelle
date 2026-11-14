@@ -441,21 +441,29 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 }
 
 // Defers holds only for Cursor's run of another harness's entries, and only
-// once Cursor's own are installed.
+// once Cursor's own are installed; the root is resolved only for that call.
 func TestDefersToCursorInstall(t *testing.T) {
 	root := t.TempDir()
+	at := func() (string, bool) { return root, true }
 	fromCursor := Input{Cursor: true}
-	if Defers(root, Claude, fromCursor) {
+	if Defers(Claude, fromCursor, at) {
 		t.Error("defers with no cursor install")
 	}
 	if _, _, err := Install(root, Cursor, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !Defers(root, Claude, fromCursor) {
+	if !Defers(Claude, fromCursor, at) {
 		t.Error("Cursor's call into the claude entries does not defer")
 	}
-	if Defers(root, Cursor, fromCursor) || Defers(root, Claude, Input{}) {
+	never := func() (string, bool) {
+		t.Error("root resolved for a call that cannot defer")
+		return root, true
+	}
+	if Defers(Cursor, fromCursor, never) || Defers(Claude, Input{}, never) {
 		t.Error("cursor's own call, or claude's, defers")
+	}
+	if Defers(Claude, fromCursor, func() (string, bool) { return root, false }) {
+		t.Error("defers when the root is not found")
 	}
 }
 

@@ -402,9 +402,16 @@ func Installed(root, harness string) bool {
 // compatibility, whose payloads carry cursor_version), so once `satelle agents
 // install cursor` has run, the claude entries would judge and inject twice.
 // Only the payload marks the caller; the environment does not, so a claude
-// session started from Cursor's terminal keeps its own gate.
-func Defers(root, harness string, in Input) bool {
-	return harness != Cursor && in.Cursor && Installed(root, Cursor)
+// session started from Cursor's terminal keeps its own gate. root resolves
+// the repo's root; it is called, once, only for a Cursor payload answered for
+// another harness, so every other call pays no repo lookup. ok false (not a
+// repo) never defers.
+func Defers(harness string, in Input, root func() (string, bool)) bool {
+	if harness == Cursor || !in.Cursor {
+		return false
+	}
+	tree, ok := root()
+	return ok && Installed(tree, Cursor)
 }
 
 // ProjectDir is the project dir the calling harness pins for its hooks:

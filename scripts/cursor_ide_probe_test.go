@@ -197,3 +197,138 @@ func TestCursorIDEProbeCollect(t *testing.T) {
 		}
 	})
 }
+
+// record also captures every set name a harness may set for its session
+// (the caller prefixes), storing a credential-like value as redacted.
+func TestCursorIDEProbeRecordCallerNames(t *testing.T) {
+	caps := t.TempDir()
+	if _, errOut, code := probe(t, "", []string{"GROK_PROBE_ONLY=7", "CLAUDE_CODE_OAUTH_TOKEN=s3cret", "UNRELATED_NAME=x"},
+		"record", caps, "shell@tool"); code != 0 {
+		t.Fatalf("record: exit %d: %s", code, errOut)
+	}
+	got := readCaptures(t, caps)
+	if len(got) != 1 {
+		t.Fatalf("captures: %d, want 1", len(got))
+	}
+	env := got[0].Env
+	if v := env["GROK_PROBE_ONLY"]; v == nil || *v != "7" {
+		t.Errorf("GROK_PROBE_ONLY not recorded: %v", v)
+	}
+	if v := env["CLAUDE_CODE_OAUTH_TOKEN"]; v == nil || *v != "redacted" {
+		t.Errorf("CLAUDE_CODE_OAUTH_TOKEN not redacted: %v", v)
+	}
+	if _, ok := env["UNRELATED_NAME"]; ok {
+		t.Error("a name outside the caller prefixes was recorded")
+	}
+}
+
+// writeCallerCapture puts one capture in <dir>/captures/<harness>.
+func writeCallerCapture(t *testing.T, dir, harness, name, label string, env map[string]any) {
+	t.Helper()
+	p := filepath.Join(dir, "captures", harness, name+".json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]any{"label": label, "payload": "", "stdout": "{}", "exit": 0,
+		"ancestors": []string{"/usr/bin/bash", "/opt/" + harness}, "env": env})
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// caller-collect writes one fixture per harness from its first gate capture
+// and its shell capture, and refuses a harness without either, or a capture
+// made inside a satelle session or a Claude Code session.
+func TestCursorIDEProbeCallerCollect(t *testing.T) {
+	fake := t.TempDir()
+	for cli, v := range map[string]string{"cursor-agent": "2026.1.1-abc", "pi": "9.9.9", "grok": "grok 1.2.3 (x) [stable]"} {
+		if err := os.WriteFile(filepath.Join(fake, cli), []byte("#!/bin/sh\necho '"+v+"'\necho second line\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := []string{"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}
+	full := func(t *testing.T) string {
+		dir := t.TempDir()
+		for _, h := range []string{"cursor", "pi", "grok"} {
+			writeCallerCapture(t, dir, h, "1", "context@start", map[string]any{"GROK_HOOK_EVENT": "start"})
+			writeCallerCapture(t, dir, h, "2", "gate@pre", map[string]any{"SATELLE_SESSION": nil, "CLAUDECODE": nil,
+				"PATH": "/bin", "GROK_SESSION_ID": "g1", "CURSOR_INVOKED_AS": "cursor-agent"})
+			writeCallerCapture(t, dir, h, "3", "gate@pre", map[string]any{"GROK_SESSION_ID": "later"})
+			writeCallerCapture(t, dir, h, "4", "shell@tool", map[string]any{"SATELLE_SESSION": nil, "PI_CODING_AGENT": "true", "CURSOR_AGENT": "1"})
+		}
+		return dir
+	}
+
+	t.Run("writes the fixtures", func(t *testing.T) {
+		dir := full(t)
+		if _, errOut, code := probe(t, "", path, "caller-collect", dir); code != 0 {
+			t.Fatalf("caller-collect: exit %d: %s", code, errOut)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, "fixtures", "caller-grok.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f struct {
+			Harness, CLI, Version, Captured string
+			Hook                            struct {
+				Label     string
+				Ancestors []string
+				Env       []string
+			}
+			Shell struct {
+				Ancestors []string
+				Env       []string
+			}
+		}
+		if err := json.Unmarshal(b, &f); err != nil {
+			t.Fatal(err)
+		}
+		if f.Harness != "grok" || f.CLI != "grok" || f.Version != "grok 1.2.3 (x) [stable]" || f.Captured == "" {
+			t.Errorf("fixture header: %s", b)
+		}
+		if f.Hook.Label != "gate@pre" || strings.Join(f.Hook.Env, " ") != "CURSOR_INVOKED_AS=cursor-agent GROK_SESSION_ID=g1" {
+			t.Errorf("hook: not the first gate capture's caller names: %s", b)
+		}
+		if strings.Join(f.Shell.Env, " ") != "CURSOR_AGENT=1 PI_CODING_AGENT=true" || len(f.Shell.Ancestors) != 2 {
+			t.Errorf("shell: %s", b)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "fixtures", "caller-cursor.json")); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, c := range []struct {
+		name, want string
+		spoil      func(t *testing.T, dir string)
+	}{
+		{"refuses a missing gate capture", "no gate@ capture", func(t *testing.T, dir string) {
+			for _, n := range []string{"2", "3"} {
+				if err := os.Remove(filepath.Join(dir, "captures", "pi", n+".json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+		{"refuses a missing shell capture", "no shell@tool capture", func(t *testing.T, dir string) {
+			if err := os.Remove(filepath.Join(dir, "captures", "grok", "4.json")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"refuses a capture inside claude", "CLAUDECODE was set", func(t *testing.T, dir string) {
+			writeCallerCapture(t, dir, "cursor", "4", "shell@tool", map[string]any{"CLAUDECODE": "1", "CURSOR_AGENT": "1"})
+		}},
+		{"refuses a capture inside a satelle session", "SATELLE_SESSION was set", func(t *testing.T, dir string) {
+			writeCallerCapture(t, dir, "cursor", "2", "gate@pre", map[string]any{"SATELLE_SESSION": "s"})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := full(t)
+			c.spoil(t, dir)
+			_, errOut, code := probe(t, "", path, "caller-collect", dir)
+			if code == 0 || !strings.Contains(errOut, c.want) {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "fixtures")); err == nil {
+				t.Error("caller-collect wrote fixtures after refusing")
+			}
+		})
+	}
+}

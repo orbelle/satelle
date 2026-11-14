@@ -357,12 +357,19 @@ func TestClaudeHooksDeferToCursorInstall(t *testing.T) {
 		}
 		return strings.TrimSpace(out)
 	}
-	if gate(compat) == "" || ctx(start) == "" {
+	prompt := func(p string) string {
+		out, err := run(t, p, "hook", "prompt", "--harness", "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(out)
+	}
+	if gate(compat) == "" || ctx(start) == "" || prompt(start) == "" {
 		t.Fatal("without the cursor install, Cursor's run of the claude entries answers nothing")
 	}
 	must(t, "agents", "install", "cursor")
-	if g, c := gate(compat), ctx(start); g != "" || c != "" {
-		t.Errorf("deferred claude entries answered: gate %q context %q", g, c)
+	if g, c, p := gate(compat), ctx(start), prompt(start); g != "" || c != "" || p != "" {
+		t.Errorf("deferred claude entries answered: gate %q context %q prompt %q", g, c, p)
 	}
 	if gate(claudePayload("c-d", dir, "Edit", main, "")) == "" {
 		t.Error("a claude session's gate stopped answering once cursor was installed")

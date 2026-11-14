@@ -97,15 +97,13 @@ func hookDir(in hook.Input) string {
 	return wd
 }
 
-// hookDefers reports whether this call is Cursor running another harness's
-// satelle entries in a repo where Cursor's own are installed (hook.Defers):
-// the handler then answers nothing, so no event is judged or injected twice.
+// hookDefers reports whether the handler answers nothing for this call
+// (hook.Defers owns the rule); the repo is looked up only if the rule needs it.
 func hookDefers(harness string, in hook.Input) bool {
-	if !in.Cursor || harness == hook.Cursor {
-		return false
-	}
-	r, err := findRepo(hookDir(in))
-	return err == nil && hook.Defers(r.Tree, harness, in)
+	return hook.Defers(harness, in, func() (string, bool) {
+		r, err := findRepo(hookDir(in))
+		return r.Tree, err == nil
+	})
 }
 
 // hookTempRoots are the gate's temp roots: nil is hook.TempRoots(). A test
