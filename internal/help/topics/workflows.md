@@ -38,6 +38,17 @@ each a `.satelle/queues/<name>.toml`: `satelle validate --session <session>` ref
 file, and the move is refused when the queue is closed (`satelle help
 queues --session <session>`).
 
+A state may declare what its exit waits on outside the session that drives
+the item, `waits = "<on what>"` (a person's approval, an outside CI or
+score). It is free text, shown by `satelle story route <id> --session
+<session>`, and refused on a terminal or park state and when blank. It is the
+one place a wait is declared: a session drives each seated item to a terminal
+state, and its turn may end with one short of that only at a park state, a
+`waits` state or the operator's state; otherwise the stop is blocked once,
+naming the next move (`satelle help edit-gate --session <session>`). A queue
+an outside party fires is declared by `waits` on the state that enqueues into
+it.
+
 ## Gates
 
 A gate is a named judgement on a transition:

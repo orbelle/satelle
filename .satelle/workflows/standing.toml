@@ -4,6 +4,8 @@ name = "standing"
 
 [states.defined]
 start = true
+# A standing definition is not driven; only a decision retires it.
+waits = "a decision to retire it; a standing definition is not driven"
 
 [states.retired]
 terminal = true

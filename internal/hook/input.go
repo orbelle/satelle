@@ -38,17 +38,31 @@ func ForCLI(cli string) (string, bool) {
 
 // Input is the part of a harness hook payload satelle reads.
 type Input struct {
-	Event      string // hook_event_name
-	Session    string // session_id, else conversation_id (cursor)
-	Cwd        string
-	Roots      []string // workspace_roots (cursor): the session's project roots
-	Tool       string   // tool_name
-	Path       string   // the edit target of an edit tool
-	Command    string   // the command of a shell tool
-	StopActive bool     // stop_hook_active
+	Event   string // hook_event_name
+	Session string // session_id, else conversation_id (cursor)
+	Cwd     string
+	Roots   []string // workspace_roots (cursor): the session's project roots
+	Tool    string   // tool_name
+	Path    string   // the edit target of an edit tool
+	Command string   // the command of a shell tool
+	// StopReason is a Stop payload's reason (grok: end_turn when a turn
+	// ends, channel_closed or shutdown when the session ends); "" when the
+	// harness sends none.
+	StopReason string
 	// Cursor is true when Cursor sent the payload (it carries cursor_version),
 	// whether through its own hooks file or its Claude Code compatibility.
 	Cursor bool
+}
+
+// TurnEndReason is the Stop reason that ends a turn (grok's end_turn).
+const TurnEndReason = "end_turn"
+
+// TurnEnd reports whether a Stop payload ends a turn, the one stop satelle
+// answers: true when it carries no reason (claude, pi, cursor) or end_turn;
+// false for another reason (grok's channel_closed and shutdown fire at
+// session end, and grok ignores their answer).
+func (in Input) TurnEnd() bool {
+	return in.StopReason == "" || in.StopReason == TurnEndReason
 }
 
 // shellTools are the tool names of a shell tool across harnesses.
@@ -88,8 +102,7 @@ func ParseInput(raw []byte) Input {
 		ToolCamel  string    `json:"toolName"`
 		Input      toolInput `json:"tool_input"`
 		InputCamel toolInput `json:"toolInput"`
-		Stop       bool      `json:"stop_hook_active"`
-		StopCamel  bool      `json:"stopHookActive"`
+		Reason     string    `json:"reason"`
 	}
 	if json.Unmarshal(raw, &ev) != nil {
 		return Input{}
@@ -101,7 +114,7 @@ func ParseInput(raw []byte) Input {
 		Roots:      ev.Roots,
 		Cursor:     strings.TrimSpace(ev.CursorVer) != "",
 		Tool:       first(ev.Tool, ev.ToolCamel),
-		StopActive: ev.Stop || ev.StopCamel,
+		StopReason: strings.TrimSpace(ev.Reason),
 	}
 	for _, ti := range []toolInput{ev.Input, ev.InputCamel} {
 		in.Path = first(in.Path, ti.FilePath, ti.NotebookPath, ti.FilePathCamel, ti.Path, ti.NotebookPathCamel)

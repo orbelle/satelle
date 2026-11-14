@@ -389,3 +389,41 @@ func TestPanelKey(t *testing.T) {
 		t.Fatalf("blank panel: %v", errs)
 	}
 }
+
+func TestValidateWaits(t *testing.T) {
+	body := func(review, park, end string) string {
+		return "[states.a]\nstart = true\n[states.review]\n" + review + "\n[states.p]\npark = true\n" + park + "\n[states.z]\nterminal = true\n" + end + "\n" +
+			"[[transition]]\nfrom = [\"a\"]\nto = \"review\"\n[[transition]]\nfrom = [\"review\"]\nto = \"z\"\n[[transition]]\nfrom = [\"a\"]\nto = \"p\"\n"
+	}
+	const review = `waits = "the reviewer's approval"`
+	w, err := parse(t, body(review, "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("waits on an open state refused: %v", errs)
+	}
+	if got := w.States["review"].Waits; got != "the reviewer's approval" {
+		t.Fatalf("waits decoded as %q", got)
+	}
+	cases := []struct{ name, body, want string }{
+		{"on a terminal state", body(review, "", `waits = "x"`), `state "z" waits, but a terminal or park state`},
+		{"on a park state", body(review, `waits = "x"`, ""), `state "p" waits, but a terminal or park state`},
+		{"blank", body(`waits = "  "`, "", ""), `state "review" waits is blank`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := parse(t, c.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var msgs []string
+			for _, e := range w.Validate(skillOf, agentOf) {
+				msgs = append(msgs, e.Error())
+			}
+			if joined := strings.Join(msgs, "\n"); !strings.Contains(joined, c.want) {
+				t.Fatalf("want %q in:\n%s", c.want, joined)
+			}
+		})
+	}
+}

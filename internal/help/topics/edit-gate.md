@@ -67,6 +67,41 @@ A shell command is judged by the same rule, applied to every path it would
 write (redirects, `tee`, `cp`/`mv`/`rm`/`sed -i` and similar, `git -C`) and to
 the working directory of any interpreter running inline program text.
 
+## The stop check
+
+A session drives each item it holds a seat on to a terminal state of its
+workflow. The session-start context, and each prompt where the harness takes
+context, states this rule. A turn may end with a seated item short of a
+terminal state only at a park state, at a state that declares what it waits
+on (`waits = "<on what>"`, see `satelle help workflows --session <session>`),
+or at the operator's state. Otherwise `satelle hook stopcheck` blocks the
+turn's end once, with one line per seated item naming the session's next move
+as a command: the item's next transition, a queue fire
+(`satelle queue fire <queue> --session <session>`) when the state enqueues
+into a queue that can fire, or
+the queue's open run to seat or drive. A run another session holds, or a
+queue that cannot fire (terminal, no trigger, a base that names no commit),
+names nothing. The stop straight after a blocked one is let through, so a
+session is never trapped; a marker at `~/.satelle/sessions/<session>.stop`
+records the block. A dispatched run (its session comes from
+`SATELLE_SESSION`) is never blocked, and every failure lets the stop through.
+
+Each harness receives the block in its own envelope: claude, pi (its
+extension sends the reason as a user message) and grok read
+`{"decision":"block","reason":"<reason>"}`; cursor reads
+`{"followup_message":"<reason>"}`.
+
+## grok sessions
+
+Grok reads only a top-level `systemMessage` from a SessionStart hook, so
+`satelle hook context --harness grok` answers `{"systemMessage":"<context>"}`
+with the whole session context. Grok discards an allowing prompt hook's
+output, so `satelle hook prompt --harness grok` prints nothing; the hook
+still settles the session's owner. The stop check blocks with
+`decision: block`, which grok feeds back to the model as a user message; a
+Stop grok fires at session end (`reason` `channel_closed` or `shutdown`) is
+let through and leaves the marker as it was.
+
 ## cursor-agent sessions
 
 `satelle agents install cursor --session <session>` writes satelle's entries into the repo's
@@ -85,8 +120,9 @@ remove cursor --session <session>` strips only satelle's. `cursor-agent` runs:
   and answers `{"continue":true}`. Cursor's prompt event has no context
   channel, so a cursor-agent session gets no per-prompt seat reminder; the
   seats are in its session-start context and in `satelle status --session <session>`.
-- `stop` → `satelle hook stopcheck`, which answers `{}`: no `followup_message`,
-  so Cursor ends the turn.
+- `stop` → `satelle hook stopcheck`. A block (see The stop check, above)
+  answers `{"followup_message":"<reason>"}`, which Cursor submits as the next
+  prompt; otherwise it answers `{}`, so Cursor ends the turn.
 
 `cursor-agent -p` (print mode) fires sessionStart and preToolUse but not
 beforeSubmitPrompt or stop.

@@ -379,3 +379,106 @@ func repoReleaseQueue(t *testing.T) string {
 func bindSession(block string) string {
 	return regexp.MustCompile(`(?m)^session=<session>`).ReplaceAllString(block, `session="${SATELLE_SESSION:-}"`)
 }
+
+// sto_2ac90ab6 AC3: this repo declares its outside waits in its workflow
+// files: drift's open and standing's defined wait; the approved state of
+// delivery and chore does not (the session fires the release queue from it).
+func TestRepoWorkflowsDeclareTheirWaits(t *testing.T) {
+	waits := func(wf, state string) string {
+		t.Helper()
+		var def struct {
+			States map[string]struct {
+				Waits string `toml:"waits"`
+			} `toml:"states"`
+		}
+		if _, err := toml.DecodeFile("../.satelle/workflows/"+wf+".toml", &def); err != nil {
+			t.Fatal(err)
+		}
+		st, ok := def.States[state]
+		if !ok {
+			t.Fatalf("%s.toml has no state %s", wf, state)
+		}
+		return strings.TrimSpace(st.Waits)
+	}
+	for _, c := range [][2]string{{"drift", "open"}, {"standing", "defined"}} {
+		if waits(c[0], c[1]) == "" {
+			t.Errorf("%s.toml: %s declares no waits", c[0], c[1])
+		}
+	}
+	for _, wf := range []string{"delivery", "chore"} {
+		if w := waits(wf, "approved"); w != "" {
+			t.Errorf("%s.toml: approved declares waits %q; the session fires the release queue from it", wf, w)
+		}
+	}
+	repoReleaseQueue(t)
+}
+
+// sto_2ac90ab6 AC4: no substrate text a session reads says the fire is by
+// hand, or that approved is the session's end without naming who fires.
+func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
+	root := filepath.Join("..", ".satelle")
+	var files []string
+	for _, dir := range []string{"principles", "skills", "workflows", "queues"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				files = append(files, p)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(files) == 0 {
+		t.Fatal("no substrate files under ../.satelle")
+	}
+	read := func(p string) string {
+		t.Helper()
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	byHand := []string{"fired by hand", "fires by hand", "by hand only"}
+	ends := regexp.MustCompile(`(?i)DEV ends|DEV's end|end DEV|ends at approved|waits at approved|awaiting release`)
+	for _, p := range files {
+		body := read(p)
+		for _, w := range byHand {
+			if strings.Contains(body, w) {
+				t.Errorf("%s says %q", p, w)
+			}
+		}
+		if m := ends.FindString(body); m != "" && !strings.Contains(body, "queue fire") {
+			t.Errorf("%s says %q without naming the queue fire", p, m)
+		}
+	}
+	var conf struct {
+		Hook struct {
+			Inject []string `toml:"inject"`
+		} `toml:"hook"`
+	}
+	if _, err := toml.DecodeFile(filepath.Join(root, "satelle.toml"), &conf); err != nil {
+		t.Fatal(err)
+	}
+	if len(conf.Hook.Inject) == 0 {
+		t.Fatal("satelle.toml injects no file")
+	}
+	for _, f := range conf.Hook.Inject {
+		if !strings.Contains(read(filepath.Join("..", f)), "queue fire") {
+			t.Errorf("injected %s does not name the queue fire", f)
+		}
+	}
+	arch := read(filepath.Join(root, "principles", "satelle-story-task-release-architecture.md"))
+	if !strings.Contains(arch, "queue fire") {
+		t.Error("the release architecture does not name the queue fire")
+	}
+	for _, w := range []string{"holds no agent seat", "not a continuation"} {
+		if strings.Contains(arch, w) {
+			t.Errorf("the release architecture still says %q", w)
+		}
+	}
+}

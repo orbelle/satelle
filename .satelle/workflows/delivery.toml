@@ -1,5 +1,8 @@
-# This repo's route for a story. DEV: plan, code, integrate, and end at
-# approved (tested locally, pushed, an open pull request, approved). CI/CD: a
+# This repo's route for a story. DEV: plan, code, integrate, and reach
+# approved (tested locally, pushed, an open pull request, approved). Approved
+# is not the end of the session's drive: the session that took the story there
+# fires the release queue (satelle queue fire release --session <session>) and
+# drives the run until the story is done. CI/CD: a
 # run of the release task takes the approved items, builds one candidate from
 # their heads (fast-forward or merge, in queue order), tests it once, bumps
 # the version once on top, fast-forwards main to it, releases and installs,
@@ -29,12 +32,15 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
-# DEV ends here: an open, approved pull request whose head is tested and
-# contains main. A run of the release task takes the item; a release run that
-# cannot land it sends it back to in_progress with the reason.
+# DEV's work is done here: an open, approved pull request whose head is tested
+# and contains main. The session that drove the story here then fires the
+# release queue (satelle queue fire release --session <session>, release step
+# 0) and drives that run; a release run that cannot land the item sends it back
+# to in_progress with the reason.
 [states.approved]
-# Reaching approved adds the story to the release queue (fired by hand in
-# release step 0); the queue is .satelle/queues/release.toml.
+# Reaching approved adds the story to the release queue
+# (.satelle/queues/release.toml); the session that reached approved fires it,
+# at any time.
 enqueue = ["release"]
 
 [states.blocked]
@@ -125,9 +131,11 @@ skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
-# DEV's end: the head is committed, pushed, contains origin/main and has an
-# open pull request against main. Readiness only: it does not approve; the
-# satelle GitHub app's review (pr-review, pr-approval) decides after it.
+# The hand-off to the release run: the head is committed, pushed, contains
+# origin/main and has an open pull request against main. Readiness only: it does
+# not approve; the satelle GitHub app's review (pr-review, pr-approval) decides
+# after it. Once approved, the session fires the release queue
+# (satelle queue fire release --session <session>).
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 

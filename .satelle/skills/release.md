@@ -6,8 +6,10 @@ description: CI/CD — the procedure a run of the release task (tas_42301d36), f
 
 # Release (CI/CD)
 
-DEV ends at `approved` (operator, 2026-11-06; modelled on satelle-server's
-release skill): an open, auto-approved pull request whose head contains
+DEV's work reaches `approved` (operator, 2026-11-06; modelled on
+satelle-server's release skill), and the session that drove a story there
+fires this run, at any time (`satelle queue fire release --session <session>`,
+step 0), and drives it until the story is done: an open, auto-approved pull request whose head contains
 `origin/main` and passed the full local suite on exactly that tree (the
 integration check). Items approved from the same main no longer fast-forward
 one another, so a run lands them together: it builds one release-local
@@ -83,7 +85,8 @@ The release run is fired from the release queue, defined in
 task, base `origin/main`, min size 0). The delivery and chore workflows enqueue
 into it by name on their `approved` state, so a story reaching approved joins it
 with the transition as the cause. Nothing fires on enqueue: this step is the
-fire, and the file's `base` is the run's base. `satelle queue show release --session <session>`
+fire, run by the session whose items are approved, at any time, and the file's
+`base` is the run's base. `satelle queue show release --session <session>`
 shows its members and last fire. A fire refused because the last run is still
 open exits 2 naming that run: finish or cancel it first.
 

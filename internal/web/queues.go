@@ -64,7 +64,7 @@ func triggerLabel(t *item.Trigger) string {
 		target = "workflow " + t.Workflow
 	}
 	if t.MinSize == 0 {
-		return target + ", by hand"
+		return target + ", on queue fire"
 	}
 	return fmt.Sprintf("%s, at %d", target, t.MinSize)
 }

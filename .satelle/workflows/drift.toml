@@ -14,6 +14,9 @@ panel = "Drift"
 
 [states.open]
 start = true
+# An open drift item closes only when a later drift review run no longer finds
+# its keys: the session that holds it does not drive it on.
+waits = "a drift review run (release.md step 11) that no longer finds its keys"
 
 [states.done]
 terminal = true

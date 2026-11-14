@@ -1,6 +1,7 @@
-# A chore: code without a plan stage, end DEV at approved (an open, approved
-# pull request), and reach done only through a run of the release task, as a
-# delivery story does.
+# A chore: code without a plan stage, reach approved (an open, approved pull
+# request), and reach done only through a run of the release task, as a
+# delivery story does: the session that reached approved fires the release
+# queue (satelle queue fire release --session <session>) and drives the run.
 name = "chore"
 
 [states.backlog]
@@ -17,10 +18,12 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
-# DEV ends here; a run of the release task takes the item.
+# DEV's work is done here; the session that drove the chore here fires the
+# release queue and a run of the release task takes the item.
 [states.approved]
-# Reaching approved adds the story to the release queue (fired by hand in
-# release step 0); the queue is .satelle/queues/release.toml.
+# Reaching approved adds the story to the release queue
+# (.satelle/queues/release.toml); the session that reached approved fires it,
+# at any time, with satelle queue fire release --session <session>.
 enqueue = ["release"]
 
 [states.blocked]

@@ -81,7 +81,7 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 		fl.StringVar(&f.trigTask, "trigger-task", "", "the task the queue's trigger runs (an execution under it)")
 		fl.StringVar(&f.trigWorkflow, "trigger-workflow", "", "the workflow the queue's trigger starts a run in")
 		fl.StringVar(&f.trigBase, "trigger-base", "", "the ref a fired run's base comes from (default HEAD)")
-		fl.IntVar(&f.minSize, "min-size", 0, "fire when an enqueue leaves this many members (0: only by hand)")
+		fl.IntVar(&f.minSize, "min-size", 0, "fire when an enqueue leaves this many members (0: only on queue fire)")
 	}
 	if !create && (kind == "task" || kind == item.QueueKind) {
 		fl.BoolVar(&f.clearInputs, "clear-inputs", false, "clear the input selection")

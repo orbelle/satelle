@@ -39,6 +39,14 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 		if st.Resumes && !st.Park {
 			bad("state %q resumes but is not a park state", name)
 		}
+		if st.Waits != "" {
+			switch {
+			case strings.TrimSpace(st.Waits) == "":
+				bad("state %q waits is blank", name)
+			case st.Terminal || st.Park:
+				bad("state %q waits, but a terminal or park state already ends a drive", name)
+			}
+		}
 		seenQ := map[string]bool{}
 		for _, q := range st.Enqueue {
 			switch {

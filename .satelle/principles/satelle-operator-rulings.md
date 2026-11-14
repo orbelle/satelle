@@ -45,7 +45,10 @@ are reviewed*).
   backlog to an approved pull request; CI/CD is a task over approved items that
   merges, tests and releases. The agent merges and releases. There are two
   environments, dev (local) and prod; there is no staging, so local testing is
-  the staging and matters.
+  the staging and matters. The session that took the story to approved then
+  fires the release queue (`satelle queue fire release --session <session>`)
+  and drives the run until its items are done; approved is not the end of its
+  drive.
 - **GitHub holds the code and shows gate status; it runs no tests.** Tests run
   locally first and then on sprites as part of CI/CD; their results are
   published to GitHub as commit statuses by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
@@ -150,3 +153,15 @@ are reviewed*).
 - **Only team-workspace bindings are tracked.** A repo's satelle.dev binding is
   committed only when the project is a team workspace's; a personal binding
   stays on the machine (operator, 2026-11-13; sto_9931cd73).
+
+## 2026-11-14
+
+- **A session drives its items to a terminal state.** "The agent drives the
+  satelle story to done (terminal)... The agent should not stall, at any
+  point. Watchers should only occur if awaiting an external party, like user
+  PR approval." A min-size-0 queue is fired by a session, at any time: "that
+  is NOT correct, can fire any time." The session whose story reaches
+  approved fires the release queue
+  (`satelle queue fire release --session <session>`) and drives the run to
+  done; a turn may end short of a terminal state only at a park state or a
+  state that declares `waits` (operator, 2026-11-14; sto_2ac90ab6).

@@ -446,6 +446,82 @@ func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, erro
 	return removed, nil
 }
 
+// fireReadiness is what fireReady read: the queue, its chain, its trigger,
+// its members now and the base ref a fire would use.
+type fireReadiness struct {
+	queue   item.Item
+	events  []ledger.Event
+	trigger *item.Trigger
+	members []string
+	baseRef string
+}
+
+// lastOpenRun is the run the queue's last fire started, when it resolves and
+// its state is not terminal (or its workflow is unknown): until it is
+// terminal, the queue cannot fire again.
+func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
+	lf := st.LastFire
+	if lf == nil || lf.Run == "" {
+		return item.Item{}, false
+	}
+	run, err := k.Get(lf.Run)
+	if err != nil {
+		return item.Item{}, false
+	}
+	if w := k.Workflows[run.Workflow]; w == nil || !w.IsTerminal(run.Status) {
+		return run, true
+	}
+	return item.Item{}, false
+}
+
+// fireReady is every refusal Fire makes before it claims anything, in Fire's
+// order: a queue not held yet, a load error, a queue that cannot take items,
+// no trigger, a last run still open (ErrRunOpen), a membership error and,
+// when there are members, a base ref that names no commit. A nil error means
+// a fire now would claim the members (or fire nothing when there are none),
+// short of a concurrent move of the queue.
+func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
+	var r fireReadiness
+	if err := k.notHeldYet(queueID); err != nil {
+		return r, err
+	}
+	q, events, err := k.load(queueID)
+	if err != nil {
+		return r, err
+	}
+	r.queue, r.events = q, events
+	if _, err := k.openQueue(queueID); err != nil {
+		return r, err
+	}
+	if q.Trigger == nil {
+		return r, fmt.Errorf("queue %s has no trigger", queueID)
+	}
+	t := *q.Trigger
+	r.trigger = &t
+	st := item.FoldQueue(events)
+	if run, open := k.lastOpenRun(st); open {
+		return r, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
+	}
+	m, err := k.membership(q, st)
+	if err != nil {
+		return r, err
+	}
+	r.members = m.Members
+	if len(r.members) == 0 {
+		return r, nil
+	}
+	if baseRef == "" {
+		baseRef = t.Base
+	}
+	r.baseRef = baseRef
+	if baseRef != "" { // a bad ref refuses before anything is claimed
+		if _, err := k.resolveBase(baseRef); err != nil {
+			return r, err
+		}
+	}
+	return r, nil
+}
+
 // Fire runs a queue's trigger over its members now: it claims them by
 // recording queue.fired (a compare-and-append on the chain it read), then
 // starts the run. A task target creates an execution under the task; a
@@ -460,46 +536,20 @@ func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	if def != nil {
 		out.Name = def.Name
 	}
-	if err := k.notHeldYet(queueID); err != nil {
-		return out, err
+	r, err := k.fireReady(queueID, baseRef)
+	if r.trigger != nil {
+		out.Task, out.Workflow = r.trigger.Task, r.trigger.Workflow
 	}
-	q, events, err := k.load(queueID)
+	if len(r.members) > 0 {
+		out.Inputs = r.members
+	}
 	if err != nil {
 		return out, err
 	}
-	if _, err := k.openQueue(queueID); err != nil {
-		return out, err
-	}
-	if q.Trigger == nil {
-		return out, fmt.Errorf("queue %s has no trigger", queueID)
-	}
-	t := *q.Trigger
-	out.Task, out.Workflow = t.Task, t.Workflow
-	st := item.FoldQueue(events)
-	if lf := st.LastFire; lf != nil && lf.Run != "" {
-		if run, err := k.Get(lf.Run); err == nil {
-			if w := k.Workflows[run.Workflow]; w == nil || !w.IsTerminal(run.Status) {
-				return out, fmt.Errorf("%w: %s is %s", ErrRunOpen, run.ID, run.Status)
-			}
-		}
-	}
-	m, err := k.membership(q, st)
-	if err != nil {
-		return out, err
-	}
-	members := m.Members
-	if len(members) == 0 {
+	if len(r.members) == 0 {
 		return out, nil
 	}
-	out.Inputs = members
-	if baseRef == "" {
-		baseRef = t.Base
-	}
-	if baseRef != "" { // a bad ref refuses before anything is claimed
-		if _, err := k.resolveBase(baseRef); err != nil {
-			return out, err
-		}
-	}
+	q, events, t, members, baseRef := r.queue, r.events, *r.trigger, r.members, r.baseRef
 	runID := item.NewID(k.Settings.Prefix(ExecutionKind))
 	prev := events[len(events)-1].Hash
 	claim := item.QueueFire{Run: runID, Task: t.Task, Workflow: t.Workflow, Cause: cause}

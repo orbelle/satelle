@@ -670,6 +670,20 @@ type TaskRunRecord struct {
 	Queue   string   `json:"queue,omitempty"`
 }
 
+// runInputs is the items a run took: the inputs its task.run records; nil
+// when the run has none.
+func (k *Kernel) runInputs(run string) []string {
+	ev, err := k.Cache.Events(run, KindTaskRun)
+	if err != nil || len(ev) == 0 {
+		return nil
+	}
+	var rec TaskRunRecord
+	if ev[0].Decode(&rec) != nil {
+		return nil
+	}
+	return rec.Inputs
+}
+
 // TaskRun runs a task once: it selects the task's inputs and creates an
 // execution item (parent = the task) recording which items it took. Its base is
 // baseRef's commit, resolved now, else HEAD. baseRef need not be in HEAD's

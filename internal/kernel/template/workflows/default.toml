@@ -4,6 +4,11 @@ name = "default"
 [states.backlog]
 start = true
 
+# A state whose exit waits on a party outside the session declares it, so a
+# turn may end there (satelle help workflows):
+# [states.review]
+# waits = "the reviewer's approval"
+
 [states.done]
 terminal = true
 

@@ -208,8 +208,11 @@ func TestDenyEnvelopes(t *testing.T) {
 	if c := string(Context(Pi, EventSessionStart, "hi", "warn")); !strings.Contains(c, `"systemMessage":"warn"`) {
 		t.Errorf("pi context: %s", c)
 	}
-	if c := string(Context(Grok, EventSessionStart, "hi", "warn")); strings.Contains(c, "systemMessage") || !strings.Contains(c, `"additionalContext":"hi"`) {
-		t.Errorf("grok context: %s", c)
+	if c := string(Context(Grok, EventSessionStart, "hi", "warn")); c != `{"systemMessage":"hi"}` {
+		t.Errorf("grok session-start context: %s", c)
+	}
+	if c := Context(Grok, EventPrompt, "hi", ""); c != nil {
+		t.Errorf("grok prompt context is not nil: %s", c)
 	}
 	if d := string(Deny(Cursor, "no")); d != `{"permission":"deny","user_message":"no","agent_message":"no"}` {
 		t.Errorf("cursor deny: %s", d)
@@ -227,6 +230,44 @@ func TestDenyEnvelopes(t *testing.T) {
 	}
 	if s := string(StopAnswer(Cursor)); s != `{}` {
 		t.Errorf("cursor stop answer: %s", s)
+	}
+}
+
+func TestStopBlockEnvelopes(t *testing.T) {
+	for _, h := range []string{Claude, Pi, Grok} {
+		if b := string(StopBlock(h, "r")); b != `{"decision":"block","reason":"r"}` {
+			t.Errorf("%s stop block: %s", h, b)
+		}
+	}
+	if b := string(StopBlock(Cursor, "r")); b != `{"followup_message":"r"}` {
+		t.Errorf("cursor stop block: %s", b)
+	}
+}
+
+func TestParseInputGrokFixtures(t *testing.T) {
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	start := ParseInput(read("grok_session_start.json"))
+	if start.Session != "grok-session-0001" || start.Event != "SessionStart" || start.Cwd != "/work/repo" {
+		t.Errorf("grok SessionStart: %+v", start)
+	}
+	stop := ParseInput(read("grok_stop.json"))
+	if stop.Session != "grok-session-0001" || stop.Event != "Stop" || stop.StopReason != TurnEndReason || !stop.TurnEnd() {
+		t.Errorf("grok Stop: %+v", stop)
+	}
+	for reason, want := range map[string]bool{"end_turn": true, "": true, "channel_closed": false, "shutdown": false} {
+		in := ParseInput([]byte(`{"hook_event_name":"Stop","sessionId":"s","reason":"` + reason + `"}`))
+		if in.TurnEnd() != want {
+			t.Errorf("reason %q: TurnEnd %v, want %v", reason, in.TurnEnd(), want)
+		}
+	}
+	if !ParseInput([]byte(`{"hook_event_name":"Stop","session_id":"s"}`)).TurnEnd() {
+		t.Error("a Stop with no reason does not end a turn")
 	}
 }
 

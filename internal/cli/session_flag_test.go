@@ -220,6 +220,67 @@ func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 	}
 }
 
+// sto_2ac90ab6 AC1: the drive rule is on every channel each harness gives
+// satelle: claude and pi at session start and on each prompt; cursor at
+// session start and in the stop's followup_message (its prompt event has no
+// context channel); grok in the SessionStart systemMessage and the stop's
+// reason (it discards a prompt hook's output).
+func TestHookContextStatesTheDriveRule(t *testing.T) {
+	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
+	dir := stopFixture(t)
+	rule := []string{"terminal state of its workflow", "park state", "waits on an external party"}
+	claudePayload := fmt.Sprintf(`{"session_id":"s-rule","cwd":%q}`, dir)
+	for _, h := range []string{"claude", "pi"} {
+		for _, ev := range []string{"context", "prompt"} {
+			raw, err := run(t, claudePayload, "hook", ev, "--harness", h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasAll(t, h+" "+ev, hookText(raw), rule...)
+		}
+	}
+
+	cursor := `{"conversation_id":"c-rule","session_id":"c-rule","cursor_version":"2026.11.05-86047df","workspace_roots":[` + jsonString(dir) + `]`
+	_, doc := cursorAnswer(t, cursor+`,"hook_event_name":"sessionStart"}`, "context")
+	text, _ := doc["additional_context"].(string)
+	hasAll(t, "cursor sessionStart", text, rule...)
+	if raw, _ := cursorAnswer(t, cursor+`,"hook_event_name":"beforeSubmitPrompt","prompt":"hi"}`, "prompt"); raw != `{"continue":true}` {
+		t.Errorf("cursor prompt answer %q", raw)
+	}
+	stopAt(t, "c-rule", "in_progress", "approved")
+	_, doc = cursorAnswer(t, cursor+`,"hook_event_name":"stop","status":"completed"}`, "stopcheck")
+	follow, _ := doc["followup_message"].(string)
+	hasAll(t, "cursor stop", follow, rule...)
+
+	var start map[string]any
+	if err := json.Unmarshal(grokStart, &start); err != nil {
+		t.Fatal(err)
+	}
+	start["cwd"], start["workspaceRoot"] = dir, dir
+	payload, _ := json.Marshal(start)
+	raw, err := run(t, string(payload), "hook", "context", "--harness", "grok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer map[string]any
+	if err := json.Unmarshal([]byte(raw), &answer); err != nil || len(answer) != 1 {
+		t.Fatalf("grok SessionStart answer is not one systemMessage object: %q %v", raw, err)
+	}
+	msg, _ := answer["systemMessage"].(string)
+	hasAll(t, "grok systemMessage", msg, append([]string{"satelle session: grok-session-0001"}, rule...)...)
+	if raw, err := run(t, string(payload), "hook", "prompt", "--harness", "grok"); err != nil || raw != "" {
+		t.Errorf("grok prompt printed %q (%v), want nothing", raw, err)
+	}
+	stopAt(t, "grok-session-0001", "in_progress", "approved")
+	var stop map[string]any
+	if err := json.Unmarshal(grokStop, &stop); err != nil {
+		t.Fatal(err)
+	}
+	stop["cwd"], stop["workspaceRoot"] = dir, dir
+	payload, _ = json.Marshal(stop)
+	hasAll(t, "grok stop reason", blockReason(t, stopWith(t, string(payload), "grok")), rule...)
+}
+
 // hookText is the text a hook printed: every string in its JSON output
 // joined by newlines, or the output itself when it is not JSON.
 func hookText(out string) string {

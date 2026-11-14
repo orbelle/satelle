@@ -1,13 +1,16 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's end (integration → approved). HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to the release run (integration → approved); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
-# PR ready (DEV → CI/CD hand-off)
+# PR ready (DEV → CI/CD hand-off; the session then fires the release)
 
-DEV ends at an approved pull request (operator, 2026-11-06; modelled on
-satelle-server's pr-ready). The coding gates judged the change and the
+DEV's work reaches an approved pull request (operator, 2026-11-06; modelled on
+satelle-server's pr-ready). Approved is the hand-off to the release run, not
+the session's end: the session that drove the item there fires the release
+queue (`satelle queue fire release --session <session>`) and drives the run
+until the item is done. The coding gates judged the change and the
 integration check ran the full local suite on this HEAD; this check makes that
 head the one the release takes: the pull request's head is HEAD, and HEAD
 already contains `origin/main`. A release run fast-forwards to it or merges it

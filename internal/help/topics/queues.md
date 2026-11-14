@@ -2,7 +2,8 @@
 
 A queue gathers items, and its trigger runs a task or a workflow over them.
 Satelle schedules and watches nothing: a queue fires only inside the command
-that fills it, or when fired by hand.
+that fills it, or on `satelle queue fire`. Any session may fire a queue, at
+any time, normally the one whose item the queue holds.
 
 ## Declaring a queue
 
@@ -21,7 +22,7 @@ This repo's `.satelle/queues/release.toml`:
     [trigger]             # optional; without it, the queue never fires
     task = "tas_42301d36" # or workflow = "<name>", exactly one
     base = "origin/main"  # the ref a run's base comes from
-    min_size = 0          # 0 fires by hand only
+    min_size = 0          # 0 fires only on queue fire
 
 - The name is the file's name (lower-case letters, digits, dashes). Every queue
   command takes it: `satelle queue show release --session <session>`.
@@ -100,7 +101,8 @@ members it took, with the queue that fired it, and the queue's ledger records
 `queue.fired` naming the run. A fire takes every member, so the explicit list
 empties.
 
-- `--min-size 0` fires only by hand (`queue fire`).
+- `--min-size 0` fires only on `queue fire`, which any session may run,
+  normally the one whose item the queue holds.
 - `--min-size N` fires when an enqueue (`queue add`, or a transition into a
   state that enqueues) leaves the queue holding N or more members. The fire
   runs in that same command and process.

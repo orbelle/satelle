@@ -14,13 +14,18 @@ this. A misfit is rejected, or this is amended first.
 ## 1. A story ends at a configured state
 A route ends at a terminal state or at a configured state where the story
 waits, such as `approved` ("PR approved, awaiting release"), which adds it to a
-queue (`enqueue = ["release"]`). A waiting story holds no agent seat and no
-worktree. Where a story stops is configuration, never a Go default.
+queue (`enqueue = ["release"]`). A story at such a state is not finished: the
+session that drove it there keeps its seat until the story is terminal, and is
+the one that fires the queue
+(`satelle queue fire release --session <session>`). Where a story stops is
+configuration, never a Go default.
 
 ## 2. Merge and release are a separate local task
 The merge, release and verify lane is a task on a local trigger (a schedule,
-or a condition over story state), not a continuation of the story's drive. Task
-and story share only the PR and the story's chain; the task records its outcome
+or a condition over story state): a separate run, not a state of the story's
+workflow. The session that enqueued the story fires it and drives that run to
+done, for a single story as for an epic's children. Task and story share only
+the PR and the story's chain; the task records its outcome
 on the story and never takes its seat or worktree. An epic's children release
 like any approved story: when every open child is approved the driving agent
 fires the release queue (`.satelle/skills/release.md` step 0), and the epic

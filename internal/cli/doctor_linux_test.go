@@ -572,7 +572,7 @@ func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
 	})
 	t.Run("grok", func(t *testing.T) {
 		env, raw := hookRun(t, "context", "grok")
-		if env.Hook.Context != want || env.Message != nil {
+		if env.Hook.Context != "" || env.Message == nil || *env.Message != want {
 			t.Errorf("grok:\n%s", raw)
 		}
 		noDump(t, raw)

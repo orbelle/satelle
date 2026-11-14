@@ -24,7 +24,10 @@ func hookCmd() *cobra.Command {
 		Long: `Each handler reads the harness's hook payload on stdin and answers in the
 harness's own envelope. gate is the edit gate (PreToolUse); context prints the
 session's context at session start; prompt reminds the session of its seats on
-each prompt; stopcheck answers the Stop event. Under cursor, a call Cursor
+each prompt; stopcheck answers the Stop event, blocking a turn's end once
+when a seated item owes the session's own next move. Grok reads the session
+context as its SessionStart systemMessage and discards a prompt hook's output,
+so the prompt hook prints nothing for grok. Under cursor, a call Cursor
 sends to another harness's entries stays silent once .cursor/hooks.json holds
 satelle's own (see satelle help edit-gate).`,
 		Hidden: false,
@@ -213,13 +216,23 @@ func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventSessionStart, text, notice)))
+	return printAnswer(cmd, hook.Context(harness, hook.EventSessionStart, text, notice))
+}
+
+// printAnswer prints a hook's answer; a nil answer prints nothing.
+func printAnswer(cmd *cobra.Command, a []byte) error {
+	if a == nil {
+		return nil
+	}
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(a))
 	return err
 }
 
 // runHookPrompt settles the session's owner and reminds it of its seats.
 // Cursor's beforeSubmitPrompt cannot add context, so under cursor the hook
-// only settles the owner and lets the prompt through ({"continue":true}).
+// only settles the owner and lets the prompt through ({"continue":true});
+// grok discards an allowing prompt hook's output, so under grok it prints
+// nothing.
 func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
@@ -229,23 +242,22 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 	if !ok {
 		return nil
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(hook.Context(harness, hook.EventPrompt, text, "")))
-	return err
+	return printAnswer(cmd, hook.Context(harness, hook.EventPrompt, text, ""))
 }
 
-// runHookStopcheck answers the turn's end. satelle adds nothing at a stop, so
-// the answer is the harness's empty one: none for claude, pi and grok, an
-// empty object for cursor (no followup_message, so Cursor does not continue).
+// runHookStopcheck answers the turn's end (stopCheck): it blocks once, in
+// the harness's envelope, when an item this session is seated on owes the
+// session's own next move, and otherwise answers the harness's empty stop
+// answer: none for claude, pi and grok, an empty object for cursor (no
+// followup_message, so Cursor does not continue).
 func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
 	}
-	a := hook.StopAnswer(harness)
-	if a == nil {
-		return nil
+	if reason, block := stopCheck(in); block {
+		return printAnswer(cmd, hook.StopBlock(harness, reason))
 	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), string(a))
-	return err
+	return printAnswer(cmd, hook.StopAnswer(harness))
 }
 
 // recordSession records this hook's process chain for its session on this
@@ -267,6 +279,11 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 	}
 	_ = record(config.GlobalDir(), session, anc)
 }
+
+// driveRule is the rule a session drives its seated items by, stated in the
+// session context and at the head of a blocked stop's reason. It names no
+// state: what a workflow declares decides.
+const driveRule = "Drive each seated item to a terminal state of its workflow. A turn may end with one short of that only at a park state or at a state that declares it waits on an external party (waits: a person's approval, an outside CI or score)."
 
 // sessionContext is what the context hook prints: the session id, its seats
 // and, at session start, the doctor block (judged for harness, the hook's
@@ -308,6 +325,7 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 		printSeats(&b, seats)
 	}
 	b.WriteString("Edits are allowed only while this session holds a seat, at this worktree, on an item whose current state has a performer: `satelle story seat <id> --session <session>`. See `satelle help edit-gate --session <session>`.\n")
+	fmt.Fprintf(&b, "%s Otherwise the stop is blocked once, naming the next move. See `satelle help edit-gate --session <session>`.\n", driveRule)
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)
 		b.WriteString(block)

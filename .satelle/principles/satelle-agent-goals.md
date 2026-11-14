@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; an epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: report it and stop.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; a story's drive does not end at approved: the session that drove it there fires the release and follows the run to done. An epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: report it and stop.
 ---
 
 # Agent goals
@@ -40,9 +40,13 @@ and does not change status. When it returns, this session runs the next
 drive stays in this session.
 
 **One story at a time — outside an epic.**
-Drive a single engaged story to its terminal state before engaging another. An
-epic's children end DEV at `approved` and reach `done` together through the
-release run; see *Driving an epic*. Reason: a child reaches `done` only through
+Drive a single engaged story to its terminal state before engaging another. A
+story's drive does not end at `approved`: the session that drove it there
+fires the release (`satelle queue fire release --session <session>`,
+release.md step 0) and follows the run until the story is `done`; it waits
+only at a park state or a state that declares `waits`. An epic's children
+reach `approved` and then `done` together through the release run; see
+*Driving an epic*. Reason: a child reaches `done` only through
 a release run, and the release fires only once every open child is approved, so
 driving one child to its terminal state before engaging the next would
 deadlock. This is that rule's consequence, not an ordering rule.
@@ -55,7 +59,8 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 
 **Drive epic `<id>` to done:**
 
-1. Drive each child on its own category workflow to `approved`, where DEV ends.
+1. Drive each child on its own category workflow to `approved`; the driving
+   session fires the release from there (step 3).
 2. Run the readiness block below with `EPIC_ID` replaced by the epic's id. It
    exits 0 printing `every open child of <epic> is approved: fire the release`
    when the epic has open children and every one is `approved`. It exits 1,
