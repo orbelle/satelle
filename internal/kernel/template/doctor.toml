@@ -1,0 +1,17 @@
+# satelle doctor's repo configuration. doctor runs the [[check]] skills and
+# lists the [[items]] below beside its kernel checks, read-only; both are this
+# repo's to add:
+#   [[check]]  skill = "<a type: check skill under skills/>", fix = "<advice>"
+#   [[items]]  name = "<name>", kind/tag/category/status (an item selection),
+#              fix = "satelle story get {id}"
+# See `satelle help configuration`.
+
+# The one item satelle doctor --resolve puts the config, substrate, volatile,
+# init and [[check]] findings on, for the agent to fix in one change through
+# the item's workflow. Kind and tag are required: with either unset --resolve
+# opens no item and names the key to set. Category is optional and routes the
+# item by [[workflows.rule]].
+[resolve]
+kind = "story"
+tag = "substrate-fix"
+# category = "<category>"

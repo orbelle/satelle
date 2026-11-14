@@ -102,34 +102,32 @@ type DoctorSettings struct {
 }
 
 // DoctorResolve is doctor.toml's [resolve] table: the selection of the one
-// item satelle doctor --resolve opens for the substrate findings. Unset keys
-// take the defaults Selection applies; it has no status, which the item's
-// workflow stamps.
+// item satelle doctor --resolve opens for the substrate findings. Kind and tag
+// are required for --resolve to open the item, and satelle holds no default
+// for either: satelle init writes them (template doctor.toml). Category is
+// optional. It has no status, which the item's workflow stamps.
 type DoctorResolve struct {
 	Kind     string `toml:"kind"`
 	Tag      string `toml:"tag"`
 	Category string `toml:"category"`
 }
 
-// The fix item's default selection: a story, tagged substrate-fix, routed by
-// the repo's workflow rules like any other story.
-const (
-	DefaultResolveKind = "story"
-	DefaultResolveTag  = "substrate-fix"
-)
-
-// Selection is the fix item's selection with the defaults applied: kind
-// story and tag substrate-fix unless [resolve] names others; a category only
-// when [resolve] sets one.
+// Selection is the fix item's selection, the three keys as configured.
 func (r DoctorResolve) Selection() item.Selection {
-	s := item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
-	if s.Kind == "" {
-		s.Kind = DefaultResolveKind
+	return item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
+}
+
+// Unset names each required key [resolve] leaves empty, in the order kind,
+// tag; empty when --resolve can open the fix item.
+func (r DoctorResolve) Unset() []string {
+	var out []string
+	if r.Kind == "" {
+		out = append(out, "kind")
 	}
-	if s.Tag == "" {
-		s.Tag = DefaultResolveTag
+	if r.Tag == "" {
+		out = append(out, "tag")
 	}
-	return s
+	return out
 }
 
 // DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one

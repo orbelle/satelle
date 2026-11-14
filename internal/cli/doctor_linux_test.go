@@ -37,6 +37,10 @@ type doctorFixture struct {
 
 var doctorBuild = buildinfo.Info{Name: "satelled", Version: "1.0.0", Commit: "aaaaaaaaaaaa", BuildTime: "2026-11-09T00:00:00Z"}
 
+// fixtureDoctorChecks is the doctor fixture's [[check]] and [[items]], with no
+// [resolve].
+const fixtureDoctorChecks = "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[items]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n"
+
 func newDoctorFixture(t *testing.T) *doctorFixture {
 	t.Helper()
 	f := &doctorFixture{dir: isolate(t), home: os.Getenv("HOME"), bin: t.TempDir(), running: doctorBuild}
@@ -67,7 +71,14 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 	// Wired for claude, so the harness check finds nothing in the clean fixture.
 	must(t, "init", "--hooks=claude")
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\n[ -f FAIL ] && { cat FAIL; exit 1; }\nexit 0\n```\n")
-	writeFile(t, filepath.Join(f.dir, ".satelle", "doctor.toml"), "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[items]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n")
+	// The doctor.toml init wrote (its [resolve]) with the fixture's check and
+	// items appended.
+	doctorToml := filepath.Join(f.dir, ".satelle", "doctor.toml")
+	shipped, err := os.ReadFile(doctorToml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, doctorToml, string(shipped)+"\n"+fixtureDoctorChecks)
 	r, err := findRepo("")
 	if err != nil {
 		t.Fatal(err)

@@ -53,6 +53,49 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 		t.Fatalf("fresh init: findings %v, err %v", got, err)
 	}
 
+	// The dated exemption is the shipped dated key: a YYYY-MM-DD line is
+	// exempt, another date shape is not, and with the key removed from the
+	// written file the dated line is reported (sto_a5cdb024 AC1).
+	if c.Volatile.Dated == "" {
+		t.Fatal("init wrote no dated expression")
+	}
+	const dated, undated = "- 2026-11-08: released v1.0.57", "2026-1-8 v1.0.57"
+	set, err := substrate.CompileVolatile(c.Volatile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := substrate.VolatileText("f.md", dated, set); len(got) != 0 {
+		t.Errorf("shipped dated: %q reported: %v", dated, got)
+	}
+	if got := substrate.VolatileText("f.md", undated, set); len(got) != 1 {
+		t.Errorf("shipped dated: %q want one finding, got %v", undated, got)
+	}
+	vb, err := os.ReadFile(filepath.Join(root, VolatileFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, l := range strings.Split(string(vb), "\n") {
+		if !strings.HasPrefix(l, "dated =") {
+			kept = append(kept, l)
+		}
+	}
+	write(t, filepath.Join(root, VolatileFile), strings.Join(kept, "\n"))
+	noDated, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noDated.Volatile.Dated != "" {
+		t.Fatalf("dated line not removed: %q", noDated.Volatile.Dated)
+	}
+	set, err = substrate.CompileVolatile(noDated.Volatile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := substrate.VolatileText("f.md", dated, set); len(got) != 1 {
+		t.Errorf("dated removed: %q want one finding, got %v", dated, got)
+	}
+
 	// A configured repo without the file is told init would add it.
 	if err := os.Remove(filepath.Join(root, VolatileFile)); err != nil {
 		t.Fatal(err)
@@ -117,6 +160,7 @@ func TestVolatileConfigProblems(t *testing.T) {
 		"nameless":           "[[pattern]]\nmatch = 'x'\n",
 		"duplicate":          "[[pattern]]\nname = 'a'\nmatch = 'x'\n[[pattern]]\nname = 'a'\nmatch = 'y'\n",
 		"bad match":          "[[pattern]]\nname = 'a'\nmatch = '('\n",
+		"bad dated":          "dated = '('\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
 		"bad exclude":        "exclude = ['[']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
 		"dotdot paths":       "paths = ['../outside/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
 		"absolute":           "paths = ['/etc/*.md']\n[[pattern]]\nname = 'a'\nmatch = 'x'\n",
@@ -191,7 +235,7 @@ func TestNoVolatilePatternIsAGoLiteral(t *testing.T) {
 	for _, p := range c.Volatile.Patterns {
 		lits = append(lits, p.Match)
 	}
-	lits = append(lits, c.Volatile.Exempt)
+	lits = append(lits, c.Volatile.Exempt, c.Volatile.Dated)
 	lits = append(lits, c.Volatile.Exclude...)
 	if len(lits) < 6 {
 		t.Fatalf("defaults too few to check: %v", lits)

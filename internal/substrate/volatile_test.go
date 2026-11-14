@@ -3,6 +3,8 @@ package substrate
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 func testRules() VolatileRules {
 	return VolatileRules{
 		Exempt: "volatile-ok",
+		Dated:  `\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b`,
 		Patterns: []VolatilePattern{
 			{Name: "version", Match: `v?[0-9]+\.[0-9]+\.[0-9]+`},
 			{Name: "present-tense", Match: `(?i)\bcurrently\b`},
@@ -29,13 +32,20 @@ func compile(t *testing.T, r VolatileRules) *VolatileSet {
 	return s
 }
 
-// A line with a YYYY-MM-DD date, or the configured marker, is not reported;
-// with no marker configured, or another marker on the line, or a date of
-// another shape, it is (sto_3de33a72 AC1).
+// A line the configured dated expression matches, or holding the configured
+// marker, is not reported; with no marker configured, or another marker on
+// the line, or a date the expression does not match, it is (sto_3de33a72
+// AC1). With dated unset no line is exempt for a date, and another dated
+// expression exempts what it matches and nothing else: satelle holds no date
+// rule of its own (sto_a5cdb024 AC1).
 func TestVolatileTextExemptsDatedAndMarkedLines(t *testing.T) {
 	marked := "uses v1.0.57 <!-- volatile-ok -->"
 	noMarker := testRules()
 	noMarker.Exempt = ""
+	noDated := testRules()
+	noDated.Dated = ""
+	otherDated := testRules()
+	otherDated.Dated = `^history:`
 	cases := []struct {
 		name  string
 		rules VolatileRules
@@ -43,6 +53,9 @@ func TestVolatileTextExemptsDatedAndMarkedLines(t *testing.T) {
 		want  int
 	}{
 		{"dated", testRules(), "- 2026-11-08: released v1.0.57", 0},
+		{"dated unset", noDated, "- 2026-11-08: released v1.0.57", 1},
+		{"other dated, no date", otherDated, "history: released v1.0.57", 0},
+		{"other dated, a date", otherDated, "- 2026-11-08: released v1.0.57", 1},
 		{"marked", testRules(), marked, 0},
 		{"no marker configured", noMarker, marked, 1},
 		{"another marker", testRules(), "uses v1.0.57 <!-- stale-ok -->", 1},
@@ -87,6 +100,7 @@ func TestVolatileRulesProblems(t *testing.T) {
 		{"duplicate", VolatileRules{Patterns: []VolatilePattern{{Name: "a", Match: "x"}, {Name: "a", Match: "y"}}}, `"a" is named twice`},
 		{"empty match", VolatileRules{Patterns: []VolatilePattern{{Name: "a"}}}, `"a" has no match`},
 		{"bad match", VolatileRules{Patterns: []VolatilePattern{{Name: "a", Match: "("}}}, `"a": match does not compile`},
+		{"bad dated", VolatileRules{Patterns: ok, Dated: "("}, `dated does not compile`},
 		{"empty glob", VolatileRules{Patterns: ok, Paths: []string{""}}, `paths glob "" is empty`},
 		{"absolute", VolatileRules{Patterns: ok, Paths: []string{"/etc/*.md"}}, `paths glob "/etc/*.md" is absolute`},
 		{"dotdot", VolatileRules{Patterns: ok, Paths: []string{"../outside/*.md"}}, `paths glob "../outside/*.md" has a .. segment`},
@@ -111,6 +125,45 @@ func TestVolatileRulesProblems(t *testing.T) {
 	}
 	if ps := (VolatileRules{Patterns: ok, Paths: []string{"docs/**/*.md"}, Exclude: []string{"**/testdata/**"}}).Problems(); len(ps) != 0 {
 		t.Fatalf("valid rules: %v", ps)
+	}
+}
+
+// VolatileSet holds its rules once: the rules themselves and their compiled
+// expressions, with no field copying a string or list out of the rules
+// (sto_a5cdb024 AC3).
+func TestVolatileSetHoldsOneRepresentation(t *testing.T) {
+	want := map[string]reflect.Type{
+		"rules":    reflect.TypeOf(VolatileRules{}),
+		"patterns": reflect.TypeOf([]*regexp.Regexp{}),
+		"dated":    reflect.TypeOf((*regexp.Regexp)(nil)),
+	}
+	typ := reflect.TypeOf(VolatileSet{})
+	if typ.NumField() != len(want) {
+		t.Errorf("VolatileSet has %d fields, want %d (rules, patterns, dated)", typ.NumField(), len(want))
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		w, ok := want[f.Name]
+		switch {
+		case !ok:
+			t.Errorf("VolatileSet field %s %s is not one of rules, patterns, dated", f.Name, f.Type)
+		case f.Type != w:
+			t.Errorf("VolatileSet field %s is %s, want %s", f.Name, f.Type, w)
+		}
+	}
+	r := testRules()
+	s := compile(t, r)
+	if len(s.patterns) != len(r.Patterns) || s.dated == nil || s.dated.String() != r.Dated {
+		t.Fatalf("compiled set does not pair with its rules: %d patterns for %d, dated %v", len(s.patterns), len(r.Patterns), s.dated)
+	}
+	for i, p := range r.Patterns {
+		if s.patterns[i].String() != p.Match {
+			t.Errorf("patterns[%d] = %s, want %s", i, s.patterns[i], p.Match)
+		}
+	}
+	r.Dated = ""
+	if compile(t, r).dated != nil {
+		t.Error("dated unset compiled to an expression")
 	}
 }
 

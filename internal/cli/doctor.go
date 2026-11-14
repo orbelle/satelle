@@ -63,7 +63,7 @@ const (
 	resolveReleaseSeat = "release-seat"
 	// resolveAsk asks at the terminal whether to release an orphaned seat.
 	resolveAsk = "ask"
-	// resolveFixItem lists the finding on the one substrate-fix item.
+	// resolveFixItem lists the finding on the one fix item.
 	resolveFixItem = "fix-item"
 )
 
@@ -235,7 +235,7 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 
 // checkSubstrate reports each command, flag, help topic and link the repo's
 // substrate names that this binary lacks: the rules satelle validate applies
-// (internal/substrate). Each finding goes on the substrate-fix item
+// (internal/substrate). Each finding goes on the fix item
 // satelle doctor --resolve opens.
 func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	found, err := substrate.Check(in.r.DataDir, substrateTree(NewRootCmd()))
@@ -253,7 +253,7 @@ func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string
 // checkVolatile reports each line of the substrate, and of the files
 // .satelle/volatile.toml names, that matches one of its volatile patterns
 // (kernel.Config.VolatileFindings). A volatile.toml with a problem is the
-// config check's to report. Each finding goes on the substrate-fix item
+// config check's to report. Each finding goes on the fix item
 // satelle doctor --resolve opens.
 func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if in.cfg == nil || len(in.cfg.Volatile.Problems()) > 0 {
@@ -263,7 +263,10 @@ func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string)
 	if err != nil {
 		return []doctorIssue{{Check: substrate.VolatileField, Problem: err.Error(), Fix: "satelle validate", Resolve: resolveFixItem}}, nil
 	}
-	fix := "reword the line so it stays true, date it (YYYY-MM-DD) if it is history"
+	fix := "reword the line so it stays true"
+	if d := in.cfg.Volatile.Dated; d != "" {
+		fix += ", or, if it is history, give it a date `dated` matches (" + d + ")"
+	}
 	if m := in.cfg.Volatile.Exempt; m != "" {
 		fix += ", or mark it " + m
 	}
@@ -761,7 +764,7 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 		return nil, nil
 	case code == 1:
 		// A doctor.toml check is the repo's own substrate check: its findings
-		// go on the substrate-fix item.
+		// go on the fix item.
 		var issues []doctorIssue
 		for _, line := range strings.Split(out, "\n") {
 			if line = strings.TrimSpace(line); line != "" {

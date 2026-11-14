@@ -3,12 +3,12 @@ package substrate
 // The volatile-literal check: each line of the repo's substrate Markdown, and
 // of the files .satelle/volatile.toml names, that matches a configured
 // volatile pattern (a version string, "currently", a model id) is a finding,
-// unless the line is dated history or carries the configured exemption
-// marker. The patterns, the marker, the extra paths, the exclusions and the
-// upstream owners are all configuration: this file holds none of them. Two
-// rules are fixed: the date exemption (sto_3de33a72), and that a fenced code
-// block in a Markdown file is not read, by the fence the substrate check
-// already owns (reFence; sto_1ee018c8).
+// unless the line matches the configured dated expression or carries the
+// configured exemption marker. The patterns, the dated expression, the marker,
+// the extra paths, the exclusions and the upstream owners are all
+// configuration: this file holds none of them (sto_a5cdb024). One rule is
+// fixed: a fenced code block in a Markdown file is not read, by the fence the
+// substrate check already owns (reFence; sto_1ee018c8).
 
 import (
 	"errors"
@@ -42,13 +42,15 @@ type VolatilePattern struct {
 // VolatileRules is volatile.toml. Paths are extra files to read and Exclude
 // the files never read, both slash-separated globs relative to the directory
 // that holds .satelle, in which "**" stands for any number of whole segments.
-// A line containing Exempt ("" = no marker) is not reported.
+// A line containing Exempt ("" = no marker) is not reported, nor a line Dated,
+// a Go regular expression (RE2), matches ("" = no line is exempt for a date).
 // Upstream names the files another repo or path owns: they are still read,
 // and each of their findings names the owner.
 type VolatileRules struct {
 	Paths    []string           `toml:"paths"`
 	Exclude  []string           `toml:"exclude"`
 	Exempt   string             `toml:"exempt"`
+	Dated    string             `toml:"dated"`
 	Patterns []VolatilePattern  `toml:"pattern"`
 	Upstream []VolatileUpstream `toml:"upstream"`
 }
@@ -77,7 +79,8 @@ func (r VolatileRules) UpstreamOf(file string) (VolatileUpstream, bool) {
 }
 
 // Problems returns each problem of the rules: a pattern with no name, a name
-// given twice, an empty or uncompilable match, and each paths or exclude glob
+// given twice, an empty or uncompilable match, a dated expression that does
+// not compile, and each paths or exclude glob
 // that is empty, absolute, has an empty, "." or ".." segment, or a malformed
 // segment.
 func (r VolatileRules) Problems() []error {
@@ -95,6 +98,11 @@ func (r VolatileRules) Problems() []error {
 			errs = append(errs, fmt.Errorf("pattern %q has no match", p.Name))
 		} else if _, err := regexp.Compile(p.Match); err != nil {
 			errs = append(errs, fmt.Errorf("pattern %q: match does not compile: %v", p.Name, err))
+		}
+	}
+	if r.Dated != "" {
+		if _, err := regexp.Compile(r.Dated); err != nil {
+			errs = append(errs, fmt.Errorf("dated does not compile: %v", err))
 		}
 	}
 	for _, key := range []struct {
@@ -149,18 +157,12 @@ func globProblem(g string) string {
 }
 
 // VolatileSet is a compiled, valid VolatileRules; CompileVolatile is its only
-// constructor.
+// constructor. It holds the rules once: patterns[i] is rules.Patterns[i]
+// compiled, and dated is rules.Dated compiled (nil when unset).
 type VolatileSet struct {
-	patterns []compiledPattern
-	exempt   string
-	paths    []string
-	exclude  []string
 	rules    VolatileRules
-}
-
-type compiledPattern struct {
-	name, match string
-	re          *regexp.Regexp
+	patterns []*regexp.Regexp
+	dated    *regexp.Regexp
 }
 
 // CompileVolatile compiles r, or returns every problem of r.
@@ -168,20 +170,20 @@ func CompileVolatile(r VolatileRules) (*VolatileSet, error) {
 	if errs := r.Problems(); len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	s := &VolatileSet{exempt: r.Exempt, paths: r.Paths, exclude: r.Exclude, rules: r}
+	s := &VolatileSet{rules: r}
 	for _, p := range r.Patterns {
-		s.patterns = append(s.patterns, compiledPattern{name: p.Name, match: p.Match, re: regexp.MustCompile(p.Match)})
+		s.patterns = append(s.patterns, regexp.MustCompile(p.Match))
+	}
+	if r.Dated != "" {
+		s.dated = regexp.MustCompile(r.Dated)
 	}
 	return s, nil
 }
 
-// reDated is the one owner of "dated history": a YYYY-MM-DD date on the line.
-var reDated = regexp.MustCompile(`\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b`)
-
 // VolatileText returns the findings of one file's text, named file: one per
 // pattern a line matches, in configuration order, skipping, in a Markdown file,
-// every line of a fenced code block (the fences too), then a dated line and a
-// line holding the exemption marker. A file an [[upstream]] entry matches has
+// every line of a fenced code block (the fences too), then a line the dated
+// expression matches and a line holding the exemption marker. A file an [[upstream]] entry matches has
 // each finding's Why end in "; owned by <owner>". A nil set reports nothing.
 func VolatileText(file, text string, s *VolatileSet) []Finding {
 	if s == nil {
@@ -212,16 +214,17 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 		if fence != "" {
 			continue
 		}
-		if reDated.MatchString(line) || (s.exempt != "" && strings.Contains(line, s.exempt)) {
+		if (s.dated != nil && s.dated.MatchString(line)) || (s.rules.Exempt != "" && strings.Contains(line, s.rules.Exempt)) {
 			continue
 		}
-		for _, p := range s.patterns {
-			m := p.re.FindString(line)
-			if m == "" && !p.re.MatchString(line) {
+		for j, p := range s.rules.Patterns {
+			re := s.patterns[j]
+			m := re.FindString(line)
+			if m == "" && !re.MatchString(line) {
 				continue
 			}
-			out = append(out, Finding{File: file, Line: i + 1, Kind: KindVolatile, Subject: p.name,
-				Why: fmt.Sprintf("%q matches %s", strings.TrimSpace(m), p.match) + owner})
+			out = append(out, Finding{File: file, Line: i + 1, Kind: KindVolatile, Subject: p.Name,
+				Why: fmt.Sprintf("%q matches %s", strings.TrimSpace(m), p.Match) + owner})
 		}
 	}
 	return out
@@ -245,7 +248,7 @@ func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 	if err := s.walk(base, dataDir, func(name string) bool { return strings.HasSuffix(name, ".md") }, files); err != nil {
 		return nil, err
 	}
-	for _, g := range s.paths {
+	for _, g := range s.rules.Paths {
 		if err := s.walkGlob(base, g, files); err != nil {
 			return nil, err
 		}
@@ -274,7 +277,7 @@ func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 
 // excluded reports whether the file name is never read.
 func (s *VolatileSet) excluded(name string) bool {
-	for _, g := range s.exclude {
+	for _, g := range s.rules.Exclude {
 		if gate.Match(g, name) {
 			return true
 		}
@@ -285,7 +288,7 @@ func (s *VolatileSet) excluded(name string) bool {
 // pruned reports whether the directory name is not entered: it matches an
 // exclude glob with its trailing "/**" removed.
 func (s *VolatileSet) pruned(name string) bool {
-	for _, g := range s.exclude {
+	for _, g := range s.rules.Exclude {
 		if d, ok := strings.CutSuffix(g, "/**"); ok && gate.Match(d, name) {
 			return true
 		}

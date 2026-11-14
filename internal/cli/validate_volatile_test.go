@@ -162,6 +162,14 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 			}
 		}
 	}
+	// sto_a5cdb024 AC4: this repo carries the keys the template ships: the
+	// same dated expression, and a [resolve] kind and tag.
+	if cfg.Volatile.Dated == "" || cfg.Volatile.Dated != tmpl.Volatile.Dated {
+		t.Errorf("dated: this repo %q, a fresh init %q", cfg.Volatile.Dated, tmpl.Volatile.Dated)
+	}
+	if u := cfg.Doctor.Resolve.Unset(); len(u) != 0 {
+		t.Errorf("this repo's doctor.toml leaves [resolve] %v unset", u)
+	}
 	if slices.Contains(shipped, "model-id") || !slices.Contains(names, "model-id") {
 		t.Errorf("model-id: the template loads %v and this repo %v; want it in this repo's only", shipped, names)
 	}

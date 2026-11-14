@@ -25,10 +25,11 @@ Its checks:
   volatile   a line of the substrate Markdown, or of a file
              .satelle/volatile.toml names under paths, that matches one of its
              volatile patterns (a version string, "currently", a model id),
-             unless it carries a YYYY-MM-DD date or the exempt marker; files
-             its exclude globs match are not read, nor is a fenced code block
-             in Markdown (reword, date or mark it; a file an [[upstream]]
-             entry owns names its owner and is fixed there)
+             unless it matches its dated expression (shipped: a YYYY-MM-DD
+             date) or carries the exempt marker; files its exclude globs
+             match are not read, nor is a fenced code block in Markdown
+             (reword, date or mark it; a file an [[upstream]] entry owns
+             names its owner and is fixed there)
   init       files satelle init would add (satelle init)
   harness    a harness in use (agents.toml runs it, or the repo has its
              .claude, .cursor, .grok or .pi directory) whose hook file differs
@@ -72,10 +73,11 @@ when it finds nothing and 1 when it finds an issue.
     terminal it lists it, saying there was no terminal to ask at;
   - config, substrate, volatile, init and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
-    through the item's workflow (a story tagged substrate-fix, or what
-    doctor.toml [resolve] names), and opens no second one while that is open. With an invalid
-    configuration no item can be recorded: it lists them, satelle validate
-    first.
+    through the item's workflow (the kind and tag .satelle/doctor.toml
+    [resolve] names, which satelle init writes; with either unset it lists
+    the findings and names the key to set), and opens no second one while
+    that is open. With an invalid configuration no item can be recorded: it
+    lists them, satelle validate first.
 It never edits or commits files, and the only git commands doctor runs, with
 or without --resolve, are read-only queries: the repo's top level, and
 git check-ignore for the harness check. Everything else is listed with its
@@ -143,8 +145,9 @@ nothing is left and no action failed, else 1.`,
 
 // resolvable counts the issues satelle doctor --resolve acts on from this
 // terminal context, as resolveDoctor does: the service always, the ledger
-// actions only when the configuration validates, and the seats it asks about
-// only when tty (a controlling terminal is attached).
+// actions only when the configuration validates, the findings for the fix
+// item only when doctor.toml [resolve] sets its kind and tag, and the seats it
+// asks about only when tty (a controlling terminal is attached).
 func resolvable(in *doctorInput, issues []doctorIssue, tty bool) int {
 	broken := configBroken(in, issues)
 	n := 0
@@ -152,7 +155,11 @@ func resolvable(in *doctorInput, issues []doctorIssue, tty bool) int {
 		switch is.Resolve {
 		case resolveInstallService, resolveRestartService:
 			n++
-		case resolveFixItem, resolveReleaseSeat:
+		case resolveFixItem:
+			if !broken && len(resolveUnset(in)) == 0 {
+				n++
+			}
+		case resolveReleaseSeat:
 			if !broken {
 				n++
 			}

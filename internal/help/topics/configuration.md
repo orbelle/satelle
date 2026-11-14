@@ -60,8 +60,9 @@ the kernel still opens: only a configuration problem stops it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.
-- `doctor.toml` — optional: the repo's own checks and open-item lists
-  `satelle doctor --session <session>` runs beside its kernel checks (below).
+- `doctor.toml` — the repo's own checks and open-item lists
+  `satelle doctor --session <session>` runs beside its kernel checks, and the
+  `[resolve]` fix item; `satelle init --session <session>` writes it (below).
 - `volatile.toml` — optional: the volatile-literal patterns `satelle validate --session <session>`
   and `satelle doctor --session <session>` apply to the substrate (below).
 
@@ -96,15 +97,17 @@ and asks about other orphaned seats.
 The config, substrate, volatile, init and `[[check]]` findings it puts on one item, for the agent to
 fix in one change through that item's workflow; it never edits or commits the
 files itself, and opens no second item while that one is open. `[resolve]`
-names the item:
+names the item; `satelle init --session <session>` writes `doctor.toml` with it set:
 
     [resolve]
-    kind = "story"              # default story
-    tag = "substrate-fix"       # default substrate-fix
-    category = "<category>"     # default none; routes the item by [[workflows.rule]]
+    kind = "story"              # required: the fix item's kind
+    tag = "substrate-fix"       # required: the tag that finds and marks it
+    category = "<category>"     # optional; routes the item by [[workflows.rule]]
 
-Every key is optional; an item's status is its workflow's to set, so there is
-no `status`. While the configuration is invalid no item can be recorded:
+Kind and tag are required for `--resolve` to open the item, and satelle holds
+no default for either: with one unset, `--resolve` opens no item and lists
+each finding, naming the `[resolve]` key to set. An item's status is its
+workflow's to set, so there is no `status`. While the configuration is invalid no item can be recorded:
 `--resolve` then lists the findings with `satelle validate --session <session>` first.
 
 ## volatile.toml
@@ -116,6 +119,7 @@ A volatile literal is text that goes stale on its own: a version string,
     paths   = ["<glob>"]        # extra files to read, of any extension
     exclude = ["<glob>"]        # files never read, whichever list found them
     exempt  = "<marker>"        # a line containing it is not reported; "" = no marker
+    dated   = '<regexp>'        # a line it matches is not reported; "" = none exempt for a date
 
     [[pattern]]
     name  = "<name>"            # unique; named in each finding
@@ -132,18 +136,20 @@ read once however many lists find it, and a symlink is never followed. Globs
 are slash-separated and relative to the directory that holds `.satelle`; `**`
 stands for any number of whole segments. A glob may not be empty or absolute
 or hold an empty, `.` or `..` segment: that, a nameless or duplicate pattern,
-or a `match` that does not compile is a configuration problem. The shipped
+or a `match` or `dated` that does not compile is a configuration problem. The shipped
 `exclude` leaves out run records (`.satelle/runs`), testdata fixtures and
 `.git`; the list is the repo's to change, and nothing else is left out.
 
-A line is not reported when it carries a YYYY-MM-DD date (dated history) or
-the `exempt` marker, and in a Markdown file no line of a fenced code block
+A line is not reported when it matches `dated`, which the shipped file sets
+to a YYYY-MM-DD date so dated history stays, or holds the `exempt` marker;
+with `dated` unset no line is exempt for carrying a date. A satelle older than
+the one that reads `dated` refuses the key. Also, and in a Markdown file no line of a fenced code block
 (``` or ~~~, the fences too) is read: a script's variables are not prose. Each
 other line gives one finding per pattern it
 matches: `<file>:<line>: volatile: <pattern> — "<text>" matches <regexp>`.
 `satelle validate --session <session>` lists them (the `volatile` list with `--json`) without
 failing; `satelle doctor --session <session>` reports each as a `volatile` issue, and `--resolve`
-puts them on the substrate-fix item. With no `volatile.toml`, or no
+puts them on the fix item. With no `volatile.toml`, or no
 `[[pattern]]` in it, nothing is reported: satelle holds no patterns of its
 own. `satelle init --session <session>` writes the default patterns when the file is absent, and
 the repo edits its copy to change, add or remove them. The shipped file flags

@@ -36,6 +36,10 @@ const (
 // no command can record an item until it validates.
 const configFirst = "fix the configuration first (satelle validate); then: "
 
+// resolveUnsetFirst prefixes each finding left because doctor.toml [resolve]
+// names no fix item kind or tag.
+const resolveUnsetFirst = "set [resolve] kind and tag in .satelle/" + kernel.DoctorFile + " (satelle help configuration); then: "
+
 // Why --resolve left an issue (resolveLeft.Why); an ask left for want of a
 // terminal says so with the open error.
 const (
@@ -142,6 +146,18 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		}
 		return rep
 	}
+	// No [resolve] kind or tag: there is no item to put the findings on, and
+	// satelle guesses none (sto_a5cdb024). List them, naming the key to set;
+	// the seats are still resolved.
+	fixItems := by[resolveFixItem]
+	if unset := resolveUnset(in); len(unset) > 0 && len(fixItems) > 0 {
+		why := fmt.Sprintf(".satelle/%s [resolve] %s is not set, so there is no item to put the finding on", kernel.DoctorFile, strings.Join(unset, " and "))
+		for _, is := range fixItems {
+			rep.leave(is, resolveUnsetFirst, why)
+		}
+		fixItems = nil
+		ledgerIssues = append(append([]doctorIssue{}, by[resolveReleaseSeat]...), by[resolveAsk]...)
+	}
 	if len(ledgerIssues) == 0 {
 		pruneSessions(in)
 		return rep
@@ -155,9 +171,18 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	}
 	defer k.Close()
 	resolveSeats(k, &rep, by[resolveReleaseSeat], by[resolveAsk])
-	openFixItem(k, in, &rep, by[resolveFixItem])
+	openFixItem(k, in, &rep, fixItems)
 	pruneSessions(in)
 	return rep
+}
+
+// resolveUnset names the doctor.toml [resolve] keys --resolve needs to open
+// the fix item that are not set (kernel.DoctorResolve.Unset).
+func resolveUnset(in *doctorInput) []string {
+	if in.cfg == nil {
+		return []string{"kind", "tag"}
+	}
+	return in.cfg.Doctor.Resolve.Unset()
 }
 
 // configBroken reports whether the configuration is invalid, so no ledger

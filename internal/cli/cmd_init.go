@@ -128,9 +128,9 @@ It also lists each line of the substrate Markdown, and of the files
 .satelle/volatile.toml names under paths, that matches one of that file's
 volatile patterns (a version string, "currently", a model id), as
 <file>:<line>: volatile: <pattern> — <why> (under the volatile key with
---json). A line carrying a YYYY-MM-DD date, or the file's exempt marker, is
-not listed, no file its exclude globs match is read, and no line of a fenced
-code block in Markdown is read. A line in a file an [[upstream]] entry owns
+--json). A line its dated expression matches (shipped: a YYYY-MM-DD date),
+or holding the file's exempt marker, is not listed, no file its exclude globs
+match is read, and no line of a fenced code block in Markdown is read. A line in a file an [[upstream]] entry owns
 names that owner. Volatile lines are listed without failing the check;
 satelle doctor reports each as an issue.
 With no volatile.toml, or no pattern in it, none is listed.`,
