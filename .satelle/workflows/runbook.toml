@@ -40,13 +40,16 @@ skill = "satelle-release-kept-check"
 
 # The drift review run (release.md step 11) only: the trigger skips every
 # other run. drift-constitution judges the release's binary change, its diff
-# from the previous release tag over the binary's sources and the
+# from the run's base (the previous release tag, or the published tag after a
+# binary-unchanged release) over the binary's sources and the
 # constitution and principles (an edit to those is how a constitution finding
 # gets fixed), against the constitution and principles; its after check holds
 # an accept of a diff the prompt cut to READ lines for each hidden file.
 # drift-claims judges the principles' statements of mechanism against the
-# released source; .version changes on every release, so it is relevant to
-# every drift run. Both judges state a RESOLVED line for each open drift
+# source at the run's head; .version changes on every binary-changed release
+# and the constitution or a principle can change on any release, so it runs
+# when the released source or a statement changed; after a binary-unchanged
+# release that changed neither it is skipped. Both judges state a RESOLVED line for each open drift
 # finding of their kind that no longer holds. drift-closures checks the run's
 # drift-report lists of closed and stayed-open drift stories (drift-review.md
 # step 4) against the kernel.
@@ -65,7 +68,7 @@ skill = "satelle-drift-claims-review"
 # reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
 agent = "reviewer-gpt-5.6-sol-high"
 trigger = "satelle-drift-run-trigger"
-paths = [".version"]
+paths = [".version", ".satelle/constitution.md", ".satelle/principles/**"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.drift-closures]

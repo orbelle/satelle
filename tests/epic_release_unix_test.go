@@ -129,7 +129,8 @@ terminal = true
 from = ["backlog"]
 to = "done"
 `)
-	task := s.create("task", "--title", "Release approved items")
+	task := s.create("task", "--title", "Release approved items", "--body", releaseTaskBody)
+	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	q := s.create("queue", "--title", "release")
 	runCheck := strings.Replace(repoFile(".satelle/skills/satelle-release-run-check.md"), "\ntask=tas_42301d36\n", "\ntask="+task.ID+"\n", 1)
 	if !strings.Contains(runCheck, "\ntask="+task.ID+"\n") {

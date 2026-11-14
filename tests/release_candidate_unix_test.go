@@ -44,6 +44,13 @@ esac
 
 func newCandidateSandbox(t *testing.T, red bool) *candidateSandbox {
 	t.Helper()
+	return newCandidateSandboxWith(t, red, nil)
+}
+
+// newCandidateSandboxWith is newCandidateSandbox whose base commit also holds
+// base (path -> body).
+func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *candidateSandbox {
+	t.Helper()
 	s, origin, task := releaseSandbox(t, "make")
 	s.exec("git", "", "-C", origin, "config", "receive.denyNonFastForwards", "true")
 	c := &candidateSandbox{changelogSandbox: &changelogSandbox{sandbox: s}, task: task}
@@ -64,7 +71,19 @@ func newCandidateSandbox(t *testing.T, red bool) *candidateSandbox {
 	// The drift gate runs the candidate's own drift-check.sh over its own
 	// .satelle (sto_a1681009).
 	writeFile(t, filepath.Join(s.dir, "scripts", "drift-check.sh"), repoText(t, "scripts/drift-check.sh"), 0o755)
-	s.git("add", "Makefile", "a.txt", ".version", "CHANGELOG.md", "scripts/changelog-items.sh", "scripts/drift-check.sh", ".satelle")
+	// The binary decision runs the candidate's own scripts (sto_da9775c1).
+	writeFile(t, filepath.Join(s.dir, "scripts", "check-serve-version.sh"), repoText(t, "scripts/check-serve-version.sh"), 0o755)
+	add := []string{"Makefile", "a.txt", ".version", "CHANGELOG.md", "scripts/changelog-items.sh", "scripts/drift-check.sh",
+		"scripts/release-binary.sh", "scripts/check-serve-version.sh", ".satelle"}
+	for p, body := range base {
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(p, ".sh") {
+			mode = 0o755
+		}
+		writeFile(t, filepath.Join(s.dir, p), body, mode)
+		add = append(add, p)
+	}
+	s.git(append([]string{"add"}, add...)...)
 	s.git("commit", "-q", "-m", "base")
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	s.git("fetch", "-q", "origin")
@@ -155,6 +174,13 @@ func (c *candidateSandbox) mustBlock(heading string) string {
 		c.t.Fatalf("%s: exit %d\n%s%s", heading, r.code, r.out, r.err)
 	}
 	return r.out
+}
+
+// decide runs release.md's binary decision on the tested candidate and
+// returns its record.
+func (c *candidateSandbox) decide() string {
+	c.t.Helper()
+	return c.mustBlock("### Decide: did the binary change")
 }
 
 // driftGate runs release.md's drift gate on the candidate and fails the test
@@ -269,6 +295,7 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	}
 	c.driftGate()
 	c.mustBlock("### Test the candidate once")
+	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != cand {
 		t.Fatalf("make test ran on %v, want once on the candidate %s", runs, cand)
 	}
@@ -393,6 +420,7 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 	}
 	c.driftGate()
 	c.mustBlock("### Test the candidate once")
+	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 {
 		t.Fatalf("make test ran %d times", len(runs))
 	}
@@ -440,6 +468,9 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 	}
 	if st := c.status(idF); st != "approved" {
 		t.Fatalf("%s is %s, want approved", idF, st)
+	}
+	if r := c.block("### Decide: did the binary change"); r.code != 1 || !strings.Contains(r.err, "the suite has not passed") {
+		t.Fatalf("decide on a red candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if r := c.block("## 4."); r.code == 0 || !strings.Contains(r.err, "changed after the suite ran") {
 		t.Fatalf("step 4 with no tested candidate: exit %d\n%s%s", r.code, r.out, r.err)
@@ -489,7 +520,7 @@ func TestReleaseRulesRestated(t *testing.T) {
 func TestReleaseCarriesALandedItemToDone(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	for _, name := range []string{"satelle-pr-approval-check", "satelle-changelog-entry-check", "satelle-release-kept-check"} {
-		c.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
+		c.write(".satelle/skills/"+name+".md", rebindTask(t, ".satelle/skills/"+name+".md", c.task.ID))
 	}
 	c.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]
@@ -549,6 +580,7 @@ to = "cancelled"
 	c.mustBlock("### Send back")
 	c.driftGate()
 	c.mustBlock("### Test the candidate once")
+	c.decide()
 	wt1 := filepath.Join(rd1, "candidate")
 	if r := c.exec("bash", "", "-c", changelogBlock(t, wt1, "1.0.1", idA)); r.code != 0 {
 		t.Fatalf("R1 step 3: exit %d\n%s%s", r.code, r.out, r.err)
@@ -643,6 +675,7 @@ to = "cancelled"
 	}
 	c.driftGate()
 	c.mustBlock("### Test the candidate once")
+	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 2 || runs[1] != main {
 		t.Fatalf("make test ran on %v, want R2's once on origin/main %s", runs, main)
 	}
@@ -749,6 +782,7 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 	c.exec("git", "", "-C", wt, "reset", "-q", "--hard", fixCommit)
 	c.driftGate()
 	c.mustBlock("### Test the candidate once")
+	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != fixCommit {
 		t.Fatalf("make test ran on %v, want once on %s", runs, fixCommit)
 	}

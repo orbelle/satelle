@@ -8,7 +8,10 @@ description: CI/CD's first gate on approved → done. Accepts only while an in-p
 
 `done` is terminal and is reached only by a run of the release task, after the
 item's head is on main, the version is bumped, the release is published and the
-build is installed (operator, 2026-11-06). The release task is `tas_42301d36`
+build is installed (operator, 2026-11-06), or, when the run's landing left the
+shipped binaries unchanged, after main fast-forwarded to the tested candidate
+(release.md, `### Decide: did the binary change`). The run that lists the item
+is found by `scripts/release-binary.sh run`, which the version gates share. The release task is `tas_42301d36`
 (its procedure is `.satelle/skills/release.md`).
 
 ```sh
@@ -17,13 +20,11 @@ task=tas_42301d36
 for tool in gh jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed"; exit 1; }
 done
-listed=""
-for exe in $(satelle execution list --parent "$task" --status in_progress --json | jq -r '.[].id'); do
-  if satelle ledger list "$exe" --kind task.run --json | jq -e --arg id "$SATELLE_ITEM" 'any(.[]; .payload.inputs | index($id))' >/dev/null; then
-    listed=$exe
-    break
-  fi
-done
+listed=$(bash scripts/release-binary.sh run "$task" "$SATELLE_ITEM")
+if [ $? -eq 2 ]; then
+  echo "cannot read the in-progress runs of $task"
+  exit 1
+fi
 if [ -z "$listed" ]; then
   echo "no in-progress run of $task lists $SATELLE_ITEM: an item reaches done only through a release run (follow .satelle/skills/release.md step 0: satelle queue fire release --session <session>)"
   exit 1

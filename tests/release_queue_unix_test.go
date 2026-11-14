@@ -127,8 +127,34 @@ terminal = true
 from = ["defined"]
 to = "retired"
 `)
+	// The release-run check and the version gates read the run's binary
+	// decision through this script, run from the presenting tree.
+	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	s.must("validate")
-	return s, origin, s.create("task", "--title", "Release approved items")
+	return s, origin, s.create("task", "--title", "Release approved items", "--body", releaseTaskBody)
+}
+
+// releaseTaskBody is the release task's body as plan sto_da9775c1's
+// Configuration to apply restates it: release.md step 0 fires only against a
+// body naming the run's release-binary record.
+const releaseTaskBody = `ACTION: follow .satelle/skills/release.md over the run's items.
+
+## Binary decision
+This section overrides any statement above that every run bumps, tags, publishes or installs.
+ACTION: after the suite passes, the run records as its release-binary attachment whether the candidate changes the shipped binaries (release.md, Decide: did the binary change). binary: changed: bump, tag, publish and install as stated above. binary: unchanged: main fast-forwards to the tested candidate; the run does not bump, tag, dispatch release.yml or install.
+VERIFICATION: release-binary is attached and its candidate is the tested sha.
+`
+
+// rebindTask is a repo file with its task=tas_42301d36 line, if any, rebound
+// to task.
+func rebindTask(t *testing.T, rel, task string) string {
+	t.Helper()
+	text := repoText(t, rel)
+	re := regexp.MustCompile(`(?m)^task=tas_42301d36$`)
+	if n := len(re.FindAllString(text, -1)); n > 1 {
+		t.Fatalf("%s has %d task=tas_42301d36 lines", rel, n)
+	}
+	return re.ReplaceAllString(text, "task="+task)
 }
 
 // writeReleaseQueue writes the repo's release.toml into the sandbox, rebound
@@ -480,5 +506,39 @@ func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 		if strings.Contains(arch, w) {
 			t.Errorf("the release architecture still says %q", w)
 		}
+	}
+}
+
+// sto_da9775c1: release.md step 0 refuses to fire against a release task whose
+// body does not name the run's release-binary record, so no run is judged
+// against a task that says every run bumps, tags, publishes and installs; no
+// run is created. The same sandbox with the restated body fires.
+func TestReleaseRefusesATaskWithoutTheBinaryDecision(t *testing.T) {
+	s, _, _ := releaseSandbox(t)
+	task := s.create("task", "--title", "Release approved items", "--body", "ACTION: follow .satelle/skills/release.md.\n")
+	q := s.create("queue", "--title", "release")
+	writeReleaseQueue(t, s, q.ID, task.ID)
+	s.must("validate")
+	st := s.create("story", "--title", "story")
+	s.must("story", "set", st.ID, "--status", "approved")
+	s.must("queue", "add", q.ID, st.ID)
+	runs := func() int {
+		var out []item.Item
+		s.mustJSON(&out, "execution", "list", "--parent", task.ID)
+		return len(out)
+	}
+	r := s.exec("bash", "", "-c", shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID))
+	if r.code != 1 || !strings.Contains(r.err, "does not name the run's release-binary record") {
+		t.Fatalf("step 0 on a task without the binary decision: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if n := runs(); n != 0 {
+		t.Fatalf("a refused step 0 created %d runs", n)
+	}
+	s.must("task", "set", task.ID, "--body", releaseTaskBody)
+	if r := s.exec("bash", "", "-c", shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)); r.code != 0 {
+		t.Fatalf("step 0 on the restated task: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if n := runs(); n != 1 {
+		t.Fatalf("step 0 on the restated task created %d runs", n)
 	}
 }

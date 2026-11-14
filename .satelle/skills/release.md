@@ -1,7 +1,7 @@
 ---
 name: release
 type: skill
-description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), check the candidate's substrate with a satelle built from it (scripts/drift-check.sh) and fix any miss in the candidate before the suite, so substrate drift cannot ship, run make test once on that candidate, bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it, only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
+description: CI/CD — the procedure a run of the release task (tas_42301d36), fired from the release queue, follows over the approved items it took: build one release-local candidate from their tested pull-request heads in queue order (fast-forward a head that contains it, merge one that does not, send back only a head whose merge conflicts; carry, as contained, an item a stopped run already landed, whose merged pull request's head is on origin/main), check the candidate's substrate with a satelle built from it (scripts/drift-check.sh) and fix any miss in the candidate before the suite, so substrate drift cannot ship, run make test once on that candidate, decide whether it changes the shipped binaries (scripts/release-binary.sh, recorded as release-binary), and when it does bump the version once on top, fast-forward main to it, dispatch release.yml, confirm both releases, back up and install the published build here, check it (when it does not, fast-forward main to the tested candidate with no bump, tag, release.yml or install, and check the published build is installed), only then move each item to done, and finally clear the finished worktrees, then runs the drift review (step 11). Landing is local; GitHub runs no tests. main only ever fast-forwards to a tree the release tested; never forces or rebases, and merges only in the candidate.
 ---
 
 # Release (CI/CD)
@@ -20,7 +20,11 @@ a force); a head whose merge conflicts is dropped and sent back alone, naming
 the conflicting paths. The run then runs `make test` once on the final
 candidate, the combined tree. main only ever fast-forwards to a tree the
 release tested: the tested candidate, plus the bump commit, which changes only
-the files step 3 commits. A sent-back item goes back through the loop (merge
+the files step 3 commits. After the suite passes the run decides whether the
+candidate changes the shipped binaries (step 2, `Decide: did the binary change`):
+when it does not, main fast-forwards to the tested candidate and the run does
+not bump, tag, dispatch `release.yml` or install (steps 3, 5, 6 and 7 are
+skipped), and the items still reach done on the recorded decision. A sent-back item goes back through the loop (merge
 origin/main into the branch with `git fetch origin && git merge origin/main`,
 never a rebase, so its pushed head is never rewritten and the push needs no
 force; resolve any conflict in the real work, push, and come through
@@ -44,17 +48,19 @@ Never: run any suite but step 2d's one run; rebase; force-push; merge on main
 itself (merges exist only in the candidate); push to main anything but the
 tested candidate and its bump commit (the tested candidate may carry the run's
 own drift-fix commits, made before the suite); push a candidate the drift gate
-has not passed; take an item not in the run's inputs; or close an item before
-step 8 passes.
+has not passed; bump, tag, dispatch `release.yml` or install on a
+binary-unchanged run; take an item not in the run's inputs; or close an item
+before step 8 passes.
 
 Shell variables do not survive between the session's separate commands, so
 from step 2 on the run keeps its state in one run-local directory,
 `rd="${TMPDIR:-/tmp}/satelle-release-$exe"`: the candidate worktree
 `$rd/candidate` (`$wt` below), the candidate's binary `bin/satelle` and the
 files `kept`, `sendback`, `ff`, `drift.txt`, `drift-fixed`, `drift-checked`,
-`release-drift`, `tested` and `suite.log`. Each block finds the in-progress run and `rd` again
+`release-drift`, `tested`, `release-binary` and `suite.log`. Each block finds the in-progress run and `rd` again
 the same way. The durable record stays on the items (`release-sendback`) and
-the run (`release-kept` and `release-drift`, step 4, and `release-evidence`).
+the run (`release-kept`, `release-drift` and `release-binary`, step 4, and
+`release-evidence`).
 
 ## 0. Start and read the run
 
@@ -64,6 +70,7 @@ task=tas_42301d36
 que=release
 git fetch -q origin
 satelle queue get "$que" --json --session "$session" 2>/dev/null | jq -e --arg t "$task" '.trigger.task == $t' >/dev/null || { echo "release queue $que (.satelle/queues/$que.toml) is missing or does not trigger $task; a satelle older than the build origin/main carries cannot read queue files: install that build (step 7), then start again" >&2; exit 1; }
+satelle task get "$task" --session "$session" | grep -q 'release-binary' || { echo "the release task $task does not name the run's release-binary record: restate its body (plan of sto_da9775c1, Configuration to apply) before firing" >&2; exit 1; }
 fired=$(satelle queue fire "$que" --json --session "$session") || exit $?
 exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')                  # created in backlog
 [ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
@@ -75,7 +82,10 @@ satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '
 
 The after-review (`satelle-task-validate-after-review`) reads only the run's
 record folder, so the run carries its parent task as the attachment `task`
-(task-run.md step 2); without it the run is refused at `done`.
+(task-run.md step 2); without it the run is refused at `done`. The task's
+body must name the run's `release-binary` record (the binary decision): step 0
+refuses to fire against a body that does not, so no run is judged against a
+task that still says every run bumps, tags, publishes and installs.
 
 The printed base must be origin/main's head (`git rev-parse origin/main`):
 `--base main` would resolve a local `main` branch first, which may be stale.
@@ -344,7 +354,7 @@ The release fixes a miss in the same run, before the suite:
    nothing, and raise a story for it.
 
 b. The tree that presents the moves below must carry the config being
-   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh`,
+   released: `git diff --quiet HEAD "$tip" -- .satelle/workflows .satelle/skills scripts/changelog-items.sh scripts/release-binary.sh scripts/check-serve-version.sh`,
    with `tip` the candidate's HEAD, else stop with "check out the run's tip
    first: git checkout --detach $tip".
 
@@ -418,7 +428,47 @@ echo "make test failed on the candidate $cand (log $rd/suite.log): send back (st
 exit 1
 ```
 
+### Decide: did the binary change
+
+Once, after the suite passed on the candidate (`$rd/tested` is its HEAD). The
+candidate's own `scripts/release-binary.sh decide` (the sole owner of the
+rules; its header lists them) compares the candidate with the published tags
+`v<satelle.version>` and `serve-v<satelled.version>` and classes each changed
+path against what the shipped `satelle` and `satelled` builds compile or embed,
+for every target `release.yml` builds, in that build's clean environment. It
+writes the record `$rd/release-binary`, which step 4 attaches to the run as
+`release-binary`: `binary: changed` or `binary: unchanged`, the candidate, the
+tags, and one `build <rule> <path>` or `other <path>` line per changed path.
+
+```sh
+session=<session>   # this session's id, from the context line
+task=tas_42301d36
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
+[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
+rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
+[ -d "$wt" ] || { echo "no candidate at $wt: build it (step 2a) first" >&2; exit 1; }
+cand=$(git -C "$wt" rev-parse HEAD)
+[ "$(cat "$rd/tested" 2>/dev/null)" = "$cand" ] || { echo "the suite has not passed on the candidate $cand: run ### Test the candidate once first" >&2; exit 1; }
+if ! bash "$wt/scripts/release-binary.sh" decide "$wt" >"$rd/release-binary"; then
+  rm -f "$rd/release-binary"
+  echo "the binary decision could not run on $wt: stop the run, nothing is pushed" >&2
+  exit 1
+fi
+cat "$rd/release-binary"
+```
+
+`binary: unchanged` skips steps 3, 5, 6 and 7: step 4 pushes exactly the
+tested candidate, and step 8 checks the published build is installed.
+`binary: changed`, whatever its reason, follows every step. A record with a
+`reason:` line is a doubt the decision resolved as changed (a needless version
+is acceptable, a missed one is not), never a stop. Only a usage error exits
+non-zero, which stops the run with nothing pushed.
+
 ## 3. Bump once
+
+Binary changed only: a `binary: unchanged` run writes no version section and
+skips to step 4. Its items keep their lines on their `changelog` attachments,
+and the next binary-changed run writes them into its section, first.
 
 In the candidate worktree `$wt` (`$rd/candidate`), on top of the tested
 candidate, so the session's own tree is untouched.
@@ -429,6 +479,25 @@ other than the value's own. Keep the current value when it is above that
 latest and its own tag is absent or points at the candidate (a resumed run already
 published it); otherwise set it to the latest tag's patch + 1. Set
 `satelle.build=$(date -u +%Y-%m-%dT%H:%M:%SZ)` when either changed.
+
+### Carried from binary-unchanged runs
+
+The items earlier binary-unchanged runs landed since the published version
+have no section yet. The candidate's `scripts/release-binary.sh carried` lists
+them, oldest first: it walks this task's finished runs back to the last
+binary-changed one, and keeps each landed item whose head is under the tested
+candidate and not under the published `v*` tag (read from the tags merged into
+the tested candidate, so the bump above does not move it). A non-zero exit
+stops the run. The ids it prints go first in `ids` below.
+
+```sh
+session=<session>   # this session's id, from the context line
+task=tas_42301d36
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
+[ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
+rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
+bash "$wt/scripts/release-binary.sh" carried "$task" "$wt" "$(cat "$rd/tested")" || { echo "cannot list the items earlier binary-unchanged runs carried: stop the run" >&2; exit 1; }
+```
 
 ### Changelog from the items
 
@@ -441,14 +510,15 @@ nothing is staged above it. The lines are copied verbatim; the run never
 edits an item's content. A missing attachment stops the run. A resumed run
 whose CHANGELOG.md already has the `## [<ver>] - ` heading changes nothing.
 
-`ids` lists the kept items in landing order, except each whose build line
-(step 2a) says `contained, released in v<X>`: that release already wrote its
-lines, and changelog-entry accepts its done from that section. When no kept
-item is left, the section is not written and CHANGELOG.md is left as it is.
+`ids` lists the carried items first, oldest first, then the kept items in
+landing order (an id already carried is not listed again), except each whose
+build line (step 2a) says `contained, released in v<X>`: that release already
+wrote its lines, and changelog-entry accepts its done from that section. When
+no item is left, the section is not written and CHANGELOG.md is left as it is.
 
 ```sh
 session=<session>   # this session's id, from the context line
-ids="<kept ids, landing order, without those released before>"
+ids="<carried ids, oldest first, then the kept ids in landing order, without those released before>"
 ver=<satelle.version>
 [ -n "$ids" ] || { echo "every kept item was released before: the version section is left as it is"; exit 0; }
 d=$(mktemp -d) || exit 1
@@ -474,14 +544,20 @@ these two files; a file added to the bump is added to both lists.
 
 ## 4. Push main once
 
-Pushes only the tested candidate and the bump on top of it. It stops with
-"the candidate changed after the suite ran" when the suite has not passed on
-this candidate (`$rd/tested` is missing), the tested commit is not under HEAD,
-or HEAD differs from it outside `.version` and `CHANGELOG.md`; and with
-"drift-check has not passed on the tested candidate" when the drift gate's sha
-(`$rd/drift-checked`) is not the tested one. Beside `release-kept` it attaches
-`release-drift`: the drift gate's exit on the tested sha and every miss the run
-fixed.
+Pushes only the tested candidate and, on a binary-changed run, the bump on top
+of it. It stops with "the candidate changed after the suite ran" when the
+suite has not passed on this candidate (`$rd/tested` is missing); with "the run
+has not decided on the tested candidate" when `$rd/release-binary` is missing
+or names another candidate; on `binary: unchanged`, with "a binary-unchanged
+run pushes the tested candidate and nothing on top" when HEAD is not exactly
+the tested commit; on `binary: changed`, with "the candidate changed after the
+suite ran" when the tested commit is not under HEAD or HEAD differs from it
+outside `.version` and `CHANGELOG.md`; and with "drift-check has not passed on
+the tested candidate" when the drift gate's sha (`$rd/drift-checked`) is not
+the tested one. Beside `release-kept` it attaches `release-drift`, the drift
+gate's exit on the tested sha and every miss the run fixed, and
+`release-binary`, the run's decision, which the version-stamp,
+changelog-entry, ci-published and release-installed gates read.
 
 Before the push it attaches `$rd/kept` to the run as `release-kept`, the
 items the run lands, `<id> <head>` in landing order. The runbook's
@@ -497,7 +573,11 @@ exe=$(satelle execution list --parent "$task" --status in_progress --json --sess
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
 rd="${TMPDIR:-/tmp}/satelle-release-$exe"; wt="$rd/candidate"
 tested=$(cat "$rd/tested" 2>/dev/null)
-if [ -z "$tested" ] || ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
+[ -n "$tested" ] || { echo "the candidate changed after the suite ran (or the suite has not passed on it): stop the run" >&2; exit 1; }
+[ "$(sed -n 's/^candidate: //p' "$rd/release-binary" 2>/dev/null)" = "$tested" ] || { echo "the run has not decided on the tested candidate $tested: run ### Decide: did the binary change first" >&2; exit 1; }
+if grep -qx 'binary: unchanged' "$rd/release-binary"; then
+  [ "$(git -C "$wt" rev-parse HEAD)" = "$tested" ] || { echo "a binary-unchanged run pushes the tested candidate and nothing on top: stop the run" >&2; exit 1; }
+elif ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
   ! git -C "$wt" diff --quiet "$tested" HEAD -- . ':!.version' ':!CHANGELOG.md'; then
   echo "the candidate changed after the suite ran (or the suite has not passed on it): stop the run" >&2
   exit 1
@@ -505,6 +585,7 @@ fi
 [ "$(cat "$rd/drift-checked" 2>/dev/null)" = "$tested" ] || { echo "drift-check has not passed on the tested candidate $tested: stop the run" >&2; exit 1; }
 satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" --session "$session" || exit 1   # before the push: landed items are never unrecorded
 satelle execution attach "$exe" --name release-drift --type text/plain --file "$rd/release-drift" --session "$session" || exit 1
+satelle execution attach "$exe" --name release-binary --type text/plain --file "$rd/release-binary" --session "$session" || exit 1   # the gates read the decision from the run
 git -C "$wt" push origin HEAD:refs/heads/main || exit 1   # a plain push: refused unless it fast-forwards; never forced
 echo "main is $(git -C "$wt" rev-parse HEAD)"
 git worktree remove --force "$wt"   # pushed; --force only drops the suite's build output
@@ -515,6 +596,8 @@ GitHub marks each pull request merged, because main now contains its head.
 
 ## 5. Dispatch
 
+Binary changed only.
+
 ```sh
 gh workflow run release.yml --ref main
 gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url   # the run whose headSha is the pushed sha
@@ -523,12 +606,16 @@ gh run watch <id> --exit-status
 
 ## 6. Confirm both releases
 
+Binary changed only.
+
 ```sh
 gh release view v<ver> --json tagName,assets
 gh release view serve-v<sver> --json tagName,assets
 ```
 
 ## 7. Back up, then install here
+
+Binary changed only.
 
 ```sh
 session=<session>   # this session's id, from the context line
@@ -549,17 +636,28 @@ prints two `is current` lines.
 
 ## 8. Check
 
-`satelle version --session <session>` names `<ver>` and main's commit; `satelle service status --session <session>`
+Binary changed: `satelle version --session <session>` names `<ver>` and main's commit; `satelle service status --session <session>`
 shows satelled answering, `running` and `installed` at `<sver>` and main's
 commit, and no `warning` line (the release-installed gate's patterns). A
 mismatch stops the run and repeats the restore line.
+
+Binary unchanged: `satelle version --session <session>` names `<ver>` at the
+commit of `v<ver>`; `satelle service status --session <session>` shows
+satelled answering, `running` and `installed` at `<sver>` and the commit of
+`serve-v<sver>`, and no `warning` line. A mismatch stops the run, as above.
+The run installs nothing on this path: the operator installs the published
+`<ver>` outside the run, and the run resumes at step 8.
 
 ## 9. Close
 
 For each released item: `satelle story set <id> --status done --session <session>`. Its five gates
 (release-run, version-stamp, changelog-entry, ci-published, release-installed)
-judge it while the run is still in progress. Present every move here with step
-7's installed binary first on `PATH`: `command -v satelle` is step 0's path and
+judge it while the run is still in progress, and the last four read the run's
+`release-binary` decision: on `binary: unchanged` they accept main at the
+recorded candidate with `.version` as published, the item's lines held on its
+`changelog` attachment, the published releases, and the published build
+installed. Present every move here with step
+7's installed binary (on a binary-unchanged run, the installed published build) first on `PATH`: `command -v satelle` is step 0's path and
 `satelle version --session <session>` names `<ver>`. Take any tip build step 2c put first on `PATH`
 off it before this step, because release-installed reads `satelle version --session <session>`.
 
@@ -572,6 +670,7 @@ the run (`satelle execution attach "$exe" --name release-evidence --file - --ses
 
 - per item: id, PR number, head sha, and how it landed (fast-forward, merged or contained) or sent back with the reason
 - the candidate sha and the `make test` result (with the log's tail when it failed)
+- the `release-binary` record (the decision and the paths that decided it)
 - main before and after, and the bump commit
 - the version section written (its heading and the ids it names)
 - the release.yml run URL, head sha and conclusion
@@ -579,6 +678,11 @@ the run (`satelle execution attach "$exe" --name release-evidence --file - --ses
 - the step-0 and pre-step-7 binary sha256s, the backup dir listing and the restore line
 - the `satelle version --session <session>` and `satelle service status --session <session>` lines
 - each item's final status
+
+On a binary-unchanged run the evidence is the record, main before and after
+(after is the tested candidate), the step 8 lines and each item's final
+status: there is no bump commit, version section, `release.yml` run, tag,
+backup or restore line.
 
 Then present the run `in_progress → done` (validate-after) and release its
 seat.
@@ -624,7 +728,12 @@ Every release ends with a drift review (operator, 2026-11-07): the substrate
 checked against the binary just released, and the release's binary change
 judged against the constitution. From the main checkout, after step 10, start
 the drift review task with the release's tag range as its base and follow its
-run to done:
+run to done. After a binary-changed release HEAD is the new tag `v<ver>` and
+the range is the previous tag to it. After a binary-unchanged release no new
+tag exists: HEAD is main (origin/main, ahead of `v<ver>`) and the range is
+`v<ver>..main`, everything on main the published binary's review has not
+covered. The block decides which from git alone; on the second it refuses a
+drift task whose body does not state that head, before any run is created.
 
 ```sh
 session=<session>   # this session's id, from the context line
@@ -633,8 +742,15 @@ git fetch -q origin --tags
 task=tas_a45ba066
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 prev=$(git tag -l 'v*' | sed 's/^v//' | sort -V | awk -v v="$ver" '$0 == v { print p; exit } { p = $0 }')
-[ -n "$ver" ] && [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }
-[ "$(git rev-parse HEAD)" = "$(git rev-parse "v$ver^{commit}")" ] || { echo "the main checkout is not at v$ver: the drift review judges the released tree" >&2; exit 1; }
+head=$(git rev-parse HEAD); tag=$(git rev-parse -q --verify "v$ver^{commit}")
+if [ -n "$ver" ] && [ -n "$tag" ] && [ "$head" = "$tag" ]; then
+  [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }
+elif [ -n "$ver" ] && [ -n "$tag" ] && git merge-base --is-ancestor "$tag" HEAD && [ "$head" = "$(git rev-parse origin/main)" ]; then
+  prev=$ver   # binary-unchanged: judged from the published tag to main
+  satelle task get "$task" --session "$session" | grep -q 'binary-unchanged' || { echo "the drift review task $task does not state the head of a binary-unchanged release: restate its body (plan of sto_da9775c1, Configuration to apply) before this run" >&2; exit 1; }
+else
+  echo "the main checkout is neither at v$ver nor at origin/main ahead of it: the drift review judges the released tree or the main a binary-unchanged release fast-forwarded to" >&2; exit 1
+fi
 exe=$(satelle task run "$task" --base "v$prev" --json --session "$session" | jq -r '.id')
 satelle execution set "$exe" --status in_progress --session "$session"                     # validate-before
 satelle execution seat "$exe" --base "v$prev" --session "$session"
@@ -642,9 +758,10 @@ satelle execution seat "$exe" --base "v$prev" --session "$session"
 ```
 
 Then follow `.satelle/skills/drift-review.md` to `done`. The seat carries the
-same `--base` as the run: a seat without it records HEAD (`v$ver`), the latest
-seat's base is the one the gates judge from, and the diff the
-`drift-constitution` gate judges would be empty.
+same `--base` as the run: a seat without it records HEAD (the released tag
+`v$ver`, or main after a binary-unchanged release), the latest seat's base is
+the one the gates judge from, and the diff the `drift-constitution` gate
+judges would be empty.
 
 A drift finding never reopens the release: it goes into the release's one
 drift-fix item (`scripts/drift-fix.sh`), and that item is the fix. The release

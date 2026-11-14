@@ -648,9 +648,11 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 	}
 }
 
-// The drift-claims gate runs on every release (.version changes each time):
-// skipped by the trigger for another task's run, and for a drift run judged by
-// the runbook's drift-claims binding over only the .version diff. Its verdict never blocks:
+// The drift-claims gate runs when the run's range changed one of its paths
+// (.version on every binary-changed release, the constitution or a
+// principle): skipped by the trigger for another task's run, and for a drift
+// run judged by the runbook's drift-claims binding over only the .version
+// diff of this sandbox's release. Its verdict never blocks:
 // each example verdict in the skill's ## Verdict section (zero warnings, one
 // warning) passes the gate's real notes and reference after checks, and the
 // run reaches done; the skill states no reject, and drift-review.md step 5
@@ -923,5 +925,261 @@ func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
 	}
 	if st := d.status(exe); st != "done" {
 		t.Fatalf("run is %s, want done", st)
+	}
+}
+
+// driftTaskBody is the drift review task's body as plan sto_da9775c1's
+// Configuration to apply restates it.
+const driftTaskBody = `ACTION: follow .satelle/skills/drift-review.md.
+
+## Head after a binary-unchanged release
+This section overrides any statement above that the run's head is the released tag v<version> or that its base is the previous release's tag.
+ACTION: after a binary-changed release the run judges the previous tag to the released tag, as stated above. After a binary-unchanged release no new tag exists: the run judges from the published tag v<version> to main, the commit main fast-forwarded to (release.md step 11).
+VERIFICATION: on a binary-unchanged head the drift-report opens "# Drift review of main <sha12> (binary-unchanged since v<version>)" and its Checks lines name the range v<version>..main <sha12>. A v<version> tag at the head is required only after a binary-changed release. A drift-claims or drift-constitution gate skipped because the range changed none of its paths is not a missing check.
+`
+
+// unchangedDriftSandbox is a drift sandbox with a bare origin whose main is
+// one commit (files) ahead of the published v0.0.2, as a binary-unchanged
+// release leaves it, and the main sha.
+func unchangedDriftSandbox(t *testing.T, files map[string]string) (*driftCloseSandbox, string) {
+	t.Helper()
+	d := newDriftCloseSandbox(t)
+	origin := realDir(t, t.TempDir())
+	d.exec("git", "", "init", "-q", "--bare", origin)
+	d.git("remote", "add", "origin", origin)
+	// The sandbox's config commit is part of the published v0.0.2.
+	d.git("tag", "-f", "v0.0.2")
+	for p, body := range files {
+		d.write(p, body)
+	}
+	d.git("add", "-A")
+	d.git("commit", "-q", "-m", "a binary-unchanged landing")
+	d.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	d.git("push", "-q", "origin", "--tags")
+	d.git("fetch", "-q", "origin")
+	return d, d.rev("HEAD")
+}
+
+// stepEleven runs release.md's step 11 block as written, its task= line bound
+// to the sandbox's drift task and its cd line dropped (the sandbox is the main
+// checkout).
+func (d *driftCloseSandbox) stepEleven() result {
+	d.t.Helper()
+	block := shBlock(d.t, ".satelle/skills/release.md", "## 11.", d.drift)
+	cd := "cd <the main checkout>\n"
+	if !strings.Contains(block, cd) {
+		d.t.Fatalf("release.md step 11 has no %q line", cd)
+	}
+	return d.exec("bash", "", "-c", strings.Replace(block, cd, "", 1))
+}
+
+func (d *driftCloseSandbox) driftRuns() []string {
+	d.t.Helper()
+	var runs []struct {
+		ID string `json:"id"`
+	}
+	d.mustJSON(&runs, "execution", "list", "--parent", d.drift)
+	var out []string
+	for _, r := range runs {
+		out = append(out, r.ID)
+	}
+	return out
+}
+
+// AC5: after a binary-unchanged release (main ahead of v0.0.2, no new tag)
+// release.md step 11 starts the drift review judged from v0.0.2 to main;
+// drift-review.md names the head main <sha12> on the report; the run's task
+// attachment holds the restated body and the report holds what its
+// VERIFICATION names; the run reaches done with drift-constitution judging the
+// landed source, drift-claims skipped on paths unless a principle changed (then
+// judged over that hunk alone, with the restated skill), and both skipped when
+// only substrate landed. A drift task whose body does not state this head, and
+// a HEAD that is neither the tag nor origin/main, are refused with no run.
+func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
+	t.Parallel()
+	skill := "---\nname: x\ntype: skill\ndescription: x\n---\n\nx\n"
+	d, main := unchangedDriftSandbox(t, map[string]string{
+		".satelle/skills/x.md": skill,
+		"internal/x_test.go":   "package x\n\n// a test\n",
+	})
+	sha12 := main[:12]
+
+	// The task still says the head is the released tag: refused, no run.
+	if r := d.stepEleven(); r.code != 1 || !strings.Contains(r.err, "does not state the head of a binary-unchanged release") {
+		t.Fatalf("step 11 with the old task body: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if runs := d.driftRuns(); len(runs) != 0 {
+		t.Fatalf("a refused step 11 created runs %v", runs)
+	}
+	d.must("task", "set", d.drift, "--body", driftTaskBody)
+	if r := d.stepEleven(); r.code != 0 {
+		t.Fatalf("step 11 on main ahead of v0.0.2: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	runs := d.driftRuns()
+	if len(runs) != 1 {
+		t.Fatalf("drift runs %v, want one", runs)
+	}
+	exe := runs[0]
+	var diff struct {
+		Base  string   `json:"base"`
+		Paths []string `json:"paths"`
+	}
+	d.mustJSON(&diff, "execution", "diff", exe)
+	if want := d.rev("v0.0.2^{commit}"); diff.Base != want || !slices.Contains(diff.Paths, "internal/x_test.go") || !slices.Contains(diff.Paths, ".satelle/skills/x.md") {
+		t.Fatalf("run %s judged from %s over %v; want v0.0.2 (%s) with both landed files", exe, diff.Base, diff.Paths, want)
+	}
+	if r := d.step("## 0."); !strings.Contains(r.out, "run "+exe+": main "+sha12+" judged from v0.0.2\n") {
+		t.Fatalf("drift-review step 0:\n%s", r.out)
+	}
+	d.substrate(exe, "", "0")
+	d.step("## 2.")
+	d.step("## 3.")
+	d.step("## 4.")
+	rep := d.report(exe)
+	heading := "# Drift review of main " + sha12 + " (binary-unchanged since v0.0.2)"
+	rangeLine := "v0.0.2..main " + sha12
+	if !strings.HasPrefix(rep, heading+"\n") || !strings.Contains(rep, "\n- drift-constitution: "+rangeLine+" over ") ||
+		!strings.Contains(rep, "\n- satelle ") || !strings.Contains(rep, "\n- scripts/drift-check.sh: drift-check exit 0\n") {
+		t.Fatalf("the report:\n%s", rep)
+	}
+	task := d.must("execution", "attachment", exe, "task")
+	if !strings.Contains(task, "## Head after a binary-unchanged release") {
+		t.Fatalf("the run's task attachment lacks the restated section:\n%s", task)
+	}
+	for _, want := range []string{"# Drift review of main <sha12> (binary-unchanged since v<version>)", "v<version>..main <sha12>"} {
+		if !strings.Contains(task, want) {
+			t.Fatalf("the restated VERIFICATION lacks %q", want)
+		}
+		got := strings.NewReplacer("<sha12>", sha12, "<version>", "0.0.2").Replace(want)
+		if !strings.Contains(rep, got) {
+			t.Fatalf("the report lacks %q, which the VERIFICATION names:\n%s", got, rep)
+		}
+	}
+	prompts(t, d.fake, "constitution")
+	d.citeReport(exe)
+	if r := d.run("execution", "set", exe, "--status", "done"); r.code != 0 {
+		t.Fatalf("the drift run did not close: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	d.gatesAccepted(exe, "drift-constitution", "drift-closures", "validate-after")
+	if g := latestRun(d.sandbox, exe, "drift-claims"); g.Result != "skipped" || !strings.Contains(g.Notes, "no changed path matches") {
+		t.Fatalf("drift-claims = %s (%q), want skipped on paths", g.Result, g.Notes)
+	}
+	if ps := prompts(t, d.fake, "constitution"); len(ps) != 1 || !strings.Contains(ps[0], "+// a test") {
+		t.Fatalf("the constitution judge's prompt lacks the internal/x_test.go hunk:\n%s", strings.Join(ps, "\n----\n"))
+	}
+
+	// HEAD ahead of the tag but not origin/main: refused, no run.
+	d.write("docs/local.md", "local\n")
+	d.git("add", "-A")
+	d.git("commit", "-q", "-m", "local only")
+	if r := d.stepEleven(); r.code != 1 || !strings.Contains(r.err, "neither at v0.0.2 nor at origin/main ahead of it") {
+		t.Fatalf("step 11 ahead of origin/main: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if runs := d.driftRuns(); len(runs) != 1 {
+		t.Fatalf("a refused step 11 created a run: %v", runs)
+	}
+
+	// A principle landed too: drift-claims judges that hunk alone, with the
+	// restated skill.
+	p, _ := unchangedDriftSandbox(t, map[string]string{
+		".satelle/skills/x.md":     skill,
+		"internal/x_test.go":       "package x\n",
+		".satelle/principles/p.md": "---\nname: p\ntype: principle\ndescription: A principle.\n---\n\nThe queue lives in a file.\n",
+	})
+	p.must("task", "set", p.drift, "--body", driftTaskBody)
+	if r := p.stepEleven(); r.code != 0 {
+		t.Fatalf("step 11 (principle): exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	pexe := p.driftRuns()[0]
+	p.attachReport(pexe, noDriftReport())
+	p.citeReport(pexe)
+	if r := p.run("execution", "set", pexe, "--status", "done"); r.code != 0 {
+		t.Fatalf("the drift run (principle) did not close: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	ps := prompts(t, p.fake, "claims")
+	if len(ps) != 1 || !strings.Contains(ps[0], "+The queue lives in a file.") || strings.Contains(ps[0], "satelle.version") {
+		t.Fatalf("the claims prompt does not carry only the principle hunk:\n%s", strings.Join(ps, "\n----\n"))
+	}
+	if sys, _ := os.ReadFile(filepath.Join(p.fake, "system.claims")); !strings.Contains(string(sys), "The diff in your prompt is the range's change to") {
+		t.Fatal("the claims judge was not given the restated skill")
+	}
+	p.gatesAccepted(pexe, "drift-claims", "validate-after")
+
+	// Only substrate landed: both judges are skipped on paths.
+	s, _ := unchangedDriftSandbox(t, map[string]string{".satelle/skills/x.md": skill})
+	s.must("task", "set", s.drift, "--body", driftTaskBody)
+	if r := s.stepEleven(); r.code != 0 {
+		t.Fatalf("step 11 (substrate): exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	sexe := s.driftRuns()[0]
+	s.attachReport(sexe, noDriftReport())
+	s.citeReport(sexe)
+	if r := s.run("execution", "set", sexe, "--status", "done"); r.code != 0 {
+		t.Fatalf("the drift run (substrate) did not close: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	for _, gate := range []string{"drift-constitution", "drift-claims"} {
+		if g := latestRun(s.sandbox, sexe, gate); g.Result != "skipped" || !strings.Contains(g.Notes, "no changed path matches") {
+			t.Fatalf("%s = %s (%q), want skipped on paths", gate, g.Result, g.Notes)
+		}
+	}
+
+	// At the released tag (a binary-changed release) the report is as before:
+	// it names the tag and the previous tag's range.
+	tg := newDriftCloseSandbox(t)
+	tg.git("tag", "-f", "v0.0.2")
+	texe := tg.start(tg.drift, stepSeat(t))
+	if r := tg.step("## 0."); !strings.Contains(r.out, "run "+texe+": v0.0.2 judged from v0.0.1\n") {
+		t.Fatalf("drift-review step 0 at the tag:\n%s", r.out)
+	}
+	tg.substrate(texe, "", "0")
+	tg.step("## 2.")
+	tg.step("## 3.")
+	if rep := tg.report(texe); !strings.HasPrefix(rep, "# Drift review of v0.0.2\n") || !strings.Contains(rep, "\n- drift-constitution: v0.0.1..v0.0.2 over ") ||
+		!strings.Contains(rep, " against cmd/ and internal/ at v0.0.2\n") {
+		t.Fatalf("the report at the tag:\n%s", rep)
+	}
+}
+
+// AC5: no drift skill or the runbook still says the claims gate runs on every
+// release, and the claims skill names every path the gate runs on, so the two
+// cannot drift apart again.
+func TestDriftSkillsStateTheirTrigger(t *testing.T) {
+	for _, f := range []string{".satelle/skills/satelle-drift-claims-review.md", driftReview,
+		".satelle/skills/satelle-drift-constitution-review.md", ".satelle/workflows/runbook.toml"} {
+		var words []string
+		for _, w := range strings.Fields(repoText(t, f)) {
+			if w != "#" {
+				words = append(words, w)
+			}
+		}
+		text := strings.Join(words, " ")
+		for _, stale := range []string{"is only `.version`", "run on every release", "relevant on every release", "relevant to every drift run"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q", f, stale)
+			}
+		}
+	}
+	var wf struct {
+		Gates map[string]struct {
+			Paths []string `toml:"paths"`
+		} `toml:"gates"`
+	}
+	if _, err := toml.Decode(repoText(t, ".satelle/workflows/runbook.toml"), &wf); err != nil {
+		t.Fatal(err)
+	}
+	paths := wf.Gates["drift-claims"].Paths
+	if len(paths) == 0 {
+		t.Fatal("runbook.toml's drift-claims has no paths")
+	}
+	claims := strings.Join(strings.Fields(repoText(t, ".satelle/skills/satelle-drift-claims-review.md")), " ")
+	_, sentence, ok := strings.Cut(claims, "The diff in your prompt is")
+	if !ok {
+		t.Fatal("the claims skill has no sentence starting \"The diff in your prompt is\"")
+	}
+	sentence, _, _ = strings.Cut(sentence, ". ")
+	for _, p := range paths {
+		if p = strings.TrimSuffix(p, "/**"); !strings.Contains(sentence, p) {
+			t.Errorf("the claims skill's diff sentence does not name the gate path %s:%s", p, sentence)
+		}
 	}
 }
