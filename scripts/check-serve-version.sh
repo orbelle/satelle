@@ -32,6 +32,21 @@
 #   --paths                   print the derived watch set, one per line, exit 0
 #   --check-path <path>...    print each <path> NOT under the watch set, one per
 #                             line; exit 0 if every path is watched, 1 if any is not
+#   --files <pkg>...          print, sorted and unique, one `<kind><TAB><path>`
+#                             line (module-relative) per file of every
+#                             main-module package in `go list -deps <pkg>...`,
+#                             for the GOOS/GOARCH/CGO_ENABLED of its environment
+#                             (the caller owns that environment; this mode
+#                             cleans nothing). Kinds: `built` (Go, cgo, C, C++,
+#                             ObjC, header, Fortran, assembly, SWIG and syso
+#                             sources, and every embedded file), `excluded`
+#                             (sources a build constraint leaves out, except
+#                             _test.go files), `pattern` (each //go:embed
+#                             pattern, `all:` removed, joined to its package
+#                             directory). Test-only files and embeds are not
+#                             read: only `go test` compiles them. It owns "what
+#                             a shipped binary is built from" for
+#                             scripts/release-binary.sh (sto_da9775c1).
 #
 # Exit codes: 0 ok / watched; 1 gate failure or an unwatched path; 2 usage error;
 # 3 (CANNOT_ANSWER) the watch set could not be derived, so there is NO answer.
@@ -88,6 +103,47 @@ serve_paths() {
   }
   printf '%s\n' "$out"
 }
+
+# --files is answered before the satelled derivation below: it names its own
+# packages, and its failure is the same CANNOT_ANSWER with go's reason.
+if [ "${1:-}" = --files ]; then
+  shift
+  [ $# -gt 0 ] && [ -n "$1" ] || { echo "check-serve-version: --files needs a package" >&2; exit 2; }
+  moddir=$(go list -m -f '{{.Dir}}' 2>"$GO_ERR") || {
+    echo "check-serve-version: go list -m failed — cannot resolve the module directory: $(go_reason)" >&2
+    exit "$CANNOT_ANSWER"
+  }
+  # One <kind><TAB><package dir><TAB><file or pattern> line per entry.
+  line='{{"\t"}}{{$d}}{{"\t"}}{{.}}{{"\n"}}'
+  tmpl='{{if .Module}}{{if .Module.Main}}{{$d := .Dir}}'
+  for f in GoFiles CgoFiles CFiles CXXFiles MFiles HFiles FFiles SFiles SwigFiles SwigCXXFiles SysoFiles EmbedFiles; do
+    tmpl="$tmpl{{range .$f}}built$line{{end}}"
+  done
+  for f in IgnoredGoFiles IgnoredOtherFiles; do
+    tmpl="$tmpl{{range .$f}}excluded$line{{end}}"
+  done
+  tmpl="$tmpl{{range .EmbedPatterns}}pattern$line{{end}}{{end}}{{end}}"
+  if ! listed=$(go list -deps -f "$tmpl" "$@" 2>"$GO_ERR"); then
+    echo "check-serve-version: go list -deps $* failed: $(go_reason)" >&2
+    exit "$CANNOT_ANSWER"
+  fi
+  out=$(printf '%s\n' "$listed" | awk -F'\t' -v m="$moddir" '
+    NF != 3 { next }
+    $1 == "excluded" && $3 ~ /_test\.go$/ { next }
+    {
+      f = $3
+      if ($1 == "pattern") sub(/^all:/, "", f)
+      d = $2
+      if (d == m) d = ""; else if (index(d, m "/") == 1) d = substr(d, length(m) + 2)
+      print $1 "\t" (d == "" ? f : d "/" f)
+    }' | sort -u)
+  [ -n "$out" ] || {
+    echo "check-serve-version: go list -deps $* listed no file of the main module" >&2
+    exit "$CANNOT_ANSWER"
+  }
+  printf '%s\n' "$out"
+  exit 0
+fi
 
 # Capture with $( ) and test the status in the PARENT. `mapfile < <(serve_paths)`
 # reads better and is wrong: a process substitution is a subshell, so an `exit`

@@ -1,7 +1,7 @@
 ---
 name: satelle-changelog-entry-check
 type: check
-description: CI/CD gate on approved → done. The first version heading of origin/main's CHANGELOG.md is "## [<satelle.version>] - <YYYY-MM-DD>", and that section holds every line of the item's changelog attachment under its section, ending with the item id; an item an earlier release already published (a landed item a later run carries to done, release.md step 2a) is accepted from the earlier section that holds its lines. Deterministic, no agent.
+description: CI/CD gate on approved → done. On a binary-unchanged release (the run's release-binary record, release.md ### Decide) the first version heading of origin/main's CHANGELOG.md is the published version's and the item's changelog attachment is valid, since the next binary-changed release writes its lines (release.md step 3, carried). Otherwise the first version heading of origin/main's CHANGELOG.md is "## [<satelle.version>] - <YYYY-MM-DD>", and that section holds every line of the item's changelog attachment under its section, ending with the item id; an item an earlier release already published (a landed item a later run carries to done, release.md step 2a) is accepted from the earlier section that holds its lines. Deterministic, no agent.
 ---
 
 # Changelog entry
@@ -11,7 +11,17 @@ Items never edit CHANGELOG.md: each records its lines as an attachment named
 `scripts/changelog-items.sh`). The release run writes the version section,
 `## [<version>] - <date>`, from the attachments of the items it lands, on top
 of the file in its one bump commit. This check runs once per landed item, so
-every landed item is checked:
+every landed item is checked.
+
+A binary-unchanged release writes no section: the run's `release-binary`
+record (read through `scripts/release-binary.sh of`) says so, and the item's
+lines stay on its `changelog` attachment until the next binary-changed run
+writes them first in its section (release.md step 3,
+`### Carried from binary-unchanged runs`). On that record the check accepts
+when the first `## [` line is still the published version's heading and the
+item has a `changelog` attachment `scripts/changelog-items.sh lines` accepts;
+a missing or malformed attachment is refused, so no line is lost. Otherwise
+(`binary: changed`, or a run with no record):
 
 - the first `## [` line of origin/main's CHANGELOG.md is the version's heading;
   anything left above the version section, whatever its name, is refused;
@@ -26,7 +36,12 @@ every landed item is checked:
 
 ```sh
 set -u
+task=tas_42301d36
 git fetch -q origin || { echo "git fetch origin failed"; exit 1; }
+if ! rec=$(bash scripts/release-binary.sh of "$task" "$SATELLE_ITEM" 2>&1); then
+  echo "cannot read the release run's binary decision for $SATELLE_ITEM: $rec"
+  exit 1
+fi
 ver=$(git show origin/main:.version 2>/dev/null | awk '$1=="satelle.version:" {print $2}')
 [ -n "$ver" ] || { echo "origin/main .version lacks satelle.version"; exit 1; }
 tmp=$(mktemp -d) || { echo "mktemp failed"; exit 1; }
@@ -41,6 +56,14 @@ fi
 if ! satelle story attachment "$SATELLE_ITEM" changelog >"$tmp/item" 2>/dev/null; then
   echo "no changelog attachment on $SATELLE_ITEM: the release run writes the [$ver] section from it"
   exit 1
+fi
+if printf '%s\n' "$rec" | grep -qx 'binary: unchanged'; then
+  if ! why=$(bash scripts/changelog-items.sh lines "$SATELLE_ITEM" <"$tmp/item" 2>&1 >/dev/null); then
+    echo "binary unchanged, but $SATELLE_ITEM's changelog attachment is refused, so the next version section could not carry it: $why"
+    exit 1
+  fi
+  echo "binary unchanged since v$ver: $SATELLE_ITEM's lines are held on its changelog attachment; the next version section carries them (release.md step 3)"
+  exit 0
 fi
 if why=$(bash scripts/changelog-items.sh has "$tmp/CHANGELOG.md" "$ver" "$SATELLE_ITEM:$tmp/item" 2>&1); then
   echo "CHANGELOG.md on origin/main opens with the [$ver] section, which holds every line of $SATELLE_ITEM's changelog attachment"

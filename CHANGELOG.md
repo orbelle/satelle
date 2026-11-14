@@ -1,3 +1,18 @@
+## [1.0.74] - 2026-11-14
+
+### Added
+- `satelle init` ships a principle, `.satelle/principles/satelle-reference-not-restate.md`, and lists it in a new repo's `[hook] inject`, so every session reads it: name the command, file or link that answers a volatile question instead of writing its answer. In an existing repo `satelle init` adds the file; add its path to `[hook] inject` in `satelle.toml` to have sessions read it (sto_7e024b28). (sto_7e024b28)
+
+## [1.0.73] - 2026-11-14
+
+### Changed
+- A release run whose landed items change nothing the satelle or satelled build compiles or embeds lands on main with no version, tag, publish or install; its changelog lines are written into the next version section, and the drift review judges main from the published tag (sto_da9775c1)
+
+## [1.0.72] - 2026-11-14
+
+### Added
+- `satelle init` writes the skill `satelle-workflow-standard`, and the template `satelle.toml` injects it at session start: before creating, changing or checking a workflow the agent reads the standard the skill names and cites its rule ids. The repo edits the skill's `Standard:` line; an existing repo runs `satelle init` and adds the skill's path to `[hook] inject`. (sto_5692efef)
+
 ## [1.0.71] - 2026-11-14
 
 ### Changed

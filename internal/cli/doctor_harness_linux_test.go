@@ -313,8 +313,7 @@ func TestDoctorReportsInUseHarnessesThatDiffer(t *testing.T) {
 	t.Run("opted out", func(t *testing.T) {
 		dir := isolate(t)
 		must(t, "init")
-		p := filepath.Join(dir, ".satelle", kernel.SettingsFile)
-		putFile(t, p, readString(t, p)+"\n[hook]\nrefresh = false\n")
+		writeHookSettings(t, dir, "refresh = false\n")
 		staleHarness(t, dir, hook.Claude)
 		issues := harnessIssuesOf(t, hook.Claude)
 		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "[hook] refresh = false, so satelle update leaves it") {

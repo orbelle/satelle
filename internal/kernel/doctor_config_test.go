@@ -69,7 +69,7 @@ func TestInitWritesNoStarterWorkflowIntoAConfiguredRepo(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, WorkflowsDir, "default.toml")); !os.IsNotExist(err) {
 		t.Fatalf("init wrote the starter workflow into a configured repo: %v", err)
 	}
-	for _, f := range []string{AgentsFile, ".gitignore", "README.md", filepath.Join(SkillsDir, "satelle-upgrade.md")} {
+	for _, f := range []string{AgentsFile, ".gitignore", "README.md", filepath.Join(SkillsDir, "satelle-upgrade.md"), filepath.Join("principles", "satelle-reference-not-restate.md")} {
 		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
 			t.Errorf("init did not add the missing %s: %v", f, err)
 		}

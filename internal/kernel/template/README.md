@@ -5,6 +5,9 @@ in this directory: workflows, the gates on their transitions, the skills gates
 and performers follow, and the agents that do the work. It is tracked in git
 and is yours to edit.
 
+`principles/` holds the repo's principles; those listed in `satelle.toml`
+`[hook] inject` are printed at session start.
+
 ## If you are an agent working in this repo
 
 If your session start gave you no satelle context (a session id and your

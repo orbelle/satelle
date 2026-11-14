@@ -227,7 +227,7 @@ func TestInjectFileFollowsTheGuidanceAtSessionStartOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".satelle", "skills", "inject-probe.md"), []byte(skill), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	appendSettings(t, dir, "\n[hook]\ninject = [\".satelle/skills/inject-probe.md\"]\n")
+	writeHookSettings(t, dir, "inject = [\".satelle/skills/inject-probe.md\"]\n")
 	stopAt(t, "s-inj", "in_progress", "approved")
 	payload := fmt.Sprintf(`{"session_id":"s-inj","cwd":%q}`, dir)
 	raw, err := run(t, payload, "hook", "context", "--harness", "claude")

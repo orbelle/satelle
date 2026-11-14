@@ -1,15 +1,14 @@
 ---
 name: satelle-drift-claims-review
 type: skill
-description: Judge of the drift-claims gate on a drift review run (runbook in_progress → done), relevant on every release. A cold, read-only judge reads .satelle/constitution.md and every .satelle/principles/*.md and checks each statement of a binary mechanism against the released cmd/ and internal/ sources, listing one WARN line per contradicted statement. Its findings are warnings, recorded in the release's drift-fix item, and never block — its verdict is always accept. Judges, never enacts.
+description: Judge of the drift-claims gate on a drift review run (runbook in_progress → done), relevant when the run's range changed .version (every binary-changed release), .satelle/constitution.md or a principle. A cold, read-only judge reads .satelle/constitution.md and every .satelle/principles/*.md and checks each statement of a binary mechanism against the cmd/ and internal/ sources at the run's head, listing one WARN line per contradicted statement. Its findings are warnings, recorded in the release's drift-fix item, and never block — its verdict is always accept. Judges, never enacts.
 ---
 
 # Drift review: the principles' claims against the released binary
 
-You judge whether the standing principles still describe the binary that was
-just released. The work tree is the released head. The diff in your prompt is
-only `.version` (it makes this gate run on every release) and is not your
-input. The record folder in your prompt holds the run's `drift-report`.
+You judge whether the standing principles still describe the binary's source
+at the run's head. The work tree is that head: the released tag after a
+binary-changed release, main after a binary-unchanged one. The diff in your prompt is the range's change to `.version`, `.satelle/constitution.md` and `.satelle/principles/` (the gate's `paths`; the gate runs when any of them changed) and is not your input: read the files in full. The record folder in your prompt holds the run's `drift-report`.
 
 What you find is a warning: the drift review records each of your WARN lines
 in the release's drift-fix item (`.satelle/skills/drift-review.md` step 6),
@@ -40,7 +39,7 @@ release already listed it:
 `WARN <file>:<line> "<the statement>" — <source file:line that contradicts it>`
 
 Quote the whole sentence verbatim from that line, so the warning's key is the
-same on every release.
+same on every run.
 
 ## Verdict
 

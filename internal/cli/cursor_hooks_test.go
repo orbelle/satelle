@@ -119,14 +119,13 @@ func cursorDeny(t *testing.T, raw string, doc map[string]any) string {
 	return reason
 }
 
-func appendSettings(t *testing.T, dir, text string) {
+// writeHookSettings overwrites the repo's satelle.toml with the default
+// workflow and a [hook] table holding hookBody. init's template already has a
+// live [hook] table, so appending a second one would not decode.
+func writeHookSettings(t *testing.T, dir, hookBody string) {
 	t.Helper()
-	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(text); err != nil {
+	text := "[workflows]\ndefault = \"default\"\n\n[hook]\n" + hookBody
+	if err := os.WriteFile(filepath.Join(dir, ".satelle", "satelle.toml"), []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -282,7 +281,7 @@ func TestCursorContextCarriesSessionSeatsAndInject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "principles.md"), []byte("nonce-5d1e\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	appendSettings(t, dir, "\n[hook]\ninject = [\"principles.md\"]\n")
+	writeHookSettings(t, dir, "inject = [\"principles.md\"]\n")
 	id := createID(t, "story", "create", "--title", "seated work", "--workflow", "gated")
 	must(t, "story", "set", id, "--status", "st-two")
 	must(t, "story", "seat", id, "--session", "c-ctx")

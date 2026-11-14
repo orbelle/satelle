@@ -1,17 +1,19 @@
 ---
 name: satelle-drift-constitution-review
 type: skill
-description: Judge of the drift-constitution gate on a drift review run (runbook in_progress → done). A cold, read-only judge reads the release's change (the run's diff from the previous release tag to the released head, over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md and .satelle/principles/) against .satelle/constitution.md and every .satelle/principles/*.md, rejects with one DRIFT line per drift the run's drift-report does not yet carry (in its fix item), and re-checks every open constitution finding the report lists (other open drift items and the release's fix item), stating one RESOLVED line for each that no longer holds. Judges, never enacts.
+description: Judge of the drift-constitution gate on a drift review run (runbook in_progress → done). A cold, read-only judge reads the release's change (the run's diff from the run's base (the previous release's tag, or the published tag when the release left the binary unchanged) to the run's head (the released tag, or main after a binary-unchanged release), over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md and .satelle/principles/) against .satelle/constitution.md and every .satelle/principles/*.md, rejects with one DRIFT line per drift the run's drift-report does not yet carry (in its fix item), and re-checks every open constitution finding the report lists (other open drift items and the release's fix item), stating one RESOLVED line for each that no longer holds. Judges, never enacts.
 ---
 
 # Drift review: the release's binary change against the constitution
 
 You judge one release's change to the binary. The prompt carries the run
-(a drift review run), its base commit (the previous release's tag), the
-changed paths and the diff over the binary's sources (`cmd/`, `internal/`,
-`go.mod`, `go.sum`) and the constitution and principles
-(`.satelle/constitution.md`, `.satelle/principles/`) up to the released head,
-which is the work tree you read. A release that edits only the constitution or
+(a drift review run), its base commit (the run's base: the previous
+release's tag, or the published tag when the release left the binary
+unchanged), the changed paths and the diff over the binary's sources (`cmd/`,
+`internal/`, `go.mod`, `go.sum`) and the constitution and principles
+(`.satelle/constitution.md`, `.satelle/principles/`) up to the run's head (the
+released tag, or main after a binary-unchanged release), which is the work
+tree you read. A release that edits only the constitution or
 a principle reaches you too: that is how a constitution finding gets fixed.
 The record folder in your prompt holds the run's `drift-report`.
 

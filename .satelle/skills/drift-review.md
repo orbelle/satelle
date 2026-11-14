@@ -1,7 +1,7 @@
 ---
 name: drift-review
 type: skill
-description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, the drift-claims gate lists the principles' statements of mechanism the released source does not implement as warnings (it never blocks), and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item, each WARN line a warning in it. Fixes nothing inline.
+description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, the drift-claims gate lists the principles' statements of mechanism the source at the run's head does not implement as warnings (it never blocks) when the range changed .version, the constitution or a principle, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item, each WARN line a warning in it. Fixes nothing inline.
 ---
 
 # Drift review (after every release)
@@ -15,10 +15,13 @@ code. The release itself refuses a candidate whose substrate names what its
 binary lacks (release.md, `### Drift gate on the candidate`), so a substrate
 finding here is rare.
 
-This run is the review. It runs from the main checkout at the released tag,
-after the release run and the worktree cleanup (release.md steps 10 and 11).
-Its base is the previous release's tag, so its diff is exactly what the release
-changed.
+This run is the review. It runs from the main checkout after the release run
+and the worktree cleanup (release.md steps 10 and 11). Its head is the
+released tag after a binary-changed release, and main (the tested candidate
+main fast-forwarded to) after a binary-unchanged one, which publishes no tag.
+Its base is the previous release's tag, or, after a binary-unchanged release,
+the published tag main is ahead of, so its diff is exactly what landed since
+the last review.
 
 **Never edit code or substrate in this run.** Drift is fixed like an upgrade:
 every finding goes into the release's one drift-fix item
@@ -50,13 +53,16 @@ d=$(satelle execution diff "$exe" --json --session "$session")
 if [ "$(printf '%s' "$d" | jq -r .base)" != "$(git rev-parse "$base^{commit}")" ] || [ "$(printf '%s' "$d" | jq '.paths | length')" -eq 0 ]; then
   echo "run $exe is not judged from $base, or its diff is empty:" >&2; printf '%s\n' "$d" >&2; exit 1
 fi
-echo "run $exe: v$ver judged from $base"
+tag=$(git rev-parse -q --verify "v$ver^{commit}")
+if [ -n "$tag" ] && [ "$(git rev-parse HEAD)" = "$tag" ]; then head="v$ver"; else head="main $(git rev-parse HEAD | cut -c1-12)"; fi
+echo "run $exe: $head judged from $base"
 ```
 
 Every seat on the run, the first or a re-seat after a restart, carries
-`--base "$base"`. A seat without `--base` records HEAD, the released tag, and
-the latest seat's base is the one the gates judge from: the diff would be empty
-and `drift-constitution` would be skipped before it judged anything.
+`--base "$base"`. A seat without `--base` records HEAD (the released tag, or
+main after a binary-unchanged release), and the latest seat's base is the one
+the gates judge from: the diff would be empty and `drift-constitution` would
+be skipped before it judged anything.
 
 ## 1. Substrate against the binary
 
@@ -131,6 +137,8 @@ exe=$(satelle execution list --parent "$task" --status in_progress --json --sess
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.base_ref')
+tag=$(git rev-parse -q --verify "v$ver^{commit}")
+if [ -n "$tag" ] && [ "$(git rev-parse HEAD)" = "$tag" ]; then head="v$ver"; since=; else head="main $(git rev-parse HEAD | cut -c1-12)"; since=" (binary-unchanged since v$ver)"; fi
 touch "$rd/judged.txt" "$rd/findings.txt" "$rd/fix.txt"
 fix=$(cut -f1 "$rd/fix.txt" | head -1); [ -n "$fix" ] || fix=-
 satelle story list --tag drift --open --json --session "$session" > "$rd/open.json" || exit 1
@@ -140,14 +148,14 @@ awk -F'\t' -v found="$rd/found.txt" 'BEGIN { while ((getline l < found) > 0) f[l
 satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
 jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 {
-  echo "# Drift review of v$ver"
+  echo "# Drift review of $head$since"
   echo
   if [ ! -s "$rd/substrate.txt" ] && [ ! -s "$rd/judged.txt" ]; then echo "no drift"; echo; fi
   echo "## Checks"
   echo "- satelle $(satelle version --session "$session" 2>/dev/null | head -1)"
   echo "- scripts/drift-check.sh: $(cat "$rd/substrate.exit")"
-  echo "- drift-constitution: $base..v$ver over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/"
-  echo "- drift-claims: .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/ at v$ver"
+  echo "- drift-constitution: $base..$head over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/"
+  echo "- drift-claims: .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/ at $head"
   echo
   echo "## Substrate findings"; cat "$rd/substrate.txt"; echo
   echo "## Constitution findings"; grep ': constitution: ' "$rd/judged.txt"; echo

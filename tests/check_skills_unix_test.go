@@ -77,6 +77,9 @@ to = "retired"
 	for _, name := range repoCheckSkills(t) {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
+	// The release gates read the run's binary decision through this script,
+	// so its satelle calls are resolved too (sto_da9775c1).
+	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	for p, body := range extra {
 		s.write(p, body)
 	}
