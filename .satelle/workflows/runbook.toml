@@ -20,8 +20,15 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-agent = "reviewer-gemini-3.8-flash-high"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+# GPT-5.6 Sol (operator, 2026-11-14; sto_09b81217): Gemini 3.8 Flash High
+# accepted without naming a record path twice on v1.0.65's drift review
+# (exe_9a209ff1) and once on v1.0.63's (exe_68ec2cfe); the counts are the
+# ledger's, in sto_09b81217's judge-evidence.
+agent = "reviewer-gpt-5.6-sol-high"
+# On a drift review run the accept must quote its drift-report's version,
+# drift-check exit and fix item (or no drift) lines (sto_09b81217); every other
+# run passes satelle-drift-accept-quoted with no output.
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-accept-quoted"]
 
 # A run that landed items (release.md step 4 attaches its kept list as
 # release-kept before the push) is refused done while any of them is not in a

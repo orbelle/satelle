@@ -61,7 +61,10 @@ tools = ["Read", "Grep", "Glob"]
 # Sol, the latest Sol on Cursor, at its High tier. GPT, not Claude: the planner
 # and the session coder are Claude, and a judge runs another family than the
 # author (satelle-agent-alt-reviewer). It judges beside Gemini
-# (reviewer-gemini-3.8-flash-high); both must accept.
+# (reviewer-gemini-3.8-flash-high); both must accept. It also judges runbook's
+# close gates: drift-constitution and drift-claims (sto_ac7edb34) and
+# validate-after (operator, 2026-11-14; sto_09b81217), each moved from Gemini
+# 3.8 Flash High for verdicts that named no record path.
 [agents."reviewer-gpt-5.6-sol-high"]
 command = "cursor-agent"
 model = "gpt-5.6-sol-high"
