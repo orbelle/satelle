@@ -216,8 +216,16 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 
 	// refused: the write fails where it happens (the guard is read-only), so
 	// the run fails and nothing lands under the wrapper's ~/.satelle.
+	// As root (a container node) the mode does not refuse the write, so the
+	// guard's check after the command is what fails the run.
 	refused := func(t *testing.T, code int, out string) {
 		t.Helper()
+		if os.Geteuid() == 0 {
+			if code == 0 || !strings.Contains(out, wrote) {
+				t.Fatalf("as root: exit %d, want non-zero with %q; output:\n%s", code, wrote, out)
+			}
+			return
+		}
 		if code == 0 || !strings.Contains(strings.ToLower(out), "permission denied") {
 			t.Fatalf("exit %d, want non-zero with a permission-denied write; output:\n%s", code, out)
 		}
@@ -412,6 +420,20 @@ func asCaller(t *testing.T, extraEnv []string, prep func(home string), script st
 		t.Fatalf("hermetic.sh: %v", err)
 	}
 	return home, code, string(b)
+}
+
+// statWholeSeconds reports whether stat here prints whole-second times, as
+// hermetic.sh detects it for its snapshot.
+func statWholeSeconds(t *testing.T) bool {
+	t.Helper()
+	out, err := exec.Command("stat", "-c", "%y", "/").Output()
+	if err != nil {
+		out, err = exec.Command("stat", "-f", "%Fm", "/").Output()
+	}
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	return !strings.Contains(string(out), ".")
 }
 
 // optIn is the environment a test hands hermetic.sh so the wrapper runs its
@@ -637,8 +659,20 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		home, code, out := run(t, nil, `rm "$1/document-sync-state.json"`)
 		caught(t, code, 1, out, filepath.Join(home, ".satelle", "document-sync-state.json"))
 	})
+	t.Run("changed bytes of the same size are caught", func(t *testing.T) {
+		// The content hash catches it even where the clock fields are whole
+		// seconds (busybox stat on alpine), with no wait.
+		home, code, out := run(t, nil, `printf 'a = 2\n' > "$1/config.toml"`)
+		caught(t, code, 1, out, filepath.Join(home, ".satelle", "config.toml"))
+	})
 	t.Run("a rewrite with the same bytes is caught", func(t *testing.T) {
-		home, code, out := run(t, nil, `cat "$1/config.toml" > "$1/config.toml.new" && cat "$1/config.toml.new" > "$1/config.toml" && rm "$1/config.toml.new"`)
+		// Only the clock fields can show a same-bytes rewrite: where stat gives
+		// whole seconds, the rewrite waits past the snapshot's second.
+		wait := ""
+		if statWholeSeconds(t) {
+			wait = "sleep 1; "
+		}
+		home, code, out := run(t, nil, wait+`cat "$1/config.toml" > "$1/config.toml.new" && cat "$1/config.toml.new" > "$1/config.toml" && rm "$1/config.toml.new"`)
 		caught(t, code, 1, out, filepath.Join(home, ".satelle", "config.toml"))
 	})
 	t.Run("the home removed is caught", func(t *testing.T) {

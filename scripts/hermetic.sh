@@ -42,7 +42,8 @@
 #
 # The wrapper's own ~/.satelle is an empty read-only directory (sto_e3c6bfb6),
 # so a suite process that resolved the home with no SATELLE_HOME of its own
-# fails at the moment it writes there. After the command the wrapper fails the
+# fails at the moment it writes there (as root, which ignores the mode, the
+# write lands and the check below fails the run). After the command the wrapper fails the
 # run unless the guard is still that empty directory with the same inode, mode
 # and change time (written into, removed, replaced or chmodded all count, and
 # ctime cannot be set back), so a write cleaned up before exit, even with the
@@ -68,8 +69,8 @@
 #     where bwrap is missing or cannot run, e.g. on macOS, or for a home whose
 #     nearest existing parent is /): the run hides the home (above) and detects
 #     writes; it does not prevent them. Every path under each
-#     home is recorded (type, size, mtime, ctime, inode) before the command and
-#     again after, and the run fails, by the same exit rule, naming each path
+#     home is recorded (type, size, mtime, ctime, inode, content hash) before
+#     the command and again after, and the run fails, by the same exit rule, naming each path
 #     added, removed or changed, EXCEPT the paths the host's own satelle
 #     rewrites on its own schedule while a suite runs (the sync timer every
 #     30 s, satelled, every satelle command of a parallel session): serve/,
@@ -149,25 +150,55 @@ real2=
 [ -n "${HOME:-}" ] && [ "$HOME/.satelle" != "$real1" ] && real2="$HOME/.satelle"
 
 # hostsnap prints one line per path under $1 (relative path, type, size, mtime,
-# ctime, inode), sorted, leaving out the paths the host's own satelle writes
-# while a suite runs; "absent" when $1 does not exist.
+# ctime, inode, and for a regular file a hash of its bytes), sorted, leaving out
+# the paths the host's own satelle writes while a suite runs; "absent" when $1
+# does not exist. The hash catches changed bytes even where the clock fields are
+# whole seconds; a rewrite with the same bytes inside the same second is
+# visible only where they are finer (statprec, named on the mode line).
 live='^(serve|sessions|builds[.]json|builds[.]json[.][^/|]*[.]tmp|[^/|]*-[0-9a-f]{8})[/|]'
+if stat -c %n . >/dev/null 2>&1; then
+	statfmt="-c"
+	# %y and %z, not %.9Y and %.9Z: busybox stat (alpine) prints the epoch
+	# forms in whole seconds but the human-readable ones to the nanosecond.
+	statspec='%n|%F|%s|%y|%z|%i'
+	stattime='%y'
+else
+	statfmt="-f"
+	statspec='%N|%HT|%z|%Fm|%Fc|%i'
+	stattime='%Fm'
+fi
+# The precision of the clock fields, named on the mode line (a stat that gives
+# whole seconds cannot show a same-bytes rewrite within the second).
+case "$(stat $statfmt "$stattime" / 2>/dev/null)" in
+*.*) statprec="nanosecond timestamps" ;;
+*) statprec="whole-second timestamps" ;;
+esac
+if command -v sha256sum >/dev/null 2>&1; then
+	hashcmd="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+	hashcmd="shasum -a 256"
+else
+	hashcmd="cksum"
+fi
 hostsnap() {
 	[ -n "$1" ] || return 0
 	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
 		echo "absent"
 		return 0
 	fi
-	if stat -c %n . >/dev/null 2>&1; then
-		fmt="-c"
-		spec='%n|%F|%s|%.9Y|%.9Z|%i'
-	else
-		fmt="-f"
-		spec='%N|%HT|%z|%Fm|%Fc|%i'
-	fi
-	echo ".|$(stat -L $fmt "$(echo "$spec" | cut -d'|' -f2)" "$1" 2>/dev/null)"
-	(cd "$1" && find . -mindepth 1 -exec stat $fmt "$spec" {} + 2>/dev/null) |
-		sed 's|^[.]/||' | grep -Ev "$live" | LC_ALL=C sort
+	echo ".|$(stat -L $statfmt "$(echo "$statspec" | cut -d'|' -f2)" "$1" 2>/dev/null)"
+	(cd "$1" && find . -mindepth 1 -exec stat $statfmt "$statspec" {} + 2>/dev/null) |
+		sed 's|^[.]/||' | grep -Ev "$live" | LC_ALL=C sort |
+		while IFS= read -r line; do
+			rest=${line#*|}
+			case "${rest%%|*}" in
+			"regular file" | "regular empty file" | "Regular File")
+				sum=$($hashcmd <"$1/${line%%|*}" 2>/dev/null | cut -d' ' -f1)
+				printf '%s|%s\n' "$line" "$sum"
+				;;
+			*) printf '%s\n' "$line" ;;
+			esac
+		done
 }
 
 # Mode: bwrap when it is installed, works here and can protect every home;
@@ -225,7 +256,7 @@ fi
 if [ "$mode" = bwrap ]; then
 	echo "hermetic: mode bwrap: the caller's satelle home is read-only for the run ($(printf %s "$real1 $real2" | sed 's/^ //; s/ $//'))" >&2
 else
-	echo "hermetic: mode snapshot ($why; SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only, writes to the caller's satelle home are not prevented; changes are checked after the run except under serve/, sessions/, builds.json and the per-repo runtime dirs <name>-<8 hex>/" >&2
+	echo "hermetic: mode snapshot ($why; SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only, writes to the caller's satelle home are not prevented; changes are checked after the run ($statprec, content hashes) except under serve/, sessions/, builds.json and the per-repo runtime dirs <name>-<8 hex>/" >&2
 	before1=$(hostsnap "$real1")
 	before2=$(hostsnap "$real2")
 fi
