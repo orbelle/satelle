@@ -1,3 +1,10 @@
+## [1.0.68] - 2026-11-14
+
+### Changed
+- The mirror's event kinds refer to their owning constants in package item, which now owns the performer.run kind and the seat location prefixes the kernel and seatlife share (sto_1fb966b0)
+- One helper, ledger.ShortHash, cuts a hash to 12 characters for the gate, kernel, ledger replicator and `satelle ledger` output (sto_1fb966b0)
+- Removed the unused syncstate.RecordSync, the unreached non-linux systemdUser stub and the fork-load reproduction test; TestShebangCheckIsReadNotExecuted stays the proof for sto_cb34e3e3 (sto_1fb966b0)
+
 ## [1.0.67] - 2026-11-14
 
 ### Added
