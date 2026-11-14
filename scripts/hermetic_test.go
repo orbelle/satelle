@@ -585,7 +585,7 @@ func TestHermeticRefusesWithoutBwrap(t *testing.T) {
 		if code != 0 || guardLine(out) {
 			t.Fatalf("exit %d; want 0 and no guard line; output:\n%s", code, out)
 		}
-		for _, want := range []string{"hermetic: mode snapshot", "detection only", "serve/, sessions/, builds.json and the per-repo runtime dirs"} {
+		for _, want := range []string{"hermetic: mode snapshot", "detection of any change", "no path exempt"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("mode line does not say %q:\n%s", want, out)
 			}
@@ -603,15 +603,15 @@ func TestHermeticRefusesWithoutBwrap(t *testing.T) {
 // (sto_e3c6bfb6). The reviewer's route -- strip /go/pkg/mod from GOMODCACHE and
 // write <home>/.satelle -- does not reach the caller's home, because
 // GOMODCACHE is a link outside it. A write by a path the test was handed anyway
-// (here as an argument) is caught by the snapshot, naming each path; in this
-// mode the paths the host's own satelle rewrites while a suite runs (serve/,
-// sessions/, builds.json, the per-repo runtime dirs) are not checked.
+// (here as an argument) is caught by the snapshot, naming each path. No path is
+// exempt: serve/, sessions/, builds.json and the per-repo runtime dirs count
+// too.
 func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 	const changed = "changed the caller's real satelle home"
 	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
 		t.Helper()
 		home, code, out = asCaller(t, append([]string{"SATELLE_HERMETIC_FORCE_NO_BWRAP=1", "SATELLE_HERMETIC_ALLOW_SNAPSHOT=1"}, extraEnv...), nil, script, args...)
-		if !strings.Contains(out, "hermetic: mode snapshot (bwrap is missing (SATELLE_HERMETIC_FORCE_NO_BWRAP is set); SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only") {
+		if !strings.Contains(out, "hermetic: mode snapshot (bwrap is missing (SATELLE_HERMETIC_FORCE_NO_BWRAP is set); SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection of any change") {
 			t.Fatalf("the run did not say it ran in snapshot mode:\n%s", out)
 		}
 		return home, code, out
@@ -691,14 +691,21 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		home, code, out := run(t, nil, `echo leak >> "$1/config.toml"; exit 3`)
 		caught(t, code, 3, out, filepath.Join(home, ".satelle", "config.toml"))
 	})
-	t.Run("the paths the host's own satelle rewrites are left out", func(t *testing.T) {
-		_, code, out := run(t, nil, `echo w2 > "$1/serve/mirror.db-wal" && echo l > "$1/serve/server.log" && `+
-			`echo w2 > "$1/repo-0123abcd/db-wal" && mkdir -p "$1/other-89abcdef" "$1/sessions" && `+
-			`echo p > "$1/other-89abcdef/repo.path" && echo s > "$1/sessions/s.json" && echo b > "$1/builds.json"`)
-		if code != 0 || guardLine(out) {
-			t.Fatalf("exit %d, output %q; want 0 and no hermetic line", code, out)
-		}
-	})
+	// The paths a running satelle writes on its own (serve/, sessions/,
+	// builds.json, the per-repo runtime dirs) are not exempt: a write to each
+	// is caught.
+	for _, c := range []struct{ name, script, path string }{
+		{"serve/", `echo x > "$1/serve/x"`, "serve/x"},
+		{"sessions/", `mkdir -p "$1/sessions" && echo x > "$1/sessions/x"`, "sessions/x"},
+		{"builds.json", `echo x > "$1/builds.json"`, "builds.json"},
+		{"an existing runtime dir", `echo x > "$1/repo-0123abcd/x"`, "repo-0123abcd/x"},
+		{"a new runtime dir", `mkdir "$1/other-89abcdef" && echo x > "$1/other-89abcdef/repo.path"`, "other-89abcdef/repo.path"},
+	} {
+		t.Run("a write to "+c.name+" is caught", func(t *testing.T) {
+			home, code, out := run(t, nil, c.script)
+			caught(t, code, 1, out, filepath.Join(home, ".satelle", c.path))
+		})
+	}
 }
 
 // TestHermeticNestedRunInheritsOptIn proves the outer run's snapshot opt-in and

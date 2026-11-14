@@ -66,13 +66,14 @@ CREDGUARD := sh scripts/credguard.sh --
 # bwrap with that home mounted read-only, so the suite cannot write it by any
 # route; where bwrap is missing or cannot run, the target refuses to run (exit 2)
 # and says to install bubblewrap. SATELLE_HERMETIC_ALLOW_SNAPSHOT=1 opts in to
-# snapshot mode, which only detects: the suite is given no path to the caller's
-# home (the Go toolchain, caches and starting directory arrive as stable
-# symlinks in /tmp/satelle-hermetic-<uid>, a TMPDIR under the home is replaced by
-# one under /tmp) and a snapshot before and after fails the target on any change
-# to that home except the paths the host's own satelle rewrites during a run
-# (serve/, sessions/, builds.json, per-repo runtime dirs). The script names its
-# mode on stderr. Test flags go through TESTFLAGS. credguard stays OUTSIDE it
+# snapshot mode, detection of any change to the caller's satelle home: the suite
+# is given no path to that home (the Go toolchain, caches and starting directory
+# arrive as stable symlinks in /tmp/satelle-hermetic-<uid>, a TMPDIR under the
+# home is replaced by one under /tmp) and a snapshot before and after fails the
+# target on any change to it, no path exempt. On a host where satelle itself runs
+# (satelled, the sync timer, other sessions) such a run can fail on that
+# satelle's own writes; it is meant for a throwaway container. The script names
+# its mode on stderr. Test flags go through TESTFLAGS. credguard stays OUTSIDE it
 # so it keeps watching the real host.
 HERMETIC := sh scripts/hermetic.sh --
 

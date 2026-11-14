@@ -68,14 +68,14 @@
 #   - snapshot (explicit opt-in, detection only: SATELLE_HERMETIC_ALLOW_SNAPSHOT=1
 #     where bwrap is missing or cannot run, e.g. on macOS, or for a home whose
 #     nearest existing parent is /): the run hides the home (above) and detects
-#     writes; it does not prevent them. Every path under each
-#     home is recorded (type, size, mtime, ctime, inode, content hash) before
-#     the command and again after, and the run fails, by the same exit rule, naming each path
-#     added, removed or changed, EXCEPT the paths the host's own satelle
-#     rewrites on its own schedule while a suite runs (the sync timer every
-#     30 s, satelled, every satelle command of a parallel session): serve/,
-#     sessions/, builds.json (and its .tmp) and the per-repo runtime dirs
-#     <name>-<8 hex>/. Those exclusions apply in this mode only.
+#     any change to it; it does not prevent writes. Every path under each home
+#     is recorded (type, size, mtime, ctime, inode, content hash) before the
+#     command and again after, and the run fails, by the same exit rule, naming
+#     up to 20 paths added, removed or changed. No path is exempt. So on a host
+#     where satelle itself is running (satelled, the sync timer, other agent
+#     sessions), an opted-in snapshot run can fail on that satelle's own writes
+#     to its home; bwrap mode, the default, does not have this problem. Snapshot
+#     mode suits a throwaway container where nothing else writes the home.
 # SATELLE_HERMETIC_FORCE_NO_BWRAP=1 makes the wrapper act as if bwrap were
 # missing (tests of the refusal and of snapshot mode); the refusal still applies.
 
@@ -150,12 +150,10 @@ real2=
 [ -n "${HOME:-}" ] && [ "$HOME/.satelle" != "$real1" ] && real2="$HOME/.satelle"
 
 # hostsnap prints one line per path under $1 (relative path, type, size, mtime,
-# ctime, inode, and for a regular file a hash of its bytes), sorted, leaving out
-# the paths the host's own satelle writes while a suite runs; "absent" when $1
-# does not exist. The hash catches changed bytes even where the clock fields are
+# ctime, inode, and for a regular file a hash of its bytes), sorted; "absent"
+# when $1 does not exist. The hash catches changed bytes even where the clock fields are
 # whole seconds; a rewrite with the same bytes inside the same second is
 # visible only where they are finer (statprec, named on the mode line).
-live='^(serve|sessions|builds[.]json|builds[.]json[.][^/|]*[.]tmp|[^/|]*-[0-9a-f]{8})[/|]'
 if stat -c %n . >/dev/null 2>&1; then
 	statfmt="-c"
 	# %y and %z, not %.9Y and %.9Z: busybox stat (alpine) prints the epoch
@@ -188,7 +186,7 @@ hostsnap() {
 	fi
 	echo ".|$(stat -L $statfmt "$(echo "$statspec" | cut -d'|' -f2)" "$1" 2>/dev/null)"
 	(cd "$1" && find . -mindepth 1 -exec stat $statfmt "$statspec" {} + 2>/dev/null) |
-		sed 's|^[.]/||' | grep -Ev "$live" | LC_ALL=C sort |
+		sed 's|^[.]/||' | LC_ALL=C sort |
 		while IFS= read -r line; do
 			rest=${line#*|}
 			case "${rest%%|*}" in
@@ -256,7 +254,7 @@ fi
 if [ "$mode" = bwrap ]; then
 	echo "hermetic: mode bwrap: the caller's satelle home is read-only for the run ($(printf %s "$real1 $real2" | sed 's/^ //; s/ $//'))" >&2
 else
-	echo "hermetic: mode snapshot ($why; SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection only, writes to the caller's satelle home are not prevented; changes are checked after the run ($statprec, content hashes) except under serve/, sessions/, builds.json and the per-repo runtime dirs <name>-<8 hex>/" >&2
+	echo "hermetic: mode snapshot ($why; SATELLE_HERMETIC_ALLOW_SNAPSHOT is set): detection of any change to the caller's satelle home, writes are not prevented; every path is compared after the run ($statprec, content hashes), no path exempt, so a satelle running on this host can fail the run by writing its own home" >&2
 	before1=$(hostsnap "$real1")
 	before2=$(hostsnap "$real2")
 fi
