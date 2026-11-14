@@ -1,3 +1,13 @@
+## [1.0.64] - 2026-11-14
+
+### Added
+- volatile.toml `[[upstream]]` (files, owner, fix): a file owned elsewhere is still checked, and satelle validate and satelle doctor name its owner instead of asking for an in-place edit. (sto_1ee018c8)
+- satelle init says when it adds volatile.toml and how many lines the volatile check flags. (sto_1ee018c8)
+
+### Changed
+- The shipped volatile present-tense pattern flags only "currently", "now is" and "at the moment"; bare "current" and "latest" are no longer flagged. A repo with its own volatile.toml edits its copy to match. (sto_1ee018c8)
+- The volatile check does not read fenced code blocks in Markdown. (sto_1ee018c8)
+
 ## [1.0.63] - 2026-11-14
 
 ### Added
