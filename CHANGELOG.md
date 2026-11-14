@@ -1,3 +1,16 @@
+## [1.0.67] - 2026-11-14
+
+### Added
+- A workflow state can say what its performer may change: `edits = "attachments"` makes the edit gate refuse every edit and shell write to the tree, exempt and locked paths included, while the session's seat is on that state; `satelle <kind> attach` still works. (sto_6344add2)
+- `satelle-tree-unchanged-check`, a check skill `satelle init` writes, refuses a move when the item's branch already differs from where it left origin/main, or the branch on origin of the item it is stacked on, so a plan is judged before any code. (sto_6344add2)
+
+### Changed
+- The seat line in the session context and `satelle status` names the state and what it allows, for example `performing plan: attachments only`. (sto_6344add2)
+- A ledger store command ended by a signal is reported with the signal's name, the command's pid and its process group. (sto_e13dd924)
+
+### Fixed
+- A drift review's close judge (validate-after) is told which lines of the drift report to quote (the version, the drift-check exit, and the fix item or no drift), an accept that leaves one out is refused naming it, and the gate is judged by GPT-5.6 Sol instead of Gemini 3.8 Flash High, so a drift review that finds no drift closes without the operator. (sto_09b81217)
+
 ## [1.0.66] - 2026-11-14
 
 ### Added
