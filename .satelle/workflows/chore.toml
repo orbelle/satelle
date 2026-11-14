@@ -4,8 +4,12 @@
 # queue (satelle queue fire release --session <session>) and drives the run.
 name = "chore"
 
+# The card is judged before any code (story-review on backlog -> in_progress,
+# chore's first move out of backlog), with the same round cap as every other
+# review.
 [states.backlog]
 start = true
+hold = { rounds = 3, to = "blocked" }
 
 # Every review has the plan's round cap (operator, 2026-11-13: "all review
 # processes should have the same process as planner"): after 3 rejected rounds
@@ -35,6 +39,14 @@ terminal = true
 
 [states.cancelled]
 terminal = true
+
+# The card itself, before any code (chore has no plan): see delivery.toml's
+# story-review. It sits only on backlog -> in_progress, so a chore already past
+# backlog is never refused retroactively.
+[gates.story-review]
+skill = "satelle-story-review"
+agent = "reviewer-gemini-3.8-flash-high"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
@@ -118,6 +130,7 @@ after = ["satelle-verdict-notes-check"]
 [[transition]]
 from = ["backlog"]
 to = "in_progress"
+groups = [{ mode = "sequential", gates = ["story-review"] }]
 
 [[transition]]
 from = ["in_progress"]
@@ -142,14 +155,15 @@ from = ["integration", "approved"]
 to = "in_progress"
 
 # The review caps' moves: gateless, so a cap cannot itself be rejected; the
-# dissent summary is the reason. Only the operator moves it out.
+# dissent summary is the reason. A hold's move into a park must be gateless, so
+# backlog's voluntary park is unjudged too. Only the operator moves it out.
 [[transition]]
-from = ["in_progress", "integration"]
+from = ["backlog", "in_progress", "integration"]
 to = "blocked"
 
 # Every other move into blocked is judged: the reason must hold.
 [[transition]]
-from = ["backlog", "approved"]
+from = ["approved"]
 to = "blocked"
 groups = [{ mode = "sequential", gates = ["blocked-review"] }]
 

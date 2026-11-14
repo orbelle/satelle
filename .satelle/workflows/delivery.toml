@@ -12,8 +12,12 @@
 # (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
+# The card is judged before any plan (story-review on backlog -> plan), with
+# the same round cap as every other review: after 3 rejected rounds in a row
+# the item is blocked for the operator with the dissent as its reason.
 [states.backlog]
 start = true
+hold = { rounds = 3, to = "blocked" }
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }
@@ -73,6 +77,17 @@ terminal = true
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
 agent = "reviewer-grok-4.7"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
+# The card itself, before any plan exists: a Feature with a Background, each
+# criterion a Given/When/Then scenario, one behaviour small enough for one
+# plan, provable at its gates, and aligned with the constitution. It sits only
+# on backlog -> plan, so a story already past backlog is never refused
+# retroactively. Gemini: the card's author is the operator or the session
+# (Claude or GPT), so the one judge is of neither family.
+[gates.story-review]
+skill = "satelle-story-review"
+agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
@@ -217,6 +232,7 @@ after = ["satelle-verdict-notes-check"]
 [[transition]]
 from = ["backlog"]
 to = "plan"
+groups = [{ mode = "sequential", gates = ["story-review"] }]
 
 [[transition]]
 from = ["plan"]
@@ -257,16 +273,18 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
-# The review caps' moves (plan, code, PR review): gateless, so a cap cannot
-# itself be rejected; the dissent summary is its reason. Only the operator
-# moves it out (blocked -> @prior, or cancelled); the driving session stops.
+# The review caps' moves (story, plan, code, PR review): gateless, so a cap
+# cannot itself be rejected; the dissent summary is its reason. A hold's move
+# into a park must be gateless, so backlog's voluntary park is unjudged too.
+# Only the operator moves it out (blocked -> @prior, or cancelled); the
+# driving session stops.
 [[transition]]
-from = ["plan", "in_progress", "integration"]
+from = ["backlog", "plan", "in_progress", "integration"]
 to = "blocked"
 
 # Every other move into blocked is judged: the reason must hold.
 [[transition]]
-from = ["backlog", "approved"]
+from = ["approved"]
 to = "blocked"
 groups = [{ mode = "sequential", gates = ["blocked-review"] }]
 
