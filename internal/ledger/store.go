@@ -27,6 +27,22 @@ type Store struct {
 	// OnWrite, when set, is called with every event this store writes (an
 	// append, or an import from elsewhere), after it is on disk.
 	OnWrite func(Event)
+	// readOnly, when set, refuses every write and says why.
+	readOnly string
+}
+
+// ErrReadOnly is a write to a store opened read-only.
+var ErrReadOnly = errors.New("ledger: read-only")
+
+// SetReadOnly makes every later write (an append, an import, a blob) fail
+// with ErrReadOnly and reason.
+func (s *Store) SetReadOnly(reason string) { s.readOnly = reason }
+
+func (s *Store) refuseWrite() error {
+	if s.readOnly == "" {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrReadOnly, s.readOnly)
 }
 
 var itemPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -78,6 +94,9 @@ func (s *Store) Path(item string) string { return s.path(item) }
 // json.RawMessage is taken as is); nil means no payload.
 func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 	var e Event
+	if err := s.refuseWrite(); err != nil {
+		return e, err
+	}
 	err := s.withLock(func() error {
 		prev, err := s.tailHash(item)
 		if err != nil {
@@ -127,6 +146,9 @@ func NewEventWith(id string, at time.Time, item, kind, actor string, payload any
 // AppendRaw writes a complete event (from another store) after checking its
 // hash and that it links to the current tail of its chain.
 func (s *Store) AppendRaw(e Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	if !ValidItem(e.Item) {
 		return fmt.Errorf("ledger: invalid item id %q", e.Item)
 	}
@@ -460,6 +482,9 @@ var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // PutBlob stores b content-addressed and returns its sha256 hex.
 func (s *Store) PutBlob(b []byte) (string, error) {
+	if err := s.refuseWrite(); err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(b)
 	sha := hex.EncodeToString(sum[:])
 	path := filepath.Join(s.dir, "blobs", sha)

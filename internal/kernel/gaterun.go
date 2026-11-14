@@ -127,6 +127,7 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 		return out, err
 	}
 	defer done()
+	run.DryRun = true
 	if req.ShowInput {
 		in, err := run.Input(req.Gate)
 		if err != nil {

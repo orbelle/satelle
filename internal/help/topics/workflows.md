@@ -346,8 +346,10 @@ one gate against the item as its transition would. A check gets the same env,
 stdin and directory, and a judge gets the same prompt and record folder,
 including a draft plan already attached. The command prints the result, each
 panel member's verdict and the full notes. It writes nothing to the ledger, so
-it adds no gate.run and no hold round. A check script that calls satelle itself,
-to attach a file say, still does: it gets the same env and cannot tell a dry run. `--from` defaults to the item's state,
+it adds no gate.run and no hold round. Every script the gate starts gets
+`SATELLE_DRY_RUN=1` beside the transition's own env, and a satelle started with
+it opens the ledger read-only: a check that attaches a file is refused, so the
+dry run records nothing. `--from` defaults to the item's state,
 and `--to` to the one transition from it that runs the gate. A judged gate
 really dispatches its judges and logs them as above. `--show-input` prints the
 check's env and stdin, or the judge's prompt, and starts nothing. A gate with a

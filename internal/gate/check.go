@@ -14,6 +14,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
+// DryRunEnv is set for every script a dry run starts; a satelle started with
+// it opens its ledger read-only, so the dry run records nothing.
+const DryRunEnv = "SATELLE_DRY_RUN"
+
 // DefaultCheckTimeout bounds a check script when the caller sets none.
 const DefaultCheckTimeout = 10 * time.Minute
 
@@ -26,9 +30,12 @@ const outputBound = 2048
 // gate or a carry).
 type CheckEnv struct {
 	Item, From, To, Base string
-	Gate, Result         string
-	Binding, Notes       string
-	Members              []CheckMember
+	// DryRun says the gate runs under satelle gate run: DryRunEnv is set, and
+	// a satelle the script starts refuses every ledger write.
+	DryRun         bool
+	Gate, Result   string
+	Binding, Notes string
+	Members        []CheckMember
 }
 
 // CheckMember is one judge's own verdict and notes, as an after check sees it.
@@ -54,6 +61,9 @@ func (e CheckEnv) Payload() []byte {
 // Vars are the SATELLE_* variables a check sees, as KEY=value.
 func (e CheckEnv) Vars() []string {
 	v := []string{"SATELLE_ITEM=" + e.Item, "SATELLE_FROM=" + e.From, "SATELLE_TO=" + e.To, "SATELLE_BASE=" + e.Base}
+	if e.DryRun {
+		v = append(v, DryRunEnv+"=1")
+	}
 	if e.Gate != "" {
 		v = append(v, "SATELLE_GATE="+e.Gate, "SATELLE_GATE_RESULT="+e.Result, "SATELLE_GATE_BINDING="+e.Binding)
 	}
