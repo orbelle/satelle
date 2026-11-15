@@ -64,10 +64,13 @@ func TestNeedsUpgradeLineAndRegisteredLegacy(t *testing.T) {
 	must(t, "init")
 	old, m := newPreV1Repo(t)
 	line := needsUpgradeLine(old, m)
-	for _, want := range []string{old + ": needs upgrade", "deployed.version", "`satelle upgrade --archive`", "satelle-upgrade skill"} {
+	for _, want := range []string{old + ": needs upgrade", "deployed.version", "`satelle upgrade --archive`", "the skill it writes", "`satelle help upgrade`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("line lacks %q: %s", want, line)
 		}
+	}
+	if strings.Contains(line, "satelle-upgrade") {
+		t.Errorf("the line names a skill: %s", line)
 	}
 	if strings.Contains(line, "\n") {
 		t.Errorf("the line is not one line: %q", line)

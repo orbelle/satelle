@@ -6,8 +6,8 @@ command names `satelle upgrade --archive --session <session>`. While it does not
 gate allows edits under `.satelle/` only. The way across has two steps.
 
 satelle names a pre-1.0 repo, each time with the same one line, `<path>:
-needs upgrade: ...`, naming `satelle upgrade --archive --session <session>` to run there and the
-satelle-upgrade skill it writes: at session start in that repo (to the agent,
+needs upgrade: ...`, naming `satelle upgrade --archive --session <session>` to run there and
+pointing at the skill it writes: at session start in that repo (to the agent,
 and to you where the harness has a user channel), in `satelle doctor --session <session>` (an
 `upgrade` issue in that repo, a note for each other registered one), in the
 automatic sync pass (which skips it without failing), on satelled's project

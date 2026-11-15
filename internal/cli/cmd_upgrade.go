@@ -122,8 +122,8 @@ func runArchive(cmd *cobra.Command, r repo, dryRun bool) error {
 }
 
 func needsUpgradeLine(path string, markers []string) string {
-	return fmt.Sprintf("%s: needs upgrade: pre-1.0 .satelle (found: %s); run `%s` there, then follow the %s skill it writes (see `satelle help upgrade`)",
-		path, strings.Join(markers, ", "), kernel.UpgradeCommand, kernel.UpgradeSkill)
+	return fmt.Sprintf("%s: needs upgrade: pre-1.0 .satelle (found: %s); run `%s` there, then follow the skill it writes (see `satelle help upgrade`)",
+		path, strings.Join(markers, ", "), kernel.UpgradeCommand)
 }
 
 type legacyProject struct {

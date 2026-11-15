@@ -493,8 +493,8 @@ func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
 	f := newDoctorFixture(t)
 	dir, m := newPreV1Repo(t)
 	want := needsUpgradeLine(dir, m) + "\n"
-	if strings.Count(want, "\n") != 1 || !strings.Contains(want, "satelle upgrade --archive") || !strings.Contains(want, "satelle-upgrade skill") {
-		t.Fatalf("the line is not one line naming the command and skill: %q", want)
+	if strings.Count(want, "\n") != 1 || !strings.Contains(want, "satelle upgrade --archive") || !strings.Contains(want, "the skill it writes") || strings.Contains(want, "satelle-upgrade") {
+		t.Fatalf("the line is not one line naming the command and no skill: %q", want)
 	}
 	noDump := func(t *testing.T, raw string) {
 		t.Helper()

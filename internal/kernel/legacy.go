@@ -9,8 +9,6 @@ import (
 
 const UpgradeCommand = "satelle upgrade --archive"
 
-const UpgradeSkill = "satelle-upgrade"
-
 var legacyFiles = []string{"deployed.version", "workflows/step.toml", "workflows/done.toml", "workflows/agents.toml"}
 
 func LegacyMarkers(root string) []string {

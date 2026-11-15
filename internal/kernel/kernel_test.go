@@ -172,19 +172,20 @@ func TestInitWritesTheRunsIgnore(t *testing.T) {
 }
 
 func TestInitShipsTheUpgradeSkill(t *testing.T) {
+	const upgradeSkill = "satelle-upgrade"
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "skills", UpgradeSkill+".md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "skills", upgradeSkill+".md")); err != nil {
 		t.Fatal(err)
 	}
 	c, err := LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sk, ok := c.Skills[UpgradeSkill]
-	if !ok || sk.Meta["name"] != UpgradeSkill || sk.IsCheck() {
+	sk, ok := c.Skills[upgradeSkill]
+	if !ok || sk.Meta["name"] != upgradeSkill || sk.IsCheck() {
 		t.Fatalf("skill = %+v, %v", sk.Meta, ok)
 	}
 	if probs := Validate(root); len(probs) != 0 {
