@@ -6,6 +6,11 @@
 # and every gate result show which model judged (operator, 2026-11-14;
 # sto_e65b2d30). Changing a reviewer's model renames the agent and every gate
 # that names it, in the same change.
+#
+# The block-breaker workflow (.satelle/workflows/block-breaker.toml) reuses
+# planner and the three reviewers as read-only performers, one breaking state
+# per model family, so a held story is read cold by a family that did not
+# dissent. A binding added or renamed here is wired there too.
 
 # The interactive session performs coding; nothing is dispatched.
 [agents.executor]
@@ -51,7 +56,9 @@ tools = ["Read", "Grep", "Glob"]
 # binary-scope's judge (operator, 2026-11-09): Gemini Flash accepted a large
 # diff three times without naming a file it judged (sto_5c706973). grok, not
 # Claude: binary-scope also judges the planner's plan, and the planner runs
-# Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0).
+# Claude (Opus 5.5; satelle-agent-alt-reviewer, sto_49abe9f0). It is also the
+# substrate workflow's one judge (reference-review): the performer there is the
+# session, whose harness runs Claude or GPT, and grok is neither family.
 [agents."reviewer-grok-4.7"]
 command = "grok"
 model = "grok-4.7"

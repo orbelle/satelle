@@ -1,0 +1,103 @@
+# A run of the block-breaker task (.satelle/tasks/block-breaker.md): a cold
+# agent reads a story held at blocked after its round cap and writes a
+# block-resolution for it. Selected for an execution tagged block-breaker by
+# the rule in satelle.toml; the session tags the run and reselects it here
+# before its first move.
+#
+# The breaker must be of another family than the held gate's dissenting
+# judges, so there is one breaking state per family, each performed by an
+# existing binding of .satelle/agents.toml; the session moves the run into the
+# one whose family dissented least (the task file says how to choose). Every
+# breaker only records the resolution: a seat there changes no tree.
+name = "block-breaker"
+
+[states.backlog]
+start = true
+
+[states.break_claude]
+performer = { agent = "planner", skill = "block-breaker" }
+edits = "attachments"
+
+[states.break_gemini]
+performer = { agent = "reviewer-gemini-3.8-flash-high", skill = "block-breaker" }
+edits = "attachments"
+
+[states.break_grok]
+performer = { agent = "reviewer-grok-4.7", skill = "block-breaker" }
+edits = "attachments"
+
+[states.break_gpt]
+performer = { agent = "reviewer-gpt-5.6-sol-high", skill = "block-breaker" }
+edits = "attachments"
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+# ---- gates ----
+
+# A run names its parent task (structure only).
+[gates.validate-before]
+skill = "satelle-task-validate-before-review"
+
+# Every move into a terminal state that no model gate judges runs this first
+# (sto_035f3007); a resolution is no judged change, so it accepts.
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
+# The run's block-resolution is well formed and the held item carries it.
+[gates.block-resolution]
+skill = "satelle-block-resolution-check"
+
+# A judge never runs the model of the performer whose work it judges, so a run
+# cancelled from break_gemini is judged by grok instead; that gate is not
+# named cancel-review, so it declares the reference rule as every other judged
+# gate does.
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer-gemini-3.8-flash-high"
+after = ["satelle-verdict-notes-check"]
+
+[gates.cancel-review-grok]
+skill = "satelle-story-cancel-review"
+agent = "reviewer-grok-4.7"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
+# ---- transitions ----
+
+[[transition]]
+from = ["backlog"]
+to = "break_claude"
+groups = [{ mode = "sequential", gates = ["validate-before"] }]
+
+[[transition]]
+from = ["backlog"]
+to = "break_gemini"
+groups = [{ mode = "sequential", gates = ["validate-before"] }]
+
+[[transition]]
+from = ["backlog"]
+to = "break_grok"
+groups = [{ mode = "sequential", gates = ["validate-before"] }]
+
+[[transition]]
+from = ["backlog"]
+to = "break_gpt"
+groups = [{ mode = "sequential", gates = ["validate-before"] }]
+
+[[transition]]
+from = ["break_claude", "break_gemini", "break_grok", "break_gpt"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["change-judged", "block-resolution"] }]
+
+[[transition]]
+from = ["backlog", "break_claude", "break_grok", "break_gpt"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]
+
+[[transition]]
+from = ["break_gemini"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review-grok"] }]

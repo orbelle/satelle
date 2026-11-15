@@ -3,7 +3,7 @@ name: satelle-outcome-review
 scope: project
 type: skill
 tags: [type:skill, type:reviewer]
-description: Gate on integration → outcome, after satelle-integration-check has run the integration suite (fail fast). Isolated read-only reviewer judges, per numbered AC, that the integrated behaviour meets the story's BDD and ACs, citing integration-level evidence, and rejects an AC with no integration-level proof. Comes before release, or before the PR on the pr route. Verdict only; never runs the suite.
+description: Gate on integration → outcome, after satelle-integration-check has run the integration suite (fail fast). Isolated read-only reviewer judges, per numbered AC (each a Given/When/Then scenario), that the integrated behaviour meets the story's Feature and its scenarios, citing integration-level evidence, and rejects an AC with no integration-level proof. Comes before release, or before the PR on the pr route. Verdict only; never runs the suite.
 ---
 
 # Outcome review (integration → outcome)
@@ -13,8 +13,13 @@ description: Gate on integration → outcome, after satelle-integration-check ha
 The code review judged the code against the ACs and the unit tests passed on
 the way into integration. The integration suite has now passed on this edge
 (`satelle-integration-check` runs first and fails fast). Answer one question:
-**does the integrated behaviour actually achieve the story's BDD and each
-numbered AC?** Judge the outcome, not the code shape.
+**does the integrated behaviour actually achieve the story's Feature and each
+of its scenarios?** Judge the outcome, not the code shape.
+
+What you judge is the card's BDD ([[satelle-story-shape]]): the **Feature**
+(As a / I want / so that) and its Background, and each **scenario** (Given /
+When / Then) as a numbered AC. A scenario is met when, from its Given, its
+When produces its Then in the integrated system.
 
 Do **not** run the suite, write tests, or design a better test plan. Your
 prompt carries the item, the move, the changed paths and the diff since the
@@ -22,7 +27,8 @@ item's base. Read-only.
 
 ## Evidence
 
-- The story: title, body (its behaviour, the BDD), numbered ACs. The numbered
+- The story: title, body (its Feature and Background), numbered ACs (its
+  scenarios). The numbered
   ACs are the `## Acceptance criteria` section of the `plan` attachment in the
   record folder your prompt names when the plan has that section, else the
   criteria in your prompt.
@@ -43,8 +49,9 @@ item's base. Read-only.
    be observed, and it must fail if the behaviour were absent. A test that only
    asserts no error, asserts on data it built itself, or computes its expected
    value with the code under test proves nothing.
-3. **Check the BDD.** The integrated behaviour matches the story body's stated
-   behaviour, not a narrower reading of one AC.
+3. **Check the Feature.** The integrated behaviour gives the Feature's role
+   its *so that* outcome, as the story body states it, not a narrower reading
+   of one scenario.
 4. **Non-behavioural ACs** (a CHANGELOG line, a build passing, a docs change,
    substrate with no runtime behaviour) are judged on the presented change and
    recorded evidence; they need no integration test.

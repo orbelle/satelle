@@ -4,6 +4,13 @@
 default = "delivery"
 
 # First match wins.
+# A run of the block-breaker task, once the session tags it block-breaker
+# (.satelle/tasks/block-breaker.md); before runbook, which takes every other run.
+[[workflows.rule]]
+workflow = "block-breaker"
+kind = "execution"
+tag = "block-breaker"
+
 [[workflows.rule]]
 workflow = "runbook"
 kind = "execution"
@@ -27,6 +34,12 @@ tag = "epic"
 workflow = "drift"
 kind = "story"
 tag = "drift"
+
+# A substrate item changes .satelle/ only and lands without a release
+# (.satelle/workflows/substrate.toml); after drift, so a drift item stays one.
+[[workflows.rule]]
+workflow = "substrate"
+category = "substrate"
 
 [[workflows.rule]]
 workflow = "chore"

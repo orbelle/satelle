@@ -1,0 +1,99 @@
+# A substrate change: an edit to this repo's process under .satelle/ only
+# (workflows, skills, principles, tasks, configuration), selected for items of
+# category substrate by the rule in satelle.toml. It is this repo's workflow,
+# not one satelle init writes. A change that needs a file anywhere else (Go, a
+# test under tests/, a script, docs) is chore or delivery.
+#
+# Lighter than chore: no plan, no integration, no release queue. The session
+# edits .satelle/ on the item's branch and presents done; the gates on that
+# move are the validation. Once they accept, the session fast-forwards main to
+# its branch (.satelle/skills/substrate.md). Nothing is versioned, tagged,
+# published or installed: the binary is unchanged.
+name = "substrate"
+
+[states.backlog]
+start = true
+
+# The same round cap as every other review (operator, 2026-11-13: "all review
+# processes should have the same process as planner").
+[states.in_progress]
+performer = { agent = "executor", skill = "substrate" }
+hold = { rounds = 3, to = "blocked" }
+
+[states.blocked]
+park = true
+resumes = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+# ---- gates ----
+
+# The deterministic checks run first and fail fast, before the judge is paid.
+[gates.substrate-paths]
+skill = "satelle-substrate-paths-check"
+
+[gates.substrate-validate]
+skill = "satelle-substrate-validate-check"
+
+[gates.volatile-literals]
+skill = "satelle-volatile-literal-check"
+
+# The route's one judge. The performer is the session, whose model is the
+# driving harness's (Claude or GPT), so a single judge must be of neither
+# family (satelle-agent-alt-reviewer): grok is. done has its own judge, so
+# change-judged is not needed on in_progress -> done.
+[gates.reference-review]
+skill = "satelle-reference-review"
+agent = "reviewer-grok-4.7"
+carry = true
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
+[gates.blocked-review]
+skill = "satelle-story-blocked-review"
+agent = "reviewer-gemini-3.8-flash-high"
+after = ["satelle-verdict-notes-check"]
+
+[gates.cancel-review]
+skill = "satelle-story-cancel-review"
+agent = "reviewer-gemini-3.8-flash-high"
+after = ["satelle-verdict-notes-check"]
+
+# ---- transitions ----
+
+[[transition]]
+from = ["backlog"]
+to = "in_progress"
+
+[[transition]]
+from = ["in_progress"]
+to = "done"
+groups = [
+  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "volatile-literals"] },
+  { mode = "sequential", gates = ["reference-review"] },
+]
+
+# The review cap's move: gateless, so a cap cannot itself be rejected; the
+# dissent summary is its reason. The driving session runs the block breaker on
+# it before anything else (.satelle/session.md).
+[[transition]]
+from = ["in_progress"]
+to = "blocked"
+
+# Every other move into blocked is judged: the reason must hold.
+[[transition]]
+from = ["backlog"]
+to = "blocked"
+groups = [{ mode = "sequential", gates = ["blocked-review"] }]
+
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+
+[[transition]]
+from = ["*", "blocked"]
+to = "cancelled"
+groups = [{ mode = "sequential", gates = ["cancel-review"] }]

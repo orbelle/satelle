@@ -64,11 +64,12 @@ produce the behavior on the card.
 - **Kept constraints.** A partial solution or technical decision the card records
   as context constrains the plan. A plan whose implementation drops, replaces or
   contradicts one is refused; name the constraint and the plan text that breaks it.
-- **Story shape** ([[satelle-story-shape]], [[satelle-start-small]]). Refuse
-  when:
-  - the card is **not a behaviour**: it names no role, context and outcome,
-    only a mechanism, a file or a list of tasks;
-  - a criterion is not **traceable** to that behaviour, or not **provable at**
+- **Story shape** ([[satelle-story-shape]], [[satelle-start-small]]). The
+  card's own shape (its Feature, its scenarios, its intent and its alignment
+  with the constitution) was judged before planning, by
+  `satelle-story-review`; do not judge it again. Refuse when the plan breaks
+  it:
+  - a criterion is not **traceable** to the card's behaviour, or not **provable at**
     the gate that judges it, which includes a code-step criterion whose
     evidence exists only after release;
   - the planned slice is not the **smallest slice** that proves the behaviour:
@@ -120,7 +121,27 @@ plan** (approach and/or files, and what evidence will prove it).
   without a proof path — name it. Falsify checkable plan claims against the repo
   only when the plan asserts something already exists; do not rewrite the plan.
 
-## 6. Every blocking finding, at once
+## 6. Stay inside the card
+
+This gate is held to the card's behaviour. Breadth (whether the story should
+exist, its intent, its alignment with the constitution and the principles) is
+judged once, before any plan, by the story-review judge
+(`satelle-story-review`); it is not re-litigated here.
+
+- **Each reject names the card criterion or scenario it fails, and why**:
+  the criterion (`AC<n>`) or the card text the plan does not meet, and the
+  plan text that fails it. The standing rules sections 3 to 5 state (kept
+  constraints, proof path, root cause, dispatch pointers) hold for every
+  card: a reject under one names that rule and the criterion whose plan
+  breaks it. A finding that names no criterion, card behaviour or standing
+  rule of this skill is not a blocker.
+- **A concern outside the card's behaviour is a note in an accept, never a
+  reject**: style, wording, code or files the card does not touch, a better
+  design the card did not ask for, or a principle the card does not touch.
+  Write it in the accept's notes as `note: ...`, so the driver can raise it as
+  its own story.
+
+## 7. Every blocking finding, at once
 
 Every presentation is judged fresh: your prompt carries no earlier verdict.
 Enumerate **every** blocking finding — read the whole plan against every
