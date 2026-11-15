@@ -229,9 +229,17 @@ func stripMarkdown(src []byte) ([]byte, []finding, error) {
 	var found []finding
 	lines := bytes.SplitAfter(src, []byte("\n"))
 	lineNo := 0
+	inHTML := false
 	for idx := 0; idx < len(lines); idx++ {
 		line := lines[idx]
 		lineNo++
+		if kept, had := proseHTML(line, &inHTML); had {
+			found = append(found, finding{lineNo, firstLine(string(line))})
+			if !blank(kept) || blank(line) {
+				out.Write(kept)
+			}
+			continue
+		}
 		if indented(line) && (idx == 0 || blank(lines[idx-1])) {
 			end := idx
 			for end+1 < len(lines) && (indented(lines[end+1]) || blank(lines[end+1])) {
@@ -350,4 +358,45 @@ func splitIndent(line []byte) (string, []byte) {
 		return "    ", line[4:]
 	}
 	return "", line
+}
+
+func proseHTML(line []byte, inHTML *bool) ([]byte, bool) {
+	if !*inHTML && !bytes.Contains(line, []byte("<!--")) {
+		return line, false
+	}
+	var out bytes.Buffer
+	had := *inHTML
+	code := false
+	for i := 0; i < len(line); {
+		switch {
+		case *inHTML:
+			if bytes.HasPrefix(line[i:], []byte("-->")) {
+				*inHTML = false
+				i += 3
+				continue
+			}
+			if line[i] == '\n' {
+				out.WriteByte('\n')
+			}
+			i++
+		case line[i] == '`':
+			code = !code
+			out.WriteByte(line[i])
+			i++
+		case !code && bytes.HasPrefix(line[i:], []byte("<!--")):
+			*inHTML, had = true, true
+			i += 4
+		default:
+			out.WriteByte(line[i])
+			i++
+		}
+	}
+	if !had {
+		return line, false
+	}
+	kept := bytes.TrimRight(out.Bytes(), " \t\n")
+	if len(kept) == 0 {
+		return nil, true
+	}
+	return append(kept, '\n'), true
 }

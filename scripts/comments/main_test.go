@@ -166,6 +166,18 @@ func TestOnlyTheCardsGoDirectivesAreKept(t *testing.T) {
 	}
 }
 
+func TestMarkdownHTMLComments(t *testing.T) {
+	src := "# T\n<!-- one -->\ntext <!-- two --> more\n<!-- three\nlines -->\nkeep `<!-- code -->` here\n"
+	want := "# T\ntext  more\nkeep `<!-- code -->` here\n"
+	out, found, _ := stripMarkdown([]byte(src))
+	if string(out) != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", out, want)
+	}
+	if len(found) != 4 || found[0].line != 2 {
+		t.Fatalf("found %v", found)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")
