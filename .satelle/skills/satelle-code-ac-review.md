@@ -78,7 +78,11 @@ attachment when the plan has that section, else the criteria in your prompt.
    retrieval commands). **Reject** when a dispatch embeds readable content:
    item bodies, documents or history the receiving seat can fetch itself,
    copied into its prompt or request, whatever its size; bounding or batching
-   that content is the same defect.
+   that content is the same defect. The rule judges a prompt or request the
+   slice builds or changes. A new caller of an existing builder that the
+   slice leaves unchanged does not assemble anything. The builder's own
+   inlining is a note in the accept naming the story that owns it, or saying
+   none does.
 
 8. **Scope.** This is the only code review on the edge, so it also judges
    boundedness. Every changed path must be explained by this story's ACs, its
