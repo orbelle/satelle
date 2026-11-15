@@ -116,8 +116,8 @@ func TestMakeComments(t *testing.T) {
 }
 
 func TestMarkdownShellBlocks(t *testing.T) {
-	src := "# Title\n\n```sh\n# step\nrun x # why\n```\n\n```toml\n# kept\n```\n"
-	want := "# Title\n\n```sh\nrun x\n```\n\n```toml\n# kept\n```\n"
+	src := "# Title\n\n```sh\n# step\nrun x # why\n```\n\n```text\n# kept\n```\n"
+	want := "# Title\n\n```sh\nrun x\n```\n\n```text\n# kept\n```\n"
 	out, found, _ := stripMarkdown([]byte(src))
 	if string(out) != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
@@ -207,6 +207,19 @@ func TestOnlyAValidShellcheckDirectiveIsKept(t *testing.T) {
 	out, found, _ := stripLines([]byte(src), shellComments)
 	if string(out) != want || len(found) != 3 {
 		t.Fatalf("got %q found %v", out, found)
+	}
+}
+
+func TestMarkdownFencesUseTheirLanguage(t *testing.T) {
+	src := "```toml\n# a\nk = 1 # b\n```\n\n```go\n//go:build linux\n// c\nx := 1 // d\n```\n\n```makefile\n# e\nall:\n```\n\n```text\n# kept\n```\n"
+	out, found, _ := stripMarkdown([]byte(src))
+	if len(found) != 5 {
+		t.Fatalf("found %v\nout:\n%s", found, out)
+	}
+	for _, keep := range []string{"//go:build linux", "k = 1", "x := 1", "all:", "# kept"} {
+		if !strings.Contains(string(out), keep) {
+			t.Fatalf("lost %q:\n%s", keep, out)
+		}
 	}
 }
 

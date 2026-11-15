@@ -185,3 +185,22 @@ func sameGo(a, b []byte) error {
 	}
 	return nil
 }
+
+func goFragmentComments(src []byte) []span {
+	var sc scanner.Scanner
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	sc.Init(file, src, func(token.Position, string) {}, scanner.ScanComments)
+	var spans []span
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.COMMENT && !keptGoComment(lit) {
+			start := file.Offset(pos)
+			spans = append(spans, span{start, start + len(lit)})
+		}
+	}
+	return spans
+}

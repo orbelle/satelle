@@ -291,8 +291,8 @@ func stripMarkdown(src []byte) ([]byte, []finding, error) {
 			continue
 		}
 		block := body.Bytes()
-		if shellLang(lang) {
-			stripped, f, _ := stripLines(block, shellComments)
+		if scan := fenceScanner(lang); scan != nil {
+			stripped, f, _ := stripLines(block, scan)
 			for _, x := range f {
 				found = append(found, finding{startLine + x.line, x.text})
 			}
@@ -399,4 +399,18 @@ func proseHTML(line []byte, inHTML *bool) ([]byte, bool) {
 		return nil, true
 	}
 	return append(kept, '\n'), true
+}
+
+func fenceScanner(lang string) func([]byte) []span {
+	switch l := strings.ToLower(lang); {
+	case shellLang(l):
+		return shellComments
+	case l == "toml":
+		return tomlComments
+	case l == "make" || l == "makefile" || l == "mk":
+		return makeComments
+	case l == "go" || l == "golang":
+		return goFragmentComments
+	}
+	return nil
 }
