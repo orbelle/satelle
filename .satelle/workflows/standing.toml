@@ -1,10 +1,7 @@
-# A task is a standing definition: it names its input selection and is run with
-# `satelle task run`. It does not move through steps of its own.
 name = "standing"
 
 [states.defined]
 start = true
-# A standing definition is not driven; only a decision retires it.
 waits = "a decision to retire it; a standing definition is not driven"
 
 [states.retired]

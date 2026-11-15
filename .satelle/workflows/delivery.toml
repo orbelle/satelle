@@ -1,39 +1,14 @@
-# This repo's route for a story. DEV: plan, code, integrate, and reach
-# approved (tested locally, pushed, an open pull request, approved). Approved
-# is not the end of the session's drive: the session that took the story there
-# fires the release queue (satelle queue fire release --session <session>) and
-# drives the run until the story is done. CI/CD: a
-# run of the release task takes the approved items, builds one candidate from
-# their heads (fast-forward or merge, in queue order), tests it once, decides
-# whether it changes the shipped binaries, and only when it does bumps the
-# version once on top, fast-forwards main to it, releases and installs (a
-# binary-unchanged candidate fast-forwards main with no bump, tag, release or
-# install), and only then moves them to done
-# (operator, 2026-11-06; modelled on satelle-server's delivery.toml).
 name = "delivery"
 
-# The card is judged before any plan (story-review on backlog -> plan), with
-# the same round cap as every other review: after 3 rejected rounds in a row
-# the item is blocked for the operator with the dissent as its reason.
 [states.backlog]
 start = true
 hold = { rounds = 3, to = "blocked" }
 
 [states.plan]
 performer = { agent = "planner", skill = "plan" }
-# The planner's work is the plan attachment, not code (sto_6344add2): a seat
-# here refuses every tree edit at its worktree; attach the plan instead.
 edits = "attachments"
-# Round cap (sto_216e2027): plan review was rejected 8 rounds running on one
-# dissenter (satelle-server sto_7094c283). After 3 rejected rounds in a row the
-# item is blocked for the operator instead of re-planned; 3 is the plan skill's
-# own attempt budget. A blocked plan is a positive outcome: it stops a story
-# that is not in the right direction, or not achievable, before any code
-# (operator, 2026-11-13).
 hold = { rounds = 3, to = "blocked" }
 
-# Code and PR review have the plan's round cap (operator, 2026-11-13: "all
-# review processes should have the same process as planner").
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
 hold = { rounds = 3, to = "blocked" }
@@ -41,15 +16,7 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
-# DEV's work is done here: an open, approved pull request whose head is tested
-# and contains main. The session that drove the story here then fires the
-# release queue (satelle queue fire release --session <session>, release step
-# 0) and drives that run; a release run that cannot land the item sends it back
-# to in_progress with the reason.
 [states.approved]
-# Reaching approved adds the story to the release queue
-# (.satelle/queues/release.toml); the session that reached approved fires it,
-# at any time.
 enqueue = ["release"]
 
 [states.blocked]
@@ -62,29 +29,11 @@ terminal = true
 [states.cancelled]
 terminal = true
 
-# ---- gates ----
-
-# sty_7c477116: rejects any plan that adds or extends process in Go, with no
-# exemption; first in its group so it fails fast; judges the diff again before
-# integration.
-#
-# Reviewer backoff (operator, 2026-11-06): during the dogfood the model gates
-# run on one judge, the alt reviewer, and only binary-scope, plan-review and
-# code-ac are wired. Deterministic checks stay. Paused gates (architecture,
-# instruction-change, workflow-change, ac-evidence, outcome-review,
-# done-review) and the second plan-review judge come back one at a time, after
-# each run shows the current set holds.
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
 agent = "reviewer-grok-4.7"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-# The card itself, before any plan exists: a Feature with a Background, each
-# criterion a Given/When/Then scenario, one behaviour small enough for one
-# plan, provable at its gates, and aligned with the constitution. It sits only
-# on backlog -> plan, so a story already past backlog is never refused
-# retroactively. Gemini: the card's author is the operator or the session
-# (Claude or GPT), so the one judge is of neither family.
 [gates.story-review]
 skill = "satelle-story-review"
 agent = "reviewer-gemini-3.8-flash-high"
@@ -97,10 +46,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
-# Quality over speed (operator, 2026-11-06): grok found the one real plan flaw
-# on sto_0586c449, so it judges plans beside Gemini; both must accept. Judges
-# read the attached plan from the item's record folder (sto_cdf94c34).
-# GPT-5.6 Sol joins them (operator, 2026-11-10; sto_0dd7e7b9).
 panel = ["reviewer-gemini-3.8-flash-high", "reviewer-grok-4.7", "reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
@@ -109,10 +54,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
 
-# A plan is judged before any code (sto_6344add2): refuses plan -> in_progress
-# while the item's branch already differs from where it left origin/main (or a
-# stacked parent item's branch on origin). Deterministic, no agent, no carry:
-# it runs on every presentation.
 [gates.tree-unchanged]
 skill = "satelle-tree-unchanged-check"
 
@@ -139,8 +80,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 [gates.ac-evidence]
 skill = "satelle-ac-evidence-check"
 
-# Gemini and GPT-5.6 Sol judge the code; both must accept (operator,
-# 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
 panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
@@ -148,30 +87,14 @@ combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-# The full local suite, once, on the head that will be released (GitHub runs
-# no tests; operator, 2026-11-06). It runs on a node of the docker-local
-# remote integration (.satelle/remotes/integration), against the pushed head,
-# so stories' suites run at once (sto_da5c52e7); the timeout bounds the whole
-# node run: start, setup, fetch and make test.
 [gates.integration-check]
 skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
-# The hand-off to the release run: the head is committed, pushed, contains
-# origin/main and has an open pull request against main. Readiness only: it does
-# not approve; the satelle GitHub app's review (pr-review, pr-approval) decides
-# after it. Once approved, the session fires the release queue
-# (satelle queue fire release --session <session>).
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
-# PR review by the satelle GitHub app (sto_ebcaa5aa), on integration -> approved
-# after pr-ready (sto_efe81afd): approval is the satelle app's review on the
-# head. pr-review is the code-ac judge; its after publishes the verdict on the
-# PR head as satelle[bot] and, on a reject, attaches it as pr-review and
-# reopens the item. pr-approval passes only on the app's approving review on
-# the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
 agent = "reviewer-gemini-3.8-flash-high"
@@ -181,17 +104,9 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
 
-# A terminal state is reached only with a change a judge accepted (sto_e2cec5df).
-# The rule was the binary's; it is this check now (sto_035f3007), first on
-# approved -> done, which has no judge of its own, so a commit made after
-# code-ac fails here before release-run reads release state.
 [gates.change-judged]
 skill = "satelle-change-judged-check"
 
-# CI/CD's gates on approved -> done, all reading origin/main: only a run of the
-# release task closes an item, after the bump, the release and the install; on
-# a binary-unchanged run the version gates accept on the run's release-binary
-# decision instead (release.md, ### Decide: did the binary change).
 [gates.release-run]
 skill = "satelle-release-run-check"
 
@@ -227,8 +142,6 @@ skill = "satelle-story-cancel-review"
 agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check"]
 
-# ---- transitions ----
-
 [[transition]]
 from = ["backlog"]
 to = "plan"
@@ -263,8 +176,6 @@ groups = [
   { mode = "sequential", gates = ["change-judged", "release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] },
 ]
 
-# Rework: back to coding from integration, or from approved when a release run
-# cannot land the item (it records why on the item); and back to planning.
 [[transition]]
 from = ["integration", "approved"]
 to = "in_progress"
@@ -273,18 +184,10 @@ to = "in_progress"
 from = ["in_progress"]
 to = "plan"
 
-# The review caps' moves (story, plan, code, PR review): gateless, so a cap
-# cannot itself be rejected; the dissent summary is its reason. A hold's move
-# into a park must be gateless, so backlog's voluntary park is unjudged too.
-# The driving session runs the block breaker on the held item; it restarts
-# the item (blocked -> @prior) only on a resolution that changes the plan or a
-# driver note alone. Otherwise only the operator moves it out (blocked ->
-# @prior, or cancelled) and the session stops (.satelle/session.md).
 [[transition]]
 from = ["backlog", "plan", "in_progress", "integration"]
 to = "blocked"
 
-# Every other move into blocked is judged: the reason must hold.
 [[transition]]
 from = ["approved"]
 to = "blocked"

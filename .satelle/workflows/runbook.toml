@@ -1,6 +1,3 @@
-# A run of a task (an execution): perform the task's skill over the items it
-# took, then judge the result. Merging and releasing completed work is a task
-# whose executions follow this route.
 name = "runbook"
 
 [states.backlog]
@@ -20,43 +17,14 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-# GPT-5.6 Sol (operator, 2026-11-14; sto_09b81217): Gemini 3.8 Flash High
-# accepted without naming a record path twice on v1.0.65's drift review
-# (exe_9a209ff1) and once on v1.0.63's (exe_68ec2cfe); the counts are the
-# ledger's, in sto_09b81217's judge-evidence.
 agent = "reviewer-gpt-5.6-sol-high"
-# On a drift review run the accept must quote its drift-report's version,
-# drift-check exit and fix item (or no drift) lines (sto_09b81217); every other
-# run passes satelle-drift-accept-quoted with no output.
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-accept-quoted"]
 
-# A run that landed items (release.md step 4 attaches its kept list as
-# release-kept before the push) is refused done while any of them is not in a
-# terminal state of its own workflow. A run with no release-kept landed
-# nothing, so the check accepts every other run. First in its group: cheap,
-# and it fails before the reviewer is spent.
 [gates.release-kept]
 skill = "satelle-release-kept-check"
 
-# The drift review run (release.md step 11) only: the trigger skips every
-# other run. drift-constitution judges the release's binary change, its diff
-# from the run's base (the previous release tag, or the published tag after a
-# binary-unchanged release) over the binary's sources and the
-# constitution and principles (an edit to those is how a constitution finding
-# gets fixed), against the constitution and principles; its after check holds
-# an accept of a diff the prompt cut to READ lines for each hidden file.
-# drift-claims judges the principles' statements of mechanism against the
-# source at the run's head; .version changes on every binary-changed release
-# and the constitution or a principle can change on any release, so it runs
-# when the released source or a statement changed; after a binary-unchanged
-# release that changed neither it is skipped. Both judges state a RESOLVED line for each open drift
-# finding of their kind that no longer holds. drift-closures checks the run's
-# drift-report lists of closed and stayed-open drift stories (drift-review.md
-# step 4) against the kernel.
 [gates.drift-constitution]
 skill = "satelle-drift-constitution-review"
-# GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
-# reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
 agent = "reviewer-gpt-5.6-sol-high"
 trigger = "satelle-drift-run-trigger"
 paths = ["cmd/**", "internal/**", "go.mod", "go.sum", ".satelle/constitution.md", ".satelle/principles/**"]
@@ -64,8 +32,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 
 [gates.drift-claims]
 skill = "satelle-drift-claims-review"
-# GPT-5.6 Sol (operator, 2026-11-10; sto_ac7edb34): Gemini 3.8 Flash High gave
-# reasonless verdicts twice on v1.0.51's drift review (exe_877db7d1).
 agent = "reviewer-gpt-5.6-sol-high"
 trigger = "satelle-drift-run-trigger"
 paths = [".version", ".satelle/constitution.md", ".satelle/principles/**"]

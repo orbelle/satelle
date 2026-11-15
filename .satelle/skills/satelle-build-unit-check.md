@@ -18,9 +18,6 @@ Formatting is satelle-format-vet-check's; the integration suite is satelle-integ
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Objective 1a — the tree must COMPILE, including test files. `go build ./...`
-# alone misses a test file that no longer compiles, which then surfaces as a
-# confusing "test failure" instead of a build error.
 build_out=$(go build ./... 2>&1)
 if [ $? -ne 0 ]; then
   echo "OBJECTIVE 1 FAILED (build): go build ./... does not compile"
@@ -35,8 +32,6 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Objective 1b — the unit suite. Untagged, so the integration suite is excluded
-# by build tag; that is objective 2's gate and it must not run twice.
 test_out=$(go test ./... 2>&1)
 if [ $? -ne 0 ]; then
   echo "OBJECTIVE 1 FAILED (unit tests): go test ./... is not green"

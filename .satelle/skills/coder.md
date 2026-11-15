@@ -25,11 +25,11 @@ never a verdict ([[satelle-agent-consultation]]).
 Before any edit:
 
 ```bash
-satelle story get <id> --session <session>                # body + the acceptance criteria
-satelle story attachment <id> plan --session <session>    # the plan — the slice, named
-satelle story attachments <id> --session <session>        # what else is already attached
-satelle story route <id> --session <session>              # your position and the latest gate rejects
-satelle ledger list <id> --session <session>              # prior gate results on this item
+satelle story get <id> --session <session>
+satelle story attachment <id> plan --session <session>
+satelle story attachments <id> --session <session>
+satelle story route <id> --session <session>
+satelle ledger list <id> --session <session>
 ```
 
 The ACs to implement are the plan's `## Acceptance criteria` section when it has

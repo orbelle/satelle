@@ -1,15 +1,3 @@
-# satelle's own CI/CD remote, schema v1 (sty_8094a272): the CI/CD half of the
-# delivery path, the same shape as satelle-server's remotes/cicd. DEV runs
-# locally up to an outcome-reviewed story whose epic/<id> (or feat/<id>) branch
-# is pushed with its CHANGELOG entry under "## [Unreleased]". Each wake of this
-# remote runs one execution of tasks/tsk_release.md for the story it is handed:
-# from a writable clone of orbelle/satelle it runs
-# .satelle/remotes/satelle-cicd/release.sh, which stamps the release on the story
-# branch, opens the story's PR, approves it under the operator's gh token (the
-# PR's author; satelle pr approve posts the satelle/pr-approval status), merges
-# it, and waits for CI and the v<version> tag. Dogfood stays on the operator's
-# machine. A personal remote: owner_only in the satelle project of the owner's
-# personal workspace, so it reads the owner's personal secrets.
 version = 1
 name = "satelle-cicd"
 provider = "fly-sprite"
@@ -19,20 +7,10 @@ satelle_version = "0.0.891"
 kind = "task"
 task = "release"
 
-# The owner's personal secrets, which the node's satelle hands to its agent
-# bindings and so to the executor's shell: GH_TOKEN to clone, push, open, approve
-# and merge the PR and watch CI (the operator's identity, the PR's author); the
-# OpenRouter key for the pi bindings. They move to [env] when satelle accepts it
-# (sty_85c8e0d6, sty_fc50e4d0), as a change to this definition.
 [secrets.override]
 GH_TOKEN = "satelle:GITHUB_TOKEN"
 OPENROUTER_API_KEY = "satelle:OPENROUTER_API_KEY"
 
-# pi (from its GitHub release) for the bindings; gh for the PR and the CI watch;
-# Go for scripts/check-serve-version.sh, which derives the satelled watch set
-# with go list. Keeping a sprite awake and putting this pi ahead of a sprite's
-# own are the fly-sprite adapter's business (internal/remote/provider), not
-# this definition's. `command -v pi` proves which pi the bindings run.
 [setup]
 on_create = [
   "mkdir -p $HOME/.local/share $HOME/.local/bin && curl -fsSL https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz | tar -xz -C $HOME/.local/share && ln -sf $HOME/.local/share/pi/pi $HOME/.local/bin/pi",

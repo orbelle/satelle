@@ -26,7 +26,6 @@ skipped, exit 1, with a line saying so.
 #!/usr/bin/env bash
 set -uo pipefail
 
-# THE CONFIGURATION — the paths whose change is a route edit.
 WORKFLOW_PATHS='^\.satelle/workflows/|^internal/kernel/template/workflows/'
 
 command -v jq >/dev/null 2>&1 || { echo "jq is not installed"; exit 2; }

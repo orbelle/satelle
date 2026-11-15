@@ -1,42 +1,4 @@
 #!/usr/bin/env bash
-# Release one finished satelle story through its PR (sty_8094a272), from a
-# writable clone of orbelle/satelle on the satelle-cicd remote's node. The story
-# passed its gates locally and its epic/<id> (or feat/<id>) branch is pushed,
-# contains origin/main, and carries its CHANGELOG entry under "## [Unreleased]".
-#
-#   SATELLE_NODE_DIR=<node dir> SATELLE_RELEASE_EXECUTION=<exe id> release.sh <story id>
-#
-# It stamps the release on the story branch (.version patch bump, the satelled
-# bump scripts/check-serve-version.sh asks for, the CHANGELOG heading and its
-# embedded copy), pushes the branch, opens the story's PR, has `satelle pr
-# approve` cold-review it and post the satelle/pr-approval status under GH_TOKEN
-# (the operator: the PR's author), merges it only when that status is success on
-# the head being merged, waits for the test and release workflows and the
-# v<version> tag, and attaches live-evidence to the story. Dogfood is the
-# operator's machine's, after the tag.
-#
-# A re-run after a refusal resumes: when the branch tip is already this
-# script's `release: <version> (<id>)` commit and v<version> is not tagged, it
-# keeps that stamp and the open PR instead of stamping again.
-#
-# Every satelle command runs from SATELLE_NODE_DIR, where the node holds the
-# story; git and gh run in the clone. Git and forge actions live here, in the
-# substrate, never in the binary (satelle-mechanism-vs-substrate).
-#
-# Seams (environment):
-#   GH_TOKEN                  read by git through a credential helper and by gh
-#   SATELLE_NODE_DIR          the node's satelle directory (required)
-#   SATELLE_RELEASE_EXECUTION the run's exe_ id, which `pr approve` records on (required)
-#   SATELLE_RELEASE_REPO      owner/name (orbelle/satelle)
-#   SATELLE_RELEASE_CI_WAIT   seconds to wait for the test run to be listed (900)
-#   SATELLE_RELEASE_DISPATCH  seconds before a missing push run is dispatched (180)
-#   SATELLE_RELEASE_TAG_WAIT  seconds to wait for the v<version> release (1800)
-#   SATELLE_RELEASE_POLL      seconds between polls (10)
-#
-# Exit: 0 released; 2 usage, dirty clone, no pushed branch, no Unreleased entry,
-# constitution drift or serve check unverifiable; 3 main moved (re-integrate
-# locally); 4 push refused; 5 PR not opened; 8 not approved; 9 merge refused;
-# 6 test run missing or red; 7 release run red or no tag.
 set -euo pipefail
 set +x
 
@@ -62,8 +24,6 @@ trap 'rm -rf "$tmp"' EXIT
 
 on_node() { (cd "$node_dir" && satelle "$@"); }
 
-# The value is single-quoted so git config stores the literal $GH_TOKEN, never
-# the token. The empty entry resets any inherited helper list so this one wins.
 if [ -n "${GH_TOKEN:-}" ]; then
   git config --unset-all credential.helper || true
   git config --add credential.helper ''
@@ -93,8 +53,6 @@ fi
 
 git checkout -q -B "$branch" "origin/$branch"
 
-# The bundle's constitution copy must say what the repo's does, or the cold
-# review judges against a stale constitution.
 body_of() { awk 'BEGIN{n=0} n>=2{print; next} /^---$/{n++; next}' "$1"; }
 bundle_constitution="$node_dir/.satelle/principles/repo-constitution.md"
 if [ ! -f "$bundle_constitution" ] || ! diff -q <(body_of .satelle/constitution.md) <(body_of "$bundle_constitution") >/dev/null; then
@@ -102,8 +60,6 @@ if [ ! -f "$bundle_constitution" ] || ! diff -q <(body_of .satelle/constitution.
   exit 2
 fi
 
-# A tip that is this script's own release commit for the story, not yet
-# tagged, is a refused run's stamp: resume from it.
 resumed=""
 if [[ "$(git log -1 --format=%s)" =~ ^release:\ ([0-9]+\.[0-9]+\.[0-9]+)\ \("$id"\)$ ]]; then
   version="${BASH_REMATCH[1]}"
@@ -133,8 +89,6 @@ if ! [[ "$cur" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! [[ "$serve_cur" =~ ^[0-9]+\.[
 fi
 version="${cur%.*}.$(( ${cur##*.} + 1 ))"
 
-# The serve check owns the satelled watch set; its "bump" answer is the only one
-# that moves satelled.version, and any other failure stops the release.
 serve=""
 if ! bash scripts/check-serve-version.sh >"$tmp/serve.txt" 2>&1; then
   if grep -q 'bump satelled.version' "$tmp/serve.txt"; then
@@ -201,8 +155,6 @@ if [ -z "$pr" ] || [ "$pr" = null ]; then
 fi
 pr_url="$(gh pr view "$pr" -R "$repo" --json url -q .url)"
 
-# The approval: satelle pr approve cold-reviews the exact head and, on accept,
-# posts the status under GH_TOKEN. The merge below trusts only that status.
 if ! on_node pr approve --story "$id" --repo "$repo" --binding pr-reviewer --execution "$execution" >"$tmp/approve.txt" 2>&1; then
   cat "$tmp/approve.txt" >&2
   echo "satelle pr approve did not approve $pr_url at $sha; nothing merged" >&2
@@ -227,8 +179,6 @@ if ! gh pr merge "$pr" -R "$repo" --merge --match-head-commit "$sha" >&2; then
 fi
 merge_sha="$(gh pr view "$pr" -R "$repo" --json mergeCommit -q .mergeCommit.oid)"
 
-# The push to main starts the test workflow; when GitHub lists none for the
-# merge commit, dispatch it once on main (it is main's head) and keep waiting.
 start=$SECONDS
 dispatched=""
 run=""
@@ -253,8 +203,6 @@ if ! gh run watch "$run" -R "$repo" --exit-status >/dev/null 2>&1; then
 fi
 test_url="$(gh run view "$run" -R "$repo" --json url -q .url)"
 
-# The release workflow creates a draft first; its URL names an untagged draft
-# until it is published, so only a published release ends the wait.
 start=$SECONDS
 while :; do
   gh release view "v$version" -R "$repo" --json isDraft,url -q 'select(.isDraft | not) | .url' >"$tmp/tag.txt" 2>/dev/null || true
@@ -290,8 +238,6 @@ release_url="$(gh run list -R "$repo" --commit "$merge_sha" --workflow release.y
   echo "dogfood: pending on the operator's machine (satelle update against v$version)"
 } >"$tmp/live-evidence.md"
 
-# The release has landed: a failed attach is reported, never turned into a
-# failed release that the run's gates would retry.
 if ! on_node story attach "$id" --name live-evidence --type output --file "$tmp/live-evidence.md" >&2; then
   echo "warning: live-evidence was not attached to $id on the node; it is in this output" >&2
 fi

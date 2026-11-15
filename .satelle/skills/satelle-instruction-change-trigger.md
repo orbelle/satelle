@@ -42,7 +42,6 @@ script. Override this skill by name under `.satelle/skills/` to change either.
 #!/usr/bin/env bash
 set -uo pipefail
 
-# THE CONFIGURATION — override this skill by name to change it.
 THRESHOLD=5
 generic='^\.satelle/(skills|principles)/|^\.satelle/constitution\.md$'
 
@@ -66,7 +65,6 @@ if ! all=$(printf '%s' "$diff" | jq -r '.paths // [] | .[]'); then
 fi
 base=$(printf '%s' "$diff" | jq -r '.base // empty')
 
-# Instruction paths: the generic set plus [instruction_review] extra_paths globs.
 match="$generic"
 extra=$(sed 's/#.*//' .satelle/satelle.toml 2>/dev/null \
   | awk '/^\[instruction_review\]/{s=1;next} /^\[/{s=0} s' | tr '\n' ' ' \
@@ -97,7 +95,6 @@ while IFS= read -r f; do
   n=$(git diff -w --word-diff=porcelain -U0 --no-color "$base" -- "$f" 2>/dev/null | awk '
     /^@@/ {h=1; next}
     !h {next}
-    # porcelain prints a run of changed words as ONE line: count its words.
     /^\+/ { k = split(substr($0,2), w, /[[:space:]]+/); for (i=1;i<=k;i++) if (w[i] ~ /[[:alnum:]]/) a++ }
     /^-/  { k = split(substr($0,2), w, /[[:space:]]+/); for (i=1;i<=k;i++) if (w[i] ~ /[[:alnum:]]/) d++ }
     END { print (a>d ? a : d) + 0 }')
