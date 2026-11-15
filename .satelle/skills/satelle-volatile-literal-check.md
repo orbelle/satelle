@@ -58,7 +58,8 @@ if [ -n "$marker" ]; then
   fi
   base=${SATELLE_BASE:-}
   marked=
-  for p in $paths; do
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
     case "$p" in
       .satelle/volatile.toml) continue ;;
       .satelle/*) ;;
@@ -74,7 +75,9 @@ if [ -n "$marker" ]; then
       marked="$marked$p
 "
     fi
-  done
+  done <<PATHS
+$paths
+PATHS
   if [ -n "$marked" ]; then
     echo "line(s) this change adds carry volatile.toml's exempt marker, which [[satelle-reference-not-restate]] does not grant; write a reference or dated history instead, in:"
     printf '%s' "$marked"
