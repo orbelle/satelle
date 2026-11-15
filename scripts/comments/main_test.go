@@ -151,6 +151,21 @@ func TestShellcheckDirectiveKeepsOnlyTheDirective(t *testing.T) {
 	}
 }
 
+func TestOnlyTheCardsGoDirectivesAreKept(t *testing.T) {
+	src := "//go:build linux\n\npackage a\n\nimport _ \"embed\"\n\n//go:generate echo x\n\n//go:embed f.txt\nvar f string\n\n//todo:fix this\nfunc A() {}\n\n//nolint:unused\nfunc b() {}\n"
+	want := "//go:build linux\n\npackage a\n\nimport _ \"embed\"\n\n//go:generate echo x\n\n//go:embed f.txt\nvar f string\n\nfunc A() {}\n\nfunc b() {}\n"
+	out, found, err := stripGo([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
+	}
+	if len(found) != 2 {
+		t.Fatalf("found %v, want //todo:fix this and //nolint:unused", found)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")

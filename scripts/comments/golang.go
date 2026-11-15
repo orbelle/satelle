@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-var goDirective = regexp.MustCompile(`^//([a-z0-9]+:[a-z0-9]|line |export |extern |nolint|\+build)`)
+var goDirective = regexp.MustCompile(`^//go:(build|embed|generate)( |$)`)
 
 func isGenerated(src []byte) bool {
 	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ParseComments|parser.PackageClauseOnly)
@@ -24,7 +24,7 @@ func isGenerated(src []byte) bool {
 }
 
 func keptGoComment(text string) bool {
-	return goDirective.MatchString(text) || strings.HasPrefix(text, "/*line ")
+	return goDirective.MatchString(text)
 }
 
 func exampleOutput(text string) bool {
