@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
@@ -84,7 +83,7 @@ func (r repo) open() (*kernel.Kernel, error) {
 	k.Sessions = seatlife.Recorder{Home: home}
 	// A satelle started by a dry run's gate (satelle gate run) may read the
 	// ledger, never write it, so the dry run records nothing.
-	if os.Getenv(gate.DryRunEnv) != "" {
+	if kernel.UnderDryRun(k.Ledger.Dir()) {
 		k.Ledger.SetReadOnly("a dry run (satelle gate run) started this command: it may read the ledger, not write it")
 	}
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}

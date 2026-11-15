@@ -159,9 +159,6 @@ type Run struct {
 	// Logs is the runtime logs dir a judge's dispatch log is written under;
 	// "" writes none.
 	Logs string
-	// DryRun marks a run that records nothing (satelle gate run): every
-	// script it starts gets DryRunEnv.
-	DryRun bool
 
 	skipWarning string // diffWarning, computed once per Execute
 }
@@ -217,9 +214,7 @@ func (r Run) Gate(ctx context.Context, name string) Result {
 
 func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
-func (r Run) env() CheckEnv {
-	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, DryRun: r.DryRun}
-}
+func (r Run) env() CheckEnv { return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base} }
 
 // one runs a single gate through relevance, carry and judgement.
 func (r Run) one(ctx context.Context, name string) Result {

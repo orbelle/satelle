@@ -127,7 +127,6 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 		return out, err
 	}
 	defer done()
-	run.DryRun = true
 	if req.ShowInput {
 		in, err := run.Input(req.Gate)
 		if err != nil {
@@ -136,6 +135,14 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 		out.Input = &in
 		return out, nil
 	}
+	// Whatever the gate starts (a check, a trigger, an after check) runs as
+	// it would on a transition; a satelle it starts finds this run's marker
+	// among its ancestors and opens the ledger read-only.
+	unmark, err := k.markDryRun()
+	if err != nil {
+		return out, err
+	}
+	defer unmark()
 	res := run.Gate(ctx, req.Gate)
 	out.Result = &res
 	return out, nil

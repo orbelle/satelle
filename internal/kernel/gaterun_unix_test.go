@@ -162,13 +162,7 @@ func TestGateDryCheckGetsTheTransitionsInput(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("dumps %d, want 2", len(got))
 	}
-	// The dry run adds only the marker that makes a satelle the script starts
-	// refuse to write; everything else is the transition's input.
-	const marker = gate.DryRunEnv + "=1\n"
-	if !strings.Contains(got[0], marker) || strings.Contains(got[1], marker) {
-		t.Fatalf("the dry-run marker:\n--- dry\n%s\n--- transition\n%s", got[0], got[1])
-	}
-	if strings.Replace(got[0], marker, "", 1) != got[1] {
+	if got[0] != got[1] {
 		t.Fatalf("the dry run's input differs from the transition's:\n--- dry\n%s\n--- transition\n%s", got[0], got[1])
 	}
 	if !strings.Contains(got[0], "SATELLE_ITEM="+it.ID) || !strings.Contains(got[0], `"from":"open"`) {
@@ -322,9 +316,6 @@ func TestGateDryShowInputRunsNothing(t *testing.T) {
 	moveTo(t, k, it.ID, "work")
 	dump := dumpsOf(t, dumps)[1]
 	for _, v := range show.Input.Check.Env {
-		if v == gate.DryRunEnv+"=1" {
-			continue
-		}
 		if !strings.Contains(dump, v+"\n") {
 			t.Fatalf("env %q is not what the check got:\n%s", v, dump)
 		}
