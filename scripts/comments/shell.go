@@ -90,6 +90,10 @@ func (l *shellLexer) command(term byte) {
 			l.double()
 			wordStart = false
 		case '\\':
+			if l.peek(1) == '\n' {
+				l.pos += 2
+				continue
+			}
 			l.pos += 2
 			wordStart = false
 		case '$':

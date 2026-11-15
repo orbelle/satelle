@@ -193,6 +193,14 @@ func TestOutputIsKeptOnlyInAnExample(t *testing.T) {
 	}
 }
 
+func TestShellLineContinuationThenComment(t *testing.T) {
+	src := "echo hi \\\n# added back\necho a\\\nb # also\n"
+	out, found, _ := stripLines([]byte(src), shellComments)
+	if len(found) != 2 {
+		t.Fatalf("found %v in:\n%s\nout:\n%s", found, src, out)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")
