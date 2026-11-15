@@ -33,6 +33,13 @@ func keptShellComment(src []byte, start, end int) int {
 		return start
 	}
 	i := strings.Index(text[1:], "#")
+	directive := t
+	if i >= 0 {
+		directive = strings.TrimSpace(strings.TrimPrefix(text[:1+i], "#"))
+	}
+	if !shellcheckDirective(directive) {
+		return start
+	}
 	if i < 0 {
 		return end
 	}
@@ -302,4 +309,20 @@ func (l *shellLexer) heredocBodies() {
 			}
 		}
 	}
+}
+
+var shellcheckKeys = map[string]bool{"disable": true, "enable": true, "source": true, "source-path": true, "shell": true, "external-sources": true}
+
+func shellcheckDirective(t string) bool {
+	fields := strings.Fields(strings.TrimPrefix(t, "shellcheck"))
+	if len(fields) == 0 {
+		return false
+	}
+	for _, f := range fields {
+		k, v, ok := strings.Cut(f, "=")
+		if !ok || v == "" || !shellcheckKeys[k] {
+			return false
+		}
+	}
+	return true
 }

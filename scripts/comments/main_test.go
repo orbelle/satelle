@@ -201,6 +201,15 @@ func TestShellLineContinuationThenComment(t *testing.T) {
 	}
 }
 
+func TestOnlyAValidShellcheckDirectiveIsKept(t *testing.T) {
+	src := "# shellcheck this is prose\n# shellcheck disable=SC2086 source=x.sh\n# shellcheck bogus=1\n# shellcheck\nx=1\n"
+	want := "# shellcheck disable=SC2086 source=x.sh\nx=1\n"
+	out, found, _ := stripLines([]byte(src), shellComments)
+	if string(out) != want || len(found) != 3 {
+		t.Fatalf("got %q found %v", out, found)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")
