@@ -127,6 +127,18 @@ func TestMarkdownShellBlocks(t *testing.T) {
 	}
 }
 
+func TestMarkdownIndentedBlocks(t *testing.T) {
+	src := "Run:\n\n    satelle list   # the items\n    satelle get x\n\nText # not code\n"
+	want := "Run:\n\n    satelle list\n    satelle get x\n\nText # not code\n"
+	out, found, _ := stripMarkdown([]byte(src))
+	if string(out) != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", out, want)
+	}
+	if len(found) != 1 || found[0].line != 3 {
+		t.Fatalf("found %v", found)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")

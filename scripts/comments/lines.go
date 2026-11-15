@@ -232,6 +232,38 @@ func stripMarkdown(src []byte) ([]byte, []finding, error) {
 	for idx := 0; idx < len(lines); idx++ {
 		line := lines[idx]
 		lineNo++
+		if indented(line) && (idx == 0 || blank(lines[idx-1])) {
+			end := idx
+			for end+1 < len(lines) && (indented(lines[end+1]) || blank(lines[end+1])) {
+				end++
+			}
+			for end > idx && blank(lines[end]) {
+				end--
+			}
+			var body bytes.Buffer
+			var prefix []string
+			for _, l := range lines[idx : end+1] {
+				p, rest := splitIndent(l)
+				prefix = append(prefix, p)
+				body.Write(rest)
+			}
+			stripped, f, _ := stripLines(body.Bytes(), shellComments)
+			for _, x := range f {
+				found = append(found, finding{lineNo + x.line - 1, x.text})
+			}
+			for i, l := range bytes.SplitAfter(stripped, []byte("\n")) {
+				if len(l) == 0 {
+					continue
+				}
+				if i < len(prefix) && !blank(l) {
+					out.WriteString(prefix[i])
+				}
+				out.Write(l)
+			}
+			lineNo += end - idx
+			idx = end
+			continue
+		}
 		out.Write(line)
 		fence, lang, ok := openFence(line)
 		if !ok {
@@ -304,4 +336,18 @@ func shellLang(lang string) bool {
 		return true
 	}
 	return false
+}
+
+func indented(line []byte) bool {
+	return !blank(line) && (bytes.HasPrefix(line, []byte("    ")) || bytes.HasPrefix(line, []byte("\t")))
+}
+
+func splitIndent(line []byte) (string, []byte) {
+	switch {
+	case bytes.HasPrefix(line, []byte("\t")):
+		return "\t", line[1:]
+	case bytes.HasPrefix(line, []byte("    ")):
+		return "    ", line[4:]
+	}
+	return "", line
 }
