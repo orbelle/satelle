@@ -29,7 +29,7 @@ registered project; for a hook file git tracks, and in a repo that is not
 registered, run `satelle agents install <harness> --session <session>` (and commit the change).
 
 The fresh `.satelle` holds one starter workflow and the upgrade skill. The
-archive step writes `.satelle/skills/satelle-upgrade.md`: have your session
+archive step writes that skill under `.satelle/skills/`: have your session
 agent follow it. It ports the archived workflows, agent bindings and skills,
 optimised and confirmed with you, and writes the status map.
 

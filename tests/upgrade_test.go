@@ -106,8 +106,8 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.dir, ".satelle", "skills", "satelle-upgrade.md")); err != nil {
 		t.Errorf("the fresh .satelle has no upgrade skill: %v", err)
 	}
-	if h := s.must("help", "upgrade"); !strings.Contains(h, "skills/satelle-upgrade.md") {
-		t.Errorf("help upgrade does not name the skill:\n%s", h)
+	if h := s.must("help", "upgrade"); !strings.Contains(h, "writes that skill under `.satelle/skills/`") || strings.Contains(h, "satelle-upgrade") {
+		t.Errorf("help upgrade does not point at the skill the archive writes, or names it:\n%s", h)
 	}
 	s.must("validate")
 
