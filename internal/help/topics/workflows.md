@@ -340,6 +340,23 @@ marked with the bytes shown and the file to read. A detached run gets the
 record inline only. The session reads any version itself with
 `satelle story attachment <id> <name> [--sha S] --session <session>`.
 
+To see a gate's input and verdict before presenting, dry-run it:
+`satelle gate run <workflow>/<gate> --item <id> --session <session>` runs that
+one gate against the item as its transition would. A check gets the same env,
+stdin and directory, and a judge gets the same prompt and record folder,
+including a draft plan already attached. The command prints the result, each
+panel member's verdict and the full notes. It writes nothing to the ledger, so
+it adds no gate.run and no hold round. Every script the gate starts gets exactly
+the env a transition gives it. While the gate runs, the dry run leaves a marker
+under the ledger, and a satelle that the gate started (a process descended from
+the dry run) opens the ledger read-only. A check that attaches a file is
+refused, so the dry run records nothing, and every other session writes as
+usual. `--from` defaults to the item's state,
+and `--to` to the one transition from it that runs the gate. A judged gate
+really dispatches its judges and logs them as above. `--show-input` prints the
+check's env and stdin, or the judge's prompt, and starts nothing. A gate with a
+long timeout runs as a background command, as `story set --status` does.
+
 ## Agents
 
 Bindings and adapters: satelle help agents.

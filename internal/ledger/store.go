@@ -22,6 +22,22 @@ type Store struct {
 	dir     string
 	Now     func() time.Time
 	OnWrite func(Event)
+	// readOnly, when set, refuses every write and says why.
+	readOnly string
+}
+
+// ErrReadOnly is a write to a store opened read-only.
+var ErrReadOnly = errors.New("ledger: read-only")
+
+// SetReadOnly makes every later write (an append, an import, a blob) fail
+// with ErrReadOnly and reason.
+func (s *Store) SetReadOnly(reason string) { s.readOnly = reason }
+
+func (s *Store) refuseWrite() error {
+	if s.readOnly == "" {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrReadOnly, s.readOnly)
 }
 
 var itemPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -63,6 +79,9 @@ func (s *Store) Path(item string) string { return s.path(item) }
 
 func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 	var e Event
+	if err := s.refuseWrite(); err != nil {
+		return e, err
+	}
 	err := s.withLock(func() error {
 		prev, err := s.tailHash(item)
 		if err != nil {
@@ -104,6 +123,9 @@ func NewEventWith(id string, at time.Time, item, kind, actor string, payload any
 }
 
 func (s *Store) AppendRaw(e Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	if !ValidItem(e.Item) {
 		return fmt.Errorf("ledger: invalid item id %q", e.Item)
 	}
@@ -127,6 +149,9 @@ func (s *Store) AppendRaw(e Event) error {
 }
 
 func (s *Store) Replace(item, head string, events []Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	if !ValidItem(item) {
 		return fmt.Errorf("ledger: invalid item id %q", item)
 	}
@@ -169,6 +194,9 @@ func (s *Store) Replace(item, head string, events []Event) error {
 }
 
 func (s *Store) replaceFile(item string, body []byte) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.path(item)), ".tmp-*")
 	if err != nil {
 		return err
@@ -223,6 +251,9 @@ func (s *Store) Import(events []Event) (added int, err error) {
 }
 
 func (s *Store) write(e Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	line, err := Encode(e)
 	if err != nil {
 		return err
@@ -406,6 +437,9 @@ func (s *Store) Verify() error {
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func (s *Store) PutBlob(b []byte) (string, error) {
+	if err := s.refuseWrite(); err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(b)
 	sha := hex.EncodeToString(sum[:])
 	path := filepath.Join(s.dir, "blobs", sha)

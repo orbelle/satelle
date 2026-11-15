@@ -44,12 +44,22 @@ func openKernel() (*kernel.Kernel, repo, error) {
 	return k, r, err
 }
 
+const dryRunReadOnly = "a dry run (satelle gate run) started this command: it may read the ledger, not write it"
+
 func (r repo) open() (*kernel.Kernel, error) {
+	readOnly := ""
+	if kernel.UnderDryRun(r.Runtime) {
+		readOnly = dryRunReadOnly
+	}
+	return r.openWith(readOnly)
+}
+
+func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	if err := os.MkdirAll(r.Runtime, 0o755); err != nil {
 		return nil, err
 	}
 	_ = config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir))
-	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree})
+	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree, ReadOnly: readOnly})
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
 	}

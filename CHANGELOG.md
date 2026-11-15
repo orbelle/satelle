@@ -1,3 +1,8 @@
+## [1.0.76] - 2026-11-15
+
+### Added
+- satelle gate run <workflow>/<gate> --item <id> runs one gate as its transition would and records nothing; --show-input prints what the gate receives without running it (sto_4990f0a2)
+
 ## [1.0.75] - 2026-11-14
 
 ### Fixed
