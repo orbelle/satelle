@@ -157,7 +157,7 @@ func goTokens(src []byte) ([]goTok, []string) {
 		}
 		switch tok {
 		case token.COMMENT:
-			if keptGoComment(lit) || exampleOutput(lit) {
+			if keptGoComment(lit) {
 				directives = append(directives, lit)
 			}
 			continue

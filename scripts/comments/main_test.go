@@ -178,6 +178,21 @@ func TestMarkdownHTMLComments(t *testing.T) {
 	}
 }
 
+func TestOutputIsKeptOnlyInAnExample(t *testing.T) {
+	src := "package a\n\nimport \"fmt\"\n\nfunc ExampleA() {\n\tfmt.Println(1)\n\t// Output: 1\n}\n\nfunc B() {\n\t// Output: comment\n\tfmt.Println(2)\n}\n"
+	want := "package a\n\nimport \"fmt\"\n\nfunc ExampleA() {\n\tfmt.Println(1)\n\t// Output: 1\n}\n\nfunc B() {\n\n\tfmt.Println(2)\n}\n"
+	out, found, err := stripGo([]byte(src))
+	if err != nil {
+		t.Fatalf("a stray // Output: is an error, want a finding: %v", err)
+	}
+	if len(found) != 1 || found[0].line != 11 {
+		t.Fatalf("found %v, want the stray // Output: on line 11", found)
+	}
+	if !strings.Contains(string(out), "// Output: 1") || strings.Contains(string(out), "// Output: comment") {
+		t.Fatalf("got:\n%s\nwant like:\n%s", out, want)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")
