@@ -1,3 +1,8 @@
+## [1.0.77] - 2026-11-15
+
+### Changed
+- Code and substrate carry no comments: every Go file, script, the Makefile, the init template and .satelle are stripped, keeping only tool directives; `scripts/comments.sh strip|check` removes and refuses them (sto_769dfc24, sto_f273720f) (sto_769dfc24)
+
 ## [1.0.76] - 2026-11-15
 
 ### Added
