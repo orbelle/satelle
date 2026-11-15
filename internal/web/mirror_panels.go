@@ -20,7 +20,6 @@ import (
 	"time"
 )
 
-// mirrorIdentity loads kind=identity id=meta for a partition.
 func mirrorIdentity(ctx context.Context, s *mirror.Store, repoKey string) mirror.IdentityMeta {
 	payload, err := s.GetItem(ctx, repoKey, "identity", "meta")
 	if err != nil || payload == "" {
@@ -31,13 +30,11 @@ func mirrorIdentity(ctx context.Context, s *mirror.Store, repoKey string) mirror
 	return id
 }
 
-// syncHeldVM is one story the last push held until its code is on the remote.
 type syncHeldVM struct {
 	ID     string
 	Reason string
 }
 
-// syncHeldRows orders the recorded held stories by id for the header.
 func syncHeldRows(held map[string]string) []syncHeldVM {
 	if len(held) == 0 {
 		return nil
@@ -49,8 +46,6 @@ func syncHeldRows(held map[string]string) []syncHeldVM {
 	return rows
 }
 
-// loadPartitionSync reads recorded hosted-push state. Missing file is empty
-// (no marker, no false green). Never contacts satelle.dev.
 func loadPartitionSync(repoPath string) syncstate.State {
 	if strings.TrimSpace(repoPath) == "" {
 		return syncstate.State{}
@@ -74,9 +69,6 @@ func displayedServerLogPath() string {
 	return mirror.ServerLogPath(home)
 }
 
-// homeDir is the satelle home satelled reads machine state from:
-// SATELLE_HOME, else empty under go test (a unit test never reads the real
-// home), else config.GlobalDir().
 func homeDir() string {
 	if home := strings.TrimSpace(os.Getenv("SATELLE_HOME")); home != "" {
 		return home
@@ -87,12 +79,8 @@ func homeDir() string {
 	return config.GlobalDir()
 }
 
-// seatStanding classes a pushed seat from this machine (seatlife.StandingOf):
-// here, elsewhere, gone or unverified, with the evidence for it. satelled
-// reads the machine id and the session records and never writes either.
 type seatStanding func(mirror.Seat) (seatlife.Standing, seatlife.Evidence)
 
-// standingHere is the seatStanding of this machine's home.
 func standingHere() seatStanding {
 	home := homeDir()
 	here, _ := config.ReadMachineID(home)
@@ -101,16 +89,10 @@ func standingHere() seatStanding {
 	}
 }
 
-// seatOf is a pushed seat row as the item.Seat it was folded from.
 func seatOf(s mirror.Seat) item.Seat {
 	return item.Seat{Item: s.Item, Session: s.Session, Location: s.Location, Base: s.Base, BoundAt: s.BoundAt, Machine: s.Machine, Host: s.Host, User: s.User}
 }
 
-// partitionFreshness reports when this partition was last confirmed against its
-// repo, by a push or the automatic sync pass's confirm (sty_e6e467fe,
-// sto_128803b3), and whether that is longer ago than mirror.StaleAfter. An
-// unknown partition returns the zero time and stale: the page then says it has
-// no confirmation at all, which is the honest reading.
 func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) (last time.Time, stale bool) {
 	p, ok, err := s.GetPartition(ctx, repoKey)
 	if err != nil || !ok {
@@ -120,7 +102,6 @@ func partitionFreshness(ctx context.Context, s *mirror.Store, repoKey string) (l
 	return last.Local(), p.Stale(time.Now())
 }
 
-// mirrorLoadPanels assembles pageData exclusively from mirror kinds (no repo DB).
 func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string) (pageData, mirror.IdentityMeta, error) {
 	id := mirrorIdentity(ctx, s, repoKey)
 
@@ -151,8 +132,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}
 	standing := standingHere()
 	listed := offPanels(stories, workflows)
-	// One rule marks every story row, on the Stories tab or a panel, in every
-	// mode, and the Stories tab's counts read the same marks.
 	eng := engagements(seats, stories, workflows, standing)
 	engagedIDs, elsewhereIDs := engagedCounts(eng, listed)
 	events, err := decodeLedger(ctx, s, repoKey, "")
@@ -224,9 +203,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	}, id, nil
 }
 
-// hostedLinks is a hosted-mode partition's link to the server's project
-// page; a local partition links nothing. Every story row in the local store
-// is listed whatever engaged it (sty_6ce071dc).
 func hostedLinks(h *mirror.HostedMeta) *hostedLinksVM {
 	if h == nil || h.Server == "" || h.Project == "" {
 		return nil
@@ -234,7 +210,6 @@ func hostedLinks(h *mirror.HostedMeta) *hostedLinksVM {
 	return &hostedLinksVM{Project: strings.TrimRight(h.Server, "/") + "/app/p/" + url.PathEscape(h.Project)}
 }
 
-// seatsByItem groups seats by the item each is bound to.
 func seatsByItem(seats []mirror.Seat) map[string][]mirror.Seat {
 	by := map[string][]mirror.Seat{}
 	for _, s := range seats {
@@ -245,9 +220,6 @@ func seatsByItem(seats []mirror.Seat) map[string][]mirror.Seat {
 	return by
 }
 
-// assigneesOf is it's assignees and those of them working it
-// (item.AssigneesOf), from seats (the item's) kept where their standing is
-// working: a seat proven gone drops its user.
 func assigneesOf(it Item, seats []mirror.Seat, standing seatStanding) (users, working []string) {
 	held := slices.Clone(seats)
 	sort.SliceStable(held, func(i, j int) bool { return held[i].BoundAt.Before(held[j].BoundAt) })
@@ -260,7 +232,6 @@ func assigneesOf(it Item, seats []mirror.Seat, standing seatStanding) (users, wo
 	return item.AssigneesOf(it.Assignees, live)
 }
 
-// assigneeVMs is users as view rows, each in working marked.
 func assigneeVMs(users, working []string) []assigneeVM {
 	out := make([]assigneeVM, len(users))
 	for i, u := range users {
@@ -269,17 +240,12 @@ func assigneeVMs(users, working []string) []assigneeVM {
 	return out
 }
 
-// withAssignees sets each row's assignees from bySeat (seatsByItem).
 func withAssignees(rows []rowVM, bySeat map[string][]mirror.Seat, standing seatStanding) {
 	for i := range rows {
 		rows[i].Assignees = assigneeVMs(assigneesOf(rows[i].Item, bySeat[rows[i].ID], standing))
 	}
 }
 
-// withProgress sets each row's step chips (progressOf) from its events
-// (eventsByItem, oldest first), its seats (seatsByItem), its workflow and its
-// own Engaged, so a row's pulse and its data-engaged read one value. Set each
-// row's Engaged before calling it.
 func withProgress(rows []rowVM, byItem map[string][]Entry, bySeat map[string][]mirror.Seat, workflows map[string]*mirror.Workflow, standing seatStanding) {
 	for i := range rows {
 		it := rows[i].Item
@@ -302,7 +268,6 @@ func tagFilterExample() string {
 	return ""
 }
 
-// itemRows is one row per item, its status classed by its workflow.
 func itemRows(items []Item, workflows map[string]*mirror.Workflow) []rowVM {
 	out := make([]rowVM, len(items))
 	for i, it := range items {
@@ -330,7 +295,6 @@ func decodeItems(ctx context.Context, s *mirror.Store, repoKey, kind string) ([]
 	return out, nil
 }
 
-// mirrorDoc is a pushed doc row.
 type mirrorDoc = docEntry
 
 func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorDoc, error) {
@@ -352,7 +316,6 @@ func decodeDocs(ctx context.Context, s *mirror.Store, repoKey string) ([]mirrorD
 	return out, nil
 }
 
-// workflowsOf indexes the pushed workflows by name.
 func workflowsOf(docs []mirrorDoc) map[string]*mirror.Workflow {
 	out := map[string]*mirror.Workflow{}
 	for _, d := range docs {
@@ -363,7 +326,6 @@ func workflowsOf(docs []mirrorDoc) map[string]*mirror.Workflow {
 	return out
 }
 
-// workflowRows is the Workflow panel.
 func workflowRows(docs []mirrorDoc) []workflowRowVM {
 	var out []workflowRowVM
 	for _, d := range docs {
@@ -380,7 +342,6 @@ func workflowRows(docs []mirrorDoc) []workflowRowVM {
 	return out
 }
 
-// docKinds groups the pushed docs by kind for the docs fragment.
 func docKinds(docs []mirrorDoc) []kindGroup {
 	byKind := map[string][]docRowVM{}
 	for _, d := range docs {
@@ -395,7 +356,6 @@ func docKinds(docs []mirrorDoc) []kindGroup {
 	return out
 }
 
-// decodeLedger returns the item's events oldest first ("" = every item's).
 func decodeLedger(ctx context.Context, s *mirror.Store, repoKey, itemID string) ([]Entry, error) {
 	rows, err := s.ListItems(ctx, repoKey, "ledger_event")
 	if err != nil {
@@ -420,7 +380,6 @@ func decodeLedger(ctx context.Context, s *mirror.Store, repoKey, itemID string) 
 	return out, nil
 }
 
-// decodeSeats returns the partition's seat rows.
 func decodeSeats(ctx context.Context, s *mirror.Store, repoKey string) ([]mirror.Seat, error) {
 	rows, err := s.ListItems(ctx, repoKey, "seat")
 	if err != nil {
@@ -440,30 +399,14 @@ func decodeSeats(ctx context.Context, s *mirror.Store, repoKey string) ([]mirror
 	return seats, nil
 }
 
-// seatItem is the item a seat is bound to, "" when none: a legacy row counts
-// when it is a story seat that is not stale.
 func seatItem(seat mirror.Seat) string {
 	id := strings.TrimSpace(seat.Item)
 	if id == "" && seat.StorySeat && !seat.Stale {
-		id = strings.TrimSpace(seat.ID) // a legacy row: id is the item
+		id = strings.TrimSpace(seat.ID)
 	}
 	return id
 }
 
-// engagements is where each story is engaged, by id; a story engaged
-// nowhere is absent. It is the one rule satelled maps a seat's standing to a
-// mark by. A seat counts when it is bound to one of stories in a state its
-// pushed workflow does not class terminal (a story whose workflow is not
-// pushed, or does not name its state, counts, since the page cannot prove it
-// terminal). Then by its standing:
-//   - here or unverified: the story is engaged here — a seat counts as here
-//     until it is proven elsewhere or gone — and the mark is verified when any
-//     such seat is here;
-//   - elsewhere: one mark per place (elsewhereLabel), seats sharing a label
-//     sharing the mark;
-//   - gone: nothing.
-//
-// A task's or task run's seat is not a story's: Activity shows it.
 func engagements(seats []mirror.Seat, stories []Item, workflows map[string]*mirror.Workflow, standing seatStanding) map[string]*engagementVM {
 	byID := make(map[string]Item, len(stories))
 	for _, it := range stories {
@@ -522,8 +465,6 @@ func engagements(seats []mirror.Seat, stories []Item, workflows map[string]*mirr
 	return out
 }
 
-// engagedCounts is the sorted ids of stories engaged here and of those with a
-// seat elsewhere, from eng (engagements): the Stories tab's two badges.
 func engagedCounts(eng map[string]*engagementVM, stories []Item) (here, elsewhere []string) {
 	for _, it := range stories {
 		e := eng[it.ID]
@@ -542,10 +483,6 @@ func engagedCounts(eng map[string]*engagementVM, stories []Item) (here, elsewher
 	return here, elsewhere
 }
 
-// elsewhereMark is a seat elsewhere's mark label and hover entry: on another
-// machine, "<user's name>@<host>" (the place alone when no user is recorded)
-// and "engaged by <user> on <host> (<machine id>)"; at a remote or cloud
-// location, the place (seatlife.Where) and "engaged by <user> at <location>".
 func elsewhereMark(seat mirror.Seat) (label, title string) {
 	place, machine := seatlife.Where(seatOf(seat))
 	if machine {
@@ -566,7 +503,6 @@ func elsewhereMark(seat mirror.Seat) (label, title string) {
 	return place, fmt.Sprintf("engaged %s at %s, session %s", seatWho(seat), loc, seatSession(seat))
 }
 
-// seatWho is "by <user>" for a seat's hover, or "by an unrecorded user".
 func seatWho(seat mirror.Seat) string {
 	if u := strings.TrimSpace(seat.User); u != "" {
 		return "by " + u
@@ -574,7 +510,6 @@ func seatWho(seat mirror.Seat) string {
 	return "by an unrecorded user"
 }
 
-// seatSession is a seat's session for its hover, or "not recorded".
 func seatSession(seat mirror.Seat) string {
 	if s := strings.TrimSpace(seat.Session); s != "" {
 		return s
@@ -582,7 +517,6 @@ func seatSession(seat mirror.Seat) string {
 	return "not recorded"
 }
 
-// panelOf is the panel the item's workflow declares, or "".
 func panelOf(workflows map[string]*mirror.Workflow, it Item) string {
 	if w := workflows[it.Workflow]; w != nil {
 		return w.Panel
@@ -590,9 +524,6 @@ func panelOf(workflows map[string]*mirror.Workflow, it Item) string {
 	return ""
 }
 
-// offPanels is the stories listed on the Stories tab: those whose workflow
-// declares no panel. The tab's count, its backlog badge and the engaged count
-// read these alone.
 func offPanels(stories []Item, workflows map[string]*mirror.Workflow) []Item {
 	var out []Item
 	for _, it := range stories {
@@ -603,8 +534,6 @@ func offPanels(stories []Item, workflows map[string]*mirror.Workflow) []Item {
 	return out
 }
 
-// panelTopic is a panel's tab and fragment key: "wf-" and the name's
-// lowercase slug, so it never collides with a built-in tab.
 func panelTopic(name string) string {
 	var b strings.Builder
 	b.WriteString("wf-")
@@ -623,10 +552,6 @@ func panelTopic(name string) string {
 	return b.String()
 }
 
-// splitPanels moves each story row whose workflow declares a panel off the
-// Stories rows onto that panel. Every pushed workflow that declares a panel
-// yields one, even with no rows; workflows sharing a panel name share it.
-// Panels are sorted by name; Open counts rows not in a terminal state.
 func splitPanels(rows []rowVM, workflows map[string]*mirror.Workflow) ([]rowVM, []panelVM) {
 	byName := map[string]*panelVM{}
 	for _, w := range workflows {
@@ -653,11 +578,6 @@ func splitPanels(rows []rowVM, workflows map[string]*mirror.Workflow) ([]rowVM, 
 	return stories, panels
 }
 
-// backlogCount is the number of stories in backlog, the Stories tab's
-// 'N backlog' badge: those whose state is their workflow's start state, read
-// from the pushed workflow, never a state name. A story whose workflow is
-// unpushed or lacks its state is not counted. The server owns the count: first
-// load renders it and the live refresh refetches it as a fragment.
 func backlogCount(stories []Item, workflows map[string]*mirror.Workflow) int {
 	n := 0
 	for _, it := range stories {
@@ -668,8 +588,6 @@ func backlogCount(stories []Item, workflows map[string]*mirror.Workflow) int {
 	return n
 }
 
-// mirrorLoadDetail builds the detail VM from mirror kinds only: the item, its
-// route, its verdicts, its attachments, its children and its timeline.
 func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id string) (detailData, mirror.IdentityMeta, error) {
 	payload, err := s.GetItem(ctx, repoKey, group, id)
 	if err != nil {
@@ -729,7 +647,6 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 		}
 	}
 
-	// The timeline is newest first.
 	evs := make([]eventVM, len(events))
 	for i, e := range events {
 		ev := eventVM{Entry: e, Chips: eventChips(e)}
@@ -776,11 +693,10 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	}, idMeta, nil
 }
 
-// docAnchor returns the fragment id for an attached document (doc-<slug>).
 func docAnchor(name string) string {
 	var b strings.Builder
 	b.WriteString("doc-")
-	prevDash := true // suppress leading dashes
+	prevDash := true
 	for _, r := range strings.ToLower(name) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			b.WriteRune(r)
@@ -822,7 +738,6 @@ func tagColourOverrides(settings mirror.Settings) map[string]string {
 
 const tagColoursPrefix = "ui.tag_colours."
 
-// mirrorSettingsData loads the pushed settings blob into the settings template VM.
 func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (settingsData, mirror.IdentityMeta, error) {
 	id := mirrorIdentity(ctx, s, repoKey)
 	blob, ok := pushedSettings(ctx, s, repoKey)
@@ -857,7 +772,6 @@ func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (s
 	}, id, nil
 }
 
-// findDoc returns one mirrored doc by kind+name.
 func findDoc(ctx context.Context, s *mirror.Store, repoKey, kind, name string) (mirrorDoc, error) {
 	docs, err := decodeDocs(ctx, s, repoKey)
 	if err != nil {
@@ -871,7 +785,6 @@ func findDoc(ctx context.Context, s *mirror.Store, repoKey, kind, name string) (
 	return mirrorDoc{}, errNotFound
 }
 
-// errNotFound is a sentinel for missing mirror rows.
 var errNotFound = errString("not found")
 
 type errString string

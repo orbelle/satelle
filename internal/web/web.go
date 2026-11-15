@@ -1,7 +1,3 @@
-// Package web is satelle's push-fed read-only web UI (mirror server).
-// The live verb-dispatch Server (web.New) was removed in sty_80233c10 —
-// production uses NewMirror only. Shared view-model types and pure helpers
-// stay here with the embedded static assets and templates.
 package web
 
 import (
@@ -20,7 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// serverStart marks when the web service process came up.
 var serverStart = time.Now()
 
 func formatUptime(d time.Duration) string {
@@ -56,68 +51,38 @@ func getTheme(w http.ResponseWriter, r *http.Request) {
 }
 
 type pageData struct {
-	RepoRoot    string
-	ProjectName string
-	DBPath      string
-	Stories     []rowVM
-	// Panels are the tabs of workflows that declare a panel: their stories
-	// are listed there instead of on Stories (sto_a1681009).
-	Panels []panelVM
-	// BacklogCount is the number of stories in backlog, the Stories tab's
-	// 'N backlog' badge; rendered at page load and refetched live.
-	BacklogCount int
-	// EngagementCount is the number of Stories-tab stories engaged here
-	// (engagements): a non-terminal story with a seat here or unverified; a
-	// task run's seat is not counted (Activity shows it). The chip emits
-	// nothing at 0.
-	EngagementCount int
-	// EngagedStoryIDs lists those stories' ids (sorted); empty when count is 0.
-	EngagedStoryIDs []string
-	// ElsewhereCount is the number of Stories-tab stories with a seat
-	// elsewhere (engagements); ElsewhereStoryIDs lists their ids, sorted.
+	RepoRoot          string
+	ProjectName       string
+	DBPath            string
+	Stories           []rowVM
+	Panels            []panelVM
+	BacklogCount      int
+	EngagementCount   int
+	EngagedStoryIDs   []string
 	ElsewhereCount    int
 	ElsewhereStoryIDs []string
 	Tasks             []rowVM
 	Queues            []queueVM
-	Activity          []activityRowVM // stories and task runs being worked now
+	Activity          []activityRowVM
 	DocKinds          []kindGroup
 	Workflows         []workflowRowVM
 	Uptime            string
 	Theme             string
 	TopBar            topBar
-	Projects          []crumbProject // this machine's projects, for the breadcrumb switcher
-	// LastIngest is when this partition's state was last confirmed against the
-	// repo, by a push or the automatic sync pass (sto_128803b3), rendered as
-	// elapsed time so the page never presents a frame satelled is behind on as
-	// current (sty_e6e467fe, presented per sty_226a661e).
-	LastIngest time.Time
-	// Stale is set when LastIngest is older than mirror.StaleAfter (or absent):
-	// no sync pass has confirmed the mirror. The header then shows the stale
-	// marker beside the elapsed time.
-	Stale bool
-	// SyncLastSuccess / SyncReason / SyncStore are the recorded outcome of the
-	// last automatic ledger sync pass (syncstate's sync group, sto_5c706973);
-	// SyncLocal is set when the repo's store is local.
-	SyncLastSuccess time.Time
-	SyncReason      string
-	SyncLocal       bool
-	SyncStore       string
-	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
-	// (sto_0f76dd4e), shown as upgrade needed, never as sync failing.
-	SyncUpgrade string
-	// SyncHeld are the stories the last push held until their code is on the
-	// remote (sty_c203fd62). Holding is intended while a story is in flight, so
-	// they are shown apart from SyncReason, never as sync failing.
-	SyncHeld []syncHeldVM
-	// Hosted, set when the server is the repo's store of record, links the
-	// server's project page; Stories still lists every story in the local store.
-	Hosted           *hostedLinksVM
-	TagFacets        string
-	TagFilterExample string
+	Projects          []crumbProject
+	LastIngest        time.Time
+	Stale             bool
+	SyncLastSuccess   time.Time
+	SyncReason        string
+	SyncLocal         bool
+	SyncStore         string
+	SyncUpgrade       string
+	SyncHeld          []syncHeldVM
+	Hosted            *hostedLinksVM
+	TagFacets         string
+	TagFilterExample  string
 }
 
-// hostedLinksVM links a hosted-mode page to the server's project page. Only
-// pages the server serves are linked (sty_9ece9394).
 type hostedLinksVM struct {
 	Project string
 }
@@ -132,42 +97,25 @@ type crumbProject struct {
 
 type topBar struct {
 	Uptime string
-	// User is the user this machine's CLI is signed in as, or nil when it is
-	// signed out: the top bar shows it as an avatar.
-	User *topBarUser
-	// Active names the current nav item so its link renders accent (DS SiteHeader):
-	// "home", "projects", "help", or "" for a page no nav item represents.
+	User   *topBarUser
 	Active string
-	// Builds is the footer's build lines: the installed satelle CLI, the
-	// running satelled and the installed satelled, with any disagreement.
 	Builds buildsVM
 }
 
 type rowVM struct {
 	Item
-	// StateClass is the status's class in the item's workflow: start,
-	// terminal, park or active ("" when the workflow was not pushed).
 	StateClass string
-	// Engaged is where the story is engaged (engagements), nil when nowhere:
-	// marks on the row's title and its data-engaged, in every mode.
-	Engaged *engagementVM
-	// Assignees is every user assigned the item, each once: its explicit
-	// assignees, then each user holding a working seat (assigneesOf).
-	Assignees []assigneeVM
-	// Progress is a story row's step chips (progressOf); nil on other rows.
+	Engaged    *engagementVM
+	Assignees  []assigneeVM
 	Progress   []stageVM
 	TagColours map[string]string
 }
 
-// engagementVM is where a story is engaged: Here is its mark for seats here
-// or unverified (nil when none), Elsewhere one mark per other place, sorted
-// by label.
 type engagementVM struct {
 	Here      *markVM
 	Elsewhere []markVM
 }
 
-// Attr is the row's data-engaged: "here", "elsewhere" or "here,elsewhere".
 func (e *engagementVM) Attr() string {
 	var parts []string
 	if e.Here != nil {
@@ -179,9 +127,6 @@ func (e *engagementVM) Attr() string {
 	return strings.Join(parts, ",")
 }
 
-// Words is the engagement in words for a Progress chip's hover: the here
-// mark's title, then each elsewhere mark's, joined by "; " ("" for nil). It
-// formats the marks' own text and decides nothing.
 func (e *engagementVM) Words() string {
 	if e == nil {
 		return ""
@@ -196,22 +141,16 @@ func (e *engagementVM) Words() string {
 	return strings.Join(parts, "; ")
 }
 
-// markVM is one engagement mark: Label its text, Title its hover (one entry
-// per seat making it), Unverified a here mark no seat proves live.
 type markVM struct {
 	Label, Title string
 	Unverified   bool
 }
 
-// assigneeVM is one assignee; Working marks a user holding a working seat.
 type assigneeVM struct {
 	User    string
 	Working bool
 }
 
-// panelVM is one workflow panel's tab and rows: Topic is its tab and fragment
-// key ("wf-" and the name's slug), Open the count of its rows not in a
-// terminal state, the tab's count and alert.
 type panelVM struct {
 	Name  string
 	Topic string
@@ -232,22 +171,18 @@ type kindGroup struct {
 }
 
 type detailData struct {
-	Item       Item
-	StateClass string
-	TagColours map[string]string
-	// BackTab is the project tab the item is listed on when it is not its
-	// kind's own: a workflow panel's topic; "" means the kind's tab.
-	BackTab    string
-	ParentKind string // the kind of the parent item, "" when not pushed
-	Assignees  []assigneeVM
-	Children   []childLink
-	// Progress is a story's step chips with their rejected rounds; nil for
-	// other kinds.
+	Item          Item
+	StateClass    string
+	TagColours    map[string]string
+	BackTab       string
+	ParentKind    string
+	Assignees     []assigneeVM
+	Children      []childLink
 	Progress      []stageVM
 	Route         routeVM
 	Presentations []presentationVM
 	Attachments   []attachmentVM
-	Events        []eventVM // newest first
+	Events        []eventVM
 	TopBar        topBar
 	Standalone    bool
 }
@@ -260,8 +195,8 @@ type chipVM struct {
 type eventVM struct {
 	Entry
 	Chips   []chipVM
-	DocName string // set for an attachment event — names the document on the timeline
-	DocHref string // relative "<kind>/<id>#doc-<slug>" when the doc is present; else empty
+	DocName string
+	DocHref string
 }
 
 type helpTopic struct {
@@ -277,7 +212,6 @@ type docPageData struct {
 	Headline string
 	HTML     template.HTML
 	Source   string
-	// Workflow is set when the doc is a pushed workflow: the page draws it.
 	Workflow *routeVM
 }
 
@@ -293,18 +227,17 @@ type topBarUser struct {
 }
 
 type settingsRowVM struct {
-	FieldID  string // the config key, shown as the row's monospace id
+	FieldID  string
 	Label    string
 	Help     string
 	Value    string
-	SectHead string // non-empty on the first row of a new section group
+	SectHead string
 }
 
 type settingsData struct {
 	Rows     []settingsRowVM
 	TopBar   topBar
 	RepoRoot string
-	// MirrorRO hides the global-settings link (no write surface on push-fed serve).
 	MirrorRO bool
 }
 
@@ -312,7 +245,7 @@ func sectionLabel(s string) string {
 	if s == "" {
 		return "General"
 	}
-	return strings.ToUpper(s[:1]) + s[1:] // "hosted" → "Hosted", "gate" → "Gate"
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func eventChips(e Entry) []chipVM {
@@ -378,14 +311,10 @@ func stripFrontmatter(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// newTopBar builds the top bar: uptime, the active nav item and the user this
-// machine's CLI is signed in as (from its latest push; nil when signed out).
 func newTopBar(ctx context.Context, st *mirror.Store, active string) topBar {
 	return topBar{Uptime: formatUptime(time.Since(serverStart)), Active: active, User: signedIn(ctx, st), Builds: newBuilds()}
 }
 
-// signedIn is the avatar for the user the CLI's latest push names: the name's
-// first letter, with name and email.
 func signedIn(ctx context.Context, st *mirror.Store) *topBarUser {
 	u := st.SignedIn(ctx)
 	if u == nil {

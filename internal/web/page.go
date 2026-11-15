@@ -13,13 +13,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// basePath is the URL prefix this server is mounted under, empty for the
-// supervisor (which serves the / landing and shared chrome) and "/<slug>" for a
-// project served behind the supervisor's reverse proxy. It is a process global
-// because each project is its own process.
 var basePath string
 
-// SetBasePath sets the mount prefix (trailing slash trimmed). Call before New.
 func SetBasePath(p string) {
 	basePath = "/" + strings.Trim(p, "/")
 	if basePath == "/" {
@@ -27,9 +22,6 @@ func SetBasePath(p string) {
 	}
 }
 
-// baseHref returns the value for the page's <base href> — always slash-terminated
-// so relative URLs in app.js resolve under the mount: "/" at root, "/slug/" under
-// the proxy.
 func baseHref() string {
 	if basePath == "" {
 		return "/"
@@ -37,7 +29,6 @@ func baseHref() string {
 	return basePath + "/"
 }
 
-// tmplFuncs are shared template helpers.
 var tmplFuncs = template.FuncMap{
 	"basehref": baseHref,
 	"ftime": func(t time.Time) string {
@@ -46,10 +37,6 @@ var tmplFuncs = template.FuncMap{
 		}
 		return t.Local().Format("2006-01-02 15:04")
 	},
-	// isotime is the machine-readable half of a freshness stamp: the client
-	// ticker re-renders the phrase from THIS, so it must be an absolute instant
-	// rather than a formatted local string. Zero renders empty, which is the
-	// ticker's signal to leave that element alone.
 	"isotime": func(t time.Time) string {
 		if t.IsZero() {
 			return ""
@@ -61,8 +48,6 @@ var tmplFuncs = template.FuncMap{
 	"join": func(ss []string, sep string) string {
 		return strings.Join(ss, sep)
 	},
-	// users is the assignees' users joined by commas: a row's data-assignee
-	// filter value and its search text.
 	"users": func(as []assigneeVM) string {
 		us := make([]string, len(as))
 		for i, a := range as {
@@ -70,10 +55,6 @@ var tmplFuncs = template.FuncMap{
 		}
 		return strings.Join(us, ",")
 	},
-	// evdot maps a timeline event to its dot's outcome class from the gate
-	// result in the payload: a reject is a fail dot, an error (a judge that
-	// could not be asked) an error dot, an accept or carry a pass dot; every
-	// other event keeps the default dot.
 	"evdot": func(ev eventVM) string {
 		for _, c := range ev.Chips {
 			if c.Type != "outcome" {
@@ -91,8 +72,6 @@ var tmplFuncs = template.FuncMap{
 		}
 		return ""
 	},
-	// dict builds a map from alternating keys and values, for passing a small
-	// view to a shared template.
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -149,8 +128,6 @@ var tmplFuncs = template.FuncMap{
 		}
 		return template.HTMLAttr(b.String())
 	},
-	// tabof maps a work-item kind to its panel/tab name (story→stories). Takes
-	// any so the workitem.Kind type (a distinct string type) is accepted.
 	"tabof": func(kind any) string {
 		switch fmt.Sprint(kind) {
 		case "task":
@@ -170,29 +147,17 @@ func chipHue(name string) int {
 	return 170 + int(h.Sum32()%80)
 }
 
-// Gate results that pass (gate.Accept, gate.Carried).
 const (
 	gateAccept  = "accept"
 	gateCarried = "carried"
 )
 
-// relTime renders an elapsed duration as the phrase shown in a freshness stamp
-// (sty_226a661e). Buckets, thresholds and plural forms are MIRRORED in
-// relPhrase() in static/app.js, which re-renders the same element on a timer —
-// so the two must agree exactly or the text visibly re-words on the first tick
-// with no time elapsed. Edit one, edit the other; TestRelTimeBuckets pins the
-// Go side and TestAppJSMirrorsRelTimeWording fences the JS side.
-//
-// Floor arithmetic throughout: "1 hr ago" holds for the whole hour, so a client
-// tick lands on the same string the server produced.
 func relTime(t, now time.Time) string {
 	if t.IsZero() {
 		return "never"
 	}
 	d := now.Sub(t)
 	if d < 0 {
-		// Clock skew between the ingesting repo and the serving tier. "in 3
-		// minutes" reads as a bug; treat any future stamp as current.
 		d = 0
 	}
 	switch {
@@ -207,8 +172,6 @@ func relTime(t, now time.Time) string {
 	}
 }
 
-// plural renders "1 hr ago" / "3 hrs ago" — the one place the -s is decided, so
-// the Go and JS sides cannot disagree about it independently.
 func plural(n int, unit string) string {
 	if n == 1 {
 		return "1 " + unit + " ago"
@@ -216,9 +179,6 @@ func plural(n int, unit string) string {
 	return fmt.Sprintf("%d %ss ago", n, unit)
 }
 
-// tmpl is the whole page's template set: the full page, the per-panel row
-// fragments (reused by the realtime refetch), and the inline item detail
-// (reused by the expand fragment and the standalone detail page).
 var tmpl = template.Must(template.New("web").Funcs(tmplFuncs).Parse(templatesSrc))
 
 const templatesSrc = `
