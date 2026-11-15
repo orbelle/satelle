@@ -79,9 +79,10 @@ type SessionOwner interface {
 
 // Options say where a kernel lives.
 type Options struct {
-	Root    string // the .satelle directory
-	Runtime string // ledger, blobs and cache; "" is <Root>/runtime
-	Dir     string // working tree; "" is Root's parent
+	Root     string // the .satelle directory
+	Runtime  string // ledger, blobs and cache; "" is <Root>/runtime
+	Dir      string // working tree; "" is Root's parent
+	ReadOnly string
 }
 
 // Open loads and validates the configuration and opens the ledger and cache.
@@ -123,7 +124,9 @@ func Open(o Options) (*Kernel, error) {
 		k.Git = repo
 	}
 	led.Now = func() time.Time { return k.Now() }
-	if err := k.materializeQueues(); err != nil {
+	if o.ReadOnly != "" {
+		led.SetReadOnly(o.ReadOnly)
+	} else if err := k.materializeQueues(); err != nil {
 		c.Close()
 		return nil, err
 	}

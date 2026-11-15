@@ -49,12 +49,22 @@ func openKernel() (*kernel.Kernel, repo, error) {
 	return k, r, err
 }
 
+const dryRunReadOnly = "a dry run (satelle gate run) started this command: it may read the ledger, not write it"
+
 func (r repo) open() (*kernel.Kernel, error) {
+	readOnly := ""
+	if kernel.UnderDryRun(r.Runtime) {
+		readOnly = dryRunReadOnly
+	}
+	return r.openWith(readOnly)
+}
+
+func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	if err := os.MkdirAll(r.Runtime, 0o755); err != nil {
 		return nil, err
 	}
 	_ = config.WriteRepoPathMarker(r.Runtime, filepath.Dir(r.DataDir))
-	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree})
+	k, err := kernel.Open(kernel.Options{Root: r.DataDir, Runtime: r.Runtime, Dir: r.Tree, ReadOnly: readOnly})
 	if err != nil {
 		return nil, fmt.Errorf("%w\nrun `satelle validate` for every problem", err)
 	}
@@ -81,11 +91,6 @@ func (r repo) open() (*kernel.Kernel, error) {
 	// hook's path, which opens the kernel on every tool call.
 	k.User = func() string { return seatUser(k.Host) }
 	k.Sessions = seatlife.Recorder{Home: home}
-	// A satelle started by a dry run's gate (satelle gate run) may read the
-	// ledger, never write it, so the dry run records nothing.
-	if kernel.UnderDryRun(k.Ledger.Dir()) {
-		k.Ledger.SetReadOnly("a dry run (satelle gate run) started this command: it may read the ledger, not write it")
-	}
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
 	return k, nil

@@ -47,7 +47,11 @@ not judge; 1 the command failed.`,
 			if itemID == "" {
 				return fmt.Errorf("name the item with --item <id>")
 			}
-			k, _, err := openKernel()
+			r, err := findRepo("")
+			if err != nil {
+				return err
+			}
+			k, err := r.openWith("satelle gate run records nothing: it may read the ledger, not write it")
 			if err != nil {
 				return err
 			}
