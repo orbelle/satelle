@@ -59,12 +59,9 @@ if ! report=$(satelle execution attachment "$exe" drift-report 2>&1); then
   echo "cannot read the drift run $exe's drift-report: $report"
   exit 1
 fi
-# section <heading>: the report's lines under the heading, up to the next "## ".
 section() {
   printf '%s\n' "$report" | awk -v h="$1" '$0 == h { on = 1; next } /^## / { on = 0 } on && NF'
 }
-# checked <prefix>: the first "## Checks" line starting with prefix, without
-# its leading "- " and trailing whitespace.
 checked() {
   section '## Checks' | awk -v p="$1" 'index($0, p) == 1 { sub(/^- /, ""); sub(/[ \t\r]+$/, ""); print; exit }'
 }
@@ -86,7 +83,6 @@ lacks=0
 [ -n "$fix" ] || { echo "attachments/drift-report has no fix item and no '$no_drift' line: run drift-review.md steps 3 and 4 again"; lacks=1; }
 [ "$lacks" -eq 0 ] || exit 1
 n=$(printf '%s' "$p" | jq '.members // [] | length') || { echo "the payload is not JSON"; exit 1; }
-# has <notes> <text>: the notes hold text, as a fixed string.
 has() { printf '%s\n' "$1" | grep -qF -e "$2"; }
 bad=0
 i=0

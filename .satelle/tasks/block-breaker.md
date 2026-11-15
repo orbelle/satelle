@@ -12,14 +12,14 @@ story's record and returns a `block-resolution`
 Tasks live on the ledger. Find this one by its title:
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 satelle task list --json --session "$session" | jq -r '.[] | select(.title == "Break a held story'"'"'s block") | .id'
 ```
 
 When it prints nothing, create it once, from the main checkout:
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 satelle task create --title "Break a held story's block" --input-kind story --input-status blocked --body - --session "$session" <<'EOF'
 A story held at blocked after its round cap is read cold before any new story is raised (.satelle/session.md).
 
@@ -37,7 +37,7 @@ story the session names in `held-item`.
 workflow before its first move (a run lands in runbook until it is tagged):
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 held=<held>
 task=<the task id found above>
 exe=$(satelle task run "$task" --json --session "$session" | jq -r '.id // empty')
@@ -73,10 +73,10 @@ state per family.
 Then move the run into that state, seat it, and perform its breaker:
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 exe=<the run>
 state=<the chosen breaking state>
-satelle execution set "$exe" --status "$state" --session "$session"   # validate-before
+satelle execution set "$exe" --status "$state" --session "$session"
 satelle execution seat "$exe" --session "$session"
 satelle execution perform "$exe" --session "$session"
 ```
@@ -87,7 +87,7 @@ The breaker's answer is the run's `block-resolution`. Copy it onto the held
 story and close the run; the done gate checks the form and the copy:
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 exe=<the run>
 held=<held>
 satelle execution attachment "$exe" block-resolution --session "$session" | satelle story attach "$held" --name block-resolution --type text/markdown --file - --session "$session"

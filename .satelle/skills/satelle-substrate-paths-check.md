@@ -22,7 +22,6 @@ configuration, edited here.
 
 ```sh
 set -u
-# The paths a substrate change may touch (an extended regular expression).
 allowed='^\.satelle/'
 for tool in jq satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the changed paths cannot be read"; exit 1; }

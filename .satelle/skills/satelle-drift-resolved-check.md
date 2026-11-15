@@ -61,8 +61,6 @@ keys=$(lines 'drift-key: ')
 warnings=$(lines 'drift-warning: ')
 blocking=$(printf '%s\n' "$keys" | awk 'NF && $0 !~ /^prose:/')
 fix=$(printf '%s' "$story" | jq -r '[.tags[]? | select(startswith("drift-carried-by:")) | ltrimstr("drift-carried-by:")] | .[0] // empty')
-# The fix item, when the tag names one: another item, open on the drift
-# workflow; fixbody is its body, or empty when it does not carry anything.
 fixbody=
 fixwhy="no drift-carried-by:<fix> tag"
 if [ -n "$fix" ]; then
@@ -91,7 +89,6 @@ if [ -z "$blocking" ]; then
   echo "$SATELLE_ITEM has only warnings, which never block: $(printf '%s\n' "$keys" "$warnings" | grep -c .) line(s)"
   exit 0
 fi
-# The drift run's report, read once and only when a key is not carried.
 report=
 runwhy=
 load_report() {
@@ -122,11 +119,9 @@ load_report() {
     exit 1
   fi
 }
-# section <name>: the report's lines under "## <name>", up to the next "## ".
 section() {
   printf '%s\n' "$report" | awk -v h="## $1" '$0 == h { on = 1; next } /^## / { on = 0 } on && NF'
 }
-# resolved <key>: prints why it is resolved and returns 0, or why not and 1.
 resolved() {
   local key=$1 kind=${1%%:*} ran evidence
   case $kind in

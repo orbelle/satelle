@@ -1,20 +1,9 @@
-# A chore: code without a plan stage, reach approved (an open, approved pull
-# request), and reach done only through a run of the release task, as a
-# delivery story does: the session that reached approved fires the release
-# queue (satelle queue fire release --session <session>) and drives the run.
 name = "chore"
 
-# The card is judged before any code (story-review on backlog -> in_progress,
-# chore's first move out of backlog), with the same round cap as every other
-# review.
 [states.backlog]
 start = true
 hold = { rounds = 3, to = "blocked" }
 
-# Every review has the plan's round cap (operator, 2026-11-13: "all review
-# processes should have the same process as planner"): after 3 rejected rounds
-# in a row leaving a state, the item is blocked for the operator with the
-# dissent as its reason, instead of looping on the same reviewers.
 [states.in_progress]
 performer = { agent = "executor", skill = "coder" }
 hold = { rounds = 3, to = "blocked" }
@@ -22,12 +11,7 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
-# DEV's work is done here; the session that drove the chore here fires the
-# release queue and a run of the release task takes the item.
 [states.approved]
-# Reaching approved adds the story to the release queue
-# (.satelle/queues/release.toml); the session that reached approved fires it,
-# at any time, with satelle queue fire release --session <session>.
 enqueue = ["release"]
 
 [states.blocked]
@@ -40,9 +24,6 @@ terminal = true
 [states.cancelled]
 terminal = true
 
-# The card itself, before any code (chore has no plan): see delivery.toml's
-# story-review. It sits only on backlog -> in_progress, so a chore already past
-# backlog is never refused retroactively.
 [gates.story-review]
 skill = "satelle-story-review"
 agent = "reviewer-gemini-3.8-flash-high"
@@ -61,8 +42,6 @@ carry = true
 skill = "satelle-build-unit-check"
 carry = true
 
-# Gemini and GPT-5.6 Sol judge the code; both must accept (operator,
-# 2026-11-10; sto_0dd7e7b9).
 [gates.code-ac]
 skill = "satelle-code-ac-review"
 panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
@@ -70,8 +49,6 @@ combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-# On a node of the docker-local remote integration, against the pushed head
-# (sto_da5c52e7); the timeout bounds the whole node run.
 [gates.integration-check]
 skill = "satelle-integration-check"
 placement = "remote:integration"
@@ -80,12 +57,6 @@ timeout = "40m"
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
 
-# PR review by the satelle GitHub app (sto_ebcaa5aa), on integration -> approved
-# after pr-ready (sto_efe81afd): approval is the satelle app's review on the
-# head. pr-review is the code-ac judge; its after publishes the verdict on the
-# PR head as satelle[bot] and, on a reject, attaches it as pr-review and
-# reopens the item. pr-approval passes only on the app's approving review on
-# the head.
 [gates.pr-review]
 skill = "satelle-code-ac-review"
 agent = "reviewer-gemini-3.8-flash-high"
@@ -95,10 +66,6 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
 
-# A terminal state is reached only with a change a judge accepted (sto_e2cec5df).
-# The rule was the binary's; it is this check now (sto_035f3007), first on
-# approved -> done, which has no judge of its own, so a commit made after
-# code-ac fails here before release-run reads release state.
 [gates.change-judged]
 skill = "satelle-change-judged-check"
 
@@ -154,17 +121,10 @@ groups = [{ mode = "sequential", gates = ["change-judged", "release-run", "versi
 from = ["integration", "approved"]
 to = "in_progress"
 
-# The review caps' moves: gateless, so a cap cannot itself be rejected; the
-# dissent summary is the reason. A hold's move into a park must be gateless, so
-# backlog's voluntary park is unjudged too. The driving session runs the block
-# breaker on the held item and restarts it only on a resolution that changes a
-# driver note alone; otherwise only the operator moves it out
-# (.satelle/session.md).
 [[transition]]
 from = ["backlog", "in_progress", "integration"]
 to = "blocked"
 
-# Every other move into blocked is judged: the reason must hold.
 [[transition]]
 from = ["approved"]
 to = "blocked"

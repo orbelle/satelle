@@ -20,8 +20,8 @@ Pull by story id from the payload:
 ```bash
 satelle story get <id> --session <session>
 satelle story attachments <id> --session <session>
-satelle story attachment <id> plan --session <session>          # if present
-satelle story attachment <id> ac-evidence --session <session>   # if present — the per-AC realised-test map
+satelle story attachment <id> plan --session <session>
+satelle story attachment <id> ac-evidence --session <session>
 satelle ledger list <id> --session <session>
 ```
 
@@ -58,7 +58,7 @@ today. Your grant is read-only but it does reach the repository — so **check i
 before you write it as practice:
 
 ```bash
-grep -rn "<the symbol or rule>" internal/ cmd/ tests/   # or read_file / list_dir
+grep -rn "<the symbol or rule>" internal/ cmd/ tests/
 ```
 
 - **Verified** — you found the code that implements the rule: write it as a

@@ -23,10 +23,10 @@ and cancel or re-raise this one; do not carry it here.
 ## 1. Pull the item
 
 ```bash
-satelle story get <id> --session <session>            # the card: what to change and why
-satelle story attachments <id> --session <session>    # notes already on it
+satelle story get <id> --session <session>
+satelle story attachments <id> --session <session>
 satelle story attachment <id> <name> --session <session>
-satelle story route <id> --session <session>          # the gates and the latest rejects
+satelle story route <id> --session <session>
 ```
 
 When the item is back at `in_progress` after a rejected round, each rejecting

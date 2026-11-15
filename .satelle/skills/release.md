@@ -65,18 +65,18 @@ the run (`release-kept`, `release-drift` and `release-binary`, step 4, and
 ## 0. Start and read the run
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 que=release
 git fetch -q origin
 satelle queue get "$que" --json --session "$session" 2>/dev/null | jq -e --arg t "$task" '.trigger.task == $t' >/dev/null || { echo "release queue $que (.satelle/queues/$que.toml) is missing or does not trigger $task; a satelle older than the build origin/main carries cannot read queue files: install that build (step 7), then start again" >&2; exit 1; }
 satelle task get "$task" --session "$session" | grep -q 'release-binary' || { echo "the release task $task does not name the run's release-binary record: restate its body (plan of sto_da9775c1, Configuration to apply) before firing" >&2; exit 1; }
 fired=$(satelle queue fire "$que" --json --session "$session") || exit $?
-exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')                  # created in backlog
+exe=$(printf '%s\n' "$fired" | jq -r '.run // empty')
 [ -n "$exe" ] || { echo "release queue $que has nothing to fire" >&2; exit 1; }
-satelle execution set "$exe" --status in_progress --session "$session"                     # validate-before
+satelle execution set "$exe" --status in_progress --session "$session"
 satelle execution seat "$exe" --session "$session"
-satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1   # validate-after judges the run against it
+satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1
 satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.inputs[]'
 ```
 
@@ -125,7 +125,7 @@ requests. A carried item (no open pull request, a merged one whose head is on
 review on that head, and a review of a landed head sends nothing back.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 id=<id>
 app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check.md)
 [ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check.md" >&2; exit 1; }
@@ -150,7 +150,7 @@ review=$(gh api "repos/{owner}/{repo}/pulls/$n/reviews" --paginate | jq -s -c --
   | sort_by(.submitted_at) | last // empty')
 if [ "$(printf '%s' "$review" | jq -r '.state // empty')" = CHANGES_REQUESTED ]; then
   printf '%s' "$review" | jq -j '.body // ""' | satelle story attach "$id" --name pr-review --type text/markdown --file - --session "$session"
-  satelle story set "$id" --status in_progress --session "$session"      # approved -> in_progress
+  satelle story set "$id" --status in_progress --session "$session"
   echo "$id: sent back: the satelle app requested changes on head $head ($(printf '%s' "$review" | jq -r .html_url))"
 else
   echo "$id: PR #$n head $head: no changes requested by the satelle app"
@@ -191,7 +191,7 @@ own commits only (`$tip...$head`, from their merge base), so a head cut from
 an older main is not mistaken for one that edits the changelog.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 id=<id>
 for tool in git satelle bash; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not on PATH, so the changelog of $id cannot be judged" >&2; exit 1; }
@@ -237,7 +237,7 @@ back|skipped> ...`; the block ends `candidate <sha> at <wt>`, or exits 1 with
 "nothing lands" when no item is kept (send back, step 2c, and stop).
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -307,7 +307,7 @@ On exit 0 it records the candidate's sha in `$rd/drift-checked` and writes
 once` and step 4 refuse a candidate whose sha is not in `$rd/drift-checked`.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -367,7 +367,7 @@ Runs over `$rd/sendback` and empties it, so a second pass after 2d sends
 back only what 2d added. An item no longer `approved` is not moved again.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -377,7 +377,7 @@ while IFS=$'\t' read -r id reason <&3; do
   [ -n "$id" ] || continue
   if [ "$(satelle story get "$id" --json --session "$session" | jq -r .status)" != approved ]; then echo "$id: not approved, not moved"; continue; fi
   printf '%s\n' "$reason" | satelle story attach "$id" --name release-sendback --file - --session "$session" || exit 1
-  satelle story set "$id" --status in_progress --session "$session" || exit 1      # approved -> in_progress
+  satelle story set "$id" --status in_progress --session "$session" || exit 1
   echo "$id: sent back: $reason"
 done 3<"$rd/sendback"
 : >"$rd/sendback"
@@ -405,7 +405,7 @@ failure every item that entered the candidate by merge (its head is not in
 pushed.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -441,7 +441,7 @@ writes the record `$rd/release-binary`, which step 4 attaches to the run as
 tags, and one `build <rule> <path>` or `other <path>` line per changed path.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -491,7 +491,7 @@ the tested candidate, so the bump above does not move it). A non-zero exit
 stops the run. The ids it prints go first in `ids` below.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -517,7 +517,7 @@ wrote its lines, and changelog-entry accepts its done from that section. When
 no item is left, the section is not written and CHANGELOG.md is left as it is.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 ids="<carried ids, oldest first, then the kept ids in landing order, without those released before>"
 ver=<satelle.version>
 [ -n "$ids" ] || { echo "every kept item was released before: the version section is left as it is"; exit 0; }
@@ -567,7 +567,7 @@ that must be resumed or cancelled, never landed items without a record; a
 resumed step 4 attaches it again and the gate reads the latest.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_42301d36
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'if length == 1 then .[0].id else empty end')
 [ -n "$exe" ] || { echo "no single in-progress run of $task" >&2; exit 1; }
@@ -583,12 +583,12 @@ elif ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
   exit 1
 fi
 [ "$(cat "$rd/drift-checked" 2>/dev/null)" = "$tested" ] || { echo "drift-check has not passed on the tested candidate $tested: stop the run" >&2; exit 1; }
-satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" --session "$session" || exit 1   # before the push: landed items are never unrecorded
+satelle execution attach "$exe" --name release-kept --type text/plain --file "$rd/kept" --session "$session" || exit 1
 satelle execution attach "$exe" --name release-drift --type text/plain --file "$rd/release-drift" --session "$session" || exit 1
-satelle execution attach "$exe" --name release-binary --type text/plain --file "$rd/release-binary" --session "$session" || exit 1   # the gates read the decision from the run
-git -C "$wt" push origin HEAD:refs/heads/main || exit 1   # a plain push: refused unless it fast-forwards; never forced
+satelle execution attach "$exe" --name release-binary --type text/plain --file "$rd/release-binary" --session "$session" || exit 1
+git -C "$wt" push origin HEAD:refs/heads/main || exit 1
 echo "main is $(git -C "$wt" rev-parse HEAD)"
-git worktree remove --force "$wt"   # pushed; --force only drops the suite's build output
+git worktree remove --force "$wt"
 rm -rf "$rd"
 ```
 
@@ -600,7 +600,7 @@ Binary changed only.
 
 ```sh
 gh workflow run release.yml --ref main
-gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url   # the run whose headSha is the pushed sha
+gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url
 gh run watch <id> --exit-status
 ```
 
@@ -618,13 +618,13 @@ gh release view serve-v<sver> --json tagName,assets
 Binary changed only.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 sbin=$(command -v satelle)
 dbin=<the path in the [...] of the "installed" line of satelle service status>
 bk="$(satelle runtime path --session "$session")/backups/bin/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$bk"; cp -p "$sbin" "$dbin" "$bk/"
 printf 'restore: install -m 0755 %s %s && install -m 0755 %s %s && satelle service restart --session <session>\n' "$bk/satelle" "$sbin" "$bk/satelled" "$dbin"
 satelle update --version <ver> --session "$session"
-"$sbin" update --version <ver> --session "$session"    # the new binary's own update: satelled serve-v<ver>
+"$sbin" update --version <ver> --session "$session"
 satelle service restart --session "$session"
 ```
 
@@ -694,15 +694,15 @@ main checkout (not a linked worktree, which the cleanup may remove), run the
 cleanup task and follow its run to done:
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 cd <the main checkout>
 git fetch -q origin
 task=tas_b3424a1c
 exe=$(satelle task run "$task" --base origin/main --json --session "$session" | jq -r '.id // empty')
 [ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
-satelle execution set "$exe" --status in_progress --session "$session"                     # validate-before
+satelle execution set "$exe" --status in_progress --session "$session"
 satelle execution seat "$exe" --base origin/main --session "$session"
-satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1   # validate-after judges the run against it
+satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1
 ```
 
 Then the task's ACTION, whose output is the run's `worktree-evidence`:
@@ -736,7 +736,7 @@ covered. The block decides which from git alone; on the second it refuses a
 drift task whose body does not state that head, before any run is created.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 cd <the main checkout>
 git fetch -q origin --tags
 task=tas_a45ba066
@@ -746,13 +746,13 @@ head=$(git rev-parse HEAD); tag=$(git rev-parse -q --verify "v$ver^{commit}")
 if [ -n "$ver" ] && [ -n "$tag" ] && [ "$head" = "$tag" ]; then
   [ -n "$prev" ] || { echo "no v* tag before v$ver: nothing to judge the release from" >&2; exit 1; }
 elif [ -n "$ver" ] && [ -n "$tag" ] && git merge-base --is-ancestor "$tag" HEAD && [ "$head" = "$(git rev-parse origin/main)" ]; then
-  prev=$ver   # binary-unchanged: judged from the published tag to main
+  prev=$ver
   satelle task get "$task" --session "$session" | grep -q 'binary-unchanged' || { echo "the drift review task $task does not state the head of a binary-unchanged release: restate its body (plan of sto_da9775c1, Configuration to apply) before this run" >&2; exit 1; }
 else
   echo "the main checkout is neither at v$ver nor at origin/main ahead of it: the drift review judges the released tree or the main a binary-unchanged release fast-forwarded to" >&2; exit 1
 fi
 exe=$(satelle task run "$task" --base "v$prev" --json --session "$session" | jq -r '.id')
-satelle execution set "$exe" --status in_progress --session "$session"                     # validate-before
+satelle execution set "$exe" --status in_progress --session "$session"
 satelle execution seat "$exe" --base "v$prev" --session "$session"
 [ "$(satelle execution diff "$exe" --json --session "$session" | jq -r .base)" = "$(git rev-parse "v$prev^{commit}")" ] || { echo "run $exe is not judged from v$prev" >&2; exit 1; }
 ```
