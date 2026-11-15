@@ -8,48 +8,34 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 )
 
-// Kinds of gate an Input describes.
 const (
 	InputCheck = "check"
 	InputJudge = "judge"
 )
 
-// CheckInput is what one check script receives: its SATELLE_* variables and
-// the JSON it reads on stdin.
 type CheckInput struct {
 	Skill string
 	Env   []string
 	Stdin string
 }
 
-// Input is what one gate of a run would receive, built by the same functions
-// the run uses, with nothing started: no check, trigger, judge or remote node.
 type Input struct {
 	Gate, Skill, SkillPath string
-	Kind                   string // InputCheck or InputJudge
+	Kind                   string
 	Dir                    string
 	Timeout                time.Duration
 	TimeoutSource          string
 	Placement              string
 	Paths                  []string
 	Carry                  bool
-	// Check is the check script's input; Trigger the trigger's, when the
-	// gate has one (a trigger runs before the check or judge).
-	Check, Trigger *CheckInput
-	// Head is the pushed head a remote-placed check would judge; HeadErr why
-	// there is none.
-	Head    Head
-	HeadErr string
-	// Judges are the bindings asked, and Prompt what each is asked, with the
-	// skill's body (at SkillPath) as system.
-	Judges []string
-	Prompt string
-	// After are the after checks; their input adds the gate's verdict, which
-	// exists only once the gate has run.
-	After []string
+	Check, Trigger         *CheckInput
+	Head                   Head
+	HeadErr                string
+	Judges                 []string
+	Prompt                 string
+	After                  []string
 }
 
-// Input reports what the named gate would receive on this run.
 func (r Run) Input(name string) (Input, error) {
 	g, ok := r.Workflow.Gates[name]
 	if !ok {
@@ -90,7 +76,6 @@ func (r Run) Input(name string) (Input, error) {
 	return in, nil
 }
 
-// checkInput is what a check skill run by this run receives.
 func (r Run) checkInput(skill string) *CheckInput {
 	env := r.env()
 	return &CheckInput{Skill: skill, Env: env.Vars(), Stdin: string(env.Payload())}

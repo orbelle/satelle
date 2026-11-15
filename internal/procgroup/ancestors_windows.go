@@ -8,11 +8,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Ancestors is pid's chain of parents, nearest first, excluding pid itself,
-// at most maxAncestors long; each with its start identity (its creation
-// time, as ProbeIdentity reports it). Windows keeps a process's parent pid
-// after the parent exits and may reuse it, so the chain stops at a parent
-// that is gone or was created after its child.
 func Ancestors(pid int) []Proc {
 	parents := parentPIDs()
 	var out []Proc
@@ -32,7 +27,6 @@ func Ancestors(pid int) []Proc {
 	return out
 }
 
-// parentPIDs maps every running process to its parent, from one snapshot.
 func parentPIDs() map[uint32]uint32 {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
@@ -48,8 +42,6 @@ func parentPIDs() map[uint32]uint32 {
 	return out
 }
 
-// newer reports whether creation time a is after b; both are the decimal
-// FILETIMEs ProbeIdentity reports.
 func newer(a, b string) bool {
 	if len(a) != len(b) {
 		return len(a) > len(b)

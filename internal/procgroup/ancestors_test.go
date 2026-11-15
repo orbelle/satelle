@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// On every platform satelle builds a dry run's read-only guard for, the chain
-// of parents starts at this process's parent, with a start identity.
 func TestAncestorsStartAtTheParent(t *testing.T) {
 	anc := Ancestors(os.Getpid())
 	if len(anc) == 0 {

@@ -17,16 +17,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Event kinds the kernel appends beyond the item folds and gate.run.
 const (
 	KindPerformerRun = item.KindPerformerRun
 	KindTaskRun      = "task.run"
 )
 
-// ExecutionKind is the kind of the item a task run creates.
 const ExecutionKind = "execution"
 
-// Location prefixes of a seat.
 var seatLocations = []string{LocationLocal, LocationRemote, LocationCloud}
 
 func (k *Kernel) append(id, kind, actor string, payload any) (ledger.Event, error) {
@@ -37,8 +34,6 @@ func (k *Kernel) append(id, kind, actor string, payload any) (ledger.Event, erro
 	return e, k.Cache.SyncItem(k.Ledger, id)
 }
 
-// appendAfter appends to id's chain only when its tail is still prev (a
-// compare-and-append); a moved tail is ErrQueueMoved's cause, a *ledger.StaleTail.
 func (k *Kernel) appendAfter(id, kind, actor, prev string, payload any) (ledger.Event, error) {
 	e, err := k.Ledger.NewEvent(id, kind, actor, payload, prev)
 	if err != nil {
@@ -50,7 +45,6 @@ func (k *Kernel) appendAfter(id, kind, actor, prev string, payload any) (ledger.
 	return e, k.Cache.SyncItem(k.Ledger, id)
 }
 
-// workflowOf returns the workflow an item was created under.
 func (k *Kernel) workflowOf(it item.Item) (*workflow.Workflow, error) {
 	w, ok := k.Workflows[it.Workflow]
 	if !ok {
@@ -59,7 +53,6 @@ func (k *Kernel) workflowOf(it item.Item) (*workflow.Workflow, error) {
 	return w, nil
 }
 
-// Get folds an item from its chain on the ledger.
 func (k *Kernel) Get(id string) (item.Item, error) {
 	it, _, err := k.load(id)
 	return it, err
@@ -83,8 +76,6 @@ func (k *Kernel) load(id string) (item.Item, []ledger.Event, error) {
 	return it, events, err
 }
 
-// List returns the cached items matching q, after ingesting any unseen
-// ledger tail.
 func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 	if err := k.Cache.Sync(k.Ledger); err != nil {
 		return nil, err
@@ -99,10 +90,6 @@ func (k *Kernel) List(q cache.Query) ([]item.Item, error) {
 	return items, nil
 }
 
-// WorkflowFor is the workflow an item belongs in and that workflow's start
-// state: its own workflow when set, else the first matching rule, else the
-// default. Create uses it, and so does placing an item that arrived from a
-// server without one.
 func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
 	name := it.Workflow
 	if name == "" {
@@ -115,15 +102,10 @@ func (k *Kernel) WorkflowFor(it item.Item) (workflow, start string, err error) {
 	return name, w.StartState(), nil
 }
 
-// Create records a new item. Kind and title are required; status may not be
-// given (it is the workflow's start state). The workflow is f.Workflow, else
-// the first matching rule, else the default.
 func (k *Kernel) Create(f item.Fields, actor string) (item.Item, error) {
 	return k.create(f, actor, "")
 }
 
-// create is Create with an id claimed beforehand ("" allocates one); a
-// claimed id must have no chain yet.
 func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 	var draft item.Item
 	f.Apply(&draft)
@@ -176,17 +158,8 @@ func (k *Kernel) create(f item.Fields, actor, id string) (item.Item, error) {
 	}
 }
 
-// ErrKeepsWorkflow refuses a reselect of an item its workflow has already
-// moved or judged: the evidence on its chain belongs to that workflow.
 var ErrKeepsWorkflow = errors.New("its workflow has moved or judged it")
 
-// Reselect moves id onto workflow want, at want's start state, when the
-// repo's rules now select want for it and its own workflow has neither moved
-// it (a transition out of a status) nor judged it (a gate run). It writes the
-// same pair a sync placement does (item.Placement), compare-and-appended on
-// the chain's tail, and runs no gate. Every refusal writes nothing; one for the
-// evidence on the chain wraps ErrKeepsWorkflow. It is the one exception to
-// Update's rule that an item keeps the workflow it was created under.
 func (k *Kernel) Reselect(id, want, actor string) (item.Item, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -232,8 +205,6 @@ func (k *Kernel) Reselect(id, want, actor string) (item.Item, error) {
 	return k.Get(id)
 }
 
-// Update changes the fields f names. Status moves only by Transition, and an
-// item keeps the workflow it was created under (Reselect is the one exception).
 func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, error) {
 	it, err := k.Get(id)
 	if err != nil {
@@ -267,23 +238,16 @@ func (k *Kernel) Update(id string, f item.Fields, actor string) (item.Item, erro
 	return k.Get(id)
 }
 
-// TransitionResult describes a presented transition.
 type TransitionResult struct {
-	Item  item.Item // after the transition when it moved
-	From  string
-	To    string
-	Moved bool
-	Gates []gate.Result
-	// Queued is what entering To enqueued, one outcome per queue its state
-	// configuration names (only when the item moved).
+	Item   item.Item
+	From   string
+	To     string
+	Moved  bool
+	Gates  []gate.Result
 	Queued []QueueOutcome `json:",omitempty"`
-	// Held is set when this rejection reached the from-state's round cap and
-	// the item was moved to the cap's park state instead (Item is then the
-	// held item; Moved stays false: the requested move did not happen).
-	Held *item.Hold `json:",omitempty"`
+	Held   *item.Hold     `json:",omitempty"`
 }
 
-// Rejects returns the gates that rejected.
 func (r TransitionResult) Rejects() []gate.Result {
 	var out []gate.Result
 	for _, g := range r.Gates {
@@ -294,8 +258,6 @@ func (r TransitionResult) Rejects() []gate.Result {
 	return out
 }
 
-// Errors returns the gates whose judge could not be asked (result error):
-// they refuse the move but are not a verdict.
 func (r TransitionResult) Errors() []gate.Result {
 	var out []gate.Result
 	for _, g := range r.Gates {
@@ -306,17 +268,10 @@ func (r TransitionResult) Errors() []gate.Result {
 	return out
 }
 
-// Transition presents the move of id to `to`: it finds the explicit
-// transition, runs its gates, records every gate result, and records the move
-// only when no gate rejected. A rejected move is a result, not an error. A
-// rejection that reaches the from-state's round cap holds the item: it is moved
-// to the cap's park state and the result carries the hold.
 func (k *Kernel) Transition(ctx context.Context, id, to, actor string) (TransitionResult, error) {
 	return k.transition(ctx, id, to, actor, nil)
 }
 
-// transition is Transition; a non-nil hold makes the move a hold, recorded
-// with its summary, and is never itself held.
 func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *item.Hold) (TransitionResult, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -331,12 +286,9 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	if err != nil {
 		return res, err
 	}
-	// An operator state is left only once the operator has recorded its word
-	// since the item entered it; nothing runs or is recorded before that.
 	if typ, ok := w.States[it.Status].Operated(); ok && !operatorRecorded(item.SinceEntered(events), typ) {
 		return res, &OperatorRecordError{Item: id, Kind: it.Kind, State: it.Status, Type: typ}
 	}
-	// The queues entering `to` enqueues into must exist before anything runs.
 	var queues []string
 	for _, name := range w.States[to].Enqueue {
 		q, _ := k.ResolveQueue(name)
@@ -365,8 +317,6 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		}
 		return k.holdIfCapped(ctx, res, w, actor)
 	}
-	// A move into a terminal state records the change it was made with; it
-	// decides nothing (a workflow places a check to refuse a change).
 	var frozen *item.Span
 	if w.States[to].Terminal && k.Git != nil {
 		if frozen, err = k.frozenSpan(it, w, sp, append(run.Prior, results...)); err != nil {
@@ -391,9 +341,6 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	return res, nil
 }
 
-// coverage hashes what a gate judges: the item's body, criteria and
-// attachments, and the diff of the gate's paths over the span judged. change
-// hashes that diff alone (changeHash), what diff --json reports as judged.
 func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []string) (coverage, change string, err error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00", it.Body, strings.Join(it.Criteria, "\x1f"))
@@ -408,19 +355,15 @@ func (k *Kernel) coverage(it item.Item, events []ledger.Event, sp span, paths []
 	return hex.EncodeToString(h.Sum(nil)), changeHash(d), nil
 }
 
-// changeHash is the fingerprint of a change: the sha256 of its diff text.
 func changeHash(diff string) string {
 	s := sha256.Sum256([]byte(diff))
 	return hex.EncodeToString(s[:])
 }
 
-// Attach stores data as a blob and records it on the item.
 func (k *Kernel) Attach(id, name string, data []byte, mediaType, actor string) (item.Attachment, error) {
 	return k.attach(id, item.Attachment{Name: name, MediaType: mediaType}, data, actor)
 }
 
-// attach stores data as a blob and records a, with its sha and size filled
-// in, on the item: the one writer of attachment.added.
 func (k *Kernel) attach(id string, a item.Attachment, data []byte, actor string) (item.Attachment, error) {
 	if _, err := k.Get(id); err != nil {
 		return item.Attachment{}, err
@@ -442,9 +385,6 @@ func (k *Kernel) attach(id string, a item.Attachment, data []byte, actor string)
 	return a, err
 }
 
-// Seat binds session at location to the item. Its base, the commit the item's
-// diff is judged from, is baseRef's commit when given (it must be in HEAD's
-// history), else HEAD. A terminal item takes no seat.
 func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, error) {
 	s := item.Seat{Session: session, Location: location}
 	if baseRef != "" {
@@ -459,7 +399,6 @@ func (k *Kernel) Seat(id, session, location, baseRef, actor string) (item.Seat, 
 	return k.bindSeat(id, s, actor)
 }
 
-// bindSeat appends s, whose base is already resolved, as a seat on the item.
 func (k *Kernel) bindSeat(id string, s item.Seat, actor string) (item.Seat, error) {
 	session, location := s.Session, s.Location
 	it, err := k.Get(id)
@@ -492,7 +431,6 @@ func (k *Kernel) bindSeat(id string, s item.Seat, actor string) (item.Seat, erro
 	return s, err
 }
 
-// Release unbinds session's seat on the item.
 func (k *Kernel) Release(id, session, actor string) error {
 	_, events, err := k.load(id)
 	if err != nil {
@@ -507,7 +445,6 @@ func (k *Kernel) Release(id, session, actor string) error {
 	return fmt.Errorf("session %q holds no seat on %s", session, id)
 }
 
-// PerformerRun is the performer.run payload.
 type PerformerRun struct {
 	State      string `json:"state"`
 	Binding    string `json:"binding"`
@@ -516,21 +453,11 @@ type PerformerRun struct {
 	TokensIn   int    `json:"tokens_in"`
 	TokensOut  int    `json:"tokens_out"`
 	DurationMS int64  `json:"duration_ms"`
-	Output     string `json:"output,omitempty"` // blob sha256 of the performer's answer
+	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
-	// Location is where the step ran when it was not dispatched here:
-	// remote:<node> or cloud:<url>.
-	Location string `json:"location,omitempty"`
+	Location   string `json:"location,omitempty"`
 }
 
-// Perform dispatches the current state's performer and records the run. A
-// state performed by the session is refused: the session does that work. A
-// local run is seated at local:<tree> under its own session for the run. A
-// binding placed remote:<id> runs on a node of that remote (k.Remote); one
-// placed in the cloud starts a cloud session (k.Cloud) seated at cloud:<url>.
-// An answer ending in an {"artifact":{name,type,body}} object also attaches
-// that document to the item under the artifact's name; a malformed artifact
-// fails the run and attaches nothing.
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -553,8 +480,6 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 		return agent.Result{}, fmt.Errorf("state %q is performed by the session (agent %q), not dispatched", it.Status, b.Name)
 	}
 	prompt := renderItem(it) + rejections(it, events)
-	// The record: a remote node builds its own; a detached run cannot read
-	// this machine, so it gets the inline part only.
 	switch p := b.Placement; {
 	case strings.HasPrefix(p, agent.PlaceRemote):
 	case p == agent.PlaceCloud:
@@ -612,10 +537,6 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	return res, runErr
 }
 
-// TaskRunRecord is the task.run payload: the task (none for a run a queue
-// fired into a workflow), the items it took, the ref the execution's base
-// came from ("" when HEAD was detached or unknown), and the queue that fired
-// it.
 type TaskRunRecord struct {
 	Task    string   `json:"task,omitempty"`
 	Inputs  []string `json:"inputs"`
@@ -623,8 +544,6 @@ type TaskRunRecord struct {
 	Queue   string   `json:"queue,omitempty"`
 }
 
-// runInputs is the items a run took: the inputs its task.run records; nil
-// when the run has none.
 func (k *Kernel) runInputs(run string) []string {
 	ev, err := k.Cache.Events(run, KindTaskRun)
 	if err != nil || len(ev) == 0 {
@@ -637,11 +556,6 @@ func (k *Kernel) runInputs(run string) []string {
 	return rec.Inputs
 }
 
-// TaskRun runs a task once: it selects the task's inputs and creates an
-// execution item (parent = the task) recording which items it took. Its base is
-// baseRef's commit, resolved now, else HEAD. baseRef need not be in HEAD's
-// history: a run is often cut in one checkout and worked in another, whose
-// first gated move checks the base.
 func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecord, error) {
 	rec := TaskRunRecord{Task: taskID}
 	task, err := k.Get(taskID)
@@ -665,14 +579,10 @@ func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecor
 	return k.startRun("", item.Fields{Kind: &kind, Title: &title, Parent: &taskID}, baseRef, rec, actor)
 }
 
-// selectInputs returns the items sel selects.
 func (k *Kernel) selectInputs(sel item.Selection) ([]item.Item, error) {
 	return k.List(cache.Query{Kind: sel.Kind, Status: sel.Status, Tag: sel.Tag, Category: sel.Category})
 }
 
-// startRun creates a run (an execution item, under id when claimed, else a
-// new one) from f, with its base from baseRef (resolved now) else HEAD, and
-// records rec on it as task.run.
 func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunRecord, actor string) (item.Item, TaskRunRecord, error) {
 	if baseRef != "" {
 		commit, err := k.resolveBase(baseRef)
@@ -693,7 +603,6 @@ func (k *Kernel) startRun(id string, f item.Fields, baseRef string, rec TaskRunR
 	return exec, rec, nil
 }
 
-// renderItem is the prompt a performer receives.
 func renderItem(it item.Item) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Work item %s (%s), state %q.\nTitle: %s\n", it.ID, it.Kind, it.Status, it.Title)
@@ -709,7 +618,6 @@ func renderItem(it item.Item) string {
 	return b.String()
 }
 
-// judged reports whether any gate of tr is judged by an agent (not a check).
 func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
 	for _, g := range tr.Groups {
 		for _, name := range g.Gates {
@@ -721,9 +629,6 @@ func (k *Kernel) judged(w *workflow.Workflow, tr *workflow.Transition) bool {
 	return false
 }
 
-// rejections lists the gates that rejected the newest attempt to leave the
-// item's current state since it last entered it, with their notes bounded;
-// "" when that attempt did not reject or there is none.
 func rejections(it item.Item, events []ledger.Event) string {
 	attempts := attemptsLeaving(it.Status, events)
 	if len(attempts) == 0 {

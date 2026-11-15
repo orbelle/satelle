@@ -8,8 +8,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Input reports, from the run's own builders, what a check, a gated check,
-// a judge and a panel receive, and asks no judge.
 func TestInputIsWhatTheGateReceives(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"chk":   {Skill: "lint", Paths: []string{"a/**"}, Timeout: "3m"},
@@ -50,7 +48,6 @@ func TestInputIsWhatTheGateReceives(t *testing.T) {
 	if _, err := r.Input("nope"); err == nil {
 		t.Fatal("an undefined gate gave input")
 	}
-	// Gate runs one gate as Execute would within its group.
 	if res := r.Gate(context.Background(), "one"); res.Result != Accept || res.Attempt != "" || len(d.calls) != 1 {
 		t.Fatalf("Gate %+v %v", res, d.calls)
 	}

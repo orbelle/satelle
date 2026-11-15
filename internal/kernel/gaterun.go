@@ -12,12 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// gateRun assembles one presentation of tr for it, from `from` to `to`: the
-// span and its stale-base refusal, the changed paths, the item's earlier gate
-// results, the pushed head when a gate is placed on a remote, and the record
-// folder when a gate is judged. It is the one assembler a transition and a dry
-// run share, so both hand a gate the same input. done removes the record
-// folder; the caller defers it until the gates have run.
 func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workflow, tr *workflow.Transition, from, to string) (gate.Run, span, func(), error) {
 	done := func() {}
 	sp := span{}
@@ -58,12 +52,9 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	if k.Git != nil {
 		run.Span = k.runSpan(events, sp)
 	}
-	// A check placed on a remote judges the pushed head, not this tree.
 	if remotePlaced(w, tr) {
 		run.Head, run.HeadErr = k.pushedHead(events, sp)
 	}
-	// A judge reads the item's record; checks need none. The folder is
-	// written after the changed paths are computed, and is gitignored.
 	if k.judged(w, tr) {
 		rec, err := k.record(it, events, true)
 		if err != nil {
@@ -75,27 +66,18 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	return run, sp, done, nil
 }
 
-// GateDryRequest names one gate of one workflow and the item to run it
-// against. From defaults to the item's state; To to the one transition from
-// From that names the gate. ShowInput reports what the gate would receive
-// instead of running it.
 type GateDryRequest struct {
 	Workflow, Gate, Item string
 	From, To             string
 	ShowInput            bool
 }
 
-// GateDryResult is a dry run's outcome: the gate's result, or with ShowInput
-// its input. It is what the caller prints, never recorded.
 type GateDryResult struct {
 	Item, Workflow, Gate, From, To string
 	Result                         *gate.Result
 	Input                          *gate.Input
 }
 
-// GateDry runs one configured gate against an item exactly as presenting its
-// transition would, and records nothing: no gate.run, no hold, no enqueue.
-// The record folder a judge reads is removed when it returns.
 func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult, error) {
 	out := GateDryResult{Item: req.Item, Workflow: req.Workflow, Gate: req.Gate}
 	it, events, err := k.load(req.Item)
@@ -135,9 +117,6 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 		out.Input = &in
 		return out, nil
 	}
-	// Whatever the gate starts (a check, a trigger, an after check) runs as
-	// it would on a transition; a satelle it starts finds this run's marker
-	// among its ancestors and opens the ledger read-only.
 	unmark, err := k.markDryRun()
 	if err != nil {
 		return out, err
@@ -148,9 +127,6 @@ func (k *Kernel) GateDry(ctx context.Context, req GateDryRequest) (GateDryResult
 	return out, nil
 }
 
-// dryTransition is the transition from `from` a dry run of gate uses: the one
-// to `to` when given, which must name the gate, else the only one from `from`
-// that names it.
 func dryTransition(w *workflow.Workflow, gateName, from, to, prior string) (string, *workflow.Transition, error) {
 	if to != "" {
 		tr, err := w.Find(from, to, prior)
@@ -182,7 +158,6 @@ func dryTransition(w *workflow.Workflow, gateName, from, to, prior string) (stri
 	}
 }
 
-// namesGate reports whether any group of tr runs the gate.
 func namesGate(tr *workflow.Transition, name string) bool {
 	for _, g := range tr.Groups {
 		if slices.Contains(g.Gates, name) {

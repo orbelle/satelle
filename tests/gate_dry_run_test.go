@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// writerWorkflow's only gate is a check that writes to the ledger itself: it
-// attaches a file to the item it judges, then accepts.
 const writerWorkflow = `name = "writer"
 [states.todo]
 start = true
@@ -24,9 +22,6 @@ to = "done"
 groups = [{ gates = ["writes"] }]
 `
 
-// A gate whose check calls satelle to write records nothing on a dry run: the
-// satelle it starts opens the ledger read-only and refuses. Presented for
-// real, the same check writes as it always did.
 func TestGateDryRunRecordsNothingWhenTheCheckWrites(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

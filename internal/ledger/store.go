@@ -19,18 +19,14 @@ import (
 )
 
 type Store struct {
-	dir     string
-	Now     func() time.Time
-	OnWrite func(Event)
-	// readOnly, when set, refuses every write and says why.
+	dir      string
+	Now      func() time.Time
+	OnWrite  func(Event)
 	readOnly string
 }
 
-// ErrReadOnly is a write to a store opened read-only.
 var ErrReadOnly = errors.New("ledger: read-only")
 
-// SetReadOnly makes every later write (an append, an import, a blob) fail
-// with ErrReadOnly and reason.
 func (s *Store) SetReadOnly(reason string) { s.readOnly = reason }
 
 func (s *Store) refuseWrite() error {
