@@ -112,6 +112,22 @@ func volatileFindings(dataDir string) ([]substrate.Finding, error) {
 	return found, nil
 }
 
+func tagWarnings(r repo, configValid bool) ([]kernel.TagWarning, error) {
+	if !configValid {
+		return []kernel.TagWarning{}, nil
+	}
+	k, err := r.openWith("satelle validate")
+	if err != nil {
+		return []kernel.TagWarning{}, err
+	}
+	defer k.Close()
+	items, err := k.List(cache.Query{})
+	if err != nil {
+		return []kernel.TagWarning{}, err
+	}
+	return kernel.TagWarnings(items), nil
+}
+
 func validateCmd() *cobra.Command {
 	var asJSON *bool
 	cmd := &cobra.Command{
@@ -133,7 +149,12 @@ or holding the file's exempt marker, is not listed, no file its exclude globs
 match is read, and no line of a fenced code block in Markdown is read. A line in a file an [[upstream]] entry owns
 names that owner. Volatile lines are listed without failing the check;
 satelle doctor reports each as an issue.
-With no volatile.toml, or no pattern in it, none is listed.`,
+With no volatile.toml, or no pattern in it, none is listed.
+
+When the configuration is valid it also lists each item's tag whose key has
+conventional values (satelle help satelle) and whose value is none of them, as
+<item>: tag "<tag>": conventional values are <values> (under the tag_warnings
+key with --json). These are listed without failing the check.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -152,6 +173,10 @@ With no volatile.toml, or no pattern in it, none is listed.`,
 			if err != nil {
 				problems = append(problems, fmt.Errorf("%s: %w", substrate.VolatileField, err))
 			}
+			tagged, err := tagWarnings(r, len(problems) == 0)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("tag_warnings: %w", err))
+			}
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
@@ -159,7 +184,7 @@ With no volatile.toml, or no pattern in it, none is listed.`,
 					msgs = append(msgs, p.Error())
 				}
 				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
-					substrate.VolatileField: volatile}); err != nil {
+					substrate.VolatileField: volatile, "tag_warnings": tagged}); err != nil {
 					return err
 				}
 			} else {
@@ -170,6 +195,12 @@ With no volatile.toml, or no pattern in it, none is listed.`,
 					fmt.Fprintf(cmd.OutOrStdout(), "volatile literals in %s (%d):\n", r.DataDir, len(volatile))
 					for _, f := range volatile {
 						fmt.Fprintln(cmd.OutOrStdout(), f.String())
+					}
+				}
+				if len(tagged) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "tags outside their conventional values in %s (%d):\n", r.DataDir, len(tagged))
+					for _, w := range tagged {
+						fmt.Fprintln(cmd.OutOrStdout(), w.String())
 					}
 				}
 			}

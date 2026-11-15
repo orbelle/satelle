@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
@@ -90,6 +91,11 @@ type Config struct {
 	// satelle doctor apply (empty, so nothing is reported, when the file is
 	// absent). A file of its own for the reason DoctorSettings is.
 	Volatile substrate.VolatileRules
+	UI       UISettings
+}
+
+type UISettings struct {
+	TagColours map[string]string `toml:"tag_colours"`
 }
 
 // DoctorSettings is doctor.toml. It is a file of its own, not a satelle.toml
@@ -159,6 +165,7 @@ const (
 	SettingsFile = "satelle.toml"
 	DoctorFile   = "doctor.toml"
 	VolatileFile = "volatile.toml"
+	UIFile       = "ui.toml"
 	AgentsFile   = "agents.toml"
 	// SessionFile is the session guidance the context, prompt and stop
 	// hooks print: shipped by satelle init, owned and edited by the repo.
@@ -200,6 +207,11 @@ func LoadConfig(root string) (*Config, error) {
 	}
 	if p := filepath.Join(root, VolatileFile); exists(p) {
 		if err := workflow.DecodeStrict(p, &c.Volatile); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if p := filepath.Join(root, UIFile); exists(p) {
+		if err := workflow.DecodeStrict(p, &c.UI); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -298,6 +310,21 @@ func (c *Config) Problems() []error {
 	errs = append(errs, c.doctorProblems()...)
 	for _, err := range c.Volatile.Problems() {
 		errs = append(errs, fmt.Errorf("%s: %w", VolatileFile, err))
+	}
+	return append(errs, c.UI.problems()...)
+}
+
+func (u UISettings) problems() []error {
+	var errs []error
+	for _, tag := range sortedKeys(u.TagColours) {
+		colour := u.TagColours[tag]
+		if strings.TrimSpace(tag) == "" {
+			errs = append(errs, fmt.Errorf("%s: [tag_colours] has an entry with an empty tag", UIFile))
+			continue
+		}
+		if !slices.Contains(item.ChipColours, colour) {
+			errs = append(errs, fmt.Errorf("%s: [tag_colours] %q = %q is not a palette colour (%s)", UIFile, tag, colour, strings.Join(item.ChipColours, ", ")))
+		}
 	}
 	return errs
 }
