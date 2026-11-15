@@ -8,7 +8,8 @@ description: A story may carry the conventional tags satelle help satelle lists 
 
 # Conventional tags
 
-A story may carry the conventional tags that `satelle help satelle` lists
+A story may carry the conventional tags that
+`satelle help satelle --session <session>` lists
 under *Conventional tags*: what each key means and which values it takes are
 written there, not here. When you file or shape a story, offer the user the
 ones that fit.
