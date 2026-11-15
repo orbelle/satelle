@@ -167,3 +167,14 @@ are reviewed*).
   state that declares `waits`; otherwise the Stop hook blocks the stop once,
   naming the next move, and lets the stop straight after through, so a
   session is never trapped (operator, 2026-11-14; sto_2ac90ab6 AC2).
+
+## 2026-11-15
+
+- **Default colours for conventional tags are acceptable in code.** "a
+  default color coding on default tags (likely) is acceptable in code. Likely
+  tags: priority, surface, reporter, source. Note: the agent should have these
+  in the context, and guide the user." This is the one exception to the tag
+  half of *Process lives in configuration, never in Go*: the binary may name
+  those four tag keys and give them default chip colours, which a repo's
+  `.satelle/ui.toml` overrides; no other tag may be named in Go
+  (operator, 2026-11-15; sto_856572ef; [[satelle-conventional-tags]]).

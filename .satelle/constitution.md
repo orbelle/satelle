@@ -16,7 +16,7 @@ satelle and dogfoods it.
 - Binary or substrate: [[satelle-mechanism-vs-substrate]]. Any agent CLI:
   [[satelle-agent-agnostic]]. Remotes: [[satelle-agent-operates-remotes]].
   Judges: [[satelle-agent-alt-reviewer]].
-- Filing: [[satelle-chore-category]], [[satelle-group-related-stories]].
+- Filing: [[satelle-chore-category]], [[satelle-group-related-stories]], [[satelle-conventional-tags]].
   Evidence: [[satelle-agent-telemetry]].
 - Working here: [[satelle-agile-increments]], [[satelle-broken-windows]],
   [[satelle-diagnostic-discipline]], [[satelle-parallel-driving]],

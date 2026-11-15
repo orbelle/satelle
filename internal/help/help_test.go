@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
 
@@ -199,6 +200,48 @@ func TestLedgerStoreSyncInstalledByInstallAndUpdate(t *testing.T) {
 	for _, want := range []string{"satelle update", "install.sh", "--no-service", "SATELLE_NO_SERVICE=1"} {
 		if !strings.Contains(top.Body, want) {
 			t.Errorf("ledger-store lacks %q", want)
+		}
+	}
+}
+
+func helpSection(t *testing.T, topic, heading string) string {
+	t.Helper()
+	top, ok := Get(topic)
+	if !ok {
+		t.Fatalf("no %s topic", topic)
+	}
+	_, rest, ok := strings.Cut(top.Body, "\n"+heading+"\n")
+	if !ok {
+		t.Fatalf("the %s topic has no %s section", topic, heading)
+	}
+	rest, _, _ = strings.Cut(rest, "\n## ")
+	return rest
+}
+
+func TestConventionalTagsDocumented(t *testing.T) {
+	tags := helpSection(t, "satelle", "## Conventional tags")
+	for _, want := range []string{"`priority:high`", "`priority:medium`", "`priority:low`", "Optional", "`surface:", "`reporter:", "`source:", "satelle validate"} {
+		if !strings.Contains(tags, want) {
+			t.Errorf("Conventional tags lacks %q", want)
+		}
+	}
+	for _, c := range item.Conventions {
+		if !strings.Contains(tags, "`"+c.Key+":") {
+			t.Errorf("Conventional tags does not name the key %s", c.Key)
+		}
+		for _, v := range c.Values {
+			if !strings.Contains(tags, "`"+c.Key+":"+v+"`") {
+				t.Errorf("Conventional tags does not name %s:%s", c.Key, v)
+			}
+		}
+	}
+	ui := helpSection(t, "configuration", "## ui.toml")
+	if !strings.Contains(ui, "[tag_colours]") {
+		t.Error("the ui.toml section does not name [tag_colours]")
+	}
+	for _, c := range item.ChipColours {
+		if !strings.Contains(ui, "`"+c+"`") {
+			t.Errorf("the ui.toml section does not name the colour %s", c)
 		}
 	}
 }

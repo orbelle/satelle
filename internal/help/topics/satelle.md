@@ -40,6 +40,23 @@ worked on another branch, such as a release on main). satelle runs a task when
 asked; repeating it is up to cron, a remote or a routine. An execution is
 worked like any item in its workflow: `satelle execution set|attach|seat|route|perform <id> --session <session>`.
 
+## Conventional tags
+
+A tag is free text. satelle colours and understands four tag keys by
+convention, and an agent filing or shaping an item offers them to the user:
+
+- `priority:high`, `priority:medium` or `priority:low`: how soon the item
+  matters. Optional: an item with no priority tag is complete and is not
+  treated as low. `satelle validate --session <session>` warns on any other
+  `priority:<value>`, and satelled filters the list by `priority:<level>`.
+- `surface:<name>`: the part of the product the item changes; a gate's
+  `applies_to` can select on it.
+- `reporter:<who>`: who raised the item.
+- `source:<where>`: where the item came from.
+
+satelled shows each as a coloured chip; `satelle help configuration --session <session>`
+says how a repo changes those colours in `.satelle/ui.toml`.
+
 Topics: `satelle help workflows --session <session>`, `satelle help edit-gate --session <session>`,
 `satelle help configuration --session <session>`, `satelle help remotes --session <session>`, `satelle help projects --session <session>`,
 `satelle help upgrade --session <session>`.

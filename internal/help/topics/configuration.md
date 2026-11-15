@@ -75,6 +75,7 @@ the kernel still opens: only a configuration problem stops it.
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).
 - `volatile.toml` — optional: the volatile-literal patterns `satelle validate --session <session>`
   and `satelle doctor --session <session>` apply to the substrate (below).
+- `ui.toml` — optional: the colours satelled gives tag chips (below).
 
 ## doctor.toml
 
@@ -119,6 +120,27 @@ no default for either: with one unset, `--resolve` opens no item and lists
 each finding, naming the `[resolve]` key to set. An item's status is its
 workflow's to set, so there is no `status`. While the configuration is invalid no item can be recorded:
 `--resolve` then lists the findings with `satelle validate --session <session>` first.
+
+## ui.toml
+
+`.satelle/ui.toml` is optional. Its `[tag_colours]` table maps a tag, or a
+tag key, to one of the palette colours `fail`, `warn`, `ok`, `accent`,
+`muted` and `note`:
+
+    [tag_colours]
+    "priority:high" = "warn"
+    surface = "note"
+    "team:core" = "accent"
+
+The first entry colours one tag, the second every tag with the key
+`surface`, the third a tag satelle gives no colour of its own. An entry for
+a whole tag wins over one for its key. An entry overrides the
+default colour satelle gives a conventional tag (`satelle help satelle --session <session>`)
+or colours any other tag; a workflow chip takes a colour from its name until
+an entry names it. satelled reads the file from the repo's next full push.
+`satelle validate --session <session>` rejects an empty key and any colour
+outside the palette. With no `ui.toml` the conventional tags keep their
+defaults. It is its own file for the reason `doctor.toml` is.
 
 ## volatile.toml
 
