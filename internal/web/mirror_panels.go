@@ -171,11 +171,14 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 
 	syncSt := loadPartitionSync(repoRoot)
 	bySeat := seatsByItem(seats)
+	settings, _ := pushedSettings(ctx, s, repoKey)
+	colours := tagColourOverrides(settings)
 	storyRows := itemRows(stories, workflows)
 	for i := range storyRows {
 		storyRows[i].Engaged = eng[storyRows[i].ID]
 	}
 	withAssignees(storyRows, bySeat, standing)
+	withTagColours(storyRows, colours)
 	storyIDs := map[string]bool{}
 	for _, it := range stories {
 		storyIDs[it.ID] = true
@@ -184,6 +187,7 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 	storyRows, panels := splitPanels(storyRows, workflows)
 	taskRows := itemRows(tasks, workflows)
 	withAssignees(taskRows, bySeat, standing)
+	withTagColours(taskRows, colours)
 	queueVMs := queueRows(queues, slices.Concat(stories, tasks, executions, queues), events, workflows)
 	for i := range queueVMs {
 		queueVMs[i].Assignees = assigneeVMs(assigneesOf(queueVMs[i].Item, bySeat[queueVMs[i].ID], standing))
@@ -215,6 +219,8 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		Uptime:            formatUptime(time.Since(serverStart)),
 		TopBar:            newTopBar(ctx, s, ""),
 		Hosted:            hostedLinks(id.Hosted),
+		TagFacets:         strings.Join(item.FacetKeys(), ","),
+		TagFilterExample:  tagFilterExample(),
 	}, id, nil
 }
 
@@ -279,6 +285,21 @@ func withProgress(rows []rowVM, byItem map[string][]Entry, bySeat map[string][]m
 		it := rows[i].Item
 		rows[i].Progress = progressOf(workflows[it.Workflow], it, byItem[it.ID], bySeat[it.ID], standing, rows[i].Engaged)
 	}
+}
+
+func withTagColours(rows []rowVM, overrides map[string]string) {
+	for i := range rows {
+		rows[i].TagColours = overrides
+	}
+}
+
+func tagFilterExample() string {
+	for _, c := range item.Conventions {
+		if len(c.Values) > 0 {
+			return c.Key + ":" + c.Values[0]
+		}
+	}
+	return ""
 }
 
 // itemRows is one row per item, its status classed by its workflow.
@@ -731,6 +752,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	}
 	seats, _ := decodeSeats(ctx, s, repoKey)
 	standing := standingHere()
+	settings, _ := pushedSettings(ctx, s, repoKey)
 	itemSeats := seatsByItem(seats)[it.ID]
 	assignees := assigneeVMs(assigneesOf(it, itemSeats, standing))
 	var progress []stageVM
@@ -739,6 +761,7 @@ func mirrorLoadDetail(ctx context.Context, s *mirror.Store, repoKey, group, id s
 	}
 	return detailData{
 		Item:          it,
+		TagColours:    tagColourOverrides(settings),
 		Progress:      progress,
 		Assignees:     assignees,
 		BackTab:       backTab,
@@ -772,11 +795,38 @@ func docAnchor(name string) string {
 	return strings.TrimRight(b.String(), "-")
 }
 
+func pushedSettings(ctx context.Context, s *mirror.Store, repoKey string) (mirror.Settings, bool) {
+	var blob mirror.Settings
+	payload, err := s.GetItem(ctx, repoKey, "settings", "config")
+	if err != nil || payload == "" {
+		return blob, false
+	}
+	_ = json.Unmarshal([]byte(payload), &blob)
+	return blob, true
+}
+
+func tagColourOverrides(settings mirror.Settings) map[string]string {
+	var out map[string]string
+	for _, r := range settings.Rows {
+		tag, ok := strings.CutPrefix(r.FieldID, tagColoursPrefix)
+		if !ok || tag == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[tag] = r.Value
+	}
+	return out
+}
+
+const tagColoursPrefix = "ui.tag_colours."
+
 // mirrorSettingsData loads the pushed settings blob into the settings template VM.
 func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (settingsData, mirror.IdentityMeta, error) {
 	id := mirrorIdentity(ctx, s, repoKey)
-	payload, err := s.GetItem(ctx, repoKey, "settings", "config")
-	if err != nil || payload == "" {
+	blob, ok := pushedSettings(ctx, s, repoKey)
+	if !ok {
 		return settingsData{
 			TopBar:   newTopBar(ctx, s, ""),
 			RepoRoot: id.RepoRoot,
@@ -784,17 +834,6 @@ func mirrorSettingsData(ctx context.Context, s *mirror.Store, repoKey string) (s
 			MirrorRO: true,
 		}, id, nil
 	}
-	var blob struct {
-		RepoRoot string `json:"repo_root"`
-		Rows     []struct {
-			FieldID string `json:"field_id"`
-			Label   string `json:"label"`
-			Help    string `json:"help"`
-			Value   string `json:"value"`
-			Section string `json:"section"`
-		} `json:"rows"`
-	}
-	_ = json.Unmarshal([]byte(payload), &blob)
 	lastSect := "\x00"
 	var rows []settingsRowVM
 	for _, r := range blob.Rows {

@@ -111,7 +111,9 @@ type pageData struct {
 	SyncHeld []syncHeldVM
 	// Hosted, set when the server is the repo's store of record, links the
 	// server's project page; Stories still lists every story in the local store.
-	Hosted *hostedLinksVM
+	Hosted           *hostedLinksVM
+	TagFacets        string
+	TagFilterExample string
 }
 
 // hostedLinksVM links a hosted-mode page to the server's project page. Only
@@ -153,7 +155,8 @@ type rowVM struct {
 	// assignees, then each user holding a working seat (assigneesOf).
 	Assignees []assigneeVM
 	// Progress is a story row's step chips (progressOf); nil on other rows.
-	Progress []stageVM
+	Progress   []stageVM
+	TagColours map[string]string
 }
 
 // engagementVM is where a story is engaged: Here is its mark for seats here
@@ -231,6 +234,7 @@ type kindGroup struct {
 type detailData struct {
 	Item       Item
 	StateClass string
+	TagColours map[string]string
 	// BackTab is the project tab the item is listed on when it is not its
 	// kind's own: a workflow panel's topic; "" means the kind's tab.
 	BackTab    string

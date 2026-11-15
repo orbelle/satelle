@@ -26,6 +26,7 @@
   --warn: #9a6b00;
   /* Pass/ok green — a progress chip's exit gates that all passed. */
   --ok: #16a34a;
+  --note: #7c3aed;
   /* The layout satelled shares with satelle.dev (sto_99aa0122 / satelle-server
      sto_1006a260): every page container and the navbar's inner row are full
      width capped at --content-max, with a --gutter-mobile side gutter at
@@ -42,6 +43,7 @@
   --fail-soft: #cf837b;
   --warn: #e0a622;
   --ok: #2ecc71;
+  --note: #a78bfa;
 }
 * { box-sizing: border-box; }
 
@@ -144,6 +146,16 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .tagchip.kv .k::after { content: ":"; opacity: .55; font-weight: 400; }
 .tagchip.kv .v { opacity: .9; }
 .tagchip.kv.cat { --chip-c: #b9863f; } /* category: amber namespace, like satellites */
+.tagchip[data-colour] {
+  background: color-mix(in srgb, var(--chip-c) 16%, transparent);
+  color: color-mix(in srgb, var(--chip-c) 60%, var(--ink));
+}
+.tagchip[data-colour="fail"] { --chip-c: var(--fail); }
+.tagchip[data-colour="warn"] { --chip-c: var(--warn); }
+.tagchip[data-colour="ok"] { --chip-c: var(--ok); }
+.tagchip[data-colour="accent"] { --chip-c: var(--accent); }
+.tagchip[data-colour="muted"] { --chip-c: var(--muted); }
+.tagchip[data-colour="note"] { --chip-c: var(--note); }
 /* A clickable chip is a <button> that adds its tag to the panel filter; reset the
    button chrome so it reads identically to the span chip, plus a click affordance. */
 button.tagchip { font-family: inherit; border: 0; margin: 0; cursor: pointer; }
@@ -398,7 +410,13 @@ td.updated-cell { white-space: nowrap; }
    counts in words. .stage-performing pulses: the story is engaged (a seat
    here or elsewhere). .stage-current is highlighted and still: the story is
    at that step and nobody is working it (sto_96f0ad26). */
-.col-reviews { white-space: normal; width: 14rem; }
+.col-reviews { white-space: normal; width: 20rem; }
+.stories-table { table-layout: fixed; min-width: 64rem; }
+.stories-table td { overflow-wrap: anywhere; }
+.col-id { width: 8rem; }
+.col-status { width: 8rem; }
+.col-assignees { width: 9rem; }
+.col-updated { width: 9rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }
 .stage-done { color: var(--muted); }

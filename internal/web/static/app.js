@@ -31,6 +31,8 @@
   // stories and task runs being worked now);
   // task: narrows execution rows to one task's runs (sty_c356ed4f).
   var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
+  var TAG_FACETS = {};
+  (document.body.dataset.tagFacets || "").split(",").filter(Boolean).forEach(function (k) { TAG_FACETS[k] = 1; });
   var ORDER_FIELDS = { updated: 1, created: 1, status: 1, title: 1, id: 1, order: 1 };
   var DEFAULT_ORDER = "updated"; // applied when no explicit order: token (order:none opts out)
 
@@ -96,7 +98,7 @@
       var i = part.indexOf(":");
       var key = i > 0 ? part.slice(0, i).toLowerCase() : "";
       if (key === "order") { order = part.slice(i + 1).toLowerCase(); return; }
-      if (i > 0 && FILTER_KEYS[key]) {
+      if (i > 0 && (FILTER_KEYS[key] || TAG_FACETS[key])) {
         var k = key === "tag" ? "tags" : key;
         filters.push({ key: k, vals: part.slice(i + 1).toLowerCase().split(",").filter(Boolean) });
         return;
@@ -113,6 +115,9 @@
       if (t.key === "status") {
         hasStatus = true;
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(row.dataset.status || "") === -1) return false;
+      } else if (TAG_FACETS[t.key]) {
+        var facet = (row.getAttribute("data-tag-" + t.key) || "").toLowerCase();
+        if (t.vals.indexOf("all") === -1 && t.vals.indexOf(facet) === -1) return false;
       } else if (t.key === "tags" || t.key === "assignee") {
         // A list value: tags, or the assignees (sto_600b9a85) joined by commas.
         var list = (row.dataset[t.key] || "").toLowerCase().split(",");

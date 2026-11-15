@@ -643,3 +643,42 @@ func TestConfirm(t *testing.T) {
 		t.Fatalf("an unreachable satelled reported %+v", got)
 	}
 }
+
+func TestSettingsCarryTagColours(t *testing.T) {
+	if uipush.UIFile != kernel.UIFile {
+		t.Fatalf("uipush pushes %q, the kernel loads %q", uipush.UIFile, kernel.UIFile)
+	}
+	_, src := fixture(t)
+	rows := func() map[string]mirror.SettingRow {
+		t.Helper()
+		snap, err := uipush.Full(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var blob mirror.Settings
+		if err := json.Unmarshal(snap.Settings, &blob); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]mirror.SettingRow{}
+		for _, r := range blob.Rows {
+			if strings.HasPrefix(r.FieldID, "ui.") {
+				out[r.FieldID] = r
+			}
+		}
+		return out
+	}
+	if got := rows(); len(got) != 0 {
+		t.Fatalf("no %s pushed rows %v", kernel.UIFile, got)
+	}
+	write(t, filepath.Join(src.DataDir, kernel.UIFile), "[tag_colours]\n\"priority:high\" = \"ok\"\nsurface = \"warn\"\n")
+	got := rows()
+	for id, want := range map[string]string{"ui.tag_colours.priority:high": "ok", "ui.tag_colours.surface": "warn"} {
+		r, ok := got[id]
+		if !ok || r.Value != want || r.Section != "ui" {
+			t.Errorf("row %s: %+v (present %v), want value %q in section ui", id, r, ok, want)
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("pushed %d ui rows, want 2: %v", len(got), got)
+	}
+}

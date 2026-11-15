@@ -27,6 +27,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
+const (
+	UIFile    = "ui.toml"
+	uiSection = "ui"
+)
+
 // MaxBody bounds an attachment body pushed to satelled; a larger or binary
 // attachment is pushed as metadata only.
 const MaxBody = 256 << 10
@@ -268,6 +273,10 @@ func settings(src Source) (json.RawMessage, error) {
 	if _, err := toml.DecodeFile(filepath.Join(src.DataDir, "satelle.toml"), &m); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("uipush: settings: %w", err)
 	}
+	var ui map[string]any
+	if _, err := toml.DecodeFile(filepath.Join(src.DataDir, UIFile), &ui); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("uipush: settings: %w", err)
+	}
 	var walk func(prefix string, v any)
 	walk = func(prefix string, v any) {
 		if sub, ok := v.(map[string]any); ok {
@@ -292,6 +301,9 @@ func settings(src Source) (json.RawMessage, error) {
 		blob.Rows = append(blob.Rows, mirror.SettingRow{FieldID: prefix, Label: label, Value: value, Section: section})
 	}
 	walk("", m)
+	if len(ui) > 0 {
+		walk(uiSection, ui)
+	}
 	return mustJSON(blob), nil
 }
 

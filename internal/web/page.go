@@ -2,10 +2,14 @@ package web
 
 import (
 	"fmt"
+	"hash/fnv"
 	"html/template"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
@@ -96,42 +100,54 @@ var tmplFuncs = template.FuncMap{
 		}
 		return m
 	},
-	// tagchip renders a tag chip. A key:value tag (e.g. epic:summariser) renders
-	// as a kv chip distinguishing key from value; a bare tag renders plain. No
-	// schema change — kv is a parsed string convention.
-	//
-	// A chip that maps to a real filter facet renders as a <button> carrying the
-	// exact filter token it adds when clicked (app.js wires it to the panel's
-	// filter input): a category:<v> chip filters the category facet; every other
-	// tag filters the tags facet (tags:<full-tag>). scope:/applies_to: chips are
-	// workflow metadata, not filter facets, so they stay inert spans.
-	"tagchip": func(tag string) template.HTML {
+	"tagchip": func(tag string, overrides ...map[string]string) template.HTML {
 		esc := template.HTMLEscapeString
+		var over map[string]string
+		if len(overrides) > 0 {
+			over = overrides[0]
+		}
 		cls := "tagchip"
 		inner := esc(tag)
-		key := ""
-		if i := strings.IndexByte(tag, ':'); i > 0 && i < len(tag)-1 {
-			key = tag[:i]
+		attrs := ""
+		colour := item.ChipColour(tag, over)
+		key, value, kv := item.TagKV(tag)
+		if kv {
 			cls = "tagchip kv"
-			if key == "category" { // category gets a distinct key colour, like satellites
-				cls += " cat"
-			}
-			inner = `<span class="k">` + esc(key) + `</span><span class="v">` + esc(tag[i+1:]) + `</span>`
+			inner = `<span class="k">` + esc(key) + `</span><span class="v">` + esc(value) + `</span>`
+		}
+		switch {
+		case colour != "":
+			attrs = ` data-colour="` + esc(colour) + `"`
+		case key == "category":
+			cls += " cat"
+		case key == "workflow":
+			attrs = ` style="--chip-c:hsl(` + strconv.Itoa(chipHue(value)) + ` 45% 55%)"`
 		}
 		token := ""
-		switch key {
-		case "scope", "applies_to":
-			// inert: workflow metadata, not a filter facet
-		case "category", "task":
-			token = tag // category:<value> and an execution's task:<id> are themselves filter tokens
+		switch {
+		case key == "scope" || key == "applies_to":
+		case key == "category" || key == "task" || key == "workflow" || slices.Contains(item.FacetKeys(), key):
+			token = tag
 		default:
 			token = "tags:" + tag
 		}
 		if token == "" {
-			return template.HTML(`<span class="` + cls + `">` + inner + `</span>`)
+			return template.HTML(`<span class="` + cls + `"` + attrs + `>` + inner + `</span>`)
 		}
-		return template.HTML(`<button type="button" class="` + cls + ` clickable" data-filter="` +
+		return template.HTML(`<button type="button" class="` + cls + ` clickable"` + attrs + ` data-filter="` +
 			esc(token) + `" aria-label="filter by ` + esc(tag) + `">` + inner + `</button>`)
+	},
+	"tagattrs": func(tags []string) template.HTMLAttr {
+		var b strings.Builder
+		for _, facet := range item.FacetKeys() {
+			for _, tag := range tags {
+				if key, value, ok := item.TagKV(tag); ok && key == facet {
+					b.WriteString(` data-tag-` + template.HTMLEscapeString(key) + `="` + template.HTMLEscapeString(value) + `"`)
+					break
+				}
+			}
+		}
+		return template.HTMLAttr(b.String())
 	},
 	// tabof maps a work-item kind to its panel/tab name (story→stories). Takes
 	// any so the workitem.Kind type (a distinct string type) is accepted.
@@ -146,6 +162,12 @@ var tmplFuncs = template.FuncMap{
 		}
 		return "stories"
 	},
+}
+
+func chipHue(name string) int {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return 170 + int(h.Sum32()%80)
 }
 
 // Gate results that pass (gate.Accept, gate.Carried).
@@ -317,7 +339,7 @@ const templatesSrc = `
 {{template "favicon"}}
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body data-tag-facets="{{.TagFacets}}">
 {{template "topbar" .TopBar}}
 <div class="wrap">
   <nav class="crumbs">{{template "rootcrumb"}} <span class="sep">/</span> {{if gt (len .Projects) 1}}<details class="proj-switch"><summary class="cur">{{.ProjectName}} <span class="chev" aria-hidden="true">▾</span></summary><ul class="proj-menu">{{range .Projects}}<li><a href="/{{.Slug}}/" title="{{.Path}}"{{if .Current}} class="current" aria-current="page"{{end}}>{{.Name}}{{if .Ambiguous}} <span class="proj-slug">{{.Path}}</span>{{end}}</a></li>{{end}}</ul></details>{{else}}<span class="cur">{{.ProjectName}}</span>{{end}}</nav>
@@ -349,13 +371,13 @@ const templatesSrc = `
     {{with .Hosted}}<p class="hosted-links">On the server: <a href="{{.Project}}">all stories</a></p>{{end}}
     <div class="filterbar">
       <div class="filter-input">
-        <input type="text" placeholder="filter… e.g. status:all workflow:name tags:key:value order:updated" aria-label="filter stories">
+        <input type="text" placeholder="filter… e.g. status:all workflow:name {{.TagFilterExample}} order:updated" aria-label="filter stories">
         <span class="filter-count" aria-live="polite"></span>
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+    <table class="panel-table stories-table">{{template "storyCols"}}
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
     </table>
   </section>
@@ -411,13 +433,13 @@ const templatesSrc = `
   <section class="panel" data-topic="{{.Topic}}" id="panel-{{.Topic}}">
     <div class="filterbar">
       <div class="filter-input">
-        <input type="text" placeholder="filter… e.g. status:all workflow:name tags:key:value order:updated" aria-label="filter {{.Name}}">
+        <input type="text" placeholder="filter… e.g. status:all workflow:name {{$.TagFilterExample}} order:updated" aria-label="filter {{.Name}}">
         <span class="filter-count" aria-live="polite"></span>
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+    <table class="panel-table stories-table">{{template "storyCols"}}
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
     </table>
   </section>
@@ -449,26 +471,24 @@ const templatesSrc = `
 
 {{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
 
-{{/* workitemLead and workitemTrail: a work item row's opening and its
-     ID, Title and Status cells; then its Workflow, Assignees and Updated cells
-     and its close. workitemRows (tasks) joins them; storyRows puts the
-     Progress cell between. */}}
-{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}}{{tagattrs .Tags}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{if or .Category .Tags $task}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .)}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category)}}{{end}}{{range .Tags}}{{tagchip .}}{{end}}</div>{{end}}</td>
+  <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{$flow := and (eq (printf "%s" .Kind) "story") .Workflow}}{{if or .Category .Tags $task $flow}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .) $.TagColours}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category) .TagColours}}{{end}}{{with $flow}}{{tagchip (printf "workflow:%s" .) $.TagColours}}{{end}}{{range .Tags}}{{tagchip . $.TagColours}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
 {{end}}
-{{define "workitemTrail"}}  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
-  <td class="meta">{{template "assignees" .Assignees}}</td>
+{{define "workitemTrail"}}  <td class="meta">{{template "assignees" .Assignees}}</td>
   <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{end}}
 
-{{define "workitemRows"}}{{range .}}{{template "workitemLead" .}}{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+{{define "workitemRows"}}{{range .}}{{template "workitemLead" .}}  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
 
 {{/* storyRows: story rows, with the Progress cell (one stageChip per step
      reached, progressOf) after Status. */}}
 {{define "storyRows"}}{{range .}}{{template "workitemLead" .}}  <td class="col-reviews">{{range .Progress}}{{template "stageChip" .}}{{else}}—{{end}}</td>
-{{template "workitemTrail" .}}{{else}}<tr><td colspan="7" class="empty">none yet</td></tr>{{end}}{{end}}
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+
+{{define "storyCols"}}<colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-assignees"><col class="col-updated"></colgroup>{{end}}
 
 {{/* stageChip: one step chip in the old shape: <step> <gates> <rej> <blk>,
      the gates count always drawn, rej and blk absent at 0; its title says the
@@ -545,12 +565,12 @@ const templatesSrc = `
   {{if not .Standalone}}<a class="detail-link open-story" href="{{.Item.Kind}}/{{.Item.ID}}">Open {{.Item.Kind}} →</a>{{end}}
   <dl>
     <dt>Status</dt><dd>{{template "statebadge" (dict "Status" .Item.Status "StateClass" .StateClass)}}</dd>
-    <dt>Workflow</dt><dd>{{if .Item.Workflow}}{{.Item.Workflow}}{{else}}—{{end}}</dd>
+    <dt>Workflow</dt><dd{{if .Item.Workflow}} class="wi-tags"{{end}}>{{if .Item.Workflow}}{{tagchip (printf "workflow:%s" .Item.Workflow) .TagColours}}{{else}}—{{end}}</dd>
     {{if .Item.Category}}<dt>Category</dt><dd>{{.Item.Category}}</dd>{{end}}
     {{if .Assignees}}<dt>Assignees</dt><dd>{{template "assignees" .Assignees}}</dd>{{end}}
     {{if .Item.ParentID}}<dt>Parent</dt><dd>{{if .ParentKind}}<a href="{{.ParentKind}}/{{.Item.ParentID}}">{{.Item.ParentID}}</a>{{else}}{{.Item.ParentID}}{{end}}</dd>{{end}}
     {{if .Children}}<dt>Children</dt><dd><ul class="child-list">{{range .Children}}<li><a href="{{.Kind}}/{{.ID}}">{{.ID}}</a> {{.Title}} <span class="badge">{{.Status}}</span></li>{{end}}</ul></dd>{{end}}
-    {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip .}}{{end}}</dd>{{end}}
+    {{if .Item.Tags}}<dt>Tags</dt><dd class="wi-tags">{{range .Item.Tags}}{{tagchip . $.TagColours}}{{end}}</dd>{{end}}
     <dt>Updated</dt><dd>{{ftime .Item.UpdatedAt}}</dd>
   </dl>
   {{if .Item.Body}}<h4>Description</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
