@@ -139,6 +139,18 @@ func TestMarkdownIndentedBlocks(t *testing.T) {
 	}
 }
 
+func TestShellcheckDirectiveKeepsOnlyTheDirective(t *testing.T) {
+	src := "#!/bin/sh\n# shellcheck disable=SC2053 # on purpose\n# shellcheck disable=SC2086\nx=1\n"
+	want := "#!/bin/sh\n# shellcheck disable=SC2053\n# shellcheck disable=SC2086\nx=1\n"
+	out, found, _ := stripLines([]byte(src), shellComments)
+	if string(out) != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", out, want)
+	}
+	if len(found) != 1 {
+		t.Fatalf("found %v", found)
+	}
+}
+
 func TestCheckAndStripFiles(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.go")

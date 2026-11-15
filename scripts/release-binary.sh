@@ -136,7 +136,7 @@ decide() {
     inarea=0
     while IFS= read -r pat; do
       [ -n "$pat" ] || continue
-      # shellcheck disable=SC2053 # a pattern is matched as a glob on purpose
+      # shellcheck disable=SC2053
       if [ "$path" = "$pat" ] || [ "${path#"$pat"/}" != "$path" ] || [[ $path == $pat ]]; then inarea=1; break; fi
     done <<<"$pats"
     rule=

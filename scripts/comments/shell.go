@@ -23,13 +23,24 @@ func shellComments(src []byte) []span {
 	return l.spans
 }
 
-func keptShellComment(src []byte, start, end int) bool {
+func keptShellComment(src []byte, start, end int) int {
 	text := string(src[start:end])
 	if start == 0 && strings.HasPrefix(text, "#!") {
-		return true
+		return end
 	}
 	t := strings.TrimSpace(strings.TrimPrefix(text, "#"))
-	return strings.HasPrefix(t, "shellcheck ")
+	if !strings.HasPrefix(t, "shellcheck ") {
+		return start
+	}
+	i := strings.Index(text[1:], "#")
+	if i < 0 {
+		return end
+	}
+	cut := start + 1 + i
+	for cut > start && (src[cut-1] == ' ' || src[cut-1] == '\t') {
+		cut--
+	}
+	return cut
 }
 
 func (l *shellLexer) peek(off int) byte {
@@ -87,8 +98,8 @@ func (l *shellLexer) command(term byte) {
 		case '#':
 			if wordStart {
 				end := lineEnd(l.src, l.pos)
-				if !keptShellComment(l.src, l.pos, end) {
-					l.spans = append(l.spans, span{l.pos, end})
+				if keep := keptShellComment(l.src, l.pos, end); keep < end {
+					l.spans = append(l.spans, span{keep, end})
 				}
 				l.pos = end
 				continue
