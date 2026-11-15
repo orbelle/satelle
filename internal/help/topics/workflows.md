@@ -351,8 +351,7 @@ the env a transition gives it. While the gate runs, the dry run leaves a marker
 under the ledger, and a satelle that the gate started (a process descended from
 the dry run) opens the ledger read-only. A check that attaches a file is
 refused, so the dry run records nothing, and every other session writes as
-usual. Where satelle cannot read a process's parents (Windows), that refusal
-does not apply. `--from` defaults to the item's state,
+usual. `--from` defaults to the item's state,
 and `--to` to the one transition from it that runs the gate. A judged gate
 really dispatches its judges and logs them as above. `--show-input` prints the
 check's env and stdin, or the judge's prompt, and starts nothing. A gate with a
