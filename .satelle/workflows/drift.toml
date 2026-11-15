@@ -1,21 +1,8 @@
-# A drift item records findings of the drift review: the release's one
-# drift-fix item (scripts/drift-fix.sh) lists every finding as a `drift-key:`
-# line and each warning as a `drift-warning:` line; older per-finding drift
-# stories carry one key. The fix is other work. An item closes only through
-# drift-resolved, so every close is a gate.run on its ledger: each of its keys
-# carried into a later fix item (tag drift-carried-by:<id>) or no longer found
-# by a drift review run (its drift-report); warnings never block. An item that
-# fails the re-check stays open. Selected for stories tagged drift by the rule
-# in satelle.toml.
 name = "drift"
-# satelled lists drift items on their own Drift tab, not Stories, counting
-# those still open (sto_a1681009).
 panel = "Drift"
 
 [states.open]
 start = true
-# An open drift item closes only when a later drift review run no longer finds
-# its keys: the session that holds it does not drive it on.
 waits = "a drift review run (release.md step 11) that no longer finds its keys"
 
 [states.done]
@@ -27,8 +14,6 @@ terminal = true
 [gates.drift-resolved]
 skill = "satelle-drift-resolved-check"
 
-# Every move into a terminal state that no model gate judges runs this first
-# (sto_035f3007); a drift record has no judged change, so it accepts.
 [gates.change-judged]
 skill = "satelle-change-judged-check"
 

@@ -39,7 +39,7 @@ each block finds the in-progress run and the run-local directory
 ## 0. Find the run, seat it on its base
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id // empty')
 [ -n "$exe" ] || { echo "no in-progress run of $task: release.md step 11 starts it" >&2; exit 1; }
@@ -48,7 +48,7 @@ base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | 
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 [ -n "$base" ] && [ -n "$ver" ] || { echo "run $exe has no base_ref, or .version names no satelle.version" >&2; exit 1; }
 satelle execution seat "$exe" --base "$base" --session "$session"
-satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1   # validate-after judges the run against it
+satelle task get "$task" --session "$session" | satelle execution attach "$exe" --name task --type text/plain --file - --session "$session" || exit 1
 d=$(satelle execution diff "$exe" --json --session "$session")
 if [ "$(printf '%s' "$d" | jq -r .base)" != "$(git rev-parse "$base^{commit}")" ] || [ "$(printf '%s' "$d" | jq '.paths | length')" -eq 0 ]; then
   echo "run $exe is not judged from $base, or its diff is empty:" >&2; printf '%s\n' "$d" >&2; exit 1
@@ -67,7 +67,7 @@ be skipped before it judged anything.
 ## 1. Substrate against the binary
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
@@ -82,7 +82,7 @@ stop and report its reason.
 ## 2. Raise the release's fix item
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
@@ -131,7 +131,7 @@ drift route's done gate reads (`.satelle/skills/satelle-drift-resolved-check.md`
 so the report is attached before step 4 presents any item.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
@@ -171,7 +171,7 @@ satelle execution attach "$exe" --name drift-report --type text/markdown --file 
 ## 4. Close every older drift item
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
@@ -235,7 +235,7 @@ Steps 3 and 4 always run together, in that order: step 4 reads the files step
 ## 5. Present done
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 satelle execution set "$exe" --status done --session "$session" || satelle execution route "$exe" --session "$session"
@@ -268,7 +268,7 @@ other way, and never change the code or substrate a gate judged.
 ## 6. Record the warnings
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
@@ -291,7 +291,7 @@ warnings.
 ## 7. Release the seat
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
 satelle execution release "$exe" --session "$session"

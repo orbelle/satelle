@@ -80,7 +80,7 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
    done-review gates judge the move.
 
 ```sh
-session=<session>   # this session's id, from the context line
+session=<session>
 epic=EPIC_ID
 satelle story get "$epic" --session "$session" >/dev/null || exit 2
 open=$(satelle story list --parent "$epic" --open --json --session "$session") || exit 2

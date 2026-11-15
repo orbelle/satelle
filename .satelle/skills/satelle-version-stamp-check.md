@@ -68,7 +68,7 @@ if [ -n "$pub" ] && [ "$pub" != "$main" ]; then
   echo "v$ver is already published at ${pub:0:12}, not origin/main: the bump was skipped"
   exit 1
 fi
-above() { # $1 version, $2 prefix: is $1 above every other tag with the prefix?
+above() {
   latest=$(git tag -l "$2[0-9]*" | grep -vx "$2$1" | sed "s/^$2//" | sort -V | tail -1)
   [ -z "$latest" ] && return 0
   [ "$1" != "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$1" | sort -V | tail -1)" = "$1" ]

@@ -42,7 +42,6 @@ if ! report=$(satelle execution attachment "$exe" drift-report 2>&1); then
   echo "cannot read the drift run $exe's drift-report: $report"
   exit 1
 fi
-# section <name>: the report's lines under "## <name>", up to the next "## ".
 section() {
   printf '%s\n' "$report" | awk -v h="## $1" '$0 == h { on = 1; next } /^## / { on = 0 } on && NF'
 }

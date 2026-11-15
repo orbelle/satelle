@@ -22,34 +22,23 @@ Verifies; installs and restarts nothing.
 #!/usr/bin/env bash
 set -uo pipefail
 
-# --- Before: fingerprint the operator's environment (read-only) -------------
 installed=$(command -v satelle || true)
 bin_before=""
 if [ -n "$installed" ]; then
-  # device+inode+size+mtime — changes if the binary is replaced in place OR swapped.
   bin_before=$(stat -c '%d:%i:%s:%Y' "$installed" 2>/dev/null || true)
 fi
-# The live service process: pid plus the exe it is running. Reading /proc is
-# free and needs no systemctl, so an unreachable bus cannot skew the check.
-# Anchor to argv0: the check runs as a bash -c script whose own command line
-# holds this pattern, so an unanchored pgrep -f can select the check's subshell.
 svc_before=""
 svc_pid=$(pgrep -f '^[^ ]*(satelle-serve|satelled) --addr' 2>/dev/null | head -1 || true)
 if [ -n "$svc_pid" ]; then
   svc_before="$svc_pid:$(readlink -f /proc/$svc_pid/exe 2>/dev/null || true)"
 fi
 
-# The integration node is a throwaway container (/.dockerenv) with no bwrap and
-# no operator home directory to protect; the container is the isolation, so the suite
-# opts into hermetic's detection-only snapshot mode there. On any other host
-# without bwrap, make test fails closed (sto_e3c6bfb6).
 if [ -f /.dockerenv ] && ! bwrap --dev-bind / / true >/dev/null 2>&1; then
   export SATELLE_HERMETIC_ALLOW_SNAPSHOT=1
 fi
 make test
 suite_ec=$?
 
-# --- After: the same fingerprints must be unchanged -------------------------
 fail=0
 if [ -n "$installed" ]; then
   bin_after=$(stat -c '%d:%i:%s:%Y' "$installed" 2>/dev/null || true)
