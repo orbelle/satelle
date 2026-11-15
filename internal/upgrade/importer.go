@@ -74,7 +74,7 @@ func (r *Refusal) Error() string {
 }
 
 func eventID(itemID, key string) string {
-	h := sha256.Sum256([]byte("satelle-upgrade\x00" + itemID + "\x00" + key))
+	h := sha256.Sum256([]byte("satelle import\x00" + itemID + "\x00" + key))
 	return hex.EncodeToString(h[:12])
 }
 
