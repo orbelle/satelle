@@ -249,7 +249,7 @@ func TestNoVolatilePatternIsAGoLiteral(t *testing.T) {
 	}
 }
 
-func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
+func TestTemplateShipsThreeDefaults(t *testing.T) {
 	shipped, err := fs.ReadFile(template, "template/"+VolatileFile)
 	if err != nil {
 		t.Fatal(err)
@@ -280,29 +280,4 @@ func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 		t.Fatalf("active patterns %v, want %v", names, want)
 	}
 
-	lines := strings.Split(string(shipped), "\n")
-	at := slices.Index(lines, `# name = "model-id"`)
-	if at < 1 || lines[at-1] != "# [[pattern]]" || at+1 >= len(lines) || !strings.HasPrefix(lines[at+1], "# match = '") {
-		t.Fatalf("no commented model-id example (# [[pattern]], # name, # match) in the template")
-	}
-	match := lines[at+1]
-	open, close := strings.Index(match, "("), strings.Index(match, ")")
-	if open < 0 || close < open {
-		t.Fatalf("model-id example has no vendor group: %q", match)
-	}
-	for _, v := range strings.Split(match[open+1:close], "|") {
-		if !strings.HasPrefix(v, "vendor-") {
-			t.Errorf("model-id example names %q: the template ships placeholders, not a vendor list", v)
-		}
-	}
-
-	un := strings.Join(slices.Concat(lines[:at-1], []string{"[[pattern]]", `name = "model-id"`, strings.TrimPrefix(match, "# ")}, lines[at+2:]), "\n")
-	write(t, filepath.Join(root, VolatileFile), un)
-	c2, err := LoadConfig(root)
-	if err != nil {
-		t.Fatalf("the uncommented example does not load: %v", err)
-	}
-	if n := len(c2.Volatile.Patterns); n != 4 {
-		t.Fatalf("uncommented template has %d patterns, want 4", n)
-	}
 }

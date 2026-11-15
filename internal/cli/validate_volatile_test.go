@@ -79,7 +79,7 @@ func TestValidateReportsVolatileLiterals(t *testing.T) {
 	}
 	setPaths := func(paths string) {
 		t.Helper()
-		body := strings.Replace(string(b), "\npaths = []\n", "\npaths = "+paths+"\n", 1)
+		body := strings.TrimPrefix(strings.Replace("\n"+string(b), "\npaths = []\n", "\npaths = "+paths+"\n", 1), "\n")
 		if body == string(b) {
 			t.Fatalf("no paths = [] line in %s", conf)
 		}
