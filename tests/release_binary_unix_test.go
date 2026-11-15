@@ -584,17 +584,17 @@ func fencedAfter(t *testing.T, heading string) string {
 }
 
 const goldenStep5 = "gh workflow run release.yml --ref main\n" +
-	"gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url   # the run whose headSha is the pushed sha\n" +
+	"gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url\n" +
 	"gh run watch <id> --exit-status\n"
 
 const goldenStep6 = "gh release view v<ver> --json tagName,assets\n" +
 	"gh release view serve-v<sver> --json tagName,assets\n"
 
-const goldenStep7 = "session=<session>   # this session's id, from the context line\n" +
+const goldenStep7 = "session=<session>\n" +
 	"sbin=$(command -v satelle)\n" +
 	"dbin=<the path in the [...] of the \"installed\" line of satelle service status>\n" +
 	"bk=\"$(satelle runtime path --session \"$session\")/backups/bin/$(date -u +%Y%m%dT%H%M%SZ)\"; mkdir -p \"$bk\"; cp -p \"$sbin\" \"$dbin\" \"$bk/\"\n" +
 	"printf 'restore: install -m 0755 %s %s && install -m 0755 %s %s && satelle service restart --session <session>\\n' \"$bk/satelle\" \"$sbin\" \"$bk/satelled\" \"$dbin\"\n" +
 	"satelle update --version <ver> --session \"$session\"\n" +
-	"\"$sbin\" update --version <ver> --session \"$session\"    # the new binary's own update: satelled serve-v<ver>\n" +
+	"\"$sbin\" update --version <ver> --session \"$session\"\n" +
 	"satelle service restart --session \"$session\"\n"
