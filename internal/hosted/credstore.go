@@ -1,13 +1,3 @@
-// Package hosted is the client half of satelle's hosted-server integration
-// (sty_2fc93374): the OAuth 2.1 + PKCE login flow, a per-user credential store,
-// and an authenticated HTTP client with transparent refresh-on-401.
-//
-// All of this is MECHANISM (a CLI verb + an HTTP client), so it lives in the
-// binary — no process/gate logic. Credentials are stored per USER, OUTSIDE any
-// repo working tree (at $XDG_CONFIG_HOME/satelle/credentials.toml), mirroring
-// the satellites cliconfig model: OAuth tokens are per-user secrets that must
-// never sit in a repo, and one login then serves every repo pointing at the same
-// server.
 package hosted
 
 import (
@@ -25,43 +15,24 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// ErrNoCredential signals no stored credential for the requested server.
 var ErrNoCredential = errors.New("hosted: no stored credential (run \"satelle login\")")
 
-// Credential is one server's persisted OAuth token set. The access token is a
-// short-lived JWT (~1h); the refresh token is opaque and ROTATES on every
-// refresh grant, so Save must persist the rotated value immediately.
 type Credential struct {
-	ServerURL    string `toml:"server_url"`
-	AccessToken  string `toml:"access_token"`
-	RefreshToken string `toml:"refresh_token"`
-	TokenType    string `toml:"token_type,omitempty"`
-	Scope        string `toml:"scope,omitempty"`
-	// DisplayName/Email/PrincipalID cache the principal from /api/v1/me,
-	// stamped at login, so the UI and assignee checks resolve identity from
-	// this local file — never a render-time network call (sty_467c6944,
-	// sty_8ccaa906). PrincipalID is the holder id, not the ledger actor role.
-	// Optional: a credential without them loads empty fields.
-	DisplayName string `toml:"display_name,omitempty"`
-	Email       string `toml:"email,omitempty"`
-	PrincipalID string `toml:"principal_id,omitempty"`
-	// ExpiresAt is the access token's expiry as RFC3339 (advisory — refresh is
-	// driven by an actual 401, not by this clock).
-	ExpiresAt string `toml:"expires_at,omitempty"`
-	CreatedAt string `toml:"created_at,omitempty"`
-	// TokenEndpoint, ClientID and Resource are what login discovered; refresh
-	// goes to this token endpoint with this client id and resource, never to the
-	// satelle server. A credential without TokenEndpoint predates discovery and
-	// needs a fresh login.
+	ServerURL     string `toml:"server_url"`
+	AccessToken   string `toml:"access_token"`
+	RefreshToken  string `toml:"refresh_token"`
+	TokenType     string `toml:"token_type,omitempty"`
+	Scope         string `toml:"scope,omitempty"`
+	DisplayName   string `toml:"display_name,omitempty"`
+	Email         string `toml:"email,omitempty"`
+	PrincipalID   string `toml:"principal_id,omitempty"`
+	ExpiresAt     string `toml:"expires_at,omitempty"`
+	CreatedAt     string `toml:"created_at,omitempty"`
 	TokenEndpoint string `toml:"token_endpoint,omitempty"`
 	ClientID      string `toml:"client_id,omitempty"`
 	Resource      string `toml:"resource,omitempty"`
 }
 
-// SessionID is the sid claim of the access token's payload, or "" when the
-// token is not a JWT or carries none. The signature is NOT checked: the value
-// only names the provider session to end on logout, and the provider decides
-// what it is worth.
 func (c Credential) SessionID() string {
 	parts := strings.Split(c.AccessToken, ".")
 	if len(parts) != 3 {
@@ -80,36 +51,20 @@ func (c Credential) SessionID() string {
 	return claims.Sid
 }
 
-// credentialsFile is the on-disk TOML shape: an array of [[credential]] tables,
-// one per server, so multiple hosted servers coexist for the same user.
 type credentialsFile struct {
 	Credential []Credential `toml:"credential"`
 }
 
-// FileStore is the default user-level credential store. It satisfies Store.
 type FileStore struct {
-	// Path overrides the default location (used by tests). Empty → CredentialsPath.
 	Path string
 }
 
-// Store is the credential persistence seam the Client depends on — the file
-// store in production, an in-memory fake in tests.
 type Store interface {
 	Load(serverURL string) (Credential, error)
 	Save(cred Credential) error
 	Delete(serverURL string) error
 }
 
-// CredentialsPath returns the per-user credentials file location:
-// $XDG_CONFIG_HOME/satelle/credentials.toml, falling back to
-// ~/.config/satelle/credentials.toml. Deliberately outside any repo tree.
-//
-// Under `go test` (testing.Testing()) the RESOLVED path, whichever branch
-// produced it, must lie under os.TempDir() or SATELLE_HOME, else it panics
-// rather than letting a test read or write the operator's real credentials
-// file (sty_18403814). It panics instead of returning an error because callers
-// such as the CLI app's server lookup swallow Load errors, which would degrade
-// a returned error into a silent fallback; production is unaffected.
 func CredentialsPath() (string, error) {
 	p, err := resolveCredentialsPath()
 	if err != nil {
@@ -132,7 +87,6 @@ func resolveCredentialsPath() (string, error) {
 	return filepath.Join(home, ".config", "satelle", "credentials.toml"), nil
 }
 
-// guardTestPath panics unless p lies under the temp dir or SATELLE_HOME.
 func guardTestPath(p string) {
 	roots := []string{os.TempDir()}
 	if h := strings.TrimSpace(os.Getenv("SATELLE_HOME")); h != "" {
@@ -147,8 +101,6 @@ func guardTestPath(p string) {
 	panic(fmt.Sprintf("hosted: test resolved credentials path %s outside the temp dir/SATELLE_HOME — isolate XDG_CONFIG_HOME (testutil.IsolateHome); refusing to touch the operator's credentials", p))
 }
 
-// resolveExisting cleans p and resolves symlinks through its deepest existing
-// ancestor, so a symlinked /tmp still matches and a not-yet-created file works.
 func resolveExisting(p string) string {
 	p = filepath.Clean(p)
 	rest := ""
@@ -177,7 +129,6 @@ func (s FileStore) path() (string, error) {
 	return CredentialsPath()
 }
 
-// normalizeServerURL trims trailing slashes/space so lookups are stable.
 func normalizeServerURL(u string) string {
 	return strings.TrimRight(strings.TrimSpace(u), "/")
 }
@@ -201,7 +152,6 @@ func (s FileStore) read() (credentialsFile, string, error) {
 	return cf, path, nil
 }
 
-// Load returns the credential for serverURL, or ErrNoCredential.
 func (s FileStore) Load(serverURL string) (Credential, error) {
 	cf, _, err := s.read()
 	if err != nil {
@@ -216,8 +166,6 @@ func (s FileStore) Load(serverURL string) (Credential, error) {
 	return Credential{}, ErrNoCredential
 }
 
-// Save upserts cred by server_url and writes the file atomically (tmp + rename,
-// file 0600, dir 0700). ServerURL and both tokens must be non-empty.
 func (s FileStore) Save(cred Credential) error {
 	cred.ServerURL = normalizeServerURL(cred.ServerURL)
 	if cred.ServerURL == "" {
@@ -244,8 +192,6 @@ func (s FileStore) Save(cred Credential) error {
 	return writeCredentials(path, cf)
 }
 
-// Delete removes serverURL's credential (a no-op if absent). When the last
-// credential is removed the file is left empty rather than deleted.
 func (s FileStore) Delete(serverURL string) error {
 	cf, path, err := s.read()
 	if err != nil {
@@ -262,11 +208,6 @@ func (s FileStore) Delete(serverURL string) error {
 	return writeCredentials(path, cf)
 }
 
-// PruneLoopback removes the credentials test servers left behind (sty_18403814)
-// and returns the removed server URLs. An entry goes only when its server host
-// is loopback (127.0.0.0/8, ::1, localhost) AND it carries no created_at and no
-// email — a real login stamps both, so a genuine login to a local dev server is
-// kept. Every other entry is written back untouched.
 func (s FileStore) PruneLoopback() ([]string, error) {
 	cf, path, err := s.read()
 	if err != nil {
@@ -291,7 +232,6 @@ func (s FileStore) PruneLoopback() ([]string, error) {
 	return removed, nil
 }
 
-// isLoopbackURL reports whether raw's host is localhost or a loopback IP.
 func isLoopbackURL(raw string) bool {
 	u, err := url.Parse(normalizeServerURL(raw))
 	if err != nil {

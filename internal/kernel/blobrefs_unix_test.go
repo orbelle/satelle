@@ -19,8 +19,6 @@ import (
 
 const artifactAnswer = "Planned.\n```json\n{\"artifact\":{\"name\":\"plan\",\"type\":\"plan\",\"body\":\"# The plan\"}}\n```"
 
-// performedChain is a chain with a performer run whose output is a blob and an
-// attachment the run's artifact added.
 func performedChain(t *testing.T) (*Kernel, string, []ledger.Event, PerformerRun) {
 	t.Helper()
 	k, id, err := performIn(t, artifactAnswer)
@@ -56,7 +54,6 @@ func TestBlobRefs(t *testing.T) {
 			t.Errorf("ref %d at seq %d names event %s, the chain holds %s %s there", i, r.Seq, r.Event, e.Kind, e.ID)
 		}
 	}
-	// A malformed or empty sha names no blob.
 	bad, _ := json.Marshal(PerformerRun{State: "x", Output: "not-a-sha"})
 	if refs := BlobRefs([]ledger.Event{{Kind: KindPerformerRun, Payload: bad}}); len(refs) != 0 {
 		t.Errorf("malformed sha: %+v", refs)
@@ -76,8 +73,6 @@ func TestPushKeys(t *testing.T) {
 	k, id, events, pr := performedChain(t)
 	atts := attachmentsOf(t, k, id)
 	root, work := t.TempDir(), t.TempDir()
-	// The recording wrapper logs each operation and key, then runs the
-	// reference adapter.
 	log := filepath.Join(work, "log")
 	stub := filepath.Join(work, "store")
 	body := `printf '%s %s\n' "$1" "$2" >> '` + log + `'; exec sh '` + fsAdapter(t) + `' --root '` + root + `' "$@"` + "\n"
@@ -129,7 +124,6 @@ func TestPushKeys(t *testing.T) {
 			t.Errorf("event %d hash %s, want %s", i, got.Hash, e.Hash)
 		}
 	}
-	// Each blob is put before the event that references it.
 	logged, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)

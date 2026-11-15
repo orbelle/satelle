@@ -15,7 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// folderOf is the record folder a prompt names, or "".
 func folderOf(prompt string) string {
 	i := strings.Index(prompt, RecordLead)
 	if i < 0 {
@@ -25,14 +24,12 @@ func folderOf(prompt string) string {
 	return rest[:strings.Index(rest, ":\n")]
 }
 
-// recordSeen is what one dispatch found in its record folder.
 type recordSeen struct {
 	dir   string
 	files map[string]string
 	modes map[string]os.FileMode
 }
 
-// watch makes d read each dispatch's record folder while the run is live.
 func watch(d *fakeDispatcher) *[]recordSeen {
 	seen := &[]recordSeen{}
 	d.onDispatch = func(_ agent.Role, req agent.Request) {
@@ -64,7 +61,6 @@ func mustAttach(t *testing.T, k *Kernel, id, name, body string) {
 	}
 }
 
-// toWork creates an item in multiState and moves it into work.
 func toWork(t *testing.T, k *Kernel, repo string) item.Item {
 	t.Helper()
 	it, err := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t"), Body: ptr("b")}, "me")
@@ -90,9 +86,6 @@ func runsEmpty(t *testing.T, k *Kernel) {
 	}
 }
 
-// The record folder holds the newest version of each attachment and the
-// children, read-only, named in the prompt, and is removed after the run;
-// performers and every judge get it.
 func TestRecordFolderBeforeEveryLocalRun(t *testing.T) {
 	k, d, repo := multiState(t)
 	seen := watch(d)
@@ -140,8 +133,6 @@ func TestRecordFolderBeforeEveryLocalRun(t *testing.T) {
 	check((*seen)[0], d.reqs[len(d.reqs)-1].Prompt)
 	runsEmpty(t, k)
 
-	// The judges of work -> closed (review, then the panel and strict) read
-	// the same record; the panel's members share one folder.
 	*seen = nil
 	d.reqs = nil
 	if _, err := k.Transition(context.Background(), it.ID, "closed", "me"); err != nil {
@@ -159,7 +150,6 @@ func TestRecordFolderBeforeEveryLocalRun(t *testing.T) {
 	runsEmpty(t, k)
 }
 
-// No attachments and no children: no record, no folder.
 func TestNoRecordWithoutAttachmentsOrChildren(t *testing.T) {
 	k, d, repo := multiState(t)
 	it := toWork(t, k, repo)
@@ -174,7 +164,6 @@ func TestNoRecordWithoutAttachmentsOrChildren(t *testing.T) {
 	}
 }
 
-// A transition no agent judges writes no folder.
 func TestNoRecordForATransitionNoAgentJudges(t *testing.T) {
 	k, _, _ := multiState(t)
 	it, err := k.Create(item.Fields{Kind: ptr("chore"), Title: ptr("c")}, "me")
@@ -193,8 +182,6 @@ func TestNoRecordForATransitionNoAgentJudges(t *testing.T) {
 	}
 }
 
-// Bodies are inlined newest first, 16 KiB each and 64 KiB in all, every cut
-// marked with the bytes shown and the file to read.
 func TestRecordInlineBounds(t *testing.T) {
 	k, d, repo := multiState(t)
 	it := toWork(t, k, repo)
@@ -236,13 +223,11 @@ func TestRecordInlineBounds(t *testing.T) {
 	}
 }
 
-// A body that is not UTF-8 is never inlined; a cut never splits a rune;
-// children beyond 200 are marked; the judge sees the performer's section.
 func TestRecordMarkers(t *testing.T) {
 	k, d, repo := multiState(t)
 	it := toWork(t, k, repo)
 	mustAttach(t, k, it.ID, "bin", "\xff\xfebinary")
-	rune3 := strings.Repeat("a", InlineBodyMax-1) + "€tail" // € is 3 bytes straddling 16384
+	rune3 := strings.Repeat("a", InlineBodyMax-1) + "€tail"
 	mustAttach(t, k, it.ID, "rune", rune3)
 	for i := 0; i < InlineChildrenMax+1; i++ {
 		if _, err := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr(fmt.Sprintf("child %03d", i)), Parent: &it.ID}, "me"); err != nil {
@@ -272,7 +257,6 @@ func TestRecordMarkers(t *testing.T) {
 	if _, err := k.Transition(context.Background(), it.ID, "closed", "me"); err != nil {
 		t.Fatal(err)
 	}
-	// The judge's section is the same, bar its own folder name.
 	jp := d.reqs[0].Prompt
 	jdir := folderOf(jp)
 	if !strings.Contains(jp, strings.ReplaceAll(section, dir, jdir)) {
@@ -280,8 +264,6 @@ func TestRecordMarkers(t *testing.T) {
 	}
 }
 
-// The performer sees the gates that rejected the newest attempt to leave its
-// state, whatever was appended since, and nothing of earlier attempts.
 func TestPerformListsTheLatestRejectedAttempt(t *testing.T) {
 	k, d, repo := multiState(t)
 	it := toWork(t, k, repo)
@@ -332,7 +314,6 @@ func TestPerformListsTheLatestRejectedAttempt(t *testing.T) {
 	}
 }
 
-// With nothing to add, the performer prompt is exactly the item.
 func TestPerformPromptUnchangedWithNothingToAdd(t *testing.T) {
 	k, d, repo := multiState(t)
 	it := toWork(t, k, repo)
@@ -342,8 +323,6 @@ func TestPerformPromptUnchangedWithNothingToAdd(t *testing.T) {
 	if p := d.reqs[len(d.reqs)-1].Prompt; p != renderItem(it) {
 		t.Fatalf("prompt = %q, want renderItem", p)
 	}
-	// A rejection, then leaving and re-entering work: the new stay has no
-	// rejection, so the prompt is the item again.
 	if res, _ := k.Transition(context.Background(), it.ID, "closed", "me"); res.Moved {
 		t.Fatal("moved")
 	}
@@ -359,7 +338,6 @@ func TestPerformPromptUnchangedWithNothingToAdd(t *testing.T) {
 	if p := d.reqs[len(d.reqs)-1].Prompt; p != renderItem(it) {
 		t.Fatalf("after re-entering work, prompt = %q", p)
 	}
-	// With a rejection and an attachment, the prompt still starts with it.
 	if res, _ := k.Transition(context.Background(), it.ID, "closed", "me"); res.Moved {
 		t.Fatal("moved")
 	}

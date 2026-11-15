@@ -8,11 +8,6 @@ import (
 	"testing"
 )
 
-// callerCapture is testdata/caller-<harness>.json: the environment a live
-// session of that harness gave a satelle hook call it started (hook) and a
-// command its shell tool ran (shell), written by
-// `scripts/cursor-ide-probe.sh caller-collect`. env holds every set name
-// matching ^(X?CURSOR|PI_|GROK|CLAUDE), as NAME=value.
 type callerCapture struct {
 	Harness string `json:"harness"`
 	CLI     string `json:"cli"`
@@ -50,10 +45,6 @@ func joinEnv(envs ...[]string) []string {
 	return out
 }
 
-// CallerFrom tells the calling harness from its session markers. The cursor,
-// pi and grok rows are environments captured in live sessions
-// (testdata/caller-*.json: cursor-agent 2026.11.13-eacade1, pi 1.5.2, grok
-// 1.0.77, 2026-11-14); CLAUDECODE was observed set to 1 in a Claude Code shell.
 func TestCallerFrom(t *testing.T) {
 	cursor, pi, grok := callerFixture(t, Cursor), callerFixture(t, Pi), callerFixture(t, Grok)
 	for _, c := range []struct {
@@ -66,8 +57,6 @@ func TestCallerFrom(t *testing.T) {
 		{"cursor shell", cursor.Shell.Env, Cursor},
 		{"pi hook call", pi.Hook.Env, Pi},
 		{"pi shell", pi.Shell.Env, Pi},
-		// grok 1.0.77 sets no marker for its hook commands: GROK_AGENT is
-		// set only in its shell tool's environment.
 		{"grok hook call", grok.Hook.Env, ""},
 		{"grok shell", grok.Shell.Env, Grok},
 		{"cursor inside claude", joinEnv([]string{"CLAUDECODE=1"}, cursor.Shell.Env), Cursor},
@@ -84,8 +73,6 @@ func TestCallerFrom(t *testing.T) {
 			t.Errorf("%s: CallerFrom(%v) = %q, want %q", c.name, c.env, got, c.want)
 		}
 	}
-	// Neutral detection: a captured environment names its own harness or
-	// none, never another.
 	for _, c := range []callerCapture{cursor, pi, grok} {
 		for _, env := range [][]string{c.Hook.Env, c.Shell.Env} {
 			if got := CallerFrom(env); got != "" && got != c.Harness {
@@ -95,10 +82,6 @@ func TestCallerFrom(t *testing.T) {
 	}
 }
 
-// Every cursor, pi and grok marker CallerFrom reads was set, non-blank, in a
-// captured session of that harness, and every marker prefix matched a
-// captured name. CLAUDECODE is exempt: it was observed set to 1 in a Claude
-// Code shell, and no claude capture is stored.
 func TestCallerMarkersAreCaptured(t *testing.T) {
 	seen := map[string]map[string]bool{}
 	for _, h := range []string{Cursor, Pi, Grok} {
@@ -133,8 +116,6 @@ func TestCallerMarkersAreCaptured(t *testing.T) {
 	}
 }
 
-// CallerMarkers names every marker CallerFrom reads, so a test harness that
-// clears them leaves no caller.
 func TestCallerMarkersCoverCallerFrom(t *testing.T) {
 	names, prefixes := CallerMarkers()
 	for _, n := range names {

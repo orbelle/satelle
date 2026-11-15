@@ -17,8 +17,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// lineKernel is a three-state line: a → b (performed by doer) → c, with a
-// review gate on b → c over Go files. dir is the working tree ("" for none).
 func lineKernel(t *testing.T, placement, dir string) (*Kernel, *fakeDispatcher) {
 	t.Helper()
 	if dir == "" {
@@ -196,15 +194,13 @@ func (c fakeCloud) Launch(_ context.Context, _ item.Item, req agent.Request) (st
 	return "https://claude.ai/code/session_x", nil
 }
 
-// A detached (cloud) run cannot read this machine: its prompt carries the
-// record inline, bounded, and names no local path; no folder is written.
 func TestPerformPlacedInTheCloudCarriesTheRecordInline(t *testing.T) {
 	k, _ := lineKernel(t, "cloud", "")
 	it := newItem(t, k)
 	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	body := strings.Repeat("abcdefghij", 2048) // 20480 bytes
+	body := strings.Repeat("abcdefghij", 2048)
 	if _, err := k.Attach(it.ID, "plan", []byte(body), "text/markdown", "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -251,9 +247,6 @@ func TestPerformPlacedInTheCloud(t *testing.T) {
 	}
 }
 
-// A cloud step's branch is collected read-only: its commit and merge base are
-// recorded, the work tree and refs are untouched, and the gates judge the
-// branch's diff.
 func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	dir := t.TempDir()
 	gittest.Git(t, dir, "init", "-q", "-b", "main")
@@ -309,10 +302,6 @@ func TestCollectRecordsTheBranchAndTheGatesJudgeIt(t *testing.T) {
 	}
 }
 
-// collectFixture is a repository whose origin/main moved on after the story's
-// branch sto/x forked, and a worktree on sto/x that merged origin/main (a
-// send-back), so the worktree's HEAD is the branch tip. It returns the kernel,
-// the item, the main checkout, the worktree, the branch tip and origin/main.
 func collectFixture(t *testing.T) (k *Kernel, it item.Item, dir, wt, tip, originMain string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -346,9 +335,6 @@ func collectFixture(t *testing.T) (k *Kernel, it item.Item, dir, wt, tip, origin
 	return k, it, dir, wt, tip, originMain
 }
 
-// Collecting from inside a worktree whose HEAD already is the branch takes the
-// branch's merge base with origin/main, not with HEAD (which would be the
-// branch itself and an empty span), and the main checkout gets the same base.
 func TestCollectBaseIsTheBaseBranchNotHEAD(t *testing.T) {
 	k, it, dir, wt, tip, originMain := collectFixture(t)
 	want := gittest.Git(t, dir, "merge-base", "origin/main", "sto/x")
@@ -383,8 +369,6 @@ func TestCollectBaseIsTheBaseBranchNotHEAD(t *testing.T) {
 	}
 }
 
-// --base names the ref the merge base is taken with, resolved now; a ref that
-// names no commit is refused.
 func TestCollectBaseRef(t *testing.T) {
 	k, it, dir, wt, _, _ := collectFixture(t)
 	k.Git = gitfacts.Repo{Dir: wt}
@@ -401,9 +385,6 @@ func TestCollectBaseRef(t *testing.T) {
 	}
 }
 
-// A branch that adds nothing over its base (here, one already merged into
-// origin/main) is refused, naming the branch and the base, and nothing is
-// recorded.
 func TestCollectRefusesABranchThatAddsNothing(t *testing.T) {
 	k, it, dir, wt, tip, _ := collectFixture(t)
 	gittest.Git(t, dir, "update-ref", "refs/remotes/origin/main", tip)
@@ -425,7 +406,6 @@ func TestCollectRefusesABranchThatAddsNothing(t *testing.T) {
 	}
 }
 
-// probeDispatcher runs probe inside Dispatch, while a local run is seated.
 type probeDispatcher struct {
 	probe func(ctx context.Context, req agent.Request) (agent.Result, error)
 }
@@ -434,7 +414,6 @@ func (p probeDispatcher) Dispatch(ctx context.Context, _ agent.Role, req agent.R
 	return p.probe(ctx, req)
 }
 
-// movedGit is a checkout whose HEAD has moved past the recorded base.
 type movedGit struct{ fakeGit }
 
 func (movedGit) Head() (string, error) { return "def456", nil }
@@ -462,7 +441,6 @@ func TestPerformLocalSeatsTheRun(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// HEAD moves on: a seat taken at HEAD would move the judged base.
 			k.Git = movedGit{}
 			ran := false
 			k.Dispatcher = probeDispatcher{probe: func(_ context.Context, req agent.Request) (agent.Result, error) {
@@ -486,8 +464,6 @@ func TestPerformLocalSeatsTheRun(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				// The performer's seat carries the recorded base (the driver's,
-				// else the create commit), so it never moves what gates judge.
 				if base, _ := k.base(cur, events); base != "abc123" || seats[0].Base != "abc123" {
 					t.Fatalf("base while performing = %q, performer seat base %q, want abc123", base, seats[0].Base)
 				}
@@ -503,15 +479,13 @@ func TestPerformLocalSeatsTheRun(t *testing.T) {
 func TestPerformLocalReleasesTheSeat(t *testing.T) {
 	boom := errors.New("performer broke")
 	cases := []struct {
-		name  string
-		probe func(ctx context.Context) (agent.Result, error)
-		ctx   func() context.Context
-		fails string
-		panic bool
-		// unseat releases the run's seat from under it, so the release
-		// after a successful run fails and that error is the run's.
+		name   string
+		probe  func(ctx context.Context) (agent.Result, error)
+		ctx    func() context.Context
+		fails  string
+		panic  bool
 		unseat bool
-		also   string // a second error the run's must carry
+		also   string
 	}{
 		{name: "success", probe: func(context.Context) (agent.Result, error) { return agent.Result{Text: "did it"}, nil }},
 		{name: "error", probe: func(context.Context) (agent.Result, error) { return agent.Result{}, boom }, fails: boom.Error()},
@@ -589,8 +563,6 @@ func TestPerformLocalReleasesTheSeat(t *testing.T) {
 	}
 }
 
-// A bounded drive moves its steps and concludes accept; Drive is unbounded up
-// to MaxDriveSteps and still walks to the terminal state.
 func TestDriveStepsStopsAfterN(t *testing.T) {
 	k, d := lineKernel(t, "", "")
 	it := newItem(t, k)
@@ -611,7 +583,6 @@ func TestDriveStepsStopsAfterN(t *testing.T) {
 	}
 }
 
-// Drive still rejects a cycle at MaxDriveSteps.
 func TestDriveRejectsAtMaxDriveSteps(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, ".satelle")

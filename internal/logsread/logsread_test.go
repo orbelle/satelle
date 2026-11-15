@@ -61,7 +61,6 @@ func TestLatestDispatchAtOrBefore(t *testing.T) {
 	}
 }
 
-// DispatchPath names a log ListDispatch finds; PruneDispatch keeps the newest.
 func TestDispatchPathAndPrune(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "dispatch"), 0o700); err != nil {

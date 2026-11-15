@@ -1,7 +1,3 @@
-// Package fakeserver is an in-memory satelle-server for tests: every service in
-// api/satelle over a loopback listener. Chain.Append is compare-and-append on
-// prev_hash with a StaleHead detail and checks every hash with internal/ledger.
-// Nothing in the product imports it.
 package fakeserver
 
 import (
@@ -32,12 +28,9 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// MaxMissing bounds the events a StaleHead detail carries.
 const MaxMissing = 100
 
-// Server is the fake. Create it with Start.
 type Server struct {
-	// URL is the server to hand the client ("http://127.0.0.1:<port>").
 	URL string
 
 	mu       sync.Mutex
@@ -46,27 +39,24 @@ type Server struct {
 	calls    []Call
 	projects []*satellepb.Project
 	spaces   []*satellepb.Workspace
-	chains   map[string]map[string][]*chainpb.Event // project id → item → events
+	chains   map[string]map[string][]*chainpb.Event
 	subs     map[*subscriber]bool
-	items    map[string]map[string]*satellepb.Item // project id → item id → summary
+	items    map[string]map[string]*satellepb.Item
 	atts     []*satellepb.Attachment
-	runs     map[string]*satellepb.ItemRun // remote|item → run
+	runs     map[string]*satellepb.ItemRun
 	nodes    map[string]*Node
 	relays   map[string]*relayPair
 	streams  map[*relayStream]bool
-	gh       map[string]*github // project id → GitHub binding
+	gh       map[string]*github
 	nextID   int
 	grpc     *grpc.Server
 	down     bool
 }
 
-// Call is one RPC the fake received.
 type Call struct {
 	Method, Auth string
 }
 
-// Start serves a fake on a loopback port for the life of t. It accepts the
-// bearer tokens given, and any added later with AllowToken.
 func Start(t testing.TB, tokens ...string) *Server {
 	t.Helper()
 	s := &Server{
@@ -107,46 +97,38 @@ func Start(t testing.TB, tokens ...string) *Server {
 	return s
 }
 
-// Stop stops serving: every later call fails as unreachable.
 func (s *Server) Stop() { s.grpc.Stop() }
 
-// AllowToken makes tok an accepted bearer.
 func (s *Server) AllowToken(tok string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokens[tok] = true
 }
 
-// RevokeToken stops accepting tok.
 func (s *Server) RevokeToken(tok string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.tokens, tok)
 }
 
-// SetDown makes every call fail with codes.Unavailable while down is set: the
-// server as an unreachable store.
 func (s *Server) SetDown(down bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.down = down
 }
 
-// SetMe replaces the principal GetMe answers.
 func (s *Server) SetMe(me *satellepb.GetMeResponse) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.me = me
 }
 
-// Calls is every RPC received, in order (refused ones included).
 func (s *Server) Calls() []Call {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]Call(nil), s.calls...)
 }
 
-// Events is the stored chain of item in project (id or slug).
 func (s *Server) Events(project, item string) []*chainpb.Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -157,11 +139,6 @@ func (s *Server) Events(project, item string) []*chainpb.Event {
 	return append([]*chainpb.Event(nil), s.chains[p.Id][item]...)
 }
 
-// SeedItem creates an item server-side the way satelle-server's MCP does: one
-// item.created event carrying fields and no workflow or status (the server
-// never decides process). The item id is <first three letters of kind>_<8
-// hex> and the event id evt_<16 hex>, as the server makes them. It returns
-// the item id.
 func (s *Server) SeedItem(project string, fields map[string]any) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,7 +179,6 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// Items is the stored summaries of project (id or slug).
 func (s *Server) Items(project string) []*satellepb.Item {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,7 +194,6 @@ func (s *Server) Items(project string) []*satellepb.Item {
 	return out
 }
 
-// Attachments is every stored attachment, bodies included.
 func (s *Server) Attachments() []*satellepb.Attachment {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -235,8 +210,6 @@ func bearer(ctx context.Context) string {
 	return ""
 }
 
-// authorize records the call and checks its bearer: a user token or a live
-// node's token.
 func (s *Server) authorize(ctx context.Context, method string) error {
 	tok := bearer(ctx)
 	s.mu.Lock()
@@ -275,7 +248,6 @@ func (s *Server) newID(prefix string) string {
 	return fmt.Sprintf("%s_%04d", prefix, s.nextID)
 }
 
-// project finds a project by id or slug; the caller holds mu.
 func (s *Server) project(ref string) *satellepb.Project {
 	for _, p := range s.projects {
 		if p.Id == ref || p.Slug == ref {
@@ -292,8 +264,6 @@ func (s *Server) projectOrNotFound(ref string) (*satellepb.Project, error) {
 	}
 	return p, nil
 }
-
-// ---- account, projects, workspaces, locations ----
 
 type account struct {
 	satellepb.UnimplementedAccountServiceServer
@@ -376,8 +346,6 @@ func (l locations) RegisterLocation(context.Context, *satellepb.RegisterLocation
 	return &satellepb.RegisterLocationResponse{UserId: l.s.me.GetId()}, nil
 }
 
-// ---- chain ----
-
 type chain struct {
 	chainpb.UnimplementedChainServer
 	s *Server
@@ -390,8 +358,6 @@ func head(events []*chainpb.Event) string {
 	return events[len(events)-1].GetHash()
 }
 
-// after returns the events after hash ("" = all); ok is false when hash is not
-// on the chain.
 func after(events []*chainpb.Event, hash string) ([]*chainpb.Event, bool) {
 	if hash == "" {
 		return events, true
@@ -526,8 +492,6 @@ type subscriber struct {
 	ch      chan *chainpb.Event
 }
 
-// send queues e without blocking; a subscriber that falls far behind loses
-// events (the fake is for tests).
 func (sub *subscriber) send(e *chainpb.Event) {
 	select {
 	case sub.ch <- proto.Clone(e).(*chainpb.Event):
@@ -569,8 +533,6 @@ func (c chain) Subscribe(r *chainpb.SubscribeRequest, stream grpc.ServerStreamin
 		}
 	}
 }
-
-// ---- items and attachments ----
 
 type itemsSvc struct {
 	satellepb.UnimplementedItemServiceServer

@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-// Each setup command runs once, in order, in dir, through sh, with no stdin.
 func TestRunSetupRunsEachCommandInOrder(t *testing.T) {
 	dir := t.TempDir()
 	cmds := []string{
@@ -34,7 +33,6 @@ func TestRunSetupRunsEachCommandInOrder(t *testing.T) {
 	}
 }
 
-// A failing command stops the phase at its 1-based index; later ones never run.
 func TestRunSetupStopsAtTheFailingCommand(t *testing.T) {
 	dir := t.TempDir()
 	cmds := []string{"echo one >> ran", "exit 3", "echo three >> ran"}
@@ -63,7 +61,6 @@ func TestRunSetupTimesOut(t *testing.T) {
 	}
 }
 
-// The error carries neither the command, nor its output, nor the exec error.
 func TestSetupErrorHoldsNeitherCommandNorOutput(t *testing.T) {
 	var log bytes.Buffer
 	for _, c := range []string{

@@ -14,29 +14,20 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// The record is what an agent reads about an item beyond its definition: the
-// newest version of each attachment and the item's children. Before a run on
-// this machine it is written to a read-only folder under the working tree
-// (.satelle/runs/, gitignored) and named in the prompt, with small bodies also
-// inlined within these bounds. A detached run gets the inline part only.
 const (
 	InlineBodyMax     = 16 << 10
 	InlineTotalMax    = 64 << 10
 	InlineChildrenMax = 200
 	RejectNotesMax    = 8 << 10
-	// RecordLead starts the line naming the record folder in a prompt.
-	RecordLead = "The item's record is in the read-only folder "
-	runsDir    = "runs"
+	RecordLead        = "The item's record is in the read-only folder "
+	runsDir           = "runs"
 )
 
-// Record is one run's record: its folder ("" when none was written) and the
-// prompt section describing it.
 type Record struct {
 	Dir     string
 	Section string
 }
 
-// Close removes the record folder, restoring write permission first.
 func (r Record) Close() error {
 	if r.Dir == "" {
 		return nil
@@ -52,8 +43,6 @@ func (r Record) Close() error {
 
 var hexSHA = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
-// resolveAttachment picks the version of name: the newest with no sha, else
-// the one whose sha256 is sha or starts with it (at least 7 hex characters).
 func resolveAttachment(atts []item.Attachment, name, sha string) (item.Attachment, error) {
 	var versions []item.Attachment
 	for _, a := range atts {
@@ -88,8 +77,6 @@ func resolveAttachment(atts []item.Attachment, name, sha string) (item.Attachmen
 	return item.Attachment{}, fmt.Errorf("sha prefix %s is ambiguous for attachment %q", sha, name)
 }
 
-// AttachmentBody returns a version of an item's attachment (the newest with
-// sha "") and its body.
 func (k *Kernel) AttachmentBody(id, name, sha string) (item.Attachment, []byte, error) {
 	_, events, err := k.load(id)
 	if err != nil {
@@ -106,8 +93,6 @@ func (k *Kernel) AttachmentBody(id, name, sha string) (item.Attachment, []byte, 
 	return a, body, nil
 }
 
-// OpenRecord writes the record folder of item id and returns it; the caller
-// closes it after the run.
 func (k *Kernel) OpenRecord(id string) (Record, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -118,7 +103,6 @@ func (k *Kernel) OpenRecord(id string) (Record, error) {
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
-// fileName is an attachment name made safe as one path element.
 func fileName(name string) string {
 	f := unsafeName.ReplaceAllString(name, "_")
 	if f == "" || f == "." || f == ".." {
@@ -127,10 +111,6 @@ func fileName(name string) string {
 	return f
 }
 
-// record builds the item's record. With folder it writes the read-only folder
-// under <Root>/runs and the section names its paths; without, the section is
-// the inline part only and names no local path. An item with no attachments
-// and no children has an empty record.
 func (k *Kernel) record(it item.Item, events []ledger.Event, folder bool) (Record, error) {
 	atts, _ := item.LatestAttachments(item.FoldAttachments(events))
 	children, err := k.List(cache.Query{Parent: it.ID})
@@ -159,8 +139,6 @@ func (k *Kernel) record(it item.Item, events []ledger.Event, folder bool) (Recor
 	return rec, nil
 }
 
-// writeRecord writes the folder, fills paths with each attachment's file, and
-// leaves files 0444 and directories 0555.
 func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]byte, children []item.Item, paths []string) (string, error) {
 	parent := filepath.Join(k.Root, runsDir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -210,7 +188,6 @@ func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]by
 	return dir, nil
 }
 
-// clip cuts s to at most max bytes at a rune boundary.
 func clip(s string, max int) (string, int) {
 	if len(s) <= max {
 		return s, len(s)
@@ -222,8 +199,6 @@ func clip(s string, max int) (string, int) {
 	return s[:n], n
 }
 
-// renderRecord is the prompt section: with a folder, its paths; then the
-// inline bodies, newest first, within the bounds; then the children.
 func renderRecord(atts []item.Attachment, bodies [][]byte, paths []string, children []item.Item, dir, childrenPath string) string {
 	var b strings.Builder
 	where := func(i int) string {

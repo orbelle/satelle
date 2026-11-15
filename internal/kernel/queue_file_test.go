@@ -21,8 +21,6 @@ func queueFile(t *testing.T, root, name, body string) {
 	write(t, filepath.Join(root, QueuesDir, name+".toml"), body)
 }
 
-// A queue file adopting an existing chain keeps its members and fire
-// history, shows the file's definition, and writes nothing on open.
 func TestQueueFileAdoptsChain(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -89,7 +87,6 @@ base = "origin/main"
 	}
 }
 
-// A queue file without an id gets the chain que_<name>, created once.
 func TestQueueFileMaterializes(t *testing.T) {
 	root, open := queueKernel(t)
 	queueFile(t, root, "inbox", "title = \"Inbox\"\n[filter]\nkind = \"story\"\n")
@@ -115,8 +112,6 @@ func TestQueueFileMaterializes(t *testing.T) {
 	}
 }
 
-// Editing the file changes the queue on the next open, which mirrors the edit
-// onto its chain as one event.
 func TestQueueFileEditTakesEffect(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -141,7 +136,6 @@ func TestQueueFileEditTakesEffect(t *testing.T) {
 	}
 }
 
-// A file-defined queue's title, filter and trigger change only in its file.
 func TestQueueFileRefusesSet(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -191,8 +185,6 @@ func TestQueueFileRefusesSet(t *testing.T) {
 	}
 }
 
-// assertChainIsFile folds id's chain without the overlay and compares its
-// title, inputs and trigger to the queue file at path.
 func assertChainIsFile(t *testing.T, k *Kernel, id, path string) {
 	t.Helper()
 	events, err := k.Ledger.Read(id)
@@ -218,9 +210,6 @@ func assertChainIsFile(t *testing.T, k *Kernel, id, path string) {
 	}
 }
 
-// A file queue's chain records the file: the genesis carries the whole
-// definition, an edit writes one item.updated, an unchanged file nothing, and
-// a body or tags update does not provoke a mirror.
 func TestQueueFileMirrors(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -245,7 +234,6 @@ func TestQueueFileMirrors(t *testing.T) {
 		return p
 	}
 
-	// (a) the genesis carries the definition
 	queueFile(t, root, "m", "title = \"M\"\n[filter]\nkind = \"story\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 2\n")
 	k = open()
 	if n := chainLen(t, k, "que_m"); n != 1 {
@@ -254,7 +242,6 @@ func TestQueueFileMirrors(t *testing.T) {
 	assertChainIsFile(t, k, "que_m", file)
 	reopen(1)
 
-	// (b) an edit writes one item.updated naming title, inputs and trigger
 	queueFile(t, root, "m", "title = \"M2\"\n[filter]\nstatus = \"done\"\n[trigger]\ntask = \""+task.ID+"\"\nmin_size = 1\n")
 	reopen(2)
 	events, _ := k.Ledger.Read("que_m")
@@ -273,13 +260,11 @@ func TestQueueFileMirrors(t *testing.T) {
 	assertChainIsFile(t, k, "que_m", file)
 	reopen(2)
 
-	// (e) a body and tags update is not the definition
 	if _, err := k.Update("que_m", item.Fields{Body: ptr("notes"), Tags: &[]string{"x"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	reopen(3)
 
-	// (c) dropping [filter] and [trigger] clears them on the chain
 	queueFile(t, root, "m", "title = \"M2\"\n")
 	reopen(4)
 	p = lastPayload()
@@ -293,7 +278,6 @@ func TestQueueFileMirrors(t *testing.T) {
 	reopen(4)
 	k.Close()
 
-	// (d) a chain from before the mirror (a bare genesis) is backfilled once
 	k = open()
 	kind, title, wf, st := item.QueueKind, "legacy", "default", "backlog"
 	if _, err := k.Ledger.Append("que_legacy", item.KindCreated, "satelle", item.Fields{Kind: &kind, Title: &title, Workflow: &wf, Status: &st}); err != nil {
@@ -315,8 +299,6 @@ func TestQueueFileMirrors(t *testing.T) {
 	k.Close()
 }
 
-// A reader folding only the chain gets the file's title, filter and trigger,
-// min_size included, before and after an edit.
 func TestQueueFileChainFoldsToFile(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -337,8 +319,6 @@ func TestQueueFileChainFoldsToFile(t *testing.T) {
 	k.Close()
 }
 
-// A retired file queue refuses a move into a state that enqueues into it
-// before any gate runs.
 func TestQueueFileRetiredRefusesMove(t *testing.T) {
 	root, open := queueKernel(t)
 	write(t, filepath.Join(root, "satelle.toml"), `[workflows]
@@ -366,8 +346,6 @@ kind = "queue"
 	}
 }
 
-// Queue files are validated: each malformed file is a problem naming it, and
-// two files cannot bind one chain.
 func TestQueueFileProblems(t *testing.T) {
 	cases := map[string]string{
 		"syntax":         "title = \n",
@@ -432,9 +410,6 @@ func chainLen(t *testing.T, k *Kernel, id string) int {
 	return len(events)
 }
 
-// A queue file adopting an id this runtime holds no chain for writes nothing:
-// the chain exists elsewhere and arrives with the next pull. Until it does,
-// the queue verbs refuse naming the id (sto_5c706973).
 func TestAdoptedQueueWithoutChainWritesNothing(t *testing.T) {
 	root, open := queueKernel(t)
 	queueFile(t, root, "release", "id = \"que_x\"\ntitle = \"Release\"\n[filter]\nkind = \"story\"\n")
@@ -458,9 +433,6 @@ func TestAdoptedQueueWithoutChainWritesNothing(t *testing.T) {
 	}
 }
 
-// Two runtimes holding the same chain for an adopted id, with a file newer
-// than the chain, each mirror the file as the same event: same id, time and
-// hash, so their chains never fork (sto_5c706973).
 func TestQueueMirrorIsDeterministic(t *testing.T) {
 	rootA, openA := queueKernel(t)
 	rootB, openB := queueKernel(t)
@@ -502,7 +474,6 @@ func TestQueueMirrorIsDeterministic(t *testing.T) {
 	}
 }
 
-// genesisOf opens a kernel and returns the events of the chain ref resolves to.
 func genesisOf(t *testing.T, open func(...string) *Kernel, ref string) (*Kernel, string, []ledger.Event) {
 	t.Helper()
 	k := open()
@@ -514,10 +485,6 @@ func genesisOf(t *testing.T, open func(...string) *Kernel, ref string) (*Kernel,
 	return k, id, events
 }
 
-// Two runtimes that read the same queue file under the same configuration,
-// neither having synced, write the same genesis: same id, time, prev and hash,
-// built from the chain id and payload alone at the fixed genesis time
-// (sto_2b0b59cd AC1, AC2).
 func TestQueueGenesisIsDeterministic(t *testing.T) {
 	rootA, openA := queueKernel(t)
 	rootB, openB := queueKernel(t)
@@ -550,9 +517,6 @@ func TestQueueGenesisIsDeterministic(t *testing.T) {
 	}
 }
 
-// A queue chain held before this change, its genesis written with a random id
-// and the wall clock, keeps that event and still takes the mirror event
-// (sto_2b0b59cd AC4).
 func TestQueueGenesisLeavesExistingChain(t *testing.T) {
 	root, open := queueKernel(t)
 	k := open()
@@ -582,9 +546,6 @@ func TestQueueGenesisLeavesExistingChain(t *testing.T) {
 	}
 }
 
-// Files that differ still give different genesis events, and only because
-// they differ: two runtimes sharing a variant agree with each other. Editing a
-// file to match later never rewrites its genesis (sto_2b0b59cd AC5).
 func TestQueueGenesisDiffersWithFile(t *testing.T) {
 	base := "title = \"Release\"\n[filter]\nkind = \"story\"\n"
 	baseRoot, openBase := queueKernel(t)
@@ -635,13 +596,9 @@ func TestQueueGenesisDiffersWithFile(t *testing.T) {
 	}
 }
 
-// TestMirrorOnlyRefusesAnyOtherEvent: a chain is mirror-only only while every
-// event is a queue file's mirror event (actor satelle, cause "queue file
-// <path>": a created genesis, then item.updated) on a name-derived chain a
-// file here defines; any other event makes it someone's work (sto_80da4589).
 func TestMirrorOnlyRefusesAnyOtherEvent(t *testing.T) {
 	root, open := queueKernel(t)
-	var mirrors [][]ledger.Event // after one, two and three mirror events
+	var mirrors [][]ledger.Event
 	for _, title := range []string{"Draft", "Release", "Final"} {
 		queueFile(t, root, "release", "title = \""+title+"\"\n[filter]\nkind = \"story\"\n")
 		k := open()
@@ -697,7 +654,6 @@ func TestMirrorOnlyRefusesAnyOtherEvent(t *testing.T) {
 			t.Errorf("%s: MirrorOnly = %v, want %v", c.name, got, c.want)
 		}
 	}
-	// Remirror on the chain held writes nothing when the file agrees.
 	if wrote, err := k.Remirror("que_release"); err != nil || wrote {
 		t.Fatalf("Remirror on an agreeing chain: wrote %v, %v", wrote, err)
 	}

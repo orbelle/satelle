@@ -15,8 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// hotPath runs every hook, gate, story and ledger read and write a session
-// makes, each of which must succeed without the store.
 func hotPath(t *testing.T, dir string) {
 	t.Helper()
 	session := `{"session_id":"hot-1","cwd":"` + dir + `"}`
@@ -37,7 +35,7 @@ func hotPath(t *testing.T, dir string) {
 	if err := os.WriteFile(filepath.Join(dir, "ok.txt"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	must(t, "story", "set", id, "--status", "st-three") // runs and accepts the check gate
+	must(t, "story", "set", id, "--status", "st-three")
 	must(t, "ledger", "list")
 	must(t, "ledger", "list", id, "--json")
 	must(t, "ledger", "verify")
@@ -47,9 +45,6 @@ func hotPath(t *testing.T, dir string) {
 	}
 }
 
-// Only satelle ledger push, pull and status resolve or contact the store:
-// hooks, gates, and story and ledger reads complete with an unreachable
-// store configured and make no store call.
 func TestHotPathMakesNoStoreCall(t *testing.T) {
 	t.Run("store command", func(t *testing.T) {
 		dir := isolate(t)
@@ -59,7 +54,6 @@ func TestHotPathMakesNoStoreCall(t *testing.T) {
 		must(t, "validate")
 		hotPath(t, dir)
 		noStoreCall(t, calls)
-		// Control: push does call it, and shows its error.
 		out, err := run(t, "", "ledger", "push")
 		if ExitCodeOf(err) != 1 || !strings.Contains(out+err.Error(), "error: unavailable: down") {
 			t.Fatalf("push through a down store: %v\n%s", err, out)
@@ -80,16 +74,13 @@ func TestHotPathMakesNoStoreCall(t *testing.T) {
 			t.Fatalf("the hot path called the store: %v", got)
 		}
 		srv.Stop()
-		hotPath(t, m.dir) // and completes with the server unreachable
+		hotPath(t, m.dir)
 		if _, err := run(t, "", "ledger", "push"); ExitCodeOf(err) != 1 {
 			t.Fatalf("push to an unreachable server: %v", err)
 		}
 	})
 }
 
-// The session-start doctor reads the last automatic pass from the sync state,
-// never the store: with an unreachable store configured, the hook names the
-// recorded forked item and its fix, and makes no store call (sto_3cf973ae AC2).
 func TestHookContextReadsTheLastAutosyncResult(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")

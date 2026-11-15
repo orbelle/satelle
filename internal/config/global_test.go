@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// A machine config written before projects were named projects keeps its
-// list: [workspace] repos is read into [projects] paths, and the next save
-// writes only [projects]. A config with both keeps [projects].
 func TestLegacyWorkspaceTableMigratesToProjects(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SATELLE_HOME", home)
@@ -36,8 +33,6 @@ func TestLegacyWorkspaceTableMigratesToProjects(t *testing.T) {
 	}
 }
 
-// [upgrade] start_clean is empty by default, round-trips through SaveGlobal,
-// survives a hosted-server save, and matches a symlinked root.
 func TestUpgradeStartClean(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SATELLE_HOME", home)

@@ -29,7 +29,6 @@ func TestPolicyCacheRoundTripAndFailureKeepsLastGood(t *testing.T) {
 	if got.LastError != "server down" || !got.LastErrorAt.Equal(t2) {
 		t.Fatalf("failure not recorded: %+v", got)
 	}
-	// The next success clears the failure.
 	if err := RecordPolicy(home, "/repo", "a", good, t2); err != nil {
 		t.Fatal(err)
 	}

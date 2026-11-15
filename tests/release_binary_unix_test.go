@@ -13,22 +13,6 @@ import (
 	"time"
 )
 
-// binarySandbox is a candidate sandbox (sto_da9775c1) whose base commit is a
-// small Go module shaped like this repo's shipped build: cmd/satelle and
-// cmd/satelled link internal/a, which embeds internal/a/topics; a release.yml
-// matrix builds both for linux/amd64 and windows/amd64 with this repo's Go
-// version; v1.0.0 and serve-v1.0.0 are published on it. Stories take a flow
-// whose approved -> done runs this repo's five release checks (release-run,
-// version-stamp, changelog-entry, ci-published, release-installed) rebound to
-// the sandbox's release task, and runs close through release-kept.
-//
-// The fakes: go builds the candidate's satelle by copying this branch's binary
-// and passes every other call to the real go; gh logs every call to gh.log,
-// lists pull requests, and on `workflow run release.yml` tags origin's main
-// with its .version as release.yml does and records a successful run; satelle
-// is a shim that logs `update` and `service restart` to satelle.log, answers
-// `version` and `service status` from the installed build it was last given,
-// and runs the real binary otherwise.
 type binarySandbox struct {
 	*candidateSandbox
 	origin string
@@ -182,7 +166,6 @@ from = ["*"]
 to = "cancelled"
 `
 
-// releaseGates are the approved -> done gates that read the run's decision.
 var releaseGates = []string{"version-stamp", "changelog-entry", "ci-published", "release-installed"}
 
 func newBinarySandbox(t *testing.T) *binarySandbox {
@@ -197,7 +180,6 @@ func newBinarySandbox(t *testing.T) *binarySandbox {
 	c.git("tag", "serve-v1.0.0", c.base)
 	c.git("push", "-q", "origin", "v1.0.0", "serve-v1.0.0")
 
-	// The decision runs go under env -i, so the fake names the real go by path.
 	writeFile(t, filepath.Join(c.fake, "go"), `#!/bin/sh
 if [ "$1" = build ]; then
   out=; prev=
@@ -224,7 +206,6 @@ exec `+realGo+` "$@"
 	return b
 }
 
-// installed makes the shim report satelle and satelled ver at commit sha.
 func (b *binarySandbox) installed(ver, sha string) {
 	b.t.Helper()
 	s12 := sha[:12]
@@ -234,9 +215,6 @@ func (b *binarySandbox) installed(ver, sha string) {
 		"installed  satelled "+ver+" (commit "+s12+", built 2026-01-01T00:00:00Z) ["+filepath.Join(b.fake, "satelled")+"]\n", 0o644)
 }
 
-// story cuts a branch from base committing files, approves a story for it with
-// a changelog attachment (none when changelog is empty) and lists its pull
-// request.
 func (b *binarySandbox) story(name, changelog string, files ...[2]string) (string, string) {
 	b.t.Helper()
 	head := b.branch(name, b.base, files...)
@@ -250,9 +228,6 @@ func (b *binarySandbox) story(name, changelog string, files ...[2]string) (strin
 	return id, head
 }
 
-// tested fires the release, builds the candidate, sends nothing back, passes
-// the drift gate and the suite, and returns the run, its directory, the
-// candidate worktree and the tested sha.
 func (b *binarySandbox) tested() (string, string, string, string) {
 	b.t.Helper()
 	run, rd := b.fire()
@@ -282,13 +257,11 @@ func (b *binarySandbox) tags() string {
 	return b.git("tag", "-l")
 }
 
-// done presents id done and returns the result.
 func (b *binarySandbox) done(id string) result {
 	b.t.Helper()
 	return b.run("story", "set", id, "--status", "done")
 }
 
-// refused asserts id's done is refused by gate with notes naming want.
 func (b *binarySandbox) refused(id, gate, want string) {
 	b.t.Helper()
 	if r := b.done(id); r.code == 0 {
@@ -299,8 +272,6 @@ func (b *binarySandbox) refused(id, gate, want string) {
 	}
 }
 
-// recordLines returns a decision record's build and other lines, sorted, and
-// its first line.
 func recordLines(rec string) (string, []string) {
 	lines := strings.Split(strings.TrimRight(rec, "\n"), "\n")
 	var paths []string
@@ -313,14 +284,6 @@ func recordLines(rec string) (string, []string) {
 	return lines[0], paths
 }
 
-// AC1, AC2: a run whose items change nothing the shipped build compiles or
-// embeds decides binary: unchanged, fast-forwards main to the tested candidate
-// with no .version or CHANGELOG.md change, no tag, no release.yml dispatch and
-// no install, and its items reach done on the record: the four version gates
-// accept it naming the decision. A control item with no changelog attachment
-// is refused until it has one. The run closes. A second run whose item edits
-// an embedded help topic decides binary: changed, and cannot close it without
-// the bump.
 func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	b := newBinarySandbox(t)
 	idA, _ := b.story("a", "### Changed\n- A tunes an agent\n", [2]string{".satelle/agents.toml", "[agents.executor]\ncommand = \"session\"\n"})
@@ -349,11 +312,8 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 		t.Fatalf("tags after the run:\n%s\nbefore:\n%s", got, tagsBefore)
 	}
 
-	// The machine runs another build: release-installed refuses.
 	b.installed("1.0.0", strings.Repeat("0", 40))
 	b.refused(idA, "release-installed", "satelle version is not satelle")
-	// The published build is installed: every item with its lines reaches
-	// done on the decision.
 	b.installed("1.0.0", b.rev("v1.0.0^{commit}"))
 	for _, id := range []string{idA, idB} {
 		if r := b.done(id); r.code != 0 {
@@ -383,12 +343,9 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 		t.Fatalf("a binary-unchanged run installed or restarted:\n%s", log)
 	}
 
-	// An edited embedded help topic changes the binary: the run cannot close
-	// the item without the bump.
 	idT, _ := b.story("t", "### Changed\n- T edits a topic\n", [2]string{"internal/a/topics/t.md", "t, edited\n"})
 	b.tested()
 	rec = b.decide()
-	// The paths since the tags hold the first run's too, all other.
 	want := []string{"build built internal/a/topics/t.md", "other .satelle/agents.toml", "other docs/n.md", "other docs/x.md", "other internal/a/a_test.go"}
 	if first, paths := recordLines(rec); first != "binary: changed" || !slices.Equal(paths, want) {
 		t.Fatalf("decide on an edited topic: %s with %q\n%s", first, paths, rec)
@@ -400,11 +357,6 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	}
 }
 
-// AC2: a binary-changed run that skipped a step is still refused, whatever
-// its record: no record, a record with a reason, and a changed record all
-// refuse a done with no bump; with the bump but nothing published ci-published
-// refuses; published but not installed, release-installed refuses; an item
-// whose lines the section lacks, changelog-entry refuses.
 func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	b := newBinarySandbox(t)
 	idX, _ := b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/a.go", "package a\n\nimport \"embed\"\n\n//go:embed topics\nvar Topics embed.FS\n\n// X\n"})
@@ -422,14 +374,12 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 		return r.out
 	}
 
-	// No record: main pushed by hand, the decision unattached.
 	b.exec("git", "", "-C", wt, "push", "-q", "origin", "HEAD:refs/heads/main")
 	if got := of(); got != "run: "+run+"\nbinary: unrecorded\n" {
 		t.Fatalf("of with no record: %q", got)
 	}
 	b.refused(idX, "version-stamp", "v1.0.0 is already published at")
 
-	// A record with a reason (the serve tag missing when it was decided).
 	b.git("tag", "-d", "serve-v1.0.0")
 	r := b.exec("bash", "", filepath.Join(wt, "scripts/release-binary.sh"), "decide", wt)
 	b.git("fetch", "-q", "origin", "--tags")
@@ -444,14 +394,12 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	}
 	b.refused(idX, "version-stamp", "the bump was skipped")
 
-	// The decided record, attached by step 4.
 	b.mustBlock("## 4.")
 	if got := of(); got != "run: "+run+"\n"+rec {
 		t.Fatalf("of after step 4:\n%s\nwant\n%s", got, rec)
 	}
 	b.refused(idX, "version-stamp", "the bump was skipped")
 
-	// The bump pushed (X's lines in the section, Y's not), nothing published.
 	b.git("fetch", "-q", "origin")
 	bw := b.worktree("origin/main", true)
 	if r := b.exec("bash", "", "-c", changelogBlock(t, bw, "1.0.1", idX)); r.code != 0 {
@@ -466,7 +414,6 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	}
 	b.refused(idY, "changelog-entry", "lacks "+idY+"'s lines")
 
-	// Published, the old build still installed.
 	if r := b.exec(filepath.Join(b.fake, "gh"), "", "workflow", "run", "release.yml", "--ref", "main"); r.code != 0 {
 		t.Fatalf("fake dispatch: %s%s", r.out, r.err)
 	}
@@ -476,12 +423,6 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	}
 }
 
-// AC3: a binary-unchanged run's changelog lines are carried into the next
-// version section. Run U lands A with no section; run C lands B (a source
-// edit), bumps .version first, then its Carried block prints A, before and
-// after the bump commit, and the [1.0.1] section holds A's and B's lines.
-// Once v1.0.1 is published nothing is carried again. A carried block whose
-// run list fails exits non-zero and prints no id.
 func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	b := newBinarySandbox(t)
 	idA, _ := b.story("a", "### Added\n- A adds a doc\n", [2]string{"docs/a.md", "a\n"})
@@ -503,7 +444,6 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	if first, _ := recordLines(b.decide()); first != "binary: changed" {
 		t.Fatalf("run C decided %s", first)
 	}
-	// The bump prose first: .version names the unpublished 1.0.1.
 	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: "+time.Now().UTC().Format("2006-01-02T15:04:05Z")+"\n", 0o644)
 	carried := func() result { return b.block("### Carried from binary-unchanged runs") }
 	if r := carried(); r.code != 0 || strings.TrimSpace(r.out) != idA {
@@ -547,11 +487,6 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	}
 }
 
-// AC4: the binary-changed path is today's: one bump commit touching only
-// .version and CHANGELOG.md, one release.yml dispatch, one new v* and one new
-// serve-v* tag at main, one backup and the install sequence once, the item
-// done on today's gate messages; and steps 5, 6 and 7 run as written, their
-// blocks byte-identical to before the decision existed.
 func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	for heading, want := range map[string]string{"## 5.": goldenStep5, "## 6.": goldenStep6, "## 7.": goldenStep7} {
 		if got := fencedAfter(t, heading); got != want {
@@ -633,7 +568,6 @@ func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	}
 }
 
-// fencedAfter is the first ```sh block after heading in release.md, verbatim.
 func fencedAfter(t *testing.T, heading string) string {
 	t.Helper()
 	doc := repoText(t, ".satelle/skills/release.md")
@@ -649,8 +583,6 @@ func fencedAfter(t *testing.T, heading string) string {
 	return block
 }
 
-// The step 5, 6 and 7 blocks as they were before the binary decision
-// (release.md at v1.0.72).
 const goldenStep5 = "gh workflow run release.yml --ref main\n" +
 	"gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url   # the run whose headSha is the pushed sha\n" +
 	"gh run watch <id> --exit-status\n"

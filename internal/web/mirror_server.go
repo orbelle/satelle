@@ -19,50 +19,31 @@ import (
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
-// MirrorServer is the push-fed read-only UI (sty_dbdadfa0 + epic:mirror-ui-parity).
-// It never opens a per-repo runtime DB; all product state comes from the mirror store.
 type MirrorServer struct {
-	Handler http.Handler
-	Store   *mirror.Store
-	// InstanceID is exposed on GET /healthz as X-Satelle-Instance so CLI
-	// auto-bootstrap only seeds a serve that matches the caller's SATELLE_HOME
-	// (sty_5aa08259 / epic:mirror-hygiene).
+	Handler    http.Handler
+	Store      *mirror.Store
 	InstanceID string
-	// LogPath is the satelled server.log the logs page tails.
-	LogPath string
-	// Ingest is the mounted ingest handler; satelled sets its Log before serving.
-	Ingest *mirror.IngestHandler
-	hub    *hub
+	LogPath    string
+	Ingest     *mirror.IngestHandler
+	hub        *hub
 }
 
-// partitionVM is one project row on the mirror landing. Counts mirror the
-// project page tabs: Stories, Tasks, Workflow.
 type partitionVM struct {
-	Slug      string
-	Name      string
-	Path      string
-	Stories   int
-	Tasks     int
-	Workflows int
-	// LastIngest carries the same freshness signal as the project page, so a
-	// partition no sync pass has confirmed is visible on the landing
-	// too (sty_e6e467fe) — as elapsed time on every row (sty_226a661e), plus the
-	// stale marker on a row past mirror.StaleAfter.
-	LastIngest time.Time
-	Stale      bool
-	// SyncLastSuccess / SyncReason / SyncStore are the recorded outcome of the
-	// last automatic ledger sync pass (sto_5c706973). Empty reason = no
-	// standing failure.
+	Slug            string
+	Name            string
+	Path            string
+	Stories         int
+	Tasks           int
+	Workflows       int
+	LastIngest      time.Time
+	Stale           bool
 	SyncLastSuccess time.Time
 	SyncReason      string
 	SyncLocal       bool
 	SyncStore       string
-	// SyncUpgrade is the command a pre-1.0 repo needs before it can be synced
-	// (sto_0f76dd4e): the landing shows Upgrade needed, not Sync Failing.
-	SyncUpgrade string
+	SyncUpgrade     string
 }
 
-// mirrorProjectsData backs the Projects landing template.
 type mirrorProjectsData struct {
 	Partitions   []partitionVM
 	TotalStories int
@@ -70,31 +51,21 @@ type mirrorProjectsData struct {
 	Empty        bool
 }
 
-// mirrorTmpl is a clone-source that is NEVER executed on the root value — only
-// Clone()+ExecuteTemplate, so concurrent request-local basehref
-// Func works (html/template forbids Clone after Execute on the same *Template).
 var mirrorTmpl *template.Template
 
 func init() {
-	// Full template set (shared page chrome + the Projects landing).
 	mirrorTmpl = template.Must(template.New("web").Funcs(tmplFuncs).Parse(templatesSrc))
 	template.Must(mirrorTmpl.New("mirrorProjects").Parse(mirrorProjectsSrc))
 }
 
-// NewMirror builds the RO+ingest HTTP surface over m. Instance identity is
-// derived from the process GlobalDir (same home as the mirror DB path).
 func NewMirror(m *mirror.Store) *MirrorServer {
 	return NewMirrorWithInstance(m, config.SafeCurrentInstanceID())
 }
 
-// NewMirrorWithInstance is like NewMirror but sets an explicit instance id
-// (tests inject a fixed id; production uses CurrentInstanceID).
 func NewMirrorWithInstance(m *mirror.Store, instanceID string) *MirrorServer {
 	return NewMirrorHooks(m, instanceID, nil)
 }
 
-// NewMirrorHooks is NewMirrorWithInstance plus an optional OnIngest hook
-// (satelled hosted push; sty_c526753a). Tests and NewMirror pass nil.
 func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mirror.IngestOrigin)) *MirrorServer {
 	serverStart = time.Now()
 	h := newHub()
@@ -123,15 +94,11 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	})
 	mux.HandleFunc("GET /events", h.serveEvents)
 	mux.HandleFunc("GET /theme", getTheme)
-	// POST /theme removed (only ingest mutates). Theme persists client-side.
 
 	s.Ingest = &mirror.IngestHandler{Store: m, OnChange: h.publish, OnIngest: onIngest}
 	s.Ingest.Mount(mux)
 
-	// Projects landing (order:3) and project surface under /r/{slug}/ (order:2).
 	mux.HandleFunc("GET /{$}", s.landing)
-	// Live-region fragment for the landing: app.js soft-refreshes counts (and
-	// rows when the served set changes) without a full-page reload flash.
 	mux.HandleFunc("GET /fragment/projects", s.landingFragment)
 	mux.HandleFunc("GET /r/{slug}/{$}", s.projectHome)
 	mux.HandleFunc("GET /r/{slug}/fragment/stories", s.fragmentRows("storyRows", "stories"))
@@ -141,8 +108,6 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("GET /r/{slug}/fragment/docs", s.fragmentRows("docsRows", "docs"))
 	mux.HandleFunc("GET /r/{slug}/fragment/engagement", s.fragmentBadge("engagementBadge"))
 	mux.HandleFunc("GET /r/{slug}/fragment/backlog", s.fragmentBadge("backlogBadge"))
-	// A workflow panel's rows and its tab (count and alert), by topic; the
-	// literal fragment routes above take precedence.
 	mux.HandleFunc("GET /r/{slug}/fragment/{topic}", s.fragmentPanel("storyRows"))
 	mux.HandleFunc("GET /r/{slug}/fragment/tab/{topic}", s.fragmentPanel("panelTab"))
 	mux.HandleFunc("GET /r/{slug}/fragment/story/{id}", s.itemFragment("story"))
@@ -161,13 +126,11 @@ func NewMirrorHooks(m *mirror.Store, instanceID string, onIngest func(string, mi
 	mux.HandleFunc("POST /settings/global", s.globalSettingsSave)
 	mux.HandleFunc("GET /logs", s.logsPage)
 	mux.HandleFunc("GET /fragment/logs", s.logsFragment)
-	// oauth stays unmounted; product state is still RO.
 
 	s.Handler = mux
 	return s
 }
 
-// Publish rings SSE (ingest already does this via OnChange).
 func (s *MirrorServer) Publish(topic string) { s.hub.publish(topic) }
 
 func (s *MirrorServer) resolveSlug(ctx context.Context, slug string) (string, error) {
@@ -183,11 +146,6 @@ func (s *MirrorServer) resolveSlug(ctx context.Context, slug string) (string, er
 	return "", fmt.Errorf("unknown slug %q", slug)
 }
 
-// displaySlugs maps each partition's repo_key to the URL slug used on the
-// landing and in crumbs. When multiple partitions share the same directory
-// basename slug (legacy dirty mirrors), each collision falls back to its
-// unique repo_key so hrefs never collide (sty_57d5ce25 AC2). Empty stored
-// slugs also fall back to repo_key.
 func displaySlugs(parts []mirror.Partition) map[string]string {
 	count := map[string]int{}
 	for _, p := range parts {
@@ -213,7 +171,6 @@ func (s *MirrorServer) projectBase(slug string) string {
 	return "/r/" + slug + "/"
 }
 
-// mirrorRender executes a named template with a request-local basehref.
 func mirrorRender(w http.ResponseWriter, name, base string, data any) {
 	t, err := mirrorTmpl.Clone()
 	if err != nil {
@@ -232,7 +189,6 @@ func mirrorRender(w http.ResponseWriter, name, base string, data any) {
 	_, _ = buf.WriteTo(w)
 }
 
-// loadPartitions builds the landing row set. Counts match project-page tabs.
 func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, error) {
 	parts, err := s.Store.ListPartitions(ctx)
 	if err != nil {
@@ -275,7 +231,6 @@ func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, 
 	return pvm, total, nil
 }
 
-// landing renders this machine's projects over mirror partitions (order:3).
 func (s *MirrorServer) landing(w http.ResponseWriter, r *http.Request) {
 	pvm, total, err := s.loadPartitions(r.Context())
 	if err != nil {
@@ -290,7 +245,6 @@ func (s *MirrorServer) landing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// landingFragment returns the projects live region (rows or empty) for realtime.
 func (s *MirrorServer) landingFragment(w http.ResponseWriter, r *http.Request) {
 	pvm, _, err := s.loadPartitions(r.Context())
 	if err != nil {
@@ -344,7 +298,6 @@ func (s *MirrorServer) crumbProjects(ctx context.Context, currentSlug string) []
 	}
 	out := make([]crumbProject, 0, len(list))
 	for _, p := range list {
-		// Template href="/{{.Slug}}/" — prefix with r/ for mirror paths.
 		out = append(out, crumbProject{
 			Name:      p.name,
 			Slug:      "r/" + p.slug,
@@ -390,9 +343,6 @@ func (s *MirrorServer) fragmentRows(tmplName, topic string) http.HandlerFunc {
 	}
 }
 
-// fragmentPanel renders one workflow panel by its topic: its rows
-// (storyRows) or its tab (panelTab, the one renderer of the tab's count and
-// alert). An unknown topic is 404.
 func (s *MirrorServer) fragmentPanel(tmplName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
@@ -421,8 +371,6 @@ func (s *MirrorServer) fragmentPanel(tmplName string) http.HandlerFunc {
 	}
 }
 
-// fragmentBadge returns a project-chrome badge template's HTML — the engagement
-// or backlog chip — which is empty when its count is 0 (sty_e4632f45).
 func (s *MirrorServer) fragmentBadge(tmplName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
@@ -477,8 +425,6 @@ func (s *MirrorServer) itemDetail(group string) http.HandlerFunc {
 	}
 }
 
-// workflowFragment is a Workflow panel row's expansion: the workflow's route
-// as pushed, current state none.
 func (s *MirrorServer) workflowFragment(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	repoKey, err := s.resolveSlug(r.Context(), slug)
@@ -495,8 +441,6 @@ func (s *MirrorServer) workflowFragment(w http.ResponseWriter, r *http.Request) 
 	mirrorRender(w, "workflowDetail", s.projectBase(slug), docPageData{Kind: doc.Kind, Name: doc.Name, Source: doc.Source, Workflow: &route})
 }
 
-// docPage renders one pushed doc. Repo documents are a removed feature: a doc
-// the partition no longer holds answers 404; a workflow doc draws its route.
 func (s *MirrorServer) docPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	kind, name := r.PathValue("kind"), r.PathValue("name")
@@ -585,9 +529,6 @@ func (s *MirrorServer) globalSettingsSave(w http.ResponseWriter, r *http.Request
 		http.Error(w, "writes are accepted only from this machine (loopback)", http.StatusForbidden)
 		return
 	}
-	// FormValue parses urlencoded or multipart (the page's FormData submit).
-	// Do not call ParseForm first — that marks the form parsed and leaves
-	// multipart fields empty.
 	server := strings.TrimSpace(r.FormValue("server"))
 	if server == "" {
 		if err := config.ClearGlobalHostedServer(); err != nil {
@@ -635,12 +576,10 @@ func validateHostedServerURL(raw string) error {
 	return nil
 }
 
-// MirrorDefaultPath is a convenience for tests.
 func MirrorDefaultPath() string {
 	return mirror.DefaultPath(config.GlobalDir())
 }
 
-// Silence unused buildinfo if footer version comes from template func only.
 var _ = buildinfo.Version
 
 const mirrorProjectsSrc = `

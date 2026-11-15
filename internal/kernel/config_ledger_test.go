@@ -9,7 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
 
-// loadLedger writes satelle.toml with extra appended to a fresh init and loads it.
 func loadLedger(t *testing.T, extra string) (*Config, error) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")

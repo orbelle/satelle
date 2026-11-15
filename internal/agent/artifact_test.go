@@ -9,7 +9,7 @@ func TestParseArtifact(t *testing.T) {
 	cases := []struct {
 		name, text string
 		want       *Artifact
-		err        string // substring of the error; "" means no error
+		err        string
 	}{
 		{name: "fenced final object", text: "Here is the plan.\n```json\n{\"artifact\":{\"name\":\"plan\",\"type\":\"plan\",\"body\":\"# P\"}}\n```\n",
 			want: &Artifact{Name: "plan", Type: "plan", Body: "# P"}},

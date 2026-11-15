@@ -18,9 +18,6 @@ var activityT0 = time.Date(2026, 11, 6, 10, 0, 0, 0, time.UTC)
 
 func activityAt(m int) time.Time { return activityT0.Add(time.Duration(m) * time.Minute) }
 
-// activitySnapshot holds every Activity case on the fixture workflow (alpha
-// start, beta active with performer builder, held park, zed terminal).
-// exeStatus is exe_run's state.
 func activitySnapshot(exeStatus string) mirror.Snapshot {
 	item := func(id, kind, status string) json.RawMessage {
 		return raw(mirror.Item{ID: id, Kind: kind, Title: "T " + id, Status: status, Workflow: "flow", CreatedAt: activityT0, UpdatedAt: activityT0})
@@ -55,7 +52,6 @@ func activitySnapshot(exeStatus string) mirror.Snapshot {
 
 var activityRowRE = regexp.MustCompile(`(?s)<tr class="row".*?</tr>`)
 
-// activityRowsOf maps each Activity row's item id to its markup.
 func activityRowsOf(t *testing.T, html string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -69,7 +65,6 @@ func activityRowsOf(t *testing.T, html string) map[string]string {
 	return out
 }
 
-// activityPanel cuts the Activity panel out of the project page.
 func activityPanel(t *testing.T, page string) string {
 	t.Helper()
 	_, rest, ok := strings.Cut(page, `id="panel-activity"`)
@@ -80,8 +75,6 @@ func activityPanel(t *testing.T, page string) string {
 	return panel
 }
 
-// Only items being worked are listed: terminal never, active and parked
-// always, a start state (or one the workflow does not name) only when seated.
 func TestActivityListsOnlyActiveItems(t *testing.T) {
 	srv := mirrorWith(t, activitySnapshot("beta"))
 	want := []string{"sto_seat", "sto_work", "sto_park", "sto_lost_seat", "exe_run"}
@@ -107,8 +100,6 @@ func TestActivityListsOnlyActiveItems(t *testing.T) {
 	}
 }
 
-// Each row is condensed agent activity: kind, state, who or what works it,
-// and the latest step with its time.
 func TestActivityRowIsCondensedAgentActivity(t *testing.T) {
 	srv := mirrorWith(t, activitySnapshot("beta"))
 	rows := activityRowsOf(t, httpGetBody(t, srv.URL+"/r/proj/fragment/activity"))
@@ -118,7 +109,6 @@ func TestActivityRowIsCondensedAgentActivity(t *testing.T) {
 	}
 	inOrder(t, rows["exe_run"], "execution", ">beta<", ">builder<", "alpha → beta", activityAt(3).Local().Format("2006-01-02 15:04"))
 	inOrder(t, rows["sto_park"], `act-working">—<`, `act-step">—<`)
-	// The most recent step comes first.
 	frag := httpGetBody(t, srv.URL+"/r/proj/fragment/activity")
 	if strings.Index(frag, `data-id="exe_run"`) > strings.Index(frag, `data-id="sto_seat"`) {
 		t.Error("rows are not ordered by their latest step")
@@ -151,7 +141,6 @@ func TestLatestStep(t *testing.T) {
 	}
 }
 
-// The tab counts the active items, and an ingest that ends a run drops it.
 func TestActivityCountFollowsIngest(t *testing.T) {
 	srv := mirrorWith(t, activitySnapshot("beta"))
 	tab := regexp.MustCompile(`data-panel="activity"[^>]*>.*?<span class="n">(\d+)</span>`)
@@ -180,8 +169,6 @@ func TestActivityCountFollowsIngest(t *testing.T) {
 	}
 }
 
-// The live stream refetches Activity on the stories and tasks doorbells and
-// resets the tab count from the refetched rows.
 func TestActivityLiveWiring(t *testing.T) {
 	b, err := os.ReadFile("static/app.js")
 	if err != nil {
@@ -207,9 +194,6 @@ func TestActivityLiveWiring(t *testing.T) {
 
 var engagedChipRE = regexp.MustCompile(`<span class="n-engaged[^>]*>[^<]*</span>`)
 
-// A task run's seat and a terminal story's seat are not stories engaged: the
-// Stories tab's chip counts only the seated non-terminal stories, and the
-// run's seat shows on Activity instead.
 func TestEngagedBadgeIgnoresTaskRunSeats(t *testing.T) {
 	snap := activitySnapshot("beta")
 	seats, home := seatsHere(t, append(snap.Seats, raw(mirror.Seat{ID: "exe_run/s1", Item: "exe_run", Session: "s1", Location: "local:/x", BoundAt: activityT0})))

@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// assigneesOf keeps the explicit users, adds each user of a working seat
-// marked working, and drops a seat whose standing is gone (sto_600b9a85 AC3).
 func TestAssigneesOfDropsGoneSeats(t *testing.T) {
 	t0 := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	it := Item{ID: "sto_1", Assignees: []string{"ann"}}
@@ -45,12 +43,9 @@ func TestAssigneesOfDropsGoneSeats(t *testing.T) {
 	}
 }
 
-// satelled's story row and detail list the explicit assignee and each user
-// of a live seat, marking the seated one working; a seat whose session is
-// gone adds no one (sto_600b9a85 AC3).
 func TestSatelledShowsAssignees(t *testing.T) {
 	seats, home := fourSeatHome(t, "sto_1", "sto_far", "sto_1", "sto_old")
-	bob, cy := seats[0], seats[2] // s-here (alive) and s-gone, both on sto_1
+	bob, cy := seats[0], seats[2]
 	bob.User, cy.User = "bob", "cy"
 	snap := fixtureSnapshot()
 	snap.Seats = []json.RawMessage{raw(bob), raw(cy)}

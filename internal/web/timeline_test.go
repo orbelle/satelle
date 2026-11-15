@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// TestSettingsTimelineFieldsControl asserts the project settings page hosts the
-// viewer-local Timeline-fields checklist (sty_43d228e4) — the approved placement.
 func TestSettingsTimelineFieldsControl(t *testing.T) {
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "settings", settingsData{RepoRoot: "/repo", TopBar: topBar{}}); err != nil {
@@ -28,8 +26,6 @@ func TestSettingsTimelineFieldsControl(t *testing.T) {
 	}
 }
 
-// evs wraps ledger entries as the timeline view-models the detail template now
-// takes, computing each row's data-driven telemetry chips (sty_43d228e4).
 func evs(entries ...Entry) []eventVM {
 	out := make([]eventVM, len(entries))
 	for i, e := range entries {
@@ -38,9 +34,6 @@ func evs(entries ...Entry) []eventVM {
 	return out
 }
 
-// TestTimelineDotPaletteReused pins the timeline dot fills (tl-pass green, tl-fail
-// red, fixed hexes that read on both themes) and that the progress column's
-// .rej text uses a theme token rather than those hexes.
 func TestTimelineDotPaletteReused(t *testing.T) {
 	raw, err := staticFS.ReadFile("static/app.css")
 	if err != nil {
@@ -55,8 +48,6 @@ func TestTimelineDotPaletteReused(t *testing.T) {
 			t.Errorf("app.css missing timeline dot fill rule: %q", want)
 		}
 	}
-	// The progress column's rejected text uses a theme token (legible in both
-	// themes), never a hard-coded hex.
 	for _, want := range []string{".rej { color: var(--fail);"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("progress-column text token rule missing (%q)", want)
@@ -64,8 +55,6 @@ func TestTimelineDotPaletteReused(t *testing.T) {
 	}
 }
 
-// A ledger row of an older pusher (story_id, created_at, body) still lands on
-// its item's timeline.
 func TestTimelineReadsLegacyEventRows(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {

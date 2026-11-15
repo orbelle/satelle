@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// A host whose git ignores .satelle/ (through core.excludesFile in its global
-// config, or through the XDG default ignore file alone) does not reach a test
-// that runs git through this package.
 func TestEnvNeutralisesAHostileHost(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
@@ -36,7 +33,6 @@ func TestEnvNeutralisesAHostileHost(t *testing.T) {
 				os.Unsetenv(k)
 			}
 
-			// Control: the host really ignores .satelle/ for an unisolated git.
 			ctl := t.TempDir()
 			if out, err := exec.Command("git", "-C", ctl, "init", "-q").CombinedOutput(); err != nil {
 				t.Fatalf("git init: %v\n%s", err, out)
@@ -45,7 +41,6 @@ func TestEnvNeutralisesAHostileHost(t *testing.T) {
 				t.Fatalf("the hostile host does not ignore .satelle/ (control failed): %v", err)
 			}
 
-			// Through the helper, .satelle/ is committed.
 			dir := t.TempDir()
 			Git(t, dir, "init", "-q")
 			write(t, mkdir(t, filepath.Join(dir, ".satelle"), "x"), "x\n")
@@ -58,7 +53,6 @@ func TestEnvNeutralisesAHostileHost(t *testing.T) {
 	}
 }
 
-// mkdir makes dir and returns the path of name inside it.
 func mkdir(t *testing.T, dir, name string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

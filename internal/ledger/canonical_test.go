@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// The canonical form documented in api/satelle/chain/v2/chain.proto: this test
-// keeps that comment and Canonical in step.
 func TestCanonicalMatchesTheWireContract(t *testing.T) {
 	e := Event{
 		ID: "e1", Item: "sto_1a2b3c4d", Kind: "item.created", Actor: "ada",
@@ -39,7 +37,6 @@ func TestCanonicalMatchesTheWireContract(t *testing.T) {
 	}
 }
 
-// ShortHash cuts a hash to 12 characters and leaves a shorter one whole.
 func TestShortHash(t *testing.T) {
 	for in, want := range map[string]string{
 		"0123456789abcdef0123": "0123456789ab",

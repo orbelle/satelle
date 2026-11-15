@@ -18,7 +18,6 @@ func stampBuild(t *testing.T) {
 	t.Cleanup(func() { buildinfo.Name, buildinfo.Version, buildinfo.Commit, buildinfo.BuildTime = n, v, c, b })
 }
 
-// /healthz answers the build identity as JSON and keeps the instance header.
 func TestHealthzReportsBuildIdentity(t *testing.T) {
 	stampBuild(t)
 	srv := mirrorWith(t, fixtureSnapshot())
@@ -42,8 +41,6 @@ func TestHealthzReportsBuildIdentity(t *testing.T) {
 	}
 }
 
-// The build identity line (name, version, commit, build time) is in every
-// page's footer and not in its top bar.
 func TestPagesShowBuildIdentityInTheFooterOnly(t *testing.T) {
 	stampBuild(t)
 	srv := mirrorWith(t, fixtureSnapshot())
@@ -67,9 +64,6 @@ func TestPagesShowBuildIdentityInTheFooterOnly(t *testing.T) {
 	}
 }
 
-// The top bar shows the user the CLI's latest push says it is signed in as:
-// an avatar with the name's first letter, name and email in its title, on
-// every page (a project's and the machine-wide ones). Signed out, no one.
 func TestTopBarShowsTheSignedInUser(t *testing.T) {
 	signedOut := mirrorWith(t, fixtureSnapshot())
 	for _, path := range []string{"/", "/r/proj/", "/logs"} {

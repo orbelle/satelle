@@ -20,21 +20,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// serviceUnitName is the unit that runs satelled.
 const serviceUnitName = "satelle.service"
 
-// The units that run the automatic ledger sync pass (sto_5c706973): a timer
-// starting a oneshot service that runs `satelle ledger autosync`
-// mirror.SyncPeriod after the last run ended, bounded by mirror.SyncPassTimeout. A write therefore reaches the store within one
-// period plus a pass, and another machine within two periods plus its pass:
-// the 90-second bound the sync-architecture principle states.
 const (
 	syncServiceName = "satelle-sync.service"
 	syncTimerName   = "satelle-sync.timer"
 )
 
-// serviceUnits are the unit files service install and refresh write: satelled's and the
-// sync pass's service and timer.
 type serviceUnits struct {
 	Daemon, SyncService, SyncTimer string
 }
@@ -106,13 +98,8 @@ command instead.`,
 	return cmd
 }
 
-// errNoSystemd is applyUnits' answer where no systemd user manager is
-// reachable: the units were printed instead of installed.
 var errNoSystemd = errors.New("no systemd user manager is reachable here; the units were printed, not installed: run satelled and 'satelle ledger autosync' yourself")
 
-// printUnits prints the units applyUnits would install and the command the
-// sync timer would run, for a machine without systemd. A unit with no body is
-// left out.
 func printUnits(w io.Writer, u serviceUnits) {
 	fmt.Fprintf(w, "no systemd user manager here; run satelled directly")
 	if u.Daemon != "" {
@@ -124,8 +111,6 @@ func printUnits(w io.Writer, u serviceUnits) {
 		int(mirror.SyncPeriod.Seconds()), u.SyncService, u.SyncTimer)
 }
 
-// sameBinary reports whether a and b name one binary: the same path, or paths
-// resolving to the same file through symlinks.
 func sameBinary(a, b string) bool {
 	if a == b {
 		return true
@@ -135,13 +120,6 @@ func sameBinary(a, b string) bool {
 	return errA == nil && errB == nil && ra == rb
 }
 
-// refreshService installs and refreshes the units for cli and daemon without
-// touching ~/.satelle/config.toml: a missing unit is written, one naming
-// another binary is repointed, satelled is restarted and the sync timer
-// started, then the status is printed. satelled's unit is written only when
-// daemon is an existing absolute path; the sync units do not need it. Without
-// systemd the units are printed and refreshService succeeds, since what
-// installed satelle did succeed.
 func refreshService(ctx context.Context, w io.Writer, cli, daemon string) error {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -162,8 +140,6 @@ func refreshService(ctx context.Context, w io.Writer, cli, daemon string) error 
 	return printServiceStatus(ctx, w)
 }
 
-// printServiceStatus is 'satelle service status': the units' states, the
-// config, and whether satelled answers and with which build.
 func printServiceStatus(ctx context.Context, out io.Writer) error {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -189,10 +165,6 @@ func printServiceStatus(ctx context.Context, out io.Writer) error {
 	return nil
 }
 
-// installService is satelle service install, which satelle doctor --resolve
-// also runs: it records [service] (port and addr when given, and the working
-// directory as the repo), then writes every unit afresh and starts satelled
-// and the sync timer (applyUnits with force).
 func installService(out io.Writer, port int, addr, bin string) error {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -218,8 +190,6 @@ func installService(out io.Writer, port int, addr, bin string) error {
 	}, true)
 }
 
-// resolveDaemon picks the satelled binary: the flag, the sibling of this
-// executable, else satelled on PATH.
 func resolveDaemon(flag string) string {
 	if flag != "" {
 		return flag
@@ -236,7 +206,6 @@ func resolveDaemon(flag string) string {
 	return buildinfo.DaemonName
 }
 
-// renderUnit is the systemd unit running satelled.
 func renderUnit(daemon, addr string, port int) string {
 	return fmt.Sprintf(`[Unit]
 Description=satelled (satelle local web UI)
@@ -252,8 +221,6 @@ WantedBy=default.target
 `, daemon, addr, port)
 }
 
-// resolveCLI is the satelle binary the sync service runs: this executable.
-// satelle update replaces that file, so the next pass runs the new build.
 func resolveCLI() string {
 	if self, err := os.Executable(); err == nil {
 		return self
@@ -261,7 +228,6 @@ func resolveCLI() string {
 	return "satelle"
 }
 
-// renderSyncService is the oneshot unit running one automatic sync pass.
 func renderSyncService(cli string) string {
 	return fmt.Sprintf(`[Unit]
 Description=satelle ledger sync pass (push then pull each project on this machine)
@@ -274,8 +240,6 @@ TimeoutStartSec=%d
 `, cli, int(mirror.SyncPassTimeout/time.Second))
 }
 
-// renderSyncTimer is the timer starting the sync pass mirror.SyncPeriod after boot
-// and after each run ends; a oneshot still running is never started twice.
 func renderSyncTimer() string {
 	secs := int(mirror.SyncPeriod / time.Second)
 	return fmt.Sprintf(`[Unit]
@@ -292,8 +256,6 @@ WantedBy=timers.target
 `, secs, syncServiceName)
 }
 
-// unitDaemon is the binary a unit body's ExecStart runs (renderUnit's format),
-// or "" when there is none.
 func unitDaemon(unit string) string {
 	for _, line := range strings.Split(unit, "\n") {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart="); ok {
@@ -305,12 +267,6 @@ func unitDaemon(unit string) string {
 	return ""
 }
 
-// reportDaemon prints whether satelled answers at ep, the build it runs (from
-// /healthz), the installed binary's build, the installed satelle CLI beside it
-// (cli, as recorded; "" when not reported), and one warning per disagreement by
-// buildinfo.Drift, the rule satelled's footer shows: a running satelled left
-// behind after an install keeps serving the old build until it is restarted, and
-// a CLI whose version differs from satelled's is a half-done update.
 func reportDaemon(out io.Writer, client *http.Client, ep, installed, path, cli string) {
 	resp, err := client.Get(ep)
 	if err != nil {
@@ -338,7 +294,6 @@ func reportDaemon(out io.Writer, client *http.Client, ep, installed, path, cli s
 
 func unitPath() string { return userUnitPath(serviceUnitName) }
 
-// userUnitPath is name's file among this user's systemd units.
 func userUnitPath(name string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {

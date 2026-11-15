@@ -13,30 +13,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// The serve-version gate (scripts/check-serve-version.sh) demands a
-// satelled.version bump when a source file the daemon binary is built from
-// changes. Its watch set used to be a hand-kept four-entry array while the
-// binary compiled in sixteen in-repo packages, so a change to
-// `internal/serve` — which runs ONLY inside the service — released with no
-// bump, `satelle update` reported "already up to date", and the running service
-// silently kept the old code (sty_a8853e85).
-//
-// These tests live HERE, beside deps_test.go, and not under tests/: every file
-// in tests/ carries `//go:build integration`, which GitHub CI deliberately does
-// not run. A guarantee against a silent gate belongs where every push checks
-// it. They are the mirror of TestServeBinaryImportIsolation — that one asserts
-// what must NOT link, these assert that everything which DOES link is watched.
-
-// gateScript is the checked script, module-relative.
 const gateScript = "scripts/check-serve-version.sh"
 
-// repoRoot walks up to the directory holding go.mod.
-//
-// It also READS the gate script, which looks pointless and is not: these tests
-// exercise the script through a subprocess, and `go test` keys its cache on the
-// files the TEST PROCESS opens. Without this read, editing the script leaves a
-// stale pass in the cache and the tests answer a question about the previous
-// version. Verified: reverting the derivation by hand produced a cached "ok".
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -56,8 +34,6 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// serveDeps returns the in-repo package directories the serve binary links,
-// module-relative (e.g. "internal/serve").
 func serveDeps(t *testing.T, root string) []string {
 	t.Helper()
 	mod := run(t, root, "go", "list", "-m")
@@ -86,13 +62,6 @@ func run(t *testing.T, dir, name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// classifyCheckPath reads a `--check-path` exit code and stdout. Exit 0 means
-// every path is watched, exit 1 that the printed paths are not; any other code
-// is the script failing rather than answering (exit 3: the watch set could not
-// be derived), and is returned as an error carrying the script's own reason. It
-// must never be read as "unwatched" (sto_54770db7). Exit 1 naming no path is an
-// error too: that is the script dying under `set -e`, not an answer, and reading
-// it as "nothing unwatched" would pass a batched check vacuously.
 func classifyCheckPath(code int, out string) ([]string, error) {
 	switch code {
 	case 0:
@@ -114,11 +83,6 @@ func classifyCheckPath(code int, out string) ([]string, error) {
 	}
 }
 
-// checkPaths runs `--check-path` once over every path, so one derivation of the
-// watch set answers them all, and returns the paths the gate does not watch.
-// stdout carries the unwatched paths; stderr is kept apart so a warning can
-// never be read as one, and joins the failure message when the gate cannot
-// answer.
 func checkPaths(t *testing.T, root string, paths []string) []string {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{gateScript, "--check-path"}, paths...)...)
@@ -144,20 +108,11 @@ func checkPaths(t *testing.T, root string, paths []string) []string {
 	return missed
 }
 
-// watches reports whether the gate considers path part of the serve build. The
-// single-path form of checkPaths, kept so that mode stays exercised.
 func watches(t *testing.T, root, path string) bool {
 	t.Helper()
 	return len(checkPaths(t, root, []string{path})) == 0
 }
 
-// TestServeGateWatchesEveryServeDependency is the enumeration, as a test rather
-// than as a snapshot: it re-derives the serve binary's dependency set on every
-// run and requires the gate to watch all of it. A new package joining the serve
-// build fails here on the commit that adds it, so the drift this story fixes
-// cannot silently recur. The gate is asked once for every package: a call per
-// package re-derived the watch set each time, multiplying the exposure to a
-// transient `go list` failure under the parallel suite (sto_54770db7).
 func TestServeGateWatchesEveryServeDependency(t *testing.T) {
 	root := repoRoot(t)
 	deps := serveDeps(t, root)
@@ -170,16 +125,12 @@ func TestServeGateWatchesEveryServeDependency(t *testing.T) {
 			"A change confined to one of them would release with no satelled.version bump, and the "+
 			"running service would silently keep the old code.", strings.Join(missed, "\n  "))
 	}
-	// A watch set that collapsed to nothing would pass the loop above vacuously.
 	if len(deps) < 5 {
 		t.Errorf("only %d in-repo serve dependencies resolved — the derivation looks broken, "+
 			"and a gate that watches almost nothing passes this test for the wrong reason", len(deps))
 	}
 }
 
-// TestServeGateWatchesInternalServe names the originating case explicitly.
-// TestServeGateWatchesEveryServeDependency covers it, but a regression is
-// easier to read when the story's own defect has an assertion of its own.
 func TestServeGateWatchesInternalServe(t *testing.T) {
 	root := repoRoot(t)
 	if !watches(t, root, "internal/serve/reconcile.go") {
@@ -188,16 +139,11 @@ func TestServeGateWatchesInternalServe(t *testing.T) {
 	}
 }
 
-// commitAll commits every change in dir under the test identity.
 func commitAll(t *testing.T, dir, msg string) {
 	t.Helper()
 	gittest.Git(t, dir, "commit", "-a", "-m", msg)
 }
 
-// overlayGateScript writes root's working-tree gate script into dir and commits
-// it there when that changes anything, so the gate's own diff never counts it.
-// The tests judge the script under edit, not the last committed one (see
-// repoRoot).
 func overlayGateScript(t *testing.T, root, dir string) {
 	t.Helper()
 	script, err := os.ReadFile(filepath.Join(root, gateScript))
@@ -214,12 +160,6 @@ func overlayGateScript(t *testing.T, root, dir string) {
 	}
 }
 
-// privateClone returns a throwaway clone of src with its own objects and tags,
-// carrying the working-tree gate script, and with HEAD tagged serve-v999999.0.0.
-// That tag sorts above every real one, so it is the gate's baseline and the
-// clone starts with no serve-path change whatever src's tag or bump state is.
-// Probe files are planted here and never in src: tests that walk the real source
-// tree run in parallel with this package (sty_6b98ba1f).
 func privateClone(t *testing.T, src string) string {
 	t.Helper()
 	parent := t.TempDir()
@@ -230,25 +170,11 @@ func privateClone(t *testing.T, src string) string {
 	return clone
 }
 
-// probeServeGate plants the probe files in a private clone of src and returns
-// how many planted-file assertions it ran. It skips only when src has no
-// verified serve-tag baseline, the two states in which a gate verdict says
-// nothing. How far src's serve version leads its newest tag does not matter,
-// because the clone judges against its own HEAD. srcEnv is the environment of
-// the gate run that checks src's baseline (nil on the real tree, which uses
-// origin).
 func probeServeGate(t *testing.T, src string, srcEnv []string) int {
 	t.Helper()
-	// The gate compares against the latest serve-v* tag. With no tag it exits
-	// early and answers ok to everything, so a planted file would "pass" and this
-	// test would report a hole that is not there — or worse, miss one that is.
-	// That is not hypothetical: it is how this test first failed CI, on a default
-	// shallow, tagless checkout. Refuse to conclude anything instead.
 	if gittest.Git(t, src, "tag", "-l", "serve-v*") == "" {
 		t.Skip("no serve-v* tag in this clone — the gate has no baseline, so planting a file proves nothing")
 	}
-	// sty_da6c3874: a stale or unverifiable remote baseline fails the gate before
-	// any planted file can matter.
 	if _, out := gateIn(t, src, srcEnv); strings.Contains(out, serveGateStaleBaseline) || strings.Contains(out, serveGateCannotVerify) {
 		t.Skipf("serve-tag baseline not verified in this clone, so planting a file proves nothing:\n%s", out)
 	}
@@ -259,10 +185,6 @@ func probeServeGate(t *testing.T, src string, srcEnv []string) int {
 		t.Fatalf("the unplanted clone must pass the gate, exit %d:\n%s", code, out)
 	}
 
-	// The probe must carry the package clause its directory already uses. A
-	// mismatched one breaks `go list -deps`, and the gate then fails closed for
-	// that reason instead of the one under test — which is correct behaviour and
-	// a useless test.
 	var asserted int
 	for _, c := range []struct {
 		rel      string
@@ -279,8 +201,6 @@ func probeServeGate(t *testing.T, src string, srcEnv []string) int {
 	} {
 		path := filepath.Join(clone, c.rel)
 		writeFile(t, path, "package "+c.pkg+"\n")
-		// While a probe is planted, none may exist in src: a source-walking test
-		// elsewhere in the module would see it vanish under it.
 		if planted, _ := filepath.Glob(filepath.Join(src, "internal", "*", "zz_gate_probe*")); len(planted) > 0 {
 			t.Fatalf("probe files in the source tree %s: %v", src, planted)
 		}
@@ -297,14 +217,6 @@ func probeServeGate(t *testing.T, src string, srcEnv []string) int {
 	return asserted
 }
 
-// TestServeGateSeesNewFiles closes the hole a path-prefix check hides: `git
-// diff` cannot see an UNTRACKED file, and the release path runs this gate before
-// staging. So adding a brand-new source file to a serve package — as real a
-// change as editing one — would have passed green.
-//
-// The _test.go leg is the matching carve-out: a test file is compiled into
-// `go test`, never into the shipped binary, so it cannot make a running service
-// stale and must not demand a serve release.
 func TestServeGateSeesNewFiles(t *testing.T) {
 	requireGitAndGo(t)
 	if n := probeServeGate(t, repoRoot(t), nil); n != 3 {
@@ -312,11 +224,6 @@ func TestServeGateSeesNewFiles(t *testing.T) {
 	}
 }
 
-// TestServeGateProbeRunsWhenServeBumped proves the probe does not skip on a tree
-// whose serve version is ahead of its newest serve-v* tag — a serve bump pushed
-// and not yet released, the normal state between that push and its release. It
-// builds exactly that source: a serve-v* tag on the pre-bump commit and a
-// committed satelled.version patch bump on top.
 func TestServeGateProbeRunsWhenServeBumped(t *testing.T) {
 	requireGitAndGo(t)
 	root := repoRoot(t)
@@ -356,8 +263,6 @@ func TestServeGateProbeRunsWhenServeBumped(t *testing.T) {
 	writeFile(t, versionPath, strings.Join(lines, "\n"))
 	commitAll(t, src, "bump the serve version")
 
-	// The source is ahead of its newest tag and its baseline verifies, so the
-	// probe has no reason to skip.
 	env := []string{"SERVE_TAG_REMOTE=" + src}
 	code, out := gateIn(t, src, env)
 	if code != 0 || strings.Contains(out, serveGateStaleBaseline) || strings.Contains(out, serveGateCannotVerify) {
@@ -378,10 +283,6 @@ func TestServeGateProbeRunsWhenServeBumped(t *testing.T) {
 	}
 }
 
-// TestServeGateIgnoresCLIOnlyPaths is the no-false-positive half: a slice that
-// touches nothing the serve binary links must not demand a serve release. The
-// paths chosen are exactly the ones TestServeBinaryImportIsolation proves are
-// NOT linked, so this test stays honest only while that isolation holds.
 func TestServeGateIgnoresCLIOnlyPaths(t *testing.T) {
 	root := repoRoot(t)
 	cliOnly := []string{
@@ -403,19 +304,13 @@ func TestServeGateIgnoresCLIOnlyPaths(t *testing.T) {
 	}
 }
 
-// TestServeGateCannotAnswerIsNotUnwatched is AC2 of sto_54770db7: when the gate
-// cannot derive its watch set it must say so, with go's own reason, under an
-// exit code no caller reads as an answer. It used to exit 1 — the same code as
-// "unwatched" — so a transient `go list` failure under the parallel suite was
-// reported as one serve package missing from the set. GOFLAGS=-mod=nonexistent
-// is a deterministic `go list` failure (as in scripts/credguard_test.go).
 func TestServeGateCannotAnswerIsNotUnwatched(t *testing.T) {
 	requireGitAndGo(t)
 	clone := privateClone(t, repoRoot(t))
 	env := []string{"GOFLAGS=-mod=nonexistent", "SERVE_TAG_REMOTE=" + clone}
 	for _, args := range [][]string{
 		{"--check-path", "internal/serve/x.go"},
-		nil, // gate mode
+		nil,
 	} {
 		code, out := gateIn(t, clone, env, args...)
 		if code != 3 {
@@ -433,8 +328,6 @@ func TestServeGateCannotAnswerIsNotUnwatched(t *testing.T) {
 	}
 }
 
-// TestClassifyCheckPath pins the exit-code reading every --check-path caller
-// shares: only 0 and 1 are answers.
 func TestClassifyCheckPath(t *testing.T) {
 	for _, c := range []struct {
 		code    int
@@ -473,10 +366,6 @@ func TestClassifyCheckPath(t *testing.T) {
 	}
 }
 
-// --files is what scripts/release-binary.sh decides from (sto_da9775c1): every
-// file both shipped binaries compile, embedded files included, and each embed
-// pattern. Dropping EmbedFiles or EmbedPatterns from it would let an edited
-// help topic land as binary-unchanged with no version.
 func TestServeGateFilesListsEmbeddedFiles(t *testing.T) {
 	requireGitAndGo(t)
 	root := repoRoot(t)

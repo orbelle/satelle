@@ -13,11 +13,6 @@ import (
 	"testing"
 )
 
-// The epic process as the agent-goals principle writes it: with two children
-// approved the readiness block says fire, release step 0 fires one run over
-// both, a child the run sends back keeps the epic underway until it is driven
-// to approved and released by a second fire, and the epic then closes
-// through its own gates.
 func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 	for _, tool := range []string{"bash", "jq", "git"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -27,8 +22,6 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 	const principle = ".satelle/principles/satelle-agent-goals.md"
 	const sendBackSentence = "Drive that child again to `approved` before the next fire."
 
-	// The principle's epic section: the release-driven close, none of the
-	// pre-1.0 wave, readiness-round, waiting-step, epic-base or trunk text.
 	b, err := os.ReadFile(filepath.Join("..", principle))
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +44,6 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 
 	s := newSandbox(t)
 	fake := fakeClaude(t, s)
-	// The epic's judges answer with reasons that name the record, as the
-	// epic gates' notes and reference rules require.
 	writeFile(t, filepath.Join(fake, "notes.ra-1"), "every child is closed: read attachments/ and the children of the epic", 0o644)
 	s.env["SATELLE_SESSION"] = "release-it"
 	origin := realDir(t, t.TempDir())
@@ -61,7 +52,6 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	s.must("init")
 
-	// The queue and epic rules exactly as this repo's settings carry them.
 	settings, err := os.ReadFile("../.satelle/satelle.toml")
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +109,6 @@ terminal = true
 from = ["defined"]
 to = "retired"
 `)
-	// A plain flow until the task and queue the real one names exist.
 	s.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]
 start = true
@@ -162,7 +151,6 @@ to = "done"
 groups = [{ mode = "sequential", gates = ["release-run"] }]
 `)
 
-	// The queue starts empty: only the epic's children ever enter approved.
 	releaseTOML := repoReleaseQueue(t)
 	releaseTOML = strings.Replace(releaseTOML, `id = "que_65bc4edc"`, `id = "`+q.ID+`"`, 1)
 	releaseTOML = strings.Replace(releaseTOML, `task = "tas_42301d36"`, `task = "`+task.ID+`"`, 1)
@@ -177,7 +165,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	a := s.create("story", "--title", "child a", "--parent", epic.ID).ID
 	bID := s.create("story", "--title", "child b", "--parent", epic.ID).ID
 
-	// Every child's pull request is on origin/main.
 	head := strings.TrimSpace(s.git("rev-parse", "origin/main"))
 	prJSON, _ := json.Marshal([]map[string]string{
 		{"headRefOid": head, "title": "change (" + a + ")"},
@@ -195,8 +182,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 		t.Helper()
 		return s.exec("bash", "", "-c", ready)
 	}
-	// fire runs release step 0 and returns the run and its inputs, checking
-	// the lines after the seated line match the task.run record.
 	fire := func(want ...string) string {
 		t.Helper()
 		r := s.exec("bash", "", "-c", step0)
@@ -237,7 +222,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 		return exe
 	}
 
-	// A is approved, B is still in backlog: no fire, and the epic stays open.
 	s.must("story", "set", a, "--status", "approved")
 	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" backlog") || strings.Contains(r.out, a) ||
 		!strings.Contains(r.err, "drive these to approved before the fire") {
@@ -247,14 +231,12 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 		t.Fatalf("epic done with open children: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 
-	// Both approved: the block says fire, and run 1 takes exactly A and B.
 	s.must("story", "set", bID, "--status", "approved")
 	if r := readiness(); r.code != 0 || strings.TrimSpace(r.out) != fireLine {
 		t.Fatalf("readiness with both approved: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	run1 := fire(a, bID)
 
-	// Run 1 sends B back (step 2c) and closes A.
 	r := s.exec(satelleBin, "head 0000 does not contain main\n", "story", "attach", bID, "--name", "release-sendback", "--file", "-")
 	if r.code != 0 {
 		t.Fatalf("attach release-sendback: exit %d\n%s%s", r.code, r.out, r.err)
@@ -263,7 +245,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	s.must("story", "set", a, "--status", "done")
 	s.must("execution", "set", run1, "--status", "done")
 
-	// The sent-back child keeps the epic underway.
 	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" in_progress") ||
 		!strings.Contains(r.err, "drive these to approved before the fire") {
 		t.Fatalf("readiness after the send-back: exit %d\n%s%s", r.code, r.out, r.err)
@@ -275,7 +256,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 		t.Fatalf("epic status after the send-back %q", st)
 	}
 
-	// B is driven to approved again; run 2 takes only B.
 	s.must("story", "set", bID, "--status", "approved")
 	if r := readiness(); r.code != 0 || strings.TrimSpace(r.out) != fireLine {
 		t.Fatalf("readiness with B approved again: exit %d\n%s%s", r.code, r.out, r.err)
@@ -284,8 +264,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	s.must("story", "set", bID, "--status", "done")
 	s.must("execution", "set", run2, "--status", "done")
 
-	// No open child: the block says close it, and the epic closes through
-	// its gates.
 	if r := readiness(); r.code != 0 || strings.TrimSpace(r.out) != closeLine {
 		t.Fatalf("readiness with every child done: exit %d\n%s%s", r.code, r.out, r.err)
 	}

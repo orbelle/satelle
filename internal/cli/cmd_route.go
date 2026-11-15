@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// routeView is `story route --json`: the item's workflow with its position and
-// the latest recorded result of every gate on each transition.
 type routeView struct {
 	Item        string           `json:"item"`
 	Workflow    string           `json:"workflow"`
@@ -29,10 +27,10 @@ type stateView struct {
 	Terminal  bool     `json:"terminal,omitempty"`
 	Park      bool     `json:"park,omitempty"`
 	Resumes   bool     `json:"resumes,omitempty"`
-	Performer string   `json:"performer,omitempty"` // agent/skill
-	Enqueue   []string `json:"enqueue,omitempty"`   // queues an item entering it joins
-	Hold      string   `json:"hold,omitempty"`      // the round cap: "<rounds> -> <park state>"
-	Waits     string   `json:"waits,omitempty"`     // what the state's exit waits on outside the session
+	Performer string   `json:"performer,omitempty"`
+	Enqueue   []string `json:"enqueue,omitempty"`
+	Hold      string   `json:"hold,omitempty"`
+	Waits     string   `json:"waits,omitempty"`
 	Current   bool     `json:"current,omitempty"`
 }
 
@@ -46,11 +44,10 @@ type gateView struct {
 	Group  int    `json:"group"`
 	Mode   string `json:"mode"`
 	Gate   string `json:"gate"`
-	Result string `json:"result,omitempty"` // the latest recorded result on this move, if any
+	Result string `json:"result,omitempty"`
 	Notes  string `json:"notes,omitempty"`
 }
 
-// buildRoute renders w for an item at status with its recorded gate results.
 func buildRoute(w *workflow.Workflow, it item.Item, results []gate.Result) routeView {
 	v := routeView{Item: it.ID, Workflow: w.Name, Status: it.Status}
 	names := make([]string, 0, len(w.States))

@@ -12,10 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// stopFixture is a repo whose default workflow holds in_progress, review
-// (waits), approved (enqueues into release), blocked (park) and done, and
-// whose release queue fires a run in the default workflow, with min size 0
-// and no filter.
 func stopFixture(t *testing.T) string {
 	t.Helper()
 	dir := isolate(t)
@@ -64,8 +60,6 @@ func writeReleaseQueue(t *testing.T, dir, extra string) {
 	}
 }
 
-// stopAt creates a story, moves it through the states given and seats the
-// session on it (before the last move, so a terminal state keeps the seat).
 func stopAt(t *testing.T, session string, states ...string) string {
 	t.Helper()
 	id := createID(t, "story", "create", "--title", "drive me")
@@ -82,8 +76,6 @@ func stopAt(t *testing.T, session string, states ...string) string {
 	return id
 }
 
-// stopcheck runs the stop hook for session under harness with the claude
-// payload shape and returns its trimmed output.
 func stopcheck(t *testing.T, dir, session, harness string) string {
 	t.Helper()
 	return stopWith(t, fmt.Sprintf(`{"hook_event_name":"Stop","session_id":%q,"cwd":%q}`, session, dir), harness)
@@ -98,8 +90,6 @@ func stopWith(t *testing.T, payload, harness string) string {
 	return strings.TrimSpace(out)
 }
 
-// blockReason decodes a {decision: block, reason} answer, failing on any
-// other.
 func blockReason(t *testing.T, out string) string {
 	t.Helper()
 	var doc map[string]any
@@ -142,8 +132,6 @@ func hasNone(t *testing.T, what, text string, nots ...string) {
 	}
 }
 
-// 1, 2: a seated approved item whose queue can fire blocks once, naming the
-// fire; the stop straight after passes; a third blocks again.
 func TestStopcheckBlocksOnceNamingTheFire(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "s1", "in_progress", "approved")
@@ -156,8 +144,6 @@ func TestStopcheckBlocksOnceNamingTheFire(t *testing.T) {
 	blockReason(t, stopcheck(t, dir, "s1", "claude"))
 }
 
-// 3, 4, 5, 6: a park state and a waits state let the stop through; an open
-// state names its transition; a terminal item and a seatless session pass.
 func TestStopcheckReadsTheWorkflow(t *testing.T) {
 	dir := stopFixture(t)
 	stopAt(t, "s-park", "in_progress", "blocked")
@@ -182,8 +168,6 @@ func TestStopcheckReadsTheWorkflow(t *testing.T) {
 	}
 }
 
-// 7: a dispatched run (its session comes from SATELLE_SESSION) is never
-// blocked.
 func TestStopcheckLetsADispatchedRunThrough(t *testing.T) {
 	dir := stopFixture(t)
 	stopAt(t, "s1", "in_progress", "approved")
@@ -193,7 +177,6 @@ func TestStopcheckLetsADispatchedRunThrough(t *testing.T) {
 	}
 }
 
-// 8: the queue's run took the item and is open: the move is on the run.
 func TestStopcheckNamesTheOpenRunThatCarriesTheItem(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "s1", "in_progress", "approved")
@@ -215,7 +198,6 @@ func TestStopcheckNamesTheOpenRunThatCarriesTheItem(t *testing.T) {
 	}
 }
 
-// 9: an item approved after the fire is a member the open run does not list.
 func TestStopcheckNamesTheRunThenTheFire(t *testing.T) {
 	dir := stopFixture(t)
 	stopAt(t, "s-first", "in_progress", "approved")
@@ -240,8 +222,6 @@ func TestStopcheckNamesTheRunThenTheFire(t *testing.T) {
 	}
 }
 
-// 10: a terminal queue still holding the item names nothing, and the fire
-// refuses.
 func TestStopcheckTerminalQueue(t *testing.T) {
 	dir := stopFixture(t)
 	stopAt(t, "s1", "in_progress", "approved")
@@ -254,8 +234,6 @@ func TestStopcheckTerminalQueue(t *testing.T) {
 	}
 }
 
-// 11: an item removed from its queue names its transition, whether the queue
-// is open or terminal.
 func TestStopcheckRemovedItemNamesItsTransition(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "s1", "in_progress", "approved")
@@ -267,7 +245,6 @@ func TestStopcheckRemovedItemNamesItsTransition(t *testing.T) {
 	hasAll(t, "terminal queue", blockReason(t, stopcheck(t, dir, "s1", "claude")), want)
 }
 
-// 12: a trigger base that names no commit names nothing, and the fire refuses.
 func TestStopcheckBadBase(t *testing.T) {
 	dir := stopFixture(t)
 	writeReleaseQueue(t, dir, "base = \"refs/heads/nope\"\n")
@@ -280,7 +257,6 @@ func TestStopcheckBadBase(t *testing.T) {
 	}
 }
 
-// 13: cursor's block is a followup_message, its pass an empty object.
 func TestStopcheckCursorEnvelope(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "c1", "in_progress", "approved")
@@ -297,9 +273,8 @@ func TestStopcheckCursorEnvelope(t *testing.T) {
 	}
 }
 
-// 14: grok's Stop payload, as its hook guide documents it.
 func TestStopcheckGrok(t *testing.T) {
-	raw := grokFixture(t, "grok_stop.json") // read before the fixture changes directory
+	raw := grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
 	id := stopAt(t, "grok-session-0001", "in_progress", "approved")
 	var doc map[string]any
@@ -312,7 +287,6 @@ func TestStopcheckGrok(t *testing.T) {
 		b, _ := json.Marshal(doc)
 		return string(b)
 	}
-	// A session-end Stop names nothing and leaves the marker as it was.
 	if out := stopWith(t, payload("shutdown"), "grok"); out != "" {
 		t.Errorf("a shutdown Stop printed %q", out)
 	}
@@ -336,7 +310,6 @@ func TestStopcheckGrok(t *testing.T) {
 	}
 }
 
-// 15: pi's extension sends claude's Stop shape and reads the same block.
 func TestStopcheckPi(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "pi-1", "in_progress", "approved")
@@ -344,7 +317,6 @@ func TestStopcheckPi(t *testing.T) {
 	hasAll(t, "pi reason", blockReason(t, out), id, "satelle queue fire release --session pi-1")
 }
 
-// fireRun fires the release queue and returns the run it started.
 func fireRun(t *testing.T) string {
 	t.Helper()
 	var f struct {
@@ -356,8 +328,6 @@ func fireRun(t *testing.T) string {
 	return f.Run
 }
 
-// grokFixture reads one of internal/hook's grok payloads, as grok's hook
-// guide documents them; call it before isolate changes directory.
 func grokFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "hook", "testdata", name))

@@ -13,10 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// queueSnapshot: que_1 filters status alpha, holds sto_add explicitly (two
-// more explicit adds have lapsed: sto_back left the state that enqueued it,
-// sto_end was added by hand and reached the terminal zed), and
-// fired exe_q (status beta) over two items.
 func queueSnapshot() mirror.Snapshot {
 	it := func(id, kind, status string) json.RawMessage {
 		return raw(mirror.Item{ID: id, Kind: kind, Title: "T " + id, Status: status, Workflow: "flow", CreatedAt: activityT0, UpdatedAt: activityT0})
@@ -73,8 +69,6 @@ func TestQueuesPanel(t *testing.T) {
 	httpGetBody(t, srv.URL+"/r/proj/fragment/queue/que_1")
 	httpGetBody(t, srv.URL+"/r/proj/queue/que_1")
 
-	// A delta moves sto_b into the filter's status: the same fragment, the
-	// one a queues refetch swaps in, now lists it.
 	moved := raw(mirror.Item{ID: "sto_b", Kind: "story", Title: "T sto_b", Status: "alpha", Workflow: "flow", CreatedAt: activityT0, UpdatedAt: activityAt(9)})
 	delta := mirror.Snapshot{RepoKey: "rk", Slug: "proj", Stories: []json.RawMessage{moved}, Kinds: []string{"identity"},
 		MergeKinds: []string{"story", "task", "execution", "queue", "ledger_event", "story_doc"},
@@ -101,8 +95,6 @@ var jsArray = func(js, name string) []string {
 	return out
 }
 
-// Every tab reaches the client and every panel with a rows endpoint is live:
-// the rule app.js states above LIVE_TOPICS, checked against the rendered page.
 func TestPanelsReachClient(t *testing.T) {
 	srv := mirrorWith(t, queueSnapshot())
 	page := httpGetBody(t, srv.URL+"/r/proj/")

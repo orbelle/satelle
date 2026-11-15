@@ -15,9 +15,6 @@ import (
 	"testing"
 )
 
-// A command killed by a signal is recorded as signaled, and its failure
-// message names the signal and the empty stderr: the shape of the reported
-// setup flake, which used to print as `git [commit ...]: `.
 func TestSandboxGitFailureReportsSignal(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -33,8 +30,6 @@ func TestSandboxGitFailureReportsSignal(t *testing.T) {
 	}
 }
 
-// killingGit writes a git wrapper that SIGKILLs itself on its first kills
-// `commit` runs (counted in a marker dir) and otherwise runs the real git.
 func killingGit(t *testing.T, kills int) string {
 	t.Helper()
 	real, err := exec.LookPath("git")
@@ -57,8 +52,6 @@ func killingGit(t *testing.T, kills int) string {
 	return p
 }
 
-// Repo setup whose commit is killed by a signal on all but the last attempt
-// is retried on a fresh .git and ends with a committed repo.
 func TestSandboxSetupRetriesKilledGit(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -71,9 +64,6 @@ func TestSandboxSetupRetriesKilledGit(t *testing.T) {
 	}
 }
 
-// An executable written through writeFile can be exec'd at once while other
-// goroutines fork continuously: no forked child inherits its write fd, which
-// would make the exec fail with ETXTBSY (golang/go#22315).
 func TestWriteFileExecUnderForkLoad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

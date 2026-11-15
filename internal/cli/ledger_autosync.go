@@ -22,12 +22,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
-// autosyncRepoTimeout bounds one project's pass, so one unreachable store
-// cannot hold the others past the sync service's own timeout.
 const autosyncRepoTimeout = 2 * time.Minute
 
-// ledgerAutosyncCmd is the automatic sync pass satelle-sync.timer runs
-// (sto_5c706973): an internal verb, hidden from help.
 func ledgerAutosyncCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "autosync",
@@ -75,10 +71,6 @@ failed; a confirm or a prune that fails does not fail the pass.`,
 	}
 }
 
-// projectPathGone reports whether path is an absolute path that no longer
-// exists: the only state that lets the unattended pass remove a project
-// (sto_e3c6bfb6). An empty or relative path, a path that exists (directory or
-// file) and any other stat error (permission, I/O) are not gone.
 func projectPathGone(path string) bool {
 	if !filepath.IsAbs(path) {
 		return false
@@ -87,10 +79,6 @@ func projectPathGone(path string) bool {
 	return err != nil && errors.Is(err, fs.ErrNotExist)
 }
 
-// pruneGoneProjects removes from this machine's projects (~/.satelle/config.toml
-// [projects] paths) each entry whose path is gone, saving the config once. With
-// nothing gone it returns gc unchanged and writes nothing; on a save error it
-// reports it and returns gc as loaded.
 func pruneGoneProjects(gc config.GlobalConfig, out io.Writer) config.GlobalConfig {
 	var gone []string
 	for _, p := range gc.Projects.Paths {
@@ -116,10 +104,6 @@ func pruneGoneProjects(gc config.GlobalConfig, out io.Writer) config.GlobalConfi
 	return pruned
 }
 
-// pruneGonePartitions removes, through this machine's satelled only, each
-// mirror partition whose recorded project path is gone. It removes by the
-// stored repo_key, never falls back to the database directly (a satelled that
-// is not answering changes no partition) and never fails the pass.
 func pruneGonePartitions(ctx context.Context, out io.Writer) {
 	c, ok := uiClient()
 	if !ok {
@@ -142,12 +126,6 @@ func pruneGonePartitions(ctx context.Context, out io.Writer) {
 	}
 }
 
-// autosyncProject runs one project's pass, records its outcome and confirms
-// satelled's mirror of the project (sto_128803b3). A path that is gone or holds no satelle repo is
-// skipped with nothing recorded. First it refreshes the project's untracked
-// harness files in use by stale, as satelle agents refresh does; a hook
-// failure is printed, but is not a sync outcome and does not fail the pass.
-// It reports whether the pass succeeded.
 func autosyncProject(ctx context.Context, out io.Writer, path string, stale func(string) bool) bool {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
 		fmt.Fprintf(out, "%s: skipped: no such directory\n", path)
@@ -158,10 +136,6 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 		fmt.Fprintf(out, "%s: skipped: %v\n", path, err)
 		return true
 	}
-	// A pre-1.0 repo cannot be read by this satelle: it needs upgrading in
-	// the repo, which is not a failed pass (sto_0f76dd4e). Nothing is opened,
-	// so nothing is written into its runtime dir, and its harness files are
-	// left for satelle upgrade --archive.
 	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
 		fmt.Fprintln(out, needsUpgradeLine(path, m))
 		_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), syncstate.Pass{Upgrade: kernel.UpgradeCommand}, time.Now())
@@ -179,10 +153,6 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	pass, summary := syncRepo(ctx, r)
 	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
 	reason := pass.Reason
-	// The kernel is closed: confirm this repo's mirror before the next repo
-	// opens, whatever the store outcome — a failed remote sync does not stop
-	// the local mirror being confirmed against the local ledger. Its full
-	// body, when one is needed, carries the pull's writes.
 	confirmUI(ctx, r)
 	if reason != "" {
 		fmt.Fprintf(out, "%s: sync failing: %s\n", path, reason)
@@ -192,10 +162,6 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	return true
 }
 
-// syncRepo opens r's kernel and runs one Sync pass with its store. It
-// returns the pass (the store's description, syncstate.LocalStore when
-// nothing replicates; why it failed, "" for a success; and its counts) and a
-// one-line summary.
 func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
 	k, err := r.open()
 	if err != nil {
@@ -204,8 +170,6 @@ func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
 	defer k.Close()
 	spec, defaulted := resolveStore(k)
 	if spec.Kind == ledgerstore.KindSatelleDev && !spec.External() && defaulted {
-		// satelle.dev only because this machine is signed in: an unbound
-		// repo has nothing to replicate with, as for the local store.
 		if _, ok, err := loadBinding(r); err == nil && !ok {
 			return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"
 		}
@@ -231,8 +195,6 @@ func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
 	return syncstate.Pass{Store: s.Describe(), Reason: syncReason(res), Pushed: res.Push.Items, Pulled: res.Pull.Items, Forked: forked}, summary
 }
 
-// syncReason is why a Sync pass failed, "" when it did not: push's and
-// pull's diverged and refused items, then the items the pass left unsynced.
 func syncReason(res ledgerrepl.SyncResult) string {
 	var parts []string
 	for _, p := range []string{replicationReason("push", res.Push), replicationReason("pull", res.Pull)} {

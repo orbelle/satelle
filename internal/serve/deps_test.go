@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// satelled is decoupled from the CLI: it links none of the CLI or the kernel's
-// repo-writing stack, and it never execs a satelle verb.
 func TestServeStaysOffTheCLI(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	if err != nil {

@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// changelogItems runs changelog-items.sh with args, stdin on its input, and
-// returns its stdout, stderr and exit code.
 func changelogItems(t *testing.T, stdin string, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{"changelog-items.sh"}, args...)...)
@@ -28,8 +26,6 @@ func changelogItems(t *testing.T, stdin string, args ...string) (string, string,
 	return out.String(), errb.String(), code
 }
 
-// attachment writes an item's changelog attachment to a file and returns
-// the <id>:<file> argument naming it.
 func attachment(t *testing.T, dir, id, body string) string {
 	t.Helper()
 	p := filepath.Join(dir, id)
@@ -50,7 +46,6 @@ func TestLinesAcceptsEverySection(t *testing.T) {
 	if code != 0 || out != want.String() {
 		t.Fatalf("exit %d\n%s%s\nwant\n%s", code, out, errOut, want.String())
 	}
-	// A section may repeat; its entries are kept in order.
 	out, _, code = changelogItems(t, "### Added\n- one\n### Fixed\n- two\n### Added\n- three\n", "lines", "sto_1")
 	if code != 0 || out != "Added\t- one (sto_1)\nFixed\t- two (sto_1)\nAdded\t- three (sto_1)\n" {
 		t.Fatalf("repeated section: exit %d\n%s", code, out)
@@ -106,7 +101,6 @@ func TestRenderOrdersSectionsAndItems(t *testing.T) {
 	if code != 0 || out != want {
 		t.Fatalf("exit %d\n%s%s\nwant\n%s", code, out, errOut, want)
 	}
-	// A malformed attachment refuses the whole render.
 	bad := attachment(t, dir, "sto_c", "### Misc\n- odd\n")
 	if out, errOut, code := changelogItems(t, "", "render", "1.2.3", "2026-11-07", a, bad); code != 1 || out != "" || !strings.Contains(errOut, "unknown section") {
 		t.Fatalf("malformed: exit %d\n%s%s", code, out, errOut)

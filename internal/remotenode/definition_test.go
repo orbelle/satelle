@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/filebundle"
 )
 
-// fixtureRemoteToml is the v1 item definition in the remotedef package's
-// testdata; every bundle here carries it as its remote.toml.
 func fixtureRemoteToml(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "remotedef", "testdata", "remote.toml"))
@@ -23,7 +21,6 @@ func fixtureRemoteToml(t *testing.T) string {
 	return string(raw)
 }
 
-// definitionFiles is a small definition: a remote.toml and an overlay.
 func definitionFiles(t *testing.T) map[string]string {
 	return map[string]string{
 		"remote.toml":           fixtureRemoteToml(t),
@@ -33,7 +30,6 @@ func definitionFiles(t *testing.T) map[string]string {
 	}
 }
 
-// bundleOf encodes files as a format-1 bundle, in path order.
 func bundleOf(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	paths := make([]string, 0, len(files))
@@ -52,7 +48,6 @@ func bundleOf(t *testing.T, files map[string]string) []byte {
 	return b
 }
 
-// listing is every file under dir with its content.
 func listing(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -87,8 +82,6 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// The bundle's files overlay the data dir, the data dir's other files stay,
-// and remote.toml is read but not installed.
 func TestInstallDefinitionOverlaysTheDataDir(t *testing.T) {
 	files := definitionFiles(t)
 	dataDir := t.TempDir()
@@ -115,7 +108,6 @@ func TestInstallDefinitionOverlaysTheDataDir(t *testing.T) {
 	}
 }
 
-// AC3: a bundle that does not check out installs nothing and names the cause.
 func TestInstallDefinitionRefusesAndInstallsNothing(t *testing.T) {
 	good := definitionFiles(t)
 	with := func(path, body string) map[string]string {

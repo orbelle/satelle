@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// sto_cb34e3e3 AC1: a #! script is read by its interpreter, never executed as
-// a file: it has no execute bit, and it still gets its stdin payload.
 func TestShebangCheckIsReadNotExecuted(t *testing.T) {
 	script := "#!/bin/sh\nif [ -x \"$0\" ]; then echo executable; else echo read-only; fi\ncat\n"
 	ok, notes, err := RunCheck(context.Background(), script, t.TempDir(), CheckEnv{Item: "itm_1"}, 0)
@@ -22,8 +20,6 @@ func TestShebangCheckIsReadNotExecuted(t *testing.T) {
 	}
 }
 
-// The one #! rule (Linux binfmt_script): the interpreter, then at most one
-// argument, untouched.
 func TestScriptInterpreter(t *testing.T) {
 	for _, c := range []struct {
 		script string
@@ -48,7 +44,6 @@ func TestScriptInterpreter(t *testing.T) {
 	}
 }
 
-// A #! line naming no interpreter cannot start: code -1 and an error.
 func TestRunCheckRefusesEmptyShebang(t *testing.T) {
 	code, _, err := RunCheckCode(context.Background(), "#!\necho hi\n", t.TempDir(), CheckEnv{}, 0)
 	if code != -1 || err == nil || !strings.Contains(err.Error(), "names no interpreter") {

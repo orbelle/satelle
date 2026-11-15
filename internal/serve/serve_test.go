@@ -40,8 +40,6 @@ func waitHealthz(t *testing.T, port int) {
 	}, fmt.Sprintf("healthz on :%d never answered", port))
 }
 
-// TestServePortIgnoresRepoConfig (sty_21a7d16d AC2): repo web_port does not
-// change which port satelled binds.
 func TestServePortIgnoresRepoConfig(t *testing.T) {
 	isolateHome(t)
 	port := freePort(t)
@@ -61,7 +59,6 @@ func TestServePortIgnoresRepoConfig(t *testing.T) {
 	errc := make(chan error, 1)
 	go func() { errc <- Run(ctx, Options{}) }()
 	waitHealthz(t, port)
-	// 9000 must not be us (bind should have used global port).
 	if ln, err := net.Listen("tcp", "127.0.0.1:9000"); err == nil {
 		_ = ln.Close()
 	}
@@ -72,7 +69,6 @@ func TestServePortIgnoresRepoConfig(t *testing.T) {
 	}
 }
 
-// TestZeroConfigRepoServes (sty_21a7d16d AC6): no machine-scope keys, defaults work.
 func TestZeroConfigRepoServes(t *testing.T) {
 	isolateHome(t)
 	port := freePort(t)
@@ -106,8 +102,6 @@ func TestServeAddrUsesGlobalWhenEmpty(t *testing.T) {
 	}
 }
 
-// satelled records its own build at start and reads the installed CLI beside it
-// from the record, never running either (sto_49b6e762).
 func TestInstalledBuilds(t *testing.T) {
 	home := t.TempDir()
 	dir := t.TempDir()

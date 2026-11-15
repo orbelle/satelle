@@ -27,7 +27,6 @@ func ev(action, test, output string) string {
 	return b.String()
 }
 
-// skipStream is one test that skips, with the output go test prints for it.
 func skipStream(test string) string {
 	return ev("run", test, "") +
 		ev("output", test, "=== RUN   "+test+`\n`) +
@@ -36,8 +35,6 @@ func skipStream(test string) string {
 		ev("skip", test, "")
 }
 
-// runWith writes the stream to a fixture, runs skipcheck over a fake child that
-// prints it and exits with code, and returns (exit, stdout, stderr).
 func runWith(t *testing.T, stream string, code string, allowBody *string) (int, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,7 +64,6 @@ func TestFailingChildFailsTheRun(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("exit = %d, want the child's 1", got)
 	}
-	// The child's own status is kept, whatever it is.
 	if got, _, _ := runWith(t, stream, "3", ptr("")); got != 3 {
 		t.Fatalf("exit = %d, want the child's 3", got)
 	}
@@ -142,7 +138,6 @@ func TestMalformedAllowlistFailsBeforeRunningTheChild(t *testing.T) {
 		"second entry": pkg + " TestA fine\n" + pkg + " TestB\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			// A passing, skip-free stream: only the allowlist can fail this run.
 			stream := ev("run", "TestA", "") + ev("pass", "TestA", "")
 			got, stdout, stderr := runWith(t, stream, "0", ptr(body))
 			if got == 0 {
@@ -183,8 +178,6 @@ func TestParseAllowlistKeepsTheReason(t *testing.T) {
 	}
 }
 
-// TestStallLivenessRules drives the running-set rules with a fake clock, so no
-// case depends on real elapsed time.
 func TestStallLivenessRules(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
@@ -252,7 +245,6 @@ func TestStallLivenessRules(t *testing.T) {
 		if got := names(w, 24); got != "" {
 			t.Fatalf("parent with a live subtest = %q, want none", got)
 		}
-		// The hung subtest is named, with the parent that is waiting on it.
 		if got := names(w, 27); got != "TestP,TestP/b" {
 			t.Fatalf("hung subtest = %q, want TestP,TestP/b", got)
 		}
@@ -271,7 +263,6 @@ func TestStallLivenessRules(t *testing.T) {
 	})
 }
 
-// TestStallOffByDefault: without -stall a slow test is left alone.
 func TestStallOffByDefault(t *testing.T) {
 	var out, errb bytes.Buffer
 	fixture := filepath.Join(t.TempDir(), "events.json")
@@ -294,10 +285,6 @@ func TestNegativeStallIsAUsageError(t *testing.T) {
 	}
 }
 
-// TestScratchProbe is an inert-by-default hook for the negative proofs of
-// sty_53c3f311 (a skip that is not allowed; a failure the checker must carry).
-// It does nothing unless SATELLE_TEST_PROBE_SKIPCHECK is set (hermetic.sh
-// forwards SATELLE_TEST_PROBE_*), so it is inert by default.
 func TestScratchProbe(t *testing.T) {
 	switch os.Getenv("SATELLE_TEST_PROBE_SKIPCHECK") {
 	case "skip":
@@ -307,7 +294,6 @@ func TestScratchProbe(t *testing.T) {
 	}
 }
 
-// treeRepo is a git repo with one committed file, for the -tree guard.
 func treeRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -323,8 +309,6 @@ func treeRepo(t *testing.T) string {
 	return dir
 }
 
-// runTree runs skipcheck over a child shell script, with the guard on tree when
-// tree is non-empty, and returns (exit, stderr). The script sees tree as $1.
 func runTree(t *testing.T, tree, script string) (int, string) {
 	t.Helper()
 	var args []string
@@ -362,7 +346,6 @@ func TestTreeGuardPassesWhenTheRunLeavesTheTreeAlone(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := treeRepo(t)
-			// Already dirty before the run and left alone by it: not the run's doing.
 			if err := os.WriteFile(filepath.Join(dir, "preexisting.go"), []byte("package p\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}

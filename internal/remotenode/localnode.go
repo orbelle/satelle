@@ -1,10 +1,5 @@
 package remotenode
 
-// The node side of a local run: `satelle node run-local` in the container
-// FireLocal started. It reads from <dir>/in what satelle-server would have
-// served a joining node, and writes its outcome to <dir>/out. It holds no
-// token and reaches nothing.
-
 import (
 	"context"
 	"encoding/json"
@@ -19,24 +14,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// LocalOptions say where a local node works.
 type LocalOptions struct {
-	// Dir is the node's root: in/ is read, work/, runtime/ and out/ written.
-	Dir string
-	// Log is the node's progress. Nil discards.
-	Log io.Writer
-	// Version is the satelle the node runs, compared with the definition's pin.
-	Version string
-	// Dispatcher runs the node's bindings; nil is agent.Runner.
+	Dir        string
+	Log        io.Writer
+	Version    string
 	Dispatcher agent.Dispatcher
 }
 
-// RunLocal runs one local node: it reads its definition, substrate, run and
-// the item's chain from <dir>/in, installs the substrate and the definition's
-// overlay into <dir>/work/.satelle, imports the chain (verified), drives the
-// item for the run's steps as node:<id>, and writes the outcome to
-// <dir>/out/outcome.json. A definition pinning another satelle version than
-// the node's adds a warning to the notes; the run goes on.
 func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 	if o.Log == nil {
 		o.Log = io.Discard

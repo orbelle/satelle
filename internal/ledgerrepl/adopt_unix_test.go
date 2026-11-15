@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// fakeMirrors is a FileMirrors that answers MirrorOnly with mirrorOnly and,
-// on Remirror, appends extra events to the item's chain in s.
 type fakeMirrors struct {
 	s          *ledger.Store
 	mirrorOnly bool
@@ -33,8 +31,6 @@ func (f *fakeMirrors) Remirror(id string) (bool, error) {
 	return f.extra > 0, nil
 }
 
-// forked returns the store holding A's 3-event chain of it and B holding a
-// different 1-event chain of it: a fork at 0.
 func forked(t *testing.T) (a, b *ledger.Store, o Objects) {
 	t.Helper()
 	o = fsObjects(t)
@@ -45,7 +41,6 @@ func forked(t *testing.T) (a, b *ledger.Store, o Objects) {
 	return a, b, o
 }
 
-// objectsOf is every object the store holds, by key.
 func objectsOf(t *testing.T, o Objects) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}
@@ -117,8 +112,6 @@ func TestSyncPushesRemirroredAdoption(t *testing.T) {
 	}
 }
 
-// A fork whose local chain holds any other event is never dropped: pull and
-// sync leave both sides as they were and name the divergence.
 func TestSyncLeavesWorkedForkAlone(t *testing.T) {
 	_, b, o := forked(t)
 	f := &fakeMirrors{s: b, mirrorOnly: false, extra: 1}

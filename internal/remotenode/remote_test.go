@@ -18,9 +18,6 @@ func testCtx(t *testing.T) context.Context {
 	return ctx
 }
 
-// A performer node publishes its channel key, joins the relay over gRPC and is
-// paired by that key; an AgentJob naming a binding, a system prompt and a
-// payload reaches the node and is answered by it.
 func TestPerformerNodeIsPairedByItsPublishedKey(t *testing.T) {
 	srv, _, nc, _ := newFake(t)
 	srv.AllowToken("user-tok")

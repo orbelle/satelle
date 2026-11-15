@@ -15,9 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/hook"
 )
 
-// cursorStream is what a cursor-agent stream-json run reports: its session,
-// final text, and each completed edit and shell call's rejection reason ("" and
-// ok when the call succeeded).
 type cursorStream struct {
 	Session string
 	Result  string
@@ -25,8 +22,8 @@ type cursorStream struct {
 }
 
 type cursorCall struct {
-	Kind     string // editToolCall, deleteToolCall, shellToolCall
-	Target   string // path or command
+	Kind     string
+	Target   string
 	Rejected bool
 	Reason   string
 }
@@ -85,16 +82,6 @@ func readCursorStream(t *testing.T, out string) cursorStream {
 	return st
 }
 
-// A cursor-agent session in a repo with `satelle agents install cursor` runs
-// under satelle's hooks (sto_e51c7fb9 AC3, AC4): its session-start context
-// carries the session id and the injected principles; an unseated edit is
-// refused before it is written with the claude gate's reason; the
-// operator-only verb is refused by the gate; once the session is seated in a
-// performing state, the resumed session's edit is written, while an edit and a
-// shell write into another repository's working tree are refused with the
-// claude gate's fence reason. cursor-agent runs in print mode without --force.
-// Opt-in: SATELLE_LIVE_CURSOR=1 and cursor-agent on PATH, signed in;
-// SATELLE_LIVE_CURSOR_MODEL picks the model.
 func TestCursorSessionRunsUnderSatelleHooks(t *testing.T) {
 	if os.Getenv("SATELLE_LIVE_CURSOR") != "1" {
 		t.Skip("set SATELLE_LIVE_CURSOR=1 to run cursor-agent live")
@@ -138,9 +125,6 @@ to = "finished"
 	s.write(".satelle/satelle.toml", "[workflows]\ndefault = \"default\"\n[hook]\ninject = [\"principles.md\"]\n")
 	s.must("validate")
 	s.must("agents", "install", "cursor")
-	// Cursor runs hooks under the user's login PATH, so a bare `satelle` would
-	// be the machine's installed one: point the installed commands at the
-	// binary under test.
 	hooksFile := filepath.Join(s.dir, ".cursor", "hooks.json")
 	b, err := os.ReadFile(hooksFile)
 	if err != nil {
@@ -151,9 +135,6 @@ to = "finished"
 	}
 	id := s.create("story", "--title", "cursor live").ID
 
-	// Another repository, outside the temp roots: the gate allows any path
-	// outside the session's root under the temp dir, so a foreign repo there
-	// would never reach the fence.
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +166,6 @@ to = "finished"
 	s.env["CURSOR_CONFIG_DIR"] = cfg
 	agent := func(prompt string, args ...string) cursorStream {
 		t.Helper()
-		// cursor-agent signs in from the real home and session (as every
-		// cursor-agent run satelle dispatches does); satelle's own state stays
-		// in the sandbox through SATELLE_HOME.
 		saved := map[string]string{}
 		for k, v := range map[string]string{"HOME": realHome, "XDG_CONFIG_HOME": os.Getenv("XDG_CONFIG_HOME"), "XDG_RUNTIME_DIR": os.Getenv("XDG_RUNTIME_DIR")} {
 			saved[k] = s.env[k]

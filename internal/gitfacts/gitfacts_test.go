@@ -47,8 +47,6 @@ func TestFacts(t *testing.T) {
 	}
 }
 
-// IsAncestor: a parent and the commit itself are in its history; a commit a
-// rebase rewrote is not; an unknown commit is an error.
 func TestIsAncestor(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -87,7 +85,6 @@ func TestIsAncestor(t *testing.T) {
 	}
 }
 
-// Branch is the checkout's current branch, "" on a detached HEAD.
 func TestBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -106,9 +103,6 @@ func TestBranch(t *testing.T) {
 	}
 }
 
-// On a clean tree the working-tree diff from a base is byte-equal to the diff
-// between the base and HEAD: a change a judge saw in a tree hashes the same
-// when it is later read from the branch's commits.
 func TestCleanTreeDiffEqualsDiffBetweenHead(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -141,9 +135,6 @@ func TestCleanTreeDiffEqualsDiffBetweenHead(t *testing.T) {
 	}
 }
 
-// diffRepo is a repo whose config sets cfg (key, value pairs), with two
-// commits of a.txt: base, then head, which myers and histogram diff
-// differently.
 func diffRepo(t *testing.T, cfg ...string) (r Repo, base, head string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -162,10 +153,6 @@ func diffRepo(t *testing.T, cfg ...string) (r Repo, base, head string) {
 	return r, base, head
 }
 
-// A change's diff text is the same in its own clean tree and between its
-// commits, and the same on every machine, whatever prefix or algorithm the
-// user's diff config asks for: a change hashed where it was judged hashes the
-// same once it is read as commits, or read elsewhere.
 func TestDiffTextIgnoresTheUsersDiffConfig(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -200,8 +187,6 @@ func TestDiffTextIgnoresTheUsersDiffConfig(t *testing.T) {
 	}
 }
 
-// IgnoredBy names the rule hiding an untracked path, and reports neither an
-// unignored path, a tracked one, nor one a `!` rule re-includes.
 func TestIgnoredBy(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -238,9 +223,6 @@ func TestIgnoredBy(t *testing.T) {
 	}
 }
 
-// Tracks: a committed file is tracked, an untracked one is not, a directory
-// in no repository is not (no error), and a repository git cannot read is an
-// error.
 func TestTracks(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")

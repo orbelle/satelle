@@ -14,7 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// isolateCursor is isolate with Cursor's hook environment cleared.
 func isolateCursor(t *testing.T) string {
 	t.Helper()
 	dir := isolate(t)
@@ -23,16 +22,11 @@ func isolateCursor(t *testing.T) string {
 	return dir
 }
 
-// hookTestdata is internal/hook/testdata, resolved before a test changes dir.
 var hookTestdata = func() string {
 	wd, _ := os.Getwd()
 	return filepath.Join(wd, "..", "hook", "testdata")
 }()
 
-// cursorPayload is a captured Cursor hook payload (internal/hook/testdata,
-// from the sto_e51c7fb9 probe) rewritten for this test: its session, its
-// workspace root, and the edit path or shell command when given. cwd stays
-// as Cursor sends it (null for edits, "" for Shell).
 func cursorPayload(t *testing.T, fixture, session, root, path, command string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(hookTestdata, "cursor-"+fixture+".json"))
@@ -57,7 +51,6 @@ func cursorPayload(t *testing.T, fixture, session, root, path, command string) s
 	return string(out)
 }
 
-// claudePayload is a claude PreToolUse payload for the same call.
 func claudePayload(session, cwd, tool, path, command string) string {
 	b, _ := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse", "session_id": session, "cwd": cwd, "tool_name": tool,
@@ -66,8 +59,6 @@ func claudePayload(session, cwd, tool, path, command string) string {
 	return string(b)
 }
 
-// cursorAnswer runs a hook verb under --harness cursor and decodes its answer
-// ("" decodes to nil).
 func cursorAnswer(t *testing.T, payload, verb string) (raw string, doc map[string]any) {
 	t.Helper()
 	out, err := run(t, payload, "hook", verb, "--harness", "cursor")
@@ -84,8 +75,6 @@ func cursorAnswer(t *testing.T, payload, verb string) (raw string, doc map[strin
 	return raw, doc
 }
 
-// claudeDenyReason runs the claude gate and returns its deny reason ("" when
-// it allows).
 func claudeDenyReason(t *testing.T, payload string) string {
 	t.Helper()
 	out, err := run(t, payload, "hook", "gate", "--harness", "claude")
@@ -106,7 +95,6 @@ func claudeDenyReason(t *testing.T, payload string) string {
 	return doc.HookSpecificOutput.PermissionDecisionReason
 }
 
-// cursorDeny asserts a Cursor gate answer is a deny and returns its reason.
 func cursorDeny(t *testing.T, raw string, doc map[string]any) string {
 	t.Helper()
 	if doc["permission"] != "deny" {
@@ -119,9 +107,6 @@ func cursorDeny(t *testing.T, raw string, doc map[string]any) string {
 	return reason
 }
 
-// writeHookSettings overwrites the repo's satelle.toml with the default
-// workflow and a [hook] table holding hookBody. init's template already has a
-// live [hook] table, so appending a second one would not decode.
 func writeHookSettings(t *testing.T, dir, hookBody string) {
 	t.Helper()
 	text := "[workflows]\ndefault = \"default\"\n\n[hook]\n" + hookBody
@@ -130,8 +115,6 @@ func writeHookSettings(t *testing.T, dir, hookBody string) {
 	}
 }
 
-// satelle agents install cursor writes .cursor/hooks.json keeping the user's
-// entries; remove strips only satelle's (sto_e51c7fb9 AC2).
 func TestAgentsInstallCursor(t *testing.T) {
 	dir := isolateCursor(t)
 	must(t, "init")
@@ -164,9 +147,6 @@ func TestAgentsInstallCursor(t *testing.T) {
 	}
 }
 
-// A Cursor session's unseated edit (Write and Delete) and its operator-only
-// shell verb are refused with the claude gate's reason, byte for byte; once
-// seated in a performing state the edit passes (sto_e51c7fb9 AC3).
 func TestCursorGateMatchesClaudeGate(t *testing.T) {
 	dir := isolateCursor(t)
 	must(t, "init")
@@ -182,9 +162,6 @@ func TestCursorGateMatchesClaudeGate(t *testing.T) {
 			t.Errorf("%s: cursor reason\n%q\nclaude reason\n%q", fx, got, want)
 		}
 	}
-	// A shell write into this repo's own tree reaches the seat check (the
-	// operator-verb and fence checks pass it): unseated, it is refused with
-	// the claude gate's seat reason.
 	shellWrite := "echo x > " + main
 	raw, doc := cursorAnswer(t, cursorPayload(t, "pretooluse-shell", "c-1", dir, "", shellWrite), "gate")
 	gotSh := cursorDeny(t, raw, doc)
@@ -214,12 +191,6 @@ func TestCursorGateMatchesClaudeGate(t *testing.T) {
 	}
 }
 
-// The other-tree fence holds for Cursor, with the session's repo known only
-// from CURSOR_PROJECT_DIR: the process runs elsewhere, the payload has no cwd
-// and no workspace roots, and CLAUDE_PROJECT_DIR is unset. A seated edit in
-// the repo passes (so the repo was found from CURSOR_PROJECT_DIR); an edit or
-// shell write into another repository's tree is refused with the claude
-// gate's fence reason.
 func TestCursorGateFencesAnotherRepository(t *testing.T) {
 	dir := isolateCursor(t)
 	must(t, "init")
@@ -236,8 +207,6 @@ func TestCursorGateFencesAnotherRepository(t *testing.T) {
 	gittest.Git(t, foreign, "commit", "-q", "--allow-empty", "-m", "init")
 	elsewhere := t.TempDir()
 	t.Chdir(elsewhere)
-	// Both repositories live under the temp dir, which the gate leaves alone;
-	// narrow its temp roots to a dir holding neither so the fence is reached.
 	hookTempRoots = []string{elsewhere}
 	t.Cleanup(func() { hookTempRoots = nil })
 	t.Setenv("CURSOR_PROJECT_DIR", dir)
@@ -272,8 +241,6 @@ func TestCursorGateFencesAnotherRepository(t *testing.T) {
 	}
 }
 
-// Cursor's sessionStart gets the session id, its seats and the [hook] inject
-// files as additional_context (sto_e51c7fb9 AC3).
 func TestCursorContextCarriesSessionSeatsAndInject(t *testing.T) {
 	dir := isolateCursor(t)
 	must(t, "init")
@@ -297,10 +264,6 @@ func TestCursorContextCarriesSessionSeatsAndInject(t *testing.T) {
 	}
 }
 
-// Cursor's beforeSubmitPrompt runs the prompt hook: it settles the session's
-// owner and, since that event has no context channel, answers only
-// {"continue":true}. Cursor's stop runs the stop check, which answers {} (no
-// followup_message, so Cursor does not continue the turn).
 func TestCursorPromptAndStopAnswers(t *testing.T) {
 	dir := isolateCursor(t)
 	anc := procgroup.Ancestors(os.Getpid())
@@ -332,10 +295,6 @@ func TestCursorPromptAndStopAnswers(t *testing.T) {
 
 func jsonString(s string) string { b, _ := json.Marshal(s); return string(b) }
 
-// Once .cursor/hooks.json holds satelle's entries, Cursor's run of the
-// .claude/settings.json entries (its Claude Code compatibility; the payload
-// carries cursor_version) answers nothing, so nothing is judged or injected
-// twice; a plain claude payload still answers.
 func TestClaudeHooksDeferToCursorInstall(t *testing.T) {
 	dir := isolateCursor(t)
 	must(t, "init")

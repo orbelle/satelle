@@ -15,37 +15,23 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// RemotePerformer performs a step on a node of a remote (placement
-// "remote:<id>"). The real one starts the node through satelle-server and
-// sends the step over the sealed channel.
 type RemotePerformer interface {
-	// StartNode asks for a node of remote to perform binding for item, and
-	// returns its id.
 	StartNode(ctx context.Context, remote, itemID, binding string) (node string, err error)
-	// PerformOn runs req on node and returns the performer's answer.
 	PerformOn(ctx context.Context, node string, req agent.Request) (agent.Result, error)
 }
 
-// CloudLauncher starts a cloud session (placement "cloud") performing a step,
-// and returns the session's URL. Its work comes back as a branch, recorded by
-// Collect and judged by the local gates.
 type CloudLauncher interface {
 	Launch(ctx context.Context, it item.Item, req agent.Request) (url string, err error)
 }
 
-// Seat location prefixes (owned by package item).
 const (
 	LocationLocal  = item.LocationLocal
 	LocationRemote = item.LocationRemote
 	LocationCloud  = item.LocationCloud
 )
 
-// KindBranchCollected records a branch a step's work came back on.
 const KindBranchCollected = "branch.collected"
 
-// Collected is the branch.collected payload: the branch, the commit it was at,
-// the diff base its gates judge from (its merge base with the base branch) and
-// the ref that base was taken from.
 type Collected struct {
 	Branch  string `json:"branch"`
 	Commit  string `json:"commit"`
@@ -53,26 +39,17 @@ type Collected struct {
 	BaseRef string `json:"base_ref,omitempty"`
 }
 
-// BranchGit is what Collect, seat --base, task run, the stale-base check and a
-// collected branch's gates ask of git, all read-only.
 type BranchGit interface {
-	// Resolve returns the commit ref names; an error when there is none.
 	Resolve(ref string) (string, error)
 	MergeBase(a, b string) (string, error)
-	// IsAncestor reports whether a is in b's history.
 	IsAncestor(a, b string) (bool, error)
-	// Branch is the checkout's current branch, "" when HEAD is detached.
 	Branch() (string, error)
 	ChangedBetween(base, head string) ([]string, error)
 	DiffBetween(base, head string, paths []string) (string, error)
 }
 
-// ErrCloudByHand is returned by Perform for a cloud-placed step when no
-// launcher is configured: the operator starts the session.
 var ErrCloudByHand = errors.New("no cloud launcher")
 
-// LocalLocation is the seat location of a working tree: local: and the tree's
-// canonical path, so locations compare equal however the tree was reached.
 func LocalLocation(tree string) string {
 	if abs, err := filepath.Abs(tree); err == nil {
 		tree = abs
@@ -83,21 +60,12 @@ func LocalLocation(tree string) string {
 	return LocationLocal + filepath.Clean(tree)
 }
 
-// performLocal runs a step here: the run is seated at local:<tree> under a
-// session of its own, handed to the performer as SATELLE_SESSION with the tree
-// as SATELLE_PROJECT_DIR, so its harness's edit gate admits its edits. The
-// seat carries the item's recorded base, so it never moves what the gates
-// judge, and it is released when the run ends, also on failure or panic. The
-// run's process owns the session's record (k.Sessions) until then.
 func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger.Event, req agent.Request, actor string) (res agent.Result, err error) {
 	session := item.NewID("perform")
 	base, ref := k.base(it, events)
 	if _, err := k.bindSeat(it.ID, item.Seat{Session: session, Location: LocalLocation(k.Dir), Base: base, BaseRef: ref}, actor); err != nil {
 		return agent.Result{}, err
 	}
-	// The run's process owns its session while it runs, so a seat left by a
-	// run that died is provably gone (internal/seatlife). Best effort: a
-	// session without a record is only ever unverified.
 	if k.Sessions != nil {
 		_ = k.Sessions.Own(session)
 	}
@@ -116,8 +84,6 @@ func (k *Kernel) performLocal(ctx context.Context, it item.Item, events []ledger
 	return k.Dispatcher.Dispatch(ctx, agent.Perform, req)
 }
 
-// performRemote runs a step on a node: the node holds a remote:<node> seat for
-// the run.
 func (k *Kernel) performRemote(ctx context.Context, it item.Item, remote string, req agent.Request, actor string) (agent.Result, string, error) {
 	if k.Remote == nil {
 		return agent.Result{}, "", fmt.Errorf("agent %q is placed on remote %q, and no remote performer is configured (sign in and bind a project)", req.Binding.Name, remote)
@@ -137,7 +103,6 @@ func (k *Kernel) performRemote(ctx context.Context, it item.Item, remote string,
 	return res, loc, runErr
 }
 
-// performCloud starts a cloud session on the step and seats it at cloud:<url>.
 func (k *Kernel) performCloud(ctx context.Context, it item.Item, req agent.Request, actor string) (agent.Result, string, error) {
 	if k.Cloud == nil {
 		return agent.Result{}, "", fmt.Errorf("%w: agent %q is placed in the cloud. Start a cloud session on %s, seat it with `satelle %s seat %s --session <s> --location %s<url>`, and when its work comes back on a branch run `satelle %s collect %s --branch <b>`",
@@ -154,14 +119,6 @@ func (k *Kernel) performCloud(ctx context.Context, it item.Item, req agent.Reque
 	return agent.Result{Text: "performing in the cloud at " + url}, loc, nil
 }
 
-// Collect records the branch a step's work came back on: the commit it is at
-// and its merge base with the base branch, which becomes the diff base the
-// item's gates judge from. The base branch is baseRef when given, else
-// origin/main, else the item's recorded base; never HEAD, so the base is the
-// same whichever tree collect runs in. A branch that adds nothing over that
-// base is refused: its gates would judge an empty diff. It reads git and never
-// writes it: bringing the branch in, if that is needed, is the work of a step's
-// agent.
 func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -210,7 +167,6 @@ func (k *Kernel) Collect(id, branch, baseRef, actor string) (Collected, error) {
 	return c, err
 }
 
-// collected is the latest branch recorded on the item, if any.
 func collected(events []ledger.Event) (Collected, bool) {
 	for i := len(events) - 1; i >= 0; i-- {
 		var c Collected
@@ -221,8 +177,6 @@ func collected(events []ledger.Event) (Collected, bool) {
 	return Collected{}, false
 }
 
-// span is what an item's gates judge: from base to head, or to the working
-// tree when head is "", whose base is the judged base (judgedBase).
 type span struct{ base, head string }
 
 func (k *Kernel) spanOf(it item.Item, events []ledger.Event) span {
@@ -251,7 +205,6 @@ func (k *Kernel) diffSpan(s span, paths []string) (string, error) {
 	return k.Git.Diff(s.base, paths)
 }
 
-// remotePlaced reports whether any gate of tr is placed on a remote.
 func remotePlaced(w *workflow.Workflow, tr *workflow.Transition) bool {
 	for _, g := range tr.Groups {
 		for _, name := range g.Gates {
@@ -263,12 +216,6 @@ func remotePlaced(w *workflow.Workflow, tr *workflow.Transition) bool {
 	return false
 }
 
-// pushedHead is the head a remote-placed check judges: the collected branch's
-// commit when the item has one, else the checkout's HEAD on its branch (a
-// dirty tree or a detached HEAD is refused: what a node would test is not
-// what is here). The head must be in the history of the branch's
-// remote-tracking ref on the base branch's remote (origin), which is what the
-// node is handed.
 func (k *Kernel) pushedHead(events []ledger.Event, sp span) (gate.Head, error) {
 	bg, ok := k.Git.(BranchGit)
 	if !ok {

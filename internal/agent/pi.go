@@ -15,13 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// pi runs `pi --mode rpc`, started cold (no session, extensions, skills,
-// prompt templates, context files or MCP): satelle sends one prompt command,
-// reads events until agent_settled, then asks for the last assistant text and
-// the session stats, and ends pi's process group. pi has no deny flag, so a
-// plain deny is taken out of --tools and a scoped deny on a shell grant is
-// refused. The dispatch log gets argv, every RPC line written ("> ") and read
-// ("< ") in order, then pi's stderr: the full exchange.
 type pi struct{}
 
 func (pi) Name() string         { return PresetPi }
@@ -38,7 +31,6 @@ var piTools = map[string][]string{
 	ToolBash:  {"bash"},
 }
 
-// piGrace bounds each wait after pi settles.
 const piGrace = 2 * time.Second
 
 func (pi) Argv(req Request) ([]string, error) {
@@ -74,7 +66,6 @@ func (pi) Argv(req Request) ([]string, error) {
 	return argv, nil
 }
 
-// piRecord is the union of the pi RPC records read here.
 type piRecord struct {
 	Type    string          `json:"type"`
 	ID      string          `json:"id"`

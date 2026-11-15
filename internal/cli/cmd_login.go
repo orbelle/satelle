@@ -13,11 +13,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// defaultCallbackPort is the loopback port of the registered OAuth redirect.
 const defaultCallbackPort = 53682
 
-// resolveServer is the --server flag, else the machine's [hosted] server,
-// else hosted.DefaultServer.
 func resolveServer(flag string) (string, error) {
 	if s := strings.TrimRight(strings.TrimSpace(flag), "/"); s != "" {
 		return s, nil
@@ -29,8 +26,6 @@ func resolveServer(flag string) (string, error) {
 	return hosted.ConfiguredServer(gc), nil
 }
 
-// dial opens a gRPC client to server with the default credential store
-// (SATELLE_TOKEN, else the stored login).
 func dial(server string) (*hosted.Client, error) {
 	return hosted.Dial(server, hosted.DefaultStore(), hosted.Options{})
 }

@@ -10,11 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// substrateTree reads root's command tree for the substrate checks: every
-// subcommand (by its name and each alias) and flag the binary has, hidden
-// ones too (a command the binary has is not drift), cobra's default help,
-// completion and version included, and the embedded help topics as the words
-// of the help command.
 func substrateTree(root *cobra.Command) substrate.Tree {
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
@@ -30,8 +25,6 @@ func substrateTree(root *cobra.Command) substrate.Tree {
 			if sub.Deprecated != "" {
 				continue
 			}
-			// An alias names the same command: its subtree is walked under
-			// each name.
 			for _, name := range append([]string{sub.Name()}, sub.Aliases...) {
 				t.AddSub(path, name)
 				walk(sub, strings.TrimSpace(path+" "+name))

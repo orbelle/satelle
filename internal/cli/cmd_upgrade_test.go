@@ -11,10 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// preV1Repo writes a pre-1.0 .satelle into dir (a git repo), as
-// tests/upgrade_fixture_test.go does: a satelle.toml whose [review] table v1
-// does not know, deployed.version and workflows/step.toml. It returns the
-// markers kernel.LegacyMarkers finds.
 func preV1Repo(t *testing.T, dir string) []string {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
@@ -40,7 +36,6 @@ func preV1Repo(t *testing.T, dir string) []string {
 	return m
 }
 
-// newPreV1Repo is preV1Repo in a fresh temp dir, symlinks resolved.
 func newPreV1Repo(t *testing.T) (string, []string) {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -50,7 +45,6 @@ func newPreV1Repo(t *testing.T) (string, []string) {
 	return dir, preV1Repo(t, dir)
 }
 
-// registerProjects adds paths to the isolated home's [projects] paths.
 func registerProjects(t *testing.T, paths ...string) {
 	t.Helper()
 	gc, err := config.LoadGlobal()
@@ -65,9 +59,6 @@ func registerProjects(t *testing.T, paths ...string) {
 	}
 }
 
-// The needs-upgrade line names the path, the markers, the command and the
-// skill, on one line; registeredLegacy lists only the pre-1.0 projects, once
-// per root.
 func TestNeedsUpgradeLineAndRegisteredLegacy(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")

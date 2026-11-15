@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// A cursor-agent judge whose run ends in an error result is a dispatch error,
-// never a reject or an accept (sto_0f41dda9 AC4).
 func TestCursorErrorResultIsAnError(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "cursor-agent")
 	stream := `{"type":"result","subtype":"error","is_error":true,"result":"quota exceeded"}`

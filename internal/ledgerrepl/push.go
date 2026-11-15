@@ -10,21 +10,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
 
-// The reasons push names a gap.
 const (
 	whyNotHeld  = "not in this runtime and not in the store"
 	whyCorrupt  = "corrupt in this runtime and not in the store"
 	whyTooLarge = "larger than the store's 64 MiB object limit"
 )
 
-// Push appends each local chain past what the store holds, every blob the
-// appended events reference before them: all chains with no items, else only
-// the named ones (each must have a local chain). An event already in the
-// store with the same hash is already there; a different hash stops that
-// item's push at that sequence (a divergence) while other items continue. A
-// blob neither side holds is a gap. A store error ends the push and is
-// returned. A store that keeps item summaries gets those of the written
-// items.
 func (r *Replicator) Push(ctx context.Context, items ...string) (Result, error) {
 	var res Result
 	var lst Listing
@@ -78,10 +69,6 @@ func (r *Replicator) Push(ctx context.Context, items ...string) (Result, error) 
 	return res, nil
 }
 
-// pushItem appends item's chain past what the store holds. When the listing
-// proves the store holds exactly a prefix of it, the offer starts after that
-// prefix; otherwise it re-offers the last sequence both hold, so that
-// sequence is compared by the same rule as a race with another writer.
 func (r *Replicator) pushItem(ctx context.Context, res *Result, item string, local []ledger.Event, c Chain) error {
 	start := max(min(c.Len, len(local))-1, 0)
 	if proven(local, c) {
@@ -92,9 +79,6 @@ func (r *Replicator) pushItem(ctx context.Context, res *Result, item string, loc
 		refs = refsBySeq(r.Refs(local))
 	}
 	wrote := false
-	// A blob of an event the store already holds may have reached this
-	// runtime late: offer it now. Then every blob the offered events
-	// reference, before the first of them.
 	for seq := range local {
 		for _, ref := range refs[seq] {
 			ok, err := r.pushBlob(ctx, res, item, ref)
@@ -104,10 +88,6 @@ func (r *Replicator) pushItem(ctx context.Context, res *Result, item string, loc
 			wrote = wrote || ok
 		}
 	}
-	// The offer loop never offers past len(local), and every pass either
-	// advances seq or ends: a store chain that extends the local one answers
-	// the re-offered last sequence with the same hash, seq reaches
-	// len(local), and nothing is written.
 	seq := start
 	for seq < len(local) {
 		n, held, err := r.Store.Offer(ctx, item, seq, local[seq:])
@@ -118,10 +98,10 @@ func (r *Replicator) pushItem(ctx context.Context, res *Result, item string, loc
 			return err
 		}
 		if seq >= len(local) {
-			break // everything offered is in the store
+			break
 		}
 		if held != "" && held == local[seq].Hash {
-			seq++ // already there
+			seq++
 			continue
 		}
 		r.diverge(res, Divergence{Item: item, Seq: seq, StoreHash: held, LocalHash: local[seq].Hash}, "not pushed past it")
@@ -134,8 +114,6 @@ func (r *Replicator) pushItem(ctx context.Context, res *Result, item string, loc
 	return nil
 }
 
-// pushBlob writes ref's blob unless the store holds it. It reports whether it
-// wrote one; a blob this runtime cannot supply is a gap.
 func (r *Replicator) pushBlob(ctx context.Context, res *Result, item string, ref ledger.BlobRef) (bool, error) {
 	held, err := r.Store.HasBlob(ctx, item, ref)
 	if err != nil || held {

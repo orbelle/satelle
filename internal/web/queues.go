@@ -8,10 +8,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// queueVM is one row of the Queues panel: the queue, its filter and trigger,
-// its members now and its last fire with that run's status. Membership is
-// folded here from the pushed rows and events by the same item.FoldQueue and
-// item.Members the CLI uses.
 type queueVM struct {
 	rowVM
 	Filter   string
@@ -69,8 +65,6 @@ func triggerLabel(t *item.Trigger) string {
 	return fmt.Sprintf("%s, at %d", target, t.MinSize)
 }
 
-// queueRows builds the Queues panel from the pushed queues, every other item
-// (the candidates a filter selects) and the ledger events.
 func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.Workflow) []queueVM {
 	byID := map[string]Item{}
 	cands := make([]item.Item, 0, len(all))
@@ -82,8 +76,6 @@ func queueRows(queues, all []Item, events []Entry, workflows map[string]*mirror.
 	for _, e := range events {
 		chains[e.Item] = append(chains[e.Item], ledger.Event{ID: e.ID, Item: e.Item, Kind: e.Kind, At: e.At, Actor: e.Actor, Payload: e.Payload})
 	}
-	// status resolves an explicit member for item.Members' lapse rule, from the
-	// pushed rows and their workflow's terminal states.
 	status := func(id string) (string, bool, bool) {
 		it, ok := byID[id]
 		if !ok {

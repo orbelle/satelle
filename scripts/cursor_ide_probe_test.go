@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// probe runs cursor-ide-probe.sh with args, stdin and extra environment, in a
-// throwaway HOME, and returns its stdout, stderr and exit code.
 func probe(t *testing.T, stdin string, env []string, args ...string) (string, string, int) {
 	t.Helper()
 	if _, err := exec.LookPath("jq"); err != nil {
@@ -58,8 +56,6 @@ func readCaptures(t *testing.T, dir string) []probeCapture {
 	return out
 }
 
-// record passes a hook call through unchanged (stdout and exit code) and
-// writes what went in and came out; an observer prints its fixed answer.
 func TestCursorIDEProbeRecordPassesThrough(t *testing.T) {
 	caps := t.TempDir()
 	payload := `{"hook_event_name":"preToolUse","session_id":"s1","tool_name":"Write"}`
@@ -98,7 +94,6 @@ func TestCursorIDEProbeRecordPassesThrough(t *testing.T) {
 	}
 }
 
-// writeCapture puts one capture in <dir>/captures/wired.
 func writeCapture(t *testing.T, dir, name string, c map[string]any) {
 	t.Helper()
 	p := filepath.Join(dir, "captures", "wired", name+".json")
@@ -111,8 +106,6 @@ func writeCapture(t *testing.T, dir, name string, c map[string]any) {
 	}
 }
 
-// collect refuses evidence that is not the IDE's own session and repo, and
-// marks a shell command no satelle gate entry saw.
 func TestCursorIDEProbeCollect(t *testing.T) {
 	ide := "/opt/test-cursor"
 	clean := map[string]any{"SATELLE_SESSION": nil, "SATELLE_PROJECT_DIR": nil}
@@ -198,8 +191,6 @@ func TestCursorIDEProbeCollect(t *testing.T) {
 	})
 }
 
-// record also captures every set name a harness may set for its session
-// (the caller prefixes), storing a credential-like value as redacted.
 func TestCursorIDEProbeRecordCallerNames(t *testing.T) {
 	caps := t.TempDir()
 	if _, errOut, code := probe(t, "", []string{"GROK_PROBE_ONLY=7", "CLAUDE_CODE_OAUTH_TOKEN=s3cret", "UNRELATED_NAME=x"},
@@ -222,7 +213,6 @@ func TestCursorIDEProbeRecordCallerNames(t *testing.T) {
 	}
 }
 
-// writeCallerCapture puts one capture in <dir>/captures/<harness>.
 func writeCallerCapture(t *testing.T, dir, harness, name, label string, env map[string]any) {
 	t.Helper()
 	p := filepath.Join(dir, "captures", harness, name+".json")
@@ -236,9 +226,6 @@ func writeCallerCapture(t *testing.T, dir, harness, name, label string, env map[
 	}
 }
 
-// caller-collect writes one fixture per harness from its first gate capture
-// and its shell capture, and refuses a harness without either, or a capture
-// made inside a satelle session or a Claude Code session.
 func TestCursorIDEProbeCallerCollect(t *testing.T) {
 	fake := t.TempDir()
 	for cli, v := range map[string]string{"cursor-agent": "2026.1.1-abc", "pi": "9.9.9", "grok": "grok 1.2.3 (x) [stable]"} {

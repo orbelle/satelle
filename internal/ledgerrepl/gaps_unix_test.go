@@ -12,7 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// gapped is A with an attachment whose blob is gone from A.
 func gapped(t *testing.T) (*ledger.Store, ledger.Event, string) {
 	t.Helper()
 	a := newStore(t)

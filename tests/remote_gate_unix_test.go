@@ -13,15 +13,8 @@ import (
 	"time"
 )
 
-// A check gate placed on a docker-local remote (sto_da5c52e7): the fake docker
-// of remote_docker_local_unix_test.go maps each node's container to a dir and
-// runs its execs on this host (git is the host's), so the node fetches the
-// pushed head from the bundle it is handed and runs the check there.
-
 const fence = "```"
 
-// gateWorkflow moves backlog -> done through the gate suite, a check placed on
-// remote gatebox. extra is added to the gate's table.
 func gateWorkflow(extra string) string {
 	return `name = "default"
 
@@ -47,7 +40,6 @@ func checkSkillText(script string) string {
 	return "---\nname: suite-check\ntype: check\n---\n\n" + fence + "sh\n" + script + "\n" + fence + "\n"
 }
 
-// gateboxDef is a docker-local definition with the given extra tables.
 func gateboxDef(extra string) string {
 	return `version = 1
 name = "gatebox"
@@ -65,7 +57,6 @@ scope = "run"
 ` + extra
 }
 
-// gateRemote is one gate.run with where it ran.
 type gateRemote struct {
 	Transition string `json:"transition"`
 	Gate       string `json:"gate"`
@@ -87,9 +78,6 @@ func (s *sandbox) remoteRuns(id string) []gateRemote {
 	return out
 }
 
-// gateSandbox is a repo with an origin, the gated workflow, the check skill
-// and the gatebox definition committed and pushed on main, and the fake docker
-// first on PATH (when withFake). host is a test-owned dir the check may use.
 func gateSandbox(t *testing.T, gateExtra, script, def string, withFake bool) (s *sandbox, fake string) {
 	t.Helper()
 	s = newSandbox(t)
@@ -114,8 +102,6 @@ func gateSandbox(t *testing.T, gateExtra, script, def string, withFake bool) (s 
 	return s, fake
 }
 
-// branchWork makes branch from main with one commit and pushes it unless
-// local, leaving it checked out; it returns the commit.
 func (s *sandbox) branchWork(branch string, push bool) string {
 	s.t.Helper()
 	s.git("checkout", "-q", "-B", branch, "main")
@@ -137,7 +123,6 @@ func fakeLog(t *testing.T, fake string) string {
 	return string(b)
 }
 
-// presentDone presents id's move to done and returns the exit code and output.
 func (s *sandbox) presentDone(id string) result {
 	s.t.Helper()
 	return s.run("story", "set", id, "--status", "done")
@@ -145,10 +130,6 @@ func (s *sandbox) presentDone(id string) result {
 
 var nodeLoc = regexp.MustCompile(`^remote:(nod_[0-9a-f]{12})$`)
 
-// AC1, AC4: the check runs on a node against the pushed head; the gate.run
-// records the node, the head, the exit and the check's output and stdin; the
-// node is started with no token and no server, set up before the fetch, and
-// removed after the accept (scope run).
 func TestRemoteGateRunsOnTheNodeAgainstThePushedHead(t *testing.T) {
 	t.Parallel()
 	host := realDir(t, t.TempDir())
@@ -216,8 +197,6 @@ echo "env=$SATELLE_ITEM $SATELLE_FROM $SATELLE_TO"`
 	}
 }
 
-// AC1: a check that exits 3 is a reject verdict with the exit and the output;
-// the item does not move and the container is left, with how to remove it.
 func TestRemoteGateRejectsOnTheCheckExit(t *testing.T) {
 	t.Parallel()
 	s, fake := gateSandbox(t, "", `echo "suite failed: 2 tests"; exit 3`, gateboxDef(""), true)
@@ -240,8 +219,6 @@ func TestRemoteGateRejectsOnTheCheckExit(t *testing.T) {
 	}
 }
 
-// AC1: an unpushed head and a dirty tree each reject naming why, and no node
-// starts.
 func TestRemoteGateNeedsAPushedCleanHead(t *testing.T) {
 	t.Parallel()
 	s, fake := gateSandbox(t, "", "exit 0", gateboxDef(""), true)
@@ -260,7 +237,6 @@ func TestRemoteGateNeedsAPushedCleanHead(t *testing.T) {
 	if len(g) != 2 || g[1].Result != "reject" || !strings.Contains(g[1].Notes, "uncommitted changes, which the node would not test") {
 		t.Fatalf("dirty: %+v", g)
 	}
-	// Committed on top of the pushed branch, and not pushed: ahead of origin.
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "ahead")
 	ahead := strings.TrimSpace(s.git("rev-parse", "HEAD"))
@@ -278,9 +254,6 @@ func TestRemoteGateNeedsAPushedCleanHead(t *testing.T) {
 	}
 }
 
-// AC2: two stories' remote gates run at the same time on two nodes, each on
-// its own collected branch's head, and the session's other commands answer
-// while they run.
 func TestRemoteGatesRunAtOnceOnTwoNodes(t *testing.T) {
 	t.Parallel()
 	host := realDir(t, t.TempDir())
@@ -333,7 +306,6 @@ while [ ! -f ` + host + `/release ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1));
 			t.Fatalf("both checks never ran at once\nlog:\n%s", fakeLog(t, fake))
 		}
 	}
-	// Both checks are in flight: two node containers exist at once.
 	entries, err := os.ReadDir(fake)
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +319,6 @@ while [ ! -f ` + host + `/release ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1));
 	if len(nodes) != 2 {
 		t.Fatalf("containers in flight %v", nodes)
 	}
-	// The session is not blocked.
 	for _, args := range [][]string{{"story", "list"}, {"story", "get", ids["one"]}} {
 		start := time.Now()
 		s.must(args...)
@@ -379,8 +350,6 @@ while [ ! -f ` + host + `/release ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1));
 	}
 }
 
-// AC3, AC4: every way a node gives no result rejects naming its cause, never
-// passes, and the item stays.
 func TestRemoteGateFailuresReject(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -460,10 +429,6 @@ func TestRemoteGateFailuresReject(t *testing.T) {
 	}
 }
 
-// AC4 on a real daemon: a service the definition's setup starts is up beside
-// the check, which runs against the pushed head fetched from the bundle, with
-// no network. Needs a docker daemon and a local image with git that runs as
-// root (the repo's satelle-node:local, or alpine/git); it never pulls.
 func TestRemoteGateServiceOnDaemon(t *testing.T) {
 	t.Parallel()
 	real, err := exec.LookPath("docker")
@@ -512,10 +477,6 @@ echo "service beat fresh; head=$(git rev-parse HEAD)"`
 	t.Logf("gate.run on %s: %s", image, g[0].Notes)
 }
 
-// The head is a merge commit (origin/main merged in) on a linked worktree of a
-// shallow clone, as a story's worktree is: the bundle of its ref ends at the
-// clone's shallow commits, and the node marks them shallow as well, so its
-// fetch does not look for their parents, and the check runs on the head.
 func TestRemoteGateOnAShallowWorktreeMergeHead(t *testing.T) {
 	t.Parallel()
 	s, fake := gateSandbox(t, "", `echo "head=$(git rev-parse HEAD)"`, gateboxDef(""), true)
@@ -525,7 +486,6 @@ func TestRemoteGateOnAShallowWorktreeMergeHead(t *testing.T) {
 		s.git("commit", "-q", "-m", "history "+n)
 	}
 	s.git("push", "-q", "origin", "main")
-	// Shallow in place, as a --depth clone is: its history ends at main.
 	s.git("fetch", "-q", "--depth=1", "origin", "main")
 	if strings.TrimSpace(s.git("rev-parse", "--is-shallow-repository")) != "true" {
 		t.Fatal("the sandbox is not shallow")

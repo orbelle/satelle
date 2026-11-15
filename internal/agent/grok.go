@@ -9,20 +9,13 @@ import (
 	"strings"
 )
 
-// grok runs grok in command mode: `grok --prompt-file <file> --output-format
-// json` with --tools naming grok's own tools for the grant and --deny for each
-// deny. The prompt goes in a file, never argv: a judge prompt carries the
-// record and the diff and can exceed Linux's 128 KiB limit on one argument.
 type grok struct{}
 
-// grokPromptFile stands for the run's prompt file in an argv built outside a
-// run (validation, tests).
 const grokPromptFile = "<prompt file>"
 
 func (grok) Name() string         { return PresetGrok }
 func (grok) EnforcesGrants() bool { return true }
 
-// grokTools translates the grant vocabulary into grok's tool names.
 var grokTools = map[string]string{
 	ToolRead:  "read_file",
 	ToolGrep:  "grep",
@@ -121,8 +114,6 @@ func (g grok) Run(ctx context.Context, req Request) (Result, error) {
 	return parseGrok(out)
 }
 
-// grokEnvelope is grok's `--output-format json` object: the reply in text,
-// Anthropic-shaped usage when grok reports it.
 type grokEnvelope struct {
 	Text  string `json:"text"`
 	Usage *struct {

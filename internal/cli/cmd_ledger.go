@@ -56,9 +56,6 @@ conformance/<run>/. See 'satelle help ledger-store'.`,
 				return err
 			}
 			defer k.Close()
-			// store-test checks only the configured command: it never
-			// resolves a default, so an unset or built-in store is refused
-			// before any call.
 			spec := k.Settings.Ledger.Store
 			c, err := storeCommand(k, spec, "store-test")
 			if err != nil {
@@ -84,9 +81,6 @@ conformance/<run>/. See 'satelle help ledger-store'.`,
 	}
 }
 
-// storeCommand is the external store command spec names, run in the working
-// tree without satelle's credentials. With no external command (spec unset,
-// or a built-in store) it refuses, naming the verb, and nothing is run.
 func storeCommand(k *kernel.Kernel, spec ledgerstore.Spec, verb string) (ledgerstore.Command, error) {
 	const only = "only an external store command ([ledger] store = { command = ..., args = [...] }) implements the adapter operations put-if-absent, get and list"
 	if !spec.External() {
@@ -103,8 +97,6 @@ func storeCommand(k *kernel.Kernel, spec ledgerstore.Spec, verb string) (ledgers
 		Withhold: []string{hosted.SessionTokenEnv, provider.EnvNodeToken}}, nil
 }
 
-// replicationFailure is push's or pull's exit 1 when an item diverged or was
-// refused; gaps never change the exit.
 func replicationFailure(verb string, res ledgerrepl.Result) error {
 	if msg := replicationReason(verb, res); msg != "" {
 		return &exitError{code: ExitError, msg: msg}
@@ -112,8 +104,6 @@ func replicationFailure(verb string, res ledgerrepl.Result) error {
 	return nil
 }
 
-// replicationReason names the items a push or pull diverged on or refused,
-// "" when there were none.
 func replicationReason(verb string, res ledgerrepl.Result) string {
 	if !res.Failed() {
 		return ""
@@ -214,8 +204,6 @@ store or network call.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out, header := cmd.OutOrStdout(), cmd.OutOrStdout()
 			if *asJSON {
-				// stdout stays JSON: the local line goes to stderr and the
-				// store is not named.
 				out, header = cmd.ErrOrStderr(), nil
 			}
 			return withStore(out, header, "status", func(_ *kernel.Kernel, r *ledgerrepl.Replicator) error {
@@ -242,7 +230,6 @@ store or network call.`,
 	return cmd
 }
 
-// short is a hash cut by ledger.ShortHash, "-" for none.
 func short(h string) string {
 	if h == "" {
 		return "-"
@@ -337,7 +324,6 @@ func ledgerListCmd() *cobra.Command {
 	return cmd
 }
 
-// compact is a payload on one line, cut to a readable length.
 func compact(p json.RawMessage) string {
 	s := strings.Join(strings.Fields(string(p)), " ")
 	if len(s) > 160 {
@@ -484,9 +470,6 @@ func workflowCmd() *cobra.Command {
 	return cmd
 }
 
-// workflowSelectCmd prints the workflow the repo's rules choose for an item
-// with the given kind, tags and category, and that workflow's start state:
-// the choice create makes when no --workflow is given. It reads only.
 func workflowSelectCmd() *cobra.Command {
 	var kind, category string
 	var tags []string
@@ -532,7 +515,6 @@ func sortedGateNames(w *workflow.Workflow) []string {
 	return out
 }
 
-// workflowJSON is a workflow in the shape its TOML has.
 func workflowJSON(w *workflow.Workflow) map[string]any {
 	return map[string]any{"name": w.Name, "file": w.File, "states": w.States, "gates": w.Gates, "transitions": w.Transitions}
 }

@@ -12,7 +12,6 @@ import (
 	"testing"
 )
 
-// adapterPath is the reference adapter in the repo.
 func adapterPath(t *testing.T) string {
 	t.Helper()
 	p, err := filepath.Abs(filepath.Join("..", "..", "adapters", "satelle-store-fs"))
@@ -25,7 +24,6 @@ func adapterPath(t *testing.T) string {
 	return p
 }
 
-// fsStore runs the reference adapter through sh over root.
 func fsStore(t *testing.T, root string) Command {
 	t.Helper()
 	return Command{Path: "sh", Args: []string{adapterPath(t), "--root", root}, Dir: filepath.Dir(root)}

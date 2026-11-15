@@ -10,11 +10,6 @@ import (
 	"testing"
 )
 
-// This repo's doctor.toml lists open drift items, and doctor's built-in
-// substrate check (the rules satelle validate applies, sto_a1681009) reports
-// a skill naming a command the binary lacks, through the real binary: the
-// stale line is a substrate issue, and an open story tagged drift is an
-// open:drift issue with its id in the fix (sto_3cf973ae AC1).
 func TestDoctorRunsThisRepoDriftChecks(t *testing.T) {
 	s := driftCheckSandbox(t)
 	b, err := os.ReadFile(filepath.Join("..", ".satelle/doctor.toml"))

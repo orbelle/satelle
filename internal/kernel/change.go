@@ -10,9 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// latestChange is the newest gate verdict that accepted (or carried) a
-// recorded change; false when there is none, as for results recorded before
-// changes were. It chooses the span a terminal move records, nothing else.
 func latestChange(results []gate.Result) (gate.Result, bool) {
 	for i := len(results) - 1; i >= 0; i-- {
 		r := results[i]
@@ -23,8 +20,6 @@ func latestChange(results []gate.Result) (gate.Result, bool) {
 	return gate.Result{}, false
 }
 
-// runSpan is the base, head and branch a presentation over sp judges: a
-// collected branch's head and name, else this tree's HEAD and branch.
 func (k *Kernel) runSpan(events []ledger.Event, sp span) gate.Change {
 	c := gate.Change{Base: sp.base, Head: sp.head}
 	if sp.head != "" {
@@ -40,11 +35,6 @@ func (k *Kernel) runSpan(events []ledger.Event, sp span) gate.Change {
 	return c
 }
 
-// changeNow is the item's own change now, over the paths a judge recorded
-// with rec saw, and the head it ends at. The judged branch is read when it
-// still resolves: this tree itself when it is that branch (uncommitted work
-// included), else the branch's commits, whatever this checkout's HEAD
-// carries. A detached judge, or a branch gone, reads the presented span.
 func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff string, err error) {
 	if bg, ok := k.Git.(BranchGit); ok && rec.Branch != "" {
 		if h, rerr := bg.Resolve(rec.Branch); rerr == nil {
@@ -70,7 +60,6 @@ func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff
 	return head, diff, err
 }
 
-// gatePaths are the paths gate name of w judges; nil when it is not defined.
 func gatePaths(w *workflow.Workflow, name string) []string {
 	if g, ok := w.Gates[name]; ok {
 		return g.Paths
@@ -78,11 +67,6 @@ func gatePaths(w *workflow.Workflow, name string) []string {
 	return nil
 }
 
-// frozenSpan is the span a move of it into a terminal state records, given
-// results, its gate verdicts oldest first: from the latest accepted change's
-// base to the head that change ends at now, else the presented span; nil when
-// there is no base or head to record. It never decides whether the move
-// happens.
 func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results []gate.Result) (*item.Span, error) {
 	rec, ok := latestChange(results)
 	if !ok {
@@ -102,21 +86,12 @@ func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results
 	return &item.Span{Base: rec.Change.Base, Head: head}, nil
 }
 
-// JudgedChange is one recorded gate verdict over a change: what the gate saw
-// (Judged, the hash of the diff alone) and the item's change now over the same
-// base, branch and paths (Now, ending at NowHead). The binary reports both;
-// whether they must match is a workflow's check. Now is the hash of the pinned
-// diff text alone: a verdict hashed over other text is a mismatch, even at the
-// head it recorded.
 type JudgedChange struct {
 	Gate, Transition, Result, Attempt string
 	Base, Branch                      string
 	Judged, Now, NowHead              string
 }
 
-// JudgedChanges lists id's gate verdicts that recorded a change, oldest first,
-// each with the change now. A terminal item's change is frozen, so it has
-// none; nor has an item outside a git work tree.
 func (k *Kernel) JudgedChanges(id string) ([]JudgedChange, error) {
 	it, events, err := k.load(id)
 	if err != nil {

@@ -18,8 +18,6 @@ import (
 
 func fireCalls(srv *fakeserver.Server) int { return len(calledAny(srv, 0, "RemoteService/FireRemote")) }
 
-// remote fire pushes only the fired item's chain to the bound project,
-// whatever [ledger] store names.
 func TestRemoteFirePushesOnlyTheFiredItem(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	m := newMachine(t)
@@ -41,8 +39,6 @@ func TestRemoteFirePushesOnlyTheFiredItem(t *testing.T) {
 	noStoreCall(t, calls)
 }
 
-// A fired item that diverged from the project is refused with exit 1, and
-// nothing is fired.
 func TestRemoteFireRefusesADivergedItem(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
@@ -70,7 +66,6 @@ func TestRemoteFireRefusesADivergedItem(t *testing.T) {
 	_ = b
 }
 
-// holeObjects is a store holding event 1 of one item and not event 0.
 type holeObjects struct{ key string }
 
 func (h holeObjects) PutIfAbsent(context.Context, string, []byte) ([]byte, bool, error) {
@@ -84,8 +79,6 @@ func (h holeObjects) List(_ context.Context, prefix, _ string) ([]string, error)
 	return nil, nil
 }
 
-// A fired item the store refuses (here, a chain with a missing sequence) is
-// remote fire's replicationFailure: exit 1, and nothing is fired.
 func TestRemoteFireRefusesARefusedItem(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
@@ -116,8 +109,6 @@ func TestRemoteFireRefusesARefusedItem(t *testing.T) {
 	}
 }
 
-// satelle remote status pulls only its run's item, through satelle-server,
-// whatever [ledger] store names.
 func TestRemoteStatusPullsOnlyItsItem(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	m := newMachine(t)

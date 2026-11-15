@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// coveredWorkflow has a code-ac judge on work -> review, and a gateless
-// rework move: done is reached with no judge of its own. With check, review
-// -> done runs the repo's change-judged check; without it, done has no gate.
 func coveredWorkflow(check bool) string {
 	w := `name = "covered"
 [states.todo]
@@ -53,9 +50,6 @@ to = "done"
 	return w
 }
 
-// coveredSandbox is a repo on main whose items take the covered workflow,
-// judged by a fake claude that accepts; with check, done runs this repo's
-// satelle-change-judged-check.
 func coveredSandbox(t *testing.T, check bool) *sandbox {
 	t.Helper()
 	if _, err := exec.LookPath("jq"); check && err != nil {
@@ -78,7 +72,6 @@ func coveredSandbox(t *testing.T, check bool) *sandbox {
 	return s
 }
 
-// commit writes rel and commits it.
 func (s *sandbox) commitFile(rel, body string) {
 	s.t.Helper()
 	s.write(rel, body)
@@ -86,8 +79,6 @@ func (s *sandbox) commitFile(rel, body string) {
 	s.git("commit", "-q", "-m", "add "+rel)
 }
 
-// reviewedItem is a story whose code-ac accepted web/a.go on work -> review,
-// worked on the current branch.
 func reviewedItem(s *sandbox) string {
 	s.t.Helper()
 	id := s.create("story", "--title", "covered").ID
@@ -101,7 +92,6 @@ func reviewedItem(s *sandbox) string {
 	return id
 }
 
-// moves are id's item.transitioned payloads, oldest first.
 type moveRec struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
@@ -124,7 +114,6 @@ func (s *sandbox) moves(id string) []moveRec {
 	return out
 }
 
-// judgedJSON is one entry of story diff --json's judged.
 type judgedJSON struct {
 	Gate       string `json:"gate"`
 	Transition string `json:"transition"`
@@ -137,7 +126,6 @@ type judgedJSON struct {
 	NowHead    string `json:"now_head"`
 }
 
-// diffJSON is story diff --json.
 type diffJSON struct {
 	Item   string        `json:"item"`
 	Base   string        `json:"base"`
@@ -147,10 +135,6 @@ type diffJSON struct {
 	Judged *[]judgedJSON `json:"judged"`
 }
 
-// The satelle-server sequence: code-ac accepts, an unrelated commit lands
-// afterwards, and the change-judged check on done rejects, naming the gate
-// to re-run; the item stays in review. Re-running it over the new change
-// lets done through.
 func TestACommitAfterReviewRefusesDone(t *testing.T) {
 	t.Parallel()
 	s := coveredSandbox(t, true)
@@ -172,7 +156,6 @@ func TestACommitAfterReviewRefusesDone(t *testing.T) {
 		t.Fatalf("change-judged = %+v, want a reject naming code-ac and work -> review", g)
 	}
 
-	// Re-run code-ac through the workflow's rework route.
 	s.must("story", "set", id, "--status", "work")
 	s.must("story", "set", id, "--status", "review")
 	if run := latestRun(s, id, "code-ac"); run.Result != "accept" {
@@ -189,8 +172,6 @@ func TestACommitAfterReviewRefusesDone(t *testing.T) {
 	}
 }
 
-// The binary decides nothing about the judged change: without the check, the
-// same sequence moves to done.
 func TestWithoutTheCheckDoneMovesAfterALaterCommit(t *testing.T) {
 	t.Parallel()
 	s := coveredSandbox(t, false)
@@ -204,8 +185,6 @@ func TestWithoutTheCheckDoneMovesAfterALaterCommit(t *testing.T) {
 	}
 }
 
-// diff --json reports each judged change and the change now: equal while the
-// tree is the reviewed change, different after a later commit.
 func TestTheDiffReportsJudgedChanges(t *testing.T) {
 	t.Parallel()
 	s := coveredSandbox(t, false)
@@ -232,8 +211,6 @@ func TestTheDiffReportsJudgedChanges(t *testing.T) {
 	}
 }
 
-// A done item's diff is the change it reached done with; a principle
-// committed later, or an untracked file, is not attributed to it.
 func TestADoneItemsDiffIsFrozen(t *testing.T) {
 	t.Parallel()
 	s := coveredSandbox(t, true)
@@ -260,9 +237,6 @@ func TestADoneItemsDiffIsFrozen(t *testing.T) {
 	}
 }
 
-// Done presented from main after a merge and a bump is accepted while the
-// item's own branch is still at the change its judge accepted; a branch moved
-// past it is rejected by the check.
 func TestDoneFromMainIsNotRefusedWhileTheBranchIsJudged(t *testing.T) {
 	t.Parallel()
 	for _, moved := range []bool{false, true} {
@@ -293,11 +267,6 @@ func TestDoneFromMainIsNotRefusedWhileTheBranchIsJudged(t *testing.T) {
 	}
 }
 
-// The v1.0.33 release sequence: a story judged in its own tree on its branch,
-// whose user diff config uses mnemonic prefixes and the histogram algorithm,
-// is pushed and lands on main by fast-forward, or by a --no-ff merge, and
-// main moves on with a bump; its local branch is gone. Done from main passes
-// the change-judged check, since the branch is still at its judged change.
 func TestDoneFromMainAfterALandingIsAccepted(t *testing.T) {
 	t.Parallel()
 	for _, landing := range []string{"--ff-only", "--no-ff"} {

@@ -12,8 +12,6 @@ import (
 	"testing"
 )
 
-// fakeCursor is a cursor-agent that records argv and stdin, copies any live
-// .cursor/cli.json of its working directory, then prints stream.
 func fakeCursor(t *testing.T, stream string, exit int) (bin, argvFile, stdinFile, permsFile string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -51,8 +49,6 @@ func TestDispatchCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A judge: ask mode, the prompt and skill byte for byte on stdin, the
-	// parsed result.
 	big := strings.Repeat("p", 300<<10) + "END"
 	run := t.TempDir()
 	judge := Binding{Name: "j", Command: bin, Model: "claude-opus-5-5-high", Tools: []string{"Read", "Grep", "Glob"}}
@@ -75,9 +71,6 @@ func TestDispatchCursor(t *testing.T) {
 	if got := read(t, stdinFile); got != "<system>\nthe skill\n</system>\n\n"+big {
 		t.Errorf("stdin is not the skill then the prompt (%d bytes)", len(got))
 	}
-	// The judge's own config denies every shell command (ask mode still runs
-	// commands Cursor deems read-only), links the machine's sign-in, writes
-	// nothing in the working tree and is removed after the run.
 	if got := read(t, permsFile); !strings.Contains(got, `"Shell(**)"`) {
 		t.Errorf("judge config:\n%s", got)
 	}
@@ -91,13 +84,10 @@ func TestDispatchCursor(t *testing.T) {
 		t.Errorf("the run wrote .cursor in the working tree: %v", err)
 	}
 
-	// A judge granted Edit and Write is refused by the judge check.
 	if _, err := (Runner{}).Dispatch(context.Background(), Judge, Request{Binding: Binding{Name: "x", Command: bin, Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}}); err == nil || !strings.Contains(err.Error(), "may not judge") {
 		t.Fatalf("an Edit-granted cursor judge: %v", err)
 	}
 
-	// A performer: force mode, its config denies every shell command, and the
-	// working tree is untouched.
 	perf := Binding{Name: "p", Command: bin, Model: "m", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}
 	if _, err := (Runner{}).Dispatch(context.Background(), Perform, Request{Binding: perf, Prompt: "work", Dir: run}); err != nil {
 		t.Fatal(err)
@@ -119,8 +109,6 @@ func TestDispatchCursor(t *testing.T) {
 	}
 }
 
-// A project .cursor/cli.json at or above the run dir that could widen the run
-// refuses it, naming the file; a deny-only file lets it proceed.
 func TestCursorProjectConfig(t *testing.T) {
 	stream, err := os.ReadFile("testdata/cursor-stream.jsonl")
 	if err != nil {
@@ -166,7 +154,6 @@ func TestCursorProjectConfig(t *testing.T) {
 	}
 }
 
-// A dispatch that fails names its cause and is never a verdict.
 func TestDispatchCursorFailures(t *testing.T) {
 	ro := []string{"Read", "Grep", "Glob"}
 	if _, err := (Runner{}).Dispatch(context.Background(), Judge, Request{Binding: Binding{Name: "m", Command: "/no/such/cursor-agent", Tools: ro}}); err == nil || !strings.Contains(err.Error(), "not installed") {

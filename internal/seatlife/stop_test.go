@@ -11,8 +11,6 @@ func marked(home, session string) bool {
 	return err == nil
 }
 
-// The stop marker needs no session record: a stop that owes a move blocks
-// once, the stop straight after passes, and a third blocks again.
 func TestStopBlocksOnceWithoutARecord(t *testing.T) {
 	home := t.TempDir()
 	const s = "sess-1"

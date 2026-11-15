@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// storeOn configures the current machine's [ledger] store as the reference
-// adapter over root.
 func storeOn(t *testing.T, m machine, root string) {
 	t.Helper()
 	configureLedger(t, m.dir, `store = { command = "sh", args = ['`+storeAdapter(t)+`', "--root", '`+root+`'] }`)
@@ -70,7 +68,6 @@ func TestLedgerPushPullRoundTripsThroughTheReferenceAdapter(t *testing.T) {
 	}
 	must(t, "ledger", "verify")
 
-	// Divergence: both change id1; A pushes first.
 	a.use(t)
 	must(t, "story", "set", id1, "--title", "a")
 	must(t, "ledger", "push")
@@ -148,7 +145,6 @@ func TestLedgerVerifyExitsThreeWhileABlobGapRemains(t *testing.T) {
 		}
 	}
 
-	// A broken chain is still exit 1.
 	f, err := os.OpenFile(runtimeLedger(t).Path(id), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)

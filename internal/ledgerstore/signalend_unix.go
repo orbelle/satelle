@@ -11,10 +11,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// signalEnd describes how a signal ended cmd: "signal <NAME>, pid <pid>,
-// process group <pgid>". It is empty when cmd has not been waited or exited
-// on its own. The group is read from the SysProcAttr procgroup.Set wrote on
-// cmd, since the reaped child can no longer be asked for it.
 func signalEnd(cmd *exec.Cmd) string {
 	ps := cmd.ProcessState
 	if ps == nil {

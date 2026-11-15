@@ -10,7 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// Attachments: attach, list, get; each is an attachment.added on the ledger.
 func TestAttachments(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -53,7 +52,6 @@ func TestAttachments(t *testing.T) {
 		t.Error("a missing attachment was printed")
 	}
 
-	// Versions: the newest by default, any by its sha256 or a 7+ hex prefix.
 	v2 := "v2\x00 with nul\r\nand CRLF, no trailing newline"
 	if r := s.exec(satelleBin, v2, "story", "attach", id, "--name", "plan.md", "--file", "-"); r.code != 0 {
 		t.Fatalf("attach v2: %s%s", r.out, r.err)
@@ -80,8 +78,6 @@ func TestAttachments(t *testing.T) {
 	s.must("ledger", "verify")
 }
 
-// A task names its input selection; a run creates an execution recording the
-// items it took.
 func TestTaskRunCreatesAnExecution(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -96,8 +92,6 @@ func TestTaskRunCreatesAnExecution(t *testing.T) {
 	if !strings.HasPrefix(task.ID, "tas_") {
 		t.Errorf("task id %q", task.ID)
 	}
-	// The created execution prints at the top level, like create --json; the
-	// items it took are under task_run.
 	out := s.must("task", "run", task.ID, "--json")
 	var run struct {
 		item.Item

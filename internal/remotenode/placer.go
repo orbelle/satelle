@@ -13,30 +13,16 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// DefaultReadyTimeout bounds how long a starter waits for a performer node to
-// set up and report ready.
 const DefaultReadyTimeout = 30 * time.Minute
 
-// Placer is the starter's side of placement "remote:<id>" (a
-// kernel.RemotePerformer): it asks satelle-server for a node
-// (RemoteService.StartNode), pins the key the node publishes
-// (NodeService.GetNode), opens the sealed channel through the relay and sends
-// the step as an AgentJob.
 type Placer struct {
-	Client  *hosted.Client
-	Project string
-	// ReadyTimeout bounds the wait for the node's ready report; zero is
-	// DefaultReadyTimeout.
+	Client       *hosted.Client
+	Project      string
 	ReadyTimeout time.Duration
 	ChanOpts     []remotechan.Option
-	// Repl pushes the item before its node starts, through satelle-server,
-	// so the node pulls the item and its attachments and builds the record
-	// from its own ledger.
-	Repl *ledgerrepl.Replicator
+	Repl         *ledgerrepl.Replicator
 }
 
-// StartNode pushes the item, then asks for a node of remote to perform
-// binding for it.
 func (p Placer) StartNode(ctx context.Context, remote, itemID, binding string) (string, error) {
 	if p.Client == nil || p.Project == "" {
 		return "", errors.New("a remote placement needs a bound project (satelle project bind)")
@@ -61,9 +47,6 @@ func (p Placer) StartNode(ctx context.Context, remote, itemID, binding string) (
 	return r.GetNodeId(), nil
 }
 
-// Attach opens the sealed channel to node: it pins the key the node
-// publishes (NodeService.GetNode), attaches through the relay and waits up to
-// ReadyTimeout for the node's ready report. End the run with End.
 func (p Placer) Attach(ctx context.Context, node string) (*Run, error) {
 	key := func(ctx context.Context) ([]byte, error) {
 		n, err := p.Client.Nodes.GetNode(ctx, &satellepb.GetNodeRequest{NodeId: node})
@@ -87,7 +70,6 @@ func (p Placer) Attach(ctx context.Context, node string) (*Run, error) {
 	return run, nil
 }
 
-// PerformOn sends req to node over the sealed channel and returns its answer.
 func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (agent.Result, error) {
 	run, err := p.Attach(ctx, node)
 	if err != nil {

@@ -20,56 +20,26 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// JoinOptions say which node this is and where it works.
 type JoinOptions struct {
 	Server, NodeID, Token string
-	// Dir is the node's working root: repos/, work/ and runtime/ go under it.
-	Dir string
-	// NoSetup skips [setup]: the provider already ran it in the machine.
-	NoSetup bool
-	// Log is the node's own log: setup output and progress. Nil discards.
-	Log io.Writer
-	// Version is the satelle the node runs, for its report.
-	Version string
-	// Heartbeat is the interval of ReportStatus while the node works; zero is
-	// 15 seconds.
-	Heartbeat time.Duration
-	// SetupTimeout bounds each setup command; zero is 20 minutes.
-	SetupTimeout time.Duration
-	// GitEnv is added to git's environment when the node fetches its repos.
-	GitEnv []string
-	// Dispatcher runs the node's bindings; nil is agent.Runner.
-	Dispatcher agent.Dispatcher
-	// ChanOpts configure a performer node's channel.
-	ChanOpts []remotechan.Option
+	Dir                   string
+	NoSetup               bool
+	Log                   io.Writer
+	Version               string
+	Heartbeat             time.Duration
+	SetupTimeout          time.Duration
+	GitEnv                []string
+	Dispatcher            agent.Dispatcher
+	ChanOpts              []remotechan.Option
 }
 
-// Outcome is how a node's run ended: the verdict it concluded with and why.
 type Outcome struct {
 	Verdict string
 	Notes   string
 }
 
-// setupLogTail bounds the setup output a report carries.
 const setupLogTail = 8 << 10
 
-// Join runs one node end to end. It reads its definition, run and secrets
-// from satelle-server with the node token, fetches the declared repos
-// read-only, runs the definition's setup (and the provider's), and then its
-// run:
-//
-//   - item: pull the item's chain, drive it along its workflow on the kernel,
-//     push its chain back;
-//   - task: run the task once (kernel.TaskRun), drive the execution it
-//     created, push;
-//   - performer: publish the channel key, join the relay and perform the steps
-//     the starter sends until it closes the channel.
-//
-// While it works it heartbeats through ReportStatus with its progress and the
-// tail of its setup output, and it concludes with a verdict (accept or
-// reject) and notes. It always ends the node (EndNode), which revokes the
-// token. A secret's value goes only to the setup commands' and agents'
-// environment: never to disk, a report, the ledger or an error.
 func Join(ctx context.Context, o JoinOptions) (Outcome, error) {
 	if o.NodeID == "" || o.Token == "" || o.Server == "" {
 		return Outcome{}, errors.New("node join needs the server, the node id and the node token")
@@ -111,16 +81,15 @@ func Join(ctx context.Context, o JoinOptions) (Outcome, error) {
 }
 
 type joiner struct {
-	o   JoinOptions
-	nc  *NodeClient
-	run RunDescriptor
-	// digest is the sha256 of the remote.toml the node was served (gate.hello).
+	o      JoinOptions
+	nc     *NodeClient
+	run    RunDescriptor
 	digest string
 
 	mu           sync.Mutex
 	progress     string
 	setup        tailBuffer
-	secretValues []string // values redacted from every report
+	secretValues []string
 }
 
 func (j *joiner) itemID() string { return j.run.ItemID }
@@ -137,8 +106,6 @@ func (j *joiner) lastProgress() string {
 	return j.progress
 }
 
-// setupTail is the bounded tail of setup output, with every secret value
-// redacted: a command that echoes one must not carry it into a report.
 func (j *joiner) setupTail() string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -154,7 +121,6 @@ func redact(s string, values []string) string {
 	return s
 }
 
-// say records a progress line, logs it, and reports it at the next heartbeat.
 func (j *joiner) say(format string, args ...any) {
 	j.mu.Lock()
 	line := redact(fmt.Sprintf(format, args...), j.secretValues)
@@ -271,8 +237,6 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 	return out, err
 }
 
-// secrets reads every key the definition declares; the values become KEY=value
-// environment entries for setup and the agents, and nothing else.
 func (j *joiner) secrets(ctx context.Context, def remotedef.Definition) ([]string, error) {
 	var env []string
 	for _, e := range def.SecretEntries() {
@@ -291,8 +255,6 @@ func (j *joiner) secrets(ctx context.Context, def remotedef.Definition) ([]strin
 	return env, nil
 }
 
-// tree picks the working tree the kernel runs in: the first fetched repo that
-// carries a .satelle directory, else <dir>/work.
 func (j *joiner) tree(reposDir string, fetched []FetchedRepo) (tree, root string) {
 	for _, r := range fetched {
 		t := filepath.Join(reposDir, r.Name)
@@ -321,10 +283,6 @@ func (j *joiner) runSetup(ctx context.Context, dir string, def remotedef.Definit
 	return nil
 }
 
-// openNodeKernel installs the bundle's overlay into root, starts a
-// configuration when the tree has none, and opens the kernel with the node's
-// own runtime. The node performs every step itself: its bindings are placed
-// locally, dispatched by dispatcher with env added.
 func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher agent.Dispatcher, env []string) (*kernel.Kernel, error) {
 	if err := writeOverlay(root, overlay); err != nil {
 		return nil, err
@@ -346,7 +304,6 @@ func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher 
 	return k, nil
 }
 
-// withEnv hands the run's secrets to every binding the node dispatches.
 type withEnv struct {
 	inner agent.Dispatcher
 	env   []string
@@ -357,8 +314,6 @@ func (w withEnv) Dispatch(ctx context.Context, role agent.Role, req agent.Reques
 	return w.inner.Dispatch(ctx, role, req)
 }
 
-// drive runs an item or task node: pull the item, drive it (or the execution
-// a task run creates), push the chains back.
 func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Outcome, error) {
 	if j.run.ItemID == "" || j.run.Project == "" {
 		return Outcome{}, fmt.Errorf("the %s run names no item or project", j.run.Mode)
@@ -392,14 +347,11 @@ func (j *joiner) drive(ctx context.Context, k *kernel.Kernel, actor string) (Out
 	return Outcome{Verdict: res.Verdict, Notes: j.redacted(fmt.Sprintf("%s: %s", target, res.Notes))}, nil
 }
 
-// replicator moves the node's chains through satelle-server for its run's
-// project, by the rules every store uses.
 func (j *joiner) replicator(k *kernel.Kernel) *ledgerrepl.Replicator {
 	store := &ledgerrepl.Dev{Client: j.nc.Hosted(), Project: j.run.Project, Server: j.o.Server, Ledger: k.Ledger, Cache: k.Cache}
 	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: store, Refs: kernel.BlobRefs, Out: j.o.Log, Cache: k.Cache, Choose: k, Mirrors: k}
 }
 
-// pullRun pulls the run's item; a diverged or refused chain is an error.
 func pullRun(ctx context.Context, repl *ledgerrepl.Replicator, itemID string) error {
 	res, err := repl.Pull(ctx, itemID)
 	if err != nil {
@@ -411,10 +363,6 @@ func pullRun(ctx context.Context, repl *ledgerrepl.Replicator, itemID string) er
 	return nil
 }
 
-// perform serves a performer node: pull the run's item, publish the channel
-// key, join the relay, and run each step the starter sends with the node's
-// own binding, its prompt followed by the item's record built from the
-// node's own ledger.
 func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree string, report Report) (Outcome, error) {
 	if j.run.ItemID != "" && j.run.Project != "" {
 		if err := pullRun(ctx, j.replicator(k), j.run.ItemID); err != nil {
@@ -462,8 +410,6 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 		steps++
 		return json.Marshal(AgentReply{Text: res.Text, Model: res.Model, TokensIn: res.TokensIn, TokensOut: res.TokensOut})
 	})
-	// A gate check on this node (a fly-sprite remote) runs through the gate
-	// jobs, beside the agent.
 	if err := serveGateJobs(node, j.o.Dir, j.digest); err != nil {
 		return Outcome{}, err
 	}
@@ -474,7 +420,6 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 	return Outcome{Verdict: kernel.VerdictAccept, Notes: fmt.Sprintf("performed %d steps", steps)}, nil
 }
 
-// tailBuffer keeps the last setupLogTail bytes written.
 type tailBuffer struct{ b []byte }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {

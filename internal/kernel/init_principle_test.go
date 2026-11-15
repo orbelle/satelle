@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// The shipped reference-not-restate principle (sto_7e024b28): its path under
-// .satelle, and the session-start inject entry that names it.
 const (
 	referencePrinciple       = "principles/satelle-reference-not-restate.md"
 	referencePrincipleInject = ".satelle/" + referencePrinciple
@@ -36,13 +34,6 @@ var (
 
 func collapse(s string) string { return whitespaces.ReplaceAllString(strings.TrimSpace(s), " ") }
 
-// principleSentences splits a file into its units: blocks are separated by
-// blank lines and a block's lines are joined with a space; a block is split at
-// a full stop, semicolon or colon followed by whitespace, and at its end. Each
-// unit loses its leading list, heading and quote markers and its trailing
-// punctuation, is lower-cased and has its whitespace collapsed. A unit of
-// three or more words is a checked sentence; a shorter one is a skipped
-// fragment. There is no length rule in characters.
 func principleSentences(text string) (checked, skipped []string) {
 	for _, block := range regexp.MustCompile(`\n\s*\n`).Split(text, -1) {
 		joined := strings.Join(strings.Split(block, "\n"), " ")
@@ -64,10 +55,6 @@ func principleSentences(text string) (checked, skipped []string) {
 	return checked, skipped
 }
 
-// goFilesHolding walks root as TestNoResolveDefaultIsAGoLiteral does and
-// returns, for each non-test Go file that holds one of the sentences (as
-// given, or with its backticks removed) after lower-casing and collapsing its
-// whitespace, the sentences it holds; read is the number of Go files read.
 func goFilesHolding(t *testing.T, root string, sentences []string) (hits map[string][]string, read int) {
 	t.Helper()
 	hits = map[string][]string{}
@@ -103,9 +90,6 @@ func goFilesHolding(t *testing.T, root string, sentences []string) (hits map[str
 	return hits, read
 }
 
-// sto_7e024b28 AC1: init writes the principle into .satelle/principles and the
-// template's [hook] inject lists it; the fresh repo validates with no volatile
-// finding, and every template inject entry names a file the template holds.
 func TestInitShipsTheReferencePrinciple(t *testing.T) {
 	root, c := initVolatile(t)
 	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(referencePrinciple)))
@@ -137,8 +121,6 @@ func TestInitShipsTheReferencePrinciple(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC2: satelle init on a configured repo adds the missing
-// shipped principle, and every authored file stays byte for byte.
 func TestInitAddsTheShippedPrincipleToAConfiguredRepo(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	authored := map[string]string{
@@ -169,8 +151,6 @@ func TestInitAddsTheShippedPrincipleToAConfiguredRepo(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC2 ('overridable'): a repo's own file of the same name stays,
-// and InitPlan does not list it.
 func TestInitLeavesAnAuthoredPrincipleOfTheSameNameAlone(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	own := "---\nname: satelle-reference-not-restate\ntype: principle\ndescription: Our own.\n---\n\n# Our own wording\n"
@@ -190,8 +170,6 @@ func TestInitLeavesAnAuthoredPrincipleOfTheSameNameAlone(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC3: the principle is the embedded template file, and the file
-// init writes is those bytes.
 func TestThePrincipleIsTheEmbeddedTemplateFile(t *testing.T) {
 	shipped := embeddedReferencePrinciple(t)
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -203,8 +181,6 @@ func TestThePrincipleIsTheEmbeddedTemplateFile(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC3: no non-test Go file in the module holds a sentence of
-// three or more words of the shipped principle.
 func TestThePrincipleIsNotAGoLiteral(t *testing.T) {
 	checked, _ := principleSentences(embeddedReferencePrinciple(t))
 	if len(checked) == 0 {
@@ -221,10 +197,6 @@ func TestThePrincipleIsNotAGoLiteral(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC3: the scan checks every sentence of three or more words,
-// with no length gap: the plain-rules sentence is a checked unit and is found
-// when pasted into Go, every checked sentence is found when pasted, case and
-// wrapping do not hide one, and only fragments under three words are skipped.
 func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 	text := embeddedReferencePrinciple(t)
 	checked, skipped := principleSentences(text)
@@ -299,10 +271,6 @@ func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC4: the principle's dated-history line, under the shipped
-// volatile rules, is read (not dated, not exempt) and matches no pattern; no
-// line of the principle passes by exemption; the same line with a present-tense
-// word appended is reported.
 func TestTheDatedHistoryLineDrawsNoVolatileFinding(t *testing.T) {
 	_, c := initVolatile(t)
 	set, err := substrate.CompileVolatile(c.Volatile)

@@ -14,7 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
 
-// fsObjects is the reference adapter over a fresh root.
 func fsObjects(t *testing.T) ledgerstore.Command {
 	t.Helper()
 	p, err := filepath.Abs(filepath.Join("..", "..", "adapters", "satelle-store-fs"))
@@ -67,7 +66,7 @@ func TestPushContinuesPastEqualEventsOnAStaleListing(t *testing.T) {
 	add(t, a, "it", "a", 3)
 	push(t, a, o)
 	for k := range o.objs {
-		o.hidden[k] = true // B's listing predates A's push
+		o.hidden[k] = true
 	}
 	copyChain(t, a, b, "it")
 	add(t, b, "it", "b", 2)

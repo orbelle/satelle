@@ -11,18 +11,8 @@ import (
 	"testing"
 )
 
-// site is where a selector or call appears: the file's base name and the
-// enclosing function (a func literal inside a command constructor counts as
-// that constructor).
 type site struct{ file, fn string }
 
-// TestOnlyReplicationVerbsReadTheStore proves who reads [ledger] store: the
-// selector Ledger.Store appears only in resolveStore and store-test's
-// command; resolveStore is called only by openStore and the automatic sync
-// pass (syncRepo), openStore only by the push, pull and status commands' path
-// (withStore) and syncRepo; storeCommand only by openStore and store-test;
-// ledgerstore.Resolve only by resolveStore. So no hook, gate, read or remote
-// path reads the setting.
 func TestOnlyReplicationVerbsReadTheStore(t *testing.T) {
 	root := filepath.Join(pkgDir, "..", "..")
 	selectors := map[string][]site{}

@@ -13,17 +13,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// sto_2a41b9e4 AC4: every satelle command a document tells a session to run
-// carries --session, reads included (operator direction, 2026-11-14: one rule
-// for agents). The rule is mechanical: scanDoc finds each shown command, and
-// the named exceptions below are the only ones.
-
-// repoRoot is this repo's root, from internal/cli.
 const repoRoot = "../.."
 
-// sessionDocs is every document a session reads, as paths relative to root:
-// the help topics, README.md, every .md under .satelle (but its run records
-// and test fixtures), under .satelle-market and under the init template.
 func sessionDocs(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
@@ -56,19 +47,14 @@ func sessionDocs(t *testing.T, root string) []string {
 	return out
 }
 
-// shownCmd is one satelle command a document shows.
 type shownCmd struct {
-	Line int    // 1-based line where it starts
-	Text string // from "satelle" to the end of the command
-	Code bool   // in a code block (else an inline span)
-	// CmdPos: in a code block, at shell command position (a check's own call).
+	Line   int
+	Text   string
+	Code   bool
 	CmdPos bool
 }
 
-// HasSession reports whether the command carries --session.
 func (c shownCmd) HasSession() bool {
-	// The flag counts outside <...> and [...] and with a value that is not an
-	// alternative (--session x|pi is a malformed edit, not the flag).
 	depth := 0
 	fields := strings.Fields(c.Text)
 	for i, f := range fields {
@@ -86,9 +72,6 @@ func (c shownCmd) HasSession() bool {
 
 var satelleWord = regexp.MustCompile(`(^|[^A-Za-z0-9_./-])satelle(\s|$)`)
 
-// binaryWord matches the satelle binary in text: the word satelle, or a
-// shell variable the text sets to it (sbin=$(command -v satelle),
-// BIN="./satelle"), as "$sbin", $sbin or "${BIN}".
 func binaryWord(text string) *regexp.Regexp {
 	var names []string
 	for _, m := range regexp.MustCompile(`(?m)(\w+)=(?:\$\(command -v satelle\b|"?[^"\s]*/satelle"?$)`).FindAllStringSubmatch(text, -1) {
@@ -101,25 +84,19 @@ func binaryWord(text string) *regexp.Regexp {
 	return regexp.MustCompile(`(^|[^A-Za-z0-9_./-])(?:satelle|"\$\{?(?:` + alt + `)\}?"|\$\{?(?:` + alt + `)\}?)(\s|$)`)
 }
 
-// scanDoc returns the satelle commands text shows: each occurrence of the
-// word satelle followed by a root subcommand, on a code-block line (fenced or
-// indented; a line ending in a backslash joins the next) or in an inline
-// backtick span (a prose paragraph's lines read as one), except an inline
-// span that only names a command (nothing but flags or an elision after a
-// command that cannot run with no operand).
 func scanDoc(root *cobra.Command, text string) []shownCmd {
 	root.InitDefaultHelpCmd()
 	word := binaryWord(text)
 	lines := strings.Split(text, "\n")
 	var out []shownCmd
 	inFence := false
-	var para []int // line indexes of the current prose paragraph
+	var para []int
 	flush := func() {
 		if len(para) == 0 {
 			return
 		}
 		var b strings.Builder
-		var starts []int // byte offset of each line in b
+		var starts []int
 		for _, i := range para {
 			starts = append(starts, b.Len())
 			b.WriteString(lines[i])
@@ -151,9 +128,6 @@ func scanDoc(root *cobra.Command, text string) []shownCmd {
 			prevBlank = false
 			continue
 		}
-		// An indented code block opens after a blank line with a line that
-		// starts with satelle (or $ satelle), and runs while lines stay
-		// indented (blank lines inside it included).
 		switch {
 		case inFence:
 		case inIndent && trim != "" && !isIndent(l):
@@ -193,7 +167,6 @@ type span struct {
 	text  string
 }
 
-// inlineSpans are the single-backtick code spans of a prose paragraph.
 func inlineSpans(s string) []span {
 	var out []span
 	for i := 0; i < len(s); i++ {
@@ -215,14 +188,11 @@ func inlineSpans(s string) []span {
 	return out
 }
 
-// commandsIn finds the commands in one code line or one inline span.
 func commandsIn(root *cobra.Command, word *regexp.Regexp, s string, code bool) []shownCmd {
 	var out []shownCmd
 	for _, m := range word.FindAllStringSubmatchIndex(s, -1) {
 		at := m[0] + len(s[m[2]:m[3]])
 		if inPlaceholder(s[:at]) {
-			// <... of satelle service status>, <satelle runtime path>: a
-			// placeholder's words, not a command.
 			continue
 		}
 		ext := extent(s, at, code)
@@ -243,13 +213,9 @@ func commandsIn(root *cobra.Command, word *regexp.Regexp, s string, code bool) [
 	return out
 }
 
-// extent is the command starting at s[at]: up to the next unquoted |, ;, &,
-// ), backtick, redirection or # comment, or the closing quote of a quote it
-// sits in. A $( opens a fresh quoting context, so "$(satelle ... "$id")" is
-// read as the command inside the substitution.
 func extent(s string, at int, code bool) string {
 	var q byte
-	nested := false // a 'quoted' part inside a double-quoted string
+	nested := false
 	for i := 0; i < at; i++ {
 		switch c := s[i]; {
 		case q != '\'' && c == '$' && i+1 < len(s) && s[i+1] == '(':
@@ -264,14 +230,13 @@ func extent(s string, at int, code bool) string {
 		}
 	}
 	if nested {
-		// echo "... 'satelle status' ...": the command ends at the inner '.
 		if end := strings.IndexByte(s[at:], '\''); end >= 0 {
 			return strings.TrimSpace(s[at : at+end])
 		}
 	}
 	inner := q
 	q = 0
-	depth := 0 // inside <placeholder> or [optional] syntax, where | means "or"
+	depth := 0
 	for i := at; i < len(s); i++ {
 		c := s[i]
 		if inner != 0 && q == 0 && c == inner {
@@ -283,7 +248,6 @@ func extent(s string, at int, code bool) string {
 		case q == 0 && depth > 0 && (c == ']' || c == '>'):
 			depth--
 		case q == 0 && c == '|' && (depth > 0 || !code):
-			// An alternative (claude|pi, <a|b>, [F|-]), not a pipe.
 		case q == 0 && (c == '"' || c == '\'') && c != inner:
 			q = c
 		case q != 0 && c == q:
@@ -291,11 +255,8 @@ func extent(s string, at int, code bool) string {
 		case q == 0 && (c == '|' || c == ';' || c == '&' || c == ')' || c == '`'):
 			return strings.TrimSpace(s[at:i])
 		case q == 0 && (c == '#' || c == '(') && i > 0 && s[i-1] == ' ':
-			// A # comment, or a parenthesis that opens an explanation.
 			return strings.TrimSpace(s[at:i])
 		case q == 0 && (c == '>' || c == '<') && i > 0 && (s[i-1] == ' ' || (s[i-1] >= '0' && s[i-1] <= '9' && i > 1 && s[i-2] == ' ')):
-			// A redirection (>, 2>, <, but not a <placeholder>): the command
-			// ends before it; a fd digit stays with the redirection.
 			if c == '<' && i+1 < len(s) && s[i+1] != '<' && s[i+1] != ' ' && s[i+1] != '(' {
 				continue
 			}
@@ -309,9 +270,6 @@ func extent(s string, at int, code bool) string {
 	return strings.TrimSpace(s[at:])
 }
 
-// resolvePath resolves a command's words against the tree: root flags are
-// skipped, <kind> and $kind read as story. It reports the command path, the
-// words after it, and false when the first word is not a root subcommand.
 func resolvePath(root *cobra.Command, words []string) (*cobra.Command, []string, bool) {
 	i := 0
 	for i < len(words) {
@@ -354,8 +312,6 @@ func resolvePath(root *cobra.Command, words []string) (*cobra.Command, []string,
 	return cur, nil, true
 }
 
-// isName reports whether an inline span only names cmd: nothing but flags or
-// an elision follows it, and cmd cannot run with no operand.
 func isName(cmd *cobra.Command, after []string) bool {
 	for _, w := range after {
 		if !strings.HasPrefix(w, "-") && w != "…" && w != "..." {
@@ -371,9 +327,6 @@ func isName(cmd *cobra.Command, after []string) bool {
 	return false
 }
 
-// atCommandPosition reports whether a call starting after prefix is at shell
-// command position: only if, !, then, do or else between it and the nearest
-// $(, |, &, ;, { or the line start.
 func atCommandPosition(prefix string) bool {
 	cut := -1
 	for _, sep := range []string{"$(", "|", "&", ";", "{"} {
@@ -392,23 +345,17 @@ func atCommandPosition(prefix string) bool {
 	return true
 }
 
-// sessionException is a shown command that carries no --session, with why.
 type sessionException struct {
 	File, Text, Why string
 }
 
-// sessionExceptions is the one list (decision 10); a check skill's own calls
-// (E1) are excepted by isCheckSkill instead.
 var sessionExceptions = []sessionException{
-	// E2: the kernel refuses record from a named session.
 	{"internal/help/topics/workflows.md", "satelle story record <id> --file F", "E2: the operator's verb; a named session is refused"},
 	{".satelle/remotes/satelle-cicd/tasks/tsk_release.md", "satelle execution record", "E2: the operator's verb; a named session is refused"},
-	// E3: the harness runs the hook verbs and sends the session in its payload.
 	{"*", "satelle hook gate", "E3: the harness's call; the session arrives in its payload"},
 	{"*", "satelle hook context", "E3: the harness's call; the session arrives in its payload"},
 	{"*", "satelle hook prompt", "E3: the harness's call; the session arrives in its payload"},
 	{"*", "satelle hook stopcheck", "E3: the harness's call; the session arrives in its payload"},
-	// E4: text that reports what a command printed, not a command.
 	{".satelle/skills/satelle-release-installed-check.md", "satelle version is not satelle", "E4: a message about the output"},
 	{".satelle/skills/satelle-release-installed-check.md", "satelle service status lacks", "E4: a message about the output"},
 	{".satelle/skills/satelle-release-installed-check.md", "satelle service status warns", "E4: a message about the output"},
@@ -424,9 +371,6 @@ func excepted(file string, c shownCmd) bool {
 	return false
 }
 
-// isCheckSkill reports whether a document is a skill whose frontmatter says
-// type: check: its own calls (E1) run inside the gate's process and inherit
-// the session.
 func isCheckSkill(text string) bool {
 	if !strings.HasPrefix(text, "---\n") {
 		return false
@@ -438,8 +382,6 @@ func isCheckSkill(text string) bool {
 	return regexp.MustCompile(`(?m)^type:\s*check\s*$`).MatchString(text[4 : 4+end])
 }
 
-// missingSession is every shown command in the session docs under root that
-// lacks --session and is not excepted, as file:line: text.
 func missingSession(t *testing.T, root string) []string {
 	t.Helper()
 	tree := NewRootCmd()
@@ -465,7 +407,6 @@ func TestEveryShownCommandNamesTheSession(t *testing.T) {
 	for _, m := range missing {
 		t.Errorf("no --session: %s", m)
 	}
-	// No stale exception: each still matches a shown command.
 	tree := NewRootCmd()
 	docs := sessionDocs(t, repoRoot)
 	for _, e := range sessionExceptions {
@@ -487,8 +428,6 @@ func TestEveryShownCommandNamesTheSession(t *testing.T) {
 	}
 }
 
-// The scanned roots are whole directories: a new Markdown file under .satelle
-// is scanned with no list to update; run records and fixtures are not.
 func TestSessionDocsCoverTheSubstrate(t *testing.T) {
 	tmp := t.TempDir()
 	for _, rel := range []string{".satelle/README.md", ".satelle/tasks/README.md", ".satelle/queues/q.md", ".satelle/remotes/n/tasks/t.md",
@@ -516,14 +455,13 @@ func TestSessionDocsCoverTheSubstrate(t *testing.T) {
 	}
 }
 
-// The scanner's rule over small texts, so it cannot pass by finding nothing.
 func TestTheScannerFindsCommands(t *testing.T) {
 	tree := NewRootCmd()
 	found := func(text string) []shownCmd { return scanDoc(tree, text) }
 	cases := []struct {
 		name, text string
-		n          int  // commands found
-		ok         bool // every found command carries --session
+		n          int
+		ok         bool
 	}{
 		{"span with a literal operand", "Run `satelle queue show release` now.", 1, false},
 		{"span of a no-operand command", "Use `satelle status` or `satelle validate` or `satelle help`.", 3, false},
@@ -560,7 +498,6 @@ func TestTheScannerFindsCommands(t *testing.T) {
 	if got := found("Run `satelle help\nworkflows` for more."); len(got) == 1 && got[0].Line != 1 {
 		t.Errorf("a wrapped span is reported at line %d, want 1", got[0].Line)
 	}
-	// E1: a check skill's own call is at command position; a printed one is not.
 	check := "```sh\nif ! satelle story get x; then echo \"run satelle story get x\"; fi\nv=$(satelle ledger list x --json)\n```\n"
 	var pos []bool
 	for _, c := range found(check) {
@@ -571,8 +508,6 @@ func TestTheScannerFindsCommands(t *testing.T) {
 	}
 }
 
-// Every type: check skill is E1 because its frontmatter says so, and a block
-// that names "$session" defines it.
 func TestScriptBlocksDefineTheSession(t *testing.T) {
 	for _, rel := range sessionDocs(t, repoRoot) {
 		b, _ := os.ReadFile(filepath.Join(repoRoot, rel))
@@ -596,8 +531,6 @@ func TestScriptBlocksDefineTheSession(t *testing.T) {
 	}
 }
 
-// No document shows the env-var prefix, an export, or an allow rule with a *
-// inside an env-var value (sto_2a41b9e4 criterion 4).
 func TestDocsShowOnlyTheSessionFlag(t *testing.T) {
 	bad := []*regexp.Regexp{
 		regexp.MustCompile(`SATELLE_SESSION=\S+\s+satelle\b`),
@@ -616,8 +549,6 @@ func TestDocsShowOnlyTheSessionFlag(t *testing.T) {
 	}
 }
 
-// Printed commands nested in quotes end where their own quote or explanation
-// does, so a flag after it is not counted.
 func TestTheScannerReadsNestedQuotes(t *testing.T) {
 	tree := NewRootCmd()
 	for _, c := range []struct {
@@ -637,9 +568,6 @@ func TestTheScannerReadsNestedQuotes(t *testing.T) {
 	}
 }
 
-// A variable the document sets to the satelle binary is read as satelle,
-// and | is an alternative in a span or inside <...> and [...] (code-ac round
-// 1 of sto_2a41b9e4).
 func TestTheScannerReadsAliasesAndAlternatives(t *testing.T) {
 	tree := NewRootCmd()
 	for _, c := range []struct {
@@ -662,8 +590,6 @@ func TestTheScannerReadsAliasesAndAlternatives(t *testing.T) {
 	}
 }
 
-// inPlaceholder reports whether the text before an occurrence leaves a
-// <placeholder> open: a < followed by a word, not yet closed by >.
 func inPlaceholder(prefix string) bool {
 	open := -1
 	for i := 0; i < len(prefix); i++ {
@@ -677,8 +603,6 @@ func inPlaceholder(prefix string) bool {
 	return open >= 0
 }
 
-// An occurrence inside a <placeholder> is the placeholder's words, so a flag
-// appended there is not a command's (code-ac round 2 of sto_2a41b9e4).
 func TestTheScannerSkipsPlaceholders(t *testing.T) {
 	tree := NewRootCmd()
 	for _, text := range []string{

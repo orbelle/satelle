@@ -8,16 +8,12 @@ import (
 	"time"
 )
 
-// A size cap rolls the file and pruning keeps at most MaxFiles rotations.
 func TestAppend_rollsAtMaxSizeAndPrunes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "logs", "operations.log")
 	cfg := Config{MaxSizeBytes: 50, MaxFiles: 2}
-	// Base on real "now" so the file's (real) modtime day matches the passed day —
-	// isolating size-rolling from daily rolling. Distinct seconds → distinct
-	// rotation names.
 	base := time.Now().UTC()
-	for i := 0; i < 12; i++ { // ~21 bytes/line vs a 50-byte cap → rolls every 2 writes
+	for i := 0; i < 12; i++ {
 		if err := Append(base.Add(time.Duration(i)*time.Second), path, cfg, "line-"+strings.Repeat("x", 15)); err != nil {
 			t.Fatal(err)
 		}
@@ -34,19 +30,16 @@ func TestAppend_rollsAtMaxSizeAndPrunes(t *testing.T) {
 	}
 }
 
-// A write on a new UTC day rolls the previous day's content aside.
 func TestAppend_rollsOnNewDay(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "operations.log")
-	cfg := Config{MaxFiles: 5} // size roll disabled; only daily rolling
+	cfg := Config{MaxFiles: 5}
 	now := time.Date(2026, 7, 2, 1, 0, 0, 0, time.UTC)
 	yesterday := now.AddDate(0, 0, -1)
 
 	if err := Append(yesterday, path, cfg, "day1 line"); err != nil {
 		t.Fatal(err)
 	}
-	// Backdate the active file's modtime to the previous day (writes stamp real
-	// wall-clock time, which daily rolling keys off).
 	if err := os.Chtimes(path, yesterday, yesterday); err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +59,6 @@ func TestAppend_rollsOnNewDay(t *testing.T) {
 	}
 }
 
-// Within one day and under the size cap, nothing rolls — every line stays in the
-// active file (so a reviewer's grep still returns whole history).
 func TestAppend_noRollWithinDayUnderSize(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "reviewer.log")

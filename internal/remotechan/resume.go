@@ -13,30 +13,19 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
-// A relay that restarts ends every stream and keeps none. The two ends of a
-// session therefore redial the same session id and handshake again (a fresh key
-// exchange, the same pinned node key), for at most ResumeWindow.
 const (
-	// ResumeWindow is how long an end keeps redialling before it gives up.
 	ResumeWindow = 2 * time.Minute
-	// HelloResend is how often the remote re-sends its key half while it waits for
-	// local's, so the handshake completes whichever end the relay admits first.
-	HelloResend = 250 * time.Millisecond
+	HelloResend  = 250 * time.Millisecond
 
 	resumeBackoffMin = 500 * time.Millisecond
 	resumeBackoffMax = 15 * time.Second
 )
 
 var (
-	// ErrResumeRefused ends a session whose redial the relay refused (signed out,
-	// a revoked node token, a session it does not know): retrying cannot help.
 	ErrResumeRefused = errors.New("remotechan: the relay refused the redial")
-	// ErrResumeExpired ends a session that could not redial within ResumeWindow.
 	ErrResumeExpired = errors.New("remotechan: the relay did not come back within the resume window")
 )
 
-// resumer is how a Session redials: dial and handshake again, with the identity
-// the first handshake used. ctx is bounded by what is left of the window.
 type resumer struct {
 	session string
 	window  time.Duration
@@ -47,15 +36,11 @@ type resumer struct {
 type closeClass int
 
 const (
-	closeOther   closeClass = iota // an ordinary end: the session ends with it
-	closeRestart                   // a restart explains it: redial
-	closeRefusal                   // the relay said no: do not redial
+	closeOther closeClass = iota
+	closeRestart
+	closeRefusal
 )
 
-// classifyClose says what a stream error means for the session. A restart
-// (the relay unavailable or gone) is worth redialling; a refusal (signed out, a
-// token or session the relay does not accept) never is; anything else ends the
-// session.
 func classifyClose(err error) closeClass {
 	switch {
 	case errors.Is(err, hosted.ErrLoginRequired), errors.Is(err, hosted.ErrSessionTokenRefused), errors.Is(err, hosted.ErrNodeTokenRefused):
@@ -69,7 +54,7 @@ func classifyClose(err error) closeClass {
 	}
 	st, ok := status.FromError(err)
 	if !ok {
-		return closeRestart // a network error
+		return closeRestart
 	}
 	switch st.Code() {
 	case codes.Unauthenticated, codes.PermissionDenied, codes.NotFound, codes.AlreadyExists,
@@ -81,12 +66,9 @@ func classifyClose(err error) closeClass {
 	return closeOther
 }
 
-// resume is called by readLoop when the connection failed with cause. It
-// returns true once a new connection is swapped in, and false when the session
-// has ended.
 func (s *Session) resume(cause error) bool {
 	if s.closing.Load() || s.ctx.Err() != nil {
-		return false // Close ended it: never redial, and leave Close to record ErrClosed
+		return false
 	}
 	class := classifyClose(cause)
 	if s.res == nil || class == closeOther {
@@ -98,8 +80,6 @@ func (s *Session) resume(cause error) bool {
 		return false
 	}
 
-	// The relay restarted. Hold writes, drop the dead connection, and fail what was
-	// in flight: replies lost in the gap cannot be recovered across a fresh handshake.
 	s.wmu.Lock()
 	s.gate = make(chan struct{})
 	s.wmu.Unlock()
@@ -140,8 +120,6 @@ func (s *Session) resume(cause error) bool {
 	}
 }
 
-// backoff waits out the n-th redial delay (500ms, 1s, 2s … capped at 15s). It
-// returns false if the session ended meanwhile.
 func (s *Session) backoff(n int) bool {
 	d := resumeBackoffMin
 	for i := 0; i < n && d < resumeBackoffMax; i++ {
@@ -158,7 +136,6 @@ func (s *Session) backoff(n int) bool {
 	}
 }
 
-// swap installs a redialled connection and lets blocked writers through.
 func (s *Session) swap(c *conn, send *sealer, recv *opener, attempts int) bool {
 	s.wmu.Lock()
 	select {
@@ -177,14 +154,11 @@ func (s *Session) swap(c *conn, send *sealer, recv *opener, attempts int) bool {
 	return true
 }
 
-// giveUp ends the session with err after recording why.
 func (s *Session) giveUp(reason string, attempts int, err error) {
 	s.record(KindRemoteChannelResumeFailed, reason, attempts)
 	s.finish(err)
 }
 
-// record writes one resume row when the options carry a Recorder. A failed write
-// is dropped: evidence must not stop the channel.
 func (s *Session) record(kind, reason string, attempts int) {
 	if s.res == nil || s.res.rec == nil {
 		return
@@ -199,7 +173,6 @@ func (s *Session) record(kind, reason string, attempts int) {
 	_ = s.res.rec.Record(ctx, Record{Kind: kind, Actor: "remotechan", Body: reason, Payload: payload}, s.clock.Now())
 }
 
-// trackJob adds or removes a sending-end job from the set a resume cuts off.
 func (s *Session) trackJob(j *Job, add bool) {
 	s.jmu.Lock()
 	defer s.jmu.Unlock()
@@ -210,9 +183,6 @@ func (s *Session) trackJob(j *Job, add bool) {
 	delete(s.open, j)
 }
 
-// cutJobs fails every job open at a drop, on both ends: a sending-end job's
-// context is cancelled with ErrRelayRestarted, and a job being waited on is
-// delivered once on Lost with LostRelayRestarted.
 func (s *Session) cutJobs() {
 	s.jmu.Lock()
 	for j := range s.open {
@@ -228,8 +198,6 @@ func (s *Session) cutJobs() {
 	}
 }
 
-// clockTimeout is context.WithTimeout on the session's clock, so a test that
-// advances a fake clock moves the deadline too.
 func clockTimeout(parent context.Context, clock Clock, d time.Duration) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
 	tick, stop := clock.Tick(d)

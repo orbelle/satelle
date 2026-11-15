@@ -11,30 +11,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// The reasons pull names a gap.
 const (
 	whyNotInStore = "not in the store"
 )
 
-// refusal is a store object pull will not take: the item is left untouched.
 type refusal struct{ line string }
 
 func (e *refusal) Error() string { return e.line }
 
-// Pull brings the store's chains into this runtime: every chain with no
-// items, else only the named ones (one the store lacks is refused). For each
-// item it finds the prefix both chains share, comparing at the last sequence
-// both hold whatever their lengths: a fork is refused naming the item and
-// fork point and nothing is appended, unless Mirrors shows the local chain
-// holds only file-mirror events: then the store's chain replaces it and the
-// file is mirrored onto it (adopted); a store chain that is the local chain
-// or a prefix of it needs nothing and is no conflict; a longer one has its
-// new events fetched in order, verified with the local chain, then appended.
-// An item that arrived without a workflow is placed when Choose is set. Then
-// every blob a pulled chain references and this runtime lacks is fetched and
-// checked against its sha256 before it is stored; one the store lacks, or
-// holds with other bytes, is a gap. The cache, when set, is refreshed even
-// after an error. A store error ends the pull and is returned.
 func (r *Replicator) Pull(ctx context.Context, items ...string) (Result, error) {
 	res, err := r.pull(ctx, items)
 	if r.Cache != nil {
@@ -54,7 +38,7 @@ func (r *Replicator) Pull(ctx context.Context, items ...string) (Result, error) 
 func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
 	var res Result
 	if len(items) == 0 {
-		items = nil // every chain
+		items = nil
 	}
 	lst, err := r.Store.Chains(ctx, items)
 	if err != nil {
@@ -100,8 +84,6 @@ func (r *Replicator) pull(ctx context.Context, items []string) (Result, error) {
 	return res, r.fillBlobs(ctx, &res, scope)
 }
 
-// pullOne pulls one item, printing a refusal; ok is false when the item was
-// refused or diverged.
 func (r *Replicator) pullOne(ctx context.Context, res *Result, item string, c Chain) (ok bool, err error) {
 	diverged := len(res.Diverged)
 	err = r.pullItem(ctx, res, item, c)
@@ -120,7 +102,7 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 	}
 	n := c.Len
 	if proven(local, c) && n <= len(local) {
-		return nil // the store holds this chain or a prefix of it
+		return nil
 	}
 	seen := map[int]string{}
 	hashAt := func(seq int) (string, error) {
@@ -143,7 +125,7 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 		return nil
 	}
 	if n <= len(local) {
-		return nil // the store holds this chain or a prefix of it
+		return nil
 	}
 	fetched, err := r.Store.Events(ctx, item, len(local), n)
 	if err != nil {
@@ -172,10 +154,6 @@ func (r *Replicator) pullItem(ctx context.Context, res *Result, item string, c C
 	return err
 }
 
-// adopt replaces a forked local chain that holds only file-mirror events
-// with the store's whole chain, verified, under a check that the local tail
-// has not moved; then the cache is reset for the item and the file is
-// mirrored onto the adopted chain when they differ.
 func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chain, local []ledger.Event) error {
 	fetched, err := r.Store.Events(ctx, item, 0, c.Len)
 	if err != nil {
@@ -220,13 +198,11 @@ func (r *Replicator) adopt(ctx context.Context, res *Result, item string, c Chai
 	return nil
 }
 
-// fillBlobs fetches each blob a chain of items references and this runtime
-// does not hold, checking its sha256 before storing it.
 func (r *Replicator) fillBlobs(ctx context.Context, res *Result, items []string) error {
 	if r.Refs == nil {
 		return nil
 	}
-	unfilled := map[string]string{} // item, name and sha -> why the store could not fill it
+	unfilled := map[string]string{}
 	for _, item := range items {
 		events, err := r.Ledger.Read(item)
 		if err != nil {
@@ -238,14 +214,13 @@ func (r *Replicator) fillBlobs(ctx context.Context, res *Result, items []string)
 		}
 		for _, g := range gaps {
 			if g.Why != ledger.GapMissing {
-				r.gap(res, g) // a corrupt local body is reported, not replaced
+				r.gap(res, g)
 				continue
 			}
 			sha := g.Ref.SHA256
 			key := item + "\x00" + g.Ref.Name + "\x00" + sha
 			why, tried := unfilled[key]
 			if !tried {
-				// An earlier fill (another event or item) may have stored it.
 				if _, err := r.Ledger.GetBlob(sha); err == nil {
 					r.printf("filled: %s event %d blob %s\n", item, g.Ref.Seq, sha)
 					continue
@@ -269,9 +244,6 @@ func (r *Replicator) fillBlobs(ctx context.Context, res *Result, items []string)
 	return nil
 }
 
-// fetchBlob gets ref's blob from the store and stores it when its body
-// hashes to its sha256. It returns why it did not, or "" when the blob is now
-// held.
 func (r *Replicator) fetchBlob(ctx context.Context, item string, ref ledger.BlobRef) (string, error) {
 	body, found, err := r.Store.GetBlob(ctx, item, ref)
 	if err != nil {

@@ -17,19 +17,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// shellCall is one shell tool call in a cursor-agent stream: its command and
-// how it completed (ran, denied, or neither when no completed event came).
 type shellCall struct {
 	Command string
-	Ran     bool   // completed with an execution result (success: exit code, output)
-	Denied  bool   // completed with permissionDenied
-	Outcome string // the completed result's key(s), for a failure's report
+	Ran     bool
+	Denied  bool
+	Outcome string
 }
 
-// cursorShellCalls reads the shell tool calls of a stream-json stream. A
-// completed call carries result.success when it ran and
-// result.permissionDenied when Cursor's permission rules refused it
-// (testdata/cursor-stream-denied.jsonl, captured from cursor-agent 2026.10.22).
 func cursorShellCalls(stream []byte) []shellCall {
 	type shellArgs struct {
 		Command string `json:"command"`
@@ -76,8 +70,6 @@ func cursorShellCalls(stream []byte) []shellCall {
 	return out
 }
 
-// The classifier reads a real stream: the allowed printf ran, the satelle call
-// was denied and never ran.
 func TestCursorShellCallsClassifiesTheCapturedStream(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "agent", "testdata", "cursor-stream-denied.jsonl"))
 	if err != nil {
@@ -98,7 +90,6 @@ func TestCursorShellCallsClassifiesTheCapturedStream(t *testing.T) {
 	}
 }
 
-// streamFromLog is the stdout lines a dispatch log recorded ("< " lines).
 func streamFromLog(t *testing.T, log string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(log)
@@ -114,13 +105,6 @@ func streamFromLog(t *testing.T, log string) []byte {
 	return []byte(strings.Join(out, "\n"))
 }
 
-// A cursor performer granted Edit and Write and no Bash runs force mode with
-// every shell command denied: told to run a control command and each form of
-// the edit gate's corpus with its shell, and to write a file with its edit
-// tool, it attempts each command and Cursor refuses it, neither the fake
-// satelle nor the control ever runs, and the file is written (sto_0f41dda9
-// AC3). Opt-in: SATELLE_LIVE_CURSOR=1 and cursor-agent on PATH;
-// SATELLE_LIVE_CURSOR_MODEL picks the model.
 func TestCursorPerformerRefusesEveryEditGateForm(t *testing.T) {
 	if os.Getenv("SATELLE_LIVE_CURSOR") != "1" {
 		t.Skip("set SATELLE_LIVE_CURSOR=1 to run cursor-agent live")
@@ -143,8 +127,6 @@ func TestCursorPerformerRefusesEveryEditGateForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A scratch repo with no .satelle, whose path contains satelle: even a
-	// real satelle reached by mistake refuses harmlessly here.
 	run := filepath.Join(tmp, "satelle-worktree")
 	if err := os.MkdirAll(run, 0o755); err != nil {
 		t.Fatal(err)

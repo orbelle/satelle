@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// moduleRoot walks up from the working directory to go.mod.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -35,20 +34,12 @@ var (
 	callsMain   = regexp.MustCompile(`gittest\.Main\(`)
 )
 
-// exempt packages need no TestMain calling gittest.Main, each for its reason.
 var exempt = map[string]string{
-	// It owns the isolation, and its hostile-host control must see the host's
-	// configuration; its own helpers isolate per command.
-	"internal/gittest": "owns the isolation",
-	// FetchRepos takes its git environment explicitly, and its tests pass
-	// Server.Env, built from Env().
+	"internal/gittest":    "owns the isolation",
 	"internal/remotenode": "git env passed explicitly",
-	// The integration suite isolates through its sandbox env, built from Env().
-	"tests": "sandbox env",
+	"tests":               "sandbox env",
 }
 
-// Every test git call goes through this package, and every package whose code
-// under test runs git isolates its process through Main.
 func TestEveryTestGitCallGoesThroughGittest(t *testing.T) {
 	root := moduleRoot(t)
 	type pkg struct{ tests, runsGit, hasMain bool }

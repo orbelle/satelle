@@ -11,21 +11,16 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// EnrollTTL bounds how long the local end waits for the node to publish its
-// key and to enroll.
 const EnrollTTL = 10 * time.Minute
 
-// ErrEnrollRefused is returned to a remote that local satelle refused.
 var ErrEnrollRefused = errors.New("remotechan: enrollment refused")
 
-// Event kinds the channel records.
 const (
 	KindRemoteEnrollRefused       = "remote_enroll_refused"
 	KindRemoteChannelResumed      = "remote_channel_resumed"
 	KindRemoteChannelResumeFailed = "remote_channel_resume_failed"
 )
 
-// Record is one channel event for a Recorder.
 type Record struct {
 	Kind    string
 	Actor   string
@@ -33,7 +28,6 @@ type Record struct {
 	Payload json.RawMessage
 }
 
-// Recorder is where channel events (refused enrollments, resumes) are written.
 type Recorder interface {
 	Record(ctx context.Context, r Record, now time.Time) error
 }
@@ -44,18 +38,12 @@ type options struct {
 	window time.Duration
 }
 
-// Option configures Attach or Join.
 type Option func(*options)
 
-// WithClock sets the time source (default: the real clock).
 func WithClock(c Clock) Option { return func(o *options) { o.clock = c } }
 
-// WithRecorder sets where refused enrollments and channel resumes are recorded
-// (default: nowhere).
 func WithRecorder(r Recorder) Option { return func(o *options) { o.rec = r } }
 
-// WithResumeWindow sets how long a session keeps redialling after the relay
-// drops it (default: ResumeWindow).
 func WithResumeWindow(d time.Duration) Option { return func(o *options) { o.window = d } }
 
 func newOptions(opts []Option) *options {
@@ -72,29 +60,10 @@ func newOptions(opts []Option) *options {
 	return o
 }
 
-// ErrKeyUnpublished is returned by Attach when the node never published its
-// channel key within the bound, so there is nothing to pin.
 var ErrKeyUnpublished = errors.New("remotechan: the node published no channel key")
 
-// keyPollInterval is how often Attach asks for the node's key while it is not
-// yet published.
 const keyPollInterval = time.Second
 
-// Attach is local's end of the session of a node satelle-server started: the
-// session id is the node id, and the relay authenticates both ends (local by
-// the user's bearer, the node by its node token).
-//
-// Admission is by key. keyFn reads the key the node published
-// (NodeService.GetNode; nil until it does); it is asked until a key is present,
-// for at most EnrollTTL on the options clock, and a node that never publishes
-// one is refused (ErrKeyUnpublished, recorded as key_unpublished). The
-// handshake then runs pinned to that key: a node holding any other key cannot
-// derive the session keys and is refused as key_mismatch. No frame is trusted
-// before the key is present and matches.
-//
-// The session resumes: when the relay drops the stream in a way a restart
-// explains, it redials the same session with backoff, for at most the resume
-// window, and handshakes again against the same pinned key.
 func Attach(ctx context.Context, relay satellepb.RelayServiceClient, session string, keyFn func(context.Context) ([]byte, error), opts ...Option) (*Session, error) {
 	o := newOptions(opts)
 	c, err := dialRelay(ctx, relay, session, RoleLocal)
@@ -128,13 +97,12 @@ func Attach(ctx context.Context, relay satellepb.RelayServiceClient, session str
 	defer cancel()
 	send, recv, err := handshakeLocal(hctx, c, session, pinned, o)
 	if err != nil {
-		c.Close() // graceful: a refusal written last still reaches the node
+		c.Close()
 		return nil, err
 	}
 	return newSession(ctx, RoleLocal, c, send, recv, o.clock, res), nil
 }
 
-// awaitKey asks keyFn for the node's published key until one is present.
 func awaitKey(ctx context.Context, o *options, keyFn func(context.Context) ([]byte, error)) ([]byte, error) {
 	deadline := o.clock.Now().Add(EnrollTTL)
 	tick, stop := o.clock.Tick(keyPollInterval)
@@ -158,15 +126,10 @@ func awaitKey(ctx context.Context, o *options, keyFn func(context.Context) ([]by
 	}
 }
 
-// handshakeLocal is local's half of the handshake, bounded by ctx: read the
-// remote's key half, answer with ours, derive the keys against the pinned node
-// key, open the remote's enrollment and admit it. The remote may re-send its
-// key half while it waits for ours (a redial), so a key half already answered
-// is ignored, and a different one is a fresh attempt and is answered afresh.
 func handshakeLocal(ctx context.Context, c *conn, session string, pinned []byte, o *options) (*sealer, *opener, error) {
 	var send *sealer
 	var recv *opener
-	var answered []byte // the remote key half the keys were derived from
+	var answered []byte
 	for {
 		frame, err := c.Read(ctx)
 		if err != nil {
@@ -215,8 +178,6 @@ func handshakeLocal(ctx context.Context, c *conn, session string, pinned []byte,
 	}
 }
 
-// refused records one refused enrollment and returns cause, joined with the
-// recording failure if it could not be written.
 func (o *options) refused(ctx context.Context, session, reason string, cause error) error {
 	if o.rec == nil {
 		return cause
@@ -231,15 +192,6 @@ func (o *options) refused(ctx context.Context, session, reason string, cause err
 	return cause
 }
 
-// Join is the remote's end: dial the relay with the node's own client (its
-// node token), complete the handshake with the node's identity and enroll. It
-// returns an admitted Session, ErrEnrollRefused if local satelle refused it, or
-// the relay's refusal (UNAUTHENTICATED for a token it does not accept).
-//
-// The session resumes: when the relay drops the stream in a way a restart
-// explains, the node redials the same session with the same identity, for at
-// most the resume window, and re-sends its key half until local answers, so the
-// handshake completes whichever end the relay admits first.
 func Join(ctx context.Context, relay satellepb.RelayServiceClient, session string, id *Identity, opts ...Option) (*Session, error) {
 	o := newOptions(opts)
 	c, err := dialRelay(ctx, relay, session, RoleRemote)
@@ -271,10 +223,6 @@ func Join(ctx context.Context, relay satellepb.RelayServiceClient, session strin
 	return newSession(ctx, RoleRemote, c, send, recv, o.clock, res), nil
 }
 
-// joinHandshake is the remote's half of the handshake, bounded by ctx. With
-// resend > 0 it re-sends the same key half every resend on the options clock
-// until local's arrives: a frame sent while the relay has no local end may be
-// dropped, so the remote asks again rather than wait on one that was lost.
 func joinHandshake(ctx context.Context, c *conn, session string, id *Identity, o *options, resend time.Duration) (*sealer, *opener, error) {
 	eR, err := newEphemeral()
 	if err != nil {
@@ -323,8 +271,6 @@ func joinHandshake(ctx context.Context, c *conn, session string, id *Identity, o
 	return nil, nil, fmt.Errorf("%w: expected admission", ErrFrame)
 }
 
-// awaitLocalHello reads local's key half, re-writing hello every resend (when
-// resend > 0) until it arrives.
 func awaitLocalHello(ctx context.Context, c *conn, clock Clock, hello []byte, resend time.Duration) ([]byte, error) {
 	if resend <= 0 {
 		return c.Read(ctx)

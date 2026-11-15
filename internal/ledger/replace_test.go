@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// TestReplace: a chain is replaced only under its current head, by a complete
-// chain of the same item that verifies, and OnWrite sees each new event.
 func TestReplace(t *testing.T) {
 	local, _ := Open(t.TempDir())
 	other, _ := Open(t.TempDir())
@@ -27,13 +25,11 @@ func TestReplace(t *testing.T) {
 	}
 	fresh, _ := other.Read("que_x")
 
-	// A moved tail is refused and the file is unchanged.
 	before, _ := os.ReadFile(local.Path("que_x"))
 	var stale *StaleTail
 	if err := local.Replace("que_x", "not-the-head", fresh); !errors.As(err, &stale) {
 		t.Fatalf("moved tail: %v, want *StaleTail", err)
 	}
-	// A chain that does not verify, or names another item, is refused.
 	broken := append([]Event(nil), fresh...)
 	broken[1].Payload = []byte(`{"n":9}`)
 	if err := local.Replace("que_x", old.Hash, broken); err == nil {
@@ -56,7 +52,6 @@ func TestReplace(t *testing.T) {
 		t.Fatalf("a refused replace called OnWrite %d times", len(written))
 	}
 
-	// Under the matching head the chain is the other store's, byte for byte.
 	if err := local.Replace("que_x", old.Hash, fresh); err != nil {
 		t.Fatal(err)
 	}

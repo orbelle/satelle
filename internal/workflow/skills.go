@@ -10,11 +10,8 @@ import (
 	"strings"
 )
 
-// TypeCheck is the frontmatter type of a deterministic check skill.
 const TypeCheck = "check"
 
-// Skill is one skills/<name>.md: frontmatter, the markdown body, and for a
-// check the script of its first ```sh (or ```check) block.
 type Skill struct {
 	Name   string
 	Path   string
@@ -23,11 +20,8 @@ type Skill struct {
 	Script string
 }
 
-// IsCheck reports whether the skill is a deterministic check.
 func (s Skill) IsCheck() bool { return s.Meta["type"] == TypeCheck }
 
-// ParseSkill parses a skill's text: an optional frontmatter block of
-// `key: value` lines between "---" lines, then the markdown body.
 func ParseSkill(name, text string) (Skill, error) {
 	s := Skill{Name: name, Meta: map[string]string{}, Body: text}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
@@ -78,8 +72,6 @@ func firstShellBlock(body string) string {
 	return ""
 }
 
-// scriptFence reports whether a trimmed line opens a script block, and which
-// fence it is: ```sh or ```check.
 func scriptFence(trimmed string) (string, bool) {
 	switch trimmed {
 	case "```sh":
@@ -90,10 +82,6 @@ func scriptFence(trimmed string) (string, bool) {
 	return "", false
 }
 
-// Problems reports whether the skill's fences agree with its declared type.
-// v1 runs a skill's script only for type: check, so a ```check block in any
-// other skill is a v0 check that would be dispatched to an agent instead of
-// run. A ```sh block in a non-check skill is an example for its reader.
 func (s Skill) Problems() []error {
 	if s.IsCheck() {
 		return nil
@@ -107,7 +95,6 @@ func (s Skill) Problems() []error {
 	return nil
 }
 
-// LoadSkills reads every <dir>/*.md. A missing directory has no skills.
 func LoadSkills(dir string) (map[string]Skill, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.md"))
 	if err != nil {

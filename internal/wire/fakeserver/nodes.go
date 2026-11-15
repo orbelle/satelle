@@ -16,20 +16,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// Node is a remote node the fake knows. Set its fields before the node calls.
 type Node struct {
-	ID, Token string
-	// Bundle is the stored definition, at Version.
-	Bundle  []byte
-	Version string
-	// Secrets are the values granted, by key; SecretExpiry their expiry.
-	Secrets      map[string]string
-	SecretExpiry map[string]time.Time
-	// Refuse answers a read of a key with this code and reason.
-	Refuse map[string][2]string
-	// Run is what GetRun answers.
-	Run *satellepb.RunDescriptor
-	// LostAfterSeconds is reported on every ReportStatus.
+	ID, Token        string
+	Bundle           []byte
+	Version          string
+	Secrets          map[string]string
+	SecretExpiry     map[string]time.Time
+	Refuse           map[string][2]string
+	Run              *satellepb.RunDescriptor
 	LostAfterSeconds int32
 
 	channelKey []byte
@@ -37,8 +31,6 @@ type Node struct {
 	ended      bool
 }
 
-// AddNode registers a node; its token is accepted on the node's own calls
-// until EndNode or RevokeNode.
 func (s *Server) AddNode(n *Node) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -48,8 +40,6 @@ func (s *Server) AddNode(n *Node) {
 	s.nodes[n.ID] = n
 }
 
-// SetNodeDefinition stores the definition bundle a node (one StartNode made,
-// say) fetches.
 func (s *Server) SetNodeDefinition(id string, bundle []byte, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,7 +48,6 @@ func (s *Server) SetNodeDefinition(id string, bundle []byte, version string) {
 	}
 }
 
-// NodeToken is a node's token ("" for none).
 func (s *Server) NodeToken(id string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,7 +57,6 @@ func (s *Server) NodeToken(id string) string {
 	return ""
 }
 
-// NodeEnded reports whether a node ended (EndNode or RevokeNode).
 func (s *Server) NodeEnded(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,14 +64,12 @@ func (s *Server) NodeEnded(id string) bool {
 	return n != nil && n.ended
 }
 
-// SetItemRun sets what GetItemRun answers for remote and item.
 func (s *Server) SetItemRun(remote, item string, run *satellepb.ItemRun) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.runs[remote+"|"+item] = proto.Clone(run).(*satellepb.ItemRun)
 }
 
-// RevokeNode ends a node's token.
 func (s *Server) RevokeNode(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,7 +78,6 @@ func (s *Server) RevokeNode(id string) {
 	}
 }
 
-// NodeStatuses is every ReportStatus a node sent.
 func (s *Server) NodeStatuses(id string) []*satellepb.ReportStatusRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,7 +87,6 @@ func (s *Server) NodeStatuses(id string) []*satellepb.ReportStatusRequest {
 	return nil
 }
 
-// ChannelKey is the key a node published, nil until it does.
 func (s *Server) ChannelKey(id string) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -111,8 +95,6 @@ func (s *Server) ChannelKey(id string) []byte {
 	}
 	return nil
 }
-
-// ---- remotes ----
 
 type remotes struct {
 	satellepb.UnimplementedRemoteServiceServer
@@ -153,14 +135,11 @@ func (r remotes) StartNode(_ context.Context, req *satellepb.StartNodeRequest) (
 	return &satellepb.StartNodeResponse{NodeId: id}, nil
 }
 
-// ---- the node contract ----
-
 type nodes struct {
 	satellepb.UnimplementedNodeServiceServer
 	s *Server
 }
 
-// node returns the node id names when the caller's bearer is its token.
 func (n nodes) node(ctx context.Context, id string) (*Node, error) {
 	node := n.s.nodes[id]
 	if node == nil {
@@ -274,20 +253,16 @@ func (n nodes) EndNode(ctx context.Context, r *satellepb.EndNodeRequest) (*satel
 	return &satellepb.EndNodeResponse{}, nil
 }
 
-// ---- relay ----
-
 type relay struct {
 	satellepb.UnimplementedRelayServiceServer
 	s *Server
 }
 
-// relayPair joins the local and remote ends of one session.
 type relayPair struct {
-	ends   map[string]chan []byte // role → frames for that role
-	frames [][]byte               // every data frame forwarded, in order
+	ends   map[string]chan []byte
+	frames [][]byte
 }
 
-// relayStream is one live Connect, ended by DropRelays.
 type relayStream struct {
 	cancel context.CancelCauseFunc
 }
@@ -303,7 +278,6 @@ func (s *Server) pair(session string) *relayPair {
 	return p
 }
 
-// RelayFrames is every data frame the relay forwarded for session, in order.
 func (s *Server) RelayFrames(session string) [][]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -313,15 +287,12 @@ func (s *Server) RelayFrames(session string) [][]byte {
 	return nil
 }
 
-// RelayStreams is how many Connect streams are live.
 func (s *Server) RelayStreams() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.streams)
 }
 
-// DropRelays ends every live Connect with UNAVAILABLE and forgets every
-// session, as a relay restart does.
 func (s *Server) DropRelays() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -331,8 +302,6 @@ func (s *Server) DropRelays() {
 	s.relays = map[string]*relayPair{}
 }
 
-// Connect forwards each side's data frames to the other, in order. A side that
-// stops sending (EOF) ends its own stream; the other side stays.
 func (r relay) Connect(stream grpc.BidiStreamingServer[satellepb.RelayFrame, satellepb.RelayFrame]) error {
 	ctx, cancel := context.WithCancelCause(stream.Context())
 	defer cancel(nil)

@@ -23,7 +23,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// statusPoll is how often `remote status --wait` asks again.
 const statusPoll = 5 * time.Second
 
 func remoteCmd() *cobra.Command {
@@ -47,16 +46,12 @@ concluded. See 'satelle help remotes'.`,
 	return cmd
 }
 
-// bound is the bound project, dialled: its client, its id, and the
-// replicator that moves its chains through satelle-server. A remote's node
-// runs there, so the remote paths use it whatever [ledger] store names.
 type bound struct {
 	Client  *hosted.Client
 	Project string
 	Repl    *ledgerrepl.Replicator
 }
 
-// openBound opens the kernel and a client for the bound project.
 func openBound(fn func(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		k, r, err := openKernel()
@@ -68,8 +63,6 @@ func openBound(fn func(cmd *cobra.Command, k *kernel.Kernel, b bound, args []str
 	}
 }
 
-// withBound runs fn with the bound project of the open kernel; the
-// replicator's lines go to out.
 func withBound(k *kernel.Kernel, r repo, out io.Writer, fn func(b bound) error) error {
 	b, ok, err := loadBinding(r)
 	if err != nil {
@@ -86,9 +79,6 @@ func withBound(k *kernel.Kernel, r repo, out io.Writer, fn func(b bound) error) 
 	return fn(bound{Client: c, Project: b.Project, Repl: newReplicator(k, devFor(k, c, b.Project), out)})
 }
 
-// localRemote reads the remote's definition from this repo when it is a
-// docker-local one, which runs here; ok is false for any other remote, and
-// for one not defined here: satelle-server runs those.
 func localRemote(r repo, id string) (def remotedef.Definition, bundle []byte, ok bool, err error) {
 	def, bundle, err = remotenode.LoadLocal(r.DataDir, id)
 	switch {
@@ -100,7 +90,6 @@ func localRemote(r repo, id string) (def remotedef.Definition, bundle []byte, ok
 	return def, bundle, def.Provider == remotedef.ProviderDockerLocal, nil
 }
 
-// localRuns is where the runs of the remotes fired here are recorded.
 func localRuns(r repo) remotenode.LocalRuns {
 	return remotenode.LocalRuns{Dir: filepath.Join(r.Runtime, remotenode.RemotesDir)}
 }
@@ -149,7 +138,6 @@ func remoteFireCmd() *cobra.Command {
 	return cmd
 }
 
-// fireOnServer pushes the item's chain and asks satelle-server to fire the run.
 func fireOnServer(cmd *cobra.Command, k *kernel.Kernel, b bound, args []string) error {
 	if _, err := k.Get(args[1]); err != nil {
 		return err
@@ -217,7 +205,6 @@ func remoteStatusCmd() *cobra.Command {
 				return nil
 			}
 			if local {
-				// The fire imported the node's chain: there is nothing to pull.
 				runs := localRuns(r)
 				return show(func(context.Context) (*satellepb.ItemRun, error) { return runs.Load(args[0], args[1]) }, nil)
 			}
@@ -243,8 +230,6 @@ func remoteStatusCmd() *cobra.Command {
 	return cmd
 }
 
-// pollRun gets the run once, or with wait > 0 until it is finished, for at
-// most wait.
 func pollRun(parent context.Context, wait time.Duration, get func(ctx context.Context) (*satellepb.ItemRun, error)) (*satellepb.ItemRun, error) {
 	ctx := parent
 	if wait > 0 {
@@ -268,7 +253,6 @@ func pollRun(parent context.Context, wait time.Duration, get func(ctx context.Co
 	}
 }
 
-// printRun prints a run: its state and node, verdict, notes and reason.
 func printRun(out io.Writer, remote, itemID string, run *satellepb.ItemRun, pulled int) {
 	fmt.Fprintf(out, "%s on %s: %s", remote, itemID, run.GetState())
 	if n := run.GetNodeId(); n != "" {
@@ -400,8 +384,6 @@ the workflow needs it, is a step's work.`,
 	return cmd
 }
 
-// withRemote gives the kernel the remote placement of the bound project, if
-// any; the returned close releases the connection.
 func withRemote(k *kernel.Kernel, r repo) (func(), error) {
 	p, closeFn, ok, err := hostedPlacer(k, r)
 	if err != nil || !ok {
@@ -411,8 +393,6 @@ func withRemote(k *kernel.Kernel, r repo) (func(), error) {
 	return closeFn, nil
 }
 
-// hostedPlacer is the Placer for the bound project, dialled; ok is false when
-// the repo is not bound. The returned close releases the connection.
 func hostedPlacer(k *kernel.Kernel, r repo) (remotenode.Placer, func(), bool, error) {
 	b, ok, err := loadBinding(r)
 	if err != nil || !ok {

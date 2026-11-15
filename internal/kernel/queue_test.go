@@ -13,9 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// queueKernel is an initialised repo with a runbook workflow for executions
-// (by rule) and a triage workflow no rule names. done enqueues into the queue
-// ids given, written before the kernel opens.
 func queueKernel(t *testing.T) (string, func(enqueue ...string) *Kernel) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -148,7 +145,6 @@ func TestQueueCreateAndTriggerRefusals(t *testing.T) {
 	if _, err := k.Update(story.ID, item.Fields{Trigger: &item.Trigger{Task: task.ID}}, "me"); err == nil {
 		t.Error("update set a trigger on a story")
 	}
-	// Clearing a selection: the zero selection removes it.
 	up, err := k.Update(q.ID, item.Fields{Inputs: &item.Selection{}}, "me")
 	if err != nil || up.Inputs != nil {
 		t.Fatalf("clear inputs %+v %v", up, err)
@@ -193,7 +189,6 @@ func TestQueueLedgerRecordsAddRemoveFire(t *testing.T) {
 	}
 }
 
-// addCauses lists the causes of every queue.added for id on a queue's chain.
 func addCauses(t *testing.T, k *Kernel, queueID, id string) []string {
 	t.Helper()
 	events, err := k.Ledger.Read(queueID)
@@ -227,21 +222,18 @@ func TestProducerCauseIdempotentAcrossFire(t *testing.T) {
 	if err != nil || !slices.Equal(f.Inputs, []string{s.ID}) {
 		t.Fatalf("fire %+v %v", f, err)
 	}
-	// A retry after the fire does not re-queue the item the run took.
 	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d1", "me"); err != nil || len(out.Added) != 0 || !slices.Equal(out.Already, []string{s.ID}) {
 		t.Fatalf("retry after fire %+v %v", out, err)
 	}
 	if got := addCauses(t, k, q.ID, s.ID); !slices.Equal(got, []string{"intake r1 d1"}) {
 		t.Fatalf("adds after retry %v", got)
 	}
-	// A different cause is a different key: it adds again.
 	if out, err = k.Enqueue(q.ID, []string{s.ID}, "intake r1 d2", "me"); err != nil || !slices.Equal(out.Added, []string{s.ID}) {
 		t.Fatalf("new cause %+v %v", out, err)
 	}
 	if got := addCauses(t, k, q.ID, s.ID); !slices.Equal(got, []string{"intake r1 d1", "intake r1 d2"}) {
 		t.Fatalf("adds after new cause %v", got)
 	}
-	// A retry of a recorded pair is a no-op even once the item is terminal.
 	if _, err := k.Transition(context.Background(), s.ID, "done", "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +273,6 @@ func TestQueueFiresTaskSynchronously(t *testing.T) {
 	if err != nil || out.Fire == nil || out.Fire.Run == "" {
 		t.Fatalf("enqueue %+v %v", out, err)
 	}
-	// The run exists when Enqueue returns: the fire ran in this call.
 	run, err := k.Get(out.Fire.Run)
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +346,6 @@ func TestQueueMinSizeAndOpenRun(t *testing.T) {
 			t.Fatalf("member %d fired=%v", i+1, fired)
 		}
 	}
-	// A second fire while the run is open is refused, and held on enqueue.
 	extra := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("x")})
 	if _, err := k.Enqueue(q.ID, []string{extra.ID}, "", "me"); err != nil {
 		t.Fatal(err)
@@ -386,7 +376,6 @@ func TestQueueEmptyFireAndStaleClaim(t *testing.T) {
 	if err != nil || f.Run != "" {
 		t.Fatalf("empty fire %+v %v", f, err)
 	}
-	// A claim at a stale tail fails and creates no run.
 	events, _ := k.Ledger.Read(q.ID)
 	stale := events[len(events)-1].Hash
 	s := mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr("s")})
@@ -432,7 +421,6 @@ func TestStateEnqueue(t *testing.T) {
 		t.Fatalf("queue chain %v", got)
 	}
 
-	// A state naming a queue with no file, or by id, does not open.
 	k.Close()
 	for _, ref := range []string{"nope", "que_q"} {
 		write(t, filepath.Join(root, "workflows", "default.toml"), `name = "default"

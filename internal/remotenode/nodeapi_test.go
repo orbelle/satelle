@@ -15,8 +15,7 @@ import (
 const (
 	testNodeID    = "nod_a1b2"
 	testNodeToken = "node-token-1"
-	// secretValue must appear nowhere but the agent's environment.
-	secretValue = "sk-ant-oat01-NEVER-WRITTEN-ANYWHERE"
+	secretValue   = "sk-ant-oat01-NEVER-WRITTEN-ANYWHERE"
 )
 
 func newFake(t *testing.T) (*fakeserver.Server, *fakeserver.Node, *NodeClient, []byte) {
@@ -48,8 +47,6 @@ func countCalls(srv *fakeserver.Server, method string) int {
 	return n
 }
 
-// The definition is fetched under the node token, and the bytes are exactly the
-// stored bundle with its version.
 func TestDefinitionIsFetchedWithTheNodeToken(t *testing.T) {
 	srv, _, client, bundle := newFake(t)
 	got, version, err := client.Definition(context.Background())
@@ -65,8 +62,6 @@ func TestDefinitionIsFetchedWithTheNodeToken(t *testing.T) {
 	}
 }
 
-// The run descriptor is read under the node token; a heartbeat carries the
-// fields it sets and the reply's lost-after window comes back.
 func TestRunAndStatusUseTheNodeService(t *testing.T) {
 	srv, node, client, _ := newFake(t)
 	node.Run = &satellepb.RunDescriptor{Mode: "node", Project: "acme-team", ItemId: "sty_1", Trigger: "nightly", TriggerSource: "schedule"}
@@ -90,7 +85,6 @@ func TestRunAndStatusUseTheNodeService(t *testing.T) {
 	}
 }
 
-// A bundle that does not hash to its digest is not a definition.
 func TestDefinitionRefusesWhatIsNotTheStoredBundle(t *testing.T) {
 	_, node, client, _ := newFake(t)
 	node.Version = ""
@@ -99,8 +93,6 @@ func TestDefinitionRefusesWhatIsNotTheStoredBundle(t *testing.T) {
 	}
 }
 
-// A secret is read under the node token; a minted value carries its expiry and
-// a refusal carries the server's code.
 func TestSecretReads(t *testing.T) {
 	_, node, client, _ := newFake(t)
 	exp := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
@@ -123,7 +115,6 @@ func TestSecretReads(t *testing.T) {
 	}
 }
 
-// A value is returned in memory and goes nowhere else.
 func TestReadingNeverWritesTheValueToDisk(t *testing.T) {
 	_, node, client, _ := newFake(t)
 	node.Secrets["K"] = secretValue
@@ -145,7 +136,6 @@ func isTokenRefused(err error) bool {
 	return errors.As(err, &tr)
 }
 
-// End sends one call however often it is called, and it ends the token.
 func TestEndSendsOneCall(t *testing.T) {
 	srv, _, client, _ := newFake(t)
 	for range 3 {
@@ -162,7 +152,6 @@ func TestEndSendsOneCall(t *testing.T) {
 	}
 }
 
-// A refused token names the call, and nothing further is asked except End.
 func TestARefusedTokenStopsEveryLaterCall(t *testing.T) {
 	srv, node, client, _ := newFake(t)
 	node.Secrets["K"] = "v"
@@ -184,7 +173,6 @@ func TestARefusedTokenStopsEveryLaterCall(t *testing.T) {
 	}
 }
 
-// A call under another node id is NOT_FOUND, not the token's refusal.
 func TestACallUnderAnotherIDIsNotFound(t *testing.T) {
 	srv, _, _, _ := newFake(t)
 	other := nodeClient(t, srv.URL, "nod_other")

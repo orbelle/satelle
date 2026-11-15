@@ -14,9 +14,6 @@ import (
 	"time"
 )
 
-// stub writes a sh store command that records its argv (one per line), its
-// stdin and each invocation beside it, then runs script. It returns a Command
-// running it through sh with two configured args.
 func stub(t *testing.T, script string) (Command, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -206,7 +203,6 @@ func TestEnvironmentIsTheParentsMinusWithheldNothingAdded(t *testing.T) {
 	if !child["SATELLE_LEDGERSTORE_SENTINEL"] {
 		t.Error("the parent's own variable did not reach the command")
 	}
-	// sh itself sets PWD, SHLVL and _; nothing else may be added.
 	for n := range child {
 		if _, ok := os.LookupEnv(n); !ok && n != "PWD" && n != "SHLVL" && n != "_" && n != "OLDPWD" {
 			t.Errorf("the command saw %s, which the parent does not have", n)

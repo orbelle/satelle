@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// fixtureTree is a small binary: satelle story {get,list}, ledger list,
-// execution seat, validate, help (a leaf whose words are topics), with flags.
 func fixtureTree() Tree {
 	t := NewTree()
 	for _, s := range []string{"story", "ledger", "execution", "validate", "help", "task"} {
@@ -42,10 +40,6 @@ func lines(fs []Finding) []string {
 	return out
 }
 
-// Each rule of the drift check, ported: a clean text yields nothing; one
-// planted miss of each kind yields one finding in drift-check's line form;
-// elided flags, quoted first words, for-loop word lists and 4-space list items
-// are not misses (sto_a1681009 AC2).
 func TestCheckText(t *testing.T) {
 	tree := fixtureTree()
 	links := map[string]bool{"good": true, "helper": true}
@@ -61,7 +55,6 @@ func TestCheckText(t *testing.T) {
 	if got := CheckText("p.md", "md", clean, tree, links); len(got) != 0 {
 		t.Fatalf("clean text: %v", lines(got))
 	}
-	// A 4-space-indented list item is prose, not code.
 	if got := CheckText("p.md", "md", "    - satelle nosuch in prose\n", tree, links); len(got) != 0 {
 		t.Fatalf("indented list item: %v", lines(got))
 	}
@@ -89,15 +82,11 @@ func TestCheckText(t *testing.T) {
 			t.Errorf("%s %q:\n got %q\nwant %q", c.file, c.text, got, c.want)
 		}
 	}
-	// A quoted first word that is no command is prose; a quoted real command is
-	// still checked.
 	if got := lines(CheckText("q.sh", "sh", "echo \"satelle story nope now\"\n", tree, links)); len(got) != 1 {
 		t.Errorf("quoted real command: %q", got)
 	}
 }
 
-// Check reads the five substrate directories, skips testdata/ and remotes/,
-// names files relative to the repo root and sorts its findings.
 func TestCheckWalksSubstrate(t *testing.T) {
 	root := t.TempDir()
 	data := filepath.Join(root, ".satelle")
@@ -143,15 +132,11 @@ func TestCheckWalksSubstrate(t *testing.T) {
 	if got[3].Line != 3 || got[4].Line != 2 {
 		t.Errorf("lines: %v", lines(got))
 	}
-	// A data dir with none of the directories is clean.
 	if got, err := Check(t.TempDir(), fixtureTree()); err != nil || len(got) != 0 {
 		t.Fatalf("empty data dir: %v %v", got, err)
 	}
 }
 
-// Lacks judges a hook's command path: a word that is no subcommand of a path
-// with subcommands is lacking; a word that is not a plain command word, or a
-// path with no subcommands, stops the walk, not lacking.
 func TestTreeLacks(t *testing.T) {
 	tree := fixtureTree()
 	tree.AddSub("", "hook")

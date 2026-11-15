@@ -1,6 +1,3 @@
-// Package cache is the sqlite cache of the ledger: folded items, an events
-// index, seats and attachments. It is rebuilt from the ledger at will and is
-// never the record.
 package cache
 
 import (
@@ -40,25 +37,15 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS attachments_item ON attachments(item);
 `
 
-// schemaVersion changes whenever schema does. A cache of a lower version is
-// dropped and recreated in one immediate transaction, then rebuilt from the
-// ledger on its next Sync. A cache of a higher version was written by a newer
-// binary: Open refuses it with SchemaTooNewError and never lowers it. v3
-// makes an event id unique in events (events_id), so a cache never holds an
-// event twice. v4 keeps an item's assignees as a list (items.assignees) and a
-// seat's machine, host and user.
 const schemaVersion = 4
 
 var tables = []string{"files", "items", "item_tags", "events", "seats", "attachments"}
 
-// SchemaTooNewError is Open's refusal of a cache whose schema is newer than
-// this binary's: an older binary never lowers the cache, it asks to be
-// updated instead.
 type SchemaTooNewError struct {
 	Path   string
-	Cache  int    // the cache's PRAGMA user_version
-	Binary int    // this binary's schemaVersion
-	Build  string // this binary's build identity (buildinfo)
+	Cache  int
+	Binary int
+	Build  string
 }
 
 func (e *SchemaTooNewError) Error() string {
@@ -70,15 +57,8 @@ func tooNew(path string, version int) error {
 	return &SchemaTooNewError{Path: path, Cache: version, Binary: schemaVersion, Build: buildinfo.Resolve().String()}
 }
 
-// Cache is an open cache database.
 type Cache struct{ db *sql.DB }
 
-// Open opens (creating) the cache at path. A cache at this binary's schema
-// version opens with no write. A lower one (or a new file) is migrated: the
-// version re-check, the drops, the create and the version stamp run in one
-// immediate transaction, so a concurrent opener sees either the old cache or
-// the new one. A higher one is refused with SchemaTooNewError and nothing is
-// dropped.
 func Open(path string) (*Cache, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("cache: %w", err)
@@ -96,9 +76,6 @@ func Open(path string) (*Cache, error) {
 	return &Cache{db: db}, nil
 }
 
-// migrate brings the cache at db to schemaVersion, or refuses a newer one.
-// The cheap check runs outside any lock; the decision is re-made under
-// BEGIN IMMEDIATE (the DSN's _txlock), as syncItem does.
 func migrate(db *sql.DB, path string) error {
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
@@ -108,7 +85,7 @@ func migrate(db *sql.DB, path string) error {
 	case version > schemaVersion:
 		return tooNew(path, version)
 	case version == schemaVersion:
-		return nil // the schema committed with its version stamp: complete.
+		return nil
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -119,9 +96,9 @@ func migrate(db *sql.DB, path string) error {
 		return fmt.Errorf("cache: %w", err)
 	}
 	switch {
-	case version > schemaVersion: // a newer binary migrated while we waited
+	case version > schemaVersion:
 		return tooNew(path, version)
-	case version == schemaVersion: // another opener migrated while we waited
+	case version == schemaVersion:
 		return tx.Commit()
 	}
 	for _, t := range tables {
@@ -146,11 +123,8 @@ func migrate(db *sql.DB, path string) error {
 	return nil
 }
 
-// Close closes the database.
 func (c *Cache) Close() error { return c.db.Close() }
 
-// Sync ingests every chain tail the cache has not seen. An item with new
-// events is re-folded from its whole chain.
 func (c *Cache) Sync(l *ledger.Store) error {
 	items, err := l.Items()
 	if err != nil {
@@ -164,19 +138,11 @@ func (c *Cache) Sync(l *ledger.Store) error {
 	return nil
 }
 
-// SyncItem ingests one item's unseen tail.
 func (c *Cache) SyncItem(l *ledger.Store, id string) error { return c.syncItem(l, id, false) }
 
-// ResetItem drops what the cache holds for one item and ingests its whole
-// chain again, in one write transaction: for a chain replaced in place
-// (ledger.Store.Replace), whose new file may be larger than, or exactly as
-// large as, the offset the cache last read.
 func (c *Cache) ResetItem(l *ledger.Store, id string) error { return c.syncItem(l, id, true) }
 
-// syncItem ingests one item's unseen tail; with reset it starts the item over
-// from offset 0 whatever offset the cache holds.
 func (c *Cache) syncItem(l *ledger.Store, id string, reset bool) error {
-	// Cheap pre-check outside the write lock: an unchanged item takes no lock.
 	var offset int64
 	err := c.db.QueryRow(`SELECT offset FROM files WHERE item = ?`, id).Scan(&offset)
 	if err != nil && err != sql.ErrNoRows {
@@ -189,10 +155,6 @@ func (c *Cache) syncItem(l *ledger.Store, id string, reset bool) error {
 	if size == offset && !reset {
 		return nil
 	}
-	// BEGIN IMMEDIATE: this process now holds the write lock. Re-read the
-	// committed offset and the tail under it, so a writer that waited on
-	// another one never ingests the same events again or moves the offset
-	// backwards.
 	tx, err := c.db.Begin()
 	if err != nil {
 		return err
@@ -209,7 +171,7 @@ func (c *Cache) syncItem(l *ledger.Store, id string, reset bool) error {
 	if size == offset && !reset {
 		return nil
 	}
-	if size < offset || reset { // the file shrank, or was replaced: start the item over
+	if size < offset || reset {
 		offset = 0
 	}
 	fresh, next, err := l.ReadFrom(id, offset)
@@ -235,8 +197,6 @@ func (c *Cache) syncItem(l *ledger.Store, id string, reset bool) error {
 		}
 	}
 	for _, e := range fresh {
-		// An event already indexed keeps its first row (and seq): re-ingest is
-		// a no-op, and the events_id unique index enforces it.
 		if _, err := tx.Exec(`INSERT INTO events (id, item, kind, at, actor, payload, prev, hash) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
 			e.ID, e.Item, e.Kind, ts(e.At), e.Actor, string(e.Payload), e.Prev, e.Hash); err != nil {
 			return err
@@ -296,7 +256,6 @@ func writeFolds(tx *sql.Tx, id string, all []ledger.Event) error {
 	return nil
 }
 
-// Rebuild drops every cached row and ingests the whole ledger again.
 func (c *Cache) Rebuild(l *ledger.Store) error {
 	for _, t := range tables {
 		if _, err := c.db.Exec(`DELETE FROM ` + t); err != nil {
@@ -313,12 +272,10 @@ func parseTS(s string) time.Time {
 	return t
 }
 
-// Query selects items; empty fields match anything.
 type Query struct {
 	ID, Kind, Status, Tag, Category, Parent, Workflow string
 }
 
-// Items returns the items matching q, oldest first.
 func (c *Cache) Items(q Query) ([]item.Item, error) {
 	var where []string
 	var args []any
@@ -369,7 +326,6 @@ func (c *Cache) Items(q Query) ([]item.Item, error) {
 	return out, rows.Err()
 }
 
-// Item returns one item; ok is false when the cache has none.
 func (c *Cache) Item(id string) (it item.Item, ok bool, err error) {
 	rows, err := c.Items(Query{ID: id})
 	if err != nil || len(rows) == 0 {
@@ -378,8 +334,6 @@ func (c *Cache) Item(id string) (it item.Item, ok bool, err error) {
 	return rows[0], true, nil
 }
 
-// Events returns the indexed events of item (all items when ""), optionally of
-// one kind: one item's in chain order, all items' by time.
 func (c *Cache) Events(itemID, kind string) ([]ledger.Event, error) {
 	var where []string
 	var args []any
@@ -418,8 +372,6 @@ func (c *Cache) Events(itemID, kind string) ([]ledger.Event, error) {
 	return out, rows.Err()
 }
 
-// Seats returns the bound seats of a session ("" = every session), optionally
-// on one item ("" = every item).
 func (c *Cache) Seats(session, itemID string) ([]item.Seat, error) {
 	rows, err := c.db.Query(`SELECT item, session, location, base, bound_at, machine, host, user FROM seats
 		WHERE (? = '' OR session = ?) AND (? = '' OR item = ?) ORDER BY bound_at, item`, session, session, itemID, itemID)
@@ -440,7 +392,6 @@ func (c *Cache) Seats(session, itemID string) ([]item.Seat, error) {
 	return out, rows.Err()
 }
 
-// Attachments returns the attachments of item in the order they were added.
 func (c *Cache) Attachments(itemID string) ([]item.Attachment, error) {
 	rows, err := c.db.Query(`SELECT item, name, sha256, size, media_type, at, actor FROM attachments WHERE item = ? ORDER BY rowid`, itemID)
 	if err != nil {

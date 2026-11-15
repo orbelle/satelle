@@ -10,11 +10,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// pkgDir is this package's source directory, read at init while the working
-// directory is still the package.
 var pkgDir, _ = os.Getwd()
 
-// appendLedger appends a [ledger] section to the repo's satelle.toml.
 func appendLedger(t *testing.T, dir, body string) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)
@@ -39,12 +36,8 @@ func calledAny(srv *fakeserver.Server, from int, services ...string) []string {
 	return out
 }
 
-// The replication services a store call reaches on satelle.dev.
 var storeServices = []string{"satelle.chain.v2.Chain/", "AttachmentService/", "ItemService/"}
 
-// With no [ledger] store set the store is local while signed out and
-// satelle.dev while signed in; signed in but unbound, push names both ways
-// out.
 func TestLedgerStoreDefaults(t *testing.T) {
 	t.Run("signed out: local", func(t *testing.T) {
 		isolate(t)
@@ -88,9 +81,6 @@ func TestLedgerStoreDefaults(t *testing.T) {
 	})
 }
 
-// With store local, push, pull and status make no store or network call and
-// say the store is local: signed in and bound to a server that is not
-// running, and signed out with no store set.
 func TestLocalStoreMakesNoCall(t *testing.T) {
 	t.Run("named, signed in, bound to an unreachable server", func(t *testing.T) {
 		srv := fakeserver.Start(t, testToken)
@@ -121,8 +111,6 @@ func TestLocalStoreMakesNoCall(t *testing.T) {
 	})
 }
 
-// satelle sync is gone, with no alias: ledger push, pull and status are the
-// one replication surface.
 func TestSyncIsRemoved(t *testing.T) {
 	isolate(t)
 	must(t, "init")
@@ -155,8 +143,6 @@ func TestSyncIsRemoved(t *testing.T) {
 	}
 }
 
-// No Go branch picks a vendor: the store code names satelle.dev, local and
-// the operator's command, never a storage vendor.
 func TestNoVendorBranch(t *testing.T) {
 	vendor := regexp.MustCompile(`(?i)azure|\bs3\b|gcs|tigris|\baws\b|minio`)
 	var files []string

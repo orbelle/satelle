@@ -15,8 +15,6 @@ import (
 	"time"
 )
 
-// seamServer mounts an IngestHandler on s whose apply runs through apply and
-// whose Log lines are captured.
 func seamServer(t *testing.T, s *Store, apply func(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error) (*httptest.Server, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -58,12 +56,10 @@ var seamSnap = Snapshot{
 	Docs:         []json.RawMessage{json.RawMessage(`{"path":"a.md"}`)},
 }
 
-// TestSlowIngestLogsPhases proves a snapshot ingest past slowIngest writes one
-// line naming the repo, body size, rows per kind and each phase's elapsed time.
 func TestSlowIngestLogsPhases(t *testing.T) {
 	s := openStore(t)
 	srv, lines := seamServer(t, s, func(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error {
-		time.Sleep(slowIngest + 100*time.Millisecond) // time-subject: the apply phase must exceed the slow-ingest threshold
+		time.Sleep(slowIngest + 100*time.Millisecond)
 		return s.ApplySnapshot(ctx, repoKey, replace, merge, now)
 	})
 	if code := postSnapshotStatus(t, srv.URL, seamSnap); code != http.StatusOK {
@@ -84,9 +80,6 @@ func TestSlowIngestLogsPhases(t *testing.T) {
 	}
 }
 
-// TestFailedIngestLogsAndKeepsFreshness proves a push whose apply fails is
-// logged with its error and leaves the partition's last confirmed ingest where
-// it was, so the page cannot read a failed push as fresh data.
 func TestFailedIngestLogsAndKeepsFreshness(t *testing.T) {
 	s := openStore(t)
 	var failApply atomic.Bool
@@ -105,7 +98,7 @@ func TestFailedIngestLogsAndKeepsFreshness(t *testing.T) {
 	}
 
 	failApply.Store(true)
-	time.Sleep(2 * time.Millisecond) // time-subject: timestamp separation, so a wrongly moved updated_at is visible
+	time.Sleep(2 * time.Millisecond)
 	changed := seamSnap
 	changed.Stories = []json.RawMessage{json.RawMessage(`{"id":"sty_1","status":"in_progress"}`)}
 	if code := postSnapshotStatus(t, srv.URL, changed); code != http.StatusInternalServerError {
@@ -121,7 +114,7 @@ func TestFailedIngestLogsAndKeepsFreshness(t *testing.T) {
 	}
 
 	failApply.Store(false)
-	time.Sleep(2 * time.Millisecond) // time-subject: timestamp separation, so a committed apply visibly moves updated_at
+	time.Sleep(2 * time.Millisecond)
 	if code := postSnapshotStatus(t, srv.URL, changed); code != http.StatusOK {
 		t.Fatalf("recovering ingest status %d", code)
 	}

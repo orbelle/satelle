@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-// SatelleCall reads only the first whitespace-separated word: a satelle
-// binary by basename is a call, any wrapper is not; ownsCommand is a call
-// whose first word after satelle is hook, or the legacy script.
 func TestSatelleCall(t *testing.T) {
 	for _, c := range []struct {
 		cmd   string
@@ -84,8 +81,6 @@ func readDoc(t *testing.T, path string) map[string]any {
 	return doc
 }
 
-// handlers lists every handler of doc's hooks as {event, matcher, command}
-// maps (the handler itself for a flat entry), so a test can compare them.
 func handlers(doc map[string]any) []string {
 	var out []string
 	hooks, _ := doc["hooks"].(map[string]any)
@@ -112,9 +107,6 @@ func lacksReindex(cmd string) bool {
 	return ok && len(words) > 0 && words[0] == "reindex"
 }
 
-// Refresh adds or updates satelle's entries: its own hooks become the current
-// set once each, a first-word satelle command the predicate calls stale goes,
-// and every other handler is kept as it was.
 func TestRefreshAddsAndUpdatesSatelleEntries(t *testing.T) {
 	root := t.TempDir()
 	claude := filepath.Join(root, ".claude", "settings.json")
@@ -174,7 +166,6 @@ func TestRefreshAddsAndUpdatesSatelleEntries(t *testing.T) {
 					t.Errorf("%s lost %q", path, k)
 				}
 			}
-			// The kept handlers are deep-equal to what they were.
 			orig := handlers(map[string]any{"hooks": map[string]any{
 				"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "echo hi"}}}},
 				"PreToolUse":   []any{map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "npm test"}}}},
@@ -206,8 +197,6 @@ func TestRefreshAddsAndUpdatesSatelleEntries(t *testing.T) {
 	}
 }
 
-// A file whose resulting hooks equal its current hooks is not written, whatever
-// its indentation or key order: bytes and mtime stay as they were.
 func TestInstallWritesNothingWhenHooksAreEqual(t *testing.T) {
 	old := time.Now().Add(-time.Hour).Truncate(time.Second)
 	for _, h := range []string{Claude, Grok, Cursor} {
@@ -217,7 +206,6 @@ func TestInstallWritesNothingWhenHooksAreEqual(t *testing.T) {
 			if err != nil || !changed {
 				t.Fatalf("first Install = %v, %v", changed, err)
 			}
-			// Re-encode: four-space indent, top-level keys in reverse order.
 			doc := readDoc(t, path)
 			keys := make([]string, 0, len(doc))
 			for k := range doc {
@@ -274,8 +262,6 @@ func TestInstallWritesNothingWhenHooksAreEqual(t *testing.T) {
 	})
 }
 
-// Refresh and Pending leave a pi extension satelle does not own; a hand-run
-// Install replaces it; a marked file with old content is refreshed.
 func TestRefreshLeavesAnUnownedPiExtension(t *testing.T) {
 	root := t.TempDir()
 	rel, _ := File(Pi)
@@ -307,7 +293,6 @@ func TestRefreshLeavesAnUnownedPiExtension(t *testing.T) {
 	}
 }
 
-// Commands lists nested and flat handlers; pi has none.
 func TestCommandsListsEveryHandler(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".claude", "settings.json"),
@@ -332,8 +317,6 @@ func TestCommandsListsEveryHandler(t *testing.T) {
 	}
 }
 
-// ForCLI maps each harness's command-line program to the harness, and nothing
-// else: the registry, not the CLI layer, owns which programs are harnesses.
 func TestForCLI(t *testing.T) {
 	for cli, want := range map[string]string{"claude": Claude, "pi": Pi, "grok": Grok, "cursor-agent": Cursor} {
 		if got, ok := ForCLI(cli); !ok || got != want {

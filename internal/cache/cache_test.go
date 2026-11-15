@@ -58,7 +58,7 @@ func TestSyncQueryRebuild(t *testing.T) {
 	if err := c.Sync(l); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Sync(l); err != nil { // idempotent
+	if err := c.Sync(l); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,8 +132,6 @@ func noDuplicateIDs(t *testing.T, c *Cache) {
 	}
 }
 
-// A writer that ingests with a stale offset (as a second process that read
-// the offset before the first one committed would) indexes nothing twice.
 func TestReingestIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -173,7 +171,6 @@ func TestReingestIsNoOp(t *testing.T) {
 	noDuplicateIDs(t, c)
 }
 
-// The schema itself refuses a second row for an event id, not only the code.
 func TestSchemaRejectsDuplicateEventID(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -193,8 +190,6 @@ func TestSchemaRejectsDuplicateEventID(t *testing.T) {
 	}
 }
 
-// v2Schema is the v2 cache DDL (no events_id unique index), stamped v2: the
-// shape a pre-v3 binary writes.
 const v2Schema = `
 CREATE TABLE files (item TEXT PRIMARY KEY, offset INTEGER NOT NULL);
 CREATE TABLE items (
@@ -212,7 +207,6 @@ CREATE TABLE attachments (
 	item TEXT, name TEXT, sha256 TEXT, size INTEGER, media_type TEXT, at TEXT, actor TEXT);
 PRAGMA user_version = 2;`
 
-// A v2 cache that already holds an event twice is rebuilt clean on open.
 func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -233,7 +227,6 @@ func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The offset says the tail is fully ingested, so only the rebuild heals it.
 	if _, err := db.Exec(`INSERT INTO files (item, offset) VALUES ('a', ?)`, size); err != nil {
 		t.Fatal(err)
 	}
@@ -258,8 +251,6 @@ func TestOldCacheIsRebuiltOnSchemaBump(t *testing.T) {
 	noDuplicateIDs(t, c)
 }
 
-// Two caches on one cache.db (two processes, at the sqlite lock level) syncing
-// the same new tail at once index each event once.
 func TestConcurrentSyncIngestsEachEventOnce(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -328,7 +319,6 @@ func TestConcurrentSyncIngestsEachEventOnce(t *testing.T) {
 	}
 }
 
-// masterNames lists the tables and indexes in db, read from sqlite_master.
 func masterNames(t *testing.T, db *sql.DB) map[string]bool {
 	t.Helper()
 	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type IN ('table', 'index')`)
@@ -347,9 +337,6 @@ func masterNames(t *testing.T, db *sql.DB) map[string]bool {
 	return names
 }
 
-// An older binary (simulated: the cache is stamped one version past this
-// binary's schemaVersion) refuses the cache, naming both versions and the
-// binary to update, and drops nothing.
 func TestOlderBinaryRefusesNewerCache(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -423,9 +410,6 @@ func TestOlderBinaryRefusesNewerCache(t *testing.T) {
 	db.Close()
 }
 
-// TestCacheOpenHelperProcess is not a test: TestConcurrentOpenDuringMigration
-// re-execs the test binary into it, so each opener is a real OS process. It
-// opens the cache and syncs the ledger, exiting 1 on any error.
 func TestCacheOpenHelperProcess(t *testing.T) {
 	dbPath := os.Getenv("SATELLE_CACHE_HELPER_DB")
 	if dbPath == "" {
@@ -452,9 +436,6 @@ func TestCacheOpenHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// Several processes opening a v2 cache at once race through the v2 -> v3
-// migration; every one of them opens and inserts without error, and the
-// result is one complete v3 cache.
 func TestConcurrentOpenDuringMigration(t *testing.T) {
 	const procs, rounds = 4, 10
 	dir := t.TempDir()
@@ -474,7 +455,6 @@ func TestConcurrentOpenDuringMigration(t *testing.T) {
 
 	for round := 0; round < rounds; round++ {
 		path := filepath.Join(dir, fmt.Sprintf("cache-%d.db", round))
-		// WAL, as every cache satelle writes is (Open's DSN sets it).
 		db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
 		if err != nil {
 			t.Fatal(err)

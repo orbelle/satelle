@@ -27,7 +27,6 @@ func TestWhoamiAndProjects(t *testing.T) {
 	if !strings.Contains(out, "alpha") || !strings.Contains(out, "*  beta") {
 		t.Errorf("project list = %q, want both projects with beta bound", out)
 	}
-	// The binding carries the server: no --server needed from here on.
 	out = must(t, "project", "show")
 	if !strings.Contains(out, "slug:   beta") {
 		t.Errorf("project show = %q", out)
@@ -47,9 +46,6 @@ func TestWhoamiAndProjects(t *testing.T) {
 	}
 }
 
-// Signed in with no [ledger] store set, the store is satelle.dev: push,
-// status and pull carry items, their chains and attachment bodies between
-// two machines bound to one project.
 func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 
@@ -100,7 +96,6 @@ func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 		t.Errorf("status after pull = %q", out)
 	}
 
-	// B changes the item and pushes; A pulls the change.
 	must(t, "story", "set", id, "--title", "edited on b")
 	if out := must(t, "ledger", "status"); !strings.Contains(out, "ahead") {
 		t.Errorf("status after a local edit = %q", out)
@@ -124,9 +119,6 @@ func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 	_ = b
 }
 
-// The item summary a push stores on the server carries the assignees, with
-// the users holding a live seat working; a release empties both
-// (sto_600b9a85 AC3).
 func TestLedgerPushCarriesAssignees(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
@@ -161,8 +153,6 @@ func TestLedgerPushCarriesAssignees(t *testing.T) {
 	}
 }
 
-// A push over a moved head on satelle.dev is a divergence: push and pull
-// exit 1 naming the item, status says diverged, nothing is rewritten.
 func TestLedgerDevDivergence(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
@@ -198,9 +188,6 @@ func TestLedgerDevDivergence(t *testing.T) {
 	_ = b
 }
 
-// A pull of every item and of the one item, whose local chain is ahead of
-// the server's (a pure prefix of it), is no conflict: exit 0, nothing
-// imported.
 func TestLedgerDevPullOfAPurePrefix(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)

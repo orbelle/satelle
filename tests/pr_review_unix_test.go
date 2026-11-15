@@ -20,36 +20,22 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// The satelle GitHub app's account (satelle[bot], app 5379260): the user.id
-// its reviews carry (tests/testdata/github/reviews/README.md).
 const appAccount = "344745317"
 
-// orbelleReviewerAccount is orbelle-reviewer[bot]'s user.id (app 5563015):
-// internal only, so its reviews never count.
 const orbelleReviewerAccount = 350948835
 
-// The review GitHub re-pointed (tests/testdata/github/reviews/README.md):
-// satelle[bot] approved orbelle/satelle#41 on repointedGiven, which
-// sto_e809d7d6's github.review ledger event 4215b0fe records, and GitHub's
-// list-reviews endpoint now reports it on repointedReported, a later head.
 const (
 	repointedReviewID = 5815187973
 	repointedGiven    = "6109ffe2f71d13665ce69edb01104e3599067a8d"
 	repointedReported = "f93eef33d5814570f648a88df4f207b23e9f9996"
 )
 
-// prRouteTail is the gates integration -> approved runs after pr-ready, in
-// order: the sandbox route and this repo's delivery and chore routes share it.
 var prRouteTail = []string{"pr-review", "pr-approval"}
 
-// tomlGates renders gate names as a TOML array's elements.
 func tomlGates(gates []string) string {
 	return `"` + strings.Join(gates, `", "`) + `"`
 }
 
-// repoPRGates returns this repo's pr-review and pr-approval gates as
-// .satelle/workflows/delivery.toml defines them, after checking chore.toml
-// defines them identically.
 func repoPRGates(t *testing.T) (review, approval workflow.Gate) {
 	t.Helper()
 	var got [2][2]workflow.Gate
@@ -76,7 +62,6 @@ func repoPRGates(t *testing.T) (review, approval workflow.Gate) {
 	return got[0][0], got[0][1]
 }
 
-// gateTOML is a gate as a TOML table, refusing fields the sandbox would drop.
 func gateTOML(t *testing.T, name string, g workflow.Gate) string {
 	t.Helper()
 	if len(g.Panel) > 0 || len(g.Paths) > 0 || g.Trigger != "" || g.Combine != "" {
@@ -100,19 +85,13 @@ func gateTOML(t *testing.T, name string, g workflow.Gate) string {
 	return b.String()
 }
 
-// prSandbox is a repo bound to a fake satelle.dev project ("acme", bound to
-// orbelle/acme), carrying this repo's skills and its pr-review and
-// pr-approval gates wired, in the sandbox only, into integration -> approved.
-// A fake claude judges (its verdict and notes come from files) and performs
-// (saving its prompt); a fake gh serves the pull requests and reviews.
 type prSandbox struct {
 	*sandbox
-	srv  *fakeserver.Server
-	fake string
-	head string
-	old  string
-	prs  []map[string]any
-	// reviewer is the agent the repo binds pr-review to.
+	srv      *fakeserver.Server
+	fake     string
+	head     string
+	old      string
+	prs      []map[string]any
 	reviewer string
 }
 
@@ -129,8 +108,6 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	srv.BindGitHub("acme", "orbelle/acme")
 
 	review, approval := repoPRGates(t)
-	// pr-review's judge is one of code-ac's (the same model, prompt and inputs;
-	// satelle-pr-review-publish.md), whatever the repo names it.
 	codeAC := repoGateAgents(t, ".satelle/workflows/delivery.toml")["code-ac"]
 	if review.Skill != "satelle-code-ac-review" || review.Agent == "" || !slices.Contains(codeAC, review.Agent) ||
 		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"}) {
@@ -222,8 +199,6 @@ esac
 	return p
 }
 
-// item creates a story at integration whose PR (number n) is open on HEAD,
-// titled with its id unless titled is false.
 func (p *prSandbox) item(n int, titled bool) string {
 	p.t.Helper()
 	id := p.create("story", "--title", "change", "--criteria", "it is reviewed").ID
@@ -239,8 +214,6 @@ func (p *prSandbox) item(n int, titled bool) string {
 	return id
 }
 
-// serveReviews makes the fake gh answer every reviews read with a fixture,
-// its @HEAD@ and @OLD@ bound to this sandbox's commits.
 func (p *prSandbox) serveReviews(fixture string) {
 	p.t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "github", "reviews", fixture+".json"))
@@ -251,8 +224,6 @@ func (p *prSandbox) serveReviews(fixture string) {
 	writeFile(p.t, filepath.Join(p.fake, "reviews.json"), body, 0o644)
 }
 
-// serveReviewsAs serves a fixture as serveReviews does, its first review's id
-// set to reviewID: the id the fake satelle.dev gave the published review.
 func (p *prSandbox) serveReviewsAs(fixture string, reviewID int64) {
 	p.t.Helper()
 	p.serveReviews(fixture)
@@ -275,7 +246,6 @@ func (p *prSandbox) serveReviewsAs(fixture string, reviewID int64) {
 	writeFile(p.t, path, string(out), 0o644)
 }
 
-// fixtureBody is the body of a fixture's last review.
 func fixtureBody(t *testing.T, fixture string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "github", "reviews", fixture+".json"))
@@ -291,14 +261,12 @@ func fixtureBody(t *testing.T, fixture string) string {
 	return rs[len(rs)-1].Body
 }
 
-// judge sets the fake judge's next verdict and notes.
 func (p *prSandbox) judge(verdict, notes string) {
 	p.t.Helper()
 	writeFile(p.t, filepath.Join(p.fake, "verdict"), verdict, 0o644)
 	writeFile(p.t, filepath.Join(p.fake, "notes"), notes, 0o644)
 }
 
-// present presents integration -> approved once.
 func (p *prSandbox) present(id string) result {
 	p.t.Helper()
 	return p.run("story", "set", id, "--status", "approved")
@@ -306,7 +274,6 @@ func (p *prSandbox) present(id string) result {
 
 func (p *prSandbox) status(id string) string { p.t.Helper(); return p.get(id).Status }
 
-// latestAttachment is the body of the newest attachment named name.
 func (p *prSandbox) latestAttachment(id, name string) string {
 	p.t.Helper()
 	r := p.run("story", "attachment", id, name)
@@ -318,7 +285,6 @@ func (p *prSandbox) latestAttachment(id, name string) string {
 
 func (p *prSandbox) published() int { return len(p.srv.PublishedReviews("acme")) }
 
-// githubReviews returns id's github.review payloads, oldest first.
 func (p *prSandbox) githubReviews(id string) []map[string]any {
 	p.t.Helper()
 	var out []map[string]any
@@ -332,7 +298,6 @@ func (p *prSandbox) githubReviews(id string) []map[string]any {
 	return out
 }
 
-// transitions counts id's item.transitioned events from -> to.
 func (p *prSandbox) transitions(id, from, to string) int {
 	p.t.Helper()
 	n := 0
@@ -345,9 +310,6 @@ func (p *prSandbox) transitions(id, from, to string) int {
 	return n
 }
 
-// The approval check passes only on the app account's latest approving review
-// on HEAD, matched by its numeric id; requested changes on HEAD reopen the
-// item; a PR whose title lacks the item id is never read.
 func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	p := newPRSandbox(t)
 	id := p.item(12, true)
@@ -382,9 +344,6 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
 		return p.exec("bash", "", "-c", check)
 	}
-	// The item's ledger records what the publish check published: the
-	// approval the on-head fixtures carry, given on HEAD, and the re-pointed
-	// fixture's approval, given on the older head.
 	for _, rec := range []struct {
 		sha string
 		rid int64
@@ -444,8 +403,6 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		t.Errorf("reopened %d times, want 2", n)
 	}
 
-	// An approval on HEAD whose review_id the item's ledger does not record
-	// is refused and never moves the item.
 	unrecorded := p.item(14, true)
 	p.serveReviews("approved-on-head")
 	if r := run(unrecorded); r.code == 0 || !strings.Contains(r.out, "is not on the item's ledger") {
@@ -455,8 +412,6 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 		t.Errorf("unrecorded item moved to %s", got)
 	}
 
-	// A PR whose title lacks the item id maps to no item: rejected, never
-	// read, never reopened.
 	p.serveReviews("changes-requested")
 	os.Remove(filepath.Join(p.fake, "gh-api.log"))
 	if r := run(untitled); r.code == 0 || !strings.Contains(r.out, "no open pull request") {
@@ -470,10 +425,6 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	}
 }
 
-// GitHub re-points an older approval's commit_id to the PR's new head: the
-// recorded response reports review 5815187973 on f93eef33, not on 6109ffe2
-// where the ledger records it was given. approved-repointed.json is that
-// review with only commit_id bound to the sandbox's HEAD.
 func TestPRReviewRepointedReviewIsRecorded(t *testing.T) {
 	read := func(name string) []map[string]any {
 		t.Helper()
@@ -526,15 +477,9 @@ func TestPRReviewRepointedReviewIsRecorded(t *testing.T) {
 	}
 }
 
-// AC1, AC3 and AC4 through the gates as this repo defines them, wired into the
-// sandbox's integration -> approved: the judge's verdict is published on the
-// PR head through the fake satelle.dev; a reject (the judge's own, or the
-// app's seen on a re-present) reopens the item with the review attached as
-// pr-review, which the coder's next run reads.
 func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	p := newPRSandbox(t)
 
-	// AC4: a PR titled without the item id is never published to.
 	untitled := p.item(20, false)
 	p.judge("accept", "fine: AC1 holds, the publish check runs last in its after list")
 	if r := p.present(untitled); r.code != 2 || !strings.Contains(r.err, "no open pull request") {
@@ -547,9 +492,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("untitled item moved to %s", got)
 	}
 
-	// sto_b9f9d9c7: an accept with no reasons fails pr-review's notes rule. It
-	// is recorded as a reject keeping the judge's raw answer, and the publish
-	// check after the rule never runs: nothing is published, nothing reopens.
 	silent := p.item(19, true)
 	p.judge("accept", "")
 	if r := p.present(silent); r.code != 2 || !strings.Contains(r.err, "the judge gave no reasons") {
@@ -567,12 +509,8 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("silent accept gate runs %+v", runs)
 	}
 
-	// AC1: a judge accept is published as APPROVE on HEAD; the approval check
-	// then reads the app's approval and the item moves.
 	approved := p.item(21, true)
 	p.judge("accept", "every criterion is met: AC1 to AC4 hold on the head of the pull request")
-	// GitHub reports the review the publish check published: the fake
-	// satelle.dev's first review id, which github.review records below.
 	p.serveReviewsAs("approved-on-head", 1)
 	if r := p.present(approved); r.code != 0 {
 		t.Fatalf("accept: exit %d\n%s%s", r.code, r.out, r.err)
@@ -605,8 +543,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("gate runs %+v", runs)
 	}
 
-	// AC3 (c): the release run's step-0 review read sends back an approved
-	// item whose PR head carries the app's requested changes.
 	p.serveReviews("changes-requested")
 	block := idBlock(t, ".satelle/skills/release.md", "### Reviews on the heads", approved)
 	if strings.Contains(block, "satelle github") {
@@ -626,9 +562,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatal("no approved -> in_progress on the chain")
 	}
 
-	// AC3 (a): the judge's own reject is published as REQUEST_CHANGES and the
-	// one presenting command leaves the item at in_progress with the body
-	// attached.
 	id := p.item(22, true)
 	created := len(p.ledger(id, ""))
 	p.serveReviews("none")
@@ -670,7 +603,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	}
 	p.must("ledger", "verify")
 
-	// AC3 (d): the coder's next run reads the review from the record.
 	if r := p.run("story", "perform", id); r.code != 0 {
 		t.Fatalf("perform: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -683,9 +615,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("the coder's prompt lacks the review:\n%s", prompt)
 	}
 
-	// AC3 (e): a repeated reject of the same head. Same findings: nothing new
-	// is published, and the item reopens again. Different findings: a second
-	// REQUEST_CHANGES, recorded and attached.
 	p.must("story", "set", id, "--status", "integration")
 	if r := p.present(id); r.code != 2 {
 		t.Fatalf("repeat reject: exit %d\n%s%s", r.code, r.out, r.err)
@@ -715,9 +644,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		t.Fatalf("status %s", got)
 	}
 
-	// AC3 (b): re-presented on the same head, the judge now accepts, but the
-	// app's CHANGES_REQUESTED stands: no approval is published over it, and
-	// the approval check reopens the item with the app's review.
 	p.must("story", "set", id, "--status", "integration")
 	p.judge("accept", "fine now: AC2 and AC3 hold, the item reopens with the review attached")
 	p.serveReviews("changes-requested")
@@ -734,7 +660,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	if got := p.latestAttachment(id, "pr-review"); got != fixtureBody(t, "changes-requested") {
 		t.Fatalf("pr-review = %q", got)
 	}
-	// With no review on GitHub the check rejects and nothing reopens.
 	p.must("story", "set", id, "--status", "integration")
 	p.serveReviews("none")
 	if r := p.present(id); r.code != 2 || !strings.Contains(r.err, "no approving review") {
@@ -749,10 +674,6 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 	p.must("ledger", "verify")
 }
 
-// sto_efe81afd AC1: delivery and chore run integration -> approved through
-// pr-ready, then the review gate and the approval check, in one sequential
-// group; no other transition runs them; pr-ready no longer approves; only the
-// publish check calls satelle.dev.
 func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	files, err := filepath.Glob("../.satelle/workflows/*.toml")
 	if err != nil || len(files) == 0 {
@@ -812,7 +733,6 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	}
 }
 
-// shBlock0 is the first ```sh block of a repo file, unchanged.
 func shBlock0(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
@@ -830,8 +750,6 @@ func shBlock0(t *testing.T, rel string) string {
 	return bindSession(block)
 }
 
-// idBlock is shBlock's sibling for a block run once per item: the first ```sh
-// block after heading, with its single id= line rebound to id.
 func idBlock(t *testing.T, rel, heading, id string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))

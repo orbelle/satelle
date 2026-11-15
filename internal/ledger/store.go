@@ -18,23 +18,16 @@ import (
 	"time"
 )
 
-// Store is a ledger rooted at a directory: ledger/<item>.jsonl holds each
-// item's chain, blobs/<sha256> holds content-addressed blobs.
 type Store struct {
-	dir string
-	// Now stamps appended events; nil means time.Now.
-	Now func() time.Time
-	// OnWrite, when set, is called with every event this store writes (an
-	// append, or an import from elsewhere), after it is on disk.
+	dir     string
+	Now     func() time.Time
 	OnWrite func(Event)
 }
 
 var itemPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
-// ValidItem reports whether id can name a chain (it becomes a file name).
 func ValidItem(id string) bool { return itemPattern.MatchString(id) && len(id) <= 128 }
 
-// Open opens (creating) a store rooted at dir.
 func Open(dir string) (*Store, error) {
 	for _, d := range []string{filepath.Join(dir, "ledger"), filepath.Join(dir, "blobs")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -44,10 +37,6 @@ func Open(dir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
-// OpenExisting opens the store rooted at dir only when its ledger directory
-// exists, creating nothing: a read-only reader (satelle doctor) uses it so a
-// repo that never ran stays without a runtime. A missing ledger is an error
-// wrapping os.ErrNotExist.
 func OpenExisting(dir string) (*Store, error) {
 	st, err := os.Stat(filepath.Join(dir, "ledger"))
 	if err != nil {
@@ -59,7 +48,6 @@ func OpenExisting(dir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
-// Dir is the store's root.
 func (s *Store) Dir() string { return s.dir }
 
 func (s *Store) path(item string) string { return filepath.Join(s.dir, "ledger", item+".jsonl") }
@@ -71,11 +59,8 @@ func (s *Store) now() time.Time {
 	return time.Now()
 }
 
-// Path returns the chain file of item.
 func (s *Store) Path(item string) string { return s.path(item) }
 
-// Append adds an event to item's chain. payload is marshalled to JSON (a
-// json.RawMessage is taken as is); nil means no payload.
 func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 	var e Event
 	err := s.withLock(func() error {
@@ -91,16 +76,10 @@ func (s *Store) Append(item, kind, actor string, payload any) (Event, error) {
 	return e, err
 }
 
-// NewEvent builds a complete event linked to prev (id, time and hash set)
-// without writing it, so a caller can offer it elsewhere first (a server's
-// compare-and-append) and import it after. payload is as for Append.
 func (s *Store) NewEvent(item, kind, actor string, payload any, prev string) (Event, error) {
 	return NewEventWith(newEventID(), s.now().UTC(), item, kind, actor, payload, prev)
 }
 
-// NewEventWith builds a complete event with a given id and time, linked to
-// prev and hashed, without writing it: for a caller that must rebuild the same
-// event twice (an import that resumes) or carry another store's time.
 func NewEventWith(id string, at time.Time, item, kind, actor string, payload any, prev string) (Event, error) {
 	if !ValidItem(item) {
 		return Event{}, fmt.Errorf("ledger: invalid item id %q", item)
@@ -124,8 +103,6 @@ func NewEventWith(id string, at time.Time, item, kind, actor string, payload any
 	return e, err
 }
 
-// AppendRaw writes a complete event (from another store) after checking its
-// hash and that it links to the current tail of its chain.
 func (s *Store) AppendRaw(e Event) error {
 	if !ValidItem(e.Item) {
 		return fmt.Errorf("ledger: invalid item id %q", e.Item)
@@ -149,15 +126,6 @@ func (s *Store) AppendRaw(e Event) error {
 	})
 }
 
-// Replace swaps item's whole chain for events, a complete chain from
-// elsewhere (a store's), when the chain's tail is still head. It replaces a
-// chain the caller has shown this runtime alone wrote (a queue file's mirror
-// events), never one carrying anyone's work. head must be non-empty (a
-// replace is not a create), events non-empty, every event must name item and
-// the chain must verify. A tail that moved is refused with *StaleTail and
-// nothing is written. The new chain is written to a synced temporary file
-// renamed over the old one, so a reader sees either chain whole and never an
-// empty one; OnWrite is then called for each event.
 func (s *Store) Replace(item, head string, events []Event) error {
 	if !ValidItem(item) {
 		return fmt.Errorf("ledger: invalid item id %q", item)
@@ -200,8 +168,6 @@ func (s *Store) Replace(item, head string, events []Event) error {
 	})
 }
 
-// replaceFile writes body to item's chain file through a synced temporary
-// file in the ledger directory, renamed over it.
 func (s *Store) replaceFile(item string, body []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(s.path(item)), ".tmp-*")
 	if err != nil {
@@ -223,19 +189,12 @@ func (s *Store) replaceFile(item string, body []byte) error {
 	return err
 }
 
-// StaleTail is AppendRaw's refusal of an event that does not link to the
-// chain's current tail.
 type StaleTail struct{ Event, Prev, Tail string }
 
 func (e *StaleTail) Error() string {
 	return fmt.Sprintf("ledger: event %s: prev %q does not link to tail %q", e.Event, e.Prev, e.Tail)
 }
 
-// Import merges chains from elsewhere (a pull): events already present (same
-// hash at the same position) are skipped, the rest are appended with
-// AppendRaw, which checks each hash and that it links to the local tail. A
-// chain that diverges from the local one is refused before anything of that
-// item is written past the point of divergence.
 func (s *Store) Import(events []Event) (added int, err error) {
 	have := map[string][]Event{}
 	seen := map[string]int{}
@@ -302,8 +261,6 @@ func (s *Store) withLock(fn func() error) error {
 	return fn()
 }
 
-// Head returns the hash of the last event on item's chain, "" when it has
-// none.
 func (s *Store) Head(item string) (string, error) {
 	if !ValidItem(item) {
 		return "", fmt.Errorf("ledger: invalid item id %q", item)
@@ -311,7 +268,6 @@ func (s *Store) Head(item string) (string, error) {
 	return s.tailHash(item)
 }
 
-// tailHash returns the hash of the last event on item's chain, "" when empty.
 func (s *Store) tailHash(item string) (string, error) {
 	f, err := os.Open(s.path(item))
 	if errors.Is(err, os.ErrNotExist) {
@@ -332,7 +288,6 @@ func (s *Store) tailHash(item string) (string, error) {
 	return e.Hash, nil
 }
 
-// lastLine returns the last newline-terminated line of f, reading backwards.
 func lastLine(f *os.File) ([]byte, error) {
 	st, err := f.Stat()
 	if err != nil {
@@ -363,15 +318,11 @@ func lastLine(f *os.File) ([]byte, error) {
 	return nil, nil
 }
 
-// Read returns item's whole chain in order.
 func (s *Store) Read(item string) ([]Event, error) {
 	events, _, err := s.ReadFrom(item, 0)
 	return events, err
 }
 
-// ReadFrom returns the complete events on item's chain from byte offset on,
-// and the offset after the last complete line. A partial trailing line is
-// left for a later read.
 func (s *Store) ReadFrom(item string, offset int64) ([]Event, int64, error) {
 	if !ValidItem(item) {
 		return nil, offset, fmt.Errorf("ledger: invalid item id %q", item)
@@ -409,7 +360,6 @@ func (s *Store) ReadFrom(item string, offset int64) ([]Event, int64, error) {
 	}
 }
 
-// Size returns the byte length of item's chain file (0 when absent).
 func (s *Store) Size(item string) (int64, error) {
 	st, err := os.Stat(s.path(item))
 	if errors.Is(err, os.ErrNotExist) {
@@ -421,7 +371,6 @@ func (s *Store) Size(item string) (int64, error) {
 	return st.Size(), nil
 }
 
-// Items lists every item with a chain, sorted.
 func (s *Store) Items() ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(s.dir, "ledger"))
 	if err != nil {
@@ -437,8 +386,6 @@ func (s *Store) Items() ([]string, error) {
 	return out, nil
 }
 
-// Verify walks every chain and returns the first broken link (a *BrokenLink),
-// or nil when every chain verifies.
 func (s *Store) Verify() error {
 	items, err := s.Items()
 	if err != nil {
@@ -458,7 +405,6 @@ func (s *Store) Verify() error {
 
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// PutBlob stores b content-addressed and returns its sha256 hex.
 func (s *Store) PutBlob(b []byte) (string, error) {
 	sum := sha256.Sum256(b)
 	sha := hex.EncodeToString(sum[:])
@@ -486,7 +432,6 @@ func (s *Store) PutBlob(b []byte) (string, error) {
 	return sha, nil
 }
 
-// GetBlob returns the blob with the given sha256, checking its content.
 func (s *Store) GetBlob(sha string) ([]byte, error) {
 	if !shaPattern.MatchString(sha) {
 		return nil, fmt.Errorf("ledger: invalid blob id %q", sha)
@@ -502,7 +447,6 @@ func (s *Store) GetBlob(sha string) ([]byte, error) {
 	return b, nil
 }
 
-// ErrCorruptBlob is wrapped by GetBlob's refusal of a stored body whose sha256 differs.
 var ErrCorruptBlob = errors.New("corrupt")
 
 func newEventID() string {

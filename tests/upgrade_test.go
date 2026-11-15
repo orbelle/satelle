@@ -69,16 +69,11 @@ done = { workflow = "default", state = "done" }
 "task/active" = { workflow = "standing", state = "open" }
 `
 
-// The whole way across on a pre-1.0 fixture: validate names the upgrade,
-// archive moves the old .satelle byte for byte and starts v1, the import
-// refuses an incomplete map and dry-runs without writing, imports every item
-// with its history and documents, verifies, and imports nothing twice.
 func TestUpgradeEndToEnd(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
 	oldFormat(t, s)
 
-	// Validate and every command name the upgrade.
 	if r := s.run("validate"); r.code == 0 || !strings.Contains(r.out+r.err, "satelle upgrade --archive") {
 		t.Fatalf("validate on a pre-1.0 repo: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -86,7 +81,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 		t.Fatalf("story list on a pre-1.0 repo: exit %d %s", r.code, r.err)
 	}
 
-	// Archive: a dry run moves nothing; the run moves it byte for byte.
 	data := filepath.Join(s.dir, ".satelle")
 	before := manifestOf(t, data)
 	runtime := strings.TrimSpace(s.must("runtime", "path"))
@@ -109,7 +103,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	if !strings.Contains(out, dest) || !strings.Contains(out, "satelle help upgrade") {
 		t.Errorf("archive printed:\n%s", out)
 	}
-	// The fresh .satelle carries the upgrade skill, and help upgrade names it.
 	if _, err := os.Stat(filepath.Join(s.dir, ".satelle", "skills", "satelle-upgrade.md")); err != nil {
 		t.Errorf("the fresh .satelle has no upgrade skill: %v", err)
 	}
@@ -118,7 +111,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	}
 	s.must("validate")
 
-	// A workflow the map targets beyond init's default.
 	s.write(".satelle/workflows/standing.toml", "name = \"standing\"\n[states.open]\nstart = true\n[states.closed]\nterminal = true\n[[transition]]\nfrom = [\"open\"]\nto = \"closed\"\n")
 	s.must("validate")
 
@@ -128,7 +120,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	writeFile(t, filepath.Join(maps, "partial.toml"), "[status]\nbacklog = { workflow = \"default\", state = \"backlog\" }\n", 0o644)
 	writeFile(t, filepath.Join(maps, "full.toml"), fullMap, 0o644)
 
-	// An incomplete map refuses before anything is written.
 	r := s.run("upgrade", "--from", store, "--map", filepath.Join(maps, "partial.toml"))
 	if r.code == 0 || !strings.Contains(r.err, "story done: 1 item(s)") || !strings.Contains(r.err, "execution done: 1 item(s)") || !strings.Contains(r.err, "task active: 1 item(s)") {
 		t.Fatalf("partial map: exit %d\n%s%s", r.code, r.out, r.err)
@@ -137,7 +128,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 		t.Fatal("a refused import wrote to the ledger")
 	}
 
-	// A dry run prints the plan and writes nothing.
 	out = s.must("upgrade", "--from", store, "--map", filepath.Join(maps, "full.toml"), "--dry-run")
 	for _, want := range []string{"story backlog -> default/backlog  1 item(s)", "task active -> standing/open  1 item(s)", "4 item(s) to import", "4 history row(s), 2 document(s)", "1 history row(s) naming no item"} {
 		if !strings.Contains(out, want) {
@@ -148,7 +138,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 		t.Fatal("the dry run wrote to the ledger")
 	}
 
-	// The import.
 	if out = s.must("upgrade", "--from", store, "--map", filepath.Join(maps, "full.toml")); !strings.Contains(out, "4 item(s) imported") {
 		t.Fatalf("import printed:\n%s", out)
 	}
@@ -205,7 +194,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 		t.Errorf("a non-JSON payload is carried as %+v", last)
 	}
 
-	// Documents: identical bytes, the sidecar's media type, no views.
 	var atts []struct {
 		Name      string `json:"name"`
 		SHA256    string `json:"sha256"`
@@ -232,7 +220,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	}
 	s.must("ledger", "verify")
 
-	// A second run imports nothing and changes no ledger byte.
 	files := ledgerFiles(t, runtime)
 	if out = s.must("upgrade", "--from", store, "--map", filepath.Join(maps, "full.toml")); !strings.Contains(out, "0 item(s) imported, 4 already imported") {
 		t.Errorf("second run printed:\n%s", out)
@@ -245,8 +232,6 @@ func TestUpgradeEndToEnd(t *testing.T) {
 	}
 }
 
-// A repo listed in [upgrade] start_clean archives but refuses the import,
-// naming the setting; with the key absent the same import plans.
 func TestUpgradeStartClean(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

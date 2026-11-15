@@ -9,29 +9,21 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// The states Status reports.
 const (
 	InSync    = "in sync"
-	Ahead     = "ahead"      // local events to push
-	Behind    = "behind"     // store events to pull
-	LocalOnly = "local only" // never pushed
-	StoreOnly = "store only" // never pulled
-	// A diverged item is "diverged at <seq>"; a store chain with a missing
-	// sequence is "hole at <seq>"; one the store holds as something other
-	// than a chain is "refused: <why>".
+	Ahead     = "ahead"
+	Behind    = "behind"
+	LocalOnly = "local only"
+	StoreOnly = "store only"
 )
 
-// ItemStatus compares one item's local chain with the store's.
 type ItemStatus struct {
 	Item  string `json:"item"`
-	Local int    `json:"local"` // events on the local chain
-	Store int    `json:"store"` // events on the store's chain
+	Local int    `json:"local"`
+	Store int    `json:"store"`
 	State string `json:"state"`
 }
 
-// Status compares every local and every store chain, by the rules push and
-// pull use: the listed head when it proves the store's chain, else the
-// shared prefix. It keeps no state and writes nothing.
 func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 	lst, err := r.Store.Chains(ctx, nil)
 	if err != nil {
@@ -78,7 +70,6 @@ func (r *Replicator) Status(ctx context.Context) ([]ItemStatus, error) {
 	return out, nil
 }
 
-// compare is one item's state against a store chain without a hole.
 func (r *Replicator) compare(ctx context.Context, id string, local []ledger.Event, c Chain) (string, error) {
 	n := c.Len
 	if !proven(local, c) {

@@ -12,9 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// This machine's projects are added, listed (with the satelle.dev project
-// each is bound to) and removed under satelle project; satelle workspace is
-// satelle.dev's workspaces only.
 func TestProjectsAreLocalAndWorkspacesAreSatelleDev(t *testing.T) {
 	m := newMachine(t)
 	srv := fakeserver.Start(t, testToken)
@@ -58,7 +55,6 @@ func TestProjectsAreLocalAndWorkspacesAreSatelleDev(t *testing.T) {
 	}
 }
 
-// regexpLine reports whether some line of out holds the fields in order.
 func regexpLine(out string, fields ...string) bool {
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
@@ -69,8 +65,6 @@ func regexpLine(out string, fields ...string) bool {
 	return false
 }
 
-// Every command, flag and help line that says workspace means satelle.dev,
-// and no local-project verb sits under satelle workspace.
 func TestWorkspaceWordMeansSatelleDev(t *testing.T) {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {

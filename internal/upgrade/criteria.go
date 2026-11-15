@@ -5,13 +5,8 @@ import (
 	"strings"
 )
 
-// criterionMarker opens a criterion: "1." "2)" "-" or "*" at a line's start.
 var criterionMarker = regexp.MustCompile(`^\s*(?:\d+[.)]|[-*])\s+`)
 
-// SplitCriteria turns a pre-1.0 criteria text (one string) into a list: each
-// marked line opens a criterion, following unmarked lines join it, text
-// before the first marker is a criterion of its own, and text with no marker
-// is one criterion. Blank text gives none.
 func SplitCriteria(text string) []string {
 	if strings.TrimSpace(text) == "" {
 		return nil

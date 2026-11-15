@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// workspaceCmd is satelle.dev's workspaces: collections of projects, personal
-// or team. This machine's projects are under satelle project.
 func workspaceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",

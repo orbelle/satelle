@@ -24,7 +24,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// noTerminal stubs the controlling terminal away: no one can answer.
 func noTerminal(t *testing.T) {
 	t.Helper()
 	old := openTerminal
@@ -32,8 +31,6 @@ func noTerminal(t *testing.T) {
 	openTerminal = func() (io.ReadWriteCloser, error) { return nil, errors.New("no terminal") }
 }
 
-// fakeTTY is a scripted controlling terminal: Read answers from in, Write
-// records what was shown. With in nil, a read fails the test.
 type fakeTTY struct {
 	t     *testing.T
 	in    io.Reader
@@ -73,8 +70,6 @@ func withTerminal(t *testing.T, answers string) *fakeTTY {
 	return tty
 }
 
-// loggingSystemctl replaces the fixture's systemctl with one that logs every
-// call and answers is-active from the fixture's timer-state file.
 func loggingSystemctl(t *testing.T, f *doctorFixture) string {
 	t.Helper()
 	log := filepath.Join(f.bin, "systemctl.log")
@@ -82,8 +77,6 @@ func loggingSystemctl(t *testing.T, f *doctorFixture) string {
 	return log
 }
 
-// systemctlCalls is the logged calls other than is-active and
-// show-environment probes.
 func systemctlCalls(t *testing.T, log string) []string {
 	t.Helper()
 	b, _ := os.ReadFile(log)
@@ -96,7 +89,6 @@ func systemctlCalls(t *testing.T, log string) []string {
 	return out
 }
 
-// resolveJSON runs satelle doctor --resolve --json.
 func resolveJSON(t *testing.T) (resolveReport, string, error) {
 	t.Helper()
 	out, err := run(t, "", "doctor", "--resolve", "--json")
@@ -107,8 +99,6 @@ func resolveJSON(t *testing.T) (resolveReport, string, error) {
 	return rep, out, err
 }
 
-// killedProc starts a child, kills and reaps it: a process that provably
-// exited.
 func killedProc(t *testing.T) procgroup.Proc {
 	t.Helper()
 	cmd := exec.Command("sleep", "60")
@@ -122,7 +112,6 @@ func killedProc(t *testing.T) procgroup.Proc {
 	return p
 }
 
-// chain reads id's events.
 func chain(t *testing.T, id string) []ledger.Event {
 	t.Helper()
 	r, err := findRepo("")
@@ -142,8 +131,6 @@ func chain(t *testing.T, id string) []ledger.Event {
 
 func seatsOn(t *testing.T, id string) []item.Seat { return item.FoldSeats(chain(t, id)) }
 
-// seatAs binds session on id at this tree from a kernel stamping machine and
-// host: another machine's seat, or a legacy one recording none.
 func seatAs(t *testing.T, id, session, machine, host string) {
 	t.Helper()
 	r, err := findRepo("")
@@ -153,8 +140,6 @@ func seatAs(t *testing.T, id, session, machine, host string) {
 	seatAt(t, id, session, machine, host, kernel.LocalLocation(r.Tree))
 }
 
-// seatAt binds session on id at location from a kernel stamping machine and
-// host.
 func seatAt(t *testing.T, id, session, machine, host, location string) {
 	t.Helper()
 	k, _, err := openKernel()
@@ -168,24 +153,19 @@ func seatAt(t *testing.T, id, session, machine, host, location string) {
 	}
 }
 
-// missingWorktree is a local: location on this machine whose path does not
-// exist.
 func missingWorktree(t *testing.T) (path, location string) {
 	t.Helper()
 	path = filepath.Join(t.TempDir(), "gone")
 	return path, kernel.LocationLocal + path
 }
 
-// --resolve runs the service install action when satelle.service or the sync
-// timer is missing or the timer is not active, and the restart action when
-// satelled does not answer or runs another build (sto_e127b2e6 AC1).
 func TestResolveInstallsAndRestartsTheService(t *testing.T) {
 	units := func(f *doctorFixture) string { return filepath.Join(f.home, ".config", "systemd", "user") }
 	installCalls := []string{"daemon-reload", "enable " + serviceUnitName, "restart " + serviceUnitName, "enable --now " + syncTimerName}
 	cases := []struct {
 		name      string
 		setup     func(t *testing.T, f *doctorFixture)
-		want      []string // the issues' checks and problems, as substrings
+		want      []string
 		calls     []string
 		writesAll bool
 	}{
@@ -251,9 +231,6 @@ func TestResolveInstallsAndRestartsTheService(t *testing.T) {
 	}
 }
 
-// A seat on this machine whose session's owner has exited is released without
-// asking, with or without a terminal, and its record is pruned (AC2, AC8
-// "orphan released").
 func TestResolveReleasesAProvenOrphan(t *testing.T) {
 	for _, withTTY := range []bool{false, true} {
 		t.Run(map[bool]string{false: "no terminal", true: "terminal"}[withTTY], func(t *testing.T) {
@@ -295,11 +272,6 @@ func TestResolveReleasesAProvenOrphan(t *testing.T) {
 	}
 }
 
-// Every other orphan (here, an open item's seat at a worktree of this machine
-// that no longer exists) is shown with its evidence and released or kept on
-// the answer at the terminal; without one it is listed, saying there was no
-// terminal to ask at, and --resolve exits 1 (AC3, AC8 "orphan asked about";
-// sto_75c6b584 AC2).
 func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 	rows := []struct {
 		name    string
@@ -324,7 +296,7 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 		}, machine: "machine: not recorded", session: "session s-live: unverified (no machine recorded)"},
 	}
 	outcomes := []struct {
-		name, answer string // answer "" is no terminal
+		name, answer string
 		released     bool
 		exit         int
 	}{
@@ -381,10 +353,6 @@ func TestResolveAsksAboutOtherOrphans(t *testing.T) {
 	}
 }
 
-// A seat on an item in a terminal state is released without asking wherever
-// its session ran: here with its owner alive, on another machine, or with no
-// machine recorded; with no terminal, and with one that is never used
-// (sto_75c6b584 AC1).
 func TestResolveReleasesSeatsOnTerminalItems(t *testing.T) {
 	rows := []struct {
 		name, session string
@@ -453,8 +421,6 @@ func TestResolveReleasesSeatsOnTerminalItems(t *testing.T) {
 	}
 }
 
-// An issue doctor cannot prove a fix for is left saying so, and the text
-// report prints a why: line under every left: line (sto_75c6b584 AC2).
 func TestResolveLeftNamesWhy(t *testing.T) {
 	newDoctorFixture(t)
 	noTerminal(t)
@@ -488,9 +454,6 @@ func TestResolveLeftNamesWhy(t *testing.T) {
 	}
 }
 
-// Plain doctor's "acts on N" line counts what --resolve acts on from this
-// terminal context: a seat it would ask about only with a terminal attached,
-// and no ledger action under an invalid configuration (sto_75c6b584 AC3).
 func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
 	t.Run("valid configuration", func(t *testing.T) {
 		newDoctorFixture(t)
@@ -554,9 +517,6 @@ func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
 	})
 }
 
-// A seat here whose session never settled an owner and whose hook processes
-// have exited is unverified, not gone: doctor reports it as an issue to ask
-// about, and --resolve never releases it unasked (sto_35c85724 AC1, AC3).
 func TestResolveAsksAboutASessionWhoseHooksExited(t *testing.T) {
 	for _, withTTY := range []bool{false, true} {
 		t.Run(map[bool]string{false: "no terminal", true: "keep"}[withTTY], func(t *testing.T) {
@@ -626,9 +586,6 @@ func TestResolveAsksAboutASessionWhoseHooksExited(t *testing.T) {
 	}
 }
 
-// fourSeats seats four open stories: here (this machine, owner alive),
-// elsewhere (another machine), gone (owner killed) and unverified (no machine
-// recorded). It returns their ids by class.
 func fourSeats(t *testing.T) map[seatlife.Standing]string {
 	t.Helper()
 	ids := map[seatlife.Standing]string{}
@@ -649,10 +606,6 @@ func fourSeats(t *testing.T) map[seatlife.Standing]string {
 	return ids
 }
 
-// doctor classes every seat: one engaged here, the other machine's seat
-// elsewhere, the killed owner's gone, the legacy one unverified; only the
-// gone one is an issue, and --resolve leaves the elsewhere seat bound (AC6,
-// AC8 "remote-machine seat shown as elsewhere").
 func TestDoctorClassesEverySeat(t *testing.T) {
 	newDoctorFixture(t)
 	noTerminal(t)
@@ -688,20 +641,12 @@ func TestDoctorClassesEverySeat(t *testing.T) {
 	}
 }
 
-// --resolve opens one item listing every init and configured-check finding,
-// opens no second one while it is open, takes the item's kind and tag from
-// doctor.toml [resolve] (the template's, or the repo's own), and with an
-// invalid configuration records nothing. With [resolve] kind or tag unset it
-// records nothing and lists each finding naming the key to set (sto_a5cdb024
-// AC2). It never writes the tree or .git (AC7, AC8 "one fix item for several
-// findings").
 func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 	cases := []struct {
-		name string
-		// doctorToml, when set, replaces the fixture's doctor.toml.
+		name                string
 		doctorToml          string
-		kind, category, tag string // "" kind and tag: what LoadConfig reads
-		unset               string // the keys the left why names
+		kind, category, tag string
+		unset               string
 		invalid             bool
 	}{
 		{name: "template [resolve]"},
@@ -818,7 +763,6 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 	}
 }
 
-// itemIDs lists the repo's items, read-only.
 func itemIDs(t *testing.T) []string {
 	t.Helper()
 	items, err := readItems(loadDoctorInput(""))
@@ -833,7 +777,6 @@ func itemIDs(t *testing.T) []string {
 	return out
 }
 
-// newItems is the items not in before.
 func newItems(t *testing.T, before []string) []item.Item {
 	t.Helper()
 	items, err := readItems(loadDoctorInput(""))
@@ -849,10 +792,6 @@ func newItems(t *testing.T, before []string) []item.Item {
 	return out
 }
 
-// A substrate finding (a skill naming a command this binary lacks) is a
-// fix-item issue, and --resolve opens the one fix item listing it beside the
-// other substrate findings, a volatile literal among them (sto_3de33a72); the
-// tree and .git are unchanged (AC7).
 func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	f := newDoctorFixture(t)
 	noTerminal(t)
@@ -896,9 +835,6 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	}
 }
 
-// sto_2a41b9e4 AC2: doctor --resolve --session records its writes as that
-// session, although its checks build command trees on other goroutines
-// before it records (doctor.go, doctor_resolve.go).
 func TestResolveRecordsTheSessionFlag(t *testing.T) {
 	t.Run("fix item", func(t *testing.T) {
 		f := newDoctorFixture(t)

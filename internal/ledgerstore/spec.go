@@ -1,8 +1,3 @@
-// Package ledgerstore is satelle's client of the ledger store adapter
-// contract: the [ledger] store setting, the external store command that
-// implements put-if-absent, get and list, the key and body limits, and the
-// conformance checks `satelle ledger store-test` runs. `satelle help
-// ledger-store` is the contract's text.
 package ledgerstore
 
 import (
@@ -11,29 +6,19 @@ import (
 	"strings"
 )
 
-// The built-in store kinds a string value of [ledger] store may name. They are
-// satelle's own stores, not vendors; any other store is an external command.
 const (
 	KindSatelleDev = "satelle.dev"
 	KindLocal      = "local"
 )
 
-// Spec is the [ledger] store value: a built-in kind (a string) or an external
-// store command (a table with command and args). The zero value is "not
-// configured".
 type Spec struct {
 	Kind    string
 	Command string
 	Args    []string
 }
 
-// External reports whether the spec names an external store command, the only
-// form that implements the adapter operations.
 func (s Spec) External() bool { return s.Command != "" }
 
-// UnmarshalTOML reads a string naming a built-in kind, or a table
-// { command = "...", args = ["..."] }. Any other value, an unknown table key,
-// or an empty command is refused, naming it.
 func (s *Spec) UnmarshalTOML(v any) error {
 	*s = Spec{}
 	switch x := v.(type) {
@@ -84,9 +69,6 @@ func (s *Spec) UnmarshalTOML(v any) error {
 		v, KindSatelleDev, KindLocal)
 }
 
-// Resolve is the store a repo replicates to: s when [ledger] store is set;
-// unset, satelle.dev while signed in and local otherwise. It names no vendor:
-// any other store is the operator's command.
 func Resolve(s Spec, signedIn bool) Spec {
 	if s.Set() {
 		return s
@@ -97,5 +79,4 @@ func Resolve(s Spec, signedIn bool) Spec {
 	return Spec{Kind: KindLocal}
 }
 
-// Set reports whether [ledger] store names a store.
 func (s Spec) Set() bool { return s.Kind != "" || s.External() }

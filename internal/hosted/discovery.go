@@ -11,18 +11,10 @@ import (
 	"strings"
 )
 
-// apiPRMPath is the protected-resource metadata (RFC 9728) for the REST API
-// resource. The root PRM at /.well-known/oauth-protected-resource describes the
-// server's MCP resource instead and is never read here.
 const apiPRMPath = "/.well-known/oauth-protected-resource/api"
 
-// maxMetadataBytes bounds a metadata document read.
 const maxMetadataBytes = 1 << 20
 
-// endpoints is everything the login flow learns from discovery: the API
-// resource to request (RFC 8707), the client id the server publishes for the
-// CLI, and the authorization server's authorize and token endpoints. The binary
-// holds no provider-specific value; all of it arrives here.
 type endpoints struct {
 	Resource              string
 	ClientID              string
@@ -42,8 +34,6 @@ type authServerMetadata struct {
 	TokenEndpoint         string `json:"token_endpoint"`
 }
 
-// discover resolves server's API PRM (RFC 9728), then the first listed
-// authorization server's metadata (RFC 8414, falling back to OIDC discovery).
 func discover(ctx context.Context, httpClient *http.Client, server string) (endpoints, error) {
 	var prm protectedResourceMetadata
 	if err := getMetadata(ctx, httpClient, server+apiPRMPath, &prm); err != nil {
@@ -70,16 +60,12 @@ func discover(ctx context.Context, httpClient *http.Client, server string) (endp
 	}, nil
 }
 
-// fetchAuthServerMetadata reads issuer's RFC 8414 document, falling back to the
-// OpenID Connect discovery document on a 404, and checks the issuer matches
-// (RFC 8414 §3.3) and both endpoints are present.
 func fetchAuthServerMetadata(ctx context.Context, httpClient *http.Client, issuer string) (authServerMetadata, error) {
 	trimmed := strings.TrimRight(issuer, "/")
 	u, err := url.Parse(trimmed)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return authServerMetadata{}, fmt.Errorf("hosted: authorization server %q is not a URL", issuer)
 	}
-	// RFC 8414 §3.1 inserts the well-known segment between host and path.
 	rfc8414 := u.Scheme + "://" + u.Host + "/.well-known/oauth-authorization-server" + u.Path
 	var as authServerMetadata
 	err = getMetadata(ctx, httpClient, rfc8414, &as)
@@ -100,7 +86,6 @@ func fetchAuthServerMetadata(ctx context.Context, httpClient *http.Client, issue
 
 var errMetadataNotFound = errors.New("metadata document not found (HTTP 404)")
 
-// getMetadata GETs target and decodes a JSON document into out.
 func getMetadata(ctx context.Context, httpClient *http.Client, target string, out any) error {
 	if httpClient == nil {
 		httpClient = http.DefaultClient

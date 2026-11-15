@@ -27,7 +27,6 @@ func TestCredentialsPathXDG(t *testing.T) {
 	}
 }
 
-// panicMessage runs f and returns its recovered panic text ("" if none).
 func panicMessage(f func()) (msg string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -38,9 +37,6 @@ func panicMessage(f func()) (msg string) {
 	return ""
 }
 
-// TestCredentialsPathFenceUnderTest proves the sty_18403814 fence: under go test
-// the resolved path must lie under the temp dir / SATELLE_HOME, whichever branch
-// (XDG_CONFIG_HOME or HOME) produced it.
 func TestCredentialsPathFenceUnderTest(t *testing.T) {
 	t.Run("xdg outside temp panics", func(t *testing.T) {
 		const bad = "/nonexistent-satelle-xdg"
@@ -73,7 +69,7 @@ func TestCredentialsPathFenceUnderTest(t *testing.T) {
 		}
 	})
 	t.Run("xdg under SATELLE_HOME is allowed", func(t *testing.T) {
-		t.Setenv("TMPDIR", t.TempDir()) // SATELLE_HOME below is not under this
+		t.Setenv("TMPDIR", t.TempDir())
 		h := t.TempDir()
 		t.Setenv("SATELLE_HOME", h)
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, "xdg"))
@@ -90,8 +86,6 @@ func TestCredentialsPathFenceUnderTest(t *testing.T) {
 	})
 }
 
-// TestPruneLoopback proves the narrowed prune: only loopback entries with no
-// created_at and no email go; a loopback login that carries both stays.
 func TestPruneLoopback(t *testing.T) {
 	s := tempStore(t)
 	stampless := []string{"http://127.0.0.1:41001", "http://localhost:41002", "http://[::1]:41003"}
@@ -140,7 +134,6 @@ func TestPruneLoopback(t *testing.T) {
 			t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 		}
 	}
-	// A second prune finds nothing.
 	if again, err := s.PruneLoopback(); err != nil || len(again) != 0 {
 		t.Fatalf("second prune = %v, %v", again, err)
 	}
@@ -152,7 +145,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err := s.Save(in); err != nil {
 		t.Fatal(err)
 	}
-	// Trailing-slash-insensitive lookup.
 	got, err := s.Load("https://h")
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +212,6 @@ func TestSaveUpsertByServer(t *testing.T) {
 	s := tempStore(t)
 	_ = s.Save(Credential{ServerURL: "https://a", AccessToken: "1", RefreshToken: "1"})
 	_ = s.Save(Credential{ServerURL: "https://b", AccessToken: "2", RefreshToken: "2"})
-	// Update a in place.
 	_ = s.Save(Credential{ServerURL: "https://a", AccessToken: "1b", RefreshToken: "1b"})
 
 	cf, _, err := s.read()
@@ -266,7 +257,6 @@ func TestDeleteRemovesEntry(t *testing.T) {
 	if _, err := s.Load("https://b"); err != nil {
 		t.Fatalf("b should remain: %v", err)
 	}
-	// Delete of an absent server is a no-op.
 	if err := s.Delete("https://none"); err != nil {
 		t.Fatalf("delete absent: %v", err)
 	}

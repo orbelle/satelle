@@ -8,18 +8,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// placeAttempts bounds how often a placement retries after another writer
-// appended first.
 const placeAttempts = 3
 
-// place gives an item that arrived without a workflow (a server creates items
-// but never decides process) its workflow by this repo's rules:
-// item.updated {workflow} then item.transitioned {from, to: the start state},
-// both by Actor. They are offered to the store first, on the head the local
-// chain ends at, and imported only once the store took them, so when two
-// runtimes race only one placement lands and every runtime agrees. An item
-// whose local chain the store does not hold exactly (local events unpushed)
-// is left unplaced: placing it would fork.
 func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 	for range placeAttempts {
 		local, err := r.Ledger.Read(id)
@@ -28,7 +18,7 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 		}
 		it, err := item.Fold(local)
 		if err != nil || it.Workflow != "" {
-			return nil // not an item, or already placed
+			return nil
 		}
 		lst, err := r.Store.Chains(ctx, []string{id})
 		if err != nil {
@@ -47,7 +37,7 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 		}
 		head := local[len(local)-1].Hash
 		if h != head {
-			res.Unplaced = append(res.Unplaced, id) // diverged: the pull reported it
+			res.Unplaced = append(res.Unplaced, id)
 			return nil
 		}
 		name, start, err := r.Choose.WorkflowFor(it)
@@ -77,8 +67,6 @@ func (r *Replicator) place(ctx context.Context, res *Result, id string) error {
 			res.Placed = append(res.Placed, id)
 			return nil
 		}
-		// Another writer appended first: bring its events in through the
-		// one pull path (it verifies the whole chain) and look again.
 		lst, err = r.Store.Chains(ctx, []string{id})
 		if err != nil {
 			return err

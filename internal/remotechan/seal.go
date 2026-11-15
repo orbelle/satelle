@@ -12,36 +12,25 @@ import (
 	"fmt"
 )
 
-// The frame types on the relay. A relay sees these and nothing else: the two
-// key halves of the handshake, sealed data, and a bare refusal.
 const (
-	frameHelloRemote byte = 1 // remote → local: remote's ephemeral public key
-	frameHelloLocal  byte = 2 // local → remote: local's ephemeral public key
-	frameData        byte = 3 // either way: type | seq(8, big-endian) | AES-256-GCM ciphertext
-	frameRefused     byte = 4 // local → remote, alone: the remote's enrollment did not open under the pinned key
+	frameHelloRemote byte = 1
+	frameHelloLocal  byte = 2
+	frameData        byte = 3
+	frameRefused     byte = 4
 )
 
 const (
-	pubLen    = 32 // X25519 public key
+	pubLen    = 32
 	headerLen = 1 + 8
 )
 
 var (
-	// ErrKeyMismatch: the remote that answered cannot prove the public key local
-	// satelle pinned at launch. A substituted node key lands here and nothing the
-	// remote sent is delivered.
 	ErrKeyMismatch = errors.New("remotechan: remote does not hold the key pinned at launch")
-	// ErrFrame: a frame was malformed, of an unexpected type, or out of order
-	// (a replayed, dropped or reordered frame breaks the sequence).
-	ErrFrame = errors.New("remotechan: bad frame")
+	ErrFrame       = errors.New("remotechan: bad frame")
 )
 
-// Identity is a node's static X25519 key. The node generates it; local satelle
-// reads Public at launch and pins it, and the node proves it holds the private
-// half by deriving the session keys with it.
 type Identity struct{ key *ecdh.PrivateKey }
 
-// NewIdentity generates a fresh node identity.
 func NewIdentity() (*Identity, error) {
 	k, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
@@ -50,7 +39,6 @@ func NewIdentity() (*Identity, error) {
 	return &Identity{key: k}, nil
 }
 
-// Public is the 32-byte public key to pin.
 func (i *Identity) Public() []byte { return i.key.PublicKey().Bytes() }
 
 func newEphemeral() (*ecdh.PrivateKey, error) {
@@ -68,9 +56,6 @@ func parsePublic(b []byte) (*ecdh.PublicKey, error) {
 	return ecdh.X25519().NewPublicKey(b)
 }
 
-// localKeys derives the local end's keys. The static-key term (eL · pinned) is
-// why a substituted node key fails: only the holder of the pinned key's private
-// half can derive the same secret.
 func localKeys(session string, eL *ecdh.PrivateKey, eRPub, pinned []byte) (*sealer, *opener, error) {
 	eR, err := parsePublic(eRPub)
 	if err != nil {
@@ -91,7 +76,6 @@ func localKeys(session string, eL *ecdh.PrivateKey, eRPub, pinned []byte) (*seal
 	return deriveKeys(RoleLocal, session, eL.PublicKey().Bytes(), eRPub, pinned, ee, es)
 }
 
-// remoteKeys derives the remote end's keys from its static identity.
 func remoteKeys(session string, id *Identity, eR *ecdh.PrivateKey, eLPub []byte) (*sealer, *opener, error) {
 	eL, err := parsePublic(eLPub)
 	if err != nil {
@@ -108,9 +92,6 @@ func remoteKeys(session string, id *Identity, eR *ecdh.PrivateKey, eLPub []byte)
 	return deriveKeys(RoleRemote, session, eLPub, eR.PublicKey().Bytes(), id.Public(), ee, es)
 }
 
-// deriveKeys runs HKDF-SHA256 over both DH results, salted with the whole
-// transcript (both ephemerals, the static key, the session), into one AES-256
-// key per direction.
 func deriveKeys(role Role, session string, eL, eR, rS, ee, es []byte) (*sealer, *opener, error) {
 	secret := append(append([]byte{}, ee...), es...)
 	salt := append(append(append(append([]byte{}, eL...), eR...), rS...), session...)
@@ -145,16 +126,12 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// sealer encrypts one direction. The sequence number is the nonce, so it never
-// repeats under a key, and it is authenticated in the header.
 type sealer struct {
 	aead    cipher.AEAD
 	session string
 	seq     uint64
 }
 
-// seal returns the wire frame for plain. Callers serialise seal and the write
-// that follows it, so frames reach the relay in sequence order.
 func (s *sealer) seal(plain []byte) []byte {
 	header := make([]byte, headerLen, headerLen+len(plain)+s.aead.Overhead())
 	header[0] = frameData
@@ -163,7 +140,6 @@ func (s *sealer) seal(plain []byte) []byte {
 	return s.aead.Seal(header, nonceFor(header[1:]), plain, aad(header, s.session))
 }
 
-// opener decrypts one direction and insists on the next sequence number.
 type opener struct {
 	aead    cipher.AEAD
 	session string
@@ -172,8 +148,6 @@ type opener struct {
 
 var errOpen = errors.New("remotechan: frame does not authenticate")
 
-// open returns the plaintext of frame. A frame that fails to authenticate
-// returns errOpen and does not advance the sequence.
 func (o *opener) open(frame []byte) ([]byte, error) {
 	if len(frame) < headerLen+o.aead.Overhead() || frame[0] != frameData {
 		return nil, ErrFrame

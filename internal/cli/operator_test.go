@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// writeOperatorWorkflow adds a workflow st-one -> deploy (the operator's,
-// recording deploy-record) -> st-three, beside the gated one.
 func writeOperatorWorkflow(t *testing.T, dir string) {
 	t.Helper()
 	writeGatedWorkflow(t, dir)
@@ -40,7 +38,6 @@ to = "st-three"
 	}
 }
 
-// fakeTerminal answers the confirmation with answer and keeps the prompt.
 type fakeTerminal struct {
 	io.Reader
 	prompt strings.Builder
@@ -49,8 +46,6 @@ type fakeTerminal struct {
 func (f *fakeTerminal) Write(p []byte) (int, error) { return f.prompt.Write(p) }
 func (f *fakeTerminal) Close() error                { return nil }
 
-// useTerminal stands in a controlling terminal that types answer; a nil
-// terminal is none.
 func useTerminal(t *testing.T, answer *string) *fakeTerminal {
 	t.Helper()
 	prev := openTerminal
@@ -84,7 +79,6 @@ func countEvents(t *testing.T, id, kind string) int {
 	return n
 }
 
-// AC1: a seat on an item in an operator state allows no edits.
 func TestEditGateRefusesOperatorState(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -108,8 +102,6 @@ func TestEditGateRefusesOperatorState(t *testing.T) {
 	}
 }
 
-// AC2: leaving is refused until the operator records; the record verb lets it
-// leave; raw appends cannot forge the record or the move.
 func TestOperatorRecordLetsTheItemLeave(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -148,8 +140,6 @@ func TestOperatorRecordLetsTheItemLeave(t *testing.T) {
 	must(t, "story", "set", id, "--status", "st-three")
 }
 
-// AC2: satelle ledger append refuses the kinds satelle reads, so it can neither
-// forge the operator's record nor move the item out.
 func TestLedgerAppendRefusesFoldedKinds(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -179,9 +169,6 @@ func TestLedgerAppendRefusesFoldedKinds(t *testing.T) {
 	must(t, "ledger", "append", id, "--kind", "github.review", "--payload", "{}")
 }
 
-// AC3: an agent session cannot record the operator's word: the kernel refuses
-// a session, the verb refuses without the id retyped on a terminal, and the
-// hook refuses the verb in any agent tool call.
 func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -204,13 +191,11 @@ func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 		}
 	}
 
-	// A session, even with the right id typed on a terminal.
 	useTerminal(t, &id)
 	t.Setenv("SATELLE_SESSION", "s-1")
 	refused("an agent session (s-1) may not record the operator's word")
 	t.Setenv("SATELLE_SESSION", "")
 
-	// A session named by --session, the environment empty (sto_2a41b9e4).
 	if _, err := run(t, "", "story", "record", id, "--file", "evidence.md", "--session", "s-1"); err == nil || !strings.Contains(err.Error(), "an agent session (s-1) may not record the operator's word") {
 		t.Fatalf("record --session s-1: %v", err)
 	}
@@ -218,16 +203,13 @@ func TestOperatorRecordRefusesAnAgent(t *testing.T) {
 		t.Fatalf("attachment.added on the chain after record --session: %d", n)
 	}
 
-	// env -u SATELLE_SESSION: no controlling terminal.
 	useTerminal(t, nil)
 	refused("no controlling terminal")
 
-	// A terminal that answers another id.
 	wrong := "sto_00000000"
 	useTerminal(t, &wrong)
 	refused("is not " + id)
 
-	// The hook, for the session holding a seat on the item.
 	for _, c := range []string{
 		"satelle story record " + id + " --file f",
 		"env -u SATELLE_SESSION satelle story record " + id + " --file f",

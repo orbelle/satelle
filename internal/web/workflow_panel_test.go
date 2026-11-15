@@ -13,9 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// panelSnapshot has workflow delivery (no panel) and workflow fix (panel
-// "Drift", start state open, terminal done): story s1 on delivery in backlog,
-// d1 on fix open, d2 on fix in d2's status.
 func panelSnapshot(d1Status string) mirror.Snapshot {
 	delivery := mirror.Workflow{Name: "delivery", States: []mirror.WorkflowState{{Name: "backlog", Start: true}, {Name: "shipped", Terminal: true}}}
 	fix := mirror.Workflow{Name: "fix", Panel: "Drift", States: []mirror.WorkflowState{{Name: "open", Start: true}, {Name: "done", Terminal: true}}}
@@ -39,7 +36,6 @@ var (
 	rowIDRE      = regexp.MustCompile(`data-id="(sto_[a-z0-9]+)"`)
 )
 
-// rowIDs are the story ids of a rows fragment or a page section, in order.
 func rowIDs(html string) []string {
 	var out []string
 	for _, m := range rowIDRE.FindAllStringSubmatch(html, -1) {
@@ -48,7 +44,6 @@ func rowIDs(html string) []string {
 	return out
 }
 
-// section returns the page's panel section for topic.
 func section(page, topic string) string {
 	_, rest, ok := strings.Cut(page, `<section class="panel" data-topic="`+topic+`"`)
 	if !ok {
@@ -58,12 +53,6 @@ func section(page, topic string) string {
 	return rest
 }
 
-// A story whose workflow declares a panel is left out of the Stories tab's
-// rows, its count, its backlog badge and the projects list's Stories count,
-// and is listed on its panel's tab instead, whose count is the items not in a
-// terminal state and whose alert holds while that count is above zero. The
-// tab is rendered by one template at page load and at fragment/tab/<topic>
-// (sto_a1681009 AC5, AC6).
 func TestWorkflowPanelTab(t *testing.T) {
 	srv := mirrorWith(t, panelSnapshot("open"))
 	page := httpGetBody(t, srv.URL+"/r/proj/")
@@ -111,7 +100,6 @@ func TestWorkflowPanelTab(t *testing.T) {
 		t.Error("the projects list does not count Stories as 1")
 	}
 
-	// After d1 reaches done, the tab counts 0 and drops its alert.
 	resp, err := http.Post(srv.URL+"/ingest/snapshot", "application/json", bytes.NewReader(raw(panelSnapshot("done"))))
 	if err != nil {
 		t.Fatal(err)
@@ -127,9 +115,6 @@ func TestWorkflowPanelTab(t *testing.T) {
 	}
 }
 
-// The live refresh copies the server's tab fragment onto a workflow panel's
-// tab and counts nothing; a story change refetches the panels, and the panels
-// join the tabs (sto_a1681009 AC6).
 func TestWorkflowPanelLiveWiring(t *testing.T) {
 	b, err := os.ReadFile("static/app.js")
 	if err != nil {

@@ -33,7 +33,6 @@ func TestRecordAndLookup(t *testing.T) {
 	if got := Lookup(home, bin); got != line {
 		t.Errorf("Lookup = %q, want %q", got, line)
 	}
-	// A rewritten file no longer matches its entry.
 	writeFile(t, bin, "two, longer")
 	if got := Lookup(home, bin); !strings.Contains(got, "changed since it last ran") {
 		t.Errorf("rewritten file: %q", got)
@@ -44,7 +43,6 @@ func TestRecordAndLookup(t *testing.T) {
 	if got := Lookup(home, bin); !strings.HasPrefix(got, "unknown (no satelle at ") {
 		t.Errorf("missing file: %q", got)
 	}
-	// The missing file's entry is pruned on the next Record.
 	other := filepath.Join(dir, "satelled")
 	writeFile(t, other, "d")
 	if err := Record(home, other, "satelled 1.0.0 (commit a, built b)"); err != nil {
@@ -54,7 +52,6 @@ func TestRecordAndLookup(t *testing.T) {
 	if _, ok := m[resolvePath(bin)]; ok || len(m) != 1 {
 		t.Errorf("the removed file's entry was kept: %v", m)
 	}
-	// A torn record reads as none.
 	writeFile(t, filepath.Join(home, RecordsFile), "{not json")
 	if got := Lookup(home, other); !strings.Contains(got, "has not run since it was installed") {
 		t.Errorf("torn record: %q", got)

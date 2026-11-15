@@ -52,7 +52,6 @@ func TestQueueRowsAndTopic(t *testing.T) {
 	if row.Inputs == nil || row.Inputs.Status != "open" || row.Trigger == nil || row.Trigger.Task != "tas_1" || row.Trigger.MinSize != 2 {
 		t.Fatalf("queue row %+v", row)
 	}
-	// A queue file's definition replaces the chain's on its row.
 	src.Queues = map[string]*workflow.Queue{"que_1": {Name: "release", Title: "From the file",
 		Filter: &item.Selection{Kind: "story"}, Trigger: &item.Trigger{Task: "tas_9", Base: "origin/main"}}}
 	snap, err = Delta(src, []string{"que_1"})

@@ -11,21 +11,17 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Target is where a mapped status puts an item.
 type Target struct {
 	Workflow string `toml:"workflow"`
 	State    string `toml:"state"`
 }
 
-// StatusMap is the operator-confirmed map from old status to v1 workflow and
-// state. A "<kind>/<status>" key wins over a bare "<status>" key.
 type StatusMap struct {
 	Status map[string]Target `toml:"status"`
 	Path   string            `toml:"-"`
 	SHA256 string            `toml:"-"`
 }
 
-// LoadMap reads a status map strictly (an unknown key refuses).
 func LoadMap(path string) (*StatusMap, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -40,8 +36,6 @@ func LoadMap(path string) (*StatusMap, error) {
 	return m, nil
 }
 
-// Resolve gives the target for an item's kind and old status, and the rule
-// key that decided it.
 func (m *StatusMap) Resolve(kind, status string) (Target, string, bool) {
 	if t, ok := m.Status[kind+"/"+status]; ok {
 		return t, kind + "/" + status, true
@@ -50,7 +44,6 @@ func (m *StatusMap) Resolve(kind, status string) (Target, string, bool) {
 	return t, status, ok
 }
 
-// check reports every map entry whose workflow or state the repo lacks.
 func (m *StatusMap) check(workflows map[string]*workflow.Workflow) []string {
 	var bad []string
 	keys := make([]string, 0, len(m.Status))
@@ -71,7 +64,6 @@ func (m *StatusMap) check(workflows map[string]*workflow.Workflow) []string {
 	return bad
 }
 
-// unmapped lists the kind/status pairs the map does not name, with counts.
 func (m *StatusMap) unmapped(items []OldItem) []string {
 	count := map[string]int{}
 	for _, it := range items {
@@ -87,7 +79,6 @@ func (m *StatusMap) unmapped(items []OldItem) []string {
 	return out
 }
 
-// RuleCount is one mapping rule's line in a plan.
 type RuleCount struct {
 	Key, Kind, Status string
 	Target            Target

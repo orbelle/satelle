@@ -13,31 +13,17 @@ import (
 	"time"
 )
 
-// IngestOrigin says where the store change an ingest body reports came from.
-// The mirror applies every origin alike; only the hosted push trigger reads it,
-// so a change materialised from the hosted project is never pushed back to it.
 type IngestOrigin string
 
 const (
-	// OriginLocal is a change made on this machine (and every body from an
-	// older CLI, which carries no origin).
-	OriginLocal IngestOrigin = ""
-	// OriginHosted is a store change materialised from the hosted project: a
-	// pull, snapshot, rehydrate or align.
+	OriginLocal  IngestOrigin = ""
 	OriginHosted IngestOrigin = "hosted"
 )
 
-// CodePartitionUnknown leads the 409 body answering a merge-only snapshot for
-// a partition that has never had a full story set applied: the sender posts a
-// full body instead (sty_a003a459).
 const CodePartitionUnknown = "partition_unknown"
 
-// EnvIngestOrigin, set to OriginHosted, stamps a CLI verb's ingest hosted
-// whatever the verb; unset, `satelle project add` run by an operator is local
-// (sty_0367d20c).
 const EnvIngestOrigin = "SATELLE_INGEST_ORIGIN"
 
-// ChangeEvent is the body POSTed by the CLI push publisher (sty_126228b2).
 type ChangeEvent struct {
 	RepoKey string       `json:"repo_key"`
 	Topic   string       `json:"topic"`
@@ -46,26 +32,15 @@ type ChangeEvent struct {
 	Origin  IngestOrigin `json:"origin,omitempty"`
 }
 
-// ConfirmEvent is POSTed to /ingest/confirm by the automatic sync pass: the
-// digest of the full snapshot the CLI would post. satelled marks the partition
-// fresh when it matches the last full body applied, and applies nothing.
 type ConfirmEvent struct {
 	RepoKey string `json:"repo_key"`
 	Digest  string `json:"digest"`
 }
 
-// RemoveEvent is POSTed to /ingest/remove to purge a partition (sty_eb61be02).
-// Same trust model as snapshot ingest (localhost push-fed; CLI sole writer).
 type RemoveEvent struct {
 	RepoKey string `json:"repo_key"`
 }
 
-// Snapshot is a full-state push for one partition (order:4 reconcile).
-// Every kind the UI reads must arrive here so serve never opens a repo DB.
-//
-// Partial drains (sty_3562c820) set Kinds / MergeKinds so only those partitions
-// are written; kinds named in neither are left untouched. Absent both fields,
-// behaviour is today's full replace of every kind (project add + reconcile).
 type Snapshot struct {
 	RepoKey      string            `json:"repo_key"`
 	Slug         string            `json:"slug,omitempty"`
@@ -75,76 +50,44 @@ type Snapshot struct {
 	Queues       []json.RawMessage `json:"queues,omitempty"`
 	Docs         []json.RawMessage `json:"docs,omitempty"`
 	LedgerEvents []json.RawMessage `json:"ledger_events,omitempty"`
-	StoryDocs    []json.RawMessage `json:"story_docs,omitempty"` // id = story_id/name
+	StoryDocs    []json.RawMessage `json:"story_docs,omitempty"`
 	Seats        []json.RawMessage `json:"seats,omitempty"`
-	// Waves is a removed feature's field: accepted from an older pusher and
-	// ignored.
-	Waves    []json.RawMessage `json:"waves,omitempty"`
-	Settings json.RawMessage   `json:"settings,omitempty"` // single settings blob
-	// Identity is the per-partition meta blob (project name, repo path, footer email).
-	// Ingested as kind "identity" id "meta" (sty_400c022b / epic:mirror-ui-parity).
-	Identity json.RawMessage `json:"identity,omitempty"`
-	// Kinds is the explicit set of partitions this body authoritatively replaces
-	// (delete+insert). Empty means full snapshot: all standard kinds.
-	Kinds []string `json:"kinds,omitempty"`
-	// MergeKinds are applied as upsert-without-delete: ledger_event (append-only)
-	// and the story, task, execution and story_doc rows a delta push changed. A body
-	// with merge kinds that does not replace story needs a seeded partition.
-	MergeKinds []string `json:"merge_kinds,omitempty"`
-	// Origin is where the reported store change came from; see IngestOrigin.
-	Origin IngestOrigin `json:"origin,omitempty"`
+	Waves        []json.RawMessage `json:"waves,omitempty"`
+	Settings     json.RawMessage   `json:"settings,omitempty"`
+	Identity     json.RawMessage   `json:"identity,omitempty"`
+	Kinds        []string          `json:"kinds,omitempty"`
+	MergeKinds   []string          `json:"merge_kinds,omitempty"`
+	Origin       IngestOrigin      `json:"origin,omitempty"`
 }
 
-// User is a signed-in user: display name and email, never a token.
 type User struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
 
-// IdentityMeta is the JSON shape of Snapshot.Identity: the project name and repo
-// path a page renders without opening a repo DB or calling git.
 type IdentityMeta struct {
-	ProjectName string `json:"project_name"`
-	RepoRoot    string `json:"repo_root"`
-	// User is who the pushing CLI is signed in as (from its local credential
-	// store, stamped at login); nil when it is signed out.
-	User *User `json:"user,omitempty"`
-	// Hosted is set when the server is the repo's store of record (sty_0dc600e1):
-	// the page then lists this machine's stories and links the rest to the server.
-	Hosted *HostedMeta `json:"hosted,omitempty"`
+	ProjectName string      `json:"project_name"`
+	RepoRoot    string      `json:"repo_root"`
+	User        *User       `json:"user,omitempty"`
+	Hosted      *HostedMeta `json:"hosted,omitempty"`
 }
 
-// HostedMeta names the hosted project a partition syncs with. The stories
-// engaged on this machine are not pushed: satelled derives them from the seats
-// it can see are here (internal/seatlife).
 type HostedMeta struct {
 	Server  string `json:"server"`
 	Project string `json:"project"`
 }
 
-// IngestHandler serves POST /ingest/change, /ingest/snapshot, /ingest/confirm
-// and /ingest/remove. The sync pass's confirm (sto_128803b3) keeps a quiet
-// partition fresh without re-posting it.
-// OnChange is optional (SSE doorbell). OnIngest is optional (hosted push
-// trigger); it receives the body's origin so it can ignore hosted-origin changes.
 type IngestHandler struct {
 	Store    *Store
 	OnChange func(topic string)
 	OnIngest func(repoKey string, origin IngestOrigin)
-	// Log receives one line per snapshot ingest that fails or takes longer than
-	// slowIngest, with its size and phase timings. nil discards.
-	Log func(format string, args ...any)
+	Log      func(format string, args ...any)
 
-	// apply replaces Store.ApplySnapshot; nil means the store. Set only by
-	// in-package tests, which cannot otherwise slow or fail the detached apply.
 	apply func(ctx context.Context, repoKey string, replace, merge []KindRows, now time.Time) error
 }
 
-// slowIngest is the snapshot ingest duration past which Log is written even
-// when the ingest succeeds.
 const slowIngest = time.Second
 
-// ingestTiming is one snapshot ingest's size and phase timings for Log.
 type ingestTiming struct {
 	start                 time.Time
 	bytes                 int
@@ -178,7 +121,6 @@ func (h *IngestHandler) applySnapshot(ctx context.Context, repoKey string, repla
 	return h.Store.ApplySnapshot(ctx, repoKey, replace, merge, now)
 }
 
-// Mount registers ingest routes on mux.
 func (h *IngestHandler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/ingest/change", h.handleChange)
 	mux.HandleFunc("/ingest/snapshot", h.handleSnapshot)
@@ -186,10 +128,6 @@ func (h *IngestHandler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/ingest/confirm", h.handleConfirm)
 }
 
-// confirmFresh marks repoKey fresh and seeded when digest equals the last full
-// snapshot applied to it, and reports whether it did. A missing or different
-// digest touches nothing. Moving a stale partition fresh rings "projects", so
-// an open landing drops its stale flag; a fresh one rings nothing.
 func (h *IngestHandler) confirmFresh(ctx context.Context, repoKey, digest string, now time.Time) (bool, error) {
 	prev, err := h.Store.SnapshotHash(ctx, repoKey)
 	if err != nil {
@@ -215,10 +153,6 @@ func (h *IngestHandler) confirmFresh(ctx context.Context, repoKey, digest string
 	return true, nil
 }
 
-// handleConfirm answers the sync pass's cheap check: fresh is true when the
-// posted digest matched and the partition was marked fresh; false tells the
-// CLI to post the full body. It does not call OnIngest: a confirm reports no
-// store change.
 func (h *IngestHandler) handleConfirm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -297,9 +231,6 @@ func (h *IngestHandler) handleChange(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "seq": seq})
 }
 
-// applySnapshotTimeout bounds server-side apply after the body is fully read.
-// Detached from the client so a drain that walks away mid-apply cannot cancel
-// a half-written multi-kind replace (sty_3562c820 AC2).
 const applySnapshotTimeout = 30 * time.Second
 
 func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -341,11 +272,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	ctx := r.Context()
 	partial := len(snap.Kinds) > 0 || len(snap.MergeKinds) > 0
-	// A full body byte-identical to the one already applied (a seed repeated,
-	// or the sync pass's confirm falling back) records freshness and stops
-	// (sty_e6e467fe), through the same helper as /ingest/confirm. Partial
-	// drains never own snap_hash — skip the short-circuit so a light body
-	// cannot suppress a later full re-seed.
 	digest := SnapshotDigest(body)
 	if !partial {
 		fresh, err := h.confirmFresh(ctx, snap.RepoKey, digest, now)
@@ -356,8 +282,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 		if fresh {
 			lap(&tm.apply)
-			// Unchanged bytes can still coincide with a hosted-side gap; the
-			// push is a cursor no-op when there is nothing to send (sty_c526753a).
 			if h.OnIngest != nil {
 				h.OnIngest(snap.RepoKey, snap.Origin)
 				lap(&tm.onIngest)
@@ -367,9 +291,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A merge-only body is a delta: it is only correct on top of a full story
-	// set. A partition a topic POST created holds none, so the sender is told to
-	// post the full body and nothing is applied.
 	if partial && len(snap.MergeKinds) > 0 && !slices.Contains(snap.Kinds, "story") {
 		seeded, err := h.Store.PartitionSeeded(ctx, snap.RepoKey)
 		if err != nil {
@@ -383,8 +304,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Fail-closed: landing /r/<slug>/ must map to one partition (sty_57d5ce25).
-	// Empty slug skips — the UI falls back to unique repo_key.
 	if slug := strings.TrimSpace(snap.Slug); slug != "" {
 		if existing, ok, err := h.Store.FindBySlug(ctx, slug); err != nil {
 			lap(&tm.apply)
@@ -397,8 +316,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// TouchPartition does not move updated_at: freshness is claimed below, only
-	// once the apply has committed, so a push that fails cannot clear staleness.
 	if _, err := h.Store.TouchPartition(ctx, snap.RepoKey, snap.Slug, now); err != nil {
 		lap(&tm.apply)
 		fail(err.Error(), http.StatusInternalServerError)
@@ -406,8 +323,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	replace, merge := snapshotKindRows(snap)
-	// Detach from the client deadline: the body is already fully read; finishing
-	// (or failing) the single tx must not be cut short by the drain budget.
 	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), applySnapshotTimeout)
 	defer cancel()
 	if err := h.applySnapshot(applyCtx, snap.RepoKey, replace, merge, now); err != nil {
@@ -415,8 +330,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Only full bodies may set snap_hash. Partial applies clear it so the next
-	// confirm cannot short-circuit against a light digest (sty_3562c820).
 	hash := digest
 	if partial {
 		hash = ""
@@ -432,7 +345,6 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Doorbell only after a committed apply so viewers never refetch a failed push.
 	if h.OnChange != nil {
 		h.OnChange("stories")
 		h.OnChange("tasks")
@@ -448,14 +360,10 @@ func (h *IngestHandler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
-// snapshotKindRows builds the replace/merge sets for ApplySnapshot.
-// Empty Kinds+MergeKinds → full replace of every standard kind (and settings/
-// identity when present). Non-empty Kinds selects which replace partitions
-// apply; omitted kinds are left untouched.
 func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 	kindOK := func(kind string) bool {
 		if len(snap.Kinds) == 0 && len(snap.MergeKinds) == 0 {
-			return true // full snapshot
+			return true
 		}
 		for _, k := range snap.Kinds {
 			if k == kind {
@@ -472,8 +380,6 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 		}
 		return false
 	}
-	// When full (no Kinds), every kind is a replace. When light, ledger and the
-	// per-row kinds a delta drain carries (sty_a003a459) may be merge-only.
 	full := len(snap.Kinds) == 0 && len(snap.MergeKinds) == 0
 	merges := func(kind string) bool { return !full && mergeOK(kind) }
 	candidates := []struct {
@@ -496,7 +402,6 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 			continue
 		}
 		if full {
-			// Full path always replaces every standard kind (even empty).
 			if c.kind == "ledger_event" || kindOK(c.kind) {
 				replace = append(replace, KindRows{Kind: c.kind, Items: c.rows})
 			}
@@ -510,8 +415,6 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 		if len(snap.Settings) > 0 {
 			replace = append(replace, KindRows{Kind: "settings", Items: []ItemRow{{ID: "config", Payload: string(snap.Settings)}}})
 		} else if full {
-			// Full snapshot with empty settings still clears settings when we
-			// historically only wrote when present — keep that: only write if non-empty.
 		}
 	}
 	if full || kindOK("identity") {
@@ -522,17 +425,11 @@ func snapshotKindRows(snap Snapshot) (replace, merge []KindRows) {
 	return replace, merge
 }
 
-// SnapshotDigest fingerprints a snapshot body. Snapshot JSON is deterministic
-// for unchanged repo state (ordered queries, sorted map keys), so equal digests
-// mean equal state. The CLI's confirm hashes with this same function.
 func SnapshotDigest(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }
 
-// slugConflictMessage builds the 409 body for a landing-slug collision: names
-// the slug, existing and incoming repo_keys, best-effort path of the existing
-// partition, and the rename / re-seed remedy (sty_57d5ce25).
 func slugConflictMessage(store *Store, ctx context.Context, slug, existingKey, incomingKey string) string {
 	pathNote := ""
 	if payload, err := store.GetItem(ctx, existingKey, "identity", "meta"); err == nil {
@@ -567,9 +464,6 @@ func rawToRows(raw []json.RawMessage, idKey string) []ItemRow {
 	return out
 }
 
-// docRows builds ItemRows for snapshot docs. ID is path when set; otherwise
-// "<kind>/<name>" with kind defaulting to "documents". Docs with neither a
-// path nor a name are skipped (same as empty-id rows elsewhere).
 func docRows(raw []json.RawMessage) []ItemRow {
 	var out []ItemRow
 	for _, r := range raw {

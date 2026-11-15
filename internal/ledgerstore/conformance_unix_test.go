@@ -34,9 +34,6 @@ func TestConformancePassesOnTheReferenceAdapterFromAFreshRoot(t *testing.T) {
 	}
 }
 
-// overwriting is a store whose put-if-absent always overwrites and exits 0;
-// get and list are honest. It keeps objects as files named by the key with '/'
-// as '%'.
 const overwriting = `d=$(dirname "$0"); shift 2; op=$1; shift
 mkdir -p "$d/o"
 case $op in
@@ -77,8 +74,6 @@ func TestConformanceFailsAStoreThatOverwrites(t *testing.T) {
 	}
 }
 
-// recording appends each invocation's operation and operands to a log, then
-// execs the reference adapter.
 func recording(t *testing.T, root string) (Command, string) {
 	t.Helper()
 	dir := t.TempDir()

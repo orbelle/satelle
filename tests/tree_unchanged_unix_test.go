@@ -16,11 +16,6 @@ import (
 
 const treeCheck = "satelle-tree-unchanged-check"
 
-// treeSandbox is a repo with an origin remote holding main, a route
-// open -> plan -> build -> done whose plan performer produces only
-// attachments, whose build performer may change the tree, whose
-// build -> plan is gateless, and whose plan -> build runs this repo's copy of
-// satelle-tree-unchanged-check.
 type treeSandbox struct {
 	*sandbox
 }
@@ -55,8 +50,6 @@ from = ["build"]
 to = "done"
 `
 
-// newTreeSandbox builds the fixture; withOrigin false leaves the repo with no
-// origin remote.
 func newTreeSandbox(t *testing.T, withOrigin bool) *treeSandbox {
 	t.Helper()
 	s := newSandbox(t)
@@ -93,7 +86,6 @@ func newTreeSandbox(t *testing.T, withOrigin bool) *treeSandbox {
 	return &treeSandbox{s}
 }
 
-// item creates a story and moves it to plan.
 func (s *treeSandbox) item(title string) string {
 	s.t.Helper()
 	id := s.create("story", "--title", title).ID
@@ -101,7 +93,6 @@ func (s *treeSandbox) item(title string) string {
 	return id
 }
 
-// commit writes rel and commits it.
 func (s *treeSandbox) commit(rel, body string) {
 	s.t.Helper()
 	s.write(rel, body)
@@ -109,8 +100,6 @@ func (s *treeSandbox) commit(rel, body string) {
 	s.git("commit", "-q", "-m", "change "+rel)
 }
 
-// present moves id plan -> build and returns the exit code and the latest
-// tree-unchanged gate run.
 func (s *treeSandbox) present(id string) (int, gateRun) {
 	s.t.Helper()
 	r := s.run("story", "set", id, "--status", "build")
@@ -130,8 +119,6 @@ func (s *treeSandbox) present(id string) (int, gateRun) {
 	return r.code, last
 }
 
-// treeChanges is the latest tree-changes attachment of id, and how many
-// versions it has.
 func (s *treeSandbox) treeChanges(id string) (string, int) {
 	s.t.Helper()
 	var atts []struct {
@@ -150,8 +137,6 @@ func (s *treeSandbox) treeChanges(id string) (string, int) {
 	return s.must("story", "attachment", id, "tree-changes"), n
 }
 
-// refused presents id and fails unless the move is refused with notes naming
-// every want, none of reject, and a tree-changes attachment holding every path.
 func (s *treeSandbox) refused(id string, paths, want, reject []string) gateRun {
 	s.t.Helper()
 	code, g := s.present(id)
@@ -183,8 +168,6 @@ func (s *treeSandbox) refused(id string, paths, want, reject []string) gateRun {
 	return g
 }
 
-// accepted presents id and fails unless the move passes naming base, with no
-// tree-changes attachment added.
 func (s *treeSandbox) accepted(id, base string) {
 	s.t.Helper()
 	_, before := s.treeChanges(id)
@@ -200,10 +183,6 @@ func (s *treeSandbox) accepted(id, base string) {
 	}
 }
 
-// parent makes item P on a branch named by its id cut from main, with code
-// committed on it. moves are applied to P in order before the code is
-// committed when they are given in first, after it otherwise; push pushes the
-// branch to origin. It leaves P's branch checked out.
 func (s *treeSandbox) parent(first, after []string, push bool) string {
 	s.t.Helper()
 	p := s.create("story", "--title", "parent").ID
@@ -221,7 +200,6 @@ func (s *treeSandbox) parent(first, after []string, push bool) string {
 	return p
 }
 
-// AC5: every changed tree is refused, whatever base a seat named.
 func TestTreeUnchangedRefusesAChangedTree(t *testing.T) {
 	t.Parallel()
 	notUsed := func(ref string) string { return "The base a seat named, " + ref + ", is not used" }
@@ -378,7 +356,6 @@ func TestTreeUnchangedRefusesAChangedTree(t *testing.T) {
 	}
 }
 
-// AC6: a tree with nothing of its own outside .satelle/runs passes.
 func TestTreeUnchangedAcceptsAnUnchangedTree(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -438,8 +415,6 @@ func TestTreeUnchangedAcceptsAnUnchangedTree(t *testing.T) {
 	}
 }
 
-// Every path is named in the attachment, which is not recorded twice for the
-// same list; the notes name the attachment and the count.
 func TestTreeUnchangedNamesEveryPath(t *testing.T) {
 	t.Parallel()
 	s := newTreeSandbox(t, true)
@@ -471,7 +446,6 @@ func TestTreeUnchangedNamesEveryPath(t *testing.T) {
 	}
 }
 
-// With no origin/main the check fails closed, whatever the seat names.
 func TestTreeUnchangedFailsClosedWithoutOrigin(t *testing.T) {
 	t.Parallel()
 	s := newTreeSandbox(t, false)
@@ -485,7 +459,6 @@ func TestTreeUnchangedFailsClosedWithoutOrigin(t *testing.T) {
 	}
 }
 
-// satelle init ships the check, byte for byte this repo's copy.
 func TestTreeUnchangedCheckShipsWithInit(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -502,9 +475,6 @@ func TestTreeUnchangedCheckShipsWithInit(t *testing.T) {
 	}
 }
 
-// AC2 and the wiring: this repo's delivery plan allows attachments only, the
-// help documents the key, and the check runs first on plan -> in_progress,
-// with the rule in the skill and not in the binary.
 func TestDeliveryPlanAllowsAttachmentsOnly(t *testing.T) {
 	t.Parallel()
 	routes, err := workflow.Load("../.satelle/workflows")

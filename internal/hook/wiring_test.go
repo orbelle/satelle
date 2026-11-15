@@ -9,9 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// WiringOf reports each harness by its hook file: absent, present with only
-// the user's entries, installed, and installed but hidden from git by an
-// ignore rule, which it names.
 func TestWiringOf(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -28,8 +25,6 @@ func TestWiringOf(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// claude: installed. grok: installed and ignored. cursor: the user's own
-	// hooks file with no satelle entry. pi: absent.
 	for _, h := range []string{Claude, Grok} {
 		if _, _, err := Install(dir, h, nil); err != nil {
 			t.Fatal(err)
@@ -64,7 +59,6 @@ func TestWiringOf(t *testing.T) {
 		}
 	}
 
-	// Outside a repository git cannot answer, and nothing is reported hidden.
 	plain := t.TempDir()
 	if _, _, err := Install(plain, Claude, nil); err != nil {
 		t.Fatal(err)

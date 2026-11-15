@@ -1,41 +1,3 @@
-// Package remotechan is the sealed channel between local satelle and an agent on
-// a remote node. Both ends dial OUT to satelle.v1.RelayService/Connect (a gRPC
-// bidi stream on 443) and neither listens. The relay pairs the two ends by
-// session id and forwards opaque bytes; it cannot read them.
-//
-// # Relay contract (what the satelle-server relay must do)
-//
-// Connect's first frame names the session and the role (local or remote); every
-// frame after it carries one channel frame in data, forwarded to the other end
-// unchanged and in order. The local end authenticates with the user's bearer;
-// the remote with its node token, and the relay admits an accepted remote
-// whether or not a local end is waiting. The remote still proves itself to the
-// local end with its pinned key, not to the relay.
-//
-// A relay restart ends every stream and keeps none. The two ends therefore
-// redial the same session with backoff, for at most ResumeWindow, and
-// handshake again; the relay admits either end first. UNAVAILABLE, ABORTED,
-// RESOURCE_EXHAUSTED, INTERNAL or a network error is a restart;
-// UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, ALREADY_EXISTS,
-// FAILED_PRECONDITION or INVALID_ARGUMENT is a refusal and is never retried
-// (see classifyClose). A stream the relay ended is classified by its final
-// status, never by the io.EOF a send on it returns. A job open at the drop is
-// failed, not resumed.
-//
-// # Channel protocol
-//
-// remote → local: [1][remote ephemeral X25519 public key]; local → remote:
-// [2][local ephemeral public key]; then both ways [3][seq, 8 bytes][AES-256-GCM
-// ciphertext]. The keys come from HKDF-SHA256 over the ephemeral–ephemeral DH
-// and the local ephemeral–node-static DH, the latter against the key local
-// satelle pinned (seal.go). Everything after the two key halves is sealed; the
-// relay sees only types, lengths and sequence numbers.
-//
-// Admission: the remote's first sealed message is {t:enroll}. Local satelle
-// opens it (a failure means the remote does not hold the pinned key:
-// ErrKeyMismatch) and answers {t:admit}. Nothing the remote sends before it is
-// admitted is delivered. An end that closes sends a sealed {t:bye} first, so the
-// other end ends too rather than waiting on a restart.
 package remotechan
 
 import (
@@ -47,16 +9,12 @@ import (
 	"sync/atomic"
 )
 
-// maxFrameBytes bounds one relay message in either direction.
 const maxFrameBytes = 1 << 20
 
-// Role is which end of the channel a Session is.
 type Role byte
 
 const (
-	// RoleLocal is local satelle, the end that launched the node.
 	RoleLocal Role = iota + 1
-	// RoleRemote is the agent on the remote.
 	RoleRemote
 )
 
@@ -67,7 +25,6 @@ func (r Role) String() string {
 	return "local"
 }
 
-// The application messages carried inside sealed frames.
 const (
 	msgEnroll    = "enroll"
 	msgAdmit     = "admit"
@@ -78,8 +35,6 @@ const (
 	msgBye       = "bye"
 )
 
-// appMsg is what a sealed frame carries. Only the relay's view of it — a
-// ciphertext — leaves the process.
 type appMsg struct {
 	T      string `json:"t"`
 	Job    string `json:"job,omitempty"`
@@ -87,49 +42,40 @@ type appMsg struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// Message is an application message exchanged over a Session. Job names the job
-// it belongs to, or is empty.
 type Message struct {
 	Job  string
 	Body []byte
 }
 
-// ErrClosed is returned by Send and Recv once the Session has ended.
 var ErrClosed = errors.New("remotechan: session closed")
 
-// Session is an admitted, sealed channel to the other end. It is safe for
-// concurrent use.
 type Session struct {
 	role  Role
-	conn  atomic.Pointer[conn] // swapped under wmu by a resume
+	conn  atomic.Pointer[conn]
 	clock Clock
-	res   *resumer // nil: the session ends with its connection
+	res   *resumer
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wmu  sync.Mutex // serialises seal + write so sequence numbers reach the relay in order; guards send, gate and the conn swap
+	wmu  sync.Mutex
 	send *sealer
-	gate chan struct{} // non-nil while a resume is in flight; closed when it ends
-	recv *opener       // read by readLoop only
+	gate chan struct{}
+	recv *opener
 
 	inbox chan Message
 	jobs  *jobTable
 	lost  chan JobLost
 
 	jmu  sync.Mutex
-	open map[*Job]struct{} // sending-end jobs in flight, cut off by a resume
+	open map[*Job]struct{}
 
-	closing atomic.Bool // set by Close: a read error from here on is our own end, never a restart
+	closing atomic.Bool
 	done    chan struct{}
 	errOnce sync.Once
 	err     error
 }
 
-// newSession wraps an admitted connection and starts its loops. The session
-// outlives the ctx of the call that opened it (a per-call timeout must not end
-// it); Close ends it. res, when set, lets it redial the same session after the
-// relay drops the connection.
 func newSession(ctx context.Context, role Role, c *conn, send *sealer, recv *opener, clock Clock, res *resumer) *Session {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s := &Session{
@@ -144,22 +90,17 @@ func newSession(ctx context.Context, role Role, c *conn, send *sealer, recv *ope
 	return s
 }
 
-// Role is which end this is.
 func (s *Session) Role() Role { return s.role }
 
-// Send delivers body to the other end, sealed. job names the job it belongs to
-// ("" for none).
 func (s *Session) Send(ctx context.Context, job string, body []byte) error {
 	return s.sendApp(ctx, appMsg{T: msgData, Job: job, Body: body})
 }
 
-// Recv returns the next message from the other end.
 func (s *Session) Recv(ctx context.Context) (Message, error) {
 	select {
 	case m := <-s.inbox:
 		return m, nil
 	case <-s.done:
-		// Drain what arrived before the end.
 		select {
 		case m := <-s.inbox:
 			return m, nil
@@ -171,19 +112,12 @@ func (s *Session) Recv(ctx context.Context) (Message, error) {
 	}
 }
 
-// Expect starts waiting on job's heartbeats: from now, a job silent for longer
-// than LostAfter is reported on Lost. Call it when the job is requested, so a
-// job that never sends its first heartbeat is caught too.
 func (s *Session) Expect(job string) { s.jobs.beat(job, s.clock.Now()) }
 
-// Lost delivers each job whose heartbeats stopped, once, even while the
-// connection stays up.
 func (s *Session) Lost() <-chan JobLost { return s.lost }
 
-// Done is closed when the session ends.
 func (s *Session) Done() <-chan struct{} { return s.done }
 
-// Err is why the session ended (ErrClosed after Close), or nil while it is up.
 func (s *Session) Err() error {
 	select {
 	case <-s.done:
@@ -193,8 +127,6 @@ func (s *Session) Err() error {
 	}
 }
 
-// Close ends the session: it tells the other end with a sealed bye, then
-// closes the stream. It is safe to call more than once.
 func (s *Session) Close() error {
 	if !s.closing.CompareAndSwap(false, true) {
 		return nil
@@ -210,7 +142,6 @@ func (s *Session) Close() error {
 	return err
 }
 
-// finish records why the session ended, once, and wakes everything waiting on it.
 func (s *Session) finish(err error) {
 	s.errOnce.Do(func() {
 		s.err = err
@@ -219,9 +150,6 @@ func (s *Session) finish(err error) {
 	})
 }
 
-// sendApp seals one application message and writes it. While the session is
-// redialling it waits for the resume, bounded by ctx and by the session's end:
-// it never writes to a connection the relay has dropped.
 func (s *Session) sendApp(ctx context.Context, m appMsg) error {
 	plain, err := json.Marshal(m)
 	if err != nil {
@@ -252,8 +180,6 @@ func (s *Session) sendApp(ctx context.Context, m appMsg) error {
 	}
 }
 
-// readLoop reads the session's frames and, when the relay drops the connection
-// in a way a restart explains, redials and reads on.
 func (s *Session) readLoop() {
 	for {
 		err := s.readFrames()
@@ -263,9 +189,6 @@ func (s *Session) readLoop() {
 	}
 }
 
-// readFrames reads the current connection until it fails. A nil return means
-// the session itself ended (a bad frame, or its ctx); a non-nil one is the
-// connection's own failure.
 func (s *Session) readFrames() error {
 	c := s.conn.Load()
 	for {
@@ -274,7 +197,7 @@ func (s *Session) readFrames() error {
 			return err
 		}
 		if s.role == RoleLocal && len(frame) == 1+pubLen && frame[0] == frameHelloRemote {
-			continue // a hello the remote re-sent while it waited for us
+			continue
 		}
 		plain, err := s.recv.open(frame)
 		if err != nil {
@@ -308,7 +231,6 @@ func (s *Session) readFrames() error {
 	}
 }
 
-// monitor reports jobs gone quiet, every HeartbeatInterval.
 func (s *Session) monitor() {
 	tick, stop := s.clock.Tick(HeartbeatInterval)
 	defer stop()

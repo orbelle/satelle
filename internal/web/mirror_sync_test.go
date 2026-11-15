@@ -12,11 +12,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
-// devStore is the store a satelle.dev-bound pass records.
 const devStore = "satelle.dev project shared at https://satelle.dev"
 
-// sto_5c706973 AC5: a failure after a success names the reason and when the
-// project last synced.
 func TestProjectPageNamesFailureAndLastSync(t *testing.T) {
 	okAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	body := projectPageWithSync(t, func(repo string) {
@@ -39,7 +36,6 @@ func TestProjectPageNamesFailureAndLastSync(t *testing.T) {
 	}
 }
 
-// sto_5c706973 AC5: a success names when, and with which store.
 func TestProjectPageShowsLastSyncWithStore(t *testing.T) {
 	okAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	body := projectPageWithSync(t, func(repo string) {
@@ -58,7 +54,6 @@ func TestProjectPageShowsLastSyncWithStore(t *testing.T) {
 	}
 }
 
-// sto_5c706973 AC5: a repo whose store is local reads local.
 func TestProjectPageShowsLocalStore(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
 		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: syncstate.LocalStore}, time.Now()); err != nil {
@@ -298,8 +293,6 @@ func TestLandingOmitsSyncMarkerWhenNoState(t *testing.T) {
 	}
 }
 
-// renderLocalAfter records a pass via record, then the local pass a repo whose
-// store is local writes, and renders path (sty_3df5f95a).
 func renderLocalAfter(t *testing.T, path string, record func(home, repo string) error) string {
 	t.Helper()
 	isolateHome(t)
@@ -368,15 +361,11 @@ func TestLandingLocalHidesStaleFailure(t *testing.T) {
 	}
 }
 
-// projectPageWithSync renders the project page of a partition whose repo has
-// the recorded sync state record writes.
 func projectPageWithSync(t *testing.T, record func(repo string)) string {
 	t.Helper()
 	return pageWithSync(t, "/r/demo/", record)
 }
 
-// pageWithSync renders path ("/" the landing, "/r/demo/" the project page)
-// over one partition whose repo has the recorded sync state record writes.
 func pageWithSync(t *testing.T, path string, record func(repo string)) string {
 	t.Helper()
 	isolateHome(t)
@@ -401,8 +390,6 @@ func pageWithSync(t *testing.T, path string, record func(repo string)) string {
 	return rr.Body.String()
 }
 
-// recordUpgradeAfterFailure records a failing pass and then the upgrade
-// outcome autosync records for a pre-1.0 repo (sto_0f76dd4e).
 func recordUpgradeAfterFailure(t *testing.T) func(repo string) {
 	return func(repo string) {
 		if err := recordFailure(config.GlobalDir(), repo); err != nil {
@@ -414,8 +401,6 @@ func recordUpgradeAfterFailure(t *testing.T) func(repo string) {
 	}
 }
 
-// AC2 (sto_0f76dd4e): the landing shows a pre-1.0 repo as Upgrade needed with
-// the command, not Sync Failing.
 func TestLandingShowsUpgradeNeeded(t *testing.T) {
 	cell := updatedCell(t, pageWithSync(t, "/", recordUpgradeAfterFailure(t)))
 	for _, want := range []string{"Upgrade needed", `class="sync-tag-upgrade"`, "<code>satelle upgrade --archive</code>"} {
@@ -430,8 +415,6 @@ func TestLandingShowsUpgradeNeeded(t *testing.T) {
 	}
 }
 
-// AC2 (sto_0f76dd4e): the project page reads upgrade needed and names the
-// command to run in the repo; nothing reads sync failing.
 func TestProjectPageShowsUpgradeNeeded(t *testing.T) {
 	body := projectPageWithSync(t, recordUpgradeAfterFailure(t))
 	if !strings.Contains(body, `remote: <span class="sync-upgrade"`) {
@@ -447,8 +430,6 @@ func TestProjectPageShowsUpgradeNeeded(t *testing.T) {
 	}
 }
 
-// sty_c203fd62 AC1: a push that only held stories shows them as held — neutral
-// class, ids and reasons — and never as sync failing.
 func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
 		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now()); err != nil {
@@ -474,8 +455,6 @@ func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
 	}
 }
 
-// sty_c203fd62 AC2: a real refusal still shows sync failing with only the
-// refusal as its reason; the held story is shown apart, as held.
 func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
 		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "the story sty_r was not published: archived task refused"}, time.Now()); err != nil {
@@ -503,8 +482,6 @@ func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
 	}
 }
 
-// sectionOf returns the header div opened by open, up to the next top-level
-// header element; it fails the test when open is missing.
 func sectionOf(t *testing.T, body, open string) string {
 	t.Helper()
 	i := strings.Index(body, open)

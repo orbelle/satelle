@@ -16,36 +16,18 @@ import (
 	sub "github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// repoFindingsGolden is what satelle validate and doctor report on this
-// repo's tree, captured from the base binary on the base tree
-// (sto_a5cdb024 AC4).
 const repoFindingsGolden = "testdata/repo_findings.golden"
 
-// The capture variables, read by this test process only and never passed to
-// the binary: the checkout to copy instead of "..", the binary to run instead
-// of satelleBin, and "1" to write the golden instead of comparing.
 const (
 	findingsTreeVar  = "SATELLE_FINDINGS_TREE"
 	findingsBinVar   = "SATELLE_FINDINGS_BIN"
 	findingsWriteVar = "SATELLE_FINDINGS_WRITE"
 )
 
-// findingsCaptureCommand is the command that writes the golden, recorded in
-// its header.
 const findingsCaptureCommand = findingsTreeVar + "=<base worktree> " + findingsBinVar + "=<binary built from it> " + findingsWriteVar + "=1 go test -tags integration -run '^TestRepoFindingsMatchTheRecordedBase$' ./tests/"
 
-// machineChecks are doctor's checks that read the machine (installed
-// binaries, the service unit and timer, the recorded sync pass, sessions),
-// not the tree: their issues and notes are where build stamps and times
-// appear, and none reads volatile.toml or doctor.toml.
 var machineChecks = []string{"versions", "upgrade", "sync", "seats"}
 
-// sto_a5cdb024 AC4: this repo's .satelle carries the dated and [resolve]
-// keys, and satelle validate and doctor report on its tree exactly what the
-// base binary reported on the base tree, recorded in the golden. Each binary
-// only ever runs on its own tree, in a sandbox with a fresh home and ledger.
-// The dated key is what the binary reads: a dated probe line is exempt with
-// this repo's volatile.toml and reported once the key is removed.
 func TestRepoFindingsMatchTheRecordedBase(t *testing.T) {
 	tree := os.Getenv(findingsTreeVar)
 	if tree == "" {
@@ -114,9 +96,6 @@ func TestRepoFindingsMatchTheRecordedBase(t *testing.T) {
 	})
 }
 
-// copyCheckout copies every file git lists in tree (tracked, and untracked
-// but not ignored), read from the working tree, into dst: uncommitted edits
-// are included, ignored machine state (ledger, logs, *.local.toml) is not.
 func copyCheckout(t *testing.T, tree, dst string) {
 	t.Helper()
 	out, err := gittest.Command(t, tree, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
@@ -130,7 +109,7 @@ func copyCheckout(t *testing.T, tree, dst string) {
 		src := filepath.Join(tree, filepath.FromSlash(rel))
 		fi, err := os.Lstat(src)
 		if os.IsNotExist(err) {
-			continue // deleted in the working tree
+			continue
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -202,11 +181,6 @@ func doctorJSON(t *testing.T, s *sandbox, bin string) doctorReportJSON {
 	return d
 }
 
-// repoFindings runs validate --json and doctor --json with bin in s and
-// returns the recorded lines: validate's exit, validity, problems and
-// findings, and doctor's issues and notes of every check that reads the tree
-// or the sandbox ledger, each group sorted, with the sandbox repo, home and
-// the binary's directory replaced by <repo>, <home> and <bin>.
 func repoFindings(t *testing.T, s *sandbox, bin string) []string {
 	t.Helper()
 	norm := strings.NewReplacer(s.dir, "<repo>", s.home, "<home>", filepath.Dir(bin), "<bin>").Replace
@@ -254,7 +228,6 @@ func repoFindings(t *testing.T, s *sandbox, bin string) []string {
 	return out
 }
 
-// readGolden is the golden's lines, its # header skipped.
 func readGolden(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(repoFindingsGolden)
@@ -271,7 +244,6 @@ func readGolden(t *testing.T) []string {
 	return out
 }
 
-// lineDiff shows the lines only in want (-) and only in got (+).
 func lineDiff(want, got []string) string {
 	var b bytes.Buffer
 	for _, l := range want {

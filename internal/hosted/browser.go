@@ -9,12 +9,8 @@ import (
 	"time"
 )
 
-// nowUTC is the clock seam (kept trivial; not injected — token timestamps are
-// advisory only).
 func nowUTC() time.Time { return time.Now().UTC() }
 
-// OpenBrowser launches the platform default browser at target. Non-blocking; a
-// failure is returned so the caller can fall back to printing the URL.
 func OpenBrowser(target string) error {
 	var name string
 	var args []string
@@ -29,8 +25,6 @@ func OpenBrowser(target string) error {
 	return exec.Command(name, args...).Start()
 }
 
-// writeCallbackPage renders the minimal close-this-tab page. The message is
-// HTML-escaped.
 func writeCallbackPage(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, "<!doctype html><html><body style=\"font-family:sans-serif;padding:2rem\"><p>%s</p></body></html>", html.EscapeString(msg))

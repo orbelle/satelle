@@ -48,7 +48,6 @@ func TestChainAppendIsCompareAndAppend(t *testing.T) {
 	if _, err := chain.Append(ctx, &chainpb.AppendRequest{Project: "p", ItemId: "it_1", Events: wire.ToProtos([]ledger.Event{e1, e2})}); err != nil {
 		t.Fatal(err)
 	}
-	// A second append from the empty head is stale and carries what is missing.
 	_, err = chain.Append(ctx, &chainpb.AppendRequest{Project: "p", ItemId: "it_1", Events: wire.ToProtos([]ledger.Event{e1})})
 	st := status.Convert(err)
 	if st.Code() != codes.FailedPrecondition || len(st.Details()) != 1 {
@@ -76,8 +75,6 @@ func TestChainAppendIsCompareAndAppend(t *testing.T) {
 	}
 }
 
-// A seeded item is a verifiable server-born chain: one item.created with no
-// workflow or status, ids in the server's forms, listed in Heads.
 func TestSeedItem(t *testing.T) {
 	srv := fakeserver.Start(t, "tok")
 	c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok"}, hosted.Options{})

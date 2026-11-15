@@ -14,7 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// The fixture workflow: names are the test's own; the web knows none of them.
 var fixtureWorkflow = mirror.Workflow{
 	Name: "flow",
 	States: []mirror.WorkflowState{
@@ -34,7 +33,6 @@ var fixtureWorkflow = mirror.Workflow{
 
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 
-// fixtureSnapshot is a full snapshot as uipush sends it.
 func fixtureSnapshot() mirror.Snapshot {
 	t0 := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
 	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
@@ -77,7 +75,6 @@ func fixtureSnapshot() mirror.Snapshot {
 	}
 }
 
-// mirrorWith serves a fresh mirror and posts snap to its ingest.
 func mirrorWith(t *testing.T, snap any) *httptest.Server {
 	t.Helper()
 	isolateHome(t)
@@ -117,14 +114,11 @@ func TestStoryDetailShowsRouteVerdictsAttachments(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	for _, path := range []string{"/r/proj/story/sto_1", "/r/proj/fragment/story/sto_1"} {
 		body := httpGetBody(t, srv.URL+path)
-		// Fields.
 		for _, want := range []string{"the body", "<li>first criterion</li>", `href="story/sto_0"`, `href="execution/exe_1"`, "ann", "cat", "flow"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: missing field %q", path, want)
 			}
 		}
-		// Route: route order from the start state, park last; current and
-		// visited marked; the transition out of the current state is next.
 		inOrder(t, body, `<ol class="route-line"`, ">alpha<", ">beta<", ">zed<", ">held<", "</ol>")
 		for _, want := range []string{
 			`route-state current visited" aria-current="step">`,
@@ -136,9 +130,7 @@ func TestStoryDetailShowsRouteVerdictsAttachments(t *testing.T) {
 				t.Errorf("%s: route missing %q", path, want)
 			}
 		}
-		// Verdicts: the refused presentation, then the one that moved.
 		inOrder(t, body, "<h4>Verdicts</h4>", "outcome-refused", "missing tests", "outcome-moved", "12 in · 7 out", "1.5s", "v-carried", "<h4>Attachments</h4>")
-		// Attachments.
 		for _, want := range []string{"<h1>Heading</h1>", "<strong>bold</strong>", "text/markdown", "0123456789ab", "body not pushed", `id="doc-notes-md"`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: attachments missing %q", path, want)
@@ -182,8 +174,6 @@ func TestStoryListRendersFromPushedWorkflow(t *testing.T) {
 	}
 }
 
-// A snapshot carrying removed features' fields (waves, repo documents) and an
-// older pusher's row shapes is accepted, and the pages still render.
 func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 	legacy := map[string]any{
 		"repo_key": "rk", "slug": "proj",
@@ -204,9 +194,6 @@ func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 			t.Errorf("legacy story page missing %q", want)
 		}
 	}
-	// A legacy seat row records no location: it is elsewhere, not engaged
-	// here (sto_e127b2e6), and its row says the location is not recorded
-	// (sto_44a18f5b).
 	page := httpGetBody(t, srv.URL+"/r/proj/")
 	if strings.Contains(page, "n-engaged") || !strings.Contains(page, ">1 elsewhere<") || !strings.Contains(page, "Legacy") {
 		t.Error("a legacy story seat counts as engaged here, is not counted elsewhere, or the page did not render")
@@ -216,7 +203,6 @@ func TestIngestAcceptsLegacySnapshot(t *testing.T) {
 	}
 }
 
-// Every maintained route answers, and none with a 500.
 func TestRoutesAllAnswer(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	for path, code := range map[string]int{

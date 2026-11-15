@@ -1,30 +1,4 @@
 #!/usr/bin/env bash
-# clear-worktrees — the ACTION of the cleanup task tas_b3424a1c (release.md
-# step 10). Run from the main checkout after `git fetch origin`.
-#
-# For every linked worktree of this repo it removes the worktree, and deletes
-# its local branch, only when all three hold:
-#   1. git status --porcelain is empty in it (no uncommitted or untracked change);
-#   2. its HEAD is contained in a remote branch (git branch -r --contains HEAD);
-#   3. its branch names no item, or names one whose state is terminal in the
-#      item's own workflow (read from `satelle workflow show`, never a state
-#      named here). An item sent back to in_progress keeps its worktree
-#      (sto_6f16d931).
-# Every other worktree is kept and reported with its reason. Then
-# git worktree prune, then the main checkout goes to main: its current branch
-# must be merged into origin/main, then main is checked out and fast-forwarded
-# to origin/main.
-#
-# Output, one line each, for the run's worktree-evidence:
-#   worktrees before: <n>
-#   removed <path> (<branch>)
-#   kept <path> (<branch>): <reason>
-#   worktrees after: <n>
-#   main checkout: <branch> is merged into origin/main <sha>
-#   <git status -sb of the main checkout>
-# Exits 1 when it cannot judge (a tool is missing, not in the main checkout)
-# or the main checkout cannot be put on main; nothing is removed on a refusal
-# made before the walk.
 set -uo pipefail
 
 for tool in git satelle jq; do
@@ -41,8 +15,6 @@ cd "$main" || exit 1
 
 count() { git worktree list --porcelain | grep -c '^worktree '; }
 
-# item_state <branch>: prints "<id> <state> <terminal>" when the branch names
-# an item (terminal is true, false or unknown); prints nothing when it names none.
 item_state() {
   local b=$1 id kind js st wf term
   [[ $b =~ ^[a-z]+_[0-9a-f]+$ ]] || return 0
@@ -64,7 +36,6 @@ item_state() {
 
 echo "worktrees before: $(count)"
 
-# The linked worktrees: every entry after the first (the main checkout).
 entries=$(git worktree list --porcelain | awk '
   /^worktree / { if (p != "") print p "\t" b "\t" pr; p = substr($0, 10); b = ""; pr = "" }
   /^branch /   { b = substr($0, 8); sub(/^refs\/heads\//, "", b) }

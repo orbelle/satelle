@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEmbeddedFaviconMatchesSiteMonogram locks the //go:embed favicon asset to
-// the satelle.dev ◐ monogram (sty_2b1af84b): brand green, SMIL terminator, and
-// prefers-reduced-motion static fallback. Rejects the legacy static-only half-disk.
 func TestEmbeddedFaviconMatchesSiteMonogram(t *testing.T) {
 	raw, err := staticFS.ReadFile("static/favicon.svg")
 	if err != nil {

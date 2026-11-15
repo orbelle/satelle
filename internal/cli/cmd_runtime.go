@@ -10,9 +10,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// runtimeEntry is one home-keyed runtime dir.
 type runtimeEntry struct {
-	Dir, Repo, Status string // status: linked | stale | unknown
+	Dir, Repo, Status string
 }
 
 func runtimeEntries() ([]runtimeEntry, error) {

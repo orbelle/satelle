@@ -11,16 +11,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// MaxDriveSteps bounds a headless drive: a workflow with a cycle stops here.
 const MaxDriveSteps = 100
 
-// Verdicts a drive ends with.
 const (
 	VerdictAccept = "accept"
 	VerdictReject = "reject"
 )
 
-// DriveStep is one state a drive passed through.
 type DriveStep struct {
 	State     string `json:"state"`
 	Performed bool   `json:"performed"`
@@ -28,28 +25,17 @@ type DriveStep struct {
 	Moved     bool   `json:"moved"`
 }
 
-// DriveResult is where a drive stopped and why.
 type DriveResult struct {
 	Item    item.Item   `json:"item"`
 	Steps   []DriveStep `json:"steps"`
-	Verdict string      `json:"verdict"` // accept when the item reached a terminal state
-	Notes   string      `json:"notes"`   // why it stopped
+	Verdict string      `json:"verdict"`
+	Notes   string      `json:"notes"`
 }
 
-// Drive walks an item headlessly along its workflow: perform the current
-// state's performer, then present the next transition (the first, in the
-// workflow's order, whose target is not a park state). It stops at a terminal
-// or park state, at a rejected transition, at a performer that fails or is the
-// interactive session, or at a state with nowhere to go. An item that reached
-// a terminal state is accepted; any other stop is a reject with its reason.
 func (k *Kernel) Drive(ctx context.Context, id, actor string) (DriveResult, error) {
 	return k.DriveSteps(ctx, id, actor, 0)
 }
 
-// DriveSteps is Drive bounded to limit steps. limit 0 is Drive: at most
-// MaxDriveSteps, and reaching that bound is a reject. With limit > 0, limit steps
-// that all moved conclude accept, noting the last move; every other stop is
-// Drive's.
 func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (DriveResult, error) {
 	bounded := limit > 0
 	if !bounded {
@@ -131,9 +117,6 @@ func (k *Kernel) DriveSteps(ctx context.Context, id, actor string, limit int) (D
 	return stop(it, VerdictReject, fmt.Sprintf("stopped after %d steps", MaxDriveSteps))
 }
 
-// nextTarget is the transition a drive takes from status: the first of the
-// workflow's targets (prior resolving @prior) whose state is not a park
-// state; "" when none leaves status.
 func nextTarget(w *workflow.Workflow, status, prior string) string {
 	for _, t := range w.Targets(status, prior) {
 		if s, ok := w.States[t]; ok && !s.Park {

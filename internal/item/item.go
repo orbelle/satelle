@@ -1,5 +1,3 @@
-// Package item folds ledger events into the kernel's records: work items,
-// seats and attachments. Folds are pure functions of an item's chain.
 package item
 
 import (
@@ -12,7 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// Event kinds the folds read. Every other kind is carried, never read.
 const (
 	KindCreated       = "item.created"
 	KindUpdated       = "item.updated"
@@ -22,21 +19,14 @@ const (
 	KindAttachmentAdd = "attachment.added"
 )
 
-// KindPerformerRun is the event the kernel appends when a performer's run of a
-// step ends. The folds do not read it; the kernel writes it and the mirror's
-// web reads it, so it is owned here, below both.
 const KindPerformerRun = "performer.run"
 
-// Seat location prefixes: where a seat's session runs. Owned here, below the
-// kernel that binds seats and the seatlife records that read them.
 const (
 	LocationLocal  = "local:"
 	LocationRemote = "remote:"
 	LocationCloud  = "cloud:"
 )
 
-// Folded reports whether kind is one the folds read, the kinds above. Only
-// satelle's own verbs write these; a raw append may not.
 func Folded(kind string) bool {
 	switch kind {
 	case KindCreated, KindUpdated, KindTransitioned, KindSeatBound, KindSeatReleased, KindAttachmentAdd:
@@ -45,8 +35,6 @@ func Folded(kind string) bool {
 	return false
 }
 
-// SinceEntered is the events after the item last entered its current state:
-// those after the last item.transitioned, or all of them when it never moved.
 func SinceEntered(events []ledger.Event) []ledger.Event {
 	start := 0
 	for i, e := range events {
@@ -57,8 +45,6 @@ func SinceEntered(events []ledger.Event) []ledger.Event {
 	return events[start:]
 }
 
-// Selection names a set of items by field; empty fields match anything. A
-// task item carries one as its inputs; a queue as its filter.
 type Selection struct {
 	Kind     string `json:"kind,omitempty" toml:"kind"`
 	Status   string `json:"status,omitempty" toml:"status"`
@@ -66,7 +52,6 @@ type Selection struct {
 	Category string `json:"category,omitempty" toml:"category"`
 }
 
-// Matches reports whether it is selected by s.
 func (s Selection) Matches(it Item) bool {
 	return (s.Kind == "" || s.Kind == it.Kind) &&
 		(s.Status == "" || s.Status == it.Status) &&
@@ -74,7 +59,6 @@ func (s Selection) Matches(it Item) bool {
 		(s.Tag == "" || slices.Contains(it.Tags, s.Tag))
 }
 
-// Item is the folded state of a work item.
 type Item struct {
 	ID        string     `json:"id"`
 	Kind      string     `json:"kind"`
@@ -86,78 +70,54 @@ type Item struct {
 	Parent    string     `json:"parent,omitempty"`
 	Category  string     `json:"category,omitempty"`
 	Workflow  string     `json:"workflow"`
-	Assignees []string   `json:"assignees,omitempty"` // the explicit assignees
+	Assignees []string   `json:"assignees,omitempty"`
 	Inputs    *Selection `json:"inputs,omitempty"`
-	Trigger   *Trigger   `json:"trigger,omitempty"` // a queue's trigger
-	Base      string     `json:"base,omitempty"`    // the commit the item was created at
+	Trigger   *Trigger   `json:"trigger,omitempty"`
+	Base      string     `json:"base,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 }
 
-// Fields is the payload of item.created (every field it names) and
-// item.updated (only the fields it changes). Status is honoured only on
-// item.created; a status change is item.transitioned.
 type Fields struct {
-	Kind      *string   `json:"kind,omitempty"`
-	Title     *string   `json:"title,omitempty"`
-	Body      *string   `json:"body,omitempty"`
-	Criteria  *[]string `json:"criteria,omitempty"`
-	Status    *string   `json:"status,omitempty"`
-	Tags      *[]string `json:"tags,omitempty"`
-	Parent    *string   `json:"parent,omitempty"`
-	Category  *string   `json:"category,omitempty"`
-	Workflow  *string   `json:"workflow,omitempty"`
-	Assignees *[]string `json:"assignees,omitempty"`
-	// Assignee is the single assignee key that chains written before the
-	// list carry (upgrade imports, satelle-server's MCP creates). It is read
-	// so their fold keeps what they hold; satelle's verbs never write it.
-	Assignee *string    `json:"assignee,omitempty"`
-	Inputs   *Selection `json:"inputs,omitempty"`
-	Trigger  *Trigger   `json:"trigger,omitempty"`
-	Base     *string    `json:"base,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Title     *string    `json:"title,omitempty"`
+	Body      *string    `json:"body,omitempty"`
+	Criteria  *[]string  `json:"criteria,omitempty"`
+	Status    *string    `json:"status,omitempty"`
+	Tags      *[]string  `json:"tags,omitempty"`
+	Parent    *string    `json:"parent,omitempty"`
+	Category  *string    `json:"category,omitempty"`
+	Workflow  *string    `json:"workflow,omitempty"`
+	Assignees *[]string  `json:"assignees,omitempty"`
+	Assignee  *string    `json:"assignee,omitempty"`
+	Inputs    *Selection `json:"inputs,omitempty"`
+	Trigger   *Trigger   `json:"trigger,omitempty"`
+	Base      *string    `json:"base,omitempty"`
 }
 
-// Placement is what placing an item on a workflow writes: item.updated with
-// these Fields (the workflow), then item.transitioned with this Move (from the
-// item's status to the workflow's start state). A sync placement
-// (ledgersync's place) and a reselect (kernel.Reselect) both write it, so one
-// function owns its shape.
 func Placement(workflow, from, start string) (Fields, Move) {
 	return Fields{Workflow: &workflow}, Move{From: from, To: start}
 }
 
-// Move is the payload of item.transitioned.
 type Move struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	// Hold is set when the move is a hold: the from-state's round cap was
-	// reached, and this is the summary computed when it was.
-	Hold *Hold `json:"hold,omitempty"`
-	// Change is the item's change frozen at a move into a terminal state:
-	// the span its diff is read from from then on. Nil on any other move.
-	Change *Span `json:"change,omitempty"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Hold   *Hold  `json:"hold,omitempty"`
+	Change *Span  `json:"change,omitempty"`
 }
 
-// Span is a change between two commits.
 type Span struct {
 	Base string `json:"base"`
 	Head string `json:"head"`
 }
 
-// Hold summarises the rejected rounds that held an item for the operator.
 type Hold struct {
-	State  string `json:"state"`  // the state the rounds were leaving
-	Rounds int    `json:"rounds"` // rejected rounds in a row
-	// Dissent is every verdict that rejected in any counted round, most
-	// rejections first.
-	Dissent []Dissent `json:"dissent"`
-	// Accepted names every verdict (gate/binding, or the gate for a check)
-	// that accepted or carried in the last round.
-	Accepted []string `json:"accepted"`
+	State    string    `json:"state"`
+	Rounds   int       `json:"rounds"`
+	Dissent  []Dissent `json:"dissent"`
+	Accepted []string  `json:"accepted"`
 }
 
-// Dissent is one verdict's record across a hold's rounds: how many it
-// rejected, and the class it gave most often (with that count).
 type Dissent struct {
 	Gate        string `json:"gate"`
 	Binding     string `json:"binding,omitempty"`
@@ -166,10 +126,8 @@ type Dissent struct {
 	ClassRounds int    `json:"class_rounds"`
 }
 
-// Key names the verdict: gate/binding, or the gate alone for a check.
 func (d Dissent) Key() string { return VerdictKey(d.Gate, d.Binding) }
 
-// VerdictKey is gate/binding, or the gate alone when there is no binding.
 func VerdictKey(gate, binding string) string {
 	if binding == "" {
 		return gate
@@ -177,7 +135,6 @@ func VerdictKey(gate, binding string) string {
 	return gate + "/" + binding
 }
 
-// Apply sets every field f names on it, status included.
 func (f Fields) Apply(it *Item) {
 	set := func(dst *string, src *string) {
 		if src != nil {
@@ -207,7 +164,6 @@ func (f Fields) Apply(it *Item) {
 		it.Assignees = nil
 	}
 	if f.Inputs != nil {
-		// The zero selection clears it: an item without inputs selects nothing.
 		if *f.Inputs == (Selection{}) {
 			it.Inputs = nil
 		} else {
@@ -216,8 +172,6 @@ func (f Fields) Apply(it *Item) {
 		}
 	}
 	if f.Trigger != nil {
-		// The zero trigger (neither target) clears it, like the zero
-		// selection: a queue file without [trigger] mirrors it so.
 		if *f.Trigger == (Trigger{}) {
 			it.Trigger = nil
 		} else {
@@ -227,8 +181,6 @@ func (f Fields) Apply(it *Item) {
 	}
 }
 
-// Fold replays an item's chain. It fails when the chain does not start with
-// item.created.
 func Fold(events []ledger.Event) (Item, error) {
 	var it Item
 	for i, e := range events {
@@ -270,8 +222,6 @@ func Fold(events []ledger.Event) (Item, error) {
 	return it, nil
 }
 
-// PriorStatus returns the status the item held before it entered its current
-// one (the from of the last transition), "" when it never moved.
 func PriorStatus(events []ledger.Event) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].Kind == KindTransitioned {
@@ -284,7 +234,6 @@ func PriorStatus(events []ledger.Event) string {
 	return ""
 }
 
-// NewID returns prefix + "_" + 8 random hex digits.
 func NewID(prefix string) string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])

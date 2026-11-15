@@ -1,6 +1,3 @@
-// Package ledger is the history of record: generic, append-only, hash-chained
-// events, one chain per item. An event names its item, its kind and its payload
-// and knows nothing of any workflow.
 package ledger
 
 import (
@@ -12,9 +9,6 @@ import (
 	"time"
 )
 
-// Event is one entry on an item's chain. Prev is the previous event's Hash on
-// the same chain ("" for the first); Hash is the sha256 of the event's
-// canonical form without Hash.
 type Event struct {
 	ID      string          `json:"id"`
 	Item    string          `json:"item"`
@@ -26,9 +20,6 @@ type Event struct {
 	Hash    string          `json:"hash"`
 }
 
-// Canonical returns the bytes an event's hash is computed over: a JSON object
-// of every field except hash, keys sorted, the time in RFC3339Nano UTC and the
-// payload re-encoded with sorted keys and no insignificant whitespace.
 func Canonical(e Event) ([]byte, error) {
 	var payload any
 	if len(bytes.TrimSpace(e.Payload)) > 0 {
@@ -56,7 +47,6 @@ func Canonical(e Event) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// HashOf returns the hex sha256 of the event's canonical form.
 func HashOf(e Event) (string, error) {
 	b, err := Canonical(e)
 	if err != nil {
@@ -66,8 +56,6 @@ func HashOf(e Event) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ShortHash is a hash (an event hash, a sha256, a commit) cut to its first 12
-// characters, for a line a person reads. A shorter hash is returned whole.
 func ShortHash(h string) string {
 	if len(h) > 12 {
 		return h[:12]
@@ -75,7 +63,6 @@ func ShortHash(h string) string {
 	return h
 }
 
-// Decode unmarshals the event's payload into v.
 func (e Event) Decode(v any) error {
 	if len(e.Payload) == 0 {
 		return nil
@@ -83,10 +70,9 @@ func (e Event) Decode(v any) error {
 	return json.Unmarshal(e.Payload, v)
 }
 
-// BrokenLink is the first place a chain fails verification.
 type BrokenLink struct {
 	Item   string
-	Index  int // position on the chain, 0-based
+	Index  int
 	ID     string
 	Reason string
 }
@@ -95,7 +81,6 @@ func (b *BrokenLink) Error() string {
 	return fmt.Sprintf("ledger: %s event %d (%s): %s", b.Item, b.Index, b.ID, b.Reason)
 }
 
-// VerifyChain checks every hash and prev link of one item's events, in order.
 func VerifyChain(item string, events []Event) error {
 	prev := ""
 	for i, e := range events {

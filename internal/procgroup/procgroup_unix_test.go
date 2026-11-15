@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// TestKillReachesGrandchildren: the child's own children die with it — the
-// reason a host command's exec session is held in a group.
 func TestKillReachesGrandchildren(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 300 & echo $!; wait")
 	Set(cmd)

@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// triggerScript is the check script of the repo skill name, as the binary
-// parses it.
 func triggerScript(t *testing.T, name string) string {
 	t.Helper()
 	sk, err := workflow.ParseSkill(name, repoText(t, ".satelle/skills/"+name+".md"))
@@ -26,8 +24,6 @@ func triggerScript(t *testing.T, name string) string {
 	return sk.Script
 }
 
-// triggerSandbox is an initialised repo with a committed baseline holding
-// .satelle/skills/guide.md (a skill of a few dozen words) and internal/x.go.
 func triggerSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	for _, tool := range []string{"bash", "jq", "git", "awk"} {
@@ -45,9 +41,6 @@ func triggerSandbox(t *testing.T) *sandbox {
 	return s
 }
 
-// fireTrigger creates a story, commits files (path -> body) after it, and runs the
-// trigger script on it as the gate runs it: SATELLE_ITEM in the environment
-// and the transition payload on stdin. It returns the story id and the result.
 func fireTrigger(t *testing.T, s *sandbox, script string, files map[string]string) (string, result) {
 	t.Helper()
 	id := s.create("story", "--title", "change").ID
@@ -67,9 +60,6 @@ func fireTrigger(t *testing.T, s *sandbox, script string, files map[string]strin
 	return id, r
 }
 
-// Each change trigger exits 0 on a story whose diff touches the paths its gate
-// guards and 1 on one whose diff does not; neither exits 2 (a broken trigger,
-// which runs the gate anyway).
 func TestChangeTriggersReadTheStoryDiff(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -102,7 +92,6 @@ func TestChangeTriggersReadTheStoryDiff(t *testing.T) {
 	}
 }
 
-// extraRoute is a valid route file, so the sandbox's configuration loads.
 const extraRoute = `name = "extra"
 [states.defined]
 start = true
@@ -113,9 +102,6 @@ from = ["defined"]
 to = "retired"
 `
 
-// Each change trigger skips an item that is not a story: on a task run (exe_)
-// it exits 1 with a line naming the item, never 2 (a broken trigger, which
-// would run the gate anyway).
 func TestChangeTriggersSkipAnExecution(t *testing.T) {
 	t.Parallel()
 	for _, skill := range []string{"satelle-workflow-change-trigger", "satelle-instruction-change-trigger"} {
@@ -141,9 +127,6 @@ func TestChangeTriggersSkipAnExecution(t *testing.T) {
 	}
 }
 
-// WORKFLOW_PATHS names the places workflows are loaded from today: the repo's
-// .satelle/<WorkflowsDir>/ and the init template's <WorkflowsDir>/, which
-// satelle init writes; not the pre-1.0 internal/config/substrate/workflows/.
 func TestWorkflowTriggerPathsMatchTheLoader(t *testing.T) {
 	m := regexp.MustCompile(`(?m)^\s*WorkflowsDir\s*=\s*"([^"]+)"`).FindStringSubmatch(repoText(t, "internal/kernel/config.go"))
 	if m == nil {

@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// stackWorkflow has a path-scoped gate and a pathless one on work -> review,
-// and gateless rework and close moves.
 const stackWorkflow = `name = "stack"
 [states.todo]
 start = true
@@ -39,7 +37,6 @@ from = ["review"]
 to = "done"
 `
 
-// stackSandbox is a repo on main whose items take the stack workflow.
 func stackSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	s := newSandbox(t)
@@ -54,7 +51,6 @@ func stackSandbox(t *testing.T) *sandbox {
 	return s
 }
 
-// latestRun is the newest gate.run of gate on id.
 func latestRun(s *sandbox, id, gate string) gateRun {
 	s.t.Helper()
 	runs := s.gateRuns(id)
@@ -67,10 +63,6 @@ func latestRun(s *sandbox, id, gate string) gateRun {
 	return gateRun{}
 }
 
-// The tester's sequence: a story approved on its branch is re-seated, then
-// rebased onto another branch. Its gated move refuses before any gate runs,
-// naming the old base and the new HEAD; seated with --base on the stacked
-// parent, its gates judge exactly its own change.
 func TestRebaseRefusesUntilSeatedOnTheStackedParent(t *testing.T) {
 	t.Parallel()
 	s := stackSandbox(t)
@@ -93,7 +85,6 @@ func TestRebaseRefusesUntilSeatedOnTheStackedParent(t *testing.T) {
 		t.Fatalf("the approval judged %q", got)
 	}
 
-	// Back to work, re-seated at HEAD (the footer commit), then rebased.
 	s.must("story", "set", id, "--status", "work")
 	s.must("story", "seat", id, "--session", "s1")
 	oldBase := strings.TrimSpace(s.git("rev-parse", "HEAD"))
@@ -114,7 +105,6 @@ func TestRebaseRefusesUntilSeatedOnTheStackedParent(t *testing.T) {
 		t.Errorf("story diff did not warn about the stale base:\n%s", r.err)
 	}
 
-	// Seated on the stacked parent, the gates judge the story's own change.
 	parent := strings.TrimSpace(s.git("rev-parse", "chore/parent"))
 	if out := s.must("story", "seat", id, "--session", "s1", "--base", "chore/parent"); !strings.Contains(out, "(base "+parent[:12]+")") {
 		t.Errorf("seat --base printed %q", out)
@@ -138,7 +128,6 @@ func TestRebaseRefusesUntilSeatedOnTheStackedParent(t *testing.T) {
 	if r := s.run("story", "diff", id); r.code != 0 || strings.TrimSpace(r.out) != "web/footer.go\nweb/web_test.go" || r.err != "" {
 		t.Errorf("story diff: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	// A base outside HEAD's history is refused at the seat.
 	if r := s.run("story", "seat", id, "--session", "s1", "--base", oldBase); r.code == 0 || !strings.Contains(r.err, "not in HEAD's history") {
 		t.Errorf("seat --base on a commit outside HEAD: exit %d %s", r.code, r.err)
 	}
@@ -147,8 +136,6 @@ func TestRebaseRefusesUntilSeatedOnTheStackedParent(t *testing.T) {
 	}
 }
 
-// A path gate skipped on a diff that has lost paths the item's last judged
-// diff had is reported, on the output and the gate.run record.
 func TestASkipOnAShrunkDiffIsReported(t *testing.T) {
 	t.Parallel()
 	s := stackSandbox(t)
@@ -176,7 +163,6 @@ func TestASkipOnAShrunkDiffIsReported(t *testing.T) {
 	}
 }
 
-// taskRunJSON is task run --json's base fields.
 type taskRunJSON struct {
 	ID      string `json:"id"`
 	Base    string `json:"base"`
@@ -185,9 +171,6 @@ type taskRunJSON struct {
 	} `json:"task_run"`
 }
 
-// A task run prints and records the base it took (short sha and the branch it
-// came from), and --base records another ref's commit, resolved now and not
-// checked against HEAD: a release run cut on a story branch is worked on main.
 func TestTaskRunRecordsAndPrintsItsBase(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -200,11 +183,9 @@ func TestTaskRunRecordsAndPrintsItsBase(t *testing.T) {
 	s.git("commit", "-q", "-m", "story")
 	story := strings.TrimSpace(s.git("rev-parse", "HEAD"))
 
-	// (a) the text output names the base and its branch.
 	if out := s.must("task", "run", task); !strings.Contains(out, "base "+story[:12]+" (feat/story)") {
 		t.Errorf("task run printed %q", out)
 	}
-	// (b) --json carries it, and so does the ledger.
 	var def taskRunJSON
 	s.mustJSON(&def, "task", "run", task)
 	if def.Base != story || def.TaskRun.BaseRef != "feat/story" {
@@ -217,14 +198,12 @@ func TestTaskRunRecordsAndPrintsItsBase(t *testing.T) {
 	if len(evs) != 1 || json.Unmarshal(evs[0].Payload, &rec) != nil || rec.BaseRef != "feat/story" {
 		t.Errorf("task.run payload: %+v", evs)
 	}
-	// (c) a detached HEAD says so.
 	s.git("checkout", "-q", "--detach", story)
 	if out := s.must("task", "run", task); !strings.Contains(out, "(detached HEAD)") {
 		t.Errorf("detached task run printed %q", out)
 	}
 	s.git("checkout", "-q", "feat/story")
 
-	// (d) --base main records main's commit and works on main.
 	main := strings.TrimSpace(s.git("rev-parse", "main"))
 	var rel taskRunJSON
 	s.mustJSON(&rel, "task", "run", task, "--base", "main")
@@ -233,12 +212,10 @@ func TestTaskRunRecordsAndPrintsItsBase(t *testing.T) {
 	}
 	s.git("checkout", "-q", "main")
 	s.must("execution", "set", rel.ID, "--status", "doing")
-	// (e) the default-base run is still refused on main.
 	if r := s.run("execution", "set", def.ID, "--status", "doing"); r.code != 1 || !strings.Contains(r.err, "not in HEAD's history") {
 		t.Errorf("the story-branch run on main: exit %d %s", r.code, r.err)
 	}
 
-	// (f) no ancestry check at run time: main moves past the story's fork.
 	s.write("main.txt", "later\n")
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "main moves")
@@ -252,7 +229,6 @@ func TestTaskRunRecordsAndPrintsItsBase(t *testing.T) {
 	s.git("checkout", "-q", "main")
 	s.must("execution", "set", moved.ID, "--status", "doing")
 
-	// (g) a ref that names no commit creates nothing.
 	before := len(s.ledger("", "task.run"))
 	if r := s.run("task", "run", task, "--base", "no-such-ref"); r.code == 0 || !strings.Contains(r.err, "names no commit") {
 		t.Errorf("--base no-such-ref: exit %d %s", r.code, r.err)

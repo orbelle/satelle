@@ -11,10 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// The queue verbs beyond the item verbs every kind has: add, remove and fire.
-// A queue is created, listed, shown and changed like any item (queue create,
-// list, get|show, set).
-
 func triggerText(t item.Trigger) string {
 	target := "task " + t.Task
 	if t.Workflow != "" {
@@ -119,7 +115,6 @@ func showQueue(k *kernel.Kernel, out io.Writer, q item.Item, atts []item.Attachm
 	return nil
 }
 
-// queueLabel is "name (id)" for a file-defined queue, else its id.
 func queueLabel(name, id string) string {
 	if name != "" {
 		return fmt.Sprintf("%s (%s)", name, id)
@@ -163,7 +158,6 @@ func printFire(w io.Writer, f kernel.FireOutcome) {
 	}
 }
 
-// fireRefusal turns a held fire into ExitBlocked.
 func fireRefusal(err error) error {
 	if errors.Is(err, kernel.ErrRunOpen) || errors.Is(err, kernel.ErrQueueMoved) {
 		return &exitError{code: ExitBlocked, msg: err.Error()}

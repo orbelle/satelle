@@ -7,8 +7,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// Two versions whose sha256 share a 7-hex prefix: the prefix is ambiguous, a
-// longer one picks a version.
 func TestResolveAttachmentAmbiguousPrefix(t *testing.T) {
 	v1, v2 := "abcdef01"+strings.Repeat("1", 56), "abcdef02"+strings.Repeat("2", 56)
 	atts := []item.Attachment{

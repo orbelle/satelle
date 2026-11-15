@@ -18,20 +18,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// engagedFixture serves a partition (hosted when hosted is set) on workflow
-// flow (alpha start, beta active, zed terminal) and fix (panel Drift, open
-// start, done terminal), with seats in every place (sto_44a18f5b AC4):
-//   - sto_live: this machine, session alive (bob);
-//   - sto_unv: this machine, no session record (bob);
-//   - sto_far: another machine, other-host (ann);
-//   - sto_node: remote:nod_7 (bob);
-//   - sto_pair: bob here and alive, ann on other-host, carl in the cloud;
-//   - sto_drift: on the Drift panel, here and alive;
-//   - sto_gone: this machine, owner killed;
-//   - sto_fin: terminal, here and alive;
-//   - sto_idle: no seat.
-//
-// It returns the project page's URL; SATELLE_HOME is this machine's home.
 func engagedFixture(t *testing.T, hosted *mirror.HostedMeta) string {
 	t.Helper()
 	home := t.TempDir()
@@ -96,9 +82,6 @@ func engagedFixture(t *testing.T, hosted *mirror.HostedMeta) string {
 	return srv.URL + "/r/proj/"
 }
 
-// markTitle is the hover of the mark reading text in a title cell
-// (titleCellFor): the title of the nearest <span before >text<, unescaped. It
-// fails the test when the mark is absent.
 func markTitle(t *testing.T, cell, text string) string {
 	t.Helper()
 	at := strings.Index(cell, ">"+text+"<")
@@ -121,14 +104,12 @@ func markTitle(t *testing.T, cell, text string) string {
 	return html.UnescapeString(title)
 }
 
-// markCount is the number of spans of class (alone or first) in cell.
 func markCount(cell, class string) int {
 	return len(regexp.MustCompile(`<span class="`+regexp.QuoteMeta(class)+`[" ]`).FindAllString(cell, -1))
 }
 
 var engagedRowRE = regexp.MustCompile(`data-engaged="([^"]*)"[^>]*data-expand-url="fragment/story/([^"]+)"`)
 
-// engagedRows maps each row of html carrying data-engaged to its value.
 func engagedRows(html string) map[string]string {
 	out := map[string]string{}
 	for _, m := range engagedRowRE.FindAllStringSubmatch(html, -1) {
@@ -137,11 +118,6 @@ func engagedRows(html string) map[string]string {
 	return out
 }
 
-// sto_44a18f5b AC1-AC4: in a local and a hosted partition alike, every story
-// row carries a green ◆ here for a live seat here, ◇ here for an unverified
-// one, one mark per other place naming its user and place on hover, and
-// nothing for a gone seat or a terminal story; the 'N engaged' and
-// 'N elsewhere' badges count the Stories-tab rows whose data-engaged says so.
 func TestEngagedMarksEveryPlace(t *testing.T) {
 	for mode, hosted := range map[string]*mirror.HostedMeta{"local": nil, "hosted": hostedProbe()} {
 		t.Run(mode, func(t *testing.T) {
@@ -155,7 +131,6 @@ func TestEngagedMarksEveryPlace(t *testing.T) {
 				return c
 			}
 
-			// AC1: here, verified and unverified; the Drift panel's row too.
 			live := cell("sto_live")
 			if markCount(live, "here-mark") != 1 || strings.Contains(live, "here-unverified") || markCount(live, "where-mark") != 0 {
 				t.Errorf("sto_live is not marked ◆ here alone: %q", live)
@@ -184,7 +159,6 @@ func TestEngagedMarksEveryPlace(t *testing.T) {
 				}
 			}
 
-			// AC2: each place elsewhere, its user and location on hover.
 			far := cell("sto_far")
 			if markCount(far, "here-mark") != 0 || markCount(far, "where-mark") != 1 {
 				t.Errorf("sto_far is not marked once elsewhere: %q", far)
@@ -206,7 +180,6 @@ func TestEngagedMarksEveryPlace(t *testing.T) {
 				}
 			}
 
-			// AC4: two users and three places on one story, each mark its own.
 			pair := cell("sto_pair")
 			if markCount(pair, "here-mark") != 1 || markCount(pair, "where-mark") != 2 {
 				t.Errorf("sto_pair lacks one here mark and two where-marks: %q", pair)
@@ -232,7 +205,6 @@ func TestEngagedMarksEveryPlace(t *testing.T) {
 				}
 			}
 
-			// AC3: data-engaged on each row, and both counts from the same rule.
 			rows := engagedRows(section(body, "stories"))
 			want := map[string]string{
 				"sto_live": "here", "sto_unv": "here", "sto_far": "elsewhere",
@@ -273,8 +245,6 @@ func TestEngagedMarksEveryPlace(t *testing.T) {
 	}
 }
 
-// sto_44a18f5b AC3: with no seats anywhere, neither the engaged nor the
-// elsewhere badge shows, on the page or its fragment, and no row is marked.
 func TestNoSeatsNoEngagedBadges(t *testing.T) {
 	page := hostedPartition(t, nil)
 	for name, h := range map[string]string{"page": httpGetBody(t, page), "fragment": httpGetBody(t, page+"fragment/engagement")} {
@@ -286,10 +256,6 @@ func TestNoSeatsNoEngagedBadges(t *testing.T) {
 	}
 }
 
-// sto_44a18f5b AC1: the here mark is green in both themes. The stylesheet
-// colours .here-mark with --ok, no rule recolours it (the unverified one
-// included), --ok is a green in :root and in the dark theme, and the rendered
-// mark carries the class.
 func TestHereMarkIsGreen(t *testing.T) {
 	b, err := staticFS.ReadFile("static/app.css")
 	if err != nil {

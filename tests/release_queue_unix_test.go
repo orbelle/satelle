@@ -17,15 +17,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// shBlock returns the first ```sh block after heading in a repo file, fence to
-// fence, with its task= line rebound to task.
 func shBlock(t *testing.T, rel, heading, task string) string {
 	t.Helper()
 	return shBlockVar(t, rel, heading, "task", task)
 }
 
-// shBlockVar returns the first ```sh block after heading in a repo file, fence
-// to fence, with its single name= line rebound to value.
 func shBlockVar(t *testing.T, rel, heading, name, value string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
@@ -55,10 +51,6 @@ func shBlockVar(t *testing.T, rel, heading, name, value string) string {
 	return bindSession(re.ReplaceAllString(block, name+"="+value))
 }
 
-// releaseSandbox is a repo whose main is pushed to a bare origin, carrying
-// this repo's queue rule, a plain flow for stories (backlog -> approved ->
-// done), the runbook and standing workflows, and the release task, which it
-// returns with the sandbox and the origin's path.
 func releaseSandbox(t *testing.T, tools ...string) (*sandbox, string, item.Item) {
 	t.Helper()
 	for _, tool := range append([]string{"bash", "jq", "git"}, tools...) {
@@ -74,7 +66,6 @@ func releaseSandbox(t *testing.T, tools ...string) (*sandbox, string, item.Item)
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	s.must("init")
 
-	// The queue rule exactly as this repo's settings carry it.
 	settings, err := os.ReadFile("../.satelle/satelle.toml")
 	if err != nil {
 		t.Fatal(err)
@@ -127,16 +118,11 @@ terminal = true
 from = ["defined"]
 to = "retired"
 `)
-	// The release-run check and the version gates read the run's binary
-	// decision through this script, run from the presenting tree.
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	s.must("validate")
 	return s, origin, s.create("task", "--title", "Release approved items", "--body", releaseTaskBody)
 }
 
-// releaseTaskBody is the release task's body as plan sto_da9775c1's
-// Configuration to apply restates it: release.md step 0 fires only against a
-// body naming the run's release-binary record.
 const releaseTaskBody = `ACTION: follow .satelle/skills/release.md over the run's items.
 
 ## Binary decision
@@ -145,8 +131,6 @@ ACTION: after the suite passes, the run records as its release-binary attachment
 VERIFICATION: release-binary is attached and its candidate is the tested sha.
 `
 
-// rebindTask is a repo file with its task=tas_42301d36 line, if any, rebound
-// to task.
 func rebindTask(t *testing.T, rel, task string) string {
 	t.Helper()
 	text := repoText(t, rel)
@@ -157,8 +141,6 @@ func rebindTask(t *testing.T, rel, task string) string {
 	return re.ReplaceAllString(text, "task="+task)
 }
 
-// writeReleaseQueue writes the repo's release.toml into the sandbox, rebound
-// to queue q and task.
 func writeReleaseQueue(t *testing.T, s *sandbox, q, task string) {
 	t.Helper()
 	releaseTOML := repoReleaseQueue(t)
@@ -172,21 +154,15 @@ func writeReleaseQueue(t *testing.T, s *sandbox, q, task string) {
 	s.write(".satelle/queues/release.toml", releaseTOML)
 }
 
-// The release procedure's step 0, run as written, fires the release run from
-// the release queue over exactly the approved stories, and the release-run
-// check accepts each of them.
 func TestReleaseStepZeroFiresFromTheQueue(t *testing.T) {
 	s, _, task := releaseSandbox(t)
 
-	// A queue created on the ledger before queues were files, with one
-	// approved story added by hand: the repo's release.toml adopts it.
 	q := s.create("queue", "--title", "legacy")
 	legacy := s.create("story", "--title", "story")
 	s.must("story", "set", legacy.ID, "--status", "approved")
 	s.must("queue", "add", q.ID, legacy.ID)
 	approved := []string{legacy.ID}
 
-	// The repo's release.toml, rebound to this sandbox's queue and task.
 	writeReleaseQueue(t, s, q.ID, task.ID)
 	s.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]
@@ -239,7 +215,6 @@ to = "done"
 		t.Fatalf("step 0 names release queue %v, want one que=release line", m)
 	}
 
-	// Run 1: fires the queue and seats the run.
 	r := s.exec("bash", "", "-c", step0)
 	if r.code != 0 {
 		t.Fatalf("step 0: exit %d\n%s%s", r.code, r.out, r.err)
@@ -324,7 +299,6 @@ to = "done"
 		t.Fatal("the queue records no fire of the run")
 	}
 
-	// The release-run check accepts each approved story and refuses the other.
 	head := strings.TrimSpace(s.git("rev-parse", "origin/main"))
 	var prs []map[string]string
 	for _, id := range append(slices.Clone(approved), other) {
@@ -347,7 +321,6 @@ to = "done"
 	}
 	delete(s.env, "SATELLE_ITEM")
 
-	// Run 2 finds the same queue and is refused while the run is open.
 	r = s.exec("bash", "", "-c", step0)
 	if r.code != 2 || !strings.Contains(r.err, exe) {
 		t.Fatalf("second step 0: exit %d\n%s%s", r.code, r.out, r.err)
@@ -362,9 +335,6 @@ to = "done"
 	}
 }
 
-// repoReleaseQueue is this repo's .satelle/queues/release.toml, after
-// checking that the delivery and chore workflows enqueue approved stories
-// into it by name.
 func repoReleaseQueue(t *testing.T) string {
 	t.Helper()
 	re := regexp.MustCompile(`(?m)^\[states\.approved\]\n(?:#.*\n)*enqueue = \["release"\]$`)
@@ -399,16 +369,10 @@ func repoReleaseQueue(t *testing.T) string {
 	return string(b)
 }
 
-// bindSession fills a procedure block's session=<session> line the way a
-// session does with its id: here with the sandbox's own $SATELLE_SESSION
-// (sto_2a41b9e4). An unfilled line is a shell syntax error by design.
 func bindSession(block string) string {
 	return regexp.MustCompile(`(?m)^session=<session>`).ReplaceAllString(block, `session="${SATELLE_SESSION:-}"`)
 }
 
-// sto_2ac90ab6 AC3: this repo declares its outside waits in its workflow
-// files: drift's open and standing's defined wait; the approved state of
-// delivery and chore does not (the session fires the release queue from it).
 func TestRepoWorkflowsDeclareTheirWaits(t *testing.T) {
 	waits := func(wf, state string) string {
 		t.Helper()
@@ -439,8 +403,6 @@ func TestRepoWorkflowsDeclareTheirWaits(t *testing.T) {
 	repoReleaseQueue(t)
 }
 
-// sto_2ac90ab6 AC4: no substrate text a session reads says the fire is by
-// hand, or that approved is the session's end without naming who fires.
 func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 	root := filepath.Join("..", ".satelle")
 	var files []string
@@ -509,10 +471,6 @@ func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 	}
 }
 
-// sto_da9775c1: release.md step 0 refuses to fire against a release task whose
-// body does not name the run's release-binary record, so no run is judged
-// against a task that says every run bumps, tags, publishes and installs; no
-// run is created. The same sandbox with the restated body fires.
 func TestReleaseRefusesATaskWithoutTheBinaryDecision(t *testing.T) {
 	s, _, _ := releaseSandbox(t)
 	task := s.create("task", "--title", "Release approved items", "--body", "ACTION: follow .satelle/skills/release.md.\n")

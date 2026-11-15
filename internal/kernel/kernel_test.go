@@ -29,7 +29,7 @@ func TestInitTwoStateEndToEnd(t *testing.T) {
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if err := Init(root); err != nil { // idempotent, keeps files
+	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
 	k, err := Open(Options{Root: root})
@@ -148,8 +148,6 @@ to = "z"
 		`judge "same" runs model "m1"`,
 		`performer "pishell": pi adapter cannot express the scoped deny`,
 		`agent "cursorwriter" may not judge`,
-		// A Bash-granted cursor-agent binding wired to no state is refused
-		// at validate (sto_0f41dda9 AC3).
 		`agents.cursorshell: cursor-agent cannot hold a shell`,
 		`grant no Bash`,
 	} {
@@ -157,13 +155,11 @@ to = "z"
 			t.Errorf("missing %q in:\n%s", want, joined)
 		}
 	}
-	// A read-only cursor-agent judge validates (sto_0f41dda9 AC2).
 	if strings.Contains(joined, "cursorjudge") {
 		t.Errorf("a read-only cursor-agent judge was refused:\n%s", joined)
 	}
 }
 
-// init writes the ignore for run-time record folders.
 func TestInitWritesTheRunsIgnore(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -175,16 +171,11 @@ func TestInitWritesTheRunsIgnore(t *testing.T) {
 	}
 }
 
-// TestInitShipsTheUpgradeSkill: init writes the upgrade skill, it loads as a
-// plain (judged, not check) skill, the configuration still validates, and its
-// body names every old key its Map covers and the rules that keep the port
-// valid (sto_5725d112).
 func TestInitShipsTheUpgradeSkill(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	// UpgradeSkill is the name every needs-upgrade line prints (sto_0f76dd4e).
 	if _, err := os.Stat(filepath.Join(root, "skills", UpgradeSkill+".md")); err != nil {
 		t.Fatal(err)
 	}
@@ -200,17 +191,13 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 		t.Fatalf("validate: %v", probs)
 	}
 	for _, tok := range []string{
-		// AC2: every old key the Map covers.
 		"[[gate]]", "on", "for", "when", "applies_to", "mandatory", "parallel",
 		"reviewer_agent", "propose = true", "after_children", "waits_on_children", "advise",
 		"interface", "park", "cancel", "recover",
-		// AC2: the judge rule and the resume rule.
 		"session", "claude", "pi", "grok", "read-only",
 		"@prior", "resumes = true", "satelle workflow show --session <session>",
-		// AC6: retype and command renames.
 		"type: check", "story attachment <id> <name>", "story attachments <id>",
 		"ledger list <id>", "--file -",
-		// AC8: the category check.
 		"SATELLE_HOME", "--json", "<kind>/<status>",
 	} {
 		if !strings.Contains(sk.Body, "`"+tok+"`") {
@@ -219,8 +206,6 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 	}
 }
 
-// WorkflowFor is the one selection rule: the item's own workflow, else the
-// first matching rule, else the default, with that workflow's start state.
 func TestWorkflowFor(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -256,8 +241,6 @@ func TestWorkflowFor(t *testing.T) {
 	}
 }
 
-// Open's logs dir is config.LogsDir of the runtime it opened, given or
-// defaulted.
 func TestOpenLogsIsConfigLogsDir(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {

@@ -9,9 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// editScope is what a seat on the item lets its session change: the item's
-// current state's workflow.State.EditScope, empty for an unknown workflow or
-// a state no agent performs.
 func editScope(k *kernel.Kernel, it item.Item) string {
 	w, ok := k.Workflows[it.Workflow]
 	if !ok {
@@ -20,7 +17,6 @@ func editScope(k *kernel.Kernel, it item.Item) string {
 	return w.States[it.Status].EditScope()
 }
 
-// seatsOf lists session's bound seats with their items' positions.
 func seatsOf(k *kernel.Kernel, session string) ([]seatView, error) {
 	seats, err := k.Cache.Seats(session, "")
 	if err != nil {

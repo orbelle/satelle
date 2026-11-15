@@ -24,21 +24,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
-// doctorFixture is a repo and machine on which satelle doctor finds nothing:
-// a fresh init, fake satelled and systemctl first on PATH, satelled's unit and
-// the sync timer installed and active, /healthz answering the installed
-// build, the installed CLI recorded at the same version, a successful
-// automatic pass recorded, and a doctor.toml check that exits 0.
 type doctorFixture struct {
 	dir, home, bin string
-	timerState     string // file the fake systemctl answers is-active from
+	timerState     string
 	running        buildinfo.Info
 }
 
 var doctorBuild = buildinfo.Info{Name: "satelled", Version: "1.0.0", Commit: "aaaaaaaaaaaa", BuildTime: "2026-11-09T00:00:00Z"}
 
-// fixtureDoctorChecks is the doctor fixture's [[check]] and [[items]], with no
-// [resolve].
 const fixtureDoctorChecks = "[[check]]\nskill = \"fixture-check\"\nfix = \"fix what it names\"\n\n[[items]]\nname = \"drift\"\nkind = \"story\"\ntag = \"drift\"\nfix = \"satelle story get {id}\"\n"
 
 func newDoctorFixture(t *testing.T) *doctorFixture {
@@ -68,11 +61,8 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 	writeFile(t, filepath.Join(units, serviceUnitName), renderUnit(satelled, "127.0.0.1", port))
 	writeFile(t, filepath.Join(units, syncTimerName), renderSyncTimer())
 
-	// Wired for claude, so the harness check finds nothing in the clean fixture.
 	must(t, "init", "--hooks=claude")
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\n[ -f FAIL ] && { cat FAIL; exit 1; }\nexit 0\n```\n")
-	// The doctor.toml init wrote (its [resolve]) with the fixture's check and
-	// items appended.
 	doctorToml := filepath.Join(f.dir, ".satelle", "doctor.toml")
 	shipped, err := os.ReadFile(doctorToml)
 	if err != nil {
@@ -107,8 +97,6 @@ func writeExec(t *testing.T, p, body string) {
 	}
 }
 
-// digest maps every file under roots to its sha256 and mode, and every
-// directory to its presence: equal digests mean nothing was written.
 func digest(t *testing.T, roots ...string) map[string]string {
 	t.Helper()
 	m := map[string]string{}
@@ -154,8 +142,6 @@ func sameDigest(a, b map[string]string) []string {
 	return diff
 }
 
-// doctorJSON runs satelle doctor (text, then --json) and returns the report
-// and the --json run's error.
 func doctorJSON(t *testing.T) (doctorReport, string, error) {
 	t.Helper()
 	text, _ := run(t, "", "doctor")
@@ -167,10 +153,6 @@ func doctorJSON(t *testing.T) (doctorReport, string, error) {
 	return rep, text, err
 }
 
-// Each issue doctor knows is reported with its exact fix, doctor exits 1, and
-// the repo (with .git), the runtime and the satelle home are byte-identical
-// before and after; a clean fixture exits 0 with "no issues" (sto_3cf973ae
-// AC1, AC3).
 func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 	type want struct{ check, problem, fix string }
 	cases := []struct {
@@ -295,7 +277,6 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 	}
 }
 
-// A repo that never ran has no runtime; doctor leaves it without one.
 func TestDoctorCreatesNoRuntime(t *testing.T) {
 	isolate(t)
 	must(t, "init")
@@ -312,9 +293,6 @@ func TestDoctorCreatesNoRuntime(t *testing.T) {
 	}
 }
 
-// hookContextText runs the session-start hook in dir and returns its
-// additionalContext (the model's), its top-level systemMessage (the user's)
-// and the raw stdout.
 func hookContextText(t *testing.T, dir string) (ctx, msg, raw string) {
 	t.Helper()
 	out, err := run(t, fmt.Sprintf(`{"session_id":"s-hook","cwd":%q}`, dir), "hook", "context")
@@ -333,8 +311,6 @@ func hookContextText(t *testing.T, dir string) (ctx, msg, raw string) {
 	return env.Hook.Context, env.Message, out
 }
 
-// The session-start hook runs the same checks and prints one line per check
-// doctor reports, with its count and first fix (AC2).
 func TestHookContextRunsTheDoctorChecks(t *testing.T) {
 	f := newDoctorFixture(t)
 	if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
@@ -360,8 +336,6 @@ func TestHookContextRunsTheDoctorChecks(t *testing.T) {
 			t.Errorf("the block lacks %s (%d) with fix %q:\n%s", c, n, first[c], ctx)
 		}
 	}
-	// The model keeps the problem text; the user's systemMessage is the short
-	// view: the issue count, then each check's count and first fix.
 	if !strings.Contains(ctx, "  check:fixture-check (2): one — fix: fix what it names\n") {
 		t.Errorf("the block lacks the fixture check's problem and fix:\n%s", ctx)
 	}
@@ -376,15 +350,12 @@ func TestHookContextRunsTheDoctorChecks(t *testing.T) {
 	if !strings.Contains(msg, "  check:fixture-check (2) — fix: fix what it names\n") || strings.Contains(msg, ": one") {
 		t.Errorf("the systemMessage is not the fixture check's count and fix alone:\n%s", msg)
 	}
-	// A clean fixture prints no block and no systemMessage.
 	clean := newDoctorFixture(t)
 	if ctx, _, raw := hookContextText(t, clean.dir); strings.Contains(ctx, "satelle doctor:") || strings.Contains(ctx, "not checked") || strings.Contains(raw, "systemMessage") {
 		t.Errorf("a clean repo printed a doctor block or a systemMessage:\n%s", raw)
 	}
 }
 
-// A slow check is cut at the hook budget, named as not checked, and the hook
-// still answers promptly (AC2: never blocks).
 func TestHookContextDoctorBudget(t *testing.T) {
 	f := newDoctorFixture(t)
 	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\nsleep 30\n```\n")
@@ -401,9 +372,6 @@ func TestHookContextDoctorBudget(t *testing.T) {
 	}
 }
 
-// On a machine with satelled's unit but no sync timer, doctor reports the
-// sync issue; after satelle update (both binaries current) it reports none,
-// because update installed and started the timer (sto_1b6a7ed3 AC4).
 func TestUpdateClearsTheSyncIssue(t *testing.T) {
 	f := newDoctorFixture(t)
 	timer := filepath.Join(f.home, ".config", "systemd", "user", syncTimerName)
@@ -437,10 +405,6 @@ func TestUpdateClearsTheSyncIssue(t *testing.T) {
 	}
 }
 
-// AC1 (sto_0f76dd4e): doctor names each registered pre-1.0 project as needing
-// upgrade. In a v1 repo the others are notes, never issues; inside a pre-1.0
-// repo that repo is the one upgrade issue, no v1-only check runs, nothing
-// dumps the unknown keys, and --resolve leaves it and changes nothing.
 func TestDoctorNamesPreV1Repos(t *testing.T) {
 	f := newDoctorFixture(t)
 	oldA, _ := newPreV1Repo(t)
@@ -525,10 +489,6 @@ func TestDoctorNamesPreV1Repos(t *testing.T) {
 	}
 }
 
-// AC3 (sto_0f76dd4e): session start in a pre-1.0 repo is the one
-// needs-upgrade line, to the agent and, where the harness has a user channel,
-// to the user; the prompt hook gives the agent the same line. A v1 repo's
-// session start is unchanged.
 func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
 	f := newDoctorFixture(t)
 	dir, m := newPreV1Repo(t)

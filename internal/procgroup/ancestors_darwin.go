@@ -8,8 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Ancestors is pid's chain of parents, nearest first, excluding pid itself and
-// launchd, at most maxAncestors long; each with its start identity.
 func Ancestors(pid int) []Proc {
 	var out []Proc
 	for len(out) < maxAncestors {

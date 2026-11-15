@@ -9,9 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// satelled names the local list Projects everywhere: the breadcrumb root reads
-// projects, and no page uses "workspace" for it. The help page's projects
-// topic, which defines the satelle.dev word, is the one exception.
 func TestLocalListIsProjects(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	for _, path := range []string{"/", "/fragment/projects", "/logs", "/settings/global", "/r/proj/", "/r/proj/settings", "/r/proj/story/sto_1", "/r/proj/help"} {
@@ -49,7 +46,6 @@ func TestLocalListIsProjects(t *testing.T) {
 	}
 }
 
-// satelled's help page defines both words, from the one help topic.
 func TestHelpPageDefinesProjectAndWorkspace(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	body := httpGetBody(t, srv.URL+"/r/proj/help")

@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// AC1: on a sprite the hold PUTs a task with an expiry when the job starts,
-// renews it at less than half the expiry, and DELETEs it when released, after
-// which nothing more is sent.
 func TestSpriteHoldPutsRenewsAndDeletes(t *testing.T) {
 	api := NewSpriteAPI(t)
 	var out bytes.Buffer
@@ -20,7 +17,7 @@ func TestSpriteHoldPutsRenewsAndDeletes(t *testing.T) {
 	release := SpriteHold{Socket: api.Socket, Name: "satelle-nod_A1", Expiry: expiry, Every: every, Out: &out}.Start(context.Background())
 	time.Sleep(200 * time.Millisecond)
 	release()
-	release() // idempotent
+	release()
 	n := len(api.Calls())
 	time.Sleep(120 * time.Millisecond)
 
@@ -51,8 +48,6 @@ func TestSpriteHoldPutsRenewsAndDeletes(t *testing.T) {
 	}
 }
 
-// AC1: a renewal interval at or past half the expiry is pulled inside it, and a
-// whole-minute expiry is sent in the Tasks API's minute form.
 func TestSpriteHoldClampsRenewalInsideHalfExpiry(t *testing.T) {
 	api := NewSpriteAPI(t)
 	const expiry = 240 * time.Millisecond
@@ -67,8 +62,6 @@ func TestSpriteHoldClampsRenewalInsideHalfExpiry(t *testing.T) {
 	}
 }
 
-// AC2: with no sprite API socket the hold does nothing: no call, no log, and a
-// release that returns at once.
 func TestSpriteHoldWithoutSocketIsANoOp(t *testing.T) {
 	var out bytes.Buffer
 	release := SpriteHold{Socket: filepath.Join(t.TempDir(), "absent.sock"), Name: "n", Out: &out}.Start(context.Background())
@@ -84,7 +77,6 @@ func TestSpriteHoldWithoutSocketIsANoOp(t *testing.T) {
 	}
 }
 
-// A refused hold is logged and never fails the job.
 func TestSpriteHoldLogsARefusedCall(t *testing.T) {
 	api := NewSpriteAPI(t)
 	api.Refuse(http.StatusInternalServerError)

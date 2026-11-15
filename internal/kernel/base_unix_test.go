@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// acKernel is a three-state line a → b → c with a pathless code-ac gate on
-// b → c, as the delivery workflow's code-ac is, over the git repo at dir.
 func acKernel(t *testing.T, dir string) (*Kernel, *fakeDispatcher) {
 	t.Helper()
 	root := filepath.Join(dir, ".satelle")
@@ -51,8 +49,6 @@ groups = [{ gates = ["code-ac"] }]
 	return k, d
 }
 
-// mainRepo is a repo on main with the kernel's config committed (its runtime ignored), and
-// origin/main (a remote-tracking ref, no remote) at that commit, M0.
 func mainRepo(t *testing.T) (dir string, k *Kernel, d *fakeDispatcher, m0 string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -69,7 +65,6 @@ func mainRepo(t *testing.T) (dir string, k *Kernel, d *fakeDispatcher, m0 string
 	return dir, k, d, m0
 }
 
-// commitFile writes name and commits it, returning the new HEAD.
 func commitFile(t *testing.T, dir, name, body string) string {
 	t.Helper()
 	write(t, filepath.Join(dir, name), body)
@@ -78,7 +73,6 @@ func commitFile(t *testing.T, dir, name, body string) string {
 	return gittest.Git(t, dir, "rev-parse", "HEAD")
 }
 
-// seatedItem creates an item, moves it to b and seats s1 in dir.
 func seatedItem(t *testing.T, k *Kernel, dir, baseRef string) (item.Item, item.Seat) {
 	t.Helper()
 	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("t")}, "ada")
@@ -95,8 +89,6 @@ func seatedItem(t *testing.T, k *Kernel, dir, baseRef string) (item.Item, item.S
 	return it, s
 }
 
-// advanceMain commits on main, moves origin/main there and merges it into
-// branch, which is checked out again. It returns main's new tip.
 func advanceMain(t *testing.T, dir, branch string) string {
 	t.Helper()
 	gittest.Git(t, dir, "checkout", "-q", "main")
@@ -110,9 +102,7 @@ func advanceMain(t *testing.T, dir, branch string) string {
 
 func TestTheJudgedBaseFollowsTheBaseBranchOnlyWhenBehindIt(t *testing.T) {
 	cases := []struct {
-		name string
-		// run builds the history and returns the item and the base it must be
-		// judged from.
+		name  string
 		run   func(t *testing.T, dir string, k *Kernel, m0 string) (item.Item, string)
 		stale bool
 	}{

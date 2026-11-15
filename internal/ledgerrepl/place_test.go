@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// rules is a stub Chooser: category bug goes to bugflow at triage, anything
-// else to default at backlog. before runs inside WorkflowFor, to stage races.
 type rules struct{ before func() }
 
 func (r *rules) WorkflowFor(it item.Item) (string, string, error) {
@@ -29,8 +27,6 @@ func (r *rules) WorkflowFor(it item.Item) (string, string, error) {
 	return "default", "backlog", nil
 }
 
-// home is one machine: its own ledger and cache, replicating to the world's
-// project.
 type home struct {
 	w      *world
 	Ledger *ledger.Store
@@ -53,8 +49,6 @@ func (w *world) home(t *testing.T, choose Chooser) *home {
 	return &home{w: w, Ledger: l, cache: c, Choose: choose}
 }
 
-// Pull is one pull run, as the CLI makes it: a fresh store, the cache
-// refreshed, pulled items placed by the home's rules.
 func (h *home) Pull(ctx context.Context) (Result, error) {
 	d := h.w.dev()
 	d.Ledger, d.Cache = h.Ledger, h.cache
@@ -82,9 +76,6 @@ func hashes(evs []ledger.Event) string {
 	return strings.Join(h, ",")
 }
 
-// A pulled item with no workflow is placed by the rules: item.updated
-// {workflow} then item.transitioned {from "", to start}, both by satelle,
-// on the server first; status never travels on item.updated.
 func TestPullPlacesByRules(t *testing.T) {
 	w := newWorld(t)
 	bug := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "a bug", "category": "bug"})
@@ -125,14 +116,12 @@ func TestPullPlacesByRules(t *testing.T) {
 			t.Errorf("%s: the server's chain is not the local one", id)
 		}
 	}
-	// A second pull places nothing.
 	res, err = a.Pull(context.Background())
 	if err != nil || len(res.Placed) != 0 || len(chainOf(t, a, bug)) != 3 {
 		t.Fatalf("second pull placed %v (%v)", res.Placed, err)
 	}
 }
 
-// A second home imports the first home's placement and adds nothing.
 func TestSecondHomeAppliesNothing(t *testing.T) {
 	w := newWorld(t)
 	id := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "shared", "category": "bug"})
@@ -149,9 +138,6 @@ func TestSecondHomeAppliesNothing(t *testing.T) {
 	}
 }
 
-// When another home places between this home's read and its append, the
-// append is refused as stale; this home imports the winner's placement, adds
-// none of its own and verifies the whole chain.
 func TestRaceLoserImportsWinnersPlacement(t *testing.T) {
 	w := newWorld(t)
 	id := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "raced", "category": "bug"})
@@ -180,8 +166,6 @@ func TestRaceLoserImportsWinnersPlacement(t *testing.T) {
 	}
 }
 
-// An item that has local events not yet pushed is not placed over (that
-// would fork its chain): it is reported unplaced.
 func TestUnpushedLocalEventsAreNotPlacedOver(t *testing.T) {
 	w := newWorld(t)
 	id := w.srv.SeedItem(w.project, map[string]any{"kind": "story", "title": "edited"})

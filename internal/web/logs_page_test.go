@@ -253,10 +253,9 @@ func TestPublishLogsReachesEvents(t *testing.T) {
 		}
 		got <- "eof"
 	}()
-	// Publish until the subscriber has registered and receives it.
 	deadline := time.Now().Add(waitBudget)
 	for time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond) // poll tick
+		time.Sleep(10 * time.Millisecond)
 		ms.Publish("logs")
 		select {
 		case v := <-got:
@@ -283,8 +282,6 @@ func TestAppJSLogsUsesSingleEventSource(t *testing.T) {
 		t.Error("logs trigger must live on the existing EventSource listener")
 	}
 	if strings.Contains(src, "setInterval") && strings.Contains(src, "fragment/logs") {
-		// A timer next to the logs fetch would be a poll. The only setInterval
-		// in this file is the freshness ticker, which must not drive logs.
 		idx := strings.Index(src, "fragment/logs")
 		window := src[max(0, idx-200):min(len(src), idx+200)]
 		if strings.Contains(window, "setInterval") || strings.Contains(window, "setTimeout") {

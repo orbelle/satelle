@@ -11,13 +11,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
 
-// localStoreLine is what push, pull and status say for the local store, which
-// makes no store or network call.
 const localStoreLine = `ledger store is local: nothing replicates (set [ledger] store to "satelle.dev" or a store command to replicate)`
 
-// resolveStore is the store [ledger] store names; unset, satelle.dev while
-// signed in and local otherwise. Only push, pull and status call it: the sign-
-// in check reads local files only, and only when no store is set.
 func resolveStore(k *kernel.Kernel) (spec ledgerstore.Spec, defaulted bool) {
 	spec = k.Settings.Ledger.Store
 	if spec.Set() {
@@ -30,10 +25,6 @@ func resolveStore(k *kernel.Kernel) (spec ledgerstore.Spec, defaulted bool) {
 	return ledgerstore.Resolve(spec, signedIn), true
 }
 
-// openStore opens the store push, pull and status replicate with. For the
-// local store it returns a nil Store and has made no call. satelle.dev needs
-// the repo bound to a project and dials its server; a store command runs per
-// operation. The returned func releases the store.
 func openStore(k *kernel.Kernel, r repo, verb string) (ledgerrepl.Store, func(), error) {
 	spec, defaulted := resolveStore(k)
 	switch {
@@ -66,22 +57,14 @@ func openStore(k *kernel.Kernel, r repo, verb string) (ledgerrepl.Store, func(),
 	return nil, func() {}, nil
 }
 
-// devFor is satelle.dev for project over c. It reads no setting; its Home is
-// the satelle home, whose session records class the seats it summarises.
 func devFor(k *kernel.Kernel, c *hosted.Client, project string) *ledgerrepl.Dev {
 	return &ledgerrepl.Dev{Client: c, Project: project, Ledger: k.Ledger, Cache: k.Cache, Home: config.GlobalDir()}
 }
 
-// newReplicator is the one replicator the CLI builds, for every store: it
-// refreshes the cache after a pull and places a pulled item that arrived
-// without a workflow by this repo's rules.
 func newReplicator(k *kernel.Kernel, s ledgerrepl.Store, out io.Writer) *ledgerrepl.Replicator {
 	return &ledgerrepl.Replicator{Ledger: k.Ledger, Store: s, Refs: kernel.BlobRefs, Out: out, Cache: k.Cache, Choose: k, Mirrors: k}
 }
 
-// withStore runs fn with the replicator for the resolved store, after naming
-// the store on header (nil names it nowhere); for the local store it says so
-// on out and runs nothing.
 func withStore(out, header io.Writer, verb string, fn func(k *kernel.Kernel, r *ledgerrepl.Replicator) error) error {
 	k, rp, err := openKernel()
 	if err != nil {

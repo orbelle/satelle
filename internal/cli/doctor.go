@@ -29,19 +29,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
-// Doctor's budgets. The session-start hook runs every check under one budget
-// (a session waits on SessionStart output); a check unfinished at the
-// deadline is listed as not checked and runs in full under `satelle doctor`.
-// Each configured check is bounded on demand too.
 const (
 	doctorHookBudget   = 2 * time.Second
 	doctorCheckTimeout = 2 * time.Minute
 	doctorProbeTimeout = 2 * time.Second
 )
 
-// doctorIssue is one finding and the command that fixes it. Doctor never runs
-// a fix; Resolve names what satelle doctor --resolve does about it ("" leaves
-// it for the user). item and session name a seat finding's seat.
 type doctorIssue struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
@@ -51,61 +44,39 @@ type doctorIssue struct {
 	session string
 }
 
-// What satelle doctor --resolve does about an issue (doctorIssue.Resolve).
 const (
-	// resolveInstallService installs the service and the sync timer.
 	resolveInstallService = "install-service"
-	// resolveRestartService restarts satelled.
 	resolveRestartService = "restart-service"
-	// resolveReleaseSeat releases a seat proven orphaned, without asking: its
-	// session is gone, or its item is in a terminal state wherever the session
-	// ran.
-	resolveReleaseSeat = "release-seat"
-	// resolveAsk asks at the terminal whether to release an orphaned seat.
-	resolveAsk = "ask"
-	// resolveFixItem lists the finding on the one fix item.
-	resolveFixItem = "fix-item"
+	resolveReleaseSeat    = "release-seat"
+	resolveAsk            = "ask"
+	resolveFixItem        = "fix-item"
 )
 
-// doctorReport is everything one doctor run found: issues, the checks it could
-// not finish within its budget, and notes that are facts, not issues.
 type doctorReport struct {
 	Issues    []doctorIssue `json:"issues"`
 	Unchecked []string      `json:"unchecked"`
 	Notes     []string      `json:"notes"`
 }
 
-// doctorInput is what the checks read. inRepo is false outside a satelle repo,
-// where only the machine checks run. cfg is what loaded (a partial load when
-// the configuration is invalid).
 type doctorInput struct {
-	inRepo bool
-	r      repo
-	cfg    *kernel.Config
-	cfgErr error
-	// harness is the harness whose agent is asking, "" when it cannot be
-	// told: hook.Caller from the environment, or the hook's --harness.
+	inRepo  bool
+	r       repo
+	cfg     *kernel.Config
+	cfgErr  error
 	harness string
-	// legacy is the pre-1.0 marker files found in the repo's .satelle, none
-	// for a v1 repo: its configuration is not loaded (sto_0f76dd4e).
-	legacy []string
+	legacy  []string
 }
 
-// doctorCheck is one named check; it returns its issues and notes.
 type doctorCheck struct {
 	name string
 	run  func(ctx context.Context, in *doctorInput) ([]doctorIssue, []string)
 }
 
-// loadDoctorInput reads the repo at dir and its configuration without opening
-// the kernel, the cache or the ledger for writing.
 func loadDoctorInput(dir string) *doctorInput {
 	r, err := findRepo(dir)
 	if err != nil {
 		return &doctorInput{}
 	}
-	// A pre-1.0 .satelle needs upgrading in the repo; loading it would only
-	// list every key v1 does not know.
 	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
 		return &doctorInput{inRepo: true, r: r, legacy: m, cfgErr: errors.New(needsUpgradeLine(r.Tree, m)), harness: hook.Caller()}
 	}
@@ -113,9 +84,6 @@ func loadDoctorInput(dir string) *doctorInput {
 	return &doctorInput{inRepo: true, r: r, cfg: cfg, cfgErr: cerr, harness: hook.Caller()}
 }
 
-// doctorChecks lists the checks for in: the machine checks always, the repo
-// checks and the repo's doctor.toml entries inside a repo. In a pre-1.0 repo
-// only the machine checks run: the repo checks read a v1 .satelle.
 func doctorChecks(in *doctorInput) []doctorCheck {
 	checks := []doctorCheck{{"versions", checkVersions}, {"upgrade", checkUpgrade}}
 	if !in.inRepo || len(in.legacy) > 0 {
@@ -147,11 +115,8 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 	return checks
 }
 
-// errUnchecked marks a check cut by the run's deadline.
 var errUnchecked = errors.New("not checked within the budget")
 
-// runDoctor runs every check concurrently and collects what finished by ctx's
-// deadline; the rest are listed as unchecked. It changes nothing.
 func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
 	checks := doctorChecks(in)
 	type result struct {
@@ -180,7 +145,6 @@ func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
 	select {
 	case <-finished:
 	case <-ctx.Done():
-		// Give a check that was killed at the deadline a moment to return.
 		select {
 		case <-finished:
 		case <-time.After(250 * time.Millisecond):
@@ -200,9 +164,6 @@ func runDoctor(ctx context.Context, in *doctorInput) doctorReport {
 	return rep
 }
 
-// checkUpgrade names the pre-1.0 repos: the one doctor runs in is an issue,
-// fixed only in that repo by the user; each other registered one is a note,
-// as checkHarness splits the caller's harness from the others.
 func checkUpgrade(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	var issues []doctorIssue
 	var notes []string
@@ -233,10 +194,6 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	return out, nil
 }
 
-// checkSubstrate reports each command, flag, help topic and link the repo's
-// substrate names that this binary lacks: the rules satelle validate applies
-// (internal/substrate). Each finding goes on the fix item
-// satelle doctor --resolve opens.
 func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	found, err := substrate.Check(in.r.DataDir, substrateTree(NewRootCmd()))
 	if err != nil {
@@ -250,11 +207,6 @@ func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string
 	return out, nil
 }
 
-// checkVolatile reports each line of the substrate, and of the files
-// .satelle/volatile.toml names, that matches one of its volatile patterns
-// (kernel.Config.VolatileFindings). A volatile.toml with a problem is the
-// config check's to report. Each finding goes on the fix item
-// satelle doctor --resolve opens.
 func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if in.cfg == nil || len(in.cfg.Volatile.Problems()) > 0 {
 		return nil, nil
@@ -275,8 +227,6 @@ func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string)
 	for _, f := range found {
 		fx := fix
 		if u, ok := in.cfg.Volatile.UpstreamOf(f.File); ok {
-			// A file another repo owns is fixed there and brought here, never
-			// edited in place (sto_1ee018c8).
 			fx = "this file is owned by " + u.Owner + ": fix the line there and bring the fixed file here"
 			if u.Fix != "" {
 				fx += " (" + u.Fix + ")"
@@ -300,24 +250,10 @@ func checkInit(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	return out, nil
 }
 
-// checkHarnessName is the harness check's name.
 const checkHarnessName = "harness"
 
-// wireFix is the command that wires harness h.
 func wireFix(h string) string { return "satelle agents install " + h }
 
-// checkHarness reports the harnesses of this repo (hook.WiringOf). Each
-// harness in use (harnessesInUse: agents.toml runs it, or the repo has its
-// configuration directory) whose hook file differs from what satelle agents
-// install would write is an issue: absent, holding no satelle hooks, running a
-// satelle command this binary lacks (one issue per command), or holding
-// satelle hooks other than the current set; a file git tracks or a repo with
-// [hook] refresh = false says satelle update leaves it. A harness not in use
-// is judged as before: the calling harness unwired is an issue, any other
-// unwired one a note. With the caller unknown, nothing wired and nothing in
-// use, no harness wired is the issue. An installed hook file an ignore rule
-// hides from git is a note naming the rule. It reads the hook files and asks
-// git read-only questions.
 func checkHarness(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	tree := substrateTree(NewRootCmd())
 	stale := staleHook(tree)
@@ -374,9 +310,6 @@ func checkHarness(_ context.Context, in *doctorInput) ([]doctorIssue, []string) 
 	return issues, notes
 }
 
-// unwiredProblem is the problem of harness w holding no satelle hooks: its file
-// is absent or holds none, and for the calling harness, what its session
-// lacks.
 func unwiredProblem(in *doctorInput, w hook.Wiring) string {
 	what := "is absent"
 	if w.Present {
@@ -389,9 +322,6 @@ func unwiredProblem(in *doctorInput, w hook.Wiring) string {
 	return p
 }
 
-// inUseHarnessProblems lists how in-use harness w's hook file differs from what
-// satelle agents install would write (hook.Pending with stale): none when it
-// is current.
 func inUseHarnessProblems(in *doctorInput, w hook.Wiring, tree substrate.Tree, stale func(string) bool) []string {
 	_, changed, err := hook.Pending(in.r.Tree, w.Harness, stale)
 	switch {
@@ -418,10 +348,6 @@ func inUseHarnessProblems(in *doctorInput, w hook.Wiring, tree substrate.Tree, s
 	return out
 }
 
-// checkVersions compares the installed satelle CLI, the running satelled and
-// the installed satelled by buildinfo.Drift, the rule satelle service status
-// and satelled's footer use. It reads the builds record and probes satelled's
-// --version without recording, so it writes nothing.
 func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string) {
 	unitBody, unitErr := os.ReadFile(unitPath())
 	path := ""
@@ -464,9 +390,6 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 		}
 	}
 	for _, m := range buildinfo.Drift(cli, running, installed) {
-		// A running satelled behind the installed one is put right by a
-		// restart; any other mismatch (the CLI's) needs satelle update, which
-		// --resolve leaves for the user.
 		res := ""
 		if slices.Contains(m.Lines, "running") {
 			res = resolveRestartService
@@ -476,9 +399,6 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 	return out, nil
 }
 
-// doctorCLILine is the installed satelle CLI's identity: this binary's own when
-// it is the CLI beside satelled, else the record. It never runs the CLI, whose
-// every run records itself.
 func doctorCLILine(home, daemonPath string) string {
 	cli := buildinfo.CLIBeside(daemonPath)
 	if self, err := os.Executable(); err == nil {
@@ -497,7 +417,6 @@ func canonicalFile(p string) string {
 	return r
 }
 
-// healthzBuild is the identity line satelled answers on /healthz.
 func healthzBuild(ctx context.Context, ep string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, doctorProbeTimeout)
 	defer cancel()
@@ -517,16 +436,10 @@ func healthzBuild(ctx context.Context, ep string) (string, bool) {
 	return info.String(), true
 }
 
-// replicates reports whether this repo replicates its ledger, from its last
-// recorded automatic pass: a store other than local. Doctor never reads the
-// [ledger] store setting, which only the replication verbs read
-// (TestOnlyReplicationVerbsReadTheStore).
 func replicates(st syncstate.State, ok bool) bool {
 	return ok && st.SyncStore != "" && st.SyncStore != syncstate.LocalStore
 }
 
-// checkSync reads the last automatic sync pass from the sync state (never the
-// store) and the sync timer's state.
 func checkSync(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	st, ok, err := syncstate.Load(config.GlobalDir(), uiRepoRoot(in.r))
 	if err != nil {
@@ -535,7 +448,6 @@ func checkSync(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	if !replicates(st, ok) {
 		return nil, nil
 	}
-	// A failed pass comes first: it is what the session-start line shows.
 	var out []doctorIssue
 	if ok && st.SyncReason != "" {
 		out = append(out, doctorIssue{Check: "sync", Problem: "the last sync pass failed: " + st.SyncReason, Fix: "satelle ledger status"})
@@ -558,7 +470,6 @@ func forkedList(f []string) string {
 	return ": " + strings.Join(f, ", ")
 }
 
-// checkSyncTimerOnly is the sync check outside a repo: the timer alone.
 func checkSyncTimerOnly(context.Context, *doctorInput) ([]doctorIssue, []string) {
 	if _, err := os.Stat(unitPath()); err != nil {
 		return nil, nil
@@ -579,17 +490,6 @@ func timerIssues() ([]doctorIssue, []string) {
 	return nil, nil
 }
 
-// checkSeats folds every chain read-only and classes each seat by
-// seatlife.Classify: here, elsewhere, gone or unverified. A seat is orphaned
-// when its session is gone, its item is terminal in its workflow, its local:
-// worktree no longer exists and it was bound on this machine (or records no
-// machine): another machine's path cannot be checked here, or it was bound
-// here and its session never settled an owner and its hook processes have
-// exited. Each orphan is reported with its evidence; a gone session (its
-// settled owner exited) and a seat on a terminal item (wherever its session
-// ran: nothing more can be done under it) are the two --resolve releases
-// without asking, and every other orphan, the unsettled one included, is
-// asked about. One note lists every seat's standing.
 func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
@@ -667,7 +567,6 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	return out, []string{note}
 }
 
-// seatMachine names the machine a seat was bound on, as doctor shows it.
 func seatMachine(s item.Seat, here string) string {
 	switch {
 	case s.Machine == "":
@@ -687,14 +586,11 @@ func seatBound(s item.Seat) string {
 	return s.BoundAt.Local().Format("2006-01-02 15:04:05")
 }
 
-// readItem is one folded chain and its bound seats.
 type readItem struct {
 	it    item.Item
 	seats []item.Seat
 }
 
-// readItems folds every chain in the repo's runtime without creating it: a
-// repo that never ran has no items.
 func readItems(in *doctorInput) ([]readItem, error) {
 	st, err := ledger.OpenExisting(in.r.Runtime)
 	if errors.Is(err, os.ErrNotExist) {
@@ -722,8 +618,6 @@ func readItems(in *doctorInput) ([]readItem, error) {
 	return out, nil
 }
 
-// openItems reports each item an [[items]] entry selects that is not in a
-// terminal state of its workflow.
 func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
@@ -745,8 +639,6 @@ func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 	return out, nil
 }
 
-// runConfiguredCheck runs a doctor.toml check skill in the tree: exit 0 is
-// clean, exit 1 is one issue per output line, anything else could not check.
 func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorCheck) ([]doctorIssue, []string) {
 	name := "check:" + c.Skill
 	sk, ok := in.cfg.Skills[c.Skill]
@@ -763,8 +655,6 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	case code == 0:
 		return nil, nil
 	case code == 1:
-		// A doctor.toml check is the repo's own substrate check: its findings
-		// go on the fix item.
 		var issues []doctorIssue
 		for _, line := range strings.Split(out, "\n") {
 			if line = strings.TrimSpace(line); line != "" {
@@ -780,7 +670,6 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	}
 }
 
-// doctorGroups groups issues by check, the checks in first-seen order.
 func doctorGroups(issues []doctorIssue) (order []string, byCheck map[string][]doctorIssue) {
 	byCheck = map[string][]doctorIssue{}
 	for _, is := range issues {
@@ -792,12 +681,6 @@ func doctorGroups(issues []doctorIssue) (order []string, byCheck map[string][]do
 	return order, byCheck
 }
 
-// doctorNotice is the user's short view of a report at session start: the
-// issue count, then one line per check with its count and a fix, and no
-// problem text (that stays in doctorBlock, the model's context). A check's fix
-// is the first non-empty fix among its issues; when none of them has one, it
-// is noticeFallbackFix, so every line names an action. It is empty when there
-// are no issues; checks the budget cut alone give no notice.
 func doctorNotice(rep doctorReport) string {
 	if len(rep.Issues) == 0 {
 		return ""
@@ -818,13 +701,8 @@ func doctorNotice(rep doctorReport) string {
 	return b.String()
 }
 
-// noticeFallbackFix is the notice's fix for a check none of whose issues
-// records one: doctor itself lists each issue with what it knows.
 const noticeFallbackFix = "satelle doctor (lists each issue)"
 
-// doctorBlock is the session-start summary of a report: one line per check
-// with its count, first problem and first fix, then any checks the budget cut.
-// It is empty when there is nothing to say.
 func doctorBlock(rep doctorReport, budget time.Duration) string {
 	if len(rep.Issues) == 0 && len(rep.Unchecked) == 0 {
 		return ""

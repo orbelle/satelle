@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/logsread"
 )
 
-// fake writes an executable named name that records its argv and stdin and
-// runs body.
 func fake(t *testing.T, name, body string) (path, argvFile, stdinFile string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,9 +65,6 @@ func TestDispatchClaude(t *testing.T) {
 	}
 }
 
-// grok reads its prompt from --prompt-file: a prompt of any size dispatches
-// (one argv element is capped at 128 KiB on Linux), arrives byte for byte,
-// never appears in argv, and the file is removed after the run.
 func TestDispatchGrok(t *testing.T) {
 	bin, argvFile, _ := fake(t, "grok", `prev=
 for a in "$@"; do [ "$prev" = "--prompt-file" ] && cp "$a" "`+"${0%/*}"+`/prompt" && printf '%s' "$a" > "`+"${0%/*}"+`/promptpath"; prev=$a; done
@@ -77,7 +72,7 @@ echo '{"text":"{\"verdict\":\"accept\"}","usage":{"input_tokens":1,"output_token
 `)
 	dir := filepath.Dir(bin)
 	b := Binding{Name: "r", Command: bin, Tools: []string{"Read", "Grep"}}
-	prompt := strings.Repeat("judge this record line\n", 300<<10/23) // ~300 KiB
+	prompt := strings.Repeat("judge this record line\n", 300<<10/23)
 	res, err := Runner{}.Dispatch(context.Background(), Judge, Request{Binding: b, Prompt: prompt})
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +131,6 @@ func TestCancelKillsProcessGroup(t *testing.T) {
 	}
 }
 
-// fakePi speaks the pi RPC: it answers the prompt, settles, then answers the
-// text and stats requests.
 const fakePi = `while IFS= read -r line; do
   case "$line" in
     *'"type":"prompt"'*)
@@ -150,8 +143,6 @@ const fakePi = `while IFS= read -r line; do
 done
 `
 
-// A dispatch with Log set writes the full pi RPC exchange there, in order:
-// argv, each line sent (> ) and read (< ), then stderr.
 func TestDispatchLogPi(t *testing.T) {
 	bin, _, _ := fake(t, "pi", fakePi)
 	logs := t.TempDir()
@@ -188,7 +179,6 @@ func TestDispatchLogPi(t *testing.T) {
 	}
 }
 
-// claude (and grok, through runOnce) log argv and stdout.
 func TestDispatchLogClaude(t *testing.T) {
 	bin, _, _ := fake(t, "claude", "cat >/dev/null\necho '{\"result\":\"done\",\"usage\":{\"input_tokens\":5,\"output_tokens\":7}}'\necho oops >&2\n")
 	path := logsread.DispatchPath(t.TempDir(), "c", "sto_1", 1)
@@ -202,8 +192,6 @@ func TestDispatchLogClaude(t *testing.T) {
 	}
 }
 
-// Logging keeps only the newest dispatch logs, and a log that cannot be
-// written does not stop the dispatch.
 func TestDispatchLogPrunesAndNeverFails(t *testing.T) {
 	bin, _, _ := fake(t, "pi", fakePi)
 	b := Binding{Name: "r", Command: bin, Tools: []string{"Read"}}

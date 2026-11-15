@@ -1,10 +1,3 @@
-// Package gittest is the test suite's one git helper. Every test that runs git
-// does so through Git or Command, and every package whose code under test runs
-// git calls Main from its TestMain, so git never reads the developer's own
-// global or system configuration (an ignore file excluding .satelle/, a
-// signing key, an identity). It also serves a local smart-HTTP git server over
-// TLS — git's own http-backend behind net/http/cgi — so a test can fetch over
-// https with no network beyond loopback. It is not used by anything but tests.
 package gittest
 
 import (
@@ -18,29 +11,16 @@ import (
 	"testing"
 )
 
-// Server is one served repository.
 type Server struct {
-	// URL is the https URL of the repository, tool.git.
-	URL string
-	// Bare is the bare repository's path on disk.
-	Bare string
-	// Tagged is the commit the tag v1 names; Head is the commit main names, one
-	// later.
+	URL          string
+	Bare         string
 	Tagged, Head string
-	// Env makes git trust the server and ignore the host's git configuration.
-	Env []string
-	// CAFile is the server's certificate, PEM.
-	CAFile string
+	Env          []string
+	CAFile       string
 
-	root, base string // the served project root and the server's URL
+	root, base string
 }
 
-// Env is the one list of variables that isolate a test's git from the host:
-// no system or global configuration, core.excludesFile pinned to the null
-// device (git otherwise falls back to $XDG_CONFIG_HOME/git/ignore even with no
-// global config), and a fixed identity, since a nulled global config has none.
-// GIT_CONFIG_GLOBAL needs git 2.32 and GIT_CONFIG_COUNT 2.31; older git ignores
-// both, which is no worse than not isolating.
 func Env() []string {
 	return []string{
 		"GIT_CONFIG_NOSYSTEM=1",
@@ -55,8 +35,6 @@ func Env() []string {
 	}
 }
 
-// Command is an isolated git command in dir ("" is the current directory),
-// for a caller that must inspect a failure or add variables.
 func Command(t testing.TB, dir string, args ...string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -65,9 +43,6 @@ func Command(t testing.TB, dir string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// Main isolates every git the test binary starts, including git run by the
-// code under test, then runs the tests: func TestMain(m *testing.M) {
-// os.Exit(gittest.Main(m)) }.
 func Main(m *testing.M) int {
 	for _, kv := range Env() {
 		k, v, _ := strings.Cut(kv, "=")
@@ -76,8 +51,6 @@ func Main(m *testing.M) int {
 	return m.Run()
 }
 
-// Git runs an isolated git in dir and returns its trimmed output, failing the
-// test on error.
 func Git(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	out, err := Command(t, dir, args...).CombinedOutput()
@@ -87,8 +60,6 @@ func Git(t testing.TB, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// New serves a repository for the life of t, or skips t when git (or its
-// http-backend) is not installed.
 func New(t testing.TB) *Server {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -129,8 +100,6 @@ func New(t testing.TB) *Server {
 	return s
 }
 
-// Also serves a second bare repository, name.git, holding the same commits as
-// tool.git (main at Head, v1 at Tagged), and returns its https URL.
 func (s *Server) Also(t testing.TB, name string) string {
 	t.Helper()
 	Git(t, s.root, "clone", "-q", "--bare", s.Bare, filepath.Join(s.root, name+".git"))

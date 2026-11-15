@@ -14,15 +14,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// github review publishes exactly {project, pull_number, commit_sha, event,
-// body} over GitHubService.PublishReview: the event is passed through opaque,
-// the body comes from a file or stdin, and no item id or title is sent.
 func TestGitHubReviewPublishesThroughTheServer(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
 	must(t, "project", "create", "acme", "--bind", "--server", srv.URL)
 
-	// No GitHub binding: the server's FAILED_PRECONDITION surfaces.
 	_, err := run(t, "", "github", "review", "--pr", "7", "--sha", "abc123", "--event", "APPROVE")
 	if err == nil || !strings.Contains(err.Error(), "FailedPrecondition") || !strings.Contains(err.Error(), "no GitHub binding") {
 		t.Fatalf("unbound project: %v", err)

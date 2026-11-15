@@ -1,18 +1,5 @@
 //go:build llm
 
-// Package llm holds opt-in rubric-judgment fixtures (sty_6830e78e AC5).
-// These call a live reviewer model when SATELLE_LLM_JUDGMENT=1, cost tokens,
-// and are intentionally excluded from `go test ./...` and `make integration`.
-//
-// Run at release time or on demand:
-//
-//	make judgment
-//	SATELLE_LLM_JUDGMENT=1 go test -tags llm ./tests/llm/...
-//
-// Pass rule: best-of-three — a fixture passes when ≥2/3 live runs match the label.
-// Without SATELLE_LLM_JUDGMENT=1, only fixture-structure checks run (no model call).
-// The human half of this tier remains the re-runnable audit tasks
-// (tsk_substrate-audit, tsk_reviewer-objective-audit, tsk_context-audit).
 package llm
 
 import (
@@ -25,15 +12,13 @@ import (
 	"testing"
 )
 
-// fixture is one labelled accept/reject case for a gate skill.
 type fixture struct {
 	Name    string `json:"name"`
-	Want    string `json:"want"` // accept | reject
+	Want    string `json:"want"`
 	Why     string `json:"why"`
-	Payload string `json:"payload"` // optional story JSON for the live harness
+	Payload string `json:"payload"`
 }
 
-// requiredGates is the minimum LLM gate set that must carry fixtures.
 var requiredGates = []string{
 	"satelle-story-intent-review",
 	"satelle-story-plan-review",
@@ -42,11 +27,9 @@ var requiredGates = []string{
 	"satelle-story-cancel-review",
 	"satelle-story-blocked-review",
 	"satelle-workflow-change-review",
-	"satelle-story-create-review", // premise falsification (sty_b9692e1f)
+	"satelle-story-create-review",
 }
 
-// TestJudgmentFixtureStructure validates the labelled fixture corpus without
-// calling a model. Always runs under -tags llm (make judgment).
 func TestJudgmentFixtureStructure(t *testing.T) {
 	dir := fixturesDir(t)
 	for _, gate := range requiredGates {
@@ -84,8 +67,6 @@ func TestJudgmentFixtureStructure(t *testing.T) {
 	}
 }
 
-// TestJudgmentLive runs fixtures against the real reviewer when
-// SATELLE_LLM_JUDGMENT=1. Skips otherwise so `make judgment` is safe by default.
 func TestJudgmentLive(t *testing.T) {
 	if os.Getenv("SATELLE_LLM_JUDGMENT") != "1" {
 		t.Skip("set SATELLE_LLM_JUDGMENT=1 to spend tokens on live rubric judgment")
@@ -144,10 +125,6 @@ func agentConfigured() bool {
 	return false
 }
 
-// runLiveJudgment invokes the configured agent with the gate skill as system
-// context and the fixture payload, then parses a decision from the output.
-// Operators may override with SATELLE_LLM_JUDGMENT_CMD (a shell command that
-// receives gate name on argv and fixture JSON on stdin, prints decision).
 func runLiveJudgment(t *testing.T, gate string, fc fixture) string {
 	t.Helper()
 	if cmd := os.Getenv("SATELLE_LLM_JUDGMENT_CMD"); cmd != "" {
@@ -159,7 +136,6 @@ func runLiveJudgment(t *testing.T, gate string, fc fixture) string {
 		}
 		return parseDecision(string(out))
 	}
-	// Default: ask grok/claude briefly — best-effort, not a full satelle gate run.
 	bin := "grok"
 	if _, err := exec.LookPath("claude"); err == nil {
 		bin = "claude"
@@ -186,7 +162,6 @@ func mustJSON(fc fixture) string {
 
 func parseDecision(out string) string {
 	lower := strings.ToLower(out)
-	// Prefer explicit JSON decision field
 	if i := strings.Index(lower, `"decision"`); i >= 0 {
 		rest := lower[i:]
 		if strings.Contains(rest, "reject") {

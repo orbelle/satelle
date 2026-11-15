@@ -119,8 +119,6 @@ func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
 	}
 }
 
-// RecordPass: a failure keeps the last success, a success clears the reason,
-// and a local store is never a failure (sto_5c706973).
 func TestRecordPassFailureThenSuccess(t *testing.T) {
 	home := t.TempDir()
 	okAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
@@ -152,7 +150,6 @@ func TestRecordPassFailureThenSuccess(t *testing.T) {
 	}
 }
 
-// Keys an older satelle wrote (the removed push group) are dropped on load.
 func TestOldPushKeysAreIgnored(t *testing.T) {
 	home := t.TempDir()
 	if err := RecordPass(home, "/repo", Pass{Store: "local"}, time.Now()); err != nil {
@@ -167,7 +164,6 @@ func TestOldPushKeysAreIgnored(t *testing.T) {
 	}
 }
 
-// A pass's counts are recorded and a later pass replaces them (sto_3cf973ae).
 func TestRecordPassCounts(t *testing.T) {
 	home := t.TempDir()
 	now := time.Now()
@@ -187,9 +183,6 @@ func TestRecordPassCounts(t *testing.T) {
 	}
 }
 
-// An upgrade pass (a pre-1.0 repo the pass skipped, sto_0f76dd4e) records the
-// command and clears the failure, keeping when the repo last synced and last
-// failed; the next ordinary pass clears it.
 func TestRecordPassUpgrade(t *testing.T) {
 	home := t.TempDir()
 	ok1 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)

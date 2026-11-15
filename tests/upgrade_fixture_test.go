@@ -11,8 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// oldDDL is the pre-1.0 store's schema (work_items and evidence, as the
-// 0.0.x binary created and migrated them).
 const oldDDL = `
 CREATE TABLE work_items (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
@@ -26,7 +24,6 @@ CREATE TABLE evidence (
     created_at TEXT NOT NULL, base_id TEXT NOT NULL DEFAULT '', workflow_hash TEXT NOT NULL DEFAULT '');
 `
 
-// oldRow is one fixture work_items row.
 type oldRow struct {
 	id, kind, title, body, status, priority, category, parent, criteria, tags, created, assignee string
 	archived                                                                                     int
@@ -39,8 +36,6 @@ var oldRows = []oldRow{
 	{"exe_e1000001", "execution", "A run", "", "done", "", "", "tsk_t1000001", "", `[]`, "2026-07-15T00:00:00Z", "", 0},
 }
 
-// oldEvidence: three JSON rows and one non-JSON row for story one, and one
-// row naming no item.
 var oldEvidence = [][]string{
 	{"ev1", "sty_a1000001", "note", "ann", "first", `{"a":1}`, "2026-07-12T01:00:00Z"},
 	{"ev2", "sty_a1000001", "review", "bob", "second", `{"verdict":"accept"}`, "2026-07-12T02:00:00Z"},
@@ -49,9 +44,6 @@ var oldEvidence = [][]string{
 	{"ev5", "", "project", "ann", "project-level", `{}`, "2026-07-12T05:00:00Z"},
 }
 
-// oldStore writes a pre-1.0 store under dir: satelle.db, story one's
-// documents (a markdown file and a png with its sidecar) and a regenerated
-// stories/<id>.md view.
 func oldStore(t *testing.T, dir string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "satelle.db"))
@@ -80,7 +72,6 @@ func oldStore(t *testing.T, dir string) {
 	writeFile(t, filepath.Join(dir, "stories", "sty_a1000001.md"), "regenerated view", 0o644)
 }
 
-// oldFormat writes a pre-1.0 .satelle into the sandbox and commits it.
 func oldFormat(t *testing.T, s *sandbox) {
 	t.Helper()
 	s.write(".satelle/satelle.toml", "[review]\ngate_create = true\n\n[gate]\nedit_exempt_globs = [\"x\"]\n")

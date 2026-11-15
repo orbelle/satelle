@@ -17,12 +17,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// changelogSandbox is a repo with a bare origin whose first main commit
-// (base) holds .version (satelle.version 1.0.0), a CHANGELOG.md with a 1.0.0
-// section and this repo's scripts/changelog-items.sh, so every head cut from
-// it, every worktree of it and every checkout of the pushed main carries the
-// script exactly where the skills read it. A fake gh serves the open pull
-// requests from prs.json.
 type changelogSandbox struct {
 	*sandbox
 	base string
@@ -56,7 +50,6 @@ func newChangelogSandbox(t *testing.T) *changelogSandbox {
 	s.write(".version", "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n")
 	s.write("CHANGELOG.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
-	// changelog-entry reads the release run's binary decision through it.
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "base")
@@ -76,7 +69,6 @@ func (s *sandbox) rev(ref string) string {
 	return strings.TrimSpace(s.git("rev-parse", ref))
 }
 
-// at runs fn with every command of the sandbox in dir.
 func (s *sandbox) at(dir string, fn func()) {
 	old := s.dir
 	s.dir = dir
@@ -84,9 +76,6 @@ func (s *sandbox) at(dir string, fn func()) {
 	fn()
 }
 
-// worktree adds a linked worktree at ref (a branch name checks it out,
-// anything else detaches) and returns its path. A linked worktree shares the
-// repo's items, so satelle answers in it as in the sandbox.
 func (c *changelogSandbox) worktree(ref string, detach bool) string {
 	c.t.Helper()
 	dir := filepath.Join(realDir(c.t, c.t.TempDir()), "wt")
@@ -98,8 +87,6 @@ func (c *changelogSandbox) worktree(ref string, detach bool) string {
 	return dir
 }
 
-// branch cuts branch from base and commits each of files (path -> body) in
-// its own commit, then pushes it and returns its head.
 func (c *changelogSandbox) branch(name, from string, files ...[2]string) string {
 	c.t.Helper()
 	dir := c.worktree(from, true)
@@ -120,8 +107,6 @@ func (c *changelogSandbox) branch(name, from string, files ...[2]string) string 
 	return c.rev(name)
 }
 
-// story creates a story and, unless changelog is empty, attaches it as its
-// changelog attachment.
 func (c *changelogSandbox) story(changelog string) string {
 	c.t.Helper()
 	id := c.create("story", "--title", "change").ID
@@ -138,7 +123,6 @@ func (c *changelogSandbox) attach(id, body string) {
 	}
 }
 
-// pr makes the fake gh list an open pull request for id on head.
 func (c *changelogSandbox) pr(id, head string) {
 	c.t.Helper()
 	c.prs = append(c.prs, map[string]any{"number": len(c.prs) + 1, "headRefOid": head, "title": "change (" + id + ")", "isDraft": false})
@@ -146,8 +130,6 @@ func (c *changelogSandbox) pr(id, head string) {
 	writeFile(c.t, filepath.Join(c.fake, "prs.json"), string(b), 0o644)
 }
 
-// assertFixtures fails setup unless every head, and each dir, carries the
-// script, so a missing fixture never passes as the rule under test.
 func (c *changelogSandbox) assertFixtures(heads []string, dirs ...string) {
 	c.t.Helper()
 	for _, h := range heads {
@@ -162,14 +144,11 @@ func (c *changelogSandbox) assertFixtures(heads []string, dirs ...string) {
 	}
 }
 
-// keptBlock is release step 2a's per-item block for id at head over tip.
 func keptBlock(t *testing.T, id, head, tip string) string {
 	t.Helper()
 	return "head=" + head + "\ntip=" + tip + "\n" + idBlock(t, ".satelle/skills/release.md", "### Each kept item's changelog", id)
 }
 
-// verdict runs the per-item block and asserts it exits 0 with exactly one
-// line, which it returns.
 func (c *changelogSandbox) verdict(id, head, tip string) string {
 	c.t.Helper()
 	r := c.exec("bash", "", "-c", keptBlock(c.t, id, head, tip))
@@ -179,8 +158,6 @@ func (c *changelogSandbox) verdict(id, head, tip string) string {
 	return strings.TrimSuffix(r.out, "\n")
 }
 
-// changelogBlock is release step 3's block with its ids= and ver= lines
-// rebound and wt set.
 func changelogBlock(t *testing.T, wt, ver string, ids ...string) string {
 	t.Helper()
 	b, err := os.ReadFile("../.satelle/skills/release.md")
@@ -207,8 +184,6 @@ func changelogBlock(t *testing.T, wt, ver string, ids ...string) string {
 	return "wt=" + wt + "\n" + bindSession(block)
 }
 
-// bump writes .version's satelle.version in wt, commits only .version and
-// CHANGELOG.md and pushes main.
 func (c *changelogSandbox) bump(wt, ver string) {
 	c.t.Helper()
 	c.at(wt, func() {
@@ -223,8 +198,6 @@ func (c *changelogSandbox) bump(wt, ver string) {
 	c.git("fetch", "-q", "origin")
 }
 
-// The release run's verdict per item, its version section written from the
-// items' attachments, and changelog-entry's check of every landed item.
 func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	c := newChangelogSandbox(t)
 	idA := c.story("### Fixed\n- A fixes a thing\n### Added\n- A adds a thing\n")
@@ -255,7 +228,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	if got := c.verdict(idL, headL, main); !strings.HasPrefix(got, idL+": send back: no valid changelog attachment on head "+headL) {
 		t.Fatalf("legacy head: %q", got)
 	}
-	// With no satelle on PATH the block cannot judge: the only exit 1.
 	bin := realDir(t, t.TempDir())
 	for _, tool := range []string{"git", "bash"} {
 		p, _ := exec.LookPath(tool)
@@ -278,7 +250,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 		t.Fatalf("no satelle on PATH: %v, stdout %q stderr %q", err, out.String(), errb.String())
 	}
 
-	// Step 3 writes the version section on top, from A then B.
 	block := changelogBlock(t, wt, "1.0.1", idA, idB)
 	if r := c.exec("bash", "", "-c", block); r.code != 0 {
 		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
@@ -298,9 +269,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	}
 	c.bump(wt, "1.0.1")
 
-	// changelog-entry, from a checkout of the pushed main.
-	// No release run of this task exists, so the decision is unrecorded and
-	// the check applies its full rules.
 	check := shBlock(t, ".satelle/skills/satelle-changelog-entry-check.md", "", "tas_00000000")
 	gate := c.worktree("origin/main", true)
 	c.assertFixtures(nil, gate)
@@ -321,10 +289,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 		t.Fatalf("changelog-entry for an absent entry: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 
-	// AC3 (sto_4a863578): a later release writes [1.0.2] from D only. An item
-	// an earlier release published is accepted from that section; D from the
-	// first; an absent entry is still refused with the current version's
-	// reason.
 	idD := c.story("### Added\n- D adds a thing\n")
 	wtD := c.worktree("origin/main", true)
 	if r := c.exec("bash", "", "-c", changelogBlock(t, wtD, "1.0.2", idD)); r.code != 0 {
@@ -341,7 +305,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	if r := entry(idX); r.code != 1 || !strings.Contains(r.out, `"- X never landed (`+idX+`)" under ### Added`) || !strings.Contains(r.out, "[1.0.2]") {
 		t.Fatalf("changelog-entry for an absent entry after 1.0.2: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	// Step 3 with every kept item released before writes nothing.
 	wtE := c.worktree("origin/main", true)
 	before, _ := os.ReadFile(filepath.Join(wtE, "CHANGELOG.md"))
 	if r := c.exec("bash", "", "-c", changelogBlock(t, wtE, "1.0.3")); r.code != 0 || !strings.Contains(r.out, "released before") {
@@ -369,8 +332,6 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	}
 }
 
-// pr-ready refuses an item with no or a malformed changelog attachment, and
-// a head that edits CHANGELOG.md, naming the attachment instead.
 func TestPRReadyRequiresChangelogAttachment(t *testing.T) {
 	c := newChangelogSandbox(t)
 	id := c.story("")
@@ -409,9 +370,6 @@ func TestPRReadyRequiresChangelogAttachment(t *testing.T) {
 	}
 }
 
-// Two items cut in parallel from the same main: one lands, the other is sent
-// back and merges origin/main without a conflict, because neither touches the
-// shared changelog. The control shows the fixture conflicts when they do.
 func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	c := newChangelogSandbox(t)
 	idA := c.story("### Added\n- A adds\n")
@@ -421,7 +379,6 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	wt := c.worktree(headA, true)
 	c.assertFixtures([]string{headA, headB}, wt)
 
-	// Land A: fewer commits, so step 1 orders it first.
 	count := func(h string) string { return strings.TrimSpace(c.git("rev-list", "--count", "origin/main.."+h)) }
 	if count(headA) != "1" || count(headB) != "2" {
 		t.Fatalf("commit counts A %s B %s", count(headA), count(headB))
@@ -446,7 +403,6 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	}
 	mainAfterA := c.rev("origin/main")
 
-	// B merges origin/main in DEV.
 	dir := c.worktree("b", false)
 	c.at(dir, func() {
 		c.git("fetch", "-q", "origin")
@@ -466,7 +422,6 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	})
 	merged := c.rev("b")
 
-	// Return: pr-ready accepts the merged head and the next run keeps it.
 	c.pr(idB, merged)
 	c.env["SATELLE_ITEM"] = idB
 	c.at(dir, func() {
@@ -479,8 +434,6 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 		t.Fatalf("B merged: %q, want %q", got, want)
 	}
 
-	// Control: two branches that each add a line to the changelog, as items
-	// did before, conflict there and only there.
 	ctl := newChangelogSandbox(t)
 	line := func(s string) [2]string {
 		return [2]string{"CHANGELOG.md", "## [1.0.0] - 2026-01-01\n\n### Added\n- " + s + "\n- The first release.\n"}
@@ -500,8 +453,6 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	})
 }
 
-// A sent-back item comes through integration again, where the full suite
-// runs on the combined tree.
 func TestReworkRerunsTheFullSuite(t *testing.T) {
 	for _, wf := range []string{"delivery", "chore"} {
 		w, err := workflow.Parse("../.satelle/workflows/" + wf + ".toml")
@@ -529,13 +480,8 @@ func TestReworkRerunsTheFullSuite(t *testing.T) {
 	}
 }
 
-// No process file names the old staging heading: items record their lines on
-// themselves and the release run writes the version section.
 func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 	word := "Unreleased"
-	// .satelle/remotes/satelle-cicd is the pre-1.0 remote, kept as reference
-	// only (operator, 2026-11-07): nothing dispatches it, so its text is not
-	// part of the process this test guards.
 	reference := filepath.Join("..", ".satelle", "remotes", "satelle-cicd")
 	for _, root := range []string{".satelle/skills", ".satelle/workflows", ".satelle/queues", ".satelle/tasks", ".satelle/remotes", "scripts"} {
 		err := filepath.WalkDir(filepath.Join("..", root), func(p string, d fs.DirEntry, err error) error {

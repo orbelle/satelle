@@ -11,17 +11,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/logsread"
 )
 
-// dispatchLog is one dispatch's log: the command line and every line
-// exchanged with the harness, in the order written. Writes from the adapter's
-// reader and writer goroutines are serialised. A nil log, or one whose writes
-// fail, writes nothing and never fails the dispatch.
 type dispatchLog struct {
 	mu sync.Mutex
 	f  *os.File
 }
 
-// openLog opens path for a dispatch's log (dirs 0700, file 0600); nil when
-// path is "" or the file cannot be created.
 func openLog(path string) *dispatchLog {
 	if path == "" {
 		return nil
@@ -36,8 +30,6 @@ func openLog(path string) *dispatchLog {
 	return &dispatchLog{f: f}
 }
 
-// closeLog closes the log and prunes the oldest dispatch logs beyond the kept
-// bound. path is the log's path: its directory's parent is the logs dir.
 func closeLog(l *dispatchLog, path string) {
 	if l == nil {
 		return
@@ -48,7 +40,6 @@ func closeLog(l *dispatchLog, path string) {
 	_ = logsread.PruneDispatch(filepath.Dir(filepath.Dir(path)), config.DefaultLogsMaxFiles)
 }
 
-// line writes one line: prefix then text.
 func (l *dispatchLog) line(prefix string, text []byte) {
 	if l == nil {
 		return
@@ -58,12 +49,10 @@ func (l *dispatchLog) line(prefix string, text []byte) {
 	_, _ = fmt.Fprintf(l.f, "%s%s\n", prefix, text)
 }
 
-// argv writes the command line a run starts.
 func (l *dispatchLog) argv(argv []string) {
 	l.line("argv: ", []byte(fmt.Sprintf("%q", argv)))
 }
 
-// output writes each line of b under prefix.
 func (l *dispatchLog) output(prefix string, b []byte) {
 	if l == nil {
 		return

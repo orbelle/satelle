@@ -15,10 +15,8 @@ import (
 	"time"
 )
 
-// defaultLoginTimeout bounds the wait for the browser to land the callback.
 const defaultLoginTimeout = 3 * time.Minute
 
-// tokenResponse is the token endpoint success body (both grants).
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -27,7 +25,6 @@ type tokenResponse struct {
 	Scope        string `json:"scope"`
 }
 
-// oauthError is the token endpoint error body ({"error","error_description"}).
 type oauthError struct {
 	Code        string `json:"error"`
 	Description string `json:"error_description"`
@@ -40,26 +37,13 @@ func (e *oauthError) Error() string {
 	return e.Code
 }
 
-// LoginOptions tunes the login flow; the zero value is valid.
 type LoginOptions struct {
-	// OpenBrowser opens authURL; nil means don't try (only print it). Injected
-	// by tests to drive the loopback flow without a real browser.
 	OpenBrowser func(authURL string) error
-	// Timeout overrides defaultLoginTimeout.
-	Timeout time.Duration
-	// Out receives the "open this URL" prompt; nil discards it.
-	Out io.Writer
-	// Port is the loopback port for the callback listener. Zero picks an
-	// ephemeral port (RFC 8252 §7.3); `satelle login` defaults to a fixed port
-	// whose redirect URI is registered exactly.
-	Port int
+	Timeout     time.Duration
+	Out         io.Writer
+	Port        int
 }
 
-// Flow is a split OAuth 2.1 + PKCE authorization-code flow: the CLI runs it in
-// one blocking call (Login), while the web server runs it across two HTTP
-// requests (AuthorizeURL on sign-in, Exchange on the callback). Both go through
-// this one seam so there is exactly one OAuth code path. A Flow is single-use.
-// Its endpoints come from discovery; nothing here names a provider.
 type Flow struct {
 	server      string
 	ep          endpoints
@@ -68,11 +52,6 @@ type Flow struct {
 	state       string
 }
 
-// newFlow builds a flow for server against the discovered endpoints with the
-// given loopback redirect URI, generating a fresh PKCE (S256) verifier +
-// challenge and a random state. The redirectURI MUST be reused byte-identically
-// at Exchange (the server matches it exactly) — holding it on the Flow
-// guarantees that.
 func newFlow(server string, ep endpoints, redirectURI string) (*Flow, error) {
 	server = normalizeServerURL(server)
 	if server == "" {
@@ -89,16 +68,12 @@ func newFlow(server string, ep endpoints, redirectURI string) (*Flow, error) {
 	return &Flow{server: server, ep: ep, redirectURI: redirectURI, pk: pk, state: state}, nil
 }
 
-// State is the CSRF state the callback must echo back.
 func (f *Flow) State() string { return f.state }
 
-// AuthorizeURL is the authorization endpoint URL to send the browser to.
 func (f *Flow) AuthorizeURL() string {
 	return buildAuthorizeURL(f.ep, f.redirectURI, f.pk.challenge, f.state)
 }
 
-// Exchange trades the authorization code for tokens and returns the resulting
-// (unpersisted) Credential. The caller persists it.
 func (f *Flow) Exchange(ctx context.Context, httpClient *http.Client, code string) (Credential, error) {
 	tok, err := exchangeCode(ctx, httpClient, f.ep, code, f.redirectURI, f.pk.verifier)
 	if err != nil {
@@ -109,14 +84,11 @@ func (f *Flow) Exchange(ctx context.Context, httpClient *http.Client, code strin
 	return cred, nil
 }
 
-// pkce holds one flow's verifier + S256 challenge.
 type pkce struct {
 	verifier  string
 	challenge string
 }
 
-// newPKCE generates an RFC 7636 S256 verifier (32 random bytes → 43-char
-// base64url, within the 43-128 range) and its challenge.
 func newPKCE() (pkce, error) {
 	v, err := randomURLToken(32)
 	if err != nil {
@@ -134,10 +106,6 @@ func randomURLToken(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// Login discovers server's authorization server, then runs the loopback
-// authorization-code + PKCE flow end to end against it and returns the
-// resulting Credential (NOT persisted — the caller stores it). httpClient is
-// the client used for discovery and the token exchange.
 func Login(ctx context.Context, httpClient *http.Client, server string, opts LoginOptions) (Credential, error) {
 	server = normalizeServerURL(server)
 	if server == "" {
@@ -153,10 +121,6 @@ func Login(ctx context.Context, httpClient *http.Client, server string, opts Log
 		return Credential{}, err
 	}
 
-	// 1. Loopback listener (ephemeral port unless opts.Port is set). Build the
-	//    redirect URI ONCE and reuse the exact string for BOTH authorize and the
-	//    token exchange — the server matches it byte-for-byte, so rebuilding it
-	//    would fail.
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
 	if err != nil {
 		return Credential{}, fmt.Errorf("hosted: open loopback listener: %w", err)
@@ -165,17 +129,12 @@ func Login(ctx context.Context, httpClient *http.Client, server string, opts Log
 	port := ln.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
-	// 2. Build the flow — the same OAuth seam the web server uses. PKCE (S256) +
-	//    CSRF state live on it, and it holds redirectURI for a byte-identical
-	//    reuse at Exchange.
 	flow, err := newFlow(server, ep, redirectURI)
 	if err != nil {
 		return Credential{}, err
 	}
 	state := flow.State()
 
-	// 3. One-shot callback handler. A state mismatch or an error= param fails the
-	//    flow WITHOUT calling the token endpoint.
 	type cbResult struct {
 		code string
 		err  error
@@ -207,7 +166,6 @@ func Login(ctx context.Context, httpClient *http.Client, server string, opts Log
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	// 4. Send the operator to the authorize URL (always print it; open if we can).
 	authURL := flow.AuthorizeURL()
 	if opts.Out != nil {
 		fmt.Fprintf(opts.Out, "Open this URL to authenticate:\n\n  %s\n\n", authURL)
@@ -218,7 +176,6 @@ func Login(ctx context.Context, httpClient *http.Client, server string, opts Log
 		}
 	}
 
-	// 5. Await the code (or a timeout / cancel).
 	var code string
 	select {
 	case res := <-resultCh:
@@ -232,17 +189,11 @@ func Login(ctx context.Context, httpClient *http.Client, server string, opts Log
 		return Credential{}, ctx.Err()
 	}
 
-	// 6. Exchange the code through the flow — redirectURI is the SAME string sent
-	//    to authorize (held on the flow), so the server's exact match holds.
 	return flow.Exchange(ctx, httpClient, code)
 }
 
-// loginScope is the scope every authorize request asks for; offline_access is
-// what makes the provider issue the refresh token the refresh path relies on.
 const loginScope = "openid email profile offline_access"
 
-// buildAuthorizeURL builds the authorization endpoint URL. Method is always
-// S256; resource (RFC 8707) names the API the token is for.
 func buildAuthorizeURL(ep endpoints, redirectURI, challenge, state string) string {
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -260,7 +211,6 @@ func buildAuthorizeURL(ep endpoints, redirectURI, challenge, state string) strin
 	return ep.AuthorizationEndpoint + sep + q.Encode()
 }
 
-// exchangeCode performs the authorization_code grant.
 func exchangeCode(ctx context.Context, httpClient *http.Client, ep endpoints, code, redirectURI, verifier string) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -272,8 +222,6 @@ func exchangeCode(ctx context.Context, httpClient *http.Client, ep endpoints, co
 	return postToken(ctx, httpClient, ep.TokenEndpoint, form)
 }
 
-// refreshGrant performs the refresh_token grant against the token endpoint,
-// client id and resource stored with cred, returning a rotated pair.
 func refreshGrant(ctx context.Context, httpClient *http.Client, cred Credential) (tokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -283,8 +231,6 @@ func refreshGrant(ctx context.Context, httpClient *http.Client, cred Credential)
 	return postToken(ctx, httpClient, cred.TokenEndpoint, form)
 }
 
-// postToken POSTs a form to tokenEndpoint and decodes the response, turning a
-// non-200 into a typed *oauthError.
 func postToken(ctx context.Context, httpClient *http.Client, tokenEndpoint string, form url.Values) (tokenResponse, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -318,8 +264,6 @@ func postToken(ctx context.Context, httpClient *http.Client, tokenEndpoint strin
 	return tok, nil
 }
 
-// credentialFromToken maps a token response onto a stored Credential, stamping
-// the access-token expiry from expires_in when present.
 func credentialFromToken(server string, tok tokenResponse) Credential {
 	c := Credential{
 		ServerURL:    server,

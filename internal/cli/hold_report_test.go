@@ -38,15 +38,12 @@ func TestReportTransitionHold(t *testing.T) {
 		t.Errorf("hold report hands the session a status command:\n%s", msg)
 	}
 
-	// Without a hold the report has no hold block.
 	res.Held = nil
 	if err := reportTransition(&out, res, false); strings.Contains(err.Error(), "held") {
 		t.Errorf("an unheld rejection reports a hold:\n%s", err)
 	}
 }
 
-// A gate whose judge could not be asked is reported as an error, not as the
-// judge's verdict, and still blocks.
 func TestReportTransitionError(t *testing.T) {
 	res := kernel.TransitionResult{
 		Item: item.Item{ID: "sto_1", Status: "plan"}, From: "plan", To: "build",

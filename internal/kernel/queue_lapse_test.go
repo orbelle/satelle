@@ -10,11 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// lapseKernel is a repo whose delivery workflow enqueues an approved item into
-// the release queue: backlog -> in_progress -> approved, approved sent back to
-// in_progress or moved to done, and backlog -> done. The release queue has no
-// filter (a status filter would mask a lapse), fires by hand only, and runs
-// the runbook workflow.
 func lapseKernel(t *testing.T) *Kernel {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -66,7 +61,6 @@ to = "done"
 	return k
 }
 
-// move transitions id through the states given, failing on a refusal.
 func move(t *testing.T, k *Kernel, id string, to ...string) TransitionResult {
 	t.Helper()
 	var res TransitionResult
@@ -84,7 +78,6 @@ func story(t *testing.T, k *Kernel, title string) string {
 	return mustCreate(t, k, item.Fields{Kind: ptr("story"), Title: ptr(title)}).ID
 }
 
-// queueAdds is the queue.added entries on the release chain for id.
 func queueAdds(t *testing.T, k *Kernel, id string) []item.QueueEntry {
 	t.Helper()
 	qid, _ := k.ResolveQueue("release")
@@ -109,7 +102,7 @@ func TestSentBackMemberNotFired(t *testing.T) {
 	if len(res.Queued) != 1 || !slices.Equal(res.Queued[0].Added, []string{a}) {
 		t.Fatalf("approve %+v", res.Queued)
 	}
-	move(t, k, a, "in_progress") // sent back, no fire in between
+	move(t, k, a, "in_progress")
 
 	_, st, ms, err := k.QueueMembers("release")
 	if err != nil {
@@ -160,7 +153,6 @@ func TestReapproveEnqueuesAgain(t *testing.T) {
 	if len(adds) != 2 || adds[1].Cause != "delivery:in_progress->approved" {
 		t.Fatalf("queue.added for %s: %+v", a, adds)
 	}
-	// A hand add of a live member is still a duplicate.
 	o, err := k.Enqueue("release", []string{a}, "", "me")
 	if err != nil || !slices.Equal(o.Already, []string{a}) || len(o.Added) != 0 || len(queueAdds(t, k, a)) != 2 {
 		t.Fatalf("hand re-add %+v %v", o, err)

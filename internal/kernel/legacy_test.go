@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// Each pre-1.0 marker alone makes LoadConfig name satelle upgrade first; a
-// fresh init names nothing.
 func TestLegacyMarkersNameUpgrade(t *testing.T) {
 	for _, f := range legacyFiles {
 		root := filepath.Join(t.TempDir(), ".satelle")

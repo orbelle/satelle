@@ -16,7 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Settings is satelle.toml.
 type Settings struct {
 	Workflows workflow.Rules  `toml:"workflows"`
 	Gate      GateSettings    `toml:"gate"`
@@ -28,97 +27,66 @@ type Settings struct {
 	Ledger    LedgerSettings  `toml:"ledger"`
 }
 
-// GateSettings is the [gate] section, read by the edit gate.
 type GateSettings struct {
 	EditExemptPaths []string `toml:"edit_exempt_paths"`
 	LockedPaths     []string `toml:"locked_paths"`
 }
 
-// HookSettings is the [hook] section: files the context hook prints, and
-// whether satelle update and the sync pass refresh this repo's harness hook
-// files (refresh, default true).
 type HookSettings struct {
 	Inject  []string `toml:"inject"`
 	Refresh *bool    `toml:"refresh"`
 }
 
-// Refreshes reports whether update and the sync pass refresh this repo's
-// harness hook files: true unless [hook] refresh = false.
 func (h HookSettings) Refreshes() bool { return h.Refresh == nil || *h.Refresh }
 
-// RuleSettings is the [rules] section.
 type RuleSettings struct {
 	ReviewerDiffersFromPerformer bool `toml:"reviewer_differs_from_performer"`
 }
 
-// ItemSettings is the [items] section: id prefix per kind.
 type ItemSettings struct {
 	Prefix map[string]string `toml:"prefix"`
 }
 
-// ServiceSettings is the [service] section (satelled).
 type ServiceSettings struct {
 	Port int `toml:"port"`
 }
 
-// SyncSettings is the [sync] section.
 type SyncSettings struct {
 	Enabled bool   `toml:"enabled"`
 	URL     string `toml:"url"`
 }
 
-// LedgerSettings is the [ledger] section. Store is optional: absent, it is the
-// zero Spec (no store configured).
 type LedgerSettings struct {
 	Store ledgerstore.Spec `toml:"store"`
 }
 
-// Config is everything a repo configures under its .satelle/ directory.
 type Config struct {
 	Root      string
 	Settings  Settings
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	Agents    agent.Catalog
-	Queues    map[string]*workflow.Queue // by name
-	// Doctor is .satelle/doctor.toml: the repo's own checks and open-item
-	// selections satelle doctor runs beside its kernel checks (empty when the
-	// file is absent).
-	Doctor DoctorSettings
-	// Volatile is .satelle/volatile.toml: the volatile-literal patterns, the
-	// exemption marker and the extra and excluded paths satelle validate and
-	// satelle doctor apply (empty, so nothing is reported, when the file is
-	// absent). A file of its own for the reason DoctorSettings is.
-	Volatile substrate.VolatileRules
+	Queues    map[string]*workflow.Queue
+	Doctor    DoctorSettings
+	Volatile  substrate.VolatileRules
 }
 
-// DoctorSettings is doctor.toml. It is a file of its own, not a satelle.toml
-// table: satelle.toml is decoded strictly, so a table an older binary does not
-// know would refuse every command; an older binary ignores an extra file.
 type DoctorSettings struct {
 	Checks  []DoctorCheck `toml:"check"`
 	Open    []DoctorOpen  `toml:"items"`
 	Resolve DoctorResolve `toml:"resolve"`
 }
 
-// DoctorResolve is doctor.toml's [resolve] table: the selection of the one
-// item satelle doctor --resolve opens for the substrate findings. Kind and tag
-// are required for --resolve to open the item, and satelle holds no default
-// for either: satelle init writes them (template doctor.toml). Category is
-// optional. It has no status, which the item's workflow stamps.
 type DoctorResolve struct {
 	Kind     string `toml:"kind"`
 	Tag      string `toml:"tag"`
 	Category string `toml:"category"`
 }
 
-// Selection is the fix item's selection, the three keys as configured.
 func (r DoctorResolve) Selection() item.Selection {
 	return item.Selection{Kind: r.Kind, Tag: r.Tag, Category: r.Category}
 }
 
-// Unset names each required key [resolve] leaves empty, in the order kind,
-// tag; empty when --resolve can open the fix item.
 func (r DoctorResolve) Unset() []string {
 	var out []string
 	if r.Kind == "" {
@@ -130,16 +98,11 @@ func (r DoctorResolve) Unset() []string {
 	return out
 }
 
-// DoctorCheck runs a check skill read-only: exit 0 is clean, exit 1 is one
-// issue per output line, anything else could not check. Fix is shown with each
-// issue it raises.
 type DoctorCheck struct {
 	Skill string `toml:"skill"`
 	Fix   string `toml:"fix"`
 }
 
-// DoctorOpen reports each open (non-terminal) item the selection matches as an
-// issue; {id} in Fix is replaced with the item's id.
 type DoctorOpen struct {
 	Name     string `toml:"name"`
 	Kind     string `toml:"kind"`
@@ -149,38 +112,29 @@ type DoctorOpen struct {
 	Fix      string `toml:"fix"`
 }
 
-// Selection is the item selection of an [[items]] entry.
 func (o DoctorOpen) Selection() item.Selection {
 	return item.Selection{Kind: o.Kind, Status: o.Status, Tag: o.Tag, Category: o.Category}
 }
 
-// Config file and directory names under the root.
 const (
 	SettingsFile = "satelle.toml"
 	DoctorFile   = "doctor.toml"
 	VolatileFile = "volatile.toml"
 	AgentsFile   = "agents.toml"
-	// SessionFile is the session guidance the context, prompt and stop
-	// hooks print: shipped by satelle init, owned and edited by the repo.
 	SessionFile  = "session.md"
 	WorkflowsDir = "workflows"
 	SkillsDir    = "skills"
 	QueuesDir    = "queues"
-	// RemotesDir holds the remote definitions, one directory per remote id
-	// with its RemoteFile.
-	RemotesDir = "remotes"
-	RemoteFile = "remote.toml"
+	RemotesDir   = "remotes"
+	RemoteFile   = "remote.toml"
 )
 
-// LoadSettings reads root's satelle.toml strictly.
 func LoadSettings(root string) (Settings, error) {
 	var st Settings
 	err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &st)
 	return st, err
 }
 
-// LoadConfig reads root's configuration. It returns what it could load and
-// every load error; Problems adds the validation errors.
 func LoadConfig(root string) (*Config, error) {
 	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{},
 		Queues: map[string]*workflow.Queue{}}
@@ -238,8 +192,6 @@ func LoadConfig(root string) (*Config, error) {
 	return c, errors.Join(errs...)
 }
 
-// Prefix is the id prefix of kind: [items] prefix, else the kind's first
-// three letters.
 func (s Settings) Prefix(kind string) string {
 	if p := s.Items.Prefix[kind]; p != "" {
 		return p
@@ -251,8 +203,6 @@ func (s Settings) Prefix(kind string) string {
 	return string(r)
 }
 
-// QueueIndex binds each queue file to the ledger chain it defines: chain id
-// to definition. It is the one owner of that binding.
 func QueueIndex(s Settings, queues map[string]*workflow.Queue) map[string]*workflow.Queue {
 	out := map[string]*workflow.Queue{}
 	for _, name := range sortedKeys(queues) {
@@ -267,7 +217,6 @@ func QueueIndex(s Settings, queues map[string]*workflow.Queue) map[string]*workf
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// Problems returns every validation problem of a loaded configuration.
 func (c *Config) Problems() []error {
 	var errs []error
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { _, ok := c.Workflows[n]; return ok })...)
@@ -302,15 +251,10 @@ func (c *Config) Problems() []error {
 	return errs
 }
 
-// VolatileFindings is each line of the substrate, and of the files
-// volatile.toml names, that matches one of its patterns (substrate.Volatile).
-// It is the one call satelle validate and satelle doctor make.
 func (c *Config) VolatileFindings() ([]substrate.Finding, error) {
 	return substrate.Volatile(c.Root, c.Volatile)
 }
 
-// doctorProblems checks doctor.toml: each check names a check skill and a fix;
-// each open entry has a unique name, at least one selector and a fix.
 func (c *Config) doctorProblems() []error {
 	var errs []error
 	for i, ch := range c.Doctor.Checks {
@@ -346,7 +290,6 @@ func (c *Config) doctorProblems() []error {
 	return errs
 }
 
-// queueProblems checks each queue file, and that no two bind the same chain.
 func (c *Config) queueProblems() []error {
 	var errs []error
 	wf := func(n string) bool { _, ok := c.Workflows[n]; return ok }
@@ -364,9 +307,6 @@ func (c *Config) queueProblems() []error {
 	return errs
 }
 
-// bindingProblems checks what the catalog alone cannot: judges may judge,
-// dispatched performers can carry the performer denies, and (when the rule is
-// on) no judge runs its performer's model.
 func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {
@@ -441,7 +381,6 @@ func expandFrom(w *workflow.Workflow, from []string) []string {
 	return out
 }
 
-// Validate loads and validates root's configuration, returning every problem.
 func Validate(root string) []error {
 	c, err := LoadConfig(root)
 	var errs []error
@@ -451,9 +390,6 @@ func Validate(root string) []error {
 	return append(errs, c.Problems()...)
 }
 
-// gatePlacementProblems checks each gate's placement: "" or local, or
-// remote:<id> on a check gate, where <id> is a remote defined under
-// RemotesDir whose definition parses (any provider remotedef admits).
 func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {

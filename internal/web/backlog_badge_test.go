@@ -13,7 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// backlogSnapshot holds one story per status, in order, all on workflow w.
 func backlogSnapshot(w mirror.Workflow, statuses ...string) mirror.Snapshot {
 	stories := []json.RawMessage{}
 	for i, st := range statuses {
@@ -30,12 +29,8 @@ func backlogSnapshot(w mirror.Workflow, statuses ...string) mirror.Snapshot {
 	}
 }
 
-// storiesTabBacklogRE finds the backlog chip inside the Stories tab anchor.
 var storiesTabBacklogRE = regexp.MustCompile(`<a class="tab"[^>]*data-panel="stories"[^>]*>[^\n]*?<span class="n-backlog"[^>]*>(\d+) backlog</span></a>`)
 
-// A fresh page load renders the 'N backlog' badge server-side in the Stories
-// tab, counting the stories in the workflow's start state (alpha in the
-// fixture); with none there is no badge.
 func TestBacklogBadgeOnFreshLoad(t *testing.T) {
 	srv := mirrorWith(t, backlogSnapshot(fixtureWorkflow, "alpha", "beta", "alpha"))
 	page := httpGetBody(t, srv.URL+"/r/proj/")
@@ -51,9 +46,6 @@ func TestBacklogBadgeOnFreshLoad(t *testing.T) {
 	}
 }
 
-// The badge follows the workflow's start state, not a state name: a workflow
-// whose start state is "queued" counts its queued stories, and a state that
-// is merely called "backlog" is not counted.
 func TestBacklogBadgeFollowsWorkflowStartState(t *testing.T) {
 	queue := mirror.Workflow{Name: "queue", States: []mirror.WorkflowState{
 		{Name: "queued", Start: true}, {Name: "backlog"}, {Name: "fin", Terminal: true},
@@ -67,7 +59,6 @@ func TestBacklogBadgeFollowsWorkflowStartState(t *testing.T) {
 	}
 }
 
-// The badge's fragment follows each ingest, and a fresh page agrees with it.
 func TestBacklogBadgeFollowsIngest(t *testing.T) {
 	srv := mirrorWith(t, backlogSnapshot(fixtureWorkflow, "alpha", "beta", "alpha"))
 	if f := httpGetBody(t, srv.URL+"/r/proj/fragment/backlog"); !strings.Contains(f, ">2 backlog<") {
@@ -98,8 +89,6 @@ func TestBacklogBadgeFollowsIngest(t *testing.T) {
 	}
 }
 
-// The live refresh swaps in the server's fragment; no client code counts rows
-// by a state name.
 func TestBacklogBadgeLiveWiring(t *testing.T) {
 	b, err := os.ReadFile("static/app.js")
 	if err != nil {

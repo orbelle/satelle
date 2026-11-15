@@ -8,13 +8,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// DefaultBaseBranch is an item's base branch when its seat named none: the
-// branch a merge of main into the item's branch brings in.
 const DefaultBaseBranch = "origin/main"
 
-// base is the commit an item's work is judged from as recorded: the latest
-// bound seat's base, else the commit at create. ref is the --base ref that
-// seat named, "" when it named none or the base is the create commit.
 func (k *Kernel) base(it item.Item, events []ledger.Event) (commit, ref string) {
 	seats := item.FoldSeats(events)
 	for i := len(seats) - 1; i >= 0; i-- {
@@ -25,14 +20,6 @@ func (k *Kernel) base(it item.Item, events []ledger.Event) (commit, ref string) 
 	return it.Base, ""
 }
 
-// judgedBase is the commit a locally seated item's diff is judged from: the
-// merge base of HEAD and the item's base branch (the seat's --base ref, else
-// DefaultBaseBranch) when the recorded base is an ancestor of it, so merging
-// that branch into the item's branch never widens the judged scope. The
-// recorded base stands when the branch does not resolve, when the merge base
-// is the recorded base or HEAD itself (HEAD is wholly inside the branch, so
-// there is no own change to separate), or when the recorded base is not in the
-// merge base's history (a stacked or story-branch seat, or a stale base).
 func (k *Kernel) judgedBase(it item.Item, events []ledger.Event) string {
 	recorded, ref := k.base(it, events)
 	g, ok := k.Git.(BranchGit)
@@ -60,13 +47,9 @@ func (k *Kernel) judgedBase(it item.Item, events []ledger.Event) string {
 	return mb
 }
 
-// StaleBaseError refuses a gated transition whose diff base is no longer in
-// HEAD's history: after a rebase or reset, the diff from it is not the item's
-// own change, so every gate would judge the wrong slice.
 type StaleBaseError struct {
 	Item, Kind, Base, Head string
-	// Unknown is set when the base names no commit in this repository.
-	Unknown bool
+	Unknown                bool
 }
 
 func (e *StaleBaseError) Error() string {
@@ -78,9 +61,6 @@ func (e *StaleBaseError) Error() string {
 		e.Item, what, e.Kind, e.Item)
 }
 
-// staleBase reports a worktree span whose base HEAD's history no longer
-// contains. A collected branch's base is a merge-base of its head, so it is
-// never stale; without branch facts nothing is checked.
 func (k *Kernel) staleBase(it item.Item, sp span) *StaleBaseError {
 	g, ok := k.Git.(BranchGit)
 	if !ok || sp.head != "" || sp.base == "" {
@@ -100,19 +80,12 @@ func (k *Kernel) staleBase(it item.Item, sp span) *StaleBaseError {
 	return nil
 }
 
-// ItemDiff is an item's change: the paths changed from Base to Head, or to
-// the working tree when Head is "". Frozen says it is the change the item
-// reached its terminal state with, which later work does not move.
 type ItemDiff struct {
 	Base, Head string
 	Paths      []string
 	Frozen     bool
 }
 
-// ItemChange returns id's change. A terminal item's is the span recorded on
-// its move into that state; any other item's is this working tree's diff
-// from its judged base, with the stale-base finding when HEAD's history no
-// longer contains that base. Base is "" when the item has none.
 func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 	it, events, err := k.load(id)
 	if err != nil {
@@ -158,13 +131,8 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 	return d, stale, nil
 }
 
-// defaultCollectBase is the branch a collected branch's diff base is taken
-// from when collect is given no --base: its merge base with origin/main. HEAD
-// is never used, since a tree whose HEAD already is the branch would make the
-// base the branch's own commit and the span empty.
 const defaultCollectBase = DefaultBaseBranch
 
-// resolveBase resolves a --base ref to its commit, now.
 func (k *Kernel) resolveBase(ref string) (string, error) {
 	g, ok := k.Git.(BranchGit)
 	if !ok {
@@ -177,7 +145,6 @@ func (k *Kernel) resolveBase(ref string) (string, error) {
 	return commit, nil
 }
 
-// seatBase resolves a seat's --base to a commit in HEAD's history.
 func (k *Kernel) seatBase(ref string) (string, error) {
 	commit, err := k.resolveBase(ref)
 	if err != nil {

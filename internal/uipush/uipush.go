@@ -1,13 +1,3 @@
-// Package uipush is the CLI's side of satelled: after a kernel mutation it
-// tells satelled what changed (POST /ingest/change) and pushes the rows its
-// pages read (POST /ingest/snapshot): folded items from the cache, the items'
-// ledger events, attachment metadata and text bodies, seats, the workflows,
-// settings and identity. A full push carries all of them; a delta carries the
-// changed items' rows, the seats, the workflows and the identity, so a
-// workflow file added or edited reaches satelled on the repo's next push.
-// The automatic sync pass confirms the mirror (POST /ingest/confirm): it sends
-// the full snapshot's digest, and the full body only when satelled's last one
-// differs. satelled never asks the CLI for anything.
 package uipush
 
 import (
@@ -27,27 +17,20 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// MaxBody bounds an attachment body pushed to satelled; a larger or binary
-// attachment is pushed as metadata only.
 const MaxBody = 256 << 10
 
-// Source is what a push reads: one repo's opened ledger and cache, its
-// workflows and where it lives.
 type Source struct {
 	Ledger    *ledger.Store
 	Cache     *cache.Cache
 	Workflows map[string]*workflow.Workflow
-	DataDir   string // the repo's .satelle directory
-	RepoRoot  string // the repo's canonical root
+	DataDir   string
+	RepoRoot  string
 	RepoKey   string
 	Slug      string
-	User      *mirror.User // who the CLI is signed in as; nil when signed out
-	// Queues are the queue files by the chain id each defines; a queue row
-	// carries its file's title, filter and trigger.
-	Queues map[string]*workflow.Queue
+	User      *mirror.User
+	Queues    map[string]*workflow.Queue
 }
 
-// Full is the snapshot that replaces every kind of the partition.
 func Full(src Source) (mirror.Snapshot, error) {
 	items, err := src.Cache.Items(cache.Query{})
 	if err != nil {
@@ -67,18 +50,10 @@ func Full(src Source) (mirror.Snapshot, error) {
 	return snap, nil
 }
 
-// identity is the partition's identity blob: project name, repo path and who
-// the CLI is signed in as. Every push carries it, full and delta alike, so a
-// sign-in or sign-out shows on satelled's next change.
 func identity(src Source) json.RawMessage {
 	return mustJSON(mirror.IdentityMeta{ProjectName: src.Slug, RepoRoot: src.RepoRoot, User: src.User})
 }
 
-// Delta is the snapshot that merges the rows of the named items (and their
-// events and attachments) and replaces the seats, the identity and the
-// workflow docs. The workflows are re-read from disk on every push, so an
-// added, edited or removed workflow file reaches satelled without a reseed,
-// and its terminal states are known when the rows render.
 func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	var items []item.Item
 	for _, id := range ids {
@@ -103,7 +78,6 @@ func Delta(src Source, ids []string) (mirror.Snapshot, error) {
 	return snap, nil
 }
 
-// rows fills the per-item kinds of a snapshot for items, and the seats.
 func rows(src Source, items []item.Item) (mirror.Snapshot, error) {
 	snap := mirror.Snapshot{RepoKey: src.RepoKey, Slug: src.Slug}
 	for _, it := range items {
@@ -164,8 +138,6 @@ func itemRow(it item.Item) mirror.Item {
 	}
 }
 
-// attachmentRow is an attachment's metadata (the newest of versions), with its
-// body when it is text within MaxBody.
 func attachmentRow(l *ledger.Store, a item.Attachment, versions int) mirror.Attachment {
 	row := mirror.Attachment{
 		ID: a.Item + "/" + a.Name, Item: a.Item, Name: a.Name, MediaType: a.MediaType,
@@ -184,7 +156,6 @@ func attachmentRow(l *ledger.Store, a item.Attachment, versions int) mirror.Atta
 	return row
 }
 
-// textual reports whether a media type (or, lacking one, a name) is text.
 func textual(mediaType, name string) bool {
 	mt := strings.ToLower(mediaType)
 	if strings.HasPrefix(mt, "text/") {
@@ -204,8 +175,6 @@ func textual(mediaType, name string) bool {
 	return false
 }
 
-// workflowDocs is each workflow as a doc of kind mirror.DocKindWorkflows: its
-// source and its parsed states, gates and transitions.
 func workflowDocs(src Source) ([]json.RawMessage, error) {
 	names := make([]string, 0, len(src.Workflows))
 	for n := range src.Workflows {
@@ -261,7 +230,6 @@ func wireWorkflow(w *workflow.Workflow) *mirror.Workflow {
 	return out
 }
 
-// settings is satelle.toml flattened to one row per key, in key order.
 func settings(src Source) (json.RawMessage, error) {
 	blob := mirror.Settings{RepoRoot: src.RepoRoot, Rows: []mirror.SettingRow{}}
 	var m map[string]any
@@ -307,7 +275,7 @@ func sortedKeys[V any](m map[string]V) []string {
 func mustJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err) // every value here is plain data
+		panic(err)
 	}
 	return b
 }

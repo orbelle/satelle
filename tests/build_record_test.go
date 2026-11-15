@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 )
 
-// Every satelle run records its own build for the binary on disk, and the
-// footer's lookup of the CLI beside satelled finds it (sto_49b6e762).
 func TestEveryRunRecordsItsBuild(t *testing.T) {
 	s := newSandbox(t)
 	line := strings.TrimSpace(s.must("version"))

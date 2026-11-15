@@ -7,8 +7,6 @@ import (
 	"strconv"
 )
 
-// Ancestors is pid's chain of parents, nearest first, excluding pid itself and
-// init, at most maxAncestors long; each with its start identity.
 func Ancestors(pid int) []Proc {
 	var out []Proc
 	for len(out) < maxAncestors {

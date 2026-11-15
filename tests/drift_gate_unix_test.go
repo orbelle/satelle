@@ -16,8 +16,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// The drift review's task id as the repo's substrate writes it, and the files
-// that carry it on a literal task= line (release.md in its step 11).
 const driftTaskLine = `(?m)^task=(tas_[A-Za-z0-9_]+)$`
 
 var driftTaskFiles = []string{
@@ -28,7 +26,6 @@ var driftTaskFiles = []string{
 	".satelle/skills/satelle-drift-accept-quoted.md",
 }
 
-// repoText reads a file of this repo.
 func repoText(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
@@ -38,9 +35,6 @@ func repoText(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// repoGateAgents maps each gate of a repo workflow file to the agents that
-// judge it (its agent, then its panel), as the repo's substrate binds them,
-// so a fixture follows a rename instead of naming the repo's reviewers.
 func repoGateAgents(t *testing.T, rel string) map[string][]string {
 	t.Helper()
 	var wf struct {
@@ -62,9 +56,6 @@ func repoGateAgents(t *testing.T, rel string) map[string][]string {
 	return out
 }
 
-// judgeAgentsTOML is an agents.toml that binds every judge the named repo
-// workflow files use to the claude stand-in, each on model (its own stand-in model when
-// model is empty), after extra (already TOML).
 func judgeAgentsTOML(t *testing.T, extra, model string, rels ...string) string {
 	t.Helper()
 	var names []string
@@ -90,8 +81,6 @@ func judgeAgentsTOML(t *testing.T, extra, model string, rels ...string) string {
 	return b.String()
 }
 
-// driftTaskID is the one task id release.md, drift-review.md and the trigger
-// skill name.
 func driftTaskID(t *testing.T) string {
 	t.Helper()
 	re := regexp.MustCompile(driftTaskLine)
@@ -99,7 +88,7 @@ func driftTaskID(t *testing.T) string {
 	for _, f := range driftTaskFiles {
 		text := repoText(t, f)
 		if f == ".satelle/skills/release.md" {
-			text = releaseStep(t, "## 11.") // step 0 names the release task
+			text = releaseStep(t, "## 11.")
 		}
 		ms := re.FindAllStringSubmatch(text, -1)
 		if len(ms) == 0 {
@@ -117,8 +106,6 @@ func driftTaskID(t *testing.T) string {
 	return id
 }
 
-// releaseStep returns release.md's section under the heading that starts
-// with prefix, up to the next ## heading.
 func releaseStep(t *testing.T, prefix string) string {
 	t.Helper()
 	md := repoText(t, ".satelle/skills/release.md")
@@ -133,7 +120,6 @@ func releaseStep(t *testing.T, prefix string) string {
 	return sec
 }
 
-// lineWith returns the first line of text that starts with prefix.
 func lineWith(t *testing.T, text, prefix, where string) string {
 	t.Helper()
 	for _, l := range strings.Split(text, "\n") {
@@ -145,10 +131,6 @@ func lineWith(t *testing.T, text, prefix, where string) string {
 	return ""
 }
 
-// A release ends with the drift review: release.md step 11 follows step 10,
-// starts the drift task with the previous tag as its base and seats on the
-// same base; drift-review.md re-seats on the run's base; one task id in all
-// three files; and the epic drive runs a release through step 11.
 func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 	id := driftTaskID(t)
 	md := repoText(t, ".satelle/skills/release.md")
@@ -181,12 +163,6 @@ func TestReleaseRunsDriftReviewAfterCleanup(t *testing.T) {
 	}
 }
 
-// fakeDriftJudge puts a fake `claude` first on PATH that tells the two drift
-// judges and any other judge apart by their system prompt: "constitution"
-// (it defines the DRIFT line), "claims" (the WARN line), else "other". Each
-// records its prompt in prompt.<gate>.<pid> and answers with verdict.<gate>
-// (default accept) and notes.<gate> (by default notes that give a reason and
-// name a file, as the gates' reasons rules require).
 func fakeDriftJudge(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -210,7 +186,6 @@ jq -cn --arg r "$inner" '{type:"result",subtype:"success",is_error:false,result:
 	return dir
 }
 
-// prompts returns and removes the recorded prompts of gate.
 func prompts(t *testing.T, dir, gate string) []string {
 	t.Helper()
 	files, _ := filepath.Glob(filepath.Join(dir, "prompt."+gate+".*"))
@@ -226,13 +201,10 @@ func prompts(t *testing.T, dir, gate string) []string {
 	return out
 }
 
-// driftSandbox is a repo carrying this repo's runbook and drift skills, a
-// drift task and another task, and two releases: v0.0.1 and v0.0.2 (HEAD),
-// which changes internal/x.go and .version (plus extra, path to body).
 type driftSandbox struct {
 	*sandbox
 	fake         string
-	drift, other string // task ids
+	drift, other string
 }
 
 func newDriftSandbox(t *testing.T, extra map[string]string) *driftSandbox {
@@ -276,8 +248,6 @@ to = "retired"
 		"satelle-verdict-notes-check", "satelle-verdict-reference-check"} {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
-	// The trigger and validate-after's drift check as the repo has them until
-	// the drift task exists; then its id.
 	bound := []string{"satelle-drift-run-trigger", "satelle-drift-accept-quoted"}
 	for _, name := range bound {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
@@ -311,8 +281,6 @@ to = "retired"
 	return d
 }
 
-// start runs task with base v0.0.1, moves its run to in_progress and seats it
-// with seat, a shell line run with exe and prev in its environment.
 func (d *driftSandbox) start(task, seat string) string {
 	d.t.Helper()
 	var run struct {
@@ -330,13 +298,10 @@ func (d *driftSandbox) start(task, seat string) string {
 	return run.ID
 }
 
-// stepSeat is release.md step 11's seat line, run as the procedure runs it.
 func stepSeat(t *testing.T) string {
 	return lineWith(t, releaseStep(t, "## 11."), "satelle execution seat", "release.md step 11")
 }
 
-// assertJudgedFromPrev asserts the run's diff is judged from v0.0.1 and
-// holds internal/x.go.
 func (d *driftSandbox) assertJudgedFromPrev(exe string) {
 	d.t.Helper()
 	var diff struct {
@@ -370,8 +335,6 @@ func (d *driftSandbox) setFake(name, body string) {
 
 const acceptQuoted = ".satelle/skills/satelle-drift-accept-quoted.md"
 
-// acceptQuotedLiterals are the report's line forms satelle-drift-accept-quoted
-// restates, each a name='value' line of its script.
 func acceptQuotedLiterals(t *testing.T) map[string]string {
 	t.Helper()
 	text := repoText(t, acceptQuoted)
@@ -386,9 +349,6 @@ func acceptQuotedLiterals(t *testing.T) map[string]string {
 	return out
 }
 
-// fixtureDriftReport is a drift-report in drift-review.md steps 3 and 4's shape for
-// the sandbox's release v0.0.2, finding nothing; fix, when not empty, is its
-// "## Fix item" lines (the id, then the keys it carries).
 func fixtureDriftReport(fix string) string {
 	return "# Drift review of v0.0.2\n\nno drift\n\n## Checks\n" +
 		"- satelle satelle 0.0.2 (fixture)\n" +
@@ -401,10 +361,8 @@ func fixtureDriftReport(fix string) string {
 		"## Closed\n\n## Carried\n\n## Stayed open\n"
 }
 
-// noDriftReport is fixtureDriftReport with an empty "## Fix item".
 func noDriftReport() string { return fixtureDriftReport("") }
 
-// attachReport attaches body as exe's drift-report.
 func (d *driftSandbox) attachReport(exe, body string) {
 	d.t.Helper()
 	if r := d.exec(satelleBin, body, "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
@@ -412,10 +370,6 @@ func (d *driftSandbox) attachReport(exe, body string) {
 	}
 }
 
-// driftQuotes are the three lines of exe's attached drift-report an accept
-// quotes, found by satelle-drift-accept-quoted's own line forms: the version
-// line and the drift-check exit line without their "- ", and the fix item's
-// id or the line "no drift".
 func (d *driftSandbox) driftQuotes(exe string) []string {
 	d.t.Helper()
 	lit := acceptQuotedLiterals(d.t)
@@ -440,9 +394,6 @@ func (d *driftSandbox) driftQuotes(exe string) []string {
 	return []string{version, exit, fix}
 }
 
-// skillDriftAccept is the drift accept the validate-after judge's skill shows
-// in its ## Verdict section, its three placeholders filled in order with
-// quotes.
 func skillDriftAccept(t *testing.T, quotes ...string) string {
 	t.Helper()
 	_, verdict, ok := strings.Cut(repoText(t, ".satelle/skills/satelle-task-validate-after-review.md"), "\n## Verdict\n")
@@ -473,14 +424,11 @@ func skillDriftAccept(t *testing.T, quotes ...string) string {
 	return ph.ReplaceAllStringFunc(notes, func(string) string { i++; return quotes[i-1] })
 }
 
-// citeReport makes the validate-after judge answer the skill's drift accept
-// quoting exe's own drift-report.
 func (d *driftSandbox) citeReport(exe string) {
 	d.t.Helper()
 	d.setFake("notes.other", skillDriftAccept(d.t, d.driftQuotes(exe)...))
 }
 
-// gatesAccepted fails unless each gate's latest run on exe accepted.
 func (d *driftSandbox) gatesAccepted(exe string, gates ...string) {
 	d.t.Helper()
 	for _, gate := range gates {
@@ -490,11 +438,6 @@ func (d *driftSandbox) gatesAccepted(exe string, gates ...string) {
 	}
 }
 
-// The drift-constitution gate judges only drift runs: another task's run over
-// the same diff skips it by the trigger; a drift run seated by release.md
-// step 11 is judged by the runbook's drift-constitution binding over its internal/ diff with the
-// skill's pointers, and a DRIFT reject keeps it in_progress. A run seated
-// without --base has an empty diff and skips the gate on paths.
 func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
@@ -544,8 +487,6 @@ func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
 		t.Errorf("execution route does not show the DRIFT line:\n%s", route)
 	}
 
-	// Control: a bare seat records HEAD (v0.0.2) as the base, so the diff is
-	// empty and the gate is skipped on paths before the trigger runs.
 	bare := d.start(d.drift, `satelle execution seat "$exe"`)
 	d.setFake("verdict.constitution", "")
 	d.setFake("notes.constitution", "")
@@ -555,8 +496,6 @@ func TestDriftGateJudgesOnlyDriftRuns(t *testing.T) {
 	}
 }
 
-// A diff longer than the gate prompt's cut: an accept stands only when the
-// notes carry a READ line for every changed file the cut hid.
 func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 	t.Parallel()
 	var big strings.Builder
@@ -590,7 +529,6 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 		t.Fatalf("drift-constitution with every READ line = %s (%q), want accept", g.Result, g.Notes)
 	}
 
-	// Under the cut an accept with no READ line stands.
 	small := newDriftSandbox(t, nil)
 	exe := small.start(small.drift, stepSeat(t))
 	small.setFake("notes.constitution", "no drift: every principle holds over the diff of internal/x.go")
@@ -600,8 +538,6 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 	}
 }
 
-// The after check restates the gate prompt's cut and the gate's paths; both
-// must match what the binary and runbook.toml hold.
 func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 	after := repoText(t, ".satelle/skills/satelle-drift-diff-covered.md")
 	limit := regexp.MustCompile(`(?m)^limit=(\d+)$`).FindStringSubmatch(after)
@@ -648,15 +584,6 @@ func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 	}
 }
 
-// The drift-claims gate runs when the run's range changed one of its paths
-// (.version on every binary-changed release, the constitution or a
-// principle): skipped by the trigger for another task's run, and for a drift
-// run judged by the runbook's drift-claims binding over only the .version
-// diff of this sandbox's release. Its verdict never blocks:
-// each example verdict in the skill's ## Verdict section (zero warnings, one
-// warning) passes the gate's real notes and reference after checks, and the
-// run reaches done; the skill states no reject, and drift-review.md step 5
-// copies no WARN or CLAIM line into judged.txt (sto_a1681009 AC8).
 func TestDriftClaimsNeverRejects(t *testing.T) {
 	t.Parallel()
 	skill := repoText(t, ".satelle/skills/satelle-drift-claims-review.md")
@@ -736,9 +663,6 @@ func TestDriftClaimsNeverRejects(t *testing.T) {
 	}
 }
 
-// An empty report is a pass: a drift run whose drift-report says "no drift"
-// and whose judges all accept, validate-after's quoting the report, closes,
-// with both drift gates judged.
 func TestDriftEmptyReportPasses(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
@@ -760,8 +684,6 @@ func TestDriftEmptyReportPasses(t *testing.T) {
 	}
 }
 
-// presentDone presents exe done with notes as the validate-after judge's
-// answer and returns validate-after's run.
 func (d *driftSandbox) presentDone(exe, notes string) (result, gateRun) {
 	d.t.Helper()
 	d.setFake("notes.other", notes)
@@ -769,13 +691,6 @@ func (d *driftSandbox) presentDone(exe, notes string) (result, gateRun) {
 	return r, latestRun(d.sandbox, exe, "validate-after")
 }
 
-// sto_09b81217 AC1: on a drift review run, validate-after's accept stands only
-// when it names attachments/drift-report and quotes that report's version
-// line, drift-check exit line and fix item (or its no drift line). Each one
-// left out, or invented, is refused by satelle-drift-accept-quoted naming the
-// report's own text, with every other gate accepting; the skill's own drift
-// accept with the run's values closes it. Another task's run, and a judge's
-// reject, never reach the check.
 func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
@@ -808,7 +723,6 @@ func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
 	refused("invented fix item", skillDriftAccept(t, q[0], q[1], "sto_00000000"),
 		"accepted without quoting attachments/drift-report's line: no drift")
 
-	// A judge's reject is its own finding: the check does not run on it.
 	d.setFake("verdict.other", "reject")
 	_, g := d.presentDone(exe, "attachments/drift-report lacks the evidence the VERIFICATION asks for")
 	if g.Result != "reject" || strings.Contains(g.Notes, "satelle-drift-accept-quoted") {
@@ -816,7 +730,6 @@ func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
 	}
 	d.setFake("verdict.other", "")
 
-	// Another task's run passes the check with no output.
 	other := d.start(d.other, stepSeat(t))
 	d.setFake("notes.other", "")
 	d.must("execution", "set", other, "--status", "done")
@@ -824,7 +737,6 @@ func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
 		t.Fatalf("other run's validate-after = %s (%q), want accept with no satelle-drift-accept-quoted line", g.Result, g.Notes)
 	}
 
-	// A report with a fix item: the id is the quote, not no drift.
 	d.attachReport(exe, fixtureDriftReport("sto_12345678\nflag:cmd/x.go:--y\n"))
 	q = d.driftQuotes(exe)
 	if q[2] != "sto_12345678" {
@@ -846,10 +758,6 @@ func TestValidateAfterHoldsADriftAcceptToTheReport(t *testing.T) {
 	}
 }
 
-// satelle-drift-accept-quoted restates its owners: the judge skill's drift
-// paragraph names each line it requires, the report path and the check;
-// drift-review.md step 3 writes each line form; runbook's validate-after lists
-// it third, behind the notes and reference rules.
 func TestDriftAcceptCheckMirrorsItsOwners(t *testing.T) {
 	lit := acceptQuotedLiterals(t)
 	skill := repoText(t, ".satelle/skills/satelle-task-validate-after-review.md")
@@ -884,10 +792,6 @@ func TestDriftAcceptCheckMirrorsItsOwners(t *testing.T) {
 	}
 }
 
-// sto_09b81217 AC4: a no-drift run with every other gate accepting stays
-// in_progress on the notes exe_9a209ff1's judge gave (no record path), and
-// closes on an accept quoting its own report's version, exit and no drift
-// lines, judged by the runbook's validate-after binding.
 func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)
@@ -915,8 +819,6 @@ func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
 	if want := repoGateAgents(t, ".satelle/workflows/runbook.toml")["validate-after"]; len(want) != 1 || g.Binding != want[0] {
 		t.Fatalf("validate-after judged by %q, want the runbook's judge %v", g.Binding, want)
 	}
-	// AC3: the rebind on recorded evidence (attachment judge-evidence) is to
-	// GPT-5.6 Sol; the baseline Gemini binding fails here.
 	if want := "reviewer-gpt-5.6-sol-high"; g.Binding != want {
 		t.Fatalf("validate-after judged by %q, want %q: validate-after is rebound on the judge evidence", g.Binding, want)
 	}
@@ -928,8 +830,6 @@ func TestValidateAfterCitedAcceptClosesNoDriftRun(t *testing.T) {
 	}
 }
 
-// driftTaskBody is the drift review task's body as plan sto_da9775c1's
-// Configuration to apply restates it.
 const driftTaskBody = `ACTION: follow .satelle/skills/drift-review.md.
 
 ## Head after a binary-unchanged release
@@ -938,16 +838,12 @@ ACTION: after a binary-changed release the run judges the previous tag to the re
 VERIFICATION: on a binary-unchanged head the drift-report opens "# Drift review of main <sha12> (binary-unchanged since v<version>)" and its Checks lines name the range v<version>..main <sha12>. A v<version> tag at the head is required only after a binary-changed release. A drift-claims or drift-constitution gate skipped because the range changed none of its paths is not a missing check.
 `
 
-// unchangedDriftSandbox is a drift sandbox with a bare origin whose main is
-// one commit (files) ahead of the published v0.0.2, as a binary-unchanged
-// release leaves it, and the main sha.
 func unchangedDriftSandbox(t *testing.T, files map[string]string) (*driftCloseSandbox, string) {
 	t.Helper()
 	d := newDriftCloseSandbox(t)
 	origin := realDir(t, t.TempDir())
 	d.exec("git", "", "init", "-q", "--bare", origin)
 	d.git("remote", "add", "origin", origin)
-	// The sandbox's config commit is part of the published v0.0.2.
 	d.git("tag", "-f", "v0.0.2")
 	for p, body := range files {
 		d.write(p, body)
@@ -960,9 +856,6 @@ func unchangedDriftSandbox(t *testing.T, files map[string]string) (*driftCloseSa
 	return d, d.rev("HEAD")
 }
 
-// stepEleven runs release.md's step 11 block as written, its task= line bound
-// to the sandbox's drift task and its cd line dropped (the sandbox is the main
-// checkout).
 func (d *driftCloseSandbox) stepEleven() result {
 	d.t.Helper()
 	block := shBlock(d.t, ".satelle/skills/release.md", "## 11.", d.drift)
@@ -986,15 +879,6 @@ func (d *driftCloseSandbox) driftRuns() []string {
 	return out
 }
 
-// AC5: after a binary-unchanged release (main ahead of v0.0.2, no new tag)
-// release.md step 11 starts the drift review judged from v0.0.2 to main;
-// drift-review.md names the head main <sha12> on the report; the run's task
-// attachment holds the restated body and the report holds what its
-// VERIFICATION names; the run reaches done with drift-constitution judging the
-// landed source, drift-claims skipped on paths unless a principle changed (then
-// judged over that hunk alone, with the restated skill), and both skipped when
-// only substrate landed. A drift task whose body does not state this head, and
-// a HEAD that is neither the tag nor origin/main, are refused with no run.
 func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 	t.Parallel()
 	skill := "---\nname: x\ntype: skill\ndescription: x\n---\n\nx\n"
@@ -1004,7 +888,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 	})
 	sha12 := main[:12]
 
-	// The task still says the head is the released tag: refused, no run.
 	if r := d.stepEleven(); r.code != 1 || !strings.Contains(r.err, "does not state the head of a binary-unchanged release") {
 		t.Fatalf("step 11 with the old task body: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -1068,7 +951,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 		t.Fatalf("the constitution judge's prompt lacks the internal/x_test.go hunk:\n%s", strings.Join(ps, "\n----\n"))
 	}
 
-	// HEAD ahead of the tag but not origin/main: refused, no run.
 	d.write("docs/local.md", "local\n")
 	d.git("add", "-A")
 	d.git("commit", "-q", "-m", "local only")
@@ -1079,8 +961,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 		t.Fatalf("a refused step 11 created a run: %v", runs)
 	}
 
-	// A principle landed too: drift-claims judges that hunk alone, with the
-	// restated skill.
 	p, _ := unchangedDriftSandbox(t, map[string]string{
 		".satelle/skills/x.md":     skill,
 		"internal/x_test.go":       "package x\n",
@@ -1105,7 +985,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 	}
 	p.gatesAccepted(pexe, "drift-claims", "validate-after")
 
-	// Only substrate landed: both judges are skipped on paths.
 	s, _ := unchangedDriftSandbox(t, map[string]string{".satelle/skills/x.md": skill})
 	s.must("task", "set", s.drift, "--body", driftTaskBody)
 	if r := s.stepEleven(); r.code != 0 {
@@ -1123,8 +1002,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 		}
 	}
 
-	// At the released tag (a binary-changed release) the report is as before:
-	// it names the tag and the previous tag's range.
 	tg := newDriftCloseSandbox(t)
 	tg.git("tag", "-f", "v0.0.2")
 	texe := tg.start(tg.drift, stepSeat(t))
@@ -1140,9 +1017,6 @@ func TestDriftReviewAfterBinaryUnchangedRun(t *testing.T) {
 	}
 }
 
-// AC5: no drift skill or the runbook still says the claims gate runs on every
-// release, and the claims skill names every path the gate runs on, so the two
-// cannot drift apart again.
 func TestDriftSkillsStateTheirTrigger(t *testing.T) {
 	for _, f := range []string{".satelle/skills/satelle-drift-claims-review.md", driftReview,
 		".satelle/skills/satelle-drift-constitution-review.md", ".satelle/workflows/runbook.toml"} {

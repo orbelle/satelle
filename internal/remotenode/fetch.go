@@ -12,22 +12,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// refusedPushURL is every clone's push URL and refusedFetchURL its fetch URL
-// once it is checked out. No git transport answers to the scheme, so a push, or a
-// fetch of another ref, fails before it reaches any network: a node reads its
-// declared repos at their declared refs and nothing more, and never writes them
-// back.
 const (
 	refusedPushURL  = "refused://this-clone-is-read-only"
 	refusedFetchURL = "refused://this-clone-fetches-only-its-declared-ref"
 )
 
-// FetchRepos fetches each wanted repo at its ref over https into reposDir/<name>
-// and returns what it fetched. It is satelle's one path by which a run clones or
-// fetches, and it is fenced to the definition: every wanted (url, ref) must be a
-// [[repo]] entry of def, named defName in the refusal, or nothing is fetched. The
-// clone has no credential, and its origin answers neither a fetch nor a push. env
-// is added to git's environment (a test's trust roots, a proxy).
 func FetchRepos(ctx context.Context, reposDir string, def remotedef.Definition, defName string, want []remotedef.Repo, env []string) ([]FetchedRepo, error) {
 	for _, r := range want {
 		if err := CheckDeclared(def, defName, r.URL, r.Ref); err != nil {
@@ -51,8 +40,6 @@ func FetchRepos(ctx context.Context, reposDir string, def remotedef.Definition, 
 	return out, nil
 }
 
-// CheckDeclared refuses a repo and ref that are not, exactly, one of def's
-// [[repo]] entries, naming the repo and the definition.
 func CheckDeclared(def remotedef.Definition, defName, repoURL, ref string) error {
 	for _, d := range def.Repos {
 		if d.URL == repoURL && d.Ref == ref {
@@ -100,7 +87,6 @@ func fetchRepo(ctx context.Context, reposDir string, r remotedef.Repo, env []str
 	return FetchedRepo{Name: name, URL: r.URL, Ref: r.Ref, Commit: strings.TrimSpace(commit)}, nil
 }
 
-// git runs one git command in dir, over https only and never prompting.
 func git(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	full := append([]string{"-c", "protocol.allow=never", "-c", "protocol.https.allow=always"}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
@@ -113,8 +99,6 @@ func git(ctx context.Context, dir string, env []string, args ...string) (string,
 	return string(out), nil
 }
 
-// repoLabel names a repo by its URL, or by host alone when the URL carries a
-// credential or does not parse.
 func repoLabel(raw string) string {
 	if u, err := url.Parse(raw); err == nil && u.User == nil && u.Hostname() != "" {
 		return raw
@@ -122,8 +106,6 @@ func repoLabel(raw string) string {
 	return redactedHost(raw)
 }
 
-// redactedHost names a URL by host alone, so a malformed one that carried a
-// credential is never echoed.
 func redactedHost(raw string) string {
 	if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
 		return u.Hostname()

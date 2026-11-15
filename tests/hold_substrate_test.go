@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// substrate reads a file under the repo's .satelle.
 func substrate(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", ".satelle", rel))
@@ -20,8 +19,6 @@ func substrate(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// section returns the text under heading up to the next heading of the same
-// or a higher level; "" when the heading is missing.
 func section(text, heading string) string {
 	level := strings.Count(strings.Fields(heading)[0], "#")
 	lines := strings.Split(text, "\n")
@@ -41,7 +38,6 @@ func section(text, heading string) string {
 	return ""
 }
 
-// firstJSON unmarshals the first ```json block of text.
 func firstJSON(t *testing.T, text, where string) map[string]any {
 	t.Helper()
 	_, rest, ok := strings.Cut(text, "```json\n")
@@ -56,8 +52,6 @@ func firstJSON(t *testing.T, text, where string) map[string]any {
 	return v
 }
 
-// The driver's principle carries the hold's stop in both paragraphs that
-// would otherwise have the session present the move out of the park.
 func TestDriverStopsAtHold(t *testing.T) {
 	text := substrate(t, "principles/satelle-agent-goals.md")
 	for _, lead := range []string{"**The workflow is the authority.**", "**A named performer hands the drive back here.**"} {
@@ -77,7 +71,6 @@ func TestDriverStopsAtHold(t *testing.T) {
 	}
 }
 
-// The plan-review rubric asks a judge for the class a hold names.
 func TestPlanReviewAsksClass(t *testing.T) {
 	v := section(substrate(t, "skills/satelle-story-plan-review.md"), "## Verdict")
 	if c, ok := firstJSON(t, v, "plan-review Verdict")["class"].(string); !ok || c == "" {
@@ -88,8 +81,6 @@ func TestPlanReviewAsksClass(t *testing.T) {
 	}
 }
 
-// A re-plan writes the whole plan as a fresh body and answers findings
-// beside it, and the reviewer judges only the newest plan.
 func TestReplanSkillShape(t *testing.T) {
 	plan := substrate(t, "skills/plan.md")
 	flat := strings.Join(strings.Fields(plan), " ")

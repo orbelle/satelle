@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// logsTailMax is the newest-first window the logs page renders.
 const logsTailMax = 500
 
 type logRow struct {

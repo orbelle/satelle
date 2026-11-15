@@ -11,7 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// initVolatile is a fresh satelle init: its .satelle dir and loaded config.
 func initVolatile(t *testing.T) (string, *Config) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -25,9 +24,6 @@ func initVolatile(t *testing.T) (string, *Config) {
 	return root, c
 }
 
-// The init template ships the default volatile patterns in volatile.toml;
-// they load, compile and validate, and a fresh init has nothing they match
-// (sto_3de33a72 AC2).
 func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 	root, c := initVolatile(t)
 	if _, err := os.Stat(filepath.Join(root, VolatileFile)); err != nil {
@@ -37,8 +33,6 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 	for _, p := range c.Volatile.Patterns {
 		names = append(names, p.Name)
 	}
-	// The template ships no model-id pattern: which model vendors a repo uses
-	// is the repo's own configuration (it is a commented example there).
 	if want := []string{"version", "present-tense", "current-item"}; !slices.Equal(names, want) {
 		t.Fatalf("default patterns %v, want %v", names, want)
 	}
@@ -53,9 +47,6 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 		t.Fatalf("fresh init: findings %v, err %v", got, err)
 	}
 
-	// The dated exemption is the shipped dated key: a YYYY-MM-DD line is
-	// exempt, another date shape is not, and with the key removed from the
-	// written file the dated line is reported (sto_a5cdb024 AC1).
 	if c.Volatile.Dated == "" {
 		t.Fatal("init wrote no dated expression")
 	}
@@ -96,7 +87,6 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 		t.Errorf("dated removed: %q want one finding, got %v", dated, got)
 	}
 
-	// A configured repo without the file is told init would add it.
 	if err := os.Remove(filepath.Join(root, VolatileFile)); err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +96,6 @@ func TestInitWritesDefaultVolatilePatterns(t *testing.T) {
 	}
 }
 
-// Each default pattern matches the shape it is for and not its near misses.
-// The test holds sample lines, never pattern text: the patterns are read from
-// the template init writes.
 func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 	_, c := initVolatile(t)
 	samples := map[string]struct{ match, miss []string }{
@@ -118,7 +105,6 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 		},
 		"present-tense": {
 			match: []string{"This is currently broken.", "At the moment it fails", "the limit now is 5"},
-			// Bare current and latest are relational, not "as of now" (sto_1ee018c8).
 			miss: []string{".../releases/latest/download/install.sh", "the current_state field", "pass --latest",
 				"the latest release", "use the `current` build", "the item's current state", "its latest run"},
 		},
@@ -152,7 +138,6 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 	}
 }
 
-// Each malformed volatile.toml is a validate problem naming the file.
 func TestVolatileConfigProblems(t *testing.T) {
 	root, _ := initVolatile(t)
 	cases := map[string]string{
@@ -187,8 +172,6 @@ func TestVolatileConfigProblems(t *testing.T) {
 	}
 }
 
-// With no volatile.toml, or one with no pattern, nothing is reported; a repo
-// file with patterns of its own replaces the defaults.
 func TestVolatilePatternsAreOnlyConfiguration(t *testing.T) {
 	root, _ := initVolatile(t)
 	write(t, filepath.Join(root, SkillsDir, "stale.md"),
@@ -205,8 +188,6 @@ func TestVolatilePatternsAreOnlyConfiguration(t *testing.T) {
 		}
 		return got
 	}
-	// The three shipped defaults fire on line 7; the model id there is not
-	// flagged, because the template ships no vendor list.
 	if got := findings(); len(got) != 3 {
 		t.Fatalf("defaults: want the three shipped patterns on line 7, got %v", got)
 	}
@@ -227,8 +208,6 @@ func TestVolatilePatternsAreOnlyConfiguration(t *testing.T) {
 	}
 }
 
-// No match, the exempt marker or an exclude entry of the defaults is written
-// in the binary's Go source: the binary runs patterns and holds none.
 func TestNoVolatilePatternIsAGoLiteral(t *testing.T) {
 	_, c := initVolatile(t)
 	var lits []string
@@ -270,11 +249,6 @@ func TestNoVolatilePatternIsAGoLiteral(t *testing.T) {
 	}
 }
 
-// AC5: the template satelle ships holds exactly three active defaults and a
-// commented model-id opt-in whose vendors are placeholders, so satelle ships
-// no vendor list. The test reads the embedded file and requires Init to have
-// written those same bytes, so what is asserted is what ships. It holds sample
-// lines, pattern names and comment prefixes only, never pattern text.
 func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 	shipped, err := fs.ReadFile(template, "template/"+VolatileFile)
 	if err != nil {
@@ -286,7 +260,6 @@ func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 		t.Fatalf("init did not write the embedded template (%v)", err)
 	}
 
-	// Three active defaults, each matching its shape.
 	samples := map[string]string{
 		"version":       "uses v1.0.57 of the binary",
 		"present-tense": "This is currently broken.",
@@ -307,8 +280,6 @@ func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 		t.Fatalf("active patterns %v, want %v", names, want)
 	}
 
-	// The model-id example: three consecutive commented lines, not loaded,
-	// whose alternation holds only placeholder vendors.
 	lines := strings.Split(string(shipped), "\n")
 	at := slices.Index(lines, `# name = "model-id"`)
 	if at < 1 || lines[at-1] != "# [[pattern]]" || at+1 >= len(lines) || !strings.HasPrefix(lines[at+1], "# match = '") {
@@ -325,7 +296,6 @@ func TestTemplateShipsThreeDefaultsAndACommentedModelID(t *testing.T) {
 		}
 	}
 
-	// Uncommented, the example is valid configuration with a fourth pattern.
 	un := strings.Join(slices.Concat(lines[:at-1], []string{"[[pattern]]", `name = "model-id"`, strings.TrimPrefix(match, "# ")}, lines[at+2:]), "\n")
 	write(t, filepath.Join(root, VolatileFile), un)
 	c2, err := LoadConfig(root)

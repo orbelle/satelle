@@ -1,6 +1,3 @@
-// Package logsread is the single reader for satelle runtime logs, and the one
-// owner of where a per-dispatch log lives and how many are kept. Storage is
-// the home-keyed directory; .satelle/logs is only a pointer.
 package logsread
 
 import (
@@ -15,19 +12,16 @@ import (
 
 const prefix = "dispatch-"
 
-// FormatDispatchName is the one filename convention for per-dispatch logs.
 func FormatDispatchName(agent, storyID string, nano int64) string {
 	return fmt.Sprintf("dispatch-%s-%d-%s.log", agent, nano, storyID)
 }
 
-// ParseDispatchName splits a dispatch filename. ok is false if it does not match.
 func ParseDispatchName(name string) (agent, storyID string, nano int64, ok bool) {
 	base := filepath.Base(name)
 	if !strings.HasPrefix(base, prefix) || !strings.HasSuffix(base, ".log") {
 		return "", "", 0, false
 	}
 	body := strings.TrimSuffix(strings.TrimPrefix(base, prefix), ".log")
-	// agent-unixnano-storyid — story id is sty_… so split from the right.
 	i := strings.LastIndex(body, "-")
 	if i < 0 {
 		return "", "", 0, false
@@ -46,7 +40,6 @@ func ParseDispatchName(name string) (agent, storyID string, nano int64, ok bool)
 	return agent, storyID, n, true
 }
 
-// LastNLines returns the last n non-empty lines of raw.
 func LastNLines(raw string, n int) []string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	parts := strings.Split(raw, "\n")
@@ -62,7 +55,6 @@ func LastNLines(raw string, n int) []string {
 	return lines
 }
 
-// File is one log file considered by Select.
 type File struct {
 	Path  string
 	Agent string
@@ -71,7 +63,6 @@ type File struct {
 	Mtime time.Time
 }
 
-// ListDispatch returns dispatch logs under logsDir/dispatch.
 func ListDispatch(logsDir string) ([]File, error) {
 	dir := filepath.Join(logsDir, "dispatch")
 	ents, err := os.ReadDir(dir)
@@ -102,7 +93,6 @@ func ListDispatch(logsDir string) ([]File, error) {
 	return out, nil
 }
 
-// Select returns the newest dispatch file matching story and optional role.
 func Select(logsDir, story, role string) (File, bool, error) {
 	files, err := ListDispatch(logsDir)
 	if err != nil {
@@ -120,8 +110,6 @@ func Select(logsDir, story, role string) (File, bool, error) {
 	return File{}, false, nil
 }
 
-// LatestDispatchAtOrBefore picks the newest dispatch log for story (and
-// optional agent) whose unixnano stamp is ≤ at.
 func LatestDispatchAtOrBefore(logsDir, story, agent string, at time.Time) (File, bool, error) {
 	files, err := ListDispatch(logsDir)
 	if err != nil {
@@ -142,14 +130,10 @@ func LatestDispatchAtOrBefore(logsDir, story, agent string, at time.Time) (File,
 	return File{}, false, nil
 }
 
-// DispatchPath is where one dispatch's log is written: logsDir/dispatch under
-// the FormatDispatchName convention, the place ListDispatch reads.
 func DispatchPath(logsDir, agent, storyID string, nano int64) string {
 	return filepath.Join(logsDir, "dispatch", FormatDispatchName(agent, storyID, nano))
 }
 
-// PruneDispatch removes the oldest dispatch logs under logsDir beyond the
-// newest keep.
 func PruneDispatch(logsDir string, keep int) error {
 	files, err := ListDispatch(logsDir)
 	if err != nil {

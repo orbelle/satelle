@@ -67,9 +67,6 @@ command = "session"
 	if err := CheckJudge(Binding{Name: "e", Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}); err == nil {
 		t.Fatal("an Edit-granted cursor-agent binding may judge")
 	}
-	// A grant the adapter cannot express fails at validate, wired or not: a
-	// Bash-granted cursor-agent binding is refused; an unwired pi binding
-	// granted Bash still validates.
 	shell := Catalog{"cs": {Name: "cs", Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}}}
 	if errs := shell.Validate(); len(errs) != 1 || !strings.Contains(errs[0].Error(), "agents.cs") || !strings.Contains(errs[0].Error(), "grant no Bash") {
 		t.Fatalf("a Bash-granted cursor-agent binding: %v", errs)
@@ -101,7 +98,6 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	if _, err := (pi{}).Argv(performer); err == nil {
 		t.Fatal("pi expressed a scoped deny")
 	}
-	// Without a shell in the grant the scoped denies have nothing to deny.
 	editor := Request{Binding: Binding{Command: "pi", Tools: []string{"Read", "Edit", "Glob"}, Deny: []string{"Edit"}}, Deny: PerformerDenies}
 	argv, err = pi{}.Argv(editor)
 	if err != nil {
@@ -110,8 +106,6 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	if got := strings.Join(argv, " "); !strings.Contains(got, "--tools read,find,ls") || !strings.Contains(got, "--no-session") {
 		t.Fatalf("pi argv %s", got)
 	}
-	// cursor-agent: a read-only judge runs ask mode; an Edit and Write
-	// performer runs force mode; any shell grant is refused.
 	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Model: "m", Tools: []string{"Read", "Grep", "Glob"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -167,8 +161,6 @@ func TestParseEnvelopes(t *testing.T) {
 	if err != nil || res.Text != "hi" || res.TokensIn != 6947 || res.TokensOut != 24 || res.Model != "grok-b" {
 		t.Fatalf("grok %+v %v", res, err)
 	}
-	// A real stream, captured from cursor-agent 2026.10.22 with the prompt on
-	// stdin (testdata/cursor-stream.jsonl).
 	stream, err := os.ReadFile("testdata/cursor-stream.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -179,8 +171,6 @@ func TestParseEnvelopes(t *testing.T) {
 	}
 }
 
-// No adapter carries the prompt in argv: claude reads it on stdin, pi over
-// RPC, grok from a file. (One argv element is capped at 128 KiB on Linux.)
 func TestNoAdapterPutsThePromptInArgv(t *testing.T) {
 	const prompt = "UNIQUE-PROMPT-TEXT"
 	for _, c := range []struct {

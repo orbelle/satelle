@@ -10,72 +10,39 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 )
 
-// Gate is the edit gate for one session working in one tree. An edit is
-// allowed only while the session holds a seat, at this tree's location, on an
-// item whose current state's performer may change the tree. A seat there on a
-// state whose performer produces only attachments refuses every path of the
-// tree, exempt and locked paths included. Otherwise configured exemptions are
-// always allowed, locked paths never; temp dirs and paths in no working tree
-// are outside its concern; another repository's tree is refused (the fence).
 type Gate struct {
-	Root   string   // the session's working tree, absolute
-	Exempt []string // [gate] edit_exempt_paths, globs relative to a tree
-	Locked []string // [gate] locked_paths
-	// Grant reports what the session's seats at local:<tree> allow there.
-	// Nil: the session holds none.
-	Grant func(tree string) Grant
-	// TempRoots are dirs whose contents are always editable; nil means
-	// TempRoots().
+	Root      string
+	Exempt    []string
+	Locked    []string
+	Grant     func(tree string) Grant
 	TempRoots []string
-	// SameRepo reports whether tree is a working tree of Root's repository;
-	// nil compares git common dirs.
-	SameRepo func(root, tree string) bool
-	// IsFile reports an existing regular file (a named script, not inline
-	// program text); nil stats the filesystem.
-	IsFile func(string) bool
+	SameRepo  func(root, tree string) bool
+	IsFile    func(string) bool
 }
 
-// Grant is what a session's seats at one tree allow. Tree and AttachOnly may
-// both be set: any attachments-only seat refuses the tree whatever else the
-// session holds there.
 type Grant struct {
-	// Tree: a seat there is on an item whose state's performer may change
-	// the tree.
-	Tree bool
-	// AttachOnly: a seat there is on a state whose performer produces only
-	// attachments, or whose edit scope could not be read.
-	AttachOnly bool
-	// Item and State name the attachments-only seat's item and its state
-	// (both empty when the session's seats themselves could not be read).
+	Tree        bool
+	AttachOnly  bool
 	Item, State string
-	// Unread says why that seat's edit scope could not be read; empty when
-	// it was read.
-	Unread string
+	Unread      string
 }
 
-// Verdict is the gate's answer for one tool call.
 type Verdict struct {
-	Allow  bool
-	Path   string // the path a deny is about
-	Reason string
-	// AttachOnly marks a refusal because of an attachments-only seat.
+	Allow      bool
+	Path       string
+	Reason     string
 	AttachOnly bool
 }
 
 var allow = Verdict{Allow: true}
 
-// OperatorRecordDenied is the gate's refusal of satelle's operator record verb in
-// an agent tool call: every call the gate judges is one.
 const OperatorRecordDenied = "satelle: recording the operator's word is the operator's alone; an agent session may not run `satelle <kind> record`. " +
 	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
-// Edit judges an edit of target (absolute, or relative to Root).
 func (g Gate) Edit(target string) Verdict {
 	return g.judge(resolvePath(g.Root, target), false)
 }
 
-// Bash judges a shell command run in cwd by the same predicate, applied to
-// every path it would write and to the working dir of any inline program.
 func (g Gate) Bash(command, cwd string) Verdict {
 	if strings.TrimSpace(cwd) == "" {
 		cwd = g.Root
@@ -102,9 +69,6 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	return allow
 }
 
-// judge applies the predicate to one absolute path. inline marks the working
-// dir of an inline program: outside the session's repository it is no write
-// the gate can attribute, so the fence does not apply to it.
 func (g Gate) judge(abs string, inline bool) Verdict {
 	root := filepath.Clean(g.Root)
 	if !within(root, abs) && g.underTemp(abs) {
@@ -148,7 +112,6 @@ func (g Gate) judge(abs string, inline bool) Verdict {
 			"Seat one with `satelle story seat <id> --session <session>` (see `satelle status --session <session>` and `satelle help edit-gate --session <session>`).", rel, "local:"+tree)}
 }
 
-// attachOnlyReason is the refusal of a path from an attachments-only seat.
 func attachOnlyReason(rel, loc string, g Grant) string {
 	const record = "Record the work with `satelle <kind> attach <id> --name <name> --file <file> --session <session>` (a file under a temp dir, or --file - for stdin). " +
 		"See `satelle help edit-gate --session <session>`."
@@ -184,7 +147,6 @@ func (g Gate) sameRepo(root, tree string) bool {
 	return sameRepo(root, tree)
 }
 
-// TempRoots is the process temp dir (os.TempDir honours TMPDIR) and /tmp.
 func TempRoots() []string {
 	var out []string
 	for _, p := range []string{os.TempDir(), "/tmp"} {
@@ -196,8 +158,6 @@ func TempRoots() []string {
 	return out
 }
 
-// matchAny reports whether rel matches a glob. A glob without a slash also
-// matches the path's base name.
 func matchAny(globs []string, rel string) bool {
 	for _, g := range globs {
 		g = strings.TrimSpace(g)
@@ -224,7 +184,6 @@ func relSlash(root, abs string) string {
 	return filepath.ToSlash(rel)
 }
 
-// within reports whether target is root or under it. Both are absolute.
 func within(root, target string) bool {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(target) == "" {
 		return false

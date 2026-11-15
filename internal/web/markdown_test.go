@@ -23,7 +23,6 @@ func TestRenderMarkdownFormatsCommonElements(t *testing.T) {
 			t.Errorf("rendered markdown missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	// Frontmatter is stripped, not rendered.
 	if strings.Contains(got, "kind: doc") {
 		t.Errorf("frontmatter leaked into rendered output:\n%s", got)
 	}

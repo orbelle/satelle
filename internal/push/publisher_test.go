@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/push"
 )
 
-// roundTripFunc is an http.RoundTripper made of a function, so a test sees every
-// request the publisher tries to send, to any address.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
@@ -26,16 +24,12 @@ func TestPublisherInactiveNoNetwork(t *testing.T) {
 		return nil, errors.New("unexpected request from an inert publisher")
 	})}
 
-	// Empty endpoint: Notify must not send anything. The inert path returns before
-	// any goroutine exists, so there is no asynchronous work to wait out — a
-	// request, had one been attempted, would already be counted when Notify returns.
 	p := &push.Publisher{Endpoint: "", RepoKey: "repo-x", Client: counting, OnPost: func(*http.Request) { hits.Add(1) }}
 	p.Notify("stories")
 	if hits.Load() != 0 {
 		t.Fatalf("inert publisher made %d network calls", hits.Load())
 	}
 
-	// Nil receiver: also inert.
 	var nilP *push.Publisher
 	nilP.Notify("stories")
 	if hits.Load() != 0 {
@@ -75,10 +69,6 @@ func TestPublisherPostsEvent(t *testing.T) {
 }
 
 func TestPublisherFailSilentUnreachable(t *testing.T) {
-	// Black-hole: the transport parks the request until the test releases it, then
-	// fails it as an unreachable endpoint would. Notify must return while the
-	// attempt is still parked (fire-and-forget), and the goroutine must end
-	// without affecting the caller once the attempt fails.
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	finished := make(chan struct{})

@@ -12,71 +12,55 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// The story detail page: the item's route drawn from its pushed workflow, its
-// verdicts grouped by transition presentation, and its attached documents.
-// Every name comes from the pushed rows; none is known here.
-
-// routeVM is an item's workflow drawn for the item.
 type routeVM struct {
 	Workflow    string
-	Missing     bool // the item names a workflow the partition holds no doc of
+	Missing     bool
 	States      []stateVM
 	Transitions []transitionVM
 }
 
-// stateVM is one state of a route.
 type stateVM struct {
 	mirror.WorkflowState
 	Current bool
 	Visited bool
 }
 
-// transitionVM is one explicit transition of a route.
 type transitionVM struct {
 	From   []string
 	To     string
 	Groups []mirror.WorkflowGroup
-	Taken  int  // times this item made the move
-	Next   bool // leaves the item's current state
+	Taken  int
+	Next   bool
 }
 
-// presentationVM is one presentation of a transition and the gate verdicts it
-// drew. Outcome is "moved", "refused" or "open" (presented, not moved).
 type presentationVM struct {
 	From, To string
 	At       time.Time
 	Outcome  string
 	Verdicts []verdictVM
-	// Attempt is the kernel's key shared by the presentation's results; empty
-	// for results recorded before it was set.
-	Attempt string
+	Attempt  string
 }
 
-// verdictVM is one gate.run result.
 type verdictVM struct {
 	mirror.GateRun
 	At       time.Time
 	Duration string
 }
 
-// attachmentVM is one attached document with its body rendered.
 type attachmentVM struct {
 	mirror.Attachment
 	Anchor string
-	Short  string // the sha256's first 12 digits
+	Short  string
 	HTML   template.HTML
-	Text   string // a non-markdown text body, shown preformatted
+	Text   string
 }
 
-// Presentation outcomes.
 const (
 	outcomeMoved   = "moved"
 	outcomeRefused = "refused"
 	outcomeOpen    = "open"
 )
 
-// stateClass reports a state's class for list badges: start, terminal, park
-// or active ("" when the workflow is unknown or lacks the state).
 func stateClass(w *mirror.Workflow, status string) string {
 	s, ok := workflowState(w, status)
 	switch {
@@ -92,8 +76,6 @@ func stateClass(w *mirror.Workflow, status string) string {
 	return "active"
 }
 
-// workflowState is the state named status in w; ok is false when the workflow
-// is unknown or lacks it.
 func workflowState(w *mirror.Workflow, status string) (mirror.WorkflowState, bool) {
 	if w == nil {
 		return mirror.WorkflowState{}, false
@@ -106,8 +88,6 @@ func workflowState(w *mirror.Workflow, status string) (mirror.WorkflowState, boo
 	return mirror.WorkflowState{}, false
 }
 
-// transitionOf is an item.transitioned event's move; ok is false for any other
-// event or an unreadable payload.
 func transitionOf(e Entry) (from, to string, ok bool) {
 	if e.Kind != mirror.EventTransitioned {
 		return "", "", false
@@ -119,7 +99,6 @@ func transitionOf(e Entry) (from, to string, ok bool) {
 	return m.From, m.To, true
 }
 
-// moves returns the item's transitions from its events, oldest first.
 func moves(events []Entry) [][2]string {
 	var out [][2]string
 	for _, e := range events {
@@ -130,9 +109,6 @@ func moves(events []Entry) [][2]string {
 	return out
 }
 
-// leavesState reports whether t leaves state s: its From lists s, or lists
-// workflow.AnyState and s is open (neither terminal nor a park; a state the
-// workflow lacks counts as open).
 func leavesState(byName map[string]mirror.WorkflowState, t mirror.WorkflowTransition, s string) bool {
 	if slices.Contains(t.From, s) {
 		return true
@@ -141,7 +117,6 @@ func leavesState(byName map[string]mirror.WorkflowState, t mirror.WorkflowTransi
 	return slices.Contains(t.From, workflow.AnyState) && !st.Terminal && !st.Park
 }
 
-// buildRoute draws w for an item at status with the given events.
 func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM {
 	r := routeVM{Workflow: name}
 	if w == nil {
@@ -153,8 +128,6 @@ func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM
 		byName[s.Name] = s
 	}
 	from := func(t mirror.WorkflowTransition, s string) bool { return leavesState(byName, t, s) }
-	// Order: breadth first from the start states along the transitions, then
-	// any state not reached, park states last.
 	var names []string
 	for _, s := range w.States {
 		names = append(names, s.Name)
@@ -192,7 +165,6 @@ func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM
 		order = append(order, n)
 	}
 	order = append(order, parks...)
-	// Park states reached breadth first still go last.
 	sort.SliceStable(order, func(i, j int) bool { return !byName[order[i]].Park && byName[order[j]].Park })
 
 	taken := moves(events)
@@ -215,14 +187,9 @@ func buildRoute(w *mirror.Workflow, name, status string, events []Entry) routeVM
 	return r
 }
 
-// buildPresentations groups an item's gate.run events by the presentation of
-// a transition they belong to, oldest first: a presentation ends at the move it
-// made, at a verdict on another transition, or when a gate it judged is judged
-// again (newRound: by the kernel's attempt key when a result carries one). A
-// move made with no gate is a presentation with no verdicts.
 func buildPresentations(events []Entry) []presentationVM {
 	var out []presentationVM
-	cur := -1 // index of the presentation still open, -1 when none
+	cur := -1
 	key := ""
 	for _, e := range events {
 		switch e.Kind {
@@ -231,7 +198,6 @@ func buildPresentations(events []Entry) []presentationVM {
 			if json.Unmarshal(e.Payload, &g) != nil {
 				continue
 			}
-			// A gate judged again is the transition presented again.
 			if cur < 0 || key != g.Transition || newRound(out[cur], g) {
 				closeOpen(out, cur)
 				from, to, _ := strings.Cut(g.Transition, mirror.TransitionSep)
@@ -257,10 +223,6 @@ func buildPresentations(events []Entry) []presentationVM {
 	return out
 }
 
-// newRound reports whether g, on the open presentation p's transition, starts
-// a new presentation: by the kernel's attempt key when either carries one (one
-// attempt is one presentation, whatever gates repeat in it), else when g's
-// gate already has a verdict in p.
 func newRound(p presentationVM, g mirror.GateRun) bool {
 	if g.Attempt != "" || p.Attempt != "" {
 		return g.Attempt != p.Attempt
@@ -268,7 +230,6 @@ func newRound(p presentationVM, g mirror.GateRun) bool {
 	return judged(p, g.Gate)
 }
 
-// judged reports whether gate already has a verdict in p.
 func judged(p presentationVM, gate string) bool {
 	for _, v := range p.Verdicts {
 		if v.Gate == gate {
@@ -278,8 +239,6 @@ func judged(p presentationVM, gate string) bool {
 	return false
 }
 
-// closeOpen settles the outcome of the open presentation at i: refused when a
-// gate rejected or errored (its judge could not be asked), else open.
 func closeOpen(ps []presentationVM, i int) {
 	if i < 0 || ps[i].Outcome != "" {
 		return
@@ -292,8 +251,6 @@ func closeOpen(ps []presentationVM, i int) {
 	}
 }
 
-// attachmentView renders one attachment: markdown as HTML, other text as
-// preformatted text, anything else by its metadata only.
 func attachmentView(a mirror.Attachment) attachmentVM {
 	if a.MediaType == "" {
 		a.MediaType = a.Type
@@ -314,7 +271,6 @@ func attachmentView(a mirror.Attachment) attachmentVM {
 	return vm
 }
 
-// childLink is a child item of the detail page's item.
 type childLink struct {
 	ID, Kind, Title, Status string
 }

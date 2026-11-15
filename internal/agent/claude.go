@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// claude runs `claude -p --output-format json`, the prompt on stdin. --tools
-// limits the tools offered, --allowedTools approves the grant, and
-// --disallowedTools carries every deny.
 type claude struct{}
 
 func (claude) Name() string         { return PresetClaude }
@@ -66,8 +63,6 @@ func (c claude) Run(ctx context.Context, req Request) (Result, error) {
 	return parseClaude(out)
 }
 
-// claudeEnvelope is the final object of `claude -p --output-format json`.
-// Cache tokens are disjoint parts of the prompt and count as input.
 type claudeEnvelope struct {
 	Result  string `json:"result"`
 	IsError bool   `json:"is_error"`
@@ -91,7 +86,6 @@ func (e claudeEnvelope) tokens() (in, out int) {
 	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens, u.OutputTokens
 }
 
-// model is the model that produced the most output.
 func (e claudeEnvelope) model() string {
 	best, most := "", -1
 	for name, m := range e.ModelUsage {

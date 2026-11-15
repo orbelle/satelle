@@ -12,7 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// validateVolatile is satelle validate --json's verdict and volatile list.
 type validateVolatile struct {
 	Valid    bool                `json:"valid"`
 	Problems []string            `json:"problems"`
@@ -29,20 +28,15 @@ func validateVolatileJSON(t *testing.T) (validateVolatile, string, error) {
 	return rep, out, err
 }
 
-// In a repo satelle init made, satelle validate lists each line matching a
-// default volatile pattern with its file, line and pattern, and passes; satelle
-// doctor reports the same lines. A dated or marked line, and a run record, are
-// not reported; a configured doc path is; an escaping glob is a problem; with
-// no volatile.toml nothing is listed (sto_3de33a72 AC1, AC2, AC4).
 func TestValidateReportsVolatileLiterals(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
 	data := filepath.Join(dir, ".satelle")
 	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\n"+
-		"Uses v1.0.57 of the binary.\n"+ // 7
-		"This is currently broken.\n"+ // 8
-		"- 2026-11-08: released v1.0.57\n"+ // 9
-		"Pinned to v1.0.58 <!-- volatile-ok -->\n") // 10
+		"Uses v1.0.57 of the binary.\n"+
+		"This is currently broken.\n"+
+		"- 2026-11-08: released v1.0.57\n"+
+		"Pinned to v1.0.58 <!-- volatile-ok -->\n")
 	writeFile(t, filepath.Join(data, "runs", "x", "children.md"), "Uses v1.0.57 of the binary.\n")
 
 	want := []string{".satelle/skills/notes.md:7: volatile: version — ", ".satelle/skills/notes.md:8: volatile: present-tense — "}
@@ -121,10 +115,6 @@ func TestValidateReportsVolatileLiterals(t *testing.T) {
 	}
 }
 
-// The baseline AC3 records is real and repeatable: this repo's .satelle
-// carries the default patterns, and every finding over it names an existing
-// file and line, never a run record or a testdata fixture. No count is pinned:
-// the baseline shrinks as lines are fixed (sto_3de33a72 AC3).
 func TestRepoVolatileBaselineRuns(t *testing.T) {
 	root := filepath.Join("..", "..")
 	cfg, err := kernel.LoadConfig(filepath.Join(root, ".satelle"))
@@ -135,9 +125,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 	for _, p := range cfg.Volatile.Patterns {
 		names = append(names, p.Name)
 	}
-	// This repo carries every pattern the init template ships, plus a model-id
-	// pattern the template does not load (AC6): compared with what a fresh
-	// init writes, not with a hardcoded list.
 	fresh := filepath.Join(t.TempDir(), ".satelle")
 	if err := kernel.Init(fresh); err != nil {
 		t.Fatal(err)
@@ -152,8 +139,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 		if !slices.Contains(names, p.Name) {
 			t.Errorf("this repo's volatile.toml lacks the template's pattern %q (has %v)", p.Name, names)
 		}
-		// sto_1ee018c8 AC5: this repo keeps the template's narrowed
-		// present-tense match, not the wide one.
 		if p.Name == "present-tense" {
 			for _, q := range cfg.Volatile.Patterns {
 				if q.Name == p.Name && q.Match != p.Match {
@@ -162,8 +147,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 			}
 		}
 	}
-	// sto_a5cdb024 AC4: this repo carries the keys the template ships: the
-	// same dated expression, and a [resolve] kind and tag.
 	if cfg.Volatile.Dated == "" || cfg.Volatile.Dated != tmpl.Volatile.Dated {
 		t.Errorf("dated: this repo %q, a fresh init %q", cfg.Volatile.Dated, tmpl.Volatile.Dated)
 	}
@@ -173,9 +156,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 	if slices.Contains(shipped, "model-id") || !slices.Contains(names, "model-id") {
 		t.Errorf("model-id: the template loads %v and this repo %v; want it in this repo's only", shipped, names)
 	}
-	// AC6: this repo enables model-id with its own vendors: one model id from
-	// each family satelle-agent-alt-reviewer.md names for this repo matches,
-	// and the near misses do not. The samples are test literals.
 	for _, p := range cfg.Volatile.Patterns {
 		if p.Name != "model-id" {
 			continue
@@ -189,9 +169,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 				t.Errorf("this repo's model-id does not match %s: %v", id, got)
 			}
 		}
-		// A model id inside a hyphenated name (an agent named after its model,
-		// sto_e65b2d30) is not reported, while the bare id above is. The names
-		// are test literals, not this repo's bindings.
 		for _, miss := range []string{"claude-code", "reviewer-grok", "judge-gpt-9.9-x", "judge-gemini-0.1-y", "judge-grok-7.7", "`judge-grok-7.7`"} {
 			if got := substrate.VolatileText("f.md", "uses "+miss, set); len(got) != 0 {
 				t.Errorf("this repo's model-id matches %s: %v", miss, got)
@@ -217,9 +194,6 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 	}
 }
 
-// sto_1ee018c8 AC3: a file an [[upstream]] entry owns is still checked;
-// validate names its owner, and doctor's fix says to fix it at the owner and
-// not in place, while an unowned file keeps the reword fix.
 func TestDoctorNamesTheUpstreamOwner(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -259,8 +233,6 @@ func TestDoctorNamesTheUpstreamOwner(t *testing.T) {
 	}
 }
 
-// sto_1ee018c8 AC4: init says when it adds volatile.toml and how many lines
-// the check flags; an init that adds nothing says nothing.
 func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
 	dir := isolate(t)
 	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 0 line(s)") {
@@ -270,8 +242,6 @@ func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
 	if err := os.Remove(filepath.Join(data, kernel.VolatileFile)); err != nil {
 		t.Fatal(err)
 	}
-	// Three lines, four findings: the last line matches two patterns and is
-	// one line.
 	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\nUses v1.0.57 of the binary.\nThis is currently broken.\nCurrently on v1.0.58.\n")
 	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 3 line(s)") {
 		t.Errorf("init that adds volatile.toml to an existing repo:\n%s", out)
@@ -281,10 +251,6 @@ func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
 	}
 }
 
-// sto_1ee018c8 AC5: with the narrowed pattern and the fence rule, this repo's
-// own substrate has no volatile line left: every finding it had was relational
-// wording, a script variable or a line now reworded. Against the base tree,
-// which carried the wide pattern and no fence rule, this fails.
 func TestRepoHasNoVolatileLine(t *testing.T) {
 	cfg, err := kernel.LoadConfig(filepath.Join("..", "..", ".satelle"))
 	if err != nil {

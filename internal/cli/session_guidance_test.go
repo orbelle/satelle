@@ -12,9 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// guidanceLines is the non-empty lines of dir's .satelle/session.md as
-// satelle init wrote it: the shipped template (the kernel test pins the file
-// to the embed), read from the repo so no test holds its wording.
 func guidanceLines(t *testing.T, dir string) []string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, ".satelle", kernel.SessionFile))
@@ -33,7 +30,6 @@ func guidanceLines(t *testing.T, dir string) []string {
 	return out
 }
 
-// writeGuidance replaces dir's .satelle/session.md.
 func writeGuidance(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, ".satelle", kernel.SessionFile), []byte(body), 0o644); err != nil {
@@ -41,12 +37,6 @@ func writeGuidance(t *testing.T, dir, body string) {
 	}
 }
 
-// guidanceChannels seats one session per harness on an item that owes a move
-// in a stopFixture repo and returns every channel's text: claude and pi
-// context and prompt, claude and pi stop reason, cursor sessionStart
-// additional_context and stop followup_message, grok systemMessage and stop
-// reason. grokStart and grokStop are the grok payload fixtures, read before
-// stopFixture changes directory. ids maps each channel to its seated item.
 func guidanceChannels(t *testing.T, dir string, grokStart, grokStop []byte) (texts, ids map[string]string) {
 	t.Helper()
 	texts, ids = map[string]string{}, map[string]string{}
@@ -99,10 +89,6 @@ func guidanceChannels(t *testing.T, dir string, grokStart, grokStop []byte) (tex
 	return texts, ids
 }
 
-// sto_a92a6444 AC1, AC5: the context, the prompt and a blocked stop's reason
-// carry every line of the repo's .satelle/session.md as satelle init wrote it,
-// on every harness channel; Go adds the session line, the seats and the
-// next-move line.
 func TestSessionGuidanceReachesEveryChannel(t *testing.T) {
 	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
@@ -117,7 +103,6 @@ func TestSessionGuidanceReachesEveryChannel(t *testing.T) {
 			hasAll(t, ch, text, "satelle session: ", "drive me")
 		}
 	}
-	// The body follows Go's lines: the session line and seats come first.
 	ctx := texts["claude context"]
 	if i, j := strings.Index(ctx, "satelle session: g-claude"), strings.Index(ctx, lines[0]); i < 0 || j < i {
 		t.Errorf("claude context does not print the session line before the guidance:\n%s", ctx)
@@ -128,10 +113,8 @@ func TestSessionGuidanceReachesEveryChannel(t *testing.T) {
 	}
 }
 
-// sto_a92a6444 AC1: no non-test Go under internal/cli holds a sentence of the
-// shipped guidance; the template file is its only holder.
 func TestSessionGuidanceIsNotAGoLiteral(t *testing.T) {
-	pkg, err := os.Getwd() // internal/cli, before isolate moves away
+	pkg, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +148,6 @@ func TestSessionGuidanceIsNotAGoLiteral(t *testing.T) {
 	}
 }
 
-// sto_a92a6444 AC2: a repo that edits .satelle/session.md sees its own wording
-// on every channel, with no rebuild, and none of the shipped wording.
 func TestSessionGuidanceIsTheReposOwnWording(t *testing.T) {
 	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
@@ -179,10 +160,6 @@ func TestSessionGuidanceIsTheReposOwnWording(t *testing.T) {
 	}
 }
 
-// sto_a92a6444 AC3: with .satelle/session.md missing, every channel still has
-// the session id and seats (or the move), plus a line naming the missing
-// file, and none of the embedded template's lines; a stop still blocks; the
-// session-start doctor block names the file init would add.
 func TestSessionGuidanceMissingFileIsNamed(t *testing.T) {
 	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
@@ -203,8 +180,6 @@ func TestSessionGuidanceMissingFileIsNamed(t *testing.T) {
 	hasAll(t, "claude context", texts["claude context"], "satelle init would add .satelle/session.md")
 }
 
-// sto_a92a6444 AC5: the shipped guidance names only commands and flags this
-// binary has, as the help topics are checked.
 func TestShippedSessionGuidanceNamesTheBinary(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -217,9 +192,6 @@ func TestShippedSessionGuidanceNamesTheBinary(t *testing.T) {
 	}
 }
 
-// sto_a92a6444, for sto_5692efef: a frontmatter file under .satelle/skills
-// named in [hook] inject reaches the session-start context after the guidance
-// and is absent from the prompt context and the stop reason.
 func TestInjectFileFollowsTheGuidanceAtSessionStartOnly(t *testing.T) {
 	dir := stopFixture(t)
 	lines := guidanceLines(t, dir)

@@ -16,7 +16,6 @@ import (
 
 const workflowStandardSkill = ".satelle/skills/satelle-workflow-standard.md"
 
-// readRepo reads a file of this repo, relative to its root.
 func readRepo(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", rel))
@@ -26,10 +25,6 @@ func readRepo(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// sto_5692efef AC1, AC3, AC4: init writes the workflow-standard skill, the
-// same text as the template and this repo's copy; it names no standard, scopes
-// itself to any workflow (no path), and the init-written satelle.toml injects
-// it through the existing [hook] inject key and no other hook key.
 func TestInitWritesTheWorkflowStandardSkill(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -80,7 +75,6 @@ func TestInitWritesTheWorkflowStandardSkill(t *testing.T) {
 	}
 }
 
-// hookContext runs a claude hook and returns its additionalContext.
 func (s *sandbox) hookContext(event, payload string) string {
 	s.t.Helper()
 	r := s.exec(satelleBin, payload, "hook", event, "--harness", "claude")
@@ -101,10 +95,6 @@ func (s *sandbox) hookContext(event, payload string) string {
 	return doc.HookSpecificOutput.AdditionalContext
 }
 
-// sto_5692efef AC2, AC3, AC4: a freshly initialised repo's session-start
-// context carries the skill's instructions and says no standard is set; the
-// prompt context does not. A named standard is printed as text: satelle
-// fetches nothing (the host cannot resolve) and still answers.
 func TestSessionStartCarriesTheWorkflowStandardSkill(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

@@ -27,16 +27,11 @@ func footerOf(t *testing.T, url string) string {
 	return f
 }
 
-// row is the footer row with this label, or "" when absent.
 func row(footer, label string) string {
 	re := regexp.MustCompile(`<span class="footer-build( mismatch)?"><span class="footer-label">` + label + `</span> .*?</span>(</span>)?`)
 	return re.FindString(footer)
 }
 
-// The footer shows the installed satelle CLI, the running satelled and the
-// installed satelled, each with version and commit, and marks and names the
-// remedy for a disagreement by the rule satelle service status uses
-// (sto_49b6e762).
 func TestFooterBuildLines(t *testing.T) {
 	stampBuild(t)
 	running := buildinfo.Resolve().String()

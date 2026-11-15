@@ -82,9 +82,6 @@ satelle update runs it after replacing the binaries.`,
 	return cmd
 }
 
-// installHooks installs each harness's hooks under tree by hand (agents
-// install, init --hooks), naming a file it wrote that git tracks: the change
-// is left uncommitted for that repo's own workflow.
 func installHooks(out io.Writer, tree string, harnesses []string, stale func(string) bool) error {
 	for _, h := range harnesses {
 		path, changed, err := hook.Install(tree, h, stale)
@@ -104,10 +101,6 @@ func installHooks(out io.Writer, tree string, harnesses []string, stale func(str
 	return nil
 }
 
-// harnessesInUse lists, in hook.Harnesses order, the harnesses in use in the
-// working tree at tree: one a binding of cat runs (its command's CLI, looked up
-// in the hook package's harness registry), or one whose configuration
-// directory the tree has.
 func harnessesInUse(tree string, cat agent.Catalog) []string {
 	run := map[string]bool{}
 	for _, b := range cat {
@@ -124,9 +117,6 @@ func harnessesInUse(tree string, cat agent.Catalog) []string {
 	return out
 }
 
-// repoCatalog is r's agents.toml, empty when it is absent or does not load
-// (satelle validate reports that), so the configuration-directory half of the
-// in-use rule still applies.
 func repoCatalog(r repo) agent.Catalog {
 	cat, err := agent.LoadCatalog(filepath.Join(r.DataDir, kernel.AgentsFile))
 	if err != nil {
@@ -135,8 +125,6 @@ func repoCatalog(r repo) agent.Catalog {
 	return cat
 }
 
-// staleCall reports whether hook command cmd is a satelle call (its first word
-// is satelle) naming a command tree lacks, and why.
 func staleCall(tree substrate.Tree, cmd string) (why string, stale bool) {
 	words, ok := hook.SatelleCall(cmd)
 	if !ok {
@@ -146,22 +134,14 @@ func staleCall(tree substrate.Tree, cmd string) (why string, stale bool) {
 	return why, stale
 }
 
-// staleHook is staleCall as the predicate hook.Install, Refresh and Pending
-// take.
 func staleHook(tree substrate.Tree) func(string) bool {
 	return func(cmd string) bool { _, stale := staleCall(tree, cmd); return stale }
 }
 
-// harnessFile is one harness's hook file in a project.
 type harnessFile struct{ Harness, Path string }
 
-// refreshFailure is a file (or the project's settings) a refresh could not
-// finish, and why.
 type refreshFailure struct{ Path, Err string }
 
-// projectRefresh is what one project's refresh did: the files it wrote, those
-// it left because git tracks them or satelle does not own them, whether the
-// repo opted out, and what failed.
 type projectRefresh struct {
 	OptedOut bool
 	Changed  []harnessFile
@@ -170,10 +150,6 @@ type projectRefresh struct {
 	Failures []refreshFailure
 }
 
-// refreshProject applies the install rule (stale) to each harness in use in r
-// whose file would change, unless r opts out with [hook] refresh = false. It
-// never writes a file git tracks, nor one when git cannot say whether it
-// does, nor a pi extension that is not satelle's.
 func refreshProject(r repo, stale func(string) bool) projectRefresh {
 	var pr projectRefresh
 	st, err := kernel.LoadSettings(r.DataDir)
@@ -216,9 +192,6 @@ func refreshProject(r repo, stale func(string) bool) projectRefresh {
 	return pr
 }
 
-// registeredRepos lists the satelle repos of this machine's registered
-// projects (~/.satelle/config.toml [projects]), skipping a path that is gone
-// or holds no satelle repo, as the sync pass does.
 func registeredRepos() ([]repo, error) {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -236,9 +209,6 @@ func registeredRepos() ([]repo, error) {
 	return out, nil
 }
 
-// refreshAllHooks refreshes every registered project's harness files in use
-// with this binary's command tree, printing what it wrote, left and could not
-// do. It returns the number of failures.
 func refreshAllHooks(out io.Writer) (failed int) {
 	repos, err := registeredRepos()
 	if err != nil {
@@ -248,9 +218,6 @@ func refreshAllHooks(out io.Writer) (failed int) {
 	stale := staleHook(substrateTree(NewRootCmd()))
 	n := 0
 	for _, r := range repos {
-		// A pre-1.0 repo cannot be read by this satelle: it is listed as
-		// needing upgrade (sto_0f76dd4e), and its harness files are left for
-		// satelle upgrade --archive, so it is neither refreshed nor a failure.
 		if len(kernel.LegacyMarkers(r.DataDir)) > 0 {
 			fmt.Fprintf(out, "left %s: pre-1.0 .satelle; run '%s' there\n", r.Tree, kernel.UpgradeCommand)
 			continue

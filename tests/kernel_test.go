@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// init in an empty directory writes the two-state workflow; a story walks
-// backlog → done and the ledger verifies.
 func TestInitWalksAStoryToDone(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -53,7 +51,6 @@ func TestInitWalksAStoryToDone(t *testing.T) {
 	}
 }
 
-// The reviewer≠performer rule refuses a judge on the performer's model.
 func TestReviewerMustDifferFromPerformer(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -87,7 +84,7 @@ from = ["doing"]
 to = "done"
 groups = [{ gates = ["look"] }]
 `)
-	s.must("validate") // the rule is off by default
+	s.must("validate")
 	toml, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "satelle.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -99,8 +96,6 @@ groups = [{ gates = ["look"] }]
 	}
 }
 
-// validate refuses a broken configuration and a read-only judge on an adapter
-// that cannot enforce grants; a broken configuration refuses every command.
 func TestValidateRefusesBrokenConfiguration(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -140,10 +135,6 @@ groups = [{ gates = ["look"] }]
 	}
 }
 
-// validate refuses the two v0 skill shapes v1 would misrun: a ```check block
-// in a skill that is not type: check (dispatched to an agent instead of run),
-// and a judge skill that answers with the retired decision key (always a
-// reject, since a judge's answer is read only for verdict).
 func TestValidateRefusesV0Skills(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

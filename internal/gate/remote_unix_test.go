@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// fakeRemote answers every RunRemote with a canned outcome and records the
-// checks it was given.
 type fakeRemote struct {
 	mu     sync.Mutex
 	out    RemoteOutcome
@@ -31,8 +29,6 @@ func (f *fakeRemote) RunRemote(_ context.Context, c RemoteCheck) (RemoteOutcome,
 
 const headSHA = "0123456789abcdef0123456789abcdef01234567"
 
-// remoteSetup is a run whose gate "suite" is a check placed on remote box. The
-// check script would fail if it ran here, so a local run is visible.
 func remoteSetup(t *testing.T, g workflow.Gate) (Run, *fakeRemote) {
 	t.Helper()
 	g.Skill = "suite"
@@ -45,9 +41,6 @@ func remoteSetup(t *testing.T, g workflow.Gate) (Run, *fakeRemote) {
 	return r, f
 }
 
-// A check placed on a remote calls the runner, never runs here, and its exit
-// is the verdict: the notes name the remote, node, head and exit, and the
-// result carries the node's location.
 func TestRemoteCheckRunsOnTheNode(t *testing.T) {
 	for _, c := range []struct {
 		exit int
@@ -74,7 +67,6 @@ func TestRemoteCheckRunsOnTheNode(t *testing.T) {
 	}
 }
 
-// A local placement still runs here, and the runner is not called.
 func TestLocalPlacementRunsHere(t *testing.T) {
 	r, f := remoteSetup(t, workflow.Gate{Placement: "local"})
 	rs, _ := r.Execute(context.Background())
@@ -83,7 +75,6 @@ func TestLocalPlacementRunsHere(t *testing.T) {
 	}
 }
 
-// A carried remote gate starts no node; after runs here on the node's verdict.
 func TestRemoteCarryAndAfter(t *testing.T) {
 	r, f := remoteSetup(t, workflow.Gate{Placement: "remote:box", Carry: true})
 	r.Prior = []Result{{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:"}}
@@ -101,8 +92,6 @@ func TestRemoteCarryAndAfter(t *testing.T) {
 	}
 }
 
-// No runner, no pushed head, a runner error and a timeout each reject with the
-// cause named, and none is a verdict (after does not run).
 func TestRemoteCheckFailuresReject(t *testing.T) {
 	check := func(name string, r Run, wants ...string) {
 		t.Helper()

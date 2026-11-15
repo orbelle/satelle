@@ -12,18 +12,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// github is a project's GitHub binding in the fake: the repository its
-// published reviews and statuses land on, what was published, and the
-// pull-request events received for it.
 type github struct {
-	repo     string // owner/name
+	repo     string
 	reviews  []*satellepb.PublishReviewRequest
 	statuses []*satellepb.PublishStatusRequest
 	events   []*satellepb.PullRequestEvent
 }
 
-// BindGitHub binds a project (id or slug) to a repository, as installing the
-// satelle GitHub app on it would.
 func (s *Server) BindGitHub(project, repo string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -37,7 +32,6 @@ func (s *Server) BindGitHub(project, repo string) {
 	s.gh[p.Id] = &github{repo: repo}
 }
 
-// SeedPullRequestEvent records a verified webhook delivery for a bound project.
 func (s *Server) SeedPullRequestEvent(project string, ev *satellepb.PullRequestEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -52,7 +46,6 @@ func (s *Server) SeedPullRequestEvent(project string, ev *satellepb.PullRequestE
 	g.events = append(g.events, e)
 }
 
-// PublishedReviews returns the reviews published on a project, in order.
 func (s *Server) PublishedReviews(project string) []*satellepb.PublishReviewRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,7 +55,6 @@ func (s *Server) PublishedReviews(project string) []*satellepb.PublishReviewRequ
 	return nil
 }
 
-// PublishedStatuses returns the statuses published on a project, in order.
 func (s *Server) PublishedStatuses(project string) []*satellepb.PublishStatusRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,8 +69,6 @@ type githubSvc struct {
 	s *Server
 }
 
-// bound resolves a project the caller belongs to (NOT_FOUND otherwise) and its
-// binding (FAILED_PRECONDITION when there is none); the caller holds mu.
 func (s *Server) bound(project string) (*github, error) {
 	p, err := s.projectOrNotFound(project)
 	if err != nil {
@@ -118,8 +108,6 @@ func (h githubSvc) PublishStatus(_ context.Context, r *satellepb.PublishStatusRe
 	return &satellepb.PublishStatusResponse{StatusId: int64(len(g.statuses)), Repository: g.repo}, nil
 }
 
-// ListPullRequestEvents pages the events oldest first; a token is the count
-// already returned.
 func (h githubSvc) ListPullRequestEvents(_ context.Context, r *satellepb.ListPullRequestEventsRequest) (*satellepb.ListPullRequestEventsResponse, error) {
 	h.s.mu.Lock()
 	defer h.s.mu.Unlock()

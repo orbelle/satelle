@@ -63,7 +63,6 @@ func TestNewIDAndSelection(t *testing.T) {
 	}
 }
 
-// The zero trigger clears an item's trigger; any other sets it.
 func TestFieldsApplyTrigger(t *testing.T) {
 	it := Item{Trigger: &Trigger{Task: "tas_1", MinSize: 2}}
 	Fields{Trigger: &Trigger{Workflow: "w"}}.Apply(&it)
@@ -96,8 +95,6 @@ func TestFoldedAndSinceEntered(t *testing.T) {
 	}
 }
 
-// Explicit assignees are a list on item.created and item.updated; a chain's
-// legacy assignee string folds as a one-entry list (sto_600b9a85 AC2).
 func TestFoldAssignees(t *testing.T) {
 	fold := func(t *testing.T, payloads ...Fields) []string {
 		t.Helper()
@@ -137,8 +134,6 @@ func TestFoldAssignees(t *testing.T) {
 	}
 }
 
-// AssigneesOf lists explicit users then seated ones, each once, marking the
-// seated ones working (sto_600b9a85 AC3).
 func TestAssigneesOf(t *testing.T) {
 	cases := []struct {
 		name           string

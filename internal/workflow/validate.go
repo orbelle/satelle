@@ -6,13 +6,10 @@ import (
 	"strings"
 )
 
-// SkillLookup finds a skill by name.
 type SkillLookup func(name string) (Skill, bool)
 
-// AgentLookup reports whether an agent binding exists.
 type AgentLookup func(name string) bool
 
-// Validate returns every problem with the workflow; none means it is usable.
 func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 	var errs []error
 	bad := func(format string, args ...any) {
@@ -149,8 +146,6 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 	return errs
 }
 
-// validateHold checks a state's hold: a positive cap, a park target, a state
-// that is left by review, and a declared gateless move into the park.
 func (w *Workflow) validateHold(name string) []error {
 	st := w.States[name]
 	h := st.Hold
@@ -246,8 +241,6 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 	return errs
 }
 
-// reachable walks transitions from start. "*" stands for every open state; a
-// "@prior" edge returns to any state with a transition into the park state.
 func (w *Workflow) reachable(start string) map[string]bool {
 	seen := map[string]bool{start: true}
 	queue := []string{start}
@@ -273,7 +266,6 @@ func (w *Workflow) reachable(start string) map[string]bool {
 	return seen
 }
 
-// enteredFrom lists the states with a transition into park.
 func (w *Workflow) enteredFrom(park string) []string {
 	var out []string
 	for _, t := range w.Transitions {

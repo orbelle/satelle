@@ -331,9 +331,6 @@ func TestSkillProblems(t *testing.T) {
 	}
 }
 
-// after is a list only: the list forms load and validate, and the string
-// form (the one before lists) is refused at parse, naming the key and the
-// list form to write instead.
 func TestAfterIsAListOnly(t *testing.T) {
 	base := "[states.a]\nstart = true\n[states.z]\nterminal = true\n[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n[gates.g]\nskill = \"script\"\n"
 	for body, want := range map[string]string{
@@ -369,8 +366,6 @@ func TestAfterIsAListOnly(t *testing.T) {
 	}
 }
 
-// A workflow may declare panel = "<name>": it parses, an absent panel is valid
-// and names none, and a blank one is a problem (sto_a1681009 AC6).
 func TestPanelKey(t *testing.T) {
 	states := "[states.a]\nstart = true\n[states.z]\nterminal = true\n[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n"
 	w, err := parse(t, "panel = \"Drift\"\n"+states)

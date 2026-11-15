@@ -18,8 +18,6 @@ func systemctl(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// systemdUser reports whether a systemd user manager is reachable: systemctl
-// is on PATH and 'systemctl --user show-environment' succeeds.
 func systemdUser() bool {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return false
@@ -28,12 +26,6 @@ func systemdUser() bool {
 	return err == nil
 }
 
-// applyUnits installs satelled's unit and the sync service and timer, each
-// whose body is not empty: with force every one is written; without it, one
-// is written only when it is missing or its ExecStart names another binary,
-// and the rest are kept. It then reloads, enables and restarts satelled when
-// its unit exists, and enables and starts the timer. Without a systemd user
-// manager it prints the units and returns errNoSystemd.
 func applyUnits(w io.Writer, u serviceUnits, force bool) error {
 	if !systemdUser() {
 		printUnits(w, u)

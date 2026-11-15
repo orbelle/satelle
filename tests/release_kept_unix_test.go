@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// attachKept attaches body to run as its release-kept list, as release.md
-// step 4 does.
 func (d *driftSandbox) attachKept(run, body string) {
 	d.t.Helper()
 	if r := d.exec(satelleBin, body, "execution", "attach", run, "--name", "release-kept", "--type", "text/plain", "--file", "-"); r.code != 0 {
@@ -16,10 +14,6 @@ func (d *driftSandbox) attachKept(run, body string) {
 	}
 }
 
-// AC1: the repo's runbook refuses a run's done while an item its release-kept
-// list names is not in a terminal state of its own workflow, naming the item
-// and its state; once the item is terminal the run closes. A run with no
-// release-kept landed nothing and closes; an id that cannot be read refuses.
 func TestReleaseRunDoneWaitsForItsKeptItems(t *testing.T) {
 	t.Parallel()
 	d := newDriftSandbox(t, nil)

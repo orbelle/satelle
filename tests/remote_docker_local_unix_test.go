@@ -16,16 +16,6 @@ import (
 	"time"
 )
 
-// fakeDocker is a docker CLI that maps each container to $FAKE/<name>/ and
-// appends every argv to $FAKE/log. run makes the container's dir; cp copies,
-// rewriting <name>:<path> to $FAKE/<name><path>; exec runs the command with
-// every /node… argument rewritten into the container's dir, `satelle` being
-// the suite's build; container inspect checks the dir exists; rm removes it;
-// build only records. A file $FAKE/fail-run-local makes run-local exit 1 with
-// no outcome; $FAKE/crash-run-local kills the fire (the exec's parent) there.
-// For a gate's node: $FAKE/fail-run makes run fail; $FAKE/no-exit makes the
-// exec of the run-check wrapper exit 0 having written nothing; $FAKE/bad-bundle
-// empties the head bundle as it is copied in.
 const fakeDocker = `#!/bin/sh
 FAKE='@FAKE@'
 SATELLE='@SATELLE@'
@@ -77,9 +67,6 @@ case "$cmd" in
 esac
 `
 
-// dockerLocalSandbox is a sandbox with the starter configuration committed, the
-// repo's docker-probe definition copied byte for byte, and one story. fake,
-// when set, is the fake docker's directory, first on PATH.
 func dockerLocalSandbox(t *testing.T, withFake bool) (s *sandbox, id, fake string) {
 	t.Helper()
 	s = newSandbox(t)
@@ -101,14 +88,12 @@ func dockerLocalSandbox(t *testing.T, withFake bool) (s *sandbox, id, fake strin
 	return s, id, fake
 }
 
-// chainEvent is one event of `ledger list --json`, with its actor.
 type chainEvent struct {
 	Kind    string          `json:"kind"`
 	Actor   string          `json:"actor"`
 	Payload json.RawMessage `json:"payload"`
 }
 
-// seatsOf is the seats held on id, as `story get --json` shows them.
 func seatsOf(s *sandbox, id string) []json.RawMessage {
 	s.t.Helper()
 	var got struct {
@@ -135,9 +120,6 @@ func payloadField(t *testing.T, e chainEvent, key string) string {
 	return v
 }
 
-// seatOrder checks the chain holds seat.bound {node, remote:<node>}, then
-// node:<node> events (at least one when nodeEvents), then seat.released
-// {node}, in that order.
 func seatOrder(t *testing.T, evs []chainEvent, node string, nodeEvents bool) {
 	t.Helper()
 	bound, released, first, lastNode := -1, -1, -1, -1
@@ -170,11 +152,6 @@ func seatOrder(t *testing.T, evs []chainEvent, node string, nodeEvents bool) {
 
 var nodeLine = regexp.MustCompile(`(?m)^node (nod_[0-9a-f]{12}) in container (satelle-node-nod_[0-9a-f]{12})$`)
 
-// The fired node, with a fake docker: the fire names the node and its
-// container, prints the docker exec hint before the node runs, the item moves
-// one state, status shows the run, the chain here carries the node's events
-// between the seat and its release, and it verifies. The container is left
-// (scope job). The help says how to fire it.
 func TestDockerLocalFireRoundTrip(t *testing.T) {
 	t.Parallel()
 	s, id, fake := dockerLocalSandbox(t, true)
@@ -219,8 +196,6 @@ func TestDockerLocalFireRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(log[0], "build -t satelle-node:local -f "+s.dir+"/Dockerfile "+s.dir) {
 		t.Fatalf("the node image is not built from the repo's Dockerfile first: %q", log[0])
 	}
-	// The hint was printed before the node's run-local exec: fire prints it
-	// as soon as the container is up, and the exec is the node's step.
 	if strings.Index(out, hint) > strings.Index(out, "running the node on "+id) {
 		t.Fatalf("the hint follows the node's run:\n%s", out)
 	}
@@ -255,8 +230,6 @@ func TestDockerLocalFireRoundTrip(t *testing.T) {
 	}
 }
 
-// A node that fails: fire exits non-zero, the seat is bound then released, the
-// run is stopped with the reason, and the container is left to inspect.
 func TestDockerLocalFireReleasesOnFailure(t *testing.T) {
 	t.Parallel()
 	s, id, fake := dockerLocalSandbox(t, true)
@@ -288,9 +261,6 @@ func TestDockerLocalFireReleasesOnFailure(t *testing.T) {
 	s.must("ledger", "verify")
 }
 
-// A fire that died mid-run leaves a running record and a held seat. Once its
-// container is gone, the next fire marks it stopped, releases the old node's
-// seat and runs; while the container lives, the next fire is refused.
 func TestDockerLocalFireRecoversAStaleRun(t *testing.T) {
 	t.Parallel()
 	s, id, fake := dockerLocalSandbox(t, true)
@@ -343,7 +313,6 @@ func TestDockerLocalFireRecoversAStaleRun(t *testing.T) {
 	s.must("ledger", "verify")
 }
 
-// lockedBuffer is a bytes.Buffer safe to read while a process writes it.
 type lockedBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -361,10 +330,6 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
-// gateShim is a docker CLI over the real one. It logs each argv to
-// $GATE/log. The sandbox's node-image build is run against this repo's
-// Dockerfile and source (any other build exits 2); the node's run-local exec
-// writes its container to $GATE/running and waits for $GATE/release.
 const gateShim = `#!/bin/sh
 GATE='@GATE@'
 REAL='@REAL@'
@@ -385,7 +350,6 @@ fi
 exec "$REAL" "$@"
 `
 
-// versionOf is .version's satelle.version.
 func versionOf(t *testing.T, repo string) string {
 	t.Helper()
 	f, err := os.Open(filepath.Join(repo, ".version"))
@@ -403,12 +367,6 @@ func versionOf(t *testing.T, repo string) string {
 	return ""
 }
 
-// The repo's docker-probe on a real daemon: the node image is this repo's
-// source built from its Dockerfile, and while fire is held at the node's step
-// the container answers `docker exec … satelle version` with .version's
-// satelle.version. Released, the run concludes accepting and the chain
-// verifies. Needs a docker daemon and SATELLE_DOCKER_BUILD=1, since the build
-// pulls golang and alpine and the suite never pulls; run with -timeout 30m.
 func TestDockerLocalFireOnDaemon(t *testing.T) {
 	if os.Getenv("SATELLE_DOCKER_BUILD") != "1" {
 		t.Skip("set SATELLE_DOCKER_BUILD=1 to build the node image on a docker daemon")
@@ -469,7 +427,6 @@ func TestDockerLocalFireOnDaemon(t *testing.T) {
 		}
 	}
 
-	// At the gate: fire is blocked on the node's run-local exec.
 	select {
 	case err := <-exited:
 		t.Fatalf("fire returned at the gate: %v", err)

@@ -24,7 +24,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// The kinds and tokens satelled reads are the kernel's.
 func TestWireConstantsAreTheKernels(t *testing.T) {
 	for got, want := range map[string]string{
 		mirror.EventGateRun:         gate.KindRun,
@@ -42,7 +41,6 @@ func TestWireConstantsAreTheKernels(t *testing.T) {
 	}
 }
 
-// judge answers each gate from a queue of verdicts.
 type judge struct {
 	mu      sync.Mutex
 	answers []string
@@ -71,7 +69,6 @@ func write(t *testing.T, path, body string) {
 
 func ptr[T any](v T) *T { return &v }
 
-// fixture is a repo whose one workflow gates its first move with a judge.
 func fixture(t *testing.T) (*kernel.Kernel, uipush.Source) {
 	t.Helper()
 	repo := t.TempDir()
@@ -139,8 +136,6 @@ func get(t *testing.T, url string) string {
 	return string(b)
 }
 
-// A push from the kernel lands in satelled: the first (a delta to an unseeded
-// partition) falls back to a full snapshot, later ones merge.
 func TestPushRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -186,8 +181,6 @@ func TestPushRoundTrip(t *testing.T) {
 	if i := strings.Index(page, `aria-current="step"`); i < 0 || !strings.HasPrefix(strings.TrimSpace(page[i+len(`aria-current="step">`):]), `<span class="wf-node">second</span>`) {
 		t.Error("the route does not mark the item's current state")
 	}
-	// The kernel records no machine here, so the seat shows on Activity as
-	// unverified rather than engaged (sto_e127b2e6).
 	if home := get(t, srv.URL+"/r/proj/"); !strings.Contains(home, "sess · local:/x · unverified") {
 		t.Error("the seat was not pushed")
 	}
@@ -198,7 +191,6 @@ func TestPushRoundTrip(t *testing.T) {
 		t.Error("settings rows were not pushed")
 	}
 
-	// A later mutation merges: the new item and the edit both land.
 	other, err := k.Create(item.Fields{Kind: ptr("task"), Title: ptr("Second item")}, "ann")
 	if err != nil {
 		t.Fatal(err)
@@ -223,8 +215,6 @@ func TestPushRoundTrip(t *testing.T) {
 	}
 }
 
-// Seed pushes everything; a satelled of another home is refused, and Remove
-// drops the partition.
 func TestSeedInstanceAndRemove(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -253,7 +243,6 @@ func TestSeedInstanceAndRemove(t *testing.T) {
 	}
 }
 
-// A push carries who the CLI is signed in as, and satelled's top bar shows it.
 func TestPushCarriesTheSignedInUser(t *testing.T) {
 	ctx := context.Background()
 	_, src := fixture(t)
@@ -270,8 +259,6 @@ func TestPushCarriesTheSignedInUser(t *testing.T) {
 	}
 }
 
-// A delta push (an ordinary change) carries who the CLI is signed in as, and
-// replaces it: a sign-in shows on satelled's next change, a sign-out clears it.
 func TestDeltaPushCarriesTheSignedInUser(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -309,8 +296,6 @@ func TestDeltaPushCarriesTheSignedInUser(t *testing.T) {
 	}
 }
 
-// Delta lists identity and the workflow docs among the kinds it replaces and
-// carries the whole identity blob and every workflow.
 func TestDeltaListsIdentityAndWorkflows(t *testing.T) {
 	_, src := fixture(t)
 	src.User = &mirror.User{Name: "Ada", Email: "ada@example.com"}
@@ -341,7 +326,6 @@ func TestDeltaListsIdentityAndWorkflows(t *testing.T) {
 	}
 }
 
-// storyRow is the stories fragment's row for id, from its <tr to its </tr>.
 func storyRow(body, id string) string {
 	at := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
 	if at < 0 {
@@ -355,7 +339,6 @@ func storyRow(body, id string) string {
 	return body[start : at+end]
 }
 
-// reloadWorkflows re-reads the repo's workflow files, as every CLI push does.
 func reloadWorkflows(t *testing.T, k *kernel.Kernel, src *uipush.Source) {
 	t.Helper()
 	wfs, err := workflow.Load(filepath.Join(src.DataDir, kernel.WorkflowsDir))
@@ -366,9 +349,6 @@ func reloadWorkflows(t *testing.T, k *kernel.Kernel, src *uipush.Source) {
 	k.Workflows = wfs
 }
 
-// A workflow file added after the seed reaches satelled on the next delta
-// push, so its terminal rows are marked terminal; a workflow file changed
-// after the seed is refreshed the same way.
 func TestDeltaPushCarriesAnAddedOrChangedWorkflow(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -429,8 +409,6 @@ to = "closed"
 	}
 }
 
-// A full push (the seed) of an item that re-attached a name succeeds, sending
-// the newest version with its count; a later delta keeps one row per name.
 func TestSeedPushesTheNewestVersionOfEachAttachment(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -473,8 +451,6 @@ func TestSeedPushesTheNewestVersionOfEachAttachment(t *testing.T) {
 	}
 }
 
-// Report sees every snapshot satelled refuses, and a delta's fallback once as
-// a full snapshot; a satelled that is not listening attempts none.
 func TestReportSeesRefusedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)
@@ -528,8 +504,6 @@ func TestReportSeesRefusedSnapshot(t *testing.T) {
 	}
 }
 
-// Pushed seat rows carry the machine and host the chain records for each seat
-// (sto_e127b2e6 AC6); a seat bound without one carries none.
 func TestPushedSeatsCarryTheMachine(t *testing.T) {
 	k, src := fixture(t)
 	a, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("a")}, "ann")
@@ -561,10 +535,6 @@ func TestPushedSeatsCarryTheMachine(t *testing.T) {
 	}
 }
 
-// Confirm seeds an empty mirror, then keeps an unchanged one fresh with only
-// a digest; a delta clears the hash, so the next Confirm re-applies a full
-// body. An unreachable satelled is sent nothing and nothing is reported
-// (sto_128803b3).
 func TestConfirm(t *testing.T) {
 	ctx := context.Background()
 	k, src := fixture(t)

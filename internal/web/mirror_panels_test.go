@@ -9,12 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// engagements marks each story in a non-terminal state by its seats'
-// standings: a seat here or unverified marks it engaged here (verified when
-// any seat is here), a seat elsewhere adds a mark per place, a gone seat adds
-// nothing. A legacy row counts only as a non-stale story seat. A task's or
-// task run's seat and a seat on a terminal story give nothing, and the counts
-// read the same marks.
 func TestEngagements(t *testing.T) {
 	stories := []Item{
 		{ID: "sto_a", Kind: "story", Status: "beta", Workflow: "flow"},
@@ -105,9 +99,6 @@ func TestEngagements(t *testing.T) {
 	}
 }
 
-// The backlog count is the stories in their workflow's start state, whatever
-// that state is called; a status named "backlog" that is not the start state,
-// and a story whose workflow is unpushed, are not counted.
 func TestBacklogCount(t *testing.T) {
 	queued := mirror.Workflow{Name: "queue", States: []mirror.WorkflowState{
 		{Name: "queued", Start: true}, {Name: "backlog"}, {Name: "fin", Terminal: true},

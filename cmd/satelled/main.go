@@ -1,6 +1,3 @@
-// Command satelled is the dedicated local-tier daemon (push-fed mirror UI)
-// (sty_80233c10 / epic:serve-adoption; renamed sty_bd9de06d). It has no CLI
-// verb surface and cannot mutate repo state — only ingest + read-only render.
 package main
 
 import (
@@ -16,8 +13,6 @@ import (
 )
 
 func main() {
-	// Bare `go build` without ldflags still brands as satelled (Makefile /
-	// release.yml stamp Name=satelled for release builds).
 	if buildinfo.Name == buildinfo.CLIName || buildinfo.Name == "" {
 		buildinfo.Name = buildinfo.DaemonName
 	}

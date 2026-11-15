@@ -6,8 +6,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// The pushed workflow carries the panel it declares, and none when it
-// declares none (sto_a1681009 AC5).
 func TestWireWorkflowPanel(t *testing.T) {
 	name := "Drift"
 	if got := wireWorkflow(&workflow.Workflow{Name: "w", Panel: &name}).Panel; got != "Drift" {
