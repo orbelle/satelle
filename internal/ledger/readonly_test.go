@@ -6,7 +6,8 @@ import (
 	"testing"
 )
 
-// A read-only store refuses every write, saying why, and still reads.
+// A read-only store refuses every write (append, import, replace, blob),
+// saying why, and still reads.
 func TestReadOnlyRefusesEveryWrite(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -25,6 +26,8 @@ func TestReadOnlyRefusesEveryWrite(t *testing.T) {
 		"append":     func() error { _, err := s.Append("it_1", "item.updated", "me", nil); return err },
 		"append raw": func() error { return s.AppendRaw(next) },
 		"blob":       func() error { _, err := s.PutBlob([]byte("x")); return err },
+		"replace":    func() error { return s.Replace("it_1", e.Hash, []Event{e}) },
+		"import":     func() error { _, err := s.Import([]Event{e, next}); return err },
 	} {
 		if err := write(); !errors.Is(err, ErrReadOnly) || !strings.Contains(err.Error(), "a dry run") {
 			t.Errorf("%s: %v", name, err)

@@ -181,6 +181,9 @@ func (s *Store) AppendRaw(e Event) error {
 // renamed over the old one, so a reader sees either chain whole and never an
 // empty one; OnWrite is then called for each event.
 func (s *Store) Replace(item, head string, events []Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	if !ValidItem(item) {
 		return fmt.Errorf("ledger: invalid item id %q", item)
 	}
@@ -225,6 +228,9 @@ func (s *Store) Replace(item, head string, events []Event) error {
 // replaceFile writes body to item's chain file through a synced temporary
 // file in the ledger directory, renamed over it.
 func (s *Store) replaceFile(item string, body []byte) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.path(item)), ".tmp-*")
 	if err != nil {
 		return err
@@ -286,6 +292,9 @@ func (s *Store) Import(events []Event) (added int, err error) {
 }
 
 func (s *Store) write(e Event) error {
+	if err := s.refuseWrite(); err != nil {
+		return err
+	}
 	line, err := Encode(e)
 	if err != nil {
 		return err
