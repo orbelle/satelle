@@ -22,7 +22,7 @@ func TestFoldQueue(t *testing.T) {
 		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "d:x->y"}),
 		qev(t, KindQueueAdded, QueueEntry{Item: "b"}),
 		qev(t, KindQueueAdded, QueueEntry{Item: "c"}),
-		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "d:z->y"}), // re-add: moves to the end
+		qev(t, KindQueueAdded, QueueEntry{Item: "a", Cause: "d:z->y"}),
 		qev(t, KindQueueRemoved, QueueEntry{Item: "b"}),
 	})
 	if !slices.Equal(st.Explicit, []string{"c", "a"}) || st.LastFire != nil {
@@ -64,10 +64,10 @@ func TestMembers(t *testing.T) {
 		{ID: "sto_a", Status: "approved"},
 		{ID: "sto_b", Status: "approved"},
 		{ID: "sto_c", Status: "backlog"},
-		{ID: "que_1", Status: "approved"},                  // the queue
-		{ID: "exe_q", Status: "approved", Parent: "que_1"}, // the queue's run
-		{ID: "tas_1", Status: "approved"},                  // the trigger task
-		{ID: "exe_t", Status: "approved", Parent: "tas_1"}, // the task's run
+		{ID: "que_1", Status: "approved"},
+		{ID: "exe_q", Status: "approved", Parent: "que_1"},
+		{ID: "tas_1", Status: "approved"},
+		{ID: "exe_t", Status: "approved", Parent: "tas_1"},
 	}
 	got := Members(q, QueueState{Explicit: []string{"sto_c", "sto_b"}}, cands, nil).Members
 	if want := []string{"sto_c", "sto_b", "sto_a"}; !slices.Equal(got, want) {
@@ -79,7 +79,6 @@ func TestMembers(t *testing.T) {
 	}
 }
 
-// statusOf is a MemberStatus over fixed statuses; done is the terminal state.
 func statusOf(m map[string]string) MemberStatus {
 	return func(id string) (string, bool, bool) {
 		s, ok := m[id]
@@ -91,7 +90,6 @@ func TestMembersLapse(t *testing.T) {
 	q := Item{ID: "que_1"}
 	state := QueueState{Explicit: []string{"sto_a"}, Causes: map[string]string{"sto_a": "d:review->approved"}}
 
-	// A state-enqueued member lapses once its item leaves that state.
 	got := Members(q, state, nil, statusOf(map[string]string{"sto_a": "in_progress"}))
 	if len(got.Members) != 0 || !slices.Equal(got.Lapsed, []Lapse{{ID: "sto_a", Status: "in_progress"}}) {
 		t.Fatalf("sent back: %+v", got)
@@ -100,11 +98,9 @@ func TestMembersLapse(t *testing.T) {
 	if !slices.Equal(got.Members, []string{"sto_a"}) || len(got.Lapsed) != 0 {
 		t.Fatalf("still approved: %+v", got)
 	}
-	// An unknown item has not lapsed.
 	if got = Members(q, state, nil, statusOf(nil)); !slices.Equal(got.Members, []string{"sto_a"}) {
 		t.Fatalf("unknown: %+v", got)
 	}
-	// A filter that selects the lapsed item keeps it a member, not lapsed.
 	fq := Item{ID: "que_1", Inputs: &Selection{Status: "in_progress"}}
 	cands := []Item{{ID: "sto_a", Status: "in_progress"}}
 	got = Members(fq, state, cands, statusOf(map[string]string{"sto_a": "in_progress"}))
@@ -112,7 +108,6 @@ func TestMembersLapse(t *testing.T) {
 		t.Fatalf("filter member: %+v", got)
 	}
 
-	// A hand or external member lapses only at a terminal state.
 	for _, c := range []struct {
 		cause, status string
 		lapse         bool

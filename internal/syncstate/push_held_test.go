@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// TestRecordPushHeld: the held set is replaced wholesale, kept apart from the
-// failure reason, and an empty set clears it (sty_c203fd62).
 func TestRecordPushHeld(t *testing.T) {
 	t.Run("a replace drops ids no longer held and leaves the reason alone", func(t *testing.T) {
 		home, repo := t.TempDir(), t.TempDir()

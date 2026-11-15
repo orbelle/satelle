@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// killed starts a child, kills and reaps it, and returns it: a process that
-// provably exited.
 func killed(t *testing.T) procgroup.Proc {
 	t.Helper()
 	cmd := exec.Command("sleep", "60")
@@ -51,8 +49,6 @@ func owner(t *testing.T, home, session string) *procgroup.Proc {
 	return r.Owner
 }
 
-// Two hook calls of one harness run through different shells; the harness is
-// their common parent within hook depth, and becomes the owner.
 func TestResolveTakesTheHooksCommonParent(t *testing.T) {
 	home := t.TempDir()
 	x := parent(t)
@@ -73,7 +69,6 @@ func TestResolveTakesTheHooksCommonParent(t *testing.T) {
 	}
 }
 
-// A common ancestor deeper than hook depth (a terminal) is never the owner.
 func TestResolveIgnoresAnAncestorBeyondHookDepth(t *testing.T) {
 	home := t.TempDir()
 	x := parent(t)
@@ -88,9 +83,6 @@ func TestResolveIgnoresAnAncestorBeyondHookDepth(t *testing.T) {
 	}
 }
 
-// A dispatched run's satelle process owns its session; a later session
-// start keeps it while it is alive, whether or not it is in the new chain
-// (sto_35c85724 AC2).
 func TestStartKeepsALiveOwnerOutsideItsChain(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "s1", procgroup.Self()); err != nil {
@@ -107,8 +99,6 @@ func TestStartKeepsALiveOwnerOutsideItsChain(t *testing.T) {
 	}
 }
 
-// A resumed session runs in a new process: its session start clears an owner
-// that exited.
 func TestStartClearsAGoneOwner(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "s1", killed(t)); err != nil {
@@ -122,8 +112,6 @@ func TestStartClearsAGoneOwner(t *testing.T) {
 	}
 }
 
-// A later hook call clears an owner that is not alive, as a session start
-// does (sto_35c85724 AC2).
 func TestResolveClearsAGoneOwner(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "s1", killed(t)); err != nil {
@@ -137,9 +125,6 @@ func TestResolveClearsAGoneOwner(t *testing.T) {
 	}
 }
 
-// A SessionStart that fires again in the same session with different hook
-// pids (a context re-read) leaves the session live while its owner runs
-// (sto_35c85724 AC3).
 func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
 	self := procgroup.Self()
 	t.Run("settled then re-read", func(t *testing.T) {
@@ -198,8 +183,6 @@ func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
 	})
 }
 
-// An owner settled from two hook calls makes its session gone once it exits,
-// and the gone record is pruned (sto_35c85724 AC3).
 func TestAHookSettledOwnerThatExitsIsGone(t *testing.T) {
 	home := t.TempDir()
 	cmd := exec.Command("sleep", "60")
@@ -261,8 +244,6 @@ func TestStandingWithoutOwner(t *testing.T) {
 	if rec, _ := Load(home, "live"); rec.Lapsed() {
 		t.Error("a record with a hook process running is lapsed")
 	}
-	// Only exited hook processes, and no settled owner: unverified, never
-	// gone (sto_35c85724 AC1, AC3).
 	if err := Start(home, "dead", []procgroup.Proc{killed(t), killed(t), procgroup.Self()}); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +257,6 @@ func TestStandingWithoutOwner(t *testing.T) {
 	}
 }
 
-// The location and machine rules come before any record.
 func TestStandingByMachineAndLocation(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "s1", procgroup.Self()); err != nil {

@@ -64,9 +64,6 @@ satelle's own (see satelle help edit-gate).`,
 	return cmd
 }
 
-// hookSession is the session a hook acts for: SATELLE_SESSION (a performer
-// Perform dispatches carries the session seated for its run), else the harness
-// payload's.
 func hookSession(in hook.Input) string {
 	if s := sessionFromEnv(); s != "" {
 		return s
@@ -74,10 +71,6 @@ func hookSession(in hook.Input) string {
 	return in.Session
 }
 
-// hookDir is the directory the session works in: satelle's pinned project dir
-// (SATELLE_PROJECT_DIR), else the harness's (hook.ProjectDir: claude's, then
-// cursor's), else the payload's cwd, else its first workspace root (cursor),
-// else the process's.
 func hookDir(in hook.Input) string {
 	if v := strings.TrimSpace(os.Getenv(config.ProjectDirEnv)); v != "" {
 		return v
@@ -97,8 +90,6 @@ func hookDir(in hook.Input) string {
 	return wd
 }
 
-// hookDefers reports whether the handler answers nothing for this call
-// (hook.Defers owns the rule); the repo is looked up only if the rule needs it.
 func hookDefers(harness string, in hook.Input) bool {
 	return hook.Defers(harness, in, func() (string, bool) {
 		r, err := findRepo(hookDir(in))
@@ -106,8 +97,6 @@ func hookDefers(harness string, in hook.Input) bool {
 	})
 }
 
-// hookTempRoots are the gate's temp roots: nil is hook.TempRoots(). A test
-// whose repositories live under the temp dir narrows it to reach the fence.
 var hookTempRoots []string
 
 func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
@@ -119,13 +108,12 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	}
 	r, err := findRepo(hookDir(in))
 	if err != nil {
-		return nil // not a satelle repo: nothing to gate
+		return nil
 	}
 	session := hookSession(in)
 	g := hook.Gate{Root: r.Tree, TempRoots: hookTempRoots}
 	k, err := r.open()
 	if err != nil {
-		// A broken configuration refuses every edit but its own repair.
 		rel, _ := filepath.Rel(r.Tree, r.DataDir)
 		g.Exempt = []string{filepath.ToSlash(rel) + "/**"}
 		g.Grant = func(tree string) hook.Grant { return grantUnconfigured(r, session, tree) }
@@ -174,10 +162,6 @@ func writeVerdict(cmd *cobra.Command, harness string, v hook.Verdict) error {
 	return err
 }
 
-// grantAt is what session's seats at tree allow: a seat on a state whose
-// performer may change the tree grants the tree; the first seat on an
-// attachments-only state marks the grant attachments-only, naming its item
-// and state.
 func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 	var g hook.Grant
 	if session == "" {
@@ -208,12 +192,6 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 	return g
 }
 
-// grantUnconfigured is grantAt while the repo's configuration does not load:
-// the session's seats come from the ledger and cache, opened without it, and
-// each seat's edit scope from a lenient read of its workflow file
-// (workflow.StateEditScope). A scope that cannot be read, or seats that
-// cannot be read, count as attachments-only. Tree is never granted here: a
-// broken configuration refuses every edit but its own repair.
 func grantUnconfigured(r repo, session, tree string) hook.Grant {
 	var g hook.Grant
 	if session == "" {
@@ -253,8 +231,6 @@ func grantUnconfigured(r repo, session, tree string) hook.Grant {
 	return g
 }
 
-// canonicalPath resolves symlinks in the longest existing prefix of p, so a
-// path compares equal to the canonical tree it lies in.
 func canonicalPath(p string) string {
 	p = filepath.Clean(p)
 	rest := ""
@@ -283,7 +259,6 @@ func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
 	return printAnswer(cmd, hook.Context(harness, hook.EventSessionStart, text, notice))
 }
 
-// printAnswer prints a hook's answer; a nil answer prints nothing.
 func printAnswer(cmd *cobra.Command, a []byte) error {
 	if a == nil {
 		return nil
@@ -292,11 +267,6 @@ func printAnswer(cmd *cobra.Command, a []byte) error {
 	return err
 }
 
-// runHookPrompt settles the session's owner and reminds it of its seats.
-// Cursor's beforeSubmitPrompt cannot add context, so under cursor the hook
-// only settles the owner and lets the prompt through ({"continue":true});
-// grok discards an allowing prompt hook's output, so under grok it prints
-// nothing.
 func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
@@ -309,11 +279,6 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 	return printAnswer(cmd, hook.Context(harness, hook.EventPrompt, text, ""))
 }
 
-// runHookStopcheck answers the turn's end (stopCheck): it blocks once, in
-// the harness's envelope, when an item this session is seated on owes the
-// session's own next move, and otherwise answers the harness's empty stop
-// answer: none for claude, pi and grok, an empty object for cursor (no
-// followup_message, so Cursor does not continue).
 func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
@@ -324,18 +289,13 @@ func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
 	return printAnswer(cmd, hook.StopAnswer(harness))
 }
 
-// recordSession records this hook's process chain for its session on this
-// machine (internal/seatlife): SessionStart starts or updates the record, and
-// each hook call settles a missing owner from the process it shares with an
-// earlier call; only inside a satelle repo. Errors are ignored and the hook's output is unchanged; a
-// session without a record is only ever unverified.
 func recordSession(in hook.Input, record func(home, session string, ancestors []procgroup.Proc) error) {
 	session := hookSession(in)
 	if session == "" {
 		return
 	}
 	if _, err := findRepo(hookDir(in)); err != nil {
-		return // not a satelle repo: no seat to stand for
+		return
 	}
 	anc := procgroup.Ancestors(os.Getpid())
 	if len(anc) == 0 {
@@ -344,19 +304,11 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 	_ = record(config.GlobalDir(), session, anc)
 }
 
-// sessionContext is what the context hook prints: the session id, its seats,
-// the repo's session guidance (.satelle/session.md, see sessionGuidance) and,
-// at session start, the doctor block (judged for harness, the hook's caller)
-// and the [hook] inject files. notice is doctor's short summary for the user,
-// empty when inject is false or doctor found no issue. In a pre-1.0 repo both
-// are the one needs-upgrade line. ok is false outside a repo.
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {
 	r, err := findRepo(hookDir(in))
 	if err != nil {
 		return "", "", false
 	}
-	// A pre-1.0 repo is fixed in the repo (sto_0f76dd4e): the agent and the
-	// user get the one line naming the upgrade, not the configuration dump.
 	if m := kernel.LegacyMarkers(r.DataDir); len(m) > 0 {
 		line := needsUpgradeLine(r.Tree, m) + "\n"
 		if inject {
@@ -404,9 +356,6 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	return b.String(), notice, true
 }
 
-// contextFile reads a repo file for the hook context: path is taken against
-// the repo tree unless absolute, and the body loses its trailing newlines. It
-// is the one reader for the session guidance and the [hook] inject files.
 func contextFile(r repo, path string) (string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(r.Tree, path)
@@ -418,11 +367,6 @@ func contextFile(r repo, path string) (string, error) {
 	return strings.TrimRight(string(body), "\n"), nil
 }
 
-// sessionGuidance is the repo's own session guidance, .satelle/session.md
-// (kernel.SessionFile), printed by the context and prompt hooks and in a
-// blocked stop's reason: the command guidance and the drive rule are
-// substrate the repo owns, read on every call. A missing or unreadable file
-// is named in one line; the binary never prints its embedded copy.
 func sessionGuidance(r repo) string {
 	body, err := contextFile(r, filepath.Join(r.DataDir, kernel.SessionFile))
 	if err == nil {
@@ -436,10 +380,6 @@ func sessionGuidance(r repo) string {
 	return line
 }
 
-// sessionDoctor runs satelle doctor's checks within doctorHookBudget for the
-// session-start context. It never blocks the session (a check still running
-// at the deadline is named as not checked) and never contacts the ledger store.
-// It returns the block for the model's context and the notice for the user.
 func sessionDoctor(dir, harness string) (block, notice string) {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorHookBudget)
 	defer cancel()

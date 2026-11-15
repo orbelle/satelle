@@ -143,11 +143,6 @@ nothing is left and no action failed, else 1.`,
 	return cmd
 }
 
-// resolvable counts the issues satelle doctor --resolve acts on from this
-// terminal context, as resolveDoctor does: the service always, the ledger
-// actions only when the configuration validates, the findings for the fix
-// item only when doctor.toml [resolve] sets its kind and tag, and the seats it
-// asks about only when tty (a controlling terminal is attached).
 func resolvable(in *doctorInput, issues []doctorIssue, tty bool) int {
 	broken := configBroken(in, issues)
 	n := 0

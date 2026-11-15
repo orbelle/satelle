@@ -9,24 +9,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// activityRowVM is one Activity row: an item being worked now, who or what
-// works it, and its latest step.
 type activityRowVM struct {
 	rowVM
-	// Working lists each seat as "session · location", with a suffix for a
-	// seat not here (· elsewhere (<place>, seatlife.Where), · session gone, · unverified), else
-	// the current state's performer agent; empty shows —.
-	Working []string
-	// Step is the latest gate result or transition; StepTitle qualifies it.
+	Working         []string
 	Step, StepTitle string
-	// StepAt is the latest step's time, else the item's last update: the
-	// row's order and its time cell.
-	StepAt time.Time
+	StepAt          time.Time
 }
 
-// activeItem decides from the pushed workflow alone whether an item is being
-// worked: a terminal state never is, an active or parked state always is, and
-// a start state (or one the workflow does not name) only while a seat holds it.
 func activeItem(class string, seated bool) bool {
 	switch class {
 	case "terminal":
@@ -37,8 +26,6 @@ func activeItem(class string, seated bool) bool {
 	return seated
 }
 
-// activityRows is the Activity panel: the stories and task runs being worked
-// now, the most recent step first.
 func activityRows(stories, executions []Item, workflows map[string]*mirror.Workflow, seats []mirror.Seat, events []Entry, standing seatStanding) []activityRowVM {
 	bySeat := seatsByItem(seats)
 	var active []Item
@@ -82,8 +69,6 @@ func activityRows(stories, executions []Item, workflows map[string]*mirror.Workf
 	return out
 }
 
-// eventsByItem groups events by item, keeping each item's in the order given;
-// only the items in ids are kept.
 func eventsByItem(events []Entry, ids map[string]bool) map[string][]Entry {
 	byItem := map[string][]Entry{}
 	for _, e := range events {
@@ -94,7 +79,6 @@ func eventsByItem(events []Entry, ids map[string]bool) map[string][]Entry {
 	return byItem
 }
 
-// standingSuffix marks an Activity seat that is not here.
 func standingSuffix(s mirror.Seat, st seatlife.Standing) string {
 	switch st {
 	case seatlife.Here:
@@ -108,8 +92,6 @@ func standingSuffix(s mirror.Seat, st seatlife.Standing) string {
 	return " · unverified"
 }
 
-// latestStep is the newest gate result ("<gate> <result>", titled with its
-// transition) or transition ("<from> → <to>") among one item's events.
 func latestStep(events []Entry) (step, title string, at time.Time, ok bool) {
 	es := append([]Entry(nil), events...)
 	sortEntries(es)

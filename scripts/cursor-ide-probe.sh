@@ -1,32 +1,4 @@
 #!/usr/bin/env bash
-# cursor-ide-probe.sh — prove satelle's cursor hooks in the Cursor IDE's own
-# agent (sto_bf491f0d). The IDE has no headless mode, so a person runs it:
-#
-#   scripts/cursor-ide-probe.sh setup [dir]    # build, make two scratch repos, print the prompts
-#   ... open each repo in the Cursor IDE and give its agent the two prompts ...
-#   scripts/cursor-ide-probe.sh collect [dir]  # write <dir>/cursor-ide-run.md from what was recorded
-#   scripts/cursor-ide-probe.sh clean [dir]    # release the scratch seats and remove <dir>
-#
-# The hooks in the scratch repos call `record`, which passes each hook call to
-# the satelle binary built from this tree and writes what went in and came out:
-#
-#   scripts/cursor-ide-probe.sh record <capture dir> <label> [command...]
-#
-# caller-setup and caller-collect capture the environment a cursor-agent, pi
-# and grok session gives its hook calls and its shell tool (sto_1f4dc85d):
-#
-#   scripts/cursor-ide-probe.sh caller-setup [dir]    # build, make a scratch repo per harness, print the launch commands
-#   ... run each printed command (one headless session per harness) ...
-#   scripts/cursor-ide-probe.sh caller-collect [dir]  # write <dir>/fixtures/caller-<harness>.json
-#
-# $HOME (and pi's dash-joined form of it) is written as /work in a fixture.
-#
-# Run setup, collect and clean from your own terminal, not from an agent
-# session: the scratch repos are git working trees outside the temp roots,
-# which a seated agent session is fenced from writing. Linux only: the
-# ancestor check reads /proc.
-#
-# Environment: CURSOR_IDE_DIR (default /usr/share/cursor) is the installed IDE.
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -35,31 +7,20 @@ tree=$(cd "$here/.." && pwd)
 ide_dir=${CURSOR_IDE_DIR:-/usr/share/cursor}
 default_dir="${XDG_CACHE_HOME:-$HOME/.cache}/satelle-cursor-ide-probe"
 repos="wired claude-only"
-# The events satelle installs nothing on through which a shell command or an
-# edit can be announced; the wired repo observes each.
 observed="beforeShellExecution afterShellExecution afterFileEdit postToolUse postToolUseFailure"
-# The environment names each capture records, set or unset.
 env_names="SATELLE_SESSION SATELLE_PROJECT_DIR SATELLE_HOME CLAUDE_PROJECT_DIR CURSOR_PROJECT_DIR CURSOR_VERSION CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PATH"
-# Every set name matching this is recorded too: the names a harness may set
-# for its session. A credential-like or personal (email) value among them is
-# stored as redacted.
 caller_prefixes='^(X?CURSOR|PI_|GROK|CLAUDE)'
 secret_names='TOKEN|KEY|SECRET|PASSWORD|AUTH|EMAIL'
-# The harnesses caller-setup wires: every harness line of caller-harnesses.tsv.
 callers=$(awk -F'\t' '!/^#/ && NF >= 3 { print $1 }' "$(dirname "${BASH_SOURCE[0]}")/caller-harnesses.tsv" | tr '\n' ' ')
 
 die() { echo "cursor-ide-probe: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is not installed"; }
 
-# sat runs the scratch binary from inside a repo, never in an inherited
-# satelle session or project, nor as the agent harness the terminal may be in.
 sat() {
 	(cd "$1" && shift && env -u SATELLE_SESSION -u SATELLE_PROJECT_DIR -u CLAUDECODE -u CURSOR_AGENT \
 		-u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GROK_AGENT "$bin" "$@")
 }
 
-# observer_answer is what an observer prints: what this machine's own
-# user-level entry on that event answers.
 observer_answer() {
 	case $1 in
 	observe@beforeShellExecution) printf '%s' '{"permission":"allow"}' ;;
@@ -67,7 +28,6 @@ observer_answer() {
 	esac
 }
 
-# ancestors prints the executable of each ancestor of pid, nearest first.
 ancestors() {
 	local pid=$1 n=0
 	while [ "$pid" -gt 1 ] 2>/dev/null && [ $n -lt 64 ]; do
@@ -81,8 +41,6 @@ ancestors() {
 	done
 }
 
-# ide_runtime prints the executable $ide_dir/cursor execs when that launcher
-# is a shell script (`exec /usr/lib/${name}/electron ...`), else nothing.
 ide_runtime() {
 	local l=$ide_dir/cursor name path
 	[ -f "$l" ] && head -c 2 "$l" | grep -q '#!' || return 0
@@ -135,9 +93,6 @@ cmd_record() {
 	exit "$code"
 }
 
-# rewrite points every installed `satelle hook <verb> ...` command of a hooks
-# file at record, labelled <verb>@<event>, wrapping the scratch binary. The
-# command still holds "satelle hook ", so satelle reads the file as before.
 rewrite() {
 	local file=$1 cap=$2 tmp
 	tmp=$(mktemp)
@@ -252,11 +207,6 @@ cmd_collect() {
 	local all
 	all=$(find "$dir/captures" -name '*.json' -type f | sort)
 	[ -n "$all" ] || die "no captures in $dir/captures: the IDE ran no recorded hook"
-	# Refusals: the evidence must be the IDE's own session and repo. A
-	# packaged IDE whose launcher is a script (Arch's cursor-bin execs
-	# /usr/lib/electron<N>/electron) shows that runtime as the ancestor, not a
-	# binary under $ide_dir; it counts only when the hook also saw
-	# CURSOR_VERSION equal to the installed IDE's version.
 	local version runtime
 	version=$(jq -r '.version // "unknown"' "$ide_dir/resources/app/product.json" 2>/dev/null || echo unknown)
 	runtime=$(ide_runtime)
@@ -376,9 +326,6 @@ cmd_collect() {
 	echo "wrote $out"
 }
 
-# caller_conf prints column $2 (2 = cli, 3 = launch) of harness $1's line in
-# caller-harnesses.tsv, the configuration that owns each harness's CLI and
-# launch form; it dies naming the file when the harness has no line.
 caller_conf() {
 	local conf
 	conf="$(dirname "${BASH_SOURCE[0]}")/caller-harnesses.tsv"
@@ -388,9 +335,6 @@ caller_conf() {
 
 caller_cli() { caller_conf "$1" 2; }
 
-# caller_unset is the env prefix a capture session is launched with: no
-# satelle session, no other harness's marker, and none of the CLAUDE names
-# this terminal holds, so the session is the harness alone.
 caller_unset() {
 	local u="env -u CLAUDECODE -u SATELLE_SESSION -u SATELLE_PROJECT_DIR -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GROK_AGENT" name
 	while IFS= read -r name; do
@@ -420,7 +364,6 @@ cmd_caller_setup() {
 	done
 	rewrite "$dir/cursor/.cursor/hooks.json" "$dir/captures/cursor"
 	rewrite "$dir/grok/.grok/hooks/satelle.json" "$dir/captures/grok"
-	# pi's extension spawns `satelle hook <verb> ...` from PATH.
 	cat >"$dir/shim/satelle" <<EOF
 #!/usr/bin/env bash
 exec $self record $dir/captures/pi "\$2@pi" $bin "\$@"
@@ -441,7 +384,6 @@ valid. Then run: $self caller-collect $dir
 EOF
 }
 
-# caller_pick prints the first capture in dir whose label matches the glob.
 caller_pick() {
 	local f
 	for f in $(find "$1" -name '*.json' -type f 2>/dev/null | sort); do

@@ -17,30 +17,24 @@ import (
 )
 
 const (
-	// KindImported carries one old history row, uninterpreted.
 	KindImported = "upgrade.imported"
-	// KindMapped records the mapping applied to an imported item; it is
-	// written last, so its presence marks the item as fully imported.
-	KindMapped = "upgrade.mapped"
-	// importActor is the actor of the events rebuilt from the old store.
-	importActor = "upgrade"
+	KindMapped   = "upgrade.mapped"
+	importActor  = "upgrade"
 )
 
-// Imported is the upgrade.imported payload: an old history row as it was.
 type Imported struct {
 	ID           string          `json:"id"`
 	Kind         string          `json:"kind"`
 	Actor        string          `json:"actor,omitempty"`
 	Body         string          `json:"body,omitempty"`
 	Payload      json.RawMessage `json:"payload,omitempty"`
-	PayloadText  string          `json:"payload_text,omitempty"` // a payload that was not JSON
+	PayloadText  string          `json:"payload_text,omitempty"`
 	Refs         json.RawMessage `json:"refs,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
 	BaseID       string          `json:"base_id,omitempty"`
 	WorkflowHash string          `json:"workflow_hash,omitempty"`
 }
 
-// Mapped is the upgrade.mapped payload.
 type Mapped struct {
 	Source    string            `json:"source"`
 	Map       string            `json:"map"`
@@ -52,45 +46,38 @@ type Mapped struct {
 	Old       map[string]string `json:"old,omitempty"`
 }
 
-// itemPlan is one old item's planned chain.
 type itemPlan struct {
 	old    OldItem
 	target Target
 	rule   string
 	events []ledger.Event
 	docs   []OldDoc
-	state  string // "import", "resume" or "already"
+	state  string
 }
 
-// Plan is everything an import would do, checked before any write.
 type Plan struct {
 	Source   *Source
 	Map      *StatusMap
 	Rules    []RuleCount
 	items    []itemPlan
-	Import   int // items to write (new or resumed)
-	Already  int // items fully imported by an earlier run
-	History  int // history rows to import
-	Docs     int // documents to import
+	Import   int
+	Already  int
+	History  int
+	Docs     int
 	Warnings []string
 }
 
-// Refusal is a plan that cannot be applied; nothing was written.
 type Refusal struct{ Reasons []string }
 
 func (r *Refusal) Error() string {
 	return "satelle upgrade refused; nothing was written:\n" + joinLines("  ", r.Reasons)
 }
 
-// eventID is deterministic, so a re-run rebuilds identical events.
 func eventID(itemID, key string) string {
 	h := sha256.Sum256([]byte("satelle-upgrade\x00" + itemID + "\x00" + key))
 	return hex.EncodeToString(h[:12])
 }
 
-// PlanImport reads the source and the map and builds every item's chain,
-// refusing (before any write) unmapped statuses, map targets the repo lacks,
-// unreadable rows and chains that conflict with the ledger.
 func PlanImport(k *kernel.Kernel, src *Source, m *StatusMap) (*Plan, error) {
 	var reasons []string
 	reasons = append(reasons, src.Problems...)
@@ -167,8 +154,6 @@ func isPrefix(have, planned []ledger.Event) bool {
 	return true
 }
 
-// planItem builds an item's chain: item.created at its old time, then its
-// history rows and documents in time order.
 func planItem(it OldItem, src *Source, m *StatusMap) (itemPlan, error) {
 	t, rule, _ := m.Resolve(it.Kind, it.Status)
 	ip := itemPlan{old: it, target: t, rule: rule, docs: src.Docs[it.ID]}
@@ -190,7 +175,6 @@ func planItem(it OldItem, src *Source, m *StatusMap) (itemPlan, error) {
 		}
 	}
 	if it.Assignee != "" {
-		// The old store's single assignee is the list's one entry.
 		f.Assignees = &[]string{it.Assignee}
 	}
 	type step struct {
@@ -243,7 +227,6 @@ func planItem(it OldItem, src *Source, m *StatusMap) (itemPlan, error) {
 	return ip, nil
 }
 
-// Summary is what an import plan or run reports.
 func (p *Plan) Summary(applied bool) string {
 	var b strings.Builder
 	for _, r := range p.Rules {
@@ -262,9 +245,6 @@ func (p *Plan) Summary(applied bool) string {
 	return b.String()
 }
 
-// Apply writes the plan: each document's blob, then each item's chain, then
-// its upgrade.mapped marker last (so an interrupted run resumes), then the
-// cache catches up. actor records who ran the import.
 func (p *Plan) Apply(k *kernel.Kernel, actor string) error {
 	for _, ip := range p.items {
 		if ip.state == "already" {
@@ -311,7 +291,6 @@ func (p *Plan) Apply(k *kernel.Kernel, actor string) error {
 	return k.Cache.Sync(k.Ledger)
 }
 
-// IsRefusal reports whether err is a pre-write refusal.
 func IsRefusal(err error) bool {
 	var r *Refusal
 	return errors.As(err, &r)

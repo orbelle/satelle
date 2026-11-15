@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// LogsDir is the logs directory under the runtime directory it is given.
 func TestLogsDirIsUnderTheRuntime(t *testing.T) {
 	rt := filepath.Join(t.TempDir(), "runtime")
 	if got, want := LogsDir(rt), filepath.Join(rt, "logs"); got != want {
@@ -17,8 +16,6 @@ func TestLogsDirIsUnderTheRuntime(t *testing.T) {
 	}
 }
 
-// LogsDir is the one owner of the logs path: no other non-test Go file joins
-// "logs" onto a directory by hand.
 func TestNoSecondOwnerOfTheLogsDir(t *testing.T) {
 	join := regexp.MustCompile(`filepath\.Join\([^)]*"logs"\s*\)`)
 	owner := filepath.Join("internal", "config", "runtime.go")

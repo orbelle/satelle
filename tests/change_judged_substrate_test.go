@@ -12,9 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// This repo's workflows carry the judged-change rule the binary no longer
-// decides: every move into a terminal done state that no model gate judges
-// runs the change-judged check first, and that set is not empty.
 func TestJudgeLessDoneMovesRunChangeJudgedFirst(t *testing.T) {
 	routes, err := workflow.Load(filepath.Join("..", ".satelle", "workflows"))
 	if err != nil {
@@ -60,9 +57,6 @@ func TestJudgeLessDoneMovesRunChangeJudgedFirst(t *testing.T) {
 	}
 }
 
-// The workflows topic leaves the judged-change rule to configuration: it
-// names the check and the judged report, and no longer says the binary
-// refuses the move.
 func TestWorkflowsHelpLeavesTheJudgedChangeRuleToConfiguration(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "internal", "help", "topics", "workflows.md"))
 	if err != nil {

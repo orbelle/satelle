@@ -15,9 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// In any repo satelle init made, satelle validate reports each substrate miss
-// (a command the binary lacks, a dead link) with its file and line, and fails;
-// the kernel still opens; fixing both makes validate pass (sto_a1681009 AC2).
 func TestValidateReportsSubstrateDrift(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -64,7 +61,6 @@ func TestValidateReportsSubstrateDrift(t *testing.T) {
 		t.Errorf("second entry %+v", f)
 	}
 
-	// The kernel still opens: a drifted substrate is not a configuration problem.
 	must(t, "story", "list")
 
 	write("---\nname: stale\ntype: skill\ndescription: Names what the binary has.\n---\n\nRun `satelle story get <id>`.\n\nSee [[stale]].\n")
@@ -74,8 +70,6 @@ func TestValidateReportsSubstrateDrift(t *testing.T) {
 	}
 }
 
-// repoLinks are the names a [[link]] in this repo's own documents may name:
-// its principles and skills.
 func repoLinks(t *testing.T) map[string]bool {
 	t.Helper()
 	links := map[string]bool{}
@@ -91,9 +85,6 @@ func repoLinks(t *testing.T) map[string]bool {
 	return links
 }
 
-// Every embedded help topic names only commands, flags and topics this binary
-// has, and links only principles or skills of this repo: the help topics ship
-// in the binary, so they are checked here rather than by satelle validate.
 func TestHelpTopicsNameTheBinary(t *testing.T) {
 	links := repoLinks(t)
 	tree := substrateTree(NewRootCmd())
@@ -104,18 +95,12 @@ func TestHelpTopicsNameTheBinary(t *testing.T) {
 	}
 }
 
-// reReadmeTarget is a markdown link's target: [text](target).
 var reReadmeTarget = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
-// reReadmeSpan is a backtick span outside a fenced block.
 var reReadmeSpan = regexp.MustCompile("`([^`]+)`")
 
-// reReadmeFile is a span that names a file by its extension.
 var reReadmeFile = regexp.MustCompile(`\.(md|toml|json|ts|sh|go|yml|yaml|version)$`)
 
-// readmePath reports whether a backtick span names a file path to resolve: one
-// word with a slash or a file extension, and no placeholder (<name>), home
-// (~), variable ($), glob (*), package pattern (./...), URL or flag (--).
 func readmePath(span string) bool {
 	if strings.ContainsAny(span, " <>~$*|") || strings.HasPrefix(span, "-") || strings.Contains(span, "://") || strings.Contains(span, "...") {
 		return false
@@ -123,11 +108,6 @@ func readmePath(span string) bool {
 	return strings.Contains(span, "/") || reReadmeFile.MatchString(span)
 }
 
-// readmePathMisses lists what text, a README, names that is not there: each
-// relative link target and each file path (readmePath) in a backtick span or
-// a fenced block must be a path
-// under root, a file under root/.satelle (the configuration it describes) or a
-// harness hook file (hook.File), which satelle writes in the repo it is run in.
 func readmePathMisses(root, text string) []string {
 	written := map[string]bool{}
 	for _, h := range hook.Harnesses {
@@ -153,7 +133,6 @@ func readmePathMisses(root, text string) []string {
 		}
 		var paths []string
 		if fence {
-			// A fenced line is shell: each word that is a path is resolved.
 			for _, w := range strings.Fields(line) {
 				if w = strings.Trim(w, "\"'(),:;"); readmePath(w) {
 					paths = append(paths, w)
@@ -180,10 +159,6 @@ func readmePathMisses(root, text string) []string {
 	return out
 }
 
-// README.md is the first thing a new user's agent reads, and it is outside
-// the substrate satelle validate checks. It names only commands, flags and
-// help topics this binary has, and every relative link and inline file path in
-// it names a path that exists (sto_33132ea7).
 func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 	root := filepath.Join("..", "..")
 	b, err := os.ReadFile(filepath.Join(root, "README.md"))
@@ -197,8 +172,6 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 		t.Error(miss)
 	}
 
-	// The path rule itself: a link and an inline path that are absent are each
-	// reported; a placeholder, a home path and a harness hook file are not.
 	stale := "See [the spec](./docs/spec.md) and `docs/agent-model.md`.\n" +
 		"Kept: `skills/<name>.md`, `~/.satelle/config.toml`, `.cursor/hooks.json`, `satelle.toml`, [LICENSE](./LICENSE).\n" +
 		"```sh\ncat docs/gone.md   # and go test ./... with scripts/install.sh\n```\n"
@@ -207,17 +180,12 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 		t.Errorf("stale text: want the three absent docs paths reported, got %q", got)
 	}
 
-	// A command the binary lacks is reported wherever the README writes it in
-	// full, as the Commands table does: a span, a table cell, a fenced line.
 	for _, text := range []string{"Run `satelle reindex`.\n", "| `satelle story`, `satelle sync` | items |\n", "```sh\nsatelle serve\n```\n"} {
 		if len(substrate.CheckText("README.md", "md", text, substrateTree(NewRootCmd()), nil)) != 1 {
 			t.Errorf("stale command not reported in %q", text)
 		}
 	}
 
-	// Every backtick span outside a fence is a satelle command written in full,
-	// a path, or one of the bare words below (names that are not commands), so
-	// a command cannot be named in a form the checks above do not read.
 	bare := map[string]bool{"satelle": true, "satelled": true, "claude": true, "pi": true, "grok": true, "cursor": true,
 		"SATELLE_INSTALL_DIR": true, "SATELLE_NO_SERVICE=1": true, "--no-service": true, "no issues": true,
 		"<check>: <problem>": true, "fix:": true, "make install": true, "... | sh -s -- --no-service": true,
@@ -231,7 +199,6 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 		if fence {
 			continue
 		}
-		// The checks read one line at a time, so a span never crosses a line.
 		if strings.Count(line, "`")%2 != 0 {
 			t.Errorf("README.md:%d: a backtick span crosses the line end, where no check reads it; keep each span on one line", n+1)
 		}

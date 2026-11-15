@@ -11,10 +11,6 @@ import (
 	"testing"
 )
 
-// piDriver loads the rendered extension, records its handlers on a fake pi,
-// runs session_start with a ctx shaped by CASE_UI (notify, none or throw),
-// then before_agent_start, and prints what the user was notified of, the
-// system prompt the model got and whether a handler threw.
 const piDriver = `import ext from "./satelle.mts";
 const handlers = {};
 const notified = [];
@@ -36,9 +32,6 @@ try {
 console.log(JSON.stringify({ notified, systemPrompt, threw }));
 `
 
-// pi's session_start shows the hook's systemMessage to the user through
-// ctx.ui.notify, keeps additionalContext for the model, and never throws
-// (sto_4d645aa4 AC4). It runs the rendered extension under node.
 func TestPiExtensionNotifiesTheUserAtSessionStart(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

@@ -1,15 +1,5 @@
 package substrate
 
-// The volatile-literal check: each line of the repo's substrate Markdown, and
-// of the files .satelle/volatile.toml names, that matches a configured
-// volatile pattern (a version string, "currently", a model id) is a finding,
-// unless the line matches the configured dated expression or carries the
-// configured exemption marker. The patterns, the dated expression, the marker,
-// the extra paths, the exclusions and the upstream owners are all
-// configuration: this file holds none of them (sto_a5cdb024). One rule is
-// fixed: a fenced code block in a Markdown file is not read, by the fence the
-// substrate check already owns (reFence; sto_1ee018c8).
-
 import (
 	"errors"
 	"fmt"
@@ -24,28 +14,15 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 )
 
-// KindVolatile is the kind of a volatile-literal finding.
 const KindVolatile = "volatile"
 
-// VolatileField names the volatile findings wherever they are reported: the
-// key of `satelle validate --json`'s list of them and the name of satelle
-// doctor's check that reports them.
 const VolatileField = "volatile"
 
-// VolatilePattern is one [[pattern]] of volatile.toml: a name each finding
-// carries and a Go regular expression (RE2) run on each line.
 type VolatilePattern struct {
 	Name  string `toml:"name"`
 	Match string `toml:"match"`
 }
 
-// VolatileRules is volatile.toml. Paths are extra files to read and Exclude
-// the files never read, both slash-separated globs relative to the directory
-// that holds .satelle, in which "**" stands for any number of whole segments.
-// A line containing Exempt ("" = no marker) is not reported, nor a line Dated,
-// a Go regular expression (RE2), matches ("" = no line is exempt for a date).
-// Upstream names the files another repo or path owns: they are still read,
-// and each of their findings names the owner.
 type VolatileRules struct {
 	Paths    []string           `toml:"paths"`
 	Exclude  []string           `toml:"exclude"`
@@ -55,18 +32,12 @@ type VolatileRules struct {
 	Upstream []VolatileUpstream `toml:"upstream"`
 }
 
-// VolatileUpstream is one [[upstream]] of volatile.toml: the files (globs, as
-// paths and exclude are) that Owner owns, and an optional Fix, the command that
-// brings the fixed files here. A finding in such a file is fixed at the owner,
-// not in place.
 type VolatileUpstream struct {
 	Files []string `toml:"files"`
 	Owner string   `toml:"owner"`
 	Fix   string   `toml:"fix"`
 }
 
-// UpstreamOf returns the first [[upstream]] entry, in configuration order,
-// whose files glob matches file.
 func (r VolatileRules) UpstreamOf(file string) (VolatileUpstream, bool) {
 	for _, u := range r.Upstream {
 		for _, g := range u.Files {
@@ -78,11 +49,6 @@ func (r VolatileRules) UpstreamOf(file string) (VolatileUpstream, bool) {
 	return VolatileUpstream{}, false
 }
 
-// Problems returns each problem of the rules: a pattern with no name, a name
-// given twice, an empty or uncompilable match, a dated expression that does
-// not compile, and each paths or exclude glob
-// that is empty, absolute, has an empty, "." or ".." segment, or a malformed
-// segment.
 func (r VolatileRules) Problems() []error {
 	var errs []error
 	seen := map[string]bool{}
@@ -131,8 +97,6 @@ func (r VolatileRules) Problems() []error {
 	return errs
 }
 
-// globProblem says why g cannot be a glob relative to the base, "" when it can.
-// It reads the raw string: path.Clean would hide a ".." or an empty segment.
 func globProblem(g string) string {
 	if g == "" {
 		return "is empty"
@@ -156,16 +120,12 @@ func globProblem(g string) string {
 	return ""
 }
 
-// VolatileSet is a compiled, valid VolatileRules; CompileVolatile is its only
-// constructor. It holds the rules once: patterns[i] is rules.Patterns[i]
-// compiled, and dated is rules.Dated compiled (nil when unset).
 type VolatileSet struct {
 	rules    VolatileRules
 	patterns []*regexp.Regexp
 	dated    *regexp.Regexp
 }
 
-// CompileVolatile compiles r, or returns every problem of r.
 func CompileVolatile(r VolatileRules) (*VolatileSet, error) {
 	if errs := r.Problems(); len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -180,11 +140,6 @@ func CompileVolatile(r VolatileRules) (*VolatileSet, error) {
 	return s, nil
 }
 
-// VolatileText returns the findings of one file's text, named file: one per
-// pattern a line matches, in configuration order, skipping, in a Markdown file,
-// every line of a fenced code block (the fences too), then a line the dated
-// expression matches and a line holding the exemption marker. A file an [[upstream]] entry matches has
-// each finding's Why end in "; owned by <owner>". A nil set reports nothing.
 func VolatileText(file, text string, s *VolatileSet) []Finding {
 	if s == nil {
 		return nil
@@ -194,7 +149,7 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 		owner = "; owned by " + u.Owner
 	}
 	md := strings.HasSuffix(file, ".md")
-	fence := "" // the open fence's run of ``` or ~~~, "" outside a fence
+	fence := ""
 	var out []Finding
 	for i, line := range strings.Split(text, "\n") {
 		line = strings.TrimSuffix(line, "\r")
@@ -204,9 +159,6 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 			case fence == "":
 				fence = run
 			case run[0] == fence[0] && len(run) >= len(fence) && strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), run[:1])) == "":
-				// Closed only by the same character, at least as long, with
-				// nothing after it (CommonMark): a ~~~ inside a ``` block
-				// is the block's text.
 				fence = ""
 			}
 			continue
@@ -230,11 +182,6 @@ func VolatileText(file, text string, s *VolatileSet) []Finding {
 	return out
 }
 
-// Volatile checks the files the rules name: every *.md under dataDir plus
-// every regular file a paths glob matches, less every file an exclude glob
-// matches, each read once. Names, and the globs, are slash paths relative to
-// dataDir's parent. With no pattern it reads nothing and reports nothing; with
-// a problem in the rules it reads nothing and returns the problems.
 func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 	if len(r.Patterns) == 0 {
 		return nil, nil
@@ -244,7 +191,7 @@ func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 		return nil, err
 	}
 	base := filepath.Dir(dataDir)
-	files := map[string]string{} // name → path on disk
+	files := map[string]string{}
 	if err := s.walk(base, dataDir, func(name string) bool { return strings.HasSuffix(name, ".md") }, files); err != nil {
 		return nil, err
 	}
@@ -275,7 +222,6 @@ func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 	return out, nil
 }
 
-// excluded reports whether the file name is never read.
 func (s *VolatileSet) excluded(name string) bool {
 	for _, g := range s.rules.Exclude {
 		if gate.Match(g, name) {
@@ -285,8 +231,6 @@ func (s *VolatileSet) excluded(name string) bool {
 	return false
 }
 
-// pruned reports whether the directory name is not entered: it matches an
-// exclude glob with its trailing "/**" removed.
 func (s *VolatileSet) pruned(name string) bool {
 	for _, g := range s.rules.Exclude {
 		if d, ok := strings.CutSuffix(g, "/**"); ok && gate.Match(d, name) {
@@ -296,9 +240,6 @@ func (s *VolatileSet) pruned(name string) bool {
 	return false
 }
 
-// walk adds to files each regular file under root that keep accepts and no
-// exclude glob matches, entering no directory the exclusions prune. Symlinks
-// are neither followed nor read. A missing root holds nothing.
 func (s *VolatileSet) walk(base, root string, keep func(name string) bool, files map[string]string) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -325,9 +266,6 @@ func (s *VolatileSet) walk(base, root string, keep func(name string) bool, files
 	})
 }
 
-// walkGlob adds the files glob g matches, walking only the subtree its
-// literal leading segments name (one Lstat for a glob with no wildcard). A
-// symlink on the literal prefix ends the walk: nothing outside base is read.
 func (s *VolatileSet) walkGlob(base, g string, files map[string]string) error {
 	segs := strings.Split(g, "/")
 	lit := 0
@@ -361,8 +299,6 @@ func (s *VolatileSet) walkGlob(base, g string, files map[string]string) error {
 	return s.walk(base, dir, func(name string) bool { return gate.Match(g, name) }, files)
 }
 
-// fenceRun is the run of fence characters (``` or ~~~, three or more) a fence
-// line opens with, after its indent.
 func fenceRun(line string) string {
 	s := strings.TrimLeft(line, " \t")
 	n := 0

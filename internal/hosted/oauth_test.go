@@ -21,30 +21,24 @@ const (
 	fakeClientID = "client-abc"
 )
 
-// oauthFakes is the two-server fake the login tests run against: a resource
-// server (the PRM and the API) and an authorization server (RFC 8414 metadata,
-// authorize, token) on a DIFFERENT host, so a CLI that assumed one server
-// would fail.
 type oauthFakes struct {
-	mu sync.Mutex
-	// resource server
-	resourceHits []string // every path the resource server saw
-	// authorization server
+	mu           sync.Mutex
+	resourceHits []string
 	challenge    string
-	authQueries  []url.Values // every authorize query
-	tokenForms   []url.Values // every token form (code exchange and refresh)
+	authQueries  []url.Values
+	tokenForms   []url.Values
 	authRedirect string
-	asHits       []string // every path the authorization server saw
+	asHits       []string
 
-	stateEcho  string // state to echo back (default: the real one)
-	forceState string // if set, echo THIS wrong state instead
-	forceError string // if set, redirect with error= and no code
-	noClientID bool   // PRM omits satelle_client_id
-	openIDOnly bool   // RFC 8414 path 404s; only OIDC discovery answers
-	badIssuer  bool   // metadata issuer does not match
+	stateEcho  string
+	forceState string
+	forceError string
+	noClientID bool
+	openIDOnly bool
+	badIssuer  bool
 
-	resourceURL string // http://127.0.0.1:port
-	asURL       string // http://localhost:port
+	resourceURL string
+	asURL       string
 }
 
 func newOAuthFakes(t *testing.T) *oauthFakes {
@@ -140,7 +134,6 @@ func newOAuthFakes(t *testing.T) *oauthFakes {
 		}
 		_ = json.NewEncoder(w).Encode(prm)
 	})
-	// The root PRM is the MCP resource; the CLI must never read it.
 	rsMux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.resourceHits = append(f.resourceHits, r.URL.Path)
@@ -157,8 +150,6 @@ func newOAuthFakes(t *testing.T) *oauthFakes {
 	return f
 }
 
-// browserGET returns an OpenBrowser that simply GETs the authorize URL, letting
-// the stub's 302 flow the code onto the loopback listener.
 func browserGET(t *testing.T) func(string) error {
 	return func(authURL string) error {
 		go func() {
@@ -194,11 +185,9 @@ func TestLoginHappyPath(t *testing.T) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// AC2: only the API PRM was read, never the root one.
 	if len(f.resourceHits) != 1 || f.resourceHits[0] != "/.well-known/oauth-protected-resource/api" {
 		t.Errorf("resource server hits = %v, want only the /api PRM", f.resourceHits)
 	}
-	// AC2: the flow ran against the discovered endpoints on the other host.
 	if len(f.authQueries) != 1 || len(f.tokenForms) != 1 {
 		t.Fatalf("authorize=%d token=%d, want 1 and 1", len(f.authQueries), len(f.tokenForms))
 	}
@@ -209,27 +198,21 @@ func TestLoginHappyPath(t *testing.T) {
 	if form.Get("client_id") != fakeClientID || f.authQueries[0].Get("client_id") != fakeClientID {
 		t.Errorf("client_id = %q / %q, want %q", f.authQueries[0].Get("client_id"), form.Get("client_id"), fakeClientID)
 	}
-	// AC3: resource on the authorize URL and the code exchange.
 	if f.authQueries[0].Get("resource") != fakeResource || form.Get("resource") != fakeResource {
 		t.Errorf("resource = %q / %q, want %q", f.authQueries[0].Get("resource"), form.Get("resource"), fakeResource)
 	}
-	// offline_access is what gets the refresh token the refresh path uses.
 	if got := f.authQueries[0].Get("scope"); got != "openid email profile offline_access" {
 		t.Errorf("authorize scope = %q, want %q", got, "openid email profile offline_access")
 	}
-	// The credential remembers where to refresh.
 	if cred.TokenEndpoint != f.asURL+"/token" || cred.ClientID != fakeClientID || cred.Resource != fakeResource {
 		t.Errorf("discovery fields not stamped on the credential: %+v", cred)
 	}
-	// redirect_uri sent to the token endpoint must be byte-identical to the one
-	// authorize saw.
 	if form.Get("redirect_uri") != f.authRedirect {
 		t.Errorf("redirect_uri mismatch: token=%q authorize=%q", form.Get("redirect_uri"), f.authRedirect)
 	}
 	if !strings.HasPrefix(form.Get("redirect_uri"), "http://127.0.0.1:") {
 		t.Errorf("redirect_uri not loopback: %q", form.Get("redirect_uri"))
 	}
-	// The verifier must be 43-128 chars and S256-hash to the sent challenge.
 	verifier := form.Get("code_verifier")
 	if n := len(verifier); n < 43 || n > 128 {
 		t.Errorf("verifier length %d out of range", n)
@@ -343,8 +326,6 @@ func TestNewPKCEShape(t *testing.T) {
 	}
 }
 
-// AC3: a refresh carries the resource and client id login discovered, on every
-// rotation, and goes to the stored token endpoint.
 func TestRefreshGrantCarriesResourceAndClientID(t *testing.T) {
 	prov := newFakeProvider(t)
 	cred := prov.credential("https://hosted.example")

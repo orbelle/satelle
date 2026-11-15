@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// harnessIssues runs satelle doctor --json through the built binary and
-// returns its exit code and its harness issues.
 func harnessIssues(t *testing.T, s *sandbox) (int, []struct{ Check, Problem, Fix string }) {
 	t.Helper()
 	r := s.run("doctor", "--json")
@@ -28,10 +26,6 @@ func harnessIssues(t *testing.T, s *sandbox) (int, []struct{ Check, Problem, Fix
 	return r.code, out
 }
 
-// An agent asked to check satelle gets an answer (sto_f58ed5fa AC5): in a
-// fresh repo after satelle init alone, doctor exits 1 naming the unwired
-// calling harness and its fix; after satelle agents install it has no harness
-// issue. With no calling harness, no harness wired at all is the issue.
 func TestDoctorNamesTheUnwiredHarness(t *testing.T) {
 	t.Run("claude calling", func(t *testing.T) {
 		s := newSandbox(t)

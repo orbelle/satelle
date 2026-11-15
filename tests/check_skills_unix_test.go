@@ -17,27 +17,18 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// checkSandbox is a repo holding every check skill of this repo, a route
-// "checks" that presents each one on a move out of "open", a task under
-// "standing", and fakes for satelle (a recording wrapper) and gh.
 type checkSandbox struct {
 	*sandbox
-	task   string   // the task whose runs are the execution fixtures
-	checks []string // every check skill in the sandbox, sorted
-	log    string   // the wrapper's call log
+	task   string
+	checks []string
+	log    string
 }
 
-// recordingSatelle appends one NUL-separated record per call to
-// $CHECKS_CALL_LOG: SATELLE_TO, SATELLE_ITEM, the argument count, then each
-// argument. It then runs the real binary with stdin, stdout and the exit
-// status untouched.
 const recordingSatelle = `#!/usr/bin/env bash
 printf '%s\0' "${SATELLE_TO:-}" "${SATELLE_ITEM:-}" "$#" "$@" >>"$CHECKS_CALL_LOG"
 exec "$CHECKS_REAL_SATELLE" "$@"
 `
 
-// newCheckSandbox builds the fixture; extra (path -> body) is written after
-// the repo's check skills, before the route is generated.
 func newCheckSandbox(t *testing.T, extra map[string]string) *checkSandbox {
 	t.Helper()
 	for _, tool := range []string{"bash", "sh", "jq", "git", "awk"} {
@@ -77,8 +68,6 @@ to = "retired"
 	for _, name := range repoCheckSkills(t) {
 		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
 	}
-	// The release gates read the run's binary decision through this script,
-	// so its satelle calls are resolved too (sto_da9775c1).
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	for p, body := range extra {
 		s.write(p, body)
@@ -115,7 +104,6 @@ to = "retired"
 	return c
 }
 
-// repoCheckSkills names every check skill in this repo's .satelle/skills.
 func repoCheckSkills(t *testing.T) []string {
 	t.Helper()
 	skills, err := workflow.LoadSkills("../.satelle/skills")
@@ -135,10 +123,6 @@ func repoCheckSkills(t *testing.T) []string {
 	return out
 }
 
-// checksRoute is the route "checks": open (start) -> done (terminal), and for
-// each check skill a state of its name reached from open through a gate of
-// its name. A skill this repo's routes use as a trigger or an after check
-// keeps that role in its gate; any other is the gate's skill.
 func checksRoute(t *testing.T, checks []string) string {
 	t.Helper()
 	routes, err := workflow.Load("../.satelle/workflows")
@@ -178,7 +162,6 @@ func checksRoute(t *testing.T, checks []string) string {
 	return b.String()
 }
 
-// call is one satelle invocation a check script made.
 type call struct {
 	to, item string
 	args     []string
@@ -186,8 +169,6 @@ type call struct {
 
 func (c call) String() string { return "satelle " + strings.Join(c.args, " ") }
 
-// calls decodes the wrapper's log, dropping records with no SATELLE_ITEM
-// (not made by a check), and empties it.
 func (c *checkSandbox) calls() []call {
 	c.t.Helper()
 	b, err := os.ReadFile(c.log)
@@ -219,8 +200,6 @@ func (c *checkSandbox) calls() []call {
 	return out
 }
 
-// present moves id (of kind) to the state named after check and returns the
-// result; it fails the test unless the kernel recorded a run of that gate.
 func (c *checkSandbox) present(kind, id, check string) result {
 	c.t.Helper()
 	r := c.run(kind, "set", id, "--status", check)
@@ -237,8 +216,6 @@ func (c *checkSandbox) present(kind, id, check string) result {
 	return r
 }
 
-// resolveCall reports whether args name a command of satelle's own command
-// tree with flags it has and an arity it accepts.
 func resolveCall(args []string) error {
 	root := cli.NewRootCmd()
 	c, rest, err := root.Find(args)
@@ -261,9 +238,6 @@ func resolveCall(args []string) error {
 	return nil
 }
 
-// Every check skill of this repo runs through a real transition on a story and
-// on an execution, reads no item id from stdin, and every satelle call it makes
-// names a command, flags and an arity the binary has.
 func TestEveryCheckSkillRunsOnTheKernel(t *testing.T) {
 	t.Parallel()
 	c := newCheckSandbox(t, nil)
@@ -298,8 +272,6 @@ func TestEveryCheckSkillRunsOnTheKernel(t *testing.T) {
 	}
 }
 
-// A call to a removed verb or flag is caught even when the binary exits 0 on it
-// (satelle story docs prints the group's help).
 func TestCheckCallResolverCatchesRemovedCommands(t *testing.T) {
 	t.Parallel()
 	c := newCheckSandbox(t, map[string]string{
@@ -327,8 +299,6 @@ func TestCheckCallResolverCatchesRemovedCommands(t *testing.T) {
 	}
 }
 
-// The static audit: drift-check.sh finds no command or flag miss in any check
-// skill, which covers branches and fix-it lines the fixture run does not reach.
 func TestCheckSkillsNameOnlyRealCommands(t *testing.T) {
 	t.Parallel()
 	for _, tool := range []string{"bash", "jq", "git", "awk"} {
@@ -355,9 +325,6 @@ func TestCheckSkillsNameOnlyRealCommands(t *testing.T) {
 	}
 }
 
-// satelle-ac-evidence-check reads the story from SATELLE_ITEM and its
-// attachments from the binary: it rejects a story without ac-evidence, naming
-// it, and accepts once the attachment is there.
 func TestAcEvidenceCheckReadsTheItem(t *testing.T) {
 	t.Parallel()
 	const check = "satelle-ac-evidence-check"
@@ -392,8 +359,6 @@ func TestAcEvidenceCheckReadsTheItem(t *testing.T) {
 	}
 }
 
-// satelle-change-judged-check accepts an item no model gate accepted a change
-// on, a story and an execution alike, without reading its diff.
 func TestChangeJudgedCheckAcceptsWithoutAJudgedChange(t *testing.T) {
 	t.Parallel()
 	const check = "satelle-change-judged-check"

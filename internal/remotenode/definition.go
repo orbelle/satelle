@@ -10,17 +10,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// DefinitionFile is the definition's own file in the bundle. The node reads it
-// (remotedef.Parse) and does not install it.
 const DefinitionFile = kernel.RemoteFile
 
-// InstallDefinition reads the bundle's remote.toml and overlays every other
-// file of the bundle onto dataDir, the node's .satelle directory, at the same
-// relative path: a remote may carry its own workflows, skills and agents.toml
-// over the repo's. Files the bundle does not carry are left as they are.
-// Everything is checked before anything is written: a bundle of another
-// format, a path that is not plain and relative, a missing remote.toml or one
-// the node cannot read installs nothing.
 func InstallDefinition(dataDir string, bundle []byte) (remotedef.Definition, error) {
 	def, overlay, err := ReadBundle(bundle)
 	if err != nil {
@@ -29,11 +20,8 @@ func InstallDefinition(dataDir string, bundle []byte) (remotedef.Definition, err
 	return def, writeOverlay(dataDir, overlay)
 }
 
-// fileEntry is one overlay file of a bundle.
 type fileEntry = filebundle.Entry
 
-// ReadBundle decodes a definition bundle: its remote.toml, read and validated,
-// and every other file as the overlay. Nothing is written.
 func ReadBundle(bundle []byte) (remotedef.Definition, []fileEntry, error) {
 	entries, err := filebundle.Decode(bundle, nil)
 	if err != nil {
@@ -58,9 +46,6 @@ func ReadBundle(bundle []byte) (remotedef.Definition, []fileEntry, error) {
 	return def, overlay, nil
 }
 
-// DefinitionDigest is the hex sha256 of the bundle's remote.toml content: the
-// identity of the definition a node runs, the same however the rest of the
-// bundle is encoded.
 func DefinitionDigest(bundle []byte) (string, error) {
 	entries, err := filebundle.Decode(bundle, nil)
 	if err != nil {
@@ -75,7 +60,6 @@ func DefinitionDigest(bundle []byte) (string, error) {
 	return "", fmt.Errorf("the bundle has no %s", DefinitionFile)
 }
 
-// writeOverlay writes the overlay files into dataDir, leaving every other file.
 func writeOverlay(dataDir string, overlay []fileEntry) error {
 	if len(overlay) == 0 {
 		return nil

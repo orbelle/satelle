@@ -9,10 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// An item's explicit assignees are a list: --assignee is repeatable, set
-// replaces the list only with --replace, and --add-assignee/--remove-assignee
-// edit it (sto_600b9a85 AC2). No seat is bound, so get --json shows the
-// record.
 func TestAssigneeFlags(t *testing.T) {
 	isolate(t)
 	must(t, "init")

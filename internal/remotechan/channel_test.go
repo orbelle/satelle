@@ -20,7 +20,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// rig is a fake satelle-server with a signed-in local client and one node.
 type rig struct {
 	srv         *fakeserver.Server
 	local, node *hosted.Client
@@ -56,7 +55,6 @@ type joined struct {
 	err error
 }
 
-// pair attaches local and joins the node concurrently.
 func (r *rig) pair(t *testing.T, pinned []byte, opts ...Option) (*Session, *Session, error, error) {
 	t.Helper()
 	ctx := testCtx(t)
@@ -116,8 +114,6 @@ func exchange(t *testing.T, local, remote *Session, msg string) {
 	}
 }
 
-// The two ends pair through RelayService/Connect, and the relay forwards only
-// sealed bytes.
 func TestPairOverGRPCRelay(t *testing.T) {
 	r := newRig(t)
 	local, remote, lerr, rerr := r.pair(t, r.id.Public())
@@ -156,7 +152,6 @@ func TestSubstitutedKeyRefused(t *testing.T) {
 	}
 }
 
-// jumpClock's every reading is an hour on, and its ticks are always due.
 type jumpClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -203,7 +198,6 @@ func TestRefusedNodeTokenIsNotRetried(t *testing.T) {
 	}
 }
 
-// Close tells the other end, which ends without redialling.
 func TestCloseEndsTheOtherEnd(t *testing.T) {
 	r := newRig(t)
 	local, remote, lerr, rerr := r.pair(t, r.id.Public())
@@ -223,8 +217,6 @@ func TestCloseEndsTheOtherEnd(t *testing.T) {
 	}
 }
 
-// A relay restart drops both streams; both ends redial the same session,
-// handshake again and carry traffic.
 func TestResumeAfterRelayRestart(t *testing.T) {
 	r := newRig(t)
 	rec := &memRecorder{}
@@ -275,7 +267,6 @@ func TestJobTableReportsEachLossOnce(t *testing.T) {
 	}
 }
 
-// The channel only dials out: no production file can listen.
 func TestProductionCodeNeverListens(t *testing.T) {
 	banned := map[string]map[string]bool{
 		"net":  {"Listen": true, "ListenTCP": true, "ListenUnix": true, "ListenPacket": true},

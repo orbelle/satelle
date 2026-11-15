@@ -15,7 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// world is a project on a fake satelle-server, with a client signed in to it.
 type world struct {
 	srv     *fakeserver.Server
 	client  *hosted.Client
@@ -37,11 +36,8 @@ func newWorld(t *testing.T) *world {
 	return &world{srv: srv, client: c, project: p.GetId()}
 }
 
-// dev is a fresh satelle.dev store over the world's project (one per run, as
-// the CLI builds one per command).
 func (w *world) dev() *Dev { return &Dev{Client: w.client, Project: w.project, Server: w.srv.URL} }
 
-// serverHashes is the fake's chain of item, as hashes.
 func (w *world) serverHashes(item string) []string {
 	var out []string
 	for _, e := range w.srv.Events(w.project, item) {
@@ -50,15 +46,11 @@ func (w *world) serverHashes(item string) []string {
 	return out
 }
 
-// backend is a store under test: open gives a fresh Store over the same
-// stored data, as each command run builds one.
 type backend struct {
 	name string
 	open func() Store
 }
 
-// backends is the two stores every rule is proven on: a store command's
-// adapter operations (in memory) and satelle.dev (the fake server).
 func backends(t *testing.T) []backend {
 	t.Helper()
 	m := newMem()
@@ -69,7 +61,6 @@ func backends(t *testing.T) []backend {
 	}
 }
 
-// forEach runs fn once per backend, each with its own empty store.
 func forEach(t *testing.T, fn func(t *testing.T, open func() Store)) {
 	for _, name := range []string{"command", "satelle.dev"} {
 		t.Run(name, func(t *testing.T) {
@@ -86,8 +77,6 @@ func replOn(s *ledger.Store, st Store, out *bytes.Buffer) *Replicator {
 	return &Replicator{Ledger: s, Store: st, Refs: kernel.BlobRefs, Out: out}
 }
 
-// within fails the test when fn does not return in 10s: a replication loop
-// that does not terminate fails here instead of hanging the suite.
 func within(t *testing.T, what string, fn func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -123,7 +112,6 @@ func pullOn(t *testing.T, s *ledger.Store, st Store, items ...string) (Result, s
 	return res, out.String()
 }
 
-// held is the store's chain of item, as hashes.
 func held(t *testing.T, st Store, item string) []string {
 	t.Helper()
 	l, err := st.Chains(ctx, []string{item})
@@ -149,7 +137,6 @@ func hashesOf(events []ledger.Event) []string {
 	return out
 }
 
-// offers counts a store's Offer calls.
 type offers struct {
 	Store
 	n int
@@ -160,9 +147,6 @@ func (o *offers) Offer(ctx context.Context, item string, seq int, events []ledge
 	return o.Store.Offer(ctx, item, seq, events)
 }
 
-// A store chain that extends the local one (another runtime pushed further)
-// is not a divergence and needs nothing: push writes nothing, offers at most
-// once, and returns. Round 1 of this story's plan looped here forever.
 func TestPushOfAChainTheStoreExtendsWritesNothing(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a, b := newStore(t), newStore(t)
@@ -186,8 +170,6 @@ func TestPushOfAChainTheStoreExtendsWritesNothing(t *testing.T) {
 	})
 }
 
-// Events the store holds with the same hashes are already there; the push
-// appends the rest.
 func TestPushSameHashContinuesOnEveryStore(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a, b := newStore(t), newStore(t)
@@ -202,15 +184,12 @@ func TestPushSameHashContinuesOnEveryStore(t *testing.T) {
 		if got, want := held(t, open(), "it"), hashesOf(chain(t, b, "it")); strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("store holds %v, want B's chain", got)
 		}
-		// A rerun is safe and writes nothing.
 		if res, out := pushOn(t, b, open()); res.Events != 0 || res.Failed() {
 			t.Fatalf("rerun %+v\n%s", res, out)
 		}
 	})
 }
 
-// A different hash at a sequence stops that item's push, naming the item and
-// sequence; the store keeps its event and other items still push.
 func TestPushStopsAtADifferentHashOnEveryStore(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a, b := newStore(t), newStore(t)
@@ -237,8 +216,6 @@ func TestPushStopsAtADifferentHashOnEveryStore(t *testing.T) {
 	})
 }
 
-// A pull refuses a fork whatever the relative lengths, naming the item and
-// fork point and appending nothing.
 func TestPullRefusesAForkAtEveryLengthOnEveryStore(t *testing.T) {
 	cases := []struct {
 		name                 string
@@ -277,8 +254,6 @@ func TestPullRefusesAForkAtEveryLengthOnEveryStore(t *testing.T) {
 	}
 }
 
-// A named item must have a local chain to push; a named item the store does
-// not hold is refused by pull.
 func TestNamedItems(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a := newStore(t)
@@ -304,8 +279,6 @@ func TestNamedItems(t *testing.T) {
 	})
 }
 
-// satelle.dev carries attachment bodies and performer outputs as attachments
-// of their item; a fresh runtime pulls both back, verified.
 func TestDevCarriesBlobs(t *testing.T) {
 	w := newWorld(t)
 	a := newStore(t)
@@ -347,7 +320,6 @@ func TestDevCarriesBlobs(t *testing.T) {
 	}
 }
 
-// status compares each item with the store by the same rules.
 func TestStatusOnEveryStore(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a, b := newStore(t), newStore(t)

@@ -9,8 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/help"
 )
 
-// helpCmd is `satelle help [topic|command]`: a help topic by name, else the
-// named command's usage, else the topic list and the command tree.
 func helpCmd(root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:   "help [topic|command]",

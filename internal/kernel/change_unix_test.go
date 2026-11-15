@@ -17,10 +17,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// coveredKernel is w → r judged by code-ac, r → w and {w, r} → d gateless
-// (d terminal), and r → x (x terminal) judged by its own final gate, over a
-// repo on main with the config committed and the item's branch feat/x
-// checked out.
 func coveredKernel(t *testing.T) (dir string, k *Kernel) {
 	t.Helper()
 	dir = t.TempDir()
@@ -74,7 +70,6 @@ groups = [{ gates = ["final"] }]
 	return dir, k
 }
 
-// seated creates an item in w seated in dir.
 func seated(t *testing.T, k *Kernel, dir string) item.Item {
 	t.Helper()
 	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("t")}, "ada")
@@ -99,7 +94,6 @@ func moveTo(t *testing.T, k *Kernel, id, to string) TransitionResult {
 	return res
 }
 
-// judgedItem is an item whose code-ac accepted story.go on w → r.
 func judgedItem(t *testing.T) (string, *Kernel, item.Item) {
 	dir, k := coveredKernel(t)
 	it := seated(t, k, dir)
@@ -127,9 +121,6 @@ func frozenOf(t *testing.T, k *Kernel, id, to string) *item.Span {
 	return nil
 }
 
-// (a) The kernel decides nothing about a judged change: a commit after the
-// judge does not refuse a gateless terminal move (a workflow refuses it with
-// a check). The move records the change it was made with.
 func TestTheKernelDoesNotRefuseAnUnjudgedTerminalMove(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	commitFile(t, dir, "later.go", "package later\n")
@@ -143,8 +134,6 @@ func TestTheKernelDoesNotRefuseAnUnjudgedTerminalMove(t *testing.T) {
 	}
 }
 
-// No declaration of the kernel decides whether a terminal move's change is
-// the judged one: the names that did are gone.
 func TestNoKernelDeclarationDecidesAJudgedChange(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
@@ -177,9 +166,6 @@ func TestNoKernelDeclarationDecidesAJudgedChange(t *testing.T) {
 	}
 }
 
-// JudgedChanges reports each recorded verdict's change and the change now:
-// equal until a later commit, different after it, and none once the item is
-// terminal (its change is frozen).
 func TestJudgedChangesReportNow(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	one := func() JudgedChange {
@@ -206,8 +192,6 @@ func TestJudgedChangesReportNow(t *testing.T) {
 	}
 }
 
-// (b) A terminal transition carrying its own judge passes when that judge
-// accepts the current change, a later commit included.
 func TestATerminalJudgeCoversTheChangeItSaw(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	commitFile(t, dir, "later.go", "package later\n")
@@ -220,8 +204,6 @@ func TestATerminalJudgeCoversTheChangeItSaw(t *testing.T) {
 	}
 }
 
-// (c) Accepts recorded before changes were (no Change) do not refuse. (d) An
-// item no judge accepted moves.
 func TestATerminalMoveWithoutAJudgedChangeMoves(t *testing.T) {
 	dir, k := coveredKernel(t)
 	legacy := seated(t, k, dir)
@@ -234,8 +216,6 @@ func TestATerminalMoveWithoutAJudgedChangeMoves(t *testing.T) {
 	moveTo(t, k, none.ID, "d")
 }
 
-// (f) A terminal item whose move recorded no change has no frozen diff, and
-// says so instead of reading the tree.
 func TestALegacyTerminalItemHasNoFrozenDiff(t *testing.T) {
 	dir, k := coveredKernel(t)
 	it := seated(t, k, dir)
@@ -247,9 +227,6 @@ func TestALegacyTerminalItemHasNoFrozenDiff(t *testing.T) {
 	}
 }
 
-// A change judged in its own tree is the judged change once its branch lands
-// on main, by fast-forward or by a --no-ff merge, and main moves on with a
-// bump, whatever prefix or algorithm the user's diff config asks for.
 func TestJudgedChangesSurviveALanding(t *testing.T) {
 	for _, landing := range []string{"--ff-only", "--no-ff"} {
 		t.Run(landing, func(t *testing.T) {
@@ -273,10 +250,6 @@ func TestJudgedChangesSurviveALanding(t *testing.T) {
 	}
 }
 
-// A verdict whose hash was taken over other diff text (one recorded before
-// the diff text was pinned) is a mismatch, even read as commits with its
-// branch still at the head it recorded: now is the hash of the pinned diff
-// text alone, never the recorded hash.
 func TestALegacyHashAtItsBranchHeadIsAMismatch(t *testing.T) {
 	dir, k, it := judgedItem(t)
 	js, err := k.JudgedChanges(it.ID)

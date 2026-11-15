@@ -1,12 +1,5 @@
 package remotenode
 
-// The starter side of a docker-local remote fired here. satelle-server serves
-// no remotes yet, so a docker-local definition runs locally: FireLocal starts
-// the node's container, seats the item at remote:<node>, hands the node, as
-// files, exactly what satelle-server would have served it (the definition
-// bundle, the substrate, the run and the item's chain), runs
-// `satelle node run-local` in it, and brings the chain back, verified.
-
 import (
 	"context"
 	"crypto/rand"
@@ -35,15 +28,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// LocalNodeDir is the node's working root inside a local container: in/ holds
-// what the starter hands it, work/ its tree, runtime/ its ledger, out/ its
-// outcome.
 const LocalNodeDir = "/node"
 
-// RemotesDir is the directory of the remote definitions under .satelle.
 const RemotesDir = kernel.RemotesDir
 
-// The files a local node reads from <dir>/in and writes to <dir>/out.
 const (
 	localDefinition = "definition.bundle"
 	localSubstrate  = "substrate.bundle"
@@ -51,21 +39,14 @@ const (
 	localOutcome    = "outcome.json"
 )
 
-// The states of a run, as satellepb.ItemRun carries them.
 const (
 	RunRunning   = "running"
 	RunConcluded = "concluded"
 	RunStopped   = "stopped"
 )
 
-// RunFinished reports whether a run is over: concluded or stopped.
 func RunFinished(state string) bool { return state == RunConcluded || state == RunStopped }
 
-// LoadLocal reads the remote definition .satelle/remotes/<id>/ under dataDir
-// as a bundle: remote.toml first, then every other file of the directory in
-// path order (.local files never enter it). The definition is parsed back
-// through ReadBundle, as a node reads it. A remote with no remote.toml here is
-// an error matching fs.ErrNotExist.
 func LoadLocal(dataDir, id string) (remotedef.Definition, []byte, error) {
 	if err := filebundle.CheckPath(id, nil); err != nil || strings.Contains(id, "/") {
 		return remotedef.Definition{}, nil, fmt.Errorf("%q is not a remote id", id)
@@ -112,9 +93,6 @@ func LoadLocal(dataDir, id string) (remotedef.Definition, []byte, error) {
 	return d, bundle, nil
 }
 
-// SubstrateBundle bundles the files git tracks under dataDir (the .satelle
-// directory of the work tree tree), at paths relative to dataDir; .local files
-// never enter it.
 func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 	rel, err := filepath.Rel(tree, dataDir)
 	if err != nil {
@@ -133,7 +111,7 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 		}
 		b, err := os.ReadFile(filepath.Join(tree, filepath.FromSlash(f)))
 		if errors.Is(err, fs.ErrNotExist) {
-			continue // tracked, deleted in the tree
+			continue
 		}
 		if err != nil {
 			return nil, err
@@ -143,33 +121,24 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 	return filebundle.Encode(entries)
 }
 
-// LocalRun is what a local node reads from <dir>/in/run.json: its id, its run
-// and how many steps to drive (0 drives as far as the item goes).
 type LocalRun struct {
 	NodeID string        `json:"node_id"`
 	Run    RunDescriptor `json:"run"`
 	Steps  int           `json:"steps,omitempty"`
 }
 
-// LocalOutcome is what a local node writes to <dir>/out/outcome.json.
 type LocalOutcome struct {
 	Verdict string             `json:"verdict"`
 	Notes   string             `json:"notes"`
 	Steps   []kernel.DriveStep `json:"steps,omitempty"`
 }
 
-// LocalRuns stores the run of each remote and item fired here, one
-// satellepb.ItemRun per file at <Dir>/<remote>/<item>.json. The seat and the
-// node's events are on the item's chain; a run holds only its state, node,
-// verdict, notes and reason.
 type LocalRuns struct{ Dir string }
 
 func (r LocalRuns) path(remote, itemID string) string {
 	return filepath.Join(r.Dir, remote, itemID+".json")
 }
 
-// Load reads the run of remote on itemID; none is an error matching
-// fs.ErrNotExist.
 func (r LocalRuns) Load(remote, itemID string) (*satellepb.ItemRun, error) {
 	b, err := os.ReadFile(r.path(remote, itemID))
 	if err != nil {
@@ -185,7 +154,6 @@ func (r LocalRuns) Load(remote, itemID string) (*satellepb.ItemRun, error) {
 	return run, nil
 }
 
-// Save writes the run of remote on itemID.
 func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
 	p := r.path(remote, itemID)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -202,38 +170,20 @@ func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
 	return os.Rename(tmp, p)
 }
 
-// FireOptions are one local fire.
 type FireOptions struct {
-	Kernel *kernel.Kernel
-	// Tree is the work tree (its Dockerfile builds the node image) and
-	// DataDir its .satelle directory.
+	Kernel        *kernel.Kernel
 	Tree, DataDir string
-	// Runs is where the run is recorded.
-	Runs LocalRuns
-	// Remote is the definition's id, Definition and Bundle what LoadLocal read.
-	Remote     string
-	Definition remotedef.Definition
-	Bundle     []byte
-	Item       string
-	// Steps bounds the node's drive; 0 drives as far as the item goes.
-	Steps int
-	Actor string
-	// Docker is the docker CLI.
-	Docker provider.DockerLocal
-	// Out receives the progress lines.
-	Out io.Writer
+	Runs          LocalRuns
+	Remote        string
+	Definition    remotedef.Definition
+	Bundle        []byte
+	Item          string
+	Steps         int
+	Actor         string
+	Docker        provider.DockerLocal
+	Out           io.Writer
 }
 
-// FireLocal runs one docker-local remote on an item, here. It refuses what a
-// local node cannot be given ([secrets], [[repo]], a task drive), a missing or
-// terminal item, and a run of the same remote on the item still alive; a run
-// whose container is gone is marked stopped and its seat released first. It
-// builds the node image (unless the definition names one), starts the
-// container, seats the item at remote:<node>, stages the node's inputs, runs
-// `satelle node run-local`, verifies and imports the chain the node returns
-// and releases the seat on every exit. The run it returns concluded (with the
-// node's verdict); any failure after the start records the run stopped, leaves
-// the container to inspect and is returned as the error.
 func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	def, k := o.Definition, o.Kernel
 	if o.Out == nil {
@@ -312,7 +262,6 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	return run, nil
 }
 
-// localRefusal names what a local node cannot be given.
 func localRefusal(def remotedef.Definition) error {
 	if def.Provider != remotedef.ProviderDockerLocal {
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
@@ -320,8 +269,6 @@ func localRefusal(def remotedef.Definition) error {
 	return gateNodeRefusal(def)
 }
 
-// gateNodeRefusal names what a node started for one run cannot be given, on
-// any provider: it is handed no secrets, fetches no repos and drives an item.
 func gateNodeRefusal(def remotedef.Definition) error {
 	switch {
 	case len(def.SecretEntries()) > 0:
@@ -334,9 +281,6 @@ func gateNodeRefusal(def remotedef.Definition) error {
 	return nil
 }
 
-// recoverStale handles the previous run of the remote on the item: a run still
-// alive refuses the fire; one whose container is gone is marked stopped and
-// its node's seat released.
 func recoverStale(ctx context.Context, o FireOptions) error {
 	prev, err := o.Runs.Load(o.Remote, o.Item)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -372,7 +316,6 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 	return nil
 }
 
-// runNode stages the node's inputs, runs it, and imports the chain it returns.
 func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string) (LocalOutcome, error) {
 	k := o.Kernel
 	tmp, err := os.MkdirTemp("", "satelle-fire-")
@@ -427,8 +370,6 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string)
 	return out, nil
 }
 
-// stageIn writes the node's inputs into in: the definition and substrate
-// bundles, the run, and the item's chain as it stands after the seat.
 func stageIn(o FireOptions, in, node string) error {
 	if err := os.MkdirAll(filepath.Join(in, "ledger"), 0o755); err != nil {
 		return err
@@ -456,8 +397,6 @@ func stageIn(o FireOptions, in, node string) error {
 	return nil
 }
 
-// importBack verifies the chain the node returned in the store at dir and
-// imports it, with the blobs it wrote, into the kernel's ledger.
 func importBack(k *kernel.Kernel, dir, itemID string) (int, error) {
 	if err := copyBlobs(k.Ledger, filepath.Join(dir, "blobs")); err != nil {
 		return 0, err
@@ -480,8 +419,6 @@ func importBack(k *kernel.Kernel, dir, itemID string) (int, error) {
 	return added, k.Cache.Sync(k.Ledger)
 }
 
-// copyBlobs stores every blob of a store's blobs directory, checked against
-// its name, into dst.
 func copyBlobs(dst *ledger.Store, blobs string) error {
 	src, err := ledger.Open(filepath.Dir(blobs))
 	if err != nil {
@@ -506,7 +443,6 @@ func copyBlobs(dst *ledger.Store, blobs string) error {
 	return nil
 }
 
-// newNodeID is nod_<12 hex>.
 func newNodeID() (string, error) {
 	var b [6]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -522,8 +458,6 @@ func tailOf(s string, n int) string {
 	return s
 }
 
-// ensureNodeImage builds the node image from tree's Dockerfile unless the
-// definition names its own [machine] image.
 func ensureNodeImage(ctx context.Context, d provider.DockerLocal, tree string, def remotedef.Definition, out io.Writer) error {
 	if def.Machine.Image != "" {
 		return nil

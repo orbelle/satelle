@@ -50,7 +50,6 @@ func TestMapPrecedence(t *testing.T) {
 	}
 }
 
-// NewEventWith hashes exactly as NewEvent does for the same inputs.
 func TestNewEventWithMatchesNewEvent(t *testing.T) {
 	s, err := ledger.Open(t.TempDir())
 	if err != nil {
@@ -68,7 +67,6 @@ func TestNewEventWithMatchesNewEvent(t *testing.T) {
 	}
 }
 
-// oldTree writes a small pre-1.0 .satelle with a 0755 file and a symlink.
 func oldTree(t *testing.T) string {
 	t.Helper()
 	d := filepath.Join(t.TempDir(), ".satelle")
@@ -89,8 +87,6 @@ func oldTree(t *testing.T) string {
 	return d
 }
 
-// Across devices the tree is copied, verified, and only then removed; a
-// copy that does not match leaves the source in place.
 func TestArchiveCrossDevice(t *testing.T) {
 	defer func() { rename, copyHook = os.Rename, func(string) {} }()
 	rename = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.EXDEV} }
@@ -139,9 +135,6 @@ func TestRefusalIsRecognised(t *testing.T) {
 	}
 }
 
-// The new files name none of the start-clean repos: the list is machine
-// configuration only (satelle-server is also the product's name elsewhere,
-// so the scan covers this change's files).
 func TestNoRepoNameInTheUpgradeCode(t *testing.T) {
 	files, _ := filepath.Glob("*.go")
 	files = append(files, "../cli/cmd_upgrade.go", "../kernel/legacy.go")

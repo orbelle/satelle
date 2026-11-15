@@ -1,18 +1,8 @@
-# satelle.toml — this repo's satelle settings. An unknown key refuses to run.
-
 [workflows]
-# The workflow an item gets when no rule matches.
 default = "default"
-# Rules are tried in order; the first whose conditions all match wins.
-# [[workflows.rule]]
-# workflow = "default"
-# category = "bug"        # and/or tag = "...", kind = "..."
 
 [hook]
-# Files the context hook prints at session start.
 inject = [".satelle/skills/satelle-workflow-standard.md", ".satelle/principles/satelle-reference-not-restate.md"]
-# refresh = true                    # false: satelle update and the sync pass leave this repo's harness hook files
 
 [rules]
-# A judge may not run the same model as the performer whose work it judges.
 reviewer_differs_from_performer = false

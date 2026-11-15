@@ -23,7 +23,6 @@ func TestIsReleaseVersion(t *testing.T) {
 
 func TestResolveFrom_ReleaseVerbatim(t *testing.T) {
 	in := Info{Name: "satelled", Version: "0.0.5", Commit: "deadbeef", BuildTime: "2026-06-26"}
-	// VCS settings present but must be ignored for a stamped release.
 	got := resolveFrom(in, []debug.BuildSetting{{Key: "vcs.revision", Value: "ffffffffffffffff"}})
 	if got != in {
 		t.Errorf("release build mutated: got %+v, want %+v", got, in)
@@ -64,8 +63,6 @@ func TestResolveFrom_DevNoVCS(t *testing.T) {
 	}
 }
 
-// String is the one identity line: name, version, commit (shortened to 12,
-// named once: a dev build's +<commit> marker is not repeated), build time.
 func TestInfoString(t *testing.T) {
 	rel := Info{Name: "satelle", Version: "1.0.0", Commit: "0123456789abcdef0123456789abcdef01234567", BuildTime: "2026-11-06T09:30:00Z"}
 	if got, want := rel.String(), "satelle 1.0.0 (commit 0123456789ab, built 2026-11-06T09:30:00Z)"; got != want {

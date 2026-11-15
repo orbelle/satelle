@@ -10,12 +10,8 @@ import (
 	"testing"
 )
 
-// The shipped reference-not-restate principle (sto_7e024b28), as the repo
-// path its [hook] inject entry names.
 const referencePrinciplePath = ".satelle/principles/satelle-reference-not-restate.md"
 
-// referenceElements is AC4's own fixed list: the card's rules, each held as
-// the phrase the principle's matched body must contain.
 var referenceElements = []struct{ name, phrase string }{
 	{"reference rule", "name the command, file or [[link]] that answers a volatile question"},
 	{"not the answer", "instead of its current answer"},
@@ -32,13 +28,10 @@ var referenceElements = []struct{ name, phrase string }{
 
 var spaceRun = regexp.MustCompile(`\s+`)
 
-// matchedForm is text with its backticks removed, lower-cased and its
-// whitespace runs collapsed.
 func matchedForm(s string) string {
 	return spaceRun.ReplaceAllString(strings.ToLower(strings.ReplaceAll(s, "`", "")), " ")
 }
 
-// principleBody is the text after the frontmatter's closing --- line.
 func principleBody(text string) string {
 	lines := strings.Split(text, "\n")
 	seen := 0
@@ -52,8 +45,6 @@ func principleBody(text string) string {
 	return text
 }
 
-// unmetElements is the numbers (1-based) of the elements matched contains no
-// phrase for.
 func unmetElements(matched string) []int {
 	var out []int
 	for i, e := range referenceElements {
@@ -75,10 +66,6 @@ func initReferencePrinciple(t *testing.T) (dir, text string) {
 	return dir, string(b)
 }
 
-// sto_7e024b28 AC4: the shipped principle states every element of the list,
-// each once, the reference rule and its categories on one line and the
-// dated-history rule with its written form on one line; deleting any one
-// element's phrase makes the check report exactly that element.
 func TestTheShippedPrincipleStatesEveryRule(t *testing.T) {
 	_, text := initReferencePrinciple(t)
 	body := principleBody(text)
@@ -134,9 +121,6 @@ func TestTheShippedPrincipleStatesEveryRule(t *testing.T) {
 	}
 }
 
-// sto_7e024b28 AC4: satelle validate on a fresh init reports no volatile
-// finding for the shipped principle, and does read it: a present-tense line
-// appended to it is reported.
 func TestValidateReportsNoVolatileFindingForTheShippedPrinciple(t *testing.T) {
 	dir, text := initReferencePrinciple(t)
 	rep, js, err := validateVolatileJSON(t)
@@ -176,8 +160,6 @@ func referenceHook(t *testing.T, dir, event string) string {
 	return hookText(raw)
 }
 
-// sto_7e024b28 AC1: in a repo satelle init made, the session-start context
-// carries the installed principle whole; the prompt context does not.
 func TestSessionStartDeliversTheShippedPrinciple(t *testing.T) {
 	dir, text := initReferencePrinciple(t)
 	hasAll(t, "claude context", referenceHook(t, dir, "context"), strings.TrimRight(text, "\n"))
@@ -194,10 +176,6 @@ func TestSessionStartDeliversTheShippedPrinciple(t *testing.T) {
 	hasNone(t, "claude prompt", referenceHook(t, dir, "prompt"), heading)
 }
 
-// sto_7e024b28 AC3: session start prints the principle from the installed
-// file: a replaced file's words and none of the shipped rules, and with the
-// file gone a line naming it and none of the shipped rules. The binary holds
-// no copy.
 func TestSessionStartPrintsThePrincipleFromTheInstalledFile(t *testing.T) {
 	dir, text := initReferencePrinciple(t)
 	file := filepath.Join(dir, filepath.FromSlash(referencePrinciplePath))

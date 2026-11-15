@@ -9,7 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// memStore is an in-memory Store.
 type memStore struct {
 	cred  Credential
 	set   bool
@@ -44,7 +43,6 @@ func authsOf(srv *fakeserver.Server) []string {
 	return out
 }
 
-// The stored login's access token is the bearer of every call.
 func TestStoredTokenIsTheBearer(t *testing.T) {
 	isolateHome(t)
 	t.Setenv(SessionTokenEnv, "")
@@ -59,7 +57,6 @@ func TestStoredTokenIsTheBearer(t *testing.T) {
 	}
 }
 
-// SATELLE_TOKEN replaces the stored login and is never refreshed.
 func TestSessionTokenWinsAndIsNotRefreshed(t *testing.T) {
 	isolateHome(t)
 	p := newFakeProvider(t)
@@ -85,8 +82,6 @@ func TestSessionTokenWinsAndIsNotRefreshed(t *testing.T) {
 	}
 }
 
-// UNAUTHENTICATED refreshes the stored login once through the OAuth token
-// endpoint, persists the rotated pair, and retries the call.
 func TestUnauthenticatedRefreshesOnceAndRetries(t *testing.T) {
 	isolateHome(t)
 	t.Setenv(SessionTokenEnv, "")
@@ -105,7 +100,6 @@ func TestUnauthenticatedRefreshesOnceAndRetries(t *testing.T) {
 		t.Errorf("bearers = %v, want the refused token then the rotated one", got)
 	}
 
-	// A second refusal after a refresh is not refreshed again.
 	srv.RevokeToken("access-2")
 	_, err := c.Projects.ListProjects(context.Background(), &satellepb.ListProjectsRequest{})
 	if !errors.Is(err, ErrLoginRequired) {
@@ -116,7 +110,6 @@ func TestUnauthenticatedRefreshesOnceAndRetries(t *testing.T) {
 	}
 }
 
-// With no credential nothing is sent.
 func TestNoCredentialSendsNothing(t *testing.T) {
 	isolateHome(t)
 	t.Setenv(SessionTokenEnv, "")

@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// The machine id differs per home and per host: the same home file under two
-// host ids gives two ids, two homes on one host give two ids, and reading
-// never creates the file (sto_e127b2e6 AC4).
 func TestMachineIDDiffersPerHomeAndPerHost(t *testing.T) {
 	hosts := t.TempDir()
 	host1, host2 := filepath.Join(hosts, "host1"), filepath.Join(hosts, "host2")
@@ -45,7 +42,6 @@ func TestMachineIDDiffersPerHomeAndPerHost(t *testing.T) {
 		t.Fatalf("ReadMachineID = %q %v, want %q", r, ok, a1)
 	}
 
-	// Per host: home A's file copied into home B, under two host ids.
 	b, err := os.ReadFile(filepath.Join(homeA, MachineIDFile))
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +56,6 @@ func TestMachineIDDiffersPerHomeAndPerHost(t *testing.T) {
 		t.Fatalf("the same home file under two hosts gave %q and %q (home A %q)", onHost1, onHost2, a1)
 	}
 
-	// Per home: two independently created homes on one host.
 	hostMachineIDFile = host1
 	c, err := MachineID(homeC)
 	if err != nil {
@@ -70,7 +65,6 @@ func TestMachineIDDiffersPerHomeAndPerHost(t *testing.T) {
 		t.Fatalf("two homes on one host share the id %q", c)
 	}
 
-	// No readable host file: the id derives from the home file alone.
 	hostMachineIDFile = filepath.Join(hosts, "absent")
 	if id, err := MachineID(homeA); err != nil || id == "" || id == a1 {
 		t.Fatalf("without a host file: %q %v", id, err)

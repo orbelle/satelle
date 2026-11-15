@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# REBUILD audit: no Go string literal (non-test) names a state, gate, skill,
-# agent binding, workflow, category or tag of this repo's .satelle/ config.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 names=$( {
@@ -12,22 +10,6 @@ names=$( {
   ls .satelle/skills/*.md | xargs -n1 basename | sed 's/\.md$//'
 } | sort -u | grep -v '^README$')
 pat=$(printf '"%s"|' $names); pat=${pat%|}
-# Coincidences, each reviewed: the word is the same, the meaning is mechanism.
-#   "done" in hook/bashscan.go is a shell keyword; in remotechan/channel.go the
-#   channel protocol's end-of-stream message.
-#   "release" (a skill) in cli/doctor_resolve.go is the answer that
-#   releases a seat at satelle doctor --resolve's prompt: the release verb's word.
-#   "open" (the drift workflow's start state) in cli/cmd_item.go is the
-#   --open list flag; in hosted/browser.go the macOS open command; in
-#   web/detail.go the page's outcome word for a presented move that did not move.
-#   "substrate" (the substrate workflow and skill) in substrate/substrate.go
-#   is the name of the substrate check's findings: validate's JSON key and
-#   doctor's check.
-#   "satelle-upgrade" (a skill) in kernel/legacy.go is UpgradeSkill: the skill
-#   the binary's own init template ships and satelle upgrade --archive writes
-#   into every repo, named by every needs-upgrade line (sto_0f76dd4e).
-#   "in_progress" nowhere expected; "story"/"task" are item kinds (ruling Q-tasks),
-#   so no workflow, state or gate of this repo may be named after them.
 allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
 allow="$allow"'|^internal/substrate/substrate\.go:[0-9]+:const Field = "substrate"$|^internal/cli/cmd_item\.go:.*BoolVar\(&onlyOpen, "open",|^internal/hosted/browser\.go:.*name, args = "open",|^internal/web/detail\.go:[0-9]+:(// drew\. Outcome is "moved", "refused" or "open"|	outcomeOpen += "open"$)'
 allow="$allow"'|^internal/cli/doctor_resolve\.go:[0-9]+:	answerRelease += "release"'

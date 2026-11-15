@@ -12,10 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// GitHubService through the hosted client: a project with no binding is a
-// failed precondition, another's project is not found, and a bound project
-// publishes reviews and statuses (recorded unchanged) and pages its
-// pull-request events.
 func TestGitHubService(t *testing.T) {
 	ctx := context.Background()
 	srv := fakeserver.Start(t, "tok")

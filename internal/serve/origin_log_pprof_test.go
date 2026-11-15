@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// AC4: /debug/pprof is served to a loopback client and is a 404 for any other,
-// whatever address satelled listens on; other paths reach the UI handler.
 func TestPprofServedToLoopbackOnly(t *testing.T) {
 	ui := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ui")) })
 	h := pprofLocal(ui)

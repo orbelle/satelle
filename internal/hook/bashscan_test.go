@@ -28,7 +28,6 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: `python3 -c 'print(1)'`, inline: []string{"/w"}},
 		{cmd: "python3 script.py"},
 		{cmd: "cat <<'EOF' | python3 -\nprint(1)\nEOF", inline: []string{"/w"}},
-		// chmod: the leading mode operand is a mode, not a path, in every form.
 		{cmd: "chmod +x /tmp/x.sh", paths: []string{"/tmp/x.sh"}},
 		{cmd: "chmod u+w f", paths: []string{"/w/f"}},
 		{cmd: "chmod a=r f g", paths: []string{"/w/f", "/w/g"}},
@@ -42,8 +41,6 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: "chmod -- +x f", paths: []string{"/w/f"}},
 		{cmd: `chmod "+x" f`, paths: []string{"/w/f"}},
 		{cmd: "chmod +x"},
-		// chmod: every file operand stays a target, mode-shaped or not, once
-		// the mode slot has closed; a non-mode leading positional fails closed.
 		{cmd: "chmod notamode f", paths: []string{"/w/notamode", "/w/f"}},
 		{cmd: "chmod /tmp/scratch +x", paths: []string{"/tmp/scratch", "/w/+x"}},
 		{cmd: "chmod notamode 755", paths: []string{"/w/notamode", "/w/755"}},
@@ -58,11 +55,8 @@ func TestScanBashTargets(t *testing.T) {
 	}
 }
 
-// operatorRecordCases are agent shell calls that run satelle's operator
-// record verb, by every wrapper and text form the scan covers.
 var operatorRecordCases = []string{
 	"satelle story record sto_1 --file f",
-	// sto_2a41b9e4: the root flags, separate and glued.
 	"satelle -C /w story record sto_1 --file f",
 	"satelle --session s story record sto_1",
 	"satelle story -C. record sto_1",
@@ -79,7 +73,6 @@ var operatorRecordCases = []string{
 	`python3 -c "import subprocess; subprocess.run(['satelle','story','record','sto_1'])"`,
 	"bash <<'EOF'\nsatelle story record sto_1 --file f\nEOF",
 	"echo ok && nohup satelle story record sto_1 --file f",
-	// Quoted, subshell, substitution and background word forms.
 	`satelle story "record" sto_1`,
 	`"satelle" story record sto_1`,
 	"(satelle story record sto_1)",
@@ -87,8 +80,6 @@ var operatorRecordCases = []string{
 	"echo ok & satelle story record sto_1",
 }
 
-// operatorRecordCodeCases name the verb only in text that a shell or
-// interpreter runs; the word rule alone does not see them.
 var operatorRecordCodeCases = []string{
 	"zsh -c 'satelle story record sto_1'",
 	`node -e "require('child_process').execSync('satelle story record sto_1')"`,
@@ -104,14 +95,10 @@ var operatorRecordCodeCases = []string{
 	`echo "$(satelle story record sto_1)"`,
 	"GIT_EDITOR='satelle story record sto_1' git commit",
 	"git -c core.editor='satelle story record sto_1' commit",
-	// A group or loop body piped into a shell.
 	"{ echo a; echo 'satelle story record sto_1'; } | bash",
 	"while true; do echo 'satelle story record sto_1'; done | sh",
 }
 
-// operatorRecordDataCases name the verb only as data to a command that does
-// not run it: a commit message, echo, printf, a grep pattern, a file argument,
-// satelle's own prose flags and a heredoc to cat.
 var operatorRecordDataCases = []string{
 	`git commit -m "fix(hook): the satelle story record guard reads prose"`,
 	"git commit -m \"$(cat <<'EOF'\nfix: satelle story record guard\nEOF\n)\"",
@@ -125,7 +112,6 @@ var operatorRecordDataCases = []string{
 	"cat <<'EOF'\nsatelle story record sto_1\nEOF",
 }
 
-// notOperatorRecordCases name satelle or record without running the verb.
 var notOperatorRecordCases = []string{
 	"satelle story attach sto_1 --name record --file f",
 	"satelle story attach sto_1 --session record --file f",
@@ -148,9 +134,6 @@ func TestScanBashOperatorRecord(t *testing.T) {
 	}
 }
 
-// Every data case names the verb on one line, so a scan of the whole command
-// text (or of every quoted token) would refuse it: the data cases stand only
-// while data is exempt.
 func TestOperatorRecordDataCasesNameTheVerb(t *testing.T) {
 	for _, c := range operatorRecordDataCases {
 		if !operatorRecordText.MatchString(c) {
@@ -159,8 +142,6 @@ func TestOperatorRecordDataCasesNameTheVerb(t *testing.T) {
 	}
 }
 
-// No code case is caught by the word rule on any segment, so each refusal rests
-// on the scan of text a shell or interpreter runs.
 func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
 	for _, c := range operatorRecordCodeCases {
 		for _, ps := range splitSegments(tokenizeBash(c)) {

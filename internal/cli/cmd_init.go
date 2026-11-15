@@ -48,8 +48,6 @@ the command that wires one.`,
 				return fmt.Errorf("%s is satelle's machine-wide home, not a repo", dataDir)
 			}
 			out := cmd.OutOrStdout()
-			// Whether this init adds volatile.toml, which turns the volatile
-			// check on (sto_1ee018c8); an InitPlan error is Init's to return.
 			plan, _ := kernel.InitPlan(dataDir)
 			addsVolatile := slices.Contains(plan, kernel.VolatileFile)
 			if err := kernel.Init(dataDir); err != nil {
@@ -61,7 +59,6 @@ the command that wires one.`,
 				if found, err := volatileFindings(dataDir); err != nil {
 					fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
 				} else {
-					// Lines, not findings: a line two patterns match is one line.
 					lines := map[string]bool{}
 					for _, f := range found {
 						lines[fmt.Sprintf("%s:%d", f.File, f.Line)] = true
@@ -72,7 +69,6 @@ the command that wires one.`,
 			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
 				return err
 			}
-			// Name what is left unwired, at the root doctor and status read.
 			if r, err := findRepo(""); err == nil {
 				var unwired []string
 				for _, w := range hook.WiringOf(r.Tree) {
@@ -97,9 +93,6 @@ func problemsError(dataDir string, err error) error {
 	return fmt.Errorf("configuration in %s is invalid:\n%w", dataDir, err)
 }
 
-// volatileFindings is the volatile-literal findings of the repo at dataDir,
-// never nil. A configuration that does not load, or whose volatile.toml has a
-// problem, gives none and no error: kernel.Validate already lists the cause.
 func volatileFindings(dataDir string) ([]substrate.Finding, error) {
 	cfg, _ := kernel.LoadConfig(dataDir)
 	if cfg == nil || len(cfg.Volatile.Problems()) > 0 {
@@ -225,24 +218,18 @@ key with --json). These are listed without failing the check.`,
 	return cmd
 }
 
-// statusReport is `satelle status --json`.
 type statusReport struct {
-	Root      string   `json:"root"`
-	Tree      string   `json:"tree"`
-	Runtime   string   `json:"runtime"`
-	Workflows []string `json:"workflows"`
-	// Harnesses is each harness's wiring in this repo (hook.WiringOf).
+	Root      string         `json:"root"`
+	Tree      string         `json:"tree"`
+	Runtime   string         `json:"runtime"`
+	Workflows []string       `json:"workflows"`
 	Harnesses []hook.Wiring  `json:"harnesses"`
-	Items     map[string]int `json:"items"` // "<kind> <status>" → count
+	Items     map[string]int `json:"items"`
 	Session   string         `json:"session,omitempty"`
 	Seats     []seatView     `json:"seats,omitempty"`
-	// Seed is the last snapshot satelled refused for this repo, until a full
-	// snapshot lands.
-	Seed *seedFailure `json:"seed_failure,omitempty"`
+	Seed      *seedFailure   `json:"seed_failure,omitempty"`
 }
 
-// seedFailure is a snapshot satelled refused: when it last failed, why, and
-// how many attempts in a row failed for that reason.
 type seedFailure struct {
 	FailedAt time.Time `json:"failed_at"`
 	Reason   string    `json:"reason"`
@@ -255,9 +242,7 @@ type seatView struct {
 	Status     string `json:"status"`
 	Location   string `json:"location"`
 	Performing bool   `json:"performing"`
-	// Edits is what the seat lets the session change: tree, attachments,
-	// or empty when no agent performs the state.
-	Edits string `json:"edits,omitempty"`
+	Edits      string `json:"edits,omitempty"`
 }
 
 func statusCmd() *cobra.Command {

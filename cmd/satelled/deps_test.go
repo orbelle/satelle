@@ -6,15 +6,11 @@ import (
 	"testing"
 )
 
-// TestServeBinaryImportIsolation proves AC1: the dedicated serve binary does not
-// link the repo-writing stack (sty_80233c10).
 func TestServeBinaryImportIsolation(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list -deps: %v\n%s", err, out)
 	}
-	// Write-capable / CLI surfaces must not link. config→agentcli is accepted
-	// (config.LoadGlobal for port defaults); the binary has no verb dispatch.
 	forbidden := []string{
 		"github.com/bobmcallan/satelle/internal/verb",
 		"github.com/bobmcallan/satelle/internal/app",

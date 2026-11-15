@@ -17,7 +17,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/substrate"
 )
 
-// harnessFindings are doctor's harness issues and harness notes.
 func harnessFindings(t *testing.T) (issues []doctorIssue, notes []string) {
 	t.Helper()
 	rep, _, _ := doctorJSON(t)
@@ -34,11 +33,6 @@ func harnessFindings(t *testing.T) (issues []doctorIssue, notes []string) {
 	return issues, notes
 }
 
-// satelle doctor's harness check (sto_f58ed5fa AC1): the calling harness
-// unwired is an issue with its fix, the other unwired harnesses are one note,
-// a cursor, pi or grok marker decides over claude's inherited one, with the
-// caller unknown no harness wired at all is the issue, and an installed hook
-// file an ignore rule hides from git is a note naming the rule.
 func TestDoctorHarnessCheck(t *testing.T) {
 	t.Run("claude calling, nothing wired, then wired", func(t *testing.T) {
 		isolate(t)
@@ -126,8 +120,6 @@ func TestDoctorHarnessCheck(t *testing.T) {
 	})
 }
 
-// doctor's help lists the harness check and says which git queries doctor
-// runs; it no longer says doctor runs no git command (sto_f58ed5fa AC1).
 func TestDoctorHelpNamesTheHarnessCheckAndItsGitQueries(t *testing.T) {
 	long := doctorCmd().Long
 	for _, want := range []string{"  harness    ", "git check-ignore", "read-only queries"} {
@@ -140,8 +132,6 @@ func TestDoctorHelpNamesTheHarnessCheckAndItsGitQueries(t *testing.T) {
 	}
 }
 
-// satelle status shows each harness's wiring, between the configuration lines
-// and the item counts, and status --json carries it (sto_f58ed5fa AC2).
 func TestStatusShowsHarnessWiring(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init", "--hooks=claude,grok")
@@ -181,8 +171,6 @@ func TestStatusShowsHarnessWiring(t *testing.T) {
 	}
 }
 
-// satelle init ends by naming the harnesses it left unwired and the command
-// that wires one, and names none that --hooks wired (sto_f58ed5fa AC3).
 func TestInitNamesTheHarnessesItLeftUnwired(t *testing.T) {
 	const cmdLine = "  satelle agents install <harness>   # gives that harness's sessions satelle's context and the edit gate; commit the file it writes\n"
 	isolate(t)
@@ -202,9 +190,6 @@ func TestInitNamesTheHarnessesItLeftUnwired(t *testing.T) {
 	}
 }
 
-// The README init writes tells an agent with no hooks what to run, names only
-// commands this binary has, and doctor reports it when missing (sto_f58ed5fa
-// AC4).
 func TestInitWritesTheAgentReadme(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init", "--hooks=claude")
@@ -239,11 +224,6 @@ func TestInitWritesTheAgentReadme(t *testing.T) {
 	}
 }
 
-// doctor reports each harness in use whose hook file differs from satelle's
-// current set, with the install fix, and says when update leaves the file
-// (git tracks it, or the repo opts out); a current file with the user's own
-// handlers, wrapped satelle calls included, is no issue (sto_6e3d4755 AC5,
-// AC6).
 func TestDoctorReportsInUseHarnessesThatDiffer(t *testing.T) {
 	harnessIssuesOf := func(t *testing.T, h string) []doctorIssue {
 		t.Helper()

@@ -21,9 +21,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// itemCmd is the command group for one item kind. Every kind is worked alike
-// in its workflow (get, list, set and the work verbs); a creatable kind adds
-// create, and task adds run (the only way an execution is created).
 func itemCmd(kind string, creatable bool) *cobra.Command {
 	cmd := &cobra.Command{Use: kind, Short: fmt.Sprintf("Work with %s items", kind)}
 	cmd.AddCommand(itemGetCmd(kind), itemListCmd(kind), itemSetCmd(kind),
@@ -41,7 +38,6 @@ func itemCmd(kind string, creatable bool) *cobra.Command {
 	return cmd
 }
 
-// getItem loads id and checks it is of kind.
 func getItem(k *kernel.Kernel, kind, id string) (item.Item, error) {
 	if kind == item.QueueKind {
 		id, _ = k.ResolveQueue(id)
@@ -56,13 +52,11 @@ func getItem(k *kernel.Kernel, kind, id string) (item.Item, error) {
 	return it, nil
 }
 
-// resolveItem is getItem's id: a queue's name becomes its chain id.
 func resolveItem(k *kernel.Kernel, kind, ref string) (string, error) {
 	it, err := getItem(k, kind, ref)
 	return it.ID, err
 }
 
-// fieldFlags are the item fields create and set take.
 type fieldFlags struct {
 	title, body, category, parent, workflow  string
 	criteria, tags, addTags, removeTags      []string
@@ -110,11 +104,6 @@ func (f *fieldFlags) register(cmd *cobra.Command, kind string, create bool) {
 	}
 }
 
-// editList is the list a --<flag> / --add-<flag> / --remove-<flag> edit
-// leaves: set when --<flag> is given, else cur, plus each added entry not
-// already listed, less each removed one (removing an unlisted entry is
-// ignored). Entries are trimmed and blank ones dropped. Nil when no flag of
-// the three is given.
 func editList(changed func(string) bool, flag string, set, add, remove, cur []string) *[]string {
 	if !changed(flag) && !changed("add-"+flag) && !changed("remove-"+flag) {
 		return nil
@@ -140,8 +129,6 @@ func editList(changed func(string) bool, flag string, set, add, remove, cur []st
 	return &kept
 }
 
-// fields returns the Fields the flags set; cur is the item being updated (nil
-// on create).
 func (f *fieldFlags) fields(cmd *cobra.Command, cur *item.Item) (item.Fields, error) {
 	var out item.Fields
 	changed := cmd.Flags().Changed
@@ -374,8 +361,6 @@ func itemGetCmd(kind string) *cobra.Command {
 			if *asJSON {
 				return writeJSON(out, struct {
 					item.Item
-					// Assignees shadows the record's explicit list with every
-					// assignee, seated users included (item.AssigneesOf).
 					Assignees   []string          `json:"assignees"`
 					Working     []string          `json:"working"`
 					Attachments []item.Attachment `json:"attachments"`
@@ -409,8 +394,6 @@ func itemGetCmd(kind string) *cobra.Command {
 	return cmd
 }
 
-// itemAssignees is it's assignees and those of them working it, from seats
-// (the item's bound seats) less those proven gone on this machine.
 func itemAssignees(it item.Item, seats []item.Seat) (users, working []string) {
 	if len(seats) == 0 {
 		return item.AssigneesOf(it.Assignees, nil)
@@ -420,8 +403,6 @@ func itemAssignees(it item.Item, seats []item.Seat) (users, working []string) {
 	return item.AssigneesOf(it.Assignees, seatlife.Working(home, here, seats))
 }
 
-// assigneesText is users joined by ", ", each user working it marked
-// " (working)".
 func assigneesText(users, working []string) string {
 	parts := make([]string, len(users))
 	for i, u := range users {
@@ -433,7 +414,6 @@ func assigneesText(users, working []string) string {
 	return strings.Join(parts, ", ")
 }
 
-// printItem prints it, with its assignees (users) and those of them working it.
 func printItem(w io.Writer, it item.Item, users, working []string) {
 	fmt.Fprintf(w, "%s  %s\n", it.ID, it.Title)
 	fmt.Fprintf(w, "kind       %s\nstatus     %s\nworkflow   %s\n", it.Kind, it.Status, it.Workflow)
@@ -502,7 +482,6 @@ func itemListCmd(kind string) *cobra.Command {
 				}
 				type row struct {
 					item.Item
-					// Assignees shadows the record's explicit list, as in get.
 					Assignees []string `json:"assignees"`
 					Working   []string `json:"working"`
 				}
@@ -624,9 +603,6 @@ Nothing is written on a refusal.`,
 	return cmd
 }
 
-// reportTransition prints a transition's gate results; a refused move is an
-// ExitBlocked error naming every rejecting gate, and every gate whose judge
-// could not be asked (result error), with its notes.
 func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) error {
 	if asJSON {
 		if err := writeJSON(w, res); err != nil {
@@ -669,12 +645,8 @@ func reportTransition(w io.Writer, res kernel.TransitionResult, asJSON bool) err
 	return &exitError{code: ExitBlocked, msg: b.String()}
 }
 
-// holdStop is the line a hold report ends with: the driving session stops at
-// a hold; the move out of it is the operator's.
 const holdStop = "held for the operator: the driving session reports this hold and stops (satelle help workflows, Hold)"
 
-// writeHold reports a hold: where the item is held and after how many rounds,
-// each dissenting verdict with its class, and the verdicts that accepted.
 func writeHold(b *strings.Builder, it item.Item, h item.Hold) {
 	fmt.Fprintf(b, "\n%s held at %s after %d rejected rounds leaving %s", it.ID, it.Status, h.Rounds, h.State)
 	for _, d := range h.Dissent {
@@ -752,10 +724,6 @@ func attachCmd(kind string) *cobra.Command {
 	return cmd
 }
 
-// recordCmd records the operator's word on an item in an operator state: the
-// attachment of the state's declared type that its transitions out need. It
-// refuses an agent session, and asks for the item id retyped on the
-// controlling terminal before it writes anything.
 func recordCmd(kind string) *cobra.Command {
 	var name, file, mediaType string
 	cmd := &cobra.Command{
@@ -845,7 +813,6 @@ func attachmentsCmd(kind string) *cobra.Command {
 	return cmd
 }
 
-// attachmentCmd prints one version of an attachment's body, byte for byte.
 func attachmentCmd(kind string) *cobra.Command {
 	var sha string
 	cmd := &cobra.Command{
@@ -912,8 +879,6 @@ item's branch does not widen the diff.`,
 			if location == "" {
 				location = kernel.LocalLocation(r.Tree)
 			}
-			// The seat command runs in the session's harness too: settle the
-			// session's owner from its chain (best effort).
 			_ = seatlife.Resolve(config.GlobalDir(), session, procgroup.Ancestors(os.Getpid()))
 			s, err := k.Seat(args[0], session, location, base, actor())
 			if err != nil {
@@ -1042,7 +1007,6 @@ on main, passes --base <that branch>.`,
 	return cmd
 }
 
-// gateResults returns the item's recorded gate results, oldest first.
 func gateResults(k *kernel.Kernel, id string) ([]gate.Result, error) {
 	events, err := k.Ledger.Read(id)
 	if err != nil {
@@ -1058,7 +1022,6 @@ func gateResults(k *kernel.Kernel, id string) ([]gate.Result, error) {
 	return out, nil
 }
 
-// writeRefusals lists refusing gates, each with its binding and notes.
 func writeRefusals(b *strings.Builder, gates []gate.Result) {
 	for _, g := range gates {
 		fmt.Fprintf(b, "\n  gate %s", g.Gate)

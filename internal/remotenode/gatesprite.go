@@ -1,12 +1,5 @@
 package remotenode
 
-// The starter side of a check gate on a fly-sprite remote. satelle never
-// starts a sprite itself (provider.FlySprite.Start refuses): satelle-server
-// starts the node (RemoteService.StartNode) from the definition it holds, and
-// the starter reaches it over the sealed channel. chanHandle is the
-// provider.Handle over that channel, so the check body GateChecker runs on a
-// docker-local container runs unchanged on the sprite.
-
 import (
 	"context"
 	"encoding/json"
@@ -23,24 +16,15 @@ import (
 	"github.com/bobmcallan/satelle/internal/gate"
 )
 
-// NodePlacer starts a node of a remote through satelle-server and opens the
-// sealed channel to it; Placer is the one used outside tests.
 type NodePlacer interface {
 	StartNode(ctx context.Context, remote, itemID, binding string) (string, error)
 	Attach(ctx context.Context, node string) (*Run, error)
 }
 
-// ServerSprites is the SpriteStarter that asks satelle-server for the node.
-// Placer dials the bound project only when a sprite check needs it; its close
-// releases the connection.
 type ServerSprites struct {
 	Placer func(ctx context.Context) (NodePlacer, func(), error)
 }
 
-// StartSprite starts a node of s.Remote for s.Item, opens the channel to it
-// and asks it where its gate root is and which definition it runs. A node
-// whose remote.toml is not this repo's (another sha256) is ended and refused,
-// naming both, before any check runs.
 func (ss ServerSprites) StartSprite(ctx context.Context, s SpriteStart) (SpriteNode, error) {
 	if ss.Placer == nil {
 		return SpriteNode{}, errors.New("a fly-sprite gate needs a bound project (satelle project bind)")
@@ -78,8 +62,6 @@ func (ss ServerSprites) StartSprite(ctx context.Context, s SpriteStart) (SpriteN
 	return SpriteNode{Node: node, Handle: h, Root: hello.Root}, nil
 }
 
-// chanHandle is a provider.Handle on a node reached over the sealed channel:
-// each call is one gate job.
 type chanHandle struct {
 	run   *Run
 	node  string
@@ -89,8 +71,6 @@ type chanHandle struct {
 
 func (h *chanHandle) ID() string { return h.node }
 
-// Exec runs argv in the node's gate root, bounded by ctx's deadline. A command
-// that fails returns its output with an error naming the node and why.
 func (h *chanHandle) Exec(ctx context.Context, argv ...string) ([]byte, error) {
 	limit := gate.DefaultCheckTimeout
 	if dl, ok := ctx.Deadline(); ok {
@@ -117,8 +97,6 @@ func (h *chanHandle) Exec(ctx context.Context, argv ...string) ([]byte, error) {
 	return rep.Output, nil
 }
 
-// CopyIn copies host, a file or a directory, to machine on the node, in
-// chunks of at most gateChunkBytes.
 func (h *chanHandle) CopyIn(ctx context.Context, host, machine string) error {
 	st, err := os.Stat(host)
 	if err != nil {
@@ -168,7 +146,6 @@ func (h *chanHandle) put(ctx context.Context, host, machine string, mode fs.File
 	}
 }
 
-// CopyOut copies the file machine on the node to host.
 func (h *chanHandle) CopyOut(ctx context.Context, machine, host string) error {
 	f, err := os.Create(host)
 	if err != nil {
@@ -201,11 +178,8 @@ func (h *chanHandle) CopyOut(ctx context.Context, machine, host string) error {
 	}
 }
 
-// Logs is empty: a sprite's own output stays on satelle-server.
 func (h *chanHandle) Logs(context.Context) ([]byte, error) { return nil, nil }
 
-// Stop closes the channel, which ends the node's serving, and releases the
-// connection. Only the first call does anything.
 func (h *chanHandle) Stop(context.Context) error {
 	var err error
 	h.once.Do(func() {

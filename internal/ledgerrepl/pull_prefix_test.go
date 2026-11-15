@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// A pull, of every item or of the one item, whose local chain is ahead of a
-// store chain that is a pure prefix of it records no conflict and imports
-// nothing; the next push writes the rest.
 func TestPullOfAPurePrefixOnEveryStore(t *testing.T) {
 	forEach(t, func(t *testing.T, open func() Store) {
 		a := newStore(t)

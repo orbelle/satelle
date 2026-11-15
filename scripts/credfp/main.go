@@ -1,14 +1,3 @@
-// Command credfp is the helper scripts/credguard.sh calls to decide whether the
-// host credentials file changed in a way that matters (sty_5ba68e2c). It wraps
-// hosted.CaptureIdentity and hosted.DiffIdentity — the same fingerprint and diff
-// the integration suite's host-surface guard uses — so the Makefile guard and
-// the suite cannot disagree on one before/after pair.
-//
-//	credfp snapshot <credentials.toml>      print the identity snapshot
-//	credfp diff <before-snapshot> <after-snapshot>
-//	                                         print one reason per change; exit 1 on any
-//
-// Exit 2 is a usage or I/O error (the caller fails closed).
 package main
 
 import (

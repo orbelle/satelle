@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// Match reports whether a slash-separated path matches a glob in which "**"
-// stands for zero or more whole segments and every other segment follows
-// path.Match.
 func Match(pattern, name string) bool {
 	return matchSegs(strings.Split(pattern, "/"), strings.Split(name, "/"))
 }
@@ -39,7 +36,6 @@ func matchSegs(pat, segs []string) bool {
 	return len(segs) == 0
 }
 
-// MatchAny reports whether any path matches any pattern.
 func MatchAny(patterns, paths []string) bool {
 	for _, p := range paths {
 		for _, g := range patterns {

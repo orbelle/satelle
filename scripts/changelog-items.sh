@@ -1,28 +1,4 @@
 #!/usr/bin/env bash
-# changelog-items — the sole owner of an item's changelog attachment format
-# (sto_04c03be7). Items never edit CHANGELOG.md: each records its lines as an
-# attachment named `changelog`, and the release run writes the version section
-# from the items it lands. pr-ready, the release procedure and changelog-entry
-# call this script; none of them parses the format itself.
-#
-# The format: a heading is `### <Section>`, Section one of Added, Changed,
-# Deprecated, Removed, Fixed, Security, Breaking. Every entry is one `- <text>`
-# line under a heading, without the item id (it is appended here). Blank lines
-# are ignored; any other line is refused, named. At least one entry; a section
-# may repeat and its entries are merged.
-#
-#   lines <id>                       reads the attachment on stdin; prints
-#                                    <Section><TAB>- <text> (<id>) per entry
-#   render <ver> <date> <id>:<file>...
-#                                    prints the version section: the heading,
-#                                    then each non-empty section in fixed order,
-#                                    entries in argument (landing) order
-#   has <changelog> <ver> <id>:<file>
-#                                    exit 0 when <changelog>'s <ver> section
-#                                    holds every entry of the item under its
-#                                    section; else names the first missing one
-#
-# A refusal prints its reason on stderr and exits 1. No satelle or gh calls.
 set -uo pipefail
 
 sections="Added Changed Deprecated Removed Fixed Security Breaking"
@@ -59,7 +35,6 @@ lines() {
     }'
 }
 
-# item_lines <id>:<file> prints the item's rendered lines.
 item_lines() {
   local id=${1%%:*} f=${1#*:}
   [ "$id" != "$1" ] && [ -n "$id" ] || { echo "want <id>:<file>, got $1" >&2; return 1; }

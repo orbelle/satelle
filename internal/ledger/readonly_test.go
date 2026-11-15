@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// A read-only store refuses every write (append, import, replace, blob),
-// saying why, and still reads.
 func TestReadOnlyRefusesEveryWrite(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {

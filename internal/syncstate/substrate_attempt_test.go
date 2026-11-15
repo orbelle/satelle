@@ -22,8 +22,6 @@ func TestMarkSubstrateAttemptMergesOnlyItsStamp(t *testing.T) {
 	if a := got.SubstrateAreas["skills"]; a.State != "behind" || !a.CheckedAt.Equal(checked) {
 		t.Fatalf("the stamp clobbered the recorded areas: %+v", got.SubstrateAreas)
 	}
-	// A later verified record leaves the stamp alone: it debounces the refresh,
-	// it says nothing about the areas.
 	if err := RecordSubstrate(home, "/repo", map[string]AreaCheck{"skills": {State: "in step"}}, attempt.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}

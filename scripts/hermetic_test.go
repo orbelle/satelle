@@ -11,9 +11,6 @@ import (
 	"testing"
 )
 
-// TestHermeticWrapperEnvironment runs hermetic.sh over `env` with a caller
-// environment carrying a real-looking HOME, GOPROXY=off, a SATELLE_HOME and an
-// unlisted variable, and asserts what the wrapped command actually sees.
 func TestHermeticWrapperEnvironment(t *testing.T) {
 	callerHome := t.TempDir()
 	callerSatelleHome := filepath.Join(t.TempDir(), "x")
@@ -26,7 +23,6 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 		"UNLISTED=1",
 	}
 	callerEnv = append(callerEnv, optIn()...)
-	// The caller's module cache, as go resolves it in the caller's environment.
 	goEnv := exec.Command("go", "env", "GOMODCACHE")
 	goEnv.Env = callerEnv
 	modOut, err := goEnv.Output()
@@ -61,7 +57,6 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 			t.Errorf("PATH entry %q is a shim dir or under the caller's HOME", p)
 		}
 	}
-	// The caller's cache, or a link to it when it lies under the caller's HOME.
 	if link, _ := os.Readlink(got["GOMODCACHE"]); got["GOMODCACHE"] != callerModCache && link != callerModCache {
 		t.Errorf("GOMODCACHE = %q, want the caller's %q or a link to it", got["GOMODCACHE"], callerModCache)
 	}
@@ -71,8 +66,6 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 	if v, ok := got["SATELLE_HOME"]; ok {
 		t.Errorf("SATELLE_HOME = %q leaked into the wrapped command", v)
 	}
-	// No path of the caller's home reaches the command (sto_e3c6bfb6): the
-	// only ~/.satelle a test can reach by HOME is the wrapper's own.
 	callerPaths := []string{callerHome, filepath.Join(callerHome, ".satelle"), filepath.Join(callerHome, ".config"), callerSatelleHome}
 	for k, v := range got {
 		if strings.HasPrefix(k, "SATELLE_TEST_HOST_") {
@@ -90,9 +83,6 @@ func TestHermeticWrapperEnvironment(t *testing.T) {
 	}
 }
 
-// TestHermeticWrapperPinsReleaseEndpoints proves the wrapped command sees the
-// three release-API overrides as loopback URLs whatever the caller exports, so a
-// release check a test starts can never reach GitHub (sty_02579374).
 func TestHermeticWrapperPinsReleaseEndpoints(t *testing.T) {
 	names := []string{"SATELLE_RELEASE_API", "SATELLE_RELEASE_LIST_API", "SATELLE_RELEASE_BASE"}
 	cmd := exec.Command("sh", "hermetic.sh", "--", "env")
@@ -124,8 +114,6 @@ func TestHermeticWrapperPinsReleaseEndpoints(t *testing.T) {
 	}
 }
 
-// TestHermeticWrapperCleansUpAndKeepsStatus proves the temp dir is removed and
-// the wrapped command's exit status survives.
 func TestHermeticWrapperCleansUpAndKeepsStatus(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "home")
 	cmd := exec.Command("sh", "hermetic.sh", "--", "sh", "-c", `printf %s "$HOME" > "$1"; exit 7`, "sh", marker)
@@ -143,8 +131,6 @@ func TestHermeticWrapperCleansUpAndKeepsStatus(t *testing.T) {
 	}
 }
 
-// readTree is every file under dir (relative path -> contents), with each
-// directory recorded by its relative path and an empty body.
 func readTree(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	tree := map[string]string{}
@@ -167,13 +153,6 @@ func readTree(t *testing.T, dir string) map[string]string {
 	return tree
 }
 
-// TestHermeticFailsRunThatWritesSatelleHome proves the guard of make test and
-// make integration (sto_e3c6bfb6): a run that writes ~/.satelle -- by shell, at
-// any depth, or by a real satelle binary started with no home of its own, the
-// route of the 2026-10 '003' leak -- fails, naming the files, while the
-// caller's own .satelle (a fake host home standing in for the operator's) is
-// left byte-identical. A run that writes no satelle home, or whose satelle has
-// its own SATELLE_HOME, passes.
 func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 	home, env := fakeHost(t)
 	env = append(env, "PATH="+os.Getenv("PATH"))
@@ -214,10 +193,6 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 		}
 	}
 
-	// refused: the write fails where it happens (the guard is read-only), so
-	// the run fails and nothing lands under the wrapper's ~/.satelle.
-	// As root (a container node) the mode does not refuse the write, so the
-	// guard's check after the command is what fails the run.
 	refused := func(t *testing.T, code int, out string) {
 		t.Helper()
 		if os.Geteuid() == 0 {
@@ -283,11 +258,6 @@ func TestHermeticFailsRunThatWritesSatelleHome(t *testing.T) {
 	})
 }
 
-// callerWithGoUnderHome is a fake caller (fakeHost) whose every path the
-// wrapper passes on lies under its HOME, as on a developer machine: GOROOT (a
-// link to the real toolchain), GOMODCACHE, GOCACHE, GOPATH, TMPDIR,
-// SATELLE_BIN and the starting directory. It returns the home, the caller's
-// environment and that starting directory.
 func callerWithGoUnderHome(t *testing.T) (home string, env []string, dir string) {
 	t.Helper()
 	home, env = fakeHost(t)
@@ -317,12 +287,6 @@ func callerWithGoUnderHome(t *testing.T) (home string, env []string, dir string)
 	return home, env, dir
 }
 
-// TestHermeticGivesNoPathOfCallerHome proves the route to the caller's real
-// ~/.satelle is closed (sto_e3c6bfb6): with every path the wrapper passes on
-// under the caller's HOME, the wrapped command's environment, and what go env
-// reports inside it, name no path of that HOME. The Go paths are links to the
-// caller's real ones, so the toolchain and caches are still used; a
-// passed-through value that names the HOME and is not a path is dropped.
 func TestHermeticGivesNoPathOfCallerHome(t *testing.T) {
 	home, env, dir := callerWithGoUnderHome(t)
 	env = append(env, "GOFLAGS=-modfile="+filepath.Join(home, "x.mod")+" -mod=mod")
@@ -350,8 +314,6 @@ func TestHermeticGivesNoPathOfCallerHome(t *testing.T) {
 	if !strings.Contains(out, "goenv GOROOT=") || strings.Contains(out, "GOFLAGS=") {
 		t.Errorf("want go env answered and GOFLAGS dropped; output:\n%s", out)
 	}
-	// Each Go path, and the starting directory, is a link to the caller's
-	// real one, so the toolchain and caches are still used.
 	want := map[string]string{
 		"GOROOT":     filepath.Join(home, "goroot"),
 		"GOMODCACHE": filepath.Join(home, "go", "pkg", "mod"),
@@ -378,14 +340,11 @@ func TestHermeticGivesNoPathOfCallerHome(t *testing.T) {
 			t.Errorf("%s = %q links to %q (%v), want a link to the caller's %s", k, got[k], link, err, target)
 		}
 	}
-	// A TMPDIR under the caller's HOME is replaced by a fresh one under /tmp.
 	if !strings.HasPrefix(got["TMPDIR"], "/tmp/hermetic.") {
 		t.Errorf("TMPDIR = %q, want a fresh dir under /tmp", got["TMPDIR"])
 	}
 }
 
-// guardLine reports whether the wrapper printed a guard failure: a line from
-// hermetic.sh other than the one naming the mode it ran in.
 func guardLine(out string) bool {
 	for _, l := range strings.Split(out, "\n") {
 		if strings.HasPrefix(l, "hermetic:") && !strings.HasPrefix(l, "hermetic: mode ") {
@@ -395,9 +354,6 @@ func guardLine(out string) bool {
 	return false
 }
 
-// asCaller runs script through hermetic.sh for a fresh fake caller
-// (callerWithGoUnderHome), with $1 the caller's .satelle and $2 its HOME, then
-// args. prep, when set, changes the fake caller's home before the run.
 func asCaller(t *testing.T, extraEnv []string, prep func(home string), script string, args ...string) (home string, code int, out string) {
 	t.Helper()
 	home, env, dir := callerWithGoUnderHome(t)
@@ -422,8 +378,6 @@ func asCaller(t *testing.T, extraEnv []string, prep func(home string), script st
 	return home, code, string(b)
 }
 
-// statWholeSeconds reports whether stat here prints whole-second times, as
-// hermetic.sh detects it for its snapshot.
 func statWholeSeconds(t *testing.T) bool {
 	t.Helper()
 	out, err := exec.Command("stat", "-c", "%y", "/").Output()
@@ -436,12 +390,6 @@ func statWholeSeconds(t *testing.T) bool {
 	return !strings.Contains(string(out), ".")
 }
 
-// optIn is the environment a test hands hermetic.sh so the wrapper runs its
-// command where this test process runs: the outer run's
-// SATELLE_HERMETIC_ALLOW_SNAPSHOT and SATELLE_HERMETIC_FORCE_NO_BWRAP when set
-// (a container's integration check exports them), and the snapshot opt-in when
-// bwrap cannot run here at all. On a bwrap host with neither set it is empty,
-// so the tests exercise bwrap mode. A test of the refusal overrides it.
 func optIn() []string {
 	var env []string
 	for _, k := range []string{"SATELLE_HERMETIC_ALLOW_SNAPSHOT", "SATELLE_HERMETIC_FORCE_NO_BWRAP"} {
@@ -455,8 +403,6 @@ func optIn() []string {
 	return env
 }
 
-// bwrapWorks reports whether hermetic.sh would run in bwrap mode here: bwrap
-// is installed, its probe passes and SATELLE_HERMETIC_FORCE_NO_BWRAP is unset.
 func bwrapWorks() (bool, string) {
 	if os.Getenv("SATELLE_HERMETIC_FORCE_NO_BWRAP") != "" {
 		return false, "SATELLE_HERMETIC_FORCE_NO_BWRAP is set"
@@ -471,21 +417,12 @@ func bwrapWorks() (bool, string) {
 	return true, ""
 }
 
-// TestHermeticBwrapMakesCallerSatelleHomeReadOnly proves AC2's "cannot write"
-// where bubblewrap runs (sto_e3c6bfb6): the wrapped command sees the caller's
-// satelle home read-only, so a write by any route -- a direct path, the
-// reviewer's readlink of the GOMODCACHE link, the caller's SATELLE_HOME, or
-// creating the home when it does not exist -- fails with EROFS and leaves it
-// unchanged, while the rest of the caller's home (the Go caches, the source
-// tree) stays writable. Fake callers stand in for the operator.
 func TestHermeticBwrapMakesCallerSatelleHomeReadOnly(t *testing.T) {
 	if ok, why := bwrapWorks(); !ok {
 		t.Skip(why)
 	}
 	const erofs = "Read-only file system"
 	const mode = "hermetic: mode bwrap:"
-	// refused asserts the run ran under bwrap, the write failed with EROFS and
-	// the script went on to report it (exit 0 after the failed write).
 	refused := func(t *testing.T, code int, out string) {
 		t.Helper()
 		if code != 0 || !strings.Contains(out, mode) || !strings.Contains(out, erofs) || !strings.Contains(out, "write-refused") || guardLine(out) {
@@ -553,12 +490,6 @@ func TestHermeticBwrapMakesCallerSatelleHomeReadOnly(t *testing.T) {
 	})
 }
 
-// TestHermeticRefusesWithoutBwrap proves the wrapper fails closed (sto_e3c6bfb6):
-// where bwrap is missing (forced with SATELLE_HERMETIC_FORCE_NO_BWRAP) and the
-// caller has not opted in to snapshot mode, it exits 2 naming the cause and
-// the fix, and the command never runs (it would create a marker file). With
-// SATELLE_HERMETIC_ALLOW_SNAPSHOT=1 the command runs in snapshot mode, which
-// says it only detects and names the paths it does not check.
 func TestHermeticRefusesWithoutBwrap(t *testing.T) {
 	const script = `touch "$3"`
 	t.Run("no opt-in: refused, the command never runs", func(t *testing.T) {
@@ -596,16 +527,6 @@ func TestHermeticRefusesWithoutBwrap(t *testing.T) {
 	})
 }
 
-// TestHermeticCatchesWriteToCallerRealSatelleHome proves the snapshot mode, the
-// explicit detection-only opt-in (SATELLE_HERMETIC_ALLOW_SNAPSHOT) where
-// bubblewrap is missing or cannot run (forced here with
-// SATELLE_HERMETIC_FORCE_NO_BWRAP), on a fake caller standing in for the operator
-// (sto_e3c6bfb6). The reviewer's route -- strip /go/pkg/mod from GOMODCACHE and
-// write <home>/.satelle -- does not reach the caller's home, because
-// GOMODCACHE is a link outside it. A write by a path the test was handed anyway
-// (here as an argument) is caught by the snapshot, naming each path. No path is
-// exempt: serve/, sessions/, builds.json and the per-repo runtime dirs count
-// too.
 func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 	const changed = "changed the caller's real satelle home"
 	run := func(t *testing.T, extraEnv []string, script string, args ...string) (home string, code int, out string) {
@@ -660,14 +581,10 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		caught(t, code, 1, out, filepath.Join(home, ".satelle", "document-sync-state.json"))
 	})
 	t.Run("changed bytes of the same size are caught", func(t *testing.T) {
-		// The content hash catches it even where the clock fields are whole
-		// seconds (busybox stat on alpine), with no wait.
 		home, code, out := run(t, nil, `printf 'a = 2\n' > "$1/config.toml"`)
 		caught(t, code, 1, out, filepath.Join(home, ".satelle", "config.toml"))
 	})
 	t.Run("a rewrite with the same bytes is caught", func(t *testing.T) {
-		// Only the clock fields can show a same-bytes rewrite: where stat gives
-		// whole seconds, the rewrite waits past the snapshot's second.
 		wait := ""
 		if statWholeSeconds(t) {
 			wait = "sleep 1; "
@@ -691,9 +608,6 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 		home, code, out := run(t, nil, `echo leak >> "$1/config.toml"; exit 3`)
 		caught(t, code, 3, out, filepath.Join(home, ".satelle", "config.toml"))
 	})
-	// The paths a running satelle writes on its own (serve/, sessions/,
-	// builds.json, the per-repo runtime dirs) are not exempt: a write to each
-	// is caught.
 	for _, c := range []struct{ name, script, path string }{
 		{"serve/", `echo x > "$1/serve/x"`, "serve/x"},
 		{"sessions/", `mkdir -p "$1/sessions" && echo x > "$1/sessions/x"`, "sessions/x"},
@@ -708,10 +622,6 @@ func TestHermeticCatchesWriteToCallerRealSatelleHome(t *testing.T) {
 	}
 }
 
-// TestHermeticNestedRunInheritsOptIn proves the outer run's snapshot opt-in and
-// forced mode reach the command, so a nested hermetic.sh (the scripts tests
-// under make test in a container with no bwrap) runs instead of refusing
-// (sto_e3c6bfb6).
 func TestHermeticNestedRunInheritsOptIn(t *testing.T) {
 	script, err := filepath.Abs("hermetic.sh")
 	if err != nil {

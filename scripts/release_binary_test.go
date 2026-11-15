@@ -12,15 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// The module fixture release-binary.sh decides over (sto_da9775c1): two
-// binaries that link internal/a, which embeds internal/a/topics; a test file,
-// an old test file, a file built only for windows, a Go and an assembly file
-// every shipped target excludes (plan9); a tool neither binary imports; process
-// files; a release.yml whose matrix builds both binaries for linux/amd64 and
-// windows/amd64; and the tags v1.0.0 and serve-v1.0.0 on the base commit.
-
-// fixtureGoVersion is this repo's go.mod go line and release.yml go-version,
-// so the fixture never downloads a toolchain.
 func fixtureGoVersion(t *testing.T) (goLine, setupGo string) {
 	t.Helper()
 	mod, err := os.ReadFile("../go.mod")
@@ -104,8 +95,6 @@ func readText(t *testing.T, p string) string {
 	return string(b)
 }
 
-// fixtureRepo is a git repo holding the fixture (with extra written over it)
-// committed and tagged v1.0.0 and serve-v1.0.0.
 type fixtureRepo struct {
 	t   *testing.T
 	dir string
@@ -149,14 +138,12 @@ func (r *fixtureRepo) git(args ...string) string {
 	return gittest.Git(r.t, r.dir, args...)
 }
 
-// commit stages everything and commits.
 func (r *fixtureRepo) commit() {
 	r.t.Helper()
 	r.git("add", "-A")
 	r.git("commit", "-q", "--allow-empty", "-m", "change")
 }
 
-// decide runs release-binary.sh decide with env added to this process's.
 func decide(t *testing.T, env []string, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{"release-binary.sh", "decide"}, args...)...)
@@ -175,10 +162,9 @@ func decide(t *testing.T, env []string, args ...string) (string, string, int) {
 	return out.String(), errb.String(), code
 }
 
-// record is a parsed decide record.
 type record struct {
 	binary, reason string
-	paths          []string // the build and other lines, sorted
+	paths          []string
 	head           map[string][]string
 }
 
@@ -212,10 +198,10 @@ type decideRow struct {
 	name   string
 	change func(r *fixtureRepo)
 	binary string
-	reason string   // a prefix the reason must carry; "" means no reason line
-	paths  []string // every build and other line
+	reason string
+	paths  []string
 	env    []string
-	extra  map[string]string // written into the base commit
+	extra  map[string]string
 }
 
 func edit(p string) func(*fixtureRepo) {
@@ -261,8 +247,6 @@ func runDecideRows(t *testing.T, rows []decideRow) {
 	}
 }
 
-// AC2: the decision's record: what the build does not compile or embed is
-// other and leaves the binary unchanged; a compiled or embedded file is built.
 func TestReleaseBinaryDecide(t *testing.T) {
 	_, setupGo := fixtureGoVersion(t)
 	runDecideRows(t, []decideRow{
@@ -276,7 +260,6 @@ func TestReleaseBinaryDecide(t *testing.T) {
 		{name: "embedded test-named file", change: edit("internal/a/topics/x_test.go"), binary: "changed", paths: []string{"build built internal/a/topics/x_test.go"}},
 		{name: "added topic", change: add("internal/a/topics/new.md"), binary: "changed", paths: []string{"build built internal/a/topics/new.md"}},
 
-		// AC6: the conservative rules, one row each.
 		{name: "excluded go", change: edit("internal/a/a_plan9.go"), binary: "changed", paths: []string{"build excluded internal/a/a_plan9.go"}},
 		{name: "excluded asm", change: edit("internal/a/x_plan9.s"), binary: "changed", paths: []string{"build excluded internal/a/x_plan9.s"}},
 		{name: "deleted package file", change: remove("internal/a/b.go"), binary: "changed", paths: []string{"build deleted internal/a/b.go"}},
@@ -317,9 +300,6 @@ func TestReleaseBinaryDecide(t *testing.T) {
 	})
 }
 
-// AC6: the local Go settings never reach the decision: internal/d is linked
-// only through a file a -tags=x build excludes, so an edit to it is built
-// whatever GOFLAGS the caller exports or its go env file holds.
 func TestReleaseBinaryDecideIgnoresLocalGoSettings(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "go.env")
 	if err := os.WriteFile(envFile, []byte("GOFLAGS=-tags=x\n"), 0o644); err != nil {
@@ -337,7 +317,6 @@ func TestReleaseBinaryDecideIgnoresLocalGoSettings(t *testing.T) {
 	})
 }
 
-// decide's only non-zero exit is a usage error, with no record.
 func TestReleaseBinaryDecideUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {t.TempDir()}} {
 		out, _, code := decide(t, nil, args...)
@@ -347,9 +326,6 @@ func TestReleaseBinaryDecideUsage(t *testing.T) {
 	}
 }
 
-// This repo's release.yml is a layout decide reads: with it in the base,
-// both binaries' packages are listed for every target (an edit to either
-// main file is built), and it names no setting decide refuses.
 func TestReleaseBinaryReadsThisReleaseYML(t *testing.T) {
 	yml := readText(t, "../.github/workflows/release.yml")
 	for _, pkg := range []string{"cmd/satelle", "cmd/satelled"} {

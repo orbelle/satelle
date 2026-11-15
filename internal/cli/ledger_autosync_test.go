@@ -24,8 +24,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// boundPair is two machines with their own satelled, bound to one project on
-// srv (sto_5c706973).
 func boundPair(t *testing.T, srv *fakeserver.Server) (a, b machine) {
 	t.Helper()
 	a = newMachineWithUI(t)
@@ -35,15 +33,12 @@ func boundPair(t *testing.T, srv *fakeserver.Server) (a, b machine) {
 	return a, b
 }
 
-// autosync runs one automatic pass on m. Only the verb's own flush reaches
-// m's satelled: nothing else is flushed.
 func autosync(t *testing.T, m machine) string {
 	t.Helper()
 	m.use(t)
 	return must(t, "ledger", "autosync")
 }
 
-// serverItem is the summary satelle.dev lists for id in project "shared".
 func serverItem(t *testing.T, srv *fakeserver.Server, id string) (title, status string, ok bool) {
 	t.Helper()
 	for _, it := range srv.Items("shared") {
@@ -64,7 +59,6 @@ func storyOn(t *testing.T, m machine, id string) item.Item {
 	return it
 }
 
-// syncStateOf is the recorded sync outcome of the current machine's repo.
 func syncStateOf(t *testing.T) syncstate.State {
 	t.Helper()
 	r, err := findRepo("")
@@ -78,8 +72,6 @@ func syncStateOf(t *testing.T) syncstate.State {
 	return st
 }
 
-// AC1: a create, an update and a move on A reach satelle.dev at A's pass and
-// B's CLI and satelled at B's pass, with no replication command run.
 func TestAutosyncCarriesCreateUpdateMove(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a, b := boundPair(t, srv)
@@ -151,8 +143,6 @@ func TestAutosyncCarriesCreateUpdateMove(t *testing.T) {
 	}
 }
 
-// AC2: a write made while satelle.dev is down is kept and recorded as a
-// failing sync, then pushed by the next pass once it is up again.
 func TestAutosyncRecoversAfterOutage(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
@@ -196,8 +186,6 @@ func storyIDs(t *testing.T, m machine) []string {
 	return ids
 }
 
-// AC3: two machines that each made a story the other never saw converge on
-// their next passes: A, B, A.
 func TestAutosyncTwoMachinesDisjointStories(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a, b := boundPair(t, srv)
@@ -230,9 +218,6 @@ func TestAutosyncTwoMachinesDisjointStories(t *testing.T) {
 	}
 }
 
-// AC4: a fresh machine whose queue file adopts a chain the store holds pulls
-// that chain instead of starting its own, and mirrors the file onto it
-// without a fork on either machine.
 func TestAutosyncAdoptedQueueDoesNotFork(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
@@ -275,23 +260,16 @@ func TestAutosyncAdoptedQueueDoesNotFork(t *testing.T) {
 	}
 }
 
-// localWithUI is a machine with its own satelled whose repo is added with
-// satelle project add (its store is local), which seeds the mirror and its
-// snapshot hash. It returns the machine and the partition's repo_key.
 func localWithUI(t *testing.T) (machine, string) {
 	t.Helper()
 	return localOn(t, newMachineWithUI)
 }
 
-// localWithHomeUI is localWithUI whose satelled serves this home's own mirror
-// database, the one the pass's partition prune reads.
 func localWithHomeUI(t *testing.T) (machine, string) {
 	t.Helper()
 	return localOn(t, newMachineWithHomeUI)
 }
 
-// localOn builds the machine with newM and adds its repo with satelle project
-// add, returning the machine and the partition's repo_key.
 func localOn(t *testing.T, newM func(*testing.T) machine) (machine, string) {
 	t.Helper()
 	m := newM(t)
@@ -304,7 +282,6 @@ func localOn(t *testing.T, newM func(*testing.T) machine) (machine, string) {
 	return m, parts[0].RepoKey
 }
 
-// partitionOn is m's satelled's partition key.
 func partitionOn(t *testing.T, m machine, key string) mirror.Partition {
 	t.Helper()
 	p, ok, err := m.ms.GetPartition(context.Background(), key)
@@ -314,7 +291,6 @@ func partitionOn(t *testing.T, m machine, key string) mirror.Partition {
 	return p
 }
 
-// agePartition backdates key's last confirmation past StaleAfter.
 func agePartition(t *testing.T, m machine, key string) {
 	t.Helper()
 	if err := m.ms.MarkFresh(context.Background(), key, time.Now().Add(-mirror.StaleAfter-time.Minute)); err != nil {
@@ -325,7 +301,6 @@ func agePartition(t *testing.T, m machine, key string) {
 	}
 }
 
-// closedEndpoint is the URL of a satelled that is no longer answering.
 func closedEndpoint(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.NotFoundHandler())
@@ -333,17 +308,13 @@ func closedEndpoint(t *testing.T) string {
 	return srv.URL
 }
 
-// AC3 (sto_128803b3): a quiet repo with the timer passing stays fresh. Each
-// pass confirms the mirror with only a digest: the partition reads fresh,
-// seq does not move (no snapshot applied), and the recorded snapshot success
-// moves. The project page carries no stale marker.
 func TestAutosyncConfirmsQuietMirror(t *testing.T) {
 	m, key := localWithUI(t)
 	for i := range 3 {
 		agePartition(t, m, key)
 		before := partitionOn(t, m, key)
 		prev := syncStateOf(t).SnapshotLastSuccess
-		time.Sleep(2 * time.Millisecond) // time-subject: timestamp separation, so the recorded success visibly moves
+		time.Sleep(2 * time.Millisecond)
 		autosync(t, m)
 		after := partitionOn(t, m, key)
 		if after.Stale(time.Now()) {
@@ -367,8 +338,6 @@ func TestAutosyncConfirmsQuietMirror(t *testing.T) {
 	}
 }
 
-// AC1 (sto_128803b3): a push a command dropped (satelled not answering) is
-// repaired by the next pass: the digest differs, so the full snapshot is sent.
 func TestAutosyncRepairsADroppedPush(t *testing.T) {
 	m, key := localWithUI(t)
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
@@ -391,9 +360,6 @@ func TestAutosyncRepairsADroppedPush(t *testing.T) {
 	}
 }
 
-// AC3 (sto_128803b3): a pass that finds satelled not answering confirms
-// nothing: the partition stays stale and unchanged, and no snapshot outcome
-// is recorded.
 func TestAutosyncSatelledDownConfirmsNothing(t *testing.T) {
 	m, key := localWithUI(t)
 	agePartition(t, m, key)
@@ -414,12 +380,8 @@ func TestAutosyncSatelledDownConfirmsNothing(t *testing.T) {
 	}
 }
 
-// releaseFile is the queue file the adoption tests give a machine.
 const releaseFile = "title = \"Release\"\n[filter]\nkind = \"story\"\n"
 
-// legacyRelease appends a que_release genesis straight to the current
-// machine's runtime ledger, as a queue made before file genesis was
-// deterministic: a random id, the wall clock, title "old" (sto_80da4589).
 func legacyRelease(t *testing.T) ledger.Event {
 	t.Helper()
 	k, _, err := openKernel()
@@ -439,7 +401,6 @@ func legacyRelease(t *testing.T) ledger.Event {
 	return e
 }
 
-// queueFileOn writes .satelle/queues/release.toml in m's repo.
 func queueFileOn(t *testing.T, m machine, body string) {
 	t.Helper()
 	file := filepath.Join(m.dir, ".satelle", "queues", "release.toml")
@@ -451,7 +412,6 @@ func queueFileOn(t *testing.T, m machine, body string) {
 	}
 }
 
-// releaseChain is the current machine's que_release chain.
 func releaseChain(t *testing.T) []ledger.Event {
 	t.Helper()
 	events, err := runtimeLedger(t).Read("que_release")
@@ -461,8 +421,6 @@ func releaseChain(t *testing.T) []ledger.Event {
 	return events
 }
 
-// releaseStatus is the que_release row of the current machine's ledger
-// status: its local and store counts and its state.
 func releaseStatus(t *testing.T) (local, store, state string) {
 	t.Helper()
 	out := must(t, "ledger", "status")
@@ -475,9 +433,6 @@ func releaseStatus(t *testing.T) (local, store, state string) {
 	return "", "", ""
 }
 
-// mirrorOnB binds a fresh machine B to shared, gives it body as the release
-// queue file and lets one command write the file's genesis; it returns B and
-// the chain B wrote, every event a mirror event by satelle.
 func mirrorOnB(t *testing.T, srv *fakeserver.Server, bodies ...string) (machine, []ledger.Event) {
 	t.Helper()
 	b := newMachine(t)
@@ -498,9 +453,6 @@ func mirrorOnB(t *testing.T, srv *fakeserver.Server, bodies ...string) (machine,
 	return b, events
 }
 
-// adoptsA checks one pass on B took A's whole chain (aChain), none of B's own
-// events remain, and B's chain ends with exactly one mirror event of the file
-// (Release, filtered), pushed in the pass; ledger status reads in sync.
 func adoptsA(t *testing.T, srv *fakeserver.Server, b machine, aChain, own []ledger.Event) {
 	t.Helper()
 	b.use(t)
@@ -541,8 +493,6 @@ func adoptsA(t *testing.T, srv *fakeserver.Server, b machine, aChain, own []ledg
 	}
 }
 
-// legacyA is machine A on project shared holding a legacy que_release with
-// one story queued, synced; it returns A, its story and its chain.
 func legacyA(t *testing.T, srv *fakeserver.Server) (machine, string, []ledger.Event) {
 	t.Helper()
 	a := newMachine(t)
@@ -554,9 +504,6 @@ func legacyA(t *testing.T, srv *fakeserver.Server) (machine, string, []ledger.Ev
 	return a, sto, releaseChain(t)
 }
 
-// AC1, AC2 (sto_80da4589): a fresh runtime whose queue file wrote que_release
-// before its first pull takes the store's chain at its first pass, mirrors
-// the file onto it as one item.updated and pushes it in the same pass.
 func TestAutosyncFileQueueAdoptsStoreChain(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a, sto, aChain := legacyA(t, srv)
@@ -578,8 +525,6 @@ func TestAutosyncFileQueueAdoptsStoreChain(t *testing.T) {
 	}
 }
 
-// AC1 (sto_80da4589): a local chain of a genesis and a mirror item.updated,
-// both the file's, is adopted the same way.
 func TestAutosyncFileQueueAdoptsOverSeveralMirrorEvents(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	_, _, aChain := legacyA(t, srv)
@@ -590,15 +535,13 @@ func TestAutosyncFileQueueAdoptsOverSeveralMirrorEvents(t *testing.T) {
 	adoptsA(t, srv, b, aChain, own)
 }
 
-// AC2 (sto_80da4589): when the adopted chain already carries the file's
-// definition, nothing is appended and the pass pushes nothing.
 func TestAutosyncFileQueueAdoptsMatchingChainAppendsNothing(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
 	must(t, "project", "create", "shared", "--bind", "--server", srv.URL)
 	legacyRelease(t)
 	queueFileOn(t, a, releaseFile)
-	must(t, "queue", "show", "release") // A's open mirrors the file onto the legacy genesis
+	must(t, "queue", "show", "release")
 	autosync(t, a)
 	aChain := releaseChain(t)
 	if len(aChain) != 2 {
@@ -631,9 +574,6 @@ func TestAutosyncFileQueueAdoptsMatchingChainAppendsNothing(t *testing.T) {
 	}
 }
 
-// AC3 (sto_80da4589): satelle-server's observed shape, a local que_release of
-// one file-mirror event against a store chain of 22 with another genesis,
-// reads in sync with 22 events after one autosync pass and no other command.
 func TestAutosyncReleaseQueueShapeSyncsUnattended(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	a := newMachine(t)
@@ -668,9 +608,6 @@ func TestAutosyncReleaseQueueShapeSyncsUnattended(t *testing.T) {
 	}
 }
 
-// AC4 (sto_80da4589): a file-defined chain that holds any other event (here a
-// queue add on B) is never dropped: the pass leaves its bytes and the store
-// as they were and names the divergence.
 func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	_, _, aChain := legacyA(t, srv)
@@ -700,8 +637,6 @@ func TestAutosyncNeverDropsWorkedFileQueue(t *testing.T) {
 	}
 }
 
-// seedPartition gives m's satelled the partition key, with an identity whose
-// recorded repo_root is root ("" records no identity), as a push would.
 func seedPartition(t *testing.T, m machine, key, root string) {
 	t.Helper()
 	ctx, now := context.Background(), time.Now()
@@ -716,7 +651,6 @@ func seedPartition(t *testing.T, m machine, key, root string) {
 	}
 }
 
-// hasPartition reports whether m's satelled holds the partition key.
 func hasPartition(t *testing.T, m machine, key string) bool {
 	t.Helper()
 	_, ok, err := m.ms.GetPartition(context.Background(), key)
@@ -726,8 +660,6 @@ func hasPartition(t *testing.T, m machine, key string) bool {
 	return ok
 }
 
-// goneProject registers a temp project named 003 with satelle project add and
-// then deletes its directory, as a test's temp project is.
 func goneProject(t *testing.T) string {
 	t.Helper()
 	gone := filepath.Join(t.TempDir(), "003")
@@ -745,10 +677,6 @@ func goneProject(t *testing.T) string {
 	return gone
 }
 
-// AC1 (sto_e3c6bfb6): a registered project whose path no longer exists is
-// pruned by the automatic pass, from [projects] paths in config.toml and from
-// this machine's satelled; every entry and partition whose path exists, or
-// that records no path, is kept.
 func TestAutosyncPrunesGoneProject(t *testing.T) {
 	m, key := localWithHomeUI(t)
 	gc, err := config.LoadGlobal()
@@ -807,9 +735,6 @@ func TestAutosyncPrunesGoneProject(t *testing.T) {
 	}
 }
 
-// AC1 (sto_e3c6bfb6): a pass whose satelled is not answering, or whose push
-// is disabled, removes no partition (no direct-database fallback); the
-// registry prune does not depend on satelled.
 func TestAutosyncSatelledDownPrunesNoPartition(t *testing.T) {
 	m, _ := localWithHomeUI(t)
 	gone := goneProject(t)
@@ -841,13 +766,8 @@ func TestAutosyncSatelledDownPrunesNoPartition(t *testing.T) {
 	}
 }
 
-// AC1 (sto_e3c6bfb6): a pass with no gone project keeps every entry and does
-// not rewrite config.toml.
 func TestAutosyncKeepsExistingProjects(t *testing.T) {
 	m := newMachine(t)
-	// The second project is a satelle repo of its own, so the pass syncs it
-	// wherever the temp root is (a bare dir under a TMPDIR inside the user's
-	// home would resolve to that home's .satelle).
 	other, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -868,7 +788,7 @@ func TestAutosyncKeepsExistingProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(10 * time.Millisecond) // time-subject: a rewrite would visibly move the modification time
+	time.Sleep(10 * time.Millisecond)
 
 	must(t, "ledger", "autosync")
 
@@ -894,8 +814,6 @@ func TestAutosyncKeepsExistingProjects(t *testing.T) {
 	}
 }
 
-// AC1 (sto_e3c6bfb6): the pass's partition read creates no mirror database
-// when this home has none.
 func TestAutosyncCreatesNoMirror(t *testing.T) {
 	newMachine(t)
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
@@ -906,7 +824,6 @@ func TestAutosyncCreatesNoMirror(t *testing.T) {
 	}
 }
 
-// AC1 (sto_e3c6bfb6): only a missing absolute path is gone.
 func TestProjectPathGone(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "f")
@@ -929,10 +846,6 @@ func TestProjectPathGone(t *testing.T) {
 	}
 }
 
-// AC1 (sto_0f76dd4e): a registered pre-1.0 project is skipped with one
-// needs-upgrade line, recorded as needing upgrade (not failing), and does not
-// fail the pass; nothing but its sync record is written into its runtime dir.
-// A v1 project whose configuration is broken still fails the pass alone.
 func TestAutosyncSkipsAPreV1Project(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -961,8 +874,6 @@ func TestAutosyncSkipsAPreV1Project(t *testing.T) {
 		if st.SyncUpgrade != "satelle upgrade --archive" || st.SyncReason != "" {
 			t.Errorf("%s recorded %+v, want an upgrade and no reason", p, st)
 		}
-		// The runtime dir holds the sync record (syncstate keeps it there)
-		// and nothing else: no ledger, no repo-path marker, nothing opened.
 		ents, err := os.ReadDir(r.Runtime)
 		if err != nil {
 			t.Fatal(err)

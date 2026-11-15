@@ -1,66 +1,4 @@
 #!/usr/bin/env bash
-# drift-fix — raise one drift-fix item per release listing every finding of
-# that release's drift review (.satelle/skills/drift-review.md, steps 2 to 6),
-# and close the older drift items it carries. Drift is fixed like an upgrade:
-# one item per release, not one story per finding. It never fixes anything.
-#
-#   drift-fix.sh <version> < findings
-#   drift-fix.sh --keys < findings
-#   drift-fix.sh --open-findings
-#   drift-fix.sh --close <fix id|->
-#
-# Each stdin line is a finding in drift-check.sh's form,
-# `<file>:<line>: <kind>: <subject> — <why>`. Kinds command, flag, topic,
-# link, skill, config (the substrate against the binary) and constitution (a
-# release's binary change against the constitution) are findings; kind prose
-# (a principle's statement the source does not implement, the drift-claims
-# judge's WARN lines) is a warning, which never blocks. Any other kind, or a
-# line that is not a finding, exits 2 before anything is written. A finding's
-# key is `<kind>:<file>:<subject>` (no line number: lines shift between
-# releases); this is the one place a finding maps to its key.
-#
-# <version> creates, or on a rerun rewrites the body of, the one open story
-# tagged drift-fix and release:v<version>: title `Drift fix: v<version>`, tags
-# drift, drift-fix and release:v<version>, category chore, no parent (the
-# satelle.toml drift rule puts it on the drift workflow). Its body lists one
-# `drift-key: <key>` line per distinct finding under `## Findings` and one
-# `drift-warning: <key>` line per distinct warning under `## Warnings`, each
-# followed by `> <the finding>`; the first line for a key wins. Its one
-# criterion says every drift-key is fixed and warnings never hold it open. A
-# rerun replaces the body with this input's findings and leaves the criterion.
-# Empty input prints nothing, creates nothing and exits 0. More than one open
-# fix item for the version exits 2. Output, one line:
-#   <id>\tnew|updated\t<n> findings\t<m> warnings
-#
-# --keys prints the key of each distinct finding on stdin, one per line, and
-# writes nothing; the drift workflow's done gate
-# (.satelle/skills/satelle-drift-resolved-check.md) reads findings through it.
-#
-# --open-findings prints, for every open story tagged drift (older
-# per-finding drift stories and fix items alike), one
-# `<id>\t<finding line>` per `drift-key:` or `drift-warning:` body line: the
-# first later body line (a `> ` quote stripped) whose key is that key, else a
-# line rebuilt as `<file>:1: <kind>: <subject> — carried from <id>` (the same
-# key: keys carry no line number). An open drift story with no such line
-# yields `<id>:1: prose: <title> — carried from <id>`, a warning whose key
-# names the item. Fed to `drift-fix.sh <version>`, it carries every open
-# finding into that release's fix item.
-#
-# --close <fix id> acts on every open story tagged drift except the fix item.
-# One not on the drift workflow is first reselected onto it (satelle story set
-# --reselect drift). When its workflow has moved or judged it (the reselect
-# exits 2) it keeps that route, its owner: its drift tag is swapped for
-# drift-carried-by:<fix id>. Every other story gets the tag
-# drift-carried-by:<fix id> and is presented done; the drift workflow's
-# drift-resolved gate accepts a key the fix item carries, or one the
-# in-progress drift run no longer finds. A refused story loses the tag again.
-# `-` for the fix id closes only on the drift run's evidence and carries
-# nothing. No story is cancelled. Output, one line per story:
-#   <id>\tclosed
-#   <id>\tcarried\ton <workflow>/<state>
-#   <id>\trefused\t<the refusal's first line>
-# Exit 0 when every story was closed or carried, 1 when any was refused, 2
-# when a tool, a list or a write fails.
 set -uo pipefail
 
 bin=${SATELLE_BIN:-satelle}
@@ -68,9 +6,6 @@ bin=${SATELLE_BIN:-satelle}
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 
-# parse_findings: every stdin finding, parsed once into $tmp/findings, one
-# line each: key, class (finding|warning), the finding. Returns 1 (naming the
-# line) on a line that is not a finding or carries an unknown kind.
 parse_findings() {
   local line file rest num kind subject class
   : > "$tmp/findings"
@@ -103,7 +38,6 @@ for tool in "$bin" jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "drift-fix: $tool is not on PATH" >&2; exit 2; }
 done
 
-# keyof <line>: the key of one finding line, or nothing.
 keyof() {
   local file rest kind
   file=${1%%:*}
@@ -155,8 +89,6 @@ if [ "${1:-}" = --close ]; then
   "$bin" story list --tag drift --open --json > "$tmp/open" || { echo "drift-fix: satelle story list --tag drift failed" >&2; exit 2; }
   jq -r --arg fix "$fix" '.[] | select(.id != $fix) | [.id, .workflow] | @tsv' "$tmp/open" > "$tmp/ids"
   refused=0
-  # Pre-pass: put each story onto the drift workflow, or leave it on the route
-  # that moved or judged it, carried.
   : > "$tmp/close"
   while IFS=$'\t' read -r id wf <&3; do
     if [ "$wf" = drift ]; then
@@ -212,7 +144,6 @@ jq -r '.[] | select(any(.tags[]?; . == "drift-fix")) | .id' "$tmp/open" > "$tmp/
 nfix=$(grep -c . "$tmp/fix")
 [ "$nfix" -le 1 ] || { echo "drift-fix: $nfix open items carry drift-fix and release:v$ver; want at most one: $(tr '\n' ' ' < "$tmp/fix")" >&2; exit 2; }
 
-# section <class> <line prefix>: the body lines of one section, or none.
 section() {
   awk -F'\t' -v c="$1" -v p="$2" '$2 == c { printf "%s%s\n> %s\n\n", p, $1, $3; n++ } END { if (!n) print "none\n" }' "$tmp/distinct"
 }

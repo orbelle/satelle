@@ -47,7 +47,6 @@ func TestParseVerdict(t *testing.T) {
 	}
 }
 
-// fakeDispatcher answers each binding with a canned text and counts calls.
 type fakeDispatcher struct {
 	mu      sync.Mutex
 	answers map[string]string
@@ -142,13 +141,11 @@ func TestSkippedAndCarried(t *testing.T) {
 	if !pass || results(rs) != "docs=skipped code=carried fresh=accept" || len(d.calls) != 1 {
 		t.Fatalf("%v %s %v", pass, results(rs), d.calls)
 	}
-	// A changed coverage runs the gate again.
 	r.Prior[0].Coverage = "older"
 	rs, _ = r.Execute(context.Background())
 	if results(rs) != "docs=skipped code=accept fresh=accept" {
 		t.Fatalf("%s", results(rs))
 	}
-	// A later reject is not carried past.
 	r.Prior = append(r.Prior, Result{Transition: "s0->s1", Gate: "code", Result: Reject, Coverage: "cov:**/*.go"})
 	if rs, _ = r.Execute(context.Background()); rs[1].Result != Accept {
 		t.Fatalf("%s", results(rs))
@@ -190,8 +187,6 @@ func TestReviewerDiffersFromPerformer(t *testing.T) {
 	}
 }
 
-// A relevance skip reports an empty diff, or one that lost paths of the item's
-// last judged diff; a judged result records the diff it saw.
 func TestRelevanceSkipReportsAnEmptyOrShrunkDiff(t *testing.T) {
 	gates := map[string]workflow.Gate{"code": {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}}, "all": {Skill: "judge", Agent: "y1"}}
 	run := func(changed []string, prior ...Result) []Result {
@@ -202,34 +197,28 @@ func TestRelevanceSkipReportsAnEmptyOrShrunkDiff(t *testing.T) {
 	}
 	judged := Result{Transition: "a->b", Gate: "all", Result: Accept, Coverage: "c", Changed: []string{"a.go", "b.md"}}
 
-	// (a) an empty diff
 	if rs := run(nil); rs[0].Result != Skipped || !strings.Contains(rs[0].Warning, "diff is empty") || !strings.Contains(rs[0].Warning, "satelle story diff i1") {
 		t.Errorf("empty diff: %+v", rs[0])
 	}
-	// (b) a diff that lost a.go and b.md
 	if rs := run([]string{"c.md"}, judged); !strings.Contains(rs[0].Warning, "shrunk") || !strings.Contains(rs[0].Warning, "a.go, b.md") || !strings.Contains(rs[0].Warning, "all on a->b") {
 		t.Errorf("shrunk diff: %+v", rs[0])
 	}
-	// (c) a superset of the last judged diff
 	if rs := run([]string{"a.go", "b.md", "c.md"}, judged); rs[0].Result != Accept || rs[0].Warning != "" {
 		t.Errorf("superset: %+v", rs[0])
 	}
 	if rs := run([]string{"b.md", "c.md"}, Result{Transition: "a->b", Gate: "all", Result: Accept, Coverage: "c", Changed: []string{"b.md"}}); rs[0].Result != Skipped || rs[0].Warning != "" {
 		t.Errorf("a skip on a diff holding everything last judged warned: %+v", rs[0])
 	}
-	// (d) skipped and carried results are not a reference
 	newer := []Result{judged, {Gate: "all", Result: Skipped, Changed: []string{"x.md"}}, {Gate: "all", Result: Carried, Coverage: "c", Changed: []string{"y.md"}}}
 	if rs := run([]string{"c.md"}, newer...); !strings.Contains(rs[0].Warning, "a.go, b.md") {
 		t.Errorf("the reference was not the last judged diff: %+v", rs[0])
 	}
-	// (f) a judged accept records the diff it saw; a skip does not
 	rs := run([]string{"c.md"}, judged)
 	if rs[0].Changed != nil || strings.Join(rs[1].Changed, ",") != "c.md" {
 		t.Errorf("recorded diffs: skip %v, accept %v", rs[0].Changed, rs[1].Changed)
 	}
 }
 
-// (e) A trigger skip carries the warning too.
 func TestTriggerSkipReportsAnEmptyDiff(t *testing.T) {
 	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"t"}}}, map[string]workflow.Gate{"t": {Skill: "judge", Agent: "y1", Trigger: "never"}})
 	r.Skills["never"] = workflow.Skill{Name: "never", Meta: map[string]string{"type": "check"}, Script: "exit 1"}
@@ -288,8 +277,6 @@ func TestLegacyAnswerKey(t *testing.T) {
 	}
 }
 
-// A model gate's accept, reject and carry record the change it covered (the
-// run's span and the diff-only hash); a check's result and a skip record none.
 func TestJudgedResultRecordsChange(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"skip":   {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}},
@@ -326,9 +313,6 @@ func TestJudgedResultRecordsChange(t *testing.T) {
 	}
 }
 
-// A judge whose dispatch failed is an error, not its verdict: the transition
-// is still refused, a sequential group stops after it, and a panel is an
-// error only when no member rejected and the combine does not pass.
 func TestDispatchFailureIsAnError(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"dead": {Skill: "judge", Agent: "dead"},
@@ -371,8 +355,6 @@ func TestDispatchFailureIsAnError(t *testing.T) {
 	}
 }
 
-// A judge's dispatch is logged under the run's logs dir, named for the
-// binding and item; with no logs dir none is asked for.
 func TestJudgeDispatchLogPath(t *testing.T) {
 	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"ok"}}}, map[string]workflow.Gate{"ok": {Skill: "judge", Agent: "y1"}})
 	rec := &logRecorder{Dispatcher: r.Dispatcher}

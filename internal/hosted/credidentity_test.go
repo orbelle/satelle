@@ -23,8 +23,6 @@ func identityCred(url string) Credential {
 	}
 }
 
-// TestIdentityDiff proves the shared credentials-guard decision (sty_5ba68e2c):
-// a token refresh is no diff; every identity-changing write is one.
 func TestIdentityDiff(t *testing.T) {
 	const keep = "https://keep.example.com"
 	const other = "https://other.example.com"
@@ -40,7 +38,7 @@ func TestIdentityDiff(t *testing.T) {
 		name  string
 		setup func(t *testing.T, s FileStore, path string)
 		write func(t *testing.T, s FileStore, path string)
-		want  string // substring of the single reason; "" means no diff
+		want  string
 	}{
 		{"token refresh", func(t *testing.T, s FileStore, _ string) { save(t, s, identityCred(keep)) },
 			func(t *testing.T, s FileStore, _ string) {
@@ -107,9 +105,6 @@ func TestIdentityDiff(t *testing.T) {
 	}
 }
 
-// TestIdentityTextRoundTrip proves the snapshot the shell guard stores decodes
-// to the identity it encoded, so the diff on decoded snapshots matches the diff
-// on captured ones.
 func TestIdentityTextRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "credentials.toml")
 	store := FileStore{Path: path}

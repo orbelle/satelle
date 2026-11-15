@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// A sandbox git that exits non-zero reports its exit status and stderr, and
-// is not mistaken for a signal kill.
 func TestSandboxGitFailureReportsStatusAndStderr(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

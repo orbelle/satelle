@@ -1,14 +1,3 @@
-// Command hookharness is a claude stand-in that honours hooks the way claude
-// does: before each scripted tool call it runs the PreToolUse hook commands
-// that ./.claude/settings.json (as `satelle init --hooks claude` wrote it)
-// matches to the tool, and makes the call only when no hook denies it.
-//
-// It reads its prompt on stdin, records its argv in $FAKE_DIR/argv, makes an
-// Edit of perform-edit.txt and a Write of perform-write.txt, and appends
-// "allow <tool>" or "deny <tool>: <reason>" for each to $FAKE_DIR/calls. Its
-// hook payload carries a session id of its own, so an allow can only come
-// from the environment it was started with. It answers with claude's JSON
-// envelope, or exits 1 after the calls when $FAKE_DIR/fail exists.
 package main
 
 import (
@@ -94,9 +83,6 @@ func run() error {
 	return nil
 }
 
-// preToolUse runs every PreToolUse hook command whose matcher matches tool and
-// returns the first deny's reason, "" when every hook allows. A hook that
-// fails in any other way is an error, so a broken hook never reads as allow.
 func preToolUse(s settings, cwd, session, tool, path string) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse",

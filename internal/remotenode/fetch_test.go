@@ -11,17 +11,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// testDefName is the name a test's definition goes by in a refusal.
 const testDefName = "remote.toml at version test"
 
-// fetchDeclared fetches repos under a definition that declares exactly them.
 func fetchDeclared(dir string, repos []remotedef.Repo, env []string) ([]FetchedRepo, error) {
 	return FetchRepos(context.Background(), dir, remotedef.Definition{Repos: repos}, testDefName, repos, env)
 }
 
-// AC5: the node fetches a declared repo at its ref over https into a clone whose
-// push URL refuses. The server is a local smart-HTTP git server (git's
-// http-backend behind net/http/cgi), so the fetch needs no network beyond it.
 func TestFetchReposOverHTTPSIsReadOnly(t *testing.T) {
 	g := gittest.New(t)
 	dir := t.TempDir()
@@ -41,7 +36,6 @@ func TestFetchReposOverHTTPSIsReadOnly(t *testing.T) {
 		t.Error("the clone is not at the fetched commit")
 	}
 
-	// A push refuses, and the served repository is untouched.
 	gittest.Git(t, clone, "commit", "-q", "--allow-empty", "-m", "local change")
 	cmd := gittest.Command(t, clone, "push", "origin", "HEAD:refs/heads/pushed")
 	cmd.Env = append(cmd.Env, g.Env...)
@@ -59,7 +53,6 @@ func TestFetchReposOverHTTPSIsReadOnly(t *testing.T) {
 		t.Errorf("push URL = %q, want the refusing one", pushURL)
 	}
 
-	// A tag pins an older commit than the branch tip.
 	got, err = fetchDeclared(t.TempDir(), []remotedef.Repo{{URL: g.URL, Ref: "v1"}}, g.Env)
 	if err != nil || len(got) != 1 || got[0].Commit != g.Tagged {
 		t.Fatalf("fetching v1 = %+v, %v; want commit %s", got, err, g.Tagged)
@@ -101,9 +94,6 @@ func TestFetchReposWithNoReposDoesNothing(t *testing.T) {
 	}
 }
 
-// A repo, or a declared repo at a ref, that the definition does not declare is
-// refused naming the repo and the definition, and nothing is fetched — not even a
-// declared repo asked for alongside it.
 func TestFetchReposRefusesWhatTheDefinitionDoesNotDeclare(t *testing.T) {
 	g := gittest.New(t)
 	other := g.Also(t, "other")
@@ -138,8 +128,6 @@ func TestFetchReposRefusesWhatTheDefinitionDoesNotDeclare(t *testing.T) {
 	}
 }
 
-// Once checked out, a clone's origin answers no further fetch: another ref of the
-// same repo is refused before it reaches the server, and HEAD stays put.
 func TestFetchedCloneRefusesALaterFetch(t *testing.T) {
 	g := gittest.New(t)
 	dir := t.TempDir()

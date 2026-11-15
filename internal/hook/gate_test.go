@@ -12,7 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// newRepo is a git repo with one commit.
 func newRepo(t *testing.T) string {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -30,8 +29,8 @@ func TestEditGateTable(t *testing.T) {
 	linked := filepath.Join(t.TempDir(), "wt")
 	gittest.Git(t, root, "worktree", "add", "-q", linked)
 	linked, _ = filepath.EvalSymlinks(linked)
-	plain, _ := filepath.EvalSymlinks(t.TempDir()) // in no working tree
-	temp, _ := filepath.EvalSymlinks(t.TempDir())  // the configured temp root
+	plain, _ := filepath.EvalSymlinks(t.TempDir())
+	temp, _ := filepath.EvalSymlinks(t.TempDir())
 
 	seats := map[string]bool{}
 	g := Gate{
@@ -44,8 +43,8 @@ func TestEditGateTable(t *testing.T) {
 	type tc struct {
 		name   string
 		seated []string
-		edit   string // absolute or relative to root
-		bash   string // run in root when set
+		edit   string
+		bash   string
 		allow  bool
 	}
 	for _, c := range []tc{
@@ -96,10 +95,6 @@ func TestEditGateTable(t *testing.T) {
 	}
 }
 
-// TestEditGateAttachmentsOnly pins that a seat on a state whose performer
-// produces only attachments refuses every path of its tree, exempt and locked
-// paths included and whatever other seat the session holds there, naming the
-// state; a temp-dir write still passes.
 func TestEditGateAttachmentsOnly(t *testing.T) {
 	root := newRepo(t)
 	temp, _ := filepath.EvalSymlinks(t.TempDir())
@@ -176,9 +171,6 @@ func TestEditGateAttachmentsOnly(t *testing.T) {
 	}
 }
 
-// TestGateChmodModeOperand pins that chmod's mode is not judged as an edit:
-// from an unseated repo cwd a scratch-file chmod is allowed, and an in-repo
-// chmod is refused naming the file, never the mode.
 func TestGateChmodModeOperand(t *testing.T) {
 	root := newRepo(t)
 	g := Gate{Root: root, TempRoots: []string{"/tmp"}, Grant: func(string) Grant { return Grant{} }}
@@ -199,7 +191,6 @@ func TestGateChmodModeOperand(t *testing.T) {
 			t.Errorf("%q: reason does not name the file alone: %q", cmd, v.Reason)
 		}
 	}
-	// A mode-shaped word after the first positional is a file chmod writes.
 	if v := g.Bash("chmod /tmp/x.sh +x", root); v.Allow || v.Path != filepath.Join(root, "+x") {
 		t.Errorf("chmod /tmp/x.sh +x: allow %v path %q, want refused at %q", v.Allow, v.Path, filepath.Join(root, "+x"))
 	}
@@ -227,9 +218,6 @@ func TestParseInputAcrossHarnesses(t *testing.T) {
 	}
 }
 
-// cursorFixture reads a Cursor hook payload captured by the sto_e51c7fb9
-// probe (cursor-agent 2026.11.05; user_email and transcript_path removed, the
-// scratch repo's path replaced by /work/repo).
 func cursorFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "cursor-"+name+".json"))
@@ -351,8 +339,6 @@ func TestParseInputGrokFixtures(t *testing.T) {
 	}
 }
 
-// agents install cursor writes flat entries into .cursor/hooks.json beside the
-// user's own, and remove strips only satelle's (sto_e51c7fb9 AC2).
 func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".cursor", "hooks.json")
@@ -363,7 +349,7 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 	if err := os.WriteFile(path, []byte(user), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for range 2 { // idempotent
+	for range 2 {
 		if _, _, err := Install(root, Cursor, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -440,8 +426,6 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 	}
 }
 
-// Defers holds only for Cursor's run of another harness's entries, and only
-// once Cursor's own are installed; the root is resolved only for that call.
 func TestDefersToCursorInstall(t *testing.T) {
 	root := t.TempDir()
 	at := func() (string, bool) { return root, true }
@@ -477,7 +461,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 	if err := os.WriteFile(path, []byte(user), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for range 2 { // idempotent
+	for range 2 {
 		if _, _, err := Install(root, Claude, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -529,9 +513,6 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 	}
 }
 
-// The gate refuses the operator record verb in any agent tool call, before
-// paths and seats: a seat that allows every edit does not allow it. Prose that
-// names the verb only as data is allowed.
 func TestGateRefusesOperatorRecord(t *testing.T) {
 	root := newRepo(t)
 	g := Gate{Root: root, Grant: func(string) Grant { return Grant{Tree: true} }}

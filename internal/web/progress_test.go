@@ -15,9 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// The progress fixture: every name is the test's own, and none appears in
-// internal/web's Go source. s0 is the start, s1..s3 steps (s3 never reached),
-// pk a resumes park, qk a park that does not resume, t1 and t2 terminals.
 func progressWorkflow(n func(string) string) *mirror.Workflow {
 	gates := func(g ...string) []mirror.WorkflowGroup {
 		for i := range g {
@@ -53,7 +50,6 @@ func progressWorkflow(n func(string) string) *mirror.Workflow {
 
 func same(s string) string { return s }
 
-// hist builds one item's events, a minute apart.
 type hist struct {
 	id  string
 	n   func(string) string
@@ -71,7 +67,6 @@ func (h *hist) add(kind string, p any) *hist {
 	return h
 }
 
-// last is the time of the latest event.
 func (h *hist) last() time.Time { return h.evs[len(h.evs)-1].At }
 
 func (h *hist) place(to string) *hist {
@@ -91,8 +86,6 @@ func (h *hist) perf(state, binding string) *hist {
 	return h.add(mirror.EventPerformerRun, mirror.PerformerRun{State: h.n(state), Binding: h.n(binding)})
 }
 
-// stubStanding: a session named gone* is gone, far* is elsewhere, any other
-// is here and working.
 func stubStanding(s mirror.Seat) (seatlife.Standing, seatlife.Evidence) {
 	switch {
 	case strings.HasPrefix(s.Session, "gone"):
@@ -103,12 +96,10 @@ func stubStanding(s mirror.Seat) (seatlife.Standing, seatlife.Evidence) {
 	return seatlife.Here, ""
 }
 
-// engOf is the item's engagement as the Stories list computes it.
 func engOf(w *mirror.Workflow, it Item, seats []mirror.Seat) *engagementVM {
 	return engagements(seats, []Item{it}, map[string]*mirror.Workflow{w.Name: w}, stubStanding)[it.ID]
 }
 
-// pOf is progressOf with the engagement the list would pass.
 func pOf(w *mirror.Workflow, it Item, evs []Entry, seats []mirror.Seat) []stageVM {
 	return progressOf(w, it, evs, seats, stubStanding, engOf(w, it, seats))
 }
@@ -138,7 +129,6 @@ func chip(t *testing.T, cs []stageVM, name string) stageVM {
 	return stageVM{}
 }
 
-// renderRows renders story rows as the stories fragment does.
 func renderRows(t *testing.T, rows []rowVM) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -153,7 +143,6 @@ func rowOf(w *mirror.Workflow, status string, h *hist, cs []stageVM) rowVM {
 	return rowVM{Item: Item{ID: h.id, Kind: "story", Title: h.id, Status: h.n(status), Workflow: w.Name}, Progress: cs}
 }
 
-// progressSnapshot pushes w, the stories and tasks, their events and seats.
 func progressSnapshot(ws []*mirror.Workflow, stories, tasks []Item, events []Entry, seats []mirror.Seat) mirror.Snapshot {
 	snap := mirror.Snapshot{RepoKey: "rk", Slug: "proj",
 		Settings: raw(mirror.Settings{RepoRoot: "/p"}),
@@ -269,9 +258,6 @@ func TestProgressChipStates(t *testing.T) {
 			t.Errorf("s2 with seats %v: %+v, want current, not performing", seats, c)
 		}
 	}
-	// sto_96f0ad26 AC1: the chip is Performing exactly when the story is
-	// engaged, wherever the seat is: here, a dispatched run's seat, a remote,
-	// another machine.
 	for _, s := range []mirror.Seat{
 		{Item: "sto_1", Session: "perform_ab12", Location: "local:/p", BoundAt: at.last()},
 		{Item: "sto_1", Session: "far1", Location: "remote:nod_7", BoundAt: at.last()},
@@ -287,7 +273,6 @@ func TestProgressChipStates(t *testing.T) {
 			}
 		}
 	}
-	// AC2: a story at a step that nobody works draws a still current chip.
 	if row := renderRows(t, []rowVM{rowOf(w, "s2", at, chipsFor(t, w, "s2", at))}); !strings.Contains(row, "stage-chip stage-current") || strings.Contains(row, "stage-performing") {
 		t.Errorf("an unworked story's row: want stage-current and no stage-performing:\n%s", row)
 	}
@@ -384,8 +369,6 @@ func TestProgressExitGates(t *testing.T) {
 		t.Errorf("the row draws a running tone: %s", row)
 	}
 
-	// A reselect: an accepted exit before the latest placement does not tone
-	// the step reached again after it; its rejected rounds still count.
 	rs0 := newHist("sto_re", same).place("s0").move("s0", "s1").
 		gate("s1", "s2", "g1", "reject", "j1", "", "A").
 		gate("s1", "s2", "g1", "accept", "j1", "", "B").gate("s1", "s2", "g2", "accept", "j2", "", "B").move("s1", "s2")
@@ -395,17 +378,14 @@ func TestProgressExitGates(t *testing.T) {
 		t.Errorf("s1 after a reselect: %+v, want grey, not yet run, 1 round from the whole history", c)
 	}
 
-	// A refused cancel from the start, then the real exit.
 	rc := newHist("sto_rc", same).place("s0").gate("s0", "t2", "g3", "reject", "j3", "keep it", "A").move("s0", "s1")
 	if c = chip(t, chipsFor(t, w, "s1", rc), "s0"); c.To != "s1" || len(c.Gates) != 0 || !c.Passed || c.Rounds != 0 {
 		t.Errorf("start after a refused cancel: %+v, want s0->s1, green 0, no rounds", c)
 	}
-	// A refused cancel from a step whose exit was never presented.
 	rs := newHist("sto_rs", same).place("s0").move("s0", "s1").gate("s1", "t2", "g3", "reject", "j3", "keep it", "A")
 	if c = chip(t, chipsFor(t, w, "s1", rs), "s1"); c.To != "s2" || !slices.Equal(c.Gates, []string{"g1", "g2"}) || c.ToneWord != toneNotRun || c.Rounds != 0 {
 		t.Errorf("step after a refused cancel: %+v, want s1->s2 [g1 g2], not yet run, no rounds", c)
 	}
-	// Cancelled through the wildcard: the cancel is the step's exit.
 	cw := newHist("sto_cw", same).place("s0").move("s0", "s1").
 		gate("s1", "s2", "g1", "reject", "j1", "", "A").
 		gate("s1", "t2", "g3", "reject", "j3", "", "B").
@@ -414,7 +394,6 @@ func TestProgressExitGates(t *testing.T) {
 		t.Errorf("cancelled from s1: %+v, want s1->t2 [g3], green, 1 round", c)
 	}
 
-	// A step whose only explicit edge is rework takes its wildcard exit.
 	rw := &mirror.Workflow{Name: "rw",
 		States: []mirror.WorkflowState{{Name: "s0", Start: true}, {Name: "s1"}, {Name: "s2"}, {Name: "t1", Terminal: true}},
 		Transitions: []mirror.WorkflowTransition{
@@ -469,7 +448,6 @@ func TestProgressRoundsAndParks(t *testing.T) {
 		t.Errorf("the row does not draw 3 rejected rounds and 2 parks on s1: %s", row)
 	}
 
-	// One attempt is one round, even when a gate repeats in it.
 	rep := newHist("sto_r", same).place("s0").move("s0", "s1").
 		gate("s1", "s2", "g1", "reject", "j1", "", "A").gate("s1", "s2", "g1", "reject", "j2", "", "A").
 		gate("s1", "s2", "g1", "reject", "j1", "", "B")
@@ -517,7 +495,6 @@ func TestProgressHoverAndDetailNotes(t *testing.T) {
 	}
 
 	has("performing, no run", title("s2", "s2", h, seat("work1", h.last())), "performing (pa2)")
-	// sto_96f0ad26 AC3: an unworked current chip says so.
 	has("current, no seat", title("s2", "s2", h), "s2: current, not being worked")
 	has("s1", title("s2", "s1", h), "2 exit gates", "g1, g2", "2 rejected rounds", "0 parks")
 	if s := title("s2", "s1", h); strings.Contains(s, "performed by") {
@@ -564,7 +541,6 @@ func TestProgressHoverAndDetailNotes(t *testing.T) {
 		t.Errorf("error only: the title says rejected beyond its count: %q", s)
 	}
 
-	// The detail page: every rejected gate's notes, on its step.
 	notes := newHist("sto_n", same).place("s0").move("s0", "s1").
 		gate("s1", "s2", "g1", "reject", "j1", "n-one", "A").gate("s1", "s2", "g2", "reject", "j2", "n-two", "A").
 		gate("s1", "s2", "g1", "reject", "j1", "n-three", "B").gate("s1", "s2", "g2", "accept", "j2", "n-accepted", "B")
@@ -631,8 +607,6 @@ func TestProgressMarkupKeepsOldShape(t *testing.T) {
 			t.Errorf("app.css lacks %s", sel)
 		}
 	}
-	// sto_96f0ad26 AC2: the current chip is highlighted and still; only the
-	// performing chip pulses.
 	rule := func(sel string) string {
 		s := string(css)
 		i := strings.Index(s, "\n"+sel+" {")
@@ -685,7 +659,7 @@ func TestProgressNamesFromWorkflow(t *testing.T) {
 	all := strings.Join(titles, "\n") + "\n" + detail
 	for old, nu := range rename {
 		if old == "pw" || old == "s3" || old == "t1" || old == "pk" || old == "qk" || old == "g5" || old == "j2" {
-			continue // not drawn by this history (j2 only accepts)
+			continue
 		}
 		if !strings.Contains(all, nu) {
 			t.Errorf("the renamed %q (was %q) is not drawn", nu, old)
@@ -699,7 +673,6 @@ func TestProgressNamesFromWorkflow(t *testing.T) {
 	}
 }
 
-// The progress payloads decode as the kernel writes them.
 func TestProgressReadsPushedPayloads(t *testing.T) {
 	var g mirror.GateRun
 	if err := json.Unmarshal([]byte(`{"transition":"a->b","gate":"x","result":"reject","attempt":"at1"}`), &g); err != nil || g.Attempt != "at1" {

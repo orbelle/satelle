@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// build-version.sh prints the base on the clean tagged commit and marks any
-// other build +<sha12>, and -dirty on a dirty tree.
 func TestBuildVersionMarksDevBuilds(t *testing.T) {
 	script, err := filepath.Abs("build-version.sh")
 	if err != nil {

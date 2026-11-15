@@ -10,13 +10,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// smallImages are tried in order; the test never pulls one.
 var smallImages = []string{"busybox:latest", "busybox", "alpine:3", "alpine:latest", "alpine"}
 
-// The reference provider against a real docker daemon: the definition runs as
-// a container with the node's identity in its environment and its setup run
-// inside, inspectable with docker exec, and Stop removes it. Skipped when
-// docker is absent, its daemon is down, or no small image is present locally.
 func TestDockerLocalRunsTheDefinition(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is not installed")
@@ -117,7 +112,6 @@ func TestContainerNameAndProviders(t *testing.T) {
 	}
 }
 
-// A fake docker CLI records the argv: the token never appears on it.
 func TestDockerLocalKeepsTheTokenOffTheArgv(t *testing.T) {
 	dir := t.TempDir()
 	log := dir + "/argv"
@@ -145,8 +139,6 @@ func TestDockerLocalKeepsTheTokenOffTheArgv(t *testing.T) {
 	}
 }
 
-// The node image, liveness and copies through a fake docker CLI: the argv of
-// each, and a definition with no image runs NodeImage.
 func TestDockerLocalBuildCopyArgv(t *testing.T) {
 	dir := t.TempDir()
 	log := dir + "/argv"

@@ -17,7 +17,6 @@ import (
 
 const devToken = "tok-integration"
 
-// signedIn is a sandbox initialised and signed in to the fake server.
 func signedIn(t *testing.T) *sandbox {
 	t.Helper()
 	s := newSandbox(t)
@@ -26,7 +25,6 @@ func signedIn(t *testing.T) *sandbox {
 	return s
 }
 
-// hashes returns every event hash of the sandbox's ledger, by item.
 func (s *sandbox) hashes() map[string][]string {
 	s.t.Helper()
 	var evs []struct {
@@ -41,10 +39,6 @@ func (s *sandbox) hashes() map[string][]string {
 	return out
 }
 
-// Two machines share a project on the fake server, the store signed in with
-// no [ledger] store set: what one pushes the other pulls, items, ledger and
-// attachments alike; a push over a moved head is a divergence that exits 1
-// and rewrites nothing.
 func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 	t.Parallel()
 	srv := fakeserver.Start(t, devToken)
@@ -94,7 +88,6 @@ func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 		t.Errorf("status after pull: %s", out)
 	}
 
-	// b moves the head; a's edit of the same item now diverges.
 	b.must("story", "set", s1.ID, "--title", "b's title")
 	b.must("ledger", "push")
 	a.must("story", "set", s1.ID, "--title", "a's title")
@@ -117,8 +110,6 @@ func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 	a.must("ledger", "verify")
 }
 
-// Every version of every attachment survives a push and a pull, each body
-// identical by sha256 and readable by its sha on the other machine.
 func TestLedgerDevCarriesEveryAttachmentVersion(t *testing.T) {
 	t.Parallel()
 	srv := fakeserver.Start(t, devToken)
@@ -170,9 +161,6 @@ func TestLedgerDevCarriesEveryAttachmentVersion(t *testing.T) {
 	}
 }
 
-// An item created server-side with no workflow (as satelle-server's MCP
-// does) arrives placed by each repo's own rules, can be driven, and a second
-// machine adds nothing; foreign ids are kept as they are.
 func TestLedgerDevPlacesAnItemThatArrivesWithoutAWorkflow(t *testing.T) {
 	t.Parallel()
 	srv := fakeserver.Start(t, devToken)

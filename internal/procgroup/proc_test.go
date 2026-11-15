@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// The chain starts at this process's parent; this process is alive; a child
-// that was killed and reaped is gone; and a running pid with another start
-// identity is a reused pid, so gone (sto_e127b2e6 AC5).
 func TestProbeAndAncestors(t *testing.T) {
 	anc := Ancestors(os.Getpid())
 	if len(anc) == 0 || anc[0].PID != os.Getppid() {

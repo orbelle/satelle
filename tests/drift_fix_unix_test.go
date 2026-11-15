@@ -11,8 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// The findings fed to drift-fix.sh: one substrate (command), one
-// constitution and one prose finding.
 const driftFindings = `.satelle/skills/a.md:3: command: satelle story doc — doc is not a subcommand of satelle story
 internal/x.go:3: constitution: satelle-operator-rulings Foo — a REST handler beside gRPC
 .satelle/principles/p.md:6: prose: queue entries live in the story chain — internal/kernel/queue.go:62
@@ -26,7 +24,6 @@ const (
 	flagKey         = "flag:.satelle/skills/b.md:satelle story list --nope"
 )
 
-// fixed is one line of drift-fix.sh <version>'s output.
 type fixed struct {
 	id, what, findings, warnings string
 }
@@ -40,13 +37,11 @@ func parseFixed(t *testing.T, out string) fixed {
 	return fixed{f[0], f[1], f[2], f[3]}
 }
 
-// driftFix runs the sandbox's scripts/drift-fix.sh.
 func (d *driftSandbox) driftFix(stdin string, args ...string) result {
 	d.t.Helper()
 	return d.exec("bash", stdin, append([]string{"scripts/drift-fix.sh"}, args...)...)
 }
 
-// openDrift returns the open stories tagged drift.
 func (d *driftSandbox) openDrift() []item.Item {
 	d.t.Helper()
 	var its []item.Item
@@ -54,7 +49,6 @@ func (d *driftSandbox) openDrift() []item.Item {
 	return its
 }
 
-// bodyLines returns the lines of body starting with prefix, prefix stripped.
 func bodyLines(body, prefix string) []string {
 	var out []string
 	for _, l := range strings.Split(body, "\n") {
@@ -65,7 +59,6 @@ func bodyLines(body, prefix string) []string {
 	return out
 }
 
-// section returns body's text under "## name", up to the next "## ".
 func bodySection(body, name string) string {
 	_, rest, ok := strings.Cut(body, "## "+name+"\n")
 	if !ok {
@@ -75,11 +68,6 @@ func bodySection(body, name string) string {
 	return rest
 }
 
-// One drift-fix item per release: the findings of v9.9.9 give one item on the
-// drift workflow tagged drift, drift-fix and release:v9.9.9, its keys under
-// ## Findings and its warning under ## Warnings; a rerun updates the same item;
-// empty input writes nothing; another version gets its own item; an unknown
-// kind writes nothing (sto_a1681009 AC3).
 func TestDriftFixOneItemPerRelease(t *testing.T) {
 	t.Parallel()
 	d := newDriftStorySandbox(t)
@@ -149,8 +137,6 @@ func TestDriftFixOneItemPerRelease(t *testing.T) {
 	}
 }
 
-// A judge-only finding (kind prose) is a warning in the fix item, never a
-// drift-key (sto_a1681009 AC7).
 func TestDriftFixWarnings(t *testing.T) {
 	t.Parallel()
 	d := newDriftStorySandbox(t)
@@ -172,8 +158,6 @@ func TestDriftFixWarnings(t *testing.T) {
 	}
 }
 
-// --keys maps each distinct finding to its key, in order, and refuses a line
-// that is not a finding.
 func TestDriftFixKeys(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -190,8 +174,6 @@ func TestDriftFixKeys(t *testing.T) {
 	}
 }
 
-// oldDriftBody is a per-finding drift story's body as scripts/drift-stories.sh
-// wrote it: reshaped (the role line and the finding quoted) or not.
 func oldDriftBody(key, line string, reshaped bool) string {
 	if reshaped {
 		return "drift-key: " + key + "\n\nWho is affected: the agent or operator following the file.\n\nThe finding, as the drift review reported it:\n\n> " + line + "\n\nraised by the drift review of v1.0.20\n"
@@ -199,12 +181,6 @@ func oldDriftBody(key, line string, reshaped bool) string {
 	return "drift-key: " + key + "\n\n" + line + "\n\nraised by the drift review of v1.0.20\n"
 }
 
-// The open drift stories are consolidated into one fix item: --open-findings
-// fed to drift-fix.sh <version>, then --close <fix>, closes every original on
-// the drift workflow through an accepting drift-resolved run (carried: the fix
-// item lists its key), reselects one its chore workflow never moved first,
-// and leaves one chore moved on its route, carried; nothing is cancelled and
-// only the fix item stays open (sto_a1681009 AC4).
 func TestDriftFixConsolidates(t *testing.T) {
 	t.Parallel()
 	d := newDriftStorySandbox(t)
@@ -246,7 +222,6 @@ to = "done"
 		}
 	}
 
-	// The consolidation, as the operator runs it at release.
 	open := d.driftFix("", "--open-findings")
 	if open.code != 0 {
 		t.Fatalf("--open-findings: exit %d\n%s%s", open.code, open.out, open.err)
@@ -320,7 +295,6 @@ to = "done"
 		t.Fatalf("open drift items after the consolidation: %d, want only the fix item %s", len(its), fix)
 	}
 
-	// A rerun is idempotent: the fix item carries itself, nothing else is open.
 	again := d.driftFix("", "--open-findings")
 	var lines2 []string
 	for _, l := range strings.Split(strings.TrimSpace(again.out), "\n") {

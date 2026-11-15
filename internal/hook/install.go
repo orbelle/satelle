@@ -13,7 +13,6 @@ import (
 	"strings"
 )
 
-// The hook handlers a harness calls: `satelle hook <verb> --harness <name>`.
 const (
 	VerbGate      = "gate"
 	VerbContext   = "context"
@@ -21,12 +20,10 @@ const (
 	VerbStopcheck = "stopcheck"
 )
 
-// Command is the hook command line a harness runs for verb.
 func Command(verb, harness string) string {
 	return "satelle hook " + verb + " --harness " + harness
 }
 
-// File is the repo-relative path of a harness's hook file.
 func File(harness string) (string, error) {
 	switch harness {
 	case Claude:
@@ -41,8 +38,6 @@ func File(harness string) (string, error) {
 	return "", fmt.Errorf("unknown harness %q (one of %s)", harness, strings.Join(Harnesses, ", "))
 }
 
-// toolMatcher is the PreToolUse matcher: the harness's edit and shell tools.
-// Cursor names its tools by type: Write (create and edit), Delete and Shell.
 func toolMatcher(harness string) string {
 	switch harness {
 	case Cursor:
@@ -53,7 +48,6 @@ func toolMatcher(harness string) string {
 	return "Edit|Write|MultiEdit|NotebookEdit|Bash"
 }
 
-// cursorEvents maps each hook verb to the Cursor hooks.json event that runs it.
 var cursorEvents = []struct{ event, verb string }{
 	{"preToolUse", VerbGate},
 	{"sessionStart", VerbContext},
@@ -61,14 +55,8 @@ var cursorEvents = []struct{ event, verb string }{
 	{"stop", VerbStopcheck},
 }
 
-// ErrNotOwned is a pi extension file at satelle's path that does not carry
-// satelle's owned marker: Refresh and Pending leave it, a hand-run Install
-// replaces it.
 var ErrNotOwned = errors.New("not satelle's file")
 
-// ConfigDir is the repo-relative configuration directory of harness: the first
-// path element of its hook file (.claude, .grok, .pi, .cursor). "" for an
-// unknown harness.
 func ConfigDir(harness string) string {
 	rel, err := File(harness)
 	if err != nil {
@@ -78,11 +66,6 @@ func ConfigDir(harness string) string {
 	return first
 }
 
-// SatelleCall reads cmd's first whitespace-separated word: ok when it is the
-// satelle binary (by lower-cased basename, .exe trimmed), and words are the
-// words after it up to, not including, the first that starts with "-". No
-// shell syntax is read: a command that wraps satelle (sh -c, env, timeout,
-// NAME=value, if-blocks) has another first word and is not a satelle call.
 func SatelleCall(cmd string) (words []string, ok bool) {
 	f := strings.Fields(cmd)
 	if len(f) == 0 || strings.TrimSuffix(strings.ToLower(filepath.Base(f[0])), ".exe") != "satelle" {
@@ -97,9 +80,6 @@ func SatelleCall(cmd string) (words []string, ok bool) {
 	return words, true
 }
 
-// ownsCommand reports whether cmd is one of satelle's own hook entries, which
-// an install replaces with the current set: a satelle call whose first word is
-// hook, or the legacy satelle-hook.sh script.
 func ownsCommand(cmd string) bool {
 	if words, ok := SatelleCall(cmd); ok && len(words) > 0 && words[0] == "hook" {
 		return true
@@ -107,12 +87,6 @@ func ownsCommand(cmd string) bool {
 	return strings.Contains(cmd, "satelle-hook.sh")
 }
 
-// plan computes harness's hook file under root as an install would leave it:
-// satelle's own entries replaced by the current set, and every handler stale
-// reports removed (stale may be nil). changed is false when the resulting
-// hooks equal the file's as JSON values (any indentation or key order), or,
-// for pi, when the rendered extension equals the file's bytes. ownedOnly
-// refuses a present pi extension without satelle's marker with ErrNotOwned.
 func plan(root, harness string, stale func(string) bool, ownedOnly bool) (path string, body []byte, changed bool, err error) {
 	rel, err := File(harness)
 	if err != nil {
@@ -155,11 +129,6 @@ func writePlanned(path string, body []byte) error {
 	return os.WriteFile(path, body, 0o644)
 }
 
-// Install writes or updates harness's hook file under root, keeping every
-// entry that is not satelle's and dropping each one stale reports (stale may
-// be nil). A file whose hooks would not change is not written. It returns the
-// file and whether it wrote it. A pi extension that is not satelle's is
-// replaced.
 func Install(root, harness string, stale func(string) bool) (string, bool, error) {
 	path, body, changed, err := plan(root, harness, stale, false)
 	if err != nil || !changed {
@@ -168,8 +137,6 @@ func Install(root, harness string, stale func(string) bool) (string, bool, error
 	return path, true, writePlanned(path, body)
 }
 
-// Refresh is Install for an unattended pass: a present pi extension that is
-// not satelle's is never written (ErrNotOwned).
 func Refresh(root, harness string, stale func(string) bool) (string, bool, error) {
 	path, body, changed, err := plan(root, harness, stale, true)
 	if err != nil || !changed {
@@ -178,15 +145,11 @@ func Refresh(root, harness string, stale func(string) bool) (string, bool, error
 	return path, true, writePlanned(path, body)
 }
 
-// Pending reports what Refresh would do, writing nothing.
 func Pending(root, harness string, stale func(string) bool) (string, bool, error) {
 	path, _, changed, err := plan(root, harness, stale, true)
 	return path, changed, err
 }
 
-// Commands lists every handler command of harness's JSON hook file under
-// root, nested groups and flat entries alike. Nil for pi and for an absent
-// file.
 func Commands(root, harness string) ([]string, error) {
 	rel, err := File(harness)
 	if err != nil || harness == Pi {
@@ -209,9 +172,6 @@ func Commands(root, harness string) ([]string, error) {
 	return out, nil
 }
 
-// Remove strips satelle's entries from harness's hook file under root. A file
-// left with nothing of the user's is deleted; one that is not satelle's is
-// left alone.
 func Remove(root, harness string) (string, error) {
 	rel, err := File(harness)
 	if err != nil {
@@ -242,9 +202,6 @@ func Remove(root, harness string) (string, error) {
 	return path, writeJSON(path, doc)
 }
 
-// withHooks returns prev (a JSON settings document, possibly empty) with
-// satelle's hook entries replaced by the current ones and every handler stale
-// reports removed.
 func withHooks(prev []byte, harness string, stale func(string) bool) ([]byte, error) {
 	doc, err := decodeObject(prev)
 	if err != nil {
@@ -256,8 +213,6 @@ func withHooks(prev []byte, harness string, stale func(string) bool) ([]byte, er
 		hooks = map[string]any{}
 	}
 	if harness == Cursor {
-		// Cursor's hooks.json (version 1) holds flat {command, matcher}
-		// entries under each event name.
 		if _, ok := doc["version"]; !ok {
 			doc["version"] = 1
 		}
@@ -313,18 +268,10 @@ func writeJSON(path string, doc map[string]any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-// pruneSatelle removes every hook handler that is satelle's own entry
-// (ownsCommand) or that stale reports (stale may be nil), dropping groups and
-// events left empty.
 func pruneSatelle(doc map[string]any, stale func(string) bool) {
 	walkHandlers(doc, func(cmd string) bool { return ownsCommand(cmd) || (stale != nil && stale(cmd)) })
 }
 
-// walkHandlers calls drop with every handler command in doc's hooks and
-// removes the handlers it returns true for, dropping groups and events left
-// empty. A group is claude's and grok's nested {matcher, hooks: [...]}; a
-// flat entry with its own command (cursor's) is kept or dropped by that
-// command.
 func walkHandlers(doc map[string]any, drop func(cmd string) bool) {
 	hooks, ok := doc["hooks"].(map[string]any)
 	if !ok {
@@ -374,8 +321,6 @@ func walkHandlers(doc map[string]any, drop func(cmd string) bool) {
 	}
 }
 
-// Installed reports whether harness's hook file under root holds a satelle
-// hook entry for that harness.
 func Installed(root, harness string) bool {
 	rel, err := File(harness)
 	if err != nil {
@@ -396,16 +341,6 @@ func Installed(root, harness string) bool {
 	return false
 }
 
-// Defers reports whether a hook call answered for harness should stay silent
-// because Cursor sent it and Cursor's own satelle hooks answer the same event:
-// Cursor also runs a repo's .claude/settings.json hooks (its Claude Code
-// compatibility, whose payloads carry cursor_version), so once `satelle agents
-// install cursor` has run, the claude entries would judge and inject twice.
-// Only the payload marks the caller; the environment does not, so a claude
-// session started from Cursor's terminal keeps its own gate. root resolves
-// the repo's root; it is called, once, only for a Cursor payload answered for
-// another harness, so every other call pays no repo lookup. ok false (not a
-// repo) never defers.
 func Defers(harness string, in Input, root func() (string, bool)) bool {
 	if harness == Cursor || !in.Cursor {
 		return false
@@ -414,9 +349,6 @@ func Defers(harness string, in Input, root func() (string, bool)) bool {
 	return ok && Installed(tree, Cursor)
 }
 
-// ProjectDir is the project dir the calling harness pins for its hooks:
-// CLAUDE_PROJECT_DIR (claude; Cursor sets it too), else CURSOR_PROJECT_DIR.
-// "" when neither is set.
 func ProjectDir() string {
 	for _, k := range []string{"CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -431,9 +363,6 @@ const piOwnedMarker = "// satelle-owned:"
 //go:embed pi_extension.ts.tmpl
 var piTemplate string
 
-// piExtension renders the pi extension: it maps pi's events onto the same
-// `satelle hook` handlers the other harnesses call, normalising pi's payload
-// to claude's shape.
 func piExtension() []byte {
 	verbs, _ := json.Marshal(map[string]string{
 		"gate": VerbGate, "context": VerbContext, "prompt": VerbPrompt, "stopcheck": VerbStopcheck,

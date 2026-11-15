@@ -8,11 +8,8 @@ import (
 	"time"
 )
 
-// waitBudget bounds how long a test waits for an asynchronous condition.
 const waitBudget = 10 * time.Second
 
-// isolateHome points SATELLE_HOME and XDG_CONFIG_HOME at a temp dir and turns
-// satelled discovery off, so a test never touches real state.
 func isolateHome(t testing.TB) string {
 	t.Helper()
 	home := t.TempDir()
@@ -24,7 +21,6 @@ func isolateHome(t testing.TB) string {
 	return home
 }
 
-// eventually polls cond until it holds or budget passes.
 func eventually(t testing.TB, budget time.Duration, cond func() bool, msg string) {
 	t.Helper()
 	deadline := time.Now().Add(budget)

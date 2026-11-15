@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// LatestAttachments keeps the newest version of each name, newest first, and
-// counts every version, without changing its input.
 func TestLatestAttachments(t *testing.T) {
 	in := []Attachment{
 		{Name: "a", SHA256: "a1"}, {Name: "b", SHA256: "b1"}, {Name: "a", SHA256: "a2"}, {Name: "a", SHA256: "a3"},

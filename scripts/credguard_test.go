@@ -11,15 +11,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
-// runGuard runs credguard.sh over a shell command with XDG_CONFIG_HOME pointing
-// at xdg and returns its exit code and combined output.
 func runGuard(t *testing.T, xdg, shellCmd string) (int, string) {
 	t.Helper()
 	return runGuardEnv(t, []string{"XDG_CONFIG_HOME=" + xdg}, shellCmd)
 }
 
-// runGuardEnv runs credguard.sh over a shell command with env appended to the
-// test process's environment (later entries win).
 func runGuardEnv(t *testing.T, env []string, shellCmd string) (int, string) {
 	t.Helper()
 	cmd := exec.Command("sh", "credguard.sh", "--", "sh", "-c", shellCmd)
@@ -52,8 +48,6 @@ func testCred(url string) hosted.Credential {
 	}
 }
 
-// credFile writes a credentials file holding creds at path (creating its
-// directory) through the real store, so the fixture is the production shape.
 func credFile(t *testing.T, path string, creds ...hosted.Credential) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -67,12 +61,6 @@ func credFile(t *testing.T, path string, creds ...hosted.Credential) {
 	}
 }
 
-// TestCredguard proves the Makefile guard (sty_18403814, sty_5ba68e2c): it
-// fails a run only for a credentials change a test could make — a credential
-// added or removed, an identity changed, the file created, deleted or left
-// unparseable — and passes a token rewrite that keeps every identity, the way an
-// outside satelle process refreshes a hosted session. The wrapped command's own
-// failure status is kept.
 func TestCredguard(t *testing.T) {
 	const keep = "https://keep.example.com"
 	const other = "https://other.example.com"
@@ -86,8 +74,6 @@ func TestCredguard(t *testing.T) {
 		credFile(t, cred(xdg), creds...)
 		return xdg
 	}
-	// replaceWith returns a shell command that overwrites the host file with a
-	// fixture holding creds — the test's stand-in for a write by the wrapped run.
 	replaceWith := func(t *testing.T, creds ...hosted.Credential) string {
 		t.Helper()
 		fixture := filepath.Join(t.TempDir(), "fixture.toml")
@@ -168,16 +154,6 @@ func TestCredguard(t *testing.T) {
 	t.Run("fails closed", credguardFailsClosed)
 }
 
-// fakeHost builds a temporary HOME holding the layout the host guard watches
-// (sty_1b739a74) and returns the env that points the guard at it. The Go
-// caches are pinned to the real ones so the helper still builds offline.
-//
-// Go telemetry is switched off in the fake HOME (sty_095d1f5b): with the default
-// "local" mode the go command that credguard.sh runs writes counter files under
-// $XDG_CONFIG_HOME/go/telemetry and starts a detached child that creates
-// telemetry/upload after the guard has exited, racing t.TempDir's RemoveAll
-// ("directory not empty"). The mode file is the go command's own switch and
-// leaves the pinned GOCACHE/GOMODCACHE and the watched host surface untouched.
 func fakeHost(t *testing.T) (home string, env []string) {
 	t.Helper()
 	home = t.TempDir()
@@ -205,8 +181,6 @@ func fakeHost(t *testing.T) (home string, env []string) {
 		return strings.TrimSpace(string(out))
 	}
 	t.Cleanup(func() {
-		// Runs before t.TempDir's RemoveAll: anything beside the seeded mode
-		// file means the go command wrote telemetry into the fake HOME.
 		dir := filepath.Join(home, ".config", "go", "telemetry")
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -227,10 +201,6 @@ func fakeHost(t *testing.T) (home string, env []string) {
 	}
 }
 
-// credguardFailsClosed proves, as the "fails closed" group of TestCredguard,
-// that the guard exits 2 with a "failing closed" message when it cannot build
-// its helper or cannot take the host snapshot, rather than letting the wrapped
-// command pass unguarded.
 func credguardFailsClosed(t *testing.T) {
 	failsClosed := func(t *testing.T, env []string, msg string) {
 		t.Helper()

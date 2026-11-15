@@ -6,9 +6,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// Where names a seat's place: another machine by its host, else its id's
-// first eight characters; a remote by its location; a cloud seat as cloud;
-// a seat with no location as not recorded.
 func TestWhere(t *testing.T) {
 	for _, c := range []struct {
 		name    string

@@ -13,7 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 )
 
-// gateJobs is a node with the gate jobs, and a call that runs one handler.
 func gateJobs(t *testing.T) (string, func(job string, req any) (json.RawMessage, error)) {
 	t.Helper()
 	node := NewNode()
@@ -46,8 +45,6 @@ func gateJobs(t *testing.T) (string, func(job string, req any) (json.RawMessage,
 	return hello.Root, call
 }
 
-// gate.put writes only under the gate root, and only in order; gate.get
-// returns a file larger than one chunk in chunks.
 func TestGatePutAndGet(t *testing.T) {
 	root, call := gateJobs(t)
 	for _, p := range []string{"/etc/passwd", filepath.Join(root, "..", "x"), root, "in/x", filepath.Join(root, "in", "..", "..", "y")} {
@@ -94,9 +91,6 @@ func TestGatePutAndGet(t *testing.T) {
 	}
 }
 
-// gate.exec runs argv in the gate root and returns its output's tail and why
-// it failed; it is bounded by timeout_ms and never sees the node's own
-// credentials.
 func TestGateExec(t *testing.T) {
 	t.Setenv(provider.EnvNodeToken, "tok-secret")
 	t.Setenv(provider.EnvNodeID, "nod_x")

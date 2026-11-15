@@ -13,9 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// operatorKernel is a workflow a -> deploy (the operator's) -> done, with
-// deploy -> a and a -> deploy for re-entry, * -> cancelled, and a judged gate
-// on deploy -> done so a refusal before any gate run is visible.
 func operatorKernel(t *testing.T) (*Kernel, *fakeDispatcher, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -85,7 +82,6 @@ func countKind(t *testing.T, k *Kernel, id, kind string) int {
 	return n
 }
 
-// AC1: an operator state dispatches nothing: Perform refuses and Drive stops.
 func TestOperatorStateDispatchesNothing(t *testing.T) {
 	k, d, id := operatorKernel(t)
 	ctx := context.Background()
@@ -107,8 +103,6 @@ func TestOperatorStateDispatchesNothing(t *testing.T) {
 	}
 }
 
-// AC2: leaving an operator state is refused until the operator has recorded
-// an attachment of the declared type since the item entered it.
 func TestOperatorRecordGatesTheExit(t *testing.T) {
 	k, d, id := operatorKernel(t)
 	ctx := context.Background()
@@ -122,14 +116,12 @@ func TestOperatorRecordGatesTheExit(t *testing.T) {
 	if countKind(t, k, id, gate.KindRun) != before || countKind(t, k, id, item.KindTransitioned) != 1 || len(d.calls) != 0 {
 		t.Fatal("a refused exit ran a gate or moved")
 	}
-	// The agent and MCP shape: a typed attachment without the operator mark.
 	if _, err := k.Attach(id, "deploy-record", []byte("done"), "text/markdown; type=deploy-record", "agent"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := k.Transition(ctx, id, "done", "op"); !errors.As(err, &ore) {
 		t.Fatalf("a plain attachment let it leave: %v", err)
 	}
-	// Every exit, * -> cancelled included.
 	if _, err := k.Transition(ctx, id, "cancelled", "op"); !errors.As(err, &ore) {
 		t.Fatalf("cancel without a record: %v", err)
 	}
@@ -140,7 +132,6 @@ func TestOperatorRecordGatesTheExit(t *testing.T) {
 	if !a.Operator || a.Name != "deploy-record" || a.MediaType != "text/markdown; type=deploy-record" || a.Actor != "bob" {
 		t.Fatalf("record %+v", a)
 	}
-	// The record from this visit does not survive a re-entry.
 	if res, err := k.Transition(ctx, id, "a", "op"); err != nil || !res.Moved {
 		t.Fatalf("deploy -> a: %+v %v", res, err)
 	}
@@ -162,7 +153,6 @@ func TestOperatorRecordGatesTheExit(t *testing.T) {
 	}
 }
 
-// AC3: an agent session cannot record the operator's word.
 func TestOperatorRecordRefusesASession(t *testing.T) {
 	k, _, id := operatorKernel(t)
 	if _, err := k.RecordOperator(id, "", []byte("x"), "", "s-1", "s-1"); err == nil || !strings.Contains(err.Error(), "an agent session (s-1) may not record the operator's word") {
@@ -175,7 +165,6 @@ func TestOperatorRecordRefusesASession(t *testing.T) {
 	if _, err := k.Transition(context.Background(), id, "done", "op"); !errors.As(err, &ore) {
 		t.Fatalf("still refused: %v", err)
 	}
-	// Not in an operator state: nothing to record.
 	if _, err := k.Transition(context.Background(), id, "a", "op"); !errors.As(err, &ore) {
 		t.Fatalf("deploy -> a without a record: %v", err)
 	}

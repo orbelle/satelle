@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-// TestSnapshotIngestQuietWhenUnchanged proves the periodic reconcile is
-// invisible when there is nothing to repair (sty_e6e467fe): re-posting an
-// identical snapshot records freshness but rewrites no rows and rings no SSE
-// doorbell, so a repair loop cannot make every open page re-render on a timer.
 func TestSnapshotIngestQuietWhenUnchanged(t *testing.T) {
 	s := openStore(t)
 	var topics []string
@@ -34,7 +30,7 @@ func TestSnapshotIngestQuietWhenUnchanged(t *testing.T) {
 
 	before := partitionOf(t, s, "rk")
 	topics = nil
-	time.Sleep(2 * time.Millisecond) // time-subject: timestamp separation, so the confirming ingest visibly moves updated_at
+	time.Sleep(2 * time.Millisecond)
 
 	got := postSnapshot(t, srv.URL, snap)
 	if got["unchanged"] != true {
@@ -55,8 +51,6 @@ func TestSnapshotIngestQuietWhenUnchanged(t *testing.T) {
 	}
 }
 
-// TestSnapshotIngestAppliesChange proves a changed snapshot still replaces rows
-// and rings the doorbell — the quiet path must never swallow a real update.
 func TestSnapshotIngestAppliesChange(t *testing.T) {
 	s := openStore(t)
 	var topics []string
@@ -84,9 +78,6 @@ func TestSnapshotIngestAppliesChange(t *testing.T) {
 	}
 }
 
-// TestPartitionStaleness proves the threshold the UI reads: a partition that has
-// gone longer than StaleAfter without a confirmed ingest is stale, a recent one
-// is not, and an unparseable timestamp is treated as stale rather than current.
 func TestPartitionStaleness(t *testing.T) {
 	now := time.Now().UTC()
 	fresh := Partition{UpdatedAt: now.Add(-time.Minute).Format(time.RFC3339Nano)}
@@ -103,7 +94,6 @@ func TestPartitionStaleness(t *testing.T) {
 	if !(Partition{UpdatedAt: "not-a-time"}).Stale(now) {
 		t.Error("an unreadable last-ingest time must read as stale, never as current")
 	}
-	// The bound's edges (sto_128803b3): just inside is fresh, just past is stale.
 	inside := Partition{UpdatedAt: now.Add(-StaleAfter + time.Second).Format(time.RFC3339Nano)}
 	if inside.Stale(now) {
 		t.Error("a partition confirmed just inside StaleAfter is not stale")
@@ -112,7 +102,6 @@ func TestPartitionStaleness(t *testing.T) {
 	if !past.Stale(now) {
 		t.Error("a partition confirmed just past StaleAfter is stale")
 	}
-	// The bound follows the sync period, not the removed 5-minute reconcile.
 	if StaleAfter != SyncPassTimeout+2*SyncPeriod {
 		t.Errorf("StaleAfter = %s, want SyncPassTimeout + 2*SyncPeriod = %s", StaleAfter, SyncPassTimeout+2*SyncPeriod)
 	}
@@ -121,8 +110,6 @@ func TestPartitionStaleness(t *testing.T) {
 	}
 }
 
-// postConfirm POSTs a ConfirmEvent and returns the status code and the decoded
-// answer (nil unless 200).
 func postConfirm(t *testing.T, base string, ev ConfirmEvent) (int, map[string]any) {
 	t.Helper()
 	body, err := json.Marshal(ev)
@@ -144,11 +131,6 @@ func postConfirm(t *testing.T, base string, ev ConfirmEvent) (int, map[string]an
 	return resp.StatusCode, out
 }
 
-// TestConfirmMarksFreshOnlyWhenDigestMatches proves the sync pass's cheap
-// check (sto_128803b3): a digest equal to the last full body applied marks the
-// partition fresh without moving seq, ringing "projects" only when it was
-// stale; any other digest, an unknown partition, or a hash a delta cleared
-// answers fresh:false and touches nothing.
 func TestConfirmMarksFreshOnlyWhenDigestMatches(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()

@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// clearWorkflow has a non-terminal working state between start and the
-// terminal one, so a story can sit in in_progress (sent back) or done.
 const clearWorkflow = `name = "default"
 
 [states.backlog]
@@ -31,13 +29,6 @@ from = ["in_progress"]
 to = "done"
 `
 
-// TestClearWorktreesKeepsActiveItems drives scripts/clear-worktrees.sh, the
-// cleanup task's ACTION (tas_b3424a1c), over clean, pushed worktrees: the one
-// whose branch names an item in in_progress (sent back by a release) is kept
-// and reported with the item and its state; the one whose item is done, the
-// one whose branch names no item and one named like an id no item has are
-// removed with their branches; a dirty one is kept as before; the main
-// checkout ends on main at origin/main.
 func TestClearWorktreesKeepsActiveItems(t *testing.T) {
 	for _, tool := range []string{"bash", "jq", "git"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -75,8 +66,6 @@ func TestClearWorktreesKeepsActiveItems(t *testing.T) {
 	}
 
 	root := realDir(t, t.TempDir())
-	// worktree adds a worktree on a new branch from origin/main, commits one
-	// file on it and pushes it, so it is clean and its HEAD is on a remote.
 	worktree := func(branch string) string {
 		dir := filepath.Join(root, branch)
 		s.git("worktree", "add", "-q", "-b", branch, dir, "origin/main")

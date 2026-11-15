@@ -9,9 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// assertTaskAttached asserts run exe carries its parent task as the
-// attachment task, as satelle task get prints it: the after-review
-// (satelle-task-validate-after-review) judges the run against it.
 func assertTaskAttached(t *testing.T, s *sandbox, where, exe, task string) {
 	t.Helper()
 	r := s.run("execution", "attachment", exe, "task")
@@ -23,7 +20,6 @@ func assertTaskAttached(t *testing.T, s *sandbox, where, exe, task string) {
 	}
 }
 
-// onlyRun returns the one in-progress run of task.
 func onlyRun(t *testing.T, s *sandbox, where, task string) string {
 	t.Helper()
 	var runs []item.Item
@@ -34,10 +30,6 @@ func onlyRun(t *testing.T, s *sandbox, where, task string) string {
 	return runs[0].ID
 }
 
-// Every task procedure's start block, run as written in a sandbox, leaves the
-// run it starts carrying its parent task as the attachment task: release.md
-// step 0 (the release run), release.md step 10 (the cleanup run) and
-// drift-review.md step 0 (the drift run release.md step 11 started).
 func TestTaskProceduresAttachTheirTask(t *testing.T) {
 	t.Run("release step 0", func(t *testing.T) {
 		t.Parallel()
@@ -67,7 +59,7 @@ func TestTaskProceduresAttachTheirTask(t *testing.T) {
 		if !strings.Contains(block, cd) {
 			t.Fatalf("release.md step 10's start block has no %q line:\n%s", cd, block)
 		}
-		r := s.exec("bash", "", "-c", strings.Replace(block, cd, "", 1)) // the sandbox is the main checkout
+		r := s.exec("bash", "", "-c", strings.Replace(block, cd, "", 1))
 		if r.code != 0 {
 			t.Fatalf("release step 10: exit %d\n%s%s", r.code, r.out, r.err)
 		}
@@ -77,7 +69,7 @@ func TestTaskProceduresAttachTheirTask(t *testing.T) {
 	t.Run("drift-review step 0", func(t *testing.T) {
 		t.Parallel()
 		d := newDriftSandbox(t, nil)
-		exe := d.start(d.drift, stepSeat(t)) // release.md step 11 starts and seats it
+		exe := d.start(d.drift, stepSeat(t))
 		r := d.exec("bash", "", "-c", shBlock(t, ".satelle/skills/drift-review.md", "## 0.", d.drift))
 		if r.code != 0 {
 			t.Fatalf("drift-review step 0: exit %d\n%s%s", r.code, r.out, r.err)

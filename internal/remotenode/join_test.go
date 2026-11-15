@@ -22,8 +22,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// lineConfig is a workflow both the local repo and the node run: a → b
-// (performed by doer) → c, judged by r1.
 var lineConfig = map[string]string{
 	"satelle.toml": "[workflows]\ndefault = \"line\"\n",
 	"agents.toml": `[agents.doer]
@@ -57,8 +55,6 @@ groups = [{ gates = ["review"] }]
 
 const nodeSecret = "s3cret-value-NEVER-REPORTED"
 
-// nodeDefinition is a docker-local definition reading one secret, whose setup
-// proves the secret reached it and echoes it (which a report must redact).
 const nodeDefinition = `version = 1
 provider = "docker-local"
 satelle_version = "0.0.900"
@@ -74,17 +70,14 @@ kind = "item"
 `
 
 type answers struct {
-	mu    sync.Mutex
-	calls []string
-	reqs  []agent.Request
-	text  map[string]string
-	// seen is each dispatch's attachments/plan read from the record folder
-	// its prompt names, while the run is in progress; folders are those paths.
+	mu      sync.Mutex
+	calls   []string
+	reqs    []agent.Request
+	text    map[string]string
 	seen    map[string]string
 	folders []string
 }
 
-// recordFolder is the record folder a prompt names, or "".
 func recordFolder(prompt string) string {
 	i := strings.Index(prompt, kernel.RecordLead)
 	if i < 0 {
@@ -114,8 +107,6 @@ func (a *answers) Dispatch(_ context.Context, role agent.Role, req agent.Request
 	return agent.Result{}, errors.New("no answer")
 }
 
-// localRepo is the operator's repo: the line workflow, signed in to the fake
-// with a bound project.
 type localRepo struct {
 	srv     *fakeserver.Server
 	client  *hosted.Client
@@ -145,14 +136,11 @@ func newLocalRepo(t *testing.T) *localRepo {
 	return &localRepo{srv: srv, client: c, project: p.GetId(), k: k}
 }
 
-// repl is the local repo's replicator through the fake, as the CLI builds
-// it for a bound project.
 func (l *localRepo) repl() *ledgerrepl.Replicator {
 	d := &ledgerrepl.Dev{Client: l.client, Project: l.project, Server: l.srv.URL, Ledger: l.k.Ledger, Cache: l.k.Cache}
 	return &ledgerrepl.Replicator{Ledger: l.k.Ledger, Store: d, Refs: kernel.BlobRefs, Cache: l.k.Cache, Choose: l.k}
 }
 
-// nodeItems is the items whose chains a node's ledger under dir holds.
 func nodeItems(t *testing.T, dir string) []string {
 	t.Helper()
 	var out []string
@@ -185,9 +173,6 @@ func methods(srv *fakeserver.Server, auth string) []string {
 	return out
 }
 
-// The node contract end to end against the fake server: join, definition,
-// secrets, run, setup, drive the item on the kernel, push its ledger, report,
-// conclude and end.
 func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	l := newLocalRepo(t)
 	it, err := l.k.Create(item.Fields{Kind: ptr("story"), Title: ptr("remote work")}, "ada")
@@ -221,8 +206,6 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	if strings.Join(d.calls, " ") != "perform:doer judge:r1" {
 		t.Fatalf("dispatched %v", d.calls)
 	}
-	// The node built the record from its own pulled ledger, in its own tree,
-	// for the performer and the judge, and removed it after each run.
 	for _, who := range []string{"perform:doer", "judge:r1"} {
 		if d.seen[who] != plan {
 			t.Errorf("%s read %d bytes of the plan from the node's record, want %d", who, len(d.seen[who]), len(plan))
@@ -236,8 +219,6 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 			t.Errorf("record folder %s was left behind", f)
 		}
 	}
-	// The run's secrets, and the session the node seated the run under with
-	// its tree, for the performer's edit gate.
 	env := strings.Join(d.reqs[0].Env, " ")
 	if len(d.reqs[0].Env) != 3 || !strings.Contains(env, "NOTE="+nodeSecret) ||
 		!strings.Contains(env, "SATELLE_SESSION=perform_") || !strings.Contains(env, "SATELLE_PROJECT_DIR="+dir) {
@@ -267,7 +248,6 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	if !l.srv.NodeEnded("nod_9") {
 		t.Fatal("the node did not end")
 	}
-	// The pushed chain carries the drive: the local repo pulls it.
 	if _, err := l.repl().Pull(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -287,8 +267,6 @@ func TestJoinDrivesAnItemAndReportsBack(t *testing.T) {
 	}
 }
 
-// A task node runs the task once and drives the execution it created; both
-// chains reach the server.
 func TestJoinRunsATask(t *testing.T) {
 	l := newLocalRepo(t)
 	task, err := l.k.Create(item.Fields{Kind: ptr("task"), Title: ptr("sweep"), Inputs: &item.Selection{Kind: "story"}}, "ada")
@@ -300,8 +278,6 @@ func TestJoinRunsATask(t *testing.T) {
 	}
 	l.srv.AddNode(&fakeserver.Node{ID: "nod_t", Token: "node-tok", Bundle: nodeBundle(t), Version: "v1",
 		Secrets: map[string]string{"NOTE": nodeSecret}, Run: &satellepb.RunDescriptor{Mode: ModeTask, Project: l.project, ItemId: task.ID}})
-	// The performer hands back an artifact, attached to the execution on the
-	// node; the judge then reads it from the node's own record.
 	d := &answers{text: map[string]string{
 		"doer": `did it {"artifact":{"name":"plan","type":"evidence","body":"execution evidence\n"}}`,
 		"r1":   `{"verdict":"accept","notes":"fine"}`}}
@@ -318,8 +294,6 @@ func TestJoinRunsATask(t *testing.T) {
 	}
 }
 
-// A refused secret fails the node before any work: it concludes rejecting,
-// naming the key, and ends.
 func TestJoinConcludesRejectingWhenASecretIsRefused(t *testing.T) {
 	l := newLocalRepo(t)
 	l.srv.AddNode(&fakeserver.Node{ID: "nod_r", Token: "node-tok", Bundle: nodeBundle(t), Version: "v1",
@@ -335,8 +309,6 @@ func TestJoinConcludesRejectingWhenASecretIsRefused(t *testing.T) {
 	}
 }
 
-// startingPlacer is the Placer with the server's half played by the test: a
-// node StartNode made is joined in-process with the definition bundle.
 type startingPlacer struct {
 	Placer
 	t      *testing.T
@@ -344,7 +316,7 @@ type startingPlacer struct {
 	bundle []byte
 	d      agent.Dispatcher
 	done   chan error
-	dir    string // the node's directory
+	dir    string
 }
 
 func (p *startingPlacer) StartNode(ctx context.Context, remote, itemID, binding string) (string, error) {
@@ -362,9 +334,6 @@ func (p *startingPlacer) StartNode(ctx context.Context, remote, itemID, binding 
 	return node, nil
 }
 
-// Placement remote:<id>: the local kernel's Perform starts a node through
-// RemoteService.StartNode, pairs with it over the relay, and the node performs
-// the step with its own binding.
 func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	l := newLocalRepo(t)
 	it, err := l.k.Create(item.Fields{Kind: ptr("story"), Title: ptr("place me")}, "ada")
@@ -412,8 +381,6 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 			t.Errorf("starter calls %q lack %q", got, want)
 		}
 	}
-	// The starter pushed the item and its attachment before the node
-	// started; the node pulled it and built the record from its own ledger.
 	start := strings.Index(got, "StartNode")
 	for _, want := range []string{"Append", "PutAttachment"} {
 		if i := strings.Index(got, want); i < 0 || i > start {
@@ -423,8 +390,6 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	if d.seen["perform:doer"] != plan {
 		t.Errorf("the node's performer read %d bytes of the plan from its record, want %d", len(d.seen["perform:doer"]), len(plan))
 	}
-	// The placement pushed only its item; the performer node pulled only
-	// its run's item.
 	if len(l.srv.Events(l.project, it.ID)) == 0 || len(l.srv.Events(l.project, other.ID)) != 0 {
 		t.Errorf("the server holds %d event(s) of the placed item and %d of the other, want some and none",
 			len(l.srv.Events(l.project, it.ID)), len(l.srv.Events(l.project, other.ID)))
@@ -439,7 +404,6 @@ func TestPlacementRemotePerformsOnTheNode(t *testing.T) {
 	}
 }
 
-// A placement with no replicator to push the item refuses to start a node.
 func TestPlacementWithoutAReplicatorRefuses(t *testing.T) {
 	_, err := Placer{Client: &hosted.Client{}, Project: "prj"}.StartNode(context.Background(), "ci", "sto_1", "doer")
 	if err == nil || !strings.Contains(err.Error(), "pushes the item first") {
@@ -447,7 +411,6 @@ func TestPlacementWithoutAReplicatorRefuses(t *testing.T) {
 	}
 }
 
-// performerDefinition is a definition with no secrets and a trivial setup.
 const performerDefinition = `version = 1
 provider = "docker-local"
 satelle_version = "0.0.900"
@@ -461,7 +424,6 @@ kind = "item"
 
 func ptr[T any](v T) *T { return &v }
 
-// A placement whose item diverged from the server refuses to start a node.
 func TestPlacementRefusesADivergedItem(t *testing.T) {
 	l := newLocalRepo(t)
 	it, err := l.k.Create(item.Fields{Kind: ptr("story"), Title: ptr("forked")}, "ada")
@@ -472,7 +434,6 @@ func TestPlacementRefusesADivergedItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Another runtime holds event 0 and appends its own event 1 to the server.
 	other, err := ledger.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

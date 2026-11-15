@@ -16,39 +16,29 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// What satelle doctor --resolve did with an issue it acted on.
 const (
-	resultApplied  = "applied"  // the service action ran
-	resultReleased = "released" // the seat was released
-	resultKept     = "kept"     // the person kept the seat
-	resultOpened   = "opened"   // the finding is on the fix item just opened
-	resultCarried  = "carried"  // the finding is on the fix item already open
-	resultFailed   = "failed"   // the action failed; detail says why
+	resultApplied  = "applied"
+	resultReleased = "released"
+	resultKept     = "kept"
+	resultOpened   = "opened"
+	resultCarried  = "carried"
+	resultFailed   = "failed"
 )
 
-// answerRelease, or its first letter, is the answer at the terminal that
-// releases an orphaned seat; any other answer keeps it.
 const (
 	answerRelease = "release"
 )
 
-// configFirst prefixes each finding left because the configuration is invalid:
-// no command can record an item until it validates.
 const configFirst = "fix the configuration first (satelle validate); then: "
 
-// resolveUnsetFirst prefixes each finding left because doctor.toml [resolve]
-// names no fix item kind or tag.
 const resolveUnsetFirst = "set [resolve] kind and tag in .satelle/" + kernel.DoctorFile + " (satelle help configuration); then: "
 
-// Why --resolve left an issue (resolveLeft.Why); an ask left for want of a
-// terminal says so with the open error.
 const (
 	leftNoFix  = "doctor cannot prove a fix for it"
 	leftConfig = "the configuration is invalid, so nothing can be recorded until it validates"
 	leftNoTTY  = "no controlling terminal to ask at"
 )
 
-// resolveAction is one action --resolve took on an issue.
 type resolveAction struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
@@ -57,8 +47,6 @@ type resolveAction struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-// resolveLeft is an issue --resolve left for the user, with why it was left
-// and its fix.
 type resolveLeft struct {
 	Check   string `json:"check"`
 	Problem string `json:"problem"`
@@ -66,13 +54,11 @@ type resolveLeft struct {
 	Fix     string `json:"fix"`
 }
 
-// resolveReport is what satelle doctor --resolve did and left; Item is the fix
-// item opened or carrying the substrate findings.
 type resolveReport struct {
 	Actions []resolveAction `json:"actions"`
 	Left    []resolveLeft   `json:"left"`
 	Item    string          `json:"item,omitempty"`
-	carried bool            // Item was already open
+	carried bool
 }
 
 func (r *resolveReport) act(is doctorIssue, result, detail string) {
@@ -83,7 +69,6 @@ func (r *resolveReport) leave(is doctorIssue, prefix, why string) {
 	r.Left = append(r.Left, resolveLeft{Check: is.Check, Problem: is.Problem, Why: why, Fix: prefix + is.Fix})
 }
 
-// failed reports whether any action failed.
 func (r resolveReport) failed() bool {
 	for _, a := range r.Actions {
 		if a.Result == resultFailed {
@@ -93,15 +78,6 @@ func (r resolveReport) failed() bool {
 	return false
 }
 
-// resolveDoctor acts on what doctor found in in. What it can prove it fixes:
-// it installs or restarts the service, releases seats whose session has ended
-// on this machine or whose item is in a terminal state, and opens one item
-// listing every substrate finding. Every other orphaned seat is asked about on
-// the controlling terminal, and without one listed with that reason. Every
-// issue it leaves is listed with why. Its only git commands are doctor's read-only queries
-// (gitfacts TopLevel and IgnoredBy), and it never edits the repo tree:
-// its writes are the user's unit files and [service], ledger events and the
-// session records.
 func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	doc := runDoctor(ctx, in)
 	rep := resolveReport{Actions: []resolveAction{}, Left: []resolveLeft{}}
@@ -110,7 +86,6 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		by[is.Resolve] = append(by[is.Resolve], is)
 	}
 
-	// Service: install covers a restart (it restarts satelled too).
 	switch {
 	case len(by[resolveInstallService]) > 0:
 		var buf bytes.Buffer
@@ -129,8 +104,6 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		rep.leave(is, "", leftNoFix)
 	}
 
-	// The kernel refuses to open on any configuration problem, so nothing can
-	// be recorded: list every ledger action as left, the configuration first.
 	ledgerIssues := append(append(append([]doctorIssue{}, by[resolveFixItem]...), by[resolveReleaseSeat]...), by[resolveAsk]...)
 	if configBroken(in, doc.Issues) {
 		var rest []doctorIssue
@@ -146,9 +119,6 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		}
 		return rep
 	}
-	// No [resolve] kind or tag: there is no item to put the findings on, and
-	// satelle guesses none (sto_a5cdb024). List them, naming the key to set;
-	// the seats are still resolved.
 	fixItems := by[resolveFixItem]
 	if unset := resolveUnset(in); len(unset) > 0 && len(fixItems) > 0 {
 		why := fmt.Sprintf(".satelle/%s [resolve] %s is not set, so there is no item to put the finding on", kernel.DoctorFile, strings.Join(unset, " and "))
@@ -176,8 +146,6 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	return rep
 }
 
-// resolveUnset names the doctor.toml [resolve] keys --resolve needs to open
-// the fix item that are not set (kernel.DoctorResolve.Unset).
 func resolveUnset(in *doctorInput) []string {
 	if in.cfg == nil {
 		return []string{"kind", "tag"}
@@ -185,8 +153,6 @@ func resolveUnset(in *doctorInput) []string {
 	return in.cfg.Doctor.Resolve.Unset()
 }
 
-// configBroken reports whether the configuration is invalid, so no ledger
-// action can be recorded: it failed to load, or doctor reported a config issue.
 func configBroken(in *doctorInput, issues []doctorIssue) bool {
 	if in.cfgErr != nil {
 		return true
@@ -214,9 +180,6 @@ func detail(out string, err error) string {
 	return d
 }
 
-// resolveSeats releases each proven orphan without asking, then asks about
-// each other one on the controlling terminal, opened once and only when there
-// is one to ask about. Without a terminal those are left, saying so.
 func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssue) {
 	for _, is := range proven {
 		if err := k.Release(is.item, is.session, actor()); err != nil {
@@ -253,9 +216,6 @@ func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssu
 	}
 }
 
-// openFixItem puts every substrate finding on one item, for the agent to fix
-// in one change through the item's workflow: the open one [resolve] selects
-// when there is one, else a new one. It never edits or commits the files.
 func openFixItem(k *kernel.Kernel, in *doctorInput, rep *resolveReport, findings []doctorIssue) {
 	if len(findings) == 0 {
 		return
@@ -306,11 +266,9 @@ func openFixItem(k *kernel.Kernel, in *doctorInput, rep *resolveReport, findings
 	}
 }
 
-// pruneSessions removes the session records of this machine whose session has
-// ended and holds no seat any more.
 func pruneSessions(in *doctorInput) {
 	if !in.inRepo {
-		return // another repo's seats cannot be read here
+		return
 	}
 	items, err := readItems(in)
 	if err != nil {
@@ -325,7 +283,6 @@ func pruneSessions(in *doctorInput) {
 	_ = seatlife.Prune(config.GlobalDir(), func(s string) bool { return seated[s] })
 }
 
-// printResolve is --resolve's text report.
 func printResolve(out io.Writer, rep resolveReport) {
 	for _, a := range rep.Actions {
 		fmt.Fprintf(out, "%s: %s: %s\n", a.Result, a.Check, a.Problem)

@@ -12,9 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// Queue is one queues/<name>.toml: the definition of a queue (title, filter,
-// trigger). The ledger keeps the queue's membership and fires on the chain the
-// file binds: ID when set (adopting an existing queue), else <prefix>_<name>.
 type Queue struct {
 	Name    string          `toml:"-"`
 	File    string          `toml:"-"`
@@ -26,7 +23,6 @@ type Queue struct {
 
 var queueName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-// ParseQueue reads one queue file. Its name is the file's stem.
 func ParseQueue(path string) (*Queue, error) {
 	q := &Queue{}
 	if err := DecodeStrict(path, q); err != nil {
@@ -37,8 +33,6 @@ func ParseQueue(path string) (*Queue, error) {
 	return q, nil
 }
 
-// LoadQueues reads every *.toml in dir, keyed by name. A missing directory is
-// no queues.
 func LoadQueues(dir string) (map[string]*Queue, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.toml"))
 	if err != nil {
@@ -58,9 +52,6 @@ func LoadQueues(dir string) (map[string]*Queue, error) {
 	return out, errors.Join(errs...)
 }
 
-// Validate checks the file's own shape; workflowExists answers whether a
-// trigger's workflow is configured. A trigger task's existence is ledger
-// state, checked when the queue fires.
 func (q *Queue) Validate(workflowExists func(string) bool) []error {
 	var errs []error
 	bad := func(format string, a ...any) {
@@ -88,7 +79,6 @@ func (q *Queue) Validate(workflowExists func(string) bool) []error {
 	return errs
 }
 
-// ChainID is the ledger chain the file binds.
 func (q *Queue) ChainID(prefix string) string {
 	if q.ID != "" {
 		return q.ID
@@ -96,8 +86,6 @@ func (q *Queue) ChainID(prefix string) string {
 	return prefix + "_" + q.Name
 }
 
-// Apply sets the file's definition (title, filter, trigger) on it, the
-// queue's folded item. It is the only place a definition meets an item.
 func (q *Queue) Apply(it *item.Item) {
 	it.Title = q.Title
 	it.Inputs, it.Trigger = nil, nil
@@ -111,9 +99,6 @@ func (q *Queue) Apply(it *item.Item) {
 	}
 }
 
-// Fields is the file's definition as an item payload (title, inputs,
-// trigger), always whole: a missing [filter] or [trigger] is the zero value,
-// which clears it on fold. It is what a queue's chain mirrors.
 func (q *Queue) Fields() item.Fields {
 	title := q.Title
 	in, t := item.Selection{}, item.Trigger{}
@@ -126,8 +111,6 @@ func (q *Queue) Fields() item.Fields {
 	return item.Fields{Title: &title, Inputs: &in, Trigger: &t}
 }
 
-// Differs reports whether it, a queue's folded item, carries a definition
-// other than the file's (title, inputs or trigger).
 func (q *Queue) Differs(it item.Item) bool {
 	want := it
 	q.Apply(&want)

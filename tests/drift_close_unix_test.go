@@ -12,8 +12,6 @@ import (
 
 const driftReview = ".satelle/skills/drift-review.md"
 
-// driftCloseSandbox is a drift story sandbox whose run-local directory
-// (drift-review.md's rd) lives under a test temp dir.
 type driftCloseSandbox struct {
 	*driftSandbox
 	tmp string
@@ -27,13 +25,10 @@ func newDriftCloseSandbox(t *testing.T) *driftCloseSandbox {
 	return &driftCloseSandbox{driftSandbox: d, tmp: tmp}
 }
 
-// rd is drift-review.md's run-local directory of exe.
 func (d *driftCloseSandbox) rd(exe string) string {
 	return filepath.Join(d.tmp, "satelle-drift-"+exe)
 }
 
-// substrate writes step 1's output as drift-check would: its findings and
-// exit line.
 func (d *driftCloseSandbox) substrate(exe, findings, exit string) {
 	d.t.Helper()
 	if err := os.MkdirAll(d.rd(exe), 0o755); err != nil {
@@ -43,8 +38,6 @@ func (d *driftCloseSandbox) substrate(exe, findings, exit string) {
 	writeFile(d.t, filepath.Join(d.rd(exe), "substrate.exit"), "drift-check exit "+exit+"\n", 0o644)
 }
 
-// step runs drift-review.md's fence under heading verbatim, its task= line
-// bound to the sandbox's drift task.
 func (d *driftCloseSandbox) step(heading string) result {
 	d.t.Helper()
 	r := d.exec("bash", "", "-c", shBlock(d.t, driftReview, heading, d.drift))
@@ -54,13 +47,11 @@ func (d *driftCloseSandbox) step(heading string) result {
 	return r
 }
 
-// report is the run's attached drift-report.
 func (d *driftCloseSandbox) report(exe string) string {
 	d.t.Helper()
 	return d.must("execution", "attachment", exe, "drift-report")
 }
 
-// reportSection returns a report's lines under "## name", each split on tabs.
 func reportSection(report, name string) [][]string {
 	var out [][]string
 	on := false
@@ -76,7 +67,6 @@ func reportSection(report, name string) [][]string {
 	return out
 }
 
-// listed maps the first field of each section line to the rest.
 func listed(report, name string) map[string][]string {
 	m := map[string][]string{}
 	for _, f := range reportSection(report, name) {
@@ -85,15 +75,6 @@ func listed(report, name string) map[string][]string {
 	return m
 }
 
-// The drift review carries or closes every older drift item. A v0.0.1 fix
-// item holds a command key the run no longer finds (fixed), a flag key it
-// still finds, and a constitution key no judge resolved. drift-review.md's
-// steps 2, 3 and 4 run verbatim: step 2 raises the v0.0.2 fix item carrying
-// the flag and constitution keys; step 3's report lists the command key under
-// No longer found and names the fix item; step 4 closes the v0.0.1 item (the
-// command key resolved on the report, the other two carried), tagged
-// drift-carried-by:<v0.0.2 id>, and lists the v0.0.2 item as stayed open. The
-// run's done move checks those lists against the kernel (sto_a1681009 AC3).
 func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	t.Parallel()
 	d := newDriftCloseSandbox(t)
@@ -106,8 +87,6 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	older := parseFixed(t, r.out).id
 
 	exe := d.start(d.drift, stepSeat(t))
-	// Step 1 as drift-check reports it: the flag finding is still there, the
-	// command finding is gone.
 	d.substrate(exe, flagLine+"\n", "1")
 	out := d.step("## 2.")
 	fix := parseFixed(t, out.out).id
@@ -156,7 +135,6 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 		t.Fatalf("Stayed open = %v, want only %s, the fix item of v0.0.2:\n%s", stayed, fix, rep)
 	}
 
-	// The run's done move checks the lists against the kernel.
 	attach := func(body string) {
 		t.Helper()
 		if r := d.exec(satelleBin, body, "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
@@ -187,9 +165,6 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	}
 }
 
-// The claims judge's findings are warnings: it accepts with a WARN line, step
-// 5 brings the run to done, and step 6 records the warning in the release's
-// fix item as a drift-warning line with the finding quoted (sto_a1681009 AC7).
 func TestDriftReviewRecordsWarnings(t *testing.T) {
 	t.Parallel()
 	d := newDriftCloseSandbox(t)
@@ -220,13 +195,9 @@ func TestDriftReviewRecordsWarnings(t *testing.T) {
 	}
 }
 
-// drift-constitution runs when a release edits only a principle (that is how a
-// constitution finding gets fixed) and skips a release that edits only
-// .version; drift-claims runs on both. The constitution judge's prompt carries
-// the principle hunk and the RESOLVED form.
 func TestDriftConstitutionRunsOnAPrincipleEdit(t *testing.T) {
 	t.Parallel()
-	const unchanged = "package x\n\nfunc Foo() {}\n" // internal/x.go as v0.0.1 has it
+	const unchanged = "package x\n\nfunc Foo() {}\n"
 	cases := []struct {
 		name  string
 		extra map[string]string
@@ -276,9 +247,6 @@ func TestDriftConstitutionRunsOnAPrincipleEdit(t *testing.T) {
 	}
 }
 
-// drift-review.md's step 4 is its own fence, straight after step 3's: between
-// step 3's closing fence and step 4's opening fence stands only step 4's
-// heading, so no prose instruction between them is load-bearing.
 func TestDriftReviewStep4FollowsStep3Fence(t *testing.T) {
 	md := repoText(t, driftReview)
 	i := strings.Index(md, "\n## 3.")

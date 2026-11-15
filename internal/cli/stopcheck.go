@@ -10,13 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// stopCheck decides a turn's end for the session the payload names: block,
-// with the reason, when an item the session is seated on owes the session's
-// own next move (kernel.NextMove) and the session's last stop was not
-// blocked (seatlife.Stop). Every other case lets the stop through: a Stop
-// that ends no turn (grok's session-end fire), a dispatched run (its session
-// comes from SATELLE_SESSION), no session, no satelle repo, a pre-1.0 repo,
-// a configuration that does not open.
 func stopCheck(in hook.Input) (reason string, block bool) {
 	if !in.TurnEnd() || sessionFromEnv() != "" {
 		return "", false
@@ -57,9 +50,6 @@ func stopCheck(in hook.Input) (reason string, block bool) {
 	return stopReason(moves, session, sessionGuidance(r)), true
 }
 
-// stopReason is a blocked stop's reason: the session line, one line per
-// seated item that owes a move, then the repo's session guidance (the drive
-// rule and the promise that the next stop passes are its wording).
 func stopReason(moves []kernel.Move, session, guidance string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "satelle session: %s\n", session)
@@ -71,7 +61,6 @@ func stopReason(moves []kernel.Move, session, guidance string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// moveLine names one seated item's next move as the command that makes it.
 func moveLine(mv kernel.Move, s string) string {
 	const tail = ", not an external wait"
 	head := fmt.Sprintf("%s %s: ", mv.Item, mv.Status)

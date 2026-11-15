@@ -1,6 +1,3 @@
-// Package serve runs the push-fed mirror UI HTTP server (sty_80233c10).
-// Shared by the dedicated satelled binary and the deprecated `satelle serve`
-// CLI alias so behaviour cannot drift.
 package serve
 
 import (
@@ -21,13 +18,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/web"
 )
 
-// Options configures the mirror HTTP server.
 type Options struct {
-	Addr string // host, e.g. 127.0.0.1 or 0.0.0.0
-	Port int    // 0 → global service config → DefaultWebPort
+	Addr string
+	Port int
 }
 
-// Run opens the machine-wide mirror store and serves the RO UI until ctx ends.
 func Run(ctx context.Context, opts Options) error {
 	gc, _ := config.LoadGlobal()
 	port := opts.Port
@@ -54,13 +49,8 @@ func Run(ctx context.Context, opts Options) error {
 			publishLogs()
 		}
 	})
-	// The footer names the installed builds from the record in the satelle
-	// home, never by running a binary (sto_49b6e762).
 	exe, exeErr := os.Executable()
 	web.SetInstalledBuilds(installedBuilds(config.GlobalDir(), exe, exeErr))
-	// satelled does not exec the CLI: the CLI pushes what it needs, and the
-	// automatic sync pass confirms each mirror (/ingest/confirm, sto_128803b3)
-	// in place of a snapshot repair loop. Hosted push is rebuilt in B3/B4.
 	webSrv := web.NewMirrorHooks(ms, config.SafeCurrentInstanceID(), nil)
 	webSrv.Ingest.Log = logLine
 	publishLogs = func() { webSrv.Publish("logs") }
@@ -86,12 +76,8 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// serverLogConfig is the rotation of satelled's log file.
 var serverLogConfig = logfile.Config{MaxSizeBytes: config.DefaultLogsMaxSizeKB * 1024, MaxFiles: config.DefaultLogsMaxFiles}
 
-// newLogLine returns satelled's line writer: each line goes to stderr and to
-// serverLog (mirror.ServerLogPath), then publish runs so the UI's log view
-// refreshes. publish may be nil.
 func newLogLine(serverLog string, publish func()) func(format string, args ...any) {
 	return func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
@@ -103,10 +89,6 @@ func newLogLine(serverLog string, publish func()) func(format string, args ...an
 	}
 }
 
-// pprofLocal serves net/http/pprof under /debug/pprof/ to loopback clients only
-// (sty_0367d20c), so satelled's own work can be profiled on this machine
-// whatever address it listens on. Any other client gets 404 there; every other
-// path goes to next.
 func pprofLocal(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -127,7 +109,6 @@ func pprofLocal(next http.Handler) http.Handler {
 	})
 }
 
-// loopbackClient reports whether a request's RemoteAddr is a loopback address.
 func loopbackClient(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -137,11 +118,6 @@ func loopbackClient(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// installedBuilds records this satelled's own build for its executable (at
-// start the file there is the binary running, so no exec is needed) and returns
-// the footer's reader of the installed builds: the satelle CLI beside satelled
-// and satelled on disk, as recorded in home. A page render costs one small read
-// and two stats.
 func installedBuilds(home, exe string, exeErr error) func() web.InstalledBuilds {
 	if exeErr != nil {
 		u := fmt.Sprintf("unknown (%v)", exeErr)

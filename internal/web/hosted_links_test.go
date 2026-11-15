@@ -15,15 +15,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// hostedPartition is a mirror partition holding stories, with hosted as its
-// identity's hosted block. With no stories given it holds a story this machine
-// engaged and a story another machine changed a minute ago.
 func hostedPartition(t *testing.T, hosted *mirror.HostedMeta, stories ...Item) string {
 	t.Helper()
 	return hostedPartitionSeats(t, hosted, nil, stories...)
 }
 
-// hostedPartitionSeats is hostedPartition with seats pushed as well.
 func hostedPartitionSeats(t *testing.T, hosted *mirror.HostedMeta, seats []mirror.Seat, stories ...Item) string {
 	t.Helper()
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
@@ -68,21 +64,14 @@ func hostedPartitionSeats(t *testing.T, hosted *mirror.HostedMeta, seats []mirro
 	return ts.URL + "/r/" + slug + "/"
 }
 
-// hostedProbe is the hosted block of a partition: the here-set comes from the
-// seats classed here, not from the block.
 func hostedProbe() *mirror.HostedMeta {
 	return &mirror.HostedMeta{Server: "https://satelle.example/", Project: "probe"}
 }
 
-// itemAt is a story with status, priority and tags, created and changed at at.
 func itemAt(id, status, priority string, at time.Time, tags ...string) Item {
 	return Item{ID: id, Kind: "story", Title: id + " title", Status: status, Priority: priority, Tags: tags, CreatedAt: at, UpdatedAt: at}
 }
 
-// everyStateFixture is a hosted partition over stories in backlog, in progress
-// and done, each seated once: sty_mine here (this machine, session alive),
-// sty_other on another machine, sty_back by a session that ended, sty_done
-// with no machine recorded (fourSeatHome).
 func everyStateFixture(t *testing.T) string {
 	t.Helper()
 	now := time.Now().UTC()
@@ -94,11 +83,6 @@ func everyStateFixture(t *testing.T) string {
 		itemAt("sty_done", "done", "low", now, "surface:ui"))
 }
 
-// sty_6ce071dc AC1: in hosted mode the project page and the stories fragment list
-// every story in the local store — backlog, in progress, done, and a story
-// another location engaged — where sty_0dc600e1 AC5 listed only this machine's.
-// sty_9ece9394 AC4: it links only pages the server serves — the project page at
-// /app/p/<project> — and nothing for progress, epics or members.
 func TestHostedProjectPageListsEveryStory(t *testing.T) {
 	page := everyStateFixture(t)
 	body := httpGetBody(t, page)
@@ -109,11 +93,6 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 			}
 		}
 	}
-	// The story seated here is marked ◆ here; the one on another machine
-	// carries a mark at that machine; the one whose session ended carries
-	// nothing. A seat with no machine recorded is unverified and counts as
-	// here (◇ here), and a story with no pushed workflow cannot be proven
-	// terminal, so sty_done is marked too (sto_44a18f5b).
 	for id, w := range map[string]struct{ engaged, here, where, title string }{
 		"sty_mine":  {engaged: "here", here: "◆ here"},
 		"sty_other": {engaged: "elsewhere", where: "◆ other-host", title: "on other-host (m-other)"},
@@ -163,9 +142,6 @@ func TestHostedProjectPageListsEveryStory(t *testing.T) {
 	}
 }
 
-// sty_6ce071dc AC3: a snapshot ingest carrying a story this checkout has never
-// seen rings the stories topic on /events, and the stories fragment the client
-// refetches on that trigger (refetchPanel) then lists it — no reload.
 func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 	now := time.Now().UTC()
 	mine := itemAt("sty_mine", "in_progress", "high", now)
@@ -217,10 +193,6 @@ func TestHostedLiveFollowAddsUnseenStory(t *testing.T) {
 	}
 }
 
-// sty_6ce071dc AC4: the client-side filter bar (applyFilter in app.js) matches
-// status: and tags: against each row's data-status and data-tags. Every row of the full hosted list — engaged here, elsewhere, or not
-// at all — carries those values exactly, and the page renders the filter bar, so
-// the filter reaches the whole list.
 func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 	page := everyStateFixture(t)
 	want := map[string][2]string{
@@ -257,9 +229,6 @@ func TestHostedFullListCarriesFilterAttributes(t *testing.T) {
 	}
 }
 
-// sty_0dc600e1 AC6: a local partition keeps its full story list and links
-// nothing to a server. Nothing is seated, so no story is marked: the marks
-// follow seats in every mode, not whether the page is hosted (sto_44a18f5b).
 func TestLocalProjectPageListsEveryStoryWithNoServerLinks(t *testing.T) {
 	body := httpGetBody(t, hostedPartition(t, nil))
 	for _, id := range []string{"sty_mine", "sty_other"} {
@@ -272,8 +241,6 @@ func TestLocalProjectPageListsEveryStoryWithNoServerLinks(t *testing.T) {
 	}
 }
 
-// titleCellFor is id's title cell in body — from its row's end to the next
-// cell — or "" when the row is absent.
 func titleCellFor(body, id string) string {
 	at := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
 	if at < 0 {
@@ -291,7 +258,6 @@ func titleCellFor(body, id string) string {
 	return rest
 }
 
-// rowFor is the opening <tr> tag of id's row in body, or "" when it is absent.
 func rowFor(body, id string) string {
 	end := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
 	if end < 0 {
@@ -304,8 +270,6 @@ func rowFor(body, id string) string {
 	return body[start:end]
 }
 
-// fullRowFor is id's whole story row in body, from its <tr through the first
-// </tr> after it (a story row nests no row), or "" when it is absent.
 func fullRowFor(body, id string) string {
 	end := strings.Index(body, `data-expand-url="fragment/story/`+id+`"`)
 	if end < 0 {

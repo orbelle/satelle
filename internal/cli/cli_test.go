@@ -16,8 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// isolate gives the test its own home, credentials dir and session, and a
-// fresh git repo as the working directory.
 func isolate(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -30,8 +28,6 @@ func isolate(t *testing.T) string {
 	t.Setenv("SATELLE_PROJECT_DIR", "")
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	clearCallerMarkers(t)
-	// No test's update reaches this machine's user manager; a test of the
-	// service clears it and puts a fake systemctl first on PATH.
 	t.Setenv(envNoService, "1")
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -43,9 +39,6 @@ func isolate(t *testing.T) string {
 	return dir
 }
 
-// clearCallerMarkers unsets every harness session marker (hook.CallerMarkers),
-// so a test run from an agent's shell sees no calling harness unless it sets
-// one.
 func clearCallerMarkers(t *testing.T) {
 	t.Helper()
 	names, prefixes := hook.CallerMarkers()
@@ -62,9 +55,6 @@ func clearCallerMarkers(t *testing.T) {
 	}
 }
 
-// run executes one satelle command line with stdin, returning its output. A
-// real call is its own process, so a --session (which sets SATELLE_SESSION for
-// the call) and a -C (which changes directory) end with it: run puts both back.
 func run(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	prev, had := os.LookupEnv(config.SessionEnv)
@@ -139,8 +129,6 @@ func TestInitCreateWalkToDone(t *testing.T) {
 	}
 }
 
-// writeGatedWorkflow adds a workflow whose second step is performed by the
-// session and whose exit is judged by a check that wants ok.txt.
 func writeGatedWorkflow(t *testing.T, dir string) {
 	t.Helper()
 	files := map[string]string{
@@ -206,7 +194,6 @@ func TestRejectedTransitionExitsBlockedWithNotes(t *testing.T) {
 	}
 }
 
-// hookGate runs the gate hook for an edit of path (relative to dir) by session.
 func hookGate(t *testing.T, dir, session, tool, path, command string) (deny bool, reason string) {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{
@@ -345,7 +332,6 @@ func TestInvalidConfigurationRefusesToRun(t *testing.T) {
 	}
 }
 
-// getStory loads a story through the CLI.
 func getStory(t *testing.T, id string) item.Item {
 	t.Helper()
 	var it item.Item
@@ -422,7 +408,6 @@ func TestSetReplaceGuard(t *testing.T) {
 	}
 }
 
-// workflow show lists a gate's own timeout beside its other keys.
 func TestWorkflowShowGateTimeout(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -440,7 +425,6 @@ func TestWorkflowShowGateTimeout(t *testing.T) {
 	}
 }
 
-// appendRule appends a [[workflows.rule]] selecting workflow for tag.
 func appendRule(t *testing.T, dir, workflow, tag string) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)
@@ -453,8 +437,6 @@ func appendRule(t *testing.T, dir, workflow, tag string) {
 	}
 }
 
-// workflow select prints the rules' choice and its start state for the given
-// fields: the rule's workflow when they match, the default otherwise.
 func TestWorkflowSelect(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -479,9 +461,6 @@ func TestWorkflowSelect(t *testing.T) {
 	}
 }
 
-// --reselect takes no other field flag and no --status: either is refused with
-// exit 1 before anything is written. With neither, an item the rules now place
-// elsewhere moves there in place.
 func TestSetReselectConflicts(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -511,10 +490,6 @@ func TestSetReselectConflicts(t *testing.T) {
 	}
 }
 
-// writePlanWorkflow adds a workflow st-one -> st-plan -> st-build -> st-done
-// whose st-plan performer produces only attachments (edits = "attachments")
-// and whose st-build performer may change the tree, with notes/** exempt and
-// locked/** locked.
 func writePlanWorkflow(t *testing.T, dir string) {
 	t.Helper()
 	files := map[string]string{
@@ -578,7 +553,6 @@ func TestValidateEditsKey(t *testing.T) {
 	}
 }
 
-// hookContext runs the context hook for session.
 func hookContext(t *testing.T, session string) string {
 	t.Helper()
 	out, err := run(t, `{"session_id":"`+session+`"}`, "hook", "context", "--harness", "claude")
@@ -662,7 +636,6 @@ func TestEditGateAttachmentsOnlyState(t *testing.T) {
 		t.Errorf("status --json seats %+v, want one with edits attachments", st.Seats)
 	}
 
-	// A second seat at the same worktree on a tree state does not lift it.
 	must(t, "story", "set", b, "--status", "st-plan")
 	must(t, "story", "set", b, "--status", "st-build")
 	must(t, "story", "seat", b, "--session", "s-1")

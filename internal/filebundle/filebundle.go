@@ -1,12 +1,3 @@
-// Package filebundle is the one owner of satelle's versioned file-bundle
-// encoding and of the safe restore of a bundle onto disk. A bundle is a list of
-// (path, text) entries framed as JSON, so a body containing any markup — a
-// "### " heading included — round-trips byte for byte.
-//
-// It is remote-agnostic: the caller decides which files make a bundle and in
-// what order, and which roots a decoded path must sit under. Encode keeps the
-// order it is given and does no sorting of its own, so the same entries in the
-// same order always yield the same bytes.
 package filebundle
 
 import (
@@ -23,11 +14,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// Format is the version of the bundle encoding. Decode refuses any other.
 const Format = 1
 
-// Entry is one file of a bundle: a slash path relative to the bundle root and
-// its text.
 type Entry struct {
 	Path    string
 	Content string
@@ -43,28 +31,20 @@ type file struct {
 	Content string `json:"content"`
 }
 
-// ErrMalformed is matched (errors.Is) by the error Decode returns for data that
-// is not a bundle at all.
 var ErrMalformed = errors.New("malformed bundle")
 
-// MalformedError is Decode's error for data that is not a bundle; Err is the
-// JSON cause.
 type MalformedError struct{ Err error }
 
 func (e *MalformedError) Error() string        { return e.Err.Error() }
 func (e *MalformedError) Unwrap() error        { return e.Err }
 func (e *MalformedError) Is(target error) bool { return target == ErrMalformed }
 
-// FormatError is Decode's error for a bundle of a format this build does not read.
 type FormatError struct{ Got, Want int }
 
 func (e *FormatError) Error() string {
 	return fmt.Sprintf("unknown bundle format %d (this satelle reads %d)", e.Got, e.Want)
 }
 
-// Encode frames entries as one bundle, in the order given. A .local path never
-// enters a bundle (config.LocalOnlyPath owns "never transmitted"), and content
-// that is not UTF-8 is refused: a bundle carries text.
 func Encode(entries []Entry) ([]byte, error) {
 	b := bundle{Format: Format, Files: make([]file, 0, len(entries))}
 	for _, e := range entries {
@@ -79,12 +59,9 @@ func Encode(entries []Entry) ([]byte, error) {
 	return json.Marshal(b)
 }
 
-// Decode reads a bundle and checks every entry path against roots (CheckPath)
-// before returning any of them.
 func Decode(data []byte, roots []string) ([]Entry, error) {
 	var b bundle
 	if !utf8.Valid(data) {
-		// json.Unmarshal would silently replace the bad bytes; a bundle is text.
 		return nil, &MalformedError{Err: errors.New("content is not UTF-8 text")}
 	}
 	if err := json.Unmarshal(data, &b); err != nil {
@@ -103,10 +80,6 @@ func Decode(data []byte, roots []string) ([]Entry, error) {
 	return out, nil
 }
 
-// CheckPath refuses a path that is not a plain relative slash path inside the
-// bundle: empty, absolute, containing a backslash, not clean, escaping with
-// "..", a .local file, or (when roots is non-empty) outside every root. A root
-// matches a path equal to it or under it.
 func CheckPath(p string, roots []string) error {
 	if p == "" || path.IsAbs(p) || strings.Contains(p, "\\") || path.Clean(p) != p {
 		return fmt.Errorf("bundle path %q is not a plain relative path", p)
@@ -130,12 +103,6 @@ func CheckPath(p string, roots []string) error {
 	return fmt.Errorf("bundle path %q is outside the bundle's roots", p)
 }
 
-// Write writes entries into dir, byte for byte. Every path is checked (generic
-// checks only; the caller already ran Decode with its roots) before anything is
-// written. A non-empty dir is refused unless overwrite is set. With overwrite,
-// every file of dir that owned reports true and the entries do not carry is
-// removed first; a .local file is never removed. owned may be nil, which owns
-// nothing.
 func Write(dir string, entries []Entry, overwrite bool, owned func(rel string) bool) error {
 	keep := map[string]bool{}
 	for _, e := range entries {

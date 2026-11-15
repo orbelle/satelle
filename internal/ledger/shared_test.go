@@ -10,7 +10,6 @@ import (
 
 var fixedTime = time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)
 
-// chainOf builds n linked events on item, each payload tagged.
 func chainOf(t *testing.T, item string, tags ...string) []Event {
 	t.Helper()
 	var out []Event

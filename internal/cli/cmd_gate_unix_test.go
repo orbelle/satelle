@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// fakeJudge writes an executable named claude that answers every dispatch
-// with verdict and notes, and returns its path.
 func fakeJudge(t *testing.T, verdict, notes string) string {
 	t.Helper()
 	answer, _ := json.Marshal(map[string]string{"verdict": verdict, "notes": notes})
@@ -24,9 +22,6 @@ func fakeJudge(t *testing.T, verdict, notes string) string {
 	return bin
 }
 
-// writeDryWorkflow adds the workflow dry to an initialised repo: a passing
-// check (ok), a failing check (bad), a single judge (one) and a panel of two
-// that splits (split), all on st-a -> st-b.
 func writeDryWorkflow(t *testing.T, dir string) {
 	t.Helper()
 	agents, err := os.ReadFile(filepath.Join(dir, ".satelle", "agents.toml"))
@@ -86,8 +81,6 @@ func noGateRun(t *testing.T, id string) {
 	}
 }
 
-// AC5: the result, every panel member's verdict and the full notes are
-// printed; a refusing result exits 2, and nothing is recorded.
 func TestGateRunPrintsTheResult(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -123,8 +116,6 @@ func TestGateRunPrintsTheResult(t *testing.T) {
 	noGateRun(t, id)
 }
 
-// AC6: --show-input prints the check's env and stdin, or the judge's
-// prompt, and runs nothing.
 func TestGateRunShowInput(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -150,7 +141,6 @@ func TestGateRunShowInput(t *testing.T) {
 	noGateRun(t, id)
 }
 
-// A gate named without its workflow, or with no item, is refused.
 func TestGateRunRefusesAMalformedCall(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")

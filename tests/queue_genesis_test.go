@@ -9,10 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// Two machines on one project each run a command over the same queue file
-// before either has synced. Both write the same que_release genesis, so push
-// and pull go through with no divergence, and a later add on one reaches the
-// other (sto_2b0b59cd AC3).
 func TestQueueFileGenesisSyncsBetweenTwoMachines(t *testing.T) {
 	t.Parallel()
 	srv := fakeserver.Start(t, devToken)

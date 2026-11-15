@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// satelle <kind> seat stamps this machine's id and host name on the seat, as
-// read back from the item's chain (sto_e127b2e6 AC4).
 func TestSeatCommandStampsThisMachine(t *testing.T) {
 	isolate(t)
 	must(t, "init")
@@ -39,10 +37,6 @@ func TestSeatCommandStampsThisMachine(t *testing.T) {
 	}
 }
 
-// The SessionStart hook records the session's hook processes and a later hook
-// call settles its owner: the harness both calls share, here the test's
-// parent (sto_e127b2e6 AC5). Every hook call settles a missing owner: a prompt,
-// a second session start, or a seat command (sto_35c85724 AC2).
 func TestHooksRecordAndResolveTheSessionOwner(t *testing.T) {
 	dir := isolate(t)
 	anc := procgroup.Ancestors(os.Getpid())

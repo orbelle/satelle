@@ -23,8 +23,6 @@ func syncOnce(t *testing.T, s *ledger.Store, st Store) SyncResult {
 	return res
 }
 
-// sameAsStore checks s holds exactly the store's items, each with the
-// store's head.
 func sameAsStore(t *testing.T, name string, s *ledger.Store, o Objects) {
 	t.Helper()
 	st := &ObjectStore{Objects: o, Name: "test"}
@@ -81,8 +79,6 @@ func TestSyncDisjointNewItemsConverge(t *testing.T) {
 	}
 }
 
-// countingStore counts the calls that write to the store or read events
-// from it.
 type countingStore struct {
 	Store
 	offers, events int
@@ -100,13 +96,13 @@ func (c *countingStore) Events(ctx context.Context, item string, from, to int) (
 
 func TestSyncLeavesInSyncAndDivergedAlone(t *testing.T) {
 	o := newMem()
-	a, b := shared(t, o, 2) // "it": 2 events, pushed, held by both
+	a, b := shared(t, o, 2)
 	add(t, a, "same", "s", 2)
 	push(t, a, o)
 	copyChain(t, a, b, "same")
 	add(t, a, "it", "a", 1)
 	push(t, a, o)
-	add(t, b, "it", "b", 1) // B forks it at 2
+	add(t, b, "it", "b", 1)
 
 	before := chainFile(t, b, "it")
 	storeBefore := seqsOf(t, o, "it")

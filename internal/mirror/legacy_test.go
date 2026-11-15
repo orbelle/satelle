@@ -11,8 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// A snapshot carrying a removed feature's waves is accepted and the waves are
-// ignored; story_doc rows merge like the other per-item kinds.
 func TestIngestIgnoresWavesAndMergesAttachments(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {

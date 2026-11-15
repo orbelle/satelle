@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// recordingStore writes a store command that appends its argv to a log,
-// prints error: unavailable: down and exits 1, configures it as the repo's
-// [ledger] store, and returns the log's path. A path that must not contact
-// the store leaves no log.
 func recordingStore(t *testing.T, dir string) string {
 	t.Helper()
 	work := t.TempDir()
@@ -24,7 +20,6 @@ func recordingStore(t *testing.T, dir string) string {
 	return calls
 }
 
-// noStoreCall fails the test when the recording store was called.
 func noStoreCall(t *testing.T, calls string) {
 	t.Helper()
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {

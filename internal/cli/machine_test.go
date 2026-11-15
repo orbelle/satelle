@@ -17,16 +17,12 @@ import (
 
 const testToken = "tok-ada"
 
-// machine is one local satelle: its own home and repo, and, from
-// newMachineWithUI, its own satelled (ui, its URL, over the mirror store ms).
 type machine struct {
 	home, dir string
 	ui        string
 	ms        *mirror.Store
 }
 
-// newMachine isolates a fresh home and repo, initialises it and signs it in
-// with the session token the fake accepts.
 func newMachine(t *testing.T) machine {
 	t.Helper()
 	dir := isolate(t)
@@ -35,16 +31,11 @@ func newMachine(t *testing.T) machine {
 	return machine{home: os.Getenv("HOME"), dir: dir}
 }
 
-// newMachineWithUI is newMachine with its own satelled: a mirror store and
-// the web server over it, which only this machine's CLI pushes to.
 func newMachineWithUI(t *testing.T) machine {
 	t.Helper()
 	return serveMirror(t, newMachine(t), filepath.Join(t.TempDir(), "m.db"))
 }
 
-// newMachineWithHomeUI is newMachineWithUI whose satelled serves this home's
-// own mirror database (mirror.DefaultPath), the file the CLI's partition
-// readers open, so m.ms and the CLI read the same partitions.
 func newMachineWithHomeUI(t *testing.T) machine {
 	t.Helper()
 	m := newMachine(t)
@@ -55,8 +46,6 @@ func newMachineWithHomeUI(t *testing.T) machine {
 	return serveMirror(t, m, path)
 }
 
-// serveMirror gives m a satelled: a mirror store at path and the web server
-// over it, which only this machine's CLI pushes to.
 func serveMirror(t *testing.T, m machine, path string) machine {
 	t.Helper()
 	ms, err := mirror.Open(path)
@@ -64,15 +53,12 @@ func serveMirror(t *testing.T, m machine, path string) machine {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ms.Close() })
-	// It serves this machine's home: another machine's CLI is refused.
 	srv := httptest.NewServer(web.NewMirrorWithInstance(ms, config.CurrentInstanceID()).Handler)
 	t.Cleanup(srv.Close)
 	m.ui, m.ms = srv.URL, ms
 	return m
 }
 
-// use makes m the current machine: its home, its repo, and its satelled (none
-// when it has none), so its CLI pushes only to its own.
 func (m machine) use(t *testing.T) {
 	t.Helper()
 	ep := m.ui
@@ -99,8 +85,6 @@ func runtimeLedger(t *testing.T) *ledger.Store {
 	return l
 }
 
-// runOn runs one command line on m and then pushes its writes to m's
-// satelled, as Execute does, so nothing is left for the next machine.
 func runOn(t *testing.T, m machine, args ...string) string {
 	t.Helper()
 	m.use(t)
@@ -109,7 +93,6 @@ func runOn(t *testing.T, m machine, args ...string) string {
 	return out
 }
 
-// storiesOn is the stories fragment of m's satelled for its only partition.
 func storiesOn(t *testing.T, m machine) string {
 	t.Helper()
 	parts, err := m.ms.ListPartitions(context.Background())

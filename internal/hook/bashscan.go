@@ -8,37 +8,12 @@ import (
 	"unicode"
 )
 
-// bashscan.go is a quote-aware, best-effort Bash classifier: it names what a
-// command would write so the edit gate can judge a shell command by the same
-// predicate as an edit. Honest scope: a reminder and a boundary, not a
-// sandbox. Variable expansion beyond a leading ~ / $VAR from the hook's own
-// environment, eval, xargs, command substitution and symlink escapes are out
-// of scope; an ambiguous form names no target rather than a guess.
-
-// BashTargets is what a Bash command would change.
 type BashTargets struct {
-	// Paths are absolute write targets the command names: redirects and tee,
-	// the -C dir of a mutating git/make/tar, path arguments of mutation verbs,
-	// and the same inside a readable sh -c program.
-	Paths []string
-	// Inline are the working dirs of interpreters running program text the
-	// scan cannot read (a code flag, `-`, or stdin fed by a heredoc or pipe):
-	// such a program may write anywhere under its working dir.
-	Inline []string
-	// OperatorRecord is set when the command would run satelle's operator record
-	// verb: satelle at any word position of a segment (behind env, command,
-	// timeout, xargs and the like) with a later record word, or the two on one
-	// line of text a shell or interpreter may run (sh -c, script -c, an
-	// interpreter -c program, a heredoc or here-string, a command substitution,
-	// text piped into a command that is not data). Text passed only as data to a
-	// command on the closed dataCommands list (or a git message or read
-	// command) is not scanned; anything else fails closed and is.
+	Paths          []string
+	Inline         []string
 	OperatorRecord bool
 }
 
-// ScanBash classifies command walked from cwd. root, when set, is the tree
-// whose name in inline program text counts as a write target. isFile tells a
-// named script from inline text; nil means no file exists (fail closed).
 func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
 	seen := map[string]bool{}
@@ -121,27 +96,14 @@ func scanBash(command, cwd, root string, isFile func(string) bool, depth int, pa
 	}
 }
 
-// bashTok is one lexical token from a best-effort scan.
 type bashTok struct {
-	// Kind is "word" for an unquoted shell word, "string" for a quoted span
-	// (single/double/dollar-quote/heredoc body collapsed to one opaque token),
-	// or "op" for a segment operator (;, &&, ||, |, newline).
-	Kind  string
-	Value string // raw value for word; empty or placeholder for string/op
-	Op    string // for Kind=="op": ";", "&&", "||", "|", "\n"
-	// Raw is the full source text of a heredoc token (opener line and body), which
-	// Value collapses to a placeholder. Text scans that must see what an
-	// interpreter is fed (interpreterPathRefs) read it; word classifiers never do.
-	Raw string
-	// Start and End are the token's byte offsets in the tokenized text. Two
-	// tokens with no gap between them (End == next Start) are one shell word
-	// built from pieces (`'a'\''b'`), which shellProgram must not read as one.
+	Kind       string
+	Value      string
+	Op         string
+	Raw        string
 	Start, End int
 }
 
-// tokenizeBash splits a Bash payload into tokens. Quoted spans and heredoc
-// bodies become a single opaque "string" token so prose (e.g. a --body argument)
-// cannot contribute matching word tokens to commit/push detection.
 func tokenizeBash(command string) []bashTok {
 	var out []bashTok
 	emit := func(t bashTok, start, end int) {
@@ -151,18 +113,15 @@ func tokenizeBash(command string) []bashTok {
 	i := 0
 	n := len(command)
 	for i < n {
-		// Whitespace (except newline, which is a segment op).
 		if command[i] == ' ' || command[i] == '\t' || command[i] == '\r' {
 			i++
 			continue
 		}
-		// Newline segment boundary.
 		if command[i] == '\n' {
 			emit(bashTok{Kind: "op", Op: "\n"}, i, i+1)
 			i++
 			continue
 		}
-		// Operators: && || ; |
 		if command[i] == '&' && i+1 < n && command[i+1] == '&' {
 			emit(bashTok{Kind: "op", Op: "&&"}, i, i+2)
 			i += 2
@@ -183,14 +142,10 @@ func tokenizeBash(command string) []bashTok {
 			i++
 			continue
 		}
-		// Heredoc: <<[-]['"]WORD['"] … WORD
 		if command[i] == '<' && i+1 < n && command[i+1] == '<' {
 			end, restStart, rest, ok := consumeHeredoc(command, i)
 			if ok {
 				emit(bashTok{Kind: "string", Value: "HEREDOC", Raw: command[i:end]}, i, restStart)
-				// What follows the delimiter on the opener line (`<<EOF > f`,
-				// `<<EOF | python3 -`) is ordinary shell and is classified as such;
-				// the line after the closing delimiter starts a new command.
 				for _, t := range tokenizeBash(rest) {
 					emit(t, t.Start+restStart, t.End+restStart)
 				}
@@ -199,28 +154,24 @@ func tokenizeBash(command string) []bashTok {
 				continue
 			}
 		}
-		// Single-quoted string.
 		if command[i] == '\'' {
 			j := i + 1
 			for j < n && command[j] != '\'' {
 				j++
 			}
 			if j < n {
-				j++ // closing quote
+				j++
 			}
 			emit(bashTok{Kind: "string", Value: command[i:j]}, i, j)
 			i = j
 			continue
 		}
-		// Double-quoted string (best-effort: \" and \\ escapes, and a $( … )
-		// substitution inside it nests its own quotes and heredocs).
 		if command[i] == '"' {
 			j := skipDoubleQuoted(command, i+1)
 			emit(bashTok{Kind: "string", Value: command[i:j]}, i, j)
 			i = j
 			continue
 		}
-		// Dollar-single-quote $'...'
 		if command[i] == '$' && i+1 < n && command[i+1] == '\'' {
 			j := i + 2
 			for j < n {
@@ -238,10 +189,6 @@ func tokenizeBash(command string) []bashTok {
 			i = j
 			continue
 		}
-		// Unquoted word: runs until whitespace, op, quote, or redirect marker start
-		// that begins a separate token (we keep > / >> / < glued to the word when
-		// they are part of a redirect like >file without space; spaced redirects
-		// are handled as separate words).
 		j := i
 		for j < n {
 			c := command[j]
@@ -250,11 +197,9 @@ func tokenizeBash(command string) []bashTok {
 				c == '\'' || c == '"' {
 				break
 			}
-			// Stop before && / || (already handled if at start).
 			if c == '&' || (c == '|' && j+1 < n && command[j+1] == '|') {
 				break
 			}
-			// Heredoc start inside a word is rare; treat < as word content unless <<.
 			if c == '<' && j+1 < n && command[j+1] == '<' {
 				break
 			}
@@ -265,19 +210,12 @@ func tokenizeBash(command string) []bashTok {
 			i = j
 			continue
 		}
-		// Fallback: single unknown char as word.
 		emit(bashTok{Kind: "word", Value: string(command[i])}, i, i+1)
 		i++
 	}
 	return out
 }
 
-// skipDoubleQuoted returns the index after the double-quoted string whose body
-// starts at i (just past the opening quote), or len(s) when it never closes. A
-// `$(` opens a substitution whose own quotes and heredoc bodies belong to it, so
-// an odd inner quote (`the "x file` inside `$(cat <<'EOF' … EOF)`) does not end the
-// outer string. A substitution that never closes is read as plain text, which is the
-// pre-nesting behaviour.
 func skipDoubleQuoted(s string, i int) int {
 	n := len(s)
 	for i < n {
@@ -299,9 +237,6 @@ func skipDoubleQuoted(s string, i int) int {
 	return n
 }
 
-// skipSubstitution returns the index after the `)` that closes a `$(` whose body
-// starts at i, and false when it never closes. Single and double quotes, nested
-// substitutions and `<<` heredocs inside it are skipped as units.
 func skipSubstitution(s string, i int) (int, bool) {
 	n, depth := len(s), 1
 	for i < n {
@@ -322,7 +257,6 @@ func skipSubstitution(s string, i int) (int, bool) {
 				i += 2
 				continue
 			}
-			// The opener line can close the substitution (`<<EOF | wc)`).
 			if depth += parenDelta(rest); depth <= 0 {
 				return end, true
 			}
@@ -342,7 +276,6 @@ func skipSubstitution(s string, i int) (int, bool) {
 	return n, false
 }
 
-// parenDelta is the net `(` minus `)` in text outside single and double quotes.
 func parenDelta(text string) int {
 	d := 0
 	for i := 0; i < len(text); i++ {
@@ -360,18 +293,12 @@ func parenDelta(text string) int {
 	return d
 }
 
-// consumeHeredoc advances past a heredoc opener and its body. Returns the index
-// after the terminating delimiter line, the offset and text of the rest of the
-// opener line after the delimiter word, or (start, start, "", false) if it cannot
-// parse.
 func consumeHeredoc(s string, start int) (int, int, string, bool) {
-	// start points at first '<' of <<
 	i := start + 2
 	n := len(s)
 	if i < n && s[i] == '-' {
-		i++ // <<-
+		i++
 	}
-	// Optional quotes around delimiter.
 	for i < n && (s[i] == ' ' || s[i] == '\t') {
 		i++
 	}
@@ -402,16 +329,14 @@ func consumeHeredoc(s string, start int) (int, int, string, bool) {
 	if delim == "" {
 		return start, start, "", false
 	}
-	// The rest of the opener line, up to the newline that starts the body.
 	restStart := i
 	for i < n && s[i] != '\n' {
 		i++
 	}
 	rest := s[restStart:i]
 	if i < n {
-		i++ // past newline
+		i++
 	}
-	// Body until a line that is exactly delim.
 	for i < n {
 		lineStart := i
 		for i < n && s[i] != '\n' {
@@ -420,7 +345,7 @@ func consumeHeredoc(s string, start int) (int, int, string, bool) {
 		line := s[lineStart:i]
 		if line == delim {
 			if i < n {
-				i++ // consume newline after delimiter
+				i++
 			}
 			return i, restStart, rest, true
 		}
@@ -428,17 +353,14 @@ func consumeHeredoc(s string, start int) (int, int, string, bool) {
 			i++
 		}
 	}
-	return i, restStart, rest, true // unterminated: consume rest
+	return i, restStart, rest, true
 }
 
-// pipedSegment is one command segment with whether a pipe feeds it.
 type pipedSegment struct {
 	Toks  []bashTok
-	Piped bool // the operators between this segment and the previous one include "|"
+	Piped bool
 }
 
-// splitSegments splits tokens into command segments at ; && || | newline,
-// remembering which ones a pipe feeds.
 func splitSegments(toks []bashTok) []pipedSegment {
 	var segs []pipedSegment
 	var cur []bashTok
@@ -465,9 +387,6 @@ func splitSegments(toks []bashTok) []pipedSegment {
 	return segs
 }
 
-// wordsOnly returns the Value of word-kind tokens in a segment (for classifiers
-// that need bare shell words). String tokens are omitted so quoted prose never
-// matches as a command word.
 func wordsOnly(seg []bashTok) []string {
 	var w []string
 	for _, t := range seg {
@@ -478,23 +397,17 @@ func wordsOnly(seg []bashTok) []string {
 	return w
 }
 
-// gitInvocation parses a git segment's global options. It returns the subcommand
-// (lowercased) and the -C DIR operands that precede it, in order; ok is false when
-// the words are not a git invocation with a subcommand.
 func gitInvocation(words []string) (sub string, dirs []string, ok bool) {
 	sub, dirs, _, ok = gitInvocationArgs(words)
 	return sub, dirs, ok
 }
 
-// gitInvocationArgs is gitInvocation that also returns the words after the
-// subcommand.
 func gitInvocationArgs(words []string) (sub string, dirs, args []string, ok bool) {
 	if len(words) == 0 {
 		return "", nil, nil, false
 	}
 	cmd := words[0]
 	base := filepath.Base(cmd)
-	// Strip a trailing path form: /usr/bin/git or ./git
 	if base != "git" && cmd != "git" {
 		return "", nil, nil, false
 	}
@@ -503,7 +416,6 @@ func gitInvocationArgs(words []string) (sub string, dirs, args []string, ok bool
 		w := words[i]
 		switch {
 		case w == "-C" || w == "-c":
-			// Takes a following argument.
 			if w == "-C" && i+1 < len(words) {
 				dirs = append(dirs, words[i+1])
 			}
@@ -526,36 +438,26 @@ func gitInvocationArgs(words []string) (sub string, dirs, args []string, ok bool
 			i++
 			continue
 		case strings.HasPrefix(w, "-") && w != "--":
-			// Unknown global option: skip conservatively without consuming an arg
-			// (avoids treating a verb as an option value).
 			i++
 			continue
 		default:
-			// First non-option word is the subcommand.
 			return strings.ToLower(w), dirs, words[i+1:], true
 		}
 	}
 	return "", nil, nil, false
 }
 
-// dirFlagTable maps command basename → option letters that take a directory
-// argument (e.g. git -C DIR). Only named tools; never guessed per tool.
 var dirFlagTable = map[string][]string{
 	"git":  {"-C"},
 	"make": {"-C"},
 	"tar":  {"-C"},
 }
 
-// gitReadOnlySubcommands is the closed list of git subcommands that only read.
-// A `git -C DIR` naming one of them does not mutate DIR; any other subcommand, or
-// one that cannot be parsed, stays a mutation, so the check fails closed.
 var gitReadOnlySubcommands = map[string]bool{
 	"diff": true, "status": true, "log": true, "show": true,
 	"rev-parse": true, "rev-list": true, "ls-files": true,
 }
 
-// gitReadOnlyInvocation reports whether words are a git command whose subcommand
-// only reads. A --output flag writes its operand, so it is never read-only.
 func gitReadOnlyInvocation(words []string) bool {
 	sub, _, ok := gitInvocation(words)
 	if !ok || !gitReadOnlySubcommands[sub] {
@@ -569,19 +471,12 @@ func gitReadOnlyInvocation(words []string) bool {
 	return true
 }
 
-// mutationVerbs are simple path-mutating commands whose path arguments (when
-// they resolve outside the anchor) are containment targets.
 var mutationVerbs = map[string]bool{
 	"rm": true, "mv": true, "cp": true, "touch": true, "mkdir": true,
 	"install": true, "truncate": true, "dd": true, "sed": true,
 	"chmod": true, "chown": true, "ln": true, "rsync": true,
 }
 
-// commandArgWords is a command segment's words with each quoted argument
-// unquoted into its slot. A quoted path is as much a target as a bare one —
-// a harness's shell tool may emit `rm "/abs/other.txt"` — and the
-// word list drops string tokens, so `rm "f"` named no target at all. A heredoc
-// body is not an argument and stays out.
 func commandArgWords(toks []bashTok) []string {
 	var out []string
 	for _, t := range toks {
@@ -595,21 +490,14 @@ func commandArgWords(toks []bashTok) []string {
 	return out
 }
 
-// bashSegment is one non-empty command segment as forEachSegment yields it.
 type bashSegment struct {
-	Tokens []bashTok // the segment's raw tokens (redirects, sed scripts)
-	Words  []string  // bare words after any leading NAME=value assignments; empty for an env-only segment
-	Idx    int       // number of assignment words stripped (commandTokens(Tokens, Idx))
-	Cwd    string    // working dir in effect BEFORE this segment's own cd applies
-	Piped  bool      // a pipe feeds this segment from the one before it
+	Tokens []bashTok
+	Words  []string
+	Idx    int
+	Cwd    string
+	Piped  bool
 }
 
-// forEachSegment walks a Bash payload's command segments in order, seeding the
-// working dir at base and updating it after each `cd DIR`. It yields every segment
-// that has a word, cd and env-only segments included, so a caller that must see
-// redirects on them still does. It is the one cd/env-assignment walk shared by the
-// containment classifier (bashMutationTargets) and commit attribution
-// (gitCommandDir), so the two cannot drift.
 func forEachSegment(command, base string, fn func(s bashSegment)) {
 	cwd := base
 	for _, ps := range splitSegments(tokenizeBash(command)) {
@@ -618,7 +506,6 @@ func forEachSegment(command, base string, fn func(s bashSegment)) {
 		if len(all) == 0 {
 			continue
 		}
-		// Strip env assignments: FOO=bar cmd …
 		idx := leadingAssignments(all)
 		words := all[idx:]
 		fn(bashSegment{Tokens: seg, Words: words, Idx: idx, Cwd: cwd, Piped: ps.Piped})
@@ -628,8 +515,6 @@ func forEachSegment(command, base string, fn func(s bashSegment)) {
 	}
 }
 
-// leadingAssignments is the number of NAME=value words that open a segment's word
-// list, before its command word.
 func leadingAssignments(words []string) int {
 	n := 0
 	for n < len(words) && isAssignmentWord(words[n]) {
@@ -638,14 +523,11 @@ func leadingAssignments(words []string) int {
 	return n
 }
 
-// isAssignmentWord reports whether w reads as a NAME=value shell assignment.
 func isAssignmentWord(w string) bool {
 	eq := strings.IndexByte(w, '=')
 	return eq > 0 && !strings.HasPrefix(w, "-") && isShellIdent(w[:eq])
 }
 
-// programSegments is the segment at j and the segments piping into it, nearest
-// first: everything that supplies or is the interpreter's program text.
 func programSegments(segs []bashSegment, j int) []bashSegment {
 	var out []bashSegment
 	for k := j; k >= 0; k-- {
@@ -657,18 +539,8 @@ func programSegments(segs []bashSegment, j int) []bashSegment {
 	return out
 }
 
-// The interpreters (interpreterBase: python, node, perl, ruby and the shells in
-// shellInterpreters) run a program whose writes the classifier cannot see from the
-// command line alone. The tables here only say which commands carry
-// program text. A versioned python (python3.11) counts as python.
-
-// shellInterpreters run a program from a c cluster (-c), from -s or `-`, or from
-// stdin when no script file is named.
 var shellInterpreters = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true}
 
-// interpreterBase sees through a leading `env [-opts] [NAME=val]…` and names the
-// interpreter family of the command word ("python", "node", "perl", "ruby" or
-// "shell"), with the words after it. ok is false for any other command.
 func interpreterBase(words []string) (family string, rest []string, ok bool) {
 	i := 0
 	if len(words) > 0 && filepath.Base(words[0]) == "env" {
@@ -698,11 +570,6 @@ func interpreterBase(words []string) (family string, rest []string, ok bool) {
 	return "", nil, false
 }
 
-// interpreterCodeFlag reports whether one flag word hands the interpreter its
-// program on the command line. Shells and python: a single-dash cluster containing
-// c (python's rest of the word is the code, so -BcCODE counts). Node: -e/-p, alone
-// or in a letters-only cluster, and --eval/--print. Perl and ruby: e (perl also E)
-// reached while reading the cluster left to right (see perlRubyCode).
 func interpreterCodeFlag(family, w string) bool {
 	if len(w) < 2 || w[0] != '-' {
 		return false
@@ -727,13 +594,6 @@ func interpreterCodeFlag(family, w string) bool {
 	return false
 }
 
-// perlRubyCode reads a perl or ruby flag cluster left to right and reports whether
-// it reaches a code letter. A letter that takes an attached value ends the
-// cluster, because the rest of the word is that value (perl -I/x, -Mfeature=say,
-// -i.bak, -xdir, -Fre, -Dflags, -d:Mod; ruby -rlib, -Cdir, -Ikdir).
-// l and 0 (and ruby T) consume only following digits; perl C consumes only the
-// characters of its unicode flags; every other letter is a plain switch, so
-// -lpe, -0pe, -Te, -de and -CSDAe all reach their e.
 func perlRubyCode(perl bool, cl string) bool {
 	for i := 0; i < len(cl); i++ {
 		switch c := cl[i]; c {
@@ -769,22 +629,6 @@ func perlRubyCode(perl bool, cl string) bool {
 	return false
 }
 
-// interpreterInlineProgram reports whether a segment runs an interpreter on
-// program text that is not in a named script file, so what it writes cannot be
-// read off the command line. The argument words are walked in order (quoted ones
-// included): `-`, a code flag (interpreterCodeFlag) or, for a shell, an s in a
-// cluster means inline; a flag that takes a separate value skips that value
-// unless it starts with `-` (then it is read as a flag); python -m names a script
-// module; the first non-flag word the injected isFile reports as an existing
-// regular file (resolved against the segment's working dir) is the script, after
-// which nothing is inline; any other non-flag word is skipped. With the words
-// exhausted and no script, the program is read from stdin, which is inline only
-// when a heredoc or a pipe feeds it (a bare interpreter is a REPL).
-//
-// Accepted fail-closed limits: an unknown --long flag on a shell or node takes the
-// next word, which can be the script; a script that does not exist yet reads as
-// inline; a python cluster with an attached -W/-X/-m value that contains a c reads
-// as code.
 func interpreterInlineProgram(seg bashSegment, isFile func(string) bool) bool {
 	family, args, ok := interpreterBase(commandArgWords(commandTokens(seg.Tokens, seg.Idx)))
 	if !ok {
@@ -808,7 +652,6 @@ func interpreterInlineProgram(seg bashSegment, isFile func(string) bool) bool {
 		case interpreterCodeFlag(family, w):
 			return true
 		case strings.HasPrefix(w, "--"):
-			// Python, perl and ruby long flags take no separate value.
 			takesValue = (family == "shell" || family == "node") && !strings.Contains(w, "=")
 		default:
 			cl := w[1:]
@@ -821,7 +664,7 @@ func interpreterInlineProgram(seg bashSegment, isFile func(string) bool) bool {
 			case "python":
 				for k := 0; k < len(cl); k++ {
 					if cl[k] == 'm' {
-						return false // python -m <module>: a named script
+						return false
 					}
 					if cl[k] == 'W' || cl[k] == 'X' {
 						takesValue = k == len(cl)-1
@@ -847,14 +690,8 @@ func interpreterInlineProgram(seg bashSegment, isFile func(string) bool) bool {
 	return false
 }
 
-// maxShellProgramDepth bounds how many shell -c programs nested in one another are
-// classified as shell; a deeper one is read as unparseable.
 const maxShellProgramDepth = 4
 
-// shellOpaqueWords are command words behind which the classifier cannot see the
-// command that runs: wrappers that run their arguments as a command, and reserved
-// words that open a compound command. A shell -c program that has one as a command
-// word is not parseable.
 var shellOpaqueWords = map[string]bool{
 	"command": true, "builtin": true, "exec": true, "env": true, "nohup": true, "time": true,
 	"sudo": true, "doas": true, "xargs": true, "nice": true, "timeout": true, "stdbuf": true, "setsid": true,
@@ -863,27 +700,11 @@ var shellOpaqueWords = map[string]bool{
 	"function": true, "coproc": true, "!": true, "{": true, "}": true, "[[": true,
 }
 
-// shellProgram returns the program of a shell segment run as `sh|bash|zsh|dash|ksh
-// [opts] -c PROGRAM` when the classifier reads it exactly as the shell will run it,
-// so the program can be judged as shell — by what it writes — rather than as
-// opaque interpreter text. ok is false, and the caller keeps the conservative rule,
-// unless all of these hold:
-//   - the segment has no stdin program: no pipe feeds it, and it carries no heredoc,
-//     here-string or `<` redirect;
-//   - the program word is one complete token, not glued to another piece (a
-//     quote spliced into it), and is single-quoted, or double-quoted or bare with no
-//     backslash, `$` or backtick (a bare word also has no glob or brace);
-//   - the program has no `$(` or backtick anywhere;
-//   - every command word in it is a bare word with no `$`, backslash, paren, brace
-//     or redirect, is not `.` and is not in shellOpaqueWords; no word is eval or
-//     source; and no `&` runs a command in the background.
 func shellProgram(seg bashSegment) (string, bool) {
 	_, prog, ok := shellProgramToken(seg)
 	return prog, ok
 }
 
-// shellProgramToken is shellProgram that also returns the index of the program
-// token in seg.Tokens, so a text scan can skip exactly that token.
 func shellProgramToken(seg bashSegment) (int, string, bool) {
 	if seg.Piped {
 		return -1, "", false
@@ -896,7 +717,7 @@ func shellProgramToken(seg bashSegment) (int, string, bool) {
 	toks := commandTokens(seg.Tokens, seg.Idx)
 	off := len(seg.Tokens) - len(toks)
 	var words []string
-	var at []int // index in seg.Tokens of each word
+	var at []int
 	for k, t := range toks {
 		switch {
 		case t.Kind == "word" && t.Value != "":
@@ -917,7 +738,7 @@ func shellProgramToken(seg bashSegment) (int, string, bool) {
 		w := words[i]
 		switch {
 		case w == "-o" || w == "+o" || w == "-O" || w == "+O" || w == "--rcfile" || w == "--init-file":
-			i++ // takes a value
+			i++
 		case w == "-":
 			return -1, "", false
 		case strings.HasPrefix(w, "--"):
@@ -927,7 +748,7 @@ func shellProgramToken(seg bashSegment) (int, string, bool) {
 			}
 			coded = coded || interpreterCodeFlag(family, w)
 		case !coded:
-			return -1, "", false // a script, or a word the classifier cannot place
+			return -1, "", false
 		default:
 			return readShellProgram(seg.Tokens, at[i])
 		}
@@ -935,8 +756,6 @@ func shellProgramToken(seg bashSegment) (int, string, bool) {
 	return -1, "", false
 }
 
-// readShellProgram reads the program token at k of toks under shellProgram's
-// quoting and parse rules.
 func readShellProgram(toks []bashTok, k int) (int, string, bool) {
 	t := toks[k]
 	if (k > 0 && toks[k-1].End == t.Start) || (k+1 < len(toks) && toks[k+1].Start == t.End) {
@@ -962,8 +781,6 @@ func readShellProgram(toks []bashTok, k int) (int, string, bool) {
 	return k, prog, true
 }
 
-// shellProgramPlain reports whether every command word of prog is one the
-// classifier can name (see shellProgram).
 func shellProgramPlain(prog string) bool {
 	for _, ps := range splitSegments(tokenizeBash(prog)) {
 		toks := ps.Toks
@@ -981,7 +798,7 @@ func shellProgramPlain(prog string) bool {
 			}
 		}
 		if i == len(toks) {
-			continue // assignments only
+			continue
 		}
 		c := toks[i]
 		if c.Kind != "word" || c.Value == "." || shellOpaqueWords[c.Value] || strings.HasPrefix(c.Value, "-") ||
@@ -992,9 +809,6 @@ func shellProgramPlain(prog string) bool {
 	return true
 }
 
-// backgroundAmp reports whether the word token at j is a lone & that runs a
-// command in the background: tokenizeBash keeps & as a word, so it is a
-// separator unless it is glued into a redirect (2>&1, &>f).
 func backgroundAmp(toks []bashTok, j int) bool {
 	t := toks[j]
 	return t.Kind == "word" && t.Value == "&" &&
@@ -1002,14 +816,10 @@ func backgroundAmp(toks []bashTok, j int) bool {
 		!(j+1 < len(toks) && toks[j+1].Start == t.End && strings.HasPrefix(toks[j+1].Value, ">"))
 }
 
-// isNameByte is a byte that continues a file or identifier name. A root token
-// is a whole token only when neither neighbour is one.
 func isNameByte(c byte) bool {
 	return c == '_' || c == '-' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// isRunByte is a byte of a path-like run around a root token. Looking back it
-// also accepts the characters of an unexpanded $VAR / ${VAR} / ~ prefix.
 func isRunByte(c byte, back bool) bool {
 	switch c {
 	case '/', '~', '+', '@', '%':
@@ -1020,10 +830,6 @@ func isRunByte(c byte, back bool) bool {
 	return isNameByte(c)
 }
 
-// pathRefs returns the path-like runs in text that name one of roots: the
-// root with its trailing slash removed as a whole token, so both `<root>/x.md`
-// and a bare `'<root>'` (os.path.join, Path(...)/, D=<root>) match. A token preceded by `/` is the tail of a longer path, so the
-// run extends backward to its start; the run is unresolved text.
 func pathRefs(text string, roots []string) []string {
 	var out []string
 	for _, p := range roots {
@@ -1058,23 +864,16 @@ func pathRefs(text string, roots []string) []string {
 	return out
 }
 
-// destLastVerbs treat only the last non-option positional as a mutation target;
-// earlier positionals are SOURCES (reads) and must not trip containment.
-// With -t/--target-directory DIR, DIR is the sole target.
 var destLastVerbs = map[string]bool{
 	"cp": true, "mv": true, "rsync": true, "ln": true, "install": true,
 }
 
-// mutationPathArgs extracts DEST path arguments from a mutation verb segment.
-// For dest-last verbs (cp/mv/rsync/ln/install), only the destination contributes;
-// sources are legitimate cross-repo reads the fence must not deny.
 func mutationPathArgs(words []string, cwd string) []string {
 	if len(words) < 2 {
 		return nil
 	}
 	cmd := filepath.Base(words[0])
 	var out []string
-	// dd of=PATH
 	if cmd == "dd" {
 		for _, w := range words[1:] {
 			if strings.HasPrefix(w, "of=") {
@@ -1087,7 +886,6 @@ func mutationPathArgs(words []string, cwd string) []string {
 		return chmodPathArgs(words[1:], cwd)
 	}
 
-	// dest-last family: collect -t DIR first; else only the last positional.
 	if destLastVerbs[cmd] {
 		var positionals []string
 		skipNext := false
@@ -1105,7 +903,6 @@ func mutationPathArgs(words []string, cwd string) []string {
 					}
 					continue
 				}
-				// Options that take a value (best-effort skip).
 				if w == "--backup" || w == "-S" || w == "--suffix" ||
 					w == "-t" || strings.HasPrefix(w, "--target-directory=") {
 					if !strings.Contains(w, "=") {
@@ -1116,25 +913,18 @@ func mutationPathArgs(words []string, cwd string) []string {
 			}
 			positionals = append(positionals, w)
 		}
-		// -t already populated out; do not also emit positionals as targets.
 		if len(out) > 0 {
 			return out
 		}
-		// ln with a single positional links into cwd — no outside target.
 		if len(positionals) == 0 {
 			return nil
 		}
 		if len(positionals) == 1 {
-			// Destination is cwd-relative implied link name, or a single dest —
-			// treat as dest under cwd (in-home filter drops it if so).
 			return []string{resolvePath(cwd, positionals[0])}
 		}
-		// Last positional is the destination; sources are ignored.
 		return []string{resolvePath(cwd, positionals[len(positionals)-1])}
 	}
 
-	// All-args family: rm/touch/mkdir/chown/truncate — every non-option arg
-	// is a mutation target (sed and chmod have their own extractors).
 	skipNext := false
 	for i := 1; i < len(words); i++ {
 		w := words[i]
@@ -1154,20 +944,8 @@ func mutationPathArgs(words []string, cwd string) []string {
 	return out
 }
 
-// chmodMode matches a chmod mode as GNU chmod reads one: comma-separated
-// clauses, each symbolic ([ugoa]*([-+=]([rwxXst]*|[ugo]))+, as in +x, u+w,
-// a=r, go-w, o=) or numeric ([-+=]?[0-7]{1,4}, as in 755, 0644, =755).
 var chmodMode = regexp.MustCompile(`^(?:[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+|[-+=]?[0-7]{1,4})(?:,(?:[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+|[-+=]?[0-7]{1,4}))*$`)
 
-// chmodPathArgs extracts the files a chmod invocation writes from its args
-// (command word excluded). chmod reads its mode from one place only, so its
-// mode slot is decided once and never reopens: by a dash-mode option (-x, -w,
-// -t: a single-dash word matching chmodMode, which no chmod flag letter
-// c/f/v/R does), by --reference (no mode operand; the reference file is only
-// read), or by the first positional. That first positional is dropped only
-// when it parses as a mode; otherwise it fails closed and stays a target, as
-// does every later positional, mode-shaped or not, because chmod treats it as
-// a file. Words after `--` are positionals.
 func chmodPathArgs(args []string, cwd string) []string {
 	var out []string
 	slotClosed, optsDone, skipNext := false, false, false
@@ -1184,7 +962,6 @@ func chmodPathArgs(args []string, cwd string) []string {
 			case w == "--reference":
 				slotClosed, skipNext = true, true
 			case strings.HasPrefix(w, "--"):
-				// other long options take no value
 			case chmodMode.MatchString(w):
 				slotClosed = true
 			}
@@ -1200,9 +977,6 @@ func chmodPathArgs(args []string, cwd string) []string {
 	return out
 }
 
-// commandTokens returns the segment tokens from the command word on, where
-// skipWords is the number of leading word tokens (env assignments) before it.
-// Unlike wordsOnly it keeps quoted string tokens in position.
 func commandTokens(seg []bashTok, skipWords int) []bashTok {
 	seen := 0
 	for k, t := range seg {
@@ -1217,7 +991,6 @@ func commandTokens(seg []bashTok, skipWords int) []bashTok {
 	return nil
 }
 
-// unquoteTok returns the text of a quoted string token without its quotes.
 func unquoteTok(v string) string {
 	v = strings.TrimPrefix(v, "$")
 	if len(v) >= 2 && (v[0] == '\'' || v[0] == '"') && v[len(v)-1] == v[0] {
@@ -1226,16 +999,6 @@ func unquoteTok(v string) string {
 	return v
 }
 
-// sedPathArgs extracts the files a sed invocation edits from its segment tokens
-// (command word first). sed only writes its input files when run in place (-i,
-// -i<suffix>, --in-place[=<suffix>], or a single-dash cluster containing i such
-// as -ni); otherwise it reads them and prints to stdout, so it contributes no
-// target. The script is never a target: it is the value of -e/-f/--expression/
-// --file, or else the first positional. A quoted token is never an option but
-// does occupy a positional or option-value slot, so `sed -i 's/a/b/' f` and
-// `sed -i -e 's/a/b/' f` both yield f. Best-effort like the rest of the
-// classifier: a `w <file>` command inside the script of a non-in-place run is
-// not tracked.
 func sedPathArgs(toks []bashTok, cwd string) []string {
 	if len(toks) < 2 {
 		return nil
@@ -1244,7 +1007,7 @@ func sedPathArgs(toks []bashTok, cwd string) []string {
 	var positionals []string
 	for _, t := range toks[1:] {
 		if t.Kind == "string" && t.Value == "HEREDOC" {
-			continue // stdin body, not an argument
+			continue
 		}
 		w := t.Value
 		quoted := t.Kind == "string"
@@ -1270,8 +1033,6 @@ func sedPathArgs(toks []bashTok, cwd string) []string {
 				skipNext = !hasValue
 			}
 		default:
-			// Single-dash cluster, scanned left to right. i, e, f and l consume
-			// the rest of the cluster (a suffix, a glued script or a number).
 		cluster:
 			for j := 1; j < len(w); j++ {
 				switch w[j] {
@@ -1293,7 +1054,7 @@ func sedPathArgs(toks []bashTok, cwd string) []string {
 		return nil
 	}
 	if !hasScript && len(positionals) > 0 {
-		positionals = positionals[1:] // the script
+		positionals = positionals[1:]
 	}
 	out := make([]string, 0, len(positionals))
 	for _, p := range positionals {
@@ -1302,25 +1063,8 @@ func sedPathArgs(toks []bashTok, cwd string) []string {
 	return out
 }
 
-// redirectTargets finds >file, >>file, > file, and tee destinations.
-//
-// The redirect walk reads tokens, not bare words, so a quoted word in the target
-// slot is seen: `> "/tmp/x.log"` names /tmp/x.log. Dropping string tokens (as
-// wordsOnly does) lost that target and took the next bare word instead — for
-// `> "f" 2>&1` the operator `2>` — which resolved inside the repo and made a
-// scratch redirect look like a source edit. The target is unquoted with unquoteTok
-// and resolved exactly as a mutation-verb argument is (commandArgWords), so one
-// quoted path has one verdict in every slot.
-//
-// An operator (isRedirectOp) is never a target, and a heredoc token never is.
-// Fd-duplication forms (n>&m, n>&-, >&m) contribute no file target — tokenizeBash
-// splits on '&', so "2>&1" arrives as words "2>", "&", "1". An
-// unresolvable target ($UNSET, $(cmd), a variable assigned earlier in the same
-// command) resolves onto cwd and stays gated; nothing is treated as foreign.
 func redirectTargets(seg []bashTok, cwd string) []string {
 	var out []string
-	// target is the file named by the token in a target slot: a bare word or a
-	// quoted word unquoted. Operators, heredocs and empty words name none.
 	target := func(t bashTok) (string, bool) {
 		switch {
 		case t.Kind == "word" && t.Value != "" && !isRedirectOp(t.Value):
@@ -1330,11 +1074,6 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 		}
 		return "", false
 	}
-	// tee [opts] FILE… — the one place that decides what tee writes, whether tee
-	// is the command word or runs behind a wrapper (env, sudo, nohup, xargs,
-	// stdbuf, …). Each destination goes through target, so a quoted FILE is the
-	// same target as a bare one. A quoted word is never an option, and a redirect
-	// after tee is left to the redirect walk below.
 	for i, t := range seg {
 		if t.Kind != "word" || filepath.Base(t.Value) != "tee" {
 			continue
@@ -1347,7 +1086,7 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 				}
 				if strings.Contains(a.Value, ">") {
 					if isRedirectOp(a.Value) {
-						j++ // the redirect's own target
+						j++
 					}
 					continue
 				}
@@ -1363,26 +1102,22 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 			continue
 		}
 		w := t.Value
-		// Glued: >file or >>file or 2>file
 		if strings.Contains(w, ">") && !isRedirectOp(w) {
 			if p := gluedRedirectPath(w); p != "" {
 				out = append(out, resolvePath(cwd, p))
 			}
 		}
-		// Spaced: > file / >> file / 2> file / 2> & 1 (fd dup) / > & file (csh)
 		if !isRedirectOp(w) || i+1 >= len(seg) {
 			continue
 		}
 		next := seg[i+1]
 		if next.Kind == "word" && strings.HasPrefix(next.Value, ">") {
-			continue // glued target, or a following operator: handled on its own turn
+			continue
 		}
-		// After a redirect op, "&" is either n>&m (fd duplication) or csh
-		// ">& file" / "> & file" (file target is the word after "&").
 		if next.Kind == "word" && next.Value == "&" {
 			if i+2 < len(seg) {
 				if after := seg[i+2]; after.Kind == "word" && isFdDupTarget(after.Value) {
-					i += 2 // skip "&" and the fd / "-"
+					i += 2
 					continue
 				}
 				if p, ok := target(seg[i+2]); ok {
@@ -1391,11 +1126,9 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 					continue
 				}
 			}
-			i++ // trailing bare "&" after redirect — no file
+			i++
 			continue
 		}
-		// One-token ">&" followed by fd or path (defensive; tokenizer usually
-		// splits ">&m" at '&').
 		if strings.HasSuffix(w, ">&") && next.Kind == "word" && isFdDupTarget(next.Value) {
 			i++
 			continue
@@ -1408,9 +1141,6 @@ func redirectTargets(seg []bashTok, cwd string) []string {
 	return out
 }
 
-// isRedirectOp reports whether w is a bare redirect operator with no glued
-// target: >, >>, >|, >&, optionally prefixed by a file descriptor number or &
-// (N>, N>>, &>, &>>). Such a word is never a target.
 func isRedirectOp(w string) bool {
 	rest := strings.TrimLeft(w, "0123456789")
 	if rest == w {
@@ -1423,9 +1153,6 @@ func isRedirectOp(w string) bool {
 	return false
 }
 
-// isFdDupTarget reports whether s is a bash fd-duplication target: all digits
-// (e.g. "1", "2"), "-" (close the fd: n>&-), or digits with a single trailing
-// "-" (fd-move: n>&m-).
 func isFdDupTarget(s string) bool {
 	if s == "-" {
 		return true
@@ -1433,7 +1160,6 @@ func isFdDupTarget(s string) bool {
 	if s == "" {
 		return false
 	}
-	// Fd-move form: "1-", "2-"
 	if strings.HasSuffix(s, "-") && len(s) > 1 {
 		s = s[:len(s)-1]
 	}
@@ -1445,10 +1171,7 @@ func isFdDupTarget(s string) bool {
 	return true
 }
 
-// gluedRedirectPath extracts the path from tokens like ">file", "2>>file", ">>/abs".
-// Bare "&" and "&"-led fd remainders (">&1") are not file paths.
 func gluedRedirectPath(w string) string {
-	// Find last redirect operator sequence and take the remainder.
 	idx := strings.LastIndex(w, ">>")
 	if idx >= 0 {
 		return gluedRedirectRemainder(w[idx+2:])
@@ -1464,19 +1187,12 @@ func gluedRedirectRemainder(rest string) string {
 	if rest == "" || rest == "&" {
 		return ""
 	}
-	// n>&m glued remainder after '>': "&1", "&-" — not a file.
 	if strings.HasPrefix(rest, "&") && isFdDupTarget(rest[1:]) {
 		return ""
 	}
 	return rest
 }
 
-// expandShellPath expands a leading ~, $NAME or the braced form of NAME from
-// the hook's own environment. The word is replaced only when the expansion is
-// an absolute path and the name is followed by nothing or a "/"; anything else
-// (unset, relative, ~user, $(cmd), $NAMEsuffix) is returned unchanged, so it
-// resolves under cwd and stays conservatively in-home. Nothing is executed or
-// globbed.
 func expandShellPath(p string) string {
 	var name, rest string
 	switch {
@@ -1507,9 +1223,6 @@ func expandShellPath(p string) string {
 	return val + rest
 }
 
-// resolvePath makes a path absolute against cwd (no symlink resolution). A
-// leading ~ or $VAR that the hook's environment expands to an absolute path is
-// expanded first (expandShellPath).
 func resolvePath(cwd, p string) string {
 	p = expandShellPath(strings.TrimSpace(p))
 	if p == "" {
@@ -1539,41 +1252,23 @@ func isShellIdent(s string) bool {
 	return true
 }
 
-// operatorRecordVerb is satelle's operator record verb, the operator's alone.
 const operatorRecordVerb = "record"
 
-// operatorRecordText finds satelle and a later record word on one line of
-// quoted or heredoc text; the separators may be spaces, quotes, commas or
-// brackets, so an argv list (['satelle','story','record']) matches too.
 var operatorRecordText = regexp.MustCompile(`(?m)(?:^|[\s'"/,\[(])satelle(?:[\s'",\])][^\n]*?)?[\s'",\[(]` + operatorRecordVerb + `(?:$|[\s'",\])])`)
 
-// dataCommands are the commands whose arguments and stdin are only data: they
-// print, match or count text and never run it. The list is closed; a command
-// not on it has its text scanned as code. rg (--pre runs a program) and sed
-// (its e flag executes) are left out on purpose.
 var dataCommands = map[string]bool{
 	"echo": true, "printf": true, "grep": true, "egrep": true, "fgrep": true,
 	"cat": true, "head": true, "tail": true, "wc": true, "satelle": true,
 }
 
-// gitMessageSubcommands are the git subcommands whose quoted arguments are a
-// message: prose stored, not run.
 var gitMessageSubcommands = map[string]bool{"commit": true, "tag": true}
 
-// shellCompoundWords open or close a compound command. A group or loop body
-// piped into another command is several segments that splitSegments cannot
-// tie to that pipe, so a command with one at a command position has no data
-// segments at all.
 var shellCompoundWords = map[string]bool{
 	"{": true, "}": true, "do": true, "done": true, "then": true, "else": true, "elif": true,
 	"fi": true, "if": true, "while": true, "until": true, "for": true, "case": true,
 	"esac": true, "select": true, "function": true, "coproc": true, "!": true,
 }
 
-// operatorRecordCommand reports whether command would run satelle's operator
-// record verb. Each segment is judged by operatorRecordSegment; a segment is
-// data only when dataSegment holds for it and everything its output is piped
-// into is data too, so text flowing into a shell is always scanned.
 func operatorRecordCommand(command string, depth int) bool {
 	segs := splitSegments(tokenizeBash(command))
 	data := make([]bool, len(segs))
@@ -1601,12 +1296,6 @@ func operatorRecordCommand(command string, depth int) bool {
 	return false
 }
 
-// operatorRecordSegment reports whether one segment would run the verb. An
-// assignment value before the command word may be run (GIT_EDITOR=…), so it is
-// always scanned. A segment that is not data is scanned in full: the word rule
-// (operatorRecordWords) and every quoted or heredoc text. In a data segment the
-// word rule applies only to satelle's own argv, and quoted text is scanned only
-// where the shell itself runs part of it (operatorRecordDataToken).
 func operatorRecordSegment(toks []bashTok, data bool, depth int) bool {
 	cmd := commandTokens(toks, leadingAssignments(wordsOnly(toks)))
 	for _, t := range toks[:len(toks)-len(cmd)] {
@@ -1636,7 +1325,6 @@ func operatorRecordSegment(toks []bashTok, data bool, depth int) bool {
 	return false
 }
 
-// tokText is a string token's full source text: a heredoc's Raw, else its Value.
 func tokText(t bashTok) string {
 	if t.Raw != "" {
 		return t.Raw
@@ -1644,12 +1332,6 @@ func tokText(t bashTok) string {
 	return t.Value
 }
 
-// operatorRecordDataToken reports whether a quoted argument of a data command
-// runs the verb. Single-quoted and $'…' text, and a heredoc with a quoted
-// delimiter, are never expanded. An unquoted-delimiter heredoc with a `$(` or
-// backtick is scanned as text. A double-quoted token's `$(…)` bodies are judged
-// as commands in their own right; a backtick, an unterminated `$(` or a nesting
-// deeper than maxShellProgramDepth scans the whole token as text.
 func operatorRecordDataToken(t bashTok, depth int) bool {
 	v := t.Value
 	switch {
@@ -1689,15 +1371,6 @@ func operatorRecordDataToken(t bashTok, depth int) bool {
 	return false
 }
 
-// operatorRecordWords is the word rule: satelle at any word position (so behind
-// any wrapper in shellOpaqueWords, or after satelle's own flags) with a later
-// record word not taken as a flag's value. Quoted words count in their slots
-// (satelle story "record"), heredoc bodies do not, and a subshell or
-// substitution opener or closer glued to a word ((satelle, $(satelle, record))
-// is stripped before comparing.
-// A word before record shields it only when that word is a flag that takes a
-// separate value (takesSeparateValue); a glued flag-and-value word such as
-// -C. or --session=s does not, so the verb behind it is seen (sto_2a41b9e4).
 func operatorRecordWords(toks []bashTok) bool {
 	words := commandArgWords(toks)
 	for i, w := range words {
@@ -1718,10 +1391,6 @@ func operatorRecordWords(toks []bashTok) bool {
 	return false
 }
 
-// takesSeparateValue reports whether w is a flag that takes its value as the
-// next word: it starts with -, holds no =, and is a long flag or exactly two
-// characters (-C, not -C. or -C/w). Any other form fails closed: the next
-// word is not taken as its value.
 func takesSeparateValue(w string) bool {
 	if !strings.HasPrefix(w, "-") || strings.Contains(w, "=") {
 		return false
@@ -1729,11 +1398,6 @@ func takesSeparateValue(w string) bool {
 	return strings.HasPrefix(w, "--") || len(w) == 2
 }
 
-// dataSegment reports whether a segment's quoted text is only data: its command
-// word is a bare, unglued, path-less name on dataCommands (printf without -v,
-// which assigns a variable) or a git message or read invocation
-// (gitDataInvocation), and it has no bare word with a substitution or process
-// substitution, no here-string and no background &.
 func dataSegment(toks []bashTok) bool {
 	cmd := commandTokens(toks, leadingAssignments(wordsOnly(toks)))
 	if len(cmd) == 0 {
@@ -1770,10 +1434,6 @@ func dataSegment(toks []bashTok) bool {
 	return true
 }
 
-// gitDataInvocation reports whether words are a git command whose quoted
-// arguments are data: a read-only subcommand or a message one, with no global
-// option that can run a program (-c sets an editor or alias, --config-env the
-// same from the environment, --exec-path a directory of git programs).
 func gitDataInvocation(words []string) bool {
 	sub, _, args, ok := gitInvocationArgs(words)
 	if !ok || !(gitReadOnlySubcommands[sub] || gitMessageSubcommands[sub]) {

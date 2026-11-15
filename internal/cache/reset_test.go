@@ -10,9 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// chainOf builds a chain of item "q" from titles alone: a genesis, then one
-// item.updated per further title, every event id the same length and the
-// same time, so two chains of equally long titles are files of one size.
 func chainOf(t *testing.T, idPrefix string, titles ...string) []ledger.Event {
 	t.Helper()
 	at := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -33,9 +30,6 @@ func chainOf(t *testing.T, idPrefix string, titles ...string) []ledger.Event {
 	return out
 }
 
-// TestResetItem: after a chain file is replaced in place, larger than the
-// offset the cache read and then exactly that size, ResetItem folds the new
-// chain and keeps no event row of the old one.
 func TestResetItem(t *testing.T) {
 	dir := t.TempDir()
 	l, _ := ledger.Open(dir)
@@ -77,7 +71,6 @@ func TestResetItem(t *testing.T) {
 	}
 	check(old, "A", nil)
 
-	// Larger: the plain sync would read on from the old offset.
 	larger := chainOf(t, "new_", "B", "C", "D")
 	if err := l.Replace("q", old[len(old)-1].Hash, larger); err != nil {
 		t.Fatal(err)
@@ -87,7 +80,6 @@ func TestResetItem(t *testing.T) {
 	}
 	check(larger, "D", old)
 
-	// Exactly the old size: the plain sync would see nothing new.
 	size, _ := l.Size("q")
 	same := chainOf(t, "alt_", "E", "F", "G")
 	if err := l.Replace("q", larger[len(larger)-1].Hash, same); err != nil {

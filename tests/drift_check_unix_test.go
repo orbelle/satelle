@@ -11,9 +11,6 @@ import (
 	"testing"
 )
 
-// driftCheckSandbox is a fresh repo whose substrate names only real commands,
-// flags and topics, links an existing principle and an existing skill, and
-// holds prose, a placeholder and a TOML [[transition]] that are not misses.
 func driftCheckSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	for _, tool := range []string{"bash", "jq", "git", "awk"} {
@@ -52,7 +49,6 @@ func driftCheck(t *testing.T, s *sandbox) result {
 	return s.exec("bash", "", script)
 }
 
-// A substrate that names only what the binary has: no line, exit 0.
 func TestDriftCheckCleanFixtureExits0(t *testing.T) {
 	t.Parallel()
 	s := driftCheckSandbox(t)
@@ -61,9 +57,6 @@ func TestDriftCheckCleanFixtureExits0(t *testing.T) {
 	}
 }
 
-// One planted miss of each kind: exactly one line each, exit 1. The script
-// holds no rule: it prints satelle validate's substrate findings and maps its
-// configuration problems (sto_a1681009 AC2).
 func TestDriftCheckReportsEachKind(t *testing.T) {
 	t.Parallel()
 	s := driftCheckSandbox(t)
@@ -105,8 +98,6 @@ func TestDriftCheckReportsEachKind(t *testing.T) {
 	}
 }
 
-// No satelle on PATH: the script cannot check and exits 2. The PATH holds
-// only links to the tools it needs before that check.
 func TestDriftCheckNoBinaryExits2(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -134,8 +125,6 @@ func TestDriftCheckNoBinaryExits2(t *testing.T) {
 	}
 }
 
-// A binary whose validate --json has no substrate list (older than the
-// substrate check) cannot check: exit 2, fail closed.
 func TestDriftCheckOldBinaryExits2(t *testing.T) {
 	t.Parallel()
 	s := driftCheckSandbox(t)

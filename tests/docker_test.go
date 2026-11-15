@@ -15,10 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
-// A node on the docker-local provider runs the built satelle: the container
-// carries the binary and the node's identity, the kernel walks a story inside
-// it, and Stop removes it. Skipped when docker or its daemon is absent, or no
-// small image is present locally (the test never pulls one).
 func TestRemoteNodeOnDockerLocal(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {

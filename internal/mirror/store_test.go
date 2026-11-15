@@ -10,9 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// sty_a003a459 AC1: only a replace of the story kind seeds a partition. A topic
-// POST (TouchPartition / ApplyChange) creates the row unseeded, and a merge-only
-// apply neither sets nor clears the flag.
 func TestPartitionSeededOnlyByStoryReplace(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -51,8 +48,6 @@ func TestPartitionSeededOnlyByStoryReplace(t *testing.T) {
 	seeded(true, "after a later merge-only apply")
 }
 
-// A database from before the seeded column gains it on Open, and its existing
-// partitions read unseeded, so each repo's first drain posts one full body.
 func TestPartitionSeededMigratesPreExistingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "m.db")
 	raw, err := sql.Open("sqlite", path)
@@ -168,7 +163,6 @@ func TestDeletePartition(t *testing.T) {
 	if err != nil || len(items) != 0 {
 		t.Fatalf("items after delete = %v err=%v", items, err)
 	}
-	// Idempotent.
 	if err := s.DeletePartition(ctx, "rk-del"); err != nil {
 		t.Fatal(err)
 	}

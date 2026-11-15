@@ -14,11 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// eofRelay is a relay whose stream the server ends before this end reads it:
-// send number eofAt (0 is the header frame) returns io.EOF, and only after that
-// does Recv return the stream's final status, end. This forces the order gRPC
-// allows in production: SendMsg reports io.EOF while the status is still
-// waiting for RecvMsg.
 type eofRelay struct {
 	eofAt int
 	end   error
@@ -29,7 +24,7 @@ func (r *eofRelay) Connect(ctx context.Context, _ ...grpc.CallOption) (grpc.Bidi
 }
 
 type eofStream struct {
-	grpc.ClientStream // nil: only the methods below are used
+	grpc.ClientStream
 
 	ctx   context.Context
 	eofAt int
@@ -37,7 +32,7 @@ type eofStream struct {
 
 	mu   sync.Mutex
 	n    int
-	sent chan struct{} // closed when the send that returns io.EOF happened
+	sent chan struct{}
 }
 
 func (s *eofStream) Send(*satellepb.RelayFrame) error {
@@ -66,8 +61,6 @@ func (s *eofStream) Recv() (*satellepb.RelayFrame, error) {
 func (s *eofStream) CloseSend() error         { return nil }
 func (s *eofStream) Context() context.Context { return s.ctx }
 
-// A refusal that gRPC reports to a send as io.EOF reaches Join's caller as the
-// stream's status, whether the header or the first data frame hit it.
 func TestSendEOFReportsTheRelayStatus(t *testing.T) {
 	id, err := NewIdentity()
 	if err != nil {
@@ -93,8 +86,6 @@ func TestSendEOFReportsTheRelayStatus(t *testing.T) {
 	}
 }
 
-// A stream the relay ended with OK still reads as a restart after a send saw
-// io.EOF.
 func TestSendEOFAfterOKEndIsARestart(t *testing.T) {
 	id, err := NewIdentity()
 	if err != nil {

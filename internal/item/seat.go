@@ -6,33 +6,22 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// Seat binds a session at a location to an item. Base is the commit the seat
-// started from.
 type Seat struct {
-	Item     string `json:"item,omitempty"`
-	Session  string `json:"session"`
-	Location string `json:"location"`
-	Base     string `json:"base,omitempty"`
-	// BaseRef is the ref the seat's --base named, as typed: the item's base
-	// branch, whose merge base with HEAD the item's diff is judged from.
-	BaseRef string    `json:"base_ref,omitempty"`
-	BoundAt time.Time `json:"bound_at,omitzero"`
-	// Machine is the id of the machine the seat was bound on
-	// (config.MachineID); Host is that machine's host name, for display only.
-	// Both are empty on seats bound before seats recorded their machine.
-	Machine string `json:"machine,omitempty"`
-	Host    string `json:"host,omitempty"`
-	// User is the satelle user who bound the seat: the signed-in identity,
-	// else <OS user>@<host>. Empty on seats bound before seats recorded it.
-	User string `json:"user,omitempty"`
+	Item     string    `json:"item,omitempty"`
+	Session  string    `json:"session"`
+	Location string    `json:"location"`
+	Base     string    `json:"base,omitempty"`
+	BaseRef  string    `json:"base_ref,omitempty"`
+	BoundAt  time.Time `json:"bound_at,omitzero"`
+	Machine  string    `json:"machine,omitempty"`
+	Host     string    `json:"host,omitempty"`
+	User     string    `json:"user,omitempty"`
 }
 
-// SeatRelease is the payload of seat.released.
 type SeatRelease struct {
 	Session string `json:"session"`
 }
 
-// Attachment is a document recorded on an item; its body is a blob.
 type Attachment struct {
 	Item      string    `json:"item,omitempty"`
 	Name      string    `json:"name"`
@@ -41,13 +30,9 @@ type Attachment struct {
 	MediaType string    `json:"media_type"`
 	At        time.Time `json:"at,omitzero"`
 	Actor     string    `json:"actor,omitempty"`
-	// Operator is set only by the operator's record verb, after its checks that
-	// no agent session is recording.
-	Operator bool `json:"operator,omitempty"`
+	Operator  bool      `json:"operator,omitempty"`
 }
 
-// FoldSeats returns the seats still bound at the end of the chain, in bind
-// order. Binding the same session again replaces its seat.
 func FoldSeats(events []ledger.Event) []Seat {
 	var seats []Seat
 	drop := func(session string) {
@@ -79,7 +64,6 @@ func FoldSeats(events []ledger.Event) []Seat {
 	return seats
 }
 
-// FoldAttachments returns every attachment on the chain in order.
 func FoldAttachments(events []ledger.Event) []Attachment {
 	var out []Attachment
 	for _, e := range events {
@@ -96,9 +80,6 @@ func FoldAttachments(events []ledger.Event) []Attachment {
 	return out
 }
 
-// LatestAttachments returns the newest version of each name, newest first, and
-// how many versions each name has. atts is oldest first, as FoldAttachments
-// returns it; it is not changed.
 func LatestAttachments(atts []Attachment) (latest []Attachment, versions map[string]int) {
 	versions = map[string]int{}
 	for i := len(atts) - 1; i >= 0; i-- {

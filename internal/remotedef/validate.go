@@ -17,31 +17,22 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// The checks that need server state are not run here: remote visibility and
-// whether each secret is held.
-
-// Severities a Finding carries. Only an error makes a definition invalid.
 const (
 	SeverityError   = "error"
 	SeverityWarning = "warning"
 )
 
-// Finding is one defect. Key is the path of the key at fault in remote.toml; the
-// message never carries a submitted value.
 type Finding struct {
 	Severity string `json:"severity"`
 	Key      string `json:"key"`
 	Message  string `json:"message"`
 }
 
-// Validate checks a remote.toml body against schema v1 and returns every
-// finding, in the order the checks run, so one defect never hides another.
 func Validate(body []byte) []Finding {
 	_, findings := check(body)
 	return findings
 }
 
-// Errors are the error findings of fs.
 func Errors(fs []Finding) []Finding {
 	var out []Finding
 	for _, f := range fs {
@@ -58,10 +49,6 @@ func (v *validator) fail(key, msg string) {
 	v.out = append(v.out, Finding{SeverityError, key, msg})
 }
 
-// check judges remote.toml's own text and returns the decoded definition with
-// the findings: the credential rule, its shape against the v1 type (every key
-// outside v1 and every value of the wrong type is a finding at its path), then
-// each v1 rule.
 func check(body []byte) (Definition, []Finding) {
 	v := &validator{}
 	var raw map[string]any
@@ -73,11 +60,7 @@ func check(body []byte) (Definition, []Finding) {
 		raw = map[string]any{}
 	}
 	_, hadVersion := raw["version"]
-	// The credential rule reads the definition as written, unknown keys
-	// included, so a literal credential is named wherever it sits.
 	v.checkCredentials(raw)
-	// A key of the wrong type is named here and dropped from raw, so the rest of
-	// the definition still decodes and is judged.
 	v.shapeTable("", raw, reflect.TypeFor[Definition]())
 	def, err := decodeRaw(raw)
 	if err != nil {
@@ -116,9 +99,6 @@ func check(body []byte) (Definition, []Finding) {
 	return def, v.out
 }
 
-// decodeRaw decodes the shape-checked raw table into a Definition. The toml and
-// json tags name the same keys, so a JSON round trip of the raw table is the
-// decode of the TOML it came from.
 func decodeRaw(raw map[string]any) (Definition, error) {
 	var def Definition
 	b, err := json.Marshal(raw)
@@ -128,13 +108,11 @@ func decodeRaw(raw map[string]any) (Definition, error) {
 	return def, json.Unmarshal(b, &def)
 }
 
-// sub is raw's table at key, nil when there is none.
 func sub(raw map[string]any, key string) map[string]any {
 	m, _ := raw[key].(map[string]any)
 	return m
 }
 
-// tomlFields maps the toml keys of struct type t to their field types.
 func tomlFields(t reflect.Type) map[string]reflect.Type {
 	out := map[string]reflect.Type{}
 	for i := range t.NumField() {
@@ -146,9 +124,6 @@ func tomlFields(t reflect.Type) map[string]reflect.Type {
 	return out
 }
 
-// shapeTable holds the raw table m at path to struct type t: a key t does not
-// carry is a finding (an earlier-shape key names its replacement) and so is a
-// value of the wrong type. Each such key is dropped from m.
 func (v *validator) shapeTable(at string, m map[string]any, t reflect.Type) {
 	fields := tomlFields(t)
 	for _, k := range sortedKeys(m) {
@@ -165,11 +140,8 @@ func (v *validator) shapeTable(at string, m map[string]any, t reflect.Type) {
 	}
 }
 
-// unknown reports a key v1 does not carry.
 func (v *validator) unknown(key string, _ any) { v.fail(key, "unknown key") }
 
-// shape holds one raw value at key to type t, and reports whether it fits. An
-// interface type is judged by its owner (an override, in checkSecrets).
 func (v *validator) shape(key string, raw any, t reflect.Type) bool {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -229,7 +201,6 @@ func (v *validator) shape(key string, raw any, t reflect.Type) bool {
 	return true
 }
 
-// providerNames lists the providers, sorted.
 func providerNames() []string {
 	out := make([]string, len(Providers))
 	for i, p := range Providers {
@@ -239,7 +210,6 @@ func providerNames() []string {
 	return out
 }
 
-// checkProvider holds provider to one of Providers.
 func (v *validator) checkProvider(def Definition) {
 	switch {
 	case def.Provider == "":
@@ -249,12 +219,8 @@ func (v *validator) checkProvider(def Definition) {
 	}
 }
 
-// SwapPattern is a swap size: digits then K, M or G.
 var SwapPattern = regexp.MustCompile(`^[0-9]+[KMG]$`)
 
-// checkMachine holds [machine] to non-empty strings and swap to a size. raw is
-// the [machine] table as written, so a key present but blank is told from one
-// left out.
 func (v *validator) checkMachine(m Machine, raw map[string]any) {
 	for _, f := range []struct{ key, val string }{{"region", m.Region}, {"size", m.Size}, {"image", m.Image}} {
 		if _, ok := raw[f.key]; ok && strings.TrimSpace(f.val) == "" {
@@ -266,7 +232,6 @@ func (v *validator) checkMachine(m Machine, raw map[string]any) {
 	}
 }
 
-// checkSetup holds each [setup] command to a non-empty string.
 func (v *validator) checkSetup(s Setup) {
 	for _, f := range []struct {
 		key  string
@@ -280,16 +245,10 @@ func (v *validator) checkSetup(s Setup) {
 	}
 }
 
-// keyPattern is a well-formed secret key name: satelle-server's
-// secrets.ValidKey.
 var keyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 
 func validKey(k string) bool { return keyPattern.MatchString(k) }
 
-// checkSecrets judges [secrets]: the backend provider (omitted or "satelle", the
-// satelle vault), each name a well-formed key listed once, and each override a
-// well-formed key not also a name, holding "satelle:<name>" or a github-app
-// table.
 func (v *validator) checkSecrets(def Definition) {
 	s := def.Secrets
 	switch s.Provider {
@@ -322,10 +281,8 @@ func (v *validator) checkSecrets(def Definition) {
 	}
 }
 
-// overrideForms says what an override may hold.
 const overrideForms = `must be "satelle:<name>" (a team value satelle holds, granted to the remote) or { provider = "github-app", permissions = { <name> = "read" or "write" } }`
 
-// checkOverride judges one [secrets.override] value.
 func (v *validator) checkOverride(at string, val OverrideValue, def Definition) {
 	switch t := val.(type) {
 	case string:
@@ -354,7 +311,6 @@ func (v *validator) checkOverride(at string, val OverrideValue, def Definition) 
 	}
 }
 
-// hasRepoOn reports whether any repo is on host, compared case-insensitively.
 func hasRepoOn(repos []Repo, host string) bool {
 	for _, r := range repos {
 		if u, ok := httpsURL(r.URL); ok && strings.EqualFold(u.Hostname(), host) {
@@ -364,11 +320,8 @@ func hasRepoOn(repos []Repo, host string) bool {
 	return false
 }
 
-// githubPermissionPattern is a GitHub App permission name.
 var githubPermissionPattern = regexp.MustCompile(`^[a-z_]+$`)
 
-// checkPermissions judges a github-app override's permissions table: present and
-// non-empty, each name a GitHub App permission name and each level read or write.
 func (v *validator) checkPermissions(at string, raw any) {
 	perms, _ := raw.(map[string]any)
 	if len(perms) == 0 {
@@ -386,11 +339,6 @@ func (v *validator) checkPermissions(at string, raw any) {
 	}
 }
 
-// checkLifecycle holds [lifecycle] to a known scope, a positive idle_destroy
-// duration, a positive max_nodes, and a non-negative keep_warm declared only for
-// a drive kind that keeps nodes warm. keep_warm above max_nodes is the client's
-// own rule: the server keeps no more warm nodes than max_nodes allows, so a
-// definition that asks for more is refused rather than silently capped.
 func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
 	if l.KeepWarm != nil {
 		switch {
@@ -415,7 +363,6 @@ func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
 	}
 }
 
-// checkDrive holds [drive] to a known kind and a task for the task kind only.
 func (v *validator) checkDrive(d Drive) {
 	switch {
 	case d.Kind == "":
@@ -439,7 +386,6 @@ func (v *validator) checkDrive(d Drive) {
 	}
 }
 
-// enumList reads "a, b, c" off a string-kinded enum.
 func enumList[T ~string](vals []T) string {
 	names := make([]string, len(vals))
 	for i, k := range vals {
@@ -448,8 +394,6 @@ func enumList[T ~string](vals []T) string {
 	return strings.Join(names, ", ")
 }
 
-// parseMessage describes a decode failure without quoting the input: the TOML
-// parser's own text can carry the offending line.
 func parseMessage(err error) string {
 	var pe toml.ParseError
 	if errors.As(err, &pe) {
@@ -459,23 +403,18 @@ func parseMessage(err error) string {
 }
 
 var (
-	namePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-	versionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
-	varRefPattern  = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
-	// hostPattern is a hostname or address, optionally with a leading "*." wildcard.
-	hostPattern = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
-	// repoNamePattern is a directory name a clone can safely have.
+	namePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	versionPattern  = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+	varRefPattern   = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
+	hostPattern     = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 	repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
-// httpsURL parses raw as an https URL with a host; ok is false for anything else.
 func httpsURL(raw string) (u *url.URL, ok bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	return u, err == nil && u.Scheme == "https" && u.Hostname() != ""
 }
 
-// checkRepos holds each repo to an https URL with a host, no credential in it, a
-// usable clone directory name, and a ref git cannot read as an option.
 func (v *validator) checkRepos(def Definition) {
 	seen := map[string]int{}
 	for i, r := range def.Repos {
@@ -509,10 +448,6 @@ func (v *validator) checkRepos(def Definition) {
 	}
 }
 
-// checkCredentials refuses a credential-shaped key holding a literal value at any
-// depth of remote.toml as written: a ${VAR} reference is accepted, anything else
-// is a value. [secrets] is exempt: it holds key names and sources, judged by
-// checkSecrets.
 func (v *validator) checkCredentials(raw map[string]any) {
 	var walk func(path, key string, val any)
 	walk = func(path, key string, val any) {
@@ -543,7 +478,6 @@ func (v *validator) checkCredentials(raw map[string]any) {
 	}
 }
 
-// secretishKey reports whether a key names a credential-shaped value.
 func secretishKey(k string) bool {
 	l := strings.ToLower(k)
 	for _, marker := range []string{"token", "secret", "password", "apikey", "api_key", "api-key"} {
@@ -554,8 +488,6 @@ func secretishKey(k string) bool {
 	return l == "key" || strings.HasSuffix(l, "_key") || strings.HasSuffix(l, "-key")
 }
 
-// carriesValue reports whether v is a literal: anything but a blank or a pure
-// ${VAR} reference.
 func carriesValue(v any) bool {
 	s, ok := v.(string)
 	if !ok {

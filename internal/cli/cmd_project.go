@@ -15,14 +15,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// bindingFile holds, in the repo's runtime directory (machine-local, never in
-// git), the server and project this repo syncs with.
 const bindingFile = "project.toml"
 
-// binding is a repo's project on a server.
 type binding struct {
 	Server  string `toml:"server"`
-	Project string `toml:"project"` // the project id
+	Project string `toml:"project"`
 	Slug    string `toml:"slug"`
 }
 
@@ -53,8 +50,6 @@ func saveBinding(r repo, b binding) error {
 	return f.Close()
 }
 
-// projectServer resolves the server for a project command: --server, else the
-// repo's binding, else the machine's.
 func projectServer(flag string) (string, error) {
 	if strings.TrimSpace(flag) == "" {
 		if r, err := findRepo(""); err == nil {
@@ -100,8 +95,6 @@ on satelle.dev (satelle workspace list). See satelle help projects.`,
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Bound this repo to %s (%s) on %s.\n", p.GetSlug(), p.GetId(), srv)
-		// A bound repo is one of this machine's projects, so the automatic
-		// sync pass replicates it and satelled shows it (sto_5c706973).
 		path, err := repoArg(nil)
 		if err != nil {
 			return err

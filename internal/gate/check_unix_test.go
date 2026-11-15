@@ -68,10 +68,6 @@ func TestRunCheckShebangReadsPayload(t *testing.T) {
 	}
 }
 
-// A gate's after check runs on every verdict (a judged accept, a judged
-// reject, a carry) with the result in its environment and the notes on stdin;
-// a failing after turns an accept into a reject carrying its output; it never
-// runs on a skip or on a reject that is a failure rather than a verdict.
 func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 	log := t.TempDir() + "/after.log"
 	after := checkSkill(`p=$(cat); echo "gate=$SATELLE_GATE result=$SATELLE_GATE_RESULT binding=$SATELLE_GATE_BINDING item=$SATELLE_ITEM $p" >> ` + log + `; echo "published $SATELLE_GATE_RESULT"`)
@@ -156,7 +152,6 @@ func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 		}
 	}
 
-	// A failing after turns an accept (and a carry) into a reject with its output.
 	gates = map[string]workflow.Gate{
 		"ok":    {Skill: "judge", Agent: "y1", After: []string{"fails"}},
 		"carry": {Skill: "judge", Agent: "y1", Carry: true, After: []string{"fails"}},
@@ -173,7 +168,6 @@ func TestAfterCheckRunsOnVerdicts(t *testing.T) {
 	}
 }
 
-// Checks other than an after see no gate fields.
 func TestRunCheckWithoutGateHasNoGateFields(t *testing.T) {
 	ok, notes, err := RunCheck(context.Background(), `cat; echo; echo "g=${SATELLE_GATE-unset}"`, t.TempDir(), CheckEnv{Item: "i"}, 0)
 	if !ok || err != nil || strings.Contains(notes, `"gate"`) || !strings.Contains(notes, "g=unset") {
@@ -181,9 +175,6 @@ func TestRunCheckWithoutGateHasNoGateFields(t *testing.T) {
 	}
 }
 
-// A gate's timeout bounds that gate's check scripts (check skill, trigger and
-// after, each separately) in place of the run's bound; a gate without one keeps
-// the run's bound. A timed-out gate rejects naming the bound and its source.
 func TestGateTimeoutBoundsThatGate(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"long":  {Skill: "slow", Timeout: "5s"},
@@ -225,7 +216,6 @@ func TestGateTimeoutBoundsThatGate(t *testing.T) {
 	}
 }
 
-// Without a gate timeout or a run bound, a gate's check runs under the default.
 func TestGateBoundDefault(t *testing.T) {
 	r := Run{}
 	d, src, err := r.bound("g", workflow.Gate{})
@@ -244,8 +234,6 @@ func TestGateBoundDefault(t *testing.T) {
 	}
 }
 
-// A timeout that does not parse (a config that skipped validation) fails the
-// gate closed before any script runs.
 func TestGateBadTimeoutFailsClosed(t *testing.T) {
 	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}, map[string]workflow.Gate{
 		"g": {Skill: "pass", Timeout: "soon"},
@@ -262,8 +250,6 @@ func TestGateBadTimeoutFailsClosed(t *testing.T) {
 	}
 }
 
-// RunCheckCode reports the script's exit: its code, -1 for a signal, and a
-// timeout as an error; RunCheck passes only on 0.
 func TestRunCheckCodeReportsTheExit(t *testing.T) {
 	for script, want := range map[string]int{"exit 0": 0, "exit 1": 1, "exit 3": 3, "kill -9 $$": -1} {
 		code, _, err := RunCheckCode(context.Background(), script, t.TempDir(), CheckEnv{}, 0)
@@ -282,8 +268,6 @@ func TestRunCheckCodeReportsTheExit(t *testing.T) {
 	}
 }
 
-// A trigger that exits other than 0 or 1 has failed: the gate runs anyway
-// (it fails closed) and its notes start with the trigger's failure.
 func TestBrokenTriggerRunsTheGate(t *testing.T) {
 	r, d := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"two", "missingcmd", "signal", "judged", "failing"}}}, map[string]workflow.Gate{
 		"two":        {Skill: "pass", Trigger: "broken"},
@@ -320,11 +304,6 @@ func TestBrokenTriggerRunsTheGate(t *testing.T) {
 	}
 }
 
-// The after list runs in order and stops at the first refusal: a notes rule
-// (a check, here a fixture) that refuses an empty-notes accept turns it into
-// a reject carrying the check's output and the judge's raw answer, and the
-// publish check after it never runs. A gate with no after records the
-// verdict as given.
 func TestAfterListRefusesAndKeepsAnswer(t *testing.T) {
 	const empty = `thinking done {"verdict":"accept","notes":""}`
 	publishLog := t.TempDir() + "/publish.log"

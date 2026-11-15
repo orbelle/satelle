@@ -13,12 +13,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/remotechan"
 )
 
-// ErrJobLost: a job's heartbeats stopped, or the channel ended, before the node
-// answered it.
 var ErrJobLost = errors.New("remotenode: job lost")
 
-// Run is the controller's handle on an attached node: the report it gave and the
-// channel to it. End it with End.
 type Run struct {
 	Report Report
 
@@ -34,11 +30,6 @@ type result struct {
 	err  error
 }
 
-// AttachRun is the controller's end of an enrolled channel: it waits up to
-// readyTimeout for the node's ready report and starts routing the node's replies
-// and heartbeats to Request. sess is the channel remotechan.Attach returned for
-// a node satelle-server started (`satelle node join`). An error of the node's own, or a first message that is not its ready
-// report, fails the attach and closes sess.
 func AttachRun(ctx context.Context, sess *remotechan.Session, readyTimeout time.Duration) (*Run, error) {
 	r := &Run{sess: sess, pending: map[string]chan result{}}
 	if err := r.begin(ctx, readyTimeout); err != nil {
@@ -48,7 +39,6 @@ func AttachRun(ctx context.Context, sess *remotechan.Session, readyTimeout time.
 	return r, nil
 }
 
-// begin reads the ready report and starts the reply routing.
 func (r *Run) begin(ctx context.Context, readyTimeout time.Duration) error {
 	rctx, cancel := context.WithTimeout(ctx, readyTimeout)
 	defer cancel()
@@ -72,10 +62,6 @@ func (r *Run) begin(ctx context.Context, readyTimeout time.Duration) error {
 	return nil
 }
 
-// Request sends the node one job of jobType carrying body and waits for its
-// reply. The job heartbeats on the channel while the node works; if its
-// heartbeats stop or the channel ends first, Request returns an error wrapping
-// ErrJobLost. A job type is any name the node registered a handler for.
 func (r *Run) Request(ctx context.Context, jobType string, body any) (json.RawMessage, error) {
 	payload, err := encode(jobType, body)
 	if err != nil {
@@ -111,8 +97,6 @@ func (r *Run) Request(ctx context.Context, jobType string, body any) (json.RawMe
 	}
 }
 
-// pump routes each reply to the request waiting on its job, and fails every
-// waiting request when the channel ends.
 func (r *Run) pump() {
 	for {
 		m, err := r.sess.Recv(context.Background())
@@ -142,7 +126,6 @@ func (r *Run) pump() {
 	}
 }
 
-// watchLost turns the channel's lost-job reports into failed requests.
 func (r *Run) watchLost() {
 	for {
 		select {
@@ -163,7 +146,7 @@ func (r *Run) deliver(job string, res result) {
 	ch := r.pending[job]
 	r.mu.Unlock()
 	if ch == nil {
-		return // a finished job's late heartbeat or done
+		return
 	}
 	select {
 	case ch <- res:
@@ -182,8 +165,6 @@ func (r *Run) failAll(err error) {
 	}
 }
 
-// End closes the channel to the node. It is safe to call more than once; only the
-// first does anything.
 func (r *Run) End() error {
 	r.mu.Lock()
 	if r.ended {

@@ -22,8 +22,6 @@ func pull(t *testing.T, s *ledger.Store, o Objects) (Result, string) {
 	return res, out.String()
 }
 
-// refusesFork pulls into b and checks the fork is named at seq and b's chain
-// is unchanged.
 func refusesFork(t *testing.T, b *ledger.Store, o Objects, seq int) {
 	t.Helper()
 	before := chainFile(t, b, "it")
@@ -42,7 +40,6 @@ func refusesFork(t *testing.T, b *ledger.Store, o Objects, seq int) {
 	}
 }
 
-// shared returns A and B holding the same n-event chain of it, pushed.
 func shared(t *testing.T, o Objects, n int) (*ledger.Store, *ledger.Store) {
 	t.Helper()
 	a, b := newStore(t), newStore(t)
@@ -67,7 +64,6 @@ func TestPullAppendsVerifiedEvents(t *testing.T) {
 	if err := b.Verify(); err != nil {
 		t.Fatal(err)
 	}
-	// A fresh runtime gets the whole chain.
 	c := newStore(t)
 	if res, out := pull(t, c, o); res.Events != 5 || res.Failed() {
 		t.Fatalf("fresh pull %+v\n%s", res, out)
@@ -98,9 +94,9 @@ func TestPullRefusesAForkAtTheTailOfAShorterStoreChain(t *testing.T) {
 	add(t, a, "it", "s", 2)
 	copyChain(t, a, b, "it")
 	add(t, a, "it", "a", 1)
-	push(t, a, o) // the store holds 0, 1, 2a
+	push(t, a, o)
 	add(t, b, "it", "b", 3)
-	refusesFork(t, b, o, 2) // B holds 0, 1, 2b, 3b, 4b
+	refusesFork(t, b, o, 2)
 }
 
 func TestPullRefusesAForkBeforeTheTailOfAShorterStoreChain(t *testing.T) {
@@ -109,9 +105,9 @@ func TestPullRefusesAForkBeforeTheTailOfAShorterStoreChain(t *testing.T) {
 	add(t, a, "it", "s", 1)
 	copyChain(t, a, b, "it")
 	add(t, a, "it", "a", 3)
-	push(t, a, o) // the store holds 0, 1a, 2a, 3a
+	push(t, a, o)
 	add(t, b, "it", "b", 5)
-	refusesFork(t, b, o, 1) // B holds 0, 1b..5b
+	refusesFork(t, b, o, 1)
 }
 
 func TestPullRefusesAStoreEventThatDoesNotVerify(t *testing.T) {
@@ -120,7 +116,7 @@ func TestPullRefusesAStoreEventThatDoesNotVerify(t *testing.T) {
 	add(t, a, "it", "a", 1)
 	push(t, a, o)
 	e := chain(t, a, "it")[3]
-	e.Actor = "forger" // the hash no longer matches the content
+	e.Actor = "forger"
 	body, _ := ledger.Encode(e)
 	o.objs[ChainKey("it", 3)] = body
 	before := chainFile(t, b, "it")

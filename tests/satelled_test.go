@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// startSatelled runs the satelled binary on a free loopback port in the
-// sandbox's home, points the sandbox's CLI at it and returns its base URL.
 func startSatelled(t *testing.T, s *sandbox) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -65,8 +63,6 @@ func httpGet(t *testing.T, url string) string {
 	return string(b)
 }
 
-// satelled shows what the CLI pushes: the story list, and on the detail page
-// the route, the verdicts and the attachments.
 func TestSatelledShowsTheStory(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

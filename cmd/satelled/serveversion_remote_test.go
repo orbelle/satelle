@@ -11,9 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// Stable substrings the gate prints for remote-baseline refusals (sty_da6c3874).
-// Real-repo tests match these when deciding to skip a tree that cannot establish
-// a verified baseline.
 const (
 	serveGateStaleBaseline  = "baseline is stale"
 	serveGateCannotVerify   = "cannot verify the serve-tag baseline"
@@ -57,9 +54,6 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
-// buildServeGateFixture creates a temp repo with a bare origin remote.
-// Local has serve-v0.0.1; when stale is true, origin also has serve-v0.0.2
-// that the fixture clone has not fetched.
 func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 	t.Helper()
 	requireGitAndGo(t)
@@ -72,7 +66,6 @@ func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 
 	bare = filepath.Join(t.TempDir(), "origin.git")
 	if out, err := gittest.Command(t, "", "init", "--bare", "-b", "main", bare).CombinedOutput(); err != nil {
-		// Older git without init -b: init then point HEAD at main.
 		if out2, err2 := gittest.Command(t, "", "init", "--bare", bare).CombinedOutput(); err2 != nil {
 			t.Fatalf("git init --bare: %v\n%s\n(fallback after -b failed: %v\n%s)", err2, out2, err, out)
 		}
@@ -103,8 +96,6 @@ func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 	gittest.Git(t, seed, "push", "origin", "serve-v0.0.1")
 
 	if stale {
-		// Push a newer serve tag from a throwaway clone; seed (and the fixture
-		// cloned from it) keep only serve-v0.0.1 locally.
 		advParent := t.TempDir()
 		adv := filepath.Join(advParent, "adv")
 		gittest.Git(t, advParent, "clone", bare, adv)
@@ -118,8 +109,6 @@ func buildServeGateFixture(t *testing.T, stale bool) (repo, bare string) {
 		gittest.Git(t, adv, "push", "origin", "serve-v0.0.2")
 	}
 
-	// Clone the seed worktree so local tags stay at serve-v0.0.1 even when the
-	// bare remote has advanced (a direct clone of bare would fetch the new tag).
 	fixParent := t.TempDir()
 	repo = filepath.Join(fixParent, "fixture")
 	gittest.Git(t, fixParent, "clone", seed, repo)

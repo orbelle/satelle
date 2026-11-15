@@ -79,7 +79,6 @@ not judge; 1 the command failed.`,
 	return cmd
 }
 
-// printGateResult prints a dry run's result; a refusing result exits 2.
 func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 	r := *res.Result
 	fmt.Fprintf(w, "gate %s  %s  (%s -> %s; dry run, nothing recorded)\n", r.Gate, r.Result, res.From, res.To)
@@ -105,7 +104,6 @@ func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 	return nil
 }
 
-// printGateInput prints what a gate would receive.
 func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {
 	fmt.Fprintf(w, "gate %s  %s  (%s -> %s on %s; nothing run)\n", in.Gate, in.Kind, res.From, res.To, res.Item)
 	fmt.Fprintf(w, "skill: %s (%s)\n", in.Skill, in.SkillPath)

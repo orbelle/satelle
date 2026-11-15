@@ -16,9 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// sty_a003a459 AC1: a merge-only snapshot for a partition only a change event
-// has touched is answered 409 partition_unknown and writes no rows; once a full
-// body has landed, the same merge body is applied.
 func TestIngestMergeOnlyNeedsSeededPartition(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -85,7 +82,6 @@ func TestIngestRemove(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	// Seed via snapshot.
 	body, _ := json.Marshal(mirror.Snapshot{
 		RepoKey: "rk-rm",
 		Slug:    "rm",
@@ -113,7 +109,6 @@ func TestIngestRemove(t *testing.T) {
 	if err != nil || len(parts) != 0 {
 		t.Fatalf("parts=%v err=%v", parts, err)
 	}
-	// Unknown key is still 200 (idempotent delete).
 	resp, err = http.Post(srv.URL+"/ingest/remove", "application/json", bytes.NewReader(rmBody))
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +117,6 @@ func TestIngestRemove(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("idempotent remove %d", resp.StatusCode)
 	}
-	// Missing repo_key → 400.
 	resp, err = http.Post(srv.URL+"/ingest/remove", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +141,6 @@ func TestIngestChangeAndSnapshot(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	// change event
 	body, _ := json.Marshal(mirror.ChangeEvent{RepoKey: "rk1", Topic: "stories", Entity: "story", At: "t"})
 	resp, err := http.Post(srv.URL+"/ingest/change", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -158,7 +151,6 @@ func TestIngestChangeAndSnapshot(t *testing.T) {
 		t.Fatalf("change status %d", resp.StatusCode)
 	}
 
-	// snapshot — full kinds (sty_400c022b)
 	snap := mirror.Snapshot{
 		RepoKey:      "rk1",
 		Slug:         "demo",
@@ -197,7 +189,6 @@ func TestIngestChangeAndSnapshot(t *testing.T) {
 	if err != nil || !bytes.Contains([]byte(idPayload), []byte("op@example.com")) {
 		t.Errorf("identity meta: %q err=%v", idPayload, err)
 	}
-	// Capture per-kind counts, then re-push — AC3: counts stable (ReplaceKind).
 	counts := map[string]int{}
 	for _, kind := range []string{"story", "task", "doc", "ledger_event", "seat", "identity", "settings"} {
 		items, err := s.ListItems(t.Context(), "rk1", kind)
@@ -206,7 +197,6 @@ func TestIngestChangeAndSnapshot(t *testing.T) {
 		}
 		counts[kind] = len(items)
 	}
-	// Enriched doc fields survive ListItems.
 	docs, _ := s.ListItems(t.Context(), "rk1", "doc")
 	if !bytes.Contains([]byte(docs[0].Payload), []byte("mod_time")) ||
 		!bytes.Contains([]byte(docs[0].Payload), []byte("provenance")) ||
@@ -233,8 +223,6 @@ func TestIngestChangeAndSnapshot(t *testing.T) {
 	}
 }
 
-// TestIngestFiresOnIngest (sty_c526753a D3): change, committed snapshot, and
-// the unchanged short-circuit all notify the hosted-push hook.
 func TestIngestFiresOnIngest(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -299,9 +287,6 @@ func TestIngestRejectsNonPOST(t *testing.T) {
 	}
 }
 
-// TestIngestPartialSnapshotLeavesOtherKinds (sty_3562c820): a light drain with
-// Kinds set replaces only those partitions; docs (etc.) stay put. snap_hash is
-// cleared so the next full reconcile cannot short-circuit against a light body.
 func TestIngestPartialSnapshotLeavesOtherKinds(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -344,7 +329,6 @@ func TestIngestPartialSnapshotLeavesOtherKinds(t *testing.T) {
 		t.Fatalf("docs before: %v", docsBefore)
 	}
 
-	// Light drain: new story, no docs in body, Kinds omit doc.
 	light := mirror.Snapshot{
 		RepoKey:      "rk-partial",
 		Slug:         "partial",
@@ -375,8 +359,6 @@ func TestIngestPartialSnapshotLeavesOtherKinds(t *testing.T) {
 	}
 }
 
-// TestApplySnapshotCancelledLeavesPriorState (sty_3562c820 AC2): a cancelled
-// apply context fails before commit and leaves the previous rows intact.
 func TestApplySnapshotCancelledLeavesPriorState(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -417,8 +399,6 @@ func TestApplySnapshotCancelledLeavesPriorState(t *testing.T) {
 	}
 }
 
-// TestIngestSnapshotSlugConflict (sty_57d5ce25): same slug + different repo_key
-// is 409; same repo_key re-push and empty slugs stay OK.
 func TestIngestSnapshotSlugConflict(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -453,7 +433,6 @@ func TestIngestSnapshotSlugConflict(t *testing.T) {
 		t.Fatalf("first seed status %d", code)
 	}
 
-	// Different repo_key, same slug → 409 with existing key + path in body.
 	code, body := post(mirror.Snapshot{
 		RepoKey:  "x-bbbb",
 		Slug:     "x",
@@ -468,13 +447,11 @@ func TestIngestSnapshotSlugConflict(t *testing.T) {
 		}
 	}
 
-	// Same repo_key re-push is fine.
 	code, _ = post(first)
 	if code != 200 {
 		t.Fatalf("re-push same key status %d", code)
 	}
 
-	// Empty slugs never conflict.
 	code, _ = post(mirror.Snapshot{RepoKey: "empty-1", Slug: ""})
 	if code != 200 {
 		t.Fatalf("empty slug 1 status %d", code)
@@ -485,8 +462,6 @@ func TestIngestSnapshotSlugConflict(t *testing.T) {
 	}
 }
 
-// The queue partition replaces on a full snapshot and merges on a delta, and
-// a snapshot and a queues change event ring the queues doorbell.
 func TestIngestQueues(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {

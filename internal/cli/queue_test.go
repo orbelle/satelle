@@ -62,7 +62,6 @@ func TestQueueCommands(t *testing.T) {
 	if ledger := must(t, "ledger", "list", que); !strings.Contains(ledger, item.KindQueueAdded) || !strings.Contains(ledger, item.KindQueueRemoved) || !strings.Contains(ledger, item.KindQueueFired) {
 		t.Fatalf("ledger:\n%s", ledger)
 	}
-	// The task's inputs clear; a trigger is refused on a story.
 	if out := must(t, "task", "set", task, "--input-kind", "story"); !strings.Contains(out, "updated") {
 		t.Fatal(out)
 	}
@@ -107,8 +106,6 @@ to = "closed"
 	}
 }
 
-// A queue file is addressed by its name, shown with its file, refuses
-// definition edits through queue set, and satelle validate names a broken one.
 func TestQueueFileCommands(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -173,8 +170,6 @@ func TestQueueFileCommands(t *testing.T) {
 	}
 }
 
-// queue show names an explicit member whose item left the state that enqueued
-// it as lapsed, 'left: <status>', and not as a member.
 func TestQueueShowLapsed(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")

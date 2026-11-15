@@ -16,26 +16,16 @@ import (
 	"github.com/bobmcallan/satelle/internal/push"
 )
 
-// Timeout bounds one push: a satelled that is not listening costs a refused
-// connection, one that hangs costs no more than this.
 const Timeout = 3 * time.Second
 
-// ErrOtherInstance is returned when the endpoint serves another satelle home.
 var ErrOtherInstance = errors.New("uipush: satelled at the endpoint serves another satelle home")
 
-// Client posts to one satelled.
 type Client struct {
-	Endpoint string // satelled's base URL
-	// InstanceID, when set, must equal the X-Satelle-Instance satelled's
-	// /healthz answers, so a push never lands in another home's satelled.
+	Endpoint   string
 	InstanceID string
 	Origin     mirror.IngestOrigin
-	HTTP       *http.Client // nil uses a client bounded by Timeout
-	// Report, when set, is told each snapshot outcome: full is true for a full
-	// snapshot (a seed, or a delta's fallback), err is nil when satelled took
-	// it. A satelled that is not reachable or serves another home attempts no
-	// snapshot and reports nothing.
-	Report func(full bool, err error)
+	HTTP       *http.Client
+	Report     func(full bool, err error)
 }
 
 func (c Client) http() *http.Client {
@@ -49,7 +39,6 @@ func (c Client) url(path string) string {
 	return strings.TrimRight(strings.TrimSpace(c.Endpoint), "/") + path
 }
 
-// check confirms the endpoint is up and serves this home.
 func (c Client) check(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/healthz"), nil)
 	if err != nil {
@@ -69,7 +58,6 @@ func (c Client) check(ctx context.Context) error {
 	return nil
 }
 
-// Seed pushes a full snapshot of src.
 func (c Client) Seed(ctx context.Context, src Source) error {
 	if err := c.check(ctx); err != nil {
 		return err
@@ -79,9 +67,6 @@ func (c Client) Seed(ctx context.Context, src Source) error {
 	return err
 }
 
-// Push reports a mutation of the items ids: a change event per topic, then a
-// delta snapshot of those items; a partition satelled has not seeded gets a
-// full snapshot instead. No ids pushes a full snapshot.
 func (c Client) Push(ctx context.Context, src Source, ids []string) error {
 	if err := c.check(ctx); err != nil {
 		return err
@@ -110,11 +95,6 @@ func (c Client) Push(ctx context.Context, src Source, ids []string) error {
 	return err
 }
 
-// Confirm confirms satelled's mirror of src: it posts only the digest of the
-// full snapshot to /ingest/confirm, and satelled marks the partition fresh
-// when that matches the last full body it applied. Otherwise the same bytes
-// are posted as a full snapshot. A satelled that is not reachable or serves
-// another home is sent nothing and nothing is reported (sto_128803b3).
 func (c Client) Confirm(ctx context.Context, src Source) error {
 	if err := c.check(ctx); err != nil {
 		return err
@@ -143,7 +123,6 @@ func (c Client) Confirm(ctx context.Context, src Source) error {
 	return err
 }
 
-// confirm posts one digest and reports whether satelled marked it fresh.
 func (c Client) confirm(ctx context.Context, repoKey, digest string) (bool, error) {
 	ev, err := json.Marshal(mirror.ConfirmEvent{RepoKey: repoKey, Digest: digest})
 	if err != nil {
@@ -172,7 +151,6 @@ func (c Client) confirm(ctx context.Context, repoKey, digest string) (bool, erro
 	return out.Fresh, nil
 }
 
-// full builds and posts a full snapshot of src.
 func (c Client) full(ctx context.Context, src Source) error {
 	snap, err := Full(src)
 	if err != nil {
@@ -182,14 +160,12 @@ func (c Client) full(ctx context.Context, src Source) error {
 	return err
 }
 
-// report hands one snapshot outcome to Report, when set.
 func (c Client) report(full bool, err error) {
 	if c.Report != nil {
 		c.Report(full, err)
 	}
 }
 
-// topics are the coarse panels the items ids belong to.
 func topics(src Source, ids []string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -219,7 +195,6 @@ func topics(src Source, ids []string) []string {
 	return out
 }
 
-// post sends a snapshot and returns satelled's status code.
 func (c Client) post(ctx context.Context, snap mirror.Snapshot) (int, error) {
 	body, err := c.encode(snap)
 	if err != nil {
@@ -228,13 +203,11 @@ func (c Client) post(ctx context.Context, snap mirror.Snapshot) (int, error) {
 	return c.postBody(ctx, body)
 }
 
-// encode stamps the client's origin on snap and marshals it.
 func (c Client) encode(snap mirror.Snapshot) ([]byte, error) {
 	snap.Origin = c.Origin
 	return json.Marshal(snap)
 }
 
-// postBody sends an encoded snapshot and returns satelled's status code.
 func (c Client) postBody(ctx context.Context, body []byte) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/ingest/snapshot"), bytes.NewReader(body))
 	if err != nil {
@@ -253,7 +226,6 @@ func (c Client) postBody(ctx context.Context, body []byte) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// Remove drops the partition repoKey from satelled.
 func (c Client) Remove(ctx context.Context, repoKey string) error {
 	if err := c.check(ctx); err != nil {
 		return err

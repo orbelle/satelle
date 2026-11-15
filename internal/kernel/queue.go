@@ -16,33 +16,23 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// A fire that cannot take the queue now. Both are refusals, not failures: the
-// queue is unchanged and the members wait for the next fire.
 var (
-	// ErrRunOpen: the run the last fire started is not in a terminal state,
-	// so its members are still being worked.
-	ErrRunOpen = errors.New("the queue's last run is still open")
-	// ErrQueueMoved: the queue's chain moved between reading its members and
-	// claiming them (a concurrent enqueue or fire).
+	ErrRunOpen    = errors.New("the queue's last run is still open")
 	ErrQueueMoved = errors.New("queue changed concurrently; re-run satelle queue fire")
 )
 
-// QueueOutcome is what an enqueue did: the items it added, the ones already
-// queued, and the fire it caused, or why the fire was held.
 type QueueOutcome struct {
 	Queue   string       `json:"queue"`
-	Name    string       `json:"name,omitempty"` // the queue file's name, when one defines it
+	Name    string       `json:"name,omitempty"`
 	Added   []string     `json:"added"`
 	Already []string     `json:"already,omitempty"`
 	Fire    *FireOutcome `json:"fire,omitempty"`
 	Held    string       `json:"held,omitempty"`
 }
 
-// FireOutcome is a fire: the run it started (none when the queue had no
-// members), and what that run took.
 type FireOutcome struct {
 	Queue    string   `json:"queue"`
-	Name     string   `json:"name,omitempty"` // the queue file's name, when one defines it
+	Name     string   `json:"name,omitempty"`
 	Run      string   `json:"run,omitempty"`
 	Status   string   `json:"status,omitempty"`
 	Task     string   `json:"task,omitempty"`
@@ -53,9 +43,6 @@ type FireOutcome struct {
 	Cause    string   `json:"cause"`
 }
 
-// ResolveQueue maps a queue reference to its chain id: a queue file's name
-// is its chain, anything else is taken as an id. def is the file defining the
-// chain, or nil.
 func (k *Kernel) ResolveQueue(ref string) (id string, def *workflow.Queue) {
 	if q := k.Queues[ref]; q != nil {
 		return q.ChainID(k.Settings.Prefix(item.QueueKind)), q
@@ -63,10 +50,8 @@ func (k *Kernel) ResolveQueue(ref string) (id string, def *workflow.Queue) {
 	return ref, k.queueFiles[ref]
 }
 
-// QueueFile returns the file defining the queue chain id, or nil.
 func (k *Kernel) QueueFile(id string) *workflow.Queue { return k.queueFiles[id] }
 
-// overlayQueue sets a file-defined queue's definition on its folded item.
 func (k *Kernel) overlayQueue(it *item.Item) {
 	if it.Kind != item.QueueKind {
 		return
@@ -76,32 +61,11 @@ func (k *Kernel) overlayQueue(it *item.Item) {
 	}
 }
 
-// queueMirror is the payload of an event the kernel writes to mirror a queue
-// file onto its chain: the file's definition, and the file as its cause. The
-// cause is the kernel's only; a user update cannot carry one.
 type queueMirror struct {
 	item.Fields
 	Cause string `json:"cause"`
 }
 
-// materializeQueues mirrors each queue file onto its chain, so a reader
-// folding the chain alone (a synced replica, satelle.dev) sees the file's
-// definition; the file stays its only owner, and local reads still overlay it.
-// A name-derived chain (que_<name>) that does not exist yet is created once,
-// its genesis carrying the queue's identity (kind, workflow) and the whole
-// definition. The genesis is built from its inputs alone (queueFileEvent at
-// queueGenesisAt, empty prev), so two runtimes that read the same file under
-// the same tracked configuration before either has synced write the same
-// event and never fork the chain at event 0 (sto_2b0b59cd). A file that adopts
-// an id names a chain that already exists elsewhere: when this runtime does
-// not hold it yet nothing is written, and it arrives with the next ledger pull
-// (sto_5c706973). A queue chain that exists gets one item.updated with the
-// whole definition when its raw fold's title, inputs or trigger differ from
-// the file's, and nothing when they agree. That event is deterministic too, so
-// two runtimes mirroring the same file onto the same head write the same
-// event. Every write is a compare-and-append on the tail it read, by actor
-// satelle with cause "queue file <path>": a process that wrote first wins, and
-// the next open compares again.
 func (k *Kernel) materializeQueues() error {
 	for _, id := range sortedKeys(k.queueFiles) {
 		if _, err := k.materializeQueue(id); err != nil {
@@ -111,9 +75,6 @@ func (k *Kernel) materializeQueues() error {
 	return nil
 }
 
-// materializeQueue mirrors the queue file defining id onto its chain by
-// materializeQueues' rule; wrote reports whether it appended an event. A tail
-// another process moved first is not written and is no error.
 func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 	def := k.queueFiles[id]
 	if def == nil {
@@ -126,7 +87,7 @@ func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 	p := queueMirror{Fields: def.Fields(), Cause: queueMirrorCause + k.RelPath(def.File)}
 	if len(events) == 0 {
 		if def.ID != "" {
-			return false, nil // adopted: the chain arrives with the next pull
+			return false, nil
 		}
 		qk := item.QueueKind
 		name, start, werr := k.WorkflowFor(item.Item{Kind: qk, Title: def.Name})
@@ -136,7 +97,7 @@ func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 		p.Kind, p.Workflow, p.Status = &qk, &name, &start
 		err = k.appendFileEvent(id, item.KindCreated, "", queueGenesisAt, p)
 	} else {
-		it, ferr := item.Fold(events) // raw: never the overlay, which is the file
+		it, ferr := item.Fold(events)
 		if ferr != nil || it.Kind != item.QueueKind || !def.Differs(it) {
 			return false, nil
 		}
@@ -153,18 +114,8 @@ func (k *Kernel) materializeQueue(id string) (wrote bool, err error) {
 	return true, nil
 }
 
-// queueMirrorCause prefixes the cause of every queue-file mirror event; the
-// file's path follows it.
 const queueMirrorCause = "queue file "
 
-// MirrorOnly reports whether every event of a chain was written by this
-// runtime from a queue file (ledgerrepl.FileMirrors), so a store's chain for
-// id may replace it: id is a name-derived queue chain a file here defines (a
-// file with an id writes no genesis), the chain is not empty, its first event
-// is item.created and every later one item.updated, and every event is by
-// actor satelle with a payload whose cause is "queue file <path>". Any other
-// event (a queue.added, a fire, a user's update, a satelle event with no
-// cause) is someone's work and makes it false.
 func (k *Kernel) MirrorOnly(id string, events []ledger.Event) bool {
 	def := k.queueFiles[id]
 	if def == nil || def.ID != "" || len(events) == 0 {
@@ -188,27 +139,10 @@ func (k *Kernel) MirrorOnly(id string, events []ledger.Event) bool {
 	return true
 }
 
-// Remirror applies the queue file defining id to the chain this runtime now
-// holds (ledgerrepl.FileMirrors), after a pull replaced it: one item.updated
-// when the chain's raw fold differs from the file, nothing when they agree.
 func (k *Kernel) Remirror(id string) (wrote bool, err error) { return k.materializeQueue(id) }
 
-// queueGenesisAt is the time of every file-built queue genesis. It is fixed,
-// not the wall clock, so every runtime builds the same genesis from the same
-// file; it must never change, since changing it changes every new genesis's
-// hash. It is not Go's zero time (read as unset by the web and mirror layers)
-// nor the Unix epoch (an all-zero protobuf Timestamp a server may read back as
-// absent).
 var queueGenesisAt = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-// queueFileEvent is an event that mirrors payload p onto id's chain after the
-// event whose hash is prevHash ("" for the genesis), built from its inputs
-// alone: its id is the first 24 hex digits of sha256(item, prevHash, the
-// payload's JSON) and its time is at (the previous event's time for a mirror
-// item.updated, queueGenesisAt for the genesis), so every runtime mirroring
-// the same file onto the same head builds the same event, with the same hash.
-// VerifyChain checks links and hashes, not time order, so reusing a time is
-// valid.
 func queueFileEvent(id, kind, prevHash string, at time.Time, p queueMirror) (ledger.Event, error) {
 	b, err := json.Marshal(p)
 	if err != nil {
@@ -218,8 +152,6 @@ func queueFileEvent(id, kind, prevHash string, at time.Time, p queueMirror) (led
 	return ledger.NewEventWith(hex.EncodeToString(sum[:])[:24], at, id, kind, "satelle", json.RawMessage(b), prevHash)
 }
 
-// appendFileEvent appends the deterministic queue-file event after prevHash,
-// as appendAfter does: a compare-and-append on the tail.
 func (k *Kernel) appendFileEvent(id, kind, prevHash string, at time.Time, p queueMirror) error {
 	e, err := queueFileEvent(id, kind, prevHash, at, p)
 	if err != nil {
@@ -231,8 +163,6 @@ func (k *Kernel) appendFileEvent(id, kind, prevHash string, at time.Time, p queu
 	return k.Cache.SyncItem(k.Ledger, id)
 }
 
-// notHeldYet refuses a queue verb on a queue whose file adopts an id this
-// runtime does not hold a chain for yet.
 func (k *Kernel) notHeldYet(id string) error {
 	def := k.queueFiles[id]
 	if def == nil || def.ID == "" {
@@ -245,7 +175,6 @@ func (k *Kernel) notHeldYet(id string) error {
 	return fmt.Errorf("queue %s adopts %s, which this runtime does not hold yet; it arrives with the next ledger pull (or remove id from %s to start a new queue)", def.Name, id, k.RelPath(def.File))
 }
 
-// RelPath is p relative to the working tree, when it is under it.
 func (k *Kernel) RelPath(p string) string {
 	if r, err := filepath.Rel(k.Dir, p); err == nil && !strings.HasPrefix(r, "..") {
 		return r
@@ -253,9 +182,6 @@ func (k *Kernel) RelPath(p string) string {
 	return p
 }
 
-// checkTrigger checks a trigger a create or update sets: only a queue carries
-// one, its shape is valid, and its target exists (an open task, or a
-// configured workflow).
 func (k *Kernel) checkTrigger(kind string, t *item.Trigger) error {
 	if t == nil {
 		return nil
@@ -286,7 +212,6 @@ func (k *Kernel) checkTrigger(kind string, t *item.Trigger) error {
 	return nil
 }
 
-// openQueue loads a queue that can take items: kind queue, not terminal.
 func (k *Kernel) openQueue(id string) (item.Item, error) {
 	if err := k.notHeldYet(id); err != nil {
 		return item.Item{}, err
@@ -304,8 +229,6 @@ func (k *Kernel) openQueue(id string) (item.Item, error) {
 	return q, nil
 }
 
-// memberStatus resolves an explicit member's status and whether it is a
-// terminal state of its workflow, for item.Members' lapse rule.
 func (k *Kernel) memberStatus(id string) (string, bool, bool) {
 	it, err := k.Get(id)
 	if err != nil {
@@ -315,7 +238,6 @@ func (k *Kernel) memberStatus(id string) (string, bool, bool) {
 	return it.Status, w != nil && w.IsTerminal(it.Status), true
 }
 
-// membership is a queue's members now, given its folded state.
 func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, error) {
 	var candidates []item.Item
 	if q.Inputs != nil {
@@ -327,8 +249,6 @@ func (k *Kernel) membership(q item.Item, st item.QueueState) (item.Membership, e
 	return item.Members(q, st, candidates, k.memberStatus), nil
 }
 
-// QueueMembers returns a queue's folded state and its membership now: its
-// members and the explicit members that lapsed.
 func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Membership, error) {
 	id, _ := k.ResolveQueue(ref)
 	if err := k.notHeldYet(id); err != nil {
@@ -346,19 +266,6 @@ func (k *Kernel) QueueMembers(ref string) (item.Item, item.QueueState, item.Memb
 	return q, st, m, err
 }
 
-// Enqueue adds items to a queue explicitly, then fires the trigger in this
-// call when its minimum size is reached. A state's enqueue (a cause written by
-// item.StateCause) always records queue.added: the item was outside that state
-// just before the move, so any earlier add it caused had lapsed. An add with
-// an empty cause records queue.added unless the item is already a live
-// explicit member. Any other cause (an external producer's) records it unless
-// the item is a live explicit member or the chain already holds a queue.added
-// for that item with that cause, before or after any fire, so a producer's
-// retry never re-queues an item a run took; a skipped item is reported in
-// Already. A non-state add that would record refuses an item already in a
-// terminal state, which a queue does not hold. A fire the queue cannot take
-// now (its last run is open, or the queue moved) is reported in Held, not as
-// an error: the items stay queued.
 func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOutcome, error) {
 	queueID, def := k.ResolveQueue(ref)
 	out := QueueOutcome{Queue: queueID, Added: []string{}}
@@ -375,8 +282,6 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	}
 	st := item.FoldQueue(events)
 	_, stateCause := item.EnqueuedState(cause)
-	// The live explicit members: the explicit list less the lapsed, without
-	// the filter (an item the filter selects is still added explicitly).
 	live := item.Members(item.Item{ID: q.ID}, st, nil, k.memberStatus).Members
 	for _, id := range ids {
 		if id == queueID {
@@ -422,8 +327,6 @@ func (k *Kernel) Enqueue(ref string, ids []string, cause, actor string) (QueueOu
 	return out, nil
 }
 
-// Dequeue removes explicit members, recording queue.removed for each. An item
-// the queue's filter selects cannot be removed: change the filter or the item.
 func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, error) {
 	queueID, _ := k.ResolveQueue(ref)
 	q, st, m, err := k.QueueMembers(queueID)
@@ -446,8 +349,6 @@ func (k *Kernel) Dequeue(ref string, ids []string, actor string) ([]string, erro
 	return removed, nil
 }
 
-// fireReadiness is what fireReady read: the queue, its chain, its trigger,
-// its members now and the base ref a fire would use.
 type fireReadiness struct {
 	queue   item.Item
 	events  []ledger.Event
@@ -456,9 +357,6 @@ type fireReadiness struct {
 	baseRef string
 }
 
-// lastOpenRun is the run the queue's last fire started, when it resolves and
-// its state is not terminal (or its workflow is unknown): until it is
-// terminal, the queue cannot fire again.
 func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
 	lf := st.LastFire
 	if lf == nil || lf.Run == "" {
@@ -474,12 +372,6 @@ func (k *Kernel) lastOpenRun(st item.QueueState) (item.Item, bool) {
 	return item.Item{}, false
 }
 
-// fireReady is every refusal Fire makes before it claims anything, in Fire's
-// order: a queue not held yet, a load error, a queue that cannot take items,
-// no trigger, a last run still open (ErrRunOpen), a membership error and,
-// when there are members, a base ref that names no commit. A nil error means
-// a fire now would claim the members (or fire nothing when there are none),
-// short of a concurrent move of the queue.
 func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	var r fireReadiness
 	if err := k.notHeldYet(queueID); err != nil {
@@ -514,7 +406,7 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 		baseRef = t.Base
 	}
 	r.baseRef = baseRef
-	if baseRef != "" { // a bad ref refuses before anything is claimed
+	if baseRef != "" {
 		if _, err := k.resolveBase(baseRef); err != nil {
 			return r, err
 		}
@@ -522,14 +414,6 @@ func (k *Kernel) fireReady(queueID, baseRef string) (fireReadiness, error) {
 	return r, nil
 }
 
-// Fire runs a queue's trigger over its members now: it claims them by
-// recording queue.fired (a compare-and-append on the chain it read), then
-// starts the run. A task target creates an execution under the task; a
-// workflow target creates an execution under the queue in that workflow's
-// start state. Either way the run's task.run lists the members it took. The
-// base is baseRef, else the trigger's base, else HEAD. A queue with no members
-// fires nothing (Run is ""). Satelle fires only here, in the calling process:
-// nothing watches or schedules a queue.
 func (k *Kernel) Fire(ref, baseRef, cause, actor string) (FireOutcome, error) {
 	queueID, def := k.ResolveQueue(ref)
 	out := FireOutcome{Queue: queueID, Cause: cause, Inputs: []string{}}

@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// Every page and fragment a partition serves renders from pushed rows: the
-// templates execute against the view models without error.
 func TestPartitionPagesRender(t *testing.T) {
 	isolateHome(t)
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))

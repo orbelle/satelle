@@ -12,10 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// Only a process a dry run started finds itself under it: a marker naming one
-// of its ancestors (pid and start identity) makes it read-only. This process's
-// own marker, a reused pid, or no marker does not, so another session's writes
-// are never refused.
 func TestUnderDryRunOnlyForTheDryRunsDescendants(t *testing.T) {
 	led, err := ledger.Open(t.TempDir())
 	if err != nil {

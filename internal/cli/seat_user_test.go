@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// boundUsers maps each session to the user its seat.bound payload on id
-// names.
 func boundUsers(t *testing.T, id string) map[string]string {
 	t.Helper()
 	r, err := findRepo("")
@@ -40,9 +38,6 @@ func boundUsers(t *testing.T, id string) map[string]string {
 	return users
 }
 
-// A seat records the satelle user who bound it: the signed-in identity when
-// there is one, else <OS user>@<host>, also for a harness session seating
-// under the session its context hook printed (sto_600b9a85 AC1).
 func TestSeatRecordsTheUser(t *testing.T) {
 	isolate(t)
 	must(t, "init")

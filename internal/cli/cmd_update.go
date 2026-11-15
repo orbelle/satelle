@@ -23,23 +23,20 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// Release locations; each can be overridden from the environment (the same
-// names scripts/install.sh and scripts/hermetic.sh use).
 const (
-	envReleaseAPI     = "SATELLE_RELEASE_API"      // JSON of the latest release
-	envReleaseListAPI = "SATELLE_RELEASE_LIST_API" // JSON list of releases, newest first
-	envReleaseBase    = "SATELLE_RELEASE_BASE"     // <base>/<tag>/<asset>
-	envNoService      = "SATELLE_NO_SERVICE"       // non-empty and not 0: change no unit
+	envReleaseAPI     = "SATELLE_RELEASE_API"
+	envReleaseListAPI = "SATELLE_RELEASE_LIST_API"
+	envReleaseBase    = "SATELLE_RELEASE_BASE"
+	envNoService      = "SATELLE_NO_SERVICE"
 
 	releaseRepo     = "bobmcallan/satelle"
 	defaultAPI      = "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
 	defaultListAPI  = "https://api.github.com/repos/" + releaseRepo + "/releases?per_page=100"
 	defaultBase     = "https://github.com/" + releaseRepo + "/releases/download"
-	serveTagPrefix  = "serve-" // satelled releases are tagged serve-v<version>
+	serveTagPrefix  = "serve-"
 	downloadTimeout = 5 * time.Minute
 )
 
-// updateTarget is the binary update replaces; tests point it elsewhere.
 var updateTarget = func() (string, error) {
 	p, err := os.Executable()
 	if err != nil {
@@ -48,17 +45,12 @@ var updateTarget = func() (string, error) {
 	return filepath.EvalSymlinks(p)
 }
 
-// updateRefresh runs the replaced CLI's agents refresh, so the new binary's
-// command tree judges every registered project's harness files; tests
-// replace it.
 var updateRefresh = func(ctx context.Context, target string, stdout, stderr io.Writer) error {
 	c := exec.CommandContext(ctx, target, "agents", "refresh")
 	c.Stdout, c.Stderr = stdout, stderr
 	return c.Run()
 }
 
-// hookFailure is update's error when the harness refresh did not finish, nil
-// when it did.
 func hookFailure(err error) error {
 	if err == nil {
 		return nil
@@ -73,9 +65,6 @@ func envOr(k, def string) string {
 	return def
 }
 
-// serviceOptOut reports whether update (and scripts/install.sh, by the same
-// rule) must leave the service units alone: --no-service, or
-// SATELLE_NO_SERVICE set to anything but empty or 0. why names the opt-out.
 func serviceOptOut(flag bool) (skip bool, why string) {
 	if flag {
 		return true, "--no-service"
@@ -135,7 +124,6 @@ it: this satelle cannot read them.`,
 					return err
 				}
 			}
-			// Plan both, fetch every asset that is not current, then replace.
 			old := buildinfo.Version
 			var cliBin []byte
 			if strings.TrimPrefix(tag, "v") != old {
@@ -170,8 +158,6 @@ it: this satelle cannot read them.`,
 				if err := replaceFile(target, cliBin); err != nil {
 					return err
 				}
-				// Record the installed CLI's build, so satelled's footer names it
-				// straight after the update without running it.
 				buildinfo.Identify(ctx, config.GlobalDir(), target)
 				fmt.Fprintf(out, "satelle %s → %s\n", old, strings.TrimPrefix(tag, "v"))
 			}
@@ -186,16 +172,12 @@ it: this satelle cannot read them.`,
 				buildinfo.Identify(ctx, config.GlobalDir(), daemonPath)
 				fmt.Fprintf(out, "satelled %s → %s\n", daemonOld, daemonNew)
 			}
-			// Hook files are not service units: --no-service does not skip
-			// them. A replaced CLI judges with its own tree.
 			var hookErr error
 			if cliBin != nil {
 				hookErr = hookFailure(updateRefresh(ctx, target, out, cmd.ErrOrStderr()))
 			} else if failed := refreshAllHooks(out); failed > 0 {
 				hookErr = hookFailure(fmt.Errorf("%d harness file(s) or project(s) not refreshed", failed))
 			}
-			// The registered pre-1.0 projects are the last thing printed, on
-			// every path: never before the replace-or-current lines.
 			legacy := registeredLegacy()
 			if skip, why := serviceOptOut(noService); skip {
 				fmt.Fprintf(out, "service: not installed or changed (%s); a running satelled keeps its old build until 'satelle service restart'\n", why)
@@ -219,8 +201,6 @@ it: this satelle cannot read them.`,
 	return cmd
 }
 
-// daemonVersion is the version field of satelled's identity line; "unknown" when it
-// cannot say.
 func daemonVersion(ctx context.Context, path string) string {
 	if v, ok := buildinfo.VersionOf(buildinfo.Identify(ctx, config.GlobalDir(), path)); ok {
 		return v
@@ -285,9 +265,6 @@ func latestServeTag(ctx context.Context) (string, error) {
 	return "", errors.New("no satelled release found")
 }
 
-// newestServeTag is the serve-v tag of the highest version among tags, in
-// whatever order they come (GitHub's list is not ordered by version). A tag
-// whose version is not dotted integers is never chosen.
 func newestServeTag(tags []string) (string, bool) {
 	best, bestV := "", []int(nil)
 	for _, t := range tags {
@@ -306,7 +283,6 @@ func newestServeTag(tags []string) (string, bool) {
 	return best, bestV != nil
 }
 
-// parseReleaseVersion splits a dotted version into integers.
 func parseReleaseVersion(v string) ([]int, bool) {
 	fields := strings.Split(v, ".")
 	out := make([]int, len(fields))
@@ -320,7 +296,6 @@ func parseReleaseVersion(v string) ([]int, bool) {
 	return out, true
 }
 
-// releaseVersionLess compares versions field by field; a missing field is 0.
 func releaseVersionLess(a, b []int) bool {
 	for i := range max(len(a), len(b)) {
 		x, y := 0, 0
@@ -337,8 +312,6 @@ func releaseVersionLess(a, b []int) bool {
 	return false
 }
 
-// fetchAsset downloads name's asset of tag for this platform and checks its
-// sha256; nothing is written.
 func fetchAsset(ctx context.Context, tag, name string) ([]byte, error) {
 	version := strings.TrimPrefix(tag, serveTagPrefix)
 	asset := fmt.Sprintf("%s-%s-%s-%s%s", name, version, runtime.GOOS, runtime.GOARCH, buildinfo.ExeSuffix())
@@ -359,8 +332,6 @@ func fetchAsset(ctx context.Context, tag, name string) ([]byte, error) {
 	return bin, nil
 }
 
-// replaceFile writes body beside path and renames it into place. Windows
-// cannot replace a running executable, so the old one is first moved aside.
 func replaceFile(path string, body []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".new-*")
 	if err != nil {

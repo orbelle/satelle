@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// performIn creates an item, moves it into the performing state and runs its
-// performer with answer.
 func performIn(t *testing.T, answer string) (*Kernel, string, error) {
 	t.Helper()
 	k, d, repo := multiState(t)

@@ -9,15 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// stillActive is the exit code GetExitCodeProcess reports for a running process.
-// A process that really exited with code 259 is indistinguishable by that alone;
-// the creation time recorded with the pid, and the gate's own timeout, bound it.
 const stillActive = 259
 
-// osProbe opens the process and asks whether it has exited. A pid that names no
-// process is gone; a process this user may not inspect is Unknown, which a
-// session is never held on. The creation time is the identity: a pid reused by
-// another process has a different one.
 func osProbe(pid int) (Liveness, string) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {

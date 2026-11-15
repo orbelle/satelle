@@ -15,8 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/web"
 )
 
-// Each command's ledger writes reach this home's satelled; project add
-// seeds it and project remove drops the partition through its ingest.
 func TestCommandsPushToSatelled(t *testing.T) {
 	isolate(t)
 	ms, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
@@ -71,8 +69,6 @@ func TestCommandsPushToSatelled(t *testing.T) {
 	}
 }
 
-// A seed satelled refuses shows in `satelle status` with its cause until a
-// full snapshot lands; a satelled that is not listening is not a failed seed.
 func TestStatusNamesAFailedSeed(t *testing.T) {
 	isolate(t)
 	const cause = `mirror: snapshot has duplicate item kind=ledger_event id="deadbeef"`

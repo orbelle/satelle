@@ -18,7 +18,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// probeDefinition is a docker-local item definition pinning pin.
 func probeDefinition(pin string) string {
 	return `version = 1
 name = "probe"
@@ -33,8 +32,6 @@ scope = "job"
 `
 }
 
-// localFixture is a committed git work tree whose .satelle carries lineConfig
-// and a probe remote pinning pin, with its kernel open and one item created.
 func localFixture(t *testing.T, pin string) (tree string, k *kernel.Kernel, it item.Item) {
 	t.Helper()
 	tree = t.TempDir()
@@ -55,8 +52,6 @@ func localFixture(t *testing.T, pin string) (tree string, k *kernel.Kernel, it i
 	return tree, k, it
 }
 
-// stageNode seats the item at remote:<node> and stages a node's in/ under a
-// fresh node root, as FireLocal does before it copies in/ into the container.
 func stageNode(t *testing.T, tree string, k *kernel.Kernel, itemID, node string, steps int) string {
 	t.Helper()
 	def, bundle, err := LoadLocal(filepath.Join(tree, ".satelle"), "probe")
@@ -75,9 +70,6 @@ func stageNode(t *testing.T, tree string, k *kernel.Kernel, itemID, node string,
 	return nodeDir
 }
 
-// A local node, in process: it reads in/, drives one step as node:<id>, writes
-// an accepting outcome, and its runtime chain is the staged chain plus its own
-// events, which verify and import back into the starter's ledger.
 func TestRunLocalDrivesOneStep(t *testing.T) {
 	tree, k, it := localFixture(t, "1.0.0")
 	nodeDir := stageNode(t, tree, k, it.ID, "nod_aaaa", 1)
@@ -129,8 +121,6 @@ func TestRunLocalDrivesOneStep(t *testing.T) {
 	}
 }
 
-// A pin that is not the node's version warns in the notes, naming both, and
-// the run still concludes.
 func TestRunLocalWarnsOnPin(t *testing.T) {
 	tree, k, it := localFixture(t, "1.0.1")
 	nodeDir := stageNode(t, tree, k, it.ID, "nod_bbbb", 1)
@@ -143,9 +133,6 @@ func TestRunLocalWarnsOnPin(t *testing.T) {
 	}
 }
 
-// LoadLocal bundles remote.toml first and the remote's other files in order,
-// never a .local one; SubstrateBundle carries the tracked .satelle files only,
-// never an untracked or a .local one.
 func TestLoadLocalAndSubstrateBundle(t *testing.T) {
 	tree, _, _ := localFixture(t, "1.0.0")
 	dataDir := filepath.Join(tree, ".satelle")
@@ -202,7 +189,6 @@ func TestLoadLocalAndSubstrateBundle(t *testing.T) {
 	}
 }
 
-// LocalRuns round-trips a run; RunFinished is concluded or stopped.
 func TestLocalRunsAndRunFinished(t *testing.T) {
 	runs := LocalRuns{Dir: t.TempDir()}
 	if _, err := runs.Load("probe", "sto_1"); !errors.Is(err, fs.ErrNotExist) {

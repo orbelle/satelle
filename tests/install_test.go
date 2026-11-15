@@ -14,11 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// installFixture is a machine about to run scripts/install.sh pinned to
-// 9.9.9: a file:// release tree holding the built satelle as that version, an
-// install dir already holding satelled (a pinned install fetches the CLI
-// alone), a logging fake systemctl first on PATH, and [service] on a port
-// nothing answers on.
 type installFixture struct {
 	s           *sandbox
 	script, log string
@@ -64,9 +59,6 @@ func (f *installFixture) install(args ...string) result {
 	return f.s.exec("sh", "", append([]string{f.script}, args...)...)
 }
 
-// By default install.sh installs and starts the service and sync timer and
-// prints the status; --no-service and SATELLE_NO_SERVICE=1 change no unit and
-// say so; an unknown option is refused (sto_1b6a7ed3 AC1, AC2, AC3).
 func TestInstallScriptInstallsTheService(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		f := newInstallFixture(t)
@@ -141,8 +133,6 @@ func TestInstallScriptInstallsTheService(t *testing.T) {
 	})
 }
 
-// The installer's next steps for a new repo wire a harness after init, then
-// check with doctor (sto_f58ed5fa AC3).
 func TestInstallScriptNextStepsWireAHarness(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "scripts", "install.sh"))
 	if err != nil {

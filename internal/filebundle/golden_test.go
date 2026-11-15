@@ -7,16 +7,8 @@ import (
 	"testing"
 )
 
-// goldenBundleSHA256 is the sha256 of Encode(goldenEntries), captured before the
-// encoding moved here from the remote definition bundle. It fails on any change
-// of file order, JSON escaping, field order or format number; a later encoding
-// change must not be "fixed" by regenerating it, because bundles already stored
-// (a story session's configuration among them) must still decode to the same
-// bytes.
 const goldenBundleSHA256 = "94a271ab1045f676b500035dfc507a07ea797bc90139dac7ac0d36f02b2598dd"
 
-// goldenEntries is a fixed set of files in the order a caller hands them over.
-// The non-ASCII text and the <>& characters pin json.Marshal's HTML escaping.
 var goldenEntries = []Entry{
 	{Path: "remote.toml", Content: "name = \"golden\"\n# café — ✓\n"},
 	{Path: "workflows/done.toml", Content: "done = true\n"},

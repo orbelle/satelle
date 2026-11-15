@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// minimalV1 is the least a v1 definition carries.
 const minimalV1 = `version = 1
 provider = "docker-local"
 satelle_version = "0.0.709"
@@ -18,7 +17,6 @@ satelle_version = "0.0.709"
 kind = "item"
 `
 
-// taskV1 is the smallest valid v1 task definition, ending in its [drive] table.
 const taskV1 = `version = 1
 provider = "fly-sprite"
 satelle_version = "0.0.709"
@@ -76,8 +74,6 @@ func TestMinimalDefinitionsValidateClean(t *testing.T) {
 	}
 }
 
-// Each key outside v1, and each v1 key with a bad value, is a finding at its
-// own path; no finding echoes the value it refused.
 func TestV1FieldFindings(t *testing.T) {
 	const sentinel = "SENTINEL_V1_5e2a"
 	withRepo := minimalV1 + "[[repo]]\nurl = \"https://github.com/a/b\"\nref = \"main\"\n"

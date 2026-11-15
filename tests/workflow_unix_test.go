@@ -10,12 +10,6 @@ import (
 	"testing"
 )
 
-// fakeClaude puts a fake `claude` first on the sandbox's PATH. Each run
-// records its argv in <dir>/argv.<model>.<pid> and answers with claude's JSON
-// envelope whose result is a verdict: accept, or what <dir>/verdict.<model>
-// holds. When <dir>/class.<model> exists the verdict also carries that
-// file's text as its class; without it the envelope is unchanged. Its notes
-// are "<verdict> by <model>", or what <dir>/notes.<model> holds (no quotes).
 func fakeClaude(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,7 +34,6 @@ fi
 	return dir
 }
 
-// argvs returns every recorded argv of the fake runs of model.
 func argvs(t *testing.T, dir, model string) [][]string {
 	t.Helper()
 	files, _ := filepath.Glob(filepath.Join(dir, "argv."+model+".*"))
@@ -56,7 +49,6 @@ func argvs(t *testing.T, dir, model string) [][]string {
 	return out
 }
 
-// flag returns the value after name in argv.
 func flag(argv []string, name string) string {
 	if i := slices.Index(argv, name); i >= 0 && i+1 < len(argv) {
 		return argv[i+1]
@@ -135,10 +127,6 @@ from = ["paused"]
 to = "@prior"
 `
 
-// A user-defined workflow end to end: a dispatched performer, gates that
-// dispatch a fake claude, a check skill, fail-fast, parallel groups,
-// relevance, carry, a panel, park and @prior resume, and every verdict on
-// the ledger.
 func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -157,7 +145,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 	id := s.create("story", "--title", "pipe", "--workflow", "pipeline").ID
 	s.must("story", "set", id, "--status", "build")
 
-	// The performer is dispatched with the status verbs denied.
 	if out := s.must("story", "perform", id); !strings.Contains(out, "by mk-1") {
 		t.Errorf("perform printed %q", out)
 	}
@@ -175,7 +162,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 		t.Error("no performer.run on the ledger")
 	}
 
-	// Round 1: the check rejects first and fail-fast stops the round.
 	r := s.run("story", "set", id, "--status", "shipped")
 	if r.code != 2 || !strings.Contains(r.err, "gate lint") || !strings.Contains(r.err, "ok.txt is missing") {
 		t.Fatalf("round 1: exit %d\n%s%s", r.code, r.out, r.err)
@@ -187,9 +173,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 		t.Errorf("round 1 gate runs = %+v", g)
 	}
 
-	// Round 2: the check passes, docs is irrelevant (skipped), review judges
-	// the src change and accepts, and the
-	// parallel group runs both gates though one panel member rejects.
 	s.write("ok.txt", "")
 	s.write("src/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, filepath.Join(fake, "verdict.jc-1"), "reject", 0o644)
@@ -206,7 +189,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 			t.Fatalf("judge %s ran %d time(s) in round 2", model, len(runs))
 		}
 		a := runs[0]
-		// Judges are read-only: offered and allowed only read tools.
 		for _, f := range []string{"--tools", "--allowedTools"} {
 			for _, tool := range strings.Split(flag(a, f), ",") {
 				if tool != "Read" && tool != "Grep" && tool != "Glob" {
@@ -235,7 +217,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 		t.Fatalf("a rejected move moved the item to %q", got.Status)
 	}
 
-	// Park, refuse a resume elsewhere, resume to the parked-from state.
 	s.must("story", "set", id, "--status", "paused")
 	if r := s.run("story", "set", id, "--status", "queued"); r.code == 0 {
 		t.Error("a parked item resumed to a state it was not parked from")
@@ -244,8 +225,6 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 		t.Errorf("resume: %s", out)
 	}
 
-	// Round 3: review's accept is carried, docs now matters and runs, the
-	// panel accepts, and the item reaches the terminal state.
 	if err := os.Remove(filepath.Join(fake, "verdict.jc-1")); err != nil {
 		t.Fatal(err)
 	}
@@ -298,9 +277,6 @@ from = ["parked"]
 to = "@prior"
 `
 
-// A state's round cap holds the item once a panel member has rejected that
-// many presentations in a row, and the hold names the dissenter, the class
-// its verdict carried through the real dispatch and parse, and who accepted.
 func TestRoundCapHoldsForTheOperator(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

@@ -9,8 +9,6 @@ import (
 
 var hex12 = regexp.MustCompile(`\b[0-9a-f]{12}\b`)
 
-// The diverged and refused lines are the same for satelle.dev and for a
-// store command (the reference adapter): one Replicator prints them.
 func TestSameLinesBothStores(t *testing.T) {
 	scenario := func(t *testing.T, open func() Store) (pushOut, pullOut string) {
 		a, b := newStore(t), newStore(t)

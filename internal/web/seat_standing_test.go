@@ -16,11 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// fourSeatHome is a satelle home (SATELLE_HOME) with this machine's id and
-// the session records of four seats, one per standing, on the stories here,
-// elsewhere, gone and unverified: here is this machine with its session owner
-// alive; elsewhere another machine; gone this machine with its owner killed;
-// unverified no machine recorded. It returns the pushed seat rows and the home.
 func fourSeatHome(t *testing.T, here, elsewhere, gone, unverified string) ([]mirror.Seat, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -54,12 +49,6 @@ func fourSeatHome(t *testing.T, here, elsewhere, gone, unverified string) ([]mir
 	}, home
 }
 
-// satelled classes each of four seats: the one bound here with its session
-// alive and the unverified one (no machine recorded) count as engaged here
-// (the badge reads 2 engaged, sto_44a18f5b), the one on another machine as
-// engaged elsewhere (1 elsewhere), and the gone one as neither; Activity marks
-// the other three elsewhere (with the host), session gone and unverified
-// (sto_e127b2e6 AC6, AC8 "remote-machine seat shown as elsewhere").
 func TestSatelledClassesEverySeat(t *testing.T) {
 	seats, home := fourSeatHome(t, "sto_here", "sto_far", "sto_gone", "sto_old")
 	snap := activitySnapshot("beta")

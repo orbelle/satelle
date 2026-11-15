@@ -1,19 +1,5 @@
 package buildinfo_test
 
-// The Go toolchain is pinned in three places — go.mod's `go` directive, the
-// tracked mise.toml, and `go-version` in the release workflow — and nothing made
-// them agree (sty_02d79953). A partial bump drifts silently: local gates, CI and
-// the released binary would each build on a different toolchain with no signal.
-//
-// This guard is deliberately TEST-ONLY. It knows about mise.toml and
-// .github/workflows/, paths that exist because of how THIS repo is built, not
-// because of anything satelle does for the repos it governs — so it must not
-// enter the binary's importable surface (see the satelle-repo-agnostic
-// principle). A gate that wants it on the release path names
-// `go test ./internal/buildinfo/...`; no Go change is needed for that.
-//
-// It is a CHECK, never a generator: nothing here rewrites a pin.
-
 import (
 	"fmt"
 	"os"
@@ -23,20 +9,11 @@ import (
 	"testing"
 )
 
-// pin is one declared toolchain version and the file that declares it. Its
-// GRANULARITY is whatever it wrote down: `1.27` declares a major.minor and
-// floats the patch by design (that is how the CI workflows are pinned), while
-// `1.27.0` declares a patch too. Two pins agree when they agree on every
-// component they BOTH declare — so a minor-only pin is a wildcard over patch,
-// two exact pins must match to the patch, and a CI pin that grows a patch is
-// then compared at that granularity as well. Granularity is data the file
-// carries, not a per-file rule in this code, so a fifth pin is one more entry.
 type pin struct {
 	file string
 	raw  string
 }
 
-// toolchainPinFiles maps each pin's repo-relative path to its parser.
 var toolchainPinFiles = []struct {
 	path  string
 	parse func([]byte) (string, error)
@@ -53,8 +30,6 @@ var (
 	sectionRe     = regexp.MustCompile(`^\[([^\]]+)\]`)
 )
 
-// parseGoModDirective reads the language directive. It anchors at the start of a
-// line so `toolchain go1.27.1` and anything inside a require block cannot match.
 func parseGoModDirective(b []byte) (string, error) {
 	m := goDirectiveRe.FindAllStringSubmatch(string(b), -1)
 	if len(m) == 0 {
@@ -66,8 +41,6 @@ func parseGoModDirective(b []byte) (string, error) {
 	return m[0][1], nil
 }
 
-// parseMiseGoPin reads [tools] go. Section-aware rather than a bare `go =`
-// match, so a pin under some other table can never be mistaken for the tool one.
 func parseMiseGoPin(b []byte) (string, error) {
 	section := ""
 	for _, ln := range strings.Split(string(b), "\n") {
@@ -89,9 +62,6 @@ func parseMiseGoPin(b []byte) (string, error) {
 	return "", fmt.Errorf("no `go = \"<version>\"` under [tools]")
 }
 
-// parseWorkflowGoVersion reads the setup-go pin. A workflow that grows a second
-// setup-go step with a DIFFERENT version is itself drift, so it is refused here
-// rather than silently resolved to the first match.
 func parseWorkflowGoVersion(b []byte) (string, error) {
 	m := goVersionRe.FindAllStringSubmatch(string(b), -1)
 	if len(m) == 0 {
@@ -106,7 +76,6 @@ func parseWorkflowGoVersion(b []byte) (string, error) {
 	return first, nil
 }
 
-// collectPins reads every pin under root.
 func collectPins(root string) ([]pin, error) {
 	pins := make([]pin, 0, len(toolchainPinFiles))
 	for _, f := range toolchainPinFiles {
@@ -123,10 +92,6 @@ func collectPins(root string) ([]pin, error) {
 	return pins, nil
 }
 
-// comparePins is the decision: every pin must agree with every other on the
-// components they both declare. The error names EVERY pin and the version it
-// declares — an operator fixing drift needs the whole picture, not just the
-// first file that disagreed.
 func comparePins(pins []pin) error {
 	var conflicts []string
 	for i := 0; i < len(pins); i++ {
@@ -152,8 +117,6 @@ func comparePins(pins []pin) error {
 	return fmt.Errorf("%s", b.String())
 }
 
-// agreeOnSharedComponents compares two dotted versions over the components both
-// spell out, so 1.27 matches 1.27.0 but 1.27.4 does not.
 func agreeOnSharedComponents(a, b string) bool {
 	as, bs := strings.Split(a, "."), strings.Split(b, ".")
 	n := min(len(as), len(bs))
@@ -165,7 +128,6 @@ func agreeOnSharedComponents(a, b string) bool {
 	return n > 0
 }
 
-// moduleRoot walks up from the package directory to the module root.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -182,8 +144,6 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
-// TestToolchainPinsAgree (AC1) is the guard itself: the three pins this repo
-// carries must agree at the granularity each declares.
 func TestToolchainPinsAgree(t *testing.T) {
 	pins, err := collectPins(moduleRoot(t))
 	if err != nil {
@@ -197,10 +157,6 @@ func TestToolchainPinsAgree(t *testing.T) {
 	}
 }
 
-// TestComparePinsNamesEveryFileOnMismatch (AC2) drives the decision directly:
-// one drift case per file class, the exact-vs-minor granularity rule in both
-// directions, and an all-agree control. Every failure must name all three files
-// and every declared version — the message is part of the contract.
 func TestComparePinsNamesEveryFileOnMismatch(t *testing.T) {
 	pinsWith := func(goMod, mise, releaseYML string) []pin {
 		return []pin{
@@ -251,9 +207,6 @@ func TestComparePinsNamesEveryFileOnMismatch(t *testing.T) {
 	}
 }
 
-// TestCollectPinsReadsEachFileClass (AC2) covers the PARSERS, not just the
-// comparator: a temp tree in the real shapes, clean and then drifted one file at
-// a time.
 func TestCollectPinsReadsEachFileClass(t *testing.T) {
 	const (
 		goMod = "module example.com/x\n\ngo 1.27.0\n\nrequire (\n\tgithub.com/spf13/cobra v1.10.2\n)\n"
@@ -325,12 +278,7 @@ func TestCollectPinsReadsEachFileClass(t *testing.T) {
 	}
 }
 
-// TestPinParsersRejectTheAmbiguousCases pins parser behaviour on the shapes that
-// would otherwise read the wrong number: a toolchain line beside the directive,
-// a go pin under another table, and a workflow with two disagreeing setup-go
-// steps.
 func TestPinParsersRejectTheAmbiguousCases(t *testing.T) {
-	// A `toolchain` line and a require block must not be mistaken for the directive.
 	got, err := parseGoModDirective([]byte("module m\n\ngo 1.27.0\n\ntoolchain go1.27.3\n\nrequire (\n\tgo.uber.org/zap v1.0.0\n)\n"))
 	if err != nil || got != "1.27.0" {
 		t.Errorf("go.mod directive = (%q, %v), want 1.27.0", got, err)
@@ -339,7 +287,6 @@ func TestPinParsersRejectTheAmbiguousCases(t *testing.T) {
 		t.Error("a go.mod with no directive must be an error, not an empty pin")
 	}
 
-	// The [tools] table is what counts.
 	got, err = parseMiseGoPin([]byte("[env]\ngo = \"not-a-tool-pin\"\n\n[tools]\ngo = \"1.27.0\"\n"))
 	if err != nil || got != "1.27.0" {
 		t.Errorf("mise pin = (%q, %v), want 1.27.0", got, err)
@@ -348,7 +295,6 @@ func TestPinParsersRejectTheAmbiguousCases(t *testing.T) {
 		t.Error("a mise.toml with no go pin must be an error")
 	}
 
-	// Two setup-go steps that agree are fine; two that disagree are drift.
 	agreeing := "      - uses: actions/setup-go@v6\n        with:\n          go-version: '1.27'\n      - uses: actions/setup-go@v6\n        with:\n          go-version: '1.27'\n"
 	if got, err := parseWorkflowGoVersion([]byte(agreeing)); err != nil || got != "1.27" {
 		t.Errorf("agreeing duplicate pins = (%q, %v), want 1.27", got, err)

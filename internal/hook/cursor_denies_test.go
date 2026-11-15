@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// editGateDenyForms are the edit gate's own operator-record corpus turned into
-// the performer-deny verbs: record becomes set, each form gets a unique id
-// (sto_l<N>), and the third PerformerDenies verb gets a form of its own. fake
-// replaces the absolute satelle path, for a live run with a fake on PATH.
 func editGateDenyForms(fake string) []string {
 	var out []string
 	for i, c := range append(append([]string{}, operatorRecordCases...), operatorRecordCodeCases...) {
@@ -29,9 +25,6 @@ func editGateDenyForms(fake string) []string {
 	return append(out, fmt.Sprintf("satelle execution set sto_l%d --status done", len(out)+1))
 }
 
-// The live cursor test runs every form of the edit gate's corpus: one per case,
-// plus the third PerformerDenies verb, each naming satelle and its own id, so a
-// stream's shell call is tied to exactly one form (sto_0f41dda9 AC3).
 func TestEditGateDenyFormsCoverTheCorpus(t *testing.T) {
 	forms := editGateDenyForms("")
 	if want := len(operatorRecordCases) + len(operatorRecordCodeCases) + 1; len(forms) != want {

@@ -25,7 +25,6 @@ func TestTopicsShipWithTitles(t *testing.T) {
 	}
 }
 
-// The two words are defined once, in the projects topic.
 func TestProjectAndWorkspaceDefinedOnce(t *testing.T) {
 	top, ok := Get("projects")
 	if !ok {
@@ -49,7 +48,6 @@ func TestProjectAndWorkspaceDefinedOnce(t *testing.T) {
 	}
 }
 
-// Queue files are documented where queues and workflows are.
 func TestQueueFilesDocumented(t *testing.T) {
 	for topic, wants := range map[string][]string{
 		"queues":    {".satelle/queues/<name>.toml", `enqueue = ["release"]`, "satelle queue set` refuses"},
@@ -67,7 +65,6 @@ func TestQueueFilesDocumented(t *testing.T) {
 	}
 }
 
-// The workflows topic names a trigger's exit convention.
 func TestTriggerExitConventionDocumented(t *testing.T) {
 	top, ok := Get("workflows")
 	if !ok {
@@ -80,8 +77,6 @@ func TestTriggerExitConventionDocumented(t *testing.T) {
 	}
 }
 
-// The ledger-store topic carries the adapter contract and names the checks
-// store-test runs, as the code names them (sto_eb93dfd8).
 func TestLedgerStoreContractDocumented(t *testing.T) {
 	top, ok := Get("ledger-store")
 	if !ok {
@@ -111,8 +106,6 @@ func TestLedgerStoreContractDocumented(t *testing.T) {
 	}
 }
 
-// The ledger-store topic says how the store is chosen and that push, pull and
-// status are the one replication surface for every store (sto_9b98696a).
 func TestLedgerStoreChoiceDocumented(t *testing.T) {
 	top, _ := Get("ledger-store")
 	for _, want := range []string{
@@ -132,8 +125,6 @@ func TestLedgerStoreChoiceDocumented(t *testing.T) {
 	}
 }
 
-// The agents topic documents the cursor-agent adapter, and workflows points to
-// it (sto_0f41dda9 AC5).
 func TestAgentsTopicDocumentsCursor(t *testing.T) {
 	var agents, workflows string
 	for _, top := range List() {
@@ -157,8 +148,6 @@ func TestAgentsTopicDocumentsCursor(t *testing.T) {
 	}
 }
 
-// The edit-gate topic says what a Cursor IDE session gets, from the IDE run's
-// evidence (sto_bf491f0d AC6, AC7), and the agents topic names the IDE.
 func TestEditGateTopicDocumentsCursorIDE(t *testing.T) {
 	gate, ok := Get("edit-gate")
 	if !ok {
@@ -190,8 +179,6 @@ func TestEditGateTopicDocumentsCursorIDE(t *testing.T) {
 	}
 }
 
-// The automatic sync section says installing or updating satelle starts the
-// timer and names the opt-out (sto_1b6a7ed3 AC3).
 func TestLedgerStoreSyncInstalledByInstallAndUpdate(t *testing.T) {
 	top, ok := Get("ledger-store")
 	if !ok {

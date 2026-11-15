@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// Deny returns a PreToolUse deny for harness carrying reason. Grok reads a
-// top-level decision/reason; cursor's preToolUse reads permission and shows
-// the agent user_message (probed on cursor-agent 2026.11.05: it ignores
-// decision, and the rejection the agent sees is user_message), so the reason
-// goes in both messages; claude and pi (through its extension) read claude's
-// hookSpecificOutput.
 func Deny(harness, reason string) []byte {
 	if strings.TrimSpace(reason) == "" {
 		reason = "satelle: denied"
@@ -41,26 +35,11 @@ func Deny(harness, reason string) []byte {
 	return marshal(doc)
 }
 
-// SessionStart and UserPromptSubmit are the context events in claude's names.
 const (
 	EventSessionStart = "SessionStart"
 	EventPrompt       = "UserPromptSubmit"
 )
 
-// Context returns harness's answer that adds text to the model's context for
-// event (EventSessionStart or EventPrompt), nil when the harness reads
-// nothing from that event. Claude and pi read claude's shape (the pi
-// extension forwards additionalContext into its system prompt). notice is
-// the user's channel: claude shows a top-level systemMessage to the user, and
-// the pi extension shows it through ctx.ui.notify; an empty notice emits no
-// systemMessage. Cursor's sessionStart reads additional_context; its
-// beforeSubmitPrompt has no context channel (it answers only continue and
-// user_message), so a cursor prompt answer is PromptContinue instead. Grok's
-// hook guide (user-guide/10-hooks.md) says only a top-level systemMessage is
-// read from a SessionStart hook's stdout, so grok's session start is
-// {"systemMessage": text} (text already holds the doctor block notice
-// summarises); and it discards an allowing UserPromptSubmit hook's stdout, so
-// grok's prompt answer is nil.
 func Context(harness, event, text, notice string) []byte {
 	if harness == Cursor {
 		if event == EventSessionStart {
@@ -91,18 +70,12 @@ func Context(harness, event, text, notice string) []byte {
 	return marshal(doc)
 }
 
-// PromptContinue is cursor's beforeSubmitPrompt answer that lets the prompt
-// through: {"continue":true}.
 func PromptContinue() []byte {
 	return marshal(struct {
 		Continue bool `json:"continue"`
 	}{true})
 }
 
-// StopAnswer is harness's answer to the stop (turn end) event when satelle
-// has nothing to add: cursor reads a JSON object and would submit a
-// followup_message as a new prompt, so it gets an empty object; claude, pi and
-// grok take no output.
 func StopAnswer(harness string) []byte {
 	if harness == Cursor {
 		return []byte("{}")
@@ -110,11 +83,6 @@ func StopAnswer(harness string) []byte {
 	return nil
 }
 
-// StopBlock returns harness's Stop answer that refuses the turn's end with
-// reason. Claude, pi (its extension sends reason as a user message) and grok
-// (fed back to the model as a user message, the agent runs another round)
-// read {decision: block, reason}; cursor submits a followup_message as the
-// next prompt.
 func StopBlock(harness, reason string) []byte {
 	if harness == Cursor {
 		return marshal(struct {

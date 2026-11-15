@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// fakeReader is a fake `claude` judge that reads the plan from the record
-// folder its prompt names, not from the prompt: it saves the prompt and the
-// path it found, and rejects when the file holds CONTRADICTS-AC1.
 func fakeReader(t *testing.T, s *sandbox) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -45,9 +42,6 @@ to = "in_progress"
 groups = [{ mode = "sequential", gates = ["plan-review"] }]
 `
 
-// A plan-review judge reads the attached plan from the item's record folder:
-// a contradiction beyond the inline bound is found only there, the folder is
-// gitignored and gone after the run, and each presentation is its own attempt.
 func TestPlanReviewReadsThePlanFromTheRecord(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -62,7 +56,7 @@ func TestPlanReviewReadsThePlanFromTheRecord(t *testing.T) {
 	}
 	id := s.create("story", "--title", "planned", "--workflow", "planned", "--criteria", "AC1: keep the ledger").ID
 
-	filler := strings.Repeat("a plan line that says nothing much.\n", 600) // ~21 KiB, past the 16 KiB inline bound
+	filler := strings.Repeat("a plan line that says nothing much.\n", 600)
 	if r := s.exec(satelleBin, filler+"CONTRADICTS-AC1\n", "story", "attach", id, "--name", "plan", "--file", "-"); r.code != 0 {
 		t.Fatalf("attach: %s%s", r.out, r.err)
 	}

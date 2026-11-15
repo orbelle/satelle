@@ -1,8 +1,3 @@
-// Package push is the CLI→local-UI-server change publisher (epic:serve-split).
-// When the machine [service] endpoint is set (or derived), mutating verbs emit a
-// fire-and-forget change event to the server ingest. SATELLE_SERVER_ENDPOINT=none
-// disables (no network).
-// Failures never alter verb outcomes or block the caller (sty_126228b2).
 package push
 
 import (
@@ -14,47 +9,30 @@ import (
 	"time"
 )
 
-// DefaultTimeout bounds a single POST. Short so a black-holed endpoint cannot
-// hang a process; the call is already asynchronous from the verb path.
 const DefaultTimeout = 500 * time.Millisecond
 
-// Event is the JSON body POSTed to the configured server's change ingest.
 type Event struct {
 	RepoKey string `json:"repo_key"`
-	Topic   string `json:"topic"`  // coarse panel: stories | tasks | docs
-	Entity  string `json:"entity"` // story | task | doc | ledger (derived)
-	At      string `json:"at"`     // RFC3339 UTC
-	// Origin is "hosted" when the change was materialised from the hosted
-	// project (mirror.OriginHosted); satelled never pushes such a change back.
-	Origin string `json:"origin,omitempty"`
+	Topic   string `json:"topic"`
+	Entity  string `json:"entity"`
+	At      string `json:"at"`
+	Origin  string `json:"origin,omitempty"`
 }
 
-// Publisher posts change events to Endpoint. Safe for concurrent use.
-// A zero Publisher (empty Endpoint) is a no-op.
 type Publisher struct {
 	Endpoint string
 	RepoKey  string
-	// Client is optional; nil uses a client with DefaultTimeout.
-	Client *http.Client
-	// Path is the ingest path under Endpoint; default "/ingest/change".
-	Path string
-	// Now is optional; defaults to time.Now.
-	Now func() time.Time
-	// OnPost is an optional test hook invoked just before the request is sent
-	// (after body marshal). Not used in production.
-	OnPost func(*http.Request)
-	// Origin is stamped on every event; see Event.Origin.
-	Origin string
+	Client   *http.Client
+	Path     string
+	Now      func() time.Time
+	OnPost   func(*http.Request)
+	Origin   string
 }
 
-// Active reports whether the publisher will attempt network I/O.
 func (p *Publisher) Active() bool {
 	return p != nil && strings.TrimSpace(p.Endpoint) != ""
 }
 
-// Notify is the ChangeNotifier sink: fire-and-forget POST. Never blocks the
-// caller beyond the cost of scheduling a goroutine. Never panics.
-// The CLI drain path uses PostContext instead so delivery completes before exit.
 func (p *Publisher) Notify(topic string) {
 	if !p.Active() {
 		return
@@ -62,9 +40,6 @@ func (p *Publisher) Notify(topic string) {
 	go func() { _ = p.PostContext(context.Background(), topic) }()
 }
 
-// PostContext POSTs a change event, honouring ctx's deadline. When ctx has no
-// deadline, DefaultTimeout is applied. Errors are returned for callers that
-// care; the CLI drain swallows them (fail-silent). Never panics.
 func (p *Publisher) PostContext(ctx context.Context, topic string) (err error) {
 	if !p.Active() {
 		return nil
@@ -112,8 +87,6 @@ func (p *Publisher) PostContext(ctx context.Context, topic string) (err error) {
 	}
 	client := p.Client
 	if client == nil {
-		// Bound the transport to DefaultTimeout when the caller did not inject
-		// a client; the request context still governs cancellation.
 		client = &http.Client{Timeout: DefaultTimeout}
 	}
 	resp, err := client.Do(req)

@@ -18,16 +18,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// written records the items a command wrote to the ledger, so the command's
-// end can tell satelled (flushUI). Every kernel mutation and a ledger pull
-// write through the ledger, so watching it covers them all.
 var written struct {
 	sync.Mutex
 	repo  *repo
 	items map[string]bool
 }
 
-// watchWrites records k's ledger writes for flushUI.
 func watchWrites(k *kernel.Kernel, r repo) {
 	k.Ledger.OnWrite = func(e ledger.Event) {
 		written.Lock()
@@ -40,8 +36,6 @@ func watchWrites(k *kernel.Kernel, r repo) {
 	}
 }
 
-// flushUI pushes the items the command wrote to satelled. It is silent: a
-// satelled that is not running, or serves another home, changes nothing.
 func flushUI(ctx context.Context) {
 	r, ids := takeWritten()
 	if r == nil || len(ids) == 0 {
@@ -52,8 +46,6 @@ func flushUI(ctx context.Context) {
 	})
 }
 
-// takeWritten drains the writes watchWrites recorded: the repo and the sorted
-// ids of the items written.
 func takeWritten() (*repo, []string) {
 	written.Lock()
 	r, items := written.repo, written.items
@@ -67,10 +59,6 @@ func takeWritten() (*repo, []string) {
 	return r, ids
 }
 
-// confirmUI confirms satelled's mirror of r (sto_128803b3): marked fresh when
-// its digest matches, otherwise sent a full snapshot. The pending writes are
-// dropped: a full body carries them whenever the digest differs. Silent, like
-// flushUI; `satelle status` reads the recorded snapshot outcome.
 func confirmUI(ctx context.Context, r repo) {
 	_, _ = takeWritten()
 	_ = withUISource(r, func(c uipush.Client, src uipush.Source) error {
@@ -78,8 +66,6 @@ func confirmUI(ctx context.Context, r repo) {
 	})
 }
 
-// uiClient is the client for this home's satelled; ok is false when the push
-// is disabled.
 func uiClient() (uipush.Client, bool) {
 	gc, _ := config.LoadGlobal()
 	ep := gc.Service.ResolveEndpoint()
@@ -89,14 +75,8 @@ func uiClient() (uipush.Client, bool) {
 	return uipush.Client{Endpoint: ep, InstanceID: config.SafeCurrentInstanceID()}, true
 }
 
-// uiRepoRoot is r's canonical root: the repo path satelled's partition and
-// the per-repo sync state (syncstate) are keyed on.
 func uiRepoRoot(r repo) string { return config.CanonicalRepoRoot(filepath.Dir(r.DataDir)) }
 
-// recordSnapshot records one snapshot outcome for root in the per-repo sync
-// state, which `satelle status` reads. A full snapshot that lands clears a
-// recorded failure; a delta that lands records nothing, since it does not
-// prove the partition whole. Best effort, like the push itself.
 func recordSnapshot(root string, full bool, err error) {
 	if err == nil {
 		if full {
@@ -111,9 +91,6 @@ func recordSnapshot(root string, full bool, err error) {
 	_ = syncstate.RecordSnapshot(config.GlobalDir(), root, false, label+": "+err.Error(), time.Now())
 }
 
-// withUISource opens r's ledger and cache read-only for a push to satelled.
-// It does nothing when the push is disabled. Each snapshot satelled refuses,
-// and a source that cannot be built, is recorded for `satelle status`.
 func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	c, ok := uiClient()
 	if !ok {
@@ -136,8 +113,6 @@ func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	})
 }
 
-// openRecord opens r's ledger and its cache, synced, without reading the
-// repo's configuration. The caller closes the cache.
 func openRecord(r repo) (*ledger.Store, *cache.Cache, error) {
 	led, err := ledger.Open(r.Runtime)
 	if err != nil {
@@ -154,9 +129,6 @@ func openRecord(r repo) (*ledger.Store, *cache.Cache, error) {
 	return led, ch, nil
 }
 
-// signedInUser is who this machine's CLI is signed in as: the name and email
-// stamped into the local credential store at login (no network call, never a
-// token), or nil when it holds no login for the configured server.
 func signedInUser() *mirror.User {
 	gc, err := config.LoadGlobal()
 	if err != nil {

@@ -15,11 +15,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// dryFixture is a kernel whose flow workflow has a check that dumps its input
-// (probe), a single judge (review), a panel that rejects (panel), a check on
-// two transitions from one state (pick), a gate with a trigger (guarded), and
-// a hold cap of one round on work. dumps is where probe writes, one file per
-// run.
 func dryFixture(t *testing.T) (k *Kernel, d *fakeDispatcher, dumps string) {
 	t.Helper()
 	repo := t.TempDir()
@@ -148,8 +143,6 @@ func dry(t *testing.T, k *Kernel, req GateDryRequest) GateDryResult {
 	return res
 }
 
-// AC1: a check gets the env, stdin and working directory its transition
-// gives it.
 func TestGateDryCheckGetsTheTransitionsInput(t *testing.T) {
 	k, _, dumps := dryFixture(t)
 	it := newThing(t, k)
@@ -170,7 +163,6 @@ func TestGateDryCheckGetsTheTransitionsInput(t *testing.T) {
 	}
 }
 
-// normalised replaces the record folder a prompt names with a fixed token.
 func normalised(prompt string) string {
 	if dir := folderOf(prompt); dir != "" {
 		return strings.ReplaceAll(prompt, dir, "<record>")
@@ -178,7 +170,6 @@ func normalised(prompt string) string {
 	return prompt
 }
 
-// AC2: a judge gets the same system, prompt and read-only record folder.
 func TestGateDryJudgeGetsTheTransitionsPrompt(t *testing.T) {
 	k, d, _ := dryFixture(t)
 	seen := watch(d)
@@ -208,8 +199,6 @@ func TestGateDryJudgeGetsTheTransitionsPrompt(t *testing.T) {
 	runsEmpty(t, k)
 }
 
-// AC3: a dry run that accepts, rejects or errors leaves the chain, the runs
-// folder and the hold count as they were.
 func TestGateDryRecordsNothing(t *testing.T) {
 	k, d, _ := dryFixture(t)
 	it := newThing(t, k)
@@ -248,9 +237,6 @@ func TestGateDryRecordsNothing(t *testing.T) {
 	}
 }
 
-// AC4: the transition is the item's state and the one move that runs the
-// gate, or what --from and --to name; anything else is refused naming the
-// choices, with nothing run.
 func TestGateDrySelectsTheTransition(t *testing.T) {
 	k, d, dumps := dryFixture(t)
 	opened := newThing(t, k)
@@ -296,7 +282,6 @@ func TestGateDrySelectsTheTransition(t *testing.T) {
 	}
 }
 
-// AC6: --show-input reports what AC1 and AC2 capture and starts nothing.
 func TestGateDryShowInputRunsNothing(t *testing.T) {
 	k, d, dumps := dryFixture(t)
 	it := newThing(t, k)
@@ -337,8 +322,6 @@ func TestGateDryShowInputRunsNothing(t *testing.T) {
 	}
 }
 
-// AC7: a draft plan attached to an item that has not been presented is what
-// the dry-run judge reads.
 func TestGateDryJudgesAnUnpresentedPlan(t *testing.T) {
 	k, d, _ := dryFixture(t)
 	seen := watch(d)

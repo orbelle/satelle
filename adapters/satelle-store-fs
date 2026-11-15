@@ -1,43 +1,8 @@
 #!/bin/sh
-# satelle-store-fs -- the filesystem reference adapter of satelle's ledger store
-# contract (`satelle help ledger-store`). POSIX sh; no dependency beyond the
-# POSIX utilities.
-#
-# Usage:
-#   satelle-store-fs --root <dir> put-if-absent <key>    (body on stdin)
-#   satelle-store-fs --root <dir> get <key>
-#   satelle-store-fs --root <dir> list <prefix> [<after-key>]
-#
-# Configure it as:
-#   [ledger]
-#   store = { command = "/path/to/satelle-store-fs", args = ["--root", "/path/to/dir"] }
-#
-# <dir> must be an existing directory. The adapter creates <dir>/objects and
-# <dir>/tmp itself on the first put; a root that holds nothing yet is a valid,
-# empty store.
-#
-# Object layout. A key's '/' becomes '%' (not in the key charset, so the
-# mapping is unambiguous). The encoded key is cut into 200-byte chunks, each
-# prefixed '_' and joined as directories, and the last chunk is suffixed '@':
-# key chains/x/000.json is <dir>/objects/_chains%x%000.json@. Files end in '@'
-# and directories never do, so keys a and a/b cannot collide; the '_' prefix
-# makes '.' and '..' safe; chunking keeps a 512-byte key under NAME_MAX.
-#
-# put-if-absent writes the body to <dir>/tmp, then hard-links it to the object
-# path: ln is atomic and fails when the target exists, so a key is never
-# overwritten.
-#
-# list compares keys as strings in byte order (LC_ALL=C). awk compares two
-# numeric-looking strings as numbers, so the after-key test concatenates "" to
-# both sides to force a string comparison: keys 12 and 102 sort as 102 < 12.
-#
-# Exit codes: 0 done; 1 transient failure; 2 permanent failure; 3 put-if-absent
-# found the key (its body is on stdout); 4 get found no such key. On 1 and 2 one
-# line goes to stderr: error: <code>: <message>.
 
 export LC_ALL=C
 
-fail() { # fail <exit> <code> <message>
+fail() {
 	printf 'error: %s: %s\n' "$2" "$3" >&2
 	exit "$1"
 }
@@ -50,7 +15,6 @@ shift 3
 [ -d "$root" ] || fail 2 invalid "root $root is not a directory"
 objects=$root/objects
 
-# objpath <key>: the object file of key, relative to objects.
 objpath() {
 	printf '%s\n' "$1" | tr '/' '%' | awk '{
 		s = $0; out = ""

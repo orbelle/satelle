@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// A gate's placement: local, a docker-local and a fly-sprite remote validate
-// on a check gate; cloud, a malformed value, a judge, an unknown remote id and
-// an unparsable definition are each refused by name.
 func TestGatePlacementValidation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -62,15 +59,11 @@ groups = [{ gates = ["g"] }]
 			t.Errorf("%s: want %q in:\n%s", c.gate, c.want, p)
 		}
 	}
-	// A kernel with a refused placement does not open.
 	if _, err := Open(Options{Root: root}); err == nil || !strings.Contains(err.Error(), "remote broken") {
 		t.Fatalf("open: %v", err)
 	}
 }
 
-// The docker test gate's remote, this repo's .satelle/remotes/integration,
-// with only its provider line changed to fly-sprite, validates and is accepted
-// as the placement of the gate integration-check (sto_257507cb).
 func TestGatePlacementAcceptsTheIntegrationRemoteAsFlySprite(t *testing.T) {
 	orig, err := os.ReadFile(filepath.Join("..", "..", ".satelle", "remotes", "integration", "remote.toml"))
 	if err != nil {
@@ -101,8 +94,6 @@ groups = [{ gates = ["integration-check"] }]
 	}
 }
 
-// swapProviderLine replaces only the definition's docker-local provider line
-// with fly-sprite and asserts that exactly that one line differs.
 func swapProviderLine(t *testing.T, def string) string {
 	t.Helper()
 	const from, to = `provider = "docker-local"`, `provider = "fly-sprite"`

@@ -1,8 +1,3 @@
-// Package hook is satelle's harness hook surface: it reads a harness's hook
-// input, judges an edit or a shell command against the edit gate, and answers
-// in the harness's own envelope. It is agent-agnostic: claude, pi, grok and
-// cursor each differ only in the shape of their input and output, never in
-// policy.
 package hook
 
 import (
@@ -10,7 +5,6 @@ import (
 	"strings"
 )
 
-// Harness names.
 const (
 	Claude = "claude"
 	Pi     = "pi"
@@ -18,15 +12,10 @@ const (
 	Cursor = "cursor"
 )
 
-// Harnesses lists the harnesses satelle installs hooks for.
 var Harnesses = []string{Claude, Pi, Grok, Cursor}
 
-// harnessCLI is each harness's command-line program, the binary an
-// agents.toml binding's command names when it runs that harness.
 var harnessCLI = map[string]string{Claude: "claude", Pi: "pi", Grok: "grok", Cursor: "cursor-agent"}
 
-// ForCLI returns the harness whose command-line program is cli (a binding's
-// command basename), and false when cli runs none of them.
 func ForCLI(cli string) (string, bool) {
 	for h, c := range harnessCLI {
 		if c == cli {
@@ -36,49 +25,30 @@ func ForCLI(cli string) (string, bool) {
 	return "", false
 }
 
-// Input is the part of a harness hook payload satelle reads.
 type Input struct {
-	Event   string // hook_event_name
-	Session string // session_id, else conversation_id (cursor)
-	Cwd     string
-	Roots   []string // workspace_roots (cursor): the session's project roots
-	Tool    string   // tool_name
-	Path    string   // the edit target of an edit tool
-	Command string   // the command of a shell tool
-	// StopReason is a Stop payload's reason (grok: end_turn when a turn
-	// ends, channel_closed or shutdown when the session ends); "" when the
-	// harness sends none.
+	Event      string
+	Session    string
+	Cwd        string
+	Roots      []string
+	Tool       string
+	Path       string
+	Command    string
 	StopReason string
-	// Cursor is true when Cursor sent the payload (it carries cursor_version),
-	// whether through its own hooks file or its Claude Code compatibility.
-	Cursor bool
+	Cursor     bool
 }
 
-// TurnEndReason is the Stop reason that ends a turn (grok's end_turn).
 const TurnEndReason = "end_turn"
 
-// TurnEnd reports whether a Stop payload ends a turn, the one stop satelle
-// answers: true when it carries no reason (claude, pi, cursor) or end_turn;
-// false for another reason (grok's channel_closed and shutdown fire at
-// session end, and grok ignores their answer).
 func (in Input) TurnEnd() bool {
 	return in.StopReason == "" || in.StopReason == TurnEndReason
 }
 
-// shellTools are the tool names of a shell tool across harnesses.
 var shellTools = map[string]bool{"Bash": true, "bash": true, "run_terminal_command": true, "Shell": true}
 
-// IsShell reports whether the input is a shell tool call.
 func (in Input) IsShell() bool { return shellTools[in.Tool] || (in.Tool == "" && in.Command != "") }
 
-// IsEdit reports whether the input is a file-editing tool call.
 func (in Input) IsEdit() bool { return !in.IsShell() && in.Path != "" }
 
-// ParseInput reads a hook payload. Claude and pi (whose extension normalises
-// to claude's shape) use snake_case; grok may use camelCase; cursor uses
-// snake_case with its own tool names (Write, Delete, Shell) and carries
-// conversation_id, cursor_version and workspace_roots. An unreadable payload is
-// the zero Input.
 func ParseInput(raw []byte) Input {
 	type toolInput struct {
 		FilePath          string `json:"file_path"`

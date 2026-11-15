@@ -7,11 +7,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// BlobRefs lists, in chain order, every blob the events reference: an
-// attachment's body (attachment.added), with its name and media type, and a
-// performer run's stored output (performer.run). Seq is the event's 0-based
-// position in events. An event whose payload does not decode, or whose sha256
-// is empty or malformed, names no blob.
 func BlobRefs(events []ledger.Event) []ledger.BlobRef {
 	var out []ledger.BlobRef
 	add := func(seq int, e ledger.Event, sha, what, name, media string) {

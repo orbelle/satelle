@@ -68,8 +68,6 @@ func TestReportDaemonLegacyBody(t *testing.T) {
 	}
 }
 
-// A CLI whose version differs from the installed satelled's is a half-done
-// update: status names satelle update.
 func TestReportDaemonCLIDiffers(t *testing.T) {
 	cli := buildinfo.Info{Name: "satelle", Version: "1.0.1", Commit: "cccccccccccc", BuildTime: "2026-11-06T10:00:00Z"}.String()
 	out := reportWith(t, healthz(t, serving(running)), running.String(), cli)
@@ -78,8 +76,6 @@ func TestReportDaemonCLIDiffers(t *testing.T) {
 	}
 }
 
-// The card's case (sto_49b6e762): satelled 1.0.0 still runs after update
-// installed 1.0.1 of both. Only the restart is named.
 func TestReportDaemonCardCase(t *testing.T) {
 	installed := buildinfo.Info{Name: "satelled", Version: "1.0.1", Commit: "bbbbbbbbbbbb", BuildTime: "2026-11-06T10:00:00Z"}.String()
 	cli := buildinfo.Info{Name: "satelle", Version: "1.0.1", Commit: "bbbbbbbbbbbb", BuildTime: "2026-11-06T10:00:00Z"}.String()
@@ -107,9 +103,6 @@ func TestUnitDaemonRoundTrip(t *testing.T) {
 	}
 }
 
-// The sync timer runs the pass 30 s after the last one ended, to the second:
-// a write reaches another machine within two periods plus its passes, the
-// 90-second bound (sto_5c706973).
 func TestServiceRendersSyncTimer(t *testing.T) {
 	timer := renderSyncTimer()
 	for _, want := range []string{"OnBootSec=30s", "OnUnitInactiveSec=30s", "AccuracySec=1s", "Unit=" + syncServiceName, "WantedBy=timers.target"} {
@@ -133,8 +126,6 @@ func TestServiceRendersSyncTimer(t *testing.T) {
 	if !strings.HasSuffix(exec, "ledger autosync") {
 		t.Errorf("ExecStart %q does not end with ledger autosync", exec)
 	}
-	// The units read the freshness constants the stale badge derives from, so
-	// the timer and the badge share one number (sto_128803b3).
 	t.Run("units follow the mirror constants", func(t *testing.T) {
 		if want := fmt.Sprintf("OnUnitInactiveSec=%ds\n", int(mirror.SyncPeriod.Seconds())); !strings.Contains(renderSyncTimer(), want) {
 			t.Errorf("timer lacks %q:\n%s", want, renderSyncTimer())
@@ -145,8 +136,6 @@ func TestServiceRendersSyncTimer(t *testing.T) {
 	})
 }
 
-// service install writes satelled's unit and the sync service and timer, and
-// enables and starts the timer (sto_5c706973).
 func TestInstallWritesSyncUnits(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the units are systemd-only")
@@ -185,8 +174,6 @@ func TestInstallWritesSyncUnits(t *testing.T) {
 	}
 }
 
-// A second refresh finds every unit naming the binaries it would write, and
-// keeps all three (sto_1b6a7ed3).
 func TestServiceRefreshKeepsMatchingUnits(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the units are systemd-only")

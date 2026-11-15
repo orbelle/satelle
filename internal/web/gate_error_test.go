@@ -9,9 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// A presentation whose only refusal is an error (a judge that could not be
-// asked) is refused; its row is v-error, its timeline dot tl-error, and both
-// are drawn in the warning colour, not the reject red.
 func TestGateErrorIsRefusedAndShownAsAnError(t *testing.T) {
 	payload, _ := json.Marshal(mirror.GateRun{Transition: "plan->build", Gate: "scope", Binding: "r1", Result: mirror.GateError, Notes: "dispatch failed: boom"})
 	ev := Entry{ID: "e1", Item: "sto_1", Kind: mirror.EventGateRun, At: time.Now(), Payload: payload}

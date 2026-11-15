@@ -25,11 +25,10 @@ func (g fakeGit) ChangedPaths(string) ([]string, error)   { return g.changed, ni
 func (fakeGit) Diff(_ string, p []string) (string, error) { return "diff:" + strings.Join(p, ","), nil }
 
 type fakeDispatcher struct {
-	mu      sync.Mutex
-	answers map[string]string
-	calls   []string
-	reqs    []agent.Request
-	// onDispatch runs inside Dispatch, while the run's record folder exists.
+	mu         sync.Mutex
+	answers    map[string]string
+	calls      []string
+	reqs       []agent.Request
 	onDispatch func(role agent.Role, req agent.Request)
 }
 
@@ -161,7 +160,6 @@ func TestMultiStateGates(t *testing.T) {
 		t.Fatalf("rule selection %+v", chore)
 	}
 
-	// Fail-fast: the check rejects, so nothing after it runs.
 	res, err := k.Transition(ctx, it.ID, "work", "me")
 	if err != nil || res.Moved || gates(res) != "lint=reject" || len(d.calls) != 0 {
 		t.Fatalf("fail-fast: %v %s %v", err, gates(res), d.calls)
@@ -175,7 +173,6 @@ func TestMultiStateGates(t *testing.T) {
 		t.Fatalf("gate details %+v", res.Gates)
 	}
 
-	// Perform dispatches the state's performer and records the run.
 	out, err := k.Perform(ctx, it.ID, "me")
 	if err != nil || out.Text != "did it" {
 		t.Fatalf("perform %+v %v", out, err)
@@ -189,7 +186,6 @@ func TestMultiStateGates(t *testing.T) {
 		t.Fatal("performer output blob")
 	}
 
-	// Park and resume to the prior state.
 	if res, err = k.Transition(ctx, it.ID, "hold", "me"); err != nil || !res.Moved {
 		t.Fatalf("park: %v", err)
 	}
@@ -200,8 +196,6 @@ func TestMultiStateGates(t *testing.T) {
 		t.Fatalf("resume: %v", err)
 	}
 
-	// Parallel group: both run, one rejects; the earlier review accept is
-	// recorded on this transition.
 	d.calls = nil
 	res, err = k.Transition(ctx, it.ID, "closed", "me")
 	if err != nil || res.Moved || gates(res) != "review=accept panel=accept strict=reject" {
@@ -210,7 +204,6 @@ func TestMultiStateGates(t *testing.T) {
 	if len(res.Rejects()) != 1 || !strings.Contains(res.Gates[1].Notes, "2 of 3 accept") {
 		t.Fatalf("rejects %+v", res.Gates)
 	}
-	// Re-presented: review is carried, the rest judged again.
 	d.set("strict", accept)
 	d.calls = nil
 	res, err = k.Transition(ctx, it.ID, "closed", "me")
@@ -225,7 +218,7 @@ func TestMultiStateGates(t *testing.T) {
 			t.Fatalf("non-judge dispatch %v", d.calls)
 		}
 	}
-	if len(d.calls) != 4 { // r1, r2, r3 panel + strict; review carried
+	if len(d.calls) != 4 {
 		t.Fatalf("calls %v", d.calls)
 	}
 	recorded, _ := k.Cache.Events(it.ID, gate.KindRun)
@@ -289,10 +282,6 @@ func TestSeatsAttachmentsTasks(t *testing.T) {
 	}
 }
 
-// capped is a kernel whose start state a is performed by doer and left to z
-// through scope (r1) and a review panel (r1, r2, all must accept); a moves
-// gateless to the park held, and through strict (rejecting) to the park blk.
-// hold is a's hold line, "" for none.
 func capped(t *testing.T, hold string) (*Kernel, *fakeDispatcher) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -423,7 +412,6 @@ func TestHoldAfterRoundCap(t *testing.T) {
 	if got, _ := k.Get(it.ID); got.Status != "held" {
 		t.Fatalf("folded status %q", got.Status)
 	}
-	// Held, it is not performed again.
 	before := performs(d)
 	if _, err := k.Perform(ctx, it.ID, "me"); err == nil {
 		t.Fatal("a held item was performed")
@@ -432,7 +420,6 @@ func TestHoldAfterRoundCap(t *testing.T) {
 		t.Fatal("a perform dispatch reached the performer of a held item")
 	}
 
-	// A drive stops at the hold and names it.
 	other, _ := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("u")}, "me")
 	dr, err := k.Drive(ctx, other.ID, "me")
 	if err != nil || dr.Verdict != VerdictReject || dr.Item.Status != "a" || strings.Contains(dr.Notes, "held") {
@@ -443,7 +430,6 @@ func TestHoldAfterRoundCap(t *testing.T) {
 		t.Fatalf("drive 2: %v %+v", err, dr)
 	}
 
-	// The operator's resume re-enters a and starts the count again.
 	if res, err = k.Transition(ctx, it.ID, "a", "me"); err != nil || !res.Moved {
 		t.Fatalf("resume: %v %+v", err, res)
 	}
@@ -519,8 +505,6 @@ func TestHoldOfClasses(t *testing.T) {
 		}
 		return a
 	}
-	// g0: AC1, AC3, AC3 -> AC3 in 2; g1: AC1, AC3, "" -> tie, latest AC3 in 1;
-	// g2: never classified.
 	h := holdOf("a", []attempt{round("AC1", "AC1", ""), round("AC3", "AC3", ""), round("AC3", "", "")})
 	want := []item.Dissent{
 		{Gate: "g0", Binding: "j", Rejected: 3, Class: "AC3", ClassRounds: 2},
@@ -578,10 +562,6 @@ func TestReplanReplacesJudgedPlan(t *testing.T) {
 	}
 }
 
-// An operator state with a hold: its exit refusal runs before any gate, so a
-// refused presentation is not a round; once the operator has recorded, the
-// rejected rounds count and the hold move (made after that record) is not
-// refused.
 func TestHoldOnOperatorState(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"ops\"\n[items]\nprefix = { thing = \"th\" }\n")
@@ -652,9 +632,6 @@ to = "@prior"
 	}
 }
 
-// A judge whose dispatch failed refuses the move as an error, recorded as
-// result error, and an error is not a rejected round: error-only attempts
-// never reach the round cap.
 func TestDispatchErrorRefusesButIsNotARound(t *testing.T) {
 	k, d := capped(t, capTwo)
 	d.mu.Lock()
@@ -694,8 +671,6 @@ func TestDispatchErrorRefusesButIsNotARound(t *testing.T) {
 	}
 }
 
-// A judge's dispatch is asked to log under the kernel's runtime logs dir,
-// the dir satelle logs reads.
 func TestJudgeDispatchLogsUnderRuntime(t *testing.T) {
 	k, d := capped(t, "")
 	if want := filepath.Join(k.Root, "runtime", "logs"); k.Logs != want {
@@ -717,11 +692,6 @@ func TestJudgeDispatchLogsUnderRuntime(t *testing.T) {
 	}
 }
 
-// Reselect moves an item onto the workflow the rules now select only when its
-// own workflow has neither moved nor judged it, writing the placement pair and
-// no gate run; every refusal leaves the chain as it was. The rules check comes
-// before the evidence check, so the evidence refusal (ErrKeepsWorkflow) always
-// means the rules do select the wanted workflow.
 func TestReselect(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"wa\"\n[[workflows.rule]]\nworkflow = \"wb\"\ntag = \"b\"\n")
@@ -803,7 +773,6 @@ groups = [{ gates = ["no"] }]
 		}
 	}
 
-	// 1. untouched, now tagged b: moved in place onto wb at b0.
 	u := story(true, "")
 	before := chain(u.ID)
 	got, err := k.Reselect(u.ID, "wb", "me")
@@ -826,9 +795,7 @@ groups = [{ gates = ["no"] }]
 		}
 	}
 
-	// 2. moved a0 -> a1, tagged b: the workflow moved it.
 	refused("moved", story(true, "a1"), "wb", true, "was moved by workflow wa (a0 -> a1)")
-	// 3. one rejected present to a2, tagged b: the workflow judged it.
 	judged := story(false, "a2")
 	if judged.Status != "a0" {
 		t.Fatalf("the gated present moved the story to %s", judged.Status)
@@ -840,15 +807,10 @@ groups = [{ gates = ["no"] }]
 		t.Fatal(err)
 	}
 	refused("judged", judged, "wb", true, "has a gate run under workflow wa")
-	// 4. untagged: the rules select wa, not wb.
 	refused("untagged", story(false, ""), "wb", false, "the repo's rules select wa")
-	// 5. untagged and moved: still the rules refusal, not the evidence one.
 	refused("untagged moved", story(false, "a1"), "wb", false, "the repo's rules select wa")
-	// 6. already there.
 	refused("already", story(false, ""), "wa", false, "is already under workflow wa")
-	// 7. no such workflow.
 	refused("unknown", story(true, ""), "wc", false, "workflow wc does not exist")
-	// 8. Update still refuses a workflow change.
 	plain := story(true, "")
 	if _, err := k.Update(plain.ID, item.Fields{Workflow: ptr("wb")}, "me"); err == nil {
 		t.Error("Update changed an item's workflow")

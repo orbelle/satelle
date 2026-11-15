@@ -13,30 +13,21 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// Request is one run of a binding.
 type Request struct {
 	Binding Binding
-	System  string   // the skill: the agent's system prompt
-	Prompt  string   // the work
-	Deny    []string // denied beyond the binding's own deny list
-	Dir     string   // working directory
-	Env     []string // extra KEY=VALUE entries
-	// Log is the path of this dispatch's log: the command line and everything
-	// exchanged with the harness. "" writes none. A log that cannot be written
-	// never fails the dispatch.
-	Log string
+	System  string
+	Prompt  string
+	Deny    []string
+	Dir     string
+	Env     []string
+	Log     string
 
-	// promptFile is where an adapter that reads its prompt from a file (grok)
-	// finds it for this run; set by that adapter's Run.
 	promptFile string
-	// log is the open dispatch log, set by Runner.Dispatch from Log; nil
-	// writes nothing.
-	log *dispatchLog
+	log        *dispatchLog
 }
 
 func (r Request) denies() []string { return append(append([]string{}, r.Binding.Deny...), r.Deny...) }
 
-// Result is what a run produced and what it cost.
 type Result struct {
 	Text      string
 	TokensIn  int
@@ -45,18 +36,13 @@ type Result struct {
 	Duration  time.Duration
 }
 
-// Adapter runs a binding through one harness.
 type Adapter interface {
 	Name() string
-	// EnforcesGrants reports whether the harness holds the agent to its grant.
 	EnforcesGrants() bool
-	// Argv returns the command line a run starts; an error when the binding's
-	// grant or denies cannot be expressed to the harness.
 	Argv(req Request) ([]string, error)
 	Run(ctx context.Context, req Request) (Result, error)
 }
 
-// Adapter presets.
 const (
 	PresetClaude  = "claude"
 	PresetPi      = "pi"
@@ -65,7 +51,6 @@ const (
 	PresetSession = "session"
 )
 
-// AdapterFor chooses the adapter from the basename of the command's first token.
 func AdapterFor(b Binding) (Adapter, error) {
 	bin, _, err := commandFields(b)
 	if err != nil {
@@ -86,31 +71,24 @@ func AdapterFor(b Binding) (Adapter, error) {
 	return nil, fmt.Errorf("command %q names no adapter (%s, %s, %s, %s or %s)", b.Command, PresetClaude, PresetPi, PresetGrok, PresetCursor, PresetSession)
 }
 
-// IsSession reports whether the binding is performed by the interactive session.
 func IsSession(b Binding) bool {
 	bin, _, err := commandFields(b)
 	return err == nil && preset(bin) == PresetSession
 }
 
-// Role is why a binding is dispatched.
 type Role string
 
 const (
-	Perform Role = "perform" // do a state's work
-	Judge   Role = "judge"   // judge a gate
+	Perform Role = "perform"
+	Judge   Role = "judge"
 )
 
-// PerformerDenies are denied to every dispatched performer: a performer never
-// moves an item itself.
 var PerformerDenies = []string{"Bash(satelle story set:*)", "Bash(satelle task set:*)", "Bash(satelle execution set:*)"}
 
-// Dispatcher runs bindings. Runner is the real one; tests inject fakes.
 type Dispatcher interface {
 	Dispatch(ctx context.Context, role Role, req Request) (Result, error)
 }
 
-// CheckJudge refuses a binding that may not judge: its grant must be
-// read-only and its adapter must enforce grants.
 func CheckJudge(b Binding) error {
 	a, err := AdapterFor(b)
 	if err != nil {
@@ -122,20 +100,14 @@ func CheckJudge(b Binding) error {
 	if !a.EnforcesGrants() {
 		return fmt.Errorf("agent %q may not judge: the %s adapter does not enforce tool grants", b.Name, a.Name())
 	}
-	// The judge's grant must be expressible to its harness, so a binding the
-	// adapter cannot hold to its grant fails at satelle validate.
 	if _, err := a.Argv(Request{Binding: b}); err != nil {
 		return fmt.Errorf("agent %q may not judge: %w", b.Name, err)
 	}
 	return nil
 }
 
-// Runner dispatches bindings through their adapters.
 type Runner struct{}
 
-// Dispatch runs one binding in role. A judge that is not read-only on a
-// grant-enforcing adapter is refused; a performer always carries
-// PerformerDenies. Only local placements are dispatched here.
 func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, error) {
 	b := req.Binding
 	a, err := AdapterFor(b)
@@ -166,8 +138,6 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	return res, err
 }
 
-// session is the interactive session: it performs in place and is never
-// dispatched.
 type session struct{}
 
 func (session) Name() string         { return PresetSession }
@@ -180,9 +150,6 @@ func (s session) Run(context.Context, Request) (Result, error) {
 	return Result{}, err
 }
 
-// runOnce starts argv, feeds stdin, and returns stdout. The child runs in its
-// own process group, killed whole when ctx ends. The dispatch log gets argv,
-// then stdout and stderr once the child exits.
 func runOnce(ctx context.Context, argv []string, stdin string, req Request) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = req.Dir

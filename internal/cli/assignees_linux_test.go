@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// seatUserAs binds session on id at this tree from a kernel stamping machine,
-// host and user: a seat another user, or this user on another machine, bound.
 func seatUserAs(t *testing.T, id, session, machine, host, user string) {
 	t.Helper()
 	k, r, err := openKernel()
@@ -29,9 +27,6 @@ func seatUserAs(t *testing.T, id, session, machine, host, user string) {
 	}
 }
 
-// Taking over, switching machines and pairing each show the right assignees
-// without editing the field, and a released or proven-orphaned seat drops its
-// user from the working set (sto_600b9a85 AC3, AC4).
 func TestAssigneesFollowTheSeats(t *testing.T) {
 	isolate(t)
 	must(t, "init")
@@ -112,7 +107,6 @@ func TestAssigneesFollowTheSeats(t *testing.T) {
 	}
 	before := updates()
 
-	// 1. Pairing: two users seated here, both live.
 	seatUserAs(t, id, "s1", machine, "this-host", ada)
 	live("s1")
 	seatUserAs(t, id, "s2", machine, "this-host", bob)
@@ -126,14 +120,11 @@ func TestAssigneesFollowTheSeats(t *testing.T) {
 		t.Errorf("get --json read as an item: assignees %q, want [%s %s]", it.Assignees, ada, bob)
 	}
 
-	// 2. Switching machines: ada also seats on another machine, listed once.
 	seatUserAs(t, id, "s3", "m-other", "h2", ada)
 	check("second machine", []string{ada, bob}, []string{ada, bob})
 	must(t, "story", "release", id, "--session", "s1")
-	// Users are listed in the bind order of their live seats: ada's is now s3.
 	check("switched machines", []string{bob, ada}, []string{bob, ada})
 
-	// 3. Taking over: carol seats, and bob's session is proven gone.
 	seatUserAs(t, id, "s4", machine, "this-host", carol)
 	live("s4")
 	if err := seatlife.Own(home, "s2", killedProc(t)); err != nil {
@@ -141,7 +132,6 @@ func TestAssigneesFollowTheSeats(t *testing.T) {
 	}
 	check("taken over", []string{ada, carol}, []string{ada, carol})
 
-	// 4. Release: no live seat holds a user.
 	must(t, "story", "release", id, "--session", "s3")
 	must(t, "story", "release", id, "--session", "s4")
 	check("released", []string{}, []string{})
@@ -149,7 +139,6 @@ func TestAssigneesFollowTheSeats(t *testing.T) {
 		t.Errorf("the seats wrote %d item.updated events; the field was edited", n-before)
 	}
 
-	// 5. Explicit: dan is assigned, then works it, then stops.
 	must(t, "story", "set", id, "--add-assignee", dan)
 	check("assigned", []string{dan}, []string{})
 	seatUserAs(t, id, "s5", machine, "this-host", dan)

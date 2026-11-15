@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// doctor.toml loads into Config.Doctor, and each malformed entry is a validate
-// problem (sto_3cf973ae).
 func TestDoctorConfig(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -56,9 +54,6 @@ fix = "satelle story get {id}"
 	}
 }
 
-// init in a repo that already has a satelle.toml writes no starter workflow,
-// but still adds the other missing template files (sto_3cf973ae, absorbing
-// sto_7e839979 AC1).
 func TestInitWritesNoStarterWorkflowIntoAConfiguredRepo(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	write(t, filepath.Join(root, SettingsFile), "[workflows]\ndefault = \"delivery\"\n")
@@ -76,8 +71,6 @@ func TestInitWritesNoStarterWorkflowIntoAConfiguredRepo(t *testing.T) {
 	}
 }
 
-// Init writes the README that tells an unwired agent what satelle is, and
-// leaves one that is already there alone (sto_f58ed5fa AC4).
 func TestInitLeavesAnExistingReadmeAlone(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -97,8 +90,6 @@ func TestInitLeavesAnExistingReadmeAlone(t *testing.T) {
 	}
 }
 
-// What Init writes is exactly InitPlan's list, in a fresh and a configured
-// repo: one rule serves init and doctor.
 func TestInitPlanIsWhatInitWrites(t *testing.T) {
 	files := func(root string) []string {
 		var out []string
@@ -139,17 +130,13 @@ func TestInitPlanIsWhatInitWrites(t *testing.T) {
 	}
 }
 
-// doctor.toml's [resolve] names the fix item --resolve opens: each key loads
-// as configured, with no default; an absent file or an empty table leaves kind
-// and tag unset and Unset names them; a status key is a load error
-// (sto_e127b2e6 AC7, sto_a5cdb024 AC2).
 func TestDoctorResolveConfig(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		name, body string // body "-" removes the file
+		name, body string
 		sel        string
 		unset      []string
 	}{
@@ -189,10 +176,6 @@ func TestDoctorResolveConfig(t *testing.T) {
 	}
 }
 
-// sto_a5cdb024 AC2: Init writes doctor.toml byte for byte the embedded
-// template; it validates, and its [resolve] sets kind and tag, so --resolve
-// on a fresh init opens the fix item. InitPlan names it for a configured repo
-// that lacks it (doctor's init issue).
 func TestInitWritesTheResolveSelection(t *testing.T) {
 	shipped, err := fs.ReadFile(template, "template/"+DoctorFile)
 	if err != nil {
@@ -225,10 +208,6 @@ func TestInitWritesTheResolveSelection(t *testing.T) {
 	}
 }
 
-// sto_a5cdb024 AC2: the fix item's kind and tag are configuration only. The
-// tag the template ships is in no non-test Go file of the module; the kind,
-// as a quoted literal, is in none of the files on the resolve path ("story"
-// is a legitimate item-kind literal elsewhere: scripts/audit-literals.sh).
 func TestNoResolveDefaultIsAGoLiteral(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {
@@ -284,9 +263,6 @@ func TestNoResolveDefaultIsAGoLiteral(t *testing.T) {
 	}
 }
 
-// sto_a92a6444 AC1, AC5: Init writes the session guidance the hooks print,
-// byte for byte the embedded template, and InitPlan names it for a
-// configured repo that lacks it (doctor's `init` issue).
 func TestInitWritesTheSessionGuidance(t *testing.T) {
 	shipped, err := fs.ReadFile(template, "template/"+SessionFile)
 	if err != nil {

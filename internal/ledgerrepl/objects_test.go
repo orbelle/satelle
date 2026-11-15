@@ -18,8 +18,6 @@ import (
 
 var ctx = context.Background()
 
-// memObjects is an in-memory store. hidden keys are held but not listed: a
-// listing taken before another writer's puts.
 type memObjects struct {
 	objs   map[string][]byte
 	hidden map[string]bool
@@ -51,7 +49,6 @@ func (m *memObjects) List(_ context.Context, prefix, after string) ([]string, er
 	return out, nil
 }
 
-// newStore is an empty runtime ledger.
 func newStore(t *testing.T) *ledger.Store {
 	t.Helper()
 	s, err := ledger.Open(t.TempDir())
@@ -61,7 +58,6 @@ func newStore(t *testing.T) *ledger.Store {
 	return s
 }
 
-// add appends n events to item's chain, each tagged.
 func add(t *testing.T, s *ledger.Store, it, tag string, n int) {
 	t.Helper()
 	for i := range n {
@@ -71,7 +67,6 @@ func add(t *testing.T, s *ledger.Store, it, tag string, n int) {
 	}
 }
 
-// attach stores body and appends an attachment.added naming it.
 func attach(t *testing.T, s *ledger.Store, it, name, body string) (ledger.Event, string) {
 	t.Helper()
 	sha, err := s.PutBlob([]byte(body))
@@ -85,7 +80,6 @@ func attach(t *testing.T, s *ledger.Store, it, name, body string) (ledger.Event,
 	return e, sha
 }
 
-// copyChain gives to the same chain of item that from holds.
 func copyChain(t *testing.T, from, to *ledger.Store, it string) {
 	t.Helper()
 	events, err := from.Read(it)
@@ -110,7 +104,6 @@ func repl(s *ledger.Store, o Objects, out *bytes.Buffer) *Replicator {
 	return &Replicator{Ledger: s, Store: &ObjectStore{Objects: o, Name: "test"}, Refs: kernel.BlobRefs, Out: out}
 }
 
-// keysOf is the store's chain keys for item, as sequences.
 func seqsOf(t *testing.T, o Objects, it string) []int {
 	t.Helper()
 	keys, err := o.List(ctx, ChainsPrefix+it+"/", "")
@@ -136,7 +129,6 @@ func upTo(n int) []int {
 	return out
 }
 
-// storeHash is the hash of the store's event at seq.
 func storeHash(t *testing.T, o Objects, it string, seq int) string {
 	t.Helper()
 	b, found, err := o.Get(ctx, ChainKey(it, seq))

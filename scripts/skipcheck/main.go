@@ -1,31 +1,3 @@
-// skipcheck runs a `go test -json` command as its own child process and fails
-// the run when the child fails or when any test or subtest skips without being
-// on the reviewed allowlist (sty_53c3f311).
-//
-// Usage: skipcheck [-allow FILE] [-stall DURATION] [-tree DIR] -- go test -json [flags] [packages]
-//
-// It is a wrapper, not a pipe: make runs recipes under /bin/sh, which has no
-// pipefail, so `go test -json | filter` would turn a failing run green.
-// Here the child's exit status is read directly and wins. The test2json stream
-// is echoed to stdout so the run's output still reads like a test run.
-//
-// With -stall, a test that has started and shown no result for that long fails
-// the run by name, and the child's whole process group is killed so no test
-// binary is left behind (sty_3f2a5c78). It is off by default: it is a hang
-// backstop beneath a package timeout, and the caller sets it per suite.
-//
-// With -tree DIR, the run must also leave that git working tree as it found it:
-// files git reports as untracked or modified, and the commit HEAD points at, are
-// recorded before the child starts and compared after it exits. A test that
-// plants a file in the source tree is racing every source-walking test in other
-// packages, which run in parallel with it (sty_6b98ba1f). Gitignored output is
-// not compared.
-//
-// The allowlist decides which skips are acceptable; this program only reads it.
-// An entry is one line, `<package> <TestName[/subtest]> <reason>`. The reason is
-// required. Blank lines and lines starting with # are ignored. Matching is exact
-// on package and test name: no globs and no skip text, because skip messages
-// share no pattern.
 package main
 
 import (
@@ -47,7 +19,6 @@ import (
 	"time"
 )
 
-// event is the subset of a test2json record the check reads.
 type event struct {
 	Action  string
 	Package string
@@ -55,19 +26,14 @@ type event struct {
 	Output  string
 }
 
-// key identifies a test within a package.
 type key struct{ pkg, test string }
 
-// Skip is an unlisted skip: the test and the output it printed.
 type Skip struct {
 	Package, Test, Output string
 }
 
-// Allowlist maps an allowed skip to its reason.
 type Allowlist map[key]string
 
-// ParseAllowlist reads the allowlist format. A malformed line is an error that
-// names its line number; an entry without a reason is malformed.
 func ParseAllowlist(r io.Reader) (Allowlist, error) {
 	allow := Allowlist{}
 	sc := bufio.NewScanner(r)
@@ -105,11 +71,6 @@ func loadAllowlist(path string) (Allowlist, error) {
 	return allow, nil
 }
 
-// Scan reads a test2json stream, echoes each output line to w, and returns the
-// skips that are not allowed. A skip repeated by -count is reported once.
-// Package-level skips (no Test, e.g. "no test files") are ignored. A line that
-// is not a test2json record, such as a build error, is passed through as-is.
-// Every record is also shown to watch (nil to not watch).
 func Scan(r io.Reader, w io.Writer, allow Allowlist, watch *Watch) ([]Skip, error) {
 	var (
 		bad  []Skip
@@ -152,18 +113,11 @@ func Scan(r io.Reader, w io.Writer, allow Allowlist, watch *Watch) ([]Skip, erro
 	}
 }
 
-// Stalled is a test still running past the stall deadline.
 type Stalled struct {
 	Package, Test string
 	Running       time.Duration
 }
 
-// Watch tracks which tests are running, and since when, from the test2json
-// stream. A test runs from its run (or cont) event until its pass, fail or skip,
-// or until it pauses to wait for its parallel siblings. A subtest's events count
-// as progress for its running parents, so a parent that runs many quick subtests
-// in turn is not mistaken for a hang. A package's own terminal event closes every
-// test it still has open: a crashed or timed-out package does not always.
 type Watch struct {
 	stall time.Duration
 
@@ -176,7 +130,6 @@ func newWatch(stall time.Duration) *Watch {
 	return &Watch{stall: stall, live: map[key]time.Time{}}
 }
 
-// observe folds one record into the running set. It is safe on a nil Watch.
 func (w *Watch) observe(ev event, now time.Time) {
 	if w == nil {
 		return
@@ -211,8 +164,6 @@ func (w *Watch) observe(ev event, now time.Time) {
 	}
 }
 
-// expired lists the tests that have been running longer than the stall deadline
-// at now, in package and test order.
 func (w *Watch) expired(now time.Time) []Stalled {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -231,8 +182,6 @@ func (w *Watch) expired(now time.Time) []Stalled {
 	return hung
 }
 
-// patrol checks the running set until stop closes. On the first stall it records
-// what hung and calls kill once.
 func (w *Watch) patrol(stop <-chan struct{}, kill func()) {
 	period := min(max(w.stall/4, 10*time.Millisecond), time.Second)
 	tick := time.NewTicker(period)
@@ -253,7 +202,6 @@ func (w *Watch) patrol(stop <-chan struct{}, kill func()) {
 	}
 }
 
-// hung returns what patrol recorded.
 func (w *Watch) hung() []Stalled {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -268,7 +216,6 @@ func reportStalled(w io.Writer, hung []Stalled, stall time.Duration) {
 	fmt.Fprintln(w, "skipcheck: killed the test process group; a hung test fails the run by name.")
 }
 
-// skipOutput keeps the lines a skip printed, dropping the === RUN chatter.
 func skipOutput(lines []string) string {
 	var out []string
 	for _, l := range strings.Split(strings.Join(lines, ""), "\n") {
@@ -294,16 +241,11 @@ func report(w io.Writer, bad []Skip) {
 	fmt.Fprintln(w, "skipcheck: fix the skip, or add `<package> <test> <reason>` to the allowlist after review.")
 }
 
-// treeState is what a run could change in a git working tree: the commit it sits
-// on, and every path git reports as differing from it with a fingerprint of the
-// content. Gitignored output is not in it: build products are not source.
 type treeState struct {
 	head  string
 	files map[string]string
 }
 
-// snapshotTree records dir's state with git. A path that is dirty before the run
-// and untouched by it appears in both snapshots unchanged, so it is not reported.
 func snapshotTree(dir string) (treeState, error) {
 	git := func(args ...string) ([]byte, error) {
 		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
@@ -329,15 +271,13 @@ func snapshotTree(dir string) (treeState, error) {
 		}
 		code, path := e[:2], e[3:]
 		if strings.ContainsAny(code, "RC") {
-			i++ // a rename or copy carries its source as the next entry
+			i++
 		}
 		st.files[path] = code + " " + fingerprint(filepath.Join(dir, path))
 	}
 	return st, nil
 }
 
-// fingerprint is a hash of the file's content, or of its target for a symlink,
-// and "deleted" when there is no such path.
 func fingerprint(path string) string {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -353,15 +293,11 @@ func fingerprint(path string) string {
 	return fmt.Sprintf("%x", sha256.Sum256(body))
 }
 
-// diffTree lists, one line per difference, what the run did to the tree.
 func diffTree(before, after treeState) []string {
 	var out []string
 	if before.head != after.head {
 		out = append(out, fmt.Sprintf("moved HEAD %s -> %s", before.head, after.head))
 	}
-	// A path git did not list is a clean tracked file. So a file that is new to
-	// the listing appeared only if it is untracked, and one that left the listing
-	// vanished only if it was; a tracked file in either case was changed.
 	untracked := func(state string) bool { return strings.HasPrefix(state, "?? ") }
 	seen := map[string]bool{}
 	for p, b := range before.files {
@@ -395,9 +331,6 @@ func reportTree(w io.Writer, changes []string) {
 	fmt.Fprintln(w, "skipcheck: a test must write only to a temp directory; a source-walking test in another package races a file planted in the tree.")
 }
 
-// run returns the process exit status: the child's non-zero status when it
-// failed, 2 for a usage or setup error, 1 for a stalled test, an unlisted skip or
-// a changed source tree, else 0.
 func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skipcheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -444,8 +377,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// The child is in its own process group, so a terminal's Ctrl-C no longer
-	// reaches it directly: pass the signal on to the group.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	finished := make(chan struct{})
@@ -508,7 +439,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if code := ee.ExitCode(); code > 0 {
 			return code
 		}
-		return 1 // killed by a signal
+		return 1
 	case waitErr != nil, scanErr != nil:
 		return 2
 	case len(bad) > 0, len(changed) > 0:

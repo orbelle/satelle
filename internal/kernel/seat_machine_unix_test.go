@@ -11,9 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// Every seat.bound records the kernel's machine, host and user, on the chain
-// and through FoldSeats, for a seat command and for a dispatched run's seat
-// (sto_e127b2e6 AC4, sto_600b9a85 AC1).
 func TestSeatRecordsTheMachine(t *testing.T) {
 	k, _ := lineKernel(t, "", "")
 	k.Machine, k.Host = "m1", "h1"
@@ -67,8 +64,6 @@ type fakeOwner struct{ calls *[]string }
 func (f fakeOwner) Own(s string) error    { *f.calls = append(*f.calls, "own "+s); return nil }
 func (f fakeOwner) Forget(s string) error { *f.calls = append(*f.calls, "forget "+s); return nil }
 
-// A dispatched run owns its session before dispatch and forgets it after its
-// seat is released (sto_e127b2e6 AC5).
 func TestPerformLocalOwnsItsSession(t *testing.T) {
 	k, _ := lineKernel(t, "", "")
 	var calls []string

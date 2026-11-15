@@ -11,20 +11,10 @@ import (
 	"strings"
 )
 
-// MachineIDFile is the file in the satelle home that holds this home's random
-// part of the machine id.
 const MachineIDFile = "machine-id"
 
-// hostMachineIDFile is the host's own machine id, folded into every id so a
-// home copied to another host gets a new one. A variable so tests can point it
-// at two different hosts.
 var hostMachineIDFile = "/etc/machine-id"
 
-// MachineID is this machine's id for seats: the first 16 hex characters of
-// sha256(<home>/machine-id, NUL, the host's /etc/machine-id when readable). It
-// differs per home (the home file is random) and per host (the host file
-// differs). It creates the home file when absent; a concurrent creator's file
-// wins, so every caller derives the same id.
 func MachineID(home string) (string, error) {
 	if id, ok := ReadMachineID(home); ok {
 		return id, nil
@@ -49,8 +39,6 @@ func MachineID(home string) (string, error) {
 		werr = cerr
 	}
 	if werr == nil {
-		// Link never replaces: when another process created the file first,
-		// its content stands.
 		if err := os.Link(tmp.Name(), filepath.Join(home, MachineIDFile)); err != nil && !errors.Is(err, os.ErrExist) {
 			werr = err
 		}
@@ -65,8 +53,6 @@ func MachineID(home string) (string, error) {
 	return "", fmt.Errorf("cannot read %s", filepath.Join(home, MachineIDFile))
 }
 
-// ReadMachineID derives the machine id as MachineID does without creating
-// anything: false when the home file is absent or empty.
 func ReadMachineID(home string) (string, bool) {
 	if strings.TrimSpace(home) == "" {
 		return "", false

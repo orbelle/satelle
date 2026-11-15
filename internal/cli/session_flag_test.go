@@ -13,7 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// lastActor is who the newest event on id's chain was recorded as.
 func lastActor(t *testing.T, id string) string {
 	t.Helper()
 	evs := chainKinds(t, id)
@@ -23,8 +22,6 @@ func lastActor(t *testing.T, id string) string {
 	return evs[len(evs)-1].Actor
 }
 
-// sto_2a41b9e4 AC1: --session names the acting session as SATELLE_SESSION
-// does, before or after the command; with neither, the OS user, as before.
 func TestSetRecordsTheSessionFlagAsActor(t *testing.T) {
 	isolate(t)
 	t.Setenv("USER", "os-user")
@@ -82,8 +79,6 @@ func TestSetRecordsTheSessionFlagAsActor(t *testing.T) {
 	}
 }
 
-// sessionCommands are the commands that act as a session; each takes
-// --session (sto_2a41b9e4 AC2).
 var sessionCommands = func() [][]string {
 	var out [][]string
 	for _, kind := range []string{"story", "task", "execution", "queue"} {
@@ -101,8 +96,6 @@ var sessionCommands = func() [][]string {
 	)
 }()
 
-// sto_2a41b9e4 AC2: every command takes --session and -C as root flags; none
-// shadows them or skips the root's pre-run.
 func TestEverySessionCommandTakesSession(t *testing.T) {
 	root := NewRootCmd()
 	for _, path := range sessionCommands {
@@ -162,8 +155,6 @@ func TestEverySessionCommandTakesSession(t *testing.T) {
 	must(t, "story", "get", id, "--session", "s")
 }
 
-// sto_2a41b9e4 AC2: building trees inside a running call (as doctor and
-// validate do) never resets the call's session.
 func TestBuildingATreeKeepsTheCallSession(t *testing.T) {
 	isolate(t)
 	must(t, "init")
@@ -176,7 +167,6 @@ func TestBuildingATreeKeepsTheCallSession(t *testing.T) {
 	if got := lastActor(t, id); got != "s-keep" {
 		t.Errorf("actor %q after tree builds, want s-keep", got)
 	}
-	// Inside one call: the pre-run sets the session, then trees are built.
 	root := NewRootCmd()
 	root.SetArgs([]string{"version", "--session", "s-in"})
 	root.SetOut(&strings.Builder{})
@@ -192,8 +182,6 @@ func TestBuildingATreeKeepsTheCallSession(t *testing.T) {
 	}
 }
 
-// sto_2a41b9e4 AC3: the context names only --session: Go's session line and
-// the repo's session guidance (sto_a92a6444), and neither names the variable.
 func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -214,11 +202,6 @@ func TestHookContextNamesOnlyTheSessionFlag(t *testing.T) {
 	}
 }
 
-// sto_2ac90ab6 AC1: the drive rule, as the repo's session guidance states it
-// (sto_a92a6444), is on every channel each harness gives satelle: claude and pi at session start and on each prompt; cursor at
-// session start and in the stop's followup_message (its prompt event has no
-// context channel); grok in the SessionStart systemMessage and the stop's
-// reason (it discards a prompt hook's output).
 func TestHookContextStatesTheDriveRule(t *testing.T) {
 	grokStart, grokStop := grokFixture(t, "grok_session_start.json"), grokFixture(t, "grok_stop.json")
 	dir := stopFixture(t)
@@ -275,8 +258,6 @@ func TestHookContextStatesTheDriveRule(t *testing.T) {
 	hasAll(t, "grok stop reason", blockReason(t, stopWith(t, string(payload), "grok")), rule...)
 }
 
-// hookText is the text a hook printed: every string in its JSON output
-// joined by newlines, or the output itself when it is not JSON.
 func hookText(out string) string {
 	var v any
 	if json.Unmarshal([]byte(out), &v) != nil {
@@ -303,7 +284,6 @@ func hookText(out string) string {
 	return b.String()
 }
 
-// sto_2a41b9e4 AC5: -C runs the command in another directory.
 func TestDashCRunsInTheDirectory(t *testing.T) {
 	a := isolate(t)
 	must(t, "init")

@@ -14,8 +14,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
-// TestApplySnapshotSameNameDifferentPaths (sty_e4e1a008 AC1): two docs that
-// share a name but differ by path apply cleanly and both rows remain.
 func TestApplySnapshotSameNameDifferentPaths(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -65,8 +63,6 @@ func TestApplySnapshotSameNameDifferentPaths(t *testing.T) {
 	}
 }
 
-// TestApplySnapshotDuplicateIdentityCollision (sty_e4e1a008 AC1): a genuine
-// duplicate identity fails with CollisionError naming kind and id.
 func TestApplySnapshotDuplicateIdentityCollision(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -102,8 +98,6 @@ func TestApplySnapshotDuplicateIdentityCollision(t *testing.T) {
 	}
 }
 
-// TestSnapshotDocKeylessFallsBackToKindName (sty_e4e1a008 AC1): no path and a
-// name yields id "<kind>/<name>" (kind defaults to documents).
 func TestSnapshotDocKeylessFallsBackToKindName(t *testing.T) {
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {

@@ -4,7 +4,6 @@ package cli
 
 import "io"
 
-// applyUnits prints the units: there is no systemd here.
 func applyUnits(w io.Writer, u serviceUnits, _ bool) error {
 	printUnits(w, u)
 	return errNoSystemd

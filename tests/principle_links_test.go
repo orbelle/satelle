@@ -12,17 +12,10 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// principleLink matches a [[name]] link in substrate markdown.
 var principleLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
-// codeSpan is a backtick code span; a [[link]] inside one is text, not a link,
-// as the substrate check reads it.
 var codeSpan = regexp.MustCompile("`[^`]*`")
 
-// TestPrincipleLinksResolve proves every [[link]] in the constitution and the
-// principles names an existing principle: a file whose frontmatter carries that
-// name, type principle and a description. Each dead link is reported with its
-// file and line, so one run lists them all.
 func TestPrincipleLinksResolve(t *testing.T) {
 	root := ".."
 	dir := filepath.Join(root, ".satelle", "principles")

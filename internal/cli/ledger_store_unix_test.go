@@ -12,7 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-// adapterAbs is resolved at init, while the working directory is the package.
 var adapterAbs, adapterErr = filepath.Abs(filepath.Join("..", "..", "adapters", "satelle-store-fs"))
 
 func storeAdapter(t *testing.T) string {
@@ -24,7 +23,6 @@ func storeAdapter(t *testing.T) string {
 	return p
 }
 
-// configureLedger appends a [ledger] section to the repo's satelle.toml.
 func configureLedger(t *testing.T, dir, body string) {
 	t.Helper()
 	p := filepath.Join(dir, ".satelle", "satelle.toml")
@@ -152,7 +150,6 @@ func TestLedgerStoreTestRefusesWithoutAnExternalCommand(t *testing.T) {
 			if body != "" {
 				configureLedger(t, dir, body)
 			}
-			// Any sh the command started would log here first.
 			shim := t.TempDir()
 			log := filepath.Join(shim, "log")
 			if err := os.WriteFile(filepath.Join(shim, "sh"), []byte("#!/bin/sh\necho \"$@\" >> '"+log+"'\nexec /bin/sh \"$@\"\n"), 0o755); err != nil {
@@ -176,8 +173,6 @@ func TestLedgerStoreTestRefusesWithoutAnExternalCommand(t *testing.T) {
 	}
 }
 
-// store-test never resolves the default store: unset while signed in and
-// bound, it is refused as unconfigured and the server is never called.
 func TestLedgerStoreTestRefusesTheDefaultWhileSignedIn(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)

@@ -14,11 +14,6 @@ import (
 //go:embed all:template
 var template embed.FS
 
-// InitPlan is the template files Init would write under root (the .satelle
-// directory), slash-relative and sorted: every template file that is absent,
-// except the starter workflows when root already has a satelle.toml, since a
-// configured repo keeps its own routes (sto_3cf973ae, absorbing sto_7e839979).
-// satelle doctor reports the same list; it is the one rule for what init adds.
 func InitPlan(root string) ([]string, error) {
 	configured := exists(filepath.Join(root, SettingsFile))
 	var out []string
@@ -40,9 +35,6 @@ func InitPlan(root string) ([]string, error) {
 	return out, err
 }
 
-// Init writes the starter configuration into root (the .satelle directory):
-// exactly the files InitPlan names, leaving every file that already exists
-// alone, then validates it.
 func Init(root string) error {
 	plan, err := InitPlan(root)
 	if err != nil {

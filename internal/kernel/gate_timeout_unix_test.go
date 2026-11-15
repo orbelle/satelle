@@ -13,8 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// A check gate cut at its own timeout rejects the move, and the gate.run on
-// the ledger names the bound and where it came from.
 func TestGateTimeoutRecordedOnLedger(t *testing.T) {
 	repo := t.TempDir()
 	root := filepath.Join(repo, ".satelle")

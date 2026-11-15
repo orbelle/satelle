@@ -160,7 +160,6 @@ func TestOnWriteSeesAppendsAndImports(t *testing.T) {
 	}
 }
 
-// NewEvent builds a verifiable event linked to prev and writes nothing.
 func TestNewEventBuildsWithoutWriting(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {

@@ -1,37 +1,4 @@
 #!/bin/sh
-# satelle bootstrap installer — the `curl | sh` first-touch:
-#
-#   curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/install.sh | sh
-#
-# (Published as a release asset on the CLI release, which remains GitHub "latest".)
-#
-# CLI and daemon carry independent versions (sty_19ff03f4 / sty_bd9de06d):
-#   - CLI: tag v<X>, asset satelle-v<X>-<os>-<arch>, always latest
-#   - daemon: tag serve-v<Y> (prefix kept so older CLIs still discover the
-#     channel), asset satelled-v<Y>-…, not latest. Older tags publish
-#     satelle-serve-v<Y>-… — compatibility fallback, not a current name.
-#
-# Pin a version (installs the CLI only; no GitHub API call is made):
-#
-#   curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/install.sh | sh -s -- 0.0.643
-#
-# SATELLE_RELEASE_BASE overrides the download base exactly as `satelle update`
-# reads it: the directory release assets are downloaded from, one subdirectory
-# per tag (<base>/v<version>/<asset>).
-#
-# Installing is the service's upgrade path (operator's ruling, 2026-11-09,
-# sto_1b6a7ed3): when satelle is installed the service is installed, and the
-# default is to sync. After the binaries, this script runs
-# `satelle service refresh`: it installs satelled's unit and satelle-sync.timer
-# when missing, repoints a unit naming another binary, restarts satelled onto
-# the new build, starts the sync timer and prints `satelle service status`;
-# with no systemd user manager it prints the units and the autosync command.
-# Provisioning, CI or a curl-to-shell run that must not touch the service opts
-# out, the same way `satelle update` does:
-#
-#   ... | sh -s -- --no-service           # or SATELLE_NO_SERVICE=1 (any value but 0)
-#
-# Next: `satelle init` in a repo, then `satelle agents install <harness>`.
 set -eu
 
 REPO="bobmcallan/satelle"
@@ -67,7 +34,6 @@ if [ -z "$no_service" ] && [ -n "${SATELLE_NO_SERVICE:-}" ] && [ "${SATELLE_NO_S
 fi
 
 if [ -n "$version" ]; then
-	# --- CLI (pinned: the tag is named, so nothing is looked up) ---
 	given=$version
 	version="${version#v}"
 	case "$version" in
@@ -75,13 +41,6 @@ if [ -n "$version" ]; then
 	esac
 	tag="v$version"
 else
-	# --- CLI (always releases/latest) ---
-	# Fetch the API body to a FILE, then grep the file. Never `curl | grep -m1`:
-	# grep exits on its first match, curl takes EPIPE mid-body and prints
-	# `curl: (23) Failure writing output to destination` — a cosmetic error that
-	# reads as a failed install (sty_87b5d4bc). No `2>/dev/null` and no `|| true`
-	# here: this lookup is HARD-fail, so `set -e` aborts and curl's own diagnostic
-	# (`curl: (6) Could not resolve host`, a 404, …) still reaches the operator.
 	curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" -o "$tmp/latest.json"
 	tag=$(grep -m1 '"tag_name"' "$tmp/latest.json" | cut -d'"' -f4)
 	[ -n "$tag" ] || { echo "satelle install: could not resolve latest release" >&2; exit 1; }
@@ -107,21 +66,9 @@ mkdir -p "$INSTALL_DIR"
 mv "$tmp/satelle" "$INSTALL_DIR/satelle"
 echo "satelle install: installed $INSTALL_DIR/satelle ($tag)"
 
-# --- daemon (independent serve-v* tags; soft-fail if none) ---
-# Newest-first releases list; first serve-v* tag wins. Asset name uses v<Y>
-# (strip serve- prefix), never the full tag. Tag prefix serve-v* is kept so
-# older installed CLIs still discover the channel (sty_bd9de06d).
-# De-piped for the same reason as the CLI lookup above, so `head -1` truncates a
-# grep reading a local file rather than a live curl. Unlike that one this branch
-# is deliberately SOFT-fail: `|| true` on both statements (and `2>/dev/null` on
-# the grep, for the case where the fetch left no file) so a missing serve release
-# falls through to the fallback branch below and still exits 0.
 install_daemon_asset() {
-	# $1 = tag, $2 = asset base name (satelled | satelle-serve). Always installs
-	# as satelled. satelle-serve is a compatibility fallback for older tags.
 	_tag=$1
 	_base=$2
-	# serve-vY → vY in the asset name; a combined-release CLI tag (vX) is used as-is.
 	if [ "$_tag" = "${_tag#serve-}" ]; then
 		_name="${_base}-$_tag-$os-$arch"
 	else
@@ -149,7 +96,6 @@ install_daemon_asset() {
 }
 
 if [ -n "$version" ]; then
-	# A pinned install is the CLI alone: finding the daemon release is an API call.
 	echo "satelle install: pinned $tag — satelled not installed (run without a version for the daemon)"
 else
 	curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" -o "$tmp/releases.json" || true
@@ -157,13 +103,11 @@ else
 		| head -1 | cut -d'"' -f4 || true)
 	if [ -n "$serve_tag" ]; then
 		if ! install_daemon_asset "$serve_tag" "satelled"; then
-			# Compatibility fallback — older serve-v* tags publish satelle-serve-… assets.
 			if ! install_daemon_asset "$serve_tag" "satelle-serve"; then
 				echo "satelle install: could not fetch satelled (or legacy satelle-serve) for $serve_tag — service install will fall back to satelle serve"
 			fi
 		fi
 	else
-		# Pre-split releases may still carry both under v*; try same tag once.
 		if ! install_daemon_asset "$tag" "satelled"; then
 			if ! install_daemon_asset "$tag" "satelle-serve"; then
 				echo "satelle install: no satelled release yet — service install will fall back to satelle serve"
@@ -177,23 +121,16 @@ case ":$PATH:" in
 	*) echo "satelle install: add $INSTALL_DIR to your PATH (e.g. export PATH=\"$INSTALL_DIR:\$PATH\")" ;;
 esac
 
-# --- service (installing is its upgrade path; sto_1b6a7ed3) ---
 echo
 if [ -n "$no_service" ]; then
 	echo "satelle install: service: not installed or changed ($no_service); 'satelle service install' installs it later"
 elif ! "$INSTALL_DIR/satelle" help service 2>/dev/null | grep -q '^  refresh '; then
-	# A pinned older CLI has no refresh; it installs nothing here.
 	echo "satelle install: this satelle has no 'service refresh'; run 'satelle service install' to install the service and sync timer"
 elif ! "$INSTALL_DIR/satelle" service refresh; then
 	echo "satelle install: the binaries are installed, but the service is not (above); fix it and run 'satelle service refresh', or rerun with --no-service" >&2
 	exit 1
 fi
 
-# Installing and upgrading are the same command, and this script cannot reliably
-# tell which one it just did. So it names BOTH cases rather than guessing
-# (sty_0f471251): a fresh install ignores the second block, and an upgrade — which
-# has just invalidated the scaffolding of every repo already on this machine —
-# finally gets told.
 echo
 echo "The service and sync timer were installed and refreshed by this script, unless"
 echo "skipped (--no-service / SATELLE_NO_SERVICE=1): every machine syncs by default."

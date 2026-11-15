@@ -5,11 +5,6 @@ import (
 	"time"
 )
 
-// doctorNotice is the user's short view: the issue count, then each check in
-// first-seen order with its count and a fix, and no problem text. Every line
-// names a fix: the first non-empty one among the check's issues (c's first
-// issue has none), else the fallback (b's only issue, as an invalid
-// configuration's issue can be).
 func TestDoctorNotice(t *testing.T) {
 	rep := doctorReport{Issues: []doctorIssue{
 		{Check: "a", Problem: "p1", Fix: "f1"},
@@ -33,8 +28,6 @@ func TestDoctorNotice(t *testing.T) {
 	}
 }
 
-// doctorBlock, the model's session-start text, is pinned byte for byte: per
-// check its count, first problem and first fix, then the checks the budget cut.
 func TestDoctorBlockGolden(t *testing.T) {
 	rep := doctorReport{
 		Issues: []doctorIssue{

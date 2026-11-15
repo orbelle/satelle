@@ -11,19 +11,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// unclassified is a dissent's class when its judge gave none.
 const unclassified = "unclassified"
 
-// attempt is one presentation of a transition: every gate result it recorded,
-// in run order.
 type attempt struct {
 	ID      string
 	Results []gate.Result
 }
 
-// attemptsLeaving returns the presentations of transitions leaving status since
-// the item last moved (its last item.transitioned), oldest first. It is the
-// window both the rejection findings and the round cap read.
 func attemptsLeaving(status string, events []ledger.Event) []attempt {
 	var out []attempt
 	for _, e := range item.SinceEntered(events) {
@@ -39,8 +33,6 @@ func attemptsLeaving(status string, events []ledger.Event) []attempt {
 	return out
 }
 
-// rounds keeps the attempts that count toward a round cap: a presentation whose
-// target is not a park state and that at least one gate rejected.
 func rounds(w *workflow.Workflow, attempts []attempt) []attempt {
 	var out []attempt
 	for _, a := range attempts {
@@ -57,13 +49,10 @@ func rounds(w *workflow.Workflow, attempts []attempt) []attempt {
 	return out
 }
 
-// verdict is one judge's (or one check's) answer within a round.
 type verdict struct {
 	gate, binding, result, class string
 }
 
-// verdictsOf splits a round into verdicts: a panel into its members, any other
-// gate into itself.
 func verdictsOf(a attempt) []verdict {
 	var out []verdict
 	for _, r := range a.Results {
@@ -78,14 +67,12 @@ func verdictsOf(a attempt) []verdict {
 	return out
 }
 
-// holdOf summarises the counted rounds of leaving state: who rejected, how
-// often, with which class, and who accepted in the last round.
 func holdOf(state string, counted []attempt) item.Hold {
 	h := item.Hold{State: state, Rounds: len(counted), Dissent: []item.Dissent{}, Accepted: []string{}}
 	type tally struct {
 		d       item.Dissent
 		classes map[string]int
-		last    map[string]int // round index of each class's latest use
+		last    map[string]int
 	}
 	byKey := map[string]*tally{}
 	var order []string
@@ -136,10 +123,6 @@ func holdOf(state string, counted []attempt) item.Hold {
 	return h
 }
 
-// holdIfCapped follows a rejected presentation: when the from-state has a hold
-// whose round cap the rejections in a row have now reached (and the rejected
-// move was not into a park state), the item is moved to the hold's park state
-// with the summary recorded on the move. Otherwise res is returned unchanged.
 func (k *Kernel) holdIfCapped(ctx context.Context, res TransitionResult, w *workflow.Workflow, actor string) (TransitionResult, error) {
 	hc := w.States[res.From].Hold
 	if hc == nil || w.States[res.To].Park {
@@ -166,8 +149,6 @@ func (k *Kernel) holdIfCapped(ctx context.Context, res TransitionResult, w *work
 	return res, nil
 }
 
-// HoldOf returns the hold that put the item in its current state, nil when
-// its last move was not a hold.
 func (k *Kernel) HoldOf(id string) (*item.Hold, error) {
 	it, events, err := k.load(id)
 	if err != nil {

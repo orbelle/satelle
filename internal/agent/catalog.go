@@ -1,6 +1,3 @@
-// Package agent is the agents catalog (agents.toml), satelle's tool-grant
-// vocabulary, and the thin adapters that run a binding: claude, pi, grok and
-// cursor-agent, plus session (the interactive session performs; nothing is dispatched).
 package agent
 
 import (
@@ -14,7 +11,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Binding is one [agents.<name>] entry.
 type Binding struct {
 	Name      string   `toml:"-"`
 	Command   string   `toml:"command"`
@@ -25,13 +21,10 @@ type Binding struct {
 	Placement string   `toml:"placement"`
 }
 
-// Catalog maps binding names to bindings.
 type Catalog map[string]Binding
 
-// Has reports whether name is in the catalog.
 func (c Catalog) Has(name string) bool { _, ok := c[name]; return ok }
 
-// Names returns the binding names, sorted.
 func (c Catalog) Names() []string {
 	out := make([]string, 0, len(c))
 	for n := range c {
@@ -41,7 +34,6 @@ func (c Catalog) Names() []string {
 	return out
 }
 
-// LoadCatalog reads agents.toml strictly.
 func LoadCatalog(path string) (Catalog, error) {
 	var file struct {
 		Agents map[string]Binding `toml:"agents"`
@@ -65,7 +57,6 @@ func LoadCatalog(path string) (Catalog, error) {
 	return c, nil
 }
 
-// Validate returns every problem with the catalog's bindings.
 func (c Catalog) Validate() []error {
 	var errs []error
 	for _, name := range c.Names() {
@@ -73,8 +64,6 @@ func (c Catalog) Validate() []error {
 		if a, err := AdapterFor(b); err != nil {
 			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
 		} else if !IsSession(b) {
-			// The binding as declared (its own denies, no role) must be one
-			// its adapter can express, wired to a state or not.
 			if _, err := a.Argv(Request{Binding: b}); err != nil {
 				errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
 			}
@@ -91,7 +80,6 @@ func (c Catalog) Validate() []error {
 	return errs
 }
 
-// Placement values.
 const (
 	PlaceLocal  = "local"
 	PlaceCloud  = "cloud"
@@ -108,7 +96,6 @@ func validPlacement(p string) error {
 	return fmt.Errorf("placement %q is not %s, %s or %s<id>", p, PlaceLocal, PlaceCloud, PlaceRemote)
 }
 
-// The grant vocabulary: satelle's names for tools, translated by each adapter.
 const (
 	ToolRead         = "Read"
 	ToolGrep         = "Grep"
@@ -125,7 +112,6 @@ var (
 	scopedBash = regexp.MustCompile(`^Bash\(([^()]+):\*\)$`)
 )
 
-// ValidTool checks one grant or deny entry against the vocabulary.
 func ValidTool(t string) error {
 	if slices.Contains(plainTools, t) || scopedBash.MatchString(t) {
 		return nil
@@ -133,11 +119,8 @@ func ValidTool(t string) error {
 	return fmt.Errorf("tool %q is not one of %s or Bash(<prefix>:*)", t, strings.Join(plainTools, " "))
 }
 
-// IsScoped reports whether t is a Bash(<prefix>:*) entry.
 func IsScoped(t string) bool { return scopedBash.MatchString(t) }
 
-// IsReadOnly reports whether a grant names only read tools. An empty grant is
-// read-only.
 func IsReadOnly(grant []string) bool {
 	for _, t := range grant {
 		if !slices.Contains(readTools, t) {
@@ -147,13 +130,10 @@ func IsReadOnly(grant []string) bool {
 	return true
 }
 
-// grantsBash reports whether the grant can run any shell command.
 func grantsBash(grant []string) bool {
 	return slices.ContainsFunc(grant, func(t string) bool { return t == ToolBash || IsScoped(t) })
 }
 
-// splitDenies drops scoped denies that cannot apply (the grant runs no shell)
-// and splits the rest into plain tool names and scoped Bash patterns.
 func splitDenies(grant, denies []string) (plain, scoped []string) {
 	for _, d := range denies {
 		switch {
@@ -168,7 +148,6 @@ func splitDenies(grant, denies []string) (plain, scoped []string) {
 	return plain, scoped
 }
 
-// commandFields splits a binding's command into its binary and extra args.
 func commandFields(b Binding) (bin string, args []string, err error) {
 	f := strings.Fields(b.Command)
 	if len(f) == 0 {
@@ -177,9 +156,6 @@ func commandFields(b Binding) (bin string, args []string, err error) {
 	return f[0], f[1:], nil
 }
 
-// Preset is the adapter preset of b's command (claude, pi, grok,
-// cursor-agent, session): the basename of its first token. "" when b has no
-// command.
 func Preset(b Binding) string {
 	bin, _, err := commandFields(b)
 	if err != nil {
@@ -188,7 +164,6 @@ func Preset(b Binding) string {
 	return preset(bin)
 }
 
-// preset returns the adapter preset a command's first token names.
 func preset(bin string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(bin)), ".exe")
 }

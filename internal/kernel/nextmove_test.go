@@ -7,12 +7,6 @@ import (
 	"testing"
 )
 
-// moveKernel is a repo whose delivery workflow holds every class of state a
-// seated item can be at: a waits state, an operator state, a state with no
-// exit, a park state, and states that enqueue into queues with no filter
-// (release; first then second; shut, moved terminal by a case; badref,
-// whose trigger base names no commit). Executions run the runbook workflow,
-// which has a park state.
 func moveKernel(t *testing.T) *Kernel {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
@@ -105,7 +99,6 @@ func fire(t *testing.T, k *Kernel, queue string) string {
 	return f.Run
 }
 
-// terminalQueue moves a queue to its workflow's terminal state.
 func terminalQueue(t *testing.T, k *Kernel, name string) {
 	t.Helper()
 	id, _ := k.ResolveQueue(name)
@@ -272,8 +265,6 @@ func TestNextMove(t *testing.T) {
 	}
 }
 
-// Fire refuses with exactly what fireReady refuses, and QueueMembers reads a
-// terminal queue; runInputs is what the fire took.
 func TestFireReadyIsFiresRefusal(t *testing.T) {
 	k := moveKernel(t)
 	s := story(t, k, "s")

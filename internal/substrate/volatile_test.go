@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// testRules are rules with test-only patterns: the defaults are the init
-// template's, proved in package kernel.
 func testRules() VolatileRules {
 	return VolatileRules{
 		Exempt: "volatile-ok",
@@ -32,12 +30,6 @@ func compile(t *testing.T, r VolatileRules) *VolatileSet {
 	return s
 }
 
-// A line the configured dated expression matches, or holding the configured
-// marker, is not reported; with no marker configured, or another marker on
-// the line, or a date the expression does not match, it is (sto_3de33a72
-// AC1). With dated unset no line is exempt for a date, and another dated
-// expression exempts what it matches and nothing else: satelle holds no date
-// rule of its own (sto_a5cdb024 AC1).
 func TestVolatileTextExemptsDatedAndMarkedLines(t *testing.T) {
 	marked := "uses v1.0.57 <!-- volatile-ok -->"
 	noMarker := testRules()
@@ -75,8 +67,6 @@ func TestVolatileTextExemptsDatedAndMarkedLines(t *testing.T) {
 	}
 }
 
-// A line matching two patterns gives one finding for each, naming it; a
-// pattern matching twice on a line gives one.
 func TestVolatileTextOneFindingPerPattern(t *testing.T) {
 	got := VolatileText("f.md", "x\ncurrently v1.0.57 and v1.0.58\n", compile(t, testRules()))
 	if len(got) != 2 || got[0].Subject != "version" || got[1].Subject != "present-tense" || got[0].Line != 2 || got[1].Line != 2 {
@@ -87,8 +77,6 @@ func TestVolatileTextOneFindingPerPattern(t *testing.T) {
 	}
 }
 
-// Every rule problem is named: a pattern with no name, a duplicate, an empty
-// or uncompilable match, and each glob that is malformed or can leave the base.
 func TestVolatileRulesProblems(t *testing.T) {
 	ok := []VolatilePattern{{Name: "a", Match: "x"}}
 	cases := []struct {
@@ -128,9 +116,6 @@ func TestVolatileRulesProblems(t *testing.T) {
 	}
 }
 
-// VolatileSet holds its rules once: the rules themselves and their compiled
-// expressions, with no field copying a string or list out of the rules
-// (sto_a5cdb024 AC3).
 func TestVolatileSetHoldsOneRepresentation(t *testing.T) {
 	want := map[string]reflect.Type{
 		"rules":    reflect.TypeOf(VolatileRules{}),
@@ -167,7 +152,6 @@ func TestVolatileSetHoldsOneRepresentation(t *testing.T) {
 	}
 }
 
-// volatileRepo is <tmp>/repo with a .satelle data dir; it returns the data dir.
 func volatileRepo(t *testing.T) (string, string) {
 	t.Helper()
 	tmp := t.TempDir()
@@ -186,7 +170,6 @@ func put(t *testing.T, p, body string) {
 
 const staleLine = "uses v1.0.57 of the binary\n"
 
-// filesOf maps each finding's file to its count.
 func filesOf(fs []Finding) map[string]int {
 	m := map[string]int{}
 	for _, f := range fs {
@@ -204,9 +187,6 @@ func volatile(t *testing.T, dataDir string, r VolatileRules) []Finding {
 	return got
 }
 
-// Volatile reports each matching line of the substrate Markdown and of the
-// configured paths, naming file, line and pattern; what exclude names is not
-// read, and the exclusions are configuration only (sto_3de33a72 AC4).
 func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 	tmp, data := volatileRepo(t)
 	repo := filepath.Dir(data)
@@ -255,7 +235,6 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 		}
 	}
 
-	// Run records and testdata fixtures: excluded only by configuration.
 	excludedFiles := []string{".satelle/runs/r1/children.md", ".satelle/skills/testdata/f.md", "docs/testdata/f.md"}
 	for _, f := range excludedFiles {
 		put(t, filepath.Join(repo, filepath.FromSlash(f)), staleLine)
@@ -278,8 +257,6 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 		}
 	}
 
-	// Nothing outside the base is read: an escaping glob is refused, and a
-	// symlink is not followed.
 	outside := filepath.Join(tmp, "outside")
 	put(t, filepath.Join(outside, "x.md"), staleLine)
 	for _, g := range []string{"../outside/*.md", filepath.ToSlash(outside) + "/*.md"} {
@@ -306,7 +283,6 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 	}
 }
 
-// With no pattern, Volatile reports nothing, even over matching text.
 func TestVolatileWithNoPatternReportsNothing(t *testing.T) {
 	_, data := volatileRepo(t)
 	put(t, filepath.Join(data, "skills", "x.md"), staleLine)
@@ -315,9 +291,6 @@ func TestVolatileWithNoPatternReportsNothing(t *testing.T) {
 	}
 }
 
-// sto_1ee018c8 AC2: in a Markdown file no line of a fenced block (``` or ~~~,
-// any info string, the fences too) is read; outside a fence, or in another
-// file type, the same lines are.
 func TestVolatileTextSkipsFencedBlocks(t *testing.T) {
 	s, err := CompileVolatile(VolatileRules{Patterns: []VolatilePattern{{Name: "latest", Match: `latest`}}})
 	if err != nil {
@@ -336,8 +309,6 @@ func TestVolatileTextSkipsFencedBlocks(t *testing.T) {
 	}
 }
 
-// sto_1ee018c8 AC3: a file an [[upstream]] entry matches is still read, and
-// each finding names its owner; the first matching entry wins.
 func TestVolatileUpstreamNamesTheOwner(t *testing.T) {
 	r := VolatileRules{
 		Patterns: []VolatilePattern{{Name: "v", Match: `v[0-9]+`}},
@@ -359,9 +330,6 @@ func TestVolatileUpstreamNamesTheOwner(t *testing.T) {
 	}
 }
 
-// A fence closes only on the same character, at least as long, with nothing
-// after it: a ~~~ inside a ``` block, or a longer fence's shorter run, is the
-// block's text (code-ac round 1 of sto_1ee018c8).
 func TestVolatileTextFencesCloseOnTheirOwnMarker(t *testing.T) {
 	s, err := CompileVolatile(VolatileRules{Patterns: []VolatilePattern{{Name: "latest", Match: `latest`}}})
 	if err != nil {

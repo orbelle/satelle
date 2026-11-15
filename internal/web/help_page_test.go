@@ -39,7 +39,6 @@ func TestHelpPageRendersFormattedTopics(t *testing.T) {
 	if !strings.Contains(body, `class="doc-article help-doc"`) || !strings.Contains(body, "<p>") {
 		t.Fatalf("expected formatted HTML:\n%s", body[:min(800, len(body))])
 	}
-	// <code> must come from a topic body, not the page header's `satelle help`.
 	if !strings.Contains(body, `<article class="doc-article help-doc">`) ||
 		!regexp.MustCompile(`(?s)<article class="doc-article help-doc">.*<code>`).MatchString(body) {
 		t.Fatal("topic bodies must contain formatted <code>")
@@ -53,8 +52,6 @@ func TestHelpPageRendersFormattedTopics(t *testing.T) {
 			t.Errorf("missing topic anchor id=%q", tp.Name)
 		}
 	}
-	// AC4: stripLeadingHeading is wired — help-doc articles must not start with <h1>
-	// of the same title already shown in the section <h2>.
 	arts := regexp.MustCompile(`(?s)<article class="doc-article help-doc">(.*?)</article>`).FindAllStringSubmatch(body, -1)
 	if len(arts) != len(topics) {
 		t.Fatalf("help-doc articles %d, want %d", len(arts), len(topics))

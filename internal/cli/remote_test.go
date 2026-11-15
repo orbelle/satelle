@@ -11,8 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// remote fire pushes the item's chain and fires the run over RemoteService;
-// remote status reports the run and pulls the chain once it concluded.
 func TestRemoteFireAndStatus(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
@@ -54,8 +52,6 @@ func TestRemoteNeedsABinding(t *testing.T) {
 	}
 }
 
-// story collect records a branch read-only: its commit and merge base land on
-// the ledger and the repository is unchanged.
 func TestStoryCollectRecordsTheBranch(t *testing.T) {
 	newMachine(t)
 	id := createID(t, "story", "create", "--title", "cloud work")

@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// [hook] refresh: unset and true refresh, false opts the repo out; an
-// unknown [hook] key is still an error.
 func TestLoadSettingsReadsHookRefresh(t *testing.T) {
 	for body, want := range map[string]bool{
 		"":                          true,

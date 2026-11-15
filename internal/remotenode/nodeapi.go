@@ -1,12 +1,5 @@
 package remotenode
 
-// A node talks to satelle.dev with one credential, the node token the launcher
-// gave it. About the node it is (the definition it runs from, each secret it is
-// granted, its run and the end of its run) it calls satelle.v1.NodeService
-// with the node id it was started with (the --session value). A value a secret
-// read returns is handed to the caller in memory and goes nowhere else: not to
-// disk, the ledger, a log or an error.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -20,22 +13,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// ErrDefinitionDigest: the definition's bytes do not hash to the digest the
-// server sent with them, so they are not the stored bundle.
 var ErrDefinitionDigest = errors.New("the definition does not match its digest")
 
-// TokenRefusedError: satelle.dev answered a node call with UNAUTHENTICATED, so
-// the node token is bad or revoked. Route names the call, and nothing else is
-// asked after it.
 type TokenRefusedError struct{ Route string }
 
 func (e *TokenRefusedError) Error() string {
 	return "the node token was refused or revoked by satelle.dev (" + e.Route + ")"
 }
 
-// SecretRefusal is satelle.dev's refusal of one secret's read, with the server's
-// own code and reason (a key the definition does not declare, or one that was not
-// granted). The agent is not started on one.
 type SecretRefusal struct {
 	Key, Code, Reason string
 }
@@ -44,7 +29,6 @@ func (e *SecretRefusal) Error() string {
 	return fmt.Sprintf("secret %s refused: %s: %s", e.Key, e.Code, e.Reason)
 }
 
-// NodeClient is a node's calls to satelle.dev for the node whose id it carries.
 type NodeClient struct {
 	nodeID string
 	client *hosted.Client
@@ -55,8 +39,6 @@ type NodeClient struct {
 	endErr  error
 }
 
-// NewNodeClient returns the client for node nodeID at server, authenticated by
-// token. Nothing is sent until the first call.
 func NewNodeClient(server, nodeID, token string) (*NodeClient, error) {
 	c, err := hosted.Dial(server, hosted.NodeTokenStore{Server: server, Token: token}, hosted.Options{})
 	if err != nil {
@@ -65,18 +47,12 @@ func NewNodeClient(server, nodeID, token string) (*NodeClient, error) {
 	return &NodeClient{nodeID: nodeID, client: c}, nil
 }
 
-// Close closes the connection.
 func (c *NodeClient) Close() error { return c.client.Close() }
 
-// Hosted is the node's gRPC client: every service, authenticated by the node
-// token (the relay, the chain and attachments use it).
 func (c *NodeClient) Hosted() *hosted.Client { return c.client }
 
-// NodeID is the node this client speaks for.
 func (c *NodeClient) NodeID() string { return c.nodeID }
 
-// call runs one NodeService call unless the token has already been refused. A
-// refusal of the token is remembered, so nothing further is asked.
 func (c *NodeClient) call(route string, fn func() error) error {
 	c.mu.Lock()
 	refused := c.refused
@@ -97,8 +73,6 @@ func (c *NodeClient) call(route string, fn func() error) error {
 	return nil
 }
 
-// Definition fetches the stored bundle of the definition the node runs and the
-// version it was stored as. The bytes must hash to the digest the server sent.
 func (c *NodeClient) Definition(ctx context.Context) (bundle []byte, version string, err error) {
 	var d *satellepb.Definition
 	err = c.call("NodeService.GetDefinition", func() (err error) {
@@ -118,16 +92,11 @@ func (c *NodeClient) Definition(ctx context.Context) (bundle []byte, version str
 	return d.GetBundle(), d.GetVersion(), nil
 }
 
-// Secret reads one secret's value. A key satelle.dev refuses (not declared by the
-// definition, or not granted to it) is a *SecretRefusal.
 func (c *NodeClient) Secret(ctx context.Context, key string) (string, error) {
 	v, _, err := c.SecretWithExpiry(ctx, key)
 	return v, err
 }
 
-// SecretWithExpiry is Secret with the time the value expires, which satelle.dev
-// sends for a value it minted for the run (a github-app installation token); it is
-// the zero time for a value that does not expire.
 func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, time.Time, error) {
 	var sec *satellepb.Secret
 	err := c.call("NodeService.ReadSecret", func() (err error) {
@@ -151,10 +120,6 @@ func (c *NodeClient) SecretWithExpiry(ctx context.Context, key string) (string, 
 	return sec.GetValue(), expires, nil
 }
 
-// RunDescriptor is what NodeService.GetRun tells a node about its run: the
-// mode (ModeItem, ModeTask, ModePerformer), the project its work state is
-// synced to, the item it was woken for, the binding a performer node runs, and
-// what woke it (Trigger, TriggerSource), carried for the report.
 type RunDescriptor struct {
 	Mode          string
 	Project       string
@@ -164,7 +129,6 @@ type RunDescriptor struct {
 	TriggerSource string
 }
 
-// Run reads the node's run descriptor.
 func (c *NodeClient) Run(ctx context.Context) (RunDescriptor, error) {
 	var d *satellepb.RunDescriptor
 	err := c.call("NodeService.GetRun", func() (err error) {
@@ -178,18 +142,12 @@ func (c *NodeClient) Run(ctx context.Context) (RunDescriptor, error) {
 		Trigger: d.GetTrigger(), TriggerSource: d.GetTriggerSource()}, nil
 }
 
-// Run modes. An item node drives one item along its workflow; a task node runs
-// a task once and drives the execution it creates; a performer node performs
-// one step of an item for the starter over the paired channel.
 const (
 	ModeItem      = "item"
 	ModeTask      = "task"
 	ModePerformer = "performer"
 )
 
-// PublishChannelKey publishes the node's channel public key so the starter that
-// asked for this node can pin it before it trusts a message. The key is
-// write-once: a second write is refused by the server and returned here.
 func (c *NodeClient) PublishChannelKey(ctx context.Context, pub []byte) error {
 	err := c.call("NodeService.PublishChannelKey", func() error {
 		_, err := c.client.Nodes.PublishChannelKey(ctx, &satellepb.PublishChannelKeyRequest{NodeId: c.nodeID, PublicKey: pub})
@@ -201,15 +159,11 @@ func (c *NodeClient) PublishChannelKey(ctx context.Context, pub []byte) error {
 	return nil
 }
 
-// Node and run states a heartbeat reports.
 const (
 	StateRunning   = "running"
 	StateConcluded = "concluded"
 )
 
-// NodeStatus is the node's heartbeat (NodeService.ReportStatus). Verdict and
-// Notes go with State and RunState concluded. Progress is the node's last
-// progress line and SetupLog a bounded tail of its setup output.
 type NodeStatus struct {
 	State    string
 	ItemID   string
@@ -221,14 +175,11 @@ type NodeStatus struct {
 	Notes    string
 }
 
-// StatusReply is what the server says back to a heartbeat: Stop asks the node
-// to stop, LostAfterSeconds is how long it may go unheard.
 type StatusReply struct {
 	Stop             bool
 	LostAfterSeconds int
 }
 
-// Status sends one heartbeat.
 func (c *NodeClient) Status(ctx context.Context, s NodeStatus) (StatusReply, error) {
 	var r *satellepb.ReportStatusResponse
 	err := c.call("NodeService.ReportStatus", func() (err error) {
@@ -244,9 +195,6 @@ func (c *NodeClient) Status(ctx context.Context, s NodeStatus) (StatusReply, err
 	return StatusReply{Stop: r.GetStop(), LostAfterSeconds: int(r.GetLostAfterSeconds())}, nil
 }
 
-// End tells satelle.dev the node's run is over, which revokes the node token. It
-// sends the call once however often it is called; a refused token is already
-// gone, which is what End wanted.
 func (c *NodeClient) End(ctx context.Context) error {
 	c.endOnce.Do(func() {
 		_, err := c.client.Nodes.EndNode(ctx, &satellepb.EndNodeRequest{NodeId: c.nodeID})

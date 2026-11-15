@@ -14,11 +14,8 @@ import (
 	"time"
 )
 
-// gone reports whether pid is no longer a live process. A zombie that nothing
-// has reaped yet is already dead, so it counts as gone.
 func gone(pid int) bool {
 	if b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
-		// "pid (comm) S ...": the state follows the last ")".
 		if i := bytes.LastIndexByte(b, ')'); i >= 0 && len(b) > i+2 && b[i+2] == 'Z' {
 			return true
 		}
@@ -39,9 +36,6 @@ func readPID(t *testing.T, path string) int {
 	return pid
 }
 
-// TestStallReportsHungTestByName: a child whose stream starts a test and never
-// finishes it fails the run past -stall, names the package and test, and takes
-// its whole process group with it, grandchild included (sty_3f2a5c78).
 func TestStallReportsHungTestByName(t *testing.T) {
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "events.json")
@@ -49,8 +43,6 @@ func TestStallReportsHungTestByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	childPID, grandPID := filepath.Join(dir, "child.pid"), filepath.Join(dir, "grand.pid")
-	// The child shell emits the run event, starts a grandchild that would outlive
-	// it by minutes (a stand-in for a test binary), and then waits on it.
 	script := `cat "$1"; echo $$ > "$2"; sleep 300 & echo $! > "$3"; wait`
 	args := []string{"-stall", "200ms", "--", "sh", "-c", script, "sh", fixture, childPID, grandPID}
 
@@ -61,7 +53,6 @@ func TestStallReportsHungTestByName(t *testing.T) {
 	select {
 	case got = <-done:
 	case <-time.After(20 * time.Second):
-		// Do not leave the fixture's sleepers behind if the stall never fires.
 		for _, p := range []string{childPID, grandPID} {
 			if b, err := os.ReadFile(p); err == nil {
 				if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {

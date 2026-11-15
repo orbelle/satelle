@@ -10,12 +10,6 @@ import (
 	"testing"
 )
 
-// The binary-scope judge applies mechanism-vs-substrate's git rule as the
-// principle states it (operator, 2026-11-08): the binary is read-only on the
-// user's repo, its refs and its remotes, and git in a scratch repo it creates
-// for one run is mechanism. The skill restates both sentences, rejects a Go
-// path that writes the repo by every write the ruling names, accepts reads and
-// the scratch repo, and no longer says the binary takes no git action at all.
 func TestBinaryScopeReviewFollowsTheGitRuling(t *testing.T) {
 	read := func(rel string) string {
 		t.Helper()
@@ -29,7 +23,6 @@ func TestBinaryScopeReviewFollowsTheGitRuling(t *testing.T) {
 	principle := flat(read(".satelle/principles/satelle-mechanism-vs-substrate.md"))
 	skill := flat(read(".satelle/skills/satelle-binary-scope-review.md"))
 
-	// The principle's two sentences of the rule, as it words them.
 	rules := []*regexp.Regexp{
 		regexp.MustCompile(`The binary is read-only on the user's repo, its refs and its remotes`),
 		regexp.MustCompile(`Git it runs in a scratch repo it creates for one run`),

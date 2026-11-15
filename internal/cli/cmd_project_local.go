@@ -16,9 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/uipush"
 )
 
-// projectLocalCmds are the verbs over this machine's projects (repos or
-// directories, ~/.satelle/config.toml [projects] paths) and satelled's
-// partitions of them.
 func projectLocalCmds() []*cobra.Command {
 	add := &cobra.Command{
 		Use: "add [path]", Short: "Add a project to this machine's projects (default: this repo) and show it in satelled", Args: cobra.MaximumNArgs(1),
@@ -91,9 +88,6 @@ func projectLocalCmds() []*cobra.Command {
 	return []*cobra.Command{add, remove, partitions, prune}
 }
 
-// homePartitions lists this machine's satelled partitions with their recorded
-// project path, read from this home's mirror database. With no mirror database
-// it returns none and creates nothing. The store is closed before it returns.
 func homePartitions(ctx context.Context) ([]mirror.PartitionDetail, error) {
 	path := mirror.DefaultPath(config.GlobalDir())
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
@@ -107,7 +101,6 @@ func homePartitions(ctx context.Context) ([]mirror.PartitionDetail, error) {
 	return ms.ListPartitionDetails(ctx)
 }
 
-// localProject is one of this machine's projects, as project list shows it.
 type localProject struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
@@ -115,8 +108,6 @@ type localProject struct {
 	Bound string `json:"bound"`
 }
 
-// localProjects lists this machine's projects: whether each path is there and
-// the satelle.dev project it is bound to ("-" when none).
 func localProjects() ([]localProject, error) {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -137,9 +128,6 @@ func localProjects() ([]localProject, error) {
 	return out, nil
 }
 
-// addLocalProject adds path to this machine's projects (~/.satelle/config.toml
-// [projects]), which satelled shows and `satelle ledger autosync` replicates,
-// and seeds its satelled partition.
 func addLocalProject(cmd *cobra.Command, path string) error {
 	gc, err := config.LoadGlobal()
 	if err != nil {
@@ -157,7 +145,6 @@ func addLocalProject(cmd *cobra.Command, path string) error {
 	return nil
 }
 
-// seedUI pushes a full snapshot of the repo at path to satelled.
 func seedUI(cmd *cobra.Command, path string) {
 	r, err := findRepo(path)
 	if err != nil {
@@ -181,8 +168,6 @@ func seedUI(cmd *cobra.Command, path string) {
 	}
 }
 
-// dropPartition removes repoKey's partition through satelled's ingest, else
-// (satelled not running) from the mirror database directly.
 func dropPartition(cmd *cobra.Command, repoKey string) error {
 	if c, ok := uiClient(); ok && c.Remove(cmd.Context(), repoKey) == nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "dropped partition %s\n", repoKey)
@@ -200,8 +185,6 @@ func dropPartition(cmd *cobra.Command, repoKey string) error {
 	return nil
 }
 
-// repoArg is the project a project command names: the argument, else the
-// repo at the working directory, as its canonical root.
 func repoArg(args []string) (string, error) {
 	if len(args) == 1 && strings.TrimSpace(args[0]) != "" {
 		abs, err := filepath.Abs(args[0])

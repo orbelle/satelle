@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// TestNoVendorStorageSDK: the CLI binary links no vendor storage SDK; a ledger
-// store is an external command (sto_eb93dfd8).
 func TestNoVendorStorageSDK(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	if err != nil {

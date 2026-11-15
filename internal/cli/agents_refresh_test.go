@@ -19,11 +19,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// realUpdateRefresh is update's own refresh spawn, before fakeInstall stubs it.
 var realUpdateRefresh = updateRefresh
 
-// staleSessionStart is a claude hook file's SessionStart holding the pre-v1
-// satelle reindex beside a wrapped call and an echo that names satelle.
 const staleSessionStart = `{"hooks":{"SessionStart":[{"hooks":[` +
 	`{"type":"command","command":"satelle reindex"},` +
 	`{"type":"command","command":"sh -c \"satelle reindex\""},` +
@@ -39,8 +36,6 @@ func putFile(t *testing.T, path, body string) {
 	}
 }
 
-// harnessProject is a new satelle repo (a git repo with one commit and an
-// initialised .satelle), registered on this machine when register is set.
 func harnessProject(t *testing.T, register bool) string {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -65,9 +60,6 @@ func harnessProject(t *testing.T, register bool) string {
 	return dir
 }
 
-// staleHarness writes harness h's hook file in dir: satelle's current hooks
-// plus a `satelle reindex` handler (for claude, also the wrapped call and the
-// echo of staleSessionStart). It returns the file.
 func staleHarness(t *testing.T, dir, h string) string {
 	t.Helper()
 	rel, _ := hook.File(h)
@@ -84,8 +76,6 @@ func staleHarness(t *testing.T, dir, h string) string {
 	return path
 }
 
-// fileState is a file's bytes and mtime, with the mtime first set an hour
-// back so a rewrite shows.
 type fileState struct {
 	body []byte
 	mod  time.Time
@@ -120,8 +110,6 @@ func commandsOf(t *testing.T, dir, h string) []string {
 	return cmds
 }
 
-// current reports whether cmds hold each of satelle's current hooks for h
-// exactly once.
 func current(cmds []string, h string) bool {
 	for _, verb := range []string{hook.VerbGate, hook.VerbContext, hook.VerbPrompt, hook.VerbStopcheck} {
 		n := 0
@@ -137,8 +125,6 @@ func current(cmds []string, h string) bool {
 	return true
 }
 
-// AC1: a harness is in use when agents.toml runs its CLI or the tree has its
-// configuration directory.
 func TestHarnessesInUse(t *testing.T) {
 	tree := t.TempDir()
 	cat := agent.Catalog{
@@ -166,10 +152,6 @@ func TestHarnessesInUse(t *testing.T) {
 	}
 }
 
-// AC2: agents refresh reviews every registered project from anywhere: it
-// adds or updates satelle's entries in each harness in use, removes a
-// first-word satelle command the binary lacks, keeps every other handler,
-// and leaves an unregistered repo alone; a second run writes nothing.
 func TestAgentsRefreshRewritesRegisteredProjects(t *testing.T) {
 	isolate(t)
 	a := harnessProject(t, true)
@@ -219,8 +201,6 @@ func TestAgentsRefreshRewritesRegisteredProjects(t *testing.T) {
 	}
 }
 
-// AC3: [hook] refresh = false leaves the repo's files through agents
-// refresh, update and the sync pass; refresh and update name the repo.
 func TestRefreshLeavesAnOptedOutRepo(t *testing.T) {
 	isolate(t)
 	dir := harnessProject(t, true)
@@ -243,8 +223,6 @@ func TestRefreshLeavesAnOptedOutRepo(t *testing.T) {
 	}
 }
 
-// trackedProject is a registered repo whose committed .claude/settings.json
-// and .cursor/hooks.json each hold satelle's hooks plus satelle reindex.
 func trackedProject(t *testing.T) (dir string, files []string) {
 	t.Helper()
 	dir = harnessProject(t, true)
@@ -254,8 +232,6 @@ func trackedProject(t *testing.T) (dir string, files []string) {
 	return dir, files
 }
 
-// AC5: agents refresh, update and the sync pass never rewrite a hook file
-// git tracks; refresh and update name it with the install command.
 func TestTrackedHarnessFilesAreNeverRewritten(t *testing.T) {
 	for _, args := range [][]string{{"agents", "refresh"}, {"update"}, {"ledger", "autosync"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -277,11 +253,6 @@ func TestTrackedHarnessFilesAreNeverRewritten(t *testing.T) {
 				t.Errorf("git status after %s:\n%s", args, st)
 			}
 			if args[0] == "ledger" {
-				// The sync pass does not print tracked files every 30 s
-				// (plan: doctor reports them). Prove the pass did reach the
-				// refresh, so "unchanged" above is not vacuous: an untracked
-				// stale harness file in the same repo is refreshed by a pass
-				// over the same tree, which still leaves the tracked ones.
 				if err := os.MkdirAll(filepath.Join(dir, ".grok"), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -307,8 +278,6 @@ func TestTrackedHarnessFilesAreNeverRewritten(t *testing.T) {
 	}
 }
 
-// AC5: when git cannot say whether a file is tracked, nothing is written and
-// agents refresh fails.
 func TestRefreshFailsClosedWhenGitCannotAnswer(t *testing.T) {
 	isolate(t)
 	dir, files := trackedProject(t)
@@ -326,8 +295,6 @@ func TestRefreshFailsClosedWhenGitCannotAnswer(t *testing.T) {
 	}
 }
 
-// AC7: agents install applies the same rule by hand, against this binary's
-// command tree.
 func TestAgentsInstallAppliesTheRefreshRule(t *testing.T) {
 	isolate(t)
 	dir := harnessProject(t, false)
@@ -367,8 +334,6 @@ func TestAgentsInstallAppliesTheRefreshRule(t *testing.T) {
 	}
 }
 
-// AC7: on a tracked file agents install writes the working tree only and
-// says the change is to be committed in that repo.
 func TestInstallOnATrackedFileLeavesTheCommitToTheRepo(t *testing.T) {
 	isolate(t)
 	dir, _ := trackedProject(t)
@@ -394,10 +359,6 @@ func TestInstallOnATrackedFileLeavesTheCommitToTheRepo(t *testing.T) {
 	}
 }
 
-// AC2: update refreshes the registered projects' hook files: in-process when
-// the CLI is current, through the replaced CLI's agents refresh when not; a
-// refresh that cannot finish makes update exit 1 naming agents refresh,
-// whatever the service opt-out.
 func TestUpdateRefreshesHarnessFiles(t *testing.T) {
 	t.Run("current CLI", func(t *testing.T) {
 		isolate(t)
@@ -475,8 +436,6 @@ func TestUpdateRefreshesHarnessFiles(t *testing.T) {
 	})
 }
 
-// AC8: one sync pass refreshes a registered project's untracked hook files;
-// a second writes nothing.
 func TestAutosyncRefreshesHarnessFiles(t *testing.T) {
 	isolate(t)
 	dir := harnessProject(t, true)
@@ -495,8 +454,6 @@ func TestAutosyncRefreshesHarnessFiles(t *testing.T) {
 	}
 }
 
-// A registered pre-1.0 repo is left to satelle upgrade --archive: agents
-// refresh names it, writes nothing there and does not fail (sto_0f76dd4e).
 func TestAgentsRefreshLeavesAPreV1Repo(t *testing.T) {
 	isolate(t)
 	old := harnessProject(t, true)

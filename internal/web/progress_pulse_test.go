@@ -12,11 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
-// sto_96f0ad26 AC3, AC4: on the Stories list a story's Progress chip pulses
-// exactly when the story is engaged, the same set the row's data-engaged and
-// the header's engaged and elsewhere badges count; a story at a step that
-// nobody works shows a still chip that says so, and a pulsing chip's hover
-// says where and by whom.
 func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	w := progressWorkflow(same)
 	var items []Item
@@ -36,9 +31,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	seat := func(h *hist, session, user string) mirror.Seat {
 		return mirror.Seat{ID: h.id + "/" + session, Item: h.id, Session: session, User: user, Location: "local:/p", BoundAt: h.last()}
 	}
-	// Here: owned by this live test process on this machine. seatsHere sets no
-	// location, and Classify reads a non-local: location as elsewhere, so
-	// each carries local:/p.
 	here, home := seatsHere(t, []json.RawMessage{
 		raw(seat(seated, "s-user", "bob")),
 		raw(seat(disp, "perform_ab12", "bob")),
@@ -54,7 +46,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	srv := mirrorWith(t, snap)
 	t.Setenv("SATELLE_HOME", home)
 
-	// Guard the fixture: three seats here, two elsewhere.
 	standing := standingHere()
 	for _, r := range snap.Seats {
 		var s mirror.Seat
@@ -79,8 +70,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 		}
 		return r
 	}
-	// A row pulses when one of its chips carries a class the served
-	// stylesheet animates: what the operator sees, not only the class name.
 	animated := animatedClasses(t, httpGetBody(t, srv.URL+"/static/app.css"))
 	chipClass := regexp.MustCompile(`class="stage-chip ([^"]*)"`)
 	var pulsing, chipped []string
@@ -97,7 +86,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	}
 	engaged := engagedRows(frag)
 
-	// AC4: the pulsing rows are the engaged rows that have a chip.
 	if want := []string{"sto_disp", "sto_far", "sto_node", "sto_seated"}; !slices.Equal(sorted(pulsing), want) {
 		t.Errorf("pulsing rows %v, want %v", pulsing, want)
 	}
@@ -138,7 +126,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 		}
 	}
 
-	// AC3: the hover says which, and for a pulsing chip where and by whom.
 	titleOf := func(id, class string) string {
 		m := regexp.MustCompile(`class="stage-chip ` + class + `" title="([^"]*)"`).FindStringSubmatch(row(id))
 		if m == nil {
@@ -164,8 +151,6 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	}
 }
 
-// animatedClasses is the set of single-class .stage-* selectors css gives an
-// animation, read from each rule's own body.
 func animatedClasses(t *testing.T, css string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}

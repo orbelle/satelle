@@ -10,14 +10,10 @@ import (
 	"testing"
 )
 
-// sto_2a41b9e4 AC1: a gate's check script inherits the session named by
-// --session, so a check's own satelle calls act as that session (the E1
-// exception of the docs scanner relies on it).
 func TestACheckInheritsTheSessionFlag(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
 	writeGatedWorkflow(t, dir)
-	// The check prints the session it runs as, and fails so its notes are kept.
 	check := "---\ntype: check\n---\n```sh\necho session=$SATELLE_SESSION\nexit 1\n```\n"
 	if err := os.WriteFile(filepath.Join(dir, ".satelle/skills/has-ok.md"), []byte(check), 0o644); err != nil {
 		t.Fatal(err)

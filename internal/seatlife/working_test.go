@@ -9,8 +9,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// Working drops only the seats proven gone: here, elsewhere and unverified
-// seats keep working, and an empty home keeps every seat (sto_600b9a85 AC3).
 func TestWorkingDropsOnlyGone(t *testing.T) {
 	home := t.TempDir()
 	if err := Own(home, "live", procgroup.Self()); err != nil {
@@ -20,11 +18,11 @@ func TestWorkingDropsOnlyGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	seats := []item.Seat{
-		{Session: "live", Location: "local:/x", Machine: here},                 // here
-		{Session: "dead", Location: "local:/x", Machine: here},                 // gone
-		{Session: "far", Location: "local:/x", Machine: "m-other", Host: "h2"}, // elsewhere
-		{Session: "none", Location: "local:/x", Machine: here},                 // unverified
-		{Session: "dead", Location: "remote:n1", Machine: here},                // elsewhere
+		{Session: "live", Location: "local:/x", Machine: here},
+		{Session: "dead", Location: "local:/x", Machine: here},
+		{Session: "far", Location: "local:/x", Machine: "m-other", Host: "h2"},
+		{Session: "none", Location: "local:/x", Machine: here},
+		{Session: "dead", Location: "remote:n1", Machine: here},
 	}
 	var got []string
 	for _, s := range Working(home, here, seats) {

@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// gate presents one PreToolUse payload to `hook gate --harness claude` and
-// reports whether it was denied, and why.
 func (s *sandbox) gate(session, tool, file, command string) (deny bool, reason string) {
 	s.t.Helper()
 	input := map[string]string{}
@@ -43,8 +41,6 @@ func (s *sandbox) gate(session, tool, file, command string) (deny bool, reason s
 	return doc.HookSpecificOutput.PermissionDecision == "deny", doc.HookSpecificOutput.PermissionDecisionReason
 }
 
-// The edit gate: a seat in a performing state is the only way to edit, except
-// exempt paths; locked paths and another repo's tree are never editable.
 func TestEditGate(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -72,8 +68,6 @@ edit_exempt_paths = ["notes/**"]
 locked_paths = ["vendor/**"]
 `)
 	s.must("validate")
-	// Another repository's tree. It sits inside this one because paths under
-	// the temp dir that are outside this repo are not the gate's concern.
 	foreign := filepath.Join(s.dir, "ext", "other")
 	s.git("init", "-q", foreign)
 	in := func(rel string) string { return filepath.Join(s.dir, rel) }

@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// workConfig sets up a workflow "work" that every execution takes by rule:
-// backlog -> doing (performer maker, gate ready) -> done (gate evidence,
-// which refuses until an attachment named evidence is on the item).
 func workConfig(t *testing.T, s *sandbox) string {
 	t.Helper()
 	fake := fakeClaude(t, s)
@@ -48,7 +45,6 @@ groups = [{ mode = "sequential", gates = ["evidence"] }]
 	return fake
 }
 
-// taskRun creates a task and runs it, returning the execution's id.
 func taskRun(t *testing.T, s *sandbox) string {
 	t.Helper()
 	task := s.create("task", "--title", "groom", "--input-kind", "story")
@@ -64,9 +60,6 @@ func taskRun(t *testing.T, s *sandbox) string {
 	return exec.ID
 }
 
-// Every work verb does on an execution exactly what it does on a story under
-// the same workflow: the same exit codes and, ids and sessions aside, the same
-// output.
 func TestExecutionVerbsMatchStory(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -123,14 +116,11 @@ func TestExecutionVerbsMatchStory(t *testing.T) {
 	if n := len(argvs(t, fake, "mk-1")); n != 2 {
 		t.Errorf("performer ran %d time(s), want one per kind", n)
 	}
-	// The kind is still checked.
 	if r := s.run("story", "set", exec, "--status", "done"); r.code == 0 || !strings.Contains(r.err, "is a execution, not a story") {
 		t.Errorf("story set on an execution: exit %d %s", r.code, r.err)
 	}
 }
 
-// A task run's execution walks its workflow to a terminal state through its
-// gates, carrying an attachment, all on its own ledger.
 func TestTaskRunExecutionWalksItsWorkflow(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)

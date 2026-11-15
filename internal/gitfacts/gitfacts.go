@@ -1,5 +1,3 @@
-// Package gitfacts is the kernel's one git adapter. It runs read-only git
-// commands and reports facts; it never changes a repository.
 package gitfacts
 
 import (
@@ -15,7 +13,6 @@ import (
 	"strings"
 )
 
-// Repo is a working tree at Dir.
 type Repo struct{ Dir string }
 
 func (r Repo) git(args ...string) (string, error) {
@@ -29,21 +26,16 @@ func (r Repo) git(args ...string) (string, error) {
 	return out.String(), nil
 }
 
-// TopLevel returns the root of the working tree.
 func (r Repo) TopLevel() (string, error) {
 	out, err := r.git("rev-parse", "--show-toplevel")
 	return strings.TrimSpace(out), err
 }
 
-// Head returns the commit HEAD points at.
 func (r Repo) Head() (string, error) {
 	out, err := r.git("rev-parse", "HEAD")
 	return strings.TrimSpace(out), err
 }
 
-// ChangedPaths lists the paths that differ from base: committed and
-// uncommitted changes to tracked files, and untracked files not ignored.
-// Sorted, repo-relative, slash-separated.
 func (r Repo) ChangedPaths(base string) ([]string, error) {
 	diff, err := r.git("diff", "--name-only", "--no-renames", base, "--")
 	if err != nil {
@@ -65,35 +57,22 @@ func (r Repo) ChangedPaths(base string) ([]string, error) {
 	return out, nil
 }
 
-// diffText are the flags every diff whose text is hashed runs with: the text
-// must not depend on the user's diff config (diff.mnemonicPrefix,
-// diff.noprefix, diff.srcPrefix and diff.dstPrefix, diff.algorithm), so a
-// change diffed in its own tree and between its commits, or on another
-// machine, is the same text.
 var diffText = []string{"diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers"}
 
-// Diff returns `git diff base -- paths` (every path when paths is empty), in
-// the canonical text diffText fixes.
 func (r Repo) Diff(base string, paths []string) (string, error) {
 	return r.git(append(append(slices.Clone(diffText), base, "--"), paths...)...)
 }
 
-// Dirty reports whether the working tree has uncommitted changes or
-// untracked files.
 func (r Repo) Dirty() (bool, error) {
 	out, err := r.git("status", "--porcelain")
 	return strings.TrimSpace(out) != "", err
 }
 
-// CommonDir returns the absolute git common directory: the main repository's
-// .git for every linked worktree of it.
 func (r Repo) CommonDir() (string, error) {
 	out, err := r.git("rev-parse", "--path-format=absolute", "--git-common-dir")
 	return strings.TrimSpace(out), err
 }
 
-// IsLinked reports whether the tree is a linked worktree (its git dir is not
-// the common dir).
 func (r Repo) IsLinked() bool {
 	out, err := r.git("rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
 	if err != nil {
@@ -103,8 +82,6 @@ func (r Repo) IsLinked() bool {
 	return len(f) == 2 && f[0] != f[1]
 }
 
-// Resolve returns the commit ref names: the ref itself, else the branch of
-// that name on origin. An error when neither names a commit.
 func (r Repo) Resolve(ref string) (string, error) {
 	var last error
 	for _, cand := range []string{ref, "refs/remotes/origin/" + ref} {
@@ -120,8 +97,6 @@ func (r Repo) Resolve(ref string) (string, error) {
 	return "", fmt.Errorf("resolve %s: %w", ref, last)
 }
 
-// IsAncestor reports whether commit a is in b's history (a commit is its own
-// ancestor). An error when either names no commit here.
 func (r Repo) IsAncestor(a, b string) (bool, error) {
 	cmd := exec.Command("git", "-C", r.Dir, "merge-base", "--is-ancestor", a, b)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
@@ -137,10 +112,6 @@ func (r Repo) IsAncestor(a, b string) (bool, error) {
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", a, b, err, strings.TrimSpace(errb.String()))
 }
 
-// IgnoredBy reports which of paths (relative to Dir) an ignore rule hides from
-// git: untracked and matched by a rule. The value is the rule, as
-// `<source>:<line>: <pattern>`. A tracked path is never reported, nor one a
-// `!` rule re-includes. An error when Dir is not in a repository.
 func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 	out := map[string]string{}
 	if len(paths) == 0 {
@@ -160,7 +131,6 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 		if !ok {
 			continue
 		}
-		// <source>:<line>:<pattern>; the source may itself hold a colon.
 		i := strings.LastIndex(rule, ":")
 		if i < 0 {
 			continue
@@ -174,7 +144,6 @@ func (r Repo) IgnoredBy(paths ...string) (map[string]string, error) {
 	return out, nil
 }
 
-// Branch returns the checkout's current branch, "" on a detached HEAD.
 func (r Repo) Branch() (string, error) {
 	cmd := exec.Command("git", "-C", r.Dir, "symbolic-ref", "--short", "-q", "HEAD")
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
@@ -190,13 +159,11 @@ func (r Repo) Branch() (string, error) {
 	return "", fmt.Errorf("git symbolic-ref HEAD: %w: %s", err, strings.TrimSpace(errb.String()))
 }
 
-// MergeBase returns the best common ancestor of a and b.
 func (r Repo) MergeBase(a, b string) (string, error) {
 	out, err := r.git("merge-base", a, b)
 	return strings.TrimSpace(out), err
 }
 
-// ChangedBetween lists the paths that differ between two commits, sorted.
 func (r Repo) ChangedBetween(base, head string) ([]string, error) {
 	out, err := r.git("diff", "--name-only", "--no-renames", base, head, "--")
 	if err != nil {
@@ -212,14 +179,10 @@ func (r Repo) ChangedBetween(base, head string) ([]string, error) {
 	return paths, nil
 }
 
-// DiffBetween returns `git diff base head -- paths` (every path when paths is
-// empty), in the canonical text diffText fixes.
 func (r Repo) DiffBetween(base, head string, paths []string) (string, error) {
 	return r.git(append(append(slices.Clone(diffText), base, head, "--"), paths...)...)
 }
 
-// TrackedFiles lists the files git tracks under path (relative to Dir; "" or
-// "." is every file), repo-relative and slash-separated, sorted.
 func (r Repo) TrackedFiles(path string) ([]string, error) {
 	if path == "" {
 		path = "."
@@ -238,10 +201,6 @@ func (r Repo) TrackedFiles(path string) ([]string, error) {
 	return files, nil
 }
 
-// Tracks reports whether git tracks the file at path (relative to Dir). Not
-// in any repository (no .git entry in Dir or a parent) is false; a repository
-// git cannot read is the error, so a caller writing only untracked files
-// fails closed.
 func (r Repo) Tracks(path string) (bool, error) {
 	files, err := r.TrackedFiles(path)
 	if err == nil {
@@ -263,16 +222,11 @@ func (r Repo) Tracks(path string) (bool, error) {
 	}
 }
 
-// Bundle writes a git bundle of ref (with its history) to file, outside the
-// repository; the repository itself is not changed.
 func (r Repo) Bundle(file, ref string) error {
 	_, err := r.git("bundle", "create", "-q", file, ref)
 	return err
 }
 
-// ShallowCommits lists the commits a shallow clone's history ends at (its
-// shallow file, shared by every worktree of the repository); none for a
-// full clone.
 func (r Repo) ShallowCommits() ([]string, error) {
 	p, err := r.git("rev-parse", "--path-format=absolute", "--git-path", "shallow")
 	if err != nil {

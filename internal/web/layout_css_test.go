@@ -8,8 +8,6 @@ import (
 
 var cssComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
 
-// decls is the declarations of the rule whose selector, at a line start, is
-// exactly selector.
 func decls(t *testing.T, css, selector string) map[string]string {
 	t.Helper()
 	m := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(selector) + `\s*\{([^}]*)\}`).FindStringSubmatch(css)
@@ -26,9 +24,6 @@ func decls(t *testing.T, css, selector string) map[string]string {
 	return out
 }
 
-// TestSharedLayoutServedCSS pins the layout satelled shares with satelle.dev
-// (sto_99aa0122, satelle-server sto_1006a260): a change here must be made in
-// both apps.
 func TestSharedLayoutServedCSS(t *testing.T) {
 	srv := mirrorWith(t, fixtureSnapshot())
 	css := httpGetBody(t, srv.URL+"/static/app.css")

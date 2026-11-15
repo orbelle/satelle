@@ -17,42 +17,35 @@ import (
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
 
-// OldItem is one pre-1.0 work_items row.
 type OldItem struct {
 	ID, Kind, Title, Body, Status, Priority, Category, Parent, Criteria, Assignee string
 	Tags                                                                          []string
 	Created, Updated                                                              time.Time
 	Archived                                                                      bool
-	// Extra holds the row's other columns (park_origin, input_decls, ...),
-	// carried onto upgrade.mapped and never interpreted.
-	Extra map[string]string
+	Extra                                                                         map[string]string
 }
 
-// OldEvent is one pre-1.0 evidence row: an item's history.
 type OldEvent struct {
 	ID, Item, Kind, Actor, Body, Refs, BaseID, WorkflowHash string
 	Payload                                                 string
 	At                                                      time.Time
 }
 
-// OldDoc is one file of an item's old document directory.
 type OldDoc struct {
 	Name, Path, MediaType string
 	At                    time.Time
 }
 
-// Source is a pre-1.0 store, read only.
 type Source struct {
 	Dir      string
 	Items    []OldItem
-	Events   map[string][]OldEvent // item → its history, oldest first
-	Docs     map[string][]OldDoc   // item → its documents
-	Orphans  int                   // history rows naming no item
-	Skipped  int                   // regenerated views and sidecars, not imported
-	Problems []string              // rows that cannot be imported as they are
+	Events   map[string][]OldEvent
+	Docs     map[string][]OldDoc
+	Orphans  int
+	Skipped  int
+	Problems []string
 }
 
-// OpenSource reads <dir>/satelle.db (read-only) and <dir>/stories.
 func OpenSource(dir string) (*Source, error) {
 	db := filepath.Join(dir, "satelle.db")
 	if _, err := os.Stat(db); err != nil {
@@ -76,7 +69,6 @@ func OpenSource(dir string) (*Source, error) {
 	return s, nil
 }
 
-// columns returns a table's column names.
 func columns(h *sql.DB, table string) ([]string, error) {
 	rows, err := h.Query("SELECT name FROM pragma_table_info(?)", table)
 	if err != nil {
@@ -97,7 +89,6 @@ func columns(h *sql.DB, table string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// rowsOf selects every column of a table as text, by name.
 func rowsOf(h *sql.DB, table, order string) ([]map[string]string, error) {
 	cols, err := columns(h, table)
 	if err != nil {
@@ -131,7 +122,6 @@ func rowsOf(h *sql.DB, table, order string) ([]map[string]string, error) {
 	return out, rows.Err()
 }
 
-// parseTime reads the old store's times: RFC 3339, else sqlite's format.
 func parseTime(s string) (time.Time, error) {
 	for _, f := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05"} {
 		if t, err := time.Parse(f, strings.TrimSpace(s)); err == nil {
@@ -141,7 +131,6 @@ func parseTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unreadable time %q", s)
 }
 
-// knownItemColumns are the work_items columns an OldItem names.
 var knownItemColumns = map[string]bool{
 	"id": true, "kind": true, "title": true, "body": true, "status": true, "priority": true, "category": true,
 	"parent_id": true, "acceptance_criteria": true, "tags": true, "created_at": true, "updated_at": true,
@@ -212,12 +201,8 @@ func (s *Source) readEvents(h *sql.DB) error {
 	return nil
 }
 
-// sidecarSuffix marks a binary document's metadata file in the old store.
 const sidecarSuffix = ".satelle.json"
 
-// readDocs lists <dir>/stories/<id>/ regular files. Sidecars give a binary's
-// media type and attach time and are not imported; subdirectories, dotfiles
-// and the top-level stories/<id>.md regenerated views are skipped.
 func (s *Source) readDocs() error {
 	root := filepath.Join(s.Dir, "stories")
 	ents, err := os.ReadDir(root)
@@ -233,7 +218,7 @@ func (s *Source) readDocs() error {
 	}
 	for _, d := range ents {
 		if !d.IsDir() {
-			s.Skipped++ // a regenerated stories/<id>.md view
+			s.Skipped++
 			continue
 		}
 		id := d.Name()

@@ -27,11 +27,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// integrationFile is this repo's docker test-gate remote definition.
 var integrationFile = filepath.Join("..", "..", ".satelle", "remotes", "integration", DefinitionFile)
 
-// swapProviderLine replaces only the definition's docker-local provider line
-// with fly-sprite and asserts that exactly that one line differs.
 func swapProviderLine(t *testing.T, def string) string {
 	t.Helper()
 	const from, to = `provider = "docker-local"`, `provider = "fly-sprite"`
@@ -55,9 +52,6 @@ func swapProviderLine(t *testing.T, def string) string {
 	return out
 }
 
-// spriteFixture is a .satelle directory whose remote integration is this
-// repo's file with only its provider line swapped to fly-sprite, and a work
-// tree with one commit pushed to a bare origin.
 type spriteFixture struct {
 	dataDir, tree string
 	orig, swapped string
@@ -91,8 +85,6 @@ func newSpriteFixture(t *testing.T) spriteFixture {
 	return f
 }
 
-// recordingStarter is a SpriteStarter that records each start and runs the
-// node on the host, under its own root.
 type recordingStarter struct {
 	t      *testing.T
 	mu     sync.Mutex
@@ -108,8 +100,6 @@ func (r *recordingStarter) StartSprite(_ context.Context, s SpriteStart) (Sprite
 	return SpriteNode{Node: "nod_fake", Handle: r.h, Root: filepath.Join(r.t.TempDir(), "gate")}, nil
 }
 
-// hostHandle is a provider.Handle that runs argv on the host and copies
-// files on it.
 type hostHandle struct{ stopped bool }
 
 func (*hostHandle) ID() string { return "nod_fake" }
@@ -149,7 +139,6 @@ func copyTree(from, to string) error {
 	})
 }
 
-// recordingDocker is a docker CLI that records any call into its log.
 func recordingDocker(t *testing.T) (provider.DockerLocal, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -161,11 +150,6 @@ func recordingDocker(t *testing.T) (provider.DockerLocal, string) {
 	return provider.DockerLocal{Docker: bin}, log
 }
 
-// The fire: a transition whose gate integration-check is placed
-// remote:integration, the integration remote being this repo's file with only
-// its provider line swapped to fly-sprite, reaches the fly-sprite start path
-// with the same definition and image, never docker, and the check's exit is
-// the verdict.
 func TestGateOnTheFlySpriteIntegrationRemoteReachesTheSpriteStart(t *testing.T) {
 	for _, c := range []struct {
 		script, want string
@@ -231,8 +215,6 @@ func TestGateOnTheFlySpriteIntegrationRemoteReachesTheSpriteStart(t *testing.T) 
 	}
 }
 
-// With no SpriteStarter (no bound project) a fly-sprite gate is refused,
-// naming the bound project, and no docker call is made.
 func TestGateOnFlySpriteNeedsABoundProject(t *testing.T) {
 	f := newSpriteFixture(t)
 	docker, calls := recordingDocker(t)
@@ -246,10 +228,6 @@ func TestGateOnFlySpriteNeedsABoundProject(t *testing.T) {
 	}
 }
 
-// spritePlacer is the NodePlacer with satelle-server's half played by the
-// test: a node StartNode made is served bundle and joined in-process (setup
-// skipped: the host is not the image), or, with agentOnly, served by a node
-// that registers only AgentJob (a satelle without the gate jobs).
 type spritePlacer struct {
 	Placer
 	t         *testing.T
@@ -277,7 +255,6 @@ func (p *spritePlacer) StartNode(ctx context.Context, remote, itemID, binding st
 	return node, nil
 }
 
-// serveAgentOnly serves node with only AgentJob registered.
 func serveAgentOnly(server, node, tok string) error {
 	ctx := context.Background()
 	nc, err := NewNodeClient(server, node, tok)
@@ -302,12 +279,6 @@ func serveAgentOnly(server, node, tok string) error {
 	return n.Serve(ctx, sess, Report{Version: "old"})
 }
 
-// The production start path against the fake server: ServerSprites starts
-// the node through RemoteService.StartNode, the node (satelle node join,
-// served the swapped integration definition) answers gate.hello with the
-// definition's sha256, and the check runs through the gate jobs. A node
-// served another definition, or one without the gate jobs, is refused before
-// any check runs, and no verdict comes back.
 func TestServerSpritesRunsTheCheckOnAJoinedNode(t *testing.T) {
 	f := newSpriteFixture(t)
 	swappedBundle := bundleOf(t, map[string]string{DefinitionFile: f.swapped})

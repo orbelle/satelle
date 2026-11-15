@@ -18,9 +18,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// releaseServer serves a GitHub-shaped release API and download tree:
-// assets maps "<tag>/<asset>" to its body; a ".sha256" beside each is
-// derived unless badSum names an asset whose checksum is wrong.
 func releaseServer(t *testing.T, latest string, list []string, assets map[string]string, badSum string) {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -63,8 +60,6 @@ func releaseServer(t *testing.T, latest string, list []string, assets map[string
 	t.Setenv(envReleaseBase, srv.URL+"/dl")
 }
 
-// fakeInstall points update at a satelle (and optionally a satelled) in a
-// temp dir and returns their paths.
 func fakeInstall(t *testing.T, withDaemon bool) (cli, daemon string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -189,7 +184,6 @@ func TestNewestServeTagComparesNumerically(t *testing.T) {
 	}
 }
 
-// GitHub lists serve-v1.0.9 before serve-v1.0.10; update takes 1.0.10.
 func TestUpdateInstallsTheNewestSatelledNotTheFirstListed(t *testing.T) {
 	isolate(t)
 	if runtime.GOOS == "windows" {
@@ -256,8 +250,6 @@ func TestUpdatePinnedSatelledWithoutAssetRefuses(t *testing.T) {
 	}
 }
 
-// update records the builds it installs, so satelled's footer names the new CLI
-// and satelled straight after the update without running either (sto_49b6e762).
 func TestUpdateRecordsTheInstalledBuilds(t *testing.T) {
 	isolate(t)
 	if runtime.GOOS == "windows" {
@@ -283,10 +275,6 @@ func TestUpdateRecordsTheInstalledBuilds(t *testing.T) {
 	}
 }
 
-// fakeSystemctl puts a systemctl first on PATH that appends each call's
-// arguments to the returned log and exits 1 on any call containing failOn
-// (never, when ""), and points [service] at a port nothing answers on, so no
-// test reaches this machine's user manager or satelled.
 func fakeSystemctl(t *testing.T, failOn string) (log string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -312,7 +300,6 @@ func userUnitDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user")
 }
 
-// inOrder reports whether each of want occurs in s, each after the last.
 func inOrder(s string, want ...string) bool {
 	for _, w := range want {
 		i := strings.Index(s, w)
@@ -324,17 +311,13 @@ func inOrder(s string, want ...string) bool {
 	return true
 }
 
-// satelle update installs and refreshes the service: a missing unit is
-// written, one naming another binary is repointed, satelled is restarted and
-// the sync timer started, then the status is printed; with no systemd user
-// manager the units are printed and update still succeeds (sto_1b6a7ed3 AC1).
 func TestUpdateInstallsTheServiceAndTimer(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the units are systemd-only")
 	}
 	cases := []struct {
 		name     string
-		unit     func(daemon string) string // satelled's unit before the update; "" = none
+		unit     func(daemon string) string
 		failOn   string
 		check    func(t *testing.T, out, calls, daemon, cli string)
 		noUnits  bool
@@ -422,8 +405,6 @@ func TestUpdateInstallsTheServiceAndTimer(t *testing.T) {
 	}
 }
 
-// --no-service and SATELLE_NO_SERVICE=1 change no unit and run no systemctl,
-// and say what was skipped and how to restart (sto_1b6a7ed3 AC2).
 func TestUpdateNoServiceSkips(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake systemctl and satelled are shell scripts")
@@ -459,8 +440,6 @@ func TestUpdateNoServiceSkips(t *testing.T) {
 	}
 }
 
-// satelle help service says install and update install the service and sync,
-// and names the opt-out and refresh (sto_1b6a7ed3 AC3).
 func TestHelpServiceNamesInstallUpdateAndOptOut(t *testing.T) {
 	isolate(t)
 	out := must(t, "help", "service")
@@ -471,9 +450,6 @@ func TestHelpServiceNamesInstallUpdateAndOptOut(t *testing.T) {
 	}
 }
 
-// legacySetup is a v1 repo (the working directory), two registered pre-1.0
-// projects and a registered path that is gone, as update reads them
-// (sto_0f76dd4e).
 func legacySetup(t *testing.T, dir string) (oldA, oldB, gone string) {
 	t.Helper()
 	must(t, "init")
@@ -484,9 +460,6 @@ func legacySetup(t *testing.T, dir string) (oldA, oldB, gone string) {
 	return oldA, oldB, gone
 }
 
-// checkUpgradeList asserts that out, after the line holding after, lists
-// exactly olds, in order, as needing upgrade, and that nothing about them is
-// printed before it.
 func checkUpgradeList(t *testing.T, out, after, dir, gone string, olds ...string) {
 	t.Helper()
 	i := strings.Index(out, after)
@@ -522,10 +495,6 @@ func checkUpgradeList(t *testing.T, out, after, dir, gone string, olds ...string
 	}
 }
 
-// AC4 (sto_0f76dd4e): after installing, update lists every registered pre-1.0
-// project with the command to run in it, and prints nothing about them before
-// the replacement; it does so when current too, and when the service refresh
-// fails.
 func TestUpdateListsProjectsThatNeedUpgrade(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake satelled is a shell script")
@@ -567,8 +536,6 @@ func TestUpdateListsProjectsThatNeedUpgrade(t *testing.T) {
 	})
 }
 
-// AC4 (sto_0f76dd4e): with no pre-1.0 project registered, update says
-// nothing about upgrading.
 func TestUpdateQuietWithoutPreV1Projects(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")

@@ -14,24 +14,15 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// candidateSandbox is a release sandbox whose origin refuses non-fast-forward
-// pushes and whose main carries a Makefile: its test target appends the tested
-// HEAD to $SUITE_LOG (and fails when red). The stories take a flow that
-// enqueues approved stories into the release queue, sends them back to
-// in_progress, and closes them only through this repo's release-run check. A
-// fake gh lists the open pull requests.
 type candidateSandbox struct {
 	*changelogSandbox
 	task     item.Item
 	suiteLog string
 	tmp      string
 	ids      []string
-	held     string // the changelog verdicts' send-back lines, pasted into the candidate block
+	held     string
 }
 
-// fakeStateGH lists prs.json's pull requests in the state --state names (open
-// when none is given, every one for all, as gh does); a pull request with no
-// state is open. Any other gh call fails.
 const fakeStateGH = `#!/bin/sh
 case "$1" in
   pr)
@@ -47,8 +38,6 @@ func newCandidateSandbox(t *testing.T, red bool) *candidateSandbox {
 	return newCandidateSandboxWith(t, red, nil)
 }
 
-// newCandidateSandboxWith is newCandidateSandbox whose base commit also holds
-// base (path -> body).
 func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *candidateSandbox {
 	t.Helper()
 	s, origin, task := releaseSandbox(t, "make")
@@ -68,10 +57,7 @@ func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *ca
 	s.write(".version", "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n")
 	s.write("CHANGELOG.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), repoText(t, "scripts/changelog-items.sh"), 0o755)
-	// The drift gate runs the candidate's own drift-check.sh over its own
-	// .satelle (sto_a1681009).
 	writeFile(t, filepath.Join(s.dir, "scripts", "drift-check.sh"), repoText(t, "scripts/drift-check.sh"), 0o755)
-	// The binary decision runs the candidate's own scripts (sto_da9775c1).
 	writeFile(t, filepath.Join(s.dir, "scripts", "check-serve-version.sh"), repoText(t, "scripts/check-serve-version.sh"), 0o755)
 	add := []string{"Makefile", "a.txt", ".version", "CHANGELOG.md", "scripts/changelog-items.sh", "scripts/drift-check.sh",
 		"scripts/release-binary.sh", "scripts/check-serve-version.sh", ".satelle"}
@@ -126,8 +112,6 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	c.fake = realDir(t, t.TempDir())
 	writeFile(t, filepath.Join(c.fake, "gh"), fakeStateGH, 0o755)
 	writeFile(t, filepath.Join(c.fake, "prs.json"), "[]", 0o644)
-	// A fake go: building the candidate's satelle copies the binary built from
-	// this branch, whose validate has the substrate check.
 	writeFile(t, filepath.Join(c.fake, "go"), `#!/bin/sh
 out=; prev=
 for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
@@ -140,9 +124,6 @@ cp "$SATELLE_BIN" "$out"
 	return c
 }
 
-// item cuts a branch from main that commits path=body, approves a story for
-// it (enqueuing it into release) and lists its pull request. It returns the
-// story id and the head.
 func (c *candidateSandbox) item(name, path, body string) (string, string) {
 	c.t.Helper()
 	head := c.branch(name, c.base, [2]string{path, body})
@@ -153,7 +134,6 @@ func (c *candidateSandbox) item(name, path, body string) (string, string) {
 	return id, head
 }
 
-// block is a release.md block after heading, task rebound, run in the repo.
 func (c *candidateSandbox) block(heading string) result {
 	c.t.Helper()
 	b := shBlock(c.t, ".satelle/skills/release.md", heading, c.task.ID)
@@ -176,21 +156,16 @@ func (c *candidateSandbox) mustBlock(heading string) string {
 	return r.out
 }
 
-// decide runs release.md's binary decision on the tested candidate and
-// returns its record.
 func (c *candidateSandbox) decide() string {
 	c.t.Helper()
 	return c.mustBlock("### Decide: did the binary change")
 }
 
-// driftGate runs release.md's drift gate on the candidate and fails the test
-// unless it passes.
 func (c *candidateSandbox) driftGate() string {
 	c.t.Helper()
 	return c.mustBlock("### Drift gate on the candidate")
 }
 
-// fire runs step 0 and returns the run and its state directory.
 func (c *candidateSandbox) fire() (string, string) {
 	c.t.Helper()
 	c.mustBlock("## 0.")
@@ -202,7 +177,6 @@ func (c *candidateSandbox) fire() (string, string) {
 	return runs[0].ID, filepath.Join(c.tmp, "satelle-release-"+runs[0].ID)
 }
 
-// merged marks id's pull request merged: the fake gh no longer lists it open.
 func (c *candidateSandbox) merged(id string) {
 	c.t.Helper()
 	found := false
@@ -218,7 +192,6 @@ func (c *candidateSandbox) merged(id string) {
 	writeFile(c.t, filepath.Join(c.fake, "prs.json"), string(b), 0o644)
 }
 
-// transitions counts id's item.transitioned events from -> to.
 func (c *candidateSandbox) transitions(id, from, to string) int {
 	c.t.Helper()
 	n := 0
@@ -250,8 +223,6 @@ func (c *candidateSandbox) status(id string) string {
 	return c.get(id).Status
 }
 
-// lines are the item lines a candidate block printed, in order, without the
-// final candidate line.
 func itemLines(out string) []string {
 	var got []string
 	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
@@ -264,11 +235,6 @@ func itemLines(out string) []string {
 
 var candidateRE = regexp.MustCompile(`(?m)^candidate ([0-9a-f]{40}) at (\S+)$`)
 
-// AC1, AC2: three approved items cut from the same main, touching no shared
-// file, land in one run: the first fast-forwards, the others merge onto the
-// candidate in queue order, make test runs once on the final candidate, and
-// main fast-forwards only to that tested tree (plus the bump); every item then
-// reaches done through the release-run gate while the run is in progress.
 func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	idA, headA := c.item("a", "a2.txt", "a\n")
@@ -300,7 +266,6 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 		t.Fatalf("make test ran on %v, want once on the candidate %s", runs, cand)
 	}
 
-	// AC2: the candidate changed after the suite ran is never pushed.
 	writeFile(t, filepath.Join(wt, "late.txt"), "late\n", 0o644)
 	c.exec("git", "", "-C", wt, "add", "late.txt")
 	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "late change")
@@ -312,7 +277,6 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	}
 	c.exec("git", "", "-C", wt, "reset", "-q", "--hard", cand)
 
-	// The bump (step 3's two files) on top of the tested candidate is pushed.
 	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\n", 0o644)
 	c.exec("git", "", "-C", wt, "add", ".version")
 	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
@@ -339,7 +303,6 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	if _, err := os.Stat(rd); !os.IsNotExist(err) {
 		t.Fatalf("the run directory %s survives the push: %v", rd, err)
 	}
-	// AC1 (sto_4a863578): step 4 recorded the kept list on the run.
 	if got, want := c.must("execution", "attachment", run, "release-kept"), idA+" "+headA+"\n"+idB+" "+headB+"\n"+idC+" "+headC+"\n"; got != want {
 		t.Fatalf("release-kept on %s:\n%s\nwant\n%s", run, got, want)
 	}
@@ -357,15 +320,11 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	}
 }
 
-// A head cut from an older main does not edit CHANGELOG.md just because main
-// gained a release section since: the changelog verdict reads the head's own
-// commits, so a head the candidate merges is kept.
 func TestChangelogVerdictReadsTheHeadsOwnCommits(t *testing.T) {
 	c := newChangelogSandbox(t)
 	id := c.story("### Added\n- A adds\n")
 	head := c.branch("a", c.base, [2]string{"a.txt", "a\n"})
 	wt := c.worktree("origin/main", true)
-	// A release since the head was cut writes its section on main.
 	c.at(wt, func() { c.write("CHANGELOG.md", "## [1.0.1] - 2026-02-01\n\n### Added\n- Z adds\n\n"+baseChangelog) })
 	c.bump(wt, "1.0.1")
 	c.assertFixtures([]string{head})
@@ -378,9 +337,6 @@ func TestChangelogVerdictReadsTheHeadsOwnCommits(t *testing.T) {
 	}
 }
 
-// AC3: an item whose merge conflicts is dropped from the candidate and sent
-// back alone, naming the conflicting paths; the others still land. An item
-// the changelog verdicts sent back (pasted into held) never enters it.
 func TestReleaseConflictSendsBackOne(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	idX, headX := c.item("x", "a.txt", "x\n")
@@ -439,9 +395,6 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 	}
 }
 
-// AC2, AC4: a red candidate lands nothing; only the item that entered it by
-// merge is sent back, the fast-forward prefix stays approved for the next
-// fire, and step 4 refuses with no tested candidate.
 func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 	c := newCandidateSandbox(t, true)
 	idF, _ := c.item("f", "f.txt", "f\n")
@@ -481,8 +434,6 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 	}
 }
 
-// AC4: the release rules are restated; no process text says the release ships
-// without testing or never merges.
 func TestReleaseRulesRestated(t *testing.T) {
 	files := []string{".satelle/skills/release.md", ".satelle/skills/satelle-integration-check.md", ".satelle/skills/satelle-pr-ready-check.md", ".satelle/workflows/delivery.toml"}
 	text := map[string]string{}
@@ -501,22 +452,12 @@ func TestReleaseRulesRestated(t *testing.T) {
 	if !strings.Contains(strings.Join(strings.Fields(text[files[0]]), " "), "main only ever fast-forwards to a tree the release tested") {
 		t.Error("release.md does not say main only ever fast-forwards to a tree the release tested")
 	}
-	// The step-4 guard excludes exactly the files step 3 commits.
 	if !strings.Contains(text[files[0]], "Commit only `.version` and `CHANGELOG.md`") ||
 		!strings.Contains(shBlock(t, files[0], "## 4.", "tas_x"), `-- . ':!.version' ':!CHANGELOG.md'`) {
 		t.Error("step 3's commit list and step 4's guard name different files")
 	}
 }
 
-// AC2, AC4, AC1 (sto_4a863578): an item a run landed but did not close
-// (approved, its pull request merged, its head on origin/main inside a
-// released v* tag, the landing run cancelled after its done was refused)
-// reaches done through a fresh release run following release.md as written.
-// The review and build keep it as contained, released in its tag, and never
-// send it back; step 3 writes no second section for it; changelog-entry
-// accepts its done from the earlier section; the run closes only once it is
-// done. A control item with no open pull request and a merged head that never
-// reached origin/main is still sent back.
 func TestReleaseCarriesALandedItemToDone(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	for _, name := range []string{"satelle-pr-approval-check", "satelle-changelog-entry-check", "satelle-release-kept-check"} {
@@ -570,7 +511,6 @@ to = "cancelled"
 	c.git("tag", "v1.0.0", c.base)
 	c.git("push", "-q", "origin", "v1.0.0")
 
-	// 1. R1 lands A (step 3 writes [1.0.1], step 4 pushes) and does not close it.
 	idA, headA := c.item("a", "a2.txt", "a\n")
 	c.attach(idA, "### Fixed\n- A fixes a thing\n")
 	r1, rd1 := c.fire()
@@ -596,8 +536,6 @@ to = "cancelled"
 		t.Fatalf("R1 release-kept %q", got)
 	}
 
-	// 2. R1's done is refused while A is approved; R1 is cancelled and
-	// GitHub marks A's pull request merged.
 	if r := c.run("execution", "set", r1, "--status", "done"); r.code == 0 {
 		t.Fatalf("R1 reached done with %s approved:\n%s%s", idA, r.out, r.err)
 	}
@@ -607,7 +545,6 @@ to = "cancelled"
 	c.must("execution", "set", r1, "--status", "cancelled")
 	c.merged(idA)
 
-	// 3. main moves on past A's release: v1.0.2 carries no line of A.
 	wtB := c.worktree("origin/main", true)
 	c.at(wtB, func() {
 		c.write("b.txt", "b\n")
@@ -627,7 +564,6 @@ to = "cancelled"
 	main := c.rev("origin/main")
 	changelog := c.git("show", "origin/main:CHANGELOG.md")
 
-	// 4. R2 takes A and the control C (merged head never on origin/main).
 	idC, headC := c.item("c", "c.txt", "c\n")
 	c.merged(idC)
 	r2, rd2 := c.fire()
@@ -696,7 +632,6 @@ to = "cancelled"
 		t.Fatalf("R2 release-kept %q", got)
 	}
 
-	// 5. A reaches done through R2.
 	if r := c.run("story", "set", idA, "--status", "done"); r.code != 0 {
 		t.Fatalf("done %s: exit %d\n%s%s", idA, r.code, r.out, r.err)
 	}
@@ -707,7 +642,6 @@ to = "cancelled"
 		t.Fatalf("changelog-entry on %s: %+v", idA, g)
 	}
 
-	// 6. R2 closes, its kept item done.
 	if r := c.run("execution", "set", r2, "--status", "done"); r.code != 0 {
 		t.Fatalf("R2 done: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -715,7 +649,6 @@ to = "cancelled"
 		t.Fatalf("release-kept on R2: %+v", g)
 	}
 
-	// 7. On the ledger: A went approved -> done and never back to in_progress.
 	if n := c.transitions(idA, "approved", "done"); n != 1 {
 		t.Fatalf("%s approved -> done %d times", idA, n)
 	}
@@ -727,12 +660,6 @@ to = "cancelled"
 	}
 }
 
-// sto_a1681009 AC1: a candidate whose substrate names a command its own binary
-// lacks is refused by the drift gate before the suite; the test block and step
-// 4 refuse it too and nothing is pushed. The release fixes the line in the
-// candidate and commits; the gate passes on that sha, the suite runs once on
-// it, and step 4 pushes it with release-drift naming the fixed miss. A commit
-// after the gate passed is refused by the test block.
 func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	c.item("x", ".satelle/skills/x.md", "---\nname: x\ntype: skill\ndescription: x\n---\n\nRun `satelle nosuchcmd <id>`.\n")
@@ -762,7 +689,6 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 		t.Fatalf("origin/main moved to %s", got)
 	}
 
-	// The release fixes the miss in the candidate, in this run.
 	writeFile(t, filepath.Join(wt, ".satelle/skills/x.md"), "---\nname: x\ntype: skill\ndescription: x\n---\n\nRun `satelle story list`.\n", 0o644)
 	c.exec("git", "", "-C", wt, "add", ".satelle/skills/x.md")
 	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): substrate drift fix ("+run+")")
@@ -772,7 +698,6 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 		t.Fatalf("drift-checked %q, want the fixed candidate %s", b, fixCommit)
 	}
 
-	// A commit after the gate passed is refused until the gate runs again.
 	writeFile(t, filepath.Join(wt, "late.txt"), "late\n", 0o644)
 	c.exec("git", "", "-C", wt, "add", "late.txt")
 	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "late")

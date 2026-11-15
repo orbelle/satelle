@@ -15,14 +15,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
-// cursorReadKinds are the stream's tool-call kinds a read-only grant may
-// complete: reading, searching and listing files.
 var cursorReadKinds = []string{"readToolCall", "grepToolCall", "globToolCall", "lsToolCall"}
 
-// A read-only cursor-agent judge has no shell and no edits: told to create
-// two files, one with each, it creates neither, and its stream holds no shell
-// or edit call that ran (sto_0f41dda9 AC2). Opt-in: SATELLE_LIVE_CURSOR=1 and
-// cursor-agent on PATH.
 func TestCursorJudgeHasNoShellOrEdit(t *testing.T) {
 	if os.Getenv("SATELLE_LIVE_CURSOR") != "1" {
 		t.Skip("set SATELLE_LIVE_CURSOR=1 to run cursor-agent live")
@@ -62,8 +56,6 @@ func TestCursorJudgeHasNoShellOrEdit(t *testing.T) {
 			if (kind == "shellToolCall" || kind == "editToolCall" || kind == "writeToolCall") && (len(call.Result["success"]) > 0 || len(call.Result["failure"]) > 0) {
 				t.Errorf("a %s ran: %.300s", kind, l)
 			}
-			// Any other kind of call that was not refused is outside the
-			// grant: an MCP or other tool that ran is caught here.
 			if !slices.Contains(cursorReadKinds, kind) && len(call.Result["permissionDenied"]) == 0 && len(call.Result["rejected"]) == 0 {
 				t.Errorf("a %s completed outside the read-only grant: %.300s", kind, l)
 			}

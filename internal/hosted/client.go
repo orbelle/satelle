@@ -1,12 +1,5 @@
 package hosted
 
-// The client half of the wire with satelle-server. Every call is gRPC (the
-// services in api/satelle); only OAuth's browser authorize, discovery and token
-// endpoints stay HTTP (oauth.go, discovery.go). The bearer comes from the
-// credential store through per-RPC credentials, and an UNAUTHENTICATED answer
-// to a stored login is refreshed once through the OAuth token endpoint and the
-// call retried.
-
 import (
 	"context"
 	"crypto/tls"
@@ -29,11 +22,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-// DefaultServer is the hosted server used when none is configured.
 const DefaultServer = "https://satelle.dev"
 
-// ConfiguredServer is the server this machine is configured for in its global
-// config, else DefaultServer.
 func ConfiguredServer(gc config.GlobalConfig) string {
 	if s := gc.Hosted.ResolveServer(); s != "" {
 		return s
@@ -41,24 +31,16 @@ func ConfiguredServer(gc config.GlobalConfig) string {
 	return DefaultServer
 }
 
-// ErrLoginRequired is returned when there is no usable credential: no stored
-// tokens, or a refresh that failed.
 var ErrLoginRequired = errors.New("not signed in — run \"satelle login\"")
 
-// MaxMessageBytes caps each unary message in both directions.
 const MaxMessageBytes = 64 << 20
 
-// unknownSubjectCode prefixes the UNAUTHENTICATED message the server answers
-// when the token is valid but its subject has no account yet.
 const unknownSubjectCode = "unknown_subject"
 
-// UnknownSubjectError is the server's refusal of a valid token whose subject
-// has no account yet. It is final: refreshing cannot help.
 type UnknownSubjectError struct{ Message string }
 
 func (e *UnknownSubjectError) Error() string { return e.Message }
 
-// Client is a connection to one satelle-server with a stub for every service.
 type Client struct {
 	server string
 	store  Store
@@ -78,19 +60,11 @@ type Client struct {
 	Chain       chainpb.ChainClient
 }
 
-// Options tune Dial; the zero value dials the server's own address.
 type Options struct {
-	// HTTP is the client for the OAuth token endpoint (refresh). Nil uses a
-	// 30 second timeout.
-	HTTP *http.Client
-	// Dialer replaces the network dial (tests: a bufconn listener).
+	HTTP   *http.Client
 	Dialer func(ctx context.Context, addr string) (net.Conn, error)
 }
 
-// Dial opens a client for server with the bearer from store. server is a URL
-// (https:// dials TLS on port 443 unless one is given; http:// dials without
-// TLS on port 80 unless one is given) or a bare host:port (without TLS when the
-// host is loopback). Nothing is sent until the first call.
 func Dial(server string, store Store, o Options) (*Client, error) {
 	server = normalizeServerURL(server)
 	target, secure, err := grpcTarget(server)
@@ -135,13 +109,10 @@ func Dial(server string, store Store, o Options) (*Client, error) {
 	return c, nil
 }
 
-// Server is the normalised server URL the client was dialled for.
 func (c *Client) Server() string { return c.server }
 
-// Close closes the connection.
 func (c *Client) Close() error { return c.conn.Close() }
 
-// grpcTarget maps the server onto a dial address and whether it uses TLS.
 func grpcTarget(server string) (addr string, secure bool, err error) {
 	if !strings.Contains(server, "://") {
 		host, _, err := net.SplitHostPort(server)
@@ -186,11 +157,8 @@ func hostnameOf(addr string) string {
 	return h
 }
 
-// bearerKey carries the access token from the interceptor to bearerCreds.
 type bearerKey struct{}
 
-// bearerCreds is the per-RPC credential: the token the interceptor chose for
-// this attempt.
 type bearerCreds struct{}
 
 func (bearerCreds) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
@@ -201,11 +169,8 @@ func (bearerCreds) GetRequestMetadata(ctx context.Context, _ ...string) (map[str
 	return map[string]string{"authorization": "Bearer " + tok}, nil
 }
 
-// RequireTransportSecurity is false so a loopback test server needs no TLS;
-// Dial chooses TLS for every non-loopback https target.
 func (bearerCreds) RequireTransportSecurity() bool { return false }
 
-// credential loads the stored credential; none is ErrLoginRequired.
 func (c *Client) credential() (Credential, error) {
 	cred, err := c.store.Load(c.server)
 	if errors.Is(err, ErrNoCredential) {
@@ -237,8 +202,6 @@ func (c *Client) unaryAuth(ctx context.Context, method string, req, reply any, c
 	return err
 }
 
-// streamAuth attaches the bearer to a stream. A stream is not retried: its
-// refusal arrives with its first message, after the call has returned.
 func (c *Client) streamAuth(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	cred, err := c.credential()
 	if err != nil {
@@ -247,8 +210,6 @@ func (c *Client) streamAuth(ctx context.Context, desc *grpc.StreamDesc, cc *grpc
 	return streamer(context.WithValue(ctx, bearerKey{}, cred.AccessToken), desc, cc, method, opts...)
 }
 
-// refusal is the final reading of an UNAUTHENTICATED answer, or nil when a
-// refresh may help.
 func (c *Client) refusal(cred Credential, err error) error {
 	msg := status.Convert(err).Message()
 	if rest, ok := strings.CutPrefix(msg, unknownSubjectCode+": "); ok {
@@ -263,8 +224,6 @@ func (c *Client) refusal(cred Credential, err error) error {
 	return nil
 }
 
-// refreshAndPersist runs the refresh_token grant against the token endpoint
-// stored with the credential and persists the rotated pair before the retry.
 func (c *Client) refreshAndPersist(ctx context.Context, cred Credential) (Credential, error) {
 	if cred.TokenEndpoint == "" {
 		return Credential{}, fmt.Errorf("%w (stored credential has no token endpoint)", ErrLoginRequired)
@@ -282,11 +241,8 @@ func (c *Client) refreshAndPersist(ctx context.Context, cred Credential) (Creden
 	return rotated, nil
 }
 
-// IsNotFound reports a NOT_FOUND answer.
 func IsNotFound(err error) bool { return status.Code(err) == codes.NotFound }
 
-// Describe turns a call's error into a message for the operator: a gRPC status
-// becomes "<op>: <message>", anything else is wrapped as is.
 func Describe(op string, err error) error {
 	if err == nil {
 		return nil
@@ -301,5 +257,4 @@ func Describe(op string, err error) error {
 	return fmt.Errorf("%s: %w", op, err)
 }
 
-// Normalize is the form a server URL is keyed by in the credential store.
 func Normalize(server string) string { return normalizeServerURL(server) }

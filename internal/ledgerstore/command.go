@@ -15,34 +15,26 @@ import (
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-// The adapter operations an external store command implements.
 const (
 	OpPutIfAbsent = "put-if-absent"
 	OpGet         = "get"
 	OpList        = "list"
 )
 
-// The exit codes of the contract.
 const (
-	ExitOK        = 0 // put-if-absent created, get found, list listed
-	ExitTransient = 1 // a transient failure: satelle may retry
-	ExitPermanent = 2 // a permanent failure: bad config, access denied, unknown operation
-	ExitExists    = 3 // put-if-absent: the key exists; its body is on stdout
-	ExitNotFound  = 4 // get: no such key
+	ExitOK        = 0
+	ExitTransient = 1
+	ExitPermanent = 2
+	ExitExists    = 3
+	ExitNotFound  = 4
 )
 
-// DefaultOpTimeout bounds one operation when Command.Timeout is unset.
 const DefaultOpTimeout = 5 * time.Minute
 
-// maxStderr is how much of the command's stderr is kept to find its cause line.
 const maxStderr = 64 << 10
 
-// causeLine is the one stderr line an adapter prints on exit 1 or 2.
 var causeLine = regexp.MustCompile(`^error: (auth|not-found|conflict|unavailable|invalid): .+$`)
 
-// Command is an external store command: [ledger] store = { command, args }.
-// Each operation runs it once as Path Args... <op> <operands...>, with no
-// shell, in Dir, with the parent's environment minus the names in Withhold.
 type Command struct {
 	Path     string
 	Args     []string
@@ -51,16 +43,9 @@ type Command struct {
 	Timeout  time.Duration
 }
 
-// Error is a failed store operation. Exit is the command's exit code, -1 when
-// it has none (it could not start, a signal killed it, or it timed out). Line
-// is the command's 'error: <code>: <message>' line, verbatim, when it printed
-// one; Reason says what went wrong otherwise, and for a signal end it names the
-// signal, the command's pid and its process group. Retryable is true for exit 1
-// and a timeout. The command's stdout, raw stderr and environment are never
-// held.
 type Error struct {
 	Op        string
-	Key       string // the operands, space-separated
+	Key       string
 	Exit      int
 	Retryable bool
 	Code      string
@@ -87,17 +72,14 @@ func (e *Error) Error() string {
 	return head + ": " + e.Reason
 }
 
-// result is one run of the command.
 type result struct {
 	exit      int
 	stdout    []byte
-	line      string // the last cause line on stderr, or ""
+	line      string
 	code      string
 	stderrLen int
 }
 
-// PutIfAbsent creates key with body unless it exists. Exit 0 is created; exit
-// 3 is already present, with the existing body returned.
 func (c Command) PutIfAbsent(ctx context.Context, key string, body []byte) (existing []byte, created bool, err error) {
 	if err := CheckKey(key); err != nil {
 		return nil, false, err
@@ -119,8 +101,6 @@ func (c Command) PutIfAbsent(ctx context.Context, key string, body []byte) (exis
 	return nil, false, failure(OpPutIfAbsent, ops, r)
 }
 
-// Get reads key. Exit 0 is found, with the body; exit 4 is no such key, with a
-// nil error.
 func (c Command) Get(ctx context.Context, key string) (body []byte, found bool, err error) {
 	if err := CheckKey(key); err != nil {
 		return nil, false, err
@@ -139,10 +119,6 @@ func (c Command) Get(ctx context.Context, key string) (body []byte, found bool, 
 	return nil, false, failure(OpGet, ops, r)
 }
 
-// List returns the keys under prefix, sorted in byte order, starting after
-// after when it is not "". It checks the command's output against the
-// contract: every line a valid key under the prefix, strictly ascending, and
-// greater than after.
 func (c Command) List(ctx context.Context, prefix, after string) ([]string, error) {
 	if err := CheckKey(prefix); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
@@ -190,9 +166,6 @@ func (c Command) List(ctx context.Context, prefix, after string) ([]string, erro
 	return keys, nil
 }
 
-// failure is the error of a run that exited with a code its operation does not
-// define as success: exit 1 or 2 with the command's cause line, or a protocol
-// error naming the code.
 func failure(op string, ops []string, r result) error {
 	e := &Error{Op: op, Key: strings.Join(ops, " "), Exit: r.exit}
 	switch r.exit {
@@ -209,11 +182,6 @@ func failure(op string, ops []string, r result) error {
 	return e
 }
 
-// run executes the command once: Path Args... op operands..., with stdin as
-// its standard input. It returns the exit code, the stdout and the cause line.
-// An error is a run that has no exit code to read (it could not start, timed
-// out, was killed by a signal, or printed more than MaxBodyBytes). A signal end
-// names the signal, the command's pid and its process group in the Reason.
 func (c Command) run(ctx context.Context, op string, operands []string, stdin []byte) (result, error) {
 	key := strings.Join(operands, " ")
 	timeout := c.Timeout
@@ -262,7 +230,6 @@ func (c Command) run(ctx context.Context, op string, operands []string, stdin []
 	return r, nil
 }
 
-// cause is the last stderr line matching the contract's error line, and its code.
 func cause(stderr []byte) (string, string) {
 	lines := strings.Split(string(stderr), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -273,7 +240,6 @@ func cause(stderr []byte) (string, string) {
 	return "", ""
 }
 
-// withhold is env without the variables named in names. Nothing is added.
 func withhold(env, names []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
@@ -286,7 +252,6 @@ func withhold(env, names []string) []string {
 	return out
 }
 
-// capped keeps the first max bytes written and counts them all.
 type capped struct {
 	buf   []byte
 	max   int
@@ -301,7 +266,6 @@ func (w *capped) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// tail keeps the last max bytes written and counts them all.
 type tail struct {
 	buf   []byte
 	max   int

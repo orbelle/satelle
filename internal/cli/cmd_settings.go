@@ -11,8 +11,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/config"
 )
 
-// machineSetting is one key of ~/.satelle/config.toml that `settings` shows
-// and sets.
 type machineSetting struct {
 	key, doc string
 	get      func(config.GlobalConfig) (value, effective string)

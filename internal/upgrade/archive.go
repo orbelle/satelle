@@ -1,8 +1,3 @@
-// Package upgrade moves a repo from the pre-1.0 format onto v1: it archives
-// the old .satelle (nothing deleted) and imports the old store's items, their
-// history and documents into the v1 ledger by a status map the operator
-// confirms. It is mechanism only: it never reads the old workflows or infers
-// a route; the map decides every item's workflow and state.
 package upgrade
 
 import (
@@ -21,16 +16,14 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// Entry is one file of a tree as a manifest records it.
 type Entry struct {
-	Path   string      // slash-separated, relative to the tree
-	Mode   fs.FileMode // type and permission bits
+	Path   string
+	Mode   fs.FileMode
 	Size   int64
-	SHA256 string // regular files
-	Link   string // symlink target (never followed)
+	SHA256 string
+	Link   string
 }
 
-// Manifest records a tree so a move can be verified byte for byte.
 func Manifest(root string) ([]Entry, error) {
 	var out []Entry
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -89,23 +82,16 @@ func sameManifest(a, b []Entry) error {
 	return nil
 }
 
-// rename moves a tree; a test replaces it to force the cross-device path.
 var rename = os.Rename
 
-// copyHook lets a test damage a copy to prove the source survives.
 var copyHook = func(dst string) {}
 
-// Archived is what Archive did (or, on a dry run, would do).
 type Archived struct {
 	Source, Dest string
 	Markers      []string
 	Files        int
 }
 
-// Archive moves the pre-1.0 .satelle at dataDir to
-// <runtime>/archive/<UTC stamp>/.satelle, verified by manifest, and leaves
-// dataDir absent for a fresh init. It refuses a .satelle without pre-1.0
-// markers and an archive destination that exists.
 func Archive(dataDir, runtime string, now time.Time, dryRun bool) (Archived, error) {
 	a := Archived{Source: dataDir, Markers: kernel.LegacyMarkers(dataDir)}
 	if len(a.Markers) == 0 {
@@ -155,7 +141,6 @@ func Archive(dataDir, runtime string, now time.Time, dryRun bool) (Archived, err
 	return a, nil
 }
 
-// copyTree copies src to dst keeping modes and symlinks (never followed).
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

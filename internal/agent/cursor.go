@@ -15,38 +15,18 @@ import (
 	"strings"
 )
 
-// cursor runs Cursor's own headless CLI: `cursor-agent -p --output-format
-// stream-json --trust`, the skill and the work on stdin. Every run gets its own
-// Cursor config directory (CURSOR_CONFIG_DIR), holding the machine's sign-in
-// and a cli-config.json denying every shell command (Shell(**)), removed when
-// the run ends: nothing is written to the working tree, and runs in the same
-// directory never share a config. A read-only grant runs `--mode ask` (ask mode
-// alone still runs commands Cursor deems read-only, so the deny holds there
-// too); an Edit and Write grant runs `--force`. A Bash grant is refused: Cursor's
-// Shell rules match the commands Cursor parses, not text a shell or program
-// later runs, so they cannot fence a shell from satelle's performer denies.
-// Cursor shows every tool call in its stream, so the dispatch log records each
-// one.
 type cursor struct{}
 
 func (cursor) Name() string         { return PresetCursor }
 func (cursor) EnforcesGrants() bool { return true }
 
-// cursorDenyAllShell is the one Cursor permission rule every run carries.
 const cursorDenyAllShell = "Shell(**)"
 
-// cursorGrant is how a binding's grant is expressed to cursor-agent: ask mode
-// (read-only) or force mode, with the run's Cursor permission deny rules.
 type cursorGrant struct {
 	ask   bool
 	rules []string
 }
 
-// cursorFor maps a grant and its denies to cursor-agent, refusing what Cursor
-// cannot hold the agent to: any shell, a notebook edit, its read and search
-// tools apart, or Edit apart from Write (its one write permission). The
-// performer denies need no rule of their own: the grant runs no shell, so
-// splitDenies drops them, and every shell command is denied.
 func cursorFor(b Binding, denies []string) (cursorGrant, error) {
 	plain, _ := splitDenies(b.Tools, denies)
 	var grant []string
@@ -97,7 +77,6 @@ func (cursor) Argv(req Request) ([]string, error) {
 	return argv, nil
 }
 
-// cursorStdin is the run's stdin: the skill as a system block, then the work.
 func cursorStdin(req Request) string {
 	if req.System == "" {
 		return req.Prompt
@@ -127,9 +106,6 @@ func (c cursor) Run(ctx context.Context, req Request) (Result, error) {
 	return parseCursor(out)
 }
 
-// cursorAuthDir is where this machine's cursor-agent keeps its sign-in: the
-// run's environment's CURSOR_CONFIG_DIR, then the process's, then
-// $XDG_CONFIG_HOME/cursor, else ~/.config/cursor.
 func cursorAuthDir(req Request) string {
 	for i := len(req.Env) - 1; i >= 0; i-- {
 		if v, ok := strings.CutPrefix(req.Env[i], "CURSOR_CONFIG_DIR="); ok && v != "" {
@@ -146,10 +122,6 @@ func cursorAuthDir(req Request) string {
 	return filepath.Join(home, ".config", "cursor")
 }
 
-// cursorConfigDir makes the run's own Cursor config directory: the machine's
-// auth.json linked in (so the run is signed in as the machine is) and a
-// cli-config.json denying rules. The user's own CLI settings are not carried:
-// the run is cold. cleanup removes the directory.
 func cursorConfigDir(req Request, rules []string) (string, func(), error) {
 	dir, err := os.MkdirTemp("", "satelle-cursor-")
 	if err != nil {
@@ -180,12 +152,6 @@ func cursorConfigDir(req Request, rules []string) (string, func(), error) {
 	return dir, cleanup, nil
 }
 
-// cursorProjectConfig refuses a run under a project .cursor/cli.json that
-// could widen it: Cursor merges every such file from the git root down to the
-// cwd, and whether a project allow beats the run's deny is unproven, so the
-// run fails closed. It walks from dir (the process cwd when empty) up to /; a
-// file that does not decode, allows any tool, or sets approvalMode refuses the
-// run, naming the file. A deny-only file passes.
 func cursorProjectConfig(dir string) error {
 	if dir == "" {
 		wd, err := os.Getwd()
@@ -224,7 +190,6 @@ func cursorProjectConfig(dir string) error {
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// cursorEvent is the union of the stream-json events read here.
 type cursorEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
@@ -239,7 +204,6 @@ type cursorEvent struct {
 	} `json:"usage"`
 }
 
-// readCursorStream decodes every JSON-object line of out.
 func readCursorStream(out []byte) []cursorEvent {
 	var evs []cursorEvent
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -257,9 +221,6 @@ func readCursorStream(out []byte) []cursorEvent {
 	return evs
 }
 
-// parseCursor reads the final result event of a stream: its text and usage;
-// the model from the system init event. An error result, a stream with no
-// result, or a success with no answer is an error, never an empty verdict.
 func parseCursor(out []byte) (Result, error) {
 	evs := readCursorStream(out)
 	if len(evs) == 0 {
@@ -299,8 +260,6 @@ func parseCursor(out []byte) (Result, error) {
 
 var cursorSignIn = regexp.MustCompile(`(?i)login|authenticat|sign in`)
 
-// cursorFailure names why a run that did not exit cleanly failed: cursor-agent
-// missing, an error result, no sign-in, else runOnce's error (with stderr).
 func cursorFailure(bin string, out []byte, err error) error {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("cursor-agent is not installed or not on PATH (%s): %w", bin, err)

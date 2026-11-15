@@ -16,10 +16,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 )
 
-// agentRunMachine is a container runtime as id4me's agent-run makes one: not
-// signed in, SATELLE_HOME a custom path, and [ledger] store the store command
-// satelle-store-azure with no args, found on PATH and configured only by
-// LEDGER_ACCOUNT and LEDGER_CONTAINER in its environment.
 func agentRunMachine(t *testing.T, bin string) agentRun {
 	t.Helper()
 	dir := isolate(t)
@@ -35,10 +31,8 @@ func agentRunMachine(t *testing.T, bin string) agentRun {
 	return m
 }
 
-// agentRun is one container runtime.
 type agentRun struct{ home, satelleHome, dir string }
 
-// use makes m the current runtime.
 func (m agentRun) use(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", m.home)
@@ -47,8 +41,6 @@ func (m agentRun) use(t *testing.T) {
 	t.Chdir(m.dir)
 }
 
-// eventKeys is the sorted key set of each event `ledger list <id> --json`
-// prints.
 func eventKeys(t *testing.T, out string) [][]string {
 	t.Helper()
 	var events []map[string]json.RawMessage
@@ -67,11 +59,6 @@ func eventKeys(t *testing.T, out string) [][]string {
 	return keys
 }
 
-// The downstream contract of id4me's agent-run (flow/agent_run.py): ledger
-// pull, push and verify run with no flags and keep their exit codes; the
-// store command with no args gets LEDGER_ACCOUNT and LEDGER_CONTAINER from
-// the environment; ledger list <id> --json keeps its shape; all of it works
-// not signed in with a custom SATELLE_HOME.
 func TestAgentRunContract(t *testing.T) {
 	bin, base := t.TempDir(), t.TempDir()
 	envLog := filepath.Join(t.TempDir(), "env.log")
@@ -83,7 +70,6 @@ func TestAgentRunContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The first run: create, attach, push.
 	agentRunMachine(t, bin)
 	id := createID(t, "story", "create", "--title", "agent run", "--criteria", "c")
 	if err := os.WriteFile("evidence.md", []byte("# evidence\n"), 0o644); err != nil {
@@ -110,7 +96,6 @@ func TestAgentRunContract(t *testing.T) {
 		t.Fatalf("the adapter was never given an operation as its first argument:\n%s", logged)
 	}
 
-	// The next run: a fresh runtime pulls, verifies, lists.
 	agentRunMachine(t, bin)
 	if out, err := run(t, "", "ledger", "pull"); err != nil {
 		t.Fatalf("pull: %v\n%s", err, out)
@@ -133,7 +118,6 @@ func TestAgentRunContract(t *testing.T) {
 		}
 	}
 
-	// verify exits 3 while a referenced blob is missing ...
 	l := runtimeLedger(t)
 	atts := attachments(t, id)
 	if err := os.Remove(filepath.Join(l.Dir(), "blobs", atts[0].SHA256)); err != nil {
@@ -142,14 +126,12 @@ func TestAgentRunContract(t *testing.T) {
 	if _, err := run(t, "", "ledger", "verify"); ExitCodeOf(err) != 3 {
 		t.Fatalf("verify with a missing blob: exit %d (%v), want 3", ExitCodeOf(err), err)
 	}
-	// ... the next pull fills it ...
 	if out, err := run(t, "", "ledger", "pull"); err != nil || !strings.Contains(out, "filled: "+id) {
 		t.Fatalf("pull to fill the gap: %v\n%s", err, out)
 	}
 	if _, err := run(t, "", "ledger", "verify"); err != nil {
 		t.Fatalf("verify after the fill: %v", err)
 	}
-	// ... and exits 1 for a broken chain.
 	path := l.Path(id)
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -169,7 +151,6 @@ func TestAgentRunContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// push and pull exit 1 on a divergence, naming the item.
 	x := agentRunMachine(t, bin)
 	must(t, "ledger", "pull")
 	y := agentRunMachine(t, bin)
@@ -185,7 +166,6 @@ func TestAgentRunContract(t *testing.T) {
 			t.Errorf("%s over a diverged chain: exit %d (%v)\n%s", verb, ExitCodeOf(err), err, out)
 		}
 	}
-	// With no flags and nothing to do, push and pull exit 0.
 	x.use(t)
 	for _, verb := range []string{"push", "pull"} {
 		if _, err := run(t, "", "ledger", verb); err != nil {
@@ -193,7 +173,6 @@ func TestAgentRunContract(t *testing.T) {
 		}
 	}
 
-	// Not signed in, with the custom home in effect.
 	if got := config.GlobalDir(); got != x.satelleHome {
 		t.Errorf("GlobalDir %s, want the custom SATELLE_HOME %s", got, x.satelleHome)
 	}
@@ -204,13 +183,11 @@ func TestAgentRunContract(t *testing.T) {
 	if hosted.SignedIn(hosted.ConfiguredServer(gc)) {
 		t.Error("the runtime is signed in")
 	}
-	// The account and container come only from the environment.
 	t.Setenv("LEDGER_ACCOUNT", "")
 	if out, err := run(t, "", "ledger", "push"); ExitCodeOf(err) != 1 || !strings.Contains(out+err.Error(), "LEDGER_ACCOUNT and LEDGER_CONTAINER are required") {
 		t.Errorf("push without LEDGER_ACCOUNT: %v\n%s", err, out)
 	}
 	t.Setenv("LEDGER_ACCOUNT", "acct")
-	// An unreachable store: exit 1 with its error line, never a crash.
 	down := "#!/bin/sh\necho 'error: unavailable: down' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "satelle-store-azure"), []byte(down), 0o755); err != nil {
 		t.Fatal(err)

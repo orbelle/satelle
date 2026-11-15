@@ -25,13 +25,6 @@ from = ["doing"]
 to = "finished"
 `
 
-// A performer satelle dispatches here edits the repo through the real
-// installed hook: Perform seats the run at local:<tree> under a session of its
-// own, hands it to the performer, and releases it when the run ends, also when
-// the run fails. The stand-in claude runs the hooks .claude/settings.json
-// names, with a session id of its own in the payload, so only the session
-// Perform hands it can let an edit through; an unseated driver session in the
-// environment never does.
 func TestLocalPerformerEditsThroughTheInstalledHook(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
@@ -84,8 +77,6 @@ func TestLocalPerformerEditsThroughTheInstalledHook(t *testing.T) {
 		return p.Session, p.Location
 	}
 
-	// Control: the stand-in run directly, not dispatched by satelle, is
-	// refused by the installed hook, so it does not bypass hooks.
 	if r := s.exec(hookHarnessBin, "edit"); r.code != 0 {
 		t.Fatalf("stand-in run directly: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -96,7 +87,6 @@ func TestLocalPerformerEditsThroughTheInstalledHook(t *testing.T) {
 		t.Fatal("a denied call wrote its file")
 	}
 
-	// Perform: the dispatched performer's Edit and Write pass the gate.
 	s.must("story", "perform", id)
 	if got := calls(); !strings.Contains(got, "allow Edit") || !strings.Contains(got, "allow Write") {
 		t.Fatalf("performer calls = %q, want both allowed", got)
@@ -123,7 +113,6 @@ func TestLocalPerformerEditsThroughTheInstalledHook(t *testing.T) {
 		t.Fatalf("performer.run = %d events", n)
 	}
 
-	// A failing run: its edits still pass, and its seat is released.
 	writeFile(t, filepath.Join(fake, "fail"), "", 0o644)
 	if r := s.run("story", "perform", id); r.code == 0 {
 		t.Fatalf("failing perform exited 0\n%s%s", r.out, r.err)

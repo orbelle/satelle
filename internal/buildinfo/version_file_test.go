@@ -1,9 +1,5 @@
 package buildinfo_test
 
-// Test-only guards on this repo's .version and the skills that write and check
-// its build stamp (sto_fa7df85b). Like toolchain_pins_test.go they know paths
-// that exist because of how this repo is built, so they stay out of the binary.
-
 import (
 	"os"
 	"path/filepath"
@@ -36,9 +32,6 @@ func versionFields(t *testing.T) map[string]string {
 
 var semver = regexp.MustCompile(`^([0-9]+)\.[0-9]+\.[0-9]+$`)
 
-// .version carries v1-or-later versions for both binaries and an RFC 3339 UTC
-// build stamp. The values themselves are pinned by the commit that sets them;
-// this checks the format so it survives the next release.
 func TestVersionFileFormat(t *testing.T) {
 	f := versionFields(t)
 	for _, k := range []string{"satelle.version", "satelled.version"} {
@@ -57,8 +50,6 @@ func TestVersionFileFormat(t *testing.T) {
 	}
 }
 
-// The version-stamp check accepts .version's stamp and refuses the old format,
-// and the release skill writes the format the check reads.
 func TestBuildStampFormatAgrees(t *testing.T) {
 	check := readRepoFile(t, ".satelle/skills/satelle-version-stamp-check.md")
 	m := regexp.MustCompile(`"\$BUILD" \| grep -qE '([^']+)'`).FindStringSubmatch(check)
