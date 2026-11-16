@@ -31,9 +31,9 @@ func TestFreshnessShownForEveryPartition(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	stale := time.Now().UTC().Add(-mirror.StaleAfter - time.Hour)
-	seedFresh(t, s, "rk-stale", "stale-repo", stale)
-	seedFresh(t, s, "rk-fresh", "fresh-repo", time.Now().UTC().Add(-mirror.StaleAfter+time.Minute))
-	if _, err := s.TouchPartition(context.Background(), "rk-never", "never-repo", time.Now()); err != nil {
+	seedFresh(t, s, addedProject(t, "stale-repo"), "stale-repo", stale)
+	seedFresh(t, s, addedProject(t, "fresh-repo"), "fresh-repo", time.Now().UTC().Add(-mirror.StaleAfter+time.Minute))
+	if _, err := s.TouchPartition(context.Background(), addedProject(t, "never-repo"), "never-repo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +92,7 @@ func TestFreshnessFragmentCarriesTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	seedFresh(t, s, "rk", "repo", time.Now().UTC())
+	seedFresh(t, s, addedProject(t, "repo"), "repo", time.Now().UTC())
 	srv := httptest.NewServer(NewMirror(s).Handler)
 	t.Cleanup(srv.Close)
 

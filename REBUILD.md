@@ -331,7 +331,7 @@ merges into another package.
 | `settings` (+`server`) | kept | **8/11**. Legacy `web_port`/`sync.server` keys go. |
 | `service install/uninstall/status/restart` | kept | **8**. satelled's service entry point is maintained. |
 | `serve` | kept (alias), Q-serve | The help calls it a deprecated alias of `satelled`, but `service install` falls back to it, so it is part of satelled's entry points. |
-| `project add/list/remove/partitions/prune` (was `workspace …`, sto_b4fa76fe) | kept | **8**. Feeds satelled's mirror ingest; satelled runs no CLI command (sto_1f2f6964). |
+| `project add/list/remove/partitions/prune` (was `workspace …`, sto_b4fa76fe) | kept | **8**. Feeds satelled's mirror ingest; satelled runs no CLI command (sto_1f2f6964). The Projects page lists `[projects] paths`, a repo under the temp dir pushes nothing, and `partitions` marks the rest `not-added` for `prune` (sto_d2d7cc2b). |
 | `runtime path/list/reap` | kept | **8**. Runtime plane under `~/.satelle/<key>`. |
 | `runtime migrate` | deleted | Compat for the legacy in-repo layout. |
 | `logs` | kept | Runtime logs. The `.satelle/logs` symlink pointer goes. |

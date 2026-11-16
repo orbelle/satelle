@@ -42,6 +42,8 @@ type partitionVM struct {
 	SyncLocal       bool
 	SyncStore       string
 	SyncUpgrade     string
+	Sent            bool
+	Row             string
 }
 
 type mirrorProjectsData struct {
@@ -189,46 +191,86 @@ func mirrorRender(w http.ResponseWriter, name, base string, data any) {
 	_, _ = buf.WriteTo(w)
 }
 
+func machineProjects() config.ProjectsConfig {
+	if homeDir() == "" {
+		return config.ProjectsConfig{}
+	}
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return config.ProjectsConfig{}
+	}
+	return gc.Projects
+}
+
 func (s *MirrorServer) loadPartitions(ctx context.Context) ([]partitionVM, int, error) {
 	parts, err := s.Store.ListPartitions(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 	slugs := displaySlugs(parts)
+	byKey := make(map[string]mirror.Partition, len(parts))
+	for _, p := range parts {
+		byKey[p.RepoKey] = p
+	}
+	projects := machineProjects()
+	keys := projects.Keys()
+	built := map[string]partitionVM{}
+	seen := map[string]int{}
 	var pvm []partitionVM
 	total := 0
-	for _, p := range parts {
-		slug := slugs[p.RepoKey]
-		id := mirrorIdentity(ctx, s.Store, p.RepoKey)
-		name := id.ProjectName
-		if name == "" {
-			name = slug
+	for i, path := range projects.Paths {
+		key := keys[i]
+		p, sent := byKey[key]
+		var row partitionVM
+		switch {
+		case !sent:
+			row = partitionVM{Slug: key, Name: config.RepoName(path), Path: path, Row: key + ":unsent"}
+		default:
+			if b, ok := built[key]; ok {
+				row = b
+			} else {
+				row = s.partitionRow(ctx, p, slugs[key])
+				built[key] = row
+				total += row.Stories
+			}
+			row.Path, row.Row = path, row.Slug
 		}
-		path := id.RepoRoot
-		if path == "" {
-			path = p.RepoKey
+		if n := seen[key]; n > 0 {
+			row.Row = fmt.Sprintf("%s:%d", row.Row, n)
 		}
-		docs, _ := decodeDocs(ctx, s.Store, p.RepoKey)
-		all, _ := decodeItems(ctx, s.Store, p.RepoKey, "story")
-		stories := offPanels(all, workflowsOf(docs))
-		tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
-		workflows := len(workflowRows(docs))
-		total += len(stories)
-		lastIngest, _ := p.LastIngest()
-		st := loadPartitionSync(path)
-		pvm = append(pvm, partitionVM{
-			Slug: slug, Name: name, Path: path,
-			Stories: len(stories), Tasks: len(tasks), Workflows: workflows,
-			LastIngest:      lastIngest.Local(),
-			Stale:           p.Stale(time.Now()),
-			SyncLastSuccess: st.SyncLastSuccess,
-			SyncReason:      st.SyncReason,
-			SyncLocal:       st.SyncStore == syncstate.LocalStore,
-			SyncStore:       st.SyncStore,
-			SyncUpgrade:     st.SyncUpgrade,
-		})
+		seen[key]++
+		pvm = append(pvm, row)
 	}
 	return pvm, total, nil
+}
+
+func (s *MirrorServer) partitionRow(ctx context.Context, p mirror.Partition, slug string) partitionVM {
+	id := mirrorIdentity(ctx, s.Store, p.RepoKey)
+	name := id.ProjectName
+	if name == "" {
+		name = slug
+	}
+	path := id.RepoRoot
+	if path == "" {
+		path = p.RepoKey
+	}
+	docs, _ := decodeDocs(ctx, s.Store, p.RepoKey)
+	all, _ := decodeItems(ctx, s.Store, p.RepoKey, "story")
+	stories := offPanels(all, workflowsOf(docs))
+	tasks, _ := decodeItems(ctx, s.Store, p.RepoKey, "task")
+	lastIngest, _ := p.LastIngest()
+	st := loadPartitionSync(path)
+	return partitionVM{
+		Slug: slug, Name: name, Path: path, Sent: true,
+		Stories: len(stories), Tasks: len(tasks), Workflows: len(workflowRows(docs)),
+		LastIngest:      lastIngest.Local(),
+		Stale:           p.Stale(time.Now()),
+		SyncLastSuccess: st.SyncLastSuccess,
+		SyncReason:      st.SyncReason,
+		SyncLocal:       st.SyncStore == syncstate.LocalStore,
+		SyncStore:       st.SyncStore,
+		SyncUpgrade:     st.SyncUpgrade,
+	}
 }
 
 func (s *MirrorServer) landing(w http.ResponseWriter, r *http.Request) {
@@ -274,11 +316,24 @@ func (s *MirrorServer) projectHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *MirrorServer) crumbProjects(ctx context.Context, currentSlug string) []crumbProject {
-	parts, err := s.Store.ListPartitions(ctx)
-	if err != nil || len(parts) < 2 {
+	all, err := s.Store.ListPartitions(ctx)
+	if err != nil {
 		return nil
 	}
-	slugs := displaySlugs(parts)
+	slugs := displaySlugs(all)
+	added := map[string]bool{}
+	for _, k := range machineProjects().Keys() {
+		added[k] = true
+	}
+	var parts []mirror.Partition
+	for _, p := range all {
+		if added[p.RepoKey] || slugs[p.RepoKey] == currentSlug {
+			parts = append(parts, p)
+		}
+	}
+	if len(parts) < 2 {
+		return nil
+	}
 	nameCount := map[string]int{}
 	type pair struct{ slug, name, path string }
 	var list []pair
@@ -586,18 +641,25 @@ const mirrorProjectsSrc = `
 {{/* mirrorProjectsLive: the landing live region — full page embeds it; GET
      /fragment/projects returns only this so app.js can soft-refresh counts. */}}
 {{define "mirrorProjectsLive"}}{{if .Empty}}
-  <div class="empty">No partitions yet — run <code>satelle project add</code> to seed the mirror (satelled listens at the machine <code>[service] endpoint</code>).</div>
+  <div class="empty">No projects yet — run <code>satelle project add</code> to add this repo to this machine's projects and seed the mirror (satelled listens at the machine <code>[service] endpoint</code>).</div>
   {{else}}
   <table class="panel-table">
     <thead><tr><th>Project</th><th>Path</th><th>Stories</th><th>Tasks</th><th>Workflow</th><th>Updated</th></tr></thead>
     <tbody data-rows>{{range .Partitions}}
-      <tr class="row" data-slug="{{.Slug}}">
-        {{/* row-link + CSS ::after stretch the name <a> across the row (sty_be23ae50). */}}
-        <td><a class="wi-title row-link" href="/r/{{.Slug}}/">{{.Name}}</a></td>
+      <tr class="row" data-slug="{{.Row}}">
+        {{/* row-link + CSS ::after stretch the name <a> across the row (sty_be23ae50).
+             A project that has not pushed yet has no page: plain name, no counts. */}}
+        {{if .Sent}}<td><a class="wi-title row-link" href="/r/{{.Slug}}/">{{.Name}}</a></td>
         <td class="meta mono">{{.Path}}</td>
         <td class="n-stories"><span class="n">{{.Stories}}</span></td>
         <td class="n-tasks"><span class="n">{{.Tasks}}</span></td>
-        <td class="n-workflows"><span class="n">{{.Workflows}}</span></td>
+        <td class="n-workflows"><span class="n">{{.Workflows}}</span></td>{{else}}<td><span class="wi-title">{{.Name}}</span></td>
+        <td class="meta mono">{{.Path}}</td>
+        <td class="n-stories"><span class="n"></span></td>
+        <td class="n-tasks"><span class="n"></span></td>
+        <td class="n-workflows"><span class="n"></span></td>
+        <td class="updated-cell"><span class="meta">not sent</span></td>
+      </tr>{{continue}}{{end}}
         {{/* Rightmost deliberately: this replaces a badge that sat INSIDE the
              Project cell and pushed the name around (sty_226a661e). Landing
              shows local ingest only; a standing fail is a tag, not a log
@@ -625,7 +687,7 @@ const mirrorProjectsSrc = `
   <nav class="crumbs">{{template "rootcrumb"}}</nav>
   <header class="app">
     <h1>projects</h1>
-    <div class="meta"><span class="n-partitions">{{len .Partitions}}</span> partition{{if ne (len .Partitions) 1}}s{{end}} · push-fed mirror</div>
+    <div class="meta"><span class="n-partitions">{{len .Partitions}}</span> project{{if ne (len .Partitions) 1}}s{{end}} · push-fed mirror</div>
   </header>
   <div id="projects-live">{{template "mirrorProjectsLive" .}}</div>
   {{template "footer" .TopBar}}

@@ -341,6 +341,7 @@ func TestAutosyncConfirmsQuietMirror(t *testing.T) {
 func TestAutosyncRepairsADroppedPush(t *testing.T) {
 	m, key := localWithUI(t)
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	outsideTemp(t)
 	id := createID(t, "story", "create", "--title", "dropped push", "--criteria", "repaired")
 	flushUI(context.Background())
 	if strings.Contains(storiesOn(t, m), id) {
@@ -366,6 +367,7 @@ func TestAutosyncSatelledDownConfirmsNothing(t *testing.T) {
 	before := partitionOn(t, m, key)
 	st := syncStateOf(t)
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	outsideTemp(t)
 	must(t, "ledger", "autosync")
 	after := partitionOn(t, m, key)
 	if after.UpdatedAt != before.UpdatedAt || after.Seq != before.Seq {
@@ -755,6 +757,7 @@ func TestAutosyncSatelledDownPrunesNoPartition(t *testing.T) {
 	}
 
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	outsideTemp(t)
 	out := must(t, "ledger", "autosync")
 	if !hasPartition(t, m, "rk-gone") {
 		t.Fatal("a pass with satelled not answering removed a partition")
@@ -828,6 +831,7 @@ func TestAutosyncKeepsExistingProjects(t *testing.T) {
 func TestAutosyncCreatesNoMirror(t *testing.T) {
 	newMachine(t)
 	t.Setenv("SATELLE_SERVER_ENDPOINT", closedEndpoint(t))
+	outsideTemp(t)
 	must(t, "project", "add")
 	must(t, "ledger", "autosync")
 	if _, err := os.Stat(mirror.DefaultPath(config.GlobalDir())); !os.IsNotExist(err) {

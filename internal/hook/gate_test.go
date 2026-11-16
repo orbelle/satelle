@@ -527,3 +527,43 @@ func TestGateRefusesOperatorRecord(t *testing.T) {
 		}
 	}
 }
+
+func TestUnderTemp(t *testing.T) {
+	sys := filepath.Join(os.TempDir(), "satelle-under-temp", "repo")
+	if !UnderTemp(nil, sys) {
+		t.Errorf("%s is under os.TempDir() but UnderTemp says no", sys)
+	}
+	if !UnderTemp(nil, "/tmp/satelle-under-temp/repo") {
+		t.Error("a path under /tmp is not under the temp dir")
+	}
+	if UnderTemp(nil, "/home/op/work/repo") {
+		t.Error("a path outside every temp root is said to be under the temp dir")
+	}
+
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(root, "inside")
+	if err := os.Mkdir(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(other, "link")
+	if err := os.Symlink(inside, link); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{root}
+	if !UnderTemp(roots, inside) || !UnderTemp(roots, filepath.Join(inside, "x")) {
+		t.Error("a path inside the given root is not under it")
+	}
+	if !UnderTemp(roots, link) {
+		t.Errorf("a symlink into the given root (%s -> %s) is not under it", link, inside)
+	}
+	if UnderTemp(roots, other) || UnderTemp(roots, sys) {
+		t.Error("UnderTemp with given roots also used the default temp roots")
+	}
+}

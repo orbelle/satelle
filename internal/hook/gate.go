@@ -128,13 +128,28 @@ func attachOnlyReason(rel, loc string, g Grant) string {
 }
 
 func (g Gate) underTemp(abs string) bool {
-	roots := g.TempRoots
+	return UnderTemp(g.TempRoots, abs)
+}
+
+func UnderTemp(roots []string, path string) bool {
 	if roots == nil {
 		roots = TempRoots()
 	}
+	paths := []string{filepath.Clean(path)}
+	if p, err := filepath.EvalSymlinks(path); err == nil && p != paths[0] {
+		paths = append(paths, p)
+	}
 	for _, r := range roots {
-		if within(r, abs) {
-			return true
+		forms := []string{filepath.Clean(r)}
+		if rr, err := filepath.EvalSymlinks(r); err == nil && rr != forms[0] {
+			forms = append(forms, rr)
+		}
+		for _, f := range forms {
+			for _, p := range paths {
+				if within(f, p) {
+					return true
+				}
+			}
 		}
 	}
 	return false

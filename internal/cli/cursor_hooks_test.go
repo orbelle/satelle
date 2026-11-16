@@ -207,8 +207,8 @@ func TestCursorGateFencesAnotherRepository(t *testing.T) {
 	gittest.Git(t, foreign, "commit", "-q", "--allow-empty", "-m", "init")
 	elsewhere := t.TempDir()
 	t.Chdir(elsewhere)
-	hookTempRoots = []string{elsewhere}
-	t.Cleanup(func() { hookTempRoots = nil })
+	tempRootsOverride = []string{elsewhere}
+	t.Cleanup(func() { tempRootsOverride = nil })
 	t.Setenv("CURSOR_PROJECT_DIR", dir)
 
 	strip := func(p string) string {

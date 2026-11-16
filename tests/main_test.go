@@ -65,8 +65,36 @@ var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "G
 
 func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
+	return newSandboxAt(t, realDir(t, t.TempDir()))
+}
+
+func newSandboxOutsideTemp(t *testing.T) *sandbox {
+	t.Helper()
+	const base = "/var/tmp"
+	if st, err := os.Stat(base); err != nil || !st.IsDir() {
+		t.Skipf("%s is not a directory: no sandbox outside the temp dir", base)
+	}
+	if real, err := filepath.EvalSymlinks(base); err != nil || real == "/tmp" || strings.HasPrefix(real, "/tmp/") {
+		t.Skipf("%s resolves inside /tmp: no sandbox outside the temp dir", base)
+	}
+	dir, err := os.MkdirTemp(base, "satelle-it-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	s := newSandboxAt(t, realDir(t, dir))
+	tmp := filepath.Join(s.home, "tmp")
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.env["TMPDIR"] = tmp
+	return s
+}
+
+func newSandboxAt(t *testing.T, dir string) *sandbox {
+	t.Helper()
 	home := realDir(t, t.TempDir())
-	s := &sandbox{t: t, home: home, dir: realDir(t, t.TempDir()), env: map[string]string{
+	s := &sandbox{t: t, home: home, dir: dir, env: map[string]string{
 		"HOME":                    home,
 		"USERPROFILE":             home,
 		"SATELLE_HOME":            filepath.Join(home, ".satelle"),
