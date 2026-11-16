@@ -68,7 +68,7 @@ func TestEpicFilterFollowsParentLinks(t *testing.T) {
 		"sto_epic":     "",
 		"sto_tagged":   "epic",
 		"sto_untagged": "epic,epic:sat",
-		"sto_grand":    "order:2,epic,epic:sat",
+		"sto_grand":    "order:2",
 		"sto_other":    "",
 		"sto_orphan":   "",
 	}
@@ -103,11 +103,31 @@ func TestEpicFilterFollowsParentLinks(t *testing.T) {
 	}
 	data, _ := json.Marshal(rows)
 	prog := "var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };\n" +
-		"var TAG_FACETS = {};\n" + jsFunc(t, src, "parseQuery") + jsFunc(t, src, "rowMatches") +
+		"var TAG_FACETS = {}; var DEFAULT_ORDER = \"updated\";\n" +
+		"function collapseAll() {} function applyOrder() {} function renderChips() {}\n" +
+		"var location = { href: \"http://satelled/r/proj/#stories\", search: \"\", hash: \"#stories\" };\n" +
+		"var history = { replaceState: function (_, __, url) { var u = new URL(url); location.href = url; location.search = u.search; location.hash = u.hash; } };\n" +
 		"var rows = " + string(data) + ";\n" +
-		"var match = function (q) { var p = parseQuery(q); return Object.keys(rows).filter(function (id) {\n" +
-		"  var r = { dataset: rows[id], getAttribute: function () { return null; } }; return rowMatches(r, p); }).sort(); };\n" +
-		"console.log(JSON.stringify({ epic: match(\"tags:epic:sat\"), cleared: match(\"\"), other: match(\"tags:epic:else\") }));\n"
+		"var panel;\n" +
+		"function load() {\n" +
+		"  var input = { value: \"\", addEventListener: function () {} }, count = { textContent: \"\" };\n" +
+		"  var rs = Object.keys(rows).map(function (id) { return { id: id, dataset: rows[id], style: {}, getAttribute: function () { return null; } }; });\n" +
+		"  panel = { dataset: { topic: \"stories\" }, input: input, rows: rs,\n" +
+		"    querySelector: function (sel) { return sel === \".filterbar input\" ? input : sel === \".filter-count\" ? count : null; },\n" +
+		"    querySelectorAll: function () { return rs; } };\n" +
+		"  initFilters();\n" +
+		"}\n" +
+		"var document = { querySelectorAll: function () { return [panel]; } };\n" +
+		jsFunc(t, src, "syncFilterToURL") + jsFunc(t, src, "parseQuery") + jsFunc(t, src, "rowMatches") +
+		jsFunc(t, src, "applyFilter") + jsFunc(t, src, "initFilters") +
+		"function shown() { return panel.rows.filter(function (r) { return r.style.display !== \"none\"; }).map(function (r) { return r.id; }).sort(); }\n" +
+		"var out = {};\n" +
+		"load(); out.first = shown();\n" +
+		"panel.input.value = \"tags:epic:sat\"; applyFilter(panel); out.filtered = shown(); out.url = location.search;\n" +
+		"load(); out.reloaded = shown(); out.restored = panel.input.value;\n" +
+		"panel.input.value = \"\"; applyFilter(panel); out.cleared = shown(); out.clearedURL = location.search;\n" +
+		"panel.input.value = \"tags:epic:else\"; applyFilter(panel); out.other = shown();\n" +
+		"console.log(JSON.stringify(out));\n"
 	f := filepath.Join(t.TempDir(), "match.js")
 	if err := os.WriteFile(f, []byte(prog), 0o600); err != nil {
 		t.Fatal(err)
@@ -116,17 +136,36 @@ func TestEpicFilterFollowsParentLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
 	}
-	var got struct{ Epic, Cleared, Other []string }
+	var got struct {
+		First, Filtered, Reloaded, Cleared, Other []string
+		URL, Restored, ClearedURL                 string
+	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("node output %q: %v", out, err)
 	}
-	if want := []string{"sto_epic", "sto_grand", "sto_tagged", "sto_untagged"}; !slices.Equal(got.Epic, want) {
-		t.Errorf("tags:epic:sat shows %v, want %v: the epic and every story under it, tagged or not", got.Epic, want)
+	epic := []string{"sto_epic", "sto_tagged", "sto_untagged"}
+	if !slices.Equal(got.Filtered, epic) {
+		t.Errorf("tags:epic:sat shows %v, want %v: the epic and both its children, tagged or not, and no other item", got.Filtered, epic)
+	}
+	if got.URL != "?stories=tags%3Aepic%3Asat" {
+		t.Errorf("the epic filter wrote the URL query %q, want ?stories=tags%%3Aepic%%3Asat", got.URL)
+	}
+	if got.Restored != "tags:epic:sat" || !slices.Equal(got.Reloaded, epic) {
+		t.Errorf("after a reload the filter is %q showing %v, want tags:epic:sat showing %v", got.Restored, got.Reloaded, epic)
+	}
+	hidden := []string{"sto_grand", "sto_orphan", "sto_other"}
+	for _, id := range hidden {
+		if slices.Contains(got.Filtered, id) || !slices.Contains(got.Cleared, id) {
+			t.Errorf("%s: hidden by the epic filter %v and shown once cleared %v, want both", id, !slices.Contains(got.Filtered, id), slices.Contains(got.Cleared, id))
+		}
+	}
+	if !slices.Contains(got.Filtered, "sto_untagged") || !slices.Contains(got.Cleared, "sto_untagged") {
+		t.Errorf("the untagged child is shown under the epic filter %v and after clearing it %v, want both", got.Filtered, got.Cleared)
+	}
+	if len(got.First) != len(items) || !slices.Equal(got.Cleared, got.First) || got.ClearedURL != "" {
+		t.Errorf("clearing the epic filter shows %v with URL query %q, want the full list %v and no query", got.Cleared, got.ClearedURL, got.First)
 	}
 	if !slices.Equal(got.Other, []string{"sto_other"}) {
 		t.Errorf("tags:epic:else shows %v, want [sto_other]", got.Other)
-	}
-	if len(got.Cleared) != len(items) {
-		t.Errorf("a cleared filter shows %v, want all %d", got.Cleared, len(items))
 	}
 }
