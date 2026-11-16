@@ -281,20 +281,15 @@ func itemRows(items []Item, workflows map[string]*mirror.Workflow) []rowVM {
 }
 
 func lineageTags(it Item, byID map[string]Item) []string {
+	parent, ok := byID[it.ParentID]
+	if !ok || it.ParentID == it.ID {
+		return nil
+	}
 	var out []string
-	seen := map[string]bool{it.ID: true}
-	for p := it.ParentID; p != "" && !seen[p]; {
-		seen[p] = true
-		parent, ok := byID[p]
-		if !ok {
-			break
+	for _, tag := range parent.Tags {
+		if !slices.Contains(it.Tags, tag) && !slices.Contains(out, tag) {
+			out = append(out, tag)
 		}
-		for _, tag := range parent.Tags {
-			if !slices.Contains(it.Tags, tag) && !slices.Contains(out, tag) {
-				out = append(out, tag)
-			}
-		}
-		p = parent.ParentID
 	}
 	return out
 }

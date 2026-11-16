@@ -120,8 +120,8 @@
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(facet) === -1) return false;
       } else if (t.key === "tags" || t.key === "assignee") {
         // A list value: tags, or the assignees (sto_600b9a85) joined by commas.
-        // A row's tags filter also reads data-lineage, the tags of its parent
-        // chain (sto_dbff7bc7), so an epic's tag shows every child of the epic.
+        // A row's tags filter also reads data-lineage, its parent's tags
+        // (sto_dbff7bc7), so an epic's tag shows the epic and its children.
         var list = (row.dataset[t.key] || "").toLowerCase().split(",");
         if (t.key === "tags") list = list.concat((row.dataset.lineage || "").toLowerCase().split(","));
         var any = t.key === "assignee" && t.vals.indexOf("all") !== -1;

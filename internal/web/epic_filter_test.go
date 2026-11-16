@@ -68,7 +68,7 @@ func TestEpicFilterFollowsParentLinks(t *testing.T) {
 		"sto_epic":     "",
 		"sto_tagged":   "epic",
 		"sto_untagged": "epic,epic:sat",
-		"sto_grand":    "order:2,epic,epic:sat",
+		"sto_grand":    "order:2",
 		"sto_other":    "",
 		"sto_orphan":   "",
 	}
@@ -143,15 +143,24 @@ func TestEpicFilterFollowsParentLinks(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("node output %q: %v", out, err)
 	}
-	epic := []string{"sto_epic", "sto_grand", "sto_tagged", "sto_untagged"}
+	epic := []string{"sto_epic", "sto_tagged", "sto_untagged"}
 	if !slices.Equal(got.Filtered, epic) {
-		t.Errorf("tags:epic:sat shows %v, want %v: the epic and every story under it, tagged or not", got.Filtered, epic)
+		t.Errorf("tags:epic:sat shows %v, want %v: the epic and both its children, tagged or not, and no other item", got.Filtered, epic)
 	}
 	if got.URL != "?stories=tags%3Aepic%3Asat" {
 		t.Errorf("the epic filter wrote the URL query %q, want ?stories=tags%%3Aepic%%3Asat", got.URL)
 	}
 	if got.Restored != "tags:epic:sat" || !slices.Equal(got.Reloaded, epic) {
 		t.Errorf("after a reload the filter is %q showing %v, want tags:epic:sat showing %v", got.Restored, got.Reloaded, epic)
+	}
+	hidden := []string{"sto_grand", "sto_orphan", "sto_other"}
+	for _, id := range hidden {
+		if slices.Contains(got.Filtered, id) || !slices.Contains(got.Cleared, id) {
+			t.Errorf("%s: hidden by the epic filter %v and shown once cleared %v, want both", id, !slices.Contains(got.Filtered, id), slices.Contains(got.Cleared, id))
+		}
+	}
+	if !slices.Contains(got.Filtered, "sto_untagged") || !slices.Contains(got.Cleared, "sto_untagged") {
+		t.Errorf("the untagged child is shown under the epic filter %v and after clearing it %v, want both", got.Filtered, got.Cleared)
 	}
 	if len(got.First) != len(items) || !slices.Equal(got.Cleared, got.First) || got.ClearedURL != "" {
 		t.Errorf("clearing the epic filter shows %v with URL query %q, want the full list %v and no query", got.Cleared, got.ClearedURL, got.First)
