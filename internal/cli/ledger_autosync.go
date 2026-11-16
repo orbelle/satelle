@@ -2,13 +2,9 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -41,10 +37,12 @@ confirms nothing. A pre-1.0 project is skipped with one "needs upgrade" line
 naming satelle upgrade --archive, is recorded so satelled shows it, and does
 not fail the pass. Each other project's untracked harness hook files in use
 are refreshed first, as satelle agents refresh does; a refresh failure is
-printed and does not fail the pass. A project whose path no longer exists is
-removed from this machine's projects, and each partition of this machine's
-satelled whose recorded project path no longer exists is removed; a satelled
-that is not answering removes no partition. Exits 1 when any project's pass
+printed and does not fail the pass. Before any project is visited the pass
+runs doctor's projects check and its fix, as satelle doctor --resolve does: a
+project whose path no longer exists is removed from this machine's projects.
+Each partition of this machine's satelled whose recorded project path no
+longer exists is removed; a satelled that is not answering removes no
+partition. Exits 1 when any project's pass
 failed; a confirm or a prune that fails does not fail the pass.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -53,7 +51,7 @@ failed; a confirm or a prune that fails does not fail the pass.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			gc = pruneGoneProjects(gc, out)
+			gc = runProjectsFix(cmd.Context(), gc, out)
 			stale := staleHook(substrateTree(NewRootCmd()))
 			var failed []string
 			for _, path := range gc.Projects.Paths {
@@ -71,37 +69,27 @@ failed; a confirm or a prune that fails does not fail the pass.`,
 	}
 }
 
-func projectPathGone(path string) bool {
-	if !filepath.IsAbs(path) {
-		return false
+func runProjectsFix(ctx context.Context, gc config.GlobalConfig, out io.Writer) config.GlobalConfig {
+	issues, notes := checkProjects(ctx, nil)
+	for _, n := range notes {
+		fmt.Fprintf(out, "projects not checked: %s\n", n)
 	}
-	_, err := os.Stat(path)
-	return err != nil && errors.Is(err, fs.ErrNotExist)
-}
-
-func pruneGoneProjects(gc config.GlobalConfig, out io.Writer) config.GlobalConfig {
-	var gone []string
-	for _, p := range gc.Projects.Paths {
-		if projectPathGone(p) {
-			gone = append(gone, p)
+	if len(issues) == 0 {
+		return gc
+	}
+	var rep resolveReport
+	resolveProjects(&rep, issues)
+	for _, a := range rep.Actions {
+		if a.Result == resultFailed {
+			fmt.Fprintf(out, "%s: not fixed: %s\n", a.Problem, a.Detail)
+			continue
 		}
+		fmt.Fprintln(out, a.Detail)
 	}
-	if len(gone) == 0 {
-		return gc
+	if fresh, err := config.LoadGlobal(); err == nil {
+		return fresh
 	}
-	pruned := gc
-	pruned.Projects.Paths = slices.Clone(gc.Projects.Paths)
-	for _, p := range gone {
-		pruned.Projects.Remove(p)
-	}
-	if err := config.SaveGlobal(pruned); err != nil {
-		fmt.Fprintf(out, "projects not pruned: %v\n", err)
-		return gc
-	}
-	for _, p := range gone {
-		fmt.Fprintf(out, "%s: removed from this machine's projects: path no longer exists\n", p)
-	}
-	return pruned
+	return gc
 }
 
 func pruneGonePartitions(ctx context.Context, out io.Writer) {

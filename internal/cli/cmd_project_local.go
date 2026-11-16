@@ -34,14 +34,11 @@ func projectLocalCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			gc, err := config.LoadGlobal()
+			removed, err := removeLocalProject(path)
 			if err != nil {
 				return err
 			}
-			if gc.Projects.Remove(path) {
-				if err := config.SaveGlobal(gc); err != nil {
-					return err
-				}
+			if removed {
 				fmt.Fprintf(cmd.OutOrStdout(), "removed project %s from this machine's projects\n", path)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s was not a project on this machine\n", path)

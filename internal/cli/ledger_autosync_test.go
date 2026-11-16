@@ -696,8 +696,19 @@ func TestAutosyncPrunesGoneProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	before, _ := run(t, "", "doctor", "--json")
+	if !strings.Contains(before, `"resolve": "`+resolveRemoveProject+`"`) || !strings.Contains(before, gone) {
+		t.Fatalf("doctor before the pass does not report %s with the %s fix:\n%s", gone, resolveRemoveProject, before)
+	}
+
 	out := autosync(t, m)
 
+	if after, _ := run(t, "", "doctor", "--json"); strings.Contains(after, gone) {
+		t.Errorf("doctor after the pass still reports %s:\n%s", gone, after)
+	}
+	if want := gone + ": removed from this machine's projects: path no longer exists"; !strings.Contains(out, want) {
+		t.Errorf("the pass did not print doctor's fix detail %q:\n%s", want, out)
+	}
 	gc, err = config.LoadGlobal()
 	if err != nil {
 		t.Fatal(err)
@@ -821,28 +832,6 @@ func TestAutosyncCreatesNoMirror(t *testing.T) {
 	must(t, "ledger", "autosync")
 	if _, err := os.Stat(mirror.DefaultPath(config.GlobalDir())); !os.IsNotExist(err) {
 		t.Errorf("the pass created %s (stat err %v)", mirror.DefaultPath(config.GlobalDir()), err)
-	}
-}
-
-func TestProjectPathGone(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "f")
-	if err := os.WriteFile(file, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range []struct {
-		name, path string
-		want       bool
-	}{
-		{"missing absolute path", filepath.Join(dir, "missing"), true},
-		{"existing directory", dir, false},
-		{"existing file", file, false},
-		{"empty string", "", false},
-		{"missing relative path", "no-such-relative-dir", false},
-	} {
-		if got := projectPathGone(c.path); got != c.want {
-			t.Errorf("%s: projectPathGone(%q) = %v, want %v", c.name, c.path, got, c.want)
-		}
 	}
 }
 

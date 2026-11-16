@@ -42,6 +42,7 @@ type doctorIssue struct {
 	Resolve string `json:"resolve,omitempty"`
 	item    string
 	session string
+	path    string
 }
 
 const (
@@ -50,6 +51,7 @@ const (
 	resolveReleaseSeat    = "release-seat"
 	resolveAsk            = "ask"
 	resolveFixItem        = "fix-item"
+	resolveRemoveProject  = "remove-project"
 )
 
 type doctorReport struct {
@@ -85,7 +87,7 @@ func loadDoctorInput(dir string) *doctorInput {
 }
 
 func doctorChecks(in *doctorInput) []doctorCheck {
-	checks := []doctorCheck{{"versions", checkVersions}, {"upgrade", checkUpgrade}}
+	checks := []doctorCheck{{"versions", checkVersions}, {"upgrade", checkUpgrade}, {checkProjectsName, checkProjects}}
 	if !in.inRepo || len(in.legacy) > 0 {
 		return append(checks, doctorCheck{"sync", checkSyncTimerOnly})
 	}
