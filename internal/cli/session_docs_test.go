@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 )
 
@@ -345,25 +347,36 @@ func atCommandPosition(prefix string) bool {
 	return true
 }
 
+const sessionExceptionsFile = ".satelle/session-exceptions.toml"
+
 type sessionException struct {
-	File, Text, Why string
+	File string `toml:"file"`
+	Text string `toml:"text"`
+	Why  string `toml:"why"`
 }
 
-var sessionExceptions = []sessionException{
-	{"internal/help/topics/workflows.md", "satelle story record <id> --file F", "E2: the operator's verb; a named session is refused"},
-	{".satelle/remotes/satelle-cicd/tasks/tsk_release.md", "satelle execution record", "E2: the operator's verb; a named session is refused"},
-	{"*", "satelle hook gate", "E3: the harness's call; the session arrives in its payload"},
-	{"*", "satelle hook context", "E3: the harness's call; the session arrives in its payload"},
-	{"*", "satelle hook prompt", "E3: the harness's call; the session arrives in its payload"},
-	{"*", "satelle hook stopcheck", "E3: the harness's call; the session arrives in its payload"},
-	{".satelle/skills/satelle-release-installed-check.md", "satelle version is not satelle", "E4: a message about the output"},
-	{".satelle/skills/satelle-release-installed-check.md", "satelle service status lacks", "E4: a message about the output"},
-	{".satelle/skills/satelle-release-installed-check.md", "satelle service status warns", "E4: a message about the output"},
-	{".satelle/skills/satelle-pr-review-publish.md", "satelle project show named no project", "E4: a message about the output"},
+func loadSessionExceptions(t *testing.T, root string) []sessionException {
+	t.Helper()
+	var f struct {
+		Exception []sessionException `toml:"exception"`
+	}
+	md, err := toml.DecodeFile(filepath.Join(root, sessionExceptionsFile), &f)
+	if err != nil {
+		t.Fatalf("%s: %v", sessionExceptionsFile, err)
+	}
+	if u := md.Undecoded(); len(u) > 0 {
+		t.Fatalf("%s: unknown keys %v", sessionExceptionsFile, u)
+	}
+	for i, e := range f.Exception {
+		if e.File == "" || e.Text == "" || e.Why == "" {
+			t.Fatalf("%s: exception %d needs file, text and why: %+v", sessionExceptionsFile, i+1, e)
+		}
+	}
+	return f.Exception
 }
 
-func excepted(file string, c shownCmd) bool {
-	for _, e := range sessionExceptions {
+func excepted(exceptions []sessionException, file string, c shownCmd) bool {
+	for _, e := range exceptions {
 		if (e.File == "*" || e.File == file) && strings.HasPrefix(c.Text, e.Text) {
 			return true
 		}
@@ -382,7 +395,7 @@ func isCheckSkill(text string) bool {
 	return regexp.MustCompile(`(?m)^type:\s*check\s*$`).MatchString(text[4 : 4+end])
 }
 
-func missingSession(t *testing.T, root string) []string {
+func missingSession(t *testing.T, root string, exceptions []sessionException) []string {
 	t.Helper()
 	tree := NewRootCmd()
 	var out []string
@@ -393,7 +406,7 @@ func missingSession(t *testing.T, root string) []string {
 		}
 		check := isCheckSkill(string(b))
 		for _, c := range scanDoc(tree, string(b)) {
-			if c.HasSession() || excepted(rel, c) || (check && c.CmdPos) {
+			if c.HasSession() || excepted(exceptions, rel, c) || (check && c.CmdPos) {
 				continue
 			}
 			out = append(out, rel+":"+strconv.Itoa(c.Line)+": "+c.Text)
@@ -402,20 +415,18 @@ func missingSession(t *testing.T, root string) []string {
 	return out
 }
 
-func TestEveryShownCommandNamesTheSession(t *testing.T) {
-	missing := missingSession(t, repoRoot)
-	for _, m := range missing {
-		t.Errorf("no --session: %s", m)
-	}
+func staleExceptions(t *testing.T, root string, exceptions []sessionException) []string {
+	t.Helper()
 	tree := NewRootCmd()
-	docs := sessionDocs(t, repoRoot)
-	for _, e := range sessionExceptions {
+	docs := sessionDocs(t, root)
+	var out []string
+	for _, e := range exceptions {
 		found := false
 		for _, rel := range docs {
 			if e.File != "*" && e.File != rel {
 				continue
 			}
-			b, _ := os.ReadFile(filepath.Join(repoRoot, rel))
+			b, _ := os.ReadFile(filepath.Join(root, rel))
 			for _, c := range scanDoc(tree, string(b)) {
 				if strings.HasPrefix(c.Text, e.Text) {
 					found = true
@@ -423,8 +434,54 @@ func TestEveryShownCommandNamesTheSession(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("stale exception %q in %s (%s)", e.Text, e.File, e.Why)
+			out = append(out, fmt.Sprintf("stale exception %q in %s (%s)", e.Text, e.File, e.Why))
 		}
+	}
+	return out
+}
+
+func TestEveryShownCommandNamesTheSession(t *testing.T) {
+	exceptions := loadSessionExceptions(t, repoRoot)
+	for _, m := range missingSession(t, repoRoot, exceptions) {
+		t.Errorf("no --session: %s", m)
+	}
+	for _, s := range staleExceptions(t, repoRoot, exceptions) {
+		t.Error(s)
+	}
+}
+
+func TestTheSessionCheckReadsItsExceptionsFromTheFile(t *testing.T) {
+	root := t.TempDir()
+	put := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(".satelle/skills/s.md", "Run `satelle story list` first.\n\nThen `satelle status --session <session>`.\n")
+	put(sessionExceptionsFile, "")
+	none := loadSessionExceptions(t, root)
+	if got := missingSession(t, root, none); !slices.Equal(got, []string{".satelle/skills/s.md:1: satelle story list"}) {
+		t.Errorf("no exceptions: missing = %v, want the uncovered command named with its file and line", got)
+	}
+
+	put(sessionExceptionsFile, "[[exception]]\nfile = \".satelle/skills/s.md\"\ntext = \"satelle story list\"\nwhy = \"x\"\n")
+	covered := loadSessionExceptions(t, root)
+	if got := missingSession(t, root, covered); len(got) != 0 {
+		t.Errorf("an entry in the file covers it: missing = %v, want none", got)
+	}
+	if got := staleExceptions(t, root, covered); len(got) != 0 {
+		t.Errorf("a used entry is reported stale: %v", got)
+	}
+
+	put(sessionExceptionsFile, "[[exception]]\nfile = \"*\"\ntext = \"satelle queue show\"\nwhy = \"unused\"\n")
+	stale := loadSessionExceptions(t, root)
+	if got := staleExceptions(t, root, stale); len(got) != 1 || !strings.Contains(got[0], `stale exception "satelle queue show"`) {
+		t.Errorf("an entry matching no shown command: stale = %v, want it named", got)
 	}
 }
 

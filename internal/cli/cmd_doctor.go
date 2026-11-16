@@ -22,8 +22,8 @@ Its checks:
   substrate  a satelle command, flag, help topic or [[link]] the repo's
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)
-  volatile   a line of the substrate Markdown, or of a file
-             .satelle/volatile.toml names under paths, that matches one of its
+  volatile   a line of a file .satelle/volatile.toml names under paths
+             (shipped: the .satelle Markdown) that matches one of its
              volatile patterns (a version string, "currently", a model id),
              unless it matches its dated expression (shipped: a YYYY-MM-DD
              date) or carries the exempt marker; files its exclude globs
@@ -44,6 +44,8 @@ Its checks:
              satelled disagree (satelle service restart, satelle update)
   upgrade    this repo's .satelle is pre-1.0 (satelle upgrade --archive, run
              here); each other registered pre-1.0 project is a note
+  projects   a project of this machine (~/.satelle/config.toml [projects])
+             whose path no longer exists (satelle project remove <path>)
   sync       the sync timer is missing or not active, or the last automatic
              sync pass failed; the last pass's pushed, pulled and forked items
              are a note (read from the recorded pass, never the store)
@@ -55,8 +57,9 @@ Its checks:
   check:<s>  each check skill .satelle/doctor.toml names
   open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects
 
-Outside a satelle repo only the machine checks (versions, upgrade, sync)
-run; in a pre-1.0 repo only versions, upgrade and the sync timer are checked. The
+Outside a satelle repo only the machine checks (versions, upgrade, projects,
+sync) run; in a pre-1.0 repo only versions, upgrade, projects and the sync
+timer are checked. The
 session-start hook runs the same checks within ` + doctorHookBudget.String() + ` and prints a short
 summary; a check still running then is listed as not checked. doctor exits 0
 when it finds nothing and 1 when it finds an issue.
@@ -65,6 +68,8 @@ when it finds nothing and 1 when it finds an issue.
   - a missing satelle.service or sync timer, or a timer not active: it runs
     the satelle service install action; satelled not answering or running
     another build than the installed one: satelle service restart;
+  - a project of this machine whose path no longer exists: it removes it from
+    ~/.satelle/config.toml [projects], without asking;
   - a seat bound on this machine whose session's process has exited, or a
     seat on an item in a terminal state wherever its session ran: it
     releases it, without asking;
@@ -148,7 +153,7 @@ func resolvable(in *doctorInput, issues []doctorIssue, tty bool) int {
 	n := 0
 	for _, is := range issues {
 		switch is.Resolve {
-		case resolveInstallService, resolveRestartService:
+		case resolveInstallService, resolveRestartService, resolveRemoveProject:
 			n++
 		case resolveFixItem:
 			if !broken && len(resolveUnset(in)) == 0 {

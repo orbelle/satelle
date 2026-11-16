@@ -18,6 +18,7 @@ import (
 
 const (
 	resultApplied  = "applied"
+	resultRemoved  = "removed"
 	resultReleased = "released"
 	resultKept     = "kept"
 	resultOpened   = "opened"
@@ -100,6 +101,7 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 			rep.act(is, outcome(err), detail(buf.String(), err))
 		}
 	}
+	resolveProjects(&rep, by[resolveRemoveProject])
 	for _, is := range by[""] {
 		rep.leave(is, "", leftNoFix)
 	}

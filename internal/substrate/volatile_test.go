@@ -187,7 +187,7 @@ func volatile(t *testing.T, dataDir string, r VolatileRules) []Finding {
 	return got
 }
 
-func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
+func TestVolatileScansOnlyConfiguredPaths(t *testing.T) {
 	tmp, data := volatileRepo(t)
 	repo := filepath.Dir(data)
 	put(t, filepath.Join(data, "skills", "x.md"), "1\n2\n3\n4\n5\n6\n"+staleLine)
@@ -199,6 +199,16 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 	put(t, filepath.Join(repo, "docs", "a", "n.md"), staleLine)
 
 	rules := testRules()
+	if got := volatile(t, data, rules); len(got) != 0 {
+		t.Fatalf("paths []: the .satelle Markdown was read: %v", got)
+	}
+	rules.Paths = []string{"docs/**/*.md"}
+	files := filesOf(volatile(t, data, rules))
+	if len(files) != 1 || files["docs/a/n.md"] != 1 {
+		t.Fatalf("paths naming no .satelle file: want docs/a/n.md alone, got %v", files)
+	}
+
+	rules.Paths = []string{".satelle/**/*.md"}
 	got := volatile(t, data, rules)
 	var x *Finding
 	for i := range got {
@@ -212,7 +222,7 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 	if s := x.String(); !strings.Contains(s, ".satelle/skills/x.md:7: volatile: version — ") || !strings.Contains(s, rules.Patterns[0].Match) {
 		t.Errorf("line form %q", s)
 	}
-	files := filesOf(got)
+	files = filesOf(got)
 	for _, f := range subs {
 		if files[".satelle/"+f] != 1 {
 			t.Errorf(".satelle/%s not reported once: %v", f, files)
@@ -222,14 +232,12 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 		t.Errorf("a file no list names was read: %v", files)
 	}
 
-	rules.Paths = []string{"docs/**/*.md", ".satelle/workflows/*.toml"}
+	rules.Paths = []string{".satelle/**/*.md", "docs/**/*.md", ".satelle/workflows/*.toml", ".satelle/skills/x.md"}
 	files = filesOf(volatile(t, data, rules))
 	if files["docs/a/n.md"] != 1 || files[".satelle/workflows/w.toml"] != 1 {
 		t.Errorf("configured paths not reported: %v", files)
 	}
-
-	rules.Paths = []string{".satelle/**/*.md"}
-	for f, n := range filesOf(volatile(t, data, rules)) {
+	for f, n := range files {
 		if n != 1 {
 			t.Errorf("%s reported %d times", f, n)
 		}
@@ -239,7 +247,7 @@ func TestVolatileScansSubstrateAndConfiguredPaths(t *testing.T) {
 	for _, f := range excludedFiles {
 		put(t, filepath.Join(repo, filepath.FromSlash(f)), staleLine)
 	}
-	for _, paths := range [][]string{{"docs/**"}, {"docs/**", ".satelle/**"}} {
+	for _, paths := range [][]string{{"docs/**", ".satelle/**/*.md"}, {"docs/**", ".satelle/**"}} {
 		rules.Paths = paths
 		rules.Exclude = []string{".satelle/runs/**", "**/testdata/**"}
 		files = filesOf(volatile(t, data, rules))

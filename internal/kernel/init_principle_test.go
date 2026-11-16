@@ -57,6 +57,11 @@ func principleSentences(text string) (checked, skipped []string) {
 
 func goFilesHolding(t *testing.T, root string, sentences []string) (hits map[string][]string, read int) {
 	t.Helper()
+	return goSourcesHolding(t, root, sentences, func(p string) bool { return !strings.HasSuffix(p, "_test.go") })
+}
+
+func goSourcesHolding(t *testing.T, root string, sentences []string, keep func(path string) bool) (hits map[string][]string, read int) {
+	t.Helper()
 	hits = map[string][]string{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -68,7 +73,7 @@ func goFilesHolding(t *testing.T, root string, sentences []string) (hits map[str
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		if !strings.HasSuffix(p, ".go") || !keep(p) {
 			return nil
 		}
 		b, err := os.ReadFile(p)
@@ -197,12 +202,32 @@ func TestThePrincipleIsNotAGoLiteral(t *testing.T) {
 	}
 }
 
+func TestThePrincipleTestsHoldNoSentenceOfIt(t *testing.T) {
+	checked, _ := principleSentences(embeddedReferencePrinciple(t))
+	tests := []string{filepath.Join("..", "kernel", "init_principle_test.go"), filepath.Join("..", "cli", "init_principle_test.go")}
+	hits, read := goSourcesHolding(t, "..", checked, func(p string) bool { return slices.Contains(tests, p) })
+	if read != len(tests) {
+		t.Fatalf("the scan read %d of the principle tests %v", read, tests)
+	}
+	for p, ss := range hits {
+		for _, s := range ss {
+			t.Errorf("%s restates the principle's sentence %q", p, s)
+		}
+	}
+}
+
 func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 	text := embeddedReferencePrinciple(t)
 	checked, skipped := principleSentences(text)
-	const plain = "rules and process are stated plainly"
-	if !slices.Contains(checked, plain) {
-		t.Fatalf("%q is not a checked sentence: %q", plain, checked)
+	plain := ""
+	for _, s := range checked {
+		if !strings.ContainsAny(s, "`\"\\") {
+			plain = s
+			break
+		}
+	}
+	if plain == "" {
+		t.Fatalf("no checked sentence can be pasted into a Go string as it is: %q", checked)
 	}
 
 	tree := func(files map[string]string) string {
@@ -216,7 +241,7 @@ func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 	dir := tree(map[string]string{"pkg/lit.go": line, "pkg/lit_test.go": line})
 	hits, _ := goFilesHolding(t, dir, checked)
 	if got := hits[filepath.Join(dir, "pkg", "lit.go")]; !slices.Contains(got, plain) {
-		t.Errorf("the pasted plain-rules sentence was not reported: %v", hits)
+		t.Errorf("the pasted sentence %q was not reported: %v", plain, hits)
 	}
 	if _, ok := hits[filepath.Join(dir, "pkg", "lit_test.go")]; ok {
 		t.Errorf("a _test.go file was reported: %v", hits)
@@ -232,7 +257,7 @@ func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 	shout := strings.ReplaceAll(strings.ToUpper(plain), " ", "  ")
 	dir = tree(map[string]string{"pkg/p.go": "package pkg\n\n// " + shout + "\n"})
 	if hits, _ := goFilesHolding(t, dir, checked); !slices.Contains(hits[filepath.Join(dir, "pkg", "p.go")], plain) {
-		t.Errorf("the plain-rules sentence upper-cased with doubled spaces was not reported")
+		t.Errorf("the sentence %q upper-cased with doubled spaces was not reported", plain)
 	}
 
 	units := 0
@@ -258,20 +283,9 @@ func TestThePrincipleScanChecksEverySentence(t *testing.T) {
 			t.Errorf("a skipped fragment %q was reported: %v", frag, hits)
 		}
 	}
-
-	plainForm := func(s string) string { return strings.ReplaceAll(s, "`", "") }
-	var ref, dated, form bool
-	for _, s := range checked {
-		ref = ref || strings.Contains(plainForm(s), "name the command, file or [[link]] that answers a volatile question")
-		dated = dated || s == "a volatile fact may appear only as dated history"
-		form = form || plainForm(s) == "on <date> x was y"
-	}
-	if !ref || !dated || !form {
-		t.Errorf("rule coverage: reference %v, dated-history rule %v, dated form %v in %q", ref, dated, form, checked)
-	}
 }
 
-func TestTheDatedHistoryLineDrawsNoVolatileFinding(t *testing.T) {
+func TestNoLineOfThePrincipleDrawsAVolatileFinding(t *testing.T) {
 	_, c := initVolatile(t)
 	set, err := substrate.CompileVolatile(c.Volatile)
 	if err != nil {
@@ -281,23 +295,24 @@ func TestTheDatedHistoryLineDrawsNoVolatileFinding(t *testing.T) {
 		t.Fatalf("the shipped volatile.toml has dated %q exempt %q", c.Volatile.Dated, c.Volatile.Exempt)
 	}
 	dated := regexp.MustCompile(c.Volatile.Dated)
-	var line string
-	for _, l := range strings.Split(embeddedReferencePrinciple(t), "\n") {
-		if strings.Contains(l, "`on <date> X was Y`") {
-			line = l
+	n := 0
+	for i, l := range strings.Split(embeddedReferencePrinciple(t), "\n") {
+		if strings.TrimSpace(l) == "" {
+			continue
 		}
+		n++
 		if dated.MatchString(l) || strings.Contains(l, c.Volatile.Exempt) {
-			t.Errorf("principle line passes by exemption: %q", l)
+			t.Errorf("principle line %d passes by exemption: %q", i+1, l)
+		}
+		if got := substrate.VolatileText("p.md", l, set); len(got) != 0 {
+			t.Errorf("principle line %d draws %v", i+1, got)
 		}
 	}
-	if line == "" {
-		t.Fatal("the principle has no line holding `on <date> X was Y`")
+	if n == 0 {
+		t.Fatal("the principle has no line")
 	}
-	if got := substrate.VolatileText("p.md", line, set); len(got) != 0 {
-		t.Errorf("the dated-history line draws %v", got)
-	}
-	got := substrate.VolatileText("p.md", line+" currently", set)
-	if len(got) != 1 || got[0].Subject != "present-tense" {
-		t.Errorf("control: the line with ' currently' drew %v, want one present-tense finding", got)
+	probe := substrate.VolatileText("p.md", "probe line currently", set)
+	if len(probe) != 1 {
+		t.Errorf("control: a line with ' currently' drew %v, want one finding", probe)
 	}
 }
