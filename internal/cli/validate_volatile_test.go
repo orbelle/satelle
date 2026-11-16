@@ -79,9 +79,10 @@ func TestValidateReportsVolatileLiterals(t *testing.T) {
 	}
 	setPaths := func(paths string) {
 		t.Helper()
-		body := strings.TrimPrefix(strings.Replace("\n"+string(b), "\npaths = []\n", "\npaths = "+paths+"\n", 1), "\n")
+		const shipped = "\npaths = [\".satelle/**/*.md\"]\n"
+		body := strings.TrimPrefix(strings.Replace("\n"+string(b), shipped, "\npaths = "+paths+"\n", 1), "\n")
 		if body == string(b) {
-			t.Fatalf("no paths = [] line in %s", conf)
+			t.Fatalf("no %s line in %s", strings.TrimSpace(shipped), conf)
 		}
 		writeFile(t, conf, body)
 	}
@@ -99,6 +100,9 @@ func TestValidateReportsVolatileLiterals(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("docs/notes.md reported %d times, want once:\n%s", n, js)
+	}
+	if slices.ContainsFunc(rep.Volatile, func(f substrate.Finding) bool { return strings.HasPrefix(f.File, ".satelle/") }) {
+		t.Errorf("paths naming no .satelle file: a .satelle file was reported:\n%s", js)
 	}
 
 	setPaths(`["../x/*.md"]`)
@@ -145,6 +149,14 @@ func TestRepoVolatileBaselineRuns(t *testing.T) {
 					t.Errorf("present-tense: this repo matches %q, a fresh init %q", q.Match, p.Match)
 				}
 			}
+		}
+	}
+	if len(tmpl.Volatile.Paths) == 0 {
+		t.Error("the shipped volatile.toml declares no paths, so the scan reads nothing")
+	}
+	for _, g := range tmpl.Volatile.Paths {
+		if !slices.Contains(cfg.Volatile.Paths, g) {
+			t.Errorf("this repo's volatile.toml lacks the template's path %q (has %v)", g, cfg.Volatile.Paths)
 		}
 	}
 	if cfg.Volatile.Dated == "" || cfg.Volatile.Dated != tmpl.Volatile.Dated {

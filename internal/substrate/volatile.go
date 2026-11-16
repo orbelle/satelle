@@ -192,9 +192,6 @@ func Volatile(dataDir string, r VolatileRules) ([]Finding, error) {
 	}
 	base := filepath.Dir(dataDir)
 	files := map[string]string{}
-	if err := s.walk(base, dataDir, func(name string) bool { return strings.HasSuffix(name, ".md") }, files); err != nil {
-		return nil, err
-	}
 	for _, g := range s.rules.Paths {
 		if err := s.walkGlob(base, g, files); err != nil {
 			return nil, err

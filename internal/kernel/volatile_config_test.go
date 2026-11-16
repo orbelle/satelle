@@ -202,6 +202,10 @@ func TestVolatilePatternsAreOnlyConfiguration(t *testing.T) {
 		t.Fatalf("no [[pattern]]: got %v", got)
 	}
 	write(t, filepath.Join(root, VolatileFile), "[[pattern]]\nname = 'todo'\nmatch = 'TODO'\n")
+	if got := findings(); len(got) != 0 {
+		t.Fatalf("no paths: the .satelle Markdown was read: %v", got)
+	}
+	write(t, filepath.Join(root, VolatileFile), "paths = ['.satelle/**/*.md']\n[[pattern]]\nname = 'todo'\nmatch = 'TODO'\n")
 	got := findings()
 	if len(got) != 1 || got[0].Subject != "todo" || got[0].Line != 8 {
 		t.Fatalf("repo pattern: want one todo finding, got %v", got)

@@ -1,4 +1,4 @@
-paths = []
+paths = [".satelle/**/*.md"]
 exclude = [".satelle/runs/**", "**/testdata/**", ".git/**"]
 exempt = "volatile-ok"
 dated = '\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b'

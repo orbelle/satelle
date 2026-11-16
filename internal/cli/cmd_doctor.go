@@ -22,8 +22,8 @@ Its checks:
   substrate  a satelle command, flag, help topic or [[link]] the repo's
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)
-  volatile   a line of the substrate Markdown, or of a file
-             .satelle/volatile.toml names under paths, that matches one of its
+  volatile   a line of a file .satelle/volatile.toml names under paths
+             (shipped: the .satelle Markdown) that matches one of its
              volatile patterns (a version string, "currently", a model id),
              unless it matches its dated expression (shipped: a YYYY-MM-DD
              date) or carries the exempt marker; files its exclude globs

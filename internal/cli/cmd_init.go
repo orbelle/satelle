@@ -133,8 +133,8 @@ queues name in code, and every [[link]], must exist. A substrate finding is
 printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
 substrate key with --json) and fails the check, but never stops the kernel opening.
 
-It also lists each line of the substrate Markdown, and of the files
-.satelle/volatile.toml names under paths, that matches one of that file's
+It also lists each line of the files .satelle/volatile.toml names under
+paths (shipped: the .satelle Markdown) that matches one of that file's
 volatile patterns (a version string, "currently", a model id), as
 <file>:<line>: volatile: <pattern> — <why> (under the volatile key with
 --json). A line its dated expression matches (shipped: a YYYY-MM-DD date),
