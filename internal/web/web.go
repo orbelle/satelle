@@ -109,6 +109,7 @@ type rowVM struct {
 	Assignees  []assigneeVM
 	Progress   []stageVM
 	TagColours map[string]string
+	Lineage    []string
 }
 
 type engagementVM struct {
