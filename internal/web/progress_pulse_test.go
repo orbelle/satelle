@@ -86,7 +86,7 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	}
 	engaged := engagedRows(frag)
 
-	if want := []string{"sto_disp", "sto_far", "sto_node", "sto_seated"}; !slices.Equal(sorted(pulsing), want) {
+	if want := []string{"sto_disp", "sto_far", "sto_node", "sto_placed", "sto_seated"}; !slices.Equal(sorted(pulsing), want) {
 		t.Errorf("pulsing rows %v, want %v", pulsing, want)
 	}
 	var engagedWithChip, engagedNoChip []string
@@ -100,8 +100,8 @@ func TestProgressPulsesOnlyWorkedStories(t *testing.T) {
 	if !slices.Equal(sorted(pulsing), sorted(engagedWithChip)) {
 		t.Errorf("pulsing %v, engaged with a chip %v: want equal", pulsing, engagedWithChip)
 	}
-	if !slices.Equal(engagedNoChip, []string{"sto_placed"}) || !strings.Contains(row("sto_placed"), `<td class="col-reviews">—</td>`) {
-		t.Errorf("engaged without a chip %v, want [sto_placed] with an empty Progress cell", engagedNoChip)
+	if len(engagedNoChip) != 0 || !strings.Contains(row("sto_placed"), `stage-chip stage-performing`) {
+		t.Errorf("engaged without a chip %v, want none: the never-moved sto_placed shows its s0 chip performing", engagedNoChip)
 	}
 	page := httpGetBody(t, srv.URL+"/r/proj/")
 	for _, want := range []string{
