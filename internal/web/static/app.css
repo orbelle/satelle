@@ -411,6 +411,7 @@ td.updated-cell { white-space: nowrap; }
    here or elsewhere). .stage-current is highlighted and still: the story is
    at that step and nobody is working it (sto_96f0ad26). */
 .col-reviews { white-space: normal; width: 20rem; }
+.table-scroll { max-width: 100%; overflow-x: auto; }
 .stories-table { table-layout: fixed; min-width: 64rem; }
 .stories-table td { overflow-wrap: anywhere; }
 .col-id { width: 8rem; }

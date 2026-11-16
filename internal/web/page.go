@@ -336,10 +336,10 @@ const templatesSrc = `
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table stories-table">{{template "storyCols"}}
+    <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
-    </table>
+    </table></div>
   </section>
 
   <section class="panel" data-topic="activity" id="panel-activity">
@@ -398,10 +398,10 @@ const templatesSrc = `
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table stories-table">{{template "storyCols"}}
+    <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
-    </table>
+    </table></div>
   </section>
   {{end}}
 
