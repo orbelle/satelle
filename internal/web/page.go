@@ -426,8 +426,9 @@ const templatesSrc = `
      'N elsewhere' chip (stories with a seat elsewhere), each emitting nothing at 0
      (sty_e4632f45). Both read engagements, the rule the row marks read.
      Live-refreshed via GET fragment/engagement — JS swaps, inserts or removes
-     each chip on its own. */}}
-{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere">{{if eq $m 1}}{{with index $eids 0}}<a class="n-elsewhere-link" href="story/{{.}}">1 elsewhere</a>{{end}}{{else}}{{$m}} elsewhere{{end}}</span>{{end}}{{end}}
+     each chip on its own. Each count is a button whose data-filter-token
+     (engaged:here / engaged:elsewhere) filters the Stories list (sto_18f1e94d). */}}
+{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged"><button type="button" class="n-filter" data-filter-token="engaged:here" aria-label="list the stories engaged here">{{$n}} engaged</button></span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere"><button type="button" class="n-filter" data-filter-token="engaged:elsewhere" aria-label="list the stories engaged elsewhere">{{$m}} elsewhere</button></span>{{end}}{{end}}
 
 {{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
 

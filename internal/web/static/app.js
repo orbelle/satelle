@@ -30,7 +30,8 @@
   // kind: tells a story row from a task run row on the Activity panel (the
   // stories and task runs being worked now);
   // task: narrows execution rows to one task's runs (sty_c356ed4f).
-  var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1 };
+  // engaged: here / elsewhere, read from a row's data-engaged (sto_18f1e94d).
+  var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1, engaged: 1 };
   var TAG_FACETS = {};
   (document.body.dataset.tagFacets || "").split(",").filter(Boolean).forEach(function (k) { TAG_FACETS[k] = 1; });
   var ORDER_FIELDS = { updated: 1, created: 1, status: 1, title: 1, id: 1, order: 1 };
@@ -118,7 +119,7 @@
       } else if (TAG_FACETS[t.key]) {
         var facet = (row.getAttribute("data-tag-" + t.key) || "").toLowerCase();
         if (t.vals.indexOf("all") === -1 && t.vals.indexOf(facet) === -1) return false;
-      } else if (t.key === "tags" || t.key === "assignee") {
+      } else if (t.key === "tags" || t.key === "assignee" || t.key === "engaged") {
         // A list value: tags, or the assignees (sto_600b9a85) joined by commas.
         // A row's tags filter also reads data-lineage, the tags of its parent
         // chain (sto_dbff7bc7), so an epic's tag shows every child of the epic.
@@ -269,6 +270,36 @@
       input.value = (input.value.trim() + " " + token).trim();
     }
     applyFilter(panel);
+  }
+
+  // setFilterToken replaces every key:… token in a panel's filter with one
+  // token and re-applies: the header's engaged counts (sto_18f1e94d) switch
+  // between engaged:here and engaged:elsewhere instead of combining them.
+  function setFilterToken(panel, key, token) {
+    var input = panel.querySelector(".filterbar input");
+    if (!input) return;
+    var parts = input.value.trim().split(/\s+/).filter(function (p) {
+      return p && p.toLowerCase().indexOf(key + ":") !== 0;
+    });
+    parts.push(token);
+    input.value = parts.join(" ");
+    applyFilter(panel);
+  }
+
+  // initEngagedFilter: clicking the header's 'N engaged' or 'N elsewhere'
+  // count shows the Stories tab filtered to those stories. The badges are
+  // swapped live (refreshEngagementBadge), so the click is delegated.
+  function initEngagedFilter() {
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-filter-token]");
+      if (!b) return;
+      var panel = document.querySelector('.panel[data-topic="stories"]');
+      if (!panel) return;
+      e.preventDefault();
+      var token = b.dataset.filterToken;
+      if (location.hash !== "#stories") location.hash = "#stories";
+      setFilterToken(panel, token.slice(0, token.indexOf(":")), token);
+    });
   }
 
   function initFilters() {
@@ -874,6 +905,7 @@
     initTheme();
     initTabs();
     initExpand();
+    initEngagedFilter();
     initFilters();
     consumeExpandParam(); // after filters so ?expand survives replaceState drop
     openHashDoc();

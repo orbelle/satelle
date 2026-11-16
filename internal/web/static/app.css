@@ -312,10 +312,8 @@ header.app h1 .dot { color: var(--accent); }
 .n-stories .n-backlog { margin-left: 5px; }
 .tabs .n-engaged,
 .tabs .n-elsewhere { margin-left: -6px; }
-.tabs .n-engaged .n-engaged-link,
-.tabs .n-elsewhere .n-elsewhere-link { color: inherit; text-decoration: none; }
-.tabs .n-engaged .n-engaged-link:hover,
-.tabs .n-elsewhere .n-elsewhere-link:hover { text-decoration: underline; }
+.tabs .n-filter { color: inherit; font: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tabs .n-filter:hover { text-decoration: underline; }
 /* rel-time: how long ago this view was last confirmed against the repository.
    Deliberately NOT alarm-coloured — it renders on every row, so a fail tint
    would be permanent red on a routine condition, which trains the eye to
