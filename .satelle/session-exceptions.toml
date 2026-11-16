@@ -1,0 +1,49 @@
+[[exception]]
+file = "internal/help/topics/workflows.md"
+text = "satelle story record <id> --file F"
+why = "E2: the operator's verb; a named session is refused"
+
+[[exception]]
+file = ".satelle/remotes/satelle-cicd/tasks/tsk_release.md"
+text = "satelle execution record"
+why = "E2: the operator's verb; a named session is refused"
+
+[[exception]]
+file = "*"
+text = "satelle hook gate"
+why = "E3: the harness's call; the session arrives in its payload"
+
+[[exception]]
+file = "*"
+text = "satelle hook context"
+why = "E3: the harness's call; the session arrives in its payload"
+
+[[exception]]
+file = "*"
+text = "satelle hook prompt"
+why = "E3: the harness's call; the session arrives in its payload"
+
+[[exception]]
+file = "*"
+text = "satelle hook stopcheck"
+why = "E3: the harness's call; the session arrives in its payload"
+
+[[exception]]
+file = ".satelle/skills/satelle-release-installed-check.md"
+text = "satelle version is not satelle"
+why = "E4: a message about the output"
+
+[[exception]]
+file = ".satelle/skills/satelle-release-installed-check.md"
+text = "satelle service status lacks"
+why = "E4: a message about the output"
+
+[[exception]]
+file = ".satelle/skills/satelle-release-installed-check.md"
+text = "satelle service status warns"
+why = "E4: a message about the output"
+
+[[exception]]
+file = ".satelle/skills/satelle-pr-review-publish.md"
+text = "satelle project show named no project"
+why = "E4: a message about the output"
