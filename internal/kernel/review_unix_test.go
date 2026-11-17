@@ -122,3 +122,27 @@ func TestReviewProblems(t *testing.T) {
 		t.Errorf("a review-panel judge with the performer's model: %q", all)
 	}
 }
+
+func TestReviewRefusesAGateNameThatIsACheckAnywhere(t *testing.T) {
+	root := reviewRoot(t, reviewTable)
+	write(t, filepath.Join(root, "skills", "probe.md"), "---\ntype: check\n---\n\n```check\nexit 0\n```\n")
+	write(t, filepath.Join(root, "workflows", "other.toml"), `
+[states.a]
+start = true
+[states.b]
+terminal = true
+[gates.review]
+skill = "probe"
+[[transition]]
+from = ["a"]
+to = "b"
+groups = [{ gates = ["review"] }]
+`)
+	var msgs []string
+	for _, e := range Validate(root) {
+		msgs = append(msgs, e.Error())
+	}
+	if all := strings.Join(msgs, "\n"); !strings.Contains(all, `gate "review" runs a check skill`) {
+		t.Errorf("a gate name judged in one workflow and a check in another: %q", all)
+	}
+}

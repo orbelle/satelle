@@ -212,6 +212,9 @@ func (r Run) gate(name string) (workflow.Gate, string, bool, error) {
 	if !ok {
 		return g, "", false, nil
 	}
+	if sk, ok := r.Skills[g.Skill]; ok && sk.IsCheck() {
+		return g, "", true, nil
+	}
 	var tiers []string
 	if r.Review.TierTag != "" {
 		for _, t := range r.Item.Tags {

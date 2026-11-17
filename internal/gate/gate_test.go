@@ -452,3 +452,14 @@ func sameSet(a, b []string) bool {
 	}
 	return true
 }
+
+func TestReviewLeavesACheckGateAlone(t *testing.T) {
+	review := workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"chk": {"t2": {"y2"}}}}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"chk"}}}, map[string]workflow.Gate{"chk": {Skill: "ok-check"}})
+	r.Skills["ok-check"] = workflow.Skill{Name: "ok-check", Meta: map[string]string{"type": "check"}, Script: "exit 0"}
+	r.Item.Tags, r.Review = []string{"k:t2"}, review
+	rs, _ := r.Execute(context.Background())
+	if rs[0].Tier != "" || len(d.calls) != 0 {
+		t.Fatalf("a check gate took a tier: %+v calls %v", rs[0], d.calls)
+	}
+}
