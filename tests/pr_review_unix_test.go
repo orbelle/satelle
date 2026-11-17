@@ -78,13 +78,20 @@ func repoPRGateSet(t *testing.T) map[string]workflow.Gate {
 
 func gateTOML(t *testing.T, name string, g workflow.Gate) string {
 	t.Helper()
-	if len(g.Panel) > 0 || len(g.Paths) > 0 || g.Trigger != "" || g.Combine != "" {
+	if len(g.Paths) > 0 || g.Trigger != "" {
 		t.Fatalf("gate %s has fields the sandbox does not copy: %+v", name, g)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[gates.%s]\nskill = %q\n", name, g.Skill)
 	if g.Agent != "" {
 		fmt.Fprintf(&b, "agent = %q\n", g.Agent)
+	}
+	if len(g.Panel) > 0 {
+		q := make([]string, len(g.Panel))
+		for i, a := range g.Panel {
+			q[i] = strconv.Quote(a)
+		}
+		fmt.Fprintf(&b, "panel = [%s]\ncombine = %q\n", strings.Join(q, ", "), g.Combine)
 	}
 	if g.Carry {
 		b.WriteString("carry = true\n")
@@ -124,10 +131,11 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	gs := repoPRGateSet(t)
 	review, approval, pending := gs["pr-review"], gs["pr-approval"], gs["pr-pending"]
 	codeAC := repoGateAgents(t, ".satelle/workflows/delivery.toml")["code-ac"]
-	if review.Skill != "satelle-code-ac-review" || review.Agent == "" || !slices.Contains(codeAC, review.Agent) ||
+	if review.Skill != "satelle-code-ac-review" || len(review.Judges()) != 1 || !slices.Contains(codeAC, review.Judges()[0]) ||
 		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish", statusSkill}) {
 		t.Fatalf("pr-review is %+v, want the code-ac judge (one of %v) with the reasons rules, the publish after, then the status", review, codeAC)
 	}
+	reviewer := review.Judges()[0]
 	if approval.Skill != "satelle-pr-approval-check" || approval.Agent != "" || !slices.Equal(approval.After, []string{statusSkill}) {
 		t.Fatalf("pr-approval is %+v", approval)
 	}
@@ -146,7 +154,7 @@ func newPRSandbox(t *testing.T) *prSandbox {
 		s.write(".satelle/skills/"+filepath.Base(f), string(b))
 	}
 	s.write(".satelle/satelle.toml", "[workflows]\ndefault = \"delivery\"\n")
-	s.write(".satelle/agents.toml", fmt.Sprintf("[agents.%q]\n", review.Agent)+`command = "claude"
+	s.write(".satelle/agents.toml", fmt.Sprintf("[agents.%q]\n", reviewer)+`command = "claude"
 model = "ra-1"
 tools = ["Read", "Grep", "Glob"]
 [agents.executor]
@@ -185,7 +193,7 @@ esac
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "config")
 	s.mustConfigValid()
-	p := &prSandbox{sandbox: s, srv: srv, fake: fake, reviewer: review.Agent}
+	p := &prSandbox{sandbox: s, srv: srv, fake: fake, reviewer: reviewer}
 	p.old = strings.TrimSpace(s.git("rev-parse", "HEAD"))
 	s.write("src/main.go", "package main\n")
 	s.git("add", "-A")
