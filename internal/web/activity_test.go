@@ -192,7 +192,7 @@ func TestActivityLiveWiring(t *testing.T) {
 	}
 }
 
-var engagedChipRE = regexp.MustCompile(`<span class="n-engaged[^>]*>[^<]*</span>`)
+var engagedChipRE = regexp.MustCompile(`<span class="n-engaged[^>]*><button [^>]*>[^<]*</button></span>`)
 
 func TestEngagedBadgeIgnoresTaskRunSeats(t *testing.T) {
 	snap := activitySnapshot("beta")
