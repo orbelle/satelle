@@ -57,6 +57,22 @@ func TestGitHubService(t *testing.T) {
 		t.Errorf("recorded statuses %+v", got)
 	}
 
+	srv.RefuseStatuses("acme", "the app's installation lacks statuses: write")
+	_, err = c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", CommitSha: "abc123", State: "success", Context: "ci/x"})
+	if status.Code(err) != codes.FailedPrecondition || status.Convert(err).Message() != "the app's installation lacks statuses: write" {
+		t.Fatalf("refused status: %v", err)
+	}
+	if got := srv.PublishedStatuses("acme"); len(got) != 1 {
+		t.Errorf("a refused status was recorded: %+v", got)
+	}
+	srv.RefuseStatuses("acme", "")
+	if _, err := c.GitHub.PublishStatus(ctx, &satellepb.PublishStatusRequest{Project: "acme", CommitSha: "abc123", State: "success", Context: "ci/x"}); err != nil {
+		t.Fatalf("lifted refusal: %v", err)
+	}
+	if got := srv.PublishedStatuses("acme"); len(got) != 2 {
+		t.Errorf("statuses after the refusal lifted: %+v", got)
+	}
+
 	for _, n := range []int64{7, 8, 9} {
 		srv.SeedPullRequestEvent("acme", &satellepb.PullRequestEvent{DeliveryId: "d", Action: "opened", PullNumber: n, HeadSha: "h", HeadRef: "sto_1", BaseRef: "main"})
 	}

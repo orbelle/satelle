@@ -54,17 +54,30 @@ skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
+# Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
+# on the head before any other gate of the presentation (the status skill's
+# gates= line names them).
+[gates.pr-pending]
+skill = "satelle-gate-status-publish"
+
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
+# The status entry is last so it posts the result as it finally stands.
+after = ["satelle-gate-status-publish"]
 
 [gates.pr-review]
 skill = "satelle-code-ac-review"
 agent = "reviewer-gemini-3.8-flash-high"
 carry = true
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish"]
+# The review publish check stays before the status entry, so a verdict the
+# reasons rules refuse is not published as a review; the status entry is last
+# so it posts the result as it finally stands.
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish", "satelle-gate-status-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
+# The status entry is last so it posts the result as it finally stands.
+after = ["satelle-gate-status-publish"]
 
 [gates.change-judged]
 skill = "satelle-change-judged-check"
@@ -110,7 +123,7 @@ groups = [
 [[transition]]
 from = ["integration"]
 to = "approved"
-groups = [{ mode = "sequential", gates = ["integration-check", "pr-ready", "pr-review", "pr-approval"] }]
+groups = [{ mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready", "pr-review", "pr-approval"] }]
 
 [[transition]]
 from = ["approved"]

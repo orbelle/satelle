@@ -60,7 +60,13 @@ review's event and body are the client's, passed through.
   [--json]`; satelle's own `pr-review` gate publishes its verdict this way
   (its `after` check, `.satelle/skills/satelle-pr-review-publish.md`) and
   records what was published as a `github.review` event on the item.
-- `PublishStatus` and `ListPullRequestEvents` have no CLI yet.
+- `PublishStatus{project, commit_sha, state, context, description,
+  target_url}` publishes a commit status as the app and answers
+  `{status_id, repository}`. The CLI is `satelle github status --sha S
+  --context C --state S [--description D] [--target-url U] [--json]`;
+  satelle's own pull-request gates post `satelle/<gate>` this way
+  (`.satelle/skills/satelle-gate-status-publish.md`).
+- `ListPullRequestEvents` has no CLI yet.
 - `FAILED_PRECONDITION` when the project has no GitHub binding.
 
 ## OAuth (HTTP, exempt)

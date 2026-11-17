@@ -1,0 +1,56 @@
+[
+  {
+    "url": "https://api.github.com/repos/orbelle/acme/statuses/@HEAD@",
+    "avatar_url": "https://avatars.githubusercontent.com/in/5379260?v=4",
+    "id": 41000000003,
+    "node_id": "SC_kwDOexample0",
+    "state": "success",
+    "description": "accept (integration->approved): fine",
+    "target_url": null,
+    "context": "satelle/pr-approval",
+    "created_at": "2026-11-17T09:03:00Z",
+    "updated_at": "2026-11-17T09:03:00Z",
+    "creator": {
+      "login": "satelle[bot]",
+      "id": 344745317,
+      "type": "Bot",
+      "site_admin": false
+    }
+  },
+  {
+    "url": "https://api.github.com/repos/orbelle/acme/statuses/@HEAD@",
+    "avatar_url": "https://avatars.githubusercontent.com/in/5379260?v=4",
+    "id": 41000000002,
+    "node_id": "SC_kwDOexample1",
+    "state": "success",
+    "description": "accept (integration->approved): fine",
+    "target_url": null,
+    "context": "satelle/pr-review",
+    "created_at": "2026-11-17T09:02:00Z",
+    "updated_at": "2026-11-17T09:02:00Z",
+    "creator": {
+      "login": "satelle[bot]",
+      "id": 344745317,
+      "type": "Bot",
+      "site_admin": false
+    }
+  },
+  {
+    "url": "https://api.github.com/repos/orbelle/acme/statuses/@HEAD@",
+    "avatar_url": "https://avatars.githubusercontent.com/in/5379260?v=4",
+    "id": 41000000001,
+    "node_id": "SC_kwDOexample2",
+    "state": "success",
+    "description": "accept (integration->approved): fine",
+    "target_url": null,
+    "context": "satelle/pr-ready",
+    "created_at": "2026-11-17T09:01:00Z",
+    "updated_at": "2026-11-17T09:01:00Z",
+    "creator": {
+      "login": "satelle[bot]",
+      "id": 344745317,
+      "type": "Bot",
+      "site_admin": false
+    }
+  }
+]

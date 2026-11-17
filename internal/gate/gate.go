@@ -203,7 +203,7 @@ func (r Run) one(ctx context.Context, name string) Result {
 	start := time.Now()
 	res := r.decide(ctx, name)
 	res.Transition, res.Gate = r.key(), name
-	if g, ok := r.Workflow.Gates[name]; ok && len(g.After) > 0 && (res.verdict || res.Result == Carried) {
+	if g, ok := r.Workflow.Gates[name]; ok && len(g.After) > 0 {
 		res = r.after(ctx, name, g, res)
 	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
@@ -213,9 +213,20 @@ func (r Run) one(ctx context.Context, name string) Result {
 	return res
 }
 
+// after runs the gate's after list once it has a result. An ordinary entry runs
+// only on a verdict or a carry and may refuse it; an entry whose skill declares
+// after: always runs on every result and never changes it.
 func (r Run) after(ctx context.Context, name string, g workflow.Gate, res Result) Result {
+	judged := res.verdict || res.Result == Carried
 	refusedBy := ""
 	for _, skillName := range g.After {
+		if s, ok := r.Skills[skillName]; ok && s.AfterAlways() {
+			r.afterAlways(ctx, name, g, skillName, s, &res)
+			continue
+		}
+		if !judged {
+			continue
+		}
 		if refusedBy != "" {
 			res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: not run: after %s refused the verdict", skillName, refusedBy))
 			continue
@@ -237,11 +248,7 @@ func (r Run) afterOne(ctx context.Context, name string, g workflow.Gate, skillNa
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after skill %q is missing", skillName))
 		return false
 	}
-	env := r.env()
-	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
-	for _, j := range res.judges {
-		env.Members = append(env.Members, CheckMember{Binding: j.binding, Result: j.result, Notes: j.notes})
-	}
+	env := r.afterEnv(name, *res)
 	limit, source, berr := r.bound(name, g)
 	if berr != nil {
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %v", skillName, berr))
@@ -256,6 +263,35 @@ func (r Run) afterOne(ctx context.Context, name string, g workflow.Gate, skillNa
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %s", skillName, out))
 	}
 	return err == nil && passed
+}
+
+func (r Run) afterAlways(ctx context.Context, name string, g workflow.Gate, skillName string, skill workflow.Skill, res *Result) {
+	failed := func(cause string) {
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: failed, the result stands: %s", skillName, cause))
+	}
+	limit, source, berr := r.bound(name, g)
+	if berr != nil {
+		failed(berr.Error())
+		return
+	}
+	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.afterEnv(name, *res), limit)
+	switch {
+	case err != nil:
+		failed(checkFailure(err, source, out))
+	case !passed:
+		failed(strings.TrimSpace("exit non-zero: " + out))
+	case out != "":
+		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %s", skillName, out))
+	}
+}
+
+func (r Run) afterEnv(name string, res Result) CheckEnv {
+	env := r.env()
+	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
+	for _, j := range res.judges {
+		env.Members = append(env.Members, CheckMember{Binding: j.binding, Result: j.result, Notes: j.notes})
+	}
+	return env
 }
 
 func keepAnswer(res *Result) {

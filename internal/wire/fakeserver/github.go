@@ -17,6 +17,19 @@ type github struct {
 	reviews  []*satellepb.PublishReviewRequest
 	statuses []*satellepb.PublishStatusRequest
 	events   []*satellepb.PullRequestEvent
+	refuse   string // non-empty: PublishStatus answers FailedPrecondition with it
+}
+
+// RefuseStatuses makes PublishStatus on a bound project answer
+// FailedPrecondition with message, recording nothing; "" lifts it.
+func (s *Server) RefuseStatuses(project, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.project(project)
+	if p == nil || s.gh[p.Id] == nil {
+		panic("fakeserver: RefuseStatuses on a project with no GitHub binding: " + project)
+	}
+	s.gh[p.Id].refuse = message
 }
 
 func (s *Server) BindGitHub(project, repo string) {
@@ -103,6 +116,9 @@ func (h githubSvc) PublishStatus(_ context.Context, r *satellepb.PublishStatusRe
 	g, err := h.s.bound(r.GetProject())
 	if err != nil {
 		return nil, err
+	}
+	if g.refuse != "" {
+		return nil, status.Error(codes.FailedPrecondition, g.refuse)
 	}
 	g.statuses = append(g.statuses, proto.Clone(r).(*satellepb.PublishStatusRequest))
 	return &satellepb.PublishStatusResponse{StatusId: int64(len(g.statuses)), Repository: g.repo}, nil
