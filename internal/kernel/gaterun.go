@@ -38,6 +38,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
 		Dir: k.Dir, Base: base, Changed: changed, Prior: prior,
 		ReviewerDiffers: k.Settings.Rules.ReviewerDiffersFromPerformer,
+		Review:          k.Settings.Review,
 		CheckTimeout:    k.CheckTimeout,
 		Coverage:        func(paths []string) (string, string, error) { return k.coverage(it, events, sp, paths) },
 		Diff:            func(paths []string) (string, error) { return k.diffSpan(sp, paths) },

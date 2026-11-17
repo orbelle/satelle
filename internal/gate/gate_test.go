@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -375,4 +376,79 @@ type logRecorder struct {
 func (l *logRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
 	l.logs = append(l.logs, req.Log)
 	return l.Dispatcher.Dispatch(ctx, role, req)
+}
+
+func TestReviewPanelByTier(t *testing.T) {
+	review := workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"g": {"t2": {"y2", "n1"}}}}
+	run := func(tags []string, rev workflow.Review, gates map[string]workflow.Gate, names ...string) ([]Result, *fakeDispatcher) {
+		r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: names}}, gates)
+		r.Item.Tags, r.Review = tags, rev
+		rs, _ := r.Execute(context.Background())
+		return rs, d
+	}
+	own := map[string]workflow.Gate{"g": {Skill: "judge", Panel: []string{"y1"}, Combine: workflow.CombineAny}, "h": {Skill: "judge", Agent: "y1"}}
+	rs, d := run([]string{"k:t2"}, review, own, "g")
+	if strings.Join(d.calls, ",") == "" || !sameSet(d.calls, []string{"y2", "n1"}) || rs[0].Tier != "t2" || rs[0].Result != Accept || len(rs[0].Members) != 2 {
+		t.Fatalf("tier panel: calls %v result %+v", d.calls, rs[0])
+	}
+	for _, c := range []struct {
+		name string
+		tags []string
+		rev  workflow.Review
+		gate string
+	}{
+		{"untagged", nil, review, "g"},
+		{"tier with no panel", []string{"k:t9"}, review, "g"},
+		{"gate not named", []string{"k:t2"}, review, "h"},
+		{"no review", []string{"k:t2"}, workflow.Review{}, "g"},
+	} {
+		rs, d := run(c.tags, c.rev, own, c.gate)
+		if !sameSet(d.calls, []string{"y1"}) || rs[0].Tier != "" {
+			t.Errorf("%s: calls %v tier %q, want the workflow's own judge", c.name, d.calls, rs[0].Tier)
+		}
+		if c.name == "no review" {
+			b, _ := json.Marshal(rs[0])
+			if strings.Contains(string(b), "\"tier\"") {
+				t.Errorf("a result with no tier marshals a tier key: %s", b)
+			}
+		}
+	}
+	rs, d = run([]string{"k:t1", "k:t2"}, review, own, "g")
+	if rs[0].Result != Reject || !strings.Contains(rs[0].Notes, "t1, t2") || len(d.calls) != 0 {
+		t.Errorf("two tiers: %+v calls %v", rs[0], d.calls)
+	}
+}
+
+func TestCarryIsBoundToTheTier(t *testing.T) {
+	review := workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"code": {"t1": {"y1"}, "t2": {"y2"}}}}
+	gates := map[string]workflow.Gate{"code": {Skill: "judge", Agent: "y1", Carry: true}}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}, gates)
+	r.Review = review
+	r.Prior = []Result{{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:", Tier: "t1"}}
+	r.Item.Tags = []string{"k:t1"}
+	if rs, _ := r.Execute(context.Background()); rs[0].Result != Carried || len(d.calls) != 0 {
+		t.Fatalf("same tier: %s %v", results(rs), d.calls)
+	}
+	r.Item.Tags = []string{"k:t2"}
+	if rs, _ := r.Execute(context.Background()); rs[0].Result != Accept || !sameSet(d.calls, []string{"y2"}) || rs[0].Tier != "t2" {
+		t.Fatalf("raised tier: %s %v", results(rs), d.calls)
+	}
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, x := range b {
+		found := false
+		for _, y := range a {
+			if x == y {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

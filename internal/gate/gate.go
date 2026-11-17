@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,7 @@ type Result struct {
 	Seq        int      `json:"seq,omitempty"`
 	Command    string   `json:"command,omitempty"`
 	Model      string   `json:"model,omitempty"`
+	Tier       string   `json:"tier,omitempty"`
 
 	judges []judgeAnswer
 
@@ -109,6 +111,7 @@ type Run struct {
 	Diff            func(paths []string) (string, error)
 	Prior           []Result
 	ReviewerDiffers bool
+	Review          workflow.Review
 	CheckTimeout    time.Duration
 	Record          string
 	Remote          RemoteChecker
@@ -119,6 +122,7 @@ type Run struct {
 	Finished        func(seq int, res Result)
 
 	skipWarning string
+	tier        string
 }
 
 func Refuses(result string) bool { return result == Reject || result == Error }
@@ -203,11 +207,31 @@ func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
 func (r Run) env() CheckEnv { return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base} }
 
+func (r Run) gate(name string) (workflow.Gate, string, bool, error) {
+	g, ok := r.Workflow.Gates[name]
+	if !ok {
+		return g, "", false, nil
+	}
+	var tiers []string
+	if r.Review.TierTag != "" {
+		for _, t := range r.Item.Tags {
+			if k, v, ok := item.TagKV(t); ok && k == r.Review.TierTag && !slices.Contains(tiers, v) {
+				tiers = append(tiers, v)
+			}
+		}
+	}
+	rg, tier, err := r.Review.Resolve(name, g, tiers)
+	return rg, tier, true, err
+}
+
 func (r Run) one(ctx context.Context, name string) Result {
 	start := time.Now()
+	if _, tier, _, err := r.gate(name); err == nil {
+		r.tier = tier
+	}
 	res := r.decide(ctx, name)
-	res.Transition, res.Gate = r.key(), name
-	if g, ok := r.Workflow.Gates[name]; ok && len(g.After) > 0 {
+	res.Transition, res.Gate, res.Tier = r.key(), name, r.tier
+	if g, ok, _ := r.resolved(name); ok && len(g.After) > 0 {
 		res = r.after(ctx, name, g, res)
 	}
 	if (res.Result == Accept || res.Result == Reject) && res.Coverage != "" {
@@ -343,10 +367,18 @@ func joinNotes(a, b string) string {
 	return a + "\n" + b
 }
 
+func (r Run) resolved(name string) (workflow.Gate, bool, error) {
+	g, _, ok, err := r.gate(name)
+	return g, ok, err
+}
+
 func (r Run) decide(ctx context.Context, name string) Result {
-	g, ok := r.Workflow.Gates[name]
+	g, ok, err := r.resolved(name)
 	if !ok {
 		return Result{Result: Reject, Notes: fmt.Sprintf("gate %q is not defined", name)}
+	}
+	if err != nil {
+		return Result{Result: Reject, Notes: err.Error()}
 	}
 	limit, source, err := r.bound(name, g)
 	if err != nil {
@@ -469,7 +501,7 @@ func (r Run) carried(gate, coverage string) bool {
 		if p.Gate != gate || p.Transition != r.key() || p.Result == Skipped {
 			continue
 		}
-		return (p.Result == Accept || p.Result == Carried) && p.Coverage == coverage
+		return (p.Result == Accept || p.Result == Carried) && p.Coverage == coverage && p.Tier == r.tier
 	}
 	return false
 }

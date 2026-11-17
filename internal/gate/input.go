@@ -32,14 +32,18 @@ type Input struct {
 	Head                   Head
 	HeadErr                string
 	Judges                 []string
+	Tier                   string
 	Prompt                 string
 	After                  []string
 }
 
 func (r Run) Input(name string) (Input, error) {
-	g, ok := r.Workflow.Gates[name]
+	g, tier, ok, err := r.gate(name)
 	if !ok {
 		return Input{}, fmt.Errorf("gate %q is not defined", name)
+	}
+	if err != nil {
+		return Input{}, err
 	}
 	limit, source, err := r.bound(name, g)
 	if err != nil {
@@ -70,6 +74,7 @@ func (r Run) Input(name string) (Input, error) {
 	}
 	in.Kind = InputJudge
 	in.Judges = g.Judges()
+	in.Tier = tier
 	if in.Prompt, err = r.prompt(g); err != nil {
 		return in, err
 	}

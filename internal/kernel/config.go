@@ -26,6 +26,7 @@ type Settings struct {
 	Service   ServiceSettings `toml:"service"`
 	Sync      SyncSettings    `toml:"sync"`
 	Ledger    LedgerSettings  `toml:"ledger"`
+	Review    workflow.Review `toml:"review"`
 }
 
 type GateSettings struct {
@@ -290,6 +291,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 func (c *Config) Problems() []error {
 	var errs []error
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { _, ok := c.Workflows[n]; return ok })...)
+	errs = append(errs, c.Settings.Review.Validate(c.reviewGate, c.Agents.Has)...)
 	errs = append(errs, c.agentProblems()...)
 	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
 	for _, name := range sortedKeys(c.Workflows) {
@@ -394,10 +396,35 @@ func (c *Config) queueProblems() []error {
 	return errs
 }
 
+func (c *Config) judges(gname string, g workflow.Gate) []string {
+	out := slices.Clone(g.Judges())
+	for _, a := range c.Settings.Review.Agents(gname) {
+		if !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (c *Config) reviewGate(name string) (found, check bool) {
+	check = true
+	for _, wname := range sortedKeys(c.Workflows) {
+		g, ok := c.Workflows[wname].Gates[name]
+		if !ok {
+			continue
+		}
+		found = true
+		if sk, ok := c.Skills[g.Skill]; !ok || !sk.IsCheck() {
+			check = false
+		}
+	}
+	return found, found && check
+}
+
 func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 	var errs []error
 	for _, gname := range sortedKeys(w.Gates) {
-		for _, j := range w.Gates[gname].Judges() {
+		for _, j := range c.judges(gname, w.Gates[gname]) {
 			if b, ok := c.Agents[j]; ok {
 				if err := agent.CheckJudge(b); err != nil {
 					errs = append(errs, fmt.Errorf("workflow %s: gate %q: %w", w.Name, gname, err))
@@ -440,7 +467,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 			model := c.Agents[p.Agent].Model
 			for _, g := range t.Groups {
 				for _, gname := range g.Gates {
-					for _, j := range w.Gates[gname].Judges() {
+					for _, j := range c.judges(gname, w.Gates[gname]) {
 						if model != "" && c.Agents[j].Model == model {
 							errs = append(errs, fmt.Errorf("workflow %s: transition %d: gate %q judge %q runs model %q, the same as the performer of %q (agent %q)",
 								w.Name, i+1, gname, j, model, from, p.Agent))
@@ -483,7 +510,7 @@ func (c *Config) overrideSameProblems(w *workflow.Workflow) []error {
 			_, pOver := c.override(p.Agent)
 			for _, g := range t.Groups {
 				for _, gname := range g.Gates {
-					for _, j := range w.Gates[gname].Judges() {
+					for _, j := range c.judges(gname, w.Gates[gname]) {
 						jb, ok := c.Agents[j]
 						if !ok {
 							continue

@@ -82,6 +82,9 @@ not judge; 1 the command failed.`,
 func printGateResult(w io.Writer, res kernel.GateDryResult) error {
 	r := *res.Result
 	fmt.Fprintf(w, "gate %s  %s  (%s -> %s; dry run, nothing recorded)\n", r.Gate, r.Result, res.From, res.To)
+	if r.Tier != "" {
+		fmt.Fprintf(w, "  tier %s\n", r.Tier)
+	}
 	if r.Binding != "" && len(r.Members) == 0 {
 		fmt.Fprintf(w, "  judge %s\n", r.Binding)
 	}
@@ -133,6 +136,9 @@ func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {
 		}
 	}
 	if in.Kind == gate.InputJudge {
+		if in.Tier != "" {
+			fmt.Fprintf(w, "tier: %s\n", in.Tier)
+		}
 		fmt.Fprintf(w, "judges: %s\n", strings.Join(in.Judges, ", "))
 		fmt.Fprintf(w, "system: %s\n", in.SkillPath)
 		fmt.Fprintf(w, "prompt:\n%s", in.Prompt)

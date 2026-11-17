@@ -37,6 +37,12 @@ the kernel still opens: only a configuration problem stops it.
       [rules]
       reviewer_differs_from_performer = false
 
+      [review]                    # optional: a gate's reviewers by the item's tier
+      tier_tag = "risk"           # the tag key whose value is the item's tier (risk:low)
+      [review.panels.code-ac]     # one table per gate name
+      low = ["reviewer-a"]
+      high = ["reviewer-a", "reviewer-b"]
+
       [items]
       prefix = { story = "sty" }  # id prefix per kind (default: its first three letters)
 
@@ -50,6 +56,21 @@ the kernel still opens: only a configuration problem stops it.
   `satelle update --session <session>` and the sync pass run (see `satelle help agents --session <session>`).
   `satelle.toml` is decoded strictly, so a repo that sets `refresh` needs
   satelle at this version or later on every machine that opens it.
+
+  `[review]` picks a gate's reviewers from the item's tier. The tier is the
+  value of the item's tag whose key is `tier_tag`, set by whatever the repo
+  uses to assess it; satelle only reads it. A gate named under
+  `[review.panels]` dispatches the panel listed for the item's tier, with its
+  own skill, combine (`all` when it has only an agent), carry and after list,
+  and its gate.run records the tier. An item with no tier tag, a tier with no
+  panel and a gate not named run the workflow's own judges, so a missing
+  assessment never lightens review. An item carrying two tiers is refused at a
+  named gate. A carried accept is carried only for the same tier. `satelle
+  validate --session <session>` refuses a panel agent missing from `agents.toml`, a gate no
+  workflow has, a check gate, and a blank or `:`-holding `tier_tag`; panel
+  agents get the same judge checks as a gate's own. `satelle.toml` is decoded
+  strictly, so a repo that sets `[review]` needs satelle at this version or
+  later on every machine that opens it.
 
 - `session.md` — the session guidance: how to pass `--session`, the edit
   gate and the drive rule. The context hook (at session start), the prompt

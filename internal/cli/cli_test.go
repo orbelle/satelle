@@ -739,3 +739,25 @@ func TestEditGateAttachmentsOnlyInvalidConfig(t *testing.T) {
 		t.Errorf("syntax error: the unseated session was denied the repair: %s", why)
 	}
 }
+
+func TestValidateNamesABadReviewTable(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	p := filepath.Join(dir, ".satelle", "satelle.toml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, append(b, []byte("\n[review]\ntier_tag = \"k\"\n[review.panels.nowhere]\nt1 = [\"ghost\"]\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "", "validate")
+	if err == nil {
+		t.Fatalf("validate passed a [review] naming a missing agent and gate:\n%s", out)
+	}
+	for _, w := range []string{`agent "ghost" is not in the agents catalog`, `no workflow has a gate "nowhere"`} {
+		if !strings.Contains(out+err.Error(), w) {
+			t.Errorf("validate lacks %q:\n%s\n%v", w, out, err)
+		}
+	}
+}
