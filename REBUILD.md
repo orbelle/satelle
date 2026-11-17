@@ -1160,7 +1160,8 @@ at `<runtime>/cache.db` keeps per-file offsets and ingests any tail it has not
 seen; `ledger rebuild` drops and rebuilds it. The kernel's own event kinds are
 mechanism, not process: `item.created`, `item.updated`, `item.transitioned`,
 `gate.run` (`transition`, `gate`, `binding`, `result` accept/reject/skipped/
-carried, `notes`, `tokens_in`, `tokens_out`, `duration_ms`, `coverage`),
+carried, `notes`, `tokens_in`, `tokens_out`, `duration_ms`, `coverage`, `seq`),
+`gate.start` (`transition`, `gate`, `attempt`, `seq`: written immediately before the gate runs; a gate runs only when its start is on the ledger, and its `gate.run` is written as soon as it finishes; gate results are read in declared `seq` order within an attempt, and satelled draws a gate as running while it holds the start for the item's newest presentation leaving a step, no result for it and no later presentation or move, beside that transition's number of gate entries; sto_b13e3fcb),
 `performer.run`, `seat.bound`, `seat.released`, `attachment.added`, `task.run`.
 A performer answer ending in an `{"artifact":{name,type,body}}` object also
 appends `attachment.added` named by the artifact (media type

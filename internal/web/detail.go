@@ -109,6 +109,15 @@ func moves(events []Entry) [][2]string {
 	return out
 }
 
+func edgeFor(w *mirror.Workflow, byName map[string]mirror.WorkflowState, from, to, prior string) (mirror.WorkflowTransition, bool) {
+	i := workflow.MatchTransition(len(w.Transitions), func(i int) ([]string, string) { return w.Transitions[i].From, w.Transitions[i].To },
+		func(s string) bool { return isStep(byName, s) }, from, to, prior)
+	if i < 0 {
+		return mirror.WorkflowTransition{}, false
+	}
+	return w.Transitions[i], true
+}
+
 func leavesState(byName map[string]mirror.WorkflowState, t mirror.WorkflowTransition, s string) bool {
 	if slices.Contains(t.From, s) {
 		return true

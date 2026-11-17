@@ -45,6 +45,7 @@ type Kernel struct {
 	Machine, Host string
 	User          func() string
 	Sessions      SessionOwner
+	Progress      func(item string)
 }
 
 type SessionOwner interface {

@@ -595,7 +595,7 @@ func TestPRReviewGatePublishesAndReopens(t *testing.T) {
 		}
 		kinds = append(kinds, e.Kind)
 	}
-	if got := strings.Join(kinds, " "); got != "github.review attachment.added item.transitioned gate.run" {
+	if got := strings.Join(kinds, " "); got != "gate.start github.review attachment.added item.transitioned gate.run" {
 		t.Fatalf("chain after the reject: %s", got)
 	}
 	if p.transitions(id, "integration", "in_progress") != 1 {

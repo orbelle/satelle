@@ -20,9 +20,8 @@ type attempt struct {
 
 func attemptsLeaving(status string, events []ledger.Event) []attempt {
 	var out []attempt
-	for _, e := range item.SinceEntered(events) {
-		var r gate.Result
-		if e.Kind != gate.KindRun || e.Decode(&r) != nil || r.Attempt == "" || gate.FromOf(r.Transition) != status {
+	for _, r := range GateRuns(item.SinceEntered(events)) {
+		if r.Attempt == "" || gate.FromOf(r.Transition) != status {
 			continue
 		}
 		if n := len(out); n == 0 || out[n-1].ID != r.Attempt {

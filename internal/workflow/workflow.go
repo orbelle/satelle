@@ -263,28 +263,32 @@ func (w *Workflow) open(s string) bool {
 	return ok && !st.Terminal && !st.Park
 }
 
-func (w *Workflow) Find(from, to, prior string) (*Transition, error) {
-	var wild *Transition
-	for i := range w.Transitions {
-		t := &w.Transitions[i]
-		target := t.To
+func MatchTransition(n int, edge func(i int) (from []string, to string), open func(state string) bool, from, to, prior string) int {
+	wild := -1
+	for i := range n {
+		froms, target := edge(i)
 		if target == Prior {
 			target = prior
 		}
 		if target != to {
 			continue
 		}
-		if slices.Contains(t.From, from) {
-			return t, nil
+		if slices.Contains(froms, from) {
+			return i
 		}
-		if wild == nil && slices.Contains(t.From, AnyState) && w.open(from) {
-			wild = t
+		if wild < 0 && slices.Contains(froms, AnyState) && open(from) {
+			wild = i
 		}
 	}
-	if wild != nil {
-		return wild, nil
+	return wild
+}
+
+func (w *Workflow) Find(from, to, prior string) (*Transition, error) {
+	i := MatchTransition(len(w.Transitions), func(i int) ([]string, string) { return w.Transitions[i].From, w.Transitions[i].To }, w.open, from, to, prior)
+	if i < 0 {
+		return nil, fmt.Errorf("workflow %s: no transition from %q to %q", w.Name, from, to)
 	}
-	return nil, fmt.Errorf("workflow %s: no transition from %q to %q", w.Name, from, to)
+	return &w.Transitions[i], nil
 }
 
 func (w *Workflow) Targets(from, prior string) []string {

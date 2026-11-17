@@ -302,14 +302,12 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 		return res, err
 	}
 	defer done()
+	rec := &recorder{k: k, id: id, actor: actor, key: gate.TransitionKey(it.Status, to), at: item.NewID("att")}
+	run.Started, run.Finished = rec.start, rec.finish
 	results, pass := run.Execute(ctx)
 	res.Gates = results
-	attempt := item.NewID("att")
-	for _, r := range results {
-		r.Attempt = attempt
-		if _, err := k.append(id, gate.KindRun, actor, r); err != nil {
-			return res, err
-		}
+	if err := rec.failed(); err != nil {
+		return res, err
 	}
 	if !pass {
 		if hold != nil {
@@ -325,6 +323,9 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 	}
 	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold, Change: frozen}); err != nil {
 		return res, err
+	}
+	if k.Progress != nil {
+		k.Progress(id)
 	}
 	res.Moved = true
 	if res.Item, err = k.Get(id); err != nil {
