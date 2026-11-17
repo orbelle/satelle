@@ -47,7 +47,7 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
 agent = "reviewer-grok-4.7"
-after = ["satelle-verdict-notes-check", "satelle-risk-tier-record"]
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
