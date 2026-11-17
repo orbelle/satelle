@@ -131,11 +131,11 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	gs := repoPRGateSet(t)
 	review, approval, pending := gs["pr-review"], gs["pr-approval"], gs["pr-pending"]
 	codeAC := repoGateAgents(t, ".satelle/workflows/delivery.toml")["code-ac"]
-	if review.Skill != "satelle-code-ac-review" || len(review.Judges()) != 1 || !slices.Contains(codeAC, review.Judges()[0]) ||
+	if review.Skill != "satelle-code-ac-review" || review.Agent != "" || len(review.Panel) != 1 || review.Combine != "all" || !slices.Contains(codeAC, review.Panel[0]) ||
 		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish", statusSkill}) {
-		t.Fatalf("pr-review is %+v, want the code-ac judge (one of %v) with the reasons rules, the publish after, then the status", review, codeAC)
+		t.Fatalf("pr-review is %+v, want the code-ac judge (one of %v) as a one-member panel with the reasons rules, the publish after, then the status", review, codeAC)
 	}
-	reviewer := review.Judges()[0]
+	reviewer := review.Panel[0]
 	if approval.Skill != "satelle-pr-approval-check" || approval.Agent != "" || !slices.Equal(approval.After, []string{statusSkill}) {
 		t.Fatalf("pr-approval is %+v", approval)
 	}
