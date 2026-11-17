@@ -106,6 +106,7 @@ type Run struct {
 	Dir             string
 	Base            string
 	Changed         []string
+	Untracked       []string
 	Coverage        func(paths []string) (coverage, change string, err error)
 	Span            Change
 	Diff            func(paths []string) (string, error)
@@ -636,6 +637,9 @@ func (r Run) prompt(g workflow.Gate) (string, error) {
 	}
 	if len(r.Changed) > 0 {
 		fmt.Fprintf(&b, "Changed paths:\n%s\n", strings.Join(r.Changed, "\n"))
+	}
+	if len(r.Untracked) > 0 {
+		fmt.Fprintf(&b, "Untracked files in the worktree (not in the item's change):\n%s\n", strings.Join(r.Untracked, "\n"))
 	}
 	if r.Diff != nil {
 		d, err := r.Diff(g.Paths)

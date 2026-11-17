@@ -83,6 +83,7 @@ func (k *Kernel) staleBase(it item.Item, sp span) *StaleBaseError {
 type ItemDiff struct {
 	Base, Head string
 	Paths      []string
+	Untracked  []string
 	Frozen     bool
 }
 
@@ -126,6 +127,9 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 	}
 	stale := k.staleBase(it, sp)
 	if d.Paths, err = k.Git.ChangedPaths(d.Base); err != nil {
+		return ItemDiff{}, nil, err
+	}
+	if d.Untracked, err = k.Git.Untracked(); err != nil {
 		return ItemDiff{}, nil, err
 	}
 	return d, stale, nil

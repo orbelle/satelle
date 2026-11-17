@@ -314,6 +314,40 @@ func TestJudgedResultRecordsChange(t *testing.T) {
 	}
 }
 
+func TestUntrackedFilesAreListedApartFromTheChange(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"ok":   {Skill: "judge", Agent: "y1"},
+		"docs": {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}},
+	}
+	const header = "Untracked files in the worktree (not in the item's change):\n"
+	r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"ok"}}}, gates)
+	r.Untracked = []string{"scratch.txt"}
+	in, err := r.Input("ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, u := strings.Index(in.Prompt, "Changed paths:\n"), strings.Index(in.Prompt, header)
+	if c < 0 || u < c {
+		t.Fatalf("the prompt has no changed block followed by an untracked block:\n%s", in.Prompt)
+	}
+	if strings.Contains(in.Prompt[c:u], "scratch.txt") || !strings.Contains(in.Prompt[c:u], "a/b.go") {
+		t.Fatalf("the changed block is not the item's change only:\n%s", in.Prompt[c:u])
+	}
+	if !strings.HasPrefix(in.Prompt[u+len(header):], "scratch.txt\n") {
+		t.Fatalf("the untracked file is not under its block:\n%s", in.Prompt[u:])
+	}
+	rs, pass := r.Execute(context.Background())
+	if !pass || results(rs) != "ok=accept" || strings.Join(rs[0].Changed, ",") != "a/b.go" {
+		t.Fatalf("recorded change %s %v; want a/b.go only", results(rs), rs[0].Changed)
+	}
+
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"docs"}}}, gates)
+	r.Changed, r.Untracked = nil, []string{"docs/x.md"}
+	if rs, pass := r.Execute(context.Background()); !pass || results(rs) != "docs=skipped" || len(d.calls) != 0 {
+		t.Fatalf("an untracked docs file ran the docs gate: %s %v", results(rs), d.calls)
+	}
+}
+
 func TestDispatchFailureIsAnError(t *testing.T) {
 	gates := map[string]workflow.Gate{
 		"dead": {Skill: "judge", Agent: "dead"},

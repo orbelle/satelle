@@ -19,6 +19,7 @@ import (
 type Git interface {
 	Head() (string, error)
 	ChangedPaths(base string) ([]string, error)
+	Untracked() ([]string, error)
 	Diff(base string, paths []string) (string, error)
 }
 

@@ -225,10 +225,31 @@ func TestUserWorkflowDispatchesAFakeAgent(t *testing.T) {
 		t.Errorf("resume: %s", out)
 	}
 
+	s.write("docs/guide.md", "# guide\n")
+	r = s.run("story", "set", id, "--status", "shipped")
+	if r.code != 2 || !strings.Contains(r.err, "reject by jc-1") {
+		t.Fatalf("round 3, docs/guide.md untracked: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if n := len(argvs(t, fake, "ja-1")); n != 0 {
+		t.Errorf("judge-a ran %d time(s) for an untracked docs file, want 0 (docs skipped; review carried)", n)
+	}
+	for _, model := range []string{"jb-1", "jc-1", "jd-1"} {
+		argvs(t, fake, model)
+	}
+	untracked := s.gateRuns(id)
+	for _, g := range untracked[len(untracked)-len(want):] {
+		if g.Gate == "docs" && g.Result != "skipped" {
+			t.Errorf("an untracked docs/guide.md ran the docs gate: %s (%s)", g.Result, g.Notes)
+		}
+	}
+	if got := s.get(id); got.Status != "build" {
+		t.Fatalf("a rejected move moved the item to %q", got.Status)
+	}
+
 	if err := os.Remove(filepath.Join(fake, "verdict.jc-1")); err != nil {
 		t.Fatal(err)
 	}
-	s.write("docs/guide.md", "# guide\n")
+	s.git("add", "--", "docs/guide.md")
 	s.must("story", "set", id, "--status", "shipped")
 	if got := s.get(id); got.Status != "shipped" {
 		t.Fatalf("status %q, want shipped", got.Status)

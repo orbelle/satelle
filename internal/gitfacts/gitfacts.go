@@ -37,24 +37,30 @@ func (r Repo) Head() (string, error) {
 }
 
 func (r Repo) ChangedPaths(base string) ([]string, error) {
-	diff, err := r.git("diff", "--name-only", "--no-renames", base, "--")
+	out, err := r.git("diff", "--name-only", "--no-renames", base, "--")
 	if err != nil {
 		return nil, err
 	}
-	untracked, err := r.git("ls-files", "--others", "--exclude-standard")
+	return pathLines(out), nil
+}
+
+func (r Repo) Untracked() ([]string, error) {
+	out, err := r.git("ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	var out []string
-	for _, p := range strings.Split(diff+untracked, "\n") {
-		if p = strings.TrimSpace(p); p != "" && !seen[p] {
-			seen[p] = true
-			out = append(out, p)
+	return pathLines(out), nil
+}
+
+func pathLines(out string) []string {
+	var paths []string
+	for _, p := range strings.Split(out, "\n") {
+		if p = strings.TrimSpace(p); p != "" {
+			paths = append(paths, p)
 		}
 	}
-	sort.Strings(out)
-	return out, nil
+	sort.Strings(paths)
+	return paths
 }
 
 var diffText = []string{"diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers"}

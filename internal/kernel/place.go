@@ -195,6 +195,13 @@ func (k *Kernel) changed(s span) ([]string, error) {
 	return k.Git.ChangedPaths(s.base)
 }
 
+func (k *Kernel) untracked(s span) ([]string, error) {
+	if s.head != "" {
+		return nil, nil
+	}
+	return k.Git.Untracked()
+}
+
 func (k *Kernel) diffSpan(s span, paths []string) (string, error) {
 	if k.Git == nil || s.base == "" {
 		return "", nil
