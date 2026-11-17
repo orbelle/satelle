@@ -6,9 +6,9 @@ description: The after check of the pr-review gate (sto_ebcaa5aa). Publishes the
 
 # PR review publish (the after of pr-review)
 
-The `pr-review` gate is the repo's own judge: the code-ac skill, with the prompt and inputs of `code-ac`, on the agent
-`satelle workflow show delivery --session <session>` and
-`satelle workflow show chore --session <session>` name for it. satelle.dev
+The `pr-review` gate is the repo's own judge: the code-ac skill on a judge of `code-ac`, with the same prompt and inputs
+(`satelle workflow show delivery --session <session>` and
+`satelle workflow show chore --session <session>` name it). satelle.dev
 decides nothing. It publishes what this check sends, on the repository the
 project is bound to by the satelle GitHub app. This check runs once the judge
 has a verdict, with `SATELLE_GATE`, `SATELLE_GATE_RESULT` and

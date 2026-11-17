@@ -67,7 +67,7 @@ after = ["satelle-gate-status-publish"]
 
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-agent = "reviewer-gemini-3.8-flash-high"
+agent = "reviewer-gpt-5.6-sol-high"
 carry = true
 # The review publish check stays before the status entry, so a verdict the
 # reasons rules refuse is not published as a review; the status entry is last
