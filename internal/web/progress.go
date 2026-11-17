@@ -21,8 +21,13 @@ type stageVM struct {
 	ToneWord            string
 	Rounds              int
 	Rejected            []presentationVM
-	Parks               int
+	Parks               []parkVM
 	Title               string
+}
+
+type parkVM struct {
+	State string
+	N     int
 }
 
 const (
@@ -54,6 +59,9 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 			}
 		}
 	}
+	if len(order) == 0 && isStep(byName, it.Status) {
+		order = []string{it.Status}
+	}
 	if len(order) == 0 {
 		return nil
 	}
@@ -84,7 +92,7 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 	chips := make([]stageVM, len(order))
 	for i, name := range order {
 		c := &chips[i]
-		c.Name, c.Parks = name, parks[name]
+		c.Name, c.Parks = name, parksAt(w, parks[name])
 		c.ToneWord = toneNotRun
 		if t, ok := exitEdge(w, byName, name, order, mv, recent); ok {
 			c.To = t.To
@@ -175,8 +183,8 @@ func placementAt(events []Entry, i int) bool {
 	return ok
 }
 
-func parksOf(byName map[string]mirror.WorkflowState, mv [][2]string, placedTo string) (map[string]int, string) {
-	parks := map[string]int{}
+func parksOf(byName map[string]mirror.WorkflowState, mv [][2]string, placedTo string) (map[string]map[string]int, string) {
+	parks := map[string]map[string]int{}
 	tracked := ""
 	if isStep(byName, placedTo) {
 		tracked = placedTo
@@ -186,13 +194,26 @@ func parksOf(byName map[string]mirror.WorkflowState, mv [][2]string, placedTo st
 			tracked = m[0]
 		}
 		if s, ok := byName[m[1]]; ok && s.Park && s.Resumes && tracked != "" {
-			parks[tracked]++
+			if parks[tracked] == nil {
+				parks[tracked] = map[string]int{}
+			}
+			parks[tracked][m[1]]++
 		}
 		if isStep(byName, m[1]) {
 			tracked = m[1]
 		}
 	}
 	return parks, tracked
+}
+
+func parksAt(w *mirror.Workflow, by map[string]int) []parkVM {
+	var out []parkVM
+	for _, s := range w.States {
+		if n := by[s.Name]; n > 0 {
+			out = append(out, parkVM{State: s.Name, N: n})
+		}
+	}
+	return out
 }
 
 func exitEdge(w *mirror.Workflow, byName map[string]mirror.WorkflowState, step string, order []string, mv [][2]string, recent []presentationVM) (mirror.WorkflowTransition, bool) {
@@ -345,9 +366,21 @@ func stageTitle(c stageVM) string {
 		}
 	}
 	parts = append(parts, g+": "+c.ToneWord,
-		counted(c.Rounds, "rejected round", "rejected rounds"),
-		counted(c.Parks, "park", "parks"))
+		counted(c.Rounds, "rejected round", "rejected rounds"))
+	for _, p := range c.Parks {
+		parts = append(parts, p.State+" "+times(p.N)+" while at this step")
+	}
 	return strings.Join(parts, " · ")
+}
+
+func times(n int) string {
+	switch n {
+	case 1:
+		return "once"
+	case 2:
+		return "twice"
+	}
+	return fmt.Sprintf("%d times", n)
 }
 
 func counted(n int, one, many string) string {

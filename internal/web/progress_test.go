@@ -172,8 +172,8 @@ func TestProgressStepsInFirstReachedOrder(t *testing.T) {
 		t.Errorf("item A: chips %v, want [s0 s1 s2]", got)
 	}
 	b := newHist("sto_b", same).place("s0")
-	if got := chipsFor(t, w, "s0", b); got != nil {
-		t.Errorf("item B (only placed): chips %v, want none", names(got))
+	if got := names(chipsFor(t, w, "s0", b)); !slices.Equal(got, []string{"s0"}) {
+		t.Errorf("item B (only placed): chips %v, want [s0]", got)
 	}
 	c := newHist("sto_c", same).place("s0").move("s0", "s1").move("s1", "s2")
 	c.add(mirror.EventUpdated, map[string]string{"workflow": "pw"}).add(mirror.EventTransitioned, map[string]string{"from": "x", "to": "s0"})
@@ -438,13 +438,13 @@ func TestProgressRoundsAndParks(t *testing.T) {
 		gate("s1", "s2", "g1", "accept", "j1", "", "E").gate("s1", "s2", "g2", "accept", "j2", "", "E").move("s1", "s2").
 		move("s2", "pk")
 	cs := chipsFor(t, w, "pk", h)
-	if c := chip(t, cs, "s1"); c.Rounds != 3 || c.Parks != 2 {
-		t.Errorf("s1: %d rounds, %d parks; want 3 and 2", c.Rounds, c.Parks)
+	if c := chip(t, cs, "s1"); c.Rounds != 3 || parkCount(c) != 2 {
+		t.Errorf("s1: %d rounds, %v parks; want 3 and 2", c.Rounds, c.Parks)
 	}
-	if c := chip(t, cs, "s2"); c.Rounds != 0 || c.Parks != 1 {
-		t.Errorf("s2: %d rounds, %d parks; want 0 and 1 (the park taken at s2)", c.Rounds, c.Parks)
+	if c := chip(t, cs, "s2"); c.Rounds != 0 || parkCount(c) != 1 {
+		t.Errorf("s2: %d rounds, %v parks; want 0 and 1 (the park taken at s2)", c.Rounds, c.Parks)
 	}
-	if row := renderRows(t, []rowVM{rowOf(w, "pk", h, cs)}); !strings.Contains(row, `<b class="rej">3</b> <b class="blk">2</b>`) {
+	if row := renderRows(t, []rowVM{rowOf(w, "pk", h, cs)}); !strings.Contains(row, `<b class="rej">3</b> <b class="blk">pk 2</b>`) {
 		t.Errorf("the row does not draw 3 rejected rounds and 2 parks on s1: %s", row)
 	}
 
@@ -456,21 +456,21 @@ func TestProgressRoundsAndParks(t *testing.T) {
 	}
 
 	q := newHist("sto_q", same).place("s0").move("s0", "s1").move("s1", "qk")
-	if c := chip(t, chipsFor(t, w, "qk", q), "s1"); c.Parks != 0 || !c.Current {
+	if c := chip(t, chipsFor(t, w, "qk", q), "s1"); parkCount(c) != 0 || !c.Current {
 		t.Errorf("into qk: %+v, want 0 parks and s1 current", c)
 	}
 	q.move("qk", "pk")
-	if c := chip(t, chipsFor(t, w, "pk", q), "s1"); c.Parks != 1 || !c.Current {
+	if c := chip(t, chipsFor(t, w, "pk", q), "s1"); parkCount(c) != 1 || !c.Current {
 		t.Errorf("qk->pk: %+v, want 1 park on s1, s1 current", c)
 	}
 
 	d := newHist("sto_d", same).place("s0").move("s0", "pk")
-	if c := chip(t, chipsFor(t, w, "pk", d), "s0"); c.Parks != 1 {
-		t.Errorf("item D: s0 %d parks, want 1", c.Parks)
+	if c := chip(t, chipsFor(t, w, "pk", d), "s0"); parkCount(c) != 1 {
+		t.Errorf("item D: s0 %v parks, want 1", c.Parks)
 	}
 	e := newHist("sto_e", same).place("s0").move("s0", "pk").move("pk", "s0").move("s0", "pk")
-	if c := chip(t, chipsFor(t, w, "pk", e), "s0"); c.Parks != 2 {
-		t.Errorf("item E: s0 %d parks, want 2", c.Parks)
+	if c := chip(t, chipsFor(t, w, "pk", e), "s0"); parkCount(c) != 2 {
+		t.Errorf("item E: s0 %v parks, want 2", c.Parks)
 	}
 }
 
@@ -496,7 +496,7 @@ func TestProgressHoverAndDetailNotes(t *testing.T) {
 
 	has("performing, no run", title("s2", "s2", h, seat("work1", h.last())), "performing (pa2)")
 	has("current, no seat", title("s2", "s2", h), "s2: current, not being worked")
-	has("s1", title("s2", "s1", h), "2 exit gates", "g1, g2", "2 rejected rounds", "0 parks")
+	has("s1", title("s2", "s1", h), "2 exit gates", "g1, g2", "2 rejected rounds")
 	if s := title("s2", "s1", h); strings.Contains(s, "performed by") {
 		t.Errorf("s1 with no run names an agent: %q", s)
 	}
@@ -590,7 +590,7 @@ func TestProgressMarkupKeepsOldShape(t *testing.T) {
 	if cell == nil {
 		t.Fatalf("no Progress cell:\n%s", body)
 	}
-	chipRe := regexp.MustCompile(`<span class="stage-chip stage-(done|current|performing)" title="[^"]*">[^<]+ <b class="gates tone-(ok|idle)">\d+</b>( <b class="rej">\d+</b>)?( <b class="blk">\d+</b>)?</span>`)
+	chipRe := regexp.MustCompile(`<span class="stage-chip stage-(done|current|performing)" title="[^"]*">[^<]+ <b class="gates tone-(ok|idle)">\d+</b>( <b class="rej">\d+</b>)?( <b class="blk">[^<]+ \d+</b>)*</span>`)
 	if rest := chipRe.ReplaceAllString(cell[1], ""); rest != "" || len(chipRe.FindAllString(cell[1], -1)) != 3 {
 		t.Errorf("the cell is not three old-shape chips: %q (left %q)", cell[1], rest)
 	}

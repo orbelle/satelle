@@ -451,9 +451,10 @@ const templatesSrc = `
 {{define "storyCols"}}<colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-assignees"><col class="col-updated"></colgroup>{{end}}
 
 {{/* stageChip: one step chip in the old shape: <step> <gates> <rej> <blk>,
-     the gates count always drawn, rej and blk absent at 0; its title says the
-     same in words. */}}
-{{define "stageChip"}}<span class="stage-chip {{if .Performing}}stage-performing{{else if .Current}}stage-current{{else}}stage-done{{end}}" title="{{.Title}}">{{.Name}} <b class="gates {{if .Passed}}tone-ok{{else}}tone-idle{{end}}">{{len .Gates}}</b>{{if .Rounds}} <b class="rej">{{.Rounds}}</b>{{end}}{{if .Parks}} <b class="blk">{{.Parks}}</b>{{end}}</span>{{end}}
+     the gates count always drawn, rej absent at 0, and one blk per park state
+     the item entered from the step, named as the workflow names it ("blocked
+     1"); its title says the same in words. */}}
+{{define "stageChip"}}<span class="stage-chip {{if .Performing}}stage-performing{{else if .Current}}stage-current{{else}}stage-done{{end}}" title="{{.Title}}">{{.Name}} <b class="gates {{if .Passed}}tone-ok{{else}}tone-idle{{end}}">{{len .Gates}}</b>{{if .Rounds}} <b class="rej">{{.Rounds}}</b>{{end}}{{range .Parks}} <b class="blk">{{.State}} {{.N}}</b>{{end}}</span>{{end}}
 
 {{/* activityRows: the items being worked now, one condensed line each: who
      or what works it (seats, else the state's performer) and its latest step.

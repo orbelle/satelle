@@ -405,7 +405,8 @@ td.updated-cell { white-space: nowrap; }
    (.tone-ok green: left through it with its gates accepted; .tone-idle grey:
    not yet run, or its last round rejected or errored; .tone-live and .run.live
    are kept for gates still running, which sto_b13e3fcb brings), .rej the exit's
-   rejected rounds and .blk the parks taken in the step (both absent at 0). A
+   rejected rounds (absent at 0) and one .blk per park state entered from the
+   step, "<park state> <n>", named as the pushed workflow names it. A
    number here is a count, never a stage. The chip's title spells the same
    counts in words. .stage-performing pulses: the story is engaged (a seat
    here or elsewhere). .stage-current is highlighted and still: the story is
