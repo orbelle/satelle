@@ -96,6 +96,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 		doctorCheck{substrate.Field, checkSubstrate},
 		doctorCheck{substrate.VolatileField, checkVolatile},
 		doctorCheck{"init", checkInit},
+		doctorCheck{"agents", checkAgents},
 		doctorCheck{checkHarnessName, checkHarness},
 		doctorCheck{"sync", checkSync},
 		doctorCheck{"seats", checkSeats},
@@ -189,11 +190,65 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	for _, err := range kernel.Validate(in.r.DataDir) {
 		for _, line := range strings.Split(err.Error(), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
+				if strings.HasPrefix(line, kernel.AgentsLocalFile+": ") {
+					out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "edit .satelle/" + kernel.AgentsLocalFile + " (this machine's file)"})
+					continue
+				}
 				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate", Resolve: resolveFixItem})
 			}
 		}
 	}
 	return out, nil
+}
+
+func checkAgents(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	var notes []string
+	if in.cfg != nil {
+		for _, o := range in.cfg.Overrides {
+			eff := in.cfg.Agents[o.Name]
+			var parts []string
+			for _, f := range o.Fields {
+				parts = append(parts, fmt.Sprintf("%s %s -> %s", f, bindingField(o.Tracked, f), bindingField(eff, f)))
+			}
+			notes = append(notes, fmt.Sprintf("agents: %s overridden by .satelle/%s: %s", o.Name, kernel.AgentsLocalFile, strings.Join(parts, ", ")))
+		}
+	}
+	rel, err := filepath.Rel(in.r.Tree, filepath.Join(in.r.DataDir, kernel.AgentsLocalFile))
+	if err != nil {
+		return nil, notes
+	}
+	rel = filepath.ToSlash(rel)
+	g := gitfacts.Repo{Dir: in.r.Tree}
+	var out []doctorIssue
+	if ignored, err := g.IgnoredBy(rel); err == nil && ignored[rel] == "" {
+		out = append(out, doctorIssue{Check: "agents",
+			Problem: "no ignore rule covers " + rel + ", so a machine's overrides would show as a change in git",
+			Fix:     "add the line " + kernel.AgentsLocalFile + " to .satelle/.gitignore and commit it through this repo's workflow", Resolve: resolveFixItem})
+	}
+	if tracked, err := g.Tracks(rel); err == nil && tracked {
+		out = append(out, doctorIssue{Check: "agents",
+			Problem: rel + " is this machine's file but git tracks it",
+			Fix:     "git rm --cached " + rel + " and commit, through this repo's workflow", Resolve: resolveFixItem})
+	}
+	return out, notes
+}
+
+func bindingField(b agent.Binding, field string) string {
+	switch field {
+	case "command":
+		return fmt.Sprintf("%q", b.Command)
+	case "model":
+		return fmt.Sprintf("%q", b.Model)
+	case "effort":
+		return fmt.Sprintf("%q", b.Effort)
+	case "tools":
+		return "[" + strings.Join(b.Tools, " ") + "]"
+	case "deny":
+		return "[" + strings.Join(b.Deny, " ") + "]"
+	case "placement":
+		return fmt.Sprintf("%q", b.Placement)
+	}
+	return ""
 }
 
 func checkSubstrate(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {

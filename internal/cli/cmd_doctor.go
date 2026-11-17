@@ -31,6 +31,11 @@ Its checks:
              (reword, date or mark it; a file an [[upstream]] entry owns
              names its owner and is fixed there)
   init       files satelle init would add (satelle init)
+  agents     each active override in .satelle/agents.local.toml is a note,
+             naming the agent and each field as tracked -> effective; the
+             local file not covered by an ignore rule, or tracked by git, is
+             an issue (add agents.local.toml to .satelle/.gitignore, or
+             git rm --cached it, through the repo's workflow)
   harness    a harness in use (agents.toml runs it, or the repo has its
              .claude, .cursor, .grok or .pi directory) whose hook file differs
              from satelle's current hooks: absent, holding none, running a
@@ -76,7 +81,7 @@ when it finds nothing and 1 when it finds an issue.
   - every other orphaned seat: it shows the evidence and asks on the
     controlling terminal, release or keep (keep is the default); with no
     terminal it lists it, saying there was no terminal to ask at;
-  - config, substrate, volatile, init and .satelle/doctor.toml check findings: it
+  - config, substrate, volatile, init, agents and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (the kind and tag .satelle/doctor.toml
     [resolve] names, which satelle init writes; with either unset it lists
@@ -85,7 +90,8 @@ when it finds nothing and 1 when it finds an issue.
     lists them, satelle validate first.
 It never edits or commits files, and the only git commands doctor runs, with
 or without --resolve, are read-only queries: the repo's top level, and
-git check-ignore for the harness check. Everything else is listed with its
+git check-ignore for the harness and agents checks, and git ls-files for the
+agents check. Everything else is listed with its
 fix, and each issue left with a why: line saying why it was left. Plain
 doctor's "acts on N" line counts what --resolve would act on from this
 terminal: the seats it would ask about only when a terminal is attached, and

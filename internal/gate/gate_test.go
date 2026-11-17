@@ -245,7 +245,7 @@ func TestVerdictClassAndPanelMembers(t *testing.T) {
 	if pass || len(rs) != 1 {
 		t.Fatalf("panel: %v %+v", pass, rs)
 	}
-	want := []Member{{Binding: "y1", Result: Accept}, {Binding: "n1", Result: Reject, Class: "AC3"}}
+	want := []Member{{Binding: "y1", Result: Accept, Command: "claude", Model: "model-y1"}, {Binding: "n1", Result: Reject, Class: "AC3", Command: "claude", Model: "model-n1"}}
 	if got := rs[0].Members; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("members %+v, want %+v", got, want)
 	}

@@ -118,7 +118,7 @@ func harnessesInUse(tree string, cat agent.Catalog) []string {
 }
 
 func repoCatalog(r repo) agent.Catalog {
-	cat, err := agent.LoadCatalog(filepath.Join(r.DataDir, kernel.AgentsFile))
+	cat, _, err := kernel.LoadAgents(r.DataDir)
 	if err != nil {
 		return agent.Catalog{}
 	}

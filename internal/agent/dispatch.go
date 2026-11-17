@@ -33,6 +33,7 @@ type Result struct {
 	TokensIn  int
 	TokensOut int
 	Model     string
+	Command   string
 	Duration  time.Duration
 }
 
@@ -134,6 +135,9 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	res.Duration = time.Since(start)
 	if res.Model == "" {
 		res.Model = b.Model
+	}
+	if res.Command == "" {
+		res.Command = b.Command
 	}
 	return res, err
 }

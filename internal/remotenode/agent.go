@@ -13,6 +13,7 @@ type AgentRequest struct {
 type AgentReply struct {
 	Text      string `json:"text"`
 	Model     string `json:"model,omitempty"`
+	Command   string `json:"command,omitempty"`
 	TokensIn  int    `json:"tokens_in,omitempty"`
 	TokensOut int    `json:"tokens_out,omitempty"`
 }

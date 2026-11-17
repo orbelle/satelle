@@ -451,6 +451,7 @@ type PerformerRun struct {
 	Binding    string `json:"binding"`
 	Skill      string `json:"skill"`
 	Model      string `json:"model,omitempty"`
+	Command    string `json:"command,omitempty"`
 	TokensIn   int    `json:"tokens_in"`
 	TokensOut  int    `json:"tokens_out"`
 	DurationMS int64  `json:"duration_ms"`
@@ -517,8 +518,16 @@ func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, e
 	if runErr == nil {
 		art, runErr = agent.ParseArtifact(res.Text)
 	}
-	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: perf.Skill, Model: res.Model,
+	rec := PerformerRun{State: it.Status, Binding: b.Name, Skill: perf.Skill, Model: res.Model, Command: res.Command,
 		TokensIn: res.TokensIn, TokensOut: res.TokensOut, DurationMS: time.Since(start).Milliseconds(), Location: loc}
+	if b.Placement == "" || b.Placement == agent.PlaceLocal {
+		if rec.Command == "" {
+			rec.Command = b.Command
+		}
+		if rec.Model == "" {
+			rec.Model = b.Model
+		}
+	}
 	if runErr != nil {
 		rec.Error = runErr.Error()
 	}

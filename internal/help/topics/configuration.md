@@ -58,6 +58,7 @@ the kernel still opens: only a configuration problem stops it.
   repo edits it; a repo without it gets a line naming the missing file, and
   `satelle doctor --session <session>` reports it until `satelle init --session <session>` adds it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
+- `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
 - `skills/<name>.md` — the skills performers, gates and checks follow.
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:

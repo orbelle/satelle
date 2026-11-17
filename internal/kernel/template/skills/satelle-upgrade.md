@@ -175,8 +175,10 @@ One proposal row per old element, by these rules.
   go in `[hook] inject`.
 - idle_timeout and `[model_order]` are dropped: a v1 binding has no timeout or
   model fallback.
-- Each `agents.local.toml` override is its own row, merged into the binding of
-  the same name: v1 reads only `.satelle/agents.toml`.
+- Each `agents.local.toml` override is its own row: v1 reads
+  `.satelle/agents.local.toml`, field by field over the binding of the same
+  name, so an override maps to a table of that name there; the upgrade's
+  commit adds the line `agents.local.toml` to `.satelle/.gitignore`.
 
 **Settings**
 - Each of these is a row with "no v1 equivalent": reject_budget, rework,

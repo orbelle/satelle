@@ -85,5 +85,5 @@ func (p Placer) PerformOn(ctx context.Context, node string, req agent.Request) (
 	if err != nil {
 		return agent.Result{}, fmt.Errorf("node %s: malformed reply: %w", node, err)
 	}
-	return agent.Result{Text: reply.Text, Model: reply.Model, TokensIn: reply.TokensIn, TokensOut: reply.TokensOut, Duration: time.Since(start)}, nil
+	return agent.Result{Text: reply.Text, Model: reply.Model, Command: reply.Command, TokensIn: reply.TokensIn, TokensOut: reply.TokensOut, Duration: time.Since(start)}, nil
 }

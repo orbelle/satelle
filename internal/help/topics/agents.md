@@ -105,3 +105,30 @@ stream, every tool call included, is in its dispatch log.
   decode, makes the run fail, naming the file. A deny-only file is allowed.
 - A run that fails names why (cursor-agent missing, not signed in, an error
   result, no answer, a project config) and is never a verdict.
+
+## This machine's overrides
+
+A machine may override the repo's bindings in `.satelle/agents.local.toml`,
+which has the agents.toml shape (`[agents.<name>]` tables) and is ignored by
+git. Each field written there (command, model, effort, tools, deny, placement)
+replaces the tracked value of the agent of the same name; every field not
+written keeps the tracked value. With no file, the bindings are exactly as
+agents.toml prescribes. A remote node never receives this file.
+
+    [agents."reviewer-grok-4.7"]
+    command = "cursor-agent"
+    model   = "gpt-5.6-sol-high"
+
+`satelle validate --session <session>` and `satelle doctor --session <session>` refuse an agent agents.toml does not
+define, a field outside the schema, an override that makes a binding invalid,
+and an override that makes a judge the same command and model as the performer
+it judges; each refusal names agents.local.toml. `satelle doctor --session <session>` lists every
+active override as a note, field by field, tracked -> effective. A
+`performer.run` records the command and model that ran, and a `gate.run` the
+judge's (each panel member's for a panel).
+
+`satelle init --session <session>` writes the ignore line into a new `.satelle/.gitignore`. A repo
+whose `.satelle/.gitignore` predates it adds the line `agents.local.toml`
+in a commit of its own, through its workflow; doctor names it until then. The
+file is not locked against agent edits by default; a repo that wants that sets
+`[gate] locked_paths = [".satelle/agents.local.toml"]`.
