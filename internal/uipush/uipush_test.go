@@ -701,8 +701,8 @@ func TestSatelledShowsAGateRunning(t *testing.T) {
 	if !live(j.seen[0]) {
 		t.Errorf("satelled did not show the gate running while it ran:\n%s", j.seen[0])
 	}
-	if row := stories(); strings.Contains(row, "tone-live") || strings.Contains(row, "run live") || !strings.Contains(row, "tone-idle") {
-		t.Errorf("after the rejecting round, with no push by the test:\n%s", row)
+	if row := stories(); strings.Contains(row, "stage-chip") || !strings.Contains(row, `<td class="col-reviews">—</td>`) {
+		t.Errorf("after the rejecting first round the story has not moved, so its progress is blank again, with no push by the test:\n%s", row)
 	}
 
 	if _, err := k.Ledger.Append(it.ID, gate.KindStart, "ann", gate.Start{Transition: gate.TransitionKey("first", "second"), Gate: "look", Attempt: "att_orphan", Seq: 1}); err != nil {

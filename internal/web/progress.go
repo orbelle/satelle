@@ -60,6 +60,16 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 			}
 		}
 	}
+	runFrom, runTo, runN := runningGates(win)
+	prior := ""
+	if all := moves(events); len(all) > 0 {
+		prior = all[len(all)-1][0]
+	}
+	if len(order) == 0 && runN > 0 && runFrom == it.Status && isStep(byName, runFrom) {
+		if _, ok := edgeFor(w, byName, runFrom, runTo, prior); ok {
+			order = []string{runFrom}
+		}
+	}
 	if len(order) == 0 {
 		return nil
 	}
@@ -85,12 +95,6 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 		if st, _ := standing(s); st.Working() {
 			working = append(working, s)
 		}
-	}
-
-	runFrom, runTo, runN := runningGates(win)
-	prior := ""
-	if all := moves(events); len(all) > 0 {
-		prior = all[len(all)-1][0]
 	}
 
 	chips := make([]stageVM, len(order))

@@ -57,6 +57,17 @@ func TestProgressBlankUntilTheFirstMove(t *testing.T) {
 			t.Errorf("%s, engaged: chips %v, want none until the first move", tc.label, names(cs))
 		}
 	}
+	run := newHist("sto_r", same).place("s0").start("s0", "s1", "x", "A")
+	if cs := chipsFor(t, w, "s0", run); len(cs) != 1 || cs[0].Name != "s0" || cs[0].Running != 1 {
+		t.Errorf("a never-moved item whose first presentation is running: chips %+v, want the s0 chip running", cs)
+	}
+	run.gate("s0", "s1", "x", "reject", "j", "", "A")
+	if cs := chipsFor(t, w, "s0", run); cs != nil {
+		t.Errorf("after that first presentation is refused: chips %v, want none", names(cs))
+	}
+	if cs := chipsFor(t, w, "s0", newHist("sto_g", same).place("s0").start("s0", "gone", "x", "A")); cs != nil {
+		t.Errorf("a start on no transition of the workflow: chips %v, want none", names(cs))
+	}
 	moved := newHist("sto_m", same).place("s0").move("s0", "s1")
 	if got := names(chipsFor(t, w, "s1", moved)); !slices.Equal(got, []string{"s0", "s1"}) {
 		t.Errorf("after the first move: chips %v, want [s0 s1]", got)
