@@ -48,6 +48,69 @@ func TestParseVerdict(t *testing.T) {
 	}
 }
 
+func TestParseVerdictInvalidEscapeInNotes(t *testing.T) {
+	fenced := "The paths filter is right.\n\n```json\n{\"verdict\": \"accept\", \"notes\": \"trigger uses ^\\.azuredevops/ as asked\"}\n```\n"
+	v, ok := parseVerdict(fenced)
+	if !ok || v.Verdict != Accept || !strings.Contains(v.Notes, `^\.azuredevops/`) {
+		t.Fatalf("fenced \\.: %+v %v", v, ok)
+	}
+	v, ok = parseVerdict(`{"verdict":"reject","notes":"writes to C:\Users\x"}`)
+	if !ok || v.Verdict != Reject || v.Notes != `writes to C:\Users\x` {
+		t.Fatalf("windows path: %+v %v", v, ok)
+	}
+	v, ok = parseVerdict(`an example: {"verdict":"reject","notes":"quoted"} and mine: {"verdict":"accept","notes":"matches \.go"}`)
+	if !ok || v.Verdict != Accept || v.Notes != `matches \.go` {
+		t.Fatalf("last object wins: %+v %v", v, ok)
+	}
+	v, ok = parseVerdict(`{"x":{"verdict":"accept","notes":"a \. b"}}`)
+	valid, vok := parseVerdict(`{"x":{"verdict":"accept","notes":"a \\. b"}}`)
+	if !ok || v.Verdict != Accept || v.Notes != `a \. b` || !vok || v != valid {
+		t.Fatalf("nested: %+v %v, valid escape gives %+v %v", v, ok, valid, vok)
+	}
+}
+
+func TestParseVerdictNeverRepairsVerdict(t *testing.T) {
+	const prefix = `no {"verdict":"accept"|"reject","notes":"..."} object in the judge's answer: `
+	for _, text := range []string{
+		`{"verdict":"maybe","notes":"a \. b"}`,
+		`{"verdict":"acc\ept","notes":"x"}`,
+		`{"verdict":"acc\ept","notes":"a \. b"}`,
+		`{"verd\ict":"accept","notes":"x"}`,
+		`{"notes":"a \. b"}`,
+		`{"x":{"verdict":"maybe","notes":"a \. b"}}`,
+		`{"verdict":"accept","notes":"x","class":"A\C1"}`,
+	} {
+		v, ok := parseVerdict(text)
+		if ok || v.Verdict != Reject || !strings.HasPrefix(v.Notes, prefix) {
+			t.Errorf("%s: %+v %v, want the no-verdict reject", text, v, ok)
+		}
+	}
+}
+
+func TestParseVerdictValidEscapesUnchanged(t *testing.T) {
+	text := `{"verdict":"accept","notes":"a\nb\tc\"d\\.e\/f\u00e9g\bh"}`
+	var want Verdict
+	if err := json.Unmarshal([]byte(text), &want); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := parseVerdict(text)
+	if !ok || v != want || v.Notes != "a\nb\tc\"d\\.e/fég\bh" {
+		t.Fatalf("%+v %v, want %+v", v, ok, want)
+	}
+	if v, ok := parseVerdict(`{"verdict":"\u0061ccept","notes":"x"}`); !ok || v.Verdict != Accept {
+		t.Fatalf("escaped verdict: %+v %v", v, ok)
+	}
+}
+
+func TestJudgedGateInvalidEscapeRecordsAccept(t *testing.T) {
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"ok"}}}, map[string]workflow.Gate{"ok": {Skill: "judge", Agent: "y1"}})
+	d.answers["y1"] = "Looks right.\n\n```json\n{\"verdict\": \"accept\", \"notes\": \"trigger ^\\.azuredevops/ kept\"}\n```\n"
+	rs, pass := r.Execute(context.Background())
+	if !pass || len(rs) != 1 || rs[0].Result != Accept || !strings.Contains(rs[0].Notes, `^\.azuredevops/`) || strings.Contains(rs[0].Notes, "no {") {
+		t.Fatalf("%v %+v", pass, rs)
+	}
+}
+
 type fakeDispatcher struct {
 	mu      sync.Mutex
 	answers map[string]string
