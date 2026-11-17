@@ -44,7 +44,7 @@ carry = true
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gemini-3.8-flash-high", "reviewer-gpt-5.6-sol-high"]
+panel = ["reviewer-gpt-5.6-sol-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
