@@ -43,10 +43,10 @@ func (k *Kernel) changeNow(rec gate.Change, sp span, paths []string) (head, diff
 				if err != nil {
 					return "", "", err
 				}
-				diff, err = k.Git.Diff(rec.Base, paths)
+				diff, err = k.diffSpan(span{base: rec.Base}, paths)
 				return head, diff, err
 			}
-			diff, err = bg.DiffBetween(rec.Base, h, paths)
+			diff, err = k.diffSpan(span{base: rec.Base, head: h}, paths)
 			return h, diff, err
 		}
 	}
@@ -69,7 +69,9 @@ func gatePaths(w *workflow.Workflow, name string) []string {
 
 func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results []gate.Result) (*item.Span, error) {
 	rec, ok := latestChange(results)
-	if !ok {
+	// A change judged with no base (an item that never recorded one) froze
+	// nothing to judge: it freezes as an unjudged move does.
+	if !ok || rec.Change.Base == "" {
 		head := sp.head
 		if head == "" {
 			head, _ = k.Git.Head()
