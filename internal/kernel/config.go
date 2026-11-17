@@ -407,17 +407,18 @@ func (c *Config) judges(gname string, g workflow.Gate) []string {
 }
 
 func (c *Config) reviewGate(name string) (found, check bool) {
+	check = true
 	for _, wname := range sortedKeys(c.Workflows) {
 		g, ok := c.Workflows[wname].Gates[name]
 		if !ok {
 			continue
 		}
 		found = true
-		if sk, ok := c.Skills[g.Skill]; ok && sk.IsCheck() {
-			check = true
+		if sk, ok := c.Skills[g.Skill]; !ok || !sk.IsCheck() {
+			check = false
 		}
 	}
-	return found, check
+	return found, found && check
 }
 
 func (c *Config) bindingProblems(w *workflow.Workflow) []error {

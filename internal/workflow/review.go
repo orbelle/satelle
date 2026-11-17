@@ -67,7 +67,7 @@ func (r Review) Validate(gate func(name string) (found, check bool), agent Agent
 		if !found {
 			errs = append(errs, fmt.Errorf("satelle.toml: [review.panels.%s]: no workflow has a gate %q", gname, gname))
 		} else if check {
-			errs = append(errs, fmt.Errorf("satelle.toml: [review.panels.%s]: gate %q runs a check skill in a workflow, which dispatches no agent", gname, gname))
+			errs = append(errs, fmt.Errorf("satelle.toml: [review.panels.%s]: gate %q runs a check skill in every workflow that has it, which dispatches no agent", gname, gname))
 		}
 		tiers := make([]string, 0, len(r.Panels[gname]))
 		for t := range r.Panels[gname] {

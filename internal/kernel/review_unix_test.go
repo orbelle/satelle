@@ -123,7 +123,7 @@ func TestReviewProblems(t *testing.T) {
 	}
 }
 
-func TestReviewRefusesAGateNameThatIsACheckAnywhere(t *testing.T) {
+func TestReviewGateNameJudgedInOneWorkflowAndACheckInAnother(t *testing.T) {
 	root := reviewRoot(t, reviewTable)
 	write(t, filepath.Join(root, "skills", "probe.md"), "---\ntype: check\n---\n\n```check\nexit 0\n```\n")
 	write(t, filepath.Join(root, "workflows", "other.toml"), `
@@ -138,11 +138,15 @@ from = ["a"]
 to = "b"
 groups = [{ gates = ["review"] }]
 `)
+	if p := Validate(root); len(p) != 0 {
+		t.Errorf("a gate name judged in one workflow and a check in another is refused: %v", p)
+	}
+	write(t, filepath.Join(root, "workflows", "flow.toml"), strings.Replace(readFile(t, filepath.Join(root, "workflows", "flow.toml")), "skill = \"review\"\nagent = \"r1\"", "skill = \"probe\"", 1))
 	var msgs []string
 	for _, e := range Validate(root) {
 		msgs = append(msgs, e.Error())
 	}
-	if all := strings.Join(msgs, "\n"); !strings.Contains(all, `gate "review" runs a check skill`) {
-		t.Errorf("a gate name judged in one workflow and a check in another: %q", all)
+	if all := strings.Join(msgs, "\n"); !strings.Contains(all, `gate "review" runs a check skill in every workflow`) {
+		t.Errorf("a gate name that is a check everywhere: %q", all)
 	}
 }
