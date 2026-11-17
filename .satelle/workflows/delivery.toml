@@ -57,6 +57,9 @@ skill = "satelle-definition-unchanged-check"
 [gates.tree-unchanged]
 skill = "satelle-tree-unchanged-check"
 
+[gates.plan-touches]
+skill = "satelle-plan-touches-check"
+
 [gates.format-vet]
 skill = "satelle-format-vet-check"
 carry = true
@@ -164,7 +167,7 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["tree-unchanged", "binary-scope", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "plan-review"] },
 ]
 
 [[transition]]

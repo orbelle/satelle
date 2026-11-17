@@ -104,6 +104,10 @@ plan** (approach and/or files, and what evidence will prove it).
 - **Root cause** — for a fix, the premise evidence must locate where the wrong
   state is produced, not only where it surfaced; a plan that guards the symptom
   site is a finding.
+- **Touches** — the plan's `## Touches` section must cover, with a path or
+  glob on one of its lines, every file the plan's steps change or add. Name
+  each file the plan changes or adds that no line covers; a line that names a
+  file the plan never mentions is no finding.
 - **Dispatch pointers** — for every dispatch
   the plan designs, it must name what the receiving seat reads for itself (its
   grant, the CLI, the files on disk). A plan that embeds readable content in a
@@ -117,7 +121,7 @@ plan** (approach and/or files, and what evidence will prove it).
 - **Reject** when a criterion is untraced, untestable, unfaithful or cites no
   card behavior, the set is narrower than the card, the story shape fails (§3),
   the implementation drops a recorded constraint, a dispatch embeds readable
-  content, or a criterion is unplanned, hand-waved, contradicted or
+  content, a changed or added file is missing from `## Touches` (name the file), or a criterion is unplanned, hand-waved, contradicted or
   without a proof path — name it. Falsify checkable plan claims against the repo
   only when the plan asserts something already exists; do not rewrite the plan.
 
