@@ -65,6 +65,9 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 	if all := moves(events); len(all) > 0 {
 		prior = all[len(all)-1][0]
 	}
+	if len(order) == 0 && everMoved(events) && isStep(byName, it.Status) {
+		order = []string{it.Status}
+	}
 	if len(order) == 0 && runN > 0 && runFrom == it.Status && isStep(byName, runFrom) {
 		if _, ok := edgeFor(w, byName, runFrom, runTo, prior); ok {
 			order = []string{runFrom}
@@ -204,6 +207,15 @@ func runningGates(events []Entry) (from, to string, n int) {
 	}
 	from, to, _ = strings.Cut(key, mirror.TransitionSep)
 	return from, to, n
+}
+
+func everMoved(events []Entry) bool {
+	for i := range events {
+		if _, _, ok := transitionOf(events[i]); ok && !placementAt(events, i) {
+			return true
+		}
+	}
+	return false
 }
 
 func isStep(byName map[string]mirror.WorkflowState, name string) bool {
