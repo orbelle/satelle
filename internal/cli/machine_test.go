@@ -46,8 +46,15 @@ func newMachineWithHomeUI(t *testing.T) machine {
 	return serveMirror(t, m, path)
 }
 
+func outsideTemp(t *testing.T) {
+	t.Helper()
+	tempRootsOverride = []string{t.TempDir()}
+	t.Cleanup(func() { tempRootsOverride = nil })
+}
+
 func serveMirror(t *testing.T, m machine, path string) machine {
 	t.Helper()
+	outsideTemp(t)
 	ms, err := mirror.Open(path)
 	if err != nil {
 		t.Fatal(err)

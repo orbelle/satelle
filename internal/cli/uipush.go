@@ -9,6 +9,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
@@ -91,9 +92,21 @@ func recordSnapshot(root string, full bool, err error) {
 	_ = syncstate.RecordSnapshot(config.GlobalDir(), root, false, label+": "+err.Error(), time.Now())
 }
 
+func pushesToUI(r repo) bool {
+	for _, p := range []string{filepath.Dir(r.DataDir), r.Tree, uiRepoRoot(r)} {
+		if p != "" && hook.UnderTemp(tempRootsOverride, p) {
+			return false
+		}
+	}
+	return true
+}
+
 func withUISource(r repo, fn func(uipush.Client, uipush.Source) error) error {
 	c, ok := uiClient()
 	if !ok {
+		return nil
+	}
+	if !pushesToUI(r) {
 		return nil
 	}
 	root := uiRepoRoot(r)

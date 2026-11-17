@@ -21,8 +21,18 @@ The app that reviews this repo's pull requests is the satelle GitHub app (app
 5379260, satelle[bot]). The approval check matches that account, satelle[bot]
 (id 344745317); reviews by orbelle-reviewer, an internal app, never count.
 
-satelled keeps one partition per project it has been sent:
-`satelle project partitions --session <session>` lists them and `satelle project prune <repo_key> --session <session>`
-drops one whose project is gone. The automatic sync pass removes a project
-whose path no longer exists from `[projects] paths` and drops its satelled
-partition; `satelle project add <path> --session <session>` registers it again.
+satelled's Projects page lists this machine's projects: one row per
+`[projects] paths` entry, with its counts once the project has pushed.
+
+A repo pushes its partition to satelled when a satelle command there writes
+its ledger, when `satelle project add --session <session>` seeds it, and when the automatic
+sync pass confirms an added project; a command that writes nothing pushes
+nothing. A repo under the temp dir (the system temp dir and `/tmp`) pushes
+nothing, added or not.
+
+satelled keeps a partition of a repo that is not one of this machine's
+projects, and does not list it. `satelle project partitions --session <session>` lists every
+partition and marks those `not-added`; `satelle project prune <repo_key> --session <session>` drops
+one. The automatic sync pass removes a project whose path no longer exists
+from `[projects] paths` and drops its satelled partition; `satelle project
+add <path> --session <session>` registers it again.

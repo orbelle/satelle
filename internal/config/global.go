@@ -100,6 +100,16 @@ type ProjectsConfig struct {
 	Paths []string `toml:"paths"`
 }
 
+func (p ProjectsConfig) Keys() []string {
+	release := MemoGitIdentity()
+	defer release()
+	keys := make([]string, len(p.Paths))
+	for i, path := range p.Paths {
+		keys[i] = RepoKey(path)
+	}
+	return keys
+}
+
 func (p *ProjectsConfig) Add(path string) bool {
 	for _, r := range p.Paths {
 		if r == path {
