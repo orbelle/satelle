@@ -52,6 +52,8 @@ type Result struct {
 	Change     *Change  `json:"change,omitempty"`
 	Answer     string   `json:"answer,omitempty"`
 	Seq        int      `json:"seq,omitempty"`
+	Command    string   `json:"command,omitempty"`
+	Model      string   `json:"model,omitempty"`
 
 	judges []judgeAnswer
 
@@ -82,6 +84,8 @@ type Member struct {
 	Result  string `json:"result"`
 	Class   string `json:"class,omitempty"`
 	Answer  string `json:"answer,omitempty"`
+	Command string `json:"command,omitempty"`
+	Model   string `json:"model,omitempty"`
 }
 
 type judgeAnswer struct {
@@ -471,7 +475,7 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 		out.verdict = out.verdict && m.verdict
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
-		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class})
+		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class, Command: m.Command, Model: m.Model})
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
 	}
 	pass := false
@@ -508,12 +512,19 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 			return res
 		}
 	}
+	res.Command, res.Model = b.Command, b.Model
 	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
 	if r.Logs != "" {
 		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
 	}
 	out, err := r.Dispatcher.Dispatch(ctx, agent.Judge, req)
 	res.TokensIn, res.TokensOut = out.TokensIn, out.TokensOut
+	if out.Command != "" {
+		res.Command = out.Command
+	}
+	if out.Model != "" {
+		res.Model = out.Model
+	}
 	if err != nil {
 		res.Result, res.Notes = Error, "dispatch failed: "+err.Error()
 		return res

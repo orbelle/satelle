@@ -408,7 +408,7 @@ func (j *joiner) perform(ctx context.Context, k *kernel.Kernel, node *Node, tree
 			return nil, err
 		}
 		steps++
-		return json.Marshal(AgentReply{Text: res.Text, Model: res.Model, TokensIn: res.TokensIn, TokensOut: res.TokensOut})
+		return json.Marshal(AgentReply{Text: res.Text, Model: res.Model, Command: res.Command, TokensIn: res.TokensIn, TokensOut: res.TokensOut})
 	})
 	if err := serveGateJobs(node, j.o.Dir, j.digest); err != nil {
 		return Outcome{}, err

@@ -124,7 +124,9 @@ gates; a state may name a performer. Presenting a transition
 order and records every result on the ledger; the item moves only when no gate
 rejects. A gate is a skill: a deterministic check, or a rubric judged by an
 agent with a read-only grant. Agents are bindings in `.satelle/agents.toml`,
-each a command, a model and the tools it is granted.
+each a command, a model and the tools it is granted; a machine may override
+them, field by field, in its own git-ignored local file (see
+`satelle help agents --session <session>`).
 
 Process is configuration: change a workflow or a skill and the process changes,
 with no new binary. `satelle workflow show --session <session>` prints the configured workflows.

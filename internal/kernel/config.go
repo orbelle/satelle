@@ -67,6 +67,7 @@ type Config struct {
 	Workflows map[string]*workflow.Workflow
 	Skills    map[string]workflow.Skill
 	Agents    agent.Catalog
+	Overrides []agent.Override
 	Queues    map[string]*workflow.Queue
 	Doctor    DoctorSettings
 	Volatile  substrate.VolatileRules
@@ -123,18 +124,71 @@ func (o DoctorOpen) Selection() item.Selection {
 }
 
 const (
-	SettingsFile = "satelle.toml"
-	DoctorFile   = "doctor.toml"
-	VolatileFile = "volatile.toml"
-	UIFile       = "ui.toml"
-	AgentsFile   = "agents.toml"
-	SessionFile  = "session.md"
-	WorkflowsDir = "workflows"
-	SkillsDir    = "skills"
-	QueuesDir    = "queues"
-	RemotesDir   = "remotes"
-	RemoteFile   = "remote.toml"
+	SettingsFile    = "satelle.toml"
+	DoctorFile      = "doctor.toml"
+	VolatileFile    = "volatile.toml"
+	UIFile          = "ui.toml"
+	AgentsFile      = "agents.toml"
+	AgentsLocalFile = "agents.local.toml"
+	SessionFile     = "session.md"
+	WorkflowsDir    = "workflows"
+	SkillsDir       = "skills"
+	QueuesDir       = "queues"
+	RemotesDir      = "remotes"
+	RemoteFile      = "remote.toml"
 )
+
+func LoadAgents(root string) (agent.Catalog, []agent.Override, error) {
+	cat := agent.Catalog{}
+	if p := filepath.Join(root, AgentsFile); exists(p) {
+		c, err := agent.LoadCatalog(p)
+		if err != nil {
+			return cat, nil, err
+		}
+		cat = c
+	}
+	p := filepath.Join(root, AgentsLocalFile)
+	if !exists(p) {
+		return cat, nil, nil
+	}
+	merged, ovs, err := cat.Override(p)
+	if err != nil {
+		var errs []error
+		if j, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, e := range j.Unwrap() {
+				errs = append(errs, fmt.Errorf("%s: %w", AgentsLocalFile, e))
+			}
+		} else {
+			errs = append(errs, fmt.Errorf("%s: %w", AgentsLocalFile, err))
+		}
+		return cat, nil, errors.Join(errs...)
+	}
+	return merged, ovs, nil
+}
+
+func (c *Config) override(name string) (agent.Override, bool) {
+	for _, o := range c.Overrides {
+		if o.Name == name {
+			return o, true
+		}
+	}
+	return agent.Override{}, false
+}
+
+func (c *Config) agentProblems() []error {
+	var errs []error
+	for _, name := range c.Agents.Names() {
+		o, overridden := c.override(name)
+		for _, err := range c.Agents[name].Problems() {
+			if overridden {
+				errs = append(errs, fmt.Errorf("%s: agents.%s: %w (overriding %s)", AgentsLocalFile, name, err, strings.Join(o.Fields, ", ")))
+			} else {
+				errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
+			}
+		}
+	}
+	return errs
+}
 
 func LoadSettings(root string) (Settings, error) {
 	var st Settings
@@ -169,13 +223,10 @@ func LoadConfig(root string) (*Config, error) {
 			errs = append(errs, err)
 		}
 	}
-	if p := filepath.Join(root, AgentsFile); exists(p) {
-		cat, err := agent.LoadCatalog(p)
-		if err != nil {
-			errs = append(errs, err)
-		} else {
-			c.Agents = cat
-		}
+	if cat, ovs, err := LoadAgents(root); err != nil {
+		errs = append(errs, err)
+	} else {
+		c.Agents, c.Overrides = cat, ovs
 	}
 	if wfs, err := workflow.Load(filepath.Join(root, WorkflowsDir)); err != nil {
 		errs = append(errs, err)
@@ -232,7 +283,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 func (c *Config) Problems() []error {
 	var errs []error
 	errs = append(errs, c.Settings.Workflows.Validate(func(n string) bool { _, ok := c.Workflows[n]; return ok })...)
-	errs = append(errs, c.Agents.Validate()...)
+	errs = append(errs, c.agentProblems()...)
 	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
 	for _, name := range sortedKeys(c.Workflows) {
 		w := c.Workflows[name]
@@ -367,6 +418,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 			}
 		}
 	}
+	errs = append(errs, c.overrideSameProblems(w)...)
 	if !c.Settings.Rules.ReviewerDiffersFromPerformer {
 		return errs
 	}
@@ -381,9 +433,65 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 				for _, gname := range g.Gates {
 					for _, j := range w.Gates[gname].Judges() {
 						if model != "" && c.Agents[j].Model == model {
-							errs = append(errs, fmt.Errorf("workflow %s: transition %d: gate %q judge %q runs model %q, the same as the performer of %q",
-								w.Name, i+1, gname, j, model, from))
+							errs = append(errs, fmt.Errorf("workflow %s: transition %d: gate %q judge %q runs model %q, the same as the performer of %q (agent %q)",
+								w.Name, i+1, gname, j, model, from, p.Agent))
 						}
+					}
+				}
+			}
+		}
+	}
+	return errs
+}
+
+func (c *Config) tracked(name string) agent.Binding {
+	if o, ok := c.override(name); ok {
+		return o.Tracked
+	}
+	return c.Agents[name]
+}
+
+func sameRunner(a, b agent.Binding) bool {
+	return agent.Preset(a) != "" && agent.Preset(a) == agent.Preset(b) && a.Model == b.Model
+}
+
+func (c *Config) overrideSameProblems(w *workflow.Workflow) []error {
+	if len(c.Overrides) == 0 {
+		return nil
+	}
+	var errs []error
+	seen := map[string]bool{}
+	for _, t := range w.Transitions {
+		for _, from := range expandFrom(w, t.From) {
+			p := w.States[from].Agent()
+			if p == nil {
+				continue
+			}
+			pb, ok := c.Agents[p.Agent]
+			if !ok || agent.IsSession(pb) {
+				continue
+			}
+			_, pOver := c.override(p.Agent)
+			for _, g := range t.Groups {
+				for _, gname := range g.Gates {
+					for _, j := range w.Gates[gname].Judges() {
+						jb, ok := c.Agents[j]
+						if !ok {
+							continue
+						}
+						if _, jOver := c.override(j); !jOver && !pOver {
+							continue
+						}
+						if !sameRunner(jb, pb) || sameRunner(c.tracked(j), c.tracked(p.Agent)) {
+							continue
+						}
+						key := j + "\x00" + p.Agent
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						errs = append(errs, fmt.Errorf("%s: makes judge %q (gate %q) the same command and model as performer %q (state %q): both run %s model %q",
+							AgentsLocalFile, j, gname, p.Agent, from, agent.Preset(jb), jb.Model))
 					}
 				}
 			}

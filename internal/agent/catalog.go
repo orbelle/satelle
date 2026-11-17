@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -34,21 +35,30 @@ func (c Catalog) Names() []string {
 	return out
 }
 
-func LoadCatalog(path string) (Catalog, error) {
+func decodeAgents(path string) (map[string]Binding, toml.MetaData, error) {
 	var file struct {
 		Agents map[string]Binding `toml:"agents"`
 	}
 	md, err := toml.DecodeFile(path, &file)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, md, fmt.Errorf("%s: %w", path, err)
 	}
 	if un := md.Undecoded(); len(un) > 0 {
 		keys := make([]string, len(un))
 		for i, k := range un {
 			keys[i] = k.String()
 		}
-		return nil, fmt.Errorf("%s: unknown key %s", path, strings.Join(keys, ", "))
+		return nil, md, fmt.Errorf("%s: unknown key %s", path, strings.Join(keys, ", "))
 	}
+	return file.Agents, md, nil
+}
+
+func LoadCatalog(path string) (Catalog, error) {
+	agents, _, err := decodeAgents(path)
+	if err != nil {
+		return nil, err
+	}
+	file := struct{ Agents map[string]Binding }{agents}
 	c := Catalog{}
 	for name, b := range file.Agents {
 		b.Name = name
@@ -60,24 +70,92 @@ func LoadCatalog(path string) (Catalog, error) {
 func (c Catalog) Validate() []error {
 	var errs []error
 	for _, name := range c.Names() {
-		b := c[name]
-		if a, err := AdapterFor(b); err != nil {
-			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
-		} else if !IsSession(b) {
-			if _, err := a.Argv(Request{Binding: b}); err != nil {
-				errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
-			}
-		}
-		for _, t := range append(slices.Clone(b.Tools), b.Deny...) {
-			if err := ValidTool(t); err != nil {
-				errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
-			}
-		}
-		if err := validPlacement(b.Placement); err != nil {
+		for _, err := range c[name].Problems() {
 			errs = append(errs, fmt.Errorf("agents.%s: %w", name, err))
 		}
 	}
 	return errs
+}
+
+func (b Binding) Problems() []error {
+	var errs []error
+	if a, err := AdapterFor(b); err != nil {
+		errs = append(errs, err)
+	} else if !IsSession(b) {
+		if _, err := a.Argv(Request{Binding: b}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, t := range append(slices.Clone(b.Tools), b.Deny...) {
+		if err := ValidTool(t); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := validPlacement(b.Placement); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+type Override struct {
+	Name    string
+	Fields  []string
+	Tracked Binding
+}
+
+var overridable = []struct {
+	key  string
+	copy func(dst *Binding, src Binding)
+}{
+	{"command", func(d *Binding, s Binding) { d.Command = s.Command }},
+	{"model", func(d *Binding, s Binding) { d.Model = s.Model }},
+	{"effort", func(d *Binding, s Binding) { d.Effort = s.Effort }},
+	{"tools", func(d *Binding, s Binding) { d.Tools = slices.Clone(s.Tools) }},
+	{"deny", func(d *Binding, s Binding) { d.Deny = slices.Clone(s.Deny) }},
+	{"placement", func(d *Binding, s Binding) { d.Placement = s.Placement }},
+}
+
+func (c Catalog) Override(path string) (Catalog, []Override, error) {
+	local, md, err := decodeAgents(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var errs []error
+	names := make([]string, 0, len(local))
+	for name := range local {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !c.Has(name) {
+			errs = append(errs, fmt.Errorf("agents.%s: agents.toml defines no such agent (it defines: %s)", name, strings.Join(c.Names(), ", ")))
+		}
+	}
+	if len(errs) > 0 {
+		return nil, nil, errors.Join(errs...)
+	}
+	out := make(Catalog, len(c))
+	for n, b := range c {
+		out[n] = b
+	}
+	var ovs []Override
+	for _, name := range names {
+		tracked := c[name]
+		merged := tracked
+		var fields []string
+		for _, f := range overridable {
+			if md.IsDefined("agents", name, f.key) {
+				f.copy(&merged, local[name])
+				fields = append(fields, f.key)
+			}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		out[name] = merged
+		ovs = append(ovs, Override{Name: name, Fields: fields, Tracked: tracked})
+	}
+	return out, ovs, nil
 }
 
 const (

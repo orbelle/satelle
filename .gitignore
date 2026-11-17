@@ -12,7 +12,8 @@ CLAUDE.md
 
 # satelle process substrate (.satelle/) is tracked: workflows, skills,
 # principles, constitution, satelle.toml and agents.toml. Its run-time part
-# (runs/) is ignored by .satelle/.gitignore; runtime state lives under
+# (runs/) and this machine's agent overrides (agents.local.toml) are ignored
+# by .satelle/.gitignore; runtime state lives under
 # ~/.satelle/<repo-key>/, outside the repo. The re-include overrides a
 # machine-wide core.excludesFile that ignores .satelle/.
 !.satelle/
