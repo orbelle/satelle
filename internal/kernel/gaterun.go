@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -31,13 +32,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 			return gate.Run{}, sp, done, err
 		}
 	}
-	var prior []gate.Result
-	for _, e := range events {
-		var r gate.Result
-		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
-			prior = append(prior, r)
-		}
-	}
+	prior := GateRuns(events)
 	run := gate.Run{
 		Item: it, From: from, To: to, Transition: tr, Workflow: w,
 		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
@@ -64,6 +59,101 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		run.Record = rec.Section
 	}
 	return run, sp, done, nil
+}
+
+func GateRuns(events []ledger.Event) []gate.Result {
+	var out []gate.Result
+	for _, e := range events {
+		var r gate.Result
+		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
+			out = append(out, r)
+		}
+	}
+	for i := 0; i < len(out); {
+		j := i + 1
+		if out[i].Attempt != "" {
+			for j < len(out) && out[j].Attempt == out[i].Attempt {
+				j++
+			}
+		}
+		run := out[i:j]
+		if run[0].Attempt != "" && !slices.ContainsFunc(run, func(r gate.Result) bool { return r.Seq <= 0 }) {
+			slices.SortStableFunc(run, func(a, b gate.Result) int { return a.Seq - b.Seq })
+		}
+		i = j
+	}
+	return out
+}
+
+type recorder struct {
+	k                  *Kernel
+	id, actor, key, at string
+	mu                 sync.Mutex
+	err                error
+}
+
+func (rc *recorder) record(kind string, seq int, payload any) bool {
+	if _, err := rc.k.append(rc.id, kind, rc.actor, payload); err == nil {
+		return true
+	} else if rc.err == nil {
+		rc.err = err
+	}
+	events, err := rc.k.Ledger.Read(rc.id)
+	if err != nil {
+		return false
+	}
+	for _, e := range events {
+		if e.Kind != kind {
+			continue
+		}
+		var p struct {
+			Attempt string `json:"attempt"`
+			Seq     int    `json:"seq"`
+		}
+		if e.Decode(&p) == nil && p.Attempt == rc.at && p.Seq == seq {
+			return true
+		}
+	}
+	return false
+}
+
+func (rc *recorder) start(seq int, name string) error {
+	rc.mu.Lock()
+	if rc.err != nil {
+		err := rc.err
+		rc.mu.Unlock()
+		return err
+	}
+	on := rc.record(gate.KindStart, seq, gate.Start{Transition: rc.key, Gate: name, Attempt: rc.at, Seq: seq})
+	err := rc.err
+	rc.mu.Unlock()
+	if !on {
+		return err
+	}
+	rc.progress()
+	return nil
+}
+
+func (rc *recorder) finish(seq int, res gate.Result) {
+	rc.mu.Lock()
+	res.Attempt, res.Seq = rc.at, seq
+	on := rc.record(gate.KindRun, seq, res)
+	rc.mu.Unlock()
+	if on {
+		rc.progress()
+	}
+}
+
+func (rc *recorder) progress() {
+	if rc.k.Progress != nil {
+		rc.k.Progress(rc.id)
+	}
+}
+
+func (rc *recorder) failed() error {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	return rc.err
 }
 
 type GateDryRequest struct {

@@ -156,6 +156,12 @@ type GateRun struct {
 	Attempt    string `json:"attempt,omitempty"`
 }
 
+type GateStart struct {
+	Transition string `json:"transition"`
+	Gate       string `json:"gate"`
+	Attempt    string `json:"attempt"`
+}
+
 type PerformerRun struct {
 	State   string `json:"state"`
 	Binding string `json:"binding,omitempty"`
@@ -163,6 +169,7 @@ type PerformerRun struct {
 
 const (
 	EventGateRun         = "gate.run"
+	EventGateStart       = "gate.start"
 	EventTransitioned    = item.KindTransitioned
 	EventAttachmentAdded = item.KindAttachmentAdd
 	EventUpdated         = item.KindUpdated

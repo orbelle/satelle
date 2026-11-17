@@ -80,6 +80,7 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	k.Sessions = seatlife.Recorder{Home: home}
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
+	k.Progress = func(id string) { pushItem(r, id) }
 	return k, nil
 }
 

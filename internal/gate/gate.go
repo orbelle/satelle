@@ -16,6 +16,15 @@ import (
 
 const KindRun = "gate.run"
 
+const KindStart = "gate.start"
+
+type Start struct {
+	Transition string `json:"transition"`
+	Gate       string `json:"gate"`
+	Attempt    string `json:"attempt"`
+	Seq        int    `json:"seq"`
+}
+
 const (
 	Accept  = "accept"
 	Reject  = "reject"
@@ -42,6 +51,7 @@ type Result struct {
 	Location   string   `json:"location,omitempty"`
 	Change     *Change  `json:"change,omitempty"`
 	Answer     string   `json:"answer,omitempty"`
+	Seq        int      `json:"seq,omitempty"`
 
 	judges []judgeAnswer
 
@@ -101,31 +111,69 @@ type Run struct {
 	Head            Head
 	HeadErr         error
 	Logs            string
+	Started         func(seq int, gate string) error
+	Finished        func(seq int, res Result)
 
 	skipWarning string
 }
 
 func Refuses(result string) bool { return result == Reject || result == Error }
 
+func (r Run) started(seq int, name string) error {
+	if r.Started == nil {
+		return nil
+	}
+	return r.Started(seq, name)
+}
+
+func (r Run) finished(seq int, res Result) {
+	if r.Finished != nil {
+		r.Finished(seq, res)
+	}
+}
+
 func (r Run) Execute(ctx context.Context) ([]Result, bool) {
 	r.skipWarning = r.diffWarning()
 	var all []Result
+	seq := 0
 	for _, g := range r.Transition.Groups {
 		var res []Result
 		if g.Mode == workflow.Parallel {
-			res = make([]Result, len(g.Gates))
+			out := make([]Result, len(g.Gates))
+			launched := make([]bool, len(g.Gates))
+			stopped := false
 			var wg sync.WaitGroup
 			for i, name := range g.Gates {
+				seq++
+				if err := r.started(seq, name); err != nil {
+					stopped = true
+					break
+				}
+				launched[i] = true
 				wg.Add(1)
-				go func() {
+				go func(i, seq int, name string) {
 					defer wg.Done()
-					res[i] = r.one(ctx, name)
-				}()
+					out[i] = r.one(ctx, name)
+					r.finished(seq, out[i])
+				}(i, seq, name)
 			}
 			wg.Wait()
+			for i := range out {
+				if launched[i] {
+					res = append(res, out[i])
+				}
+			}
+			if stopped {
+				return append(all, res...), false
+			}
 		} else {
 			for _, name := range g.Gates {
+				seq++
+				if err := r.started(seq, name); err != nil {
+					return append(all, res...), false
+				}
 				out := r.one(ctx, name)
+				r.finished(seq, out)
 				res = append(res, out)
 				if Refuses(out.Result) {
 					break

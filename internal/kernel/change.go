@@ -108,9 +108,8 @@ func (k *Kernel) JudgedChanges(id string) ([]JudgedChange, error) {
 	sp := k.spanOf(it, events)
 	type now struct{ hash, head string }
 	seen := map[string]now{}
-	for _, e := range events {
-		var r gate.Result
-		if e.Kind != gate.KindRun || e.Decode(&r) != nil || r.Change == nil {
+	for _, r := range GateRuns(events) {
+		if r.Change == nil {
 			continue
 		}
 		paths := gatePaths(w, r.Gate)

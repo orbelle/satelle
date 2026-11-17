@@ -27,6 +27,7 @@ import (
 func TestWireConstantsAreTheKernels(t *testing.T) {
 	for got, want := range map[string]string{
 		mirror.EventGateRun:         gate.KindRun,
+		mirror.EventGateStart:       gate.KindStart,
 		mirror.EventTransitioned:    item.KindTransitioned,
 		mirror.EventAttachmentAdded: item.KindAttachmentAdd,
 		mirror.EventUpdated:         item.KindUpdated,
@@ -650,5 +651,80 @@ func TestSettingsCarryTagColours(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("pushed %d ui rows, want 2: %v", len(got), got)
+	}
+}
+
+type fetchingJudge struct {
+	mu      sync.Mutex
+	answers []string
+	fetch   func() string
+	seen    []string
+}
+
+func (j *fetchingJudge) Dispatch(_ context.Context, _ agent.Role, _ agent.Request) (agent.Result, error) {
+	row := j.fetch()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.seen = append(j.seen, row)
+	a := j.answers[0]
+	j.answers = j.answers[1:]
+	return agent.Result{Text: a}, nil
+}
+
+func TestSatelledShowsAGateRunning(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	srv, _ := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
+	k.Progress = func(id string) {
+		if err := c.Push(ctx, src, []string{id}); err != nil {
+			t.Error(err)
+		}
+	}
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Watched")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	stories := func() string { return get(t, srv.URL+"/r/proj/fragment/stories") }
+	j := &fetchingJudge{answers: []string{`{"verdict":"reject","notes":"not yet"}`, `{"verdict":"accept","notes":"fine"}`}, fetch: stories}
+	k.Dispatcher = j
+	live := func(row string) bool {
+		return strings.Contains(row, `<b class="gates tone-live">1</b> <b class="run live">1</b>`)
+	}
+
+	if res, err := k.Transition(ctx, it.ID, "second", "ann"); err != nil || res.Moved {
+		t.Fatalf("first presentation: moved=%v err=%v", res.Moved, err)
+	}
+	if !live(j.seen[0]) {
+		t.Errorf("satelled did not show the gate running while it ran:\n%s", j.seen[0])
+	}
+	if row := stories(); strings.Contains(row, "tone-live") || strings.Contains(row, "run live") || !strings.Contains(row, "tone-idle") {
+		t.Errorf("after the rejecting round, with no push by the test:\n%s", row)
+	}
+
+	if _, err := k.Ledger.Append(it.ID, gate.KindStart, "ann", gate.Start{Transition: gate.TransitionKey("first", "second"), Gate: "look", Attempt: "att_orphan", Seq: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Cache.SyncItem(k.Ledger, it.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if row := stories(); !live(row) {
+		t.Errorf("a start with no gate launched is not shown running (the accepted limit):\n%s", row)
+	}
+
+	if res, err := k.Transition(ctx, it.ID, "second", "ann"); err != nil || !res.Moved {
+		t.Fatalf("second presentation: moved=%v err=%v", res.Moved, err)
+	}
+	if !live(j.seen[1]) {
+		t.Errorf("the second round was not shown running:\n%s", j.seen[1])
+	}
+	if row := stories(); strings.Contains(row, "run live") || strings.Contains(row, "tone-live") || !strings.Contains(row, "tone-ok") {
+		t.Errorf("after the move, with no push by the test:\n%s", row)
 	}
 }

@@ -22,6 +22,7 @@ type stageVM struct {
 	Rounds              int
 	Rejected            []presentationVM
 	Parks               []parkVM
+	Running             int
 	Title               string
 }
 
@@ -86,16 +87,30 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 		}
 	}
 
+	runFrom, runTo, runN := runningGates(win)
+	prior := ""
+	if all := moves(events); len(all) > 0 {
+		prior = all[len(all)-1][0]
+	}
+
 	chips := make([]stageVM, len(order))
 	for i, name := range order {
 		c := &chips[i]
 		c.Name, c.Parks = name, parksAt(w, parks[name])
 		c.ToneWord = toneNotRun
-		if t, ok := exitEdge(w, byName, name, order, mv, recent); ok {
+		t, ok := exitEdge(w, byName, name, order, mv, recent)
+		running := false
+		if runN > 0 && name == runFrom && isStep(byName, runFrom) {
+			if rt, rok := edgeFor(w, byName, runFrom, runTo, prior); rok {
+				t, ok, running = rt, true, true
+				t.To = runTo
+			}
+		}
+		if ok {
 			c.To = t.To
 			for _, g := range t.Groups {
 				for _, n := range g.Gates {
-					if !slices.Contains(c.Gates, n) {
+					if running || !slices.Contains(c.Gates, n) {
 						c.Gates = append(c.Gates, n)
 					}
 				}
@@ -122,6 +137,9 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 			default:
 				c.ToneWord = toneNotLeft
 			}
+			if running {
+				c.Running, c.Passed, c.ToneWord = runN, false, fmt.Sprintf("%d still running", runN)
+			}
 		}
 		for _, p := range all {
 			if p.From == name && rejected(p) {
@@ -144,6 +162,44 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 		c.Title = stageTitle(*c)
 	}
 	return chips
+}
+
+func runningGates(events []Entry) (from, to string, n int) {
+	var at, key string
+	for _, e := range events {
+		switch e.Kind {
+		case mirror.EventGateStart:
+			var s mirror.GateStart
+			if json.Unmarshal(e.Payload, &s) != nil {
+				continue
+			}
+			if s.Attempt != at || at == "" {
+				at, key, n = s.Attempt, s.Transition, 0
+			}
+			n++
+		case mirror.EventGateRun:
+			var r struct {
+				Attempt string `json:"attempt"`
+			}
+			if json.Unmarshal(e.Payload, &r) != nil {
+				continue
+			}
+			if r.Attempt != "" && r.Attempt == at {
+				if n > 0 {
+					n--
+				}
+			} else {
+				at, key, n = "", "", 0
+			}
+		case mirror.EventTransitioned:
+			at, key, n = "", "", 0
+		}
+	}
+	if n == 0 {
+		return "", "", 0
+	}
+	from, to, _ = strings.Cut(key, mirror.TransitionSep)
+	return from, to, n
 }
 
 func isStep(byName map[string]mirror.WorkflowState, name string) bool {

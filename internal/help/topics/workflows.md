@@ -134,6 +134,17 @@ validate --session <session>` refuses an entry that is not a check skill and an 
 twice. `after` is a list only: a single string (`after = "publish"`) is
 refused, naming the key and the list form to write (`after = ["publish"]`).
 
+Each gate of a presentation is recorded as it happens: a `gate.start`
+(`transition`, `gate`, `attempt`, `seq`, its position in the presentation)
+immediately before it runs, and its `gate.run` (with the same `seq`) as soon
+as it finishes, not after the whole presentation returns. A gate runs only
+when its start is on the ledger; after a failed write no further gate starts,
+the gates already started still record their results, and the item does not
+move. Results are read in declared order, so the round cap and carry see what
+they saw before. satelled shows a step's exit gates running while it holds a
+start with no result for the item's newest presentation leaving the step. A
+dry run (`satelle gate run`) records neither.
+
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
 hold at least 40 non-whitespace characters) and, on gates that judge a plan or

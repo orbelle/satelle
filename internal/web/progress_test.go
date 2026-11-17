@@ -602,7 +602,7 @@ func TestProgressMarkupKeepsOldShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, sel := range []string{".col-reviews", ".stage-chip", ".stage-done", ".stage-current", ".stage-performing",
-		".stage-chip .gates.tone-idle", ".stage-chip .gates.tone-ok", ".rej", ".stage-chip .blk", "@keyframes review-pulse"} {
+		".stage-chip .gates.tone-idle", ".stage-chip .gates.tone-ok", ".stage-chip .gates.tone-live", ".stage-chip .run.live", ".rej", ".stage-chip .blk", "@keyframes review-pulse"} {
 		if !strings.Contains(string(css), sel) {
 			t.Errorf("app.css lacks %s", sel)
 		}

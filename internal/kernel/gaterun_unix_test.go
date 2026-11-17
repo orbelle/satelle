@@ -6,13 +6,19 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func dryFixture(t *testing.T) (k *Kernel, d *fakeDispatcher, dumps string) {
@@ -352,4 +358,512 @@ func allKind(events []ledger.Event, kind string) bool {
 		}
 	}
 	return true
+}
+
+type liveDispatcher struct {
+	mu      sync.Mutex
+	answers map[string]string
+	calls   []string
+	on      func(req agent.Request)
+}
+
+func (d *liveDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	d.mu.Lock()
+	d.calls = append(d.calls, req.Binding.Name)
+	text := d.answers[req.Binding.Name]
+	on := d.on
+	d.mu.Unlock()
+	if on != nil {
+		on(req)
+	}
+	return agent.Result{Text: text, TokensIn: 1, TokensOut: 1}, nil
+}
+
+func (d *liveDispatcher) called() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.calls)
+}
+
+func recFixture(t *testing.T, transition string, extra string) (*Kernel, *liveDispatcher, string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	root := filepath.Join(repo, ".satelle")
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"flow\"\n[items]\nprefix = { thing = \"th\" }\n")
+	agents := ""
+	gates := ""
+	for _, n := range []string{"first", "second", "third", "fourth", "g"} {
+		agents += "[agents.r" + n + "]\ncommand = \"claude\"\nmodel = \"m" + n + "\"\ntools = [\"Read\"]\n"
+		gates += "[gates." + n + "]\nskill = \"review\"\nagent = \"r" + n + "\"\n"
+	}
+	write(t, filepath.Join(root, "agents.toml"), agents)
+	write(t, filepath.Join(root, "skills", "review.md"), "Review the change.\n")
+	write(t, filepath.Join(root, "skills", "mark1.md"), "---\ntype: check\n---\n```sh\ntouch c1.marker\n```\n")
+	write(t, filepath.Join(root, "skills", "mark2.md"), "---\ntype: check\n---\n```sh\ntouch c2.marker\n```\n")
+	write(t, filepath.Join(root, "workflows", "flow.toml"), `
+[states.a]
+start = true
+`+extra+`
+[states.held]
+park = true
+resumes = true
+[states.z]
+terminal = true
+`+gates+`
+[gates.c1]
+skill = "mark1"
+[gates.c2]
+skill = "mark2"
+
+[[transition]]
+from = ["a"]
+to = "z"
+`+transition+`
+[[transition]]
+from = ["*"]
+to = "held"
+[[transition]]
+from = ["held"]
+to = "@prior"
+`)
+	k, err := Open(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { k.Close() })
+	d := &liveDispatcher{answers: map[string]string{}}
+	for _, n := range []string{"first", "second", "third", "fourth", "g"} {
+		d.answers["r"+n] = accept
+	}
+	k.Dispatcher = d
+	it, err := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t")}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k, d, it.ID, repo
+}
+
+type startRec struct {
+	Transition, Gate, Attempt string
+	Seq                       int
+}
+
+func gateEvents(t *testing.T, events []ledger.Event) (starts []startRec, runs []gate.Result) {
+	t.Helper()
+	for _, e := range events {
+		switch e.Kind {
+		case gate.KindStart:
+			var s gate.Start
+			if err := e.Decode(&s); err != nil {
+				t.Fatal(err)
+			}
+			starts = append(starts, startRec{s.Transition, s.Gate, s.Attempt, s.Seq})
+		case gate.KindRun:
+			var r gate.Result
+			if err := e.Decode(&r); err != nil {
+				t.Fatal(err)
+			}
+			runs = append(runs, r)
+		}
+	}
+	return starts, runs
+}
+
+type progressCount struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+func (p *progressCount) hook(id string) { p.mu.Lock(); p.ids = append(p.ids, id); p.mu.Unlock() }
+func (p *progressCount) n() int         { p.mu.Lock(); defer p.mu.Unlock(); return len(p.ids) }
+
+func TestGatesRecordedAsTheyRun(t *testing.T) {
+	k, d, id, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first", "second"] }, { mode = "parallel", gates = ["third", "fourth"] }]`, "")
+	var p progressCount
+	k.Progress = p.hook
+	var mu sync.Mutex
+	seen := map[string][]ledger.Event{}
+	d.on = func(req agent.Request) {
+		ev, err := k.Ledger.Read(id)
+		if err != nil {
+			t.Error(err)
+		}
+		mu.Lock()
+		seen[req.Binding.Name] = ev
+		mu.Unlock()
+	}
+	res, err := k.Transition(context.Background(), id, "z", "me")
+	if err != nil || !res.Moved {
+		t.Fatalf("transition: %v moved=%v", err, res.Moved)
+	}
+	seqOf := map[string]int{"rfirst": 1, "rsecond": 2, "rthird": 3, "rfourth": 4}
+	for b, seq := range seqOf {
+		starts, runs := gateEvents(t, seen[b])
+		own := slices.ContainsFunc(starts, func(s startRec) bool {
+			return s.Seq == seq && s.Gate == strings.TrimPrefix(b, "r") && s.Transition == "a->z" && s.Attempt != ""
+		})
+		if !own {
+			t.Errorf("%s's judge did not see its own gate.start (seq %d): %+v", b, seq, starts)
+		}
+		if slices.ContainsFunc(runs, func(r gate.Result) bool { return r.Seq == seq }) {
+			t.Errorf("%s's judge saw its own gate.run before it answered", b)
+		}
+	}
+	if _, runs := gateEvents(t, seen["rsecond"]); !slices.ContainsFunc(runs, func(r gate.Result) bool { return r.Gate == "first" && r.Seq == 1 }) {
+		t.Errorf("the second sequential judge did not see the first gate's gate.run: %+v", runs)
+	}
+	all, _ := k.Ledger.Read(id)
+	starts, runs := gateEvents(t, all)
+	if len(starts) != 4 || len(runs) != 4 {
+		t.Fatalf("%d starts and %d runs, want 4 and 4", len(starts), len(runs))
+	}
+	at := starts[0].Attempt
+	for _, r := range runs {
+		i := slices.IndexFunc(all, func(e ledger.Event) bool {
+			var s gate.Start
+			return e.Kind == gate.KindStart && e.Decode(&s) == nil && s.Seq == r.Seq && s.Gate == r.Gate && s.Attempt == r.Attempt
+		})
+		j := slices.IndexFunc(all, func(e ledger.Event) bool {
+			var x gate.Result
+			return e.Kind == gate.KindRun && e.Decode(&x) == nil && x.Seq == r.Seq
+		})
+		if i < 0 || i > j || r.Attempt != at {
+			t.Errorf("gate.run %s seq %d: start at %d, run at %d, attempt %s (want %s)", r.Gate, r.Seq, i, j, r.Attempt, at)
+		}
+	}
+	if p.n() != 9 || !slices.Equal(slices.Compact(slices.Clone(p.ids)), []string{id}) {
+		t.Errorf("Progress called %d times with %v, want 9 times with %s", p.n(), p.ids, id)
+	}
+
+	k2, d2, id2, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first", "second"] }]`, "")
+	d2.answers["rfirst"] = reject
+	var p2 progressCount
+	k2.Progress = p2.hook
+	if res, err := k2.Transition(context.Background(), id2, "z", "me"); err != nil || res.Moved {
+		t.Fatalf("rejecting transition: %v moved=%v", err, res.Moved)
+	}
+	ev2, _ := k2.Ledger.Read(id2)
+	if starts, _ := gateEvents(t, ev2); len(starts) != 1 || p2.n() != 2 {
+		t.Errorf("after the first gate rejects: starts %+v, Progress %d; want one start and 2 calls", starts, p2.n())
+	}
+}
+
+func TestSameNamedParallelGateRecordsItsOwnResult(t *testing.T) {
+	k, d, id, _ := recFixture(t, `groups = [{ mode = "parallel", gates = ["g", "g"] }]`, "")
+	var mu sync.Mutex
+	held := false
+	var after []ledger.Event
+	d.on = func(req agent.Request) {
+		mu.Lock()
+		first := !held
+		held = true
+		mu.Unlock()
+		if !first {
+			return
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			ev, _ := k.Ledger.Read(id)
+			if _, runs := gateEvents(t, ev); len(runs) > 0 {
+				mu.Lock()
+				after = ev
+				mu.Unlock()
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Error("the other g never recorded its gate.run while this one was held")
+	}
+	if res, err := k.Transition(context.Background(), id, "z", "me"); err != nil || !res.Moved {
+		t.Fatalf("transition: %v moved=%v", err, res.Moved)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if _, runs := gateEvents(t, after); len(runs) != 1 || runs[0].Gate != "g" {
+		t.Errorf("the held judge saw %d gate.run events, want exactly one for g", len(runs))
+	}
+}
+
+func TestRefusedWriteRunsNoGate(t *testing.T) {
+	k, d, id, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first", "second"] }]`, "")
+	k.Ledger.SetReadOnly("test")
+	if _, err := k.Transition(context.Background(), id, "z", "me"); err == nil {
+		t.Fatal("a read-only ledger did not refuse the transition")
+	}
+	k.Ledger.SetReadOnly("")
+	ev, _ := k.Ledger.Read(id)
+	if starts, runs := gateEvents(t, ev); len(starts)+len(runs) != 0 || len(d.called()) != 0 {
+		t.Errorf("read-only before: %d starts, %d runs, judges %v; want none", len(starts), len(runs), d.called())
+	}
+
+	d.on = func(req agent.Request) {
+		if req.Binding.Name == "rfirst" {
+			k.Ledger.SetReadOnly("test")
+		}
+	}
+	res, err := k.Transition(context.Background(), id, "z", "me")
+	k.Ledger.SetReadOnly("")
+	if err == nil || res.Moved {
+		t.Fatalf("read-only mid-run: %v moved=%v", err, res.Moved)
+	}
+	if slices.Contains(d.called(), "rsecond") {
+		t.Error("the second gate's judge ran after the ledger refused a write")
+	}
+	ev, _ = k.Ledger.Read(id)
+	if starts, _ := gateEvents(t, ev); slices.ContainsFunc(starts, func(s startRec) bool { return s.Seq == 2 }) {
+		t.Errorf("a gate.start for the second gate is on the ledger: %+v", starts)
+	}
+}
+
+func TestUnreadableLedgerRunsNoFurtherGate(t *testing.T) {
+	k, d, id, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first", "second"] }]`, "")
+	var p progressCount
+	k.Progress = p.hook
+	path := k.Ledger.Path(id)
+	aside := path + ".aside"
+	var calls int
+	d.on = func(req agent.Request) {
+		if req.Binding.Name != "rfirst" {
+			return
+		}
+		if err := os.Rename(path, aside); err != nil {
+			t.Error(err)
+		}
+		if err := os.Mkdir(path, 0o755); err != nil {
+			t.Error(err)
+		}
+		if _, err := k.Ledger.Read(id); err == nil {
+			t.Error("the ledger still reads with a directory at its path")
+		}
+		calls = p.n()
+	}
+	if _, err := k.Transition(context.Background(), id, "z", "me"); err == nil {
+		t.Fatal("an unreadable ledger did not refuse the transition")
+	}
+	if slices.Contains(d.called(), "rsecond") || p.n() != calls {
+		t.Errorf("judges %v, Progress %d after %d: the second gate must not run and nothing more is pushed", d.called(), p.n(), calls)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(aside, path); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := k.Ledger.Read(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if starts, _ := gateEvents(t, ev); slices.ContainsFunc(starts, func(s startRec) bool { return s.Seq == 2 }) {
+		t.Errorf("a gate.start for the second gate is on the ledger: %+v", starts)
+	}
+}
+
+func TestStartOnTheLedgerRunsAfterAFailedCacheSync(t *testing.T) {
+	k, _, id, repo := recFixture(t, `groups = [{ mode = "sequential", gates = ["c1", "c2"] }]`, "")
+	var p progressCount
+	k.Progress = p.hook
+	k.Cache.Close()
+	res, err := k.Transition(context.Background(), id, "z", "me")
+	if err == nil || res.Moved {
+		t.Fatalf("a failed cache sync: %v moved=%v, want an error and no move", err, res.Moved)
+	}
+	ev, err := k.Ledger.Read(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts, runs := gateEvents(t, ev)
+	if len(starts) != 1 || starts[0].Gate != "c1" || starts[0].Seq != 1 || len(runs) != 1 || runs[0].Gate != "c1" || runs[0].Seq != 1 || runs[0].Attempt != starts[0].Attempt {
+		t.Errorf("starts %+v runs %+v: want c1's start and result, seq 1, one attempt", starts, runs)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "c1.marker")); err != nil {
+		t.Errorf("c1, whose start is on the ledger, did not run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "c2.marker")); err == nil {
+		t.Error("c2 ran after an append error")
+	}
+	if p.n() != 2 {
+		t.Errorf("Progress called %d times, want 2", p.n())
+	}
+}
+
+func TestRecorderStopsStartsButRecordsResults(t *testing.T) {
+	k, _, id, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first"] }]`, "")
+	rc := &recorder{k: k, id: id, actor: "me", key: "a->z", at: "att_1"}
+	if err := rc.start(1, "first"); err != nil {
+		t.Fatal(err)
+	}
+	k.Ledger.SetReadOnly("test")
+	if err := rc.start(2, "second"); err == nil {
+		t.Fatal("a refused start returned nil")
+	}
+	k.Ledger.SetReadOnly("")
+	rc.finish(1, gate.Result{Transition: "a->z", Gate: "first", Result: gate.Accept})
+	if err := rc.start(3, "third"); err == nil {
+		t.Error("a start after an error returned nil")
+	}
+	ev, _ := k.Ledger.Read(id)
+	starts, runs := gateEvents(t, ev)
+	if len(starts) != 1 || starts[0].Seq != 1 || len(runs) != 1 || runs[0].Attempt != "att_1" || runs[0].Seq != 1 {
+		t.Errorf("starts %+v runs %+v: want only seq 1's start and result", starts, runs)
+	}
+
+	k2, _, id2, _ := recFixture(t, `groups = [{ mode = "sequential", gates = ["first"] }]`, "")
+	k2.Cache.Close()
+	rc2 := &recorder{k: k2, id: id2, actor: "me", key: "a->z", at: "att_2"}
+	if err := rc2.start(1, "first"); err != nil {
+		t.Errorf("a start on the ledger with a failed cache sync returned %v", err)
+	}
+	rc2.finish(1, gate.Result{Transition: "a->z", Gate: "first", Result: gate.Accept})
+	if err := rc2.start(2, "second"); err == nil {
+		t.Error("a start after a failed sync returned nil")
+	}
+	ev2, _ := k2.Ledger.Read(id2)
+	if starts, runs := gateEvents(t, ev2); len(starts) != 1 || len(runs) != 1 {
+		t.Errorf("closed cache: starts %+v runs %+v, want one of each", starts, runs)
+	}
+}
+
+func runEvent(t *testing.T, r gate.Result) ledger.Event {
+	t.Helper()
+	e, err := ledger.NewEventWith("e", time.Now(), "th_1", gate.KindRun, "me", r, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestGateRunsReadsDeclaredOrder(t *testing.T) {
+	res := func(g, at string, seq int) gate.Result {
+		return gate.Result{Transition: "a->z", Gate: g, Result: gate.Accept, Attempt: at, Seq: seq}
+	}
+	names := func(rs []gate.Result) string {
+		var out []string
+		for _, r := range rs {
+			out = append(out, r.Gate+r.Attempt)
+		}
+		return strings.Join(out, " ")
+	}
+	start, _ := ledger.NewEventWith("s", time.Now(), "th_1", gate.KindStart, "me", gate.Start{Transition: "a->z", Gate: "x", Attempt: "A", Seq: 9}, "")
+	for _, c := range []struct {
+		name string
+		in   []gate.Result
+		want string
+	}{
+		{"by seq", []gate.Result{res("h", "A", 2), res("g", "A", 1), res("g", "A", 3)}, "gA hA gA"},
+		{"no seq", []gate.Result{res("h", "A", 0), res("g", "A", 0)}, "hA gA"},
+		{"one without seq", []gate.Result{res("h", "A", 2), res("g", "A", 0), res("k", "A", 1)}, "hA gA kA"},
+		{"attempts apart", []gate.Result{res("b", "A", 2), res("a", "A", 1), res("d", "B", 2), res("c", "B", 1)}, "aA bA cB dB"},
+		{"no attempt keeps its place", []gate.Result{res("b", "A", 2), res("x", "", 0), res("a", "A", 1)}, "bA x aA"},
+	} {
+		var ev []ledger.Event
+		for i, r := range c.in {
+			ev = append(ev, runEvent(t, r))
+			if i == 0 {
+				ev = append(ev, start)
+			}
+		}
+		if got := names(GateRuns(ev)); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+func TestGateRunsKeepsCarry(t *testing.T) {
+	w := &workflow.Workflow{
+		Name:   "w",
+		States: map[string]workflow.State{"a": {Start: true}, "z": {Terminal: true}},
+		Gates:  map[string]workflow.Gate{"g": {Skill: "review", Agent: "r1", Carry: true}},
+	}
+	tr := &workflow.Transition{From: []string{"a"}, To: "z", Groups: []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}}
+	recorded := []gate.Result{
+		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov", Attempt: "A", Seq: 2},
+		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov", Attempt: "A", Seq: 1},
+	}
+	var ev []ledger.Event
+	for _, r := range recorded {
+		ev = append(ev, runEvent(t, r))
+	}
+	declared := []gate.Result{
+		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov"},
+		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov"},
+	}
+	carriedOver := func(prior []gate.Result) (bool, int) {
+		d := &fakeDispatcher{answers: map[string]string{"r1": accept}}
+		run := gate.Run{
+			Item: item.Item{ID: "th_1"}, From: "a", To: "z", Transition: tr, Workflow: w,
+			Skills:     map[string]workflow.Skill{"review": {Name: "review", Meta: map[string]string{}, Body: "r"}},
+			Agents:     agent.Catalog{"r1": agent.Binding{Name: "r1", Command: "claude", Model: "m", Tools: []string{"Read"}}},
+			Dispatcher: d, Prior: prior,
+			Coverage: func([]string) (string, string, error) { return "cov", "chg", nil },
+		}
+		r := run.Gate(context.Background(), "g")
+		return r.Result == gate.Carried, len(d.calls)
+	}
+	if c, n := carriedOver(recorded); c || n != 1 {
+		t.Errorf("over recorded order: carried %v, judges %d; want false and 1", c, n)
+	}
+	if c, n := carriedOver(GateRuns(ev)); !c || n != 0 {
+		t.Errorf("over GateRuns: carried %v, judges %d; want true and 0", c, n)
+	}
+	if c, _ := carriedOver(declared); !c {
+		t.Error("over declared order: not carried")
+	}
+}
+
+func TestHoldKeepsDeclaredOrder(t *testing.T) {
+	k, d, id, _ := recFixture(t, `groups = [{ mode = "parallel", gates = ["first", "second", "third"] }]`, "hold = { rounds = 2, to = \"held\" }")
+	d.answers["rthird"] = reject
+	d.on = func(req agent.Request) {
+		if req.Binding.Name != "rfirst" {
+			return
+		}
+		ev, _ := k.Ledger.Read(id)
+		starts, _ := gateEvents(t, ev)
+		at := ""
+		for _, s := range starts {
+			if s.Gate == "first" {
+				at = s.Attempt
+			}
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			ev, _ := k.Ledger.Read(id)
+			if _, runs := gateEvents(t, ev); slices.ContainsFunc(runs, func(r gate.Result) bool { return r.Gate == "second" && r.Attempt == at }) {
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Error("second's gate.run never landed while first was held")
+	}
+	ctx := context.Background()
+	if _, err := k.Transition(ctx, id, "z", "me"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := k.Transition(ctx, id, "z", "me")
+	if err != nil || res.Held == nil {
+		t.Fatalf("round 2: %v held=%+v", err, res.Held)
+	}
+	ev, _ := k.Ledger.Read(id)
+	_, runs := gateEvents(t, ev)
+	last := runs[len(runs)-1].Attempt
+	var order []string
+	for _, r := range runs {
+		if r.Attempt == last {
+			order = append(order, r.Gate)
+		}
+	}
+	if slices.Index(order, "second") > slices.Index(order, "first") {
+		t.Fatalf("the fixture did not force completion order: %v", order)
+	}
+	want := []string{item.VerdictKey("first", "rfirst"), item.VerdictKey("second", "rsecond")}
+	if !slices.Equal(res.Held.Accepted, want) {
+		t.Errorf("Hold.Accepted %v, want declared order %v", res.Held.Accepted, want)
+	}
+	h, err := k.HoldOf(id)
+	if err != nil || !reflect.DeepEqual(h, res.Held) {
+		t.Errorf("HoldOf %+v (%v), want %+v", h, err, res.Held)
+	}
+	if m := lastMove(t, k, id); !reflect.DeepEqual(m.Hold, res.Held) {
+		t.Errorf("the last move's hold %+v, want %+v", m.Hold, res.Held)
+	}
 }

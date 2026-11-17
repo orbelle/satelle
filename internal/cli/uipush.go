@@ -47,6 +47,16 @@ func flushUI(ctx context.Context) {
 	})
 }
 
+var pushing sync.Mutex
+
+func pushItem(r repo, id string) {
+	pushing.Lock()
+	defer pushing.Unlock()
+	_ = withUISource(r, func(c uipush.Client, src uipush.Source) error {
+		return c.Push(context.Background(), src, []string{id})
+	})
+}
+
 func takeWritten() (*repo, []string) {
 	written.Lock()
 	r, items := written.repo, written.items

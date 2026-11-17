@@ -398,11 +398,12 @@ td.updated-cell { white-space: nowrap; }
 .tag { font-size: 11.5px; color: var(--muted); }
 
 /* Progress column — one chip per step a story reached, in the order first
-   reached, reading "<step> <gates> <rej> <blk>": .gates the exit gates (the
-   gates on the transition leaving the step), its tone the step's exit
+   reached, reading "<step> <gates> <run> <rej> <blk>": .gates the exit gates
+   (the gates on the transition leaving the step), its tone the step's exit
    (.tone-ok green: left through it with its gates accepted; .tone-idle grey:
-   not yet run, or its last round rejected or errored; .tone-live and .run.live
-   are kept for gates still running, which sto_b13e3fcb brings), .rej the exit's
+   not yet run, or its last round rejected or errored; .tone-live: the exit
+   gates are running now), .run.live the count of started gates with no result
+   yet (absent at 0), .rej the exit's
    rejected rounds (absent at 0) and one .blk per park state entered from the
    step, "<park state> <n>", named as the pushed workflow names it. A
    number here is a count, never a stage. The chip's title spells the same

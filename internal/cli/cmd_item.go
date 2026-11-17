@@ -1012,14 +1012,7 @@ func gateResults(k *kernel.Kernel, id string) ([]gate.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []gate.Result
-	for _, e := range events {
-		var r gate.Result
-		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	return kernel.GateRuns(events), nil
 }
 
 func writeRefusals(b *strings.Builder, gates []gate.Result) {

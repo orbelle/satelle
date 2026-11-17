@@ -12,6 +12,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gittest"
+	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/web"
 )
@@ -205,5 +206,62 @@ func TestTempWorktreePushesNothing(t *testing.T) {
 	flushUI(context.Background())
 	if n := partitionCount(t, ms); n != 0 {
 		t.Fatalf("a command in a temp-dir worktree left %d partition(s) in satelled", n)
+	}
+}
+
+func TestProgressPushesTheItemItIsGiven(t *testing.T) {
+	dir := isolate(t)
+	outsideTemp(t)
+	ms, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ms.Close() })
+	srv := httptest.NewServer(web.NewMirrorWithInstance(ms, config.CurrentInstanceID()).Handler)
+	t.Cleanup(srv.Close)
+	t.Setenv("SATELLE_SERVER_ENDPOINT", srv.URL)
+	must(t, "init")
+	createID(t, "story", "create", "--title", "seeds the partition", "--criteria", "c")
+	flushUI(context.Background())
+	parts, _ := ms.ListPartitions(context.Background())
+	if len(parts) != 1 {
+		t.Fatalf("partitions = %d, want 1", len(parts))
+	}
+	stories := func() string {
+		resp, err := http.Get(srv.URL + "/r/" + parts[0].Slug + "/fragment/stories")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+
+	r, err := findRepo(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := r.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if k.Progress == nil {
+		t.Fatal("the CLI's kernel has no Progress hook")
+	}
+	storyKind, title := "story", "pushed by progress"
+	it, err := k.Create(item.Fields{Kind: &storyKind, Title: &title}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ids := takeWritten(); len(ids) == 0 {
+		t.Fatal("the write hook did not report the create")
+	}
+	if strings.Contains(stories(), "pushed by progress") {
+		t.Fatal("the story reached satelled before Progress was called")
+	}
+	k.Progress(it.ID)
+	if !strings.Contains(stories(), "pushed by progress") {
+		t.Error("Progress did not push the item it was given")
 	}
 }
