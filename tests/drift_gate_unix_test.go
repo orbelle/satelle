@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -1055,5 +1056,35 @@ func TestDriftSkillsStateTheirTrigger(t *testing.T) {
 		if p = strings.TrimSuffix(p, "/**"); !strings.Contains(sentence, p) {
 			t.Errorf("the claims skill's diff sentence does not name the gate path %s:%s", p, sentence)
 		}
+	}
+}
+
+func TestDriftLastStepsTakeTheNewestFinishedRun(t *testing.T) {
+	t.Parallel()
+	d := newDriftSandbox(t, nil)
+	var runs []string
+	for range 2 {
+		exe := d.start(d.drift, stepSeat(t))
+		d.attachReport(exe, noDriftReport())
+		d.citeReport(exe)
+		if r := d.run("execution", "set", exe, "--status", "done"); r.code != 0 {
+			t.Fatalf("drift run %s did not close: exit %d\n%s%s", exe, r.code, r.out, r.err)
+		}
+		runs = append(runs, exe)
+		time.Sleep(1100 * time.Millisecond)
+	}
+	older, newer := runs[0], runs[1]
+	d.must("execution", "release", older)
+
+	six := shBlock(t, ".satelle/skills/drift-review.md", "## 6.", d.drift)
+	sel := lineWith(t, six, "exe=$(satelle execution list", "drift-review.md step 6")
+	r := d.exec("bash", "", "-c", "session=\"${SATELLE_SESSION:-}\"\ntask="+d.drift+"\n"+sel+"\necho \"$exe\"")
+	if got := strings.TrimSpace(r.out); r.code != 0 || got != newer {
+		t.Fatalf("drift-review.md step 6 picks %q (exit %d %s), want the newest finished run %s (older %s)", got, r.code, r.err, newer, older)
+	}
+
+	r = d.exec("bash", "", "-c", shBlock(t, ".satelle/skills/drift-review.md", "## 7.", d.drift))
+	if r.code != 0 || !strings.Contains(r.out, "released") || !strings.Contains(r.out, newer) {
+		t.Fatalf("drift-review.md step 7 did not release the seat on the newest finished run %s: exit %d\n%s%s", newer, r.code, r.out, r.err)
 	}
 }

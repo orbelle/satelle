@@ -69,7 +69,7 @@ be skipped before it judged anything.
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 bash scripts/drift-check.sh > "$rd/substrate.txt"; echo "drift-check exit $?" | tee "$rd/substrate.exit"
 cat "$rd/substrate.txt"
@@ -84,7 +84,7 @@ stop and report its reason.
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 touch "$rd/judged.txt"
@@ -133,7 +133,7 @@ so the report is attached before step 4 presents any item.
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 base=$(satelle ledger list "$exe" --kind task.run --json --session "$session" | jq -r '.[0].payload.base_ref')
@@ -173,7 +173,7 @@ satelle execution attach "$exe" --name drift-report --type text/markdown --file 
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 tab=$(printf '\t')
@@ -237,7 +237,7 @@ Steps 3 and 4 always run together, in that order: step 4 reads the files step
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 satelle execution set "$exe" --status done --session "$session" || satelle execution route "$exe" --session "$session"
 ```
 
@@ -267,10 +267,13 @@ other way, and never change the code or substrate a gate judged.
 
 ## 6. Record the warnings
 
+Steps 6 and 7 act on the run step 5 just presented done: the newest finished
+run of the task, by creation time (`execution list` lists oldest first).
+
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 touch "$rd/findings.txt" "$rd/warnings.txt"
@@ -293,6 +296,6 @@ warnings.
 ```sh
 session=<session>
 task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r '.[0].id')
+exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 satelle execution release "$exe" --session "$session"
 ```
