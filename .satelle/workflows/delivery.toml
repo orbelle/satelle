@@ -44,6 +44,11 @@ skill = "satelle-story-architecture-review"
 agent = "reviewer-gemini-3.8-flash-high"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.risk-assess]
+skill = "satelle-risk-assess-review"
+agent = "reviewer-grok-4.7"
+after = ["satelle-verdict-notes-check", "satelle-risk-tier-record"]
+
 [gates.plan-review]
 skill = "satelle-story-plan-review"
 panel = ["reviewer-grok-4.7", "reviewer-gpt-5.6-sol-high"]
@@ -167,7 +172,7 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "risk-assess", "binary-scope", "plan-review"] },
 ]
 
 [[transition]]
