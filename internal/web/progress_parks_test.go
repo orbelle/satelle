@@ -41,7 +41,7 @@ func parkedWorkflow(parks ...string) *mirror.Workflow {
 
 var parkWord = regexp.MustCompile(`\bparks?\b`)
 
-func TestProgressNeverMovedShowsCurrentStep(t *testing.T) {
+func TestProgressBlankUntilTheFirstMove(t *testing.T) {
 	w := progressWorkflow(same)
 	for _, tc := range []struct {
 		label string
@@ -50,19 +50,16 @@ func TestProgressNeverMovedShowsCurrentStep(t *testing.T) {
 		{"no events", newHist("sto_n", same)},
 		{"only placed", newHist("sto_n", same).place("s0")},
 	} {
-		cs := chipsFor(t, w, "s0", tc.h)
-		if got := names(cs); !slices.Equal(got, []string{"s0"}) {
-			t.Fatalf("%s: chips %v, want [s0]", tc.label, got)
+		if cs := chipsFor(t, w, "s0", tc.h); cs != nil {
+			t.Errorf("%s: chips %v, want none until the first move", tc.label, names(cs))
 		}
-		if c := cs[0]; !c.Current || c.Performing || c.To != "s1" || c.ToneWord != toneNotRun {
-			t.Errorf("%s: %+v, want s0 current, not performing, exit to s1 not yet run", tc.label, c)
+		if cs := chipsFor(t, w, "s0", tc.h, mirror.Seat{Item: "sto_n", Session: "work1"}); cs != nil {
+			t.Errorf("%s, engaged: chips %v, want none until the first move", tc.label, names(cs))
 		}
 	}
-	if cs := chipsFor(t, w, "s0", newHist("sto_n", same), mirror.Seat{Item: "sto_n", Session: "work1"}); len(cs) != 1 || !cs[0].Performing {
-		t.Errorf("an engaged never-moved story: %+v, want one performing chip", cs)
-	}
-	if cs := chipsFor(t, w, "t1", newHist("sto_n", same)); cs != nil {
-		t.Errorf("a never-moved item in a terminal state: %v, want no chip", names(cs))
+	moved := newHist("sto_m", same).place("s0").move("s0", "s1")
+	if got := names(chipsFor(t, w, "s1", moved)); !slices.Equal(got, []string{"s0", "s1"}) {
+		t.Errorf("after the first move: chips %v, want [s0 s1]", got)
 	}
 
 	fix := &mirror.Workflow{Name: "fix", Panel: "Drift",
@@ -75,16 +72,21 @@ func TestProgressNeverMovedShowsCurrentStep(t *testing.T) {
 	srv := mirrorWith(t, progressSnapshot([]*mirror.Workflow{w, fix}, []Item{drift, closed, fresh}, nil, nil, nil))
 	page := httpGetBody(t, srv.URL+"/r/proj/")
 	topic := panelTopic("Drift")
-	sec := section(page, topic)
-	cell := regexp.MustCompile(`data-expand-url="fragment/story/sto_drift"[\s\S]*?<td class="col-reviews">(.*?)</td>`).FindStringSubmatch(sec)
-	if cell == nil || !strings.Contains(cell[1], `<span class="stage-chip stage-current"`) || !strings.Contains(cell[1], `>open <b class="gates tone-idle">1</b></span>`) || !strings.Contains(cell[1], "drift-review") {
-		t.Errorf("the open drift fix item's progress cell is not its open chip with its one exit gate: %v", cell)
+	cellOf := func(sec, id string) string {
+		m := regexp.MustCompile(`data-expand-url="fragment/story/` + id + `"[\s\S]*?<td class="col-reviews">(.*?)</td>`).FindStringSubmatch(sec)
+		if m == nil {
+			t.Fatalf("no progress cell for %s", id)
+		}
+		return m[1]
+	}
+	if c := cellOf(section(page, topic), "sto_drift"); c != "—" {
+		t.Errorf("the open drift fix item that never moved: progress cell %q, want the dash", c)
 	}
 	if !regexp.MustCompile(`data-panel="` + topic + `"[^>]*>.*?<span class="n">1</span>`).MatchString(page) {
 		t.Error("the Drift tab does not count its one open item")
 	}
-	if cell := regexp.MustCompile(`data-expand-url="fragment/story/sto_fresh"[\s\S]*?<td class="col-reviews">(.*?)</td>`).FindStringSubmatch(section(page, "stories")); cell == nil || !strings.Contains(cell[1], `>s0 <b class="gates tone-idle">`) {
-		t.Errorf("the never-moved backlog story shows no s0 chip: %v", cell)
+	if c := cellOf(section(page, "stories"), "sto_fresh"); c != "—" {
+		t.Errorf("the backlog story that never moved: progress cell %q, want the dash", c)
 	}
 }
 

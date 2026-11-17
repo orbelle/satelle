@@ -172,8 +172,8 @@ func TestProgressStepsInFirstReachedOrder(t *testing.T) {
 		t.Errorf("item A: chips %v, want [s0 s1 s2]", got)
 	}
 	b := newHist("sto_b", same).place("s0")
-	if got := names(chipsFor(t, w, "s0", b)); !slices.Equal(got, []string{"s0"}) {
-		t.Errorf("item B (only placed): chips %v, want [s0]", got)
+	if got := chipsFor(t, w, "s0", b); got != nil {
+		t.Errorf("item B (only placed): chips %v, want none", names(got))
 	}
 	c := newHist("sto_c", same).place("s0").move("s0", "s1").move("s1", "s2")
 	c.add(mirror.EventUpdated, map[string]string{"workflow": "pw"}).add(mirror.EventTransitioned, map[string]string{"from": "x", "to": "s0"})

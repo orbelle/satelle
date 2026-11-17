@@ -59,9 +59,6 @@ func progressOf(w *mirror.Workflow, it Item, events []Entry, seats []mirror.Seat
 			}
 		}
 	}
-	if len(order) == 0 && isStep(byName, it.Status) {
-		order = []string{it.Status}
-	}
 	if len(order) == 0 {
 		return nil
 	}
