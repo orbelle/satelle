@@ -97,7 +97,7 @@ func hookDefers(harness string, in hook.Input) bool {
 	})
 }
 
-var hookTempRoots []string
+var tempRootsOverride []string
 
 func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 	if !in.IsEdit() && !in.IsShell() {
@@ -111,7 +111,7 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	session := hookSession(in)
-	g := hook.Gate{Root: r.Tree, TempRoots: hookTempRoots}
+	g := hook.Gate{Root: r.Tree, TempRoots: tempRootsOverride}
 	k, err := r.open()
 	if err != nil {
 		rel, _ := filepath.Rel(r.Tree, r.DataDir)

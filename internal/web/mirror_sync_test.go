@@ -67,17 +67,18 @@ func TestProjectPageShowsLocalStore(t *testing.T) {
 
 func TestLandingRendersStandingSyncFailure(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -133,17 +134,18 @@ func updatedCell(t *testing.T, body string) string {
 
 func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -172,17 +174,18 @@ func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
 
 func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -207,17 +210,18 @@ func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
 
 func TestProjectPageNamesBothTimes(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -242,17 +246,18 @@ func TestProjectPageNamesBothTimes(t *testing.T) {
 
 func TestLandingRendersLocalOnly(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -275,13 +280,14 @@ func TestLandingRendersLocalOnly(t *testing.T) {
 
 func TestLandingOmitsSyncMarkerWhenNoState(t *testing.T) {
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	ms := NewMirror(s)
@@ -296,17 +302,18 @@ func TestLandingOmitsSyncMarkerWhenNoState(t *testing.T) {
 func renderLocalAfter(t *testing.T, path string, record func(home, repo string) error) string {
 	t.Helper()
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -369,17 +376,18 @@ func projectPageWithSync(t *testing.T, record func(repo string)) string {
 func pageWithSync(t *testing.T, path string, record func(repo string)) string {
 	t.Helper()
 	isolateHome(t)
+	rk := addedProject(t, "demo")
 	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := t.Context()
-	if _, err := s.TouchPartition(ctx, "rk", "demo", time.Now()); err != nil {
+	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, "rk", "identity", []mirror.ItemRow{{
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
 		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
 	}}, time.Now()); err != nil {
 		t.Fatal(err)

@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
@@ -53,6 +60,17 @@ func TestProjectsAreLocalAndWorkspacesAreSatelleDev(t *testing.T) {
 	if out := must(t, "help", "projects"); !strings.Contains(out, "is a repo or directory") || !strings.Contains(out, "is a collection of projects on satelle.dev") {
 		t.Errorf("help projects = %q", out)
 	}
+	help := strings.Join(strings.Fields(must(t, "help", "projects")), " ")
+	for _, want := range []string{
+		"satelled's Projects page lists this machine's projects",
+		"when a satelle command there writes its ledger",
+		"A repo under the temp dir (the system temp dir and `/tmp`) pushes nothing, added or not",
+		"marks those `not-added`",
+	} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help projects lacks %q", want)
+		}
+	}
 }
 
 func regexpLine(out string, fields ...string) bool {
@@ -89,4 +107,59 @@ func TestWorkspaceWordMeansSatelleDev(t *testing.T) {
 		}
 	}
 	walk(NewRootCmd())
+}
+
+func TestPartitionsMarkStrayAndPruneDropsThem(t *testing.T) {
+	m := newMachineWithHomeUI(t)
+	if out := runOn(t, m, "project", "add"); !strings.Contains(out, "seeded satelled at") {
+		t.Fatalf("project add: %s", out)
+	}
+	key := config.RepoKey(m.dir)
+	strayPath := t.TempDir()
+	ctx := context.Background()
+	if _, err := m.ms.TouchPartition(ctx, "stray-0000beef", "stray", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ident, _ := json.Marshal(mirror.IdentityMeta{ProjectName: "stray", RepoRoot: strayPath})
+	if err := m.ms.ReplaceKind(ctx, "stray-0000beef", "identity", []mirror.ItemRow{{ID: "meta", Payload: string(ident)}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	out := must(t, "project", "partitions")
+	if !regexpLine(out, "REPO_KEY", "SLUG", "STORY", "TASK", "PROJECT", "PATH") {
+		t.Errorf("partitions header: %q", out)
+	}
+	var own, stray []string
+	notAdded := 0
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 4 && f[0] != "REPO_KEY" && slices.Contains(f, "not-added") {
+			notAdded++
+		}
+		switch {
+		case len(f) >= 6 && f[0] == key:
+			own = f
+		case len(f) >= 6 && f[0] == "stray-0000beef":
+			stray = f
+		}
+	}
+	if len(own) < 6 || own[4] != "added" {
+		t.Errorf("this machine's project is not marked added: %v\n%s", own, out)
+	}
+	if len(stray) < 6 || stray[4] != "not-added" || stray[5] != strayPath {
+		t.Errorf("the stray partition is not marked not-added: %v\n%s", stray, out)
+	}
+	if !strings.Contains(out, fmt.Sprintf("%d partition(s) are not one of this machine's projects; satelle project prune <repo_key> drops one", notAdded)) {
+		t.Errorf("partitions does not name the stray count:\n%s", out)
+	}
+
+	if out := must(t, "project", "prune", "stray-0000beef"); !strings.Contains(out, "dropped partition stray-0000beef") {
+		t.Errorf("prune of a not-added partition whose path exists: %q", out)
+	}
+	if _, err := run(t, "", "project", "prune", key); err == nil || !strings.Contains(err.Error(), "is one of this machine's projects; satelle project remove drops it") {
+		t.Errorf("prune of an added project's partition: %v", err)
+	}
+	if out := must(t, "project", "prune", key, "--force"); !strings.Contains(out, "dropped partition "+key) {
+		t.Errorf("prune --force: %q", out)
+	}
 }

@@ -269,9 +269,27 @@ func tagFilterExample() string {
 }
 
 func itemRows(items []Item, workflows map[string]*mirror.Workflow) []rowVM {
+	byID := make(map[string]Item, len(items))
+	for _, it := range items {
+		byID[it.ID] = it
+	}
 	out := make([]rowVM, len(items))
 	for i, it := range items {
-		out[i] = rowVM{Item: it, StateClass: stateClass(workflows[it.Workflow], it.Status)}
+		out[i] = rowVM{Item: it, StateClass: stateClass(workflows[it.Workflow], it.Status), Lineage: lineageTags(it, byID)}
+	}
+	return out
+}
+
+func lineageTags(it Item, byID map[string]Item) []string {
+	parent, ok := byID[it.ParentID]
+	if !ok || it.ParentID == it.ID {
+		return nil
+	}
+	var out []string
+	for _, tag := range parent.Tags {
+		if !slices.Contains(it.Tags, tag) && !slices.Contains(out, tag) {
+			out = append(out, tag)
+		}
 	}
 	return out
 }

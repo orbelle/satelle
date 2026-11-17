@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func httpGet(t *testing.T, url string) string {
 
 func TestSatelledShowsTheStory(t *testing.T) {
 	t.Parallel()
-	s := newSandbox(t)
+	s := newSandboxOutsideTemp(t)
 	url := startSatelled(t, s)
 	s.must("init")
 	s.write(".satelle/skills/has-ok.md", "---\ntype: check\n---\n```sh\ntest -f ok.txt || { echo ok.txt is missing; exit 1; }\n```\n")
@@ -109,5 +110,56 @@ groups = [{ gates = ["has-ok"] }]
 		if !strings.Contains(page, want) {
 			t.Errorf("story page lacks %q", want)
 		}
+	}
+}
+
+func TestSatelledProjectsPageListsAddedProjects(t *testing.T) {
+	t.Parallel()
+	s := newSandboxOutsideTemp(t)
+	url := startSatelled(t, s)
+	s.must("init")
+	if out := s.must("project", "add"); !strings.Contains(out, "seeded satelled at "+url) {
+		t.Fatalf("project add: %s", out)
+	}
+	stray := `{"repo_key":"stray-0000beef","slug":"stray","identity":{"project_name":"stray","repo_root":"/srv/stray"}}`
+	resp, err := http.Post(url+"/ingest/snapshot", "application/json", strings.NewReader(stray))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ingest the stray partition: %s %s", resp.Status, b)
+	}
+	landing := httpGet(t, url+"/")
+	if !strings.Contains(landing, ">"+s.dir+"<") {
+		t.Errorf("the Projects page lacks the added project %s:\n%s", s.dir, landing)
+	}
+	if strings.Contains(landing, "stray") {
+		t.Errorf("the Projects page lists the stray partition of no added project:\n%s", landing)
+	}
+	if out := s.must("project", "partitions"); !strings.Contains(out, "not-added") || !strings.Contains(out, "stray-0000beef") {
+		t.Errorf("project partitions does not mark the stray partition:\n%s", out)
+	}
+}
+
+func TestSatelledIgnoresATempRepo(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	s.env["TMPDIR"] = filepath.Dir(s.dir)
+	url := startSatelled(t, s)
+	s.must("init")
+	s.create("story", "--title", "never sent", "--criteria", "stays local")
+	out := s.must("project", "add")
+	if !strings.Contains(out, "added project") || !strings.Contains(out, "is under the temp dir") || strings.Contains(out, "seeded satelled") {
+		t.Fatalf("project add in a temp-dir repo: %s", out)
+	}
+	parts := strings.Split(strings.TrimSpace(s.must("project", "partitions")), "\n")
+	if len(parts) != 1 {
+		t.Errorf("a temp-dir repo left partitions in satelled:\n%s", strings.Join(parts, "\n"))
+	}
+	landing := httpGet(t, url+"/")
+	if !strings.Contains(landing, ">"+s.dir+"<") || !strings.Contains(landing, ">not sent<") || strings.Contains(landing, `href="/r/`) {
+		t.Errorf("the Projects page does not list the added temp-dir project as not sent with no link:\n%s", landing)
 	}
 }

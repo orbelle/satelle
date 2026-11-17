@@ -336,10 +336,10 @@ const templatesSrc = `
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table stories-table">{{template "storyCols"}}
+    <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
-    </table>
+    </table></div>
   </section>
 
   <section class="panel" data-topic="activity" id="panel-activity">
@@ -398,10 +398,10 @@ const templatesSrc = `
       </div>
       <div class="chips"></div>
     </div>
-    <table class="panel-table stories-table">{{template "storyCols"}}
+    <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
       <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
-    </table>
+    </table></div>
   </section>
   {{end}}
 
@@ -426,12 +426,13 @@ const templatesSrc = `
      'N elsewhere' chip (stories with a seat elsewhere), each emitting nothing at 0
      (sty_e4632f45). Both read engagements, the rule the row marks read.
      Live-refreshed via GET fragment/engagement — JS swaps, inserts or removes
-     each chip on its own. */}}
-{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged">{{if eq $n 1}}{{with index $ids 0}}<a class="n-engaged-link" href="story/{{.}}">1 engaged</a>{{end}}{{else}}{{$n}} engaged{{end}}</span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere">{{if eq $m 1}}{{with index $eids 0}}<a class="n-elsewhere-link" href="story/{{.}}">1 elsewhere</a>{{end}}{{else}}{{$m}} elsewhere{{end}}</span>{{end}}{{end}}
+     each chip on its own. Each count is a button whose data-filter-token
+     (engaged:here / engaged:elsewhere) filters the Stories list (sto_18f1e94d). */}}
+{{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged"><button type="button" class="n-filter" data-filter-token="engaged:here" aria-label="list the stories engaged here">{{$n}} engaged</button></span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere"><button type="button" class="n-filter" data-filter-token="engaged:elsewhere" aria-label="list the stories engaged elsewhere">{{$m}} elsewhere</button></span>{{end}}{{end}}
 
 {{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
 
-{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}" data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}}{{tagattrs .Tags}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
+{{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}"{{with .Lineage}} data-lineage="{{join . ","}}"{{end}} data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}}{{tagattrs .Tags}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
   <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{$flow := and (eq (printf "%s" .Kind) "story") .Workflow}}{{if or .Category .Tags $task $flow}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .) $.TagColours}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category) .TagColours}}{{end}}{{with $flow}}{{tagchip (printf "workflow:%s" .) $.TagColours}}{{end}}{{range .Tags}}{{tagchip . $.TagColours}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>

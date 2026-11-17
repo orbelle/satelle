@@ -47,25 +47,42 @@ func projectLocalCmds() []*cobra.Command {
 		},
 	}
 	partitions := &cobra.Command{
-		Use: "partitions", Short: "List satelled's partitions (one per project it has been sent)", Args: cobra.NoArgs,
+		Use: "partitions", Short: "List satelled's partitions and mark those that are not one of this machine's projects", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			details, err := homePartitions(cmd.Context())
 			if err != nil {
 				return err
 			}
+			added, err := addedKeys()
+			if err != nil {
+				return err
+			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%-40s %-20s %6s %5s  %s\n", "REPO_KEY", "SLUG", "STORY", "TASK", "PATH")
+			fmt.Fprintf(out, "%-40s %-20s %6s %5s  %-9s  %s\n", "REPO_KEY", "SLUG", "STORY", "TASK", "PROJECT", "PATH")
+			stray := 0
 			for _, d := range details {
-				fmt.Fprintf(out, "%-40s %-20s %6d %5d  %s\n", d.RepoKey, d.Slug, d.Stories, d.Tasks, d.Path)
+				mark := "added"
+				if !added[d.RepoKey] {
+					mark = "not-added"
+					stray++
+				}
+				fmt.Fprintf(out, "%-40s %-20s %6d %5d  %-9s  %s\n", d.RepoKey, d.Slug, d.Stories, d.Tasks, mark, d.Path)
+			}
+			if stray > 0 {
+				fmt.Fprintf(out, "%d partition(s) are not one of this machine's projects; satelle project prune <repo_key> drops one\n", stray)
 			}
 			return nil
 		},
 	}
 	var force bool
 	prune := &cobra.Command{
-		Use: "prune <repo_key>", Short: "Drop a partition whose project is gone", Args: cobra.ExactArgs(1),
+		Use: "prune <repo_key>", Short: "Drop a partition that is not one of this machine's projects", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			details, err := homePartitions(cmd.Context())
+			if err != nil {
+				return err
+			}
+			added, err := addedKeys()
 			if err != nil {
 				return err
 			}
@@ -73,16 +90,28 @@ func projectLocalCmds() []*cobra.Command {
 				if d.RepoKey != args[0] {
 					continue
 				}
-				if st, err := os.Stat(d.Path); err == nil && st.IsDir() && !force {
-					return fmt.Errorf("%s still exists; pass --force to drop its partition anyway", d.Path)
+				if st, err := os.Stat(d.Path); err == nil && st.IsDir() && added[d.RepoKey] && !force {
+					return fmt.Errorf("%s is one of this machine's projects; satelle project remove drops it, or pass --force", d.Path)
 				}
 				return dropPartition(cmd, d.RepoKey)
 			}
 			return fmt.Errorf("no partition %q; see `satelle project partitions`", args[0])
 		},
 	}
-	prune.Flags().BoolVar(&force, "force", false, "drop the partition even though its project still exists")
+	prune.Flags().BoolVar(&force, "force", false, "drop the partition even though it is one of this machine's projects")
 	return []*cobra.Command{add, remove, partitions, prune}
+}
+
+func addedKeys() (map[string]bool, error) {
+	gc, err := config.LoadGlobal()
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, k := range gc.Projects.Keys() {
+		set[k] = true
+	}
+	return set, nil
 }
 
 func homePartitions(ctx context.Context) ([]mirror.PartitionDetail, error) {
@@ -146,6 +175,10 @@ func seedUI(cmd *cobra.Command, path string) {
 	r, err := findRepo(path)
 	if err != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %v\n", err)
+		return
+	}
+	if !pushesToUI(r) {
+		fmt.Fprintf(cmd.OutOrStdout(), "not seeded: %s is under the temp dir; a repo there pushes nothing to satelled\n", path)
 		return
 	}
 	pushed := false

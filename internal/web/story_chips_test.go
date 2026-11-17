@@ -409,3 +409,22 @@ func TestStoriesTableLayoutRules(t *testing.T) {
 		t.Error("the Tasks table carries the stories-table class")
 	}
 }
+
+func TestStoriesTableScrollsInItsOwnBox(t *testing.T) {
+	srv := mirrorWith(t, chipsSnapshot())
+	css := httpGetBody(t, srv.URL+"/static/app.css")
+	box := decls(t, css, ".table-scroll")
+	if box["overflow-x"] != "auto" {
+		t.Errorf(".table-scroll overflow-x %q, want auto: the table scrolls only when it is wider than the page", box["overflow-x"])
+	}
+	if box["max-width"] != "100%" {
+		t.Errorf(".table-scroll max-width %q, want 100%%: the box never grows past the page", box["max-width"])
+	}
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	for _, topic := range []string{"stories", "wf-drift"} {
+		sec := section(page, topic)
+		if !strings.Contains(sec, `<div class="table-scroll"><table class="panel-table stories-table">`) || !strings.Contains(sec, "</table></div>") {
+			t.Errorf("%s: the stories table is not inside a .table-scroll box", topic)
+		}
+	}
+}

@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
@@ -54,7 +56,15 @@ func section(page, topic string) string {
 }
 
 func TestWorkflowPanelTab(t *testing.T) {
-	srv := mirrorWith(t, panelSnapshot("open"))
+	dir := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rk := config.RepoKey(dir)
+	snap := panelSnapshot("open")
+	snap.RepoKey = rk
+	srv := mirrorWith(t, snap)
+	addPath(t, dir)
 	page := httpGetBody(t, srv.URL+"/r/proj/")
 
 	if m := storiesTabRE.FindStringSubmatch(page); m == nil || m[1] != "1" {
@@ -100,7 +110,9 @@ func TestWorkflowPanelTab(t *testing.T) {
 		t.Error("the projects list does not count Stories as 1")
 	}
 
-	resp, err := http.Post(srv.URL+"/ingest/snapshot", "application/json", bytes.NewReader(raw(panelSnapshot("done"))))
+	done := panelSnapshot("done")
+	done.RepoKey = rk
+	resp, err := http.Post(srv.URL+"/ingest/snapshot", "application/json", bytes.NewReader(raw(done)))
 	if err != nil {
 		t.Fatal(err)
 	}

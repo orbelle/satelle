@@ -5,12 +5,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
 
@@ -22,10 +24,11 @@ func TestLandingUniqueHrefsOnSlugCollision(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := context.Background()
 	now := time.Now().UTC()
-	if _, err := s.TouchPartition(ctx, "002-aaaa", "002", now); err != nil {
+	keyA, keyB := addedProject(t, "002"), addedProject(t, "002")
+	if _, err := s.TouchPartition(ctx, keyA, "002", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TouchPartition(ctx, "002-bbbb", "002", now); err != nil {
+	if _, err := s.TouchPartition(ctx, keyB, "002", now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +64,7 @@ func TestLandingUniqueHrefsOnSlugCollision(t *testing.T) {
 	if seen["002"] > 0 {
 		t.Errorf("colliding basename slug still used as href: %v", seen)
 	}
-	for _, hrefSlug := range []string{"002-aaaa", "002-bbbb"} {
+	for _, hrefSlug := range []string{keyA, keyB} {
 		if seen[hrefSlug] != 1 {
 			t.Errorf("want href /r/%s/ once, got %d (map %v)", hrefSlug, seen[hrefSlug], seen)
 		}
@@ -240,4 +243,104 @@ func httpGetBody(t *testing.T, url string) string {
 		t.Fatalf("GET %s status %d", url, resp.StatusCode)
 	}
 	return string(raw)
+}
+
+func TestLandingListsThisMachinesProjects(t *testing.T) {
+	isolateHome(t)
+	s, err := mirror.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UTC()
+	story := func(key, id string) {
+		t.Helper()
+		if err := s.ReplaceKind(ctx, key, "story", []mirror.ItemRow{{ID: id, Payload: `{"id":"` + id + `","kind":"story","title":"T","status":"backlog"}`}}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	keyA := addedProject(t, "alpha")
+	if _, err := s.TouchPartition(ctx, keyA, "alpha", now); err != nil {
+		t.Fatal(err)
+	}
+	story(keyA, "sto_a")
+	dirB := filepath.Join(t.TempDir(), "bravo")
+	if err := os.MkdirAll(dirB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addPath(t, dirB)
+
+	dirC, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirC = filepath.Join(dirC, "charlie")
+	if err := os.MkdirAll(dirC, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gittest.Git(t, dirC, "init", "-q")
+	gittest.Git(t, dirC, "commit", "-q", "--allow-empty", "-m", "init")
+	wtC := filepath.Join(filepath.Dir(dirC), "charlie-wt")
+	gittest.Git(t, dirC, "worktree", "add", "-q", "-b", "side", wtC)
+	keyC := addPath(t, dirC)
+	if k := addPath(t, wtC); k != keyC {
+		t.Fatalf("the worktree's repo key %s differs from its repo's %s", k, keyC)
+	}
+	if _, err := s.TouchPartition(ctx, keyC, "charlie", now); err != nil {
+		t.Fatal(err)
+	}
+	story(keyC, "sto_c")
+
+	if _, err := s.TouchPartition(ctx, "stray-0000beef", "stray", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceKind(ctx, "stray-0000beef", "identity", []mirror.ItemRow{{ID: "meta", Payload: `{"project_name":"stray","repo_root":"/tmp/stray"}`}}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(NewMirror(s).Handler)
+	t.Cleanup(srv.Close)
+	rowRE := regexp.MustCompile(`(?s)<tr class="row" data-slug="([^"]*)">(.*?)</tr>`)
+	for _, path := range []string{"/", "/fragment/projects"} {
+		body := get(t, srv.URL+path)
+		rows := rowRE.FindAllStringSubmatch(body, -1)
+		if len(rows) != 4 {
+			t.Fatalf("%s: %d project rows, want 4 (alpha, bravo, charlie and its worktree):\n%s", path, len(rows), body)
+		}
+		ids := map[string]bool{}
+		byPath := map[string]string{}
+		for _, r := range rows {
+			ids[r[1]] = true
+			for _, p := range []string{dirB, dirC, wtC} {
+				if strings.Contains(r[2], ">"+p+"<") {
+					byPath[p] = r[2]
+				}
+			}
+			if strings.Contains(r[2], "alpha") {
+				byPath["alpha"] = r[2]
+			}
+		}
+		if len(ids) != 4 {
+			t.Errorf("%s: row ids %v are not unique", path, ids)
+		}
+		if a := byPath["alpha"]; !strings.Contains(a, `href="/r/alpha/"`) || !strings.Contains(a, `<td class="n-stories"><span class="n">1</span>`) {
+			t.Errorf("%s: alpha's row has no link or no story count:\n%s", path, a)
+		}
+		if b := byPath[dirB]; b == "" || strings.Contains(b, "href=") || !strings.Contains(b, ">not sent<") || !strings.Contains(b, ">bravo<") {
+			t.Errorf("%s: bravo, added but never pushed, is not listed as not sent with no link:\n%s", path, b)
+		}
+		for _, p := range []string{dirC, wtC} {
+			if c := byPath[p]; !strings.Contains(c, `href="/r/charlie/"`) || !strings.Contains(c, `<td class="n-stories"><span class="n">1</span>`) {
+				t.Errorf("%s: %s, which shares charlie's partition, lacks its link or count:\n%s", path, p, c)
+			}
+		}
+		if strings.Contains(body, "stray") {
+			t.Errorf("%s: the stray partition of no added project is listed:\n%s", path, body)
+		}
+	}
+	if resp, err := http.Get(srv.URL + "/r/stray-0000beef/"); err != nil || resp.StatusCode != 200 {
+		t.Errorf("the stray partition's own page: %v %v, want 200", resp, err)
+	}
 }
