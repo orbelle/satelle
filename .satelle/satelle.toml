@@ -43,3 +43,10 @@ inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/sat
 
 [rules]
 reviewer_differs_from_performer = true
+
+[review]
+tier_tag = "risk"
+
+[review.panels.code-ac]
+low = ["reviewer-gpt-5.6-sol-high"]
+high = ["reviewer-gpt-5.6-sol-high", "reviewer-grok-4.7"]
