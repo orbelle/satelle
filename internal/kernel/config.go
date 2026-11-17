@@ -72,6 +72,7 @@ type Config struct {
 	Doctor    DoctorSettings
 	Volatile  substrate.VolatileRules
 	UI        UISettings
+	Init      InitSettings
 }
 
 type UISettings struct {
@@ -213,6 +214,12 @@ func LoadConfig(root string) (*Config, error) {
 			errs = append(errs, err)
 		}
 	}
+	if s, err := LoadInit(root); err != nil {
+		c.Init = s
+		errs = append(errs, err)
+	} else {
+		c.Init = s
+	}
 	if p := filepath.Join(root, VolatileFile); exists(p) {
 		if err := workflow.DecodeStrict(p, &c.Volatile); err != nil {
 			errs = append(errs, err)
@@ -311,6 +318,8 @@ func (c *Config) Problems() []error {
 	for _, err := range c.Volatile.Problems() {
 		errs = append(errs, fmt.Errorf("%s: %w", VolatileFile, err))
 	}
+	shipped, _ := ShippedFiles()
+	errs = append(errs, c.Init.problems(shipped)...)
 	return append(errs, c.UI.problems()...)
 }
 

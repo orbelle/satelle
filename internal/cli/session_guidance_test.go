@@ -177,7 +177,7 @@ func TestSessionGuidanceMissingFileIsNamed(t *testing.T) {
 			hasAll(t, ch, text, "satelle session: ", "drive me")
 		}
 	}
-	hasAll(t, "claude context", texts["claude context"], "satelle init would add .satelle/session.md")
+	hasAll(t, "claude context", texts["claude context"], initProblem("session.md"), "should I raise and implement a satelle story to update and fix substrate issues")
 }
 
 func TestShippedSessionGuidanceNamesTheBinary(t *testing.T) {

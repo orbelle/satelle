@@ -64,9 +64,16 @@ func TestInitWritesNoStarterWorkflowIntoAConfiguredRepo(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, WorkflowsDir, "default.toml")); !os.IsNotExist(err) {
 		t.Fatalf("init wrote the starter workflow into a configured repo: %v", err)
 	}
-	for _, f := range []string{AgentsFile, ".gitignore", "README.md", filepath.Join(SkillsDir, "satelle-upgrade.md"), filepath.Join("principles", "satelle-reference-not-restate.md")} {
-		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
-			t.Errorf("init did not add the missing %s: %v", f, err)
+	plan, _ := InitPlan(root)
+	for _, f := range []string{AgentsFile, ".gitignore", "README.md", "skills/satelle-upgrade.md", "principles/satelle-reference-not-restate.md"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(f))); !os.IsNotExist(err) {
+			t.Errorf("init wrote %s into a configured repo: %v", f, err)
+		}
+		if !slices.Contains(plan, f) {
+			t.Errorf("InitPlan does not list the missing %s: %v", f, plan)
+		}
+		if _, err := Shipped(f); err != nil {
+			t.Errorf("Shipped(%s): %v", f, err)
 		}
 	}
 }
@@ -121,11 +128,20 @@ func TestInitPlanIsWhatInitWrites(t *testing.T) {
 				added = append(added, f)
 			}
 		}
+		if configured {
+			if len(added) != 0 {
+				t.Errorf("init added %v to a configured root", added)
+			}
+			if again, _ := InitPlan(root); strings.Join(again, ",") != strings.Join(plan, ",") {
+				t.Errorf("InitPlan after init = %v, want %v unchanged", again, plan)
+			}
+			continue
+		}
 		if strings.Join(added, ",") != strings.Join(plan, ",") {
-			t.Errorf("configured=%v: init added %v, InitPlan said %v", configured, added, plan)
+			t.Errorf("init added %v, InitPlan said %v", added, plan)
 		}
 		if again, _ := InitPlan(root); len(again) != 0 {
-			t.Errorf("configured=%v: InitPlan after init = %v, want nothing", configured, again)
+			t.Errorf("InitPlan after init = %v, want nothing", again)
 		}
 	}
 }

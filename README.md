@@ -55,7 +55,10 @@ satelle doctor --session <session>
 
 - `satelle init --session <session>` writes the starter configuration into `.satelle/`
   (`satelle.toml`, `agents.toml` and a two-state workflow, backlog to done, no
-  gates), leaves any file that already exists alone, and validates the result.
+  gates) and validates the result. In a repo that already has one it writes
+  nothing under `.satelle/`: it lists the files this release ships that the repo
+  lacks and prints the command that raises a substrate story for them, which is
+  the user's decision.
   The configuration is yours to edit and is tracked in git. It also writes
   `.satelle/README.md`, which tells an agent whose harness is not wired what
   satelle is and what to run, and it ends by naming the harnesses left unwired.

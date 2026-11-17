@@ -215,7 +215,7 @@ func TestInitWritesTheAgentReadme(t *testing.T) {
 	rep, _, _ := doctorJSON(t)
 	found := false
 	for _, is := range rep.Issues {
-		if is.Check == "init" && is.Problem == "satelle init would add .satelle/README.md" && is.Fix == "satelle init" {
+		if is.Check == "init" && is.Problem == initProblem("README.md") && strings.Contains(is.Fix, printCommand("README.md")) && is.Resolve == resolveUserDecision {
 			found = true
 		}
 	}

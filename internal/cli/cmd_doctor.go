@@ -30,7 +30,12 @@ Its checks:
              match are not read, nor is a fenced code block in Markdown
              (reword, date or mark it; a file an [[upstream]] entry owns
              names its owner and is fixed there)
-  init       files satelle init would add (satelle init)
+  init       files this release ships that the repo lacks (a substrate story
+             the user decides to raise: the fix line prints the satelle init
+             --print command and the satelle story create command, in the
+             category .satelle/init.toml names; a repo that names none is
+             told the key and the categories its workflow rules select, and
+             given no command)
   agents     each active override in .satelle/agents.local.toml is a note,
              naming the agent and each field as tracked -> effective; the
              local file not covered by an ignore rule, or tracked by git, is
@@ -81,7 +86,10 @@ when it finds nothing and 1 when it finds an issue.
   - every other orphaned seat: it shows the evidence and asks on the
     controlling terminal, release or keep (keep is the default); with no
     terminal it lists it, saying there was no terminal to ask at;
-  - config, substrate, volatile, init, agents and .satelle/doctor.toml check findings: it
+  - a file this release ships that the repo lacks: it lists it with the
+    command that raises the story for it, the user's decision, and opens no
+    item for it;
+  - config, substrate, volatile, agents and .satelle/doctor.toml check findings: it
     opens one item listing them all, for the agent to fix in one change
     through the item's workflow (the kind and tag .satelle/doctor.toml
     [resolve] names, which satelle init writes; with either unset it lists

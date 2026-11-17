@@ -555,3 +555,13 @@ func TestStateEditScopeReadsOneState(t *testing.T) {
 		t.Errorf("absent workflow: got %q and no error", got)
 	}
 }
+
+func TestRulesCategories(t *testing.T) {
+	r := Rules{Rule: []Rule{{Workflow: "a", Category: "x"}, {Workflow: "b", Tag: "t"}, {Workflow: "c", Category: "y"}, {Workflow: "d", Category: "x"}}}
+	if got := r.Categories(); strings.Join(got, ",") != "x,y" {
+		t.Errorf("Categories = %v, want [x y]", got)
+	}
+	if got := (Rules{}).Categories(); len(got) != 0 {
+		t.Errorf("no rules: %v", got)
+	}
+}

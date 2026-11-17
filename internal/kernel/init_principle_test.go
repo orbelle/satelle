@@ -126,7 +126,7 @@ func TestInitShipsTheReferencePrinciple(t *testing.T) {
 	}
 }
 
-func TestInitAddsTheShippedPrincipleToAConfiguredRepo(t *testing.T) {
+func TestInitListsTheShippedPrincipleAConfiguredRepoLacks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	authored := map[string]string{
 		SettingsFile: "[workflows]\ndefault = \"delivery\"\n",
@@ -146,8 +146,11 @@ func TestInitAddsTheShippedPrincipleToAConfiguredRepo(t *testing.T) {
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(referencePrinciple))); err != nil {
-		t.Fatalf("init did not add %s: %v", referencePrinciple, err)
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(referencePrinciple))); !os.IsNotExist(err) {
+		t.Fatalf("init wrote %s into a configured repo: %v", referencePrinciple, err)
+	}
+	if b, err := Shipped(referencePrinciple); err != nil || len(b) == 0 {
+		t.Fatalf("Shipped(%s): %v", referencePrinciple, err)
 	}
 	for f, body := range authored {
 		if b, err := os.ReadFile(filepath.Join(root, f)); err != nil || string(b) != body {

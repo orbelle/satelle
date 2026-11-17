@@ -177,7 +177,7 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 			if err := os.Remove(filepath.Join(f.dir, ".satelle", "agents.toml")); err != nil {
 				t.Fatal(err)
 			}
-		}, want: []want{{"init", "satelle init would add .satelle/agents.toml", "satelle init"}}},
+		}, want: []want{{"init", initProblem("agents.toml"), "satelle init --print .satelle/agents.toml"}}},
 		{name: "running differs", setup: func(t *testing.T, f *doctorFixture) {
 			f.running.Version = "0.9.0"
 		}, want: []want{{"versions", "differs from the installed one", "satelle service restart"}}},

@@ -296,13 +296,9 @@ func checkVolatile(_ context.Context, in *doctorInput) ([]doctorIssue, []string)
 }
 
 func checkInit(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
-	plan, err := kernel.InitPlan(in.r.DataDir)
+	out, err := initIssues(in.r.DataDir)
 	if err != nil {
-		return []doctorIssue{{Check: "init", Problem: fmt.Sprintf("cannot read the init template: %v", err), Fix: "satelle init", Resolve: resolveFixItem}}, nil
-	}
-	var out []doctorIssue
-	for _, rel := range plan {
-		out = append(out, doctorIssue{Check: "init", Problem: "satelle init would add .satelle/" + rel, Fix: "satelle init", Resolve: resolveFixItem})
+		return []doctorIssue{{Check: "init", Problem: fmt.Sprintf("cannot read the init template: %v", err), Fix: "satelle update"}}, nil
 	}
 	return out, nil
 }
@@ -772,6 +768,9 @@ func doctorBlock(rep doctorReport, budget time.Duration) string {
 			first := byCheck[c][0]
 			fmt.Fprintf(&b, "  %s (%d): %s — fix: %s\n", c, len(byCheck[c]), first.Problem, first.Fix)
 		}
+	}
+	if n := userDecisions(rep.Issues); n > 0 {
+		fmt.Fprintf(&b, "  substrate findings (%d): fixing them changes the substrate. %s\n", n, substrateAsk)
 	}
 	if len(rep.Unchecked) > 0 {
 		u := append([]string(nil), rep.Unchecked...)

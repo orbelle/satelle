@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -255,11 +257,12 @@ func TestInitSaysItEnabledTheVolatileCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(data, "skills", "notes.md"), "---\nname: notes\ntype: skill\ndescription: Notes.\n---\n\nUses v1.0.57 of the binary.\nThis is currently broken.\nCurrently on v1.0.58.\n")
-	if out := must(t, "init"); !strings.Contains(out, "volatile check enabled") || !strings.Contains(out, "flags 3 line(s)") {
-		t.Errorf("init that adds volatile.toml to an existing repo:\n%s", out)
+	out := must(t, "init")
+	if strings.Contains(out, "volatile check enabled") || !strings.Contains(out, ".satelle/"+kernel.VolatileFile) || !strings.Contains(out, "nothing written under .satelle/") {
+		t.Errorf("init in an existing repo lacking volatile.toml:\n%s", out)
 	}
-	if out := must(t, "init"); strings.Contains(out, "volatile check enabled") {
-		t.Errorf("an init that adds nothing announced the check:\n%s", out)
+	if _, err := os.Stat(filepath.Join(data, kernel.VolatileFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("init wrote volatile.toml into a configured repo: %v", err)
 	}
 }
 

@@ -684,7 +684,12 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 			}
 			before := digest(t, f.dir)
 			rep, out, err := resolveJSON(t)
-			findings := []string{"init: satelle init would add .satelle/agents.toml", "check:fixture-check: skills/a.md:1: first finding", "check:fixture-check: skills/b.md:2: second finding"}
+			findings := []string{"check:fixture-check: skills/a.md:1: first finding", "check:fixture-check: skills/b.md:2: second finding"}
+			initLeft := "init: " + initProblem("agents.toml")
+			if !slices.ContainsFunc(rep.Left, func(l resolveLeft) bool { return l.Check+": "+l.Problem == initLeft && l.Why == leftUserDecision }) {
+				t.Errorf("left lacks %q as the user's decision: %+v", initLeft, rep.Left)
+			}
+			rest := slices.DeleteFunc(slices.Clone(rep.Left), func(l resolveLeft) bool { return l.Check == "init" })
 			if tc.unset != "" {
 				if ExitCodeOf(err) != 1 {
 					t.Fatalf("exit %d, want 1\n%s", ExitCodeOf(err), out)
@@ -710,10 +715,10 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 				if got := itemIDs(t); !slices.Equal(got, before0) {
 					t.Fatalf("an item was recorded under an invalid configuration: %v", got)
 				}
-				if len(rep.Left) == 0 || rep.Left[0].Check != "config" || !strings.Contains(rep.Left[0].Problem, "bogus_key") {
+				if len(rest) == 0 || rest[0].Check != "config" || !strings.Contains(rest[0].Problem, "bogus_key") {
 					t.Fatalf("the config finding is not first: %+v", rep.Left)
 				}
-				for _, l := range rep.Left {
+				for _, l := range rest {
 					if l.Why != leftConfig {
 						t.Errorf("left %s: %s: why %q, want %q", l.Check, l.Problem, l.Why, leftConfig)
 					}
@@ -726,8 +731,8 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 					}
 				}
 			} else {
-				if err != nil {
-					t.Fatalf("--resolve: %v\n%s", err, out)
+				if ExitCodeOf(err) != 1 || len(rest) != 0 {
+					t.Fatalf("--resolve: exit %d, want 1 with only the init finding left: %v\n%s", ExitCodeOf(err), err, out)
 				}
 				fixes := newItems(t, before0)
 				if len(fixes) != 1 || rep.Item != fixes[0].ID {
@@ -745,8 +750,11 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 				if len(it.Criteria) != len(findings) {
 					t.Errorf("criteria %v, want %d", it.Criteria, len(findings))
 				}
+				if strings.Contains(it.Body, "agents.toml") {
+					t.Errorf("the fix item names the missing shipped file:\n%s", it.Body)
+				}
 				text, err := run(t, "", "doctor", "--resolve")
-				if err != nil {
+				if ExitCodeOf(err) != 1 {
 					t.Fatalf("second --resolve: %v\n%s", err, text)
 				}
 				if !strings.Contains(text, "carried by "+it.ID) {
@@ -812,14 +820,17 @@ func TestResolvePutsSubstrateFindingsOnTheFixItem(t *testing.T) {
 	before0 := itemIDs(t)
 	before := digest(t, f.dir)
 	rep, out, err := resolveJSON(t)
-	if err != nil {
-		t.Fatalf("--resolve: %v\n%s", err, out)
+	if ExitCodeOf(err) != 1 || len(rep.Left) != 1 || rep.Left[0].Check != "init" || rep.Left[0].Why != leftUserDecision {
+		t.Fatalf("--resolve: exit %d, want 1 with the init finding left as the user's decision: %v\n%s", ExitCodeOf(err), err, out)
 	}
 	fixes := newItems(t, before0)
 	if len(fixes) != 1 || rep.Item != fixes[0].ID {
 		t.Fatalf("items opened %+v, report item %q", fixes, rep.Item)
 	}
-	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ", "init: satelle init would add .satelle/agents.toml — fix: ",
+	if strings.Contains(fixes[0].Body, "agents.toml") {
+		t.Errorf("the fix item names the missing shipped file:\n%s", fixes[0].Body)
+	}
+	for _, w := range []string{sub[0].Check + ": " + sub[0].Problem + " — fix: ",
 		"volatile: .satelle/skills/stale.md:9: volatile: version — "} {
 		if !strings.Contains(fixes[0].Body, "- "+w) {
 			t.Errorf("fix item body lacks %q:\n%s", w, fixes[0].Body)
@@ -846,7 +857,7 @@ func TestResolveRecordsTheSessionFlag(t *testing.T) {
 		}
 		writeFile(t, filepath.Join(f.dir, "FAIL"), "skills/a.md:1: a finding\n")
 		out, err := run(t, "", "doctor", "--resolve", "--json", "--session", "s-doc")
-		if err != nil {
+		if ExitCodeOf(err) != 1 {
 			t.Fatalf("--resolve: %v\n%s", err, out)
 		}
 		fixes := newItems(t, before)

@@ -102,7 +102,7 @@ func serveGateJobs(node *Node, dir, digest string) error {
 		}
 		quoted := make([]string, len(req.Argv))
 		for i, a := range req.Argv {
-			quoted[i] = shQuote(a)
+			quoted[i] = ShQuote(a)
 		}
 		out := &boundedTail{max: gateExecTail}
 		failed := runSetupCommand(ctx, root, strings.Join(quoted, " "), gateExecEnv(os.Environ()), time.Duration(req.TimeoutMS)*time.Millisecond, out)

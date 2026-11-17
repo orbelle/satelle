@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -372,8 +373,11 @@ func sessionGuidance(r repo) string {
 	if err == nil {
 		return body
 	}
+	if errors.Is(err, fs.ErrNotExist) && slices.Contains(kernel.InitPolicy(r.DataDir).Removed, kernel.SessionFile) {
+		return ""
+	}
 	name := filepath.ToSlash(filepath.Join(filepath.Base(r.DataDir), kernel.SessionFile))
-	line := fmt.Sprintf("satelle: %s is missing, so this session has no command guidance; satelle init writes it.", name)
+	line := fmt.Sprintf("satelle: %s is missing, so this session has no command guidance; adding it is a substrate story for the user to decide to raise (satelle init says how).", name)
 	if !errors.Is(err, fs.ErrNotExist) {
 		line += fmt.Sprintf(" (%v)", err)
 	}
