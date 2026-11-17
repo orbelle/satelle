@@ -31,22 +31,26 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-agent = "reviewer-grok-4.7"
+panel = ["reviewer-grok-4.7"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.story-review]
 skill = "satelle-story-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
-agent = "reviewer-grok-4.7"
+panel = ["reviewer-grok-4.7"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
 [gates.plan-review]
@@ -75,13 +79,15 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 trigger = "satelle-instruction-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -145,22 +151,26 @@ skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [[transition]]

@@ -28,18 +28,21 @@ skill = "satelle-volatile-literal-check"
 
 [gates.reference-review]
 skill = "satelle-reference-review"
-agent = "reviewer-grok-4.7"
+panel = ["reviewer-grok-4.7"]
+combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [[transition]]

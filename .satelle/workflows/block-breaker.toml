@@ -36,12 +36,14 @@ skill = "satelle-block-resolution-check"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review-grok]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-grok-4.7"
+panel = ["reviewer-grok-4.7"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [[transition]]

@@ -17,7 +17,8 @@ skill = "satelle-task-validate-before-review"
 
 [gates.validate-after]
 skill = "satelle-task-validate-after-review"
-agent = "reviewer-gpt-5.6-sol-high"
+panel = ["reviewer-gpt-5.6-sol-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-accept-quoted"]
 
 [gates.release-kept]
@@ -25,14 +26,16 @@ skill = "satelle-release-kept-check"
 
 [gates.drift-constitution]
 skill = "satelle-drift-constitution-review"
-agent = "reviewer-gpt-5.6-sol-high"
+panel = ["reviewer-gpt-5.6-sol-high"]
+combine = "all"
 trigger = "satelle-drift-run-trigger"
 paths = ["cmd/**", "internal/**", "go.mod", "go.sum", ".satelle/constitution.md", ".satelle/principles/**"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-drift-diff-covered"]
 
 [gates.drift-claims]
 skill = "satelle-drift-claims-review"
-agent = "reviewer-gpt-5.6-sol-high"
+panel = ["reviewer-gpt-5.6-sol-high"]
+combine = "all"
 trigger = "satelle-drift-run-trigger"
 paths = [".version", ".satelle/constitution.md", ".satelle/principles/**"]
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]

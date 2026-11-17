@@ -19,7 +19,8 @@ skill = "satelle-change-judged-check"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-agent = "reviewer-gemini-3.8-flash-high"
+panel = ["reviewer-gemini-3.8-flash-high"]
+combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [[transition]]
