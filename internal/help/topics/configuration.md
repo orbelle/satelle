@@ -54,9 +54,9 @@ the kernel still opens: only a configuration problem stops it.
 - `session.md` — the session guidance: how to pass `--session`, the edit
   gate and the drive rule. The context hook (at session start), the prompt
   hook and a blocked stop's reason print it whole, read on every call, so an
-  edit takes effect with no rebuild. `satelle init --session <session>` writes it and the
+  edit takes effect with no rebuild. A first `satelle init --session <session>` writes it and the
   repo edits it; a repo without it gets a line naming the missing file, and
-  `satelle doctor --session <session>` reports it until `satelle init --session <session>` adds it.
+  `satelle doctor --session <session>` reports it until a substrate story adds it (see init.toml below).
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
@@ -74,6 +74,8 @@ the kernel still opens: only a configuration problem stops it.
 - `doctor.toml` — the repo's own checks and open-item lists
   `satelle doctor --session <session>` runs beside its kernel checks, and the
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).
+- `init.toml` — what init and doctor report about the files this release
+  ships that the repo lacks (below).
 - `volatile.toml` — optional: the volatile-literal patterns `satelle validate --session <session>`
   and `satelle doctor --session <session>` apply to the substrate (below).
 - `ui.toml` — optional: the colours satelled gives tag chips (below).
@@ -106,7 +108,9 @@ that does not know it ignores it.
 `satelle doctor --resolve --session <session>` fixes what doctor can prove (the service, seats
 whose session has ended on this machine or whose item is in a terminal state)
 and asks about other orphaned seats.
-The config, substrate, volatile, init and `[[check]]` findings it puts on one item, for the agent to
+A file this release ships that the repo lacks it lists with the command that
+raises the story for it, the user's decision, and opens no item for it.
+The config, substrate, volatile and `[[check]]` findings it puts on one item, for the agent to
 fix in one change through that item's workflow; it never edits or commits the
 files itself, and opens no second item while that one is open. `[resolve]`
 names the item; `satelle init --session <session>` writes `doctor.toml` with it set:
@@ -121,6 +125,29 @@ no default for either: with one unset, `--resolve` opens no item and lists
 each finding, naming the `[resolve]` key to set. An item's status is its
 workflow's to set, so there is no `status`. While the configuration is invalid no item can be recorded:
 `--resolve` then lists the findings with `satelle validate --session <session>` first.
+
+## init.toml
+
+`.satelle/init.toml` is the repo's own file for the files this release ships.
+`satelle init --session <session>` in a repo that already has a `satelle.toml` writes
+nothing under `.satelle/`: it lists each shipped file the repo lacks, and
+`satelle doctor --session <session>` reports each one. Adding them changes the substrate,
+so it is a substrate story, and raising it is the user's decision. That story's
+session writes each file itself, from `satelle init --print <path> --session <session>`,
+which prints one shipped file exactly.
+
+    category = "substrate"      # the printed story command's category
+    removed = ["skills/satelle-workflow-standard.md"]
+
+`category` is the category the printed story command carries
+(`satelle story create --category <category> ... --session <session>`); a new
+repo's file names one. A repo that names none gets no command:
+doctor reports the key and the categories its workflow rules select, and
+naming it is itself a substrate story. `removed` records shipped files the repo
+removed on purpose (paths relative to `.satelle/`); init and doctor then do not
+report them. An entry that is not a file this release ships, or that names
+`satelle.toml` or `init.toml`, is a configuration problem. It is its own file,
+not a `satelle.toml` table, so an older satelle still opens the repo.
 
 ## ui.toml
 
@@ -202,7 +229,7 @@ no `files`, a bad glob or no `owner` is a configuration problem. A satelle that
 predates `[[upstream]]` refuses the table, so add one only once every machine
 runs a satelle that reads it.
 
-When `satelle init --session <session>` adds `volatile.toml` to a repo it says so on one
+When a first `satelle init --session <session>` writes `volatile.toml` it says so on one
 line with the number of lines the check then flags, so a repo that gains the
 check sees what it turned on.
 

@@ -143,4 +143,4 @@ echo "  satelle doctor           # read-only: what is wrong here, each with its 
 echo
 echo "Repos you already have (if this was an upgrade):"
 echo "  satelle doctor            # read-only: what is wrong here, each with its fix"
-echo "  satelle init              # adds what an older satelle did not scaffold; leaves existing files alone"
+echo "  satelle init              # lists what this release ships that the repo lacks; writes nothing"

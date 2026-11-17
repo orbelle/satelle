@@ -322,13 +322,13 @@ func gateWrapperScript(env gate.CheckEnv, script string) (string, error) {
 	b.WriteString("# Runs a gate's check on this node; written by satelle.\nset -u\nroot=$1\nmkdir -p \"$root/out\" || exit 1\n")
 	for _, kv := range env.Vars() {
 		k, v, _ := strings.Cut(kv, "=")
-		fmt.Fprintf(&b, "export %s=%s\n", k, shQuote(v))
+		fmt.Fprintf(&b, "export %s=%s\n", k, ShQuote(v))
 	}
 	b.WriteString("cd \"$root/work\" || exit 1\n")
 	redirect := ` < "$root/in/` + gatePayload + `" > "$root/out/` + gateLog + `" 2>&1`
 	if shebang {
 		for _, a := range argv {
-			b.WriteString(shQuote(a) + " ")
+			b.WriteString(ShQuote(a) + " ")
 		}
 		b.WriteString(`"$root/in/` + gateScript + `"` + redirect + "\n")
 	} else {
@@ -350,4 +350,4 @@ func parseExit(b []byte) (int, error) {
 	return n, nil
 }
 
-func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func ShQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

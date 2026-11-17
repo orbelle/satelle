@@ -105,6 +105,9 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 	for _, is := range by[""] {
 		rep.leave(is, "", leftNoFix)
 	}
+	for _, is := range by[resolveUserDecision] {
+		rep.leave(is, "", leftUserDecision)
+	}
 
 	ledgerIssues := append(append(append([]doctorIssue{}, by[resolveFixItem]...), by[resolveReleaseSeat]...), by[resolveAsk]...)
 	if configBroken(in, doc.Issues) {
@@ -247,7 +250,7 @@ func openFixItem(k *kernel.Kernel, in *doctorInput, rep *resolveReport, findings
 	criteria := make([]string, 0, len(findings))
 	for _, is := range findings {
 		fmt.Fprintf(&body, "- %s: %s — fix: %s\n", is.Check, is.Problem, is.Fix)
-		criteria = append(criteria, fmt.Sprintf("satelle doctor no longer reports %s: %s", is.Check, is.Problem))
+		criteria = append(criteria, findingCriterion(is.Check, is.Problem))
 	}
 	f := item.Fields{Kind: &sel.Kind, Title: &title, Criteria: &criteria, Tags: &[]string{sel.Tag}}
 	b := body.String()

@@ -34,6 +34,16 @@ func (r Rules) Select(it item.Item) string {
 	return r.Default
 }
 
+func (r Rules) Categories() []string {
+	var out []string
+	for _, rule := range r.Rule {
+		if rule.Category != "" && !slices.Contains(out, rule.Category) {
+			out = append(out, rule.Category)
+		}
+	}
+	return out
+}
+
 func (r Rules) Validate(exists func(string) bool) []error {
 	var errs []error
 	if r.Default == "" || !exists(r.Default) {

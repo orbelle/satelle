@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,16 +23,27 @@ import (
 
 func initCmd() *cobra.Command {
 	var hooks []string
+	var print string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create .satelle/ here with a two-state workflow, then validate it",
-		Long: `init writes the starter configuration into ./.satelle (satelle.toml,
-agents.toml and workflows/default.toml: backlog → done, no gates), leaving any
-file that already exists alone, and validates the result. In a repo that
-already has a satelle.toml it writes no starter workflow: the repo keeps its own
-routes. The configuration is yours to edit and replace. 'satelle doctor' lists
-what init would add. When init adds volatile.toml it says so, and how many
-lines the volatile check then flags.
+		Short: "Create .satelle/ here, or list what a configured repo lacks; --print gives a shipped file",
+		Long: `In a directory with no .satelle/satelle.toml, init writes the starter
+configuration into ./.satelle (satelle.toml, agents.toml, init.toml and
+workflows/default.toml: backlog → done, no gates) and validates the result.
+The configuration is yours to edit and replace. When it writes volatile.toml it
+says so, and how many lines the volatile check then flags.
+
+In a repo that already has a satelle.toml, init writes nothing under .satelle/.
+It lists the files this release ships that the repo lacks and prints the
+satelle story create command that raises a story for them, in the category
+.satelle/init.toml names: adding them changes the substrate, and raising that
+story is the user's decision. Where the repo names no category it prints no
+command and says which key must name it and which categories the repo's
+workflow rules select. removed in .satelle/init.toml records a shipped file the
+repo removed on purpose; init and doctor then do not report it.
+
+--print <path> prints one file this release ships, exactly, and nothing else,
+for that story's session to write; it writes nothing and needs no repo.
 
 --hooks installs harness hook files as well (claude when given bare; or name
 them: --hooks claude,pi,grok). Without it no harness file is touched; see
@@ -39,6 +51,9 @@ them: --hooks claude,pi,grok). Without it no harness file is touched; see
 the command that wires one.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("print") {
+				return printShipped(cmd, print)
+			}
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
@@ -48,23 +63,12 @@ the command that wires one.`,
 				return fmt.Errorf("%s is satelle's machine-wide home, not a repo", dataDir)
 			}
 			out := cmd.OutOrStdout()
-			plan, _ := kernel.InitPlan(dataDir)
-			addsVolatile := slices.Contains(plan, kernel.VolatileFile)
-			if err := kernel.Init(dataDir); err != nil {
-				return problemsError(dataDir, err)
-			}
-			fmt.Fprintf(out, "initialised %s (configuration valid)\n", dataDir)
-			if addsVolatile {
-				rel := filepath.Join(config.DefaultDataDir, kernel.VolatileFile)
-				if found, err := volatileFindings(dataDir); err != nil {
-					fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
-				} else {
-					lines := map[string]bool{}
-					for _, f := range found {
-						lines[fmt.Sprintf("%s:%d", f.File, f.Line)] = true
-					}
-					fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(lines))
+			if kernel.Configured(dataDir) {
+				if err := reportConfigured(out, dataDir); err != nil {
+					return err
 				}
+			} else if err := firstInit(out, dataDir); err != nil {
+				return err
 			}
 			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
 				return err
@@ -86,7 +90,76 @@ the command that wires one.`,
 	}
 	cmd.Flags().StringSliceVar(&hooks, "hooks", nil, "install harness hooks ("+strings.Join(hook.Harnesses, ", ")+")")
 	cmd.Flags().Lookup("hooks").NoOptDefVal = hook.Claude
+	cmd.Flags().StringVar(&print, "print", "", "print one file this release ships (.satelle/<file>) and write nothing")
 	return cmd
+}
+
+func printShipped(cmd *cobra.Command, path string) error {
+	if cmd.Flags().Changed("hooks") {
+		return errors.New("--print prints one shipped file and installs nothing")
+	}
+	rel := strings.TrimPrefix(filepath.ToSlash(path), config.DefaultDataDir+"/")
+	b, err := kernel.Shipped(rel)
+	if err != nil {
+		return fmt.Errorf("%s is not a file this release ships; satelle init lists the ones this repo lacks", path)
+	}
+	_, err = cmd.OutOrStdout().Write(b)
+	return err
+}
+
+func reportConfigured(out io.Writer, dataDir string) error {
+	plan, err := kernel.InitPlan(dataDir)
+	if err != nil {
+		return err
+	}
+	valid := kernel.Validate(dataDir)
+	if len(plan) == 0 {
+		if len(valid) > 0 {
+			return problemsError(dataDir, errors.Join(valid...))
+		}
+		fmt.Fprintf(out, "%s: nothing to add (configuration valid)\n", dataDir)
+		return nil
+	}
+	pol := kernel.InitPolicy(dataDir)
+	fmt.Fprintf(out, "satelle init: nothing written under %s/\n", config.DefaultDataDir)
+	fmt.Fprintf(out, "%s lacks %d file(s) this release ships:\n", dataDir, len(plan))
+	for _, rel := range plan {
+		fmt.Fprintf(out, "  %s/%s\n", config.DefaultDataDir, rel)
+	}
+	fmt.Fprintln(out, "adding them changes the substrate, which is a substrate story, and raising one is the user's decision:")
+	if pol.CategorySet() {
+		fmt.Fprintf(out, "  %s\n", substrateStoryCommand(pol.Category, plan))
+	} else {
+		fmt.Fprintf(out, "%s\n  %s\n", categoryUnsetProblem(len(plan)), categoryUnsetFix(ruleCategories(dataDir)))
+	}
+	fmt.Fprintln(out, "that story's session writes each file itself, from the content this prints:")
+	fmt.Fprintf(out, "  satelle init --print %s/<file> --session <session>\n", config.DefaultDataDir)
+	if len(valid) > 0 {
+		return problemsError(dataDir, errors.Join(valid...))
+	}
+	return nil
+}
+
+func firstInit(out io.Writer, dataDir string) error {
+	plan, _ := kernel.InitPlan(dataDir)
+	addsVolatile := slices.Contains(plan, kernel.VolatileFile)
+	if err := kernel.Init(dataDir); err != nil {
+		return problemsError(dataDir, err)
+	}
+	fmt.Fprintf(out, "initialised %s (configuration valid)\n", dataDir)
+	if addsVolatile {
+		rel := filepath.Join(config.DefaultDataDir, kernel.VolatileFile)
+		if found, err := volatileFindings(dataDir); err != nil {
+			fmt.Fprintf(out, "volatile check enabled: wrote %s; could not count the lines it flags: %v\n", rel, err)
+		} else {
+			lines := map[string]bool{}
+			for _, f := range found {
+				lines[fmt.Sprintf("%s:%d", f.File, f.Line)] = true
+			}
+			fmt.Fprintf(out, "volatile check enabled: wrote %s, which flags %d line(s) here; satelle validate lists them, and the file holds the patterns\n", rel, len(lines))
+		}
+	}
+	return nil
 }
 
 func problemsError(dataDir string, err error) error {
