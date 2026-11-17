@@ -21,7 +21,7 @@ command = "grok"
 model = "grok-4.7"
 tools = ["Read", "Grep", "Glob"]
 
-[agents."reviewer-gpt-5.6-sol-high"]
+[agents."reviewer-gpt-5.6-sol-medium"]
 command = "cursor-agent"
-model = "gpt-5.6-sol-high"
+model = "gpt-5.6-sol-medium"
 tools = ["Read", "Grep", "Glob"]
