@@ -134,6 +134,19 @@ validate --session <session>` refuses an entry that is not a check skill and an 
 twice. `after` is a list only: a single string (`after = "publish"`) is
 refused, naming the key and the list form to write (`after = ["publish"]`).
 
+An entry whose check skill says `after: always` in its frontmatter runs on
+every result of the gate, not only on a verdict: accept, reject (a failure
+included: a check that timed out or could not start, a missing skill, an
+answer with no verdict), carried, skipped and error, and after an earlier
+entry refused the verdict. It sees the result as it then stands, so
+`SATELLE_GATE_RESULT` may also be `skipped` or `error` and the stdin notes
+hold the earlier entries' lines. It can never change the result: exit 0 adds
+its output as `after <skill>: …`; any other exit, a timeout or a failure to
+start adds `after <skill>: failed, the result stands: …`, and the entries after
+it still run. Use it to report a result (a commit status, say) rather than to
+judge one. `satelle validate --session <session>` refuses `after` with any other value
+and `after: always` on a skill that is not a check.
+
 Each gate of a presentation is recorded as it happens: a `gate.start`
 (`transition`, `gate`, `attempt`, `seq`, its position in the presentation)
 immediately before it runs, and its `gate.run` (with the same `seq`) as soon
@@ -152,8 +165,7 @@ a change, `satelle-verdict-reference-check` (an accept quotes the work or names
 a file, criterion or record path); a refusal's notes say `the judge gave no
 reasons`. The rules live in those skills, not in the binary: a gate that
 declares none records its judge's verdict as given, and `satelle init --session <session>` declares
-none. The `pr-review` gate lists its publish check last, so a refused verdict
-is never published to the PR (`satelle github review --session <session>`).
+none.
 
 A gate's `timeout` (a Go duration such as `"30m"` or `"1h30m"`, positive)
 bounds each check script the gate runs — its check skill, its trigger and its
@@ -165,7 +177,7 @@ name the bound and where it came from: `timed out after 30m0s (gates.full-test
 timeout)`, or `timed out after 10m0s (default; set timeout on
 [gates.full-test] to raise it)`. A trigger or `after` that times out keeps its
 `trigger <skill>: ` or `after <skill>: ` prefix. A timeout is a failure, not a
-verdict, so `after` does not run on it.
+verdict, so of the `after` list only an `after: always` entry runs on it.
 
 `satelle story set <id> --status <to> --session <session>` runs the gates in that command before
 it returns. A gate with a long `timeout` (see `satelle workflow show --session <session>`) can

@@ -331,6 +331,34 @@ func TestSkillProblems(t *testing.T) {
 	}
 }
 
+func TestSkillAfterAlways(t *testing.T) {
+	cases := []struct {
+		name, text, problem string
+		always              bool
+	}{
+		{"always", "---\ntype: check\nafter: always\n---\n```sh\nexit 0\n```\n", "", true},
+		{"plain", "---\ntype: check\n---\n```sh\nexit 0\n```\n", "", false},
+		{"sometimes", "---\ntype: check\nafter: sometimes\n---\n```sh\nexit 0\n```\n", "the only value is always", false},
+		{"prose", "---\ntype: skill\nafter: always\n---\nA procedure.\n", "is for a check", false},
+	}
+	for _, c := range cases {
+		s, err := ParseSkill(c.name, c.text)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if s.AfterAlways() != c.always {
+			t.Errorf("%s: AfterAlways = %v", c.name, s.AfterAlways())
+		}
+		probs := s.Problems()
+		switch {
+		case c.problem == "" && len(probs) > 0:
+			t.Errorf("%s: unexpected %v", c.name, probs)
+		case c.problem != "" && (len(probs) != 1 || !strings.Contains(probs[0].Error(), c.problem) || !strings.Contains(probs[0].Error(), "skill "+c.name)):
+			t.Errorf("%s: problems %v, want %q", c.name, probs, c.problem)
+		}
+	}
+}
+
 func TestAfterIsAListOnly(t *testing.T) {
 	base := "[states.a]\nstart = true\n[states.z]\nterminal = true\n[[transition]]\nfrom = [\"a\"]\nto = \"z\"\n[gates.g]\nskill = \"script\"\n"
 	for body, want := range map[string]string{

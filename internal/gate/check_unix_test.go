@@ -358,3 +358,93 @@ exit 0
 		t.Fatalf("publish ran on %q (%v), want only good", logged, err)
 	}
 }
+
+func alwaysSkill(script string) workflow.Skill {
+	return workflow.Skill{Meta: map[string]string{"type": workflow.TypeCheck, "after": "always"}, Script: script}
+}
+
+func TestAfterAlwaysRunsOnEveryResult(t *testing.T) {
+	log := t.TempDir() + "/always.log"
+	names := []string{"ok", "bad", "carry", "skip", "gone", "dead", "garbled", "check", "panel", "slow", "refused"}
+	gates := map[string]workflow.Gate{
+		"ok":      {Skill: "judge", Agent: "y1", After: []string{"always"}},
+		"bad":     {Skill: "judge", Agent: "n1", After: []string{"always"}},
+		"carry":   {Skill: "judge", Agent: "y1", Carry: true, After: []string{"always"}},
+		"skip":    {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}, After: []string{"always"}},
+		"gone":    {Skill: "nope", Agent: "y1", After: []string{"always"}},
+		"dead":    {Skill: "judge", Agent: "dead", After: []string{"always"}},
+		"garbled": {Skill: "judge", Agent: "garbled", After: []string{"always"}},
+		"check":   {Skill: "pass", After: []string{"always"}},
+		"panel":   {Skill: "judge", Panel: []string{"y1", "garbled"}, Combine: workflow.CombineAny, After: []string{"always"}},
+		"slow":    {Skill: "hang", Timeout: "300ms", After: []string{"always"}},
+		"refused": {Skill: "judge", Agent: "y1", After: []string{"refuse", "always"}},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Parallel, Gates: names}}, gates)
+	d.answers["garbled"] = "no verdict here"
+	for _, n := range []string{"dead", "garbled"} {
+		b := r.Agents["y1"]
+		b.Name = n
+		r.Agents[n] = b
+	}
+	r.Skills["always"] = alwaysSkill(`p=$(cat); echo "gate=$SATELLE_GATE result=$SATELLE_GATE_RESULT $p" >> ` + log + `; echo "saw $SATELLE_GATE_RESULT"`)
+	r.Skills["pass"] = checkSkill("echo checked")
+	r.Skills["hang"] = checkSkill("sleep 30")
+	r.Skills["refuse"] = checkSkill("echo no reasons; exit 1")
+	r.Prior = []Result{{Transition: "s0->s1", Gate: "carry", Result: Accept, Coverage: "cov:"}}
+	r.Dir = t.TempDir()
+	rs, _ := r.Execute(context.Background())
+	got := map[string]Result{}
+	for _, x := range rs {
+		got[x.Gate] = x
+	}
+	want := map[string]string{"ok": Accept, "bad": Reject, "carry": Carried, "skip": Skipped, "gone": Reject, "dead": Error,
+		"garbled": Reject, "check": Accept, "slow": Reject, "refused": Reject}
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := string(b)
+	for n, res := range want {
+		if got[n].Result != res {
+			t.Errorf("%s: result %q, want %q (%s)", n, got[n].Result, res, got[n].Notes)
+		}
+		if !strings.Contains(got[n].Notes, "after always: saw "+res) {
+			t.Errorf("%s: notes lack the always entry's line: %q", n, got[n].Notes)
+		}
+		if !strings.Contains(logged, "gate="+n+" result="+res+" ") {
+			t.Errorf("%s: always entry did not see %s:\n%s", n, res, logged)
+		}
+	}
+	if !strings.Contains(logged, "gate=panel result="+got["panel"].Result) {
+		t.Errorf("panel: %s", logged)
+	}
+	if n := strings.Count(logged, "\n"); n != len(names) {
+		t.Errorf("always ran %d times, want %d:\n%s", n, len(names), logged)
+	}
+	for _, ln := range strings.Split(logged, "\n") {
+		if strings.HasPrefix(ln, "gate=refused ") && !strings.Contains(ln, "no reasons") {
+			t.Errorf("the refused accept's stdin lacks the refusal: %s", ln)
+		}
+	}
+
+	gates = map[string]workflow.Gate{
+		"ok":  {Skill: "judge", Agent: "y1", Timeout: "300ms", After: []string{"fails", "hangs", "always"}},
+		"bad": {Skill: "judge", Agent: "n1", Timeout: "300ms", After: []string{"fails", "hangs", "always"}},
+	}
+	r, _ = setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"ok", "bad"}}}, gates)
+	r.Skills["fails"] = alwaysSkill("echo could not publish; exit 1")
+	r.Skills["hangs"] = alwaysSkill("sleep 30")
+	r.Skills["always"] = alwaysSkill("echo still ran")
+	r.Dir = t.TempDir()
+	rs, _ = r.Execute(context.Background())
+	if len(rs) != 2 || rs[0].Result != Accept || rs[1].Result != Reject {
+		t.Fatalf("a failing always entry changed a result: %+v", rs)
+	}
+	for _, x := range rs {
+		for _, w := range []string{"after fails: failed, the result stands: exit non-zero: could not publish", "after hangs: failed, the result stands:", "after always: still ran"} {
+			if !strings.Contains(x.Notes, w) {
+				t.Errorf("%s notes lack %q: %q", x.Gate, w, x.Notes)
+			}
+		}
+	}
+}

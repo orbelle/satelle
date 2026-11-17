@@ -22,6 +22,12 @@ type Skill struct {
 
 func (s Skill) IsCheck() bool { return s.Meta["type"] == TypeCheck }
 
+// AfterAlways reports a check that, listed in a gate's after, runs on every
+// result of the gate and cannot change it (frontmatter after: always).
+func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta["after"] == afterAlways }
+
+const afterAlways = "always"
+
 func ParseSkill(name, text string) (Skill, error) {
 	s := Skill{Name: name, Meta: map[string]string{}, Body: text}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
@@ -83,6 +89,14 @@ func scriptFence(trimmed string) (string, bool) {
 }
 
 func (s Skill) Problems() []error {
+	if v, ok := s.Meta["after"]; ok {
+		switch {
+		case v != afterAlways:
+			return []error{fmt.Errorf("skill %s: frontmatter after is %q; the only value is %s", s.Name, v, afterAlways)}
+		case !s.IsCheck():
+			return []error{fmt.Errorf("skill %s: frontmatter after: %s is for a check, but its type is %q", s.Name, afterAlways, s.Meta["type"])}
+		}
+	}
 	if s.IsCheck() {
 		return nil
 	}

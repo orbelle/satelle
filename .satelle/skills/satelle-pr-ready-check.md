@@ -22,7 +22,9 @@ integration → approved it runs before `pr-review` and `pr-approval`
 GitHub app publishes on this pull request's head, and `pr-approval` passes only
 on the app's approving review of HEAD. The item enters `approved` only when
 both accept after this check. No GitHub review is read here, and GitHub runs
-no tests.
+no tests. `pr-pending` runs first on that edge, and each pull-request gate's
+result is posted on the head as `satelle/<gate>`
+(`satelle-gate-status-publish`).
 
 Before presenting integration → approved, the session:
 

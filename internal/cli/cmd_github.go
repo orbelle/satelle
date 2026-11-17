@@ -21,9 +21,54 @@ func githubCmd() *cobra.Command {
 		Long: `The satelle GitHub app, installed on a repository, binds it to a satelle.dev
 project. These commands ask satelle.dev to act on that repository as the app;
 the repository comes from the binding, never from the command line. satelle.dev
-decides nothing: what to publish (the event, the body) is the caller's.`,
+decides nothing: what to publish (a review's event and body, a status's state,
+context and description) is the caller's.`,
 	}
-	cmd.AddCommand(githubReviewCmd())
+	cmd.AddCommand(githubReviewCmd(), githubStatusCmd())
+	return cmd
+}
+
+func githubStatusCmd() *cobra.Command {
+	var sha, context, state, description, targetURL string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "status --sha S --context C --state S [--description D] [--target-url U]",
+		Short: "Publish a commit status as the satelle GitHub app (GitHubService.PublishStatus)",
+		Long: `Publishes a commit status on commit S of the bound project's repository, as
+the satelle GitHub app. The context, the state (success, failure, error or
+pending on GitHub), the description and the target url are passed through
+unchanged; satelle.dev answers with the status's id and the repository. A
+project with no GitHub binding is refused by the server (FAILED_PRECONDITION),
+and a dry run (satelle gate run) publishes nothing.`,
+		Args: cobra.NoArgs,
+		RunE: openBound(func(cmd *cobra.Command, k *kernel.Kernel, s bound, _ []string) error {
+			for _, f := range []struct{ name, v string }{{"sha", sha}, {"context", context}, {"state", state}} {
+				if strings.TrimSpace(f.v) == "" {
+					return fmt.Errorf("--%s is required", f.name)
+				}
+			}
+			if kernel.UnderDryRun(k.Ledger.Dir()) {
+				return errors.New("a dry run publishes no status")
+			}
+			r, err := s.Client.GitHub.PublishStatus(cmd.Context(), &satellepb.PublishStatusRequest{
+				Project: s.Project, CommitSha: sha, Context: context, State: state, Description: description, TargetUrl: targetURL,
+			})
+			if err != nil {
+				return hosted.Describe("github status", err)
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{"status_id": r.GetStatusId(), "repository": r.GetRepository()})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "published status %d on %s@%s: %s %s\n", r.GetStatusId(), r.GetRepository(), sha, context, state)
+			return nil
+		}),
+	}
+	cmd.Flags().StringVar(&sha, "sha", "", "the commit the status is on")
+	cmd.Flags().StringVar(&context, "context", "", "the status context, passed through")
+	cmd.Flags().StringVar(&state, "state", "", "the status state, passed through: success, failure, error or pending")
+	cmd.Flags().StringVar(&description, "description", "", "a short description, passed through")
+	cmd.Flags().StringVar(&targetURL, "target-url", "", "a url the status links to, passed through")
+	asJSON = jsonFlag(cmd)
 	return cmd
 }
 
