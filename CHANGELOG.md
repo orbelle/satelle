@@ -1,3 +1,15 @@
+## [1.0.83] - 2026-11-17
+
+### Added
+- A machine can override the repo's agent bindings in a git-ignored .satelle/agents.local.toml, field by field (command, model, effort, tools, deny, placement); satelle validate and satelle doctor refuse an unknown agent or field and an override that makes a judge its performer's command and model, satelle doctor lists each active override, and performer.run and gate.run record the command and model that ran (sto_1d90279d)
+- satelle init writes the agents.local.toml ignore line into a new .satelle/.gitignore; in a repo that already has one, satelle doctor names the line to add (sto_1d90279d)
+- `satelle github status --sha S --context C --state S [--description D] [--target-url U]` publishes a commit status on the bound project's repository as the satelle GitHub app (GitHubService.PublishStatus); a dry run publishes none. (sto_4f698e3f)
+- A check skill whose frontmatter says `after: always` runs, as a gate's `after` entry, on every result of the gate (skipped, error and failures included) and cannot change it. (sto_4f698e3f)
+- integration -> approved posts satelle/pr-ready, satelle/pr-review and satelle/pr-approval on the pull request's head: pending when the presentation starts, then each gate's result (the satelle-gate-status-publish check); a status that cannot be published is named in the gate's notes and leaves its verdict as it was. (sto_4f698e3f)
+
+### Fixed
+- The drift review's steps 6 and 7 (record the warnings, release the seat) act on the run just finished instead of the oldest finished drift run (sto_c82d6795)
+
 ## [1.0.82] - 2026-11-17
 
 ### Added
