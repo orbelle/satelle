@@ -46,7 +46,27 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: go cache paths
+        id: gocache
+        run: |
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      # Restored and saved by hand so a failing job still saves it: setup-go's
+      # own cache is saved only when the job succeeds.
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.mod }}
+            ${{ steps.gocache.outputs.build }}
+          key: os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            os-test-go-${{ runner.os }}-
+      - name: bash 4 or later for the repo's scripts (macOS ships bash 3.2)
+        run: |
+          brew install bash
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: git identity for tests that commit
         run: |
           git config --global user.name os-test
@@ -54,13 +74,23 @@ jobs:
       - name: go build
         run: go build ./...
       - name: go vet
+        if: ${{ !cancelled() }}
         run: go vet ./...
       - name: go test
-        run: go test ./...
+        if: ${{ !cancelled() }}
+        run: bash --version | head -1 && go test ./...
       - name: make test
+        if: ${{ !cancelled() }}
         env:
           SATELLE_HERMETIC_ALLOW_SNAPSHOT: "1"
         run: make test
+      - uses: actions/cache/save@v4
+        if: ${{ !cancelled() }}
+        with:
+          path: |
+            ${{ steps.gocache.outputs.mod }}
+            ${{ steps.gocache.outputs.build }}
+          key: os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
 
   windows:
     name: windows go test
@@ -82,7 +112,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: go cache paths
+        id: gocache
+        run: |
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      # Restored and saved by hand so a failing job still saves it: setup-go's
+      # own cache is saved only when the job succeeds.
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.mod }}
+            ${{ steps.gocache.outputs.build }}
+          key: os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            os-test-go-${{ runner.os }}-
       - name: git identity for tests that commit
         run: |
           git config --global user.name os-test
@@ -90,6 +136,15 @@ jobs:
       - name: go build
         run: go build ./...
       - name: go vet
+        if: ${{ !cancelled() }}
         run: go vet ./...
       - name: go test
+        if: ${{ !cancelled() }}
         run: go test ./...
+      - uses: actions/cache/save@v4
+        if: ${{ !cancelled() }}
+        with:
+          path: |
+            ${{ steps.gocache.outputs.mod }}
+            ${{ steps.gocache.outputs.build }}
+          key: os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
