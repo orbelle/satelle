@@ -108,13 +108,8 @@ are reviewed*).
 
 ## 2026-11-13
 
-- **At least one judge of another family.** "the plan reviewer(s) and code
-  reviewer(s) there should be at least 1 non-matching llm. eg. claude vs gpt
-  vs grok models." and "Can be more than 1 reviewer, however, at least 1 is a
-  different model." A gate's single judge is of another model family than
-  the work's author. A panel needs at least one member of another family, and
-  its other members may share the author's family (operator, 2026-11-13;
-  satelle-agent-alt-reviewer).
+- **At least one judge of another family.** Restated on 2026-11-17: see
+  *Never reviewed solely by the author's family* under that date.
 - **satelle manages itself.** "satelle should self manage with exceptions
   posted to the user." What satelle can prove it fixes unattended (the sync
   timer's pass runs doctor's answer-free fixes); only what it cannot fix
@@ -178,3 +173,18 @@ are reviewed*).
   those four tag keys and give them default chip colours, which a repo's
   `.satelle/ui.toml` overrides; no other tag may be named in Go
   (operator, 2026-11-15; sto_856572ef; [[satelle-conventional-tags]]).
+
+## 2026-11-17
+
+- **Never reviewed solely by the author's family.** "a step cannot be
+  reviewed solely by the same model family" and "the pr-reviewer does NOT have
+  to be an alt. model. It does however need to be a cold review. eg. claude
+  -p" (operator, 2026-11-17). Each step of the work (its plan, its code, its
+  pull request) has at least one review by a judge of another model family
+  than its author. A cold judge of the author's family may review the step
+  beside it, as a panel member or as a review of its own, such as the
+  pull-request review task. The plan and code reviewers stand as ruled on
+  2026-11-13: "the plan reviewer(s) and code reviewer(s) there should be at
+  least 1 non-matching llm. eg. claude vs gpt vs grok models." and "Can be
+  more than 1 reviewer, however, at least 1 is a different model." (operator,
+  2026-11-13 and 2026-11-17; satelle-agent-alt-reviewer).
