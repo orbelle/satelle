@@ -106,9 +106,11 @@ func TestJudgeDiffersCheck(t *testing.T) {
 	grokNoModel := "\n[agents.grokj]\ncommand = \"grok\"\ntools = [\"Read\", \"Grep\", \"Glob\"]\n"
 	look := func(agent string) string { return "[gates.look]\nskill = \"look\"\nagent = \"" + agent + "\"\n" }
 	reviews := map[string]string{
-		"tier panel all of the performer's family": "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nlow = [\"gem\"]\nhigh = [\"twin\", \"twin2\"]\n",
-		"tier panel with another family":           "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\"twin\", \"gpt\"]\n",
-		"unreadable tier panel":                    "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\n  \"twin\",\n  \"gpt\",\n]\n",
+		"tier panel all of the performer's family":                 "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nlow = [\"gem\"]\nhigh = [\"twin\", \"twin2\"]\n",
+		"tier panel with another family":                           "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\"twin\", \"gpt\"]\n",
+		"tier panel on a gate that is a check in another workflow": "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\"gem\"]\n",
+		"literal-quoted review header":                             "\n[review]\ntier_tag = \"risk\"\n\n['review'.panels.look]\nhigh = [\"twin\"]\n",
+		"unreadable tier panel":                                    "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\n  \"twin\",\n  \"gpt\",\n]\n",
 	}
 	baseToml := readSandbox(t, s, ".satelle/satelle.toml")
 	star := "\n[[transition]]\nfrom = [\"*\"]\nto = \"cancelled\"\ngroups = [{ gates = [\"look\"] }]\n"
@@ -155,6 +157,14 @@ func TestJudgeDiffersCheck(t *testing.T) {
 			[]string{"2 gates compared"}, nil},
 		{"unreadable tier panel", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 2,
 			[]string{"satelle.toml:", "cannot read the line high ="}, nil},
+		{"tier panel on a gate that is a check in another workflow", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 0,
+			[]string{"2 workflows, 4 transitions, 2 gates compared"}, []string{"workflow other"}},
+		{"literal-quoted key", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "[agents.gem]\n'model' = \"claude-z\"\n", 2,
+			[]string{"agents.local.toml:2:", "cannot read a literal-quoted key"}, nil},
+		{"literal-quoted header", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "['agents'.gem]\nmodel = \"claude-z\"\n", 2,
+			[]string{"agents.local.toml:1:", "cannot read the table header"}, nil},
+		{"literal-quoted review header", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 2,
+			[]string{"satelle.toml:", "cannot read the table header"}, nil},
 		{"unreadable model", strings.Replace(judgeDiffersAgents, `model = "claude-x"`, `model = 'claude-x'`, 1),
 			judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 2,
 			[]string{"agents.toml:4:", "cannot read the model value"}, nil},
@@ -162,6 +172,12 @@ func TestJudgeDiffersCheck(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			s.write(".satelle/agents.toml", c.agents)
 			s.write(".satelle/satelle.toml", baseToml+reviews[c.name])
+			other := filepath.Join(s.dir, ".satelle", "workflows", "other.toml")
+			_ = os.Remove(other)
+			if c.name == "tier panel on a gate that is a check in another workflow" {
+				s.write(".satelle/skills/chk.md", "---\nname: chk\ntype: check\ndescription: passes\n---\n\n```check\n#!/usr/bin/env bash\nexit 0\n```\n")
+				s.write(".satelle/workflows/other.toml", "name = \"other\"\n[states.start]\nstart = true\nperformer = { agent = \"gem\", skill = \"look\" }\n[states.end]\nterminal = true\n[gates.look]\nskill = \"chk\"\n\n[[transition]]\nfrom = [\"start\"]\nto = \"end\"\ngroups = [{ gates = [\"look\"] }]\n")
+			}
 			s.write(".satelle/workflows/default.toml", c.flow)
 			local := filepath.Join(s.dir, ".satelle", "agents.local.toml")
 			_ = os.Remove(local)
@@ -189,6 +205,8 @@ func TestJudgeDiffersCheck(t *testing.T) {
 		})
 	}
 	_ = os.Remove(filepath.Join(s.dir, ".satelle", "agents.local.toml"))
+	_ = os.Remove(filepath.Join(s.dir, ".satelle", "workflows", "other.toml"))
+	s.write(".satelle/satelle.toml", baseToml)
 
 	t.Run("no jq", func(t *testing.T) {
 		bash, err := exec.LookPath("bash")

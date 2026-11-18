@@ -48,8 +48,9 @@ judges keeps them alt to it. The check prints one note per such state.
 `agents.toml`, then `agents.local.toml` when present, read field by field
 over it, so the check sees what would dispatch on this machine. The agents
 reader takes only `[agents.NAME]` tables and in them only `command` and
-`model` with a plain double-quoted value; any other form of those keys
-stops the check (exit 2) naming the file and line. `satelle validate
+`model` with a plain double-quoted value; any other form of those keys, and
+any literal-quoted ('...') key or header naming agents, stops the check
+(exit 2) naming the file and line. `satelle validate
 --session <session>` stays the judge of the file's validity.
 The `[review.panels.*]` tables of `satelle.toml` are read too (see Tier
 panels).
@@ -57,7 +58,8 @@ panels).
 **Tier panels.** A `[review.panels.GATE]` table in satelle.toml replaces
 that gate's judges with the panel of the item's tier. Each tier's panel is
 judged like the gate's own judges, as one more judge set of that gate, and a
-finding names the tier. The reader takes each tier as `tier = ["agent", ...]`
+finding names the tier. A gate that runs a check skill in a workflow
+dispatches no judge there, so its tier panels are not judged in that workflow. The reader takes each tier as `tier = ["agent", ...]`
 on one line of plain double-quoted names; any other form in a
 `[review.panels.GATE]` table stops the check (exit 2) naming the line.
 
@@ -96,7 +98,7 @@ if [ ! -f "$root/agents.toml" ]; then
   exit 2
 fi
 
-rows=$(awk '
+rows=$(awk -v q="'" '
   function bad(why) { printf "%s:%d: %s; this check reads only [agents.NAME] tables with command and model as plain double-quoted strings\n", FILENAME, FNR, why; failed = 1; exit 2 }
   FNR == 1 { table = "" }
   {
@@ -117,7 +119,7 @@ rows=$(awk '
         sub(/^\[[ \t]*agents[ \t]*\.[ \t]*"/, "", name)
         sub(/"[ \t]*\]$/, "", name)
         table = name
-      } else if (hdr ~ /^\[+[ \t]*"?agents/) {
+      } else if (hdr ~ /^\[+[ \t]*"?agents/ || (index(hdr, q) > 0 && hdr ~ /agents/)) {
         bad("cannot read the table header " hdr)
       } else {
         table = ""
@@ -125,8 +127,10 @@ rows=$(awk '
       next
     }
     if (table == "" && line ~ /^"?agents"?[ \t]*[.=]/) bad("cannot read a dotted or inline agents key")
+    if (table == "" && substr(line, 1, 1) == q && line ~ /agents/) bad("cannot read a literal-quoted agents key")
     if (table == "") next
     if (line ~ /^"?(command|model)"?[ \t]*\./) bad("cannot read a dotted key")
+    if (substr(line, 1, 1) == q) bad("cannot read a literal-quoted key")
     if (line !~ /^"?(command|model)"?[ \t]*=/) next
     key = line
     sub(/[ \t]*=.*$/, "", key)
@@ -161,7 +165,7 @@ agents=$(printf '%s\n' "$rows" | jq -Rn --arg fam "$FAMILIES" '
 
 review=""
 if [ -f "$root/satelle.toml" ]; then
-  review=$(awk '
+  review=$(awk -v q="'" '
     function bad(why) { printf "%s:%d: %s; this check reads [review.panels.GATE] tables only as tier = [\"agent\", ...] on one line\n", FILENAME, FNR, why; exit 2 }
     {
       line = $0
@@ -179,17 +183,19 @@ if [ -f "$root/satelle.toml" ]; then
           sub(/[ \t]*\]$/, "", gate)
         } else if (hdr ~ /^\[[ \t]*review[ \t]*\]$/) {
           inreview = 1
-        } else if (hdr ~ /^\[+[ \t]*"?review/) {
+        } else if (hdr ~ /^\[+[ \t]*"?review/ || (index(hdr, q) > 0 && hdr ~ /review/)) {
           bad("cannot read the table header " hdr)
         }
         next
       }
       if (inreview) {
         if (line ~ /^"?panels"?[ \t]*[.=]/) bad("cannot read a dotted or inline panels key")
+        if (substr(line, 1, 1) == q) bad("cannot read a literal-quoted key")
         next
       }
       if (gate == "") {
         if (line ~ /^"?review"?[ \t]*[.=]/) bad("cannot read a dotted or inline review key")
+        if (substr(line, 1, 1) == q && line ~ /review/) bad("cannot read a literal-quoted review key")
         next
       }
       if (line !~ /^[A-Za-z0-9_-]+[ \t]*=[ \t]*\[[^]]*\][ \t]*(#.*)?$/) bad("cannot read the line " line)
@@ -255,7 +261,7 @@ for w in $workflows; do
         | select($p != null and ($p.Agent // "") != "" and ($p.Operator // "") == "")
         | ($agents[$p.Agent] // {command: "", model: "", session: false, family: "unknown"}) as $pb
         | [ ($t.Groups // [])[] | (.Gates // [])[] ] | unique[] as $g
-        | ([{tier: "", js: judges($g)}] + [($panels[$g] // {}) | to_entries[] | {tier: .key, js: .value}])[] as $set
+        | ([{tier: "", js: judges($g)}] + (if (judges($g) | length) > 0 then [($panels[$g] // {}) | to_entries[] | {tier: .key, js: .value}] else [] end))[] as $set
         | select(($set.js | length) > 0)
         | $set.js as $js
         | (if $set.tier == "" then "gate \($g)" else "gate \($g) (tier \($set.tier))" end) as $gl
