@@ -41,8 +41,8 @@ result=$(printf '%s' "$in" | jq -r '.result // empty')
 notes=$(printf '%s' "$in" | jq -r '.notes // empty')
 tags=$(satelle execution get "$SATELLE_ITEM" --json | jq -r '.tags[]?') ||
   { echo "could not read the run $SATELLE_ITEM"; exit 1; }
-story=$(printf '%s\n' "$tags" | sed -n 's/^reviews://p')
-head=$(printf '%s\n' "$tags" | sed -n 's/^head://p')
+story=$SATELLE_ITEM
+head=$(git rev-parse HEAD)
 if [ "$(printf '%s' "$story" | grep -c .)" != 1 ] || [ "$(printf '%s' "$head" | grep -c .)" != 1 ]; then
   echo "the run $SATELLE_ITEM needs exactly one reviews:<story> tag and one head:<sha> tag (.satelle/tasks/pr-review.md)"
   exit 1
