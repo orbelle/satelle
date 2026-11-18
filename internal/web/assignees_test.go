@@ -58,13 +58,15 @@ func TestSatelledShowsAssignees(t *testing.T) {
 		t.Fatalf("no row for sto_1:\n%s", body)
 	}
 	row := body[start : start+strings.Index(body[start:], "</tr>")]
-	for _, want := range []string{`data-assignee="ann,bob"`, `ann, bob (working)`} {
+	annChip := `<button type="button" class="tagchip kv assignee clickable" data-filter="assignee:ann" aria-label="filter by assignee:ann"><span class="k">assignee</span><span class="v">ann</span></button>`
+	bobChip := `<button type="button" class="tagchip kv assignee clickable" data-filter="assignee:bob" aria-label="filter by assignee:bob, working"><span class="k">assignee</span><span class="v">bob</span><span class="w">working</span></button>`
+	for _, want := range []string{`data-assignee="ann,bob"`, annChip + bobChip} {
 		if !strings.Contains(row, want) {
 			t.Errorf("story row lacks %q: %s", want, row)
 		}
 	}
-	if strings.Contains(row, "ann (working)") || strings.Contains(row, "cy") {
-		t.Errorf("story row marks ann working or lists cy: %s", row)
+	if strings.Contains(row, "assignee:cy") || strings.Contains(row, "(working)") {
+		t.Errorf("story row lists cy, whose session is gone, or keeps the old column text: %s", row)
 	}
 
 	detail := httpGetBody(t, srv.URL+"/r/proj/story/sto_1")

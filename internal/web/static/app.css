@@ -101,6 +101,9 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .tagchip.kv .k::after { content: ":"; opacity: .55; font-weight: 400; }
 .tagchip.kv .v { opacity: .9; }
 .tagchip.kv.cat { --chip-c: #b9863f; }
+.tagchip.kv.assignee { --chip-c: #c2558f; }
+.tagchip.kv .w { font-weight: 600; }
+.tagchip.kv .w::before { content: "·"; margin: 0 4px; opacity: .55; font-weight: 400; }
 .tagchip[data-colour] {
   background: color-mix(in srgb, var(--chip-c) 16%, transparent);
   color: color-mix(in srgb, var(--chip-c) 60%, var(--ink));
@@ -288,7 +291,6 @@ td.updated-cell { white-space: nowrap; }
 .stories-table td { overflow-wrap: anywhere; }
 .col-id { width: 8rem; }
 .col-status { width: 8rem; }
-.col-assignees { width: 9rem; }
 .col-updated { width: 9rem; }
 .stage-chip { display: inline-block; margin: 0 6px 3px 0; padding: 0 6px; font-size: 11px;
   line-height: 1.6; border: 1px solid var(--line); background: var(--chip); color: var(--ink); }

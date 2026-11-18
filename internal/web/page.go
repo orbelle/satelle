@@ -80,41 +80,14 @@ var tmplFuncs = template.FuncMap{
 		return m
 	},
 	"tagchip": func(tag string, overrides ...map[string]string) template.HTML {
-		esc := template.HTMLEscapeString
-		var over map[string]string
-		if len(overrides) > 0 {
-			over = overrides[0]
+		return chipHTML(tag, firstOverrides(overrides), "")
+	},
+	"assigneechip": func(a assigneeVM, overrides ...map[string]string) template.HTML {
+		note := ""
+		if a.Working {
+			note = "working"
 		}
-		cls := "tagchip"
-		inner := esc(tag)
-		attrs := ""
-		colour := item.ChipColour(tag, over)
-		key, value, kv := item.TagKV(tag)
-		if kv {
-			cls = "tagchip kv"
-			inner = `<span class="k">` + esc(key) + `</span><span class="v">` + esc(value) + `</span>`
-		}
-		switch {
-		case colour != "":
-			attrs = ` data-colour="` + esc(colour) + `"`
-		case key == "category":
-			cls += " cat"
-		case key == "workflow":
-			attrs = ` style="--chip-c:hsl(` + strconv.Itoa(chipHue(value)) + ` 45% 55%)"`
-		}
-		token := ""
-		switch {
-		case key == "scope" || key == "applies_to":
-		case key == "category" || key == "task" || key == "workflow" || slices.Contains(item.FacetKeys(), key):
-			token = tag
-		default:
-			token = "tags:" + tag
-		}
-		if token == "" {
-			return template.HTML(`<span class="` + cls + `"` + attrs + `>` + inner + `</span>`)
-		}
-		return template.HTML(`<button type="button" class="` + cls + ` clickable"` + attrs + ` data-filter="` +
-			esc(token) + `" aria-label="filter by ` + esc(tag) + `">` + inner + `</button>`)
+		return chipHTML("assignee:"+a.User, firstOverrides(overrides), note)
 	},
 	"tagattrs": func(tags []string) template.HTMLAttr {
 		var b strings.Builder
@@ -139,6 +112,54 @@ var tmplFuncs = template.FuncMap{
 		}
 		return "stories"
 	},
+}
+
+func firstOverrides(overrides []map[string]string) map[string]string {
+	if len(overrides) > 0 {
+		return overrides[0]
+	}
+	return nil
+}
+
+func chipHTML(tag string, over map[string]string, note string) template.HTML {
+	esc := template.HTMLEscapeString
+	cls := "tagchip"
+	inner := esc(tag)
+	attrs := ""
+	colour := item.ChipColour(tag, over)
+	key, value, kv := item.TagKV(tag)
+	if kv {
+		cls = "tagchip kv"
+		inner = `<span class="k">` + esc(key) + `</span><span class="v">` + esc(value) + `</span>`
+	}
+	label := tag
+	if note != "" {
+		inner += `<span class="w">` + esc(note) + `</span>`
+		label += ", " + note
+	}
+	switch {
+	case colour != "":
+		attrs = ` data-colour="` + esc(colour) + `"`
+	case key == "category":
+		cls += " cat"
+	case key == "assignee":
+		cls += " assignee"
+	case key == "workflow":
+		attrs = ` style="--chip-c:hsl(` + strconv.Itoa(chipHue(value)) + ` 45% 55%)"`
+	}
+	token := ""
+	switch {
+	case key == "scope" || key == "applies_to":
+	case key == "category" || key == "task" || key == "workflow" || key == "assignee" || slices.Contains(item.FacetKeys(), key):
+		token = tag
+	default:
+		token = "tags:" + tag
+	}
+	if token == "" {
+		return template.HTML(`<span class="` + cls + `"` + attrs + `>` + inner + `</span>`)
+	}
+	return template.HTML(`<button type="button" class="` + cls + ` clickable"` + attrs + ` data-filter="` +
+		esc(token) + `" aria-label="filter by ` + esc(label) + `">` + inner + `</button>`)
 }
 
 func chipHue(name string) int {
@@ -337,7 +358,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Stories}}</tbody>
     </table></div>
   </section>
@@ -362,7 +383,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <table class="panel-table">
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "workitemRows" .Tasks}}</tbody>
     </table>
   </section>
@@ -399,7 +420,7 @@ const templatesSrc = `
       <div class="chips"></div>
     </div>
     <div class="table-scroll"><table class="panel-table stories-table">{{template "storyCols"}}
-      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Updated</th></tr></thead>
       <tbody data-rows>{{template "storyRows" .Rows}}</tbody>
     </table></div>
   </section>
@@ -430,26 +451,25 @@ const templatesSrc = `
      (engaged:here / engaged:elsewhere) filters the Stories list (sto_18f1e94d). */}}
 {{define "engagementBadge"}}{{$n := .EngagementCount}}{{$ids := .EngagedStoryIDs}}{{if gt $n 0}}{{$title := printf "engaged here: %s" (join $ids ", ")}}<span class="n-engaged has-engaged" data-engagement-count="{{$n}}" title="{{$title}}" aria-label="{{$n}} story engaged"><button type="button" class="n-filter" data-filter-token="engaged:here" aria-label="list the stories engaged here">{{$n}} engaged</button></span>{{end}}{{$m := .ElsewhereCount}}{{$eids := .ElsewhereStoryIDs}}{{if gt $m 0}}{{$etitle := printf "engaged elsewhere: %s" (join $eids ", ")}}<span class="n-elsewhere" data-elsewhere-count="{{$m}}" title="{{$etitle}}" aria-label="{{$m}} story engaged elsewhere"><button type="button" class="n-filter" data-filter-token="engaged:elsewhere" aria-label="list the stories engaged elsewhere">{{$m}} elsewhere</button></span>{{end}}{{end}}
 
-{{define "assignees"}}{{if .}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{else}}—{{end}}{{end}}
+{{define "assignees"}}{{range $i, $a := .}}{{if $i}}, {{end}}{{$a.User}}{{if $a.Working}} (working){{end}}{{end}}{{end}}
 
 {{define "workitemLead"}}<tr class="row" tabindex="0" role="button" aria-expanded="false" data-kind="{{.Kind}}"{{if eq (printf "%s" .Kind) "execution"}} data-task="{{.ParentID}}"{{end}} data-status="{{.Status}}"{{if eq .StateClass "terminal"}} data-terminal="1"{{end}} data-workflow="{{.Workflow}}" data-assignee="{{users .Assignees}}" data-category="{{.Category}}" data-tags="{{join .Tags ","}}"{{with .Lineage}} data-lineage="{{join . ","}}"{{end}} data-title="{{lower .Title}}" data-updated="{{.UpdatedAt.Format "2006-01-02T15:04:05"}}" data-created="{{.CreatedAt.Format "2006-01-02T15:04:05"}}" data-search="{{printf "%s %s %s %s" .Title .ID (users .Assignees) (join .Tags " ") | lower}}"{{with .Engaged}} data-engaged="{{.Attr}}"{{end}}{{tagattrs .Tags}} data-expand-url="fragment/{{.Kind}}/{{.ID}}">
   <td class="id"><span class="id-copy" role="button" tabindex="0" data-id="{{.ID}}" title="Copy id to clipboard">{{.ID}}</span></td>
-  <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{$flow := and (eq (printf "%s" .Kind) "story") .Workflow}}{{if or .Category .Tags $task $flow}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .) $.TagColours}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category) .TagColours}}{{end}}{{with $flow}}{{tagchip (printf "workflow:%s" .) $.TagColours}}{{end}}{{range .Tags}}{{tagchip . $.TagColours}}{{end}}</div>{{end}}</td>
+  <td><div class="wi-title">{{.Title}}{{with .Engaged}}{{with .Here}} <span class="here-mark{{if .Unverified}} here-unverified{{end}}" title="{{.Title}}">{{if .Unverified}}◇{{else}}◆{{end}} here</span>{{end}}{{range .Elsewhere}} <span class="where-mark" title="{{.Title}}">◆ {{.Label}}</span>{{end}}{{end}}</div>{{$task := and (eq (printf "%s" .Kind) "execution") .ParentID}}{{$flow := and (eq (printf "%s" .Kind) "story") .Workflow}}{{if or .Category .Tags .Assignees $task $flow}}<div class="wi-tags">{{with $task}}{{tagchip (printf "task:%s" .) $.TagColours}}{{end}}{{if .Category}}{{tagchip (printf "category:%s" .Category) .TagColours}}{{end}}{{with $flow}}{{tagchip (printf "workflow:%s" .) $.TagColours}}{{end}}{{range .Assignees}}{{assigneechip . $.TagColours}}{{end}}{{range .Tags}}{{tagchip . $.TagColours}}{{end}}</div>{{end}}</td>
   <td>{{template "statebadge" .}}</td>
 {{end}}
-{{define "workitemTrail"}}  <td class="meta">{{template "assignees" .Assignees}}</td>
-  <td class="updated">{{ftime .UpdatedAt}}</td>
+{{define "workitemTrail"}}  <td class="updated">{{ftime .UpdatedAt}}</td>
 </tr>{{end}}
 
 {{define "workitemRows"}}{{range .}}{{template "workitemLead" .}}  <td class="meta">{{if .Workflow}}{{.Workflow}}{{else}}—{{end}}</td>
-{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="5" class="empty">none yet</td></tr>{{end}}{{end}}
 
 {{/* storyRows: story rows, with the Progress cell (one stageChip per step
      reached, progressOf) after Status. */}}
 {{define "storyRows"}}{{range .}}{{template "workitemLead" .}}  <td class="col-reviews">{{range .Progress}}{{template "stageChip" .}}{{else}}—{{end}}</td>
-{{template "workitemTrail" .}}{{else}}<tr><td colspan="6" class="empty">none yet</td></tr>{{end}}{{end}}
+{{template "workitemTrail" .}}{{else}}<tr><td colspan="5" class="empty">none yet</td></tr>{{end}}{{end}}
 
-{{define "storyCols"}}<colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-assignees"><col class="col-updated"></colgroup>{{end}}
+{{define "storyCols"}}<colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-updated"></colgroup>{{end}}
 
 {{/* stageChip: one step chip in the old shape: <step> <gates> <run> <rej> <blk>,
      the gates count always drawn, run (the gates started with no result yet)

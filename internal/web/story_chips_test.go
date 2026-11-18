@@ -2,6 +2,8 @@ package web
 
 import (
 	"encoding/json"
+	"math"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 func chipsSnapshot(settings ...mirror.SettingRow) mirror.Snapshot {
 	delivery := mirror.Workflow{Name: "delivery", States: []mirror.WorkflowState{{Name: "backlog", Start: true}, {Name: "shipped", Terminal: true}}}
 	fix := mirror.Workflow{Name: "fix", Panel: "Drift", States: []mirror.WorkflowState{{Name: "open", Start: true}, {Name: "done", Terminal: true}}}
+	assignees := map[string][]string{"sto_a": {"ann", "bob"}, "sto_d": {"cy"}}
 	story := func(id, wf, cat string, tags ...string) json.RawMessage {
 		st := ""
 		switch wf {
@@ -23,7 +26,7 @@ func chipsSnapshot(settings ...mirror.SettingRow) mirror.Snapshot {
 		case "fix":
 			st = "open"
 		}
-		return raw(mirror.Item{ID: id, Kind: "story", Title: "T " + id, Status: st, Workflow: wf, Category: cat, Tags: tags, CreatedAt: activityT0, UpdatedAt: activityT0})
+		return raw(mirror.Item{ID: id, Kind: "story", Title: "T " + id, Status: st, Workflow: wf, Category: cat, Tags: tags, Assignees: assignees[id], CreatedAt: activityT0, UpdatedAt: activityT0})
 	}
 	doc := func(w mirror.Workflow) json.RawMessage {
 		return raw(mirror.Doc{Kind: mirror.DocKindWorkflows, Name: w.Name, Source: ".satelle/workflows/" + w.Name + ".toml", Body: "name = \"" + w.Name + "\"", Workflow: &w})
@@ -40,7 +43,7 @@ func chipsSnapshot(settings ...mirror.SettingRow) mirror.Snapshot {
 			story("sto_d", "fix", "", "priority:high"),
 		},
 		Tasks: []json.RawMessage{
-			raw(mirror.Item{ID: "tsk_1", Kind: "task", Title: "T tsk_1", Status: "backlog", Workflow: "delivery", CreatedAt: activityT0, UpdatedAt: activityT0}),
+			raw(mirror.Item{ID: "tsk_1", Kind: "task", Title: "T tsk_1", Status: "backlog", Workflow: "delivery", Assignees: []string{"ann"}, CreatedAt: activityT0, UpdatedAt: activityT0}),
 		},
 		Docs:     []json.RawMessage{doc(delivery), doc(fix)},
 		Identity: raw(mirror.IdentityMeta{ProjectName: "proj", RepoRoot: "/p"}),
@@ -76,7 +79,7 @@ func colourAttr(tag string) string {
 	return ` data-colour="` + item.ChipColour(tag, nil) + `"`
 }
 
-const storyHeader = `<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Assignees</th><th>Updated</th></tr></thead>`
+const storyHeader = `<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Updated</th></tr></thead>`
 
 func TestStoriesTableHasNoWorkflowColumn(t *testing.T) {
 	srv := mirrorWith(t, chipsSnapshot())
@@ -84,10 +87,16 @@ func TestStoriesTableHasNoWorkflowColumn(t *testing.T) {
 	for _, topic := range []string{"stories", "wf-drift"} {
 		sec := section(page, topic)
 		if !strings.Contains(sec, storyHeader) {
-			t.Errorf("%s: header is not ID, Title, Status, Progress, Assignees, Updated:\n%s", topic, sec)
+			t.Errorf("%s: header is not ID, Title, Status, Progress, Updated:\n%s", topic, sec)
 		}
 		if strings.Contains(sec, "<th>Workflow</th>") {
 			t.Errorf("%s still has a Workflow column", topic)
+		}
+		if strings.Contains(sec, "<th>Assignees</th>") {
+			t.Errorf("%s still has an Assignees column", topic)
+		}
+		if n := strings.Count(storyHeader, "<th>"); n != 5 {
+			t.Fatalf("storyHeader has %d columns", n)
 		}
 	}
 	for _, path := range []string{"/r/proj/fragment/stories", "/r/proj/fragment/wf-drift"} {
@@ -97,8 +106,8 @@ func TestStoriesTableHasNoWorkflowColumn(t *testing.T) {
 			t.Fatalf("%s: no rows", path)
 		}
 		for _, r := range rows {
-			if n := strings.Count(r, "<td"); n != 6 {
-				t.Errorf("%s: a row has %d cells, want 6:\n%s", path, n, r)
+			if n := strings.Count(r, "<td"); n != 5 {
+				t.Errorf("%s: a row has %d cells, want the header's 5:\n%s", path, n, r)
 			}
 		}
 	}
@@ -107,11 +116,15 @@ func TestStoriesTableHasNoWorkflowColumn(t *testing.T) {
 func TestTasksTableKeepsWorkflowColumn(t *testing.T) {
 	srv := mirrorWith(t, chipsSnapshot())
 	page := httpGetBody(t, srv.URL+"/r/proj/")
-	if !strings.Contains(section(page, "tasks"), `<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Assignees</th><th>Updated</th></tr></thead>`) {
-		t.Error("the Tasks table lost its Workflow column")
+	tasks := section(page, "tasks")
+	if !strings.Contains(tasks, `<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Workflow</th><th>Updated</th></tr></thead>`) {
+		t.Error("the Tasks table lost its Workflow column, or keeps an Assignees column")
+	}
+	if strings.Contains(tasks, "<th>Assignees</th>") {
+		t.Error("the Tasks table still has an Assignees column")
 	}
 	row := rowHTML(t, httpGetBody(t, srv.URL+"/r/proj/fragment/tasks"), "task", "tsk_1")
-	if !strings.Contains(row, `<td class="meta">delivery</td>`) || strings.Count(row, "<td") != 6 {
+	if !strings.Contains(row, `<td class="meta">delivery</td>`) || strings.Count(row, "<td") != 5 {
 		t.Errorf("a task row lost its Workflow cell:\n%s", row)
 	}
 	if strings.Contains(row, `data-filter="workflow:`) {
@@ -230,6 +243,7 @@ func TestTagColoursOverride(t *testing.T) {
 		setting("surface", "warn"),
 		setting("epic:x", "note"),
 		setting("workflow:delivery", "accent"),
+		setting("assignee", "note"),
 	))
 	frag := httpGetBody(t, srv.URL+"/r/proj/fragment/stories")
 	a := rowHTML(t, frag, "story", "sto_a")
@@ -241,6 +255,7 @@ func TestTagColoursOverride(t *testing.T) {
 		{a, chipButton("reporter:operator", colourAttr("reporter:operator"), "tags:reporter:operator")},
 		{a, chipButton("workflow:delivery", ` data-colour="accent"`, "workflow:delivery")},
 		{c, chipButton("epic:x", ` data-colour="note"`, "tags:epic:x")},
+		{a, chipButton("assignee:ann", ` data-colour="note"`, "assignee:ann")},
 		{b, chipButton("priority:medium", colourAttr("priority:medium"), "priority:medium")},
 	} {
 		if !strings.Contains(w.row, w.chip) {
@@ -389,7 +404,10 @@ func TestStoriesTableLayoutRules(t *testing.T) {
 	if n := strings.Count(plain, "table-layout"); n != 1 {
 		t.Errorf("the stylesheet declares table-layout %d times, want once", n)
 	}
-	for _, sel := range []string{".col-id", ".col-status", ".col-assignees", ".col-updated"} {
+	if strings.Contains(plain, ".col-assignees") {
+		t.Error("the stylesheet still sizes an Assignees column")
+	}
+	for _, sel := range []string{".col-id", ".col-status", ".col-updated"} {
 		remOf(t, sel, decls(t, css, sel)["width"])
 	}
 	if w := remOf(t, ".col-reviews", decls(t, css, ".col-reviews")["width"]); w < progressWidthBefore+workflowColumnWidth {
@@ -399,10 +417,10 @@ func TestStoriesTableLayoutRules(t *testing.T) {
 		t.Error("the stylesheet fixes the Title column's width")
 	}
 	page := httpGetBody(t, srv.URL+"/r/proj/")
-	cols := `<table class="panel-table stories-table"><colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-assignees"><col class="col-updated"></colgroup>`
+	cols := `<table class="panel-table stories-table"><colgroup><col class="col-id"><col class="col-title"><col class="col-status"><col class="col-reviews"><col class="col-updated"></colgroup>`
 	for _, topic := range []string{"stories", "wf-drift"} {
 		if !strings.Contains(section(page, topic), cols) {
-			t.Errorf("%s: the table does not open with the stories-table class and its six columns", topic)
+			t.Errorf("%s: the table does not open with the stories-table class and its five columns", topic)
 		}
 	}
 	if strings.Contains(section(page, "tasks"), "stories-table") {
@@ -426,5 +444,189 @@ func TestStoriesTableScrollsInItsOwnBox(t *testing.T) {
 		if !strings.Contains(sec, `<div class="table-scroll"><table class="panel-table stories-table">`) || !strings.Contains(sec, "</table></div>") {
 			t.Errorf("%s: the stories table is not inside a .table-scroll box", topic)
 		}
+	}
+}
+
+func assigneeChip(user string) string {
+	return `<button type="button" class="tagchip kv assignee clickable" data-filter="assignee:` + user + `" aria-label="filter by assignee:` + user + `"><span class="k">assignee</span><span class="v">` + user + `</span></button>`
+}
+
+func TestStoryRowAssigneeChips(t *testing.T) {
+	srv := mirrorWith(t, chipsSnapshot())
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	frag := httpGetBody(t, srv.URL+"/r/proj/fragment/stories")
+	flow := chipButton("workflow:delivery", " "+workflowStyle("delivery"), "workflow:delivery")
+	firstTag := chipButton("priority:high", colourAttr("priority:high"), "priority:high")
+	for name, html := range map[string]string{"page": section(page, "stories"), "fragment": frag} {
+		a := rowHTML(t, html, "story", "sto_a")
+		if !strings.Contains(a, flow+assigneeChip("ann")+assigneeChip("bob")+firstTag) {
+			t.Errorf("%s: the assignee chips do not follow the workflow chip and lead the tags:\n%s", name, a)
+		}
+		if strings.Contains(a, `class="w"`) {
+			t.Errorf("%s: a non-working assignee is marked working:\n%s", name, a)
+		}
+		b := rowHTML(t, html, "story", "sto_b")
+		if strings.Contains(b, `data-filter="assignee:`) || strings.Contains(b, `<span class="k">assignee</span>`) {
+			t.Errorf("%s: a story with no assignee shows an assignee chip:\n%s", name, b)
+		}
+		outside := strings.Replace(b, `<td class="col-reviews">—</td>`, "", 1)
+		if !strings.Contains(b, `data-assignee=""`) || strings.Contains(outside, "—") {
+			t.Errorf("%s: a story with no assignee shows something in its place:\n%s", name, b)
+		}
+	}
+	if d := rowHTML(t, httpGetBody(t, srv.URL+"/r/proj/fragment/wf-drift"), "story", "sto_d"); !strings.Contains(d, assigneeChip("cy")) {
+		t.Errorf("a kind panel row lacks its assignee chip:\n%s", d)
+	}
+	if task := rowHTML(t, httpGetBody(t, srv.URL+"/r/proj/fragment/tasks"), "task", "tsk_1"); !strings.Contains(task, assigneeChip("ann")) {
+		t.Errorf("a task row lacks its assignee chip:\n%s", task)
+	}
+}
+
+func hexHue(t *testing.T, v string) float64 {
+	t.Helper()
+	v = strings.TrimSpace(v)
+	if len(v) != 7 || v[0] != '#' {
+		t.Fatalf("%q is not a #rrggbb colour", v)
+	}
+	ch := func(i int) float64 {
+		n, err := strconv.ParseUint(v[i:i+2], 16, 8)
+		if err != nil {
+			t.Fatalf("%q: %v", v, err)
+		}
+		return float64(n) / 255
+	}
+	r, g, b := ch(1), ch(3), ch(5)
+	mx, mn := math.Max(r, math.Max(g, b)), math.Min(r, math.Min(g, b))
+	d := mx - mn
+	if d == 0 {
+		return -1
+	}
+	var h float64
+	switch mx {
+	case r:
+		h = math.Mod((g-b)/d, 6)
+	case g:
+		h = (b-r)/d + 2
+	default:
+		h = (r-g)/d + 4
+	}
+	h *= 60
+	if h < 0 {
+		h += 360
+	}
+	return h
+}
+
+func hueGap(a, b float64) float64 {
+	d := math.Abs(a - b)
+	return math.Min(d, 360-d)
+}
+
+func TestAssigneeChipColour(t *testing.T) {
+	srv := mirrorWith(t, chipsSnapshot())
+	css := httpGetBody(t, srv.URL+"/static/app.css")
+	plain := cssComment.ReplaceAllString(css, "")
+	v := decls(t, css, ".tagchip.kv.assignee")["--chip-c"]
+	if strings.HasPrefix(v, "var(") {
+		t.Fatalf(".tagchip.kv.assignee --chip-c %q is a variable, not one fixed colour", v)
+	}
+	if n := strings.Count(plain, ".tagchip.kv.assignee"); n != 1 {
+		t.Errorf(".tagchip.kv.assignee is declared %d times, want once for both themes", n)
+	}
+	h := hexHue(t, v)
+	if h < 0 {
+		t.Fatalf("%s is grey", v)
+	}
+	if h >= 170 && h <= 249 {
+		t.Errorf("hue %.0f lies in the workflow chips' range 170–249", h)
+	}
+	others := map[string]string{
+		".tagchip.kv.cat": decls(t, css, ".tagchip.kv.cat")["--chip-c"],
+		".tagchip.kv":     decls(t, css, ".tagchip.kv")["--chip-c"],
+	}
+	for _, st := range []string{"start", "active", "park", "terminal"} {
+		others["st-"+st] = decls(t, css, ".badge.st-"+st)["--badge-c"]
+	}
+	for _, theme := range []string{":root", `[data-theme="dark"]`} {
+		vars := decls(t, css, theme)
+		for _, n := range []string{"fail", "warn", "ok", "accent", "note"} {
+			if c := vars["--"+n]; c != "" {
+				others[theme+" --"+n] = c
+			}
+		}
+		if vars["--muted"] == v {
+			t.Errorf("the assignee colour equals %s --muted", theme)
+		}
+	}
+	for name, c := range others {
+		oh := hexHue(t, c)
+		if oh < 0 {
+			continue
+		}
+		if g := hueGap(h, oh); g < 30 {
+			t.Errorf("assignee hue %.0f is %.0f° from %s (%s)", h, g, name, c)
+		}
+	}
+	row := rowHTML(t, httpGetBody(t, srv.URL+"/r/proj/fragment/stories"), "story", "sto_a")
+	if strings.Contains(row, `data-filter="assignee:ann" style=`) || !strings.Contains(row, `class="tagchip kv assignee clickable" data-filter="assignee:ann"`) {
+		t.Errorf("the assignee chip is not coloured by its class alone:\n%s", row)
+	}
+}
+
+func TestAssigneeChipFilters(t *testing.T) {
+	srv := mirrorWith(t, chipsSnapshot())
+	page := httpGetBody(t, srv.URL+"/r/proj/")
+	sec := section(page, "stories")
+	if !strings.Contains(sec, assigneeChip("ann")) {
+		t.Fatalf("no assignee:ann button chip:\n%s", sec)
+	}
+	if strings.Contains(page, `data-filter="tags:assignee:`) {
+		t.Error("an assignee chip filters as a tag")
+	}
+	js, err := staticFS.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(js)
+	for _, want := range []string{`var chip = e.target.closest(".tagchip[data-filter]");`, "addFilterToken(panel, chip.dataset.filter)"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the chip's filter is checked only by the lines above")
+	}
+	data, _ := json.Marshal(rowDatasets(t, sec))
+	prog := "var FILTER_KEYS = { status: 1, workflow: 1, assignee: 1, category: 1, tags: 1, tag: 1, kind: 1, task: 1, engaged: 1 };\n" +
+		"var TAG_FACETS = {};\n" + jsFunc(t, src, "parseQuery") + jsFunc(t, src, "rowMatches") +
+		"var applied = 0; function applyFilter() { applied++; }\n" + jsFunc(t, src, "addFilterToken") +
+		"var rows = " + string(data) + ";\n" +
+		"var match = function (q) { var p = parseQuery(q); return Object.keys(rows).filter(function (id) {\n" +
+		"  var r = { dataset: rows[id], getAttribute: function () { return null; } }; return rowMatches(r, p); }).sort(); };\n" +
+		"var input = { value: \"status:all\" }; var panel = { querySelector: function () { return input; } };\n" +
+		"addFilterToken(panel, \"assignee:ann\");\n" +
+		"console.log(JSON.stringify({ input: input.value, applied: applied, ann: match(input.value), typed: match(\"status:all assignee:bob,cy\") }));\n"
+	out, err := exec.Command(node, "-e", prog).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	var got struct {
+		Input   string
+		Applied int
+		Ann     []string
+		Typed   []string
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("node output %q: %v", out, err)
+	}
+	if got.Input != "status:all assignee:ann" || got.Applied != 1 {
+		t.Errorf("clicking the chip left the filter %q (applied %d), want %q applied once", got.Input, got.Applied, "status:all assignee:ann")
+	}
+	if strings.Join(got.Ann, ",") != "sto_a" {
+		t.Errorf("assignee:ann matches %v, want [sto_a]", got.Ann)
+	}
+	if strings.Join(got.Typed, ",") != "sto_a" {
+		t.Errorf("typed assignee:bob,cy matches %v, want [sto_a]", got.Typed)
 	}
 }
