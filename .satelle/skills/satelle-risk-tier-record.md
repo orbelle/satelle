@@ -23,7 +23,7 @@ if [ -z "$key" ]; then
 fi
 in=$(cat)
 notes=$(printf '%s' "$in" | jq -r '(.notes // "") + "\n" + ((.members // [])[0].notes // "")' 2>/dev/null)
-tier=$(printf '%s\n' "$notes" | sed -n 's/^ *TIER: *\(low\|high\) *$/\1/p' | head -1)
+tier=$(printf '%s\n' "$notes" | sed -nE 's/^ *TIER: *(low|high) *$/\1/p' | head -1)
 why=
 if [ -z "$tier" ]; then
   tier=high
@@ -33,7 +33,7 @@ args=()
 for t in $(satelle story get "$SATELLE_ITEM" --json | jq -r --arg k "$key:" '.tags // [] | .[] | select(startswith($k))'); do
   [ "$t" = "$key:$tier" ] || args+=(--remove-tag "$t")
 done
-if ! satelle story set "$SATELLE_ITEM" --add-tag "$key:$tier" "${args[@]}" >/dev/null 2>&1; then
+if ! satelle story set "$SATELLE_ITEM" --add-tag "$key:$tier" ${args[@]+"${args[@]}"} >/dev/null 2>&1; then
   echo "could not record $key:$tier on $SATELLE_ITEM; the item keeps its tags and code-ac runs its own judges"
   exit 0
 fi
