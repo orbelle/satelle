@@ -405,7 +405,7 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 	unitBody, unitErr := os.ReadFile(unitPath())
 	path := ""
 	if unitErr == nil {
-		path = unitDaemon(string(unitBody))
+		path = installedDaemon(string(unitBody))
 	}
 	if path == "" {
 		path = resolveDaemon("")
@@ -415,7 +415,7 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 		if _, err := os.Stat(path); err != nil {
 			return nil, []string{"versions: no satelled unit or binary is installed on this machine (satelle service install)"}
 		}
-		out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("%s is not installed, so %s (%s) does not run", serviceUnitName, buildinfo.DaemonName, path),
+		out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("%s is not installed, so %s (%s) does not run", daemonUnitDesc(), buildinfo.DaemonName, path),
 			Fix: "satelle service install", Resolve: resolveInstallService})
 	}
 	home := config.GlobalDir()
@@ -531,14 +531,14 @@ func checkSyncTimerOnly(context.Context, *doctorInput) ([]doctorIssue, []string)
 }
 
 func timerIssues() ([]doctorIssue, []string) {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return nil, []string{"sync: the sync timer is systemd-only; run `satelle ledger autosync` yourself"}
 	}
-	if _, err := os.Stat(userUnitPath(syncTimerName)); err != nil {
-		return []doctorIssue{{Check: "sync", Problem: syncTimerName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install", Resolve: resolveInstallService}}, nil
+	if _, err := os.Stat(syncUnitPath()); err != nil {
+		return []doctorIssue{{Check: "sync", Problem: syncUnitDesc() + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
 	if s := syncTimerState(); s != "active" {
-		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncTimerName, s), Fix: "satelle service install", Resolve: resolveInstallService}}, nil
+		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncUnitDesc(), s), Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
 	return nil, nil
 }

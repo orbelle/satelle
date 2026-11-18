@@ -29,6 +29,9 @@ const (
 
 type serviceUnits struct {
 	Daemon, SyncService, SyncTimer string
+	DaemonBin, Addr                string
+	Port                           int
+	CLI                            string
 }
 
 func serviceCmd() *cobra.Command {
@@ -50,7 +53,12 @@ SATELLE_NO_SERVICE=1 skips every unit change. With no systemd user manager the
 units and the autosync command are printed instead.
 
 refresh does the same by hand. install writes every unit afresh and records
-[service] (port, addr, and this directory as the repo).`,
+[service] (port, addr, and this directory as the repo).
+
+On macOS install writes and loads the launch agents dev.satelle.satelled and
+dev.satelle.sync in ~/Library/LaunchAgents (gui/<uid>), and uninstall boots
+them out and removes them; refresh, restart and status there are not
+supported yet.`,
 	}
 	var port int
 	var addr, bin string
@@ -125,9 +133,10 @@ func refreshService(ctx context.Context, w io.Writer, cli, daemon string) error 
 	if err != nil {
 		return err
 	}
-	u := serviceUnits{SyncService: renderSyncService(cli), SyncTimer: renderSyncTimer()}
+	u := serviceUnits{SyncService: renderSyncService(cli), SyncTimer: renderSyncTimer(), CLI: cli}
 	if st, err := os.Stat(daemon); err == nil && !st.IsDir() && filepath.IsAbs(daemon) {
 		u.Daemon = renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort())
+		u.DaemonBin, u.Addr, u.Port = daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()
 	} else if _, err := os.Stat(unitPath()); err != nil {
 		fmt.Fprintf(w, "%s: no binary beside satelle or on PATH; its unit was not installed\n", buildinfo.DaemonName)
 	}
@@ -146,12 +155,12 @@ func printServiceStatus(ctx context.Context, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "unit      %s (%s)\n", unitPath(), unitState())
-	fmt.Fprintf(out, "sync      %s (%s)\n", syncTimerName, syncTimerState())
+	fmt.Fprintf(out, "sync      %s (%s)\n", syncUnitDesc(), syncTimerState())
 	fmt.Fprintf(out, "config    %s (port %d, addr %s)\n", config.GlobalConfigPath(), gc.Service.ResolvePort(), gc.Service.ResolveAddr())
 	ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
 	path := ""
 	if body, err := os.ReadFile(unitPath()); err == nil {
-		path = unitDaemon(string(body))
+		path = installedDaemon(string(body))
 	}
 	if path == "" {
 		path = resolveDaemon("")
@@ -183,10 +192,15 @@ func installService(out io.Writer, port int, addr, bin string) error {
 		return err
 	}
 	daemon := resolveDaemon(bin)
+	cli := resolveCLI()
 	return applyUnits(out, serviceUnits{
 		Daemon:      renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()),
-		SyncService: renderSyncService(resolveCLI()),
+		SyncService: renderSyncService(cli),
 		SyncTimer:   renderSyncTimer(),
+		DaemonBin:   daemon,
+		Addr:        gc.Service.ResolveAddr(),
+		Port:        gc.Service.ResolvePort(),
+		CLI:         cli,
 	}, true)
 }
 
@@ -291,8 +305,6 @@ func reportDaemon(out io.Writer, client *http.Client, ep, installed, path, cli s
 		fmt.Fprintf(out, "warning   %s; run '%s'\n", m.Text, m.Remedy)
 	}
 }
-
-func unitPath() string { return userUnitPath(serviceUnitName) }
 
 func userUnitPath(name string) string {
 	home, err := os.UserHomeDir()

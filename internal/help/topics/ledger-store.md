@@ -161,6 +161,8 @@ Installing or updating satelle (`scripts/install.sh`, `satelle update --session 
 installs and starts `satelle-sync.timer`, a systemd user timer, so syncing is
 the default; `--no-service` or `SATELLE_NO_SERVICE=1` opts out, and
 `satelle service install --session <session>` or `satelle service refresh --session <session>` installs it later.
+On macOS, `satelle service install --session <session>` loads the `dev.satelle.sync`
+launch agent instead, which runs `satelle ledger autosync --session <session>` every 30 seconds.
 Every 30 seconds after its last run ended it runs one
 pass over this machine's projects (`~/.satelle/config.toml [projects]`;
 `satelle project bind` adds the repo): for each project whose store is not
