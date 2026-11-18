@@ -1,3 +1,8 @@
+## [1.0.87] - 2026-11-18
+
+### Changed
+- The format-vet gate runs `scripts/comments.sh check`, which now also reads JavaScript and CSS, so a comment in code is refused before integration; the tree carries none (sto_a8120f94). (sto_a8120f94)
+
 ## [1.0.86] - 2026-11-18
 
 ### Changed
