@@ -2,9 +2,9 @@ name = "pr-review"
 
 # A run of the pull-request review task (.satelle/tasks/pr-review.md): one
 # story's pull request head, judged cold from a checkout that is not the
-# author's worktree, by a session other than the author's. The judge and its
-# panel are the delivery workflow's pr-review gate's; the publish check takes
-# the story and the head from the run's tags.
+# author's worktree, by a session other than the author's. The gate below
+# names its judge; its publish check takes the story and the head from the
+# run's tags.
 
 [states.backlog]
 start = true

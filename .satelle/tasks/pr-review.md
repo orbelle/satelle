@@ -4,13 +4,12 @@ A task a session other than the author's runs, on demand, for one story whose
 pull request is open: the story's pull request head is judged cold, from a
 checkout that is not the author's worktree, and the verdict is published on
 that head as the satelle GitHub app. Its runs follow
-`.satelle/workflows/pr-review.toml`: the judge is the one the delivery
-workflow's pr-review gate binds (`satelle workflow show pr-review --session
-<session>`), and `satelle-pr-review-run-publish` publishes and records the
+`.satelle/workflows/pr-review.toml`: its gate names the judge (`satelle workflow
+show pr-review --session <session>`), and `satelle-pr-review-run-publish` publishes and records the
 verdict as a `github.review` event on the story's own chain.
 
-The author's session reads the result through `satelle-pr-approval-check`, as
-it does today: an approval passes it; requested changes attach the review as
+The author's session reads the result through
+`.satelle/skills/satelle-pr-approval-check.md`: an approval passes it; requested changes attach the review as
 `pr-review` and reopen the story there. The review run never moves the story.
 
 ## The task
