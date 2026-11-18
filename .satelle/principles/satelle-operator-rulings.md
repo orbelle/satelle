@@ -49,9 +49,10 @@ are reviewed*).
   fires the release queue (`satelle queue fire release --session <session>`)
   and drives the run until its items are done; approved is not the end of its
   drive.
-- **GitHub holds the code and shows gate status; it runs no tests.** Tests run
+- **GitHub holds the code and shows gate status; it runs no Linux tests.** Tests run
   locally first and then on sprites as part of CI/CD; their results are
-  published to GitHub as commit statuses by a skill. A satelle GitHub app (alternative PR reviewer/approver) comes
+  published to GitHub as commit statuses by a skill. Restated on 2026-11-19:
+  see *macOS and Windows tests run on GitHub, on demand* under that date. A satelle GitHub app (alternative PR reviewer/approver) comes
   through satelle-server to team subscriptions.
 - **Breaking changes are pushed; old versions are defunct.** v1 is a clean
   rewrite, in satelle and satelle-server alike: no backward compatibility in the
@@ -188,3 +189,15 @@ are reviewed*).
   least 1 non-matching llm. eg. claude vs gpt vs grok models." and "Can be
   more than 1 reviewer, however, at least 1 is a different model." (operator,
   2026-11-13 and 2026-11-17; satelle-agent-alt-reviewer).
+
+## 2026-11-19
+
+- **macOS and Windows tests run on GitHub, on demand.** "The current practice
+  is to action integration tests locally, and hence as I'm linux, github is
+  the solution, just need to manage the time/cost for the runners." (operator,
+  2026-11-19). The operator's machines are Linux, so a change that must hold
+  on darwin or windows is tested on GitHub's macos-latest and windows-latest
+  runners (`.github/workflows/os-test.yml`), only when asked: the label
+  `os-test` on a pull request, or a dispatch. Linux tests stay local and on
+  remotes. Runner time is kept down by the on-demand trigger, one run per ref,
+  bounded job time and caching (sto_6d13f4f9).

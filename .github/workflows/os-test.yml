@@ -1,0 +1,95 @@
+name: os-test
+
+# macOS and Windows test runs, on demand (operator, 2026-11-19; sto_6d13f4f9).
+# Linux tests stay local and on remotes; GitHub runs only these two, and only
+# when asked: the label os-test on a pull request, or a dispatch. No push or
+# schedule trigger, one run per ref (a newer run cancels the older), bounded
+# job time and cached Go modules and builds keep runner time down.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: branch, tag or commit to test
+        required: true
+        default: main
+      os:
+        description: which runners
+        required: true
+        default: both
+        type: choice
+        options: [macos, windows, both]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: os-test-${{ github.event.pull_request.number || inputs.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macos go test and make test
+    if: >-
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'os-test') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'os-test')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'macos' || inputs.os == 'both'))
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: git identity for tests that commit
+        run: |
+          git config --global user.name os-test
+          git config --global user.email os-test@users.noreply.github.com
+      - name: go build
+        run: go build ./...
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: make test
+        env:
+          SATELLE_HERMETIC_ALLOW_SNAPSHOT: "1"
+        run: make test
+
+  windows:
+    name: windows go test
+    if: >-
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'os-test') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'os-test')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.os == 'windows' || inputs.os == 'both'))
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: git identity for tests that commit
+        run: |
+          git config --global user.name os-test
+          git config --global user.email os-test@users.noreply.github.com
+      - name: go build
+        run: go build ./...
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
