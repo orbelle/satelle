@@ -17,11 +17,9 @@ type github struct {
 	reviews  []*satellepb.PublishReviewRequest
 	statuses []*satellepb.PublishStatusRequest
 	events   []*satellepb.PullRequestEvent
-	refuse   string // non-empty: PublishStatus answers FailedPrecondition with it
+	refuse   string
 }
 
-// RefuseStatuses makes PublishStatus on a bound project answer
-// FailedPrecondition with message, recording nothing; "" lifts it.
 func (s *Server) RefuseStatuses(project, message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

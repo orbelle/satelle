@@ -9,9 +9,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Every judged gate in this repo's workflows names its reviewers as a panel,
-// one judge or several (sto_f9f90635): no gate names agent, and every panel
-// names how its verdicts combine.
 func TestRepoGatesNameReviewersAsAPanel(t *testing.T) {
 	files, err := filepath.Glob("../.satelle/workflows/*.toml")
 	if err != nil || len(files) == 0 {

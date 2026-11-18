@@ -46,8 +46,6 @@ func repoPRGates(t *testing.T) (review, approval workflow.Gate) {
 	return g["pr-review"], g["pr-approval"]
 }
 
-// repoPRGateSet reads the pull-request gates of delivery.toml and checks
-// chore.toml defines each the same way.
 func repoPRGateSet(t *testing.T) map[string]workflow.Gate {
 	t.Helper()
 	var got [2][]workflow.Gate
@@ -244,7 +242,6 @@ func (p *prSandbox) serveStatuses(fixture string) {
 	writeFile(p.t, filepath.Join(p.fake, "statuses.json"), strings.ReplaceAll(string(b), "@HEAD@", p.head), 0o644)
 }
 
-// statusesSince returns the commit statuses published after the first n.
 func (p *prSandbox) statusesSince(n int) []string {
 	p.t.Helper()
 	var out []string

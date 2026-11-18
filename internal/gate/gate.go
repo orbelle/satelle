@@ -245,9 +245,6 @@ func (r Run) one(ctx context.Context, name string) Result {
 	return res
 }
 
-// after runs the gate's after list once it has a result. An ordinary entry runs
-// only on a verdict or a carry and may refuse it; an entry whose skill declares
-// after: always runs on every result and never changes it.
 func (r Run) after(ctx context.Context, name string, g workflow.Gate, res Result) Result {
 	judged := res.verdict || res.Result == Carried
 	refusedBy := ""

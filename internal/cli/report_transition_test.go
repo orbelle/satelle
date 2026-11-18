@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
-// A transition on an item with no base names the item and prints no git
-// error, moved or refused (sto_f98743d0).
 func TestReportTransitionNamesABaselessItem(t *testing.T) {
 	it := item.Item{ID: "sto_00000001", Status: "x"}
 	var out bytes.Buffer

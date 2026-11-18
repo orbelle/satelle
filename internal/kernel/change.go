@@ -69,8 +69,6 @@ func gatePaths(w *workflow.Workflow, name string) []string {
 
 func (k *Kernel) frozenSpan(it item.Item, w *workflow.Workflow, sp span, results []gate.Result) (*item.Span, error) {
 	rec, ok := latestChange(results)
-	// A change judged with no base (an item that never recorded one) froze
-	// nothing to judge: it freezes as an unjudged move does.
 	if !ok || rec.Change.Base == "" {
 		head := sp.head
 		if head == "" {

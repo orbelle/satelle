@@ -1,38 +1,22 @@
-/* Space Grotesk (variable wght, latin subset) is embedded in the binary and
-   self-hosted — no font CDN (sty_92163102). The family ships no italic face, so
-   there is no italic @font-face; browsers synthesize oblique where needed. */
 @font-face {
   font-family: "Space Grotesk";
   font-style: normal;
   font-weight: 300 700;
   font-display: swap;
-  src: url("fonts/space-grotesk-latin.woff2") format("woff2"); /* CSS-relative: resolves under the page's own /static (root or /<slug>/) */
+  src: url("fonts/space-grotesk-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
-  /* Default theme is LIGHT. The dark palette overrides these on [data-theme="dark"]. */
   --ink: #16181d; --muted: #6b7280; --line: #e5e7eb; --bg: #fbfbfa;
   --accent: #2f6f4f; --chip: #f0f1ef; --panel: #ffffff;
   --row-hover: #f6f7f6; --expand-bg: #fafbfc;
-  /* Fail/down red — the ONE red, shared by the fail review light, the blocked
-     badge, and the timeline. */
   --fail: #e74c3c;
-  /* A MUTED/soft red — used ONLY for the brand mark's disconnected ◐ state, where
-     the saturated --fail reads too alarmingly for a transient live-stream drop. */
   --fail-soft: #bf6b62;
-  /* Idle-past-half-of-idle_timeout warning — a darker amber than dark theme's so
-     10.5px text stays legible on --bg #fbfbfa. */
   --warn: #9a6b00;
-  /* Pass/ok green — a progress chip's exit gates that all passed. */
   --ok: #16a34a;
   --note: #7c3aed;
-  /* The layout satelled shares with satelle.dev (sto_99aa0122 / satelle-server
-     sto_1006a260): every page container and the navbar's inner row are full
-     width capped at --content-max, with a --gutter-mobile side gutter at
-     640px and below. Change it in both apps. */
   --content-max: 1600px; --gutter-mobile: 1rem;
-  /* One control-height knob shared by inputs/selects/buttons (satellites pattern). */
   --control-height: 2.2rem;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -47,15 +31,8 @@
 }
 * { box-sizing: border-box; }
 
-/* ---------------------------------------------------------------------------
-   Global element base — style the ELEMENTS, not per-component. Components below
-   layer variants on top; base typography, tables, links, controls, headings and
-   the footer are defined once here, all derived from the :root palette.
-   --------------------------------------------------------------------------- */
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  /* Space Grotesk-first (self-hosted); the system faces stay as fallbacks.
-     Mono surfaces keep var(--mono) — that split is the product convention. */
   font: 15px/1.5 "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 a { color: var(--accent); text-decoration: none; }
@@ -73,20 +50,14 @@ input::placeholder { color: #9aa1ab; }
 button { cursor: pointer; }
 footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 
-/* Site footer — the three builds (sto_49b6e762): installed satelle CLI,
-   running satelled, installed satelled; a row in a disagreement and each
-   warning are amber (--warn). */
 .site-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-family: var(--mono); }
 .site-footer .footer-builds { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
 .site-footer .footer-label { color: var(--muted); opacity: 0.8; }
 .site-footer .footer-build.mismatch { color: var(--warn); }
 .site-footer .footer-warning { flex-basis: 100%; text-align: right; color: var(--warn); }
 
-/* Page width (sto_99aa0122): full width with 24px side padding, capped at
-   --content-max so a wide screen never sprawls full-bleed. */
 .wrap { width: 100%; max-width: var(--content-max); margin: 0 auto; padding: 28px 24px 64px; }
 
-/* Breadcrumbs */
 .crumbs { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; font-family: var(--mono); }
 .crumbs a { color: var(--accent); }
 .crumbs .sep { margin: 0 7px; color: #cbd5e1; }
@@ -94,7 +65,6 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .crumbs .back-link { color: var(--muted); text-decoration: none; margin-right: 4px; }
 .crumbs .back-link:hover { color: var(--ink); }
 
-/* Breadcrumb project switcher (sty_2bc00a9d): the <project> segment as a dropdown. */
 .proj-switch { display: inline-block; position: relative; }
 .proj-switch > summary { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); cursor: pointer; list-style: none; }
 .proj-switch > summary::-webkit-details-marker { display: none; }
@@ -108,33 +78,18 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .proj-menu a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .proj-menu a.current { font-weight: 600; }
 
-/* Title cell + tags-under-title */
 .wi-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-/* In-flight dispatch running indicator (sty_752c4ef2): distinct from the
-   stage chips — a chip records PAST gate outcomes, this narrates what is
-   happening RIGHT NOW, so a refused earlier attempt's red count is never the
-   only signal on a story a live agent is currently working. */
 .dispatch-indicator { margin-top: 4px; font-size: 10.5px; color: var(--accent); }
 .dispatch-indicator::before { content: "● "; }
 .dispatch-warn { color: var(--warn); font-weight: 600; }
-/* A story engaged at this checkout, in a hosted-mode list of every story: a mark
-   on the row, never a filter (sty_6ce071dc). */
 .here-mark { margin-left: 6px; font-size: 10.5px; font-weight: 600; color: var(--ok); white-space: nowrap; }
 .here-mark.here-unverified { border-bottom: 1px dashed var(--ok); }
 .where-mark { margin-left: 6px; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
-/* Epic wave (sty_a42f4add): the epic's roll-up of its children's indicators and the
-   wave column of its members table. */
 .epic-rollup { font-weight: 600; }
 .epic-members .epic-wave { font-size: 11px; color: var(--muted); }
 .epic-members .wave-runnable { color: var(--accent); font-weight: 600; }
 .epic-members .wave-cancelled { color: var(--warn); }
 .tagchip { font-size: 10.5px; color: var(--muted); background: var(--chip); border-radius: 0; padding: 0 6px; line-height: 1.6; }
-/* Key:value tag chip (e.g. epic:summariser) — the satellites language (sty_aed93a00):
-   ONE uniform, low-contrast chip, not a loud filled-key/tinted-value split. A single
-   translucent tint of the namespace --chip-c carries soft text mixed toward the
-   foreground, so it stays subtle and legible on BOTH themes. The key is just bolder
-   than the value, with a faint ':' separator. Default namespace is the satellites
-   blue-grey; category:<v> is amber. */
 .tagchip.kv {
   --chip-c: #6a9fb5;
   display: inline-flex; padding: 0 6px; border-radius: 0;
@@ -145,7 +100,7 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .tagchip.kv .k { font-weight: 600; }
 .tagchip.kv .k::after { content: ":"; opacity: .55; font-weight: 400; }
 .tagchip.kv .v { opacity: .9; }
-.tagchip.kv.cat { --chip-c: #b9863f; } /* category: amber namespace, like satellites */
+.tagchip.kv.cat { --chip-c: #b9863f; }
 .tagchip[data-colour] {
   background: color-mix(in srgb, var(--chip-c) 16%, transparent);
   color: color-mix(in srgb, var(--chip-c) 60%, var(--ink));
@@ -156,77 +111,42 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px
 .tagchip[data-colour="accent"] { --chip-c: var(--accent); }
 .tagchip[data-colour="muted"] { --chip-c: var(--muted); }
 .tagchip[data-colour="note"] { --chip-c: var(--note); }
-/* A clickable chip is a <button> that adds its tag to the panel filter; reset the
-   button chrome so it reads identically to the span chip, plus a click affordance. */
 button.tagchip { font-family: inherit; border: 0; margin: 0; cursor: pointer; }
-button.tagchip:not(.kv) { padding: 0 6px; } /* match the span chip's box (kv resets padding itself) */
+button.tagchip:not(.kv) { padding: 0 6px; }
 button.tagchip:hover { filter: brightness(1.12); }
 button.tagchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Navbar (sty_cd2fe2f3): ONE shared, full-bleed band above every page's .wrap —
-   the Satelle Design System header: "◐ satelle wordmark leading, nav right-aligned,
-   theme toggle last". The band spans edge-to-edge with a 1px hairline rule (matching
-   satelle.dev's .site-header, sty_2faa7dd4); its inner row is capped to the shared
-   --content-max cap and side padding as .wrap, so the ◐ aligns with page content. Layout is flex (no floats):
-   brand-mark leads left, the controls cluster is pushed right by margin-left:auto,
-   theme toggle is the rightmost control. */
 .topbar { border-bottom: 1px solid var(--line); background: var(--bg); }
 .topbar-inner { width: 100%; max-width: var(--content-max); margin: 0 auto;
   padding: 12px 24px; display: flex; align-items: center; gap: 8px; }
 .topbar-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-/* Navbar nav row (sty_523f93b3): the DS SiteHeader links, sitting inside the
-   right-aligned controls cluster before the account + theme toggle. Ink default,
-   accent when active (aria-current), chip-fill on hover (text-decoration:none to
-   beat the global a:hover underline — the .brand-mark lesson). */
 .topnav { display: flex; align-items: center; gap: 0.5rem; }
 .topnav a { color: var(--ink); text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; }
 .topnav a:hover { background: var(--chip); text-decoration: none; }
 .topnav a.active { color: var(--accent); }
-/* GitHub icon button (sty_2faa7dd4): an OUTLINED icon control in the nav row —
-   styled like the theme toggle (outlined square, border-lift on hover), NOT a
-   text nav link (matching satelle.dev's .github-btn). The octocat inherits the
-   ink colour via currentColor. */
 .topnav a.github-btn { display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
 .topnav a.github-btn:hover { background: none; border-color: var(--ink); }
 .topnav a.github-btn svg { display: block; }
 
-/* The shared mobile breakpoint (sto_99aa0122): 640px, literal because a custom
-   property cannot appear in a media query. */
 @media (max-width: 640px) {
   .wrap, .topbar-inner { padding-left: var(--gutter-mobile); padding-right: var(--gutter-mobile); }
 }
 
-/* Header (per-page title block, inside .wrap). The 2px rule now lives on the
-   navbar band, so this carries a light 1px hairline — the two never stack. */
 header.app { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 18px; }
 header.app h1 { font-size: 22px; }
 header.app h1 .dot { color: var(--accent); }
 .meta { color: var(--muted); font-size: 12.5px; margin-top: 5px; font-family: var(--mono); }
-/* theme toggle: outlined, transparent, normal-colour text — same in both themes.
-   Glyph is ☾ (light) / ☀ (dark), set by app.js; ◐ is reserved for the brand mark. */
 .theme-toggle { border: 1px solid var(--line); background: none;
   color: var(--ink); width: 30px; height: 30px; border-radius: 8px; font-size: 14px; line-height: 1; cursor: pointer; }
 .theme-toggle:hover { border-color: var(--ink); }
-/* brand-mark: the leading ◐ satelle wordmark (matching satelle.dev) — the inline
-   SVG whose terminator sweeps the moon-phase cycle (currentColor inherits the
-   .brand-mark svg colour) followed by the "satelle" wordmark. Per satelle.dev
-   (.brand ink + .mark accent, sty_2faa7dd4): the WORDMARK is --ink and only the ◐
-   MARK is --accent — the whole brand is no longer accent-green. The mark doubles
-   as the live-status element: accent = the SSE /events stream is connected;
-   .sse-down turns ONLY the mark a MUTED --fail-soft (currentColor flows into the
-   SVG, so the reduced-motion static ◐ softens too) while the wordmark stays ink.
-   The link opens the home page in a new tab; its title carries the uptime snapshot. */
 .brand-mark { display: inline-flex; align-items: center; gap: 8px;
   color: var(--ink); cursor: pointer; }
 .brand-mark svg { width: 20px; height: 20px; color: var(--accent); }
 .brand-word { font-weight: 600; letter-spacing: -0.01em; }
-.brand-mark:hover { text-decoration: none; } /* icon+wordmark, one unit — no hover underline */
-.brand-mark.sse-down svg { color: var(--fail-soft); } /* live /events stream dropped — the ◐ only */
+.brand-mark:hover { text-decoration: none; }
+.brand-mark.sse-down svg { color: var(--fail-soft); }
 
-/* Signed-in user (sty_b8d4e844): the principal this machine's CLI is signed in
-   as, from the local credential store, shown as satelle.dev's outlined avatar: a
-   1px --line ring with the ink initial; name and email in its title. */
 .avatar { width: 30px; height: 30px; border-radius: 50%;
   border: 1px solid var(--line); background: none; color: var(--ink);
   display: inline-flex; align-items: center; justify-content: center;
@@ -234,8 +154,6 @@ header.app h1 .dot { color: var(--accent); }
 .avatar:hover { border-color: var(--ink); }
 .gs-radio { font-size: 13.5px; color: var(--ink); margin-right: 12px; }
 
-/* Settings editor (sty_ffe53865): a quiet key/value config table, Claude-settings
-   aesthetic inside the existing design system; styled for both themes. */
 .settings { margin-top: 6px; max-width: 680px; }
 .settings-sect { margin: 22px 0 6px; }
 .settings-sect:first-of-type { margin-top: 8px; }
@@ -248,7 +166,6 @@ header.app h1 .dot { color: var(--accent); }
 .setting-field input[type=text], .setting-field textarea { width: 260px; max-width: 46vw; padding: 6px 9px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink);
   font-family: var(--mono); font-size: 12.5px; }
-/* read-only value cell (sty_e1740d82): the per-project page shows resolved config, no inputs */
 .setting-key { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 .setting-label-name { font-size: 13.5px; color: var(--ink); }
 .setting-value { width: 260px; max-width: 46vw; text-align: right; color: var(--ink);
@@ -268,23 +185,16 @@ header.app h1 .dot { color: var(--accent); }
 .settings-error { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-size: 13px;
   color: #b3261e; border: 1px solid #b3261e; background: rgba(179,38,30,.06); }
 
-/* Tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; align-items: stretch; }
-/* Stories tab + engagement chip share one flex cell so the chip sits next to
-   Stories without nesting the story link inside the tab <a>. When Stories is
-   active the accent bar lives on the cluster so it runs under label + chip. */
 .tab-cluster { display: inline-flex; align-items: baseline; gap: 0; margin-bottom: -1px;
   margin-right: 8px; border-bottom: 2px solid transparent; }
 .tab-cluster:has(> .tab[aria-selected="true"]) { border-bottom-color: var(--accent); }
 .tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
   padding: 9px 14px; font-size: 14px; color: var(--muted); margin-bottom: -1px;
   text-decoration: none; cursor: pointer; }
-/* tabs are <a> links — no text underline in any state (accent bar is border-bottom) */
 .tab, .tab:hover, .tab:focus, .tab:focus-visible, .tab:active { text-decoration: none; }
 .tab-cluster .tab { margin-bottom: 0; }
-/* Cluster owns the active bar; suppress the inner tab's so they don't double. */
 .tab-cluster .tab[aria-selected="true"] { border-bottom-color: transparent; }
-/* Bold-ghost: reserve heaviest weight width so 400→500→600 never reflows the row. */
 .tab-label { display: inline-block; }
 .tab-label::after { content: attr(data-text); font-weight: 600; display: block; height: 0;
   overflow: hidden; visibility: hidden; }
@@ -293,14 +203,8 @@ header.app h1 .dot { color: var(--accent); }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .tab[aria-selected="true"] .tab-label { font-weight: 600; }
 .tab .n { color: var(--muted); font-size: 12px; margin-left: 5px; }
-/* A workflow panel's tab (panel = "<name>", sto_a1681009) while it has items
-   not in a terminal state: the label and count take the warn colour, the count
-   as a chip, so the tab reads as something to resolve. */
 .tab.tab-alert, .tab.tab-alert:hover { color: var(--warn); }
 .tab.tab-alert .n { color: var(--warn); border: 1px solid var(--warn); padding: 0 5px; font-size: 11px; line-height: 1.4; }
-/* Shared chip treatment for backlog + engaged (sty_c7ab5180): same size, padding,
-   line-height, border, and baseline. Engaged is a sibling of the Stories tab <a>
-   (sty_e4632f45 / sty_01ba9482); chip only renders when count > 0. */
 .tab .n-backlog,
 .n-stories .n-backlog,
 .tabs .n-engaged,
@@ -314,30 +218,20 @@ header.app h1 .dot { color: var(--accent); }
 .tabs .n-elsewhere { margin-left: -6px; }
 .tabs .n-filter { color: inherit; font: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .tabs .n-filter:hover { text-decoration: underline; }
-/* rel-time: how long ago this view was last confirmed against the repository.
-   Deliberately NOT alarm-coloured — it renders on every row, so a fail tint
-   would be permanent red on a routine condition, which trains the eye to
-   ignore red. It is metadata, styled as metadata (sty_226a661e). */
 .rel-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
-/* stale-flag: only past mirror.StaleAfter with no sync pass confirming the
-   mirror, so it is rare and warn-toned, never the fail red of a push error. */
 .stale-flag { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail { color: var(--fail); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-local, .sync-ok { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-fail-body { color: var(--fail); font-size: 12px; margin-top: 4px; max-width: 72rem; }
 .sync-fail-reason { white-space: pre-wrap; word-break: break-word; }
 .sync-fail-log { color: var(--muted); }
-/* Held stories are in flight, not failing (sty_c203fd62): metadata, never --fail. */
 .sync-held { color: var(--muted); font-size: 12px; margin-top: 4px; max-width: 72rem; }
 .sync-held-item { white-space: pre-wrap; word-break: break-word; }
-/* Landing Updated cell: local stamp on line 1, fail tag on line 2
-   (sty_a447695e). Chip box matches .n-backlog; fail colour is the signal. */
 .sync-tag-fail {
   display: block; width: fit-content; margin-top: 4px;
   color: var(--fail); font-size: 11px; padding: 1px 6px;
   border: 1px solid var(--fail); border-radius: 0; line-height: 1.4; white-space: nowrap;
 }
-/* A pre-1.0 repo needs upgrading, it is not failing (sto_0f76dd4e): warn-toned. */
 .sync-upgrade { color: var(--warn); font-size: 12px; white-space: nowrap; margin-left: 6px; }
 .sync-upgrade-body { color: var(--warn); font-size: 12px; margin-top: 4px; max-width: 72rem; }
 .sync-tag-upgrade {
@@ -361,7 +255,6 @@ td.updated-cell { white-space: nowrap; }
 .panel { display: none; }
 .panel.active { display: block; }
 
-/* Filter box + chips */
 .filterbar { margin: 0 0 12px; }
 .filterbar input { width: 100%; font-size: 13.5px; }
 .filter-input { position: relative; }
@@ -369,9 +262,6 @@ td.updated-cell { white-space: nowrap; }
 .filter-count { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   color: var(--muted); font-size: 12px; font-family: var(--mono); pointer-events: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-/* Filter chips — theme-variable driven so they read on BOTH themes (sty_aed93a00:
-   the old hardcoded #374151/#eef2f7 were invisible on the dark panel). A muted,
-   dashed default chip, like the satellites filter strip. */
 .fchip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 0;
   background: var(--chip); color: var(--ink); border: 1px solid var(--line); font-size: 12px; }
 .fchip.is-default { background: none; color: var(--muted); border-style: dashed; }
@@ -381,13 +271,8 @@ td.updated-cell { white-space: nowrap; }
   border: 1px solid var(--line); background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
 .fchip-clear:hover { color: var(--ink); border-color: var(--muted); }
 
-/* Tables — base th/td/table styling is global; these are the panel variants. */
 .panel-table tr.row { cursor: pointer; }
 .panel-table tr.row:hover { background: var(--row-hover); }
-/* Landing rows are one big link (sty_be23ae50): the project-name <a> stretches
-   over the whole <tr> via ::after. Scoped to tr.row[data-slug] — the LANDING
-   row — so project-page rows (tr.row[data-expand-url]) keep their inline
-   expand and never get a navigating overlay. */
 .panel-table tr.row[data-slug] { position: relative; }
 .panel-table tr.row[data-slug] a.row-link::after { content: ""; position: absolute; inset: 0; }
 .panel-table td.id { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
@@ -397,19 +282,6 @@ td.updated-cell { white-space: nowrap; }
 .id-copy.copied { color: var(--accent); }
 .tag { font-size: 11.5px; color: var(--muted); }
 
-/* Progress column — one chip per step a story reached, in the order first
-   reached, reading "<step> <gates> <run> <rej> <blk>": .gates the exit gates
-   (the gates on the transition leaving the step), its tone the step's exit
-   (.tone-ok green: left through it with its gates accepted; .tone-idle grey:
-   not yet run, or its last round rejected or errored; .tone-live: the exit
-   gates are running now), .run.live the count of started gates with no result
-   yet (absent at 0), .rej the exit's
-   rejected rounds (absent at 0) and one .blk per park state entered from the
-   step, "<park state> <n>", named as the pushed workflow names it. A
-   number here is a count, never a stage. The chip's title spells the same
-   counts in words. .stage-performing pulses: the story is engaged (a seat
-   here or elsewhere). .stage-current is highlighted and still: the story is
-   at that step and nobody is working it (sto_96f0ad26). */
 .col-reviews { white-space: normal; width: 20rem; }
 .table-scroll { max-width: 100%; overflow-x: auto; }
 .stories-table { table-layout: fixed; min-width: 64rem; }
@@ -433,19 +305,11 @@ td.updated-cell { white-space: nowrap; }
   animation: review-pulse 1.4s ease-in-out infinite; }
 .rej { color: var(--fail); font-weight: 600; }
 @keyframes review-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-/* The story page's Progress section: each chip with the rejected rounds of
-   every transition leaving its step, each gate's notes under it. */
 .stage-rejections { list-style: none; padding: 0; margin: 0 0 12px; }
 .stage-rejections > li { margin: 0 0 6px; }
 .stage-rejections ol { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }
 .stage-rejection { margin: 2px 0 0 12px; }
 
-/* Status badges / pills — UPPERCASE, SUBTLE pills (sty_aed93a00, softening
-   sty_970dbef3 to the satellites language): the per-status --badge-c hue drives a
-   faint tinted fill and a soft border, but the TEXT is mixed toward the foreground
-   (--ink) rather than laid on as a saturated hue — so the label reads cleanly on
-   BOTH themes (a bright mint on white was low-contrast). Every workflow state carries
-   its own --badge-c; an unknown status falls back to --muted. */
 .badge {
   display: inline-block; padding: 0 8px; border-radius: 0;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
@@ -453,12 +317,11 @@ td.updated-cell { white-space: nowrap; }
   border: 1px solid color-mix(in srgb, var(--badge-c, var(--muted)) 42%, transparent);
   background: color-mix(in srgb, var(--badge-c, var(--muted)) 11%, transparent);
 }
-.badge.st-start    { --badge-c: #6366f1; } /* the workflow's start state */
-.badge.st-active   { --badge-c: #e0a200; } /* any other open state */
-.badge.st-park     { --badge-c: #e74c3c; } /* a park state */
-.badge.st-terminal { --badge-c: #16a34a; } /* a terminal state */
+.badge.st-start    { --badge-c: #6366f1; }
+.badge.st-active   { --badge-c: #e0a200; }
+.badge.st-park     { --badge-c: #e74c3c; }
+.badge.st-terminal { --badge-c: #16a34a; }
 
-/* Inline expansion */
 tr.expansion > td { background: var(--expand-bg); padding: 0; }
 .expbody { padding: 14px 16px 18px 32px; }
 .expbody.loading { color: var(--muted); font-style: italic; }
@@ -470,11 +333,9 @@ tr.expansion > td { background: var(--expand-bg); padding: 0; }
 .detail-link { font-size: 12px; }
 .open-story { display: inline-block; margin-bottom: 12px; font-size: 12.5px; font-weight: 600; }
 
-/* Children and criteria on the detail. */
 ul.child-list, ul.criteria { margin: 0; padding-left: 18px; }
 ul.child-list li { margin: 2px 0; }
 
-/* Verdicts: every gate.run grouped by the transition presentation it judged. */
 ol.verdicts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 li.presentation { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--panel); }
 li.presentation.outcome-moved { border-left-color: var(--ok); }
@@ -488,15 +349,9 @@ tr.verdict.v-error .verdict-result { color: var(--warn); font-weight: 600; }
 tr.verdict.v-skipped .verdict-result { color: var(--muted); }
 pre.verdict-notes { white-space: pre-wrap; margin: 0; font-size: 12px; max-height: 18em; overflow: auto; }
 
-/* Ledger timeline */
 ol.timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
 ol.timeline li { position: relative; padding: 0 0 14px 16px; }
 ol.timeline li::before { content: ""; position: absolute; left: -7px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-/* Outcome-coloured dots (sty_f19d2ec4): an accepted review is a pass (green) dot,
-   a rejected review a fail (red) dot. These are small FILLS, so they use fixed
-   hexes (pass #2ecc71, fail #e74c3c) that read on both themes; the progress
-   column's .rej is 11px TEXT and uses the --fail theme token
-   instead. Neutral events keep the accent dot above. */
 ol.timeline li.tl-pass::before { background: #2ecc71; }
 ol.timeline li.tl-error::before { background: var(--warn); }
 ol.timeline li.tl-fail::before { background: #e74c3c; }
@@ -508,16 +363,10 @@ ol.timeline li.tl-fail::before { background: #e74c3c; }
 .ev-doc a:hover { text-decoration: underline; }
 .ev-doc .doc-item-type { margin-left: 4px; }
 
-/* Data-driven agent-action chips on a timeline event (sty_43d228e4). Each chip's
-   chip-<type> class is toggled off by a hide-<type> class the viewer's Timeline
-   fields preference stamps on ol.timeline — the data stays in the DOM, only its
-   display flips. */
 .ev-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .chip { font-size: 11px; font-family: var(--mono); padding: 0 7px; line-height: 1.7;
   color: var(--muted); background: var(--chip); border: 1px solid var(--line); border-radius: 0; }
 .chip-outcome { color: var(--ink); border-color: var(--muted); }
-/* message board states (sty_73c9aa10): waiting is the quiet default; only a
-   message that cannot be delivered or is past its deadline draws the eye. */
 .chip-msg-answered { color: var(--ink); border-color: #16a34a; }
 .chip-msg-undeliverable, .chip-msg-overdue { color: var(--fail); border-color: var(--fail); }
 .messages .msg-body { white-space: pre-wrap; }
@@ -529,9 +378,7 @@ ol.timeline.hide-outcome .chip-outcome { display: none; }
 .tlfields-label { flex-basis: 100%; color: var(--muted); font-size: 12.5px; }
 .tlfields label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 
-/* Documents */
 .docgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-/* Multi-project homepage cards */
 .proj-card { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: var(--panel); color: inherit; text-decoration: none; transition: border-color .15s; }
 .proj-card:hover { border-color: var(--accent); }
 .proj-name { font-weight: 600; font-size: 15px; }
@@ -542,9 +389,6 @@ a.doc:hover { border-color: var(--accent); }
 .doc .head { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 .doc .updated { color: var(--muted); font-size: 11px; margin-top: 6px; font-family: var(--mono); }
 
-/* story/task attached documents — a compact collapsible LIST before the timeline
-   (sty_1a239b4d), each entry a native <details> disclosure: name + type, click to
-   reveal the rendered body. Collapsed by default so it reads as a list. */
 ul.doc-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 ul.doc-list li { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .doc-item > summary { cursor: pointer; padding: 8px 12px; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 8px; }
@@ -555,7 +399,6 @@ ul.doc-list li { border: 1px solid var(--line); border-radius: 8px; background: 
 .doc-item-type { color: var(--muted); font-size: 11px; font-family: var(--mono); }
 .doc-item[open] > .doc-article { padding: 2px 12px 12px; border-top: 1px solid var(--line); margin-top: 2px; }
 
-/* rendered authored-document viewer */
 .doc-article { font-size: 14.5px; line-height: 1.65; max-width: 75ch; }
 .doc-article h1, .doc-article h2, .doc-article h3, .doc-article h4 { margin: 1.4em 0 .5em; line-height: 1.25; }
 .doc-article h1 { font-size: 22px; } .doc-article h2 { font-size: 18px; } .doc-article h3 { font-size: 15.5px; }
@@ -567,14 +410,11 @@ ul.doc-list li { border: 1px solid var(--line); border-radius: 8px; background: 
 .doc-article pre code { background: none; border: 0; padding: 0; }
 .doc-article blockquote { margin: .7em 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
 .doc-article a { color: var(--accent); }
-/* The landing's add-a-project/help block sits below the project cards. */
 .landing-help { margin-top: 10px; padding-top: 18px; border-top: 1px solid var(--line); }
 .landing-help h2:first-child { margin-top: .2em; }
 .kind-h { font-size: 12px; color: var(--accent); font-weight: 650; margin: 18px 0 8px; text-transform: lowercase; }
 .empty { color: var(--muted); font-style: italic; padding: 10px; }
 
-/* --- the ROUTE: a workflow's states in route order and its transitions,
-   drawn from the pushed workflow (read-only, server-rendered). --- */
 ol.route-line { list-style: none; margin: 6px 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 4px; align-items: center; }
 .route-state { display: inline-flex; align-items: baseline; gap: 5px; }
 .route-state + .route-state::before { content: "→"; color: var(--muted); margin-right: 4px; }
@@ -599,8 +439,6 @@ ol.route-line { list-style: none; margin: 6px 0 10px; padding: 0; display: flex;
 .wf-gate.ungated { color: var(--muted); background: var(--chip); }
 .wf-gate.skipped { color: var(--muted); background: var(--chip); text-decoration: line-through; }
 
-/* --- help page --- */
 .help-topic { margin: 22px 0; }
 .help-topic h2 .meta { font-family: var(--mono); font-size: 11px; }
-/* Full .wrap width — do not inherit .doc-article's 75ch reading measure. */
 .help-doc { max-width: none; }

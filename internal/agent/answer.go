@@ -5,19 +5,10 @@ import (
 	"strings"
 )
 
-// LastObject returns the last JSON object in text that keep accepts. Every
-// '{' in text starts a candidate, so an object nested in another is a
-// candidate of its own.
 func LastObject(text string, keep func(json.RawMessage) bool) (json.RawMessage, bool) {
 	return lastObject(text, "", keep)
 }
 
-// LastObjectLenient is LastObject that also reads a candidate whose only fault
-// is an invalid escape (such as \. or \d) in the string value of member,
-// directly inside the candidate's own root brace: the backslash of each such
-// escape is doubled, so the value decodes to the characters as written. Any
-// other fault, or an invalid escape anywhere else, leaves the candidate out.
-// A candidate that parses as it stands is never rewritten.
 func LastObjectLenient(text, member string, keep func(json.RawMessage) bool) (json.RawMessage, bool) {
 	return lastObject(text, member, keep)
 }
@@ -44,11 +35,6 @@ func lastObject(text, member string, keep func(json.RawMessage) bool) (json.RawM
 	return found, found != nil
 }
 
-// repairMember reads the object that starts at s[0] ('{', the root) up to the
-// brace that closes it, and doubles the backslash of every invalid escape in
-// the string value of member directly inside the root. Every other byte is
-// copied as it is. It reports whether any backslash was doubled; unterminated
-// input reports false.
 func repairMember(s, member string) (string, bool) {
 	if s == "" || s[0] != '{' {
 		return "", false
@@ -125,8 +111,6 @@ func repairMember(s, member string) (string, bool) {
 	return "", false
 }
 
-// validEscape reports whether rest, the bytes after a backslash inside a JSON
-// string, starts a legal escape.
 func validEscape(rest string) bool {
 	switch rest[0] {
 	case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':

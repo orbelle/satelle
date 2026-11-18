@@ -12,10 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// An item that never recorded a base (one created through the satelle MCP and
-// placed by the repo's client) moves to a judged terminal state through the
-// real command, and its output names it and holds no git error
-// (sto_f98743d0). Before the fix this printed "fatal: bad revision ”".
 func TestStorySetMovesABaselessItemToAJudgedTerminalState(t *testing.T) {
 	dir := isolate(t)
 	fake := t.TempDir()

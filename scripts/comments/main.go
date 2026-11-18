@@ -23,6 +23,8 @@ const (
 	kindTOML
 	kindMarkdown
 	kindHashLines
+	kindJS
+	kindCSS
 )
 
 type finding struct {
@@ -124,6 +126,10 @@ func process(k kind, src []byte) ([]byte, []finding, error) {
 		return stripMarkdown(src)
 	case kindHashLines:
 		return stripLines(src, hashLineComments)
+	case kindJS:
+		return stripWeb(src, jsComments)
+	case kindCSS:
+		return stripWeb(src, cssComments)
 	}
 	return nil, nil, errors.New("unknown file kind")
 }
@@ -157,6 +163,10 @@ func classify(p string, explicit bool) kind {
 		return kindShell
 	case base == "Makefile":
 		return kindMake
+	case strings.HasSuffix(p, ".js"):
+		return kindJS
+	case strings.HasSuffix(p, ".css"):
+		return kindCSS
 	}
 	if explicit || strings.HasPrefix(p, templateDir) {
 		switch {

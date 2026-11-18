@@ -22,8 +22,6 @@ type Skill struct {
 
 func (s Skill) IsCheck() bool { return s.Meta["type"] == TypeCheck }
 
-// AfterAlways reports a check that, listed in a gate's after, runs on every
-// result of the gate and cannot change it (frontmatter after: always).
 func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta["after"] == afterAlways }
 
 const afterAlways = "always"

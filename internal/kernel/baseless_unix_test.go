@@ -12,8 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-// baseless creates an item with no seat and no base, as an item created
-// through the satelle MCP and placed by the repo's client is (sto_f98743d0).
 func baseless(t *testing.T, k *Kernel) item.Item {
 	t.Helper()
 	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("t"), Base: ptr("")}, "ada")
@@ -26,7 +24,6 @@ func baseless(t *testing.T, k *Kernel) item.Item {
 	return it
 }
 
-// strictGit fails the test on any git read given an empty revision.
 type strictGit struct {
 	Git
 	t *testing.T
