@@ -31,31 +31,31 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.story-review]
 skill = "satelle-story-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
-panel = ["reviewer-grok-4.7", "reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -79,14 +79,14 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-instruction-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -96,7 +96,7 @@ skill = "satelle-ac-evidence-check"
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -119,7 +119,7 @@ after = ["satelle-gate-status-publish"]
 
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 # The review publish check stays before the status entry, so a verdict the
@@ -152,25 +152,25 @@ skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 

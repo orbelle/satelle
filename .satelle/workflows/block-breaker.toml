@@ -7,18 +7,6 @@ start = true
 performer = { agent = "planner", skill = "block-breaker" }
 edits = "attachments"
 
-[states.break_gemini]
-performer = { agent = "reviewer-gemini-3.8-flash-high", skill = "block-breaker" }
-edits = "attachments"
-
-[states.break_grok]
-performer = { agent = "reviewer-grok-4.7", skill = "block-breaker" }
-edits = "attachments"
-
-[states.break_gpt]
-performer = { agent = "reviewer-gpt-5.6-sol-medium", skill = "block-breaker" }
-edits = "attachments"
-
 [states.done]
 terminal = true
 
@@ -36,15 +24,9 @@ skill = "satelle-block-resolution-check"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
-
-[gates.cancel-review-grok]
-skill = "satelle-story-cancel-review"
-panel = ["reviewer-grok-4.7"]
-combine = "all"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [[transition]]
 from = ["backlog"]
@@ -52,31 +34,11 @@ to = "break_claude"
 groups = [{ mode = "sequential", gates = ["validate-before"] }]
 
 [[transition]]
-from = ["backlog"]
-to = "break_gemini"
-groups = [{ mode = "sequential", gates = ["validate-before"] }]
-
-[[transition]]
-from = ["backlog"]
-to = "break_grok"
-groups = [{ mode = "sequential", gates = ["validate-before"] }]
-
-[[transition]]
-from = ["backlog"]
-to = "break_gpt"
-groups = [{ mode = "sequential", gates = ["validate-before"] }]
-
-[[transition]]
-from = ["break_claude", "break_gemini", "break_grok", "break_gpt"]
+from = ["break_claude"]
 to = "done"
 groups = [{ mode = "sequential", gates = ["change-judged", "block-resolution"] }]
 
 [[transition]]
-from = ["backlog", "break_claude", "break_grok", "break_gpt"]
+from = ["backlog", "break_claude"]
 to = "cancelled"
 groups = [{ mode = "sequential", gates = ["cancel-review"] }]
-
-[[transition]]
-from = ["break_gemini"]
-to = "cancelled"
-groups = [{ mode = "sequential", gates = ["cancel-review-grok"] }]

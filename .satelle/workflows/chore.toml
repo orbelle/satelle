@@ -26,13 +26,13 @@ terminal = true
 
 [gates.story-review]
 skill = "satelle-story-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -46,7 +46,7 @@ carry = true
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -69,7 +69,7 @@ after = ["satelle-gate-status-publish"]
 
 [gates.pr-review]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 # The review publish check stays before the status entry, so a verdict the
@@ -102,13 +102,13 @@ skill = "satelle-release-installed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
