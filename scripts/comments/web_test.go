@@ -25,6 +25,23 @@ func TestJSCommentsKeepStringsRegexAndTemplates(t *testing.T) {
 	}
 }
 
+func TestJSDivisionAfterIncrementOrDecrement(t *testing.T) {
+	for _, src := range []string{"x++ / y; // added\n", "x-- / y; // added\n", "a[i]++ / 2; // added\n"} {
+		spans, err := jsComments([]byte(src))
+		if err != nil {
+			t.Fatalf("%q: %v", src, err)
+		}
+		if len(spans) != 1 || src[spans[0].start:spans[0].end] != "// added" {
+			t.Fatalf("%q: spans %v, want the one comment", src, spans)
+		}
+	}
+	src := "x = ++/a/.lastIndex; // added\n"
+	spans, err := jsComments([]byte(src))
+	if err != nil || len(spans) != 1 || src[spans[0].start:spans[0].end] != "// added" {
+		t.Fatalf("%q: spans %v err %v, want the one comment", src, spans, err)
+	}
+}
+
 func TestCSSComments(t *testing.T) {
 	src := "/* head\n   two */\na { content: \"/* not */\"; } /* trailing */\nb { src: url(\"x.woff2\") /* mid */ format(\"woff2\"); }\n"
 	want := "a { content: \"/* not */\"; }\nb { src: url(\"x.woff2\")   format(\"woff2\"); }\n"

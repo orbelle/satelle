@@ -141,6 +141,8 @@ func jsComments(src []byte) ([]span, error) {
 		case c == ')' || c == ']':
 			i++
 			regexOK = false
+		case (c == '+' || c == '-') && i+1 < len(src) && src[i+1] == c:
+			i += 2
 		default:
 			i++
 			regexOK = true
