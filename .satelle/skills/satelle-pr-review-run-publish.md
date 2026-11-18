@@ -1,21 +1,25 @@
 ---
 name: satelle-pr-review-run-publish
 type: check
-description: The after check of the pr-review workflow's gate (sto_9e5ac908). Publishes the judge's verdict on the reviewed story's pull request head as the satelle GitHub app (satelle github review) and records it as a github.review event on the story's own chain, where satelle-pr-approval-check reads it. The story and head come from the run's tags (reviews:<story>, head:<sha>), never from SATELLE_ITEM or the checkout alone. It only publishes and records: on requested changes it neither attaches to nor moves the story; the approval check, in the author's session, does that. Deterministic, no agent; reads GitHub with gh.
+description: The after check of the review workflow's gate. Publishes the judge's verdict on the reviewed story's pull request head as the satelle GitHub app (satelle github review) and records it as a github.review event on the story's own chain, where satelle-pr-approval-check reads it. The story and head come from the run's tags (reviews:<story>, head:<sha>), never from SATELLE_ITEM or the checkout alone. The pull request is selected against the base branch, read as satelle-pr-ready-check reads it. It only publishes and records: on requested changes it neither attaches to nor moves the story; the approval check, in the author's session, does that. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR review publish, from a review run
 
-The run is an execution of the pull-request review task
-(`.satelle/tasks/pr-review.md`), so `SATELLE_ITEM` is the run, not the story.
+The run is an execution of the pull-request review task (the one the
+story's waiting state's `waits` text names), so `SATELLE_ITEM` is the run, not
+the story.
 Its tags carry the input: `reviews:<story>` names the reviewed story and
 `head:<sha>` the pull request head the run was started for.
 
 1. Both tags must be present, once each. The checkout's HEAD must be that
    head, so what the judge read is what is published on.
 2. The pull request is selected as satelle-pr-ready-check selects it: open,
-   not a draft, against main, head == the tagged head, and a title ending
-   `(<story>)`.
+   not a draft, against the base branch, head == the tagged head, and a title
+   ending `(<story>)`. The base branch is the trigger base of the queue the
+   story's workflow enqueues into, read as satelle-pr-ready-check reads it
+   (the lines between `# base branch: begin` and `# base branch: end` are the
+   same in both).
 3. accept is `APPROVE`, reject is `REQUEST_CHANGES`. The body's first line
    names the project, the gate, its binding, the story, the head and the run;
    the judge's notes follow.
@@ -47,7 +51,7 @@ tags=$(satelle execution get "$SATELLE_ITEM" --json | jq -r '.tags[]?') ||
 story=$(printf '%s\n' "$tags" | sed -n 's/^reviews://p')
 head=$(printf '%s\n' "$tags" | sed -n 's/^head://p')
 if [ "$(printf '%s' "$story" | grep -c .)" != 1 ] || [ "$(printf '%s' "$head" | grep -c .)" != 1 ]; then
-  echo "the run $SATELLE_ITEM needs exactly one reviews:<story> tag and one head:<sha> tag (.satelle/tasks/pr-review.md)"
+  echo "the run $SATELLE_ITEM needs exactly one reviews:<story> tag and one head:<sha> tag"
   exit 1
 fi
 short=${head:0:12}
@@ -56,10 +60,35 @@ if [ "$here" != "$head" ]; then
   echo "this checkout is at ${here:0:12}, not the reviewed head $short: the judge read another tree, so nothing is published"
   exit 1
 fi
-pr=$(gh pr list --state open --base main --json number,headRefOid,title,isDraft --limit 100 |
+# base branch: begin
+route=$(satelle story route "$story" --json 2>&1) || { echo "could not read the route of $story: $route"; exit 1; }
+wf=$(printf '%s' "$route" | jq -r '.workflow // empty')
+bases=
+for q in $(printf '%s' "$route" | jq -r '[.states[]?.enqueue[]?] | unique | .[]'); do
+  b=$(satelle queue get "$q" --json 2>/dev/null | jq -r '.trigger.base // empty')
+  [ -n "$b" ] && bases="$bases$q $b
+"
+done
+n=$(printf '%s' "$bases" | awk 'NF { print $2 }' | sort -u | grep -c .)
+if [ "$n" -eq 0 ]; then
+  echo "the workflow $wf of $story enqueues into no queue with a trigger base, so the pull request's base branch is not configured: give the queue its states enqueue into base = \"<remote>/<branch>\" under [trigger]"
+  exit 1
+fi
+if [ "$n" -gt 1 ]; then
+  echo "the queues the workflow $wf of $story enqueues into name $n trigger bases ($(printf '%s' "$bases" | awk 'NF { printf "%s%s base %s", s, $1, $2; s = "; " }')), so the pull request's base branch is ambiguous: give them one base"
+  exit 1
+fi
+base_queue=$(printf '%s' "$bases" | awk 'NF { print $1; exit }')
+base_ref=$(printf '%s' "$bases" | awk 'NF { print $2; exit }')
+case "$base_ref" in
+  ?*/?*) remote=${base_ref%%/*} branch=${base_ref#*/} ;;
+  *) echo "the queue $base_queue has trigger base $base_ref, which is not <remote>/<branch>, so the pull request's base branch cannot be read: set base = \"<remote>/<branch>\" under its [trigger]"; exit 1 ;;
+esac
+# base branch: end
+pr=$(gh pr list --state open --base "$branch" --json number,headRefOid,title,isDraft --limit 100 |
   jq -r --arg h "$head" --arg id "($story)" '[.[] | select(.headRefOid == $h and .isDraft == false and (.title | endswith($id)))][0].number // empty')
 if [ -z "$pr" ]; then
-  echo "no open pull request against main has head $short and a title ending ($story), so the verdict cannot be published"
+  echo "no open pull request against $branch has head $short and a title ending ($story), so the verdict cannot be published"
   exit 1
 fi
 case "$result" in

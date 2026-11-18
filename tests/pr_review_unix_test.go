@@ -158,7 +158,40 @@ type prSandbox struct {
 	task     string
 }
 
+type prNames struct {
+	pending, ready, approval, review string
+	queue, base, waits               string
+	readyOnRoute                     bool
+}
+
+func repoQueueBase(t *testing.T) string {
+	t.Helper()
+	q, err := workflow.ParseQueue("../.satelle/queues/release.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Trigger == nil || q.Trigger.Base == "" {
+		t.Fatal(".satelle/queues/release.toml names no trigger base")
+	}
+	return q.Trigger.Base
+}
+
+func queueTOML(base, wf string) string {
+	return "title = \"Landing of approved stories\"\n\n[trigger]\nworkflow = " + strconv.Quote(wf) + "\nbase = " + strconv.Quote(base) + "\nmin_size = 0\n"
+}
+
+func repoPRNames(t *testing.T) prNames {
+	t.Helper()
+	_, review := repoRouteStates(t)
+	return prNames{pending: "pr-pending", ready: "pr-ready", approval: "pr-approval", review: "pr-review", queue: "release", base: repoQueueBase(t), waits: review.Waits}
+}
+
 func newPRSandbox(t *testing.T) *prSandbox {
+	t.Helper()
+	return newPRSandboxNamed(t, repoPRNames(t))
+}
+
+func newPRSandboxNamed(t *testing.T, n prNames) *prSandbox {
 	t.Helper()
 	for _, tool := range []string{"bash", "jq", "git", "sha256sum"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -171,7 +204,7 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	srv.BindGitHub("acme", "orbelle/acme")
 
 	gs := repoPRGateSet(t)
-	review, approval, pending := gs["pr-review"], gs["pr-approval"], gs["pr-pending"]
+	review, approval, pending, ready := gs["pr-review"], gs["pr-approval"], gs["pr-pending"], gs["pr-ready"]
 	codeAC := repoGateAgents(t, ".satelle/workflows/delivery.toml")["code-ac"]
 	if review.Skill != "satelle-code-ac-review" || review.Agent != "" || len(review.Panel) != 1 || review.Combine != "all" || !slices.Contains(codeAC, review.Panel[0]) ||
 		!slices.Equal(review.After, []string{"satelle-verdict-notes-check", "satelle-verdict-reference-check", runPublishSkill, statusSkill}) {
@@ -183,6 +216,9 @@ func newPRSandbox(t *testing.T) *prSandbox {
 	}
 	if pending.Skill != statusSkill || pending.Agent != "" || len(pending.After) != 0 {
 		t.Fatalf("pr-pending is %+v", pending)
+	}
+	if ready.Skill != "satelle-pr-ready-check" || ready.Agent != "" || !slices.Equal(ready.After, []string{statusSkill}) {
+		t.Fatalf("pr-ready is %+v", ready)
 	}
 	skills, err := filepath.Glob("../.satelle/skills/*.md")
 	if err != nil || len(skills) == 0 {
@@ -204,8 +240,14 @@ command = "claude"
 model = "ex-1"
 tools = ["Read", "Edit"]
 `)
-	s.write(".satelle/workflows/delivery.toml", prSandboxWorkflow(t, gateTOML(t, "pr-pending", pending)+gateTOML(t, "pr-approval", approval), []string{"pr-pending"}, []string{"pr-approval"}))
-	s.write(".satelle/workflows/pr-review.toml", prReviewWorkflow(gateTOML(t, "pr-review", review)))
+	toReview := []string{n.pending}
+	if n.readyOnRoute {
+		toReview = append(toReview, n.ready)
+	}
+	gates := gateTOML(t, n.pending, pending) + gateTOML(t, n.ready, ready) + gateTOML(t, n.approval, approval)
+	s.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, toReview, []string{n.approval}, []string{n.queue}, n.waits))
+	s.write(".satelle/workflows/pr-review.toml", prReviewWorkflowNamed(n.review, gateTOML(t, n.review, review)))
+	s.write(".satelle/queues/"+n.queue+".toml", queueTOML(n.base, "pr-review"))
 	fake := realDir(t, t.TempDir())
 	writeFile(t, filepath.Join(fake, "claude"), `#!/bin/sh
 model=none
@@ -220,6 +262,7 @@ n="$v by $model"
 printf '{"type":"result","subtype":"success","is_error":false,"result":"{\\"verdict\\":\\"%s\\",\\"notes\\":\\"%s\\"}","usage":{"input_tokens":11,"output_tokens":7}}\n' "$v" "$n"
 `, 0o755)
 	writeFile(t, filepath.Join(fake, "gh"), `#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_DIR/gh.log"
 case "$1" in
   pr) cat "$FAKE_DIR/prs.json" ;;
   api) case "$2" in
@@ -286,7 +329,17 @@ func sequential(gates []string) string {
 
 func prSandboxWorkflow(t *testing.T, gates string, toReview, toApproved []string) string {
 	t.Helper()
+	_, review := repoRouteStates(t)
+	return prSandboxWorkflowWith(t, gates, toReview, toApproved, []string{"release"}, review.Waits)
+}
+
+func prSandboxWorkflowWith(t *testing.T, gates string, toReview, toApproved, enqueue []string, waits string) string {
+	t.Helper()
 	integration, review := repoRouteStates(t)
+	approved := "[states.approved]\n"
+	if len(enqueue) > 0 {
+		approved += "enqueue = [" + tomlGates(enqueue) + "]\n"
+	}
 	return `name = "delivery"
 [states.backlog]
 start = true
@@ -294,9 +347,8 @@ start = true
 performer = { agent = "executor", skill = "coder" }
 [states.integration]
 ` + holdTOML(integration.Hold) + `[states.in_review]
-waits = ` + strconv.Quote(review.Waits) + `
-` + holdTOML(review.Hold) + `[states.approved]
-[states.blocked]
+waits = ` + strconv.Quote(waits) + `
+` + holdTOML(review.Hold) + approved + `[states.blocked]
 park = true
 resumes = true
 [states.done]
@@ -330,7 +382,9 @@ to = "done"
 `
 }
 
-func prReviewWorkflow(gate string) string {
+func prReviewWorkflow(gate string) string { return prReviewWorkflowNamed("pr-review", gate) }
+
+func prReviewWorkflowNamed(name, gate string) string {
 	return `name = "pr-review"
 [states.backlog]
 start = true
@@ -343,7 +397,7 @@ terminal = true
 [[transition]]
 from = ["backlog"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["pr-review"] }]
+groups = [{ mode = "sequential", gates = [` + strconv.Quote(name) + `] }]
 [[transition]]
 from = ["*"]
 to = "cancelled"
@@ -376,7 +430,7 @@ func (p *prSandbox) statusesSince(n int) []string {
 
 func (p *prSandbox) statusCount() int { return len(p.srv.PublishedStatuses("acme")) }
 
-var pendingStatuses = []string{"satelle/pr-ready pending", "satelle/pr-review pending", "satelle/pr-approval pending"}
+var pendingStatuses = []string{"satelle/pr-approval pending", "satelle/pr-ready pending", "satelle/pr-review pending"}
 
 func lastRun(runs []gateRun, gate string) gateRun {
 	for i := len(runs) - 1; i >= 0; i-- {
@@ -1146,21 +1200,31 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 		t.Errorf("pr-review's after is %v: want the run publish check immediately before the status entry, last", review.After)
 	}
 	block := shBlock0(t, ".satelle/skills/"+statusSkill+".md")
-	m := regexp.MustCompile(`(?m)^gates="([^"]*)"$`).FindStringSubmatch(block)
-	if m == nil {
-		t.Fatal("the status skill has no gates= line")
-	}
 	var posting []string
-	for name, g := range repoPRGateSet(t) {
-		if n := len(g.After); n > 0 && g.After[n-1] == statusSkill {
-			posting = append(posting, name)
+	for _, f := range files {
+		w, err := workflow.Parse(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, g := range w.Gates {
+			if slices.Contains(g.After, statusSkill) {
+				posting = append(posting, name)
+				if g.After[len(g.After)-1] != statusSkill {
+					t.Errorf("%s: gate %s's after %v names the status entry but not last", filepath.Base(f), name, g.After)
+				}
+			}
 		}
 	}
 	slices.Sort(posting)
-	named := strings.Fields(m[1])
-	slices.Sort(named)
-	if !slices.Equal(posting, named) || !slices.Equal(named, []string{"pr-approval", "pr-ready", "pr-review"}) {
-		t.Errorf("gates whose after ends with the status entry %v, the skill's gates= line %v", posting, named)
+	posting = slices.Compact(posting)
+	if !slices.Equal(posting, []string{"pr-approval", "pr-ready", "pr-review"}) {
+		t.Errorf("the gates whose after names the status skill are %v, want pr-approval, pr-ready, pr-review", posting)
+	}
+	base := repoQueueBase(t)
+	for _, wf := range []string{"delivery", "chore"} {
+		if q := repoWorkflow(t, wf).States["approved"].Enqueue; !slices.Equal(q, []string{"release"}) || base != "origin/main" {
+			t.Errorf("%s.toml: approved enqueues into %v, whose base is %q; want one queue, release, with base origin/main", wf, q, base)
+		}
 	}
 	for _, ln := range strings.Split(block, "\n") {
 		if strings.Contains(ln, "gh ") && !strings.Contains(ln, "command -v gh") && !strings.Contains(ln, "gh api \"repos/{owner}/{repo}/commits/$head/statuses") && !strings.Contains(ln, "gh is not installed") {
@@ -1369,10 +1433,10 @@ after = ["`+statusSkill+`"]
 			t.Errorf("%s: exit %d %v\n%s%s", c.result, r.code, got, r.out, r.err)
 		}
 	}
-	p.env["SATELLE_GATE"] = "code-ac"
+	delete(p.env, "SATELLE_GATE")
 	n0 := p.statusCount()
-	if r := p.exec("bash", `{"result":"accept"}`, "-c", block); r.code != 0 || p.statusCount() != n0 || !strings.Contains(r.out, "posts no status") {
-		t.Errorf("a gate not on gates=: exit %d\n%s", r.code, r.out)
+	if r := p.exec("bash", "", "-c", block); r.code != 0 || !slices.Equal(p.statusesSince(n0), []string{"satelle/pr-ready pending", "satelle/pr-review pending"}) {
+		t.Errorf("pending mode: exit %d, statuses %v, want the gates whose after names the skill\n%s%s", r.code, p.statusesSince(n0), r.out, r.err)
 	}
 	p.env["SATELLE_GATE"] = "pr-review"
 	p.serveStatuses("by-other")
@@ -1475,5 +1539,216 @@ func TestGateStatusRefusedKeepsTheVerdict(t *testing.T) {
 	r = p.run("gate", "run", "delivery/pr-pending", "--item", dry)
 	if !strings.Contains(r.out+r.err, "a dry run publishes no status") || p.statusCount() != 0 {
 		t.Fatalf("dry run: exit %d, %d statuses\n%s%s", r.code, p.statusCount(), r.out, r.err)
+	}
+}
+
+var prGateSkills = []string{statusSkill, "satelle-pr-ready-check", "satelle-pr-approval-check", runPublishSkill}
+
+func baseBranchLines(t *testing.T, text string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(text, "# base branch: begin\n")
+	if !ok {
+		return ""
+	}
+	block, _, ok := strings.Cut(rest, "# base branch: end\n")
+	if !ok {
+		t.Fatal("a base branch block has no end line")
+	}
+	return block
+}
+
+func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
+	strip := strings.NewReplacer("--name pr-review", "", `.name == "pr-review"`, "", "`pr-review`", "")
+	forbidden := map[string]*regexp.Regexp{
+		"the word main":               regexp.MustCompile(`\bmain\b`),
+		"a gates= assignment":         regexp.MustCompile(`(?m)^\s*gates=`),
+		"a satelle/pr- context":       regexp.MustCompile(`satelle/pr-`),
+		"a gate name":                 regexp.MustCompile(`(^|[^A-Za-z0-9_-])pr-(ready|approval|pending|review)($|[^A-Za-z0-9_-])`),
+		"a path under .satelle/tasks": regexp.MustCompile(`\.satelle/tasks/`),
+		"a story id":                  regexp.MustCompile(`sto_[0-9a-f]{8}`),
+	}
+	var blocks []string
+	for _, name := range prGateSkills {
+		b, err := os.ReadFile("../.satelle/skills/" + name + ".md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if blk := baseBranchLines(t, text); blk != "" {
+			blocks = append(blocks, blk)
+		}
+		for _, own := range prGateSkills {
+			text = strings.ReplaceAll(text, own, "")
+		}
+		text = strip.Replace(text)
+		for what, re := range forbidden {
+			for _, m := range re.FindAllString(text, -1) {
+				t.Errorf("%s.md holds %s: %q", name, what, m)
+			}
+		}
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("%d skills carry the base branch lines, want 3 (pr-ready, pr-approval, run-publish)", len(blocks))
+	}
+	for i, b := range blocks[1:] {
+		if b != blocks[0] {
+			t.Errorf("the base branch lines differ between skills (block %d):\n%s\nvs\n%s", i+1, b, blocks[0])
+		}
+	}
+}
+
+func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
+	n := prNames{pending: "pending-x", ready: "ready-x", approval: "approve-x", review: "review-x", queue: "landing", base: "origin/trunk",
+		waits: "the review run of another session", readyOnRoute: true}
+	p := newPRSandboxNamed(t, n)
+	origin := realDir(t, t.TempDir())
+	p.exec("git", "", "init", "-q", "--bare", origin)
+	p.git("remote", "add", "origin", origin)
+	script, err := os.ReadFile("../scripts/changelog-items.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(p.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
+	p.git("add", "-A")
+	p.git("commit", "-q", "-m", "changelog script")
+	p.head = strings.TrimSpace(p.git("rev-parse", "HEAD"))
+	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
+	p.git("push", "-q", "origin", "HEAD:refs/heads/change")
+	p.git("fetch", "-q", "origin")
+	p.serveReviews("none")
+	p.serveStatuses("by-app")
+	served, err := os.ReadFile(filepath.Join(p.fake, "statuses.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := strings.NewReplacer("satelle/pr-approval", "satelle/"+n.approval, "satelle/pr-review", "satelle/"+n.review, "satelle/pr-ready", "satelle/"+n.ready)
+	writeFile(t, filepath.Join(p.fake, "statuses.json"), renamed.Replace(string(served)), 0o644)
+	short := p.head[:12]
+
+	id := p.item(61, true)
+	if r := p.exec(satelleBin, "### Changed\n- The gates read the base branch\n", "story", "attach", id, "--name", "changelog", "--type", "text/markdown", "--file", "-"); r.code != 0 {
+		t.Fatalf("attach changelog: %s%s", r.out, r.err)
+	}
+	if r := p.run("story", "set", id, "--status", "in_review"); r.code != 0 || p.status(id) != "in_review" {
+		t.Fatalf("integration -> in_review: exit %d, at %s\n%s%s", r.code, p.status(id), r.out, r.err)
+	}
+	ready := lastRun(p.gateRuns(id), n.ready)
+	if ready.Result != "accept" || !strings.Contains(ready.Notes, "open against trunk, contains origin/trunk "+p.old[:12]) ||
+		!strings.Contains(ready.Notes, id+" waits at in_review for "+n.waits) {
+		t.Fatalf("%s %+v", n.ready, ready)
+	}
+	p.judge("accept", "every criterion is met: AC1 to AC4 hold on the head of the pull request")
+	exe, r := p.reviewRun(id, true)
+	if r.code != 0 || p.runStatus(exe) != "done" {
+		t.Fatalf("review run: exit %d, at %s\n%s%s", r.code, p.runStatus(exe), r.out, r.err)
+	}
+	gr := p.githubReviews(id)
+	if len(gr) != 1 || gr[0]["event"] != "APPROVE" {
+		t.Fatalf("github.review %v", gr)
+	}
+	p.serveReviewsAs("approved-on-head", int64(gr[0]["review_id"].(float64)))
+	if r := p.present(id); r.code != 0 || p.status(id) != "approved" {
+		t.Fatalf("in_review -> approved: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+
+	want := []string{"satelle/approve-x pending", "satelle/ready-x pending", "satelle/review-x pending",
+		"satelle/ready-x success", "satelle/review-x success", "satelle/approve-x success"}
+	if got := p.statusesSince(0); !slices.Equal(got, want) {
+		t.Errorf("statuses %v, want %v", got, want)
+	}
+	log, err := os.ReadFile(filepath.Join(p.fake, "gh.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists := 0
+	for _, ln := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+		if strings.HasPrefix(ln, "pr list") {
+			lists++
+			if !strings.Contains(ln, "--base trunk ") {
+				t.Errorf("gh %s: not --base trunk", ln)
+			}
+		}
+	}
+	if lists != 3 {
+		t.Errorf("gh pr list ran %d times, want 3 (ready, publish, approval)\n%s", lists, log)
+	}
+	repoValue := regexp.MustCompile(`\bmain\b|\bpr-(ready|review|approval)\b`)
+	var seen []string
+	seen = append(seen, string(log))
+	for _, s := range p.srv.PublishedStatuses("acme") {
+		seen = append(seen, s.GetContext()+" "+s.GetDescription())
+	}
+	for _, run := range append(p.gateRuns(id), p.gateRuns(exe)...) {
+		seen = append(seen, run.Gate+" "+run.Notes)
+	}
+	for _, s := range seen {
+		for _, own := range prGateSkills {
+			s = strings.ReplaceAll(s, own, "")
+		}
+		if m := repoValue.FindString(s); m != "" {
+			t.Errorf("%q holds this repo's value %q", s, m)
+		}
+	}
+	if run := lastRun(p.gateRuns(id), n.approval); !strings.Contains(run.Notes, "satelle/approve-x success on "+short+", posted by the satelle app (account "+appAccount+")") {
+		t.Errorf("%s %+v", n.approval, run)
+	}
+
+	runSkill := func(skill, from, to string) result {
+		t.Helper()
+		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, from, to
+		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
+		return p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+skill+".md"))
+	}
+	commit := func(files map[string]string) {
+		t.Helper()
+		for f, body := range files {
+			p.write(f, body)
+		}
+		p.git("add", "-A")
+		p.git("commit", "-q", "--allow-empty", "-m", "reconfigure")
+	}
+	gates := func(after bool) string {
+		a := ""
+		if after {
+			a = "after = [\"" + statusSkill + "\"]\n"
+		}
+		return "[gates.pending-x]\nskill = \"" + statusSkill + "\"\n[gates.approve-x]\nskill = \"satelle-pr-approval-check\"\n" + a
+	}
+	for _, c := range []struct {
+		name    string
+		enqueue []string
+		queues  map[string]string
+		has     []string
+	}{
+		{"no queue", nil, nil, []string{"the workflow delivery of " + id + " enqueues into no queue with a trigger base", "[trigger]"}},
+		{"two bases", []string{"landing", "other"}, map[string]string{"other": "origin/elsewhere"}, []string{"name 2 trigger bases", "landing base origin/trunk", "other base origin/elsewhere"}},
+		{"no remote", []string{"landing"}, map[string]string{"landing": "trunk"}, []string{"the queue landing has trigger base trunk, which is not <remote>/<branch>"}},
+	} {
+		files := map[string]string{".satelle/workflows/delivery.toml": prSandboxWorkflowWith(t, gates(true), []string{"pending-x"}, []string{"approve-x"}, c.enqueue, n.waits)}
+		for q, base := range c.queues {
+			files[".satelle/queues/"+q+".toml"] = queueTOML(base, "pr-review")
+		}
+		commit(files)
+		for _, skill := range []string{"satelle-pr-ready-check", "satelle-pr-approval-check"} {
+			r := runSkill(skill, "in_review", "approved")
+			for _, h := range c.has {
+				if r.code != 1 || !strings.Contains(r.out, h) {
+					t.Errorf("%s, %s: exit %d, want 1 naming %q\n%s%s", c.name, skill, r.code, h, r.out, r.err)
+				}
+			}
+		}
+		if c.queues != nil {
+			commit(map[string]string{".satelle/queues/landing.toml": queueTOML("origin/trunk", "pr-review")})
+		}
+	}
+
+	commit(map[string]string{
+		".satelle/workflows/delivery.toml":  prSandboxWorkflowWith(t, gates(false), []string{"pending-x"}, []string{"approve-x"}, []string{"landing"}, n.waits),
+		".satelle/workflows/pr-review.toml": prReviewWorkflowNamed("review-x", "[gates.review-x]\nskill = \"satelle-code-ac-review\"\nagent = \""+p.reviewer+"\"\n"),
+	})
+	n0 := p.statusCount()
+	r = runSkill(statusSkill, "integration", "in_review")
+	if r.code != 0 || p.statusCount() != n0 || strings.TrimSpace(r.out) != "no gate's after names "+statusSkill+", so no pending status is posted" {
+		t.Errorf("pending mode with no gate naming the skill: exit %d, %d statuses\n%s%s", r.code, p.statusCount()-n0, r.out, r.err)
 	}
 }

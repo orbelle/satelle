@@ -63,7 +63,8 @@ timeout = "40m"
 
 # Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
 # on the head before any other gate of integration -> in_review (the status
-# skill's gates= line names them); the review run posts satelle/pr-review.
+# skill posts for every gate whose after names it); the review run posts
+# satelle/pr-review.
 [gates.pr-pending]
 skill = "satelle-gate-status-publish"
 

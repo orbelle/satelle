@@ -51,6 +51,31 @@ func newChangelogSandbox(t *testing.T) *changelogSandbox {
 	s.write("CHANGELOG.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
+	s.write(".satelle/workflows/default.toml", `name = "default"
+
+[states.backlog]
+start = true
+
+[states.approved]
+enqueue = ["release"]
+
+[states.done]
+terminal = true
+
+[[transition]]
+from = ["backlog"]
+to = "approved"
+
+[[transition]]
+from = ["backlog"]
+to = "done"
+
+[[transition]]
+from = ["approved"]
+to = "done"
+`)
+	s.write(".satelle/queues/release.toml", queueTOML(repoQueueBase(t), "default"))
+	s.mustConfigValid()
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "base")
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
