@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/item"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -78,7 +79,7 @@ func TestConfigRefusals(t *testing.T) {
 	if _, err := Open(Options{Root: root}); err == nil || !strings.Contains(err.Error(), "workflows.mystery") {
 		t.Fatalf("unknown key: %v", err)
 	}
-	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"default\"\n[rules]\nreviewer_differs_from_performer = true\n")
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"default\"\n")
 	write(t, filepath.Join(root, "agents.toml"), `
 [agents.writer]
 command = "claude"
@@ -145,7 +146,6 @@ to = "z"
 	for _, want := range []string{
 		`agent "writer" may not judge`,
 		`agent "unenforced" may not judge`,
-		`judge "same" runs model "m1"`,
 		`performer "pishell": pi adapter cannot express the scoped deny`,
 		`agent "cursorwriter" may not judge`,
 		`agents.cursorshell: cursor-agent cannot hold a shell`,
@@ -157,6 +157,68 @@ to = "z"
 	}
 	if strings.Contains(joined, "cursorjudge") {
 		t.Errorf("a read-only cursor-agent judge was refused:\n%s", joined)
+	}
+	if strings.Contains(joined, "runs model") {
+		t.Errorf("validate compared a judge's model with its performer's:\n%s", joined)
+	}
+}
+
+func TestRulesSectionIsRefusedNamingItsReplacement(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, rules := range []string{
+		"[rules]\nreviewer_differs_from_performer = true\n",
+		"[rules]\nreviewer_differs_from_performer = false\n",
+		"[rules]\n",
+	} {
+		write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"default\"\n"+rules)
+		_, serr := LoadSettings(root)
+		_, cerr := LoadConfig(root)
+		_, oerr := Open(Options{Root: root})
+		for name, err := range map[string]error{"LoadSettings": serr, "LoadConfig": cerr, "Open": oerr} {
+			if err == nil {
+				t.Errorf("%q: %s accepted [rules]", rules, name)
+				continue
+			}
+			for _, want := range []string{"reviewer_differs_from_performer", "satelle-judge-differs-from-performer-check", "satelle help workflows"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%q: %s error %q lacks %q", rules, name, err, want)
+				}
+			}
+		}
+	}
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"default\"\nmystery = 1\n")
+	if _, err := LoadSettings(root); err == nil || !strings.Contains(err.Error(), "unknown key workflows.mystery") || strings.Contains(err.Error(), "reviewer_differs_from_performer") {
+		t.Errorf("an unknown key: %v", err)
+	}
+}
+
+func TestInitShipsTheJudgeDiffersCheck(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, SkillsDir, "satelle-judge-differs-from-performer-check.md")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("init did not write the check: %v", err)
+	}
+	skills, err := workflow.LoadSkills(filepath.Join(root, SkillsDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok := skills["satelle-judge-differs-from-performer-check"]
+	if !ok || !sk.IsCheck() || strings.TrimSpace(sk.Script) == "" {
+		t.Fatalf("the shipped check does not load as a check with a script: %+v", sk)
+	}
+	for _, want := range []string{"session", "not compared", "FAMILIES"} {
+		if !strings.Contains(sk.Body, want) {
+			t.Errorf("the check's body lacks %q", want)
+		}
+	}
+	if p := Validate(root); len(p) != 0 {
+		t.Errorf("init's output does not validate: %v", p)
 	}
 }
 

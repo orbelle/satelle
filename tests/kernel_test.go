@@ -51,7 +51,7 @@ func TestInitWalksAStoryToDone(t *testing.T) {
 	}
 }
 
-func TestReviewerMustDifferFromPerformer(t *testing.T) {
+func TestRulesSectionRefusedNamingTheCheck(t *testing.T) {
 	t.Parallel()
 	s := newSandbox(t)
 	s.must("init")
@@ -89,10 +89,12 @@ groups = [{ gates = ["look"] }]
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.write(".satelle/satelle.toml", strings.Replace(string(toml), "reviewer_differs_from_performer = false", "reviewer_differs_from_performer = true", 1))
-	r := s.run("validate")
-	if r.code == 0 || !strings.Contains(r.err, `judge "checker" runs model "same-model"`) {
-		t.Fatalf("validate with the rule on: exit %d\n%s%s", r.code, r.out, r.err)
+	s.write(".satelle/satelle.toml", string(toml)+"\n[rules]\nreviewer_differs_from_performer = true\n")
+	for _, args := range [][]string{{"validate"}, {"story", "list"}} {
+		r := s.run(args...)
+		if r.code == 0 || !strings.Contains(r.err, "reviewer_differs_from_performer") || !strings.Contains(r.err, "satelle-judge-differs-from-performer-check") {
+			t.Errorf("%v with [rules]: exit %d\n%s%s", args, r.code, r.out, r.err)
+		}
 	}
 }
 

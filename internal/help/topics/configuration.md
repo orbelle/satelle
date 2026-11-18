@@ -34,9 +34,6 @@ the kernel still opens: only a configuration problem stops it.
       inject = [".satelle/skills/satelle-workflow-standard.md"]   # files the session needs once, printed at session start
       refresh = true              # false: update and the sync pass leave the harness hook files
 
-      [rules]
-      reviewer_differs_from_performer = false
-
       [review]                    # optional: a gate's reviewers by the item's tier
       tier_tag = "risk"           # the tag key whose value is the item's tier (risk:low)
       [review.panels.code-ac]     # one table per gate name

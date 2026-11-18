@@ -27,11 +27,7 @@ func newDriftStorySandbox(t *testing.T) *driftSandbox {
 	}
 	d := newDriftSandbox(t, nil)
 	cfg := readSandbox(t, d.sandbox, ".satelle/satelle.toml")
-	i := strings.Index(cfg, "[rules]")
-	if i < 0 {
-		t.Fatal("the drift sandbox's satelle.toml has no [rules]")
-	}
-	d.write(".satelle/satelle.toml", cfg[:i]+driftRule(t)+cfg[i:])
+	d.write(".satelle/satelle.toml", cfg+driftRule(t))
 	d.write(".satelle/workflows/drift.toml", repoText(t, ".satelle/workflows/drift.toml"))
 	d.write(".satelle/skills/satelle-story-cancel-review.md", repoText(t, ".satelle/skills/satelle-story-cancel-review.md"))
 	d.write(".satelle/principles/satelle-agent-goals.md", "---\nname: satelle-agent-goals\ntype: principle\ndescription: A stand-in.\n---\n")

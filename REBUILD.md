@@ -1103,8 +1103,7 @@ bashscan's mutation-target extraction, containment's fence.
 - `satelle.toml` — strict: an unknown key refuses to run. Sections: `[workflows]`
   (`default`, `[[workflows.rule]]` with `workflow` and one of `category`, `tag`,
   `kind`), `[gate]` (`edit_exempt_paths`, `locked_paths`), `[hook]` (`inject` =
-  list of files the context hook prints), `[rules]`
-  (`reviewer_differs_from_performer`, bool), `[items]` (`prefix` map kind → id
+  list of files the context hook prints), `[items]` (`prefix` map kind → id
   prefix; default is the kind's first three letters), `[service]`, `[sync]`.
 - `agents.toml` — `[agents.<name>]`: `command` (a preset name `claude`, `pi`,
   `grok`, or a full command template; `session` means the interactive session

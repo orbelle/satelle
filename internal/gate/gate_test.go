@@ -238,16 +238,11 @@ func TestPanels(t *testing.T) {
 	}
 }
 
-func TestReviewerDiffersFromPerformer(t *testing.T) {
+func TestJudgeOnThePerformersModelIsDispatched(t *testing.T) {
 	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}, map[string]workflow.Gate{"g": {Skill: "judge", Agent: "y1"}})
-	r.ReviewerDiffers = true
 	rs, pass := r.Execute(context.Background())
-	if pass || !strings.Contains(rs[0].Notes, "refused") || len(d.calls) != 0 {
-		t.Fatalf("%v %+v", pass, rs[0])
-	}
-	r.ReviewerDiffers = false
-	if _, pass = r.Execute(context.Background()); !pass {
-		t.Fatal("rule off still refused")
+	if !pass || len(d.calls) != 1 || strings.Contains(rs[0].Notes, "refused") {
+		t.Fatalf("%v %d %+v", pass, len(d.calls), rs[0])
 	}
 }
 
