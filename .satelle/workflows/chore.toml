@@ -13,7 +13,7 @@ hold = { rounds = 3, to = "blocked" }
 
 # The pull request waits here for the review task; no hold, so the wait spends
 # no reject round.
-[states.review]
+[states.in_review]
 waits = "the pull-request review task (.satelle/tasks/pr-review.md), run for the item by a session other than the author's"
 
 [states.approved]
@@ -62,7 +62,7 @@ placement = "remote:integration"
 timeout = "40m"
 
 # Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
-# on the head before any other gate of integration -> review (the status
+# on the head before any other gate of integration -> in_review (the status
 # skill's gates= line names them); the review run posts satelle/pr-review.
 [gates.pr-pending]
 skill = "satelle-gate-status-publish"
@@ -122,11 +122,11 @@ groups = [
 
 [[transition]]
 from = ["integration"]
-to = "review"
+to = "in_review"
 groups = [{ mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready"] }]
 
 [[transition]]
-from = ["review"]
+from = ["in_review"]
 to = "approved"
 groups = [{ mode = "sequential", gates = ["pr-approval"] }]
 
@@ -136,11 +136,11 @@ to = "done"
 groups = [{ mode = "sequential", gates = ["change-judged", "release-run", "version-stamp", "changelog-entry", "ci-published", "release-installed"] }]
 
 [[transition]]
-from = ["integration", "review", "approved"]
+from = ["integration", "in_review", "approved"]
 to = "in_progress"
 
 [[transition]]
-from = ["backlog", "in_progress", "integration", "review"]
+from = ["backlog", "in_progress", "integration", "in_review"]
 to = "blocked"
 
 [[transition]]

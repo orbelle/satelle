@@ -45,7 +45,7 @@ read the newest one first: it is why the item is back at in_progress, and each
 point in it must be addressed before you present again. On a send-back, merge
 origin/main into your branch (`git fetch origin && git merge origin/main`);
 never rebase or force-push the pushed head; resolve any conflict in the real
-work; the route re-runs the full suite at integration -> review.
+work; the route re-runs the full suite at integration -> in_review.
 
 Record the item's changelog lines as its `changelog` attachment
 (`satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`,
