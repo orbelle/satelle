@@ -31,8 +31,10 @@ pair per line, matched in order against the lower-cased name. It is this
 repo's configuration: edit it in the repo's copy. Two names for one model
 fall in one family, so they are not taken as differing.
 
-- A binding with no model, or a model that names no family, takes its family
-  from its command's basename (`claude`, `grok`, `codex`, `gemini`).
+- A binding with no model takes its family from its command's basename
+  (`claude`, `grok`, `codex`, `gemini`). A binding with a model takes its
+  family from the model alone: a model that names no family is `unknown`,
+  whatever its command.
 - A name that matches no family is `unknown`. An unknown judge does not count
   as differing, and an unknown performer fails its gates. Both lines say to
   add the name to `FAMILIES`.
@@ -153,8 +155,7 @@ agents=$(printf '%s\n' "$rows" | jq -Rn --arg fam "$FAMILIES" '
         | (.model // "") as $m
         | ($c | split(" ") | map(select(length > 0)) | (.[0] // "") | split("/") | last | ascii_downcase | sub("\\.exe$"; "")) as $bin
         | {command: $c, model: $m, session: ($bin == "session"),
-           family: ((if $m != "" then family($m) else "" end) as $fm
-                    | if $fm != "" then $fm else (family($bin) as $fc | if $fc != "" then $fc else "unknown" end) end)}
+           family: ((if $m != "" then family($m) else family($bin) end) | if . != "" then . else "unknown" end)}
       ))
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }
 
