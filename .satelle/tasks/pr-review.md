@@ -29,7 +29,7 @@ session=<session>
 satelle task create --title "Review a story's pull request head" --input-kind story --body - --session "$session" <<'EOF'
 A story's open pull request is judged cold by a session other than the author's, from a checkout of its head that is not the author's worktree.
 
-ACTION: follow .satelle/tasks/pr-review.md, section "Run it", for the one story the session names: check out its pull request head apart from the author's worktree, tag the run pr-review, reviews:<story> and head:<sha>, reselect it into the pr-review workflow, give it the story's record, seat it there on origin/main and present it done.
+ACTION: follow .satelle/tasks/pr-review.md, section "Run it", for the one story the session names: check out its pull request head apart from the author's worktree, tag the run pr-review, reselect it into the pr-review workflow, give it the story's record, seat it there on origin/main and present it done.
 VERIFICATION: the run's pr-review gate.run holds the judge's verdict on that head, the satelle app's review of the head is on the pull request, and the story carries the github.review event satelle-pr-review-run-publish appended for it.
 EOF
 ```
@@ -56,8 +56,8 @@ git fetch origin "pull/$num/head"
 git worktree add --detach "$dir" "$head"
 exe=$(satelle task run "$task" --json --session "$session" | jq -r '.id // empty')
 [ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
-satelle execution set "$exe" --add-tag pr-review --add-tag "reviews:$story" --add-tag "head:$head" --session "$session"
-satelle execution set "$exe" --reselect pr-review --session "$session"
+satelle execution set "$exe" --add-tag pr-review --session "$session"
+satelle -C "$dir" execution set "$exe" --reselect pr-review --session "$session"
 ```
 
 Give the run the story's record. The judge's skill reads the criteria in its
