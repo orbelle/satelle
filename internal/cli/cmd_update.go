@@ -93,7 +93,8 @@ as 'satelle service refresh' does: it installs satelled's unit and
 satelle-sync.timer when missing, repoints a unit naming another binary,
 restarts satelled onto the new build, starts the sync timer and prints
 'satelle service status'; with no systemd user manager it prints the units and
-the autosync command. --no-service or SATELLE_NO_SERVICE=1 skips every unit
+the autosync command. On macOS it does the same with the dev.satelle.satelled
+and dev.satelle.sync launch agents. --no-service or SATELLE_NO_SERVICE=1 skips every unit
 change; a running satelled then keeps the old build until
 'satelle service restart'.
 

@@ -181,6 +181,10 @@ pass; its page reads `upgrade needed` with `satelle upgrade --archive --session 
 command to run in it. With
 no systemd, `install.sh`, `satelle update --session <session>` and `satelle service install --session <session>` print
 the units instead: run `satelle ledger autosync --session <session>` every 30 seconds yourself.
+On macOS the same commands install two launchd agents in the `gui/<uid>` domain
+instead: `~/Library/LaunchAgents/dev.satelle.satelled.plist` runs satelled, and
+`dev.satelle.sync.plist` runs `satelle ledger autosync --session <session>` every
+30 seconds.
 
 Each pass also confirms satelled's mirror of every project it visits, local
 store or not: it sends the digest of the project's full snapshot, satelled

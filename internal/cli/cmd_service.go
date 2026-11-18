@@ -31,6 +31,47 @@ type serviceUnits struct {
 	Daemon, SyncService, SyncTimer string
 }
 
+type serviceSpec struct {
+	Daemon, Addr string
+	Port         int
+	CLI          string
+}
+
+func unitsFor(s serviceSpec) serviceUnits {
+	u := serviceUnits{SyncService: renderSyncService(s.CLI), SyncTimer: renderSyncTimer()}
+	if s.Daemon != "" {
+		u.Daemon = renderUnit(s.Daemon, s.Addr, s.Port)
+	}
+	return u
+}
+
+func writeDefinition(w io.Writer, path, body string, force bool, binOf func(string) string) (bool, error) {
+	if body == "" {
+		return false, nil
+	}
+	why := ""
+	if !force {
+		old, err := os.ReadFile(path)
+		switch {
+		case err != nil:
+			why = " (missing)"
+		case !sameBinary(binOf(string(old)), binOf(body)):
+			why = " (was " + binOf(string(old)) + ")"
+		default:
+			fmt.Fprintf(w, "kept %s\n", path)
+			return false, nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return false, err
+	}
+	fmt.Fprintf(w, "wrote %s%s\n", path, why)
+	return true, nil
+}
+
 func serviceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
@@ -48,6 +89,11 @@ repoints one naming another binary, restarts satelled onto the new build,
 starts the sync timer and prints 'satelle service status'. --no-service or
 SATELLE_NO_SERVICE=1 skips every unit change. With no systemd user manager the
 units and the autosync command are printed instead.
+
+On macOS the same commands manage two launchd agents in the gui/<uid> domain,
+~/Library/LaunchAgents/dev.satelle.satelled.plist (RunAtLoad, KeepAlive) and
+dev.satelle.sync.plist (satelle ledger autosync every 30 seconds), through
+launchctl.
 
 refresh does the same by hand. install writes every unit afresh and records
 [service] (port, addr, and this directory as the repo).`,
@@ -83,7 +129,8 @@ satelled beside it, else on PATH), keeps the rest, restarts satelled and
 enables and starts satelle-sync.timer, then prints 'satelle service status'.
 It never changes ~/.satelle/config.toml; 'satelle service install' records
 [service]. With no systemd user manager it prints the units and the autosync
-command instead.`,
+command instead. On macOS it does the same with the dev.satelle.satelled and
+dev.satelle.sync launch agents.`,
 			Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return refreshService(cmd.Context(), cmd.OutOrStdout(), resolveCLI(), resolveDaemon(""))
@@ -125,13 +172,13 @@ func refreshService(ctx context.Context, w io.Writer, cli, daemon string) error 
 	if err != nil {
 		return err
 	}
-	u := serviceUnits{SyncService: renderSyncService(cli), SyncTimer: renderSyncTimer()}
+	s := serviceSpec{Addr: gc.Service.ResolveAddr(), Port: gc.Service.ResolvePort(), CLI: cli}
 	if st, err := os.Stat(daemon); err == nil && !st.IsDir() && filepath.IsAbs(daemon) {
-		u.Daemon = renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort())
-	} else if _, err := os.Stat(unitPath()); err != nil {
-		fmt.Fprintf(w, "%s: no binary beside satelle or on PATH; its unit was not installed\n", buildinfo.DaemonName)
+		s.Daemon = daemon
+	} else if _, err := os.Stat(daemonDefPath()); err != nil {
+		fmt.Fprintf(w, "%s: no binary beside satelle or on PATH; its %s was not installed\n", buildinfo.DaemonName, defNoun)
 	}
-	if err := applyUnits(w, u, false); err != nil {
+	if err := applyService(w, s, false); err != nil {
 		if errors.Is(err, errNoSystemd) {
 			return nil
 		}
@@ -145,13 +192,12 @@ func printServiceStatus(ctx context.Context, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "unit      %s (%s)\n", unitPath(), unitState())
-	fmt.Fprintf(out, "sync      %s (%s)\n", syncTimerName, syncTimerState())
+	printManagerStatus(out)
 	fmt.Fprintf(out, "config    %s (port %d, addr %s)\n", config.GlobalConfigPath(), gc.Service.ResolvePort(), gc.Service.ResolveAddr())
 	ep := fmt.Sprintf("http://127.0.0.1:%d/healthz", gc.Service.ResolvePort())
 	path := ""
-	if body, err := os.ReadFile(unitPath()); err == nil {
-		path = unitDaemon(string(body))
+	if body, err := os.ReadFile(daemonDefPath()); err == nil {
+		path = defDaemon(string(body))
 	}
 	if path == "" {
 		path = resolveDaemon("")
@@ -182,11 +228,11 @@ func installService(out io.Writer, port int, addr, bin string) error {
 	if err := config.SaveGlobal(gc); err != nil {
 		return err
 	}
-	daemon := resolveDaemon(bin)
-	return applyUnits(out, serviceUnits{
-		Daemon:      renderUnit(daemon, gc.Service.ResolveAddr(), gc.Service.ResolvePort()),
-		SyncService: renderSyncService(resolveCLI()),
-		SyncTimer:   renderSyncTimer(),
+	return applyService(out, serviceSpec{
+		Daemon: resolveDaemon(bin),
+		Addr:   gc.Service.ResolveAddr(),
+		Port:   gc.Service.ResolvePort(),
+		CLI:    resolveCLI(),
 	}, true)
 }
 

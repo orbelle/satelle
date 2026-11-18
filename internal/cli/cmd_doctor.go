@@ -75,8 +75,9 @@ summary; a check still running then is listed as not checked. doctor exits 0
 when it finds nothing and 1 when it finds an issue.
 
 --resolve fixes what doctor can prove and asks about the rest:
-  - a missing satelle.service or sync timer, or a timer not active: it runs
-    the satelle service install action; satelled not answering or running
+  - a missing satelle.service or sync timer, or a timer not active (on macOS
+    a missing or unloaded dev.satelle.satelled or dev.satelle.sync launch
+    agent): it runs the satelle service install action; satelled not answering or running
     another build than the installed one: satelle service restart;
   - a project of this machine whose path no longer exists: it removes it from
     ~/.satelle/config.toml [projects], without asking;

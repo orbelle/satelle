@@ -31,7 +31,7 @@ from it.
 push, pull and status are the one replication surface: they replicate the
 ledger to and from the [ledger] store (satelle.dev, a store command, or local),
 by the same rules for every store. The automatic pass that installing or
-updating satelle starts (satelle-sync.timer, every 30 seconds) runs
+updating satelle starts (satelle-sync.timer, or the dev.satelle.sync launch agent on macOS, every 30 seconds) runs
 the same push, then pull, for each project on this machine whose store is not
 local. See 'satelle help ledger-store'.`,
 	}

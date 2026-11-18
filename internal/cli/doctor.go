@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -402,10 +401,10 @@ func inUseHarnessProblems(in *doctorInput, w hook.Wiring, tree substrate.Tree, s
 }
 
 func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string) {
-	unitBody, unitErr := os.ReadFile(unitPath())
+	unitBody, unitErr := os.ReadFile(daemonDefPath())
 	path := ""
 	if unitErr == nil {
-		path = unitDaemon(string(unitBody))
+		path = defDaemon(string(unitBody))
 	}
 	if path == "" {
 		path = resolveDaemon("")
@@ -413,9 +412,9 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 	var out []doctorIssue
 	if unitErr != nil {
 		if _, err := os.Stat(path); err != nil {
-			return nil, []string{"versions: no satelled unit or binary is installed on this machine (satelle service install)"}
+			return nil, []string{"versions: no satelled " + defNoun + " or binary is installed on this machine (satelle service install)"}
 		}
-		out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("%s is not installed, so %s (%s) does not run", serviceUnitName, buildinfo.DaemonName, path),
+		out = append(out, doctorIssue{Check: "versions", Problem: fmt.Sprintf("%s is not installed, so %s (%s) does not run", daemonDefName, buildinfo.DaemonName, path),
 			Fix: "satelle service install", Resolve: resolveInstallService})
 	}
 	home := config.GlobalDir()
@@ -524,21 +523,21 @@ func forkedList(f []string) string {
 }
 
 func checkSyncTimerOnly(context.Context, *doctorInput) ([]doctorIssue, []string) {
-	if _, err := os.Stat(unitPath()); err != nil {
+	if _, err := os.Stat(daemonDefPath()); err != nil {
 		return nil, nil
 	}
 	return timerIssues()
 }
 
 func timerIssues() ([]doctorIssue, []string) {
-	if runtime.GOOS != "linux" {
-		return nil, []string{"sync: the sync timer is systemd-only; run `satelle ledger autosync` yourself"}
+	if !serviceManaged {
+		return nil, []string{"sync: satelle manages the sync timer only under systemd and launchd; run `satelle ledger autosync` yourself"}
 	}
-	if _, err := os.Stat(userUnitPath(syncTimerName)); err != nil {
-		return []doctorIssue{{Check: "sync", Problem: syncTimerName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install", Resolve: resolveInstallService}}, nil
+	if _, err := os.Stat(syncDefPath()); err != nil {
+		return []doctorIssue{{Check: "sync", Problem: syncDefName + " is not installed, so nothing replicates this repo's ledger on its own", Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
-	if s := syncTimerState(); s != "active" {
-		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncTimerName, s), Fix: "satelle service install", Resolve: resolveInstallService}}, nil
+	if s := syncTimerState(); !syncTimerLive(s) {
+		return []doctorIssue{{Check: "sync", Problem: fmt.Sprintf("%s is %s", syncDefName, s), Fix: "satelle service install", Resolve: resolveInstallService}}, nil
 	}
 	return nil, nil
 }
