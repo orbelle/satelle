@@ -1,3 +1,8 @@
+## [1.0.88] - 2026-11-18
+
+### Changed
+- satelle project bind and satelle project create --bind sync the repo before returning: stories created before binding are pushed, the project's are pulled, and the output states how many items went each way. With a local ledger store bind says nothing was synced; when the sync fails the binding stays, bind exits 1 and names satelle project bind <project> to sync again. (sto_5a63a2b3)
+
 ## [1.0.87] - 2026-11-18
 
 ### Changed
