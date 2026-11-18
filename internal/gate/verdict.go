@@ -21,7 +21,7 @@ func ParseVerdict(text string) Verdict {
 
 func parseVerdict(text string) (Verdict, bool) {
 	var v Verdict
-	if _, ok := agent.LastObject(text, func(raw json.RawMessage) bool {
+	if _, ok := agent.LastObjectLenient(text, "notes", func(raw json.RawMessage) bool {
 		var c Verdict
 		if json.Unmarshal(raw, &c) != nil || (c.Verdict != Accept && c.Verdict != Reject) {
 			return false
