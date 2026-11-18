@@ -105,6 +105,12 @@ func TestJudgeDiffersCheck(t *testing.T) {
 	mystery := "\n[agents.mystery]\ncommand = \"cursor-agent\"\nmodel = \"mystery-1\"\ntools = [\"Read\", \"Grep\", \"Glob\"]\n"
 	grokNoModel := "\n[agents.grokj]\ncommand = \"grok\"\ntools = [\"Read\", \"Grep\", \"Glob\"]\n"
 	look := func(agent string) string { return "[gates.look]\nskill = \"look\"\nagent = \"" + agent + "\"\n" }
+	reviews := map[string]string{
+		"tier panel all of the performer's family": "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nlow = [\"gem\"]\nhigh = [\"twin\", \"twin2\"]\n",
+		"tier panel with another family":           "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\"twin\", \"gpt\"]\n",
+		"unreadable tier panel":                    "\n[review]\ntier_tag = \"risk\"\n\n[review.panels.look]\nhigh = [\n  \"twin\",\n  \"gpt\",\n]\n",
+	}
+	baseToml := readSandbox(t, s, ".satelle/satelle.toml")
 	star := "\n[[transition]]\nfrom = [\"*\"]\nto = \"cancelled\"\ngroups = [{ gates = [\"look\"] }]\n"
 	explicit := "\n[[transition]]\nfrom = [\"plan\"]\nto = \"cancelled\"\n"
 	for _, c := range []struct {
@@ -137,12 +143,19 @@ func TestJudgeDiffersCheck(t *testing.T) {
 			nil, []string{"plan -> cancelled"}},
 		{"local override", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "[agents.gem]\nmodel = \"claude-z\"\n", 1,
 			[]string{"gate look", "gem (claude)"}, nil},
+		{"tier panel all of the performer's family", judgeDiffersAgents + twin2, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 1,
+			[]string{"gate look (tier high)", "twin (claude), twin2 (claude)", "1 gate(s) have no judge"}, []string{"gate look:"}},
+		{"tier panel with another family", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 0,
+			[]string{"2 gates compared"}, nil},
+		{"unreadable tier panel", judgeDiffersAgents, judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 2,
+			[]string{"satelle.toml:", "cannot read the line high ="}, nil},
 		{"unreadable model", strings.Replace(judgeDiffersAgents, `model = "claude-x"`, `model = 'claude-x'`, 1),
 			judgeDiffersFlow(look("gem"), `"look"`, "", ""), "", 2,
 			[]string{"agents.toml:4:", "cannot read the model value"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s.write(".satelle/agents.toml", c.agents)
+			s.write(".satelle/satelle.toml", baseToml+reviews[c.name])
 			s.write(".satelle/workflows/default.toml", c.flow)
 			local := filepath.Join(s.dir, ".satelle", "agents.local.toml")
 			_ = os.Remove(local)

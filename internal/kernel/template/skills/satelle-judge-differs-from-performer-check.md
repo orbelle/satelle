@@ -1,7 +1,7 @@
 ---
 name: satelle-judge-differs-from-performer-check
 type: check
-description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show and agents.toml.
+description: Fails a gate where no judge is of another model family (claude, gpt, gemini, grok) than the performer of the state the move leaves; a single judge must differ, a panel passes when one member differs, and a session performer has no model in config and is not compared. Opt-in, deterministic, no agent; reads satelle status, satelle workflow show, agents.toml and the [review] tier panels of satelle.toml.
 ---
 
 # Judge differs from performer (reviewer independence)
@@ -49,9 +49,15 @@ reader takes only `[agents.NAME]` tables and in them only `command` and
 `model` with a plain double-quoted value; any other form of those keys
 stops the check (exit 2) naming the file and line. `satelle validate
 --session <session>` stays the judge of the file's validity.
+The `[review.panels.*]` tables of `satelle.toml` are read too (see Tier
+panels).
 
-**Not read:** `[review]` tier panels in satelle.toml. They replace a gate's
-panel by the item's tier, and the repo keeps them alt by hand.
+**Tier panels.** A `[review.panels.GATE]` table in satelle.toml replaces
+that gate's judges with the panel of the item's tier. Each tier's panel is
+judged like the gate's own judges, as one more judge set of that gate, and a
+finding names the tier. The reader takes each tier as `tier = ["agent", ...]`
+on one line of plain double-quoted names; any other form in a
+`[review.panels.GATE]` table stops the check (exit 2) naming the line.
 
 **Exit codes:** 0 every judged gate has a judge of another family; 1 a
 finding, one line per gate and from-state; 2 the configuration could not be
@@ -152,6 +158,63 @@ agents=$(printf '%s\n' "$rows" | jq -Rn --arg fam "$FAMILIES" '
       ))
 ') || { echo "could not build the bindings from ${files[*]}"; exit 2; }
 
+review=""
+if [ -f "$root/satelle.toml" ]; then
+  review=$(awk '
+    function bad(why) { printf "%s:%d: %s; this check reads [review.panels.GATE] tables only as tier = [\"agent\", ...] on one line\n", FILENAME, FNR, why; exit 2 }
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      sub(/[ \t\r]+$/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") next
+      if (substr(line, 1, 1) == "[") {
+        hdr = line
+        sub(/[ \t]*#.*$/, "", hdr)
+        gate = ""
+        inreview = 0
+        if (hdr ~ /^\[[ \t]*review[ \t]*\.[ \t]*panels[ \t]*\.[ \t]*[A-Za-z0-9_-]+[ \t]*\]$/) {
+          gate = hdr
+          sub(/^\[[ \t]*review[ \t]*\.[ \t]*panels[ \t]*\.[ \t]*/, "", gate)
+          sub(/[ \t]*\]$/, "", gate)
+        } else if (hdr ~ /^\[[ \t]*review[ \t]*\]$/) {
+          inreview = 1
+        } else if (hdr ~ /^\[+[ \t]*"?review/) {
+          bad("cannot read the table header " hdr)
+        }
+        next
+      }
+      if (inreview) {
+        if (line ~ /^"?panels"?[ \t]*[.=]/) bad("cannot read a dotted or inline panels key")
+        next
+      }
+      if (gate == "") {
+        if (line ~ /^"?review"?[ \t]*[.=]/) bad("cannot read a dotted or inline review key")
+        next
+      }
+      if (line !~ /^[A-Za-z0-9_-]+[ \t]*=[ \t]*\[[^]]*\][ \t]*(#.*)?$/) bad("cannot read the line " line)
+      tier = line
+      sub(/[ \t]*=.*$/, "", tier)
+      list = line
+      sub(/^[^[]*\[/, "", list)
+      sub(/\][^]]*$/, "", list)
+      n = split(list, parts, ",")
+      for (i = 1; i <= n; i++) {
+        a = parts[i]
+        gsub(/^[ \t]+|[ \t]+$/, "", a)
+        if (a == "") continue
+        if (a !~ /^"[^"\\]*"$/) bad("cannot read the panel member " a)
+        gsub(/"/, "", a)
+        printf "%s\t%s\t%s\n", gate, tier, a
+      }
+    }
+  ' "$root/satelle.toml")
+  if [ $? -ne 0 ]; then
+    printf '%s\n' "$review" | grep -v "$(printf '\t')"
+    exit 2
+  fi
+fi
+panels=$(printf '%s\n' "$review" | jq -Rn 'reduce (inputs | select(length > 0) | split("\t")) as $r ({}; .[$r[0]][$r[1]] += [$r[2]])') || { echo "could not build the [review] tier panels from $root/satelle.toml"; exit 2; }
+
 nl='
 '
 tab=$(printf '\t')
@@ -168,7 +231,7 @@ for w in $workflows; do
     echo "workflow $w: unexpected shape from workflow show --json (want .states object and .transitions array)"
     exit 2
   fi
-  out=$(printf '%s' "$show" | jq -r --arg w "$w" --argjson agents "$agents" '
+  out=$(printf '%s' "$show" | jq -r --arg w "$w" --argjson agents "$agents" --argjson panels "$panels" '
     . as $wf
     | ($wf.states) as $S
     | ($wf.transitions) as $T
@@ -191,16 +254,18 @@ for w in $workflows; do
         | select($p != null and ($p.Agent // "") != "" and ($p.Operator // "") == "")
         | ($agents[$p.Agent] // {command: "", model: "", session: false, family: "unknown"}) as $pb
         | [ ($t.Groups // [])[] | (.Gates // [])[] ] | unique[] as $g
-        | judges($g) as $js
-        | select(($js | length) > 0)
+        | ([{tier: "", js: judges($g)}] + [($panels[$g] // {}) | to_entries[] | {tier: .key, js: .value}])[] as $set
+        | select(($set.js | length) > 0)
+        | $set.js as $js
+        | (if $set.tier == "" then "gate \($g)" else "gate \($g) (tier \($set.tier))" end) as $gl
         | if $pb.session then
             {kind: "note", text: "workflow \($w): state \($from): performer \($p.Agent) is the session: it has no model in config and is not compared"}
           elif $pb.family == "unknown" then
-            {kind: "find", text: "workflow \($w): \($from) -> \($t.To): gate \($g): performer \($p.Agent) (\(describe($pb))) names no known family; add it to FAMILIES"}
+            {kind: "find", text: "workflow \($w): \($from) -> \($t.To): \($gl): performer \($p.Agent) (\(describe($pb))) names no known family; add it to FAMILIES"}
           else
             ([ $js[] | . as $j | ($agents[$j].family // "unknown") as $jf | {j: $j, f: $jf} ]) as $jfs
             | if any($jfs[]; .f != "unknown" and .f != $pb.family) then {kind: "pass"}
-              else {kind: "find", text: ("workflow \($w): \($from) -> \($t.To): gate \($g): no judge is of another model family than performer \($p.Agent) (\($pb.family), \(describe($pb))): "
+              else {kind: "find", text: ("workflow \($w): \($from) -> \($t.To): \($gl): no judge is of another model family than performer \($p.Agent) (\($pb.family), \(describe($pb))): "
                      + ([ $jfs[] | "\(.j) (\(.f))" ] | join(", "))
                      + (if any($jfs[]; .f == "unknown") then "; add an unknown name to FAMILIES" else "" end))}
               end
