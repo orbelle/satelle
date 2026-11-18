@@ -20,19 +20,19 @@ skill = "satelle-children-closed-check"
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
