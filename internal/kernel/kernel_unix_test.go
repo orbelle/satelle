@@ -18,10 +18,11 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-type fakeGit struct{ changed []string }
+type fakeGit struct{ changed, untracked []string }
 
 func (fakeGit) Head() (string, error)                     { return "abc123", nil }
 func (g fakeGit) ChangedPaths(string) ([]string, error)   { return g.changed, nil }
+func (g fakeGit) Untracked() ([]string, error)            { return g.untracked, nil }
 func (fakeGit) Diff(_ string, p []string) (string, error) { return "diff:" + strings.Join(p, ","), nil }
 
 type fakeDispatcher struct {

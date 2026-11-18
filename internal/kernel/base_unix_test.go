@@ -220,3 +220,21 @@ func TestAMergeOfMainKeepsTheJudgedDiffToTheItemsOwnChange(t *testing.T) {
 		t.Fatalf("item base = %s, %v, %v; want %s", d.Base, stale, err, m1)
 	}
 }
+
+func TestItemChangeListsUntrackedApart(t *testing.T) {
+	dir, k, _, _ := mainRepo(t)
+	gittest.Git(t, dir, "checkout", "-q", "-b", "feat/story")
+	it, _ := seatedItem(t, k, dir, "")
+	commitFile(t, dir, "story.go", "package story\n")
+	write(t, filepath.Join(dir, "scratch.txt"), "s\n")
+	d, _, err := k.ItemChange(it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(d.Paths, ","); got != "story.go" {
+		t.Fatalf("paths = %q, want the committed story.go only", got)
+	}
+	if got := strings.Join(d.Untracked, ","); got != "scratch.txt" {
+		t.Fatalf("untracked = %q, want scratch.txt", got)
+	}
+}

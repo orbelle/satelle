@@ -261,6 +261,12 @@ merging `origin/main` into the item's branch never widens the judged diff. The
 recorded base stands when the branch is not there, when HEAD is wholly inside
 it, or when the base is not behind it (a stacked or story-branch seat).
 
+The item's changed paths are the paths changed by its commits since the base
+and by uncommitted changes to tracked files. Untracked files in the worktree
+are not changed paths: `satelle <kind> diff` lists them apart, each marked
+`untracked:`, and a judge's prompt names them in their own block, marked
+untracked. A new file counts as a changed path once it is added (`git add`).
+
 ## Performers
 
 A state may carry a performer, an agent plus a skill:

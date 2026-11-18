@@ -328,6 +328,25 @@ func TestGateDryShowInputRunsNothing(t *testing.T) {
 	}
 }
 
+func TestGateDryShowInputListsUntrackedApart(t *testing.T) {
+	k, d, _ := dryFixture(t)
+	k.Git = fakeGit{changed: []string{"src/a.go"}, untracked: []string{"scratch.txt"}}
+	it := newThing(t, k)
+	moveTo(t, k, it.ID, "plan")
+	in := dry(t, k, GateDryRequest{Workflow: "flow", Gate: "review", Item: it.ID, ShowInput: true}).Input
+	if len(d.calls) != 0 || in == nil || in.Kind != gate.InputJudge {
+		t.Fatalf("judge input %+v, calls %v", in, d.calls)
+	}
+	const header = "Untracked files in the worktree (not in the item's change):\n"
+	c, u := strings.Index(in.Prompt, "Changed paths:\nsrc/a.go\n"), strings.Index(in.Prompt, header)
+	if c < 0 || u < c || strings.Contains(in.Prompt[c:u], "scratch.txt") {
+		t.Fatalf("the changed block is not the item's change only:\n%s", in.Prompt)
+	}
+	if !strings.HasPrefix(in.Prompt[u+len(header):], "scratch.txt\n") {
+		t.Fatalf("the untracked file is not under its block:\n%s", in.Prompt)
+	}
+}
+
 func TestGateDryJudgesAnUnpresentedPlan(t *testing.T) {
 	k, d, _ := dryFixture(t)
 	seen := watch(d)

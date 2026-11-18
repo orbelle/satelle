@@ -127,12 +127,13 @@ type judgedJSON struct {
 }
 
 type diffJSON struct {
-	Item   string        `json:"item"`
-	Base   string        `json:"base"`
-	Head   string        `json:"head"`
-	Paths  []string      `json:"paths"`
-	Frozen bool          `json:"frozen"`
-	Judged *[]judgedJSON `json:"judged"`
+	Item      string        `json:"item"`
+	Base      string        `json:"base"`
+	Head      string        `json:"head"`
+	Paths     []string      `json:"paths"`
+	Untracked *[]string     `json:"untracked"`
+	Frozen    bool          `json:"frozen"`
+	Judged    *[]judgedJSON `json:"judged"`
 }
 
 func TestACommitAfterReviewRefusesDone(t *testing.T) {
@@ -234,6 +235,46 @@ func TestADoneItemsDiffIsFrozen(t *testing.T) {
 	s.mustJSON(&again, "story", "diff", id, "--json")
 	if again.Base != first.Base || again.Head != first.Head || !slices.Equal(again.Paths, first.Paths) || !again.Frozen {
 		t.Fatalf("done diff moved with later work: %+v, was %+v", again, first)
+	}
+	if again.Untracked != nil {
+		t.Fatalf("a frozen diff lists untracked files %v; it has no untracked key", *again.Untracked)
+	}
+}
+
+func TestDiffListsUntrackedApart(t *testing.T) {
+	t.Parallel()
+	s := coveredSandbox(t, false)
+	id := s.create("story", "--title", "untracked").ID
+	s.must("story", "set", id, "--status", "work")
+	s.must("story", "seat", id, "--session", "s1")
+	s.commitFile("web/a.go", "package web\n")
+
+	var clean diffJSON
+	s.mustJSON(&clean, "story", "diff", id, "--json")
+	if clean.Untracked == nil || len(*clean.Untracked) != 0 {
+		t.Fatalf("diff --json untracked = %v, want [] with no untracked file", clean.Untracked)
+	}
+
+	s.write(".satelle/skills/code-ac.md", "Review the change against the criteria, closely.\n")
+	s.write("scratch.txt", "untracked\n")
+	lines := strings.Split(strings.TrimSuffix(s.must("story", "diff", id), "\n"), "\n")
+	at := slices.Index(lines, "untracked: scratch.txt")
+	if at < 0 || slices.Contains(lines, "scratch.txt") {
+		t.Fatalf("diff = %q, want scratch.txt marked untracked and not a bare path", lines)
+	}
+	for _, p := range []string{".satelle/skills/code-ac.md", "web/a.go"} {
+		if i := slices.Index(lines, p); i < 0 || i > at {
+			t.Fatalf("diff = %q, want %s as a bare line before the untracked one", lines, p)
+		}
+	}
+
+	var d diffJSON
+	s.mustJSON(&d, "story", "diff", id, "--json")
+	if slices.Contains(d.Paths, "scratch.txt") || !slices.Contains(d.Paths, "web/a.go") || !slices.Contains(d.Paths, ".satelle/skills/code-ac.md") {
+		t.Fatalf("diff --json paths = %v, want the committed and tracked changes only", d.Paths)
+	}
+	if d.Untracked == nil || !slices.Equal(*d.Untracked, []string{"scratch.txt"}) {
+		t.Fatalf("diff --json untracked = %v, want [scratch.txt]", d.Untracked)
 	}
 }
 

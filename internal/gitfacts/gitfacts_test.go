@@ -34,9 +34,18 @@ func TestFacts(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("2\n"), 0o644)
 	os.MkdirAll(filepath.Join(dir, "d"), 0o755)
 	os.WriteFile(filepath.Join(dir, "d", "b.go"), []byte("x"), 0o644)
+	gittest.Git(t, dir, "add", "--", "d/b.go")
+	os.MkdirAll(filepath.Join(dir, "u"), 0o755)
+	os.WriteFile(filepath.Join(dir, "u", "scratch.txt"), []byte("s"), 0o644)
+	os.WriteFile(filepath.Join(dir, ".git", "info", "exclude"), []byte("*.log\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "build.log"), []byte("l"), 0o644)
 	paths, err := r.ChangedPaths(head)
 	if err != nil || strings.Join(paths, ",") != "a.txt,d/b.go" {
-		t.Fatalf("changed %v %v", paths, err)
+		t.Fatalf("changed %v %v; want the modified and the staged file only", paths, err)
+	}
+	untracked, err := r.Untracked()
+	if err != nil || strings.Join(untracked, ",") != "u/scratch.txt" {
+		t.Fatalf("untracked %v %v; want the untracked file only", untracked, err)
 	}
 	diff, _ := r.Diff(head, []string{"a.txt"})
 	if !strings.Contains(diff, "+2") {

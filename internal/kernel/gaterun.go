@@ -25,10 +25,13 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		}
 	}
 	base := sp.base
-	var changed []string
+	var changed, untracked []string
 	if k.Git != nil && base != "" && len(tr.Groups) > 0 {
 		var err error
 		if changed, err = k.changed(sp); err != nil {
+			return gate.Run{}, sp, done, err
+		}
+		if untracked, err = k.untracked(sp); err != nil {
 			return gate.Run{}, sp, done, err
 		}
 	}
@@ -36,7 +39,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 	run := gate.Run{
 		Item: it, From: from, To: to, Transition: tr, Workflow: w,
 		Skills: k.Skills, Agents: k.Agents, Dispatcher: k.Dispatcher,
-		Dir: k.Dir, Base: base, Changed: changed, Prior: prior,
+		Dir: k.Dir, Base: base, Changed: changed, Untracked: untracked, Prior: prior,
 		ReviewerDiffers: k.Settings.Rules.ReviewerDiffersFromPerformer,
 		Review:          k.Settings.Review,
 		CheckTimeout:    k.CheckTimeout,

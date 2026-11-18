@@ -13,8 +13,8 @@ nothing of its own. This check refuses the move when it does: a plan written
 after the code is refused.
 
 **The diff.** The paths that differ between the worktree (committed,
-uncommitted and untracked, as `satelle <kind> diff --session <session>` counts
-a changed path) and the merge base of `HEAD` with the item's base branch on
+uncommitted and untracked; `satelle <kind> diff --session <session>` lists
+untracked files apart from the changed paths) and the merge base of `HEAD` with the item's base branch on
 origin. Paths under `.satelle/runs/` are not counted. What the base branch
 held at the fork, and what the item's branch merged or fast-forwarded in from
 it since, is not in the diff: the merge base moves with the merge.

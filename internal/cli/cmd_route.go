@@ -208,6 +208,9 @@ latest seat's base commit, else the commit the item was created at, moved to
 the merge base of HEAD and the item's base branch (the seat's --base ref, else
 origin/main) when the seat's base is behind it.
 
+Untracked files that git does not ignore are listed after the changed paths,
+each marked "untracked:". In --json they are under "untracked", not in "paths".
+
 An item in a terminal state has a frozen diff: the change it reached that state
 with (the base and head recorded on that move), which later work in the tree
 does not move. --json then adds its head and "frozen": true.
@@ -247,6 +250,11 @@ equal places a check on its transition.`,
 				if d.Frozen {
 					v["head"], v["frozen"] = d.Head, true
 				} else {
+					untracked := d.Untracked
+					if untracked == nil {
+						untracked = []string{}
+					}
+					v["untracked"] = untracked
 					js, err := k.JudgedChanges(it.ID)
 					if err != nil {
 						return err
@@ -264,6 +272,9 @@ equal places a check on its transition.`,
 			}
 			for _, p := range paths {
 				fmt.Fprintln(cmd.OutOrStdout(), p)
+			}
+			for _, p := range d.Untracked {
+				fmt.Fprintln(cmd.OutOrStdout(), "untracked: "+p)
 			}
 			return nil
 		},
