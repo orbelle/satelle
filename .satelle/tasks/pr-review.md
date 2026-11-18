@@ -57,7 +57,7 @@ git worktree add --detach "$dir" "$head"
 exe=$(satelle task run "$task" --json --session "$session" | jq -r '.id // empty')
 [ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
 satelle execution set "$exe" --add-tag pr-review --add-tag "reviews:$story" --add-tag "head:$head" --session "$session"
-satelle execution set "$exe" --reselect pr-review --session "$session"
+satelle -C "$dir" execution set "$exe" --reselect pr-review --session "$session"
 ```
 
 Give the run the story's record. The judge's skill reads the criteria in its
