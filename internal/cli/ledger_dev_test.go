@@ -71,7 +71,7 @@ func TestLedgerDevRoundTripWithAttachments(t *testing.T) {
 	}
 
 	b := newMachine(t)
-	must(t, "project", "bind", "shared", "--server", srv.URL)
+	bindUnsynced(t, srv, "shared")
 	out = must(t, "ledger", "status")
 	if !strings.Contains(out, id) || !strings.Contains(out, "store only") {
 		t.Errorf("status before pull = %q", out)

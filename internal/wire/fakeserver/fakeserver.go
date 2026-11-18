@@ -51,6 +51,7 @@ type Server struct {
 	nextID   int
 	grpc     *grpc.Server
 	down     bool
+	failing  []string
 }
 
 type Call struct {
@@ -115,6 +116,12 @@ func (s *Server) SetDown(down bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.down = down
+}
+
+func (s *Server) FailMethods(substr ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failing = append([]string(nil), substr...)
 }
 
 func (s *Server) SetMe(me *satellepb.GetMeResponse) {
@@ -217,6 +224,11 @@ func (s *Server) authorize(ctx context.Context, method string) error {
 	s.calls = append(s.calls, Call{Method: method, Auth: tok})
 	if s.down {
 		return status.Error(codes.Unavailable, "satelle.dev is down")
+	}
+	for _, f := range s.failing {
+		if strings.Contains(method, f) {
+			return status.Error(codes.Unavailable, "satelle.dev is failing "+method)
+		}
 	}
 	if tok != "" && s.tokens[tok] {
 		return nil

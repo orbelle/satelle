@@ -172,7 +172,9 @@ events: it is pulled, the store's chain replacing it, and its mirror event is
 pushed in the same pass. A write made while the store is unreachable stays in the local
 ledger and is pushed by the next pass that reaches it. A change on one machine
 therefore reaches satelle.dev within one period plus a pass, and another
-signed-in, bound machine within 90 seconds. Each project's outcome is shown on
+signed-in, bound machine within 90 seconds. `satelle project bind` runs the
+same pass once for the repo it binds, so a new binding does not wait for the
+timer. Each project's outcome is shown on
 its satelled project page: `synced` and when, or `sync failing` and why. A
 pre-1.0 project is skipped with one `needs upgrade` line and does not fail the
 pass; its page reads `upgrade needed` with `satelle upgrade --archive --session <session>`, the

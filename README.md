@@ -161,7 +161,7 @@ this machine's projects.
 
 Signing in is optional: satelle runs locally without it. `satelle login --session <session>` signs
 in to satelle.dev, and `satelle project bind <project> --session <session>` binds this repo to a
-project there, so its ledger syncs between machines. See
+project there and syncs it, so its ledger syncs between machines. See
 `satelle help projects --session <session>` and `satelle help ledger-store --session <session>`.
 
 A repo set up by a pre-1.0 satelle is moved with `satelle upgrade --session <session>`; see

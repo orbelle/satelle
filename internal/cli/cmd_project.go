@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/hosted"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
@@ -99,13 +100,26 @@ on satelle.dev (satelle workspace list). See satelle help projects.`,
 		if err != nil {
 			return err
 		}
-		return addLocalProject(cmd, path)
+		if err := addLocalProject(cmd, path); err != nil {
+			return err
+		}
+		return bindSync(cmd, r, p.GetSlug())
 	}
 
 	bindCmd := &cobra.Command{
 		Use:   "bind <project>",
-		Short: "Bind this repo to a project (id or slug); recorded on this machine only",
-		Args:  cobra.ExactArgs(1),
+		Short: "Bind this repo to a project (id or slug) and sync it; recorded on this machine only",
+		Long: `Bind this repo to a satelle.dev project (id or slug) and add it to this
+machine's projects. Before returning, bind runs one sync pass for this repo, the
+same pass satelle-sync.timer runs: the items this runtime is ahead on, and the
+stories created before binding, are pushed; the items the project is ahead on
+are pulled. It prints how many items were pushed and how many pulled. An item
+that diverged is named and left unchanged on both sides.
+
+With [ledger] store = "local" nothing is synced, and bind says so. When the
+sync fails, the binding stays recorded, bind names the failure and exits 1:
+run satelle project bind <project> again to sync.`,
+		Args: cobra.ExactArgs(1),
 		RunE: withClient(func(cmd *cobra.Command, args []string, srv string, c *hosted.Client) error {
 			p, err := c.Projects.GetProject(cmd.Context(), &satellepb.GetProjectRequest{Project: args[0]})
 			if err != nil {
@@ -135,7 +149,7 @@ on satelle.dev (satelle workspace list). See satelle help projects.`,
 	}
 	createCmd.Flags().StringVar(&name, "name", "", "display name (default the slug)")
 	createCmd.Flags().StringVar(&workspace, "workspace", "", "satelle.dev workspace id (see 'satelle workspace list'; default the server's choice)")
-	createCmd.Flags().BoolVar(&doBind, "bind", false, "bind this repo to the new project")
+	createCmd.Flags().BoolVar(&doBind, "bind", false, "bind this repo to the new project and sync it")
 
 	var listJSON *bool
 	var hostedList bool
@@ -232,3 +246,20 @@ on satelle.dev (satelle workspace list). See satelle help projects.`,
 }
 
 var errNotBound = errors.New("this repo is not bound to a project; run `satelle project bind <project>`")
+
+func bindSync(cmd *cobra.Command, r repo, slug string) error {
+	pass, summary := syncPass(cmd.Context(), r, "project bind")
+	out := cmd.OutOrStdout()
+	if pass.Store == syncstate.LocalStore {
+		fmt.Fprintf(out, "Nothing was synced: %s\n", localStoreLine)
+		return nil
+	}
+	if summary != "" {
+		fmt.Fprintln(out, summary)
+	}
+	if pass.Reason != "" {
+		return &exitError{code: ExitError, msg: fmt.Sprintf("project bind: sync failed: %s; this repo stays bound to %s: run satelle project bind %s to sync again",
+			pass.Reason, slug, slug)}
+	}
+	return nil
+}

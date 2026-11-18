@@ -136,21 +136,25 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	for _, f := range hooks.Failures {
 		fmt.Fprintf(out, "%s: harness file not refreshed: %s\n", f.Path, f.Err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
-	defer cancel()
-	pass, summary := syncRepo(ctx, r)
-	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
-	reason := pass.Reason
-	confirmUI(ctx, r)
-	if reason != "" {
-		fmt.Fprintf(out, "%s: sync failing: %s\n", path, reason)
+	pass, summary := syncPass(ctx, r, "ledger autosync")
+	if pass.Reason != "" {
+		fmt.Fprintf(out, "%s: sync failing: %s\n", path, pass.Reason)
 		return false
 	}
 	fmt.Fprintf(out, "%s: %s\n", path, summary)
 	return true
 }
 
-func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
+func syncPass(ctx context.Context, r repo, op string) (syncstate.Pass, string) {
+	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
+	defer cancel()
+	pass, summary := syncRepo(ctx, r, op)
+	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
+	confirmUI(ctx, r)
+	return pass, summary
+}
+
+func syncRepo(ctx context.Context, r repo, op string) (syncstate.Pass, string) {
 	k, err := r.open()
 	if err != nil {
 		return syncstate.Pass{Reason: err.Error()}, ""
@@ -165,14 +169,14 @@ func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
 	s, closeFn, err := openStore(k, r, "autosync")
 	defer closeFn()
 	if err != nil {
-		return syncstate.Pass{Store: spec.Kind, Reason: hosted.Describe("ledger autosync", err).Error()}, ""
+		return syncstate.Pass{Store: spec.Kind, Reason: hosted.Describe(op, err).Error()}, ""
 	}
 	if s == nil {
 		return syncstate.Pass{Store: syncstate.LocalStore}, "ledger store is local: nothing replicates"
 	}
 	res, err := newReplicator(k, s, io.Discard).Sync(ctx)
 	if err != nil {
-		return syncstate.Pass{Store: s.Describe(), Reason: hosted.Describe("ledger autosync", err).Error()}, ""
+		return syncstate.Pass{Store: s.Describe(), Reason: hosted.Describe(op, err).Error()}, ""
 	}
 	summary := fmt.Sprintf("synced with %s: pushed %d event(s) on %d item(s), pulled %d event(s) on %d item(s)",
 		s.Describe(), res.Push.Events, res.Push.Items, res.Pull.Events, res.Pull.Items)

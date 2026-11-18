@@ -105,3 +105,37 @@ func TestSeedItem(t *testing.T) {
 		t.Fatalf("heads %v %v", heads, err)
 	}
 }
+
+func TestFailMethodsFailsOnlyTheNamedMethods(t *testing.T) {
+	srv := fakeserver.Start(t, "tok")
+	conn, err := grpc.NewClient(srv.URL[len("http://"):], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer tok")
+	projects := satellepb.NewProjectServiceClient(conn)
+	if _, err := projects.CreateProject(ctx, &satellepb.CreateProjectRequest{Slug: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	chain := chainpb.NewChainClient(conn)
+	srv.FailMethods("Chain/Append")
+	if _, err := chain.Heads(ctx, &chainpb.HeadsRequest{Project: "p"}); err != nil {
+		t.Errorf("Heads while Append fails = %v, want it answered", err)
+	}
+	_, err = chain.Append(ctx, &chainpb.AppendRequest{Project: "p", ItemId: "it_1"})
+	if status.Code(err) != codes.Unavailable {
+		t.Errorf("Append while failing = %v, want Unavailable", err)
+	}
+	if _, err := projects.GetProject(ctx, &satellepb.GetProjectRequest{Project: "p"}); err != nil {
+		t.Errorf("GetProject while Append fails = %v", err)
+	}
+	srv.FailMethods()
+	if _, err := chain.Heads(ctx, &chainpb.HeadsRequest{Project: "p"}); err != nil {
+		t.Errorf("Heads after clearing = %v", err)
+	}
+	srv.FailMethods("satelle.chain.v2.Chain/")
+	if _, err := chain.Heads(ctx, &chainpb.HeadsRequest{Project: "p"}); status.Code(err) != codes.Unavailable {
+		t.Errorf("Heads while the chain service fails = %v, want Unavailable", err)
+	}
+}

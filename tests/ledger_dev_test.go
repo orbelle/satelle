@@ -50,12 +50,12 @@ func TestLedgerDevBetweenTwoMachines(t *testing.T) {
 	a.must("story", "set", s2.ID, "--status", "done")
 	a.write("plan.md", "# the plan\n")
 	a.must("story", "attach", s1.ID, "--file", "plan.md")
-	if out := a.must("ledger", "push"); !strings.Contains(out, "1 blob(s) written on 2 item(s)") {
-		t.Errorf("push: %s", out)
-	}
 
 	b := signedIn(t)
 	b.must("project", "bind", "shared", "--server", srv.URL)
+	if out := a.must("ledger", "push"); !strings.Contains(out, "1 blob(s) written on 2 item(s)") {
+		t.Errorf("push: %s", out)
+	}
 	if out := b.must("ledger", "status"); !strings.Contains(out, "store only") {
 		t.Errorf("status before pull: %s", out)
 	}
