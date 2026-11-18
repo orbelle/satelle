@@ -23,6 +23,9 @@ skill = "satelle-substrate-paths-check"
 [gates.substrate-validate]
 skill = "satelle-substrate-validate-check"
 
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
 [gates.volatile-literals]
 skill = "satelle-volatile-literal-check"
 
@@ -53,7 +56,7 @@ to = "in_progress"
 from = ["in_progress"]
 to = "done"
 groups = [
-  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "volatile-literals"] },
+  { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals"] },
   { mode = "sequential", gates = ["reference-review"] },
 ]
 

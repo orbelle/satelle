@@ -68,6 +68,9 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
 
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
 [gates.tree-unchanged]
 skill = "satelle-tree-unchanged-check"
 
@@ -185,7 +188,7 @@ groups = [
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["definition-unchanged", "binary-scope", "format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["definition-unchanged", "judge-differs", "binary-scope", "format-vet", "build-unit"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]
 

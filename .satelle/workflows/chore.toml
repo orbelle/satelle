@@ -41,6 +41,9 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
 [gates.format-vet]
 skill = "satelle-format-vet-check"
 carry = true
@@ -116,7 +119,7 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["binary-scope", "format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["judge-differs", "binary-scope", "format-vet", "build-unit"] },
   { mode = "parallel", gates = ["code-ac"] },
 ]
 
