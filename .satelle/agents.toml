@@ -11,17 +11,7 @@ command = "cursor-agent"
 model = "claude-opus-5-5-medium"
 tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 
-[agents."reviewer-gemini-3.8-flash-high"]
+[agents."reviewer-gemini-4-hydrogen-high"]
 command = "cursor-agent"
-model = "gemini-3.8-flash-high"
-tools = ["Read", "Grep", "Glob"]
-
-[agents."reviewer-grok-4.7"]
-command = "grok"
-model = "grok-4.7"
-tools = ["Read", "Grep", "Glob"]
-
-[agents."reviewer-gpt-5.6-sol-medium"]
-command = "cursor-agent"
-model = "gpt-5.6-sol-medium"
+model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]

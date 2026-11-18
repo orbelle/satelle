@@ -28,20 +28,20 @@ skill = "satelle-volatile-literal-check"
 
 [gates.reference-review]
 skill = "satelle-reference-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 

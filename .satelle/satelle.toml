@@ -7,6 +7,11 @@ kind = "execution"
 tag = "block-breaker"
 
 [[workflows.rule]]
+workflow = "pr-review"
+kind = "execution"
+tag = "pr-review"
+
+[[workflows.rule]]
 workflow = "runbook"
 kind = "execution"
 
@@ -48,5 +53,5 @@ reviewer_differs_from_performer = true
 tier_tag = "risk"
 
 [review.panels.code-ac]
-low = ["reviewer-gpt-5.6-sol-medium"]
-high = ["reviewer-gpt-5.6-sol-medium", "reviewer-grok-4.7"]
+low = ["reviewer-gemini-4-hydrogen-high"]
+high = ["reviewer-gemini-4-hydrogen-high"]

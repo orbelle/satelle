@@ -462,7 +462,7 @@ func TestReworkRerunsTheFullSuite(t *testing.T) {
 		if _, err := w.Find("approved", "in_progress", ""); err != nil {
 			t.Errorf("%s: no approved -> in_progress: %v", wf, err)
 		}
-		tr, err := w.Find("integration", "approved", "")
+		tr, err := w.Find("integration", "in_review", "")
 		if err != nil {
 			t.Fatalf("%s: %v", wf, err)
 		}
@@ -471,7 +471,7 @@ func TestReworkRerunsTheFullSuite(t *testing.T) {
 			found = found || slices.Contains(g.Gates, "integration-check")
 		}
 		if !found {
-			t.Errorf("%s: integration -> approved does not run integration-check", wf)
+			t.Errorf("%s: integration -> in_review does not run integration-check", wf)
 		}
 		g, ok := w.Gates["integration-check"]
 		if !ok || g.Carry {

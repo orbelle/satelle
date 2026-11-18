@@ -16,6 +16,11 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
+# The pull request waits here for the review task; no hold, so the wait spends
+# no reject round.
+[states.in_review]
+waits = "the pull-request review task (.satelle/tasks/pr-review.md), run for the item by a session other than the author's"
+
 [states.approved]
 enqueue = ["release"]
 
@@ -31,31 +36,31 @@ terminal = true
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.story-review]
 skill = "satelle-story-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.architecture]
 skill = "satelle-story-architecture-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
-panel = ["reviewer-grok-4.7"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
 [gates.plan-review]
 skill = "satelle-story-plan-review"
-panel = ["reviewer-grok-4.7", "reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -79,14 +84,14 @@ carry = true
 
 [gates.instruction-change]
 skill = "satelle-instruction-change-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-instruction-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -96,7 +101,7 @@ skill = "satelle-ac-evidence-check"
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -107,8 +112,8 @@ placement = "remote:integration"
 timeout = "40m"
 
 # Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
-# on the head before any other gate of the presentation (the status skill's
-# gates= line names them).
+# on the head before any other gate of integration -> in_review (the status
+# skill's gates= line names them); the review run posts satelle/pr-review.
 [gates.pr-pending]
 skill = "satelle-gate-status-publish"
 
@@ -116,16 +121,6 @@ skill = "satelle-gate-status-publish"
 skill = "satelle-pr-ready-check"
 # The status entry is last so it posts the result as it finally stands.
 after = ["satelle-gate-status-publish"]
-
-[gates.pr-review]
-skill = "satelle-code-ac-review"
-panel = ["reviewer-gpt-5.6-sol-medium"]
-combine = "all"
-carry = true
-# The review publish check stays before the status entry, so a verdict the
-# reasons rules refuse is not published as a review; the status entry is last
-# so it posts the result as it finally stands.
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish", "satelle-gate-status-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
@@ -152,25 +147,25 @@ skill = "satelle-release-installed-check"
 
 [gates.outcome-review]
 skill = "satelle-outcome-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-3.8-flash-high"]
+panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
@@ -196,9 +191,16 @@ groups = [
 
 [[transition]]
 from = ["integration"]
+to = "in_review"
+groups = [
+  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready"] },
+]
+
+[[transition]]
+from = ["in_review"]
 to = "approved"
 groups = [
-  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready", "pr-review", "pr-approval"] },
+  { mode = "sequential", gates = ["pr-approval"] },
 ]
 
 [[transition]]
@@ -209,7 +211,7 @@ groups = [
 ]
 
 [[transition]]
-from = ["integration", "approved"]
+from = ["integration", "in_review", "approved"]
 to = "in_progress"
 
 [[transition]]
@@ -217,7 +219,7 @@ from = ["in_progress"]
 to = "plan"
 
 [[transition]]
-from = ["backlog", "plan", "in_progress", "integration"]
+from = ["backlog", "plan", "in_progress", "integration", "in_review"]
 to = "blocked"
 
 [[transition]]

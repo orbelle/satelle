@@ -2,7 +2,7 @@
 name: satelle-gate-status-publish
 type: check
 after: always
-description: Posts the pull-request gates' results on the head as commit statuses (satelle/<gate>) through satelle.dev, as the satelle GitHub app (satelle github status), so a branch rule can require them pinned to the app (sto_4f698e3f). The check of the pr-pending gate (pending for every context, first on integration → approved) and the last after entry of pr-ready, pr-review and pr-approval (that gate's result, on every result: after always). Reads each post back from GitHub and names the account that posted it. Never refuses: a status that cannot be posted is named in the notes and the gate's result stands. Deterministic, no agent.
+description: Posts the pull-request gates' results on the head as commit statuses (satelle/<gate>) through satelle.dev, as the satelle GitHub app (satelle github status), so a branch rule can require them pinned to the app (sto_4f698e3f). The check of the pr-pending gate (pending for every context, first on integration → in_review) and the last after entry of pr-ready, pr-approval and the review task's pr-review gate (that gate's result, on every result: after always). Reads each post back from GitHub and names the account that posted it. Never refuses: a status that cannot be posted is named in the notes and the gate's result stands. Deterministic, no agent.
 ---
 
 # Gate status publish (satelle/<gate> on the head)
