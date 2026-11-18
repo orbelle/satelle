@@ -44,6 +44,6 @@ text = "satelle service status warns"
 why = "E4: a message about the output"
 
 [[exception]]
-file = ".satelle/skills/satelle-pr-review-publish.md"
+file = ".satelle/skills/satelle-pr-review-run-publish.md"
 text = "satelle project show named no project"
 why = "E4: a message about the output"

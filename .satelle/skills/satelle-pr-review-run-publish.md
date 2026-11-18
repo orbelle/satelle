@@ -20,12 +20,15 @@ Its tags carry the input: `reviews:<story>` names the reviewed story and
    names the project, the gate, its binding, the story, the head and the run;
    the judge's notes follow.
 4. The story's own `github.review` events on the head decide whether to
-   publish, by the rules of satelle-pr-review-publish (step 3): an approval is
-   never published over requested changes on the same head, nor twice; a
-   request for changes with the same body is not published again.
+   publish: an approval is never published over requested changes on the same
+   head (the approval check reads the app's review and reopens), nor twice; a
+   request for changes with the same body is not published again; any other
+   request for changes is published, including a repeat on the same head with
+   different findings.
 5. After publishing, `github.review` is appended to the story with `event`,
    `pull_number`, `commit_sha`, `review_id`, `html_url`, `repository` and
-   `body_sha256`, as satelle-pr-review-publish records it.
+   `body_sha256`. It is a ledger event, not an attachment, so the story's
+   judged coverage (which hashes attachments) is unchanged.
 
 It fails only when it cannot read its input or cannot publish or record, and
 then the run does not reach done.

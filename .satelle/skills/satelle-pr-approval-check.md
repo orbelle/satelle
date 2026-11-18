@@ -1,13 +1,14 @@
 ---
 name: satelle-pr-approval-check
 type: check
-description: The pr-approval gate (sto_ebcaa5aa; sto_efe81afd puts it on integration → approved after pr-ready). Passes only on the satelle GitHub app's approving review on the item's pull request head, read from GitHub and matched by the app account's numeric id, never its login, whose review_id the item's ledger records as a github.review APPROVE on that head (sto_952d4435). A review of an older head does not count, nor does one GitHub re-pointed from an older head. When the app's latest decision on the head is CHANGES_REQUESTED, attaches its body as pr-review and reopens the item at in_progress. Deterministic, no agent; reads GitHub with gh.
+description: The pr-approval gate (sto_ebcaa5aa), on review → approved (sto_a739a6d1). Passes only on the satelle GitHub app's approving review on the item's pull request head, read from GitHub and matched by the app account's numeric id, never its login, whose review_id the item's ledger records as a github.review APPROVE on that head (sto_952d4435). A review of an older head does not count, nor does one GitHub re-pointed from an older head. When the app's latest decision on the head is CHANGES_REQUESTED, attaches its body as pr-review and reopens the item at in_progress. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR approval (the satelle GitHub app's review on the head)
 
 The satelle GitHub app (app id 5379260, bot account `satelle[bot]`, id
-344745317) publishes the `pr-review` gate's verdict on the pull request.
+344745317) publishes the verdict of the pull-request review task
+(`.satelle/tasks/pr-review.md`) on the pull request.
 orbelle-reviewer (app 5563015, account 350948835) is internal and its reviews
 never count. Approval is read back from GitHub, not from satelle.dev.
 
@@ -21,7 +22,7 @@ never count. Approval is read back from GitHub, not from satelle.dev.
   decides nothing, and a review of an older head does not count.
   - APPROVED passes only when the item's ledger records that review's id as
     a `github.review` APPROVE with `commit_sha` equal to HEAD, the event the
-    publish check (`satelle-pr-review-publish`) appends. GitHub re-points an
+    review task's publish check (`satelle-pr-review-run-publish`) appends. GitHub re-points an
     older approval's `commit_id` to a new head when the branch moves
     (`tests/testdata/github/reviews/README.md`, "GitHub re-points an older
     review's commit_id"), so `commit_id` alone is not trusted. An approval
@@ -32,7 +33,8 @@ never count. Approval is read back from GitHub, not from satelle.dev.
     newest `pr-review` already holds it) and moves the item, still at
     `$SATELLE_FROM`, to `in_progress` on the rework edge, then rejects. The
     coder's next run reads it.
-  - DISMISSED, or no review, rejects and never reopens.
+  - DISMISSED, or no review, rejects and never reopens; with no review the
+    notes name the review task to run, and the item waits at `review`.
 
 `app_account` is the owner of this value: release.md step 0 reads it from the
 line below.
@@ -96,7 +98,7 @@ case "$state" in
     exit 1
     ;;
   *)
-    echo "no approving review by the satelle app (account $app_account, app $app) on PR #$pr head $short"
+    echo "no approving review by the satelle app (account $app_account, app $app) on PR #$pr head $short: a session other than the author's runs the review task for $SATELLE_ITEM (.satelle/tasks/pr-review.md); the item waits at $SATELLE_FROM until then"
     exit 1
     ;;
 esac

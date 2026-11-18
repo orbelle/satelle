@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's hand-off to the release run (integration → approved); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item enters approved only when pr-review (the judge, published by the satelle GitHub app) and pr-approval (the app's approving review on HEAD) accept after it. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to the review and then the release run (integration → review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains origin/main, leaves CHANGELOG.md as origin/main has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against main has HEAD as its head and a title ending with the item id. Proves the head is ready for review; the item then waits at review for the pull-request review task (.satelle/tasks/pr-review.md), run by another session, and enters approved only when pr-approval (the app's approving review on HEAD) accepts on review → approved. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off; the session then fires the release)
@@ -16,17 +16,17 @@ head the one the release takes: the pull request's head is HEAD, and HEAD
 already contains `origin/main`. A release run fast-forwards to it or merges it
 onto the heads landing before it, and tests the combined candidate once.
 
-This check proves the head is ready for review; it does not approve. On
-integration → approved it runs before `pr-review` and `pr-approval`
-(sto_efe81afd): `pr-review` is the code-ac judge, whose verdict the satelle
-GitHub app publishes on this pull request's head, and `pr-approval` passes only
-on the app's approving review of HEAD. The item enters `approved` only when
-both accept after this check. No GitHub review is read here, and GitHub runs
-no tests. `pr-pending` runs first on that edge, and each pull-request gate's
+This check proves the head is ready for review; it does not approve. It is
+the last gate of integration → review. The item then waits at `review` for
+the pull-request review task (`.satelle/tasks/pr-review.md`), which a session
+other than the author's runs: its judge's verdict is published on this pull
+request's head as the satelle GitHub app (sto_a739a6d1). `pr-approval`, on
+review → approved, passes only on the app's approving review of HEAD. No GitHub review is read here, and GitHub runs
+no tests. `pr-pending` runs first on integration → review, and each pull-request gate's
 result is posted on the head as `satelle/<gate>`
 (`satelle-gate-status-publish`).
 
-Before presenting integration → approved, the session:
+Before presenting integration → review, the session:
 
 1. works the item on its own branch, named by its id, cut from `origin/main`
    (or stacked on another approved item's head, to ship together);
@@ -91,5 +91,5 @@ if [ -z "$pr" ]; then
   echo "no open pull request against main has head ${head:0:12} and a title ending ($SATELLE_ITEM): gh pr create --base main --title \"<title> ($SATELLE_ITEM)\""
   exit 1
 fi
-echo "ready: PR #$pr (${head:0:12}) open against main, contains origin/main $(git rev-parse --short=12 origin/main); the satelle app's review decides approval"
+echo "ready: PR #$pr (${head:0:12}) open against main, contains origin/main $(git rev-parse --short=12 origin/main); next: a session other than the author's runs the review task for $SATELLE_ITEM (.satelle/tasks/pr-review.md), then the author presents review -> approved"
 ```

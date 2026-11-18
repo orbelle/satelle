@@ -64,6 +64,7 @@ prompt (the run's) and the `plan` and `ac-evidence` attachments of its record
 folder, so the run carries the story's under the same names:
 
 ```bash
+session=<session>
 crit=()
 while IFS= read -r c; do crit+=(--criteria "$c"); done < <(satelle story get "$story" --json --session "$session" | jq -r '.criteria[]')
 satelle story get "$story" --json --session "$session" | jq -r '.body' | satelle execution set "$exe" --title "Review of $story pull request #$num, head ${head:0:12}" --body - "${crit[@]}" --replace --session "$session"
@@ -79,6 +80,7 @@ Seat the run in the review checkout on `origin/main`, so the judge sees the
 pull request's change, and present it done:
 
 ```bash
+session=<session>
 satelle -C "$dir" execution seat "$exe" --base origin/main --session "$session"
 satelle -C "$dir" execution set "$exe" --status done --session "$session"
 ```
