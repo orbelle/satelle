@@ -150,24 +150,6 @@ func RecordSnapshot(globalDir, repoPath string, success bool, reason string, now
 	})
 }
 
-func RecordSubstrate(globalDir, repoPath string, areas map[string]AreaCheck, now time.Time) error {
-	if len(areas) == 0 {
-		return nil
-	}
-	return record(globalDir, repoPath, func(s *State) {
-		if s.SubstrateAreas == nil {
-			s.SubstrateAreas = map[string]SubstrateArea{}
-		}
-		for area, check := range areas {
-			s.SubstrateAreas[area] = SubstrateArea{State: check.State, Paths: check.Paths, CheckedAt: now}
-		}
-	})
-}
-
-func MarkSubstrateAttempt(globalDir, repoPath string, now time.Time) error {
-	return record(globalDir, repoPath, func(s *State) { s.SubstrateCheckedAttempt = now })
-}
-
 func record(globalDir, repoPath string, merge func(*State)) error {
 	mu.Lock()
 	defer mu.Unlock()

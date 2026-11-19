@@ -87,38 +87,6 @@ func TestRepeatedFailureIncrementsPasses(t *testing.T) {
 	}
 }
 
-func TestRecordSubstrateMergesOnlyItsGroupAndTheGivenAreas(t *testing.T) {
-	home := t.TempDir()
-	pushAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
-	first := time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
-	second := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	if err := RecordPass(home, "/repo", Pass{Store: "s"}, pushAt); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSubstrate(home, "/repo", map[string]AreaCheck{"skills": {State: "behind"}, "documents": {State: "in step"}}, first); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSubstrate(home, "/repo", map[string]AreaCheck{"skills": {State: "in step"}}, second); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSubstrate(home, "/repo", nil, second); err != nil {
-		t.Fatal(err)
-	}
-	got, ok, err := Load(home, "/repo")
-	if err != nil || !ok {
-		t.Fatalf("load: ok=%v err=%v", ok, err)
-	}
-	if !got.SyncLastSuccess.Equal(pushAt) {
-		t.Fatalf("sync group clobbered: %+v", got)
-	}
-	if a := got.SubstrateAreas["skills"]; a.State != "in step" || !a.CheckedAt.Equal(second) {
-		t.Fatalf("skills = %+v, want in step at %v", a, second)
-	}
-	if a := got.SubstrateAreas["documents"]; a.State != "in step" || !a.CheckedAt.Equal(first) {
-		t.Fatalf("documents must keep its own record: %+v", a)
-	}
-}
-
 func TestRecordPassFailureThenSuccess(t *testing.T) {
 	home := t.TempDir()
 	okAt := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
