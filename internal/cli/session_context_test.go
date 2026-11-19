@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -62,5 +63,35 @@ func TestDocDescription(t *testing.T) {
 		if got := docDescription("f.md", tc.text); got != tc.want {
 			t.Errorf("%s: description %q, want %q", name, got, tc.want)
 		}
+	}
+}
+
+func TestLedgerSeatsEqualTheCachesSeats(t *testing.T) {
+	isolate(t)
+	must(t, "init")
+	first := createID(t, "story", "create", "--title", "seated first")
+	second := createID(t, "story", "create", "--title", "seated second")
+	other := createID(t, "story", "create", "--title", "seated by another")
+	must(t, "story", "seat", second, "--session", "s-two")
+	must(t, "story", "seat", other, "--session", "s-other")
+	must(t, "story", "seat", first, "--session", "s-two")
+	k, _, err := openKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := seatsOf(k, "s-two")
+	k.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(want) != 2 || want[0].Item != second || want[1].Item != first {
+		t.Fatalf("the cache's seats are not the two of s-two in bound order: %+v", want)
+	}
+	in := loadDoctorInput("")
+	if got := ledgerSeats(in, "s-two"); !reflect.DeepEqual(got, want) {
+		t.Errorf("ledgerSeats:\n got %+v\nwant %+v", got, want)
+	}
+	if got := ledgerSeats(in, "s-none"); len(got) != 0 {
+		t.Errorf("a session with no seat: %+v", got)
 	}
 }

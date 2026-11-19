@@ -184,7 +184,7 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 		if err != nil || !ok {
 			continue
 		}
-		switch editScope(k, it) {
+		switch editScope(k.Workflows, it) {
 		case workflow.EditsTree:
 			g.Tree = true
 		case workflow.EditsAttachments:
@@ -320,24 +320,38 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 		}
 		return line, notice, true
 	}
-	session := hookSession(in)
+	src := &sessionSource{Session: hookSession(in), Dir: hookDir(in)}
+	if k, err := r.open(); err != nil {
+		src.Invalid = err
+	} else {
+		defer k.Close()
+		src.Settings, src.Harness = k.Settings, k.Harness
+		src.Seats = func(session string) []seatView {
+			seats, _ := seatsOf(k, session)
+			return seats
+		}
+	}
+	text, notice, _ = renderSession(r, src, harness, inject)
+	return text, notice, true
+}
+
+func renderSession(r repo, k *sessionSource, harness string, inject bool) (text, notice string, idx *indexedContext) {
+	session := k.Session
 	var b strings.Builder
-	k, err := r.open()
-	if err != nil {
+	if err := k.Invalid; err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
 		if inject {
-			block, n := sessionDoctor(hookDir(in), harness)
+			block, n := sessionDoctor(k.Dir, harness)
 			b.WriteString(block)
 			notice = n
 		}
-		return b.String(), notice, true
+		return b.String(), notice, nil
 	}
-	defer k.Close()
 	if session == "" {
 		b.WriteString("satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n")
 	} else {
 		fmt.Fprintf(&b, "satelle session: %s\n", session)
-		seats, _ := seatsOf(k, session)
+		seats := k.Seats(session)
 		printSeats(&b, seats)
 	}
 	if g := sessionGuidance(r); g != "" {
@@ -345,7 +359,7 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 		b.WriteString("\n")
 	}
 	if inject {
-		block, n := sessionDoctor(hookDir(in), harness)
+		block, n := sessionDoctor(k.Dir, harness)
 		b.WriteString(block)
 		notice = n
 		preface := b.String()
@@ -358,10 +372,11 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 			fmt.Fprintf(&b, "\n%s\n", body)
 		}
 		if overLimit(harness, b.String(), notice, k.Harness[harness].ContextLimitBytes, len(k.Settings.Hook.Inject)) {
-			return indexForm(preface, injectIndex(r, k.Settings.Hook.Inject), r.Tree, harness), notice, true
+			entries := injectIndex(r, k.Settings.Hook.Inject)
+			return indexForm(preface, entries, r.Tree, harness), notice, &indexedContext{InlineBytes: emittedBytes(harness, b.String(), notice), Limit: k.Harness[harness].ContextLimitBytes, Entries: entries}
 		}
 	}
-	return b.String(), notice, true
+	return b.String(), notice, nil
 }
 
 func contextFile(r repo, path string) (string, error) {
@@ -396,6 +411,7 @@ func sessionDoctor(dir, harness string) (block, notice string) {
 	defer cancel()
 	in := loadDoctorInput(dir)
 	in.harness = harness
+	in.sessionStart = true
 	rep := runDoctor(ctx, in)
 	return doctorBlock(rep, doctorHookBudget), doctorNotice(rep)
 }

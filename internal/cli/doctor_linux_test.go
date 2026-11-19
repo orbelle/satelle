@@ -204,6 +204,9 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 		{name: "configured check", setup: func(t *testing.T, f *doctorFixture) {
 			writeFile(t, filepath.Join(f.dir, "FAIL"), "skills/x.md:1: command: satelle nope\n")
 		}, want: []want{{"check:fixture-check", "satelle nope", "fix what it names"}}},
+		{name: "context over the limit", setup: func(t *testing.T, f *doctorFixture) {
+			f.limit(t, hook.Claude, 1)
+		}, want: []want{{checkContextName, "claude: the session-start context is", kernel.HarnessFile}}},
 		{name: "open items", setup: func(t *testing.T, f *doctorFixture) {
 			id := createID(t, "story", "create", "--title", "a drift", "--criteria", "c", "--tag", "drift")
 			writeFile(t, filepath.Join(f.dir, "want-id"), id)

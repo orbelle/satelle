@@ -50,6 +50,13 @@ Its checks:
              caller unknown, nothing wired and nothing in use is the issue; a
              hook file an ignore rule hides from git is a note
              (satelle agents install <harness>)
+  context    a harness in use whose session-start context, with every [hook]
+             inject file inline, is over its limit in .satelle/harness.toml:
+             the issue names the limit, the inline size and each file a session
+             receives as an index line; a harness in use with no limit is a
+             note giving its size as unbudgeted. It is what satelle hook context
+             would write for that harness and the calling session (cut or move
+             files out of [hook] inject, or raise the limit)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
   upgrade    this repo's .satelle is pre-1.0 (satelle upgrade --archive, run
@@ -70,7 +77,8 @@ Its checks:
 Outside a satelle repo only the machine checks (versions, upgrade, projects,
 sync) run; in a pre-1.0 repo only versions, upgrade, projects and the sync
 timer are checked. The
-session-start hook runs the same checks within ` + doctorHookBudget.String() + ` and prints a short
+session-start hook runs the same checks, except context, which measures that
+hook's own output, within ` + doctorHookBudget.String() + ` and prints a short
 summary; a check still running then is listed as not checked. doctor exits 0
 when it finds nothing and 1 when it finds an issue.
 
