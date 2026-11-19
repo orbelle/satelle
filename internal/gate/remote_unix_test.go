@@ -88,7 +88,6 @@ func TestRemoteCarryAndAfter(t *testing.T) {
 	r.Skills["publish"] = checkSkill(`echo "published $SATELLE_GATE_RESULT from $PWD"`)
 	f.out = RemoteOutcome{Node: "nod_2", Exit: 0}
 	rs, _ = r.Execute(context.Background())
-	// The skill prints $PWD, which macOS resolves through the /var -> /private/var symlink.
 	dir := r.Dir
 	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = resolved
