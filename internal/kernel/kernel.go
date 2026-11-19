@@ -36,6 +36,7 @@ type Kernel struct {
 	Overrides     []agent.Override
 	Queues        map[string]*workflow.Queue
 	queueFiles    map[string]*workflow.Queue
+	Harness       map[string]HarnessSettings
 	Git           Git
 	Dispatcher    agent.Dispatcher
 	Remote        RemotePerformer
@@ -91,7 +92,7 @@ func Open(o Options) (*Kernel, error) {
 	k := &Kernel{
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
 		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Agents: cfg.Agents, Overrides: cfg.Overrides,
-		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues),
+		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness,
 		Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
 	repo := gitfacts.Repo{Dir: o.Dir}
@@ -111,7 +112,7 @@ func Open(o Options) (*Kernel, error) {
 func (k *Kernel) Close() error { return k.Cache.Close() }
 
 func (k *Kernel) Validate() []error {
-	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues}
+	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness}
 	c.Settings.Workflows = k.Rules
 	return c.Problems()
 }

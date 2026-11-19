@@ -97,6 +97,9 @@ the kernel still opens: only a configuration problem stops it.
 - `volatile.toml` — optional: the volatile-literal patterns `satelle validate --session <session>`
   and `satelle doctor --session <session>` apply to the substrate (below).
 - `ui.toml` — optional: the colours satelled gives tag chips (below).
+- `harness.toml` — optional: each harness's session-start limit, over which
+  `satelle hook context` lists the `[hook] inject` files instead of printing
+  them (below).
 
 ## doctor.toml
 
@@ -143,6 +146,28 @@ no default for either: with one unset, `--resolve` opens no item and lists
 each finding, naming the `[resolve]` key to set. An item's status is its
 workflow's to set, so there is no `status`. While the configuration is invalid no item can be recorded:
 `--resolve` then lists the findings with `satelle validate --session <session>` first.
+
+## harness.toml
+
+`.satelle/harness.toml` is optional. It holds one table per harness
+(`claude`, `pi`, `grok`, `cursor`) with that harness's session-start limit:
+
+    [claude]
+    context_limit_bytes = <bytes>
+
+The limit is the size of hook output the harness shows its model inline;
+satelle holds no default for it. `satelle hook context` measures what it
+would write to stdout for the calling harness with every `[hook] inject`
+file printed in full, the harness's envelope included. When that is over the
+harness's limit, it prints the session id, the seats, the session guidance
+and the doctor block as before, then one line per inject file, its
+frontmatter `description` (else its first line) and its path, under a line
+saying to read them in full before acting. No file's body is printed, and
+nothing is ever cut: the list is printed whole even when it is itself over
+the limit. A harness with no table is printed in full, as is a repo with no
+`harness.toml`. `satelle validate --session <session>` rejects a table that
+is not a harness and a limit that is not a positive number. It is its own
+file for the reason `doctor.toml` is.
 
 ## init.toml
 

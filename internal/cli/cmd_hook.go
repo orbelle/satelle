@@ -31,7 +31,10 @@ session's context at session start; prompt reminds the session of its seats on
 each prompt; stopcheck answers the Stop event, blocking a turn's end once
 when a seated item owes the session's own next move. The context, the
 prompt and a blocked stop's reason carry the repo's .satelle/session.md,
-the session guidance satelle init writes and the repo edits. Grok reads the session
+the session guidance satelle init writes and the repo edits. When printing the
+[hook] inject files in full would take the session-start context over the
+calling harness's limit in .satelle/harness.toml, context lists each file by
+description and path instead (see satelle help configuration). Grok reads the session
 context as its SessionStart systemMessage and discards a prompt hook's output,
 so the prompt hook prints nothing for grok. Under cursor, a call Cursor
 sends to another harness's entries stays silent once .cursor/hooks.json holds
@@ -343,16 +346,8 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	}
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)
-		b.WriteString(block)
-		notice = n
-		for _, f := range k.Settings.Hook.Inject {
-			body, err := contextFile(r, f)
-			if err != nil {
-				fmt.Fprintf(&b, "\nsatelle: [hook] inject file %s: %v\n", f, err)
-				continue
-			}
-			fmt.Fprintf(&b, "\n%s\n", body)
-		}
+		text, _ := sessionStartText(b.String(), block, loadInjectDocs(r, k.Settings.Hook.Inject), r.Tree, harness, n, k.Harness[harness].ContextLimitBytes)
+		return text, n, true
 	}
 	return b.String(), notice, true
 }

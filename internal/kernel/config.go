@@ -10,6 +10,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 	"github.com/bobmcallan/satelle/internal/remotedef"
@@ -69,6 +70,11 @@ type Config struct {
 	Volatile  substrate.VolatileRules
 	UI        UISettings
 	Init      InitSettings
+	Harness   map[string]HarnessSettings
+}
+
+type HarnessSettings struct {
+	ContextLimitBytes int `toml:"context_limit_bytes"`
 }
 
 type UISettings struct {
@@ -125,6 +131,7 @@ const (
 	DoctorFile      = "doctor.toml"
 	VolatileFile    = "volatile.toml"
 	UIFile          = "ui.toml"
+	HarnessFile     = "harness.toml"
 	AgentsFile      = "agents.toml"
 	AgentsLocalFile = "agents.local.toml"
 	SessionFile     = "session.md"
@@ -232,6 +239,11 @@ func LoadConfig(root string) (*Config, error) {
 			errs = append(errs, err)
 		}
 	}
+	if p := filepath.Join(root, HarnessFile); exists(p) {
+		if err := workflow.DecodeStrict(p, &c.Harness); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if cat, ovs, err := LoadAgents(root); err != nil {
 		errs = append(errs, err)
 	} else {
@@ -323,7 +335,22 @@ func (c *Config) Problems() []error {
 	}
 	shipped, _ := ShippedFiles()
 	errs = append(errs, c.Init.problems(shipped)...)
+	errs = append(errs, c.harnessProblems()...)
 	return append(errs, c.UI.problems()...)
+}
+
+func (c *Config) harnessProblems() []error {
+	var errs []error
+	for _, name := range sortedKeys(c.Harness) {
+		if !slices.Contains(hook.Harnesses, name) {
+			errs = append(errs, fmt.Errorf("%s: [%s] is not a harness (%s)", HarnessFile, name, strings.Join(hook.Harnesses, ", ")))
+			continue
+		}
+		if n := c.Harness[name].ContextLimitBytes; n <= 0 {
+			errs = append(errs, fmt.Errorf("%s: [%s] context_limit_bytes = %d is not a positive byte count; a harness with no limit has no table", HarnessFile, name, n))
+		}
+	}
+	return errs
 }
 
 func (u UISettings) problems() []error {

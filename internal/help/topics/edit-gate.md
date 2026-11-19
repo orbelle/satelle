@@ -115,7 +115,8 @@ extension sends the reason as a user message) and grok read
 
 Grok reads only a top-level `systemMessage` from a SessionStart hook, so
 `satelle hook context --harness grok` answers `{"systemMessage":"<context>"}`
-with the whole session context. Grok discards an allowing prompt hook's
+with the whole session context (the `[hook] inject` files, or their list
+when they are over grok's limit in `.satelle/harness.toml`). Grok discards an allowing prompt hook's
 output, so `satelle hook prompt --harness grok` prints nothing; the hook
 still settles the session's owner. The stop check blocks with
 `decision: block`, which grok feeds back to the model as a user message; a
@@ -135,8 +136,9 @@ remove cursor --session <session>` strips only satelle's. `cursor-agent` runs:
   both), else the payload's project root; the fence applies as above.
 - `sessionStart` → `satelle hook context`: the session id (Cursor's
   `session_id`, the same as its `conversation_id`), its seats, the repo's
-  `.satelle/session.md`, the doctor block and the `[hook] inject` files, as
-  `additional_context`.
+  `.satelle/session.md`, the doctor block and the `[hook] inject` files (or
+  their list by description and path, when printing them in full is over
+  cursor's limit in `.satelle/harness.toml`), as `additional_context`.
 - `beforeSubmitPrompt` → `satelle hook prompt`. It settles the session's owner
   and answers `{"continue":true}`. Cursor's prompt event has no context
   channel, so a cursor-agent session gets no per-prompt seat reminder; the

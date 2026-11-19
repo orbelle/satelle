@@ -21,6 +21,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/buildinfo"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gittest"
+	"github.com/bobmcallan/satelle/internal/hook"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
@@ -549,4 +551,127 @@ func TestHookContextInAPreV1RepoIsOneLine(t *testing.T) {
 		ctx, _, _ := hookContextText(t, f.dir)
 		hasAll(t, "v1 session start", ctx, append([]string{"satelle session: s-hook"}, guidanceLines(t, f.dir)...)...)
 	})
+}
+
+const (
+	indexNonceA   = "nonce-index-a17c"
+	indexNonceB   = "nonce-index-b52e"
+	indexReadLine = "Read each of these files in full before acting"
+)
+
+func indexFixture(t *testing.T) *doctorFixture {
+	t.Helper()
+	f := newDoctorFixture(t)
+	writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "inject-described.md"), "---\nname: inject-described\ndescription: a described probe\n---\n\n"+indexNonceA+"\n")
+	writeFile(t, filepath.Join(f.dir, "plain.md"), "# Plain title\n\n"+indexNonceB+"\n")
+	writeHookSettings(t, f.dir, "inject = [\".satelle/skills/inject-described.md\", \"plain.md\", \"missing.md\"]\n")
+	id := createID(t, "story", "create", "--title", "seated work")
+	must(t, "story", "seat", id, "--session", "s-hook")
+	writeFile(t, filepath.Join(f.dir, "FAIL"), "one\n")
+	return f
+}
+
+func (f *doctorFixture) limit(t *testing.T, harness string, bytes int) {
+	t.Helper()
+	writeFile(t, filepath.Join(f.dir, ".satelle", kernel.HarnessFile), fmt.Sprintf("[%s]\ncontext_limit_bytes = %d\n", harness, bytes))
+}
+
+func (f *doctorFixture) context(t *testing.T, harness string) (ctx, raw string) {
+	t.Helper()
+	payload := fmt.Sprintf(`{"session_id":"s-hook","cwd":%q,"workspace_roots":[%q],"hook_event_name":"sessionStart"}`, f.dir, f.dir)
+	raw, err := run(t, payload, "hook", "context", "--harness", harness)
+	if err != nil {
+		t.Fatalf("hook context --harness %s: %v\n%s", harness, err, raw)
+	}
+	var env struct {
+		Hook struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+		Cursor string `json:"additional_context"`
+		Grok   string `json:"systemMessage"`
+	}
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatalf("hook context --harness %s: %v\n%s", harness, err, raw)
+	}
+	switch harness {
+	case hook.Cursor:
+		return env.Cursor, raw
+	case hook.Grok:
+		return env.Grok, raw
+	}
+	return env.Hook.Context, raw
+}
+
+func doctorBlockOf(t *testing.T, ctx string) string {
+	t.Helper()
+	i := strings.Index(ctx, "satelle doctor:")
+	if i < 0 {
+		t.Fatalf("no doctor block:\n%s", ctx)
+	}
+	block, _, _ := strings.Cut(ctx[i:], "\n\n")
+	return block
+}
+
+func TestHookContextIndexesWhenOverTheLimit(t *testing.T) {
+	f := indexFixture(t)
+	guidance := guidanceLines(t, f.dir)
+	for _, h := range []string{hook.Claude, hook.Cursor, hook.Grok} {
+		if err := os.Remove(filepath.Join(f.dir, ".satelle", kernel.HarnessFile)); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		inlineCtx, inline := f.context(t, h)
+		hasAll(t, h+" inline", inlineCtx, indexNonceA, indexNonceB)
+		f.limit(t, h, len(inline)-1)
+		ctx, raw := f.context(t, h)
+		at := 0
+		for _, want := range []string{
+			"satelle session: s-hook", "seated work", guidance[len(guidance)-1], "satelle doctor:", "check:fixture-check (1): one",
+			indexReadLine, "inlined they are over " + h + "'s configured session-start limit",
+			"  .satelle/skills/inject-described.md — a described probe\n", "  plain.md — Plain title\n", "  missing.md — unreadable: ",
+		} {
+			i := strings.Index(ctx[at:], want)
+			if i < 0 {
+				t.Fatalf("%s: the index form lacks %q after offset %d:\n%s", h, want, at, ctx)
+			}
+			at += i + len(want)
+		}
+		hasNone(t, h+" index", raw, indexNonceA, indexNonceB)
+		if got, want := doctorBlockOf(t, ctx), doctorBlockOf(t, inlineCtx); got != want {
+			t.Errorf("%s: the index form's doctor block differs from the inline form's:\n%s\n--\n%s", h, got, want)
+		}
+		f.limit(t, h, 1)
+		if _, whole := f.context(t, h); whole != raw || len(whole) <= 1 {
+			t.Errorf("%s: at limit 1 the index form is not printed whole:\n%s", h, whole)
+		}
+	}
+}
+
+func TestHookContextInlinesWhenItFits(t *testing.T) {
+	f := indexFixture(t)
+	_, inline := f.context(t, hook.Claude)
+	hasAll(t, "inline", inline, indexNonceA, indexNonceB)
+	for _, over := range []int{0, 1000} {
+		f.limit(t, hook.Claude, len(inline)+over)
+		if _, raw := f.context(t, hook.Claude); raw != inline {
+			t.Errorf("a limit %d over the inline size changed the output:\n%s", over, raw)
+		}
+	}
+	f.limit(t, hook.Claude, len(inline)-1)
+	ctx, raw := f.context(t, hook.Claude)
+	hasAll(t, "one byte under", ctx, indexReadLine)
+	hasNone(t, "one byte under", raw, indexNonceA, indexNonceB)
+}
+
+func TestHookContextInlinesWithNoLimitForTheHarness(t *testing.T) {
+	f := indexFixture(t)
+	ctx, inline := f.context(t, hook.Claude)
+	hasAll(t, "no harness.toml", ctx, indexNonceA, indexNonceB)
+	hasNone(t, "no harness.toml", ctx, indexReadLine)
+	f.limit(t, hook.Pi, 1)
+	if _, raw := f.context(t, hook.Claude); raw != inline {
+		t.Errorf("a limit for pi changed claude's output:\n%s", raw)
+	}
+	ctx, raw := f.context(t, hook.Pi)
+	hasAll(t, "pi", ctx, indexReadLine, "inlined they are over pi's configured session-start limit")
+	hasNone(t, "pi", raw, indexNonceA, indexNonceB)
 }
