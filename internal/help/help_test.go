@@ -1,9 +1,12 @@
 package help
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
 )
@@ -229,6 +232,63 @@ func TestConventionalTagsDocumented(t *testing.T) {
 	for _, c := range item.ChipColours {
 		if !strings.Contains(ui, "`"+c+"`") {
 			t.Errorf("the ui.toml section does not name the colour %s", c)
+		}
+	}
+}
+
+func TestCheckStdinKeysDocumented(t *testing.T) {
+	top, ok := Get("workflows")
+	if !ok {
+		t.Fatal("no workflows topic")
+	}
+	start := strings.Index(top.Body, "A skill whose frontmatter says `type: check`")
+	if start < 0 {
+		t.Fatal("the workflows topic has no check-skill paragraph")
+	}
+	p := top.Body[start:]
+	if end := strings.Index(p, "\n\n"); end >= 0 {
+		p = p[:end]
+	}
+	p = strings.Join(strings.Fields(p), " ")
+	if !strings.Contains(p, "JSON object on stdin") {
+		t.Errorf("the check-skill paragraph does not say a check gets a JSON object on stdin: %q", p)
+	}
+	documented := map[string]string{}
+	for _, m := range regexp.MustCompile("`([a-z_]+)` \\(`(SATELLE_[A-Z_]+)`\\)").FindAllStringSubmatch(p, -1) {
+		documented[m[1]] = m[2]
+	}
+	env := gate.CheckEnv{Item: "i", From: "f", To: "t", Base: "b"}
+	var payload map[string]any
+	if err := json.Unmarshal(env.Payload(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{}
+	for _, kv := range env.Vars() {
+		k, v, _ := strings.Cut(kv, "=")
+		vars[k] = v
+	}
+	for key := range documented {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("the help names stdin key %q, which CheckEnv.Payload does not write", key)
+		}
+	}
+	for key := range payload {
+		if _, ok := documented[key]; !ok {
+			t.Errorf("CheckEnv.Payload writes stdin key %q, which the help does not name", key)
+		}
+	}
+	for key, variable := range documented {
+		got, ok := payload[key]
+		if !ok {
+			continue
+		}
+		want, ok := vars[variable]
+		if !ok {
+			t.Errorf("the help pairs stdin key %q with %s, which CheckEnv.Vars does not set", key, variable)
+			continue
+		}
+		if got != want {
+			t.Errorf("the help pairs stdin key %q with %s, but the payload holds %v and the variable %q", key, variable, got, want)
 		}
 	}
 }

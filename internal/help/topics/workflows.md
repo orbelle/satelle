@@ -101,7 +101,10 @@ that frozen change; later work in the tree is not attributed to it.
 A skill whose frontmatter says `type: check` is a deterministic check: its first
 fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and
 `SATELLE_BASE` set; exit 0 accepts, anything else rejects, and its output is the
-notes.
+notes. Each check also gets one JSON object on stdin with the same values:
+`id` (`SATELLE_ITEM`) is the item's id, `from` (`SATELLE_FROM`) the state
+the move leaves, `to` (`SATELLE_TO`) the state it enters, and `base`
+(`SATELLE_BASE`) the base commit the item's change is read against.
 
 Reviewer independence is the repo's configuration, not the binary's. `satelle
 init --session <session>` writes the check skill `satelle-judge-differs-from-performer-check` to
@@ -128,7 +131,7 @@ that is a failure rather than a verdict (a missing skill or agent, a trigger
 that timed out or could not run, a coverage error, an answer with no
 verdict). Besides the check variables each sees
 `SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or carried) and
-`SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`, `binding`,
+`SATELLE_GATE_BINDING`, and its stdin JSON object adds `gate`, `result`, `binding`,
 `notes` and, for a judged gate, `members`: each judge's own `binding`,
 `result` and `notes` (one entry for a single judge, one per panel member in
 panel order; none for a check gate or a carry). Exit 0 keeps the result and
