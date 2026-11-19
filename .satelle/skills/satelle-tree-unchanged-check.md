@@ -53,9 +53,17 @@ diff.
 set -u
 trunk=refs/remotes/origin/main
 excluded=.satelle/runs/
-for tool in git jq satelle sha256sum; do
+for tool in git jq satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the tree cannot be compared"; exit 1; }
 done
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256; }
+else
+  echo "neither sha256sum nor shasum is installed, so the tree cannot be compared"
+  exit 1
+fi
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "not a git work tree: there is no tree to compare"
   exit 0
@@ -158,7 +166,7 @@ if [ -z "$paths" ]; then
 fi
 
 n=$(printf '%s\n' "$paths" | wc -l | tr -d ' ')
-sum=$(printf '%s\n' "$paths" | sha256sum | cut -d' ' -f1)
+sum=$(printf '%s\n' "$paths" | sha256 | cut -d' ' -f1)
 latest=$(satelle "$kind" attachments "$item" --json </dev/null | jq -r '[(. // [])[] | select(.name == "tree-changes")] | last | .sha256 // empty' 2>/dev/null) || latest=
 attached=
 if [ "$latest" != "$sum" ]; then
