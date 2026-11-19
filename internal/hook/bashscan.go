@@ -52,13 +52,16 @@ func scanBash(command, cwd, root string, isFile func(string) bool, depth int, pa
 		if cmd == "cd" {
 			continue
 		}
-		if flags, ok := dirFlagTable[cmd]; ok && (cmd != "git" || !gitReadOnlyInvocation(words)) {
-			for i := 1; i < len(words); i++ {
-				for _, f := range flags {
-					if words[i] == f && i+1 < len(words) {
-						path(resolvePath(sg.Cwd, words[i+1]))
-						i++
-						break
+		if flags, ok := dirFlagTable[cmd]; ok {
+			args := commandArgWords(commandTokens(sg.Tokens, sg.Idx))
+			if cmd != "git" || !gitReadOnlyInvocation(args) {
+				for i := 1; i < len(args); i++ {
+					for _, f := range flags {
+						if args[i] == f && i+1 < len(args) {
+							path(resolvePath(sg.Cwd, args[i+1]))
+							i++
+							break
+						}
 					}
 				}
 			}

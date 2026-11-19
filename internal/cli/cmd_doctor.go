@@ -50,13 +50,15 @@ Its checks:
              caller unknown, nothing wired and nothing in use is the issue; a
              hook file an ignore rule hides from git is a note
              (satelle agents install <harness>)
-  context    a harness in use whose session-start context, with every [hook]
-             inject file inline, is over its limit in .satelle/harness.toml:
-             the issue names the limit, the inline size and each file a session
-             receives as an index line; a harness in use with no limit is a
-             note giving its size as unbudgeted. It is what satelle hook context
-             would write for that harness and the calling session (cut or move
-             files out of [hook] inject, or raise the limit)
+  context    a harness in use whose session-start context, as the index of
+             its [hook] inject files, is over its limit in .satelle/harness.toml:
+             the issue names the limit and the index size; a harness in use
+             whose context with every file inline is over the limit and whose
+             index fits is a note naming the limit and the inline size; a
+             harness in use with no limit is a note giving its size as
+             unbudgeted. It is what satelle hook context would write for that
+             harness and the calling session (raise the limit, or shorten what
+             the index carries)
   versions   the installed satelle CLI, the running satelled and the installed
              satelled disagree (satelle service restart, satelle update)
   upgrade    this repo's .satelle is pre-1.0 (satelle upgrade --archive, run

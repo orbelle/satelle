@@ -2,7 +2,6 @@ package syncstate
 
 import (
 	"encoding/json"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +26,6 @@ type State struct {
 	SyncPulled      int       `json:"sync_pulled,omitempty"`
 	SyncForked      []string  `json:"sync_forked,omitempty"`
 	SyncUpgrade     string    `json:"sync_upgrade,omitempty"`
-
-	PushHeld map[string]string `json:"push_held,omitempty"`
 
 	SnapshotLastSuccess time.Time `json:"snapshot_last_success,omitempty"`
 	SnapshotLastFailure time.Time `json:"snapshot_last_failure,omitempty"`
@@ -113,22 +110,6 @@ func RecordPass(globalDir, repoPath string, p Pass, now time.Time) error {
 			s.SyncReason = p.Reason
 			s.SyncPasses = 1
 		}
-	})
-}
-
-func RecordPushHeld(globalDir, repoPath string, held map[string]string) error {
-	if len(held) == 0 {
-		s, ok, err := Load(globalDir, repoPath)
-		if err != nil || !ok || len(s.PushHeld) == 0 {
-			return err
-		}
-	}
-	return record(globalDir, repoPath, func(s *State) {
-		if len(held) == 0 {
-			s.PushHeld = nil
-			return
-		}
-		s.PushHeld = maps.Clone(held)
 	})
 }
 

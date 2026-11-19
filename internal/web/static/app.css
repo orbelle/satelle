@@ -228,8 +228,6 @@ header.app h1 .dot { color: var(--accent); }
 .sync-fail-body { color: var(--fail); font-size: 12px; margin-top: 4px; max-width: 72rem; }
 .sync-fail-reason { white-space: pre-wrap; word-break: break-word; }
 .sync-fail-log { color: var(--muted); }
-.sync-held { color: var(--muted); font-size: 12px; margin-top: 4px; max-width: 72rem; }
-.sync-held-item { white-space: pre-wrap; word-break: break-word; }
 .sync-tag-fail {
   display: block; width: fit-content; margin-top: 4px;
   color: var(--fail); font-size: 11px; padding: 1px 6px;

@@ -196,6 +196,54 @@ func TestGateChmodModeOperand(t *testing.T) {
 	}
 }
 
+func TestGateGitDirQuoted(t *testing.T) {
+	root := newRepo(t)
+	g := Gate{Root: root, TempRoots: []string{}, Grant: func(string) Grant { return Grant{} }}
+	for _, verb := range []string{"log --oneline -1", "status", "diff"} {
+		if v := g.Bash("git -C "+root+" "+verb, root); !v.Allow {
+			t.Errorf("unquoted %q: denied (%s), want allowed", verb, v.Reason)
+		}
+		for _, q := range []string{"'", "\""} {
+			cmd := "git -C " + q + root + q + " " + verb
+			if v := g.Bash(cmd, root); !v.Allow {
+				t.Errorf("%q: denied (%s), want allowed", cmd, v.Reason)
+			}
+		}
+	}
+	for _, verb := range []string{"commit -m x", "add ."} {
+		for _, q := range []string{"'", "\""} {
+			cmd := "git -C " + q + root + q + " " + verb
+			v := g.Bash(cmd, root)
+			if v.Allow {
+				t.Fatalf("%q: allowed, want refused", cmd)
+			}
+			if v.Path != root {
+				t.Errorf("%q: refused path %q, want %q", cmd, v.Path, root)
+			}
+			if !strings.Contains(v.Reason, root) || strings.Contains(v.Reason, "edit to commit blocked") || strings.Contains(v.Reason, "edit to add blocked") {
+				t.Errorf("%q: reason does not name the directory: %q", cmd, v.Reason)
+			}
+		}
+	}
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "git -C '" + sub + "' add ."
+	v := g.Bash(cmd, root)
+	if v.Allow || v.Path != sub || !strings.Contains(v.Reason, "edit to sub blocked") {
+		t.Errorf("%q: allow %v path %q reason %q, want refused at %q naming sub", cmd, v.Allow, v.Path, v.Reason, sub)
+	}
+	foreign := newRepo(t)
+	temp, _ := filepath.EvalSymlinks(t.TempDir())
+	seated := Gate{Root: root, TempRoots: []string{temp}, Grant: func(tree string) Grant { return Grant{Tree: tree == root} }}
+	cmd = "git -C '" + foreign + "' commit -m x"
+	v = seated.Bash(cmd, root)
+	if v.Allow || !strings.Contains(v.Reason, "another repository's working tree") || !strings.Contains(v.Reason, foreign) {
+		t.Errorf("%q: allow %v reason %q, want refused by the fence naming %q", cmd, v.Allow, v.Reason, foreign)
+	}
+}
+
 func TestParseInputAcrossHarnesses(t *testing.T) {
 	claude := ParseInput([]byte(`{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/r","tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}}`))
 	if claude.Session != "s1" || claude.Path != "/r/a.go" || !claude.IsEdit() || claude.IsShell() {
