@@ -4,6 +4,7 @@ package ledgerstore
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -154,16 +155,54 @@ func TestFSAdapterErrorsPrintTheLine(t *testing.T) {
 }
 
 func TestFSAdapterScriptIsWellFormed(t *testing.T) {
-	p := adapterPath(t)
+	note, err := scriptWellFormed(adapterPath(t))
+	if note != "" {
+		t.Log(note)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func scriptWellFormed(p string) (string, error) {
 	if out, err := exec.Command("sh", "-n", p).CombinedOutput(); err != nil {
-		t.Fatalf("sh -n: %v\n%s", err, out)
+		return "", fmt.Errorf("sh -n: %v\n%s", err, out)
 	}
 	sc, err := exec.LookPath("shellcheck")
 	if err != nil {
-		t.Log("shellcheck is not installed; sh -n only")
-		return
+		return "shellcheck is not installed; sh -n only", nil
+	}
+	if out, err := exec.Command(sc, "--version").CombinedOutput(); err != nil {
+		first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+		return fmt.Sprintf("shellcheck at %s cannot run (%v: %s); sh -n only", sc, err, first), nil
 	}
 	if out, err := exec.Command(sc, "-s", "sh", p).CombinedOutput(); err != nil {
-		t.Errorf("shellcheck: %v\n%s", err, out)
+		return "", fmt.Errorf("shellcheck: %v\n%s", err, out)
+	}
+	return "", nil
+}
+
+func fakeShellcheck(t *testing.T, body string) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "shellcheck"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestScriptWellFormedFallsBackWhenShellcheckCannotRun(t *testing.T) {
+	fakeShellcheck(t, "echo 'mise ERROR No version is set for shim: shellcheck' >&2\nexit 1\n")
+	note, err := scriptWellFormed(adapterPath(t))
+	if err != nil || !strings.Contains(note, "cannot run") || !strings.Contains(note, "sh -n only") || !strings.Contains(note, "No version is set") {
+		t.Fatalf("note %q err %v; want the sh -n fallback naming why shellcheck cannot run", note, err)
+	}
+}
+
+func TestScriptWellFormedFailsOnAShellcheckFinding(t *testing.T) {
+	fakeShellcheck(t, "if [ \"$1\" = --version ]; then echo 'ShellCheck - fake'; exit 0; fi\necho 'SC2086: Double quote to prevent globbing'\nexit 1\n")
+	note, err := scriptWellFormed(adapterPath(t))
+	if err == nil || !strings.Contains(err.Error(), "SC2086") || note != "" {
+		t.Fatalf("note %q err %v; want a shellcheck finding", note, err)
 	}
 }
