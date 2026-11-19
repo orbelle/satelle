@@ -1,3 +1,45 @@
+## [1.0.91] - 2026-11-19
+
+### Added
+- macOS and Windows test runs on GitHub Actions, on demand: .github/workflows/os-test.yml runs go build, vet and test on macos-latest and windows-latest (and make test on macOS) at a pull request's head when it carries the label os-test, or on a dispatch naming the ref and the runners; no push or schedule trigger, one run per ref, 30-minute jobs, cached Go modules and builds (sto_6d13f4f9)
+
+### Changed
+- `satelle-tree-unchanged-check` hashes with `shasum -a 256` where `sha256sum` is missing, so it runs on a stock Mac; it refuses naming both tools only when neither is installed (sto_ca65c001)
+
+### Fixed
+- scripts/release-binary.sh and scripts/check-serve-version.sh run under macOS bash 3.2: no mapfile, and empty arrays expand safely under set -u (sto_5c9c97db)
+- scripts/hermetic_test.go's exit-status test opts into snapshot mode where bubblewrap is missing (sto_ea1697ba)
+- This repo's pull-request review skills hash with shasum -a 256 where sha256sum is missing, so they run on macOS (sto_52a72387)
+- internal/gate's always-after and remote-after tests pass on macOS (printf in place of echo; $PWD compared with symlinks resolved) (sto_1d83bc85)
+- scripts' TestCredguard turns Go telemetry off in macOS's config directory too, so its broken-build case no longer races its temp HOME's cleanup on a Mac (sto_a157d39c)
+
+## [1.0.90] - 2026-11-18
+
+### Added
+- `satelle init` ships `satelle-judge-differs-from-performer-check`: a check that fails a gate with no judge of another model family (claude, gpt, gemini, grok) than its from-state performer, judging each [review] tier panel as well; a panel passes when one member differs, and a session performer is not compared (sto_9203d7ac)
+
+### Changed
+- The pull-request gate skills read the base branch from the release queue's trigger base and the status gate names from the workflows' after lists, so the same skill files work in a repo with another base branch and other gate names (sto_55bb9325)
+
+### Removed
+- `satelle validate` no longer refuses an agents.local.toml override that makes a judge the same command and model as its performer; the check skill reads the override and judges by model family (sto_9203d7ac)
+
+### Breaking
+- `[rules] reviewer_differs_from_performer` is removed from satelle.toml with no alias: a satelle.toml that still has a `[rules]` section is refused, naming the key and its replacement. Reviewer independence is now the repo's configuration: name the shipped check skill `satelle-judge-differs-from-performer-check` (written by `satelle init`) on the gates you choose (sto_9203d7ac)
+
+## [1.0.89] - 2026-11-18
+
+### Changed
+- Every reviewer in this repo runs gemini-4-hydrogen-high (binding reviewer-gemini-4-hydrogen-high), replacing the gemini, grok and gpt reviewers. The block-breaker breaks with the planner only (sto_5861d88f). (sto_5861d88f)
+- Delivery and chore items now wait at a review state after pr-ready (integration -> review): the pull request is judged and published as the satelle app by the pull-request review task (.satelle/tasks/pr-review.md), run by a session other than the author's, and pr-approval moves the item review -> approved; the wait spends no reject round (sto_a739a6d1)
+- satelled: a row's assignees show as assignee: chips in its tag line, after the workflow chip, in a colour of their own; a working assignee's chip says working, and clicking a chip filters the list to that assignee. The Assignees column is gone from the Stories, Tasks and kind-panel tables. (sto_e09bee43)
+
+### Removed
+- The in-session pr-review gate and its publish check (satelle-pr-review-publish) on integration -> approved (sto_a739a6d1)
+
+### Fixed
+- The internal/cli tests compile for GOOS=darwin: writeFile and writeExec no longer live only in a linux-tagged test file. (sto_90b32e39)
+
 ## [1.0.88] - 2026-11-18
 
 ### Changed

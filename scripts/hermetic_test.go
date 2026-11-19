@@ -117,6 +117,7 @@ func TestHermeticWrapperPinsReleaseEndpoints(t *testing.T) {
 func TestHermeticWrapperCleansUpAndKeepsStatus(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "home")
 	cmd := exec.Command("sh", "hermetic.sh", "--", "sh", "-c", `printf %s "$HOME" > "$1"; exit 7`, "sh", marker)
+	cmd.Env = append(os.Environ(), optIn()...)
 	err := cmd.Run()
 	ee, ok := err.(*exec.ExitError)
 	if !ok || ee.ExitCode() != 7 {

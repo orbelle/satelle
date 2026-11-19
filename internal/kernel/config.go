@@ -21,7 +21,6 @@ type Settings struct {
 	Workflows workflow.Rules  `toml:"workflows"`
 	Gate      GateSettings    `toml:"gate"`
 	Hook      HookSettings    `toml:"hook"`
-	Rules     RuleSettings    `toml:"rules"`
 	Items     ItemSettings    `toml:"items"`
 	Service   ServiceSettings `toml:"service"`
 	Sync      SyncSettings    `toml:"sync"`
@@ -40,10 +39,6 @@ type HookSettings struct {
 }
 
 func (h HookSettings) Refreshes() bool { return h.Refresh == nil || *h.Refresh }
-
-type RuleSettings struct {
-	ReviewerDiffersFromPerformer bool `toml:"reviewer_differs_from_performer"`
-}
 
 type ItemSettings struct {
 	Prefix map[string]string `toml:"prefix"`
@@ -194,7 +189,13 @@ func (c *Config) agentProblems() []error {
 
 func LoadSettings(root string) (Settings, error) {
 	var st Settings
-	err := workflow.DecodeStrict(filepath.Join(root, SettingsFile), &st)
+	path := filepath.Join(root, SettingsFile)
+	err := workflow.DecodeStrict(path, &st)
+	if err != nil {
+		if retired := retiredRules(path); retired != nil {
+			return st, retired
+		}
+	}
 	return st, err
 }
 
@@ -454,102 +455,7 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 			}
 		}
 	}
-	errs = append(errs, c.overrideSameProblems(w)...)
-	if !c.Settings.Rules.ReviewerDiffersFromPerformer {
-		return errs
-	}
-	for i, t := range w.Transitions {
-		for _, from := range expandFrom(w, t.From) {
-			p := w.States[from].Agent()
-			if p == nil {
-				continue
-			}
-			model := c.Agents[p.Agent].Model
-			for _, g := range t.Groups {
-				for _, gname := range g.Gates {
-					for _, j := range c.judges(gname, w.Gates[gname]) {
-						if model != "" && c.Agents[j].Model == model {
-							errs = append(errs, fmt.Errorf("workflow %s: transition %d: gate %q judge %q runs model %q, the same as the performer of %q (agent %q)",
-								w.Name, i+1, gname, j, model, from, p.Agent))
-						}
-					}
-				}
-			}
-		}
-	}
 	return errs
-}
-
-func (c *Config) tracked(name string) agent.Binding {
-	if o, ok := c.override(name); ok {
-		return o.Tracked
-	}
-	return c.Agents[name]
-}
-
-func sameRunner(a, b agent.Binding) bool {
-	return agent.Preset(a) != "" && agent.Preset(a) == agent.Preset(b) && a.Model == b.Model
-}
-
-func (c *Config) overrideSameProblems(w *workflow.Workflow) []error {
-	if len(c.Overrides) == 0 {
-		return nil
-	}
-	var errs []error
-	seen := map[string]bool{}
-	for _, t := range w.Transitions {
-		for _, from := range expandFrom(w, t.From) {
-			p := w.States[from].Agent()
-			if p == nil {
-				continue
-			}
-			pb, ok := c.Agents[p.Agent]
-			if !ok || agent.IsSession(pb) {
-				continue
-			}
-			_, pOver := c.override(p.Agent)
-			for _, g := range t.Groups {
-				for _, gname := range g.Gates {
-					for _, j := range c.judges(gname, w.Gates[gname]) {
-						jb, ok := c.Agents[j]
-						if !ok {
-							continue
-						}
-						if _, jOver := c.override(j); !jOver && !pOver {
-							continue
-						}
-						if !sameRunner(jb, pb) || sameRunner(c.tracked(j), c.tracked(p.Agent)) {
-							continue
-						}
-						key := j + "\x00" + p.Agent
-						if seen[key] {
-							continue
-						}
-						seen[key] = true
-						errs = append(errs, fmt.Errorf("%s: makes judge %q (gate %q) the same command and model as performer %q (state %q): both run %s model %q",
-							AgentsLocalFile, j, gname, p.Agent, from, agent.Preset(jb), jb.Model))
-					}
-				}
-			}
-		}
-	}
-	return errs
-}
-
-func expandFrom(w *workflow.Workflow, from []string) []string {
-	var out []string
-	for _, f := range from {
-		if f != workflow.AnyState {
-			out = append(out, f)
-			continue
-		}
-		for _, n := range sortedKeys(w.States) {
-			if st := w.States[n]; !st.Terminal && !st.Park {
-				out = append(out, n)
-			}
-		}
-	}
-	return out
 }
 
 func Validate(root string) []error {

@@ -21,9 +21,9 @@ low = ["r1"]
 high = ["r1", "r2"]
 `
 
-func reviewRoot(t *testing.T, rules string) string {
+func reviewRoot(t *testing.T, settings string) string {
 	t.Helper()
-	root := overrideRoot(t, rules, "")
+	root := overrideRoot(t, settings, "")
 	f, err := os.OpenFile(filepath.Join(root, "agents.toml"), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -108,18 +108,6 @@ func TestReviewProblems(t *testing.T) {
 	}
 	if _, err := Open(Options{Root: reviewRoot(t, bad)}); err == nil {
 		t.Error("the kernel opened with a bad [review]")
-	}
-	same := "[rules]\nreviewer_differs_from_performer = true\n[review]\ntier_tag = \"risk\"\n[review.panels.review]\nlow = [\"r3\"]\n"
-	root := reviewRoot(t, same)
-	f, _ := os.OpenFile(filepath.Join(root, "agents.toml"), os.O_APPEND|os.O_WRONLY, 0)
-	_, _ = f.WriteString("[agents.r3]\ncommand = \"cursor-agent\"\nmodel = \"big\"\ntools = [\"Read\"]\n")
-	f.Close()
-	var msgs []string
-	for _, e := range Validate(root) {
-		msgs = append(msgs, e.Error())
-	}
-	if all := strings.Join(msgs, "\n"); !strings.Contains(all, `judge "r3" runs model "big", the same as the performer`) {
-		t.Errorf("a review-panel judge with the performer's model: %q", all)
 	}
 }
 

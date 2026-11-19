@@ -10,9 +10,10 @@
 Permissions are tool grants, declared up front and enforced by the adapter. A
 binding that judges a gate must have a read-only grant on an adapter that
 enforces grants, and its grant must be one the adapter can express, or
-`satelle validate --session <session>` refuses the configuration. With
-`[rules] reviewer_differs_from_performer = true`, a judge may not run the model
-of the performer whose work it judges.
+`satelle validate --session <session>` refuses the configuration. Reviewer
+independence (a judge of another model family than the performer) is the
+repo's configuration, a check skill on the gates it chooses: see
+`satelle help workflows --session <session>`.
 
 Every dispatched performer is denied `satelle story set`, `satelle task set`
 and `satelle execution set`: a performer never moves an item itself.
@@ -120,9 +121,8 @@ agents.toml prescribes. A remote node never receives this file.
     model   = "gpt-5.6-sol-high"
 
 `satelle validate --session <session>` and `satelle doctor --session <session>` refuse an agent agents.toml does not
-define, a field outside the schema, an override that makes a binding invalid,
-and an override that makes a judge the same command and model as the performer
-it judges; each refusal names agents.local.toml. `satelle doctor --session <session>` lists every
+define, a field outside the schema, and an override that makes a binding
+invalid; each refusal names agents.local.toml. `satelle doctor --session <session>` lists every
 active override as a note, field by field, tracked -> effective. A
 `performer.run` records the command and model that ran, and a `gate.run` the
 judge's (each panel member's for a panel).

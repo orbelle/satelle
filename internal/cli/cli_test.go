@@ -91,6 +91,24 @@ func must(t *testing.T, args ...string) string {
 	return out
 }
 
+func TestHelpNamesTheIndependenceCheck(t *testing.T) {
+	isolate(t)
+	topics := map[string]string{}
+	for _, topic := range []string{"workflows", "agents", "configuration"} {
+		topics[topic] = must(t, "help", topic)
+	}
+	if !strings.Contains(topics["workflows"], "satelle-judge-differs-from-performer-check") {
+		t.Error("help workflows does not name satelle-judge-differs-from-performer-check")
+	}
+	for topic, text := range topics {
+		for _, gone := range []string{"reviewer_differs_from_performer", "[rules]", "reviewer-differs"} {
+			if strings.Contains(text, gone) {
+				t.Errorf("help %s still names %q", topic, gone)
+			}
+		}
+	}
+}
+
 func createID(t *testing.T, args ...string) string {
 	t.Helper()
 	var it item.Item

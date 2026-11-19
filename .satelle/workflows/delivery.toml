@@ -16,6 +16,11 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
+# The pull request waits here for the review task; no hold, so the wait spends
+# no reject round.
+[states.in_review]
+waits = "the pull-request review task (.satelle/tasks/pr-review.md), run for the item by a session other than the author's"
+
 [states.approved]
 enqueue = ["release"]
 
@@ -63,6 +68,9 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 [gates.definition-unchanged]
 skill = "satelle-definition-unchanged-check"
 
+[gates.judge-differs]
+skill = "satelle-judge-differs-from-performer-check"
+
 [gates.tree-unchanged]
 skill = "satelle-tree-unchanged-check"
 
@@ -107,8 +115,9 @@ placement = "remote:integration"
 timeout = "40m"
 
 # Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
-# on the head before any other gate of the presentation (the status skill's
-# gates= line names them).
+# on the head before any other gate of integration -> in_review (the status
+# skill posts for every gate whose after names it); the review run posts
+# satelle/pr-review.
 [gates.pr-pending]
 skill = "satelle-gate-status-publish"
 
@@ -116,16 +125,6 @@ skill = "satelle-gate-status-publish"
 skill = "satelle-pr-ready-check"
 # The status entry is last so it posts the result as it finally stands.
 after = ["satelle-gate-status-publish"]
-
-[gates.pr-review]
-skill = "satelle-code-ac-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
-combine = "all"
-carry = true
-# The review publish check stays before the status entry, so a verdict the
-# reasons rules refuse is not published as a review; the status entry is last
-# so it posts the result as it finally stands.
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-publish", "satelle-gate-status-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
@@ -190,15 +189,22 @@ groups = [
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["definition-unchanged", "binary-scope", "format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["definition-unchanged", "judge-differs", "binary-scope", "format-vet", "build-unit"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]
 
 [[transition]]
 from = ["integration"]
+to = "in_review"
+groups = [
+  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready"] },
+]
+
+[[transition]]
+from = ["in_review"]
 to = "approved"
 groups = [
-  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready", "pr-review", "pr-approval"] },
+  { mode = "sequential", gates = ["pr-approval"] },
 ]
 
 [[transition]]
@@ -209,7 +215,7 @@ groups = [
 ]
 
 [[transition]]
-from = ["integration", "approved"]
+from = ["integration", "in_review", "approved"]
 to = "in_progress"
 
 [[transition]]
@@ -217,7 +223,7 @@ from = ["in_progress"]
 to = "plan"
 
 [[transition]]
-from = ["backlog", "plan", "in_progress", "integration"]
+from = ["backlog", "plan", "in_progress", "integration", "in_review"]
 to = "blocked"
 
 [[transition]]

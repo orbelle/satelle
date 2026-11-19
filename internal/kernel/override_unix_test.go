@@ -26,10 +26,10 @@ model = "m1"
 tools = ["Read", "Grep", "Glob"]
 `
 
-func overrideRoot(t *testing.T, rules, local string) string {
+func overrideRoot(t *testing.T, settings, local string) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), ".satelle")
-	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"flow\"\n[items]\nprefix = { thing = \"th\" }\n"+rules)
+	write(t, filepath.Join(root, "satelle.toml"), "[workflows]\ndefault = \"flow\"\n[items]\nprefix = { thing = \"th\" }\n"+settings)
 	write(t, filepath.Join(root, "agents.toml"), overrideAgents)
 	write(t, filepath.Join(root, "skills", "review.md"), "Review the change.\n")
 	write(t, filepath.Join(root, "skills", "do.md"), "Do the work.\n")
@@ -171,28 +171,18 @@ func TestLocalOverrideRefusals(t *testing.T) {
 	}
 }
 
-func TestOverrideMayNotMakeAJudgeItsPerformer(t *testing.T) {
-	problems := func(rules, local string) string {
+func TestOverrideToThePerformersCommandAndModelValidates(t *testing.T) {
+	for _, local := range []string{
+		"[agents.r1]\ncommand = \"claude\"\nmodel = \"big\"\n",
+		"[agents.doer]\ncommand = \"grok\"\nmodel = \"m1\"\n",
+	} {
 		var msgs []string
-		for _, e := range Validate(overrideRoot(t, rules, local)) {
+		for _, e := range Validate(overrideRoot(t, "", local)) {
 			msgs = append(msgs, e.Error())
 		}
-		return strings.Join(msgs, "\n")
-	}
-	if p := problems("", "[agents.r1]\ncommand = \"claude\"\nmodel = \"big\"\n"); !strings.Contains(p, "agents.local.toml: makes judge \"r1\"") || !strings.Contains(p, "performer \"doer\"") {
-		t.Errorf("a judge made its performer: %q", p)
-	}
-	if p := problems("", "[agents.doer]\ncommand = \"grok\"\nmodel = \"m1\"\n"); !strings.Contains(p, "makes judge \"r1\"") {
-		t.Errorf("a performer made its judge: %q", p)
-	}
-	if p := problems("", "[agents.r1]\ncommand = \"/opt/bin/claude\"\nmodel = \"big\"\n"); !strings.Contains(p, "makes judge") {
-		t.Errorf("a path-qualified command is the same command: %q", p)
-	}
-	if p := problems("", "[agents.r1]\ncommand = \"claude\"\nmodel = \"other\"\n"); p != "" {
-		t.Errorf("a different model passes: %q", p)
-	}
-	if p := problems("[rules]\nreviewer_differs_from_performer = true\n", "[agents.r1]\nmodel = \"big\"\n"); !strings.Contains(p, "the same as the performer of \"work\" (agent \"doer\")") {
-		t.Errorf("with the setting on, a same-model override names judge and performer: %q", p)
+		if p := strings.Join(msgs, "\n"); p != "" {
+			t.Errorf("%q: validate %q, want no problem", local, p)
+		}
 	}
 }
 

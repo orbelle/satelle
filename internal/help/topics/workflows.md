@@ -77,7 +77,7 @@ warning colour. It still refuses the move (exit 2), but it is not a rejected
 round toward a hold, is not dissent, and is not handed to a re-run as a
 finding; carry never carries over it. A panel that does not pass is a reject
 when any member rejected, else an error. Other failures (a missing skill or
-agent, the reviewer-differs refusal, an answer with no verdict) stay rejects.
+agent, an answer with no verdict) stay rejects.
 
 Every model gate's verdict (a skill that is not `type: check`) records the
 change it saw: its base, head, branch and the hash of the diff alone. `story
@@ -103,6 +103,15 @@ fenced `sh` block runs with `SATELLE_ITEM`, `SATELLE_FROM`, `SATELLE_TO` and
 `SATELLE_BASE` set; exit 0 accepts, anything else rejects, and its output is the
 notes.
 
+Reviewer independence is the repo's configuration, not the binary's. `satelle
+init --session <session>` writes the check skill `satelle-judge-differs-from-performer-check` to
+`.satelle/skills`, and a repo opts in by naming it as the `skill` of a gate
+with no `agent` or `panel` on the transitions it chooses. It fails each gate
+where no judge is of another model family (claude, gpt, gemini, grok, its
+`FAMILIES` table) than the dispatched performer of the from-state: a single
+judge must differ, and a panel passes when one member differs. A session
+performer has no model in config and is not compared.
+
 A gate's `trigger` is a check skill whose exit decides relevance: exit 0 means
 relevant and the gate runs; exit 1 means not relevant, and the gate is recorded
 `skipped` with the trigger's output as its notes. Any other exit, or a trigger
@@ -116,8 +125,8 @@ A gate's `after` is a list of check skills run, in order, once the gate has a
 verdict: an accept or reject from its check or judge (every panel member
 answered), or a carry. They do not run on a skip, on an error, or on a reject
 that is a failure rather than a verdict (a missing skill or agent, a trigger
-that timed out or could not run, a coverage error, an answer with no verdict,
-the reviewer-differs refusal). Besides the check variables each sees
+that timed out or could not run, a coverage error, an answer with no
+verdict). Besides the check variables each sees
 `SATELLE_GATE`, `SATELLE_GATE_RESULT` (accept, reject or carried) and
 `SATELLE_GATE_BINDING`, and its stdin JSON adds `gate`, `result`, `binding`,
 `notes` and, for a judged gate, `members`: each judge's own `binding`,

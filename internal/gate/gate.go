@@ -103,24 +103,23 @@ type Run struct {
 	Agents     agent.Catalog
 	Dispatcher agent.Dispatcher
 
-	Dir             string
-	Base            string
-	Changed         []string
-	Untracked       []string
-	Coverage        func(paths []string) (coverage, change string, err error)
-	Span            Change
-	Diff            func(paths []string) (string, error)
-	Prior           []Result
-	ReviewerDiffers bool
-	Review          workflow.Review
-	CheckTimeout    time.Duration
-	Record          string
-	Remote          RemoteChecker
-	Head            Head
-	HeadErr         error
-	Logs            string
-	Started         func(seq int, gate string) error
-	Finished        func(seq int, res Result)
+	Dir          string
+	Base         string
+	Changed      []string
+	Untracked    []string
+	Coverage     func(paths []string) (coverage, change string, err error)
+	Span         Change
+	Diff         func(paths []string) (string, error)
+	Prior        []Result
+	Review       workflow.Review
+	CheckTimeout time.Duration
+	Record       string
+	Remote       RemoteChecker
+	Head         Head
+	HeadErr      error
+	Logs         string
+	Started      func(seq int, gate string) error
+	Finished     func(seq int, res Result)
 
 	skipWarning string
 	tier        string
@@ -575,12 +574,6 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 		res.Notes = fmt.Sprintf("agent %q is not in the catalog", name)
 		return res
 	}
-	if r.ReviewerDiffers {
-		if model := r.performerModel(); model != "" && model == b.Model {
-			res.Notes = fmt.Sprintf("refused: judge %q runs model %q, the same as the performer of %q", name, model, r.From)
-			return res
-		}
-	}
 	res.Command, res.Model = b.Command, b.Model
 	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
 	if r.Logs != "" {
@@ -602,14 +595,6 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 	res.Result, res.Notes, res.Class, res.verdict = v.Verdict, v.Notes, v.Class, parsed
 	res.judges = []judgeAnswer{{binding: name, result: v.Verdict, notes: v.Notes, answer: out.Text}}
 	return res
-}
-
-func (r Run) performerModel() string {
-	st, ok := r.Workflow.States[r.From]
-	if !ok || st.Agent() == nil {
-		return ""
-	}
-	return r.Agents[st.Agent().Agent].Model
 }
 
 func (r Run) prompt(g workflow.Gate) (string, error) {

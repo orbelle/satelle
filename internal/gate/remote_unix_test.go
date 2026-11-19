@@ -5,6 +5,7 @@ package gate
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -87,7 +88,12 @@ func TestRemoteCarryAndAfter(t *testing.T) {
 	r.Skills["publish"] = checkSkill(`echo "published $SATELLE_GATE_RESULT from $PWD"`)
 	f.out = RemoteOutcome{Node: "nod_2", Exit: 0}
 	rs, _ = r.Execute(context.Background())
-	if rs[0].Result != Accept || !strings.Contains(rs[0].Notes, "after publish: published accept from "+r.Dir) {
+	dir := r.Dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	if rs[0].Result != Accept || (!strings.Contains(rs[0].Notes, "after publish: published accept from "+r.Dir) &&
+		!strings.Contains(rs[0].Notes, "after publish: published accept from "+dir)) {
 		t.Fatalf("after: %+v", rs[0])
 	}
 }

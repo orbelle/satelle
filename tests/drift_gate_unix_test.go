@@ -229,8 +229,6 @@ kind = "execution"
 [[workflows.rule]]
 workflow = "standing"
 kind = "task"
-[rules]
-reviewer_differs_from_performer = true
 `)
 	s.write(".satelle/workflows/standing.toml", `name = "standing"
 [states.defined]

@@ -2,25 +2,29 @@
 name: satelle-gate-status-publish
 type: check
 after: always
-description: Posts the pull-request gates' results on the head as commit statuses (satelle/<gate>) through satelle.dev, as the satelle GitHub app (satelle github status), so a branch rule can require them pinned to the app (sto_4f698e3f). The check of the pr-pending gate (pending for every context, first on integration → approved) and the last after entry of pr-ready, pr-review and pr-approval (that gate's result, on every result: after always). Reads each post back from GitHub and names the account that posted it. Never refuses: a status that cannot be posted is named in the notes and the gate's result stands. Deterministic, no agent.
+description: Posts the pull-request gates' results on the head as commit statuses (satelle/<gate>) through satelle.dev, as the satelle GitHub app (satelle github status), so a branch rule can require them pinned to the app. The gates it posts for are the ones whose after list names it, read from the repo's workflows. The check of the pending gate (pending for every such gate's context, first on the move into review) and the last after entry of each such gate (that gate's result, on every result: after always). Reads each post back from GitHub and names the account that posted it. Never refuses: a status that cannot be posted is named in the notes and the gate's result stands. Deterministic, no agent.
 ---
 
 # Gate status publish (satelle/<gate> on the head)
 
-The branch rule on main requires `satelle/pr-ready`, `satelle/pr-review` and
-`satelle/pr-approval`, each pinned to the satelle GitHub app (app 5379260), so
-only the app may post them. This check posts them through satelle.dev, which
-acts as the app on the repository the project is bound to.
+A branch rule on the base branch can require these contexts, each pinned to
+the satelle GitHub app (app 5379260), so only the app may post them. This
+check posts them through satelle.dev, which acts as the app on the repository
+the project is bound to.
 
-- **Which contexts.** The `gates=` line below owns them; each is
-  `satelle/<gate>` on HEAD (`git rev-parse HEAD`).
-- **Pending mode** (the `pr-pending` gate's own check, `SATELLE_GATE` unset):
+- **Which contexts.** The gates whose `after` list names this skill own them,
+  in any workflow under `.satelle/workflows` (read with
+  `satelle workflow show <name> --json --session <session>`); each is `satelle/<gate>` on HEAD
+  (`git rev-parse HEAD`). The skill writes no gate name but its own.
+- **Pending mode** (the pending gate's own check, `SATELLE_GATE` unset):
   posts `pending` for every context, so no success from an earlier
   presentation of the same head stays green while this one runs, and a gate
-  this presentation never reaches keeps `pending`.
-- **Gate mode** (an `after` entry, `SATELLE_GATE` set): reads the gate's
-  result and notes from stdin, as the result stands once the entries before it
-  have run, and posts `success` for accept, carried or skipped, `failure` for
+  this presentation never reaches keeps `pending`. A workflow that cannot be
+  read is a line in the notes; with no gate naming this skill it posts nothing.
+- **Gate mode** (an `after` entry, `SATELLE_GATE` set): posts
+  `satelle/$SATELLE_GATE`; the kernel runs an after entry only for a gate
+  whose `after` names it. It reads the gate's result and notes from stdin,
+  as the result stands once the entries before it have run, and posts `success` for accept, carried or skipped, `failure` for
   reject and `error` for anything else. The description is
   `<result> (<from>-><to>): <first line of the notes>`, cut to GitHub's 140
   characters. Listed last, so an accept the verdict rules refuse posts as
@@ -36,7 +40,7 @@ acts as the app on the repository the project is bound to.
 ```sh
 #!/usr/bin/env bash
 set -u
-gates="pr-ready pr-review pr-approval"
+self=satelle-gate-status-publish
 for tool in jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so no status is posted"; exit 0; }
 done
@@ -46,7 +50,22 @@ post() { # context state description
   satelle github status --sha "$head" --context "$1" --state "$2" --description "$3" --json 2>&1
 }
 if [ -z "${SATELLE_GATE:-}" ]; then
-  for g in $gates; do
+  posting=
+  for f in .satelle/workflows/*.toml; do
+    [ -e "$f" ] || continue
+    w=$(basename "$f" .toml)
+    if ! shown=$(satelle workflow show "$w" --json 2>/dev/null); then
+      echo "workflow $w could not be read, so its gates get no pending status"
+      continue
+    fi
+    posting="$posting $(printf '%s' "$shown" | jq -r --arg s "$self" '(.gates // {}) | to_entries[] | select(any((.value.After // [])[]; . == $s)) | .key')"
+  done
+  posting=$(printf '%s\n' $posting | sort -u)
+  if [ -z "$posting" ]; then
+    echo "no gate's after names $self, so no pending status is posted"
+    exit 0
+  fi
+  for g in $posting; do
     if out=$(post "satelle/$g" pending "pending ($SATELLE_FROM->$SATELLE_TO): gates running"); then
       echo "satelle/$g pending on $short"
     else
@@ -55,10 +74,6 @@ if [ -z "${SATELLE_GATE:-}" ]; then
   done
   exit 0
 fi
-case " $gates " in
-  *" $SATELLE_GATE "*) ;;
-  *) echo "gate $SATELLE_GATE posts no status (not on the gates= line)"; exit 0 ;;
-esac
 in=$(cat)
 result=$(printf '%s' "$in" | jq -r '.result // empty')
 case "$result" in

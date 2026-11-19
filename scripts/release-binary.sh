@@ -12,9 +12,9 @@ rec_lines=()
 
 finish() {
   echo "binary: $1"
-  printf '%s\n' "${rec_head[@]}"
+  printf '%s\n' ${rec_head[@]+"${rec_head[@]}"}
   [ -n "$rec_reason" ] && echo "reason: $rec_reason"
-  [ ${#rec_lines[@]} -gt 0 ] && printf '%s\n' "${rec_lines[@]}"
+  [ ${#rec_lines[@]} -gt 0 ] && printf '%s\n' ${rec_lines[@]+"${rec_lines[@]}"}
   exit 0
 }
 
@@ -57,10 +57,12 @@ decide() {
   done
 
   local changed
-  changed=$(for sha in "${bases[@]}"; do git -C "$dir" diff --name-only --no-renames "$sha" HEAD || echo "$(printf '\001')"; done | sort -u)
+  changed=$(for sha in ${bases[@]+"${bases[@]}"}; do git -C "$dir" diff --name-only --no-renames "$sha" HEAD || echo "$(printf '\001')"; done | sort -u)
   case $changed in *$'\001'*) doubt "git diff from the tags failed" "build version .version" ;; esac
-  local paths=()
-  [ -n "$changed" ] && mapfile -t paths <<<"$changed"
+  local paths=() q
+  if [ -n "$changed" ]; then
+    while IFS= read -r q; do paths+=("$q"); done <<<"$changed"
+  fi
 
   local wfline="build workflow .github/workflows/release.yml"
   local yml="$dir/.github/workflows/release.yml"
@@ -79,8 +81,8 @@ decide() {
     if [ -z "$p" ] || [ -z "$o" ] || [ -z "$a" ]; then
       doubt "a release.yml include entry lacks pkg, goos or goarch: $(printf '%s' "$e" | sed 's/^[[:space:]]*//')" "$wfline"
     fi
-    case " ${pkgs[*]} " in *" $p "*) ;; *) pkgs+=("$p") ;; esac
-    case " ${targets[*]} " in *" $o/$a "*) ;; *) targets+=("$o/$a") ;; esac
+    case " ${pkgs[*]:-} " in *" $p "*) ;; *) pkgs+=("$p") ;; esac
+    case " ${targets[*]:-} " in *" $o/$a "*) ;; *) targets+=("$o/$a") ;; esac
   done <<<"$entries"
   local cgo gover
   cgo=$(sed -n "s/^[[:space:]]*CGO_ENABLED:[[:space:]]*['\"]\\{0,1\\}\\([0-9]\\)['\"]\\{0,1\\}[[:space:]]*\$/\\1/p" "$yml" | head -1)
@@ -92,24 +94,24 @@ decide() {
     grep -qF -- "$name" "$yml" && doubt "release.yml sets $name, which the decision does not reproduce" "$wfline"
   done
 
-  local underived=() q
-  for q in "${paths[@]}"; do underived+=("build underived $q"); done
+  local underived=()
+  for q in ${paths[@]+"${paths[@]}"}; do underived+=("build underived $q"); done
   local goenv
-  err=$(mktemp) || doubt "the build set could not be derived: mktemp failed" "${underived[@]}"
+  err=$(mktemp) || doubt "the build set could not be derived: mktemp failed" ${underived[@]+"${underived[@]}"}
   trap 'rm -f "$err"' EXIT
   goenv=$(go env GOPATH GOMODCACHE GOCACHE GOPROXY GONOPROXY GOPRIVATE GONOSUMDB GOSUMDB 2>"$err") ||
-    doubt "the build set could not be derived: go env: $(tr '\n' ' ' <"$err")" "${underived[@]}"
+    doubt "the build set could not be derived: go env: $(tr '\n' ' ' <"$err")" ${underived[@]+"${underived[@]}"}
   local gv=()
-  mapfile -t gv <<<"$goenv"
+  while IFS= read -r q; do gv+=("$q"); done <<<"$goenv"
   local clean=(env -i "PATH=$PATH" "HOME=${HOME:-}" "TMPDIR=${TMPDIR:-/tmp}" GOENV=off
     "GOPATH=${gv[0]:-}" "GOMODCACHE=${gv[1]:-}" "GOCACHE=${gv[2]:-}" "GOPROXY=${gv[3]:-}"
     "GONOPROXY=${gv[4]:-}" "GOPRIVATE=${gv[5]:-}" "GONOSUMDB=${gv[6]:-}" "GOSUMDB=${gv[7]:-}"
     "CGO_ENABLED=$cgo")
 
   local first=${targets[0]} goversion mm want
-  goversion=$("${clean[@]}" "GOOS=${first%/*}" "GOARCH=${first#*/}" go env GOVERSION 2>"$err") ||
-    doubt "the build set could not be derived: go env GOVERSION: $(tr '\n' ' ' <"$err")" "${underived[@]}"
-  rec_head+=("go: $goversion" "targets: ${targets[*]}")
+  goversion=$(${clean[@]+"${clean[@]}"} "GOOS=${first%/*}" "GOARCH=${first#*/}" go env GOVERSION 2>"$err") ||
+    doubt "the build set could not be derived: go env GOVERSION: $(tr '\n' ' ' <"$err")" ${underived[@]+"${underived[@]}"}
+  rec_head+=("go: $goversion" "targets: ${targets[*]:-}")
   mm=$(printf '%s' "$goversion" | sed -n 's/^go\([0-9]*\.[0-9]*\).*/\1/p')
   want=$(printf '%s' "$gover" | sed -n 's/^\([0-9]*\.[0-9]*\).*/\1/p')
   [ -n "$want" ] || want=$gover
@@ -117,9 +119,9 @@ decide() {
     doubt "release.yml builds with go $gover; this machine lists with ${mm:-$goversion}" "$wfline"
 
   local t files all=
-  for t in "${targets[@]}"; do
-    files=$(cd "$dir" && "${clean[@]}" "GOOS=${t%/*}" "GOARCH=${t#*/}" bash "$dir/scripts/check-serve-version.sh" --files "${pkgs[@]}" 2>"$err") ||
-      doubt "the build set could not be derived: $t: $(tr '\n' ' ' <"$err" | sed 's/[[:space:]]*$//')" "${underived[@]}"
+  for t in ${targets[@]+"${targets[@]}"}; do
+    files=$(cd "$dir" && ${clean[@]+"${clean[@]}"} "GOOS=${t%/*}" "GOARCH=${t#*/}" bash "$dir/scripts/check-serve-version.sh" --files ${pkgs[@]+"${pkgs[@]}"} 2>"$err") ||
+      doubt "the build set could not be derived: $t: $(tr '\n' ' ' <"$err" | sed 's/[[:space:]]*$//')" ${underived[@]+"${underived[@]}"}
     all="$all$files"$'\n'
   done
   local built excl pats
@@ -130,7 +132,7 @@ decide() {
   dirs=$(printf '%s\n%s\n' "$built" "$excl" | awk 'NF { n = split($0, s, "/"); d = "."; if (n > 1) { d = s[1]; for (i = 2; i < n; i++) d = d "/" s[i] } print d }' | sort -u)
 
   local path rule present inarea d pat builds=() others=()
-  for path in "${paths[@]}"; do
+  for path in ${paths[@]+"${paths[@]}"}; do
     present=0
     git -C "$dir" cat-file -e "HEAD:$path" 2>/dev/null && present=1
     inarea=0
@@ -165,7 +167,7 @@ decide() {
     fi
     if [ -n "$rule" ]; then builds+=("build $rule $path"); else others+=("other $path"); fi
   done
-  rec_lines=("${builds[@]}" "${others[@]}")
+  rec_lines=(${builds[@]+"${builds[@]}"} ${others[@]+"${others[@]}"})
 
   if [ ${#builds[@]} -gt 0 ]; then finish changed; fi
   finish unchanged
