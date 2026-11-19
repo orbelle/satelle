@@ -219,16 +219,12 @@ func loadGlobalAt(path string) (GlobalConfig, error) {
 		return GlobalConfig{}, fmt.Errorf("config: read %s: %w", path, err)
 	}
 	var gc GlobalConfig
-	if _, err := toml.Decode(string(b), &gc); err != nil {
+	md, err := toml.Decode(string(b), &gc)
+	if err != nil {
 		return GlobalConfig{}, fmt.Errorf("config: parse %s: %w", path, err)
 	}
-	var legacy struct {
-		Old struct {
-			Repos []string `toml:"repos"`
-		} `toml:"workspace"`
-	}
-	if _, err := toml.Decode(string(b), &legacy); err == nil && len(gc.Projects.Paths) == 0 {
-		gc.Projects.Paths = legacy.Old.Repos
+	if md.IsDefined("workspace") {
+		return GlobalConfig{}, fmt.Errorf("config: %s has a [workspace] table, which satelle no longer reads: list this machine's projects as [projects] paths = [\"/path/to/repo\", ...] and delete [workspace]", path)
 	}
 	return gc, nil
 }
