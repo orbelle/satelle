@@ -78,9 +78,7 @@ func TestLandingRendersStandingSyncFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now()); err != nil {
@@ -145,9 +143,7 @@ func TestProjectPageRendersStandingSyncFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now()); err != nil {
@@ -185,9 +181,7 @@ func TestLandingUpdatedCellIsLocalOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now().Add(-time.Hour)); err != nil {
@@ -221,9 +215,7 @@ func TestProjectPageNamesBothTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now().Add(-time.Hour)); err != nil {
@@ -257,9 +249,7 @@ func TestLandingRendersLocalOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: syncstate.LocalStore}, time.Now()); err != nil {
@@ -313,9 +303,7 @@ func renderLocalAfter(t *testing.T, path string, record func(home, repo string) 
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := record(config.GlobalDir(), repo); err != nil {
@@ -373,7 +361,16 @@ func projectPageWithSync(t *testing.T, record func(repo string)) string {
 	return pageWithSync(t, "/r/demo/", record)
 }
 
+func identityRow(repo string) mirror.ItemRow {
+	return mirror.ItemRow{ID: "meta", Payload: string(raw(mirror.IdentityMeta{ProjectName: "demo", RepoRoot: repo}))}
+}
+
 func pageWithSync(t *testing.T, path string, record func(repo string)) string {
+	t.Helper()
+	return pageWithSyncAt(t, path, t.TempDir(), record)
+}
+
+func pageWithSyncAt(t *testing.T, path, repo string, record func(repo string)) string {
 	t.Helper()
 	isolateHome(t)
 	rk := addedProject(t, "demo")
@@ -386,10 +383,7 @@ func pageWithSync(t *testing.T, path string, record func(repo string)) string {
 	if _, err := s.TouchPartition(ctx, rk, "demo", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	repo := t.TempDir()
-	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{{
-		ID: "meta", Payload: `{"project_name":"demo","repo_root":"` + repo + `"}`,
-	}}, time.Now()); err != nil {
+	if err := s.ReplaceKind(ctx, rk, "identity", []mirror.ItemRow{identityRow(repo)}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	record(repo)
@@ -501,4 +495,19 @@ func sectionOf(t *testing.T, body, open string) string {
 		rest = rest[:j]
 	}
 	return rest
+}
+
+func TestSyncStateFollowsBackslashRepoRoot(t *testing.T) {
+	const repo = `C:\Users\runner\AppData\Local\Temp\demo\001`
+	record := func(repo string) {
+		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "hosted 505"}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body := pageWithSyncAt(t, "/r/demo/", repo, record); !strings.Contains(body, `remote: <span class="sync-fail">sync failing`) {
+		t.Errorf("project page with a backslash repo root must read sync failing:\n%s", body)
+	}
+	if cell := updatedCell(t, pageWithSyncAt(t, "/", repo, record)); !strings.Contains(cell, "Sync Failing") {
+		t.Errorf("landing with a backslash repo root lacks Sync Failing:\n%s", cell)
+	}
 }
