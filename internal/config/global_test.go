@@ -7,29 +7,36 @@ import (
 	"testing"
 )
 
-func TestLegacyWorkspaceTableMigratesToProjects(t *testing.T) {
+func TestWorkspaceTableIsRefused(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SATELLE_HOME", home)
 	path := filepath.Join(home, GlobalConfigName)
-	if err := os.WriteFile(path, []byte("[workspace]\nrepos = [\"/a\", \"/b\"]\n"), 0o644); err != nil {
+	for _, body := range []string{
+		"[workspace]\nrepos = [\"/a\", \"/b\"]\n",
+		"[projects]\npaths = [\"/new\"]\n[workspace]\nrepos = [\"/old\"]\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gc, err := LoadGlobal()
+		if err == nil || !strings.Contains(err.Error(), "[workspace]") || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "[projects] paths") {
+			t.Fatalf("%q: want a refusal naming [workspace], %s and [projects] paths; got %v", body, path, err)
+		}
+		if len(gc.Projects.Paths) != 0 {
+			t.Fatalf("%q: refused config still yields projects %v", body, gc.Projects.Paths)
+		}
+	}
+}
+
+func TestProjectsTableLoads(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SATELLE_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, GlobalConfigName), []byte("[projects]\npaths = [\"/a\", \"/b\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gc, err := LoadGlobal()
 	if err != nil || strings.Join(gc.Projects.Paths, ",") != "/a,/b" {
 		t.Fatalf("loaded projects %v (%v)", gc.Projects.Paths, err)
-	}
-	if err := SaveGlobal(gc); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), "[projects]") || !strings.Contains(string(b), `paths = ["/a", "/b"]`) || strings.Contains(string(b), "[workspace]") {
-		t.Fatalf("saved config:\n%s", b)
-	}
-	if err := os.WriteFile(path, []byte("[projects]\npaths = [\"/new\"]\n[workspace]\nrepos = [\"/old\"]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if gc, err := LoadGlobal(); err != nil || strings.Join(gc.Projects.Paths, ",") != "/new" {
-		t.Fatalf("with both tables, projects = %v (%v)", gc.Projects.Paths, err)
 	}
 }
 
