@@ -691,12 +691,17 @@ seat.
 
 Clearing worktrees is part of the workflow (operator, 2026-11-06): from the
 main checkout (not a linked worktree, which the cleanup may remove), run the
-cleanup task and follow its run to done:
+cleanup task and follow its run to done. Step 4 moved origin/main, not the
+main checkout, so the block first fast-forwards the checkout to origin/main
+(`git merge --ff-only`, never a merge commit); otherwise the run's
+`--base origin/main` is not in HEAD's history and its move to in_progress and
+its seat are refused:
 
 ```sh
 session=<session>
 cd <the main checkout>
 git fetch -q origin
+git merge --ff-only origin/main || { echo "the main checkout cannot fast-forward to origin/main: the cleanup run's base must be in its history" >&2; exit 1; }
 task=tas_b3424a1c
 exe=$(satelle task run "$task" --base origin/main --json --session "$session" | jq -r '.id // empty')
 [ -n "$exe" ] || { echo "could not start a run of $task" >&2; exit 1; }
