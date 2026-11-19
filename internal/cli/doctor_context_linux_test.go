@@ -36,10 +36,48 @@ func contextReport(t *testing.T) (issues []doctorIssue, notes []string, err erro
 	return issues, notes, err
 }
 
+func padInject(t *testing.T, f *doctorFixture) {
+	t.Helper()
+	writeFile(t, filepath.Join(f.dir, "plain.md"), "# Plain title\n\n"+indexNonceB+"\n\n"+strings.Repeat("filler line for an inline form larger than the index\n", 80))
+}
+
+func indexedNote(harness string, inline, limit int) string {
+	return fmt.Sprintf("context: %s: the session-start context is %d bytes with every [hook] inject file inline, over its limit of %d bytes (.satelle/harness.toml [%s] context_limit_bytes); a session receives the files as an index", harness, inline, limit, harness)
+}
+
+func TestDoctorNotesAnIndexedHarness(t *testing.T) {
+	f := indexFixture(t)
+	padInject(t, f)
+	_, inline := f.context(t, hook.Claude)
+	limit := len(inline) - 1
+	f.limit(t, hook.Claude, limit)
+	_, raw := f.context(t, hook.Claude)
+	if len(raw) > limit {
+		t.Fatalf("the fixture's index form is %d bytes, over the limit %d", len(raw), limit)
+	}
+	for _, l := range []int{limit, len(raw)} {
+		f.limit(t, hook.Claude, l)
+		issues, notes, err := contextReport(t)
+		want := indexedNote(hook.Claude, len(inline), l)
+		if len(issues) != 0 || len(notes) != 1 || notes[0] != want {
+			t.Fatalf("limit %d: want no context issue and the note %q, got %+v and %q (err %v)", l, want, issues, notes, err)
+		}
+		if !strings.Contains(notes[0], "a session receives the files as an index") {
+			t.Errorf("limit %d: the note does not say a session receives an index: %q", l, notes[0])
+		}
+		if text, _ := run(t, "", "doctor", "--session", "s-hook"); !strings.Contains(text, "note: "+want+"\n") {
+			t.Errorf("limit %d: plain doctor does not print the note:\n%s", l, text)
+		}
+	}
+}
+
 func TestDoctorReportsContextOverTheLimit(t *testing.T) {
 	f := indexFixture(t)
+	padInject(t, f)
 	_, inline := f.context(t, hook.Claude)
 	f.limit(t, hook.Claude, len(inline)-1)
+	_, raw := f.context(t, hook.Claude)
+	f.limit(t, hook.Claude, len(raw)-1)
 	issues, notes, err := contextReport(t)
 	if len(issues) != 1 || len(notes) != 0 {
 		t.Fatalf("want one context issue and no context note, got %+v and %q", issues, notes)
@@ -49,15 +87,14 @@ func TestDoctorReportsContextOverTheLimit(t *testing.T) {
 	}
 	is := issues[0]
 	for _, want := range []string{
-		"claude: the session-start context is " + strconv.Itoa(len(inline)) + " bytes with every [hook] inject file inline",
-		"over its limit of " + strconv.Itoa(len(inline)-1) + " bytes (.satelle/harness.toml [claude] context_limit_bytes)",
-		"a session receives each of these as an index line: .satelle/skills/inject-described.md, plain.md, missing.md",
+		"claude: the session-start context is " + strconv.Itoa(len(raw)) + " bytes as an index of the [hook] inject files",
+		"over its limit of " + strconv.Itoa(len(raw)-1) + " bytes (.satelle/harness.toml [claude] context_limit_bytes)",
 	} {
 		if !strings.Contains(is.Problem, want) {
 			t.Errorf("the problem lacks %q:\n%s", want, is.Problem)
 		}
 	}
-	if !strings.Contains(is.Fix, kernel.HarnessFile) || !strings.Contains(is.Fix, "[hook] inject") || is.Resolve != "" {
+	if !strings.Contains(is.Fix, kernel.HarnessFile) || !strings.Contains(is.Fix, kernel.SessionFile) || !strings.Contains(is.Fix, "[hook] inject") || is.Resolve != "" {
 		t.Errorf("fix %q, resolve %q", is.Fix, is.Resolve)
 	}
 	out, _ := run(t, "", "doctor", "--resolve", "--json", "--session", "s-hook")
@@ -141,7 +178,7 @@ func TestDoctorContextCheckIsNotInTheHooksOwnBlock(t *testing.T) {
 	f.limit(t, hook.Claude, len(inline)-1)
 	ctx, raw := f.context(t, hook.Claude)
 	hasAll(t, "index form", ctx, indexReadLine, "check:fixture-check (1): one")
-	hasNone(t, "the hook's own doctor block", raw, "with every [hook] inject file inline", checkContextName+" (1)")
+	hasNone(t, "the hook's own doctor block", raw, "the session-start context is", checkContextName+" (1)")
 	if err := os.Remove(filepath.Join(f.dir, "FAIL")); err != nil {
 		t.Fatal(err)
 	}

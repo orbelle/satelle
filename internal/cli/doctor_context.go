@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/kernel"
 )
 
 const checkContextName = "context"
@@ -19,6 +21,7 @@ func checkContext(ctx context.Context, in *doctorInput) ([]doctorIssue, []string
 		Session: sessionFromEnv(), Dir: filepath.Dir(in.r.DataDir), Settings: in.cfg.Settings, Harness: in.cfg.Harness,
 		Seats: func(session string) []seatView { return ledgerSeats(in, session) },
 	}
+	harnessPath := path.Join(".satelle", kernel.HarnessFile)
 	var issues []doctorIssue
 	var notes []string
 	for _, h := range harnessesInUse(in.r.Tree, in.cfg.Agents) {
@@ -27,16 +30,16 @@ func checkContext(ctx context.Context, in *doctorInput) ([]doctorIssue, []string
 		}
 		text, notice, idx := renderSession(in.r, src, h, true)
 		switch {
+		case idx != nil && emittedBytes(h, text, notice) <= idx.Limit:
+			notes = append(notes, fmt.Sprintf("%s: %s: the session-start context is %d bytes with every [hook] inject file inline, over its limit of %d bytes (%s [%s] context_limit_bytes); a session receives the files as an index",
+				checkContextName, h, idx.InlineBytes, idx.Limit, harnessPath, h))
 		case idx != nil:
-			paths := make([]string, 0, len(idx.Entries))
-			for _, e := range idx.Entries {
-				paths = append(paths, e.Path)
-			}
 			issues = append(issues, doctorIssue{
 				Check: checkContextName,
-				Problem: fmt.Sprintf("%s: the session-start context is %d bytes with every [hook] inject file inline, over its limit of %d bytes (.satelle/harness.toml [%s] context_limit_bytes); a session receives each of these as an index line: %s",
-					h, idx.InlineBytes, idx.Limit, h, strings.Join(paths, ", ")),
-				Fix: fmt.Sprintf("cut or move files out of [hook] inject in .satelle/satelle.toml, or raise [%s] context_limit_bytes in .satelle/harness.toml", h),
+				Problem: fmt.Sprintf("%s: the session-start context is %d bytes as an index of the [hook] inject files, over its limit of %d bytes (%s [%s] context_limit_bytes)",
+					h, emittedBytes(h, text, notice), idx.Limit, harnessPath, h),
+				Fix: fmt.Sprintf("raise [%s] context_limit_bytes in %s, or shorten what the index carries: %s, the description of each [hook] inject file, or the [hook] inject list in .satelle/satelle.toml",
+					h, harnessPath, path.Join(".satelle", kernel.SessionFile)),
 			})
 		case in.cfg.Harness[h].ContextLimitBytes > 0:
 		default:
