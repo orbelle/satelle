@@ -236,4 +236,3 @@ satelle help ledger-store). With [ledger] store = "local" nothing replicates.`,
 }
 
 var errNotBound = errors.New("this repo is not bound to a project; run `satelle project bind <project>`")
-

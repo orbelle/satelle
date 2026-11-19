@@ -117,4 +117,3 @@ func storiesOn(t *testing.T, m machine) string {
 	}
 	return string(b)
 }
-
