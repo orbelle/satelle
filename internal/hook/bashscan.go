@@ -1409,7 +1409,7 @@ func shellArgWords(toks []bashTok) []string {
 			joined = false
 			continue
 		}
-		if joined && toks[i-1].End == t.Start && !substitutionEdge(out[len(out)-1], t) {
+		if joined && toks[i-1].End == t.Start && !substitutionEdge(toks[i-1], t) {
 			out[len(out)-1] += part
 		} else {
 			out = append(out, part)
@@ -1419,14 +1419,14 @@ func shellArgWords(toks []bashTok) []string {
 	return out
 }
 
-func substitutionEdge(prev string, t bashTok) bool {
-	if strings.HasSuffix(prev, ")") || strings.HasSuffix(prev, "`") {
+func substitutionEdge(prev, t bashTok) bool {
+	if prev.Kind == "word" && (strings.HasSuffix(prev.Value, ")") || strings.HasSuffix(prev.Value, "`")) {
 		return true
 	}
 	if t.Kind != "word" {
 		return false
 	}
-	for _, p := range []string{"$(", "<(", ">(", "`"} {
+	for _, p := range []string{"$(", "<(", ">(", "`", ")"} {
 		if strings.HasPrefix(t.Value, p) {
 			return true
 		}

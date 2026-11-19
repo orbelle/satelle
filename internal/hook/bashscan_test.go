@@ -125,6 +125,7 @@ var notOperatorRecordCases = []string{
 }
 
 var operatorRecordStoryTextCases = []string{
+	`satelle story set sto_1 --criteria 'Given (0444)'"record"`,
 	"satelle story set sto_1 --title 'A run record folder (0444) left by a killed run' --criteria 'Given a satelle run, When its record folder (0444) is left by a killed run, Then the next run removes it' --replace --session s",
 	`satelle story create --title "The guard lets a story set whose text holds parentheses and the word record through" --criteria "Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it" --json --session s`,
 	"satelle story create \\\n  --title \"The guard lets a story set whose text holds parentheses and the word record through\" \\\n  --criteria \"Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it\" \\\n  --json --session s",
@@ -147,6 +148,8 @@ var operatorRecordEscapedCases = []string{
 	`echo 'x'$(satelle story record sto_1)`,
 	"echo \"a\"`satelle story record sto_1`",
 	`echo $(satelle story record)"x"`,
+	`echo $(satelle story 'record')x`,
+	`echo $(satelle story 'record')$(echo ok)`,
 }
 
 func TestTokenizeBashBackslash(t *testing.T) {
