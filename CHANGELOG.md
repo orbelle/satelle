@@ -1,3 +1,9 @@
+## [1.0.97] - 2026-11-19
+
+### Fixed
+- `satelle help satelle` no longer says a gate's `applies_to` can select on the `surface:` tag; no gate key selects on a tag (sto_faab0617)
+- The ledger-store adapter script test treats a shellcheck on PATH that cannot run (such as a tool-manager shim with no version set) as not installed and checks the script with sh -n only (sto_175d5b27)
+
 ## [1.0.96] - 2026-11-19
 
 ### Added
