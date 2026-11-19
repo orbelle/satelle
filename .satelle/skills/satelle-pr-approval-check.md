@@ -49,9 +49,16 @@ line below.
 set -u
 app=5379260
 app_account=344745317
-for tool in gh jq git satelle sha256sum; do
+for tool in gh jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the review cannot be read"; exit 1; }
 done
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256; }
+else
+  echo "neither sha256sum nor shasum is installed, so the review cannot be read"; exit 1
+fi
 story=$SATELLE_ITEM
 # base branch: begin
 route=$(satelle story route "$story" --json 2>&1) || { echo "could not read the route of $story: $route"; exit 1; }
@@ -115,7 +122,7 @@ case "$state" in
     ;;
   CHANGES_REQUESTED)
     body=$(printf '%s' "$review" | jq -r '.body // ""')
-    sum=$(printf '%s' "$body" | sha256sum | cut -d' ' -f1)
+    sum=$(printf '%s' "$body" | sha256 | cut -d' ' -f1)
     latest=$(satelle story attachments "$SATELLE_ITEM" --json | jq -r '[.[] | select(.name == "pr-review")] | last | .sha256 // empty')
     if [ "$latest" != "$sum" ]; then
       printf '%s' "$body" | satelle story attach "$SATELLE_ITEM" --name pr-review --type text/markdown --file - >/dev/null ||

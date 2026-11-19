@@ -40,9 +40,16 @@ then the run does not reach done.
 ```sh
 #!/usr/bin/env bash
 set -u
-for tool in gh jq git satelle sha256sum; do
+for tool in gh jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the review cannot be published"; exit 1; }
 done
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256; }
+else
+  echo "neither sha256sum nor shasum is installed, so the review cannot be published"; exit 1
+fi
 in=$(cat)
 result=$(printf '%s' "$in" | jq -r '.result // empty')
 notes=$(printf '%s' "$in" | jq -r '.notes // empty')
@@ -99,7 +106,7 @@ esac
 slug=$(satelle project show 2>&1 | sed -n 's/^slug: *//p')
 [ -n "$slug" ] || { echo "satelle project show named no project: bind this repo (satelle project bind <project> --session <session>)"; exit 1; }
 body=$(printf 'satelle · project %s · gate %s (%s) on %s head %s, review run %s: %s\n\n%s' "$slug" "$SATELLE_GATE" "$SATELLE_GATE_BINDING" "$story" "$short" "$SATELLE_ITEM" "$verdict" "$notes")
-sum=$(printf '%s' "$body" | sha256sum | cut -d' ' -f1)
+sum=$(printf '%s' "$body" | sha256 | cut -d' ' -f1)
 recorded=$(satelle ledger list "$story" --kind github.review --json | jq -c --arg h "$head" '[.[] | .payload | select(.commit_sha == $h)]') ||
   { echo "could not read the github.review events of $story"; exit 1; }
 if [ "$event" = APPROVE ]; then
