@@ -21,6 +21,7 @@ type Git interface {
 	ChangedPaths(base string) ([]string, error)
 	Untracked() ([]string, error)
 	Diff(base string, paths []string) (string, error)
+	StatPaths(base string) ([]gitfacts.FileStat, error)
 }
 
 type Kernel struct {

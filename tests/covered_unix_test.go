@@ -338,3 +338,123 @@ func TestDoneFromMainAfterALandingIsAccepted(t *testing.T) {
 		}
 	}
 }
+
+type statJSON struct {
+	Paths []string `json:"paths"`
+	Stat  []struct {
+		Path    string `json:"path"`
+		Added   *int   `json:"added"`
+		Removed *int   `json:"removed"`
+		Binary  bool   `json:"binary"`
+	} `json:"stat"`
+	Total struct {
+		Files   int `json:"files"`
+		Added   int `json:"added"`
+		Removed int `json:"removed"`
+	} `json:"total"`
+	Frozen bool `json:"frozen"`
+}
+
+func TestDiffStatCountsEachPath(t *testing.T) {
+	t.Parallel()
+	s := coveredSandbox(t, false)
+	id := s.create("story", "--title", "stat").ID
+	s.must("story", "set", id, "--status", "work")
+	s.must("story", "seat", id, "--session", "s1")
+	s.commitFile("web/a.go", "package web\n\nfunc A() {}\n")
+	s.commitFile("web/logo.bin", "\x00\x01\x02\x00")
+	s.write("web/a.go", "package web\n\nfunc A() {}\n\nfunc B() {}\n")
+	s.write(".satelle/skills/code-ac.md", "Review the change.\nAgainst the criteria.\n")
+	s.write("scratch.txt", "untracked\n")
+
+	want := []string{
+		".satelle/skills/code-ac.md\t+2\t-1",
+		"web/a.go\t+5\t-0",
+		"web/logo.bin\tbinary",
+		"untracked: scratch.txt",
+		"total: 3 changed, +7 -1",
+	}
+	got := strings.Split(strings.TrimSuffix(s.must("story", "diff", id, "--stat"), "\n"), "\n")
+	if !slices.Equal(got, want) {
+		t.Fatalf("diff --stat =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var plain []string
+	for _, l := range strings.Split(strings.TrimSuffix(s.must("story", "diff", id), "\n"), "\n") {
+		if !strings.HasPrefix(l, "untracked: ") {
+			plain = append(plain, l)
+		}
+	}
+	var cols []string
+	for _, l := range got[:3] {
+		p, _, _ := strings.Cut(l, "\t")
+		cols = append(cols, p)
+	}
+	if !slices.Equal(cols, plain) {
+		t.Fatalf("diff --stat paths %v, plain diff paths %v", cols, plain)
+	}
+
+	var st statJSON
+	s.mustJSON(&st, "story", "diff", id, "--stat", "--json")
+	if len(st.Stat) != len(st.Paths) {
+		t.Fatalf("stat %+v, paths %v: want one entry per path", st.Stat, st.Paths)
+	}
+	for i, e := range st.Stat {
+		if e.Path != st.Paths[i] || e.Added == nil || e.Removed == nil {
+			t.Fatalf("stat[%d] = %+v, want path %s with numeric added and removed", i, e, st.Paths[i])
+		}
+		if e.Binary != (e.Path == "web/logo.bin") {
+			t.Fatalf("stat[%d] = %+v, want binary only on web/logo.bin", i, e)
+		}
+	}
+	if a, r := st.Stat[0], st.Stat[1]; *a.Added != 2 || *a.Removed != 1 || *r.Added != 5 || *r.Removed != 0 {
+		t.Fatalf("stat = %+v, want +2 -1 and +5 -0", st.Stat)
+	}
+	if st.Total.Files != 3 || st.Total.Added != 7 || st.Total.Removed != 1 {
+		t.Fatalf("total = %+v, want 3 files +7 -1", st.Total)
+	}
+
+	var raw map[string]json.RawMessage
+	s.mustJSON(&raw, "story", "diff", id, "--json")
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"base", "item", "judged", "paths", "untracked"}) {
+		t.Fatalf("diff --json keys = %v, want base item judged paths untracked", keys)
+	}
+	var paths []string
+	if err := json.Unmarshal(raw["paths"], &paths); err != nil {
+		t.Fatalf("diff --json paths is not an array of strings: %v", err)
+	}
+}
+
+func TestADoneItemsDiffStatIsFrozen(t *testing.T) {
+	t.Parallel()
+	s := coveredSandbox(t, true)
+	id := reviewedItem(s)
+	s.must("story", "set", id, "--status", "done")
+
+	text := s.must("story", "diff", id, "--stat")
+	if text != "web/a.go\t+1\t-0\ntotal: 1 changed, +1 -0\n" {
+		t.Fatalf("done diff --stat = %q, want web/a.go +1 -0 and its total", text)
+	}
+	js := s.must("story", "diff", id, "--stat", "--json")
+	var st statJSON
+	if err := json.Unmarshal([]byte(js), &st); err != nil {
+		t.Fatal(err)
+	}
+	if !st.Frozen || len(st.Stat) != 1 || st.Total.Files != 1 || st.Total.Added != 1 || st.Total.Removed != 0 {
+		t.Fatalf("done diff --stat --json = %s, want a frozen stat of web/a.go +1 -0", js)
+	}
+
+	s.commitFile("web/a.go", "package web\n\nfunc Later() {}\n")
+	s.commitFile("web/b.go", "package web\n")
+	s.write("scratch.txt", "untracked\n")
+	if again := s.must("story", "diff", id, "--stat"); again != text {
+		t.Fatalf("done diff --stat moved with later work: %q, was %q", again, text)
+	}
+	if again := s.must("story", "diff", id, "--stat", "--json"); again != js {
+		t.Fatalf("done diff --stat --json moved with later work:\n%s\nwas\n%s", again, js)
+	}
+}

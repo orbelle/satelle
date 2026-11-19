@@ -15,15 +15,20 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 )
 
-type fakeGit struct{ changed, untracked []string }
+type fakeGit struct {
+	changed, untracked []string
+	stat               []gitfacts.FileStat
+}
 
-func (fakeGit) Head() (string, error)                     { return "abc123", nil }
-func (g fakeGit) ChangedPaths(string) ([]string, error)   { return g.changed, nil }
-func (g fakeGit) Untracked() ([]string, error)            { return g.untracked, nil }
-func (fakeGit) Diff(_ string, p []string) (string, error) { return "diff:" + strings.Join(p, ","), nil }
+func (fakeGit) Head() (string, error)                           { return "abc123", nil }
+func (g fakeGit) ChangedPaths(string) ([]string, error)         { return g.changed, nil }
+func (g fakeGit) Untracked() ([]string, error)                  { return g.untracked, nil }
+func (fakeGit) Diff(_ string, p []string) (string, error)       { return "diff:" + strings.Join(p, ","), nil }
+func (g fakeGit) StatPaths(string) ([]gitfacts.FileStat, error) { return g.stat, nil }
 
 type fakeDispatcher struct {
 	mu         sync.Mutex

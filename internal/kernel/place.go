@@ -10,6 +10,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -46,6 +47,7 @@ type BranchGit interface {
 	Branch() (string, error)
 	ChangedBetween(base, head string) ([]string, error)
 	DiffBetween(base, head string, paths []string) (string, error)
+	StatBetween(base, head string) ([]gitfacts.FileStat, error)
 }
 
 var ErrCloudByHand = errors.New("no cloud launcher")
@@ -193,6 +195,13 @@ func (k *Kernel) changed(s span) ([]string, error) {
 		return k.Git.(BranchGit).ChangedBetween(s.base, s.head)
 	}
 	return k.Git.ChangedPaths(s.base)
+}
+
+func (k *Kernel) stat(s span) ([]gitfacts.FileStat, error) {
+	if s.head != "" {
+		return k.Git.(BranchGit).StatBetween(s.base, s.head)
+	}
+	return k.Git.StatPaths(s.base)
 }
 
 func (k *Kernel) untracked(s span) ([]string, error) {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -271,5 +272,87 @@ func TestTopLevelOutsideARepository(t *testing.T) {
 	top, err := Repo{Dir: t.TempDir()}.TopLevel()
 	if err == nil || top != "" {
 		t.Fatalf("toplevel %q %v; want an error and the empty string", top, err)
+	}
+}
+
+func TestStat(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	gittest.Git(t, dir, "init", "-q")
+	r := Repo{Dir: dir}
+	put := func(rel, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("a.txt", "1\n2\n3\n")
+	put("gone.txt", "x\ny\n")
+	gittest.Git(t, dir, "add", ".")
+	gittest.Git(t, dir, "commit", "-qm", "base")
+	base, _ := r.Head()
+
+	put("a.txt", "1\nTWO\n3\n4\n")
+	put("new.txt", "n\n")
+	put("logo.bin", "\x00\x01\x02\x00")
+	os.Remove(filepath.Join(dir, "gone.txt"))
+	gittest.Git(t, dir, "add", "new.txt", "logo.bin")
+
+	want := []FileStat{
+		{Path: "a.txt", Added: 2, Removed: 1},
+		{Path: "gone.txt", Removed: 2},
+		{Path: "logo.bin", Binary: true},
+		{Path: "new.txt", Added: 1},
+	}
+	tree, err := r.StatPaths(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(tree, want) {
+		t.Fatalf("StatPaths = %+v, want %+v", tree, want)
+	}
+	paths, err := r.ChangedPaths(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statPaths []string
+	for _, s := range tree {
+		statPaths = append(statPaths, s.Path)
+	}
+	if !reflect.DeepEqual(statPaths, paths) {
+		t.Fatalf("stat paths %v, changed paths %v", statPaths, paths)
+	}
+
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-qm", "head")
+	head, _ := r.Head()
+	between, err := r.StatBetween(base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(between, want) {
+		t.Fatalf("StatBetween = %+v, want %+v", between, want)
+	}
+
+	plain, pb, ph := diffRepo(t, "diff.algorithm", "myers")
+	myers, err := plain.StatBetween(pb, ph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, alg := range []string{"histogram", "patience"} {
+		cr, cb, ch := diffRepo(t, "diff.algorithm", alg)
+		got, err := cr.StatBetween(cb, ch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := cr.StatPaths(cb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, myers) || !reflect.DeepEqual(tree, myers) {
+			t.Errorf("diff.algorithm=%s: between %+v, tree %+v, want %+v", alg, got, tree, myers)
+		}
 	}
 }

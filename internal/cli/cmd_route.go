@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
@@ -199,7 +200,7 @@ func routeCmd(kind string) *cobra.Command {
 }
 
 func diffCmd(kind string) *cobra.Command {
-	var asJSON *bool
+	var asJSON, stat *bool
 	cmd := &cobra.Command{
 		Use:   "diff <id>",
 		Short: "List the paths changed since the item's base commit",
@@ -219,7 +220,17 @@ Any other item's --json carries "judged": every gate verdict that recorded the
 change it saw, oldest first, with that change's hash ("judged") and the hash of
 the item's change now over the same base, branch and paths ("now", ending at
 "now_head"). It reports both and decides nothing; a workflow that needs them
-equal places a check on its transition.`,
+equal places a check on its transition.
+
+--stat prints each changed path with its added and removed line counts as
+tab-separated "<path> +<added> -<removed>", or "<path> binary" for a binary
+file, then the untracked lines, then a last line "total: <files> changed, +<added> -<removed>".
+The total counts the changed paths, a binary file as one file with no lines;
+untracked files are not counted. --stat --json adds "stat", one
+{"path", "added", "removed"} object per changed path ("binary": true on a binary
+file, its counts 0), and "total" {"files", "added", "removed"}. The counts are
+read over the same base as the paths; a frozen diff is counted over its
+recorded base and head.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k, _, err := openKernel()
@@ -242,6 +253,18 @@ equal places a check on its transition.`,
 				return fmt.Errorf("%s has no base commit (created outside a git work tree)", it.ID)
 			}
 			paths := d.Paths
+			var stats []gitfacts.FileStat
+			var files, added, removed int
+			if *stat {
+				if stats, err = k.ItemStat(d); err != nil {
+					return err
+				}
+				files = len(stats)
+				for _, s := range stats {
+					added += s.Added
+					removed += s.Removed
+				}
+			}
 			if *asJSON {
 				if paths == nil {
 					paths = []string{}
@@ -268,17 +291,43 @@ equal places a check on its transition.`,
 					}
 					v["judged"] = judged
 				}
+				if *stat {
+					rows := make([]map[string]any, 0, len(stats))
+					for _, s := range stats {
+						row := map[string]any{"path": s.Path, "added": s.Added, "removed": s.Removed}
+						if s.Binary {
+							row["binary"] = true
+						}
+						rows = append(rows, row)
+					}
+					v["stat"] = rows
+					v["total"] = map[string]int{"files": files, "added": added, "removed": removed}
+				}
 				return writeJSON(cmd.OutOrStdout(), v)
 			}
-			for _, p := range paths {
-				fmt.Fprintln(cmd.OutOrStdout(), p)
+			if *stat {
+				for _, s := range stats {
+					if s.Binary {
+						fmt.Fprintf(cmd.OutOrStdout(), "%s\tbinary\n", s.Path)
+						continue
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t+%d\t-%d\n", s.Path, s.Added, s.Removed)
+				}
+			} else {
+				for _, p := range paths {
+					fmt.Fprintln(cmd.OutOrStdout(), p)
+				}
 			}
 			for _, p := range d.Untracked {
 				fmt.Fprintln(cmd.OutOrStdout(), "untracked: "+p)
+			}
+			if *stat {
+				fmt.Fprintf(cmd.OutOrStdout(), "total: %d changed, +%d -%d\n", files, added, removed)
 			}
 			return nil
 		},
 	}
 	asJSON = jsonFlag(cmd)
+	stat = cmd.Flags().Bool("stat", false, "print each changed path's added and removed line counts, and a total")
 	return cmd
 }
