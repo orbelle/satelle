@@ -45,4 +45,6 @@ projects, and does not list it. `satelle project partitions --session <session>`
 partition and marks those `not-added`; `satelle project prune <repo_key> --session <session>` drops
 one. The automatic sync pass removes a project whose path no longer exists
 from `[projects] paths` and drops its satelled partition; `satelle project
-add <path> --session <session>` registers it again.
+add <path> --session <session>` registers it again. `satelle status --session <session>` in a repo
+that is bound to a satelle.dev project but is not one of this machine's
+projects says so and names `satelle project add --session <session>`.

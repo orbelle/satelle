@@ -294,15 +294,38 @@ key with --json). These are listed without failing the check.`,
 }
 
 type statusReport struct {
-	Root      string         `json:"root"`
-	Tree      string         `json:"tree"`
-	Runtime   string         `json:"runtime"`
-	Workflows []string       `json:"workflows"`
-	Harnesses []hook.Wiring  `json:"harnesses"`
-	Items     map[string]int `json:"items"`
-	Session   string         `json:"session,omitempty"`
-	Seats     []seatView     `json:"seats,omitempty"`
-	Seed      *seedFailure   `json:"seed_failure,omitempty"`
+	Root      string           `json:"root"`
+	Tree      string           `json:"tree"`
+	Runtime   string           `json:"runtime"`
+	Workflows []string         `json:"workflows"`
+	Harnesses []hook.Wiring    `json:"harnesses"`
+	Items     map[string]int   `json:"items"`
+	Session   string           `json:"session,omitempty"`
+	Seats     []seatView       `json:"seats,omitempty"`
+	Seed      *seedFailure     `json:"seed_failure,omitempty"`
+	NotAdded  *projectNotAdded `json:"project_not_added,omitempty"`
+}
+
+type projectNotAdded struct {
+	Slug    string `json:"slug"`
+	Project string `json:"project"`
+	Fix     string `json:"fix"`
+}
+
+func notAddedOf(r repo) *projectNotAdded {
+	b, ok, err := loadBinding(r)
+	if err != nil || !ok {
+		return nil
+	}
+	added, err := addedKeys()
+	if err != nil || added[config.RepoKey(uiRepoRoot(r))] {
+		return nil
+	}
+	slug := b.Slug
+	if slug == "" {
+		slug = b.Project
+	}
+	return &projectNotAdded{Slug: slug, Project: b.Project, Fix: "satelle project add"}
 }
 
 type seedFailure struct {
@@ -348,6 +371,7 @@ func statusCmd() *cobra.Command {
 			if st, _, _ := syncstate.Load(config.GlobalDir(), uiRepoRoot(r)); st.SnapshotReason != "" {
 				rep.Seed = &seedFailure{FailedAt: st.SnapshotLastFailure, Reason: st.SnapshotReason, Attempts: st.SnapshotPasses}
 			}
+			rep.NotAdded = notAddedOf(r)
 			if session != "" {
 				if rep.Seats, err = seatsOf(k, session); err != nil {
 					return err
@@ -374,6 +398,10 @@ func statusCmd() *cobra.Command {
 			fmt.Fprintln(out, "items")
 			for _, key := range keys {
 				fmt.Fprintf(out, "  %-30s %d\n", key, rep.Items[key])
+			}
+			if p := rep.NotAdded; p != nil {
+				fmt.Fprintf(out, "project   bound to %s on satelle.dev, but this repo is not one of this machine's projects, so satelled does not show it\n", p.Slug)
+				fmt.Fprintf(out, "          %s adds it\n", p.Fix)
 			}
 			if s := rep.Seed; s != nil {
 				fmt.Fprintf(out, "satelled  seed failed %s (%d attempt(s)): %s\n", s.FailedAt.Format(time.RFC3339), s.Attempts, s.Reason)
