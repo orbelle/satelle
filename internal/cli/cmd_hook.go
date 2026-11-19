@@ -337,11 +337,19 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	return text, notice, true
 }
 
+func sessionLine(session string) string {
+	if session == "" {
+		return "satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n"
+	}
+	return fmt.Sprintf("satelle session: %s\n", session)
+}
+
 func renderSession(r repo, k *sessionSource, harness string, inject bool) (text, notice string, idx *indexedContext) {
 	session := k.Session
 	var b strings.Builder
 	if err := k.Invalid; err != nil {
 		fmt.Fprintf(&b, "satelle: this repo's configuration is invalid; run `satelle validate`.\n%v\n", err)
+		b.WriteString(sessionLine(session))
 		if inject {
 			block, n := sessionDoctor(k.Dir, harness)
 			b.WriteString(block)
@@ -352,10 +360,8 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 	if inject {
 		b.WriteString(framingLines(r, k.Settings.Hook.Inject))
 	}
-	if session == "" {
-		b.WriteString("satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n")
-	} else {
-		fmt.Fprintf(&b, "satelle session: %s\n", session)
+	b.WriteString(sessionLine(session))
+	if session != "" {
 		seats := k.Seats(session)
 		printSeats(&b, seats)
 	}

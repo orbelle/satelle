@@ -11,7 +11,8 @@ performer and `edits` unset or `edits = "tree"`, see
     satelle story release <id> --session <session>
 
 The session id comes from the harness's hook payload, and the context hook
-prints it at session start. A session passes it as `--session <session>` on
+prints it at session start, also while the configuration is invalid (without
+seats), so the session can seat once `satelle validate --session <session>` passes. A session passes it as `--session <session>` on
 every satelle command, each run on its own as one simple command, with
 `satelle -C <worktree> ... --session <session>` for another worktree.
 
