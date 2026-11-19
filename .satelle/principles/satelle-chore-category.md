@@ -3,6 +3,7 @@ name: satelle-chore-category
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
+commands: story create
 description: In this repo a chore changes nothing a user of satelle or satelled would notice and cuts no release; a story that changes what a user gets is a fix or feature. A create review rejects a misfiled chore.
 ---
 

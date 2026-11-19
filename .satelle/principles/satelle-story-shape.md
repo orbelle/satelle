@@ -3,6 +3,7 @@ name: satelle-story-shape
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
+commands: story create
 description: A story is one behaviour, written as a Feature (As a / I want / so that) with a Background; its acceptance criteria are Given/When/Then scenarios that meet that behaviour, each provable at the gate that judges it.
 ---
 

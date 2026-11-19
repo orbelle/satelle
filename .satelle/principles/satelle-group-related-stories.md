@@ -3,6 +3,7 @@ name: satelle-group-related-stories
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
+commands: story create
 description: When filing two or more related stories in one sitting, give them a shared epic:<theme>, this repo's sprint:<YYYY-MM>-<name> tag and an order:<N> each before finishing.
 ---
 

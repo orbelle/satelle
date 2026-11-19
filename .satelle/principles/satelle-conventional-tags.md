@@ -3,6 +3,7 @@ name: satelle-conventional-tags
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
+commands: story create
 description: A story may carry the conventional tags satelle help satelle lists (priority, surface, reporter, source). Its priority tag is optional, and a story without one is not treated as low.
 ---
 
