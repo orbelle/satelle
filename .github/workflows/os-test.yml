@@ -63,10 +63,6 @@ jobs:
           restore-keys: |
             os-test-go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             os-test-go-${{ runner.os }}-
-      - name: bash 4 or later for the repo's scripts (macOS ships bash 3.2)
-        run: |
-          brew install bash
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: git identity for tests that commit
         run: |
           git config --global user.name os-test
@@ -78,7 +74,7 @@ jobs:
         run: go vet ./...
       - name: go test
         if: ${{ !cancelled() }}
-        run: bash --version | head -1 && go test ./...
+        run: go test ./...
       - name: make test
         if: ${{ !cancelled() }}
         env:
@@ -105,6 +101,9 @@ jobs:
       run:
         shell: bash
     steps:
+      # The repo's files are LF; Windows git would check them out CRLF.
+      - name: keep line endings as committed
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha || inputs.ref }}
