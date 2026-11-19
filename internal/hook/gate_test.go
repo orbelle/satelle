@@ -567,3 +567,21 @@ func TestUnderTemp(t *testing.T) {
 		t.Error("UnderTemp with given roots also used the default temp roots")
 	}
 }
+
+func TestNativePath(t *testing.T) {
+	for _, r := range []struct{ in, win string }{
+		{"/tmp/x.sh", `\tmp\x.sh`},
+		{"C:/r/sub/f", `C:\r\sub\f`},
+		{"/c/r/f", `C:\r\f`},
+		{"/c", `C:\`},
+		{"/cc/r", `\cc\r`},
+		{"/w/a.txt", `W:\a.txt`},
+	} {
+		if got := nativePath(r.in, true); got != r.win {
+			t.Errorf("nativePath(%q, true) = %q, want %q", r.in, got, r.win)
+		}
+		if got := nativePath(r.in, false); got != r.in {
+			t.Errorf("nativePath(%q, false) = %q, want it unchanged", r.in, got)
+		}
+	}
+}
