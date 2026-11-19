@@ -28,7 +28,11 @@ func (r Repo) git(args ...string) (string, error) {
 
 func (r Repo) TopLevel() (string, error) {
 	out, err := r.git("rev-parse", "--show-toplevel")
-	return strings.TrimSpace(out), err
+	top := strings.TrimSpace(out)
+	if err != nil || top == "" {
+		return "", err
+	}
+	return filepath.Clean(filepath.FromSlash(top)), nil
 }
 
 func (r Repo) Head() (string, error) {
