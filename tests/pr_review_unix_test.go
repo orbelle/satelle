@@ -193,9 +193,14 @@ func newPRSandbox(t *testing.T) *prSandbox {
 
 func newPRSandboxNamed(t *testing.T, n prNames) *prSandbox {
 	t.Helper()
-	for _, tool := range []string{"bash", "jq", "git", "sha256sum"} {
+	for _, tool := range []string{"bash", "jq", "git"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Fatalf("%s is required by the PR review skills and is not on PATH", tool)
+		}
+	}
+	if _, err := exec.LookPath("sha256sum"); err != nil {
+		if _, err := exec.LookPath("shasum"); err != nil {
+			t.Fatal("sha256sum or shasum is required by the PR review skills and neither is on PATH")
 		}
 	}
 	srv := fakeserver.Start(t, devToken)
