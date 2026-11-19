@@ -1,0 +1,11 @@
+[claude]
+context_limit_bytes = 10000
+
+[pi]
+context_limit_bytes = 10000
+
+[grok]
+context_limit_bytes = 10000
+
+[cursor]
+context_limit_bytes = 10000
