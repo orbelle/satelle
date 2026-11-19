@@ -1,3 +1,13 @@
+## [1.0.94] - 2026-11-19
+
+### Added
+- `.satelle/harness.toml` sets a harness's session-start limit (`[claude] context_limit_bytes = <bytes>`). When printing the `[hook] inject` files in full would take `satelle hook context` over the calling harness's limit, it lists each file by description and path under a line saying to read them in full, and prints no file body. A harness with no limit is printed in full as before. (sto_03f70987)
+- A principle or skill whose frontmatter names commands (`commands: story create, story seat`) is listed, by name, description and path, at the end of each of those commands' `--help`, and named on stderr after the command succeeds; `satelle validate` reports a keyed command the binary lacks. (sto_05d35be8)
+- `satelle doctor` reports a harness in use whose session-start context is over its limit in `.satelle/harness.toml`, naming the limit, the inline size and each file a session gets as an index line; a harness in use with no limit is noted as unbudgeted, with its size. (sto_17b561da)
+
+### Fixed
+- The web sync-state tests build the mirror identity with json.Marshal, so a Windows repo path reaches the page's sync lookup and the tests pass on Windows (sto_17a0d7a6)
+
 ## [1.0.93] - 2026-11-19
 
 ### Changed
