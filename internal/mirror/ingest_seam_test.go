@@ -70,7 +70,7 @@ func TestSlowIngestLogsPhases(t *testing.T) {
 		t.Fatalf("want one ingest line, got %q", got)
 	}
 	line := got[0]
-	for _, want := range []string{"ingest snapshot rk-seam:", "bytes=", "stories=2", "ledger=1", "docs=1", "read=", "apply=1.", "on_ingest=", "total="} {
+	for _, want := range []string{"ingest snapshot rk-seam:", "bytes=", "stories=2", "ledger=1", "docs=1", "read=", "apply=", "on_ingest=", "total="} {
 		if !strings.Contains(line, want) {
 			t.Errorf("ingest line missing %q: %s", want, line)
 		}
@@ -78,6 +78,19 @@ func TestSlowIngestLogsPhases(t *testing.T) {
 	if strings.Contains(line, "err=") {
 		t.Errorf("a successful slow ingest carries no err: %s", line)
 	}
+	if apply, ok := lineDuration(line, "apply="); !ok || apply < slowIngest {
+		t.Errorf("apply= must read at least %s, whatever the node's load: %s", slowIngest, line)
+	}
+}
+
+func lineDuration(line, key string) (time.Duration, bool) {
+	for _, f := range strings.Fields(line) {
+		if v, ok := strings.CutPrefix(f, key); ok {
+			d, err := time.ParseDuration(v)
+			return d, err == nil
+		}
+	}
+	return 0, false
 }
 
 func TestFailedIngestLogsAndKeepsFreshness(t *testing.T) {
