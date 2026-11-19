@@ -7,11 +7,21 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/mirror"
 )
+
+const (
+	daemonDefName  = serviceUnitName
+	syncDefName    = syncTimerName
+	defNoun        = "unit"
+	serviceManaged = true
+)
+
+func applyService(w io.Writer, s serviceSpec, force bool) error {
+	return applyUnits(w, unitsFor(s), force)
+}
 
 func systemctl(args ...string) (string, error) {
 	out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
@@ -34,30 +44,9 @@ func applyUnits(w io.Writer, u serviceUnits, force bool) error {
 	for _, f := range []struct{ name, body string }{
 		{serviceUnitName, u.Daemon}, {syncServiceName, u.SyncService}, {syncTimerName, u.SyncTimer},
 	} {
-		if f.body == "" {
-			continue
-		}
-		path := userUnitPath(f.name)
-		why := ""
-		if !force {
-			old, err := os.ReadFile(path)
-			switch {
-			case err != nil:
-				why = " (missing)"
-			case !sameBinary(unitDaemon(string(old)), unitDaemon(f.body)):
-				why = " (was " + unitDaemon(string(old)) + ")"
-			default:
-				fmt.Fprintf(w, "kept %s\n", path)
-				continue
-			}
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if _, err := writeDefinition(w, userUnitPath(f.name), f.body, force, unitDaemon); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, []byte(f.body), 0o644); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "wrote %s%s\n", path, why)
 	}
 	steps := [][]string{{"daemon-reload"}}
 	_, daemonErr := os.Stat(unitPath())
@@ -110,3 +99,16 @@ func activeState(name string) string {
 	}
 	return out
 }
+
+func printManagerStatus(w io.Writer) {
+	fmt.Fprintf(w, "unit      %s (%s)\n", unitPath(), unitState())
+	fmt.Fprintf(w, "sync      %s (%s)\n", syncTimerName, syncTimerState())
+}
+
+func daemonDefPath() string { return unitPath() }
+
+func defDaemon(body string) string { return unitDaemon(body) }
+
+func syncDefPath() string { return userUnitPath(syncTimerName) }
+
+func syncTimerLive(state string) bool { return state == "active" }

@@ -383,6 +383,7 @@ func TestUpdateRefreshesHarnessFiles(t *testing.T) {
 			isolate(t)
 			t.Setenv(envNoService, tc.env)
 			fakeSystemctl(t, "")
+			fakeLaunchctl(t, launchctlFake{})
 			dir, files := trackedProject(t)
 			putFile(t, filepath.Join(dir, ".git", "index"), "garbage")
 			state := pin(t, files[0])

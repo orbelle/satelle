@@ -108,6 +108,13 @@ func newSandboxAt(t *testing.T, dir string) *sandbox {
 		k, v, _ := strings.Cut(kv, "=")
 		s.env[k] = v
 	}
+	guard := filepath.Join(home, ".guard")
+	if err := os.MkdirAll(guard, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(guard, "launchctl"), []byte("#!/bin/sh\necho 'launchctl is refused in tests' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	s.initRepo("git")
 	return s
 }
@@ -157,7 +164,7 @@ func (s *sandbox) environ() []string {
 		}
 		out = append(out, kv)
 	}
-	path := append(append([]string{}, s.path...), filepath.Dir(satelleBin), os.Getenv("PATH"))
+	path := append(append([]string{}, s.path...), filepath.Dir(satelleBin), filepath.Join(s.home, ".guard"), os.Getenv("PATH"))
 	out = append(out, "PATH="+strings.Join(path, string(os.PathListSeparator)))
 	for k, v := range s.env {
 		out = append(out, k+"="+v)
