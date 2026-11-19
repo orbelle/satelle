@@ -432,39 +432,9 @@ func TestProjectPageShowsUpgradeNeeded(t *testing.T) {
 	}
 }
 
-func TestProjectPageShowsHeldStoriesAsHeldNotFailing(t *testing.T) {
-	body := projectPageWithSync(t, func(repo string) {
-		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore}, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{
-			"sty_216d5205": "uncommitted changes in /wt/sty_216d5205",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	})
-	held := sectionOf(t, body, `<div class="sync-held"`)
-	if !strings.Contains(held, "sty_216d5205") || !strings.Contains(held, "uncommitted changes in /wt/sty_216d5205") {
-		t.Fatalf("held section must name the id and its reason:\n%s", held)
-	}
-	for _, gone := range []string{"sync failing", "sync-fail", "Sync Failing"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("a held-only push must not render %q:\n%s", gone, body)
-		}
-	}
-	if !strings.Contains(body, `remote: <span class="sync-ok"`) {
-		t.Errorf("a held-only pass is a synced remote:\n%s", body)
-	}
-}
-
-func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
+func TestProjectPageShowsRefusalAsFailing(t *testing.T) {
 	body := projectPageWithSync(t, func(repo string) {
 		if err := syncstate.RecordPass(config.GlobalDir(), repo, syncstate.Pass{Store: devStore, Reason: "the story sty_r was not published: archived task refused"}, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		if err := syncstate.RecordPushHeld(config.GlobalDir(), repo, map[string]string{
-			"sty_216d5205": "uncommitted changes in /wt/sty_216d5205",
-		}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -474,13 +444,6 @@ func TestProjectPageShowsRefusalAsFailingAndHeldApart(t *testing.T) {
 	fail := sectionOf(t, body, `<div class="sync-fail-body"`)
 	if !strings.Contains(fail, `<span class="sync-fail-reason">the story sty_r was not published: archived task refused</span>`) {
 		t.Errorf("the refusal must be the failure reason:\n%s", fail)
-	}
-	if strings.Contains(fail, "sty_216d5205") {
-		t.Errorf("a held story must not appear inside the failure:\n%s", fail)
-	}
-	held := sectionOf(t, body, `<div class="sync-held"`)
-	if !strings.Contains(held, "sty_216d5205") || strings.Contains(held, "sty_r ") {
-		t.Errorf("held section must name only the held story:\n%s", held)
 	}
 }
 

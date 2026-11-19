@@ -286,10 +286,6 @@ const templatesSrc = `
      needs upgrading in the repo; nothing failed, so never inside syncfail. */}}
 {{define "syncupgrade"}}<div class="sync-upgrade-body">run <code>{{.SyncUpgrade}}</code> in this repo (see <code>satelle help upgrade</code>)</div>{{end}}
 
-{{/* syncheld: stories the last push held until their code is on the remote
-     (sty_c203fd62). In flight, not failing: muted, never inside syncfail. */}}
-{{define "syncheld"}}<div class="sync-held" title="held until their code is on the remote — they push once it is">{{range .SyncHeld}}<div class="sync-held-item">held: <code>{{.ID}}</code> — {{.Reason}}</div>{{end}}</div>{{end}}
-
 {{/* syncfailtag: landing-only status chip. No reason, no log path — those
      stay on the project page (sty_a447695e). */}}
 {{define "syncfailtag"}}{{if and .SyncReason (not .SyncLocal)}}<span class="sync-tag-fail" title="ledger sync is failing — see the project page">Sync Failing</span>{{end}}{{end}}
@@ -329,7 +325,6 @@ const templatesSrc = `
     <div class="meta">{{.RepoRoot}} · <a href="help">help →</a> · <a href="settings">settings →</a> · {{template "freshness" .}} · {{template "syncstate" .}}</div>
     {{if and .SyncReason (not .SyncLocal)}}{{template "syncfail" .}}{{end}}
     {{if .SyncUpgrade}}{{template "syncupgrade" .}}{{end}}
-    {{if and .SyncHeld (not .SyncLocal)}}{{template "syncheld" .}}{{end}}
   </header>
 
   <div class="tabs" role="tablist">

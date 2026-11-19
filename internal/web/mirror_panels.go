@@ -30,22 +30,6 @@ func mirrorIdentity(ctx context.Context, s *mirror.Store, repoKey string) mirror
 	return id
 }
 
-type syncHeldVM struct {
-	ID     string
-	Reason string
-}
-
-func syncHeldRows(held map[string]string) []syncHeldVM {
-	if len(held) == 0 {
-		return nil
-	}
-	rows := make([]syncHeldVM, 0, len(held))
-	for _, id := range slices.Sorted(maps.Keys(held)) {
-		rows = append(rows, syncHeldVM{ID: id, Reason: held[id]})
-	}
-	return rows
-}
-
 func loadPartitionSync(repoPath string) syncstate.State {
 	if strings.TrimSpace(repoPath) == "" {
 		return syncstate.State{}
@@ -182,7 +166,6 @@ func mirrorLoadPanels(ctx context.Context, s *mirror.Store, repoKey, slug string
 		SyncLocal:         syncSt.SyncStore == syncstate.LocalStore,
 		SyncStore:         syncSt.SyncStore,
 		SyncUpgrade:       syncSt.SyncUpgrade,
-		SyncHeld:          syncHeldRows(syncSt.PushHeld),
 		Stories:           storyRows,
 		Panels:            panels,
 		BacklogCount:      backlogCount(listed, workflows),
