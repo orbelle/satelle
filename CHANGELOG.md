@@ -1,3 +1,11 @@
+## [1.0.95] - 2026-11-19
+
+### Added
+- The session-start context opens with the description of each `[hook] inject` principle whose frontmatter has `framing: true`, in both the full and the listed form; the shipped `satelle-reference-not-restate` principle is marked so and now says a `.satelle` file is true as of when it was written and a volatile fact is verified by running the command that answers it. (sto_44a20eba)
+
+### Changed
+- This repo's `.satelle/harness.toml` sets a session-start limit of 10000 bytes for claude, pi, grok and cursor, so its sessions start with an index of the injected files; the recorded doctor findings carry the context issue for each harness in use. (sto_321c7c1e)
+
 ## [1.0.94] - 2026-11-19
 
 ### Added
