@@ -215,6 +215,16 @@ func TestConventionalTagsDocumented(t *testing.T) {
 			t.Errorf("Conventional tags lacks %q", want)
 		}
 	}
+	_, surface, ok := strings.Cut(tags, "- `surface:")
+	if !ok {
+		t.Fatal("Conventional tags has no surface bullet")
+	}
+	surface, _, _ = strings.Cut(surface, "\n- ")
+	for _, banned := range []string{"applies_to", "gate"} {
+		if strings.Contains(strings.ToLower(surface), banned) {
+			t.Errorf("the surface bullet names %q, a gate key the workflow loader does not read: %q", banned, surface)
+		}
+	}
 	for _, c := range item.Conventions {
 		if !strings.Contains(tags, "`"+c.Key+":") {
 			t.Errorf("Conventional tags does not name the key %s", c.Key)
