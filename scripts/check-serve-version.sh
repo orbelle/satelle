@@ -82,7 +82,8 @@ if ! paths_raw=$(serve_paths); then
   echo "check-serve-version: refusing to run a gate whose watch set could not be derived" >&2
   exit "$CANNOT_ANSWER"
 fi
-mapfile -t SERVE_PATHS <<<"$paths_raw"
+SERVE_PATHS=()
+while IFS= read -r p; do SERVE_PATHS+=("$p"); done <<<"$paths_raw"
 if [ "${#SERVE_PATHS[@]}" -eq 0 ] || [ -z "${SERVE_PATHS[0]}" ]; then
   echo "check-serve-version: derived an EMPTY watch set — refusing to run a gate that watches nothing" >&2
   exit "$CANNOT_ANSWER"
