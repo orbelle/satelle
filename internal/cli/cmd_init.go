@@ -202,7 +202,9 @@ func validateCmd() *cobra.Command {
 		Long: `validate checks this repo's .satelle configuration (the problems that stop
 the kernel opening) and its substrate against this binary: every satelle
 command, flag and help topic its skills, principles, tasks, workflows and
-queues name in code, and every [[link]], must exist. A substrate finding is
+queues name in code, and every [[link]], must exist. So must every command a
+principle or skill keys itself to with a commands line in its frontmatter
+(commands: story create, story seat). A substrate finding is
 printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
 substrate key with --json) and fails the check, but never stops the kernel opening.
 

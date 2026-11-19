@@ -18,6 +18,23 @@ link; with `--json` they are the `substrate` list beside `problems`. Any miss
 fails `satelle validate --session <session>` and is a `substrate` issue of `satelle doctor --session <session>`, but
 the kernel still opens: only a configuration problem stops it.
 
+A principle or skill keys itself to the commands it governs with a `commands`
+line in its frontmatter: a comma-separated list of command paths, written
+without the binary's name.
+
+    commands: story create, story seat
+
+The `--help` of a keyed command, and `satelle help --session <session>` for it, end
+with each keyed file's name, description and path. When the command succeeds,
+one `see <name>: <path>` line per file is written to stderr after its own
+output, so stdout (a `--json` document, an attachment's body) is as it was.
+A command that fails names no file. An entry keys exactly the command it
+names, not its subcommands. Only the top-level `.md` files of `principles/`
+and `skills/` are read, and satelle prints what the frontmatter names: it
+knows no file by name. An entry that is not a command of this binary is a
+substrate finding of kind command, on the file and line of its `commands`
+key.
+
 - `satelle.toml` — settings:
 
       [workflows]

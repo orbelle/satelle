@@ -16,6 +16,7 @@ type Skill struct {
 	Name   string
 	Path   string
 	Meta   map[string]string
+	Lines  map[string]int
 	Body   string
 	Script string
 }
@@ -27,7 +28,7 @@ func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta["after"] == aft
 const afterAlways = "always"
 
 func ParseSkill(name, text string) (Skill, error) {
-	s := Skill{Name: name, Meta: map[string]string{}, Body: text}
+	s := Skill{Name: name, Meta: map[string]string{}, Lines: map[string]int{}, Body: text}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
 		end := -1
@@ -40,10 +41,11 @@ func ParseSkill(name, text string) (Skill, error) {
 		if end < 0 {
 			return s, fmt.Errorf("skill %s: unterminated frontmatter", name)
 		}
-		for _, line := range lines[1:end] {
+		for i, line := range lines[1:end] {
 			k, v, ok := strings.Cut(line, ":")
 			if ok && !strings.HasPrefix(strings.TrimSpace(k), "#") {
 				s.Meta[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+				s.Lines[strings.TrimSpace(k)] = i + 2
 			}
 		}
 		s.Body = strings.TrimLeft(strings.Join(lines[end+1:], "\n"), "\n")
