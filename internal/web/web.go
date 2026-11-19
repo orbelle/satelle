@@ -77,7 +77,6 @@ type pageData struct {
 	SyncLocal         bool
 	SyncStore         string
 	SyncUpgrade       string
-	SyncHeld          []syncHeldVM
 	Hosted            *hostedLinksVM
 	TagFacets         string
 	TagFilterExample  string
