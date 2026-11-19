@@ -201,3 +201,18 @@ are reviewed*).
   `os-test` on a pull request, or a dispatch. Linux tests stay local and on
   remotes. Runner time is kept down by the on-demand trigger, one run per ref,
   bounded job time and caching (sto_6d13f4f9).
+
+## 2026-11-20
+
+- **Rulings on the drift findings of sto_8fc5edb1.** "drop the bindSync auto-sync,
+  keep the other two" (operator, 2026-11-20):
+  - `satelle project bind` does not sync: [[satelle-sync-architecture]] §4
+    holds, and the sync timer's pass is the one owner of convergence
+    (sto_c2905da7).
+  - Doctor composing the `satelle story create` command that raises a
+    substrate story for the shipped files a repo lacks
+    (`substrateStoryCommand`, internal/cli/substrate_report.go) is accepted:
+    it is advice text the user may run or not, not a process step in Go.
+  - A kernel test naming a skill `satelle init` ships
+    (`TestInitShipsTheUpgradeSkill`, internal/kernel/kernel_test.go) is
+    accepted: a test proving what init ships names it.
