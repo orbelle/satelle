@@ -118,6 +118,9 @@ func TestEverySessionCommandTakesSession(t *testing.T) {
 			if c.PersistentPreRun != nil || c.PersistentPreRunE != nil {
 				t.Errorf("%s has its own persistent pre-run, which skips the root's", c.CommandPath())
 			}
+			if c.PersistentPostRun != nil || c.PersistentPostRunE != nil {
+				t.Errorf("%s has its own persistent post-run, which skips the root's", c.CommandPath())
+			}
 			if c.DisableFlagParsing {
 				t.Errorf("%s disables flag parsing", c.CommandPath())
 			}

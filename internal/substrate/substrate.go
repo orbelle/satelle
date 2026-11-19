@@ -94,6 +94,20 @@ func (t Tree) Lacks(words []string) (subject, why string, lacks bool) {
 	return "", "", false
 }
 
+func (t Tree) Command(words []string) (why string, ok bool) {
+	if len(words) == 0 {
+		return "names no command", false
+	}
+	path := ""
+	for _, w := range words {
+		if !t.Subs[path][w] {
+			return notCommand(path, w), false
+		}
+		path = strings.TrimSpace(path + " " + w)
+	}
+	return "", true
+}
+
 type checker struct {
 	file  string
 	tree  Tree
@@ -235,7 +249,7 @@ func CheckText(file, ext, text string, tree Tree, links map[string]bool) []Findi
 
 func Check(dataDir string, tree Tree) ([]Finding, error) {
 	links := map[string]bool{}
-	for _, d := range []string{"principles", "skills"} {
+	for _, d := range RuleDirs {
 		ents, err := os.ReadDir(filepath.Join(dataDir, d))
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
@@ -280,6 +294,17 @@ func Check(dataDir string, tree Tree) ([]Finding, error) {
 		})
 		if err != nil {
 			return nil, err
+		}
+	}
+	refs, err := References(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		for _, entry := range ref.Commands {
+			if why, ok := tree.Command(strings.Fields(entry)); !ok {
+				out = append(out, Finding{File: ref.Path, Line: ref.Line, Kind: KindCommand, Subject: strings.TrimSpace(binaryWord + " " + entry), Why: why})
+			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {

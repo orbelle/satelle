@@ -163,3 +163,61 @@ func TestTreeLacks(t *testing.T) {
 		}
 	}
 }
+
+func TestTreeCommand(t *testing.T) {
+	tree := fixtureTree()
+	tree.AddSub("", "queue")
+	tree.AddSub("queue", "get")
+	tree.AddSub("queue", "show")
+	for _, words := range [][]string{{"story"}, {"story", "get"}, {"queue", "get"}, {"queue", "show"}, {"validate"}} {
+		if why, ok := tree.Command(words); !ok {
+			t.Errorf("Command(%q) misses: %s", words, why)
+		}
+	}
+	for _, c := range []struct {
+		words []string
+		why   string
+	}{
+		{nil, "names no command"},
+		{[]string{"reindex"}, "reindex is not a command of satelle"},
+		{[]string{"story", "nosuch"}, "nosuch is not a subcommand of satelle story"},
+		{[]string{"story", "get", "more"}, "more is not a subcommand of satelle story get"},
+		{[]string{"*"}, "* is not a command of satelle"},
+		{[]string{"story", "sto_123"}, "sto_123 is not a subcommand of satelle story"},
+	} {
+		if why, ok := tree.Command(c.words); ok || why != c.why {
+			t.Errorf("Command(%q) = %q, %v; want %q, false", c.words, why, ok, c.why)
+		}
+	}
+}
+
+func TestCheckReportsKeyedCommands(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, ".satelle")
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(data, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("principles/good.md", "---\nname: good\ncommands: story get, satelle story list\n---\n\nbody\n")
+	write("principles/bad.md", "---\nname: bad\ndescription: d\ncommands: story get, story nosuch, *, satelle\n---\n\nbody\n")
+	write("skills/worse.md", "---\ncommands: reindex\n---\n\nbody\n")
+	got, err := Check(data, fixtureTree())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		".satelle/principles/bad.md:4: command: satelle story nosuch — nosuch is not a subcommand of satelle story",
+		".satelle/principles/bad.md:4: command: satelle * — * is not a command of satelle",
+		".satelle/principles/bad.md:4: command: satelle — names no command",
+		".satelle/skills/worse.md:2: command: satelle reindex — reindex is not a command of satelle",
+	}
+	if !reflect.DeepEqual(lines(got), want) {
+		t.Fatalf("findings:\n got %q\nwant %q", lines(got), want)
+	}
+}

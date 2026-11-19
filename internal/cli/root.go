@@ -63,6 +63,15 @@ every event on an append-only ledger. Start with 'satelle init' and
 		gateCmd(),
 	)
 	root.SetHelpCommand(helpCmd(root))
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		defaultHelp(cmd, args)
+		printHelpRefs(cmd.OutOrStdout(), commandRefs(root, cmd, flagString(root.PersistentFlags(), directoryFlag)))
+	})
+	root.PersistentPostRunE = func(cmd *cobra.Command, _ []string) error {
+		printRunRefs(cmd.ErrOrStderr(), commandRefs(root, cmd, ""))
+		return nil
+	}
 	return root
 }
 
@@ -76,6 +85,9 @@ func rootPreRun(cmd *cobra.Command, _ []string) error {
 	if dir, _ := flags.GetString(directoryFlag); dir != "" {
 		if err := os.Chdir(dir); err != nil {
 			return fmt.Errorf("-C %s: %w", dir, err)
+		}
+		if err := flags.Set(directoryFlag, ""); err != nil {
+			return err
 		}
 	}
 	if s := strings.TrimSpace(flagString(flags, sessionFlag)); s != "" {

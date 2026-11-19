@@ -60,6 +60,20 @@ func clearCallerMarkers(t *testing.T) {
 
 func run(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
+	var out bytes.Buffer
+	err := execute(t, stdin, &out, &out, args...)
+	return out.String(), err
+}
+
+func runSplit(t *testing.T, stdin string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	err = execute(t, stdin, &out, &errOut, args...)
+	return out.String(), errOut.String(), err
+}
+
+func execute(t *testing.T, stdin string, out, errOut *bytes.Buffer, args ...string) error {
+	t.Helper()
 	prev, had := os.LookupEnv(config.SessionEnv)
 	wd, wdErr := os.Getwd()
 	defer func() {
@@ -73,13 +87,11 @@ func run(t *testing.T, stdin string, args ...string) (string, error) {
 		}
 	}()
 	root := NewRootCmd()
-	var out bytes.Buffer
-	root.SetOut(&out)
-	root.SetErr(&out)
+	root.SetOut(out)
+	root.SetErr(errOut)
 	root.SetIn(strings.NewReader(stdin))
 	root.SetArgs(args)
-	err := root.Execute()
-	return out.String(), err
+	return root.Execute()
 }
 
 func must(t *testing.T, args ...string) string {
