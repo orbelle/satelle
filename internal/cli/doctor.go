@@ -66,6 +66,8 @@ type doctorInput struct {
 	cfgErr  error
 	harness string
 	legacy  []string
+
+	sessionStart bool
 }
 
 type doctorCheck struct {
@@ -97,6 +99,11 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 		doctorCheck{"init", checkInit},
 		doctorCheck{"agents", checkAgents},
 		doctorCheck{checkHarnessName, checkHarness},
+	)
+	if !in.sessionStart {
+		checks = append(checks, doctorCheck{checkContextName, checkContext})
+	}
+	checks = append(checks,
 		doctorCheck{"sync", checkSync},
 		doctorCheck{"seats", checkSeats},
 	)

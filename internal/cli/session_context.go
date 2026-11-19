@@ -5,8 +5,24 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/hook"
+	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
+
+type sessionSource struct {
+	Session  string
+	Dir      string
+	Settings kernel.Settings
+	Harness  map[string]kernel.HarnessSettings
+	Seats    func(session string) []seatView
+	Invalid  error
+}
+
+type indexedContext struct {
+	InlineBytes int
+	Limit       int
+	Entries     []indexEntry
+}
 
 type indexEntry struct {
 	Path        string

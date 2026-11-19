@@ -166,8 +166,11 @@ saying to read them in full before acting. No file's body is printed, and
 nothing is ever cut: the list is printed whole even when it is itself over
 the limit. A harness with no table is printed in full, as is a repo with no
 `harness.toml`. `satelle validate --session <session>` rejects a table that
-is not a harness and a limit that is not a positive number. It is its own
-file for the reason `doctor.toml` is.
+is not a harness and a limit that is not a positive number.
+`satelle doctor --session <session>` reports a harness in use whose context with
+every file inline is over its limit, naming each file a session receives as
+an index line, and notes a harness in use with no table as unbudgeted, with
+its size. It is its own file for the reason `doctor.toml` is.
 
 ## init.toml
 

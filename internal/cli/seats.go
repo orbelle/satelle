@@ -9,8 +9,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-func editScope(k *kernel.Kernel, it item.Item) string {
-	w, ok := k.Workflows[it.Workflow]
+func editScope(workflows map[string]*workflow.Workflow, it item.Item) string {
+	w, ok := workflows[it.Workflow]
 	if !ok {
 		return ""
 	}
@@ -31,7 +31,7 @@ func seatsOf(k *kernel.Kernel, session string) ([]seatView, error) {
 		if !ok {
 			continue
 		}
-		edits := editScope(k, it)
+		edits := editScope(k.Workflows, it)
 		out = append(out, seatView{Item: it.ID, Title: it.Title, Status: it.Status, Location: s.Location, Performing: edits != "", Edits: edits})
 	}
 	return out, nil
