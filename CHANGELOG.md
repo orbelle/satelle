@@ -1,3 +1,16 @@
+## [1.0.100] - 2026-11-19
+
+### Changed
+- satelle project bind and satelle project create --bind record the binding, add the repo to this machine's projects and return: they make no sync of their own and print no pushed or pulled counts. The sync timer's pass syncs the repo (sto_c2905da7)
+
+### Removed
+- The per-repo sync state no longer declares the substrate-area fields no code reads; a state file that still holds them loads as before (sto_519a6320)
+
+### Fixed
+- A drift review run whose step 5 is rejected and whose steps 3 and 4 run again keeps every item closed in an earlier round in its last drift-report's `## Closed`, each listed once (sto_afbc7124)
+- Git repositories that tests create run with gc.auto=0 and maintenance.auto=false, so no detached git gc writes into a test's temp directory after the test returns (sto_5fcd0392)
+- TestSlowIngestLogsPhases checks that the apply time is at least the slow-ingest threshold instead of requiring it to start with "1.", so it passes on a loaded node (sto_22b67bbf)
+
 ## [1.0.99] - 2026-11-19
 
 ### Fixed
