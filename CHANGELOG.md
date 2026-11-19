@@ -1,3 +1,18 @@
+## [1.0.91] - 2026-11-19
+
+### Added
+- macOS and Windows test runs on GitHub Actions, on demand: .github/workflows/os-test.yml runs go build, vet and test on macos-latest and windows-latest (and make test on macOS) at a pull request's head when it carries the label os-test, or on a dispatch naming the ref and the runners; no push or schedule trigger, one run per ref, 30-minute jobs, cached Go modules and builds (sto_6d13f4f9)
+
+### Changed
+- `satelle-tree-unchanged-check` hashes with `shasum -a 256` where `sha256sum` is missing, so it runs on a stock Mac; it refuses naming both tools only when neither is installed (sto_ca65c001)
+
+### Fixed
+- scripts/release-binary.sh and scripts/check-serve-version.sh run under macOS bash 3.2: no mapfile, and empty arrays expand safely under set -u (sto_5c9c97db)
+- scripts/hermetic_test.go's exit-status test opts into snapshot mode where bubblewrap is missing (sto_ea1697ba)
+- This repo's pull-request review skills hash with shasum -a 256 where sha256sum is missing, so they run on macOS (sto_52a72387)
+- internal/gate's always-after and remote-after tests pass on macOS (printf in place of echo; $PWD compared with symlinks resolved) (sto_1d83bc85)
+- scripts' TestCredguard turns Go telemetry off in macOS's config directory too, so its broken-build case no longer races its temp HOME's cleanup on a Mac (sto_a157d39c)
+
 ## [1.0.90] - 2026-11-18
 
 ### Added
