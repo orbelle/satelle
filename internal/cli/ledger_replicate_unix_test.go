@@ -19,15 +19,6 @@ func storeOn(t *testing.T, m machine, root string) {
 	configureLedger(t, m.dir, `store = { command = "sh", args = ['`+storeAdapter(t)+`', "--root", '`+root+`'] }`)
 }
 
-func attachments(t *testing.T, id string) []item.Attachment {
-	t.Helper()
-	var atts []item.Attachment
-	if err := json.Unmarshal([]byte(must(t, "story", "attachments", id, "--json")), &atts); err != nil {
-		t.Fatal(err)
-	}
-	return atts
-}
-
 func TestLedgerPushPullRoundTripsThroughTheReferenceAdapter(t *testing.T) {
 	root := t.TempDir()
 

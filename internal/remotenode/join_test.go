@@ -22,37 +22,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
-var lineConfig = map[string]string{
-	"satelle.toml": "[workflows]\ndefault = \"line\"\n",
-	"agents.toml": `[agents.doer]
-command = "claude"
-tools = ["Read", "Edit"]
-placement = "remote:ci"
-[agents.r1]
-command = "claude"
-tools = ["Read"]
-`,
-	"skills/do.md":     "Do the work.\n",
-	"skills/review.md": "Review.\n",
-	"workflows/line.toml": `[states.a]
-start = true
-[states.b]
-performer = { agent = "doer", skill = "do" }
-[states.c]
-terminal = true
-[gates.review]
-skill = "review"
-agent = "r1"
-[[transition]]
-from = ["a"]
-to = "b"
-[[transition]]
-from = ["b"]
-to = "c"
-groups = [{ gates = ["review"] }]
-`,
-}
-
 const nodeSecret = "s3cret-value-NEVER-REPORTED"
 
 const nodeDefinition = `version = 1
@@ -421,8 +390,6 @@ on_create = ["true"]
 [drive]
 kind = "item"
 `
-
-func ptr[T any](v T) *T { return &v }
 
 func TestPlacementRefusesADivergedItem(t *testing.T) {
 	l := newLocalRepo(t)

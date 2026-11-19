@@ -4,7 +4,6 @@ package web
 
 import (
 	"encoding/json"
-	"html"
 	"os/exec"
 	"regexp"
 	"slices"
@@ -82,40 +81,8 @@ func engagedFixture(t *testing.T, hosted *mirror.HostedMeta) string {
 	return srv.URL + "/r/proj/"
 }
 
-func markTitle(t *testing.T, cell, text string) string {
-	t.Helper()
-	at := strings.Index(cell, ">"+text+"<")
-	if at < 0 {
-		t.Errorf("no %q mark in %q", text, cell)
-		return ""
-	}
-	span := strings.LastIndex(cell[:at], "<span")
-	if span < 0 {
-		t.Errorf("the %q mark is not a span: %q", text, cell)
-		return ""
-	}
-	tag := cell[span:at]
-	_, rest, ok := strings.Cut(tag, `title="`)
-	if !ok {
-		t.Errorf("the %q mark has no title: %q", text, tag)
-		return ""
-	}
-	title, _, _ := strings.Cut(rest, `"`)
-	return html.UnescapeString(title)
-}
-
 func markCount(cell, class string) int {
 	return len(regexp.MustCompile(`<span class="`+regexp.QuoteMeta(class)+`[" ]`).FindAllString(cell, -1))
-}
-
-var engagedRowRE = regexp.MustCompile(`data-engaged="([^"]*)"[^>]*data-expand-url="fragment/story/([^"]+)"`)
-
-func engagedRows(html string) map[string]string {
-	out := map[string]string{}
-	for _, m := range engagedRowRE.FindAllStringSubmatch(html, -1) {
-		out[m[2]] = m[1]
-	}
-	return out
 }
 
 func TestEngagedMarksEveryPlace(t *testing.T) {
