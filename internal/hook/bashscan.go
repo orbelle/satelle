@@ -118,6 +118,10 @@ func tokenizeBash(command string) []bashTok {
 			i++
 			continue
 		}
+		if k := lineContinuation(command, i); k > 0 {
+			i += k
+			continue
+		}
 		if command[i] == '\n' {
 			emit(bashTok{Kind: "op", Op: "\n"}, i, i+1)
 			i++
@@ -198,6 +202,13 @@ func tokenizeBash(command string) []bashTok {
 				c == '\'' || c == '"' {
 				break
 			}
+			if c == '\\' {
+				if lineContinuation(command, j) > 0 {
+					break
+				}
+				j = min(j+2, n)
+				continue
+			}
 			if c == '&' || (c == '|' && j+1 < n && command[j+1] == '|') {
 				break
 			}
@@ -215,6 +226,18 @@ func tokenizeBash(command string) []bashTok {
 		i++
 	}
 	return out
+}
+
+func lineContinuation(s string, i int) int {
+	switch {
+	case s[i] != '\\':
+		return 0
+	case strings.HasPrefix(s[i+1:], "\n"):
+		return 2
+	case strings.HasPrefix(s[i+1:], "\r\n"):
+		return 3
+	}
+	return 0
 }
 
 func skipDoubleQuoted(s string, i int) int {
@@ -1372,8 +1395,32 @@ func operatorRecordDataToken(t bashTok, depth int) bool {
 	return false
 }
 
+func shellArgWords(toks []bashTok) []string {
+	var out []string
+	joined := false
+	for i, t := range toks {
+		var part string
+		switch {
+		case t.Kind == "word" && t.Value != "":
+			part = t.Value
+		case t.Kind == "string" && t.Value != "HEREDOC" && t.Raw == "":
+			part = unquoteTok(t.Value)
+		default:
+			joined = false
+			continue
+		}
+		if joined && toks[i-1].End == t.Start {
+			out[len(out)-1] += part
+		} else {
+			out = append(out, part)
+		}
+		joined = true
+	}
+	return out
+}
+
 func operatorRecordWords(toks []bashTok) bool {
-	words := commandArgWords(toks)
+	words := shellArgWords(toks)
 	for i, w := range words {
 		for _, p := range []string{"$(", "<(", ">(", "(", "`"} {
 			for strings.HasPrefix(w, p) {
@@ -1384,7 +1431,7 @@ func operatorRecordWords(toks []bashTok) bool {
 			continue
 		}
 		for j := i + 1; j < len(words); j++ {
-			if strings.TrimRight(words[j], ")`") == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
+			if strings.TrimRight(strings.ReplaceAll(words[j], "\\", ""), ")`") == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
 				return true
 			}
 		}

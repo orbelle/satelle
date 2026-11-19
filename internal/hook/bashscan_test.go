@@ -3,6 +3,7 @@ package hook
 import (
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,8 @@ func TestScanBashTargets(t *testing.T) {
 		{cmd: "chmod a=r f +x", paths: []string{"/w/f", "/w/+x"}},
 		{cmd: "chmod -w +x", paths: []string{"/w/+x"}},
 		{cmd: "chmod --reference=ref +x", paths: []string{"/w/+x"}},
+		{cmd: "echo x \\\n  > a.txt", paths: []string{"/w/a.txt"}},
+		{cmd: "cd sub \\\n  && touch f", paths: []string{"/w/sub/f"}},
 	} {
 		got := ScanBash(c.cmd, "/w", "", noFile)
 		if !slices.Equal(got.Paths, c.paths) || !slices.Equal(got.Inline, c.inline) {
@@ -121,14 +124,49 @@ var notOperatorRecordCases = []string{
 	"echo record; satelle status",
 }
 
+var operatorRecordStoryTextCases = []string{
+	"satelle story set sto_1 --title 'A run record folder (0444) left by a killed run' --criteria 'Given a satelle run, When its record folder (0444) is left by a killed run, Then the next run removes it' --replace --session s",
+	`satelle story create --title "The guard lets a story set whose text holds parentheses and the word record through" --criteria "Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it" --json --session s`,
+	"satelle story create \\\n  --title \"The guard lets a story set whose text holds parentheses and the word record through\" \\\n  --criteria \"Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it\" \\\n  --json --session s",
+	`satelle story set sto_1 --criteria 'Given a satelle run, When the run'\''s record folder (0444) is left, Then it is removed' --replace --session s`,
+	`satelle story set sto_1 --criteria 'Given a satelle story set, When its text holds the word '\''record'\'' (in parentheses), Then it is allowed' --replace --session s`,
+	"satelle story set sto_1 --body - --session s <<'EOF'\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
+	"satelle story create --title 'Guard (parentheses)' \\\n  --body - --json --session s <<'EOF'\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
+	"cat <<'EOF' | satelle story set sto_1 --body - --session s\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
+}
+
+var operatorRecordEscapedCases = []string{
+	"satelle story \\\nrecord sto_1 --file f",
+	"echo ok && satelle story \\\n  record sto_1",
+	"echo ok; satelle story record sto_1",
+	`satelle story rec\ord sto_1`,
+	"satelle story re'cord' sto_1",
+	"(echo 'satelle story record sto_1') | bash",
+	`satelle story set sto_1 --title "note (x) $(satelle story record sto_1)"`,
+}
+
+func TestTokenizeBashBackslash(t *testing.T) {
+	continued := operatorRecordStoryTextCases[2]
+	if segs := splitSegments(tokenizeBash(continued)); len(segs) != 1 {
+		t.Errorf("%q: %d segments, want 1", continued, len(segs))
+	}
+	for _, c := range operatorRecordStoryTextCases[3:5] {
+		for _, tok := range tokenizeBash(c) {
+			if tok.Kind == "word" && (strings.Contains(tok.Value, "(") || tok.Value == operatorRecordVerb) {
+				t.Errorf("%q: word token %q", c, tok.Value)
+			}
+		}
+	}
+}
+
 func TestScanBashOperatorRecord(t *testing.T) {
 	noFile := func(string) bool { return false }
-	for _, c := range append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...) {
+	for _, c := range append(append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...), operatorRecordEscapedCases...) {
 		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: the operator record verb was not seen", c)
 		}
 	}
-	for _, c := range append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...) {
+	for _, c := range append(append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...), operatorRecordStoryTextCases...) {
 		if ScanBash(c, "/w", "/w", noFile).OperatorRecord {
 			t.Errorf("%q: read as the operator record verb", c)
 		}

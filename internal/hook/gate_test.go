@@ -516,12 +516,12 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 func TestGateRefusesOperatorRecord(t *testing.T) {
 	root := newRepo(t)
 	g := Gate{Root: root, Grant: func(string) Grant { return Grant{Tree: true} }}
-	for _, c := range append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...) {
+	for _, c := range append(append(slices.Clone(operatorRecordCases), operatorRecordCodeCases...), operatorRecordEscapedCases...) {
 		if v := g.Bash(c, root); v.Allow || v.Reason != OperatorRecordDenied {
 			t.Errorf("%q: %+v", c, v)
 		}
 	}
-	for _, c := range append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...) {
+	for _, c := range append(append(slices.Clone(operatorRecordDataCases), notOperatorRecordCases...), operatorRecordStoryTextCases...) {
 		if v := g.Bash(c, root); !v.Allow {
 			t.Errorf("%q denied: %s", c, v.Reason)
 		}
