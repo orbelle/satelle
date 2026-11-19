@@ -31,21 +31,6 @@ type State struct {
 	SnapshotLastFailure time.Time `json:"snapshot_last_failure,omitempty"`
 	SnapshotReason      string    `json:"snapshot_reason,omitempty"`
 	SnapshotPasses      int       `json:"snapshot_passes,omitempty"`
-
-	SubstrateAreas map[string]SubstrateArea `json:"substrate_areas,omitempty"`
-
-	SubstrateCheckedAttempt time.Time `json:"substrate_checked_attempt,omitempty"`
-}
-
-type SubstrateArea struct {
-	State     string    `json:"state"`
-	Paths     []string  `json:"paths,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
-}
-
-type AreaCheck struct {
-	State string
-	Paths []string
 }
 
 var mu sync.Mutex

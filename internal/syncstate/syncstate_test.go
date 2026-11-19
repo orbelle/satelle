@@ -2,6 +2,7 @@ package syncstate
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -182,5 +183,26 @@ func TestRecordPassUpgrade(t *testing.T) {
 	}
 	if got, _, _ := Load(home, "/repo"); got.SyncUpgrade != "" || !got.SyncLastSuccess.Equal(next) {
 		t.Fatalf("an ordinary pass kept the upgrade: %+v", got)
+	}
+}
+
+func TestLoadReadsAFileWithTheDroppedSubstrateKeys(t *testing.T) {
+	home := t.TempDir()
+	repo := "/repo"
+	p := pathFor(home, repo)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"repo_path":"/repo","sync_store":"s","sync_last_success":"2026-08-01T12:00:00Z","sync_pushed":2,"snapshot_reason":"snap fail","substrate_areas":{"skills":{"state":"ok","paths":["a"],"checked_at":"2026-08-01T12:00:00Z"}},"substrate_checked_attempt":"2026-08-01T12:00:00Z"}`
+	if err := os.WriteFile(p, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := Load(home, repo)
+	if err != nil || !ok {
+		t.Fatalf("load = ok %v, err %v; want the state", ok, err)
+	}
+	want := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	if got.RepoPath != "/repo" || got.SyncStore != "s" || !got.SyncLastSuccess.Equal(want) || got.SyncPushed != 2 || got.SnapshotReason != "snap fail" {
+		t.Fatalf("got %+v", got)
 	}
 }
