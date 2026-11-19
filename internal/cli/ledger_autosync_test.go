@@ -698,14 +698,19 @@ func TestAutosyncPrunesGoneProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	goneJSON, err := json.Marshal(gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goneInJSON := strings.Trim(string(goneJSON), "\"")
 	before, _ := run(t, "", "doctor", "--json")
-	if !strings.Contains(before, `"resolve": "`+resolveRemoveProject+`"`) || !strings.Contains(before, gone) {
+	if !strings.Contains(before, `"resolve": "`+resolveRemoveProject+`"`) || !strings.Contains(before, goneInJSON) {
 		t.Fatalf("doctor before the pass does not report %s with the %s fix:\n%s", gone, resolveRemoveProject, before)
 	}
 
 	out := autosync(t, m)
 
-	if after, _ := run(t, "", "doctor", "--json"); strings.Contains(after, gone) {
+	if after, _ := run(t, "", "doctor", "--json"); strings.Contains(after, goneInJSON) {
 		t.Errorf("doctor after the pass still reports %s:\n%s", gone, after)
 	}
 	if want := gone + ": removed from this machine's projects: path no longer exists"; !strings.Contains(out, want) {

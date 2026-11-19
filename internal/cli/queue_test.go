@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -148,7 +149,7 @@ func TestQueueFileCommands(t *testing.T) {
 	if err := os.WriteFile(file, []byte("title = \"Release\"\n[trigger]\ntask = \""+task+"\"\nworkflow = \"default\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), "queues/release.toml") {
+	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), filepath.Join("queues", "release.toml")) {
 		t.Fatalf("validate a broken queue file: %v", err)
 	}
 	if err := os.Remove(file); err != nil {

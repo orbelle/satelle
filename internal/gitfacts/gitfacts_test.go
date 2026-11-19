@@ -24,7 +24,10 @@ func TestFacts(t *testing.T) {
 	if err != nil || len(head) != 40 {
 		t.Fatalf("head %q %v", head, err)
 	}
-	top, _ := r.TopLevel()
+	top, err := r.TopLevel()
+	if err != nil {
+		t.Fatalf("toplevel: %v", err)
+	}
 	if want, _ := filepath.EvalSymlinks(dir); top != want {
 		t.Fatalf("toplevel %q want %q", top, want)
 	}
@@ -258,5 +261,15 @@ func TestTracks(t *testing.T) {
 	}
 	if _, err := r.Tracks("a.txt"); err == nil {
 		t.Error("Tracks over a garbage index answered; want an error")
+	}
+}
+
+func TestTopLevelOutsideARepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	top, err := Repo{Dir: t.TempDir()}.TopLevel()
+	if err == nil || top != "" {
+		t.Fatalf("toplevel %q %v; want an error and the empty string", top, err)
 	}
 }

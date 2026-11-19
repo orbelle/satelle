@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/gate"
@@ -40,8 +41,23 @@ const OperatorRecordDenied = "satelle: recording the operator's word is the oper
 	"Ask the operator to run it in their own terminal. (Prose is read as code only when a shell or interpreter would run it, or it is passed to a command the scan does not know as data; pass such prose with -F <file>.)"
 
 func (g Gate) Edit(target string) Verdict {
-	return g.judge(resolvePath(g.Root, target), false)
+	return g.judge(native(resolvePath(g.Root, target)), false)
 }
+
+func nativePath(p string, windows bool) string {
+	if !windows {
+		return p
+	}
+	if len(p) >= 2 && p[0] == '/' && isASCIILetter(p[1]) && (len(p) == 2 || p[2] == '/') {
+		rest := strings.TrimPrefix(p[2:], "/")
+		p = strings.ToUpper(p[1:2]) + ":/" + rest
+	}
+	return strings.ReplaceAll(p, "/", "\\")
+}
+
+func isASCIILetter(b byte) bool { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
+
+func native(p string) string { return nativePath(p, runtime.GOOS == "windows") }
 
 func (g Gate) Bash(command, cwd string) Verdict {
 	if strings.TrimSpace(cwd) == "" {
@@ -51,16 +67,17 @@ func (g Gate) Bash(command, cwd string) Verdict {
 	if isFile == nil {
 		isFile = isRegularFile
 	}
-	t := ScanBash(command, cwd, g.Root, isFile)
+	t := ScanBash(command, cwd, g.Root, func(p string) bool { return isFile(native(p)) })
 	if t.OperatorRecord {
 		return Verdict{Reason: OperatorRecordDenied}
 	}
 	for _, p := range t.Paths {
-		if v := g.judge(p, false); !v.Allow {
+		if v := g.judge(native(p), false); !v.Allow {
 			return v
 		}
 	}
 	for _, d := range t.Inline {
+		d = native(d)
 		if v := g.judge(d, true); !v.Allow {
 			v.Reason = "an inline program would run in " + d + ", which it may write anywhere under. " + v.Reason
 			return v

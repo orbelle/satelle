@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -455,7 +456,7 @@ func TestJudgeDispatchLogPath(t *testing.T) {
 	r.Execute(context.Background())
 	r.Logs = "/logs"
 	r.Execute(context.Background())
-	if len(rec.logs) != 2 || rec.logs[0] != "" || !strings.HasPrefix(rec.logs[1], "/logs/dispatch/dispatch-y1-") || !strings.HasSuffix(rec.logs[1], "-i1.log") {
+	if len(rec.logs) != 2 || rec.logs[0] != "" || !strings.HasPrefix(rec.logs[1], filepath.Join("/logs", "dispatch", "dispatch-y1-")) || !strings.HasSuffix(rec.logs[1], "-i1.log") {
 		t.Fatalf("logs %q", rec.logs)
 	}
 }

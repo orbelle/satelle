@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,11 @@ func TestInstalledBuilds(t *testing.T) {
 	home := t.TempDir()
 	dir := t.TempDir()
 	daemon := filepath.Join(dir, "satelled")
-	cli := filepath.Join(dir, "satelle")
+	cliName := "satelle"
+	if runtime.GOOS == "windows" {
+		cliName += ".exe"
+	}
+	cli := filepath.Join(dir, cliName)
 	for _, p := range []string{daemon, cli} {
 		if err := os.WriteFile(p, []byte("bin"), 0o755); err != nil {
 			t.Fatal(err)

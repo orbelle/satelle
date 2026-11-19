@@ -177,7 +177,7 @@ func (k *Kernel) notHeldYet(id string) error {
 
 func (k *Kernel) RelPath(p string) string {
 	if r, err := filepath.Rel(k.Dir, p); err == nil && !strings.HasPrefix(r, "..") {
-		return r
+		return filepath.ToSlash(r)
 	}
 	return p
 }
