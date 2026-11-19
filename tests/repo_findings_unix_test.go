@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +28,8 @@ const (
 const findingsCaptureCommand = findingsTreeVar + "=<base worktree> " + findingsBinVar + "=<binary built from it> " + findingsWriteVar + "=1 go test -tags integration -run '^TestRepoFindingsMatchTheRecordedBase$' ./tests/"
 
 var machineChecks = []string{"versions", "upgrade", "sync", "seats"}
+
+var contextBytes = regexp.MustCompile(`session-start context is [0-9]+ bytes`)
 
 func TestRepoFindingsMatchTheRecordedBase(t *testing.T) {
 	tree := os.Getenv(findingsTreeVar)
@@ -183,7 +186,10 @@ func doctorJSON(t *testing.T, s *sandbox, bin string) doctorReportJSON {
 
 func repoFindings(t *testing.T, s *sandbox, bin string) []string {
 	t.Helper()
-	norm := strings.NewReplacer(s.dir, "<repo>", s.home, "<home>", filepath.Dir(bin), "<bin>").Replace
+	paths := strings.NewReplacer(s.dir, "<repo>", s.home, "<home>", filepath.Dir(bin), "<bin>").Replace
+	norm := func(l string) string {
+		return contextBytes.ReplaceAllString(paths(l), "session-start context is <n> bytes")
+	}
 	group := func(prefix string, lines []string) []string {
 		out := make([]string, 0, len(lines))
 		for _, l := range lines {
