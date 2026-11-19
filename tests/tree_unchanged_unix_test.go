@@ -5,6 +5,7 @@ package tests
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -457,6 +458,83 @@ func TestTreeUnchangedFailsClosedWithoutOrigin(t *testing.T) {
 			t.Fatalf("seat %v: exit %d, gate %+v; want a refusal naming origin/main", seat, code, g)
 		}
 	}
+}
+
+// treeToolBin is a PATH holding only what the tree-unchanged check runs, with
+// no sha256sum; with shasum set it adds a shasum shim that accepts only
+// "-a 256" and hashes with the host's real tool.
+func treeToolBin(t *testing.T, shasum bool) string {
+	t.Helper()
+	bin := realDir(t, t.TempDir())
+	for _, tool := range []string{"sh", "git", "jq", "awk", "sort", "cut", "wc", "tr"} {
+		p, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatalf("%s is required by %s and is not on PATH", tool, treeCheck)
+		}
+		if err := os.Symlink(p, filepath.Join(bin, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(satelleBin, filepath.Join(bin, "satelle")); err != nil {
+		t.Fatal(err)
+	}
+	if !shasum {
+		return bin
+	}
+	real := ""
+	if p, err := exec.LookPath("sha256sum"); err == nil {
+		real = p
+	} else if p, err := exec.LookPath("shasum"); err == nil {
+		real = p + " -a 256"
+	} else {
+		t.Fatal("sha256sum or shasum is required on the host to stand in for shasum")
+	}
+	shim := "#!/bin/sh\n[ \"$1\" = -a ] && [ \"$2\" = 256 ] || exit 64\nshift 2\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "shasum"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+func TestTreeUnchangedHashesWithShasum(t *testing.T) {
+	t.Parallel()
+	t.Run("shasum only", func(t *testing.T) {
+		t.Parallel()
+		s := newTreeSandbox(t, true)
+		id := s.item("a")
+		s.git("checkout", "-q", "-b", id)
+		s.must("story", "seat", id)
+		s.env["PATH"] = treeToolBin(t, true)
+		s.accepted(id, "origin/main")
+		s.must("story", "set", id, "--status", "plan")
+		s.write("new.go", "package changed\n")
+		g := s.refused(id, []string{"new.go"}, nil, nil)
+		if strings.Contains(g.Notes, "is not installed") || strings.Contains(g.Notes, "neither sha256sum") {
+			t.Fatalf("the check refused for a missing tool with shasum on PATH:\n%s", g.Notes)
+		}
+		s.refused(id, []string{"new.go"}, nil, nil)
+		if _, n := s.treeChanges(id); n != 1 {
+			t.Errorf("tree-changes recorded %d times for one unchanged list, want 1: the shasum sum differs from the recorded sha256", n)
+		}
+	})
+	t.Run("neither tool", func(t *testing.T) {
+		t.Parallel()
+		s := newTreeSandbox(t, true)
+		id := s.item("a")
+		s.git("checkout", "-q", "-b", id)
+		s.must("story", "seat", id)
+		s.env["PATH"] = treeToolBin(t, false)
+		code, g := s.present(id)
+		if code != 2 || g.Result != "reject" || !strings.Contains(g.Notes, "sha256sum") || !strings.Contains(g.Notes, "shasum") {
+			t.Fatalf("exit %d, gate %+v; want a refusal naming sha256sum and shasum", code, g)
+		}
+		if st := s.get(id).Status; st != "plan" {
+			t.Errorf("status %q after a refusal, want plan", st)
+		}
+		if _, n := s.treeChanges(id); n != 0 {
+			t.Errorf("a refusal for missing tools recorded %d tree-changes", n)
+		}
+	})
 }
 
 func TestTreeUnchangedCheckShipsWithInit(t *testing.T) {
