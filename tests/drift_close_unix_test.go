@@ -135,6 +135,16 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 		t.Fatalf("Stayed open = %v, want only %s, the fix item of v0.0.2:\n%s", stayed, fix, rep)
 	}
 
+	d.step("## 3.")
+	d.step("## 4.")
+	rep = d.report(exe)
+	if rows := reportSection(rep, "Closed"); len(rows) != 1 || rows[0][0] != older || rows[0][1] != commandKey {
+		t.Fatalf("after a second round of steps 3 and 4, Closed = %v, want the first round's %s once:\n%s", rows, older, rep)
+	}
+	if stayed := listed(rep, "Stayed open"); len(stayed) != 1 || stayed[fix] == nil {
+		t.Fatalf("after a second round, Stayed open = %v, want only %s:\n%s", stayed, fix, rep)
+	}
+
 	attach := func(body string) {
 		t.Helper()
 		if r := d.exec(satelleBin, body, "execution", "attach", exe, "--name", "drift-report", "--type", "text/markdown", "--file", "-"); r.code != 0 {
@@ -264,7 +274,7 @@ func TestDriftReviewStep4FollowsStep3Fence(t *testing.T) {
 		t.Fatalf("drift-review.md: step 4's fence does not follow its heading directly:\n%s", head)
 	}
 	four := md[j:k]
-	for _, want := range []string{`bash scripts/drift-fix.sh --close "$fix"`, "## Stayed open"} {
+	for _, want := range []string{`bash scripts/drift-fix.sh --close "$fix"`, "## Stayed open", `touch "$rd/closed.txt" "$rd/carried-out.txt"`} {
 		if !strings.Contains(four, want) {
 			t.Errorf("drift-review.md step 4 lacks %q", want)
 		}

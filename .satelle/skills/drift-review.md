@@ -181,7 +181,7 @@ fix=$(cut -f1 "$rd/fix.txt" | head -1); [ -n "$fix" ] || fix=-
 bash scripts/drift-fix.sh --close "$fix" > "$rd/close.txt"
 [ $? -le 1 ] || exit 1
 key() { jq -r --arg id "$1" '.[] | select(.id == $id) | (.body // "") | split("\n") | map(select(startswith("drift-key: ") or startswith("drift-warning: "))) | .[0] // "-" | sub("^drift-(key|warning): "; "")' "$rd/open.json"; }
-: > "$rd/closed.txt"; : > "$rd/carried-out.txt"; : > "$rd/refused.txt"
+touch "$rd/closed.txt" "$rd/carried-out.txt"; : > "$rd/refused.txt"
 while IFS="$tab" read -r id what why; do
   case $what in
     closed) printf '%s\t%s\n' "$id" "$(key "$id")" >> "$rd/closed.txt" ;;
@@ -189,6 +189,7 @@ while IFS="$tab" read -r id what why; do
     refused) printf '%s\t%s\n' "$id" "$why" >> "$rd/refused.txt" ;;
   esac
 done < "$rd/close.txt"
+for f in closed carried-out; do awk -F'\t' '!seen[$1]++' "$rd/$f.txt" > "$rd/$f.new" && mv "$rd/$f.new" "$rd/$f.txt"; done
 satelle story list --tag drift --open --json --session "$session" > "$rd/still-open.json" || exit 1
 jq -r '.[] | [.id, ((.body // "") | split("\n") | map(select(startswith("drift-key: ") or startswith("drift-warning: "))) | .[0] // "-" | sub("^drift-(key|warning): "; ""))] | @tsv' "$rd/still-open.json" |
   awk -F'\t' -v fix="$fix" -v ver="$ver" -v refused="$rd/refused.txt" '
@@ -221,7 +222,9 @@ gate.run on the item's ledger, accept or reject. No item is cancelled.
 The report attached after step 4 adds the sections the run's done move checks
 (the `drift-closures` gate, `.satelle/skills/satelle-drift-closures-check.md`):
 
-- `## Closed`: `<item id>\t<drift-key>`, every item this run closed.
+- `## Closed`: `<item id>\t<drift-key>`, every item this run closed, in
+  any round: a re-run of steps 3 and 4 after a step-5 reject keeps the
+  closures of earlier rounds, each listed once.
 - `## Carried`: `<item id>\t<drift-key>\tcarried: on <workflow>/<state>`,
   every item that left the drift set on its own route, carried by the fix
   item.
