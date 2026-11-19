@@ -1,17 +1,22 @@
 package kernel
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/bobmcallan/satelle/internal/cache"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
 const (
@@ -21,6 +26,8 @@ const (
 	RejectNotesMax    = 8 << 10
 	RecordLead        = "The item's record is in the read-only folder "
 	runsDir           = "runs"
+	ownerExt          = ".owner"
+	claimTries        = 100
 )
 
 type Record struct {
@@ -32,13 +39,108 @@ func (r Record) Close() error {
 	if r.Dir == "" {
 		return nil
 	}
-	_ = filepath.WalkDir(r.Dir, func(p string, d fs.DirEntry, err error) error {
+	return removeRun(r.Dir)
+}
+
+func removeRun(dir string) error {
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() {
 			_ = os.Chmod(p, 0o755)
 		}
 		return nil
 	})
-	return os.RemoveAll(r.Dir)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.Remove(dir + ownerExt); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+type ownerState int
+
+const (
+	ownerMissing ownerState = iota
+	ownerBad
+	ownerGone
+	ownerKept
+)
+
+func runOwner(dir string) ownerState {
+	b, err := os.ReadFile(dir + ownerExt)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ownerMissing
+	}
+	var p procgroup.Proc
+	if err != nil || json.Unmarshal(b, &p) != nil {
+		return ownerBad
+	}
+	if procgroup.Probe(p) == procgroup.Gone {
+		return ownerGone
+	}
+	return ownerKept
+}
+
+func sweepRuns(parent string) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	dirs := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs[e.Name()] = true
+		}
+	}
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case e.IsDir():
+			if s := runOwner(filepath.Join(parent, name)); s == ownerMissing || s == ownerGone {
+				_ = removeRun(filepath.Join(parent, name))
+			}
+		case strings.HasSuffix(name, ownerExt) && e.Type().IsRegular():
+			dir := strings.TrimSuffix(name, ownerExt)
+			if dir != "" && !dirs[dir] && runOwner(filepath.Join(parent, dir)) == ownerGone {
+				_ = os.Remove(filepath.Join(parent, name))
+			}
+		}
+	}
+}
+
+func claimRun(parent, id string) (string, error) {
+	owner, err := json.Marshal(procgroup.Self())
+	if err != nil {
+		return "", err
+	}
+	for range claimTries {
+		dir := filepath.Join(parent, id+"-"+strconv.FormatUint(uint64(rand.Uint32()), 10))
+		f, err := os.OpenFile(dir+ownerExt, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, werr := f.Write(owner)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			_ = os.Remove(dir + ownerExt)
+			return "", werr
+		}
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			_ = os.Remove(dir + ownerExt)
+			if errors.Is(err, fs.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		return dir, nil
+	}
+	return "", fmt.Errorf("%s: no free run folder name under %s after %d tries", id, parent, claimTries)
 }
 
 var hexSHA = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
@@ -144,7 +246,8 @@ func (k *Kernel) writeRecord(it item.Item, atts []item.Attachment, bodies [][]by
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	dir, err := os.MkdirTemp(parent, it.ID+"-")
+	sweepRuns(parent)
+	dir, err := claimRun(parent, it.ID)
 	if err != nil {
 		return "", err
 	}

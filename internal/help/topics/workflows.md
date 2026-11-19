@@ -374,7 +374,9 @@ this machine and are never written to the ledger.
 The record is the newest version of each attachment and the item's children.
 Before a run on this machine (and on a remote node, from its own ledger)
 satelle writes it to a read-only folder under `.satelle/runs/` (gitignored),
-names every file in the prompt, and removes it after the run; small bodies are
+names every file in the prompt, and removes it after the run. A folder left by
+a run whose process exited before removing it is removed when the next run
+writes its folder; a folder whose run is still in progress is kept. Small bodies are
 also inlined, up to 16 KiB each and 64 KiB in all, newest first, each cut
 marked with the bytes shown and the file to read. A detached run gets the
 record inline only. The session reads any version itself with
