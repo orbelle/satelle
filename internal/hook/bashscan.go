@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -206,11 +207,11 @@ func tokenizeBash(command string) []bashTok {
 				break
 			}
 			if c == '\\' {
-				if lineContinuation(command, j) > 0 {
-					break
-				}
 				j = min(j+2, n)
 				continue
+			}
+			if c == '$' && j > i && j+1 < n && (command[j+1] == '\'' || command[j+1] == '"') {
+				break
 			}
 			if c == '&' || (c == '|' && j+1 < n && command[j+1] == '|') {
 				break
@@ -237,8 +238,6 @@ func lineContinuation(s string, i int) int {
 		return 0
 	case strings.HasPrefix(s[i+1:], "\n"):
 		return 2
-	case strings.HasPrefix(s[i+1:], "\r\n"):
-		return 3
 	}
 	return 0
 }
@@ -1407,13 +1406,13 @@ func shellArgWords(toks []bashTok) []string {
 		case t.Kind == "word" && t.Value != "":
 			part = t.Value
 		case t.Kind == "string" && t.Value != "HEREDOC" && t.Raw == "":
-			part = unquoteTok(t.Value)
+			part = quotedPart(t.Value)
 		default:
 			joined = false
 			continue
 		}
 		if joined && toks[i-1].End == t.Start && !shellWordBoundary(toks[i-1], t) {
-			out[len(out)-1] += part
+			out[len(out)-1] += "\x01" + part
 		} else {
 			out = append(out, part)
 		}
@@ -1424,17 +1423,13 @@ func shellArgWords(toks []bashTok) []string {
 
 func shellWordBoundary(prev, t bashTok) bool {
 	const meta = "&|;<>()`"
-	if expandingString(prev) || expandingString(t) || (prev.Kind == "word" && strings.HasSuffix(prev.Value, "$")) {
+	if prev.Kind == "word" && strings.HasSuffix(prev.Value, "$") {
 		return true
 	}
 	if prev.Kind == "word" && prev.Value != "" && strings.ContainsRune(meta, rune(prev.Value[len(prev.Value)-1])) {
 		return true
 	}
 	return t.Kind == "word" && t.Value != "" && (strings.ContainsRune(meta, rune(t.Value[0])) || strings.HasPrefix(t.Value, "$("))
-}
-
-func expandingString(t bashTok) bool {
-	return t.Kind == "string" && strings.HasPrefix(t.Value, "\"") && strings.ContainsAny(t.Value, "$`")
 }
 
 func bareWords(toks []bashTok) []string {
@@ -1447,39 +1442,226 @@ func bareWords(toks []bashTok) []string {
 	return out
 }
 
+func quotedPart(v string) string {
+	s := unquoteTok(v)
+	if strings.HasPrefix(v, "$'") {
+		s = ansiC(s)
+	} else if strings.HasPrefix(v, "\"") || strings.HasPrefix(v, "$\"") {
+		s = dropExpansions(s)
+	}
+	return strings.Map(func(r rune) rune {
+		if r == '{' || r == '}' || r == ',' || r == '*' || r == '?' || r == '[' {
+			return '\x00'
+		}
+		return r
+	}, s)
+}
+
+func ansiC(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+		switch c := s[i]; {
+		case c == 'x' || c == 'u' || c == 'U':
+			max := map[byte]int{'x': 2, 'u': 4, 'U': 8}[c]
+			j := i + 1
+			for j < len(s) && j-i-1 < max && strings.IndexByte("0123456789abcdefABCDEF", s[j]) >= 0 {
+				j++
+			}
+			if v, err := strconv.ParseUint(s[i+1:j], 16, 32); err == nil {
+				b.WriteRune(rune(v))
+			}
+			i = j - 1
+		case c >= '0' && c <= '7':
+			j := i
+			for j < len(s) && j-i < 3 && s[j] >= '0' && s[j] <= '7' {
+				j++
+			}
+			v, _ := strconv.ParseUint(s[i:j], 8, 32)
+			b.WriteByte(byte(v))
+			i = j - 1
+		default:
+			if m, ok := map[byte]byte{'n': '\n', 't': '\t', 'r': '\r', 'a': '\a', 'b': '\b', 'e': 0x1b, 'E': 0x1b, 'f': '\f', 'v': '\v'}[c]; ok {
+				b.WriteByte(m)
+			} else if c == '\'' || c == '"' || c == '\\' || c == '?' {
+				b.WriteByte(c)
+			} else {
+				b.WriteByte('\\')
+				b.WriteByte(c)
+			}
+		}
+	}
+	return b.String()
+}
+
+func braceWords(w string) []string {
+	depth, open := 0, -1
+	for i := 0; i < len(w); i++ {
+		switch w[i] {
+		case '\\':
+			i++
+		case '{':
+			if i > 0 && w[i-1] == '$' {
+				continue
+			}
+			if depth == 0 {
+				open = i
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			if depth--; depth > 0 {
+				continue
+			}
+			var alts []string
+			d, from := 0, open+1
+			for k := open + 1; k < i; k++ {
+				switch w[k] {
+				case '{':
+					d++
+				case '}':
+					d--
+				case ',':
+					if d == 0 {
+						alts = append(alts, w[from:k])
+						from = k + 1
+					}
+				}
+			}
+			if alts == nil {
+				open = -1
+				continue
+			}
+			alts = append(alts, w[from:i])
+			var out []string
+			for _, a := range alts {
+				for _, x := range braceWords(w[:open] + a + w[i+1:]) {
+					if len(out) < 64 {
+						out = append(out, x)
+					}
+				}
+			}
+			return out
+		}
+	}
+	return []string{w}
+}
+
+func wordText(w string) string {
+	w = dropExpansions(strings.ReplaceAll(w, "\\\n", ""))
+	return strings.NewReplacer("\\", "", "\x01", "").Replace(w)
+}
+
+func dropExpansions(w string) string {
+	var b strings.Builder
+	for i := 0; i < len(w); i++ {
+		c := w[i]
+		if c == '\\' && i+1 < len(w) {
+			b.WriteByte(c)
+			b.WriteByte(w[i+1])
+			i++
+			continue
+		}
+		if c == '`' {
+			if k := strings.IndexByte(w[i+1:], '`'); k >= 0 {
+				i += k + 1
+				continue
+			}
+		}
+		if c != '$' || i+1 >= len(w) {
+			b.WriteByte(c)
+			continue
+		}
+		switch d := w[i+1]; {
+		case d == '(' || d == '{':
+			closer := map[byte]byte{'(': ')', '{': '}'}[d]
+			depth, j := 0, i+1
+			for ; j < len(w); j++ {
+				if w[j] == d {
+					depth++
+				} else if w[j] == closer {
+					if depth--; depth == 0 {
+						break
+					}
+				}
+			}
+			if j >= len(w) {
+				b.WriteByte(c)
+				continue
+			}
+			i = j
+		case d == '_' || unicode.IsLetter(rune(d)):
+			j := i + 1
+			for j < len(w) && (w[j] == '_' || unicode.IsLetter(rune(w[j])) || unicode.IsDigit(rune(w[j]))) {
+				j++
+			}
+			i = j - 1
+		case strings.IndexByte("0123456789@*#?$!-", d) >= 0:
+			i++
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
 func commandName(w string) string {
-	w = strings.ReplaceAll(w, "\\", "")
+	w = wordText(w)
 	for _, p := range []string{"$(", "<(", ">(", "(", "`"} {
 		if k := strings.LastIndex(w, p); k >= 0 {
 			w = w[k+len(p):]
 		}
 	}
-	if k := strings.IndexAny(w, "&|;<>"); k >= 0 {
+	if k := strings.IndexAny(w, "&|;<>$"); k >= 0 {
 		w = w[:k]
 	}
 	return w
 }
 
 func verbWord(w string) string {
-	w = strings.ReplaceAll(w, "\\", "")
-	if k := strings.IndexAny(w, "&|;<>"); k >= 0 {
+	w = wordText(w)
+	if k := strings.IndexAny(w, "&|;<>$"); k >= 0 {
 		w = w[:k]
 	}
 	return strings.TrimRight(w, ")`")
 }
 
+func globMatches(pattern, name string) bool {
+	if pattern == name {
+		return true
+	}
+	if !strings.ContainsAny(pattern, "*?[") {
+		return false
+	}
+	ok, err := path.Match(pattern, name)
+	return err == nil && ok
+}
+
 func operatorRecordWords(toks []bashTok) bool {
-	return recordVerbIn(shellArgWords(toks)) || recordVerbIn(bareWords(toks))
+	return recordVerbIn(expandedWords(shellArgWords(toks))) || recordVerbIn(expandedWords(bareWords(toks)))
+}
+
+func expandedWords(words []string) []string {
+	var out []string
+	for _, w := range words {
+		out = append(out, braceWords(w)...)
+	}
+	return out
 }
 
 func recordVerbIn(words []string) bool {
 	for i, w := range words {
-		w = commandName(w)
-		if filepath.Base(w) != "satelle" {
+		if !globMatches(path.Base(commandName(w)), "satelle") {
 			continue
 		}
 		for j := i + 1; j < len(words); j++ {
-			if verbWord(words[j]) == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
+			if globMatches(verbWord(words[j]), operatorRecordVerb) && !takesSeparateValue(words[j-1]) {
 				return true
 			}
 		}

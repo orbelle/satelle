@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -202,6 +203,18 @@ var operatorRecordEscapedCases = []string{
 	`satelle story "$(true)"record sto_1`,
 	`satelle"$(true)" story record sto_1`,
 	`satelle story $"record" sto_1`,
+	"echo x \\\r\nsatelle story record sto_1",
+	`satelle story "record"$x sto_1`,
+	`satelle story $x"record" sto_1`,
+	`satelle story 'record'${x:-} sto_1`,
+	`"satelle"$x story record sto_1`,
+	`satelle story record$x sto_1`,
+	`satelle story ${x:-}record sto_1`,
+	`satelle story recor? sto_1`,
+	`satelle story {record,} sto_1`,
+	`{satelle,story,record} sto_1`,
+	`satelle story $'re\x63ord' sto_1`,
+	"satelle story rec\\\nord sto_1",
 }
 
 func TestTokenizeBashBackslash(t *testing.T) {
@@ -274,9 +287,11 @@ func TestResolvePathForms(t *testing.T) {
 }
 
 func operatorRecordOracleCorpus() []string {
-	affix := []string{"", `"$(true)"`, `"$x"`, "''", `""`, "\\", "&", ";", "|", ">o", "<i", ")", "`", "$", "'x'", `"x"`, "x", "2>&1", "&&y", `"${x:-}"`}
+	affix := []string{"", `"$(true)"`, `"$x"`, "''", `""`, "\\", "&", ";", "|", ">o", "<i", ")", "`", "$", "'x'", `"x"`, "x", "2>&1", "&&y", `"${x:-}"`, "$x", "${x:-}"}
 	quoted := func(v string) []string {
-		return []string{v, `"` + v + `"`, "'" + v + "'", v[:2] + `"` + v[2:] + `"`, "$'" + v + "'", `$"` + v + `"`, "\\" + v}
+		return []string{v, `"` + v + `"`, "'" + v + "'", v[:2] + `"` + v[2:] + `"`, "$'" + v + "'", `$"` + v + `"`, "\\" + v,
+			v[:len(v)-1] + "?", v[:3] + "*", "[" + v[:1] + "]" + v[1:], "{" + v + ",}", v[:3] + "{" + v[3:] + ",x}", "{x,}" + v,
+			v[:3] + "\\\n" + v[3:], "$'" + v[:2] + "\\x" + strconv.FormatInt(int64(v[2]), 16) + v[3:] + "'", "$'" + v[:2] + "\\" + strconv.FormatInt(int64(v[2]), 8) + v[3:] + "'"}
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -303,6 +318,13 @@ func operatorRecordOracleCorpus() []string {
 		add("echo ok" + a + "satelle story record sto_1")
 		add(`echo "a"` + a + "$(satelle story record)")
 	}
+	for _, nl := range []string{"\n", "\r\n", "\\\n", "\\\r\n", " \\\r\n", "; \\\n"} {
+		add("echo x" + nl + "satelle story record sto_1")
+		add("satelle story" + nl + "record sto_1")
+	}
+	add("{satelle,story,record} sto_1")
+	add("satelle {story,record} sto_1")
+	add("satelle story {record,x}")
 	return out
 }
 
@@ -315,7 +337,7 @@ func TestOperatorRecordRefusesWhatBashWouldRun(t *testing.T) {
 		t.Skip("bash is not installed")
 	}
 	dir := t.TempDir()
-	for _, f := range []string{"i", "ids"} {
+	for _, f := range []string{"i", "ids", "record", "satelle"} {
 		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -341,6 +363,7 @@ done`
 	if len(hits) < 100 {
 		t.Fatalf("bash ran the operator verb for only %d of %d commands; the oracle is not working", len(hits), len(corpus))
 	}
+	t.Logf("bash runs the operator verb for %d of %d commands", len(hits), len(corpus))
 	noFile := func(string) bool { return false }
 	for _, c := range hits {
 		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
