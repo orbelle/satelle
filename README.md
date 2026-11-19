@@ -71,7 +71,9 @@ satelle doctor --session <session>
   fixes it, and changes nothing. It exits 0 with `no issues`, or 1 with each
   issue as `<check>: <problem>` and a `fix:` line under it, then a count.
   An unwired harness is one of its checks. `satelle status --session <session>` shows the repo's
-  configuration, each harness's wiring, item counts and the session's seats.
+  configuration, each harness's wiring, item counts and the session's seats,
+  and says when a repo bound to a satelle.dev project is not one of this
+  machine's projects.
 
 Then drive work:
 

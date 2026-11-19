@@ -66,6 +66,7 @@ func TestProjectsAreLocalAndWorkspacesAreSatelleDev(t *testing.T) {
 		"when a satelle command there writes its ledger",
 		"A repo under the temp dir (the system temp dir and `/tmp`) pushes nothing, added or not",
 		"marks those `not-added`",
+		"is bound to a satelle.dev project but is not one of this machine's projects says so",
 	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help projects lacks %q", want)
