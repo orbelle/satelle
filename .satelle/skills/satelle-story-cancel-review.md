@@ -1,8 +1,6 @@
 ---
 name: satelle-story-cancel-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Exit gate for cancel (any → cancelled). Isolated reviewer — requires a recorded reason; parents by children-resolved; supersede claims must name delivering story/commit and verify AC coverage; sibling bundling is an explicit reject. Review-only.
 ---
 

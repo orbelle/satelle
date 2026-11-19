@@ -1,8 +1,6 @@
 ---
 name: block-breaker
-scope: project
 type: skill
-tags: [type:skill]
 description: The performer of a block-breaker run (.satelle/workflows/block-breaker.toml), a cold read-only agent of another family than the held gate's dissenting judges. From the held story's record in the run's record folder (card, plan, hold dissent, each rejecting finding) it returns a block-resolution that either names, for each dissent, the change that answers it (to the plan, a driver note, or a proposed card amendment), or rules the story truly blocked with the reason no change within the card can answer the dissent. It changes nothing itself.
 ---
 

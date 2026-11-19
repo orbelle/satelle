@@ -11,8 +11,7 @@ import (
 var RuleDirs = []string{"principles", "skills"}
 
 const (
-	commandsKey = "commands"
-	binaryWord  = "satelle"
+	binaryWord = "satelle"
 )
 
 type Reference struct {
@@ -65,7 +64,7 @@ func References(dataDir string) ([]Reference, error) {
 			if err != nil {
 				continue
 			}
-			commands := SplitCommands(sk.Meta[commandsKey])
+			commands := SplitCommands(sk.Meta[workflow.KeyCommands])
 			if len(commands) == 0 {
 				continue
 			}
@@ -73,11 +72,11 @@ func References(dataDir string) ([]Reference, error) {
 			if err != nil {
 				continue
 			}
-			name := sk.Meta["name"]
+			name := sk.Meta[workflow.KeyName]
 			if name == "" {
 				name = stem
 			}
-			out = append(out, Reference{Name: name, Description: sk.Meta["description"], Path: filepath.ToSlash(rel), Line: sk.Lines[commandsKey], Commands: commands})
+			out = append(out, Reference{Name: name, Description: sk.Meta[workflow.KeyDescription], Path: filepath.ToSlash(rel), Line: sk.Lines[workflow.KeyCommands], Commands: commands})
 		}
 	}
 	return out, nil

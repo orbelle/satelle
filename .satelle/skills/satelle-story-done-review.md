@@ -1,8 +1,6 @@
 ---
 name: satelle-story-done-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Spine gate into done. Isolated read-only reviewer — parents by children-resolved; others by the behavior on the story card, then the residual ACs, against presented evidence. Does not re-plan at close.
 ---
 

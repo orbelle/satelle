@@ -1,8 +1,6 @@
 ---
 name: satelle-story-blocked-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Gate for parking an engaged story (in_progress → blocked). Isolated reviewer allowing the move when a reason is recorded — world-not-ready, a dependency, or preemption — and refusing a bare block with no reason on record.
 ---
 

@@ -1,8 +1,6 @@
 ---
 name: satelle-instruction-change-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Judges a change that adds or rewrites instruction text in a skill, principle or the constitution against three tests — it helps accurate, readable code; it is about satelle and this project; it does not duplicate or pad context already injected. Rejects naming the failing passage. Review-only; edits nothing.
 ---
 

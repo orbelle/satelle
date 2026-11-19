@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -133,6 +134,8 @@ func TestUnkeyedCommandIsUnchanged(t *testing.T) {
 		}
 		return got
 	}
+	writeFile(t, filepath.Join(dir, ".satelle", "principles", "scoped.md"), "---\nname: scoped\ndescription: scoped to everything\n---\n\nbody\n")
+	writeFile(t, filepath.Join(dir, fixtureSkillPath), "---\nname: fixture-skill\ndescription: a skill for cards\n---\n\nbody\n")
 	bare := capture()
 	writeFile(t, filepath.Join(dir, ".satelle", "principles", "scoped.md"), "---\nname: scoped\ndescription: scoped to everything\napplies_to: [\"*\"]\n---\n\nbody\n")
 	writeFile(t, filepath.Join(dir, fixtureSkillPath), "---\nname: fixture-skill\ndescription: a skill for cards\ncommands: story seat\n---\n\nbody\n")
@@ -151,8 +154,8 @@ func TestValidateNamesUnknownKeyedCommand(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), line) {
 		t.Fatalf("validate did not fail naming the file and the unknown command (%v):\n%s", err, out)
 	}
-	if strings.Contains(out+err.Error(), fixtureSkillPath) {
-		t.Errorf("validate named the file keyed to a real command (%v):\n%s", err, out)
+	if regexp.MustCompile(regexp.QuoteMeta(fixtureSkillPath) + ":[0-9]+:").MatchString(out + err.Error()) {
+		t.Errorf("validate reported a substrate finding in the file keyed to a real command (%v):\n%s", err, out)
 	}
 	out, _, _ = runSplit(t, "", "validate", "--json")
 	var doc struct {

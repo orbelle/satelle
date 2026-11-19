@@ -1,23 +1,6 @@
 ---
 name: plan
-scope: project
 type: skill
-tags: [type:skill]
-output_name: plan
-output_type: plan
-output_required: true
-output_schema: body
-output_ac_coverage: true
-output_criteria_section: Acceptance criteria
-attempt_repair_max: 1
-attempt_escalate_max: 1
-attempt_max_total: 3
-attempt_time_budget: 15m
-attempt_on_exhaust: fail
-attempt_initial_effort: low
-attempt_repair_effort: medium
-attempt_escalate_effort: high
-evidence_keys: artifact
 description: Executor skill for the dispatched `plan` step. On the readiness edge it is discovery — the isolated planner proves or disproves the story's premise, authors the acceptance criteria from that evidence when the story carries none or carries raiser drafts, and returns a structured plan artifact covering every criterion. When the run ends, satelle attaches the artifact as the item's `plan`, so the planner needs read-only repository tools and never mutates story state. The planner plans only; it does not implement.
 ---
 

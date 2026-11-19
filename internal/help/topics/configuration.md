@@ -95,7 +95,14 @@ key.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
-- `skills/<name>.md` — the skills performers, gates and checks follow.
+- `skills/<name>.md` — the skills performers, gates and checks follow. A
+  skill is named by a workflow (a performer skill, a gate skill, trigger or
+  after), a doctor.toml check or a `[hook] inject` entry, is shipped by
+  `satelle init --session <session>`, or is reached by its `skills/<name>.md`
+  path in the body of a skill so named. `satelle validate --session <session>`
+  lists every other skill under `skill_warnings` without failing the check.
+  A `README.md` in `skills/` and the files of its subdirectories are not
+  skills.
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to

@@ -1,8 +1,6 @@
 ---
 name: satelle-outcome-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: Gate on integration → outcome, after satelle-integration-check has run the integration suite (fail fast). Isolated read-only reviewer judges, per numbered AC (each a Given/When/Then scenario), that the integrated behaviour meets the story's Feature and its scenarios, citing integration-level evidence, and rejects an AC with no integration-level proof. Comes before release, or before the PR on the pr route. Verdict only; never runs the suite.
 ---
 

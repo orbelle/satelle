@@ -1,9 +1,6 @@
 ---
 name: satelle-integration-check
-scope: project
 type: check
-tags: [type:skill, type:reviewer, type:functional-check]
-check_reuse: tree
 description: The full local suite, once, on the edge to in_review (integration → in_review, for a story and a chore alike): runs `make test` and asserts the installed binary and live service are byte-identical before and after. GitHub runs no Linux tests (macOS and Windows run there on demand, os-test.yml); each head is tested here, and the release tests the combined candidate of its items once more. Deterministic, self-contained.
 ---
 

@@ -54,7 +54,7 @@ func framingLines(r repo, inject []string) string {
 		if err != nil || !sk.IsFraming() {
 			continue
 		}
-		if d := strings.TrimSpace(sk.Meta["description"]); d != "" {
+		if d := strings.TrimSpace(sk.Meta[workflow.KeyDescription]); d != "" {
 			b.WriteString(d)
 			b.WriteString("\n")
 		}
@@ -64,7 +64,7 @@ func framingLines(r repo, inject []string) string {
 
 func docDescription(path, text string) string {
 	sk, _ := workflow.ParseSkill(path, text)
-	if d := strings.TrimSpace(sk.Meta["description"]); d != "" {
+	if d := strings.TrimSpace(sk.Meta[workflow.KeyDescription]); d != "" {
 		return d
 	}
 	for _, line := range strings.Split(sk.Body, "\n") {

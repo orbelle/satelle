@@ -1,8 +1,6 @@
 ---
 name: satelle-plan-touches-check
-scope: project
 type: check
-tags: [type:skill, type:reviewer, type:functional-check]
 description: Functional-check on plan → in_progress. Rejects when the story's plan has no "## Touches" section listing at least one path. Deterministic, zero LLM tokens; runs before plan-review so a plan without the section does not spend a reviewer turn.
 ---
 

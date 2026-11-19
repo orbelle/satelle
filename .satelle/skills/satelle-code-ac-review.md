@@ -1,8 +1,6 @@
 ---
 name: satelle-code-ac-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: The one code review on in_progress → integration (unit tests run beside it in satelle-build-unit-check). Isolated read-only reviewer validates the engaged slice against the story's BDD and numbered ACs, the executor's per-AC test mapping, proof honesty (a named test that would pass on the engagement baseline cannot cover a fix AC) and scope (the slice stays inside this story); rejects a slice that adds user configuration to the binary. Verdict only; never runs the suite.
 ---
 

@@ -565,3 +565,82 @@ func TestRulesCategories(t *testing.T) {
 		t.Errorf("no rules: %v", got)
 	}
 }
+
+const namesSkills = `
+[states.s0]
+start = true
+[states.s1]
+performer = { agent = "a1", skill = "perform" }
+[states.end]
+terminal = true
+
+[gates.judged]
+skill = "gate-judge"
+agent = "a1"
+[gates.scripted]
+skill = "gate-check"
+trigger = "gate-trigger"
+after = ["after-one", "after-two"]
+[gates.unused]
+skill = "gate-unused"
+agent = "a1"
+
+[[transition]]
+from = ["s0"]
+to = "s1"
+groups = [{ mode = "sequential", gates = ["judged", "scripted"] }]
+[[transition]]
+from = ["s1"]
+to = "end"
+`
+
+func TestSkillNamesListsEveryNamedSkill(t *testing.T) {
+	w, err := parse(t, namesSkills)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"after-one", "after-two", "gate-check", "gate-judge", "gate-trigger", "gate-unused", "perform"}
+	got := w.SkillNames()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("SkillNames %v, want %v", got, want)
+	}
+	none := func(string) (Skill, bool) { return Skill{}, false }
+	var msgs []string
+	for _, e := range w.Validate(none, agentOf) {
+		msgs = append(msgs, e.Error())
+	}
+	all := strings.Join(msgs, "\n")
+	for _, name := range got {
+		if !strings.Contains(all, fmt.Sprintf("%q", name)) {
+			t.Errorf("Validate with no skills reports no problem naming %q:\n%s", name, all)
+		}
+	}
+}
+
+func TestLoadSkillsSkipsReadme(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"README.md":     "# skills\n\nNot a skill.\n",
+		"a.md":          "---\nname: a\ntype: skill\ndescription: d\n---\nbody\n",
+		"testdata/b.md": "---\nname: b\ntype: skill\ndescription: d\n---\nbody\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := LoadSkills(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("loaded %v, want only a", got)
+	}
+	if _, ok := got["a"]; !ok {
+		t.Fatalf("loaded %v, want a", got)
+	}
+}

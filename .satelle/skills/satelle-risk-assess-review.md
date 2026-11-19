@@ -1,8 +1,6 @@
 ---
 name: satelle-risk-assess-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: Risk-assess gate on plan → in_progress (delivery). A cold reader rates the story's impact risk, low or high, from its card and its plan; it never blocks the move. Its after check, satelle-risk-tier-record, records the rating as the item's risk tag, which satelle.toml [review] reads to pick code-ac's reviewers.
 ---
 
