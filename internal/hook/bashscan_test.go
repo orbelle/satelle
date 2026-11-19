@@ -138,7 +138,6 @@ var notOperatorRecordCases = []string{
 }
 
 var operatorRecordStoryTextCases = []string{
-	`satelle story set sto_1 --criteria 'Given (0444)'"record"`,
 	"satelle story set sto_1 --title 'A run record folder (0444) left by a killed run' --criteria 'Given a satelle run, When its record folder (0444) is left by a killed run, Then the next run removes it' --replace --session s",
 	`satelle story create --title "The guard lets a story set whose text holds parentheses and the word record through" --criteria "Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it" --json --session s`,
 	"satelle story create \\\n  --title \"The guard lets a story set whose text holds parentheses and the word record through\" \\\n  --criteria \"Given a satelle story set (for example 'A run record folder (0444) left by a killed run'), When it runs, Then the gate allows it\" \\\n  --json --session s",
@@ -147,6 +146,9 @@ var operatorRecordStoryTextCases = []string{
 	"satelle story set sto_1 --body - --session s <<'EOF'\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
 	"satelle story create --title 'Guard (parentheses)' \\\n  --body - --json --session s <<'EOF'\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
 	"cat <<'EOF' | satelle story set sto_1 --body - --session s\nThe operator runs satelle story record (the operator verb) in their own terminal.\nEOF",
+	`satelle story set sto_1 --criteria 'Given (0444)'"record"`,
+	`satelle story set sto_1 --title 'a (b) record'"x"`,
+	`satelle story set sto_1 --body "the record (x)" --session s`,
 }
 
 var operatorRecordEscapedCases = []string{
@@ -163,6 +165,32 @@ var operatorRecordEscapedCases = []string{
 	`echo $(satelle story record)"x"`,
 	`echo $(satelle story 'record')x`,
 	`echo $(satelle story 'record')$(echo ok)`,
+	`echo ok&satelle story record sto_1`,
+	`satelle story record&`,
+	`satelle story record& echo done`,
+	`satelle story "record">out sto_1`,
+	`satelle story 'record'<ids`,
+	`satelle story re"cord" sto_1`,
+	`satelle story "rec"ord sto_1`,
+	`x=1 satelle story record sto_1`,
+	`satelle story record|cat`,
+	`satelle story record;echo`,
+	`satelle story record>out`,
+	`satelle story record 2>&1`,
+	`satelle story "record"|cat`,
+	`satelle story "record";x`,
+	`satelle story 'record'&&x`,
+	`echo $(satelle story "record")`,
+	`(satelle story record)`,
+	`{ satelle story record; }`,
+	`satelle --session s story record sto_1`,
+	"echo `satelle story 'record'`x",
+	`echo "a"$(satelle story record)`,
+	`satelle story $'record' sto_1`,
+	`satelle story "record"<<<x`,
+	`satelle story record&>/dev/null`,
+	`nohup satelle story record`,
+	`satelle story 're'"cord"`,
 }
 
 func TestTokenizeBashBackslash(t *testing.T) {

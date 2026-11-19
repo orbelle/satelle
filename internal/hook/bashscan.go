@@ -1412,7 +1412,7 @@ func shellArgWords(toks []bashTok) []string {
 			joined = false
 			continue
 		}
-		if joined && toks[i-1].End == t.Start && !substitutionEdge(toks[i-1], t) {
+		if joined && toks[i-1].End == t.Start && !shellWordBoundary(toks[i-1], t) {
 			out[len(out)-1] += part
 		} else {
 			out = append(out, part)
@@ -1422,19 +1422,20 @@ func shellArgWords(toks []bashTok) []string {
 	return out
 }
 
-func substitutionEdge(prev, t bashTok) bool {
-	if prev.Kind == "word" && (strings.HasSuffix(prev.Value, ")") || strings.HasSuffix(prev.Value, "`")) {
+func shellWordBoundary(prev, t bashTok) bool {
+	const meta = "&|;<>()`"
+	if prev.Kind == "word" && prev.Value != "" && strings.ContainsRune(meta, rune(prev.Value[len(prev.Value)-1])) {
 		return true
 	}
-	if t.Kind != "word" {
-		return false
+	return t.Kind == "word" && t.Value != "" && (strings.ContainsRune(meta, rune(t.Value[0])) || strings.HasPrefix(t.Value, "$("))
+}
+
+func verbWord(w string) string {
+	w = strings.ReplaceAll(w, "\\", "")
+	if k := strings.IndexAny(w, "&|;<>"); k >= 0 {
+		w = w[:k]
 	}
-	for _, p := range []string{"$(", "<(", ">(", "`", ")"} {
-		if strings.HasPrefix(t.Value, p) {
-			return true
-		}
-	}
-	return false
+	return strings.TrimRight(w, ")`")
 }
 
 func operatorRecordWords(toks []bashTok) bool {
@@ -1449,7 +1450,7 @@ func operatorRecordWords(toks []bashTok) bool {
 			continue
 		}
 		for j := i + 1; j < len(words); j++ {
-			if strings.TrimRight(strings.ReplaceAll(words[j], "\\", ""), ")`") == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
+			if verbWord(words[j]) == operatorRecordVerb && !takesSeparateValue(words[j-1]) {
 				return true
 			}
 		}
