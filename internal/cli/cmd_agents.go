@@ -97,8 +97,20 @@ func installHooks(out io.Writer, tree string, harnesses []string, stale func(str
 		if tracked, err := (gitfacts.Repo{Dir: tree}).Tracks(rel); err == nil && tracked {
 			fmt.Fprintf(out, "%s: git tracks this file; the change is uncommitted: commit it in this repo\n", path)
 		}
+		if w, ok := hiddenWiring(tree, h); ok {
+			fmt.Fprintf(out, "%s: git ignores this file (%s), so a commit leaves it out and a clone has no %s hooks; to commit it, run in %s:\n  git add -f %s\n", path, w.Rule, h, tree, w.File)
+		}
 	}
 	return nil
+}
+
+func hiddenWiring(tree, harness string) (hook.Wiring, bool) {
+	for _, w := range hook.WiringOf(tree) {
+		if w.Harness == harness && w.State == hook.WiringIgnored {
+			return w, true
+		}
+	}
+	return hook.Wiring{}, false
 }
 
 func harnessesInUse(tree string, cat agent.Catalog) []string {
