@@ -46,11 +46,22 @@ repo removed on purpose; init and doctor then do not report it.
 for that story's session to write; it writes nothing and needs no repo.
 
 --hooks installs harness hook files as well (claude when given bare; or name
-them: --hooks claude,pi,grok). Without it no harness file is touched; see
+them: --hooks claude,pi,grok, the same as --hooks=claude,pi,grok). Without it no
+harness file is touched; see
 'satelle agents install'. init ends by naming each harness it left unwired and
 the command that wires one.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("hooks") {
+				return cobra.NoArgs(cmd, args)
+			}
+			_, err := initHarnesses(hooks, true, args)
+			return err
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			harnesses, err := initHarnesses(hooks, cmd.Flags().Changed("hooks"), args)
+			if err != nil {
+				return err
+			}
 			if cmd.Flags().Changed("print") {
 				return printShipped(cmd, print)
 			}
@@ -70,7 +81,7 @@ the command that wires one.`,
 			} else if err := firstInit(out, dataDir); err != nil {
 				return err
 			}
-			if err := installHooks(out, cwd, hooks, staleHook(substrateTree(NewRootCmd()))); err != nil {
+			if err := installHooks(out, cwd, harnesses, staleHook(substrateTree(NewRootCmd()))); err != nil {
 				return err
 			}
 			if r, err := findRepo(""); err == nil {
@@ -89,9 +100,36 @@ the command that wires one.`,
 		},
 	}
 	cmd.Flags().StringSliceVar(&hooks, "hooks", nil, "install harness hooks ("+strings.Join(hook.Harnesses, ", ")+")")
-	cmd.Flags().Lookup("hooks").NoOptDefVal = hook.Claude
+	cmd.Flags().Lookup("hooks").NoOptDefVal = hooksBare
 	cmd.Flags().StringVar(&print, "print", "", "print one file this release ships (.satelle/<file>) and write nothing")
 	return cmd
+}
+
+const hooksBare = "default"
+
+func initHarnesses(flag []string, changed bool, args []string) ([]string, error) {
+	if len(args) == 0 {
+		harnesses := []string{}
+		if !changed {
+			return harnesses, nil
+		}
+		for _, h := range flag {
+			if h == hooksBare {
+				h = hook.Claude
+			}
+			harnesses = append(harnesses, h)
+		}
+		return harnesses, nil
+	}
+	bare := changed && slices.Equal(flag, []string{hooksBare})
+	if bare && len(args) == 1 {
+		return strings.Split(args[0], ","), nil
+	}
+	word := args[0]
+	if bare {
+		word = args[1]
+	}
+	return nil, fmt.Errorf("unexpected argument %q for satelle init: name the harnesses after a bare --hooks as one comma-separated word, for example --hooks claude,pi", word)
 }
 
 func printShipped(cmd *cobra.Command, path string) error {
