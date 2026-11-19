@@ -346,8 +346,20 @@ func sessionContext(in hook.Input, harness string, inject bool) (text, notice st
 	}
 	if inject {
 		block, n := sessionDoctor(hookDir(in), harness)
-		text, _ := sessionStartText(b.String(), block, loadInjectDocs(r, k.Settings.Hook.Inject), r.Tree, harness, n, k.Harness[harness].ContextLimitBytes)
-		return text, n, true
+		b.WriteString(block)
+		notice = n
+		preface := b.String()
+		for _, f := range k.Settings.Hook.Inject {
+			body, err := contextFile(r, f)
+			if err != nil {
+				fmt.Fprintf(&b, "\nsatelle: [hook] inject file %s: %v\n", f, err)
+				continue
+			}
+			fmt.Fprintf(&b, "\n%s\n", body)
+		}
+		if overLimit(harness, b.String(), notice, k.Harness[harness].ContextLimitBytes, len(k.Settings.Hook.Inject)) {
+			return indexForm(preface, injectIndex(r, k.Settings.Hook.Inject), r.Tree, harness), notice, true
+		}
 	}
 	return b.String(), notice, true
 }

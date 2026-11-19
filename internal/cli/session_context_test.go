@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -9,48 +8,36 @@ import (
 )
 
 func TestSessionStartTextFormsByLimit(t *testing.T) {
-	const head, block, notice = "satelle session: s\nseats     none\nguidance\n", "satelle doctor: 1 issue(s)\n  check (1): one\n", "satelle doctor: 1 issue(s)"
-	docs := []injectDoc{
-		{Path: "a.md", Description: "héllo — wörld", body: "body-a"},
-		{Path: "b.md", Description: "angles", body: "<b> & \"quoted\""},
-		{Path: "gone.md", Description: "unreadable: no such file", err: errors.New("no such file")},
-		{Path: "bare.md", body: "body-bare"},
+	const preface, notice = "satelle session: s\nseats     none\nguidance\nsatelle doctor: 1 issue(s)\n  check (1): one\n", "satelle doctor: 1 issue(s)"
+	const inline = preface + "\nbody-a\n\n<b> & \"quoted\"\n\nsatelle: [hook] inject file gone.md: no such file\n\nbody-bare\n"
+	entries := []indexEntry{
+		{Path: "a.md", Description: "héllo — wörld"},
+		{Path: "b.md", Description: "angles"},
+		{Path: "gone.md", Description: "unreadable: no such file"},
+		{Path: "bare.md"},
 	}
 	for _, h := range hook.Harnesses {
-		inline, form := sessionStartText(head, block, docs, "/tree", h, notice, 0)
-		if form != contextInline {
-			t.Fatalf("%s: no limit gave the %s form", h, form)
-		}
-		for _, want := range []string{"\nbody-a\n", "\n<b> & \"quoted\"\n", "\nsatelle: [hook] inject file gone.md: no such file\n", "\nbody-bare\n"} {
-			if !strings.Contains(inline, want) {
-				t.Fatalf("%s: the inline form lacks %q:\n%s", h, want, inline)
-			}
-		}
 		size := emittedBytes(h, inline, notice)
 		if size != len(hook.Context(h, hook.EventSessionStart, inline, notice))+1 {
 			t.Fatalf("%s: emittedBytes is not the envelope and its newline", h)
 		}
-		index := ""
+		if size <= len(inline) {
+			t.Fatalf("%s: emittedBytes %d does not count the envelope around %d bytes of text", h, size, len(inline))
+		}
+		if overLimit(h, inline, notice, 0, len(entries)) {
+			t.Fatalf("%s: no limit is over the limit", h)
+		}
 		for limit := 1; limit <= size+1; limit++ {
-			text, form := sessionStartText(head, block, docs, "/tree", h, notice, limit)
-			if want := map[bool]string{true: contextInline, false: contextIndex}[limit >= size]; form != want {
-				t.Fatalf("%s: limit %d of inline size %d gave the %s form, want %s", h, limit, size, form, want)
+			if got, want := overLimit(h, inline, notice, limit, len(entries)), limit < size; got != want {
+				t.Fatalf("%s: limit %d of inline size %d: over %v, want %v", h, limit, size, got, want)
 			}
-			if form == contextInline {
-				if text != inline {
-					t.Fatalf("%s: limit %d changed the inline form", h, limit)
-				}
-				continue
-			}
-			if index == "" {
-				index = text
-			}
-			if text != index {
-				t.Fatalf("%s: limit %d changed the index form", h, limit)
+			if overLimit(h, inline, notice, limit, 0) {
+				t.Fatalf("%s: no inject file is over limit %d", h, limit)
 			}
 		}
-		if !strings.HasPrefix(index, head+block+"\nRead each of these files in full before acting (paths are relative to /tree); inlined they are over "+h+"'s configured session-start limit") {
-			t.Fatalf("%s: the index form does not open with the head, the block and the read line:\n%s", h, index)
+		index := indexForm(preface, entries, "/tree", h)
+		if !strings.HasPrefix(index, preface+"\nRead each of these files in full before acting (paths are relative to /tree); inlined they are over "+h+"'s configured session-start limit") {
+			t.Fatalf("%s: the index form does not open with the preface and the read line:\n%s", h, index)
 		}
 		if !strings.HasSuffix(index, ":\n  a.md — héllo — wörld\n  b.md — angles\n  gone.md — unreadable: no such file\n  bare.md\n") {
 			t.Fatalf("%s: the index form does not end with one line per file:\n%s", h, index)
@@ -59,9 +46,6 @@ func TestSessionStartTextFormsByLimit(t *testing.T) {
 			if strings.Contains(index, body) {
 				t.Fatalf("%s: the index form carries a file body (%s):\n%s", h, body, index)
 			}
-		}
-		if text, form := sessionStartText(head, block, nil, "/tree", h, notice, 1); form != contextInline || text != head+block {
-			t.Fatalf("%s: no inject file at limit 1 gave the %s form:\n%s", h, form, text)
 		}
 	}
 }

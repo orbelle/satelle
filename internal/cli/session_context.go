@@ -8,31 +8,23 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-const (
-	contextInline = "inline"
-	contextIndex  = "index"
-)
-
-type injectDoc struct {
+type indexEntry struct {
 	Path        string
 	Description string
-	body        string
-	err         error
 }
 
-func loadInjectDocs(r repo, inject []string) []injectDoc {
-	docs := make([]injectDoc, 0, len(inject))
+func injectIndex(r repo, inject []string) []indexEntry {
+	entries := make([]indexEntry, 0, len(inject))
 	for _, f := range inject {
-		d := injectDoc{Path: f}
-		d.body, d.err = contextFile(r, f)
-		if d.err != nil {
-			d.Description = fmt.Sprintf("unreadable: %v", d.err)
+		e := indexEntry{Path: f}
+		if body, err := contextFile(r, f); err != nil {
+			e.Description = fmt.Sprintf("unreadable: %v", err)
 		} else {
-			d.Description = docDescription(f, d.body)
+			e.Description = docDescription(f, body)
 		}
-		docs = append(docs, d)
+		entries = append(entries, e)
 	}
-	return docs
+	return entries
 }
 
 func docDescription(path, text string) string {
@@ -52,30 +44,20 @@ func emittedBytes(harness, text, notice string) int {
 	return len(hook.Context(harness, hook.EventSessionStart, text, notice)) + 1
 }
 
-func sessionStartText(head, block string, docs []injectDoc, tree, harness, notice string, limit int) (text, form string) {
-	var inline strings.Builder
-	inline.WriteString(head)
-	inline.WriteString(block)
-	for _, d := range docs {
-		if d.err != nil {
-			fmt.Fprintf(&inline, "\nsatelle: [hook] inject file %s: %v\n", d.Path, d.err)
+func overLimit(harness, text, notice string, limit, files int) bool {
+	return limit > 0 && files > 0 && emittedBytes(harness, text, notice) > limit
+}
+
+func indexForm(preface string, entries []indexEntry, tree, harness string) string {
+	var b strings.Builder
+	b.WriteString(preface)
+	fmt.Fprintf(&b, "\nRead each of these files in full before acting (paths are relative to %s); inlined they are over %s's configured session-start limit, so only their descriptions are printed here:\n", tree, harness)
+	for _, e := range entries {
+		if e.Description == "" {
+			fmt.Fprintf(&b, "  %s\n", e.Path)
 			continue
 		}
-		fmt.Fprintf(&inline, "\n%s\n", d.body)
+		fmt.Fprintf(&b, "  %s — %s\n", e.Path, e.Description)
 	}
-	if limit <= 0 || len(docs) == 0 || emittedBytes(harness, inline.String(), notice) <= limit {
-		return inline.String(), contextInline
-	}
-	var index strings.Builder
-	index.WriteString(head)
-	index.WriteString(block)
-	fmt.Fprintf(&index, "\nRead each of these files in full before acting (paths are relative to %s); inlined they are over %s's configured session-start limit, so only their descriptions are printed here:\n", tree, harness)
-	for _, d := range docs {
-		if d.Description == "" {
-			fmt.Fprintf(&index, "  %s\n", d.Path)
-			continue
-		}
-		fmt.Fprintf(&index, "  %s — %s\n", d.Path, d.Description)
-	}
-	return index.String(), contextIndex
+	return b.String()
 }
