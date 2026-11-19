@@ -49,8 +49,7 @@ convention, and an agent filing or shaping an item offers them to the user:
   matters. Optional: an item with no priority tag is complete and is not
   treated as low. `satelle validate --session <session>` warns on any other
   `priority:<value>`, and satelled filters the list by `priority:<level>`.
-- `surface:<name>`: the part of the product the item changes; a gate's
-  `applies_to` can select on it.
+- `surface:<name>`: the part of the product the item changes.
 - `reporter:<who>`: who raised the item.
 - `source:<where>`: where the item came from.
 
