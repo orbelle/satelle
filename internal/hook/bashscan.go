@@ -1424,10 +1424,40 @@ func shellArgWords(toks []bashTok) []string {
 
 func shellWordBoundary(prev, t bashTok) bool {
 	const meta = "&|;<>()`"
+	if expandingString(prev) || expandingString(t) || (prev.Kind == "word" && strings.HasSuffix(prev.Value, "$")) {
+		return true
+	}
 	if prev.Kind == "word" && prev.Value != "" && strings.ContainsRune(meta, rune(prev.Value[len(prev.Value)-1])) {
 		return true
 	}
 	return t.Kind == "word" && t.Value != "" && (strings.ContainsRune(meta, rune(t.Value[0])) || strings.HasPrefix(t.Value, "$("))
+}
+
+func expandingString(t bashTok) bool {
+	return t.Kind == "string" && strings.HasPrefix(t.Value, "\"") && strings.ContainsAny(t.Value, "$`")
+}
+
+func bareWords(toks []bashTok) []string {
+	var out []string
+	for _, t := range toks {
+		if t.Kind == "word" && t.Value != "" {
+			out = append(out, t.Value)
+		}
+	}
+	return out
+}
+
+func commandName(w string) string {
+	w = strings.ReplaceAll(w, "\\", "")
+	for _, p := range []string{"$(", "<(", ">(", "(", "`"} {
+		if k := strings.LastIndex(w, p); k >= 0 {
+			w = w[k+len(p):]
+		}
+	}
+	if k := strings.IndexAny(w, "&|;<>"); k >= 0 {
+		w = w[:k]
+	}
+	return w
 }
 
 func verbWord(w string) string {
@@ -1439,13 +1469,12 @@ func verbWord(w string) string {
 }
 
 func operatorRecordWords(toks []bashTok) bool {
-	words := shellArgWords(toks)
+	return recordVerbIn(shellArgWords(toks)) || recordVerbIn(bareWords(toks))
+}
+
+func recordVerbIn(words []string) bool {
 	for i, w := range words {
-		for _, p := range []string{"$(", "<(", ">(", "(", "`"} {
-			for strings.HasPrefix(w, p) {
-				w = strings.TrimPrefix(w, p)
-			}
-		}
+		w = commandName(w)
 		if filepath.Base(w) != "satelle" {
 			continue
 		}

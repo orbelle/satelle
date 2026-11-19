@@ -1,6 +1,9 @@
 package hook
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -191,6 +194,14 @@ var operatorRecordEscapedCases = []string{
 	`satelle story record&>/dev/null`,
 	`nohup satelle story record`,
 	`satelle story 're'"cord"`,
+	`satelle story record"$(true)" sto_1`,
+	`satelle story record"$x" sto_1`,
+	`satelle story record"${x:-}" sto_1`,
+	`satelle story "record""$(true)" sto_1`,
+	"satelle story record\"`true`\" sto_1",
+	`satelle story "$(true)"record sto_1`,
+	`satelle"$(true)" story record sto_1`,
+	`satelle story $"record" sto_1`,
 }
 
 func TestTokenizeBashBackslash(t *testing.T) {
@@ -258,6 +269,82 @@ func TestResolvePathForms(t *testing.T) {
 	for _, r := range rows {
 		if got := resolvePath(r.cwd, r.p); got != r.want {
 			t.Errorf("resolvePath(%q, %q) = %q, want %q", r.cwd, r.p, got, r.want)
+		}
+	}
+}
+
+func operatorRecordOracleCorpus() []string {
+	affix := []string{"", `"$(true)"`, `"$x"`, "''", `""`, "\\", "&", ";", "|", ">o", "<i", ")", "`", "$", "'x'", `"x"`, "x", "2>&1", "&&y", `"${x:-}"`}
+	quoted := func(v string) []string {
+		return []string{v, `"` + v + `"`, "'" + v + "'", v[:2] + `"` + v[2:] + `"`, "$'" + v + "'", `$"` + v + `"`, "\\" + v}
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(c string) {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	for _, v := range quoted("record") {
+		for _, a := range affix {
+			for _, b := range affix {
+				add("satelle story " + a + v + b + " sto_1")
+			}
+		}
+	}
+	for _, n := range quoted("satelle") {
+		for _, a := range affix {
+			add("echo ok " + a + n + " story record sto_1")
+			add(n + a + " story record")
+		}
+	}
+	for _, a := range affix {
+		add("echo ok" + a + "satelle story record sto_1")
+		add(`echo "a"` + a + "$(satelle story record)")
+	}
+	return out
+}
+
+func TestOperatorRecordRefusesWhatBashWouldRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash oracle runs on unix")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	dir := t.TempDir()
+	for _, f := range []string{"i", "ids"} {
+		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	empty := filepath.Join(dir, "empty")
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corpus := operatorRecordOracleCorpus()
+	script := `while IFS= read -r -d '' c; do
+  r=$( (PATH="$EMPTY"; satelle() { [ "$2" = record ] && printf HIT; }; x=; eval "$c" ) 2>/dev/null </dev/null )
+  case $r in *HIT*) printf '%s\0' "$c";; esac
+done`
+	cmd := exec.Command(bash, "-c", script)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "EMPTY="+empty)
+	cmd.Stdin = strings.NewReader(strings.Join(corpus, "\x00") + "\x00")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("bash oracle: %v", err)
+	}
+	hits := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+	if len(hits) < 100 {
+		t.Fatalf("bash ran the operator verb for only %d of %d commands; the oracle is not working", len(hits), len(corpus))
+	}
+	noFile := func(string) bool { return false }
+	for _, c := range hits {
+		if !ScanBash(c, "/w", "/w", noFile).OperatorRecord {
+			t.Errorf("%q: bash runs satelle story record, the scan allows it", c)
 		}
 	}
 }
