@@ -10,12 +10,9 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
-	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/mirror"
 	"github.com/bobmcallan/satelle/internal/web"
-	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
-	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 const testToken = "tok-ada"
@@ -121,23 +118,3 @@ func storiesOn(t *testing.T, m machine) string {
 	return string(b)
 }
 
-func bindUnsynced(t *testing.T, srv *fakeserver.Server, slug string) {
-	t.Helper()
-	r, err := findRepo("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := dial(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	p, err := c.Projects.GetProject(context.Background(), &satellepb.GetProjectRequest{Project: slug})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := saveBinding(r, binding{Server: hosted.Normalize(srv.URL), Project: p.GetId(), Slug: p.GetSlug()}); err != nil {
-		t.Fatal(err)
-	}
-	must(t, "project", "add")
-}

@@ -136,7 +136,7 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	for _, f := range hooks.Failures {
 		fmt.Fprintf(out, "%s: harness file not refreshed: %s\n", f.Path, f.Err)
 	}
-	pass, summary := syncPass(ctx, r, "ledger autosync")
+	pass, summary := syncPass(ctx, r)
 	if pass.Reason != "" {
 		fmt.Fprintf(out, "%s: sync failing: %s\n", path, pass.Reason)
 		return false
@@ -145,16 +145,17 @@ func autosyncProject(ctx context.Context, out io.Writer, path string, stale func
 	return true
 }
 
-func syncPass(ctx context.Context, r repo, op string) (syncstate.Pass, string) {
+func syncPass(ctx context.Context, r repo) (syncstate.Pass, string) {
 	ctx, cancel := context.WithTimeout(ctx, autosyncRepoTimeout)
 	defer cancel()
-	pass, summary := syncRepo(ctx, r, op)
+	pass, summary := syncRepo(ctx, r)
 	_ = syncstate.RecordPass(config.GlobalDir(), uiRepoRoot(r), pass, time.Now())
 	confirmUI(ctx, r)
 	return pass, summary
 }
 
-func syncRepo(ctx context.Context, r repo, op string) (syncstate.Pass, string) {
+func syncRepo(ctx context.Context, r repo) (syncstate.Pass, string) {
+	const op = "ledger autosync"
 	k, err := r.open()
 	if err != nil {
 		return syncstate.Pass{Reason: err.Error()}, ""

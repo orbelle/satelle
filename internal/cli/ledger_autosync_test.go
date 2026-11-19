@@ -228,7 +228,7 @@ func TestAutosyncAdoptedQueueDoesNotFork(t *testing.T) {
 	autosync(t, a)
 
 	b := newMachine(t)
-	bindUnsynced(t, srv, "shared")
+	must(t, "project", "bind", "shared", "--server", srv.URL)
 	file := filepath.Join(b.dir, ".satelle", "queues", "release.toml")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func releaseStatus(t *testing.T) (local, store, state string) {
 func mirrorOnB(t *testing.T, srv *fakeserver.Server, bodies ...string) (machine, []ledger.Event) {
 	t.Helper()
 	b := newMachine(t)
-	bindUnsynced(t, srv, "shared")
+	must(t, "project", "bind", "shared", "--server", srv.URL)
 	for _, body := range bodies {
 		queueFileOn(t, b, body)
 		must(t, "queue", "show", "release")

@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -47,26 +45,6 @@ func sharedWithStories(t *testing.T, srv *fakeserver.Server, titles ...string) [
 	return ids
 }
 
-func forkOn(t *testing.T, id string) {
-	t.Helper()
-	k, _, err := openKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer k.Close()
-	kind, title := "story", "forked here"
-	wf, start, err := k.WorkflowFor(item.Item{Kind: kind, Title: title})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := k.Ledger.Append(id, item.KindCreated, "ada", item.Fields{Kind: &kind, Workflow: &wf, Status: &start, Title: &title}); err != nil {
-		t.Fatal(err)
-	}
-	if err := k.Cache.Sync(k.Ledger); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func assertBound(t *testing.T, slug string) {
 	t.Helper()
 	r, err := findRepo("")
@@ -82,207 +60,165 @@ func assertBound(t *testing.T, slug string) {
 	}
 }
 
-func TestBindSyncsBeforeReturning(t *testing.T) {
-	srv := fakeserver.Start(t, testToken)
-	theirs := sharedWithStories(t, srv, "a1", "a2", "a3")
-
-	b := newMachine(t)
-	b.use(t)
-	mine := []string{
-		createID(t, "story", "create", "--title", "b1", "--criteria", "c"),
-		createID(t, "story", "create", "--title", "b2", "--criteria", "c"),
-	}
-	out := must(t, "project", "bind", "shared", "--server", srv.URL)
-	if !strings.Contains(out, "Bound this repo to shared") {
-		t.Errorf("bind = %q, want the binding line", out)
-	}
-	if !regexp.MustCompile(`pushed \d+ event\(s\) on 2 item\(s\), pulled \d+ event\(s\) on 3 item\(s\)`).MatchString(out) {
-		t.Errorf("bind = %q, want 2 items pushed and 3 pulled", out)
-	}
-	local, onServer := storyListIDs(t), serverIDs(srv, "shared")
-	for _, id := range append(slices.Clone(theirs), mine...) {
-		if !slices.Contains(local, id) {
-			t.Errorf("story list lacks %s after bind", id)
+func noSyncOutput(t *testing.T, what, out string) {
+	t.Helper()
+	for _, bad := range []string{"pushed", "pulled", "synced", "sync failed", "sync again"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("%s = %q, carries %q: bind makes no sync", what, out, bad)
 		}
-		if !slices.Contains(onServer, id) {
-			t.Errorf("the project lacks %s after bind", id)
-		}
-	}
-	for _, id := range mine {
-		if len(srv.Events("shared", id)) == 0 {
-			t.Errorf("the project holds no event of %s", id)
-		}
-	}
-	status := must(t, "ledger", "status")
-	for _, id := range append(slices.Clone(theirs), mine...) {
-		if !regexp.MustCompile(regexp.QuoteMeta(id) + `\s+\d+\s+\d+\s+in sync`).MatchString(status) {
-			t.Errorf("ledger status for %s is not in sync:\n%s", id, status)
-		}
-	}
-	if st := syncStateOf(t); st.SyncPushed != 2 || st.SyncPulled != 3 || st.SyncReason != "" {
-		t.Errorf("recorded pass = pushed %d, pulled %d, reason %q", st.SyncPushed, st.SyncPulled, st.SyncReason)
 	}
 }
 
-func TestBindSyncFailureKeepsTheBinding(t *testing.T) {
-	for _, tc := range []struct{ name, fail string }{
-		{"store unreachable", "satelle.chain.v2.Chain/"},
-		{"fails part way", "Chain/Append"},
+func TestBindRecordsTheBindingWithoutSyncing(t *testing.T) {
+	t.Run("satelle.dev store", func(t *testing.T) {
+		srv := fakeserver.Start(t, testToken)
+		theirs := sharedWithStories(t, srv, "a1", "a2", "a3")
+
+		b := newMachine(t)
+		b.use(t)
+		mine := []string{
+			createID(t, "story", "create", "--title", "b1", "--criteria", "c"),
+			createID(t, "story", "create", "--title", "b2", "--criteria", "c"),
+		}
+		before := len(srv.Calls())
+		out := must(t, "project", "bind", "shared", "--server", srv.URL)
+		if !strings.Contains(out, "Bound this repo to shared") {
+			t.Errorf("bind = %q, want the binding line", out)
+		}
+		noSyncOutput(t, "bind", out)
+		if calls := calledAny(srv, before, storeServices...); len(calls) > 0 {
+			t.Errorf("bind called the ledger store: %v", calls)
+		}
+		assertBound(t, "shared")
+		local, onServer := storyListIDs(t), serverIDs(srv, "shared")
+		for _, id := range theirs {
+			if slices.Contains(local, id) {
+				t.Errorf("bind pulled %s", id)
+			}
+		}
+		for _, id := range mine {
+			if slices.Contains(onServer, id) {
+				t.Errorf("bind pushed %s", id)
+			}
+		}
+		if st := syncStateOf(t); !st.SyncLastAttempt.IsZero() {
+			t.Errorf("bind recorded a sync pass at %s", st.SyncLastAttempt)
+		}
+
+		synced := autosync(t, b)
+		if !regexp.MustCompile(`pushed \d+ event\(s\) on 2 item\(s\), pulled \d+ event\(s\) on 3 item\(s\)`).MatchString(synced) {
+			t.Errorf("the timer's pass = %q, want 2 items pushed and 3 pulled", synced)
+		}
+		status := must(t, "ledger", "status")
+		for _, id := range append(slices.Clone(theirs), mine...) {
+			if !regexp.MustCompile(regexp.QuoteMeta(id) + `\s+\d+\s+\d+\s+in sync`).MatchString(status) {
+				t.Errorf("ledger status for %s is not in sync after the timer's pass:\n%s", id, status)
+			}
+		}
+	})
+	t.Run("local store", func(t *testing.T) {
+		srv := fakeserver.Start(t, testToken)
+		sharedWithStories(t, srv, "theirs")
+
+		b := newMachine(t)
+		b.use(t)
+		appendLedger(t, b.dir, `store = "local"`)
+		before := len(srv.Calls())
+		out := must(t, "project", "bind", "shared", "--server", srv.URL)
+		if !strings.Contains(out, "Bound this repo to shared") || strings.Contains(out, "Nothing was synced") {
+			t.Errorf("bind = %q, want only the binding", out)
+		}
+		if calls := calledAny(srv, before, storeServices...); len(calls) > 0 {
+			t.Errorf("bind with a local store called the store: %v", calls)
+		}
+		assertBound(t, "shared")
+	})
+}
+
+func TestCreateBindRecordsTheBindingWithoutSyncing(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	m := newMachine(t)
+	m.use(t)
+	mine := []string{
+		createID(t, "story", "create", "--title", "one", "--criteria", "c"),
+		createID(t, "story", "create", "--title", "two", "--criteria", "c"),
+	}
+	before := len(srv.Calls())
+	out := must(t, "project", "create", "fresh", "--bind", "--server", srv.URL)
+	for _, want := range []string{"Created fresh", "Bound this repo to fresh"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("create --bind = %q, want %q", out, want)
+		}
+	}
+	noSyncOutput(t, "create --bind", out)
+	if calls := calledAny(srv, before, storeServices...); len(calls) > 0 {
+		t.Errorf("create --bind called the ledger store: %v", calls)
+	}
+	onServer := serverIDs(srv, "fresh")
+	for _, id := range mine {
+		if slices.Contains(onServer, id) {
+			t.Errorf("create --bind pushed %s", id)
+		}
+	}
+	assertBound(t, "fresh")
+}
+
+func TestBindWithTheStoreUnreachable(t *testing.T) {
+	for _, tc := range []struct {
+		name, slug string
+		args       []string
+		seed       bool
+	}{
+		{"bind", "shared", []string{"project", "bind", "shared"}, true},
+		{"create --bind", "other", []string{"project", "create", "other", "--bind"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := fakeserver.Start(t, testToken)
-			theirs := sharedWithStories(t, srv, "theirs")
-
-			b := newMachine(t)
-			b.use(t)
+			if tc.seed {
+				sharedWithStories(t, srv, "theirs")
+			}
+			m := newMachine(t)
+			m.use(t)
 			mine := createID(t, "story", "create", "--title", "mine", "--criteria", "c")
-			srv.FailMethods(tc.fail)
-			out, err := run(t, "", "project", "bind", "shared", "--server", srv.URL)
-			if ExitCodeOf(err) != ExitError {
-				t.Fatalf("bind exit = %d (%v), want 1\n%s", ExitCodeOf(err), err, out)
+			srv.FailMethods(storeServices...)
+			out, err := run(t, "", append(tc.args, "--server", srv.URL)...)
+			if err != nil {
+				t.Fatalf("%s with the store unreachable = %v, want exit 0\n%s", tc.name, err, out)
 			}
-			if msg := err.Error(); !strings.Contains(msg, "Unavailable") || !strings.Contains(msg, "satelle project bind shared") {
-				t.Errorf("bind error = %q, want the failure and the command to sync again", msg)
+			noSyncOutput(t, tc.name, out)
+			if strings.Contains(out, "Unavailable") {
+				t.Errorf("%s = %q, names a store failure", tc.name, out)
 			}
-			assertBound(t, "shared")
+			assertBound(t, tc.slug)
 			if !slices.Contains(storyListIDs(t), mine) {
 				t.Errorf("the local story %s is gone", mine)
 			}
-			if n := len(srv.Events("shared", mine)); n != 0 {
-				t.Errorf("the project holds %d event(s) of %s after a failed sync", n, mine)
-			}
-			if st := syncStateOf(t); st.SyncReason == "" {
-				t.Error("the failed pass recorded no reason")
-			}
-
-			srv.FailMethods()
-			again := must(t, "project", "bind", "shared", "--server", srv.URL)
-			if !regexp.MustCompile(`pushed \d+ event\(s\) on 1 item\(s\), pulled \d+ event\(s\) on 1 item\(s\)`).MatchString(again) {
-				t.Errorf("bind again = %q, want the counts", again)
-			}
-			if len(srv.Events("shared", mine)) == 0 {
-				t.Errorf("the project lacks %s after binding again", mine)
-			}
-			if !slices.Contains(storyListIDs(t), theirs[0]) {
-				t.Errorf("story list lacks the project's %s after binding again", theirs[0])
+			if st := syncStateOf(t); st.SyncReason != "" {
+				t.Errorf("bind recorded a sync failure: %q", st.SyncReason)
 			}
 		})
 	}
 }
 
-func TestBindLeavesADivergedItem(t *testing.T) {
-	srv := fakeserver.Start(t, testToken)
-	ids := sharedWithStories(t, srv, "x", "z")
-	x, z := ids[0], ids[1]
-	serverHashes := func() []string {
-		var hs []string
-		for _, e := range srv.Events("shared", x) {
-			hs = append(hs, e.GetHash())
-		}
-		return hs
-	}
-	storeBefore := serverHashes()
-
-	b := newMachine(t)
-	b.use(t)
-	forkOn(t, x)
-	y := createID(t, "story", "create", "--title", "y", "--criteria", "c")
-	path := runtimeLedger(t).Path(x)
-	fileBefore, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := run(t, "", "project", "bind", "shared", "--server", srv.URL)
-	if ExitCodeOf(err) != ExitError {
-		t.Fatalf("bind exit = %d (%v), want 1\n%s", ExitCodeOf(err), err, out)
-	}
-	if !strings.Contains(err.Error(), x+" (diverged at 0)") {
-		t.Errorf("bind error = %q, want %s named as diverged", err, x)
-	}
-	if !regexp.MustCompile(`pushed \d+ event\(s\) on 1 item\(s\), pulled \d+ event\(s\) on 1 item\(s\)`).MatchString(out) {
-		t.Errorf("bind = %q, want 1 item pushed and 1 pulled", out)
-	}
-	if fileAfter, err := os.ReadFile(path); err != nil || !bytes.Equal(fileAfter, fileBefore) {
-		t.Errorf("B's ledger for %s changed (%v)", x, err)
-	}
-	if got := serverHashes(); !slices.Equal(got, storeBefore) {
-		t.Errorf("the project's chain for %s changed: %v, was %v", x, got, storeBefore)
-	}
-	if len(srv.Events("shared", y)) == 0 {
-		t.Errorf("the project lacks %s", y)
-	}
-	if !slices.Contains(storyListIDs(t), z) {
-		t.Errorf("story list lacks the project's %s", z)
-	}
-	assertBound(t, "shared")
-}
-
-func TestBindWithLocalStoreSyncsNothing(t *testing.T) {
-	srv := fakeserver.Start(t, testToken)
-	theirs := sharedWithStories(t, srv, "theirs")
-
-	b := newMachine(t)
-	b.use(t)
-	appendLedger(t, b.dir, `store = "local"`)
-	mine := createID(t, "story", "create", "--title", "mine", "--criteria", "c")
-	before := len(srv.Calls())
-	out := must(t, "project", "bind", "shared", "--server", srv.URL)
-	for _, want := range []string{"Bound this repo to shared", "Nothing was synced", "ledger store is local"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("bind = %q, want %q", out, want)
-		}
-	}
-	if calls := calledAny(srv, before, storeServices...); len(calls) > 0 {
-		t.Errorf("bind with a local store called the store: %v", calls)
-	}
-	assertBound(t, "shared")
-	if slices.Contains(storyListIDs(t), theirs[0]) {
-		t.Errorf("a local store pulled %s", theirs[0])
-	}
-	if slices.Contains(serverIDs(srv, "shared"), mine) {
-		t.Errorf("a local store pushed %s", mine)
-	}
-}
-
-func TestCreateBindSyncsTheSameWay(t *testing.T) {
-	t.Run("syncs", func(t *testing.T) {
-		srv := fakeserver.Start(t, testToken)
-		m := newMachine(t)
-		m.use(t)
-		mine := []string{
-			createID(t, "story", "create", "--title", "one", "--criteria", "c"),
-			createID(t, "story", "create", "--title", "two", "--criteria", "c"),
-		}
-		out := must(t, "project", "create", "fresh", "--bind", "--server", srv.URL)
-		for _, want := range []string{"Created fresh", "Bound this repo to fresh"} {
+func TestBindHelpLeavesSyncingToTheTimer(t *testing.T) {
+	isolate(t)
+	for _, args := range [][]string{{"project", "bind", "--help"}, {"help", "projects"}} {
+		out := must(t, args...)
+		for _, want := range []string{"records the binding", "satelle-sync.timer"} {
 			if !strings.Contains(out, want) {
-				t.Errorf("create --bind = %q, want %q", out, want)
+				t.Errorf("%v lacks %q:\n%s", args, want, out)
 			}
 		}
-		if !regexp.MustCompile(`pushed \d+ event\(s\) on 2 item\(s\), pulled 0 event\(s\) on 0 item\(s\)`).MatchString(out) {
-			t.Errorf("create --bind = %q, want 2 items pushed and none pulled", out)
-		}
-		onServer := serverIDs(srv, "fresh")
-		for _, id := range mine {
-			if !slices.Contains(onServer, id) {
-				t.Errorf("the project lacks %s", id)
+		for _, bad := range []string{"Before returning", "before it returns", "how many items", "are pushed", "are pulled", "sync fails", "again to sync", "Nothing was synced"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("%v still says %q:\n%s", args, bad, out)
 			}
 		}
-	})
-	t.Run("fails", func(t *testing.T) {
-		srv := fakeserver.Start(t, testToken)
-		m := newMachine(t)
-		m.use(t)
-		createID(t, "story", "create", "--title", "one", "--criteria", "c")
-		srv.FailMethods("satelle.chain.v2.Chain/")
-		out, err := run(t, "", "project", "create", "other", "--bind", "--server", srv.URL)
-		if ExitCodeOf(err) != ExitError {
-			t.Fatalf("create --bind exit = %d (%v), want 1\n%s", ExitCodeOf(err), err, out)
-		}
-		if msg := err.Error(); !strings.Contains(msg, "sync failed") || !strings.Contains(msg, "satelle project bind other") {
-			t.Errorf("create --bind error = %q", msg)
-		}
-		assertBound(t, "other")
-	})
+	}
+	if out := must(t, "project", "create", "--help"); strings.Contains(out, "and sync it") {
+		t.Errorf("project create --help still says --bind syncs:\n%s", out)
+	}
+	if out := must(t, "help", "ledger-store"); strings.Contains(out, "does not wait for the") {
+		t.Errorf("help ledger-store still says bind runs the pass:\n%s", out)
+	}
 }

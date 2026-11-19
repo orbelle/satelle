@@ -6,12 +6,10 @@ A **project** is a repo or directory. This machine's projects are listed in
 project is bound to at most one satelle.dev project
 (`satelle project bind|create|show --session <session>`), recorded on this machine only.
 
-`satelle project bind` (and `satelle project create --bind`) runs one
-push-then-pull pass for the repo before it returns: the stories created before
-binding are pushed, the project's are pulled, and it prints how many items went
-each way. With `[ledger] store = "local"` it says nothing was synced. When the
-sync fails the binding stays recorded, bind names the failure and exits 1: run
-`satelle project bind <project> --session <session>` again to sync.
+`satelle project bind` (and `satelle project create --bind`) records the binding
+and adds the repo to this machine's projects; it makes no sync of its own. The
+sync timer (`satelle-sync.timer`, see `satelle help ledger-store --session <session>`)
+syncs the repo on its next pass.
 
 A **workspace** is a collection of projects on satelle.dev, personal or team.
 `satelle workspace list --session <session>` lists yours; `satelle project create --workspace <id> --session <session>`
