@@ -25,3 +25,14 @@ func TestSandboxGitFailureReportsStatusAndStderr(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxGitRunsNoAutomaticGc(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	if got := strings.TrimSpace(s.git("config", "--get", "gc.auto")); got != "0" {
+		t.Errorf("sandbox gc.auto = %q, want 0", got)
+	}
+	if got := strings.TrimSpace(s.git("config", "--type=bool", "--get", "maintenance.auto")); got != "false" {
+		t.Errorf("sandbox maintenance.auto = %q, want false", got)
+	}
+}
