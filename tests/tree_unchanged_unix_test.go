@@ -460,9 +460,6 @@ func TestTreeUnchangedFailsClosedWithoutOrigin(t *testing.T) {
 	}
 }
 
-// treeToolBin is a PATH holding only what the tree-unchanged check runs, with
-// no sha256sum; with shasum set it adds a shasum shim that accepts only
-// "-a 256" and hashes with the host's real tool.
 func treeToolBin(t *testing.T, shasum bool) string {
 	t.Helper()
 	bin := realDir(t, t.TempDir())
