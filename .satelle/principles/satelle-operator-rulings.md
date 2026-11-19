@@ -209,10 +209,10 @@ are reviewed*).
   - `satelle project bind` does not sync: [[satelle-sync-architecture]] §4
     holds, and the sync timer's pass is the one owner of convergence
     (sto_c2905da7).
-  - Doctor composing the `satelle story create` command that raises a
+  - Doctor composing the `satelle story create --session <session>` command that raises a
     substrate story for the shipped files a repo lacks
     (`substrateStoryCommand`, internal/cli/substrate_report.go) is accepted:
     it is advice text the user may run or not, not a process step in Go.
-  - A kernel test naming a skill `satelle init` ships
+  - A kernel test naming a skill `satelle init --session <session>` ships
     (`TestInitShipsTheUpgradeSkill`, internal/kernel/kernel_test.go) is
     accepted: a test proving what init ships names it.
