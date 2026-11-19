@@ -1,3 +1,15 @@
+## [1.0.98] - 2026-11-19
+
+### Changed
+- `satelle doctor` notes a harness in use whose injected files are over its session-start limit inline and fit as an index, naming the limit and the inline size, and reports a context issue only when the index form itself is over the limit, naming the limit and the index size (sto_7dbeae11)
+
+### Removed
+- The project page no longer has a "held" sync section, and the sync state no longer carries a push-held record; no running satelle ever recorded held stories, so the section only appeared in tests (sto_00d839cc)
+
+### Fixed
+- satelle init --hooks claude (the harness as a separate word, as the help shows) installs that harness's hooks as --hooks=claude does; it was refused as an unknown command. A comma-separated list works the same way (--hooks claude,pi), and a bare --hooks still installs claude (sto_c91959c6)
+- The edit gate reads a quoted directory after `git -C` (and `make -C`, `tar -C`) as the directory: `git -C '<dir>' log`, `status` and `diff` are allowed as the unquoted form is, and a writing verb is judged at, and its refusal names, that directory instead of the verb (sto_5349f363)
+
 ## [1.0.97] - 2026-11-19
 
 ### Fixed
