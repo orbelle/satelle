@@ -17,7 +17,7 @@ command = "cursor-agent"
 model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]
 
-[agents."reviewer-gpt-5.6-sol-medium"]
+[agents."reviewer-gemini-4-neon-high"]
 command = "cursor-agent"
-model = "gpt-5.6-sol-medium"
+model = "gemini-4-neon-high"
 tools = ["Read", "Grep", "Glob"]
