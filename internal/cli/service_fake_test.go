@@ -30,6 +30,7 @@ bootout)
 	if [ "$failon" = bootout ]; then echo "Boot-out failed: 5: Input/output error"; exit 5; fi
 	exit 0;;
 print)
+	if [ -f "$state/fail-print" ]; then echo "Bad request."; exit 5; fi
 	if [ -f "$state/$label.loaded" ]; then printf '%%s = {\n\tstate = running\n}\n' "$2"; exit 0; fi
 	echo "Could not find service \"$label\" in domain"
 	exit 113;;

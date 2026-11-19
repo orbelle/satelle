@@ -295,6 +295,43 @@ func TestServiceStatusRestartUninstallOnLaunchd(t *testing.T) {
 		}
 		keptBoth(t, e, out)
 	})
+	failPrint := func(t *testing.T, e *launchdEnv) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(launchctlState(e.log), "fail-print"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("uninstall, print fails", func(t *testing.T) {
+		e, _ := setup(t, launchctlFake{})
+		failPrint(t, e)
+		out, err := run(t, "", "service", "uninstall")
+		if err == nil || !strings.Contains(err.Error(), "launchctl print "+e.target(syncLabel)) || !strings.Contains(err.Error(), "Bad request.") {
+			t.Errorf("uninstall: %v\n%s", err, out)
+		}
+		keptBoth(t, e, out)
+		if strings.Contains(e.calls(t), "bootout") {
+			t.Errorf("bootout ran though the load state could not be read:\n%s", e.calls(t))
+		}
+	})
+	t.Run("status, print fails", func(t *testing.T) {
+		e, _ := setup(t, launchctlFake{})
+		failPrint(t, e)
+		out := mustRun(t, "service", "status")
+		if !strings.Contains(out, "agent     "+e.dp+" (unknown: launchctl print") || !strings.Contains(out, "sync      "+e.sp+" (unknown: launchctl print") {
+			t.Errorf("status with print failing:\n%s", out)
+		}
+	})
+	t.Run("install, print fails", func(t *testing.T) {
+		e, _ := setup(t, launchctlFake{})
+		failPrint(t, e)
+		out, err := run(t, "", "service", "install", "--satelled", "/x/satelled")
+		if err == nil || !strings.Contains(err.Error(), "launchctl print ") {
+			t.Errorf("install: %v\n%s", err, out)
+		}
+		if strings.Contains(e.calls(t), "bootout") || strings.Contains(e.calls(t), "bootstrap") {
+			t.Errorf("install changed launchd though the load state could not be read:\n%s", e.calls(t))
+		}
+	})
 	t.Run("uninstall, agents not loaded", func(t *testing.T) {
 		e, _ := setup(t, launchctlFake{})
 		loaded, _ := filepath.Glob(filepath.Join(launchctlState(e.log), "*.loaded"))

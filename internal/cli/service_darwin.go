@@ -40,9 +40,18 @@ func launchctlStep(args ...string) error {
 	return nil
 }
 
-func agentLoaded(label string) bool {
-	_, err := launchctl("print", agentTarget(label))
-	return err == nil
+const launchdNoSuchService = 113
+
+func agentLoaded(label string) (bool, error) {
+	out, err := launchctl("print", agentTarget(label))
+	if err == nil {
+		return true, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == launchdNoSuchService {
+		return false, nil
+	}
+	return false, fmt.Errorf("launchctl print %s: %v: %s", agentTarget(label), err, out)
 }
 
 func applyService(w io.Writer, s serviceSpec, force bool) error {
@@ -66,7 +75,10 @@ func applyService(w io.Writer, s serviceSpec, force bool) error {
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		loaded := agentLoaded(label)
+		loaded, err := agentLoaded(label)
+		if err != nil {
+			return err
+		}
 		switch {
 		case written[label] || !loaded:
 			if err := launchctlStep("enable", agentTarget(label)); err != nil {
@@ -97,7 +109,11 @@ func unload(label string) error {
 	bout, berr := launchctl("bootout", agentTarget(label))
 	deadline := time.Now().Add(bootoutWait)
 	for {
-		if !agentLoaded(label) {
+		loaded, err := agentLoaded(label)
+		if err != nil {
+			return err
+		}
+		if !loaded {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
@@ -115,7 +131,11 @@ func unload(label string) error {
 func uninstallUnit(w io.Writer) error {
 	labels := []string{syncLabel, daemonLabel}
 	for _, label := range labels {
-		if !agentLoaded(label) {
+		loaded, err := agentLoaded(label)
+		if err != nil {
+			return err
+		}
+		if !loaded {
 			continue
 		}
 		if err := unload(label); err != nil {
@@ -146,7 +166,11 @@ func agentState(label string) string {
 	}
 	out, err := launchctl("print", agentTarget(label))
 	if err != nil {
-		return "not loaded"
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == launchdNoSuchService {
+			return "not loaded"
+		}
+		return fmt.Sprintf("unknown: launchctl print: %v: %s", err, out)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "state = "); ok {
