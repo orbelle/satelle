@@ -158,12 +158,13 @@ func fakeHost(t *testing.T) (home string, env []string) {
 	t.Helper()
 	home = t.TempDir()
 	for rel, body := range map[string]string{
-		".satelle/config.toml":              "a = 1\n",
-		".satelle/document-sync-state.json": `{"n":1}`,
-		".satelle/repo-0123abcd/db-wal":     "w1",
-		".satelle/serve/mirror.db-wal":      "w1",
-		".local/bin/satelle":                "v1",
-		".config/go/telemetry/mode":         "off",
+		".satelle/config.toml":                          "a = 1\n",
+		".satelle/document-sync-state.json":             `{"n":1}`,
+		".satelle/repo-0123abcd/db-wal":                 "w1",
+		".satelle/serve/mirror.db-wal":                  "w1",
+		".local/bin/satelle":                            "v1",
+		".config/go/telemetry/mode":                     "off",
+		"Library/Application Support/go/telemetry/mode": "off",
 	} {
 		p := filepath.Join(home, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -181,15 +182,19 @@ func fakeHost(t *testing.T) (home string, env []string) {
 		return strings.TrimSpace(string(out))
 	}
 	t.Cleanup(func() {
-		dir := filepath.Join(home, ".config", "go", "telemetry")
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Errorf("read %s: %v", dir, err)
-			return
-		}
-		for _, e := range entries {
-			if e.Name() != "mode" {
-				t.Errorf("go telemetry wrote %s into the fake HOME", filepath.Join(dir, e.Name()))
+		for _, dir := range []string{
+			filepath.Join(home, ".config", "go", "telemetry"),
+			filepath.Join(home, "Library", "Application Support", "go", "telemetry"),
+		} {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Errorf("read %s: %v", dir, err)
+				continue
+			}
+			for _, e := range entries {
+				if e.Name() != "mode" {
+					t.Errorf("go telemetry wrote %s into the fake HOME", filepath.Join(dir, e.Name()))
+				}
 			}
 		}
 	})
