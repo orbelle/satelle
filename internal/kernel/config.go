@@ -493,7 +493,7 @@ func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {
 		file := filepath.Join(c.Root, RemotesDir, id, RemoteFile)
 		b, err := os.ReadFile(file)
 		if err != nil {
-			bad("is placed on remote %s, which has no %s: %v", id, filepath.Join(filepath.Base(c.Root), RemotesDir, id, RemoteFile), err)
+			bad("is placed on remote %s, which has no %s: %v", id, filepath.ToSlash(filepath.Join(filepath.Base(c.Root), RemotesDir, id, RemoteFile)), err)
 			continue
 		}
 		if _, err := remotedef.Parse(b); err != nil {

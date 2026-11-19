@@ -20,7 +20,7 @@ var toolchainPinFiles = []struct {
 }{
 	{"go.mod", parseGoModDirective},
 	{"mise.toml", parseMiseGoPin},
-	{filepath.Join(".github", "workflows", "release.yml"), parseWorkflowGoVersion},
+	{".github/workflows/release.yml", parseWorkflowGoVersion},
 }
 
 var (
@@ -79,7 +79,7 @@ func parseWorkflowGoVersion(b []byte) (string, error) {
 func collectPins(root string) ([]pin, error) {
 	pins := make([]pin, 0, len(toolchainPinFiles))
 	for _, f := range toolchainPinFiles {
-		b, err := os.ReadFile(filepath.Join(root, f.path))
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.path)))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.path, err)
 		}
