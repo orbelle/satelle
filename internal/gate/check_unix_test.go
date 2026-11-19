@@ -386,7 +386,7 @@ func TestAfterAlwaysRunsOnEveryResult(t *testing.T) {
 		b.Name = n
 		r.Agents[n] = b
 	}
-	r.Skills["always"] = alwaysSkill(`p=$(cat); echo "gate=$SATELLE_GATE result=$SATELLE_GATE_RESULT $p" >> ` + log + `; echo "saw $SATELLE_GATE_RESULT"`)
+	r.Skills["always"] = alwaysSkill(`p=$(cat); printf '%s\n' "gate=$SATELLE_GATE result=$SATELLE_GATE_RESULT $p" >> ` + log + `; echo "saw $SATELLE_GATE_RESULT"`)
 	r.Skills["pass"] = checkSkill("echo checked")
 	r.Skills["hang"] = checkSkill("sleep 30")
 	r.Skills["refuse"] = checkSkill("echo no reasons; exit 1")
