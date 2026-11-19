@@ -4,7 +4,6 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,7 +48,7 @@ func TestAgentsInstallNamesTheIgnoreRuleThatHidesTheFile(t *testing.T) {
 		t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 		t.Setenv("GIT_CONFIG_COUNT", "0")
 		rule := excludes + ":1: .claude/"
-		control := exec.Command("git", "-C", dir, "check-ignore", "-v", ".claude/settings.json")
+		control := gittest.Command(t, dir, "check-ignore", "-v", ".claude/settings.json")
 		control.Env = os.Environ()
 		got, err := control.Output()
 		if err != nil || !strings.HasPrefix(string(got), excludes+":1:.claude/\t") {
