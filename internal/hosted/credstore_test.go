@@ -52,6 +52,7 @@ func TestCredentialsPathFenceUnderTest(t *testing.T) {
 		t.Setenv("SATELLE_HOME", t.TempDir())
 		t.Setenv("XDG_CONFIG_HOME", "")
 		t.Setenv("HOME", bad)
+		t.Setenv("USERPROFILE", bad)
 		msg := panicMessage(func() { _, _ = CredentialsPath() })
 		if !strings.Contains(msg, filepath.Join(bad, ".config", "satelle", "credentials.toml")) {
 			t.Fatalf("want panic naming the resolved path, got %q", msg)

@@ -24,7 +24,7 @@ func TestEnvNeutralisesAHostileHost(t *testing.T) {
 			if viaGlobal {
 				ignore := filepath.Join(host, "global-ignore")
 				write(t, ignore, ".satelle/\n")
-				write(t, filepath.Join(host, ".gitconfig"), "[core]\n\texcludesFile = "+ignore+"\n[user]\n\tname = host\n\temail = host@host\n")
+				write(t, filepath.Join(host, ".gitconfig"), "[core]\n\texcludesFile = "+filepath.ToSlash(ignore)+"\n[user]\n\tname = host\n\temail = host@host\n")
 			}
 			t.Setenv("HOME", host)
 			t.Setenv("XDG_CONFIG_HOME", xdg)

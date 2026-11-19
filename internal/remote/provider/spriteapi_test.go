@@ -54,7 +54,11 @@ func socketDir(t testing.TB) string {
 	if len(dir) < 80 {
 		return dir
 	}
-	dir, err := os.MkdirTemp("/tmp", "sprite")
+	base := "/tmp"
+	if _, err := os.Stat(base); err != nil {
+		base = ""
+	}
+	dir, err := os.MkdirTemp(base, "sprite")
 	if err != nil {
 		t.Fatal(err)
 	}
