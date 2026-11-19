@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -191,6 +192,56 @@ func (r Repo) ChangedBetween(base, head string) ([]string, error) {
 
 func (r Repo) DiffBetween(base, head string, paths []string) (string, error) {
 	return r.git(append(append(slices.Clone(diffText), base, head, "--"), paths...)...)
+}
+
+type FileStat struct {
+	Path           string
+	Added, Removed int
+	Binary         bool
+}
+
+var numstatArgs = []string{"diff", "--no-color", "--no-ext-diff", "--diff-algorithm=myers", "--numstat", "--no-renames"}
+
+func (r Repo) StatPaths(base string) ([]FileStat, error) {
+	out, err := r.git(append(slices.Clone(numstatArgs), base, "--")...)
+	if err != nil {
+		return nil, err
+	}
+	return numstat(out)
+}
+
+func (r Repo) StatBetween(base, head string) ([]FileStat, error) {
+	out, err := r.git(append(slices.Clone(numstatArgs), base, head, "--")...)
+	if err != nil {
+		return nil, err
+	}
+	return numstat(out)
+}
+
+func numstat(out string) ([]FileStat, error) {
+	var stats []FileStat
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		added, rest, ok := strings.Cut(line, "\t")
+		removed, path, ok2 := strings.Cut(rest, "\t")
+		if !ok || !ok2 || path == "" {
+			return nil, fmt.Errorf("git diff --numstat: unreadable line %q", line)
+		}
+		if added == "-" && removed == "-" {
+			stats = append(stats, FileStat{Path: path, Binary: true})
+			continue
+		}
+		a, aerr := strconv.Atoi(added)
+		d, derr := strconv.Atoi(removed)
+		if aerr != nil || derr != nil {
+			return nil, fmt.Errorf("git diff --numstat: unreadable line %q", line)
+		}
+		stats = append(stats, FileStat{Path: path, Added: a, Removed: d})
+	}
+	sort.Slice(stats, func(i, j int) bool { return stats[i].Path < stats[j].Path })
+	return stats, nil
 }
 
 func (r Repo) TrackedFiles(path string) ([]string, error) {

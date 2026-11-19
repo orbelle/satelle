@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -133,6 +134,13 @@ func (k *Kernel) ItemChange(id string) (ItemDiff, *StaleBaseError, error) {
 		return ItemDiff{}, nil, err
 	}
 	return d, stale, nil
+}
+
+func (k *Kernel) ItemStat(d ItemDiff) ([]gitfacts.FileStat, error) {
+	if k.Git == nil || d.Base == "" {
+		return nil, nil
+	}
+	return k.stat(span{base: d.Base, head: d.Head})
 }
 
 const defaultCollectBase = DefaultBaseBranch

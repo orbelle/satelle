@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 )
@@ -47,6 +48,16 @@ func (g strictGit) Diff(base string, p []string) (string, error) {
 func (g strictGit) ChangedPaths(base string) ([]string, error) {
 	g.empty("changed paths", base)
 	return g.Git.ChangedPaths(base)
+}
+
+func (g strictGit) StatPaths(base string) ([]gitfacts.FileStat, error) {
+	g.empty("stat paths", base)
+	return g.Git.StatPaths(base)
+}
+
+func (g strictGit) StatBetween(base, head string) ([]gitfacts.FileStat, error) {
+	g.empty("stat between", base, head)
+	return g.bg().StatBetween(base, head)
 }
 
 func (g strictGit) Resolve(ref string) (string, error)    { return g.bg().Resolve(ref) }

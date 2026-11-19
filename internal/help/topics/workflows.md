@@ -275,6 +275,9 @@ and by uncommitted changes to tracked files. Untracked files in the worktree
 are not changed paths: `satelle <kind> diff` lists them apart, each marked
 `untracked:`, and a judge's prompt names them in their own block, marked
 untracked. A new file counts as a changed path once it is added (`git add`).
+`satelle <kind> diff <id> --stat --session <session>` adds each changed path's
+added and removed line counts and a total; a binary file is marked `binary`;
+untracked files are not counted.
 
 ## Performers
 
