@@ -1,8 +1,6 @@
 ---
 name: satelle-reference-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: The substrate route's judge on in_progress → done. Isolated read-only reviewer of a .satelle/ diff that rejects each volatile fact (a version, a count, a status, a date-sensitive value) the diff restates undated, quoting it and naming the reference to write instead. Dated history is the only exemption; no marker, comment or code fence exempts a line. Verdict only.
 ---
 

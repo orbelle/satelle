@@ -1,8 +1,6 @@
 ---
 name: satelle-story-architecture-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: Readiness (backlog → plan) multi-reviewer axis. Isolated read-only judge — does the story fit the target architecture ([[satelle-sync-architecture]]), and does the plan respect mechanism-vs-substrate and avoid putting decisions, or the user's own vendors, tools and policy, in Go when they belong in config? It may block a misfit, or push back an architecture amendment when the architecture is what is wrong. Parallel companion to satelle-story-plan-review.
 ---
 

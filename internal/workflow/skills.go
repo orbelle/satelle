@@ -15,6 +15,19 @@ const (
 	TypePrinciple = "principle"
 )
 
+const (
+	KeyName        = "name"
+	KeyType        = "type"
+	KeyDescription = "description"
+	KeyAfter       = "after"
+	KeyFraming     = "framing"
+	KeyCommands    = "commands"
+)
+
+var FrontmatterKeys = []string{KeyName, KeyType, KeyDescription, KeyAfter, KeyFraming, KeyCommands}
+
+const readmeFile = "README.md"
+
 type Skill struct {
 	Name   string
 	Path   string
@@ -24,13 +37,13 @@ type Skill struct {
 	Script string
 }
 
-func (s Skill) IsCheck() bool { return s.Meta["type"] == TypeCheck }
+func (s Skill) IsCheck() bool { return s.Meta[KeyType] == TypeCheck }
 
 func (s Skill) IsFraming() bool {
-	return s.Meta["type"] == TypePrinciple && s.Meta["framing"] == "true"
+	return s.Meta[KeyType] == TypePrinciple && s.Meta[KeyFraming] == "true"
 }
 
-func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta["after"] == afterAlways }
+func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta[KeyAfter] == afterAlways }
 
 const afterAlways = "always"
 
@@ -96,12 +109,12 @@ func scriptFence(trimmed string) (string, bool) {
 }
 
 func (s Skill) Problems() []error {
-	if v, ok := s.Meta["after"]; ok {
+	if v, ok := s.Meta[KeyAfter]; ok {
 		switch {
 		case v != afterAlways:
 			return []error{fmt.Errorf("skill %s: frontmatter after is %q; the only value is %s", s.Name, v, afterAlways)}
 		case !s.IsCheck():
-			return []error{fmt.Errorf("skill %s: frontmatter after: %s is for a check, but its type is %q", s.Name, afterAlways, s.Meta["type"])}
+			return []error{fmt.Errorf("skill %s: frontmatter after: %s is for a check, but its type is %q", s.Name, afterAlways, s.Meta[KeyType])}
 		}
 	}
 	if s.IsCheck() {
@@ -110,7 +123,7 @@ func (s Skill) Problems() []error {
 	for _, line := range strings.Split(s.Body, "\n") {
 		if fence, ok := scriptFence(strings.TrimSpace(line)); ok && fence == "check" {
 			return []error{fmt.Errorf("skill %s: holds a ```check block but its frontmatter type is %q, not check; v1 runs a script only for type: check (set type: check, or make the block ```sh if it is an example)",
-				s.Name, s.Meta["type"])}
+				s.Name, s.Meta[KeyType])}
 		}
 	}
 	return nil
@@ -125,6 +138,9 @@ func LoadSkills(dir string) (map[string]Skill, error) {
 	out := map[string]Skill{}
 	var errs []error
 	for _, p := range paths {
+		if filepath.Base(p) == readmeFile {
+			continue
+		}
 		b, err := os.ReadFile(p)
 		if err != nil {
 			errs = append(errs, err)

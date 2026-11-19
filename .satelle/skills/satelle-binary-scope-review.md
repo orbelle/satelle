@@ -1,8 +1,6 @@
 ---
 name: satelle-binary-scope-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: Readiness (backlog → plan) reviewer. Isolated read-only judge of the plan's footprint in the satelle binary — rejects a plan that adds a write to the user's repo, its refs or remotes, or a forge action, or process logic that belongs in a step skill or configuration, to the binary, per [[satelle-mechanism-vs-substrate]].
 ---
 

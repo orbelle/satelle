@@ -1,8 +1,6 @@
 ---
 name: task-run
-scope: project
 type: skill
-tags: [type:skill]
 description: In-loop (or binding-dispatched) executor skill for the task/execution route's in_progress step. Perform the execution's declared ACTION and leave VERIFICATION evidence; do not advance status — satelle-task-validate-after-review gates the close.
 ---
 

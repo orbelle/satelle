@@ -194,6 +194,17 @@ func tagWarnings(r repo, configValid bool) ([]kernel.TagWarning, error) {
 	return kernel.TagWarnings(items), nil
 }
 
+func skillWarnings(dataDir string, configValid bool) []kernel.SkillWarning {
+	if !configValid {
+		return []kernel.SkillWarning{}
+	}
+	cfg, err := kernel.LoadConfig(dataDir)
+	if err != nil || cfg == nil {
+		return []kernel.SkillWarning{}
+	}
+	return cfg.SkillWarnings()
+}
+
 func validateCmd() *cobra.Command {
 	var asJSON *bool
 	cmd := &cobra.Command{
@@ -222,7 +233,14 @@ With no volatile.toml, or no pattern in it, none is listed.
 When the configuration is valid it also lists each item's tag whose key has
 conventional values (satelle help satelle) and whose value is none of them, as
 <item>: tag "<tag>": conventional values are <values> (under the tag_warnings
-key with --json). These are listed without failing the check.`,
+key with --json). These are listed without failing the check.
+
+When the configuration is valid it also lists each skill in skills/ that no
+workflow (a performer skill, a gate skill, trigger or after), doctor check or
+[hook] inject entry names, that satelle init does not ship, and whose
+skills/<name>.md path no skill so reached names in its body, as
+<file>: skill <name>: ... (under the skill_warnings key with --json). A
+README.md in skills/ is not a skill. These are listed without failing the check.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -245,6 +263,7 @@ key with --json). These are listed without failing the check.`,
 			if err != nil {
 				problems = append(problems, fmt.Errorf("tag_warnings: %w", err))
 			}
+			unnamed := skillWarnings(r.DataDir, len(problems) == 0)
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
@@ -252,7 +271,7 @@ key with --json). These are listed without failing the check.`,
 					msgs = append(msgs, p.Error())
 				}
 				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
-					substrate.VolatileField: volatile, "tag_warnings": tagged}); err != nil {
+					substrate.VolatileField: volatile, "tag_warnings": tagged, "skill_warnings": unnamed}); err != nil {
 					return err
 				}
 			} else {
@@ -268,6 +287,12 @@ key with --json). These are listed without failing the check.`,
 				if len(tagged) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "tags outside their conventional values in %s (%d):\n", r.DataDir, len(tagged))
 					for _, w := range tagged {
+						fmt.Fprintln(cmd.OutOrStdout(), w.String())
+					}
+				}
+				if len(unnamed) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "skills nothing names in %s (%d):\n", r.DataDir, len(unnamed))
+					for _, w := range unnamed {
 						fmt.Fprintln(cmd.OutOrStdout(), w.String())
 					}
 				}

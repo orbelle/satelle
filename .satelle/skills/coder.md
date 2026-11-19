@@ -1,9 +1,6 @@
 ---
 name: coder
-scope: project
 type: skill
-tags: [type:skill]
-evidence_commands: satelle story get, go test
 description: The in_progress performer's rubric (delivery and chore workflows), bound to the interactive session. Pull the plan through the satelle CLI, implement only that slice, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
 ---
 

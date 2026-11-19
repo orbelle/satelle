@@ -1,8 +1,6 @@
 ---
 name: satelle-workflow-change-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Implementation-exit gate judging route edits — where a gate is bound (a step table's reviewers vs an always-on gate entry), over-fire, skill and obligation resolution, park/cancel/recover preserved. Fast-accepts workflow:n/a when the slice touches no workflow file. Review-only.
 ---
 

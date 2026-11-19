@@ -1,8 +1,6 @@
 ---
 name: satelle-workflow-change-trigger
-scope: project
 type: check
-tags: [type:skill, type:reviewer, type:functional-check]
 description: The trigger of satelle-workflow-change-review. Exits 0 when the story's diff touches a workflow file, exits 1 when it touches none, so the review is not dispatched only to answer workflow:n/a. Deterministic and self-contained; the path pattern is the script's first line.
 ---
 

@@ -1,8 +1,6 @@
 ---
 name: satelle-story-review
-scope: project
 type: skill
-tags: [type:skill, type:reviewer]
 description: Story gate on a story's first move out of backlog (delivery backlog → plan, chore backlog → in_progress), before any plan exists. Isolated read-only reviewer critical of the card itself - a Feature with a Background, each criterion a Given/When/Then scenario, one behaviour small enough for one plan, achievable and provable at its gates, aligned with the constitution. A refusal names each failed property and its fix - split, narrow, rewrite as scenarios, or cancel as misaligned. Verdict only.
 ---
 

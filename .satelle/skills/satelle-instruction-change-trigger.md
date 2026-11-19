@@ -1,8 +1,6 @@
 ---
 name: satelle-instruction-change-trigger
-scope: system
 type: check
-tags: [type:skill, type:reviewer, type:functional-check]
 description: The trigger of satelle-instruction-change-review. Exits 0 when the story's diff adds or rewrites instruction text (a new file, or at least THRESHOLD changed words) in skills, principles or the constitution; exits 1 for no instruction change or a whitespace, punctuation or typo-only one. Deterministic and self-contained; the rule is this script, so a repo overrides the skill to change it.
 ---
 

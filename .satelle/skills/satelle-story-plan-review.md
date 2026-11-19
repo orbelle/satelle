@@ -1,10 +1,7 @@
 ---
 name: satelle-story-plan-review
-scope: system
 type: skill
-tags: [type:skill, type:reviewer]
 description: Plan gate — on plan → in_progress, or backlog → plan when readiness proposes its plan first. Read-only reviewer validates the ATTACHED plan against the behavior the story card states: each criterion cites the card behavior it proves, the criteria are not narrower than the card, recorded partial solutions are kept. Never invents a competing plan.
-payload_citations: plan
 ---
 
 # Story plan review (plan gate)

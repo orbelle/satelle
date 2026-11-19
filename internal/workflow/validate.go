@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -144,6 +145,33 @@ func (w *Workflow) Validate(skill SkillLookup, agent AgentLookup) []error {
 		}
 	}
 	return errs
+}
+
+func (w *Workflow) SkillNames() []string {
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name != "" {
+			seen[name] = true
+		}
+	}
+	for _, st := range w.States {
+		if st.Performer != nil {
+			add(st.Performer.Skill)
+		}
+	}
+	for _, g := range w.Gates {
+		add(g.Skill)
+		add(g.Trigger)
+		for _, a := range g.After {
+			add(a)
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (w *Workflow) validateHold(name string) []error {

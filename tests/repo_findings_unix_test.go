@@ -99,6 +99,34 @@ func TestRepoFindingsMatchTheRecordedBase(t *testing.T) {
 	})
 }
 
+func TestRepoHasNoUnreferencedSkill(t *testing.T) {
+	s := newSandbox(t)
+	copyCheckout(t, "..", s.dir)
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "this repo's tree")
+
+	v := validateJSON(t, s, satelleBin)
+	if !v.Valid || v.code != 0 || len(v.SkillWarnings) != 0 {
+		t.Fatalf("validate on this repo: valid %v, exit %d, skill_warnings %+v, problems %v, substrate %+v", v.Valid, v.code, v.SkillWarnings, v.Problems, v.Substrate)
+	}
+
+	s.write(".satelle/skills/zz-orphan-probe.md", "---\nname: zz-orphan-probe\ntype: skill\ndescription: A skill nothing names.\n---\n\nbody\n")
+	v = validateJSON(t, s, satelleBin)
+	if !v.Valid || v.code != 0 || len(v.SkillWarnings) != 1 || v.SkillWarnings[0].Skill != "zz-orphan-probe" {
+		t.Fatalf("validate with an unnamed probe skill: valid %v, exit %d, skill_warnings %+v", v.Valid, v.code, v.SkillWarnings)
+	}
+
+	for _, name := range []string{"land", "satelle-lessons", "satelle-design-review", "satelle-integration-review", "satelle-story-release-review"} {
+		p := filepath.Join("..", ".satelle", "skills", name+".md")
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s exists (%v), want it deleted", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join("..", ".satelle", "skills", "README.md")); err != nil {
+		t.Errorf("the skills README: %v", err)
+	}
+}
+
 func copyCheckout(t *testing.T, tree, dst string) {
 	t.Helper()
 	out, err := gittest.Command(t, tree, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
@@ -143,11 +171,15 @@ func copyCheckout(t *testing.T, tree, dst string) {
 }
 
 type validateReport struct {
-	Valid     bool          `json:"valid"`
-	Problems  []string      `json:"problems"`
-	Substrate []sub.Finding `json:"substrate"`
-	Volatile  []sub.Finding `json:"volatile"`
-	code      int
+	Valid         bool          `json:"valid"`
+	Problems      []string      `json:"problems"`
+	Substrate     []sub.Finding `json:"substrate"`
+	Volatile      []sub.Finding `json:"volatile"`
+	SkillWarnings []struct {
+		Skill string `json:"skill"`
+		File  string `json:"file"`
+	} `json:"skill_warnings"`
+	code int
 }
 
 type doctorIssueJSON struct {

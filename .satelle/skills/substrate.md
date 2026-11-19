@@ -1,8 +1,6 @@
 ---
 name: substrate
-scope: project
 type: skill
-tags: [type:skill]
 description: The in_progress performer of this repo's substrate workflow, bound to the interactive session. Edit .satelle/ only, on the item's own branch; write references, not restated values; validate; commit; present done, whose gates are the validation; once they accept, fast-forward main to the branch. No version, tag, publish or install.
 ---
 
