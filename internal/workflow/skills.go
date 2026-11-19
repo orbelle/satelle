@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-const TypeCheck = "check"
+const (
+	TypeCheck     = "check"
+	TypePrinciple = "principle"
+)
 
 type Skill struct {
 	Name   string
@@ -22,6 +25,10 @@ type Skill struct {
 }
 
 func (s Skill) IsCheck() bool { return s.Meta["type"] == TypeCheck }
+
+func (s Skill) IsFraming() bool {
+	return s.Meta["type"] == TypePrinciple && s.Meta["framing"] == "true"
+}
 
 func (s Skill) AfterAlways() bool { return s.IsCheck() && s.Meta["after"] == afterAlways }
 

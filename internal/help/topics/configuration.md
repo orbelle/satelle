@@ -105,7 +105,12 @@ key.
   `satelle init --session <session>`: the principle that a page names the
   command, file or link answering a changing fact rather than writing the
   fact down. The template `satelle.toml` injects it at session start; an
-  existing repo adds the path to `[hook] inject`.
+  existing repo adds the path to `[hook] inject`. Its frontmatter has
+  `framing: true`, so its description opens the session-start context: the
+  description of each `[hook] inject` file with `type: principle` and
+  `framing: true` is printed first, in inject order, read from the file. A
+  repo with its own copy of the principle adds `framing: true` to get the
+  line.
 - `doctor.toml` — the repo's own checks and open-item lists
   `satelle doctor --session <session>` runs beside its kernel checks, and the
   `[resolve]` fix item; `satelle init --session <session>` writes it (below).
@@ -181,7 +186,8 @@ and the doctor block as before, then one line per inject file, its
 frontmatter `description` (else its first line) and its path, under a line
 saying to read them in full before acting. No file's body is printed, and
 nothing is ever cut: the list is printed whole even when it is itself over
-the limit. A harness with no table is printed in full, as is a repo with no
+the limit. The framing lines come first in both forms and count toward the
+measured size. A harness with no table is printed in full, as is a repo with no
 `harness.toml`. `satelle validate --session <session>` rejects a table that
 is not a harness and a limit that is not a positive number.
 `satelle doctor --session <session>` reports a harness in use whose context with

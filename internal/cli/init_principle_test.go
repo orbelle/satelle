@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 const referencePrinciplePath = ".satelle/principles/satelle-reference-not-restate.md"
@@ -128,4 +131,88 @@ func TestSessionStartPrintsThePrincipleFromTheInstalledFile(t *testing.T) {
 	ctx = referenceHook(t, dir, "context")
 	hasAll(t, "missing context", ctx, "[hook] inject file "+referencePrinciplePath)
 	hasNone(t, "missing context", matchedForm(ctx), lines...)
+}
+
+func referenceContext(t *testing.T, dir string) string {
+	t.Helper()
+	raw, err := run(t, fmt.Sprintf(`{"session_id":"s-ref","cwd":%q}`, dir), "hook", "context", "--harness", "claude")
+	if err != nil {
+		t.Fatalf("hook context: %v\n%s", err, raw)
+	}
+	var env struct {
+		Hook struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatalf("hook context: %v\n%s", err, raw)
+	}
+	return env.Hook.Context
+}
+
+func TestSessionStartOpensWithTheInstalledPrinciplesDescription(t *testing.T) {
+	const session = "satelle session: s-ref"
+	dir, text := initReferencePrinciple(t)
+	file := filepath.Join(dir, filepath.FromSlash(referencePrinciplePath))
+	settingsFile := filepath.Join(dir, ".satelle", "satelle.toml")
+	settings, err := os.ReadFile(settingsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, err := workflow.ParseSkill(referencePrinciplePath, text)
+	if err != nil || !sk.IsFraming() || strings.TrimSpace(sk.Meta["description"]) == "" {
+		t.Fatalf("the installed principle is not a framing principle with a description (%v): %+v", err, sk.Meta)
+	}
+	shipped := sk.Meta["description"]
+	if ctx := referenceContext(t, dir); !strings.HasPrefix(ctx, shipped+"\n"+session) {
+		t.Fatalf("the context does not open with the installed description, then the session line:\n%s", ctx)
+	}
+	hasNone(t, "prompt", referenceHook(t, dir, "prompt"), shipped)
+
+	rewrite := func(old, next string) {
+		t.Helper()
+		if !strings.Contains(text, old) {
+			t.Fatalf("the installed principle has no %q", old)
+		}
+		if err := os.WriteFile(file, []byte(strings.Replace(text, old, next, 1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opensWithSession := func(what string) string {
+		t.Helper()
+		ctx := referenceContext(t, dir)
+		if !strings.HasPrefix(ctx, session) {
+			t.Errorf("%s: the context does not open with the session line:\n%s", what, ctx)
+		}
+		return ctx
+	}
+
+	rewrite("description: "+shipped, "description: nonce-own-framing-7c1a")
+	ctx := referenceContext(t, dir)
+	if !strings.HasPrefix(ctx, "nonce-own-framing-7c1a\n"+session) {
+		t.Errorf("a rewritten description does not open the context:\n%s", ctx)
+	}
+	if i := strings.Index(ctx, shipped); i >= 0 && i < strings.Index(ctx, session) {
+		t.Errorf("the shipped description still opens the context after the file was rewritten:\n%s", ctx)
+	}
+
+	rewrite("framing: true\n", "")
+	opensWithSession("no framing key")
+
+	rewrite("type: principle", "type: skill")
+	opensWithSession("another type")
+
+	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeHookSettings(t, dir, "inject = []\n")
+	opensWithSession("not injected")
+
+	if err := os.WriteFile(settingsFile, settings, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	hasAll(t, "deleted", opensWithSession("deleted"), "[hook] inject file "+referencePrinciplePath)
 }

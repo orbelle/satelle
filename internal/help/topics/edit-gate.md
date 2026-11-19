@@ -135,7 +135,8 @@ remove cursor --session <session>` strips only satelle's. `cursor-agent` runs:
   repo comes from `CLAUDE_PROJECT_DIR`, else `CURSOR_PROJECT_DIR` (Cursor sets
   both), else the payload's project root; the fence applies as above.
 - `sessionStart` → `satelle hook context`: the session id (Cursor's
-  `session_id`, the same as its `conversation_id`), its seats, the repo's
+  `session_id`, the same as its `conversation_id`) after any framing
+  principle's description, its seats, the repo's
   `.satelle/session.md`, the doctor block and the `[hook] inject` files (or
   their list by description and path, when printing them in full is over
   cursor's limit in `.satelle/harness.toml`), as `additional_context`.

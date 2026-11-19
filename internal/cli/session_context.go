@@ -43,6 +43,25 @@ func injectIndex(r repo, inject []string) []indexEntry {
 	return entries
 }
 
+func framingLines(r repo, inject []string) string {
+	var b strings.Builder
+	for _, f := range inject {
+		body, err := contextFile(r, f)
+		if err != nil {
+			continue
+		}
+		sk, err := workflow.ParseSkill(f, body)
+		if err != nil || !sk.IsFraming() {
+			continue
+		}
+		if d := strings.TrimSpace(sk.Meta["description"]); d != "" {
+			b.WriteString(d)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 func docDescription(path, text string) string {
 	sk, _ := workflow.ParseSkill(path, text)
 	if d := strings.TrimSpace(sk.Meta["description"]); d != "" {

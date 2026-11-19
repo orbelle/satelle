@@ -31,7 +31,9 @@ session's context at session start; prompt reminds the session of its seats on
 each prompt; stopcheck answers the Stop event, blocking a turn's end once
 when a seated item owes the session's own next move. The context, the
 prompt and a blocked stop's reason carry the repo's .satelle/session.md,
-the session guidance satelle init writes and the repo edits. When printing the
+the session guidance satelle init writes and the repo edits. The session-start
+context opens with the description of each [hook] inject principle whose
+frontmatter has framing: true. When printing the
 [hook] inject files in full would take the session-start context over the
 calling harness's limit in .satelle/harness.toml, context lists each file by
 description and path instead (see satelle help configuration). Grok reads the session
@@ -346,6 +348,9 @@ func renderSession(r repo, k *sessionSource, harness string, inject bool) (text,
 			notice = n
 		}
 		return b.String(), notice, nil
+	}
+	if inject {
+		b.WriteString(framingLines(r, k.Settings.Hook.Inject))
 	}
 	if session == "" {
 		b.WriteString("satelle session: unknown (the harness sent no session id and SATELLE_SESSION is unset).\n")
