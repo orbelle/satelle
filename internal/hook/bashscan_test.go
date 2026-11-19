@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -148,6 +149,29 @@ func TestOperatorRecordCodeCasesNeedTheTextScan(t *testing.T) {
 			if operatorRecordWords(ps.Toks) {
 				t.Errorf("%q: the word rule fires on %v", c, ps.Toks)
 			}
+		}
+	}
+}
+
+func TestResolvePathForms(t *testing.T) {
+	rows := []struct{ cwd, p, want string }{
+		{"/w", "a.txt", "/w/a.txt"},
+		{"/w", "/tmp/x.sh", "/tmp/x.sh"},
+		{"/w", "../x", "/x"},
+		{"/w/sub", "./a/../b", "/w/sub/b"},
+		{"/w", "", ""},
+	}
+	if runtime.GOOS == "windows" {
+		rows = append(rows,
+			struct{ cwd, p, want string }{`C:\r`, "sub/f", "C:/r/sub/f"},
+			struct{ cwd, p, want string }{`C:\r`, `C:\o\f`, "C:/o/f"},
+			struct{ cwd, p, want string }{`C:\r`, "C:/o/f", "C:/o/f"},
+			struct{ cwd, p, want string }{`C:\r`, "/tmp/x.sh", "/tmp/x.sh"},
+		)
+	}
+	for _, r := range rows {
+		if got := resolvePath(r.cwd, r.p); got != r.want {
+			t.Errorf("resolvePath(%q, %q) = %q, want %q", r.cwd, r.p, got, r.want)
 		}
 	}
 }

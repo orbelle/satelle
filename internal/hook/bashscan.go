@@ -2,6 +2,7 @@ package hook
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,14 +19,14 @@ func ScanBash(command, cwd, root string, isFile func(string) bool) BashTargets {
 	var t BashTargets
 	seen := map[string]bool{}
 	add := func(dst *[]string, p string) {
-		p = filepath.Clean(p)
+		p = path.Clean(p)
 		if p == "" || p == "." || seen[p] {
 			return
 		}
 		seen[p] = true
 		*dst = append(*dst, p)
 	}
-	scanBash(command, filepath.Clean(cwd), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
+	scanBash(command, path.Clean(filepath.ToSlash(cwd)), root, isFile, 0, func(p string) { add(&t.Paths, p) }, func(p string) { add(&t.Inline, p) })
 	t.OperatorRecord = operatorRecordCommand(command, 0)
 	return t
 }
@@ -1228,10 +1229,10 @@ func resolvePath(cwd, p string) string {
 	if p == "" {
 		return ""
 	}
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) {
+		return path.Clean(filepath.ToSlash(p))
 	}
-	return filepath.Clean(filepath.Join(cwd, p))
+	return path.Clean(path.Join(filepath.ToSlash(cwd), filepath.ToSlash(p)))
 }
 
 func isShellIdent(s string) bool {
