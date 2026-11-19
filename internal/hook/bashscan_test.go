@@ -143,6 +143,10 @@ var operatorRecordEscapedCases = []string{
 	"satelle story re'cord' sto_1",
 	"(echo 'satelle story record sto_1') | bash",
 	`satelle story set sto_1 --title "note (x) $(satelle story record sto_1)"`,
+	`echo "a"$(satelle story record sto_1)`,
+	`echo 'x'$(satelle story record sto_1)`,
+	"echo \"a\"`satelle story record sto_1`",
+	`echo $(satelle story record)"x"`,
 }
 
 func TestTokenizeBashBackslash(t *testing.T) {
