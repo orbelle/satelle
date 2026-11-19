@@ -17,6 +17,11 @@ command = "cursor-agent"
 model = "gemini-4-hydrogen-high"
 tools = ["Read", "Grep", "Glob"]
 
+[agents."reviewer-claude-fable-5-2"]
+command = "claude"
+model = "claude-fable-5-2"
+tools = ["Read", "Grep", "Glob"]
+
 [agents."reviewer-gemini-4-neon-high"]
 command = "cursor-agent"
 model = "gemini-4-neon-high"
