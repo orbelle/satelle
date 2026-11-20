@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -321,6 +322,11 @@ func (k *Kernel) transition(ctx context.Context, id, to, actor string, hold *ite
 			return res, err
 		}
 	}
+	if perfRun := k.sessionPerformerRun(it, events, w, to, actor, hold); perfRun != nil {
+		if _, err := k.append(id, KindPerformerRun, actor, *perfRun); err != nil {
+			return res, err
+		}
+	}
 	if _, err := k.append(id, item.KindTransitioned, actor, item.Move{From: it.Status, To: to, Hold: hold, Change: frozen}); err != nil {
 		return res, err
 	}
@@ -452,12 +458,58 @@ type PerformerRun struct {
 	Skill      string `json:"skill"`
 	Model      string `json:"model,omitempty"`
 	Command    string `json:"command,omitempty"`
+	Harness    string `json:"harness,omitempty"`
 	TokensIn   int    `json:"tokens_in"`
 	TokensOut  int    `json:"tokens_out"`
 	DurationMS int64  `json:"duration_ms"`
 	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Location   string `json:"location,omitempty"`
+}
+
+func UnavailableModel(harness string) string {
+	harness = strings.TrimSpace(harness)
+	if harness == "" {
+		harness = UnknownModel
+	}
+	return fmt.Sprintf("unavailable (%s)", harness)
+}
+
+func (k *Kernel) sessionPerformerRun(it item.Item, events []ledger.Event, w *workflow.Workflow, to, actor string, hold *item.Hold) *PerformerRun {
+	if hold != nil || w.States[to].Park || actor == "" {
+		return nil
+	}
+	perf := w.States[it.Status].Agent()
+	if perf == nil {
+		return nil
+	}
+	b, ok := k.Agents[perf.Agent]
+	if !ok || !agent.IsSession(b) {
+		return nil
+	}
+	if !slices.ContainsFunc(item.FoldSeats(events), func(s item.Seat) bool { return s.Session == actor }) {
+		return nil
+	}
+	var harness, model string
+	if k.SessionMeta != nil {
+		harness, model = k.SessionMeta(actor)
+	}
+	harness = strings.TrimSpace(harness)
+	if harness == "" {
+		harness = UnknownModel
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = UnavailableModel(harness)
+	}
+	return &PerformerRun{
+		State:   it.Status,
+		Binding: b.Name,
+		Skill:   perf.Skill,
+		Command: agent.PresetSession,
+		Harness: harness,
+		Model:   model,
+	}
 }
 
 func (k *Kernel) Perform(ctx context.Context, id, actor string) (agent.Result, error) {

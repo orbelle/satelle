@@ -269,6 +269,9 @@ func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {
 	fmt.Fprintf(w, "skill: %s (%s)\n", in.Skill, in.SkillPath)
 	fmt.Fprintf(w, "dir: %s\n", in.Dir)
 	fmt.Fprintf(w, "timeout: %v (%s)\n", in.Timeout, in.TimeoutSource)
+	if in.DiffMaxBytes > 0 {
+		fmt.Fprintf(w, "diff_max_bytes: %d (%s)\n", in.DiffMaxBytes, in.DiffBoundSource)
+	}
 	if in.Placement != "" {
 		fmt.Fprintf(w, "placement: %s\n", in.Placement)
 	}

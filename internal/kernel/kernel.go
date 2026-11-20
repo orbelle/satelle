@@ -49,6 +49,7 @@ type Kernel struct {
 	Machine, Host string
 	User          func() string
 	Sessions      SessionOwner
+	SessionMeta   func(session string) (harness, model string)
 	Progress      func(item string)
 }
 

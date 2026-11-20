@@ -66,9 +66,9 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 		return (since.IsZero() || !at.Before(since)) && (until.IsZero() || at.Before(until))
 	}
 	for _, events := range byItem {
-		var runs []timedResult
-		for _, r := range timedGateRuns(events) {
-			if isJudgedGateRun(r.Result) {
+		var runs []gate.Result
+		for _, r := range GateRuns(events) {
+			if isJudgedGateRun(r) {
 				runs = append(runs, r)
 			}
 		}
@@ -76,7 +76,7 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 			if !inWindow(r.At) {
 				continue
 			}
-			for _, v := range verdictsOfResult(r.Result) {
+			for _, v := range verdictsOfResult(r) {
 				model := normalizeModel(v.model)
 				key := [2]string{r.Gate, model}
 				t, ok := byKey[key]
@@ -122,13 +122,13 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 	return out
 }
 
-func classifyReject(runs []timedResult, i int) rejectClass {
+func classifyReject(runs []gate.Result, i int) rejectClass {
 	r := runs[i]
-	if len(r.Members) > 0 && r.Result.Result == gate.Accept {
+	if len(r.Members) > 0 && r.Result == gate.Accept {
 		return overturnedReject
 	}
 	for _, next := range runs[i+1:] {
-		if next.Gate != r.Gate || next.Result.Result != gate.Accept {
+		if next.Gate != r.Gate || next.Result != gate.Accept {
 			continue
 		}
 		switch {

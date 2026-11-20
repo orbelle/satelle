@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -66,31 +65,15 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 }
 
 func GateRuns(events []ledger.Event) []gate.Result {
-	timed := timedGateRuns(events)
-	out := make([]gate.Result, 0, len(timed))
-	for _, t := range timed {
-		out = append(out, t.Result)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-type timedResult struct {
-	gate.Result
-	At time.Time
-}
-
-func timedGateRuns(events []ledger.Event) []timedResult {
-	var out []timedResult
+	var out []gate.Result
 	for _, e := range events {
 		var r gate.Result
 		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
-			out = append(out, timedResult{Result: r, At: e.At})
+			r.At = e.At
+			out = append(out, r)
 		}
 	}
-	sortAttemptRuns(out, func(r timedResult) (string, int) { return r.Attempt, r.Seq })
+	sortAttemptRuns(out, func(r gate.Result) (string, int) { return r.Attempt, r.Seq })
 	return out
 }
 
