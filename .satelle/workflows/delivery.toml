@@ -108,7 +108,7 @@ skill = "satelle-ac-evidence-check"
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-neon-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
