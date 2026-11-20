@@ -44,9 +44,7 @@ func TestSessionPerformerCLICursorModelExposed(t *testing.T) {
 	t.Run("cursor-agent sessionStart preserved over preToolUse", func(t *testing.T) {
 		dir, id := setupSessionWorkflow(t)
 		const sess = "c-model-1"
-		// Hook context with real cursor-sessionstart fixture (model = gemini-3.8-flash-high).
 		cursorAnswer(t, cursorPayload(t, "sessionstart", sess, dir, "", ""), "context")
-		// PreToolUse with real cursor-pretooluse-write fixture (model = gemini-3.8-flash) must not clobber.
 		cursorAnswer(t, cursorPayload(t, "pretooluse-write", sess, dir, filepath.Join(dir, "ok.txt"), ""), "gate")
 
 		must(t, "story", "seat", id, "--session", sess)

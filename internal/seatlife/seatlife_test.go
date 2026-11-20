@@ -314,7 +314,6 @@ func TestRecordRefusesAPathSession(t *testing.T) {
 func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 	home := t.TempDir()
 
-	// Resolve with empty meta and no prior record creates nothing.
 	if err := Resolve(home, "s-absent", nil, Meta{}); err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +321,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 		t.Fatal("Resolve with empty meta created a record")
 	}
 
-	// Resolve with non-empty meta creates a record even with no ancestor chain.
 	if err := Resolve(home, "s-prompt", nil, Meta{Harness: "cursor", Model: "gemini-3.8-flash-high"}); err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +329,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 		t.Fatalf("after Resolve create: ok=%v rec=%+v", ok, rec)
 	}
 
-	// Start records harness and model even when chain is empty.
 	if err := Start(home, "s1", nil, Meta{Harness: "cursor", Model: "gemini-3.8-flash-high"}); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +338,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 	}
 	atAfterStart := rec.At
 
-	// ObserveMeta does not overwrite Start's harness or model and skips rewriting.
 	if err := ObserveMeta(home, "s1", Meta{Harness: "claude", Model: "gemini-3.8-flash"}); err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +346,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 		t.Fatalf("ObserveMeta clobbered existing meta: %+v (want At %v)", rec, atAfterStart)
 	}
 
-	// Start/Resolve with empty Model preserves existing Model.
 	if err := Start(home, "s1", nil, Meta{Harness: "cursor"}); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +357,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 		t.Fatalf("empty incoming model cleared stored model: %+v", rec)
 	}
 
-	// Resolve updates Model on a mid-session model switch.
 	if err := Resolve(home, "s1", nil, Meta{Harness: "cursor", Model: "claude-opus-5-5-high"}); err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +365,6 @@ func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
 		t.Fatalf("Resolve did not update model: %+v", rec)
 	}
 
-	// ObserveMeta backfills missing model without overwriting harness, and creates if absent.
 	if err := Start(home, "s-backfill", nil, Meta{Harness: "cursor"}); err != nil {
 		t.Fatal(err)
 	}

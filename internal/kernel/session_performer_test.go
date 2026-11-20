@@ -114,14 +114,12 @@ func TestSessionPerformerRunRecordsModelAndOrder(t *testing.T) {
 	if _, err := k.Seat(it.ID, "s-cur", LocalLocation(k.Dir), "", "s-cur"); err != nil {
 		t.Fatal(err)
 	}
-	// Leaving st-start (no performer) appends no performer.run.
 	if res, err := k.Transition(context.Background(), it.ID, "st-session", "s-cur"); err != nil || !res.Moved {
 		t.Fatalf("to st-session: %+v %v", res, err)
 	}
 	if _, runs := performerRuns(t, k, it.ID); len(runs) != 0 {
 		t.Fatalf("leaving state with no performer appended %+v", runs)
 	}
-	// Leaving st-session by the seated session appends performer.run right before item.transitioned.
 	if res, err := k.Transition(context.Background(), it.ID, "st-done", "s-cur"); err != nil || !res.Moved {
 		t.Fatalf("to st-done: %+v %v", res, err)
 	}
