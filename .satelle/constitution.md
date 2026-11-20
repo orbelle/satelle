@@ -20,4 +20,4 @@ satelle and dogfoods it.
   Evidence: [[satelle-agent-telemetry]].
 - Working here: [[satelle-agile-increments]], [[satelle-broken-windows]],
   [[satelle-diagnostic-discipline]], [[satelle-parallel-driving]],
-  [[satelle-no-comments]].
+  [[satelle-no-comments]], [[satelle-illegal-states]].
