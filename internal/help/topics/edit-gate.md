@@ -33,7 +33,9 @@ Whether its session still runs is known only on that machine, from
 `~/.satelle/sessions/<session>.json`: the SessionStart hook records its hook
 processes, each hook call (session start, prompt, seat command) settles the
 session's owner from the process it shares with an earlier call (the
-harness), and a dispatched run records its own process. A live owner is kept
+harness), hook calls record the session's harness and any model exposed by the
+hook payload (for session `performer.run` attribution), and a dispatched run
+records its own process. A live owner is kept
 when SessionStart fires again in the same session. `satelle doctor --session <session>` and
 satelled class each seat as **here** (this machine, owner running),
 **elsewhere** (another machine, or a remote or cloud location), **gone** (this
@@ -169,7 +171,8 @@ beforeSubmitPrompt, preToolUse and stop all fire, each with one id
 The IDE's payloads carry fields cursor-agent's do not (`transcript_path`,
 `user_email`, and on sessionStart, beforeSubmitPrompt and stop `model_id`,
 `model_params` and `composer_mode`), and its sessionStart `generation_id` is
-empty where cursor-agent's equals the session id; satelle reads none of these. Its file writes arrive as
+empty where cursor-agent's equals the session id; satelle reads `model_id` as
+a fallback for `model` and ignores the rest. Its file writes arrive as
 tool `Write` and its shell commands as tool `Shell` on preToolUse, so the gate
 judges both: an edit or a shell redirect with no seat is refused with the
 gate's reason, and the same edit passes once the session is seated. Cursor's

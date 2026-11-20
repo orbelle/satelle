@@ -167,7 +167,7 @@ func TestEditGateTopicDocumentsCursorIDE(t *testing.T) {
 	for _, want := range []string{
 		"Cursor IDE 3.28.7",
 		"(`session_id` equals `conversation_id`), which is the session satelle uses",
-		"its sessionStart `generation_id` is empty where cursor-agent's equals the session id; satelle reads none of these",
+		"its sessionStart `generation_id` is empty where cursor-agent's equals the session id; satelle reads `model_id` as a fallback for `model` and ignores the rest",
 		"Cursor's prompt event has no context channel, so the seats are in the session-start context and in `satelle status --session <session>`",
 		"A repo wired only for claude (`satelle agents install claude --session <session>`, no `.cursor/hooks.json`) is gated in the Cursor IDE too",
 		"attempt to write a readonly database",

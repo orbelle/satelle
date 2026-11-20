@@ -23,8 +23,21 @@ type Record struct {
 	Session string           `json:"session"`
 	Hooks   []procgroup.Proc `json:"hooks,omitempty"`
 	Owner   *procgroup.Proc  `json:"owner"`
+	Harness string           `json:"harness,omitempty"`
+	Model   string           `json:"model,omitempty"`
 	At      time.Time        `json:"at"`
 }
+
+type Meta struct {
+	Harness string
+	Model   string
+}
+
+func (m Meta) clean() Meta {
+	return Meta{Harness: strings.TrimSpace(m.Harness), Model: strings.TrimSpace(m.Model)}
+}
+
+func (m Meta) empty() bool { return m.Harness == "" && m.Model == "" }
 
 var validSession = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
@@ -120,24 +133,69 @@ func observe(r *Record, chain []procgroup.Proc) bool {
 	return changed
 }
 
-func Start(home, session string, chain []procgroup.Proc) error {
+func applyMeta(r *Record, meta Meta, overwrite bool) bool {
+	meta = meta.clean()
+	changed := false
+	if meta.Harness != "" && (overwrite || r.Harness == "") && r.Harness != meta.Harness {
+		r.Harness = meta.Harness
+		changed = true
+	}
+	if meta.Model != "" && (overwrite || r.Model == "") && r.Model != meta.Model {
+		r.Model = meta.Model
+		changed = true
+	}
+	return changed
+}
+
+func Start(home, session string, chain []procgroup.Proc, meta Meta) error {
 	r, ok := Load(home, session)
 	if !ok {
 		r = Record{Session: session}
 	}
-	observe(&r, chain)
+	if len(chain) > 0 {
+		observe(&r, chain)
+	}
+	applyMeta(&r, meta, true)
 	r.At = time.Now().UTC()
 	return write(home, r)
 }
 
-func Resolve(home, session string, chain []procgroup.Proc) error {
+func Resolve(home, session string, chain []procgroup.Proc, meta Meta) error {
+	meta = meta.clean()
 	r, ok := Load(home, session)
 	if !ok {
+		if meta.empty() {
+			return nil
+		}
+		r = Record{Session: session}
+	}
+	changed := !ok
+	if len(chain) > 0 && observe(&r, chain) {
+		changed = true
+	}
+	if applyMeta(&r, meta, true) {
+		changed = true
+	}
+	if !changed {
 		return nil
 	}
-	if !observe(&r, chain) {
+	r.At = time.Now().UTC()
+	return write(home, r)
+}
+
+func ObserveMeta(home, session string, meta Meta) error {
+	meta = meta.clean()
+	if meta.empty() {
 		return nil
 	}
+	r, ok := Load(home, session)
+	if !ok {
+		r = Record{Session: session}
+	}
+	if !applyMeta(&r, meta, false) {
+		return nil
+	}
+	r.At = time.Now().UTC()
 	return write(home, r)
 }
 
