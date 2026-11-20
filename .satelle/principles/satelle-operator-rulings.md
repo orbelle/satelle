@@ -216,3 +216,15 @@ are reviewed*).
   - A kernel test naming a skill `satelle init --session <session>` ships
     (`TestInitShipsTheUpgradeSkill`, internal/kernel/kernel_test.go) is
     accepted: a test proving what init ships names it.
+- **One concern, one reviewer; reviewers in priority order.** "A security
+  reviewer as part of the plan and code is required." "adding a new reviewer
+  with specific scope/skill is preferred over just adding more requirements to
+  a single reviewer." "The sequential processing is valid, in a fail fast
+  process, that also indicates a priority order. I'm happy for that to remain,
+  but expand to the agent ordering the reviewers accordingly." (operator,
+  2026-11-20). A new review concern is a new gate with its own skill and
+  judge, never more requirements on another reviewer's skill. Each reviewer
+  judges cold and isolated. A transition's reviewers run in sequence and fail
+  fast; the sequence is a priority order, and an agent adding or moving a
+  reviewer places it by that order (sto_70f455db). The session coordinates
+  the verdicts.
