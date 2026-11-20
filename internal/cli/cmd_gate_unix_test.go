@@ -12,10 +12,15 @@ import (
 
 func fakeJudge(t *testing.T, verdict, notes string) string {
 	t.Helper()
+	return fakeJudgeCapture(t, verdict, notes, "/dev/null")
+}
+
+func fakeJudgeCapture(t *testing.T, verdict, notes, dst string) string {
+	t.Helper()
 	answer, _ := json.Marshal(map[string]string{"verdict": verdict, "notes": notes})
 	result, _ := json.Marshal(map[string]any{"result": "judged\n" + string(answer), "usage": map[string]int{"input_tokens": 1, "output_tokens": 1}})
 	bin := filepath.Join(t.TempDir(), "claude")
-	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '" + string(result) + "'\n"
+	script := "#!/bin/sh\ncat >'" + dst + "'\nprintf '%s\\n' '" + string(result) + "'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -152,4 +157,94 @@ func TestGateRunRefusesAMalformedCall(t *testing.T) {
 	if _, err := run(t, "", "gate", "run", "dry/ok"); err == nil || !strings.Contains(err.Error(), "--item") {
 		t.Fatalf("no item: %v", err)
 	}
+}
+
+func TestGateRunJudgeBriefDeliveredOnStdin(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	agents, err := os.ReadFile(filepath.Join(dir, ".satelle", "agents.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefedCap := filepath.Join(t.TempDir(), "briefed.txt")
+	plainCap := filepath.Join(t.TempDir(), "plain.txt")
+	files := map[string]string{
+		".satelle/agents.toml": string(agents) + `
+[agents.judge-briefed]
+command = "` + fakeJudgeCapture(t, "accept", "ok", briefedCap) + `"
+model = "fake-briefed"
+tools = ["Read"]
+brief = "Read only the changed files and what they touch."
+[agents.judge-plain]
+command = "` + fakeJudgeCapture(t, "accept", "ok", plainCap) + `"
+model = "fake-plain"
+tools = ["Read"]
+`,
+		".satelle/workflows/brief.toml": `name = "brief"
+[states.st-a]
+start = true
+[states.st-b]
+terminal = true
+[gates.briefed]
+skill = "dry-review"
+agent = "judge-briefed"
+[gates.plain]
+skill = "dry-review"
+agent = "judge-plain"
+[gates.mixed]
+skill = "dry-review"
+panel = ["judge-briefed", "judge-plain"]
+[[transition]]
+from = ["st-a"]
+to = "st-b"
+groups = [{ mode = "parallel", gates = ["briefed", "plain", "mixed"] }]
+`,
+		".satelle/skills/dry-review.md": "---\nname: dry-review\n---\nReview it.\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := createID(t, "story", "create", "--title", "brief check")
+
+	must(t, "gate", "run", "brief/briefed", "--item", id, "--from", "st-a")
+	briefedBytes, err := os.ReadFile(briefedCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBriefed := "Judge item " + id + " moving from \"st-a\" to \"st-b\".\n\nBrief:\nRead only the changed files and what they touch.\n\nKind: story\n"
+	if !strings.HasPrefix(string(briefedBytes), wantBriefed) {
+		t.Fatalf("briefed stdin:\n%s\nwant prefix:\n%s", briefedBytes, wantBriefed)
+	}
+
+	must(t, "gate", "run", "brief/plain", "--item", id, "--from", "st-a")
+	plainBytes, err := os.ReadFile(plainCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPlain := "Judge item " + id + " moving from \"st-a\" to \"st-b\".\n\nKind: story\n"
+	if strings.Contains(string(plainBytes), "Brief:") || !strings.HasPrefix(string(plainBytes), wantPlain) {
+		t.Fatalf("plain stdin:\n%s\nwant prefix:\n%s", plainBytes, wantPlain)
+	}
+
+	out := must(t, "gate", "run", "brief/briefed", "--item", id, "--from", "st-a", "--show-input")
+	if !strings.Contains(out, "prompt:\n"+wantBriefed) {
+		t.Fatalf("briefed --show-input:\n%s", out)
+	}
+
+	out = must(t, "gate", "run", "brief/mixed", "--item", id, "--from", "st-a", "--show-input")
+	for _, want := range []string{"prompt (judge-briefed):\n" + wantBriefed, "prompt (judge-plain):\n" + wantPlain} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("mixed --show-input lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\nprompt:\n") {
+		t.Fatalf("mixed --show-input printed a shared prompt header:\n%s", out)
+	}
+	noGateRun(t, id)
 }

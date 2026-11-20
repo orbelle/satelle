@@ -253,11 +253,29 @@ func printGateInput(w io.Writer, res kernel.GateDryResult, in gate.Input) {
 		}
 		fmt.Fprintf(w, "judges: %s\n", strings.Join(in.Judges, ", "))
 		fmt.Fprintf(w, "system: %s\n", in.SkillPath)
-		fmt.Fprintf(w, "prompt:\n%s", in.Prompt)
+		if promptsDiffer(in) {
+			for _, j := range in.Judges {
+				fmt.Fprintf(w, "prompt (%s):\n%s", j, in.Prompts[j])
+			}
+		} else {
+			fmt.Fprintf(w, "prompt:\n%s", in.Prompt)
+		}
 	}
 	if len(in.After) > 0 {
 		fmt.Fprintf(w, "after: %s (their input adds the gate's verdict, which exists once it has run)\n", strings.Join(in.After, ", "))
 	}
+}
+
+func promptsDiffer(in gate.Input) bool {
+	if len(in.Prompts) == 0 {
+		return false
+	}
+	for _, j := range in.Judges {
+		if p, ok := in.Prompts[j]; ok && p != in.Prompt {
+			return true
+		}
+	}
+	return false
 }
 
 func printCheckInput(w io.Writer, c gate.CheckInput) {

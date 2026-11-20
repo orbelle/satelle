@@ -118,6 +118,7 @@ type fakeDispatcher struct {
 	answers map[string]string
 	usage   map[string]agent.Result
 	calls   []string
+	prompts map[string]string
 }
 
 func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
@@ -127,6 +128,10 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.
 		return agent.Result{}, errors.New("not a judge")
 	}
 	f.calls = append(f.calls, req.Binding.Name)
+	if f.prompts == nil {
+		f.prompts = map[string]string{}
+	}
+	f.prompts[req.Binding.Name] = req.Prompt
 	text, ok := f.answers[req.Binding.Name]
 	if !ok {
 		return agent.Result{}, errors.New("no such fake")
@@ -563,5 +568,96 @@ func TestReviewLeavesACheckGateAlone(t *testing.T) {
 	rs, _ := r.Execute(context.Background())
 	if rs[0].Tier != "" || len(d.calls) != 0 {
 		t.Fatalf("a check gate took a tier: %+v calls %v", rs[0], d.calls)
+	}
+}
+
+func TestJudgeBriefIncludedInPrompt(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"one":   {Skill: "judge", Agent: "y1"},
+		"panel": {Skill: "judge", Panel: []string{"y1", "y2"}, Combine: workflow.CombineAll},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one"}}}, gates)
+	r.Item.Kind = "story"
+	b1 := r.Agents["y1"]
+	b1.Brief = "  Read only the diff and files it touches.\n"
+	r.Agents["y1"] = b1
+
+	if rs, pass := r.Execute(context.Background()); !pass || len(rs) != 1 {
+		t.Fatalf("single judge: %v %+v", pass, rs)
+	}
+	want := "Judge item i1 moving from \"s0\" to \"s1\".\n\n" +
+		"Brief:\nRead only the diff and files it touches.\n\n" +
+		"Kind: story\nTitle: t\nChanged paths:\na/b.go\n\n" +
+		"Answer with your judgement, ending with one JSON object: {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}\n"
+	if got := d.prompts["y1"]; got != want {
+		t.Fatalf("single judge prompt:\n--- got\n%s\n--- want\n%s", got, want)
+	}
+
+	r, d = setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"panel"}}}, gates)
+	r.Item.Kind = "story"
+	b1 = r.Agents["y1"]
+	b1.Brief = "Brief for y1."
+	r.Agents["y1"] = b1
+	b2 := r.Agents["y2"]
+	b2.Brief = "Brief for y2."
+	r.Agents["y2"] = b2
+	diffCalls := 0
+	r.Diff = func([]string) (string, error) {
+		diffCalls++
+		return "+line\n", nil
+	}
+	if rs, pass := r.Execute(context.Background()); !pass || len(rs) != 1 {
+		t.Fatalf("panel: %v %+v", pass, rs)
+	}
+	if diffCalls != 1 {
+		t.Errorf("r.Diff called %d times for a 2-judge panel, want 1", diffCalls)
+	}
+	if p := d.prompts["y1"]; !strings.HasPrefix(p, "Judge item i1 moving from \"s0\" to \"s1\".\n\nBrief:\nBrief for y1.\n\nKind: story\n") || strings.Contains(p, "Brief for y2.") {
+		t.Errorf("y1 prompt:\n%s", p)
+	}
+	if p := d.prompts["y2"]; !strings.HasPrefix(p, "Judge item i1 moving from \"s0\" to \"s1\".\n\nBrief:\nBrief for y2.\n\nKind: story\n") || strings.Contains(p, "Brief for y1.") {
+		t.Errorf("y2 prompt:\n%s", p)
+	}
+}
+
+func TestJudgeWithoutBriefKeepsPreChangePrompt(t *testing.T) {
+	const want = "Judge item i1 moving from \"s0\" to \"s1\".\n\n" +
+		"Kind: story\nTitle: t\nChanged paths:\na/b.go\n\n" +
+		"Answer with your judgement, ending with one JSON object: {\"verdict\":\"accept\"|\"reject\",\"notes\":\"...\"}\n"
+
+	gates := map[string]workflow.Gate{
+		"empty": {Skill: "judge", Agent: "y1"},
+		"blank": {Skill: "judge", Agent: "y2"},
+		"mixed": {Skill: "judge", Panel: []string{"y1", "y2"}, Combine: workflow.CombineAll},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"empty", "blank"}}}, gates)
+	r.Item.Kind = "story"
+	b2 := r.Agents["y2"]
+	b2.Brief = "  \n\t "
+	r.Agents["y2"] = b2
+
+	if rs, pass := r.Execute(context.Background()); !pass || len(rs) != 2 {
+		t.Fatalf("empty/blank: %v %+v", pass, rs)
+	}
+	for _, name := range []string{"y1", "y2"} {
+		if got := d.prompts[name]; got != want {
+			t.Errorf("%s prompt:\n--- got\n%s\n--- want\n%s", name, got, want)
+		}
+	}
+
+	r, d = setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"mixed"}}}, gates)
+	r.Item.Kind = "story"
+	b1 := r.Agents["y1"]
+	b1.Brief = "Read only a/b.go."
+	r.Agents["y1"] = b1
+
+	if rs, pass := r.Execute(context.Background()); !pass || len(rs) != 1 {
+		t.Fatalf("mixed: %v %+v", pass, rs)
+	}
+	if got := d.prompts["y2"]; got != want {
+		t.Errorf("unbriefed panel member prompt:\n--- got\n%s\n--- want\n%s", got, want)
+	}
+	if got := d.prompts["y1"]; !strings.Contains(got, "Brief:\nRead only a/b.go.\n\nKind: story\n") {
+		t.Errorf("briefed panel member prompt:\n%s", got)
 	}
 }

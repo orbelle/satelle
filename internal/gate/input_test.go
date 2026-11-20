@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -37,9 +38,15 @@ func TestInputIsWhatTheGateReceives(t *testing.T) {
 		if err != nil || in.Kind != InputJudge {
 			t.Fatalf("%s: %+v %v", name, in, err)
 		}
-		prompt, _ := r.prompt(gates[name])
+		rest, _ := r.promptRest(gates[name])
+		prompt := r.judgePrompt(rest, "")
 		if in.Prompt != prompt || !reflect.DeepEqual(in.Judges, gates[name].Judges()) {
 			t.Fatalf("%s input %+v", name, in)
+		}
+		for _, j := range gates[name].Judges() {
+			if in.Prompts[j] != prompt {
+				t.Fatalf("%s prompt[%s] = %q, want %q", name, j, in.Prompts[j], prompt)
+			}
 		}
 	}
 	if len(d.calls) != 0 {
@@ -50,5 +57,58 @@ func TestInputIsWhatTheGateReceives(t *testing.T) {
 	}
 	if res := r.Gate(context.Background(), "one"); res.Result != Accept || res.Attempt != "" || len(d.calls) != 1 {
 		t.Fatalf("Gate %+v %v", res, d.calls)
+	}
+}
+
+func TestInputCarriesJudgeBriefs(t *testing.T) {
+	gates := map[string]workflow.Gate{
+		"one":   {Skill: "judge", Agent: "y1"},
+		"same":  {Skill: "judge", Panel: []string{"y1", "y2"}},
+		"mixed": {Skill: "judge", Panel: []string{"y1", "n1"}},
+	}
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one", "same", "mixed"}}}, gates)
+	r.Item.Kind = "story"
+	b1 := r.Agents["y1"]
+	b1.Brief = "Focus on the diff."
+	r.Agents["y1"] = b1
+	b2 := r.Agents["y2"]
+	b2.Brief = "Focus on the diff."
+	r.Agents["y2"] = b2
+
+	one, err := r.Input("one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(one.Prompt, "Brief:\nFocus on the diff.\n\nKind: story\n") || one.Prompts["y1"] != one.Prompt {
+		t.Fatalf("single briefed input: %+v", one)
+	}
+	r.Gate(context.Background(), "one")
+	if d.prompts["y1"] != one.Prompt {
+		t.Fatalf("single briefed dispatch differs from Input:\n--- input\n%s\n--- dispatch\n%s", one.Prompt, d.prompts["y1"])
+	}
+
+	same, err := r.Input("same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Prompt != one.Prompt || same.Prompts["y1"] != same.Prompt || same.Prompts["y2"] != same.Prompt {
+		t.Fatalf("identical-brief panel input: %+v", same)
+	}
+
+	mixed, err := r.Input("mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mixed.Prompts["y1"], "Brief:\nFocus on the diff.\n\nKind: story\n") {
+		t.Fatalf("mixed y1 prompt: %s", mixed.Prompts["y1"])
+	}
+	if strings.Contains(mixed.Prompts["n1"], "Brief:") || mixed.Prompt != mixed.Prompts["n1"] {
+		t.Fatalf("mixed n1 / base prompt:\n--- base\n%s\n--- n1\n%s", mixed.Prompt, mixed.Prompts["n1"])
+	}
+	r.Gate(context.Background(), "mixed")
+	for _, j := range []string{"y1", "n1"} {
+		if d.prompts[j] != mixed.Prompts[j] {
+			t.Fatalf("mixed %s dispatch differs from Input:\n--- input\n%s\n--- dispatch\n%s", j, mixed.Prompts[j], d.prompts[j])
+		}
 	}
 }
