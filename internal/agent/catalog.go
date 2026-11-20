@@ -20,6 +20,7 @@ type Binding struct {
 	Tools     []string `toml:"tools"`
 	Deny      []string `toml:"deny"`
 	Placement string   `toml:"placement"`
+	Brief     string   `toml:"brief"`
 }
 
 type Catalog map[string]Binding
@@ -113,6 +114,7 @@ var overridable = []struct {
 	{"tools", func(d *Binding, s Binding) { d.Tools = slices.Clone(s.Tools) }},
 	{"deny", func(d *Binding, s Binding) { d.Deny = slices.Clone(s.Deny) }},
 	{"placement", func(d *Binding, s Binding) { d.Placement = s.Placement }},
+	{"brief", func(d *Binding, s Binding) { d.Brief = s.Brief }},
 }
 
 func (c Catalog) Override(path string) (Catalog, []Override, error) {

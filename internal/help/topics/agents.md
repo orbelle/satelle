@@ -18,6 +18,11 @@ repo's configuration, a check skill on the gates it chooses: see
 Every dispatched performer is denied `satelle story set`, `satelle task set`
 and `satelle execution set`: a performer never moves an item itself.
 
+A judge binding may also carry an optional `brief` string naming what the judge
+should read. When a gate dispatches that judge, its prompt carries the brief
+under a `Brief:` section right after the opening move line; a binding with no
+brief (or a blank one) receives the prompt unchanged.
+
 ## Harness hooks
 
 `satelle agents install claude|pi|grok|cursor --session <session>` writes the harness's hook file
@@ -140,7 +145,7 @@ stream, every tool call included, is in its dispatch log.
 
 A machine may override the repo's bindings in `.satelle/agents.local.toml`,
 which has the agents.toml shape (`[agents.<name>]` tables) and is ignored by
-git. Each field written there (command, model, effort, tools, deny, placement)
+git. Each field written there (command, model, effort, tools, deny, placement, brief)
 replaces the tracked value of the agent of the same name; every field not
 written keeps the tracked value. With no file, the bindings are exactly as
 agents.toml prescribes. A remote node never receives this file.

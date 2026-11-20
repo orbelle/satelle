@@ -36,6 +36,7 @@ type Input struct {
 	Judges                 []string
 	Tier                   string
 	Prompt                 string
+	Prompts                map[string]string
 	After                  []string
 }
 
@@ -82,8 +83,23 @@ func (r Run) Input(name string) (Input, error) {
 		return in, err
 	}
 	in.DiffMaxBytes, in.DiffBoundSource = diffMax, diffSource
-	if in.Prompt, err = r.prompt(name, g); err != nil {
+	rest, err := r.promptRest(name, g)
+	if err != nil {
 		return in, err
+	}
+	in.Prompts = make(map[string]string, len(in.Judges))
+	same := len(in.Judges) > 0
+	for i, j := range in.Judges {
+		p := r.judgePrompt(rest, r.Agents[j].Brief)
+		in.Prompts[j] = p
+		if i > 0 && p != in.Prompts[in.Judges[0]] {
+			same = false
+		}
+	}
+	if same {
+		in.Prompt = in.Prompts[in.Judges[0]]
+	} else {
+		in.Prompt = r.judgePrompt(rest, "")
 	}
 	return in, nil
 }

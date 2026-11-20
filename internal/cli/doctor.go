@@ -265,6 +265,8 @@ func bindingField(b agent.Binding, field string) string {
 		return "[" + strings.Join(b.Deny, " ") + "]"
 	case "placement":
 		return fmt.Sprintf("%q", b.Placement)
+	case "brief":
+		return fmt.Sprintf("%q", b.Brief)
 	}
 	return ""
 }

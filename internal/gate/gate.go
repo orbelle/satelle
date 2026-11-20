@@ -559,7 +559,7 @@ func (r Run) carried(gate, coverage string) (Result, bool) {
 
 func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill workflow.Skill) Result {
 	names := g.Judges()
-	prompt, err := r.prompt(gateName, g)
+	rest, err := r.promptRest(gateName, g)
 	if err != nil {
 		return Result{Result: Reject, Notes: err.Error(), Binding: strings.Join(names, ",")}
 	}
@@ -569,7 +569,7 @@ func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			members[i] = r.judgeOne(ctx, name, skill, prompt)
+			members[i] = r.judgeOne(ctx, name, skill, rest)
 		}()
 	}
 	wg.Wait()
@@ -619,13 +619,14 @@ func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill 
 	return out
 }
 
-func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, prompt string) Result {
+func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, rest string) Result {
 	res := Result{Binding: name, Result: Reject}
 	b, ok := r.Agents[name]
 	if !ok {
 		res.Notes = fmt.Sprintf("agent %q is not in the catalog", name)
 		return res
 	}
+	prompt := r.judgePrompt(rest, b.Brief)
 	res.Command, res.Model, res.Effort, res.PromptBytes = b.Command, b.Model, b.Effort, len(prompt)
 	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
 	if r.Logs != "" {
@@ -649,10 +650,21 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 	return res
 }
 
-func (r Run) prompt(name string, g workflow.Gate) (string, error) {
+func (r Run) judgePrompt(rest, brief string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Judge item %s moving from %q to %q.\n\n", r.Item.ID, r.From, r.To)
+	if trimmed := strings.TrimSpace(brief); trimmed != "" {
+		b.WriteString("Brief:\n")
+		b.WriteString(trimmed)
+		b.WriteString("\n\n")
+	}
+	b.WriteString(rest)
+	return b.String()
+}
+
+func (r Run) promptRest(name string, g workflow.Gate) (string, error) {
 	it := r.Item
 	var b strings.Builder
-	fmt.Fprintf(&b, "Judge item %s moving from %q to %q.\n\n", it.ID, r.From, r.To)
 	fmt.Fprintf(&b, "Kind: %s\nTitle: %s\n", it.Kind, it.Title)
 	if len(it.Tags) > 0 {
 		fmt.Fprintf(&b, "Tags: %s\n", strings.Join(it.Tags, ", "))

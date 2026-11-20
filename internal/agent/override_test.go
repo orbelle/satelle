@@ -93,3 +93,40 @@ func TestOverrideRefusesUnknownAgentsAndFields(t *testing.T) {
 		t.Errorf("a stray top-level key: %v", err)
 	}
 }
+
+func TestOverrideBrief(t *testing.T) {
+	c := trackedCatalog()
+	g := c["grok"]
+	g.Brief = "tracked brief"
+	c["grok"] = g
+
+	got, ovs, err := c.Override(writeLocal(t, "[agents.grok]\nbrief = \"local brief\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["grok"].Brief != "local brief" {
+		t.Errorf("brief = %q, want local brief", got["grok"].Brief)
+	}
+	if len(ovs) != 1 || ovs[0].Name != "grok" || !slices.Equal(ovs[0].Fields, []string{"brief"}) || ovs[0].Tracked.Brief != "tracked brief" {
+		t.Errorf("overrides = %+v", ovs)
+	}
+	if c["grok"].Brief != "tracked brief" {
+		t.Error("Override mutated the tracked catalog")
+	}
+
+	got, ovs, err = c.Override(writeLocal(t, "[agents.grok]\nbrief = \"\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["grok"].Brief != "" || len(ovs) != 1 || !slices.Equal(ovs[0].Fields, []string{"brief"}) {
+		t.Errorf("cleared brief = %q, overrides = %+v", got["grok"].Brief, ovs)
+	}
+
+	got, _, err = c.Override(writeLocal(t, "[agents.grok]\nmodel = \"other\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["grok"].Brief != "tracked brief" {
+		t.Errorf("omitted brief = %q, want tracked brief preserved", got["grok"].Brief)
+	}
+}

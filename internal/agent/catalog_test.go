@@ -189,3 +189,50 @@ func TestNoAdapterPutsThePromptInArgv(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogDecodesBrief(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "agents.toml")
+	if err := os.WriteFile(p, []byte(`
+[agents.single]
+command = "claude"
+model = "m1"
+tools = ["Read", "Grep", "Glob"]
+brief = "Read only the diff and files it touches."
+[agents.multi]
+command = "cursor-agent"
+model = "m2"
+tools = ["Read", "Grep", "Glob"]
+brief = """
+Read the changed files first.
+Do not explore unrelated packages.
+"""
+[agents.plain]
+command = "claude"
+model = "m3"
+tools = ["Read", "Grep", "Glob"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadCatalog(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := c.Validate(); len(errs) > 0 {
+		t.Fatalf("Validate: %v", errs)
+	}
+	for _, name := range []string{"single", "multi", "plain"} {
+		if err := CheckJudge(c[name]); err != nil {
+			t.Fatalf("CheckJudge(%s): %v", name, err)
+		}
+	}
+	if got := c["single"].Brief; got != "Read only the diff and files it touches." {
+		t.Errorf("single brief = %q", got)
+	}
+	if got := c["multi"].Brief; got != "Read the changed files first.\nDo not explore unrelated packages.\n" {
+		t.Errorf("multi brief = %q", got)
+	}
+	if got := c["plain"].Brief; got != "" {
+		t.Errorf("plain brief = %q, want empty", got)
+	}
+}

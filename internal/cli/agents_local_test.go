@@ -124,3 +124,27 @@ func TestBadLocalAgentsFileIsThisMachines(t *testing.T) {
 		t.Errorf("config issue for the local file: %+v", cfg)
 	}
 }
+
+func TestLocalAgentsBriefOverrideListed(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeLocalFile(t, filepath.Join(dir, ".satelle", "agents.toml"), "[agents.r]\ncommand = \"claude\"\nmodel = \"m\"\ntools = [\"Read\"]\n")
+	gittest.Git(t, dir, "add", "-A")
+	gittest.Git(t, dir, "commit", "-q", "-m", "satelle")
+
+	writeLocalFile(t, filepath.Join(dir, ".satelle", "agents.local.toml"), "[agents.r]\nbrief = \"Read only the diff.\"\n")
+	rep := agentsDoctor(t)
+	if is := agentsIssues(rep); len(is) != 0 {
+		t.Errorf("agents issues with brief override: %+v", is)
+	}
+	want := `brief "" -> "Read only the diff."`
+	found := false
+	for _, n := range rep.Notes {
+		if strings.Contains(n, "agents: r overridden by .satelle/agents.local.toml") && strings.Contains(n, want) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("doctor does not list the brief override (%s): %v", want, rep.Notes)
+	}
+}

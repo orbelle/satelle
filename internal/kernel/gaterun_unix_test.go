@@ -897,3 +897,62 @@ func TestHoldKeepsDeclaredOrder(t *testing.T) {
 		t.Errorf("the last move's hold %+v, want %+v", m.Hold, res.Held)
 	}
 }
+
+func TestJudgeBriefReachesTransitionAndShowInput(t *testing.T) {
+	k0, _, _ := dryFixture(t)
+	write(t, filepath.Join(k0.Root, "agents.toml"), `
+[agents.r1]
+command = "claude"
+model = "m1"
+tools = ["Read"]
+brief = "Read only the diff and files it touches."
+[agents.r2]
+command = "grok"
+model = "m2"
+tools = ["Read"]
+`)
+	if errs := Validate(k0.Root); len(errs) > 0 {
+		t.Fatalf("Validate with brief: %v", errs)
+	}
+	k0.Close()
+	k, err := Open(Options{Root: k0.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { k.Close() })
+	d := &fakeDispatcher{answers: map[string]string{"r1": accept, "r2": accept}}
+	k.Dispatcher = d
+	k.Git = fakeGit{changed: []string{"src/a.go"}}
+
+	it := newThing(t, k)
+	moveTo(t, k, it.ID, "plan")
+	in := dry(t, k, GateDryRequest{Workflow: "flow", Gate: "review", Item: it.ID, ShowInput: true}).Input
+	if in == nil || !strings.Contains(in.Prompt, "Brief:\nRead only the diff and files it touches.\n\nKind:") {
+		t.Fatalf("show-input without brief: %+v", in)
+	}
+	moveTo(t, k, it.ID, "work")
+	if len(d.reqs) != 1 {
+		t.Fatalf("dispatches = %d, want 1", len(d.reqs))
+	}
+	if !strings.Contains(d.reqs[0].Prompt, "Brief:\nRead only the diff and files it touches.\n\nKind:") {
+		t.Fatalf("dispatched prompt lacks brief:\n%s", d.reqs[0].Prompt)
+	}
+	if normalised(in.Prompt) != normalised(d.reqs[0].Prompt) {
+		t.Fatalf("show-input differs from transition:\n--- shown\n%s\n--- dispatched\n%s", in.Prompt, d.reqs[0].Prompt)
+	}
+
+	pin := dry(t, k, GateDryRequest{Workflow: "flow", Gate: "panel", Item: it.ID, ShowInput: true}).Input
+	if pin == nil || !strings.Contains(pin.Prompts["r1"], "Brief:\nRead only the diff and files it touches.\n\nKind:") || strings.Contains(pin.Prompts["r2"], "Brief:") || pin.Prompt != pin.Prompts["r2"] {
+		t.Fatalf("panel show-input: %+v", pin)
+	}
+	moveTo(t, k, it.ID, "closed")
+	if len(d.reqs) != 3 {
+		t.Fatalf("total dispatches = %d, want 3", len(d.reqs))
+	}
+	for _, req := range d.reqs[1:] {
+		want := pin.Prompts[req.Binding.Name]
+		if normalised(want) != normalised(req.Prompt) {
+			t.Fatalf("panel %s prompt differs:\n--- shown\n%s\n--- dispatched\n%s", req.Binding.Name, want, req.Prompt)
+		}
+	}
+}
