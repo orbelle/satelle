@@ -65,7 +65,7 @@ func judgeAndPerformerSkills(t *testing.T) []wiredSkill {
 		}
 	}
 	for _, want := range []string{"plan", "coder", "task-run", "satelle-story-plan-review", "satelle-binary-scope-review",
-		"satelle-story-architecture-review", "satelle-code-ac-review", "satelle-outcome-review", "satelle-story-done-review",
+		"satelle-code-ac-review", "satelle-story-done-review",
 		"satelle-story-cancel-review", "satelle-task-validate-after-review"} {
 		if _, ok := set[want]; !ok {
 			t.Fatalf("the derived judge and performer skills miss %s; the derivation from .satelle/workflows is broken", want)
@@ -160,7 +160,6 @@ func TestJudgeAndPerformerSkillsNameTheRecord(t *testing.T) {
 	need := map[string][]string{
 		"satelle-story-plan-review":          {"## Acceptance criteria"},
 		"satelle-code-ac-review":             {"## Acceptance criteria"},
-		"satelle-outcome-review":             {"## Acceptance criteria"},
 		"satelle-story-done-review":          {"## Acceptance criteria"},
 		"plan":                               {"performer.run"},
 		"task-run":                           {"--name task"},

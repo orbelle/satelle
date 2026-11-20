@@ -2,7 +2,3 @@
 # captured by: SATELLE_FINDINGS_TREE=<base worktree> SATELLE_FINDINGS_BIN=<binary built from it> SATELLE_FINDINGS_WRITE=1 go test -tags integration -run '^TestRepoFindingsMatchTheRecordedBase$' ./tests/
 validate exit 0
 validate valid true
-doctor note context: claude: the session-start context is <n> bytes with every [hook] inject file inline, over its limit of 10000 bytes (.satelle/harness.toml [claude] context_limit_bytes); a session receives the files as an index
-doctor note context: cursor: the session-start context is <n> bytes with every [hook] inject file inline, over its limit of 10000 bytes (.satelle/harness.toml [cursor] context_limit_bytes); a session receives the files as an index
-doctor note context: grok: the session-start context is <n> bytes with every [hook] inject file inline, over its limit of 10000 bytes (.satelle/harness.toml [grok] context_limit_bytes); a session receives the files as an index
-doctor note context: pi: the session-start context is <n> bytes with every [hook] inject file inline, over its limit of 10000 bytes (.satelle/harness.toml [pi] context_limit_bytes); a session receives the files as an index

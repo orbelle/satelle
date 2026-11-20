@@ -325,40 +325,6 @@ func TestCheckSkillsNameOnlyRealCommands(t *testing.T) {
 	}
 }
 
-func TestAcEvidenceCheckReadsTheItem(t *testing.T) {
-	t.Parallel()
-	const check = "satelle-ac-evidence-check"
-	c := newCheckSandbox(t, nil)
-	id := c.create("story", "--title", "evidence").ID
-	last := func() gateRun {
-		var out gateRun
-		for _, g := range c.gateRuns(id) {
-			if g.Gate == check {
-				out = g
-			}
-		}
-		return out
-	}
-	if r := c.present("story", id, check); r.code != 2 {
-		t.Fatalf("no ac-evidence: exit %d, want 2\n%s%s", r.code, r.out, r.err)
-	}
-	if g := last(); g.Result != "reject" || !strings.Contains(g.Notes, id) || !strings.Contains(g.Notes, "ac-evidence") {
-		t.Fatalf("no ac-evidence: gate.run %+v, want a reject naming %s and ac-evidence", g, id)
-	}
-	if r := c.exec(satelleBin, "n/a", "story", "attach", id, "--name", "ac-evidence", "--file", "-"); r.code != 0 {
-		t.Fatalf("attach: exit %d\n%s%s", r.code, r.out, r.err)
-	}
-	if r := c.present("story", id, check); r.code != 0 {
-		t.Fatalf("with ac-evidence: exit %d, want 0\n%s%s", r.code, r.out, r.err)
-	}
-	if g := last(); g.Result != "accept" {
-		t.Fatalf("with ac-evidence: gate.run %+v, want accept", g)
-	}
-	if st := c.get(id).Status; st != check {
-		t.Fatalf("with ac-evidence: status %q, want %q", st, check)
-	}
-}
-
 func TestChangeJudgedCheckAcceptsWithoutAJudgedChange(t *testing.T) {
 	t.Parallel()
 	const check = "satelle-change-judged-check"

@@ -18,8 +18,7 @@ those paths against the ACs, not the whole tree; open a changed file with Read
 when the diff is cut or the hunk alone does not settle an AC. When your prompt
 has no diff, fall back to Read/Grep of the tree. You have no shell.
 
-Read the executor's `ac-evidence` and the `plan` from the record folder your
-prompt names (`attachments/ac-evidence`, `attachments/plan`).
+Read the `plan` from the record folder your prompt names (`attachments/plan`).
 
 The numbered ACs are the `## Acceptance criteria` section of the `plan`
 attachment when the plan has that section, else the criteria in your prompt.
@@ -34,13 +33,11 @@ attachment when the plan has that section, else the criteria in your prompt.
    when all hold; reject naming the violating path, or for insufficient evidence
    when the surface cannot be enumerated. A compliant sample is not proof.
 
-2. **Executor per-AC mapping (judgment, not presence).** Presence of the
-   `ac-evidence` attachment is `satelle-ac-evidence-check`'s; do not reject for
-   it. Confirm each claimed realised test exists in the tree and plausibly
-   covers that AC, and that divergences from the plan are stated, not silent.
-   **Reject** when the report names a test that does not exist, the mapping
-   clearly does not hold, or a `plan` attachment exists and the tree clearly
-   ignores its named slice with no plan-defect or divergence note.
+2. **Per-AC proof.** Find in the slice the test that proves each AC (the
+   `plan` names the intended ones) and confirm it exists and plausibly covers
+   that AC. **Reject** when an AC has no proving test in the tree, or a `plan`
+   attachment exists and the tree clearly ignores its named slice with no
+   stated divergence.
    Docs/comment/rename/substrate-only slices may note n/a.
 
 3. **Proof honesty (inverted lock).** For a **fix or behavioural** AC, read

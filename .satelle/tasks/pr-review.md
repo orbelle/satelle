@@ -93,8 +93,8 @@ satelle -C "$dir" execution set "$exe" --reselect pr-review --session "$session"
 ```
 
 Give the run the story's record. The judge's skill reads the criteria in its
-prompt (the run's) and the `plan` and `ac-evidence` attachments of its record
-folder, so the run carries the story's under the same names:
+prompt (the run's) and the `plan` attachment of its record folder, so the run
+carries the story's under the same name:
 
 ```bash
 session=<session>
@@ -102,7 +102,7 @@ crit=()
 while IFS= read -r c; do crit+=(--criteria "$c"); done < <(satelle story get "$story" --json --session "$session" | jq -r '.criteria[]')
 satelle story get "$story" --json --session "$session" | jq -r '.body' | satelle execution set "$exe" --title "Review of $story pull request #$num, head ${head:0:12}" --body - "${crit[@]}" --replace --session "$session"
 satelle story get "$story" --session "$session" | satelle execution attach "$exe" --name reviewed-item --type text/plain --file - --session "$session"
-for name in plan ac-evidence; do
+for name in plan; do
   if satelle story attachments "$story" --json --session "$session" | jq -e --arg n "$name" 'any(.[]; .name == $n)' >/dev/null; then
     satelle story attachment "$story" "$name" --session "$session" | satelle execution attach "$exe" --name "$name" --type text/markdown --file - --session "$session"
   fi

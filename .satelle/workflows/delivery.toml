@@ -44,12 +44,6 @@ panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-[gates.architecture]
-skill = "satelle-story-architecture-review"
-panel = ["reviewer-claude-sonnet-5-5-high"]
-combine = "all"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
-
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
 panel = ["reviewer-claude-sonnet-5-5-high"]
@@ -95,22 +89,12 @@ carry = true
 skill = "satelle-build-unit-check"
 carry = true
 
-[gates.instruction-change]
-skill = "satelle-instruction-change-review"
-panel = ["reviewer-claude-sonnet-5-5-high"]
-combine = "all"
-trigger = "satelle-instruction-change-trigger"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
-
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
 panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
-
-[gates.ac-evidence]
-skill = "satelle-ac-evidence-check"
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
@@ -152,18 +136,6 @@ skill = "satelle-ci-published-check"
 
 [gates.release-installed]
 skill = "satelle-release-installed-check"
-
-[gates.outcome-review]
-skill = "satelle-outcome-review"
-panel = ["reviewer-claude-sonnet-5-5-high"]
-combine = "all"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
-
-[gates.done-review]
-skill = "satelle-story-done-review"
-panel = ["reviewer-claude-sonnet-5-5-high"]
-combine = "all"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"

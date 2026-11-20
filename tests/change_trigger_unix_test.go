@@ -72,10 +72,6 @@ func TestChangeTriggersReadTheStoryDiff(t *testing.T) {
 		{"satelle-workflow-change-trigger", map[string]string{"internal/kernel/template/workflows/default.toml": extraRoute}, 0, "the init template's route"},
 		{"satelle-workflow-change-trigger", map[string]string{"internal/config/substrate/workflows/delivery.toml": "name = \"delivery\"\n"}, 1, "the pre-1.0 substrate path"},
 		{"satelle-workflow-change-trigger", map[string]string{".satelle/workflows/extra.toml": extraRoute}, 0, "a repo route"},
-		{"satelle-instruction-change-trigger", map[string]string{"internal/x.go": "package x\n\nfunc Foo() { bar() }\n\nfunc bar() {}\n"}, 1, "code only"},
-		{"satelle-instruction-change-trigger", map[string]string{".satelle/skills/guide.md": "---\nname: guide\n---\n\n# Guide\n\nRead the card, then the plan, then write the code and its test!\n"}, 1, "punctuation only"},
-		{"satelle-instruction-change-trigger", map[string]string{".satelle/skills/guide.md": "---\nname: guide\n---\n\n# Guide\n\nRead the card and every linked principle first, then write the code and its test.\n"}, 0, "a rewritten skill"},
-		{"satelle-instruction-change-trigger", map[string]string{".satelle/principles/new.md": "# New\n\nA new principle.\n"}, 0, "a new principle"},
 	}
 	for _, c := range cases {
 		t.Run(c.skill+"/"+strings.ReplaceAll(c.why, " ", "-"), func(t *testing.T) {
@@ -104,7 +100,7 @@ to = "retired"
 
 func TestChangeTriggersSkipAnExecution(t *testing.T) {
 	t.Parallel()
-	for _, skill := range []string{"satelle-workflow-change-trigger", "satelle-instruction-change-trigger"} {
+	for _, skill := range []string{"satelle-workflow-change-trigger"} {
 		t.Run(skill, func(t *testing.T) {
 			t.Parallel()
 			s := triggerSandbox(t)

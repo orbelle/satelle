@@ -1,7 +1,7 @@
 ---
 name: coder
 type: skill
-description: The in_progress performer's rubric (delivery and chore workflows). Pull the plan from the record folder or satelle CLI, implement only that slice, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
+description: The in_progress performer's rubric (delivery and chore workflows). Pull the plan from the record folder or satelle CLI, implement only that slice, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
 ---
 
 # Coder (implement step)
@@ -65,26 +65,6 @@ Run every check your grant carries: `satelle validate --session <session>`, and 
 and `satelle-build-unit-check` (`go build ./...`,
 `go vet -tags integration ./tests/...`, `go test ./...`). Name each command you
 could not run in your hand-off; never claim a suite you did not run.
-
-## Attach the evidence
-
-Before you hand off, attach the per-AC evidence the exit gate reads:
-
-```bash
-satelle story attach <id> --name ac-evidence --type text/markdown --file - --session <session> <<'EOF'
-## Per-AC evidence
-
-| AC | Realised proof (test path + name, or command + output) | Plan named | Divergence |
-|----|--------------------------------------------------------|------------|------------|
-| 1  | package.TestFoo                                        | TestFoo    | none       |
-
-Not run under this grant: <command> — needs <tool> (orchestrator to run)
-Notes: <plan defect / renamed test / intentional substitute — or empty>
-EOF
-```
-
-Without the CLI, emit the same table under `## Per-AC evidence` and say it is
-to be attached.
 
 ## Never change status
 

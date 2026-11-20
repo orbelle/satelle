@@ -452,7 +452,7 @@ func TestSubstrateNamesWhoFiresAtApproved(t *testing.T) {
 	if _, err := toml.DecodeFile(filepath.Join(root, "satelle.toml"), &conf); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-operator-rulings.md"} {
+	for _, f := range []string{".satelle/principles/satelle-agent-goals.md"} {
 		if !slices.Contains(conf.Hook.Inject, f) {
 			t.Errorf("satelle.toml does not inject %s", f)
 		}

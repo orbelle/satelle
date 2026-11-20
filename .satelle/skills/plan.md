@@ -38,14 +38,12 @@ criteria from what you proved, then plan them.
    the plan touches, the owner you found (package, symbol, route or config key)
    and how the plan extends or reuses it — or, when nothing owns it, the searches
    you ran and that they found none. A plan that adds a second owner beside an
-   existing one is rejected by the architecture review; a design that names no
+   existing one is rejected at plan review; a design that names no
    search is rejected the same way.
 
-   Plans most often miss the owner kinds that
-   [[satelle-story-architecture-review]] lists under single ownership. That
-   review owns the list and judges this section against it. For each kind the
-   design touches, name the owner found or the search that found none. Skipping
-   a kind counts as no search.
+   For each kind of rule or seam the design touches, name the owner found or
+   the search that found none; plan review judges this section. Skipping a
+   kind counts as no search.
 3. **Author the acceptance criteria.** When the story carries none, or carries
    raiser drafts, write them under a `## Acceptance criteria` heading as a
    numbered list (`1. …`, `2. …`). Each criterion is exactly one line that
