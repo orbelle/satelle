@@ -5,7 +5,7 @@ start = true
 hold = { rounds = 3, to = "blocked" }
 
 [states.in_progress]
-performer = { agent = "executor", skill = "coder" }
+performer = { agent = "coder", skill = "coder" }
 hold = { rounds = 3, to = "blocked" }
 
 [states.integration]
@@ -29,25 +29,25 @@ terminal = true
 
 [gates.story-review]
 skill = "satelle-story-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-claude-sonnet-5-5-low"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-claude-sonnet-5-5-low"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.constitution]
 skill = "satelle-constitution-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-claude-sonnet-5-5-low"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.security]
 skill = "satelle-security-review"
-panel = ["reviewer-gemini-4-neon-high"]
+panel = ["reviewer-claude-opus-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -64,7 +64,7 @@ carry = true
 
 [gates.code-ac]
 skill = "satelle-code-ac-review"
-panel = ["reviewer-gemini-4-neon-high"]
+panel = ["reviewer-claude-opus-5-5-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
@@ -105,13 +105,13 @@ skill = "satelle-release-installed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-claude-sonnet-5-5-low"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-claude-sonnet-5-5-low"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 

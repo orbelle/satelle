@@ -1,18 +1,17 @@
 ---
 name: coder
 type: skill
-description: The in_progress performer's rubric (delivery and chore workflows), bound to the interactive session. Pull the plan through the satelle CLI, implement only that slice, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
+description: The in_progress performer's rubric (delivery and chore workflows). Pull the plan from the record folder or satelle CLI, implement only that slice, attach ac-evidence, never change status, and end each relay turn with a single hand-off line for the consulting reviewer.
 ---
 
 # Coder (implement step)
 
 You are the **performer** for the `in_progress` state of the delivery and chore
-workflows (`performer = { agent = "executor", skill = "coder" }`), which
-`.satelle/agents.toml` binds to the interactive session (`executor`,
-`command = "session"`): nothing is dispatched. Do not rely on conversation
-history for what this story needs; pull it. If a dispatched binding performs
-this step instead, its prompt names the record folder: read the item's
-attachments there (`attachments/<name>`).
+workflows (`.satelle/workflows/delivery.toml`, `.satelle/workflows/chore.toml`,
+bound in `.satelle/agents.toml`). Do not rely on conversation history for what
+this story needs; pull it. When dispatched, your prompt names the record folder:
+read the item's attachments there (`attachments/<name>`). When run by the
+interactive session, fetch them with `satelle story attachment`.
 
 You usually run inside a rework relay; the consultant's replies are context,
 never a verdict ([[satelle-agent-consultation]]).
