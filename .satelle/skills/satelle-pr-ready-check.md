@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's hand-off to the review and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md as the base branch has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into. Proves the head is ready for review; the item then waits at the next state for the pull-request review task its waits text names, run by another session, and enters approved only when the approval gate (the app's approving review on HEAD) accepts. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to the review and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md as the base branch has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for review; the item then waits at the next state for the pull-request review task its waits text names, run by another session, and enters approved only when the approval gate (the app's approving review on HEAD) accepts. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off; the session then fires the release)
@@ -20,8 +20,13 @@ landing before it, and tests the combined candidate once.
   under `[trigger]`) of the queue the item's workflow enqueues into, read with
   `satelle story route` and `satelle queue get`: the branch the release run
   lands approved heads on is the branch the pull request targets. A workflow
-  that enqueues into no queue with a base, queues naming more than one base, or
-  a base that is not `<remote>/<branch>` is refused, naming what to fix.
+  that enqueues into no queue with a base (one that lands through its own pull
+  request) takes the default branch of the git remote instead: the remote
+  `checkout.defaultRemote` names, else the only remote, asked with
+  `git ls-remote --symref`. Queues naming more than one base, a base that is
+  not `<remote>/<branch>`, and a fallback that cannot be read (no remote,
+  several remotes and no `checkout.defaultRemote`, a remote naming no default
+  branch) are refused, naming what to fix.
 - **The review task.** The waiting state's `waits` text names the
   pull-request review task; the last line quotes it.
 
@@ -82,20 +87,40 @@ for q in $(printf '%s' "$route" | jq -r '[.states[]?.enqueue[]?] | unique | .[]'
 "
 done
 n=$(printf '%s' "$bases" | awk 'NF { print $2 }' | sort -u | grep -c .)
-if [ "$n" -eq 0 ]; then
-  echo "the workflow $wf of $story enqueues into no queue with a trigger base, so the pull request's base branch is not configured: give the queue its states enqueue into base = \"<remote>/<branch>\" under [trigger]"
-  exit 1
-fi
 if [ "$n" -gt 1 ]; then
   echo "the queues the workflow $wf of $story enqueues into name $n trigger bases ($(printf '%s' "$bases" | awk 'NF { printf "%s%s base %s", s, $1, $2; s = "; " }')), so the pull request's base branch is ambiguous: give them one base"
   exit 1
 fi
-base_queue=$(printf '%s' "$bases" | awk 'NF { print $1; exit }')
-base_ref=$(printf '%s' "$bases" | awk 'NF { print $2; exit }')
-case "$base_ref" in
-  ?*/?*) remote=${base_ref%%/*} branch=${base_ref#*/} ;;
-  *) echo "the queue $base_queue has trigger base $base_ref, which is not <remote>/<branch>, so the pull request's base branch cannot be read: set base = \"<remote>/<branch>\" under its [trigger]"; exit 1 ;;
-esac
+if [ "$n" -eq 0 ]; then
+  why="the workflow $wf of $story enqueues into no queue with a trigger base"
+  alt="or give a queue its states enqueue into base = \"<remote>/<branch>\" under [trigger]"
+  remotes=$(git remote)
+  remote=$(git config --get checkout.defaultRemote)
+  if [ -n "$remote" ]; then
+    printf '%s\n' "$remotes" | grep -qxF -e "$remote" || { echo "$why, and checkout.defaultRemote names $remote, which git remote does not list, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote> naming one git remote lists, $alt"; exit 1; }
+  else
+    case $(printf '%s' "$remotes" | grep -c .) in
+      0) echo "$why, and this repo has no git remote, so the pull request's base branch cannot be read: git remote add <remote> <url>, $alt"; exit 1 ;;
+      1) remote=$remotes ;;
+      *) echo "$why, and this repo has several git remotes ($(printf '%s' "$remotes" | tr '\n' ' ')) and no checkout.defaultRemote, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote>, $alt"; exit 1 ;;
+    esac
+  fi
+  heads=$(GIT_TERMINAL_PROMPT=0 git ls-remote --symref -- "$remote" HEAD 2>&1) || { echo "$why, and could not read the default branch of the remote $remote: $heads; $alt"; exit 1; }
+  branch=$(printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && index($1, "ref: refs/heads/") == 1 { print substr($1, 17); exit }')
+  if [ -z "$branch" ] || ! printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && $1 !~ /^ref: / { f = 1 } END { exit !f }'; then
+    echo "$why, and the remote $remote names no default branch, so the pull request's base branch cannot be read: set the default branch of the repository $remote names, $alt"
+    exit 1
+  fi
+  base_queue=
+  base_ref="$remote/$branch"
+else
+  base_queue=$(printf '%s' "$bases" | awk 'NF { print $1; exit }')
+  base_ref=$(printf '%s' "$bases" | awk 'NF { print $2; exit }')
+  case "$base_ref" in
+    ?*/?*) remote=${base_ref%%/*} branch=${base_ref#*/} ;;
+    *) echo "the queue $base_queue has trigger base $base_ref, which is not <remote>/<branch>, so the pull request's base branch cannot be read: set base = \"<remote>/<branch>\" under its [trigger]"; exit 1 ;;
+  esac
+fi
 # base branch: end
 waits=$(printf '%s' "$route" | jq -r --arg s "$SATELLE_TO" '[.states[]? | select(.name == $s) | .waits // empty][0] // empty')
 git fetch -q "$remote" || { echo "git fetch $remote failed"; exit 1; }

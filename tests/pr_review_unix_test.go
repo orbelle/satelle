@@ -250,9 +250,15 @@ tools = ["Read", "Edit"]
 		toReview = append(toReview, n.ready)
 	}
 	gates := gateTOML(t, n.pending, pending) + gateTOML(t, n.ready, ready) + gateTOML(t, n.approval, approval)
-	s.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, toReview, []string{n.approval}, []string{n.queue}, n.waits))
+	var enqueue []string
+	if n.queue != "" {
+		enqueue = []string{n.queue}
+	}
+	s.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, toReview, []string{n.approval}, enqueue, n.waits))
 	s.write(".satelle/workflows/pr-review.toml", prReviewWorkflowNamed(n.review, gateTOML(t, n.review, review)))
-	s.write(".satelle/queues/"+n.queue+".toml", queueTOML(n.base, "pr-review"))
+	if n.queue != "" {
+		s.write(".satelle/queues/"+n.queue+".toml", queueTOML(n.base, "pr-review"))
+	}
 	fake := realDir(t, t.TempDir())
 	writeFile(t, filepath.Join(fake, "claude"), `#!/bin/sh
 model=none
@@ -1719,13 +1725,14 @@ func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
 		}
 		return "[gates.pending-x]\nskill = \"" + statusSkill + "\"\n[gates.approve-x]\nskill = \"satelle-pr-approval-check\"\n" + a
 	}
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/absent")
 	for _, c := range []struct {
 		name    string
 		enqueue []string
 		queues  map[string]string
 		has     []string
 	}{
-		{"no queue", nil, nil, []string{"the workflow delivery of " + id + " enqueues into no queue with a trigger base", "[trigger]"}},
+		{"no queue", nil, nil, []string{"the workflow delivery of " + id + " enqueues into no queue with a trigger base", "names no default branch", "[trigger]"}},
 		{"two bases", []string{"landing", "other"}, map[string]string{"other": "origin/elsewhere"}, []string{"name 2 trigger bases", "landing base origin/trunk", "other base origin/elsewhere"}},
 		{"no remote", []string{"landing"}, map[string]string{"landing": "trunk"}, []string{"the queue landing has trigger base trunk, which is not <remote>/<branch>"}},
 	} {
@@ -1756,4 +1763,143 @@ func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
 	if r.code != 0 || p.statusCount() != n0 || strings.TrimSpace(r.out) != "no gate's after names "+statusSkill+", so no pending status is posted" {
 		t.Errorf("pending mode with no gate naming the skill: exit %d, %d statuses\n%s%s", r.code, p.statusCount()-n0, r.out, r.err)
 	}
+}
+
+func TestPRGateSkillsFallBackToTheRemoteDefaultBranch(t *testing.T) {
+	n := prNames{pending: "pending-y", ready: "ready-y", approval: "approve-y", review: "review-y", queue: "",
+		waits: "the review run of another session", readyOnRoute: true}
+	p := newPRSandboxNamed(t, n)
+	origin := realDir(t, t.TempDir())
+	p.exec("git", "", "init", "-q", "--bare", origin)
+	p.git("remote", "add", "origin", origin)
+	script, err := os.ReadFile("../scripts/changelog-items.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(p.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
+	p.git("add", "-A")
+	p.git("commit", "-q", "-m", "changelog script")
+	p.head = strings.TrimSpace(p.git("rev-parse", "HEAD"))
+	p.git("push", "-q", "origin", p.old+":refs/heads/stem")
+	p.git("push", "-q", "origin", "HEAD:refs/heads/change")
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/stem")
+	p.git("fetch", "-q", "origin")
+	p.serveReviews("none")
+	p.serveStatuses("by-app")
+	served, err := os.ReadFile(filepath.Join(p.fake, "statuses.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := strings.NewReplacer("satelle/pr-approval", "satelle/"+n.approval, "satelle/pr-review", "satelle/"+n.review, "satelle/pr-ready", "satelle/"+n.ready)
+	writeFile(t, filepath.Join(p.fake, "statuses.json"), renamed.Replace(string(served)), 0o644)
+
+	id := p.item(62, true)
+	if r := p.exec(satelleBin, "### Changed\n- The gates read the remote's default branch\n", "story", "attach", id, "--name", "changelog", "--type", "text/markdown", "--file", "-"); r.code != 0 {
+		t.Fatalf("attach changelog: %s%s", r.out, r.err)
+	}
+	if r := p.run("story", "set", id, "--status", "in_review"); r.code != 0 || p.status(id) != "in_review" {
+		t.Fatalf("integration -> in_review: exit %d, at %s\n%s%s", r.code, p.status(id), r.out, r.err)
+	}
+	if ready := lastRun(p.gateRuns(id), n.ready); ready.Result != "accept" || !strings.Contains(ready.Notes, "open against stem, contains origin/stem "+p.old[:12]) {
+		t.Fatalf("%s %+v", n.ready, ready)
+	}
+	p.judge("accept", "every criterion is met: AC1 to AC4 hold on the head of the pull request")
+	exe, r := p.reviewRun(id, true)
+	if r.code != 0 || p.runStatus(exe) != "done" {
+		t.Fatalf("review run: exit %d, at %s\n%s%s", r.code, p.runStatus(exe), r.out, r.err)
+	}
+	gr := p.githubReviews(id)
+	if len(gr) != 1 || gr[0]["event"] != "APPROVE" {
+		t.Fatalf("github.review %v", gr)
+	}
+	p.serveReviewsAs("approved-on-head", int64(gr[0]["review_id"].(float64)))
+	if r := p.present(id); r.code != 0 || p.status(id) != "approved" {
+		t.Fatalf("in_review -> approved: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	prLists := func() []string {
+		t.Helper()
+		log, err := os.ReadFile(filepath.Join(p.fake, "gh.log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, ln := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+			if strings.HasPrefix(ln, "pr list") {
+				out = append(out, ln)
+			}
+		}
+		return out
+	}
+	lists := prLists()
+	if len(lists) != 3 {
+		t.Fatalf("gh pr list ran %d times, want 3 (ready, publish, approval): %v", len(lists), lists)
+	}
+	for _, ln := range lists {
+		if !strings.Contains(ln, "--base stem ") {
+			t.Errorf("gh %s: not --base stem", ln)
+		}
+	}
+
+	runSkill := func(skill string) result {
+		t.Helper()
+		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, "in_review", "approved"
+		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
+		return p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+skill+".md"))
+	}
+	checks := []string{"satelle-pr-ready-check", "satelle-pr-approval-check"}
+	gates := "[gates.pending-y]\nskill = \"" + statusSkill + "\"\n[gates.approve-y]\nskill = \"satelle-pr-approval-check\"\n"
+	commit := func(enqueue []string, files map[string]string) {
+		t.Helper()
+		p.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, []string{"pending-y"}, []string{"approve-y"}, enqueue, n.waits))
+		for f, body := range files {
+			p.write(f, body)
+		}
+		p.git("add", "-A")
+		p.git("commit", "-q", "--allow-empty", "-m", "reconfigure")
+		p.git("push", "-q", "-f", "origin", "HEAD:refs/heads/change")
+	}
+	refused := func(name string, has ...string) {
+		t.Helper()
+		for _, skill := range checks {
+			r := runSkill(skill)
+			for _, h := range has {
+				if r.code != 1 || !strings.Contains(r.out, h) {
+					t.Errorf("%s, %s: exit %d, want 1 naming %q\n%s%s", name, skill, r.code, h, r.out, r.err)
+				}
+			}
+		}
+	}
+
+	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
+	commit([]string{"landing"}, map[string]string{".satelle/queues/landing.toml": queueTOML("origin/trunk", "pr-review")})
+	before := len(prLists())
+	refused("queue base over the remote default", "no open pull request against trunk has head")
+	if lists := prLists()[before:]; len(lists) != 2 || !strings.Contains(lists[0], "--base trunk ") || !strings.Contains(lists[1], "--base trunk ") {
+		t.Errorf("with a queue base, gh pr list %v, want two --base trunk", lists)
+	}
+
+	commit(nil, nil)
+	opening := "the workflow delivery of " + id + " enqueues into no queue with a trigger base"
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/absent")
+	refused("remote HEAD names no branch", opening, "names no default branch", "[trigger]")
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/stem")
+
+	mirror := realDir(t, t.TempDir())
+	p.exec("git", "", "init", "-q", "--bare", mirror)
+	p.git("remote", "add", "mirror", mirror)
+	refused("several remotes", opening, "origin", "mirror", "git config checkout.defaultRemote", "[trigger]")
+	p.git("config", "checkout.defaultRemote", "origin")
+	for _, skill := range checks {
+		r := runSkill(skill)
+		if r.code != 1 || !strings.Contains(r.out, "no open pull request against stem has head") || strings.Contains(r.out, "base branch") || strings.Contains(r.out, "enqueues into no queue") {
+			t.Errorf("checkout.defaultRemote origin, %s: exit %d, want the lookup against stem\n%s%s", skill, r.code, r.out, r.err)
+		}
+	}
+	p.git("config", "checkout.defaultRemote", "elsewhere")
+	refused("checkout.defaultRemote names no remote", opening, "checkout.defaultRemote names elsewhere", "[trigger]")
+
+	p.git("config", "--unset", "checkout.defaultRemote")
+	p.git("remote", "remove", "mirror")
+	p.git("remote", "remove", "origin")
+	refused("no remote", opening, "has no git remote", "git remote add", "[trigger]")
 }
