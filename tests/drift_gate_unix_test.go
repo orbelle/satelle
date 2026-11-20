@@ -355,7 +355,7 @@ func fixtureDriftReport(fix string) string {
 		"- satelle satelle 0.0.2 (fixture)\n" +
 		"- scripts/drift-check.sh: drift-check exit 0\n" +
 		"- drift-constitution: v0.0.1..v0.0.2 over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/\n" +
-		"## Substrate findings\n\n## Constitution findings\n\n## Claim warnings\n\n" +
+		"## Substrate findings\n\n## Constitution findings\n\n" +
 		"## Fix item\n" + fix + "\n" +
 		"## Open drift items\n\n## No longer found\n\n## Resolved by the judges\n\n" +
 		"## Closed\n\n## Carried\n\n## Stayed open\n"

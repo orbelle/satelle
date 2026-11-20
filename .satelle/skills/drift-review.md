@@ -102,7 +102,7 @@ awk -F'\t' -v res="$rd/resolved.txt" '
     if ((kind == "constitution" && !(key in r) || kind == "prose" && file == id) && !seen[key]++) print line
   }' "$rd/open-findings.tsv" > "$rd/carried.txt"
 cat "$rd/substrate.txt" "$rd/judged.txt" "$rd/carried.txt" > "$rd/findings.txt"
-cat "$rd/findings.txt" $([ -f "$rd/warnings.txt" ] && echo "$rd/warnings.txt") | bash scripts/drift-fix.sh "$ver" > "$rd/fix.txt" || exit 1
+bash scripts/drift-fix.sh "$ver" < "$rd/findings.txt" > "$rd/fix.txt" || exit 1
 cat "$rd/fix.txt"
 ```
 
@@ -157,7 +157,6 @@ jq -r '.[] | .payload | select(.gate == "drift-constitution") | .notes // ""' "$
   echo
   echo "## Substrate findings"; cat "$rd/substrate.txt"; echo
   echo "## Constitution findings"; grep ': constitution: ' "$rd/judged.txt"; echo
-  echo "## Claim warnings"; [ -f "$rd/warnings.txt" ] && cat "$rd/warnings.txt"; echo
   echo "## Fix item"; [ "$fix" != - ] && { echo "$fix"; cat "$rd/found.txt"; }; echo
   echo "## Open drift items"; awk -F'\t' '{ print $1 " " $2 }' "$rd/open.tsv"; echo
   echo "## No longer found"; cat "$rd/gone.txt"; echo
