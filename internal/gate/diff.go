@@ -3,7 +3,9 @@ package gate
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -140,7 +142,7 @@ func parseDiffSection(sec string) diffSection {
 		}
 	}
 
-	path := sectionPath(renameTo, copyTo, toPath, fromPath, header)
+	path := formatPromptPath(sectionPath(renameTo, copyTo, toPath, fromPath, header))
 	if !deleted {
 		return diffSection{path: path, text: sec}
 	}
@@ -151,6 +153,15 @@ func parseDiffSection(sec string) diffSection {
 		return diffSection{path: path, text: fmt.Sprintf("deleted file: %s (1 line)\n", path)}
 	}
 	return diffSection{path: path, text: fmt.Sprintf("deleted file: %s (%d lines)\n", path, removed)}
+}
+
+func formatPromptPath(p string) string {
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f || r == '"' || r == '\\' || unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return strconv.Quote(p)
+		}
+	}
+	return p
 }
 
 func sectionPath(renameTo, copyTo, toPath, fromPath, header string) string {
