@@ -49,19 +49,29 @@ func rounds(w *workflow.Workflow, attempts []attempt) []attempt {
 }
 
 type verdict struct {
-	gate, binding, result, class string
+	gate, binding, result, class, model string
+	tokensIn, tokensOut                 int
+	durationMS                          int64
+	measured                            bool
 }
 
 func verdictsOf(a attempt) []verdict {
 	var out []verdict
 	for _, r := range a.Results {
-		if len(r.Members) > 0 {
-			for _, m := range r.Members {
-				out = append(out, verdict{r.Gate, m.Binding, m.Result, m.Class})
-			}
-			continue
-		}
-		out = append(out, verdict{r.Gate, r.Binding, r.Result, r.Class})
+		out = append(out, verdictsOfResult(r)...)
+	}
+	return out
+}
+
+func verdictsOfResult(r gate.Result) []verdict {
+	if len(r.Members) == 0 {
+		return []verdict{{gate: r.Gate, binding: r.Binding, result: r.Result, class: r.Class, model: r.Model,
+			tokensIn: r.TokensIn, tokensOut: r.TokensOut, durationMS: r.DurationMS, measured: true}}
+	}
+	out := make([]verdict, 0, len(r.Members))
+	for _, m := range r.Members {
+		out = append(out, verdict{gate: r.Gate, binding: m.Binding, result: m.Result, class: m.Class, model: m.Model,
+			tokensIn: m.TokensIn, tokensOut: m.TokensOut, durationMS: m.DurationMS, measured: m.DurationMS > 0})
 	}
 	return out
 }

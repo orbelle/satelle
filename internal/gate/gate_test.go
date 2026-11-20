@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -115,6 +116,7 @@ func TestJudgedGateInvalidEscapeRecordsAccept(t *testing.T) {
 type fakeDispatcher struct {
 	mu      sync.Mutex
 	answers map[string]string
+	usage   map[string]agent.Result
 	calls   []string
 }
 
@@ -128,6 +130,9 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.
 	text, ok := f.answers[req.Binding.Name]
 	if !ok {
 		return agent.Result{}, errors.New("no such fake")
+	}
+	if u, ok := f.usage[req.Binding.Name]; ok {
+		return agent.Result{Text: text, TokensIn: u.TokensIn, TokensOut: u.TokensOut, Duration: u.Duration}, nil
 	}
 	return agent.Result{Text: text, TokensIn: 10, TokensOut: 1}, nil
 }
@@ -301,11 +306,15 @@ func TestVerdictClassAndPanelMembers(t *testing.T) {
 		map[string]workflow.Gate{"p": {Skill: "judge", Panel: []string{"y1", "n1"}, Combine: workflow.CombineAll}, "one": {Skill: "judge", Agent: "n2"}})
 	d.answers["n1"] = `{"verdict":"reject","notes":"bad","class":"AC3"}`
 	d.answers["n2"] = `{"verdict":"reject","notes":"bad","class":"plan"}`
+	d.usage = map[string]agent.Result{"y1": {TokensIn: 300, TokensOut: 20, Duration: 1500 * time.Millisecond}, "n1": {TokensIn: 700, TokensOut: 40, Duration: 4 * time.Second}}
 	rs, pass := r.Execute(context.Background())
 	if pass || len(rs) != 1 {
 		t.Fatalf("panel: %v %+v", pass, rs)
 	}
-	want := []Member{{Binding: "y1", Result: Accept, Command: "claude", Model: "model-y1"}, {Binding: "n1", Result: Reject, Class: "AC3", Command: "claude", Model: "model-n1"}}
+	want := []Member{
+		{Binding: "y1", Result: Accept, Command: "claude", Model: "model-y1", TokensIn: 300, TokensOut: 20, DurationMS: 1500},
+		{Binding: "n1", Result: Reject, Class: "AC3", Command: "claude", Model: "model-n1", TokensIn: 700, TokensOut: 40, DurationMS: 4000},
+	}
 	if got := rs[0].Members; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("members %+v, want %+v", got, want)
 	}

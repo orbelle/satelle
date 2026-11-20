@@ -22,6 +22,7 @@ How you drive it:
     satelle story set <id> --status <s> --session <session>  # presents a transition; gates judge it
     satelle story route <id> --session <session>             # where it is, and every gate result
     satelle gate run <workflow>/<gate> --item <id> --session <session>  # dry-run one gate, recording nothing
+    satelle gate report --since 168h --session <session>      # compare judges per gate and model from the ledger
     satelle story seat <id> --session <session>              # bind this session here, for the edit gate
     satelle story seat <id> --base <ref> --session <session> # judge the diff from <ref> (a stacked branch)
     satelle -C <worktree> story set <id> --status <s> --session <session>  # the same, run in another worktree
