@@ -43,8 +43,19 @@ type presentationVM struct {
 
 type verdictVM struct {
 	mirror.GateRun
-	At       time.Time
-	Duration string
+	At           time.Time
+	Duration     string
+	JudgeModel   string
+	JudgeMembers []verdictMemberVM
+}
+
+type verdictMemberVM struct {
+	Binding   string
+	Model     string
+	Result    string
+	TokensIn  int
+	TokensOut int
+	Duration  string
 }
 
 type attachmentVM struct {
@@ -213,7 +224,7 @@ func buildPresentations(events []Entry) []presentationVM {
 				out = append(out, presentationVM{From: from, To: to, At: e.At, Attempt: g.Attempt})
 				cur, key = len(out)-1, g.Transition
 			}
-			out[cur].Verdicts = append(out[cur].Verdicts, verdictVM{GateRun: g, At: e.At, Duration: humanMs(g.DurationMS)})
+			out[cur].Verdicts = append(out[cur].Verdicts, verdictOf(g, e.At))
 		case mirror.EventTransitioned:
 			from, to, ok := transitionOf(e)
 			if !ok {
@@ -230,6 +241,35 @@ func buildPresentations(events []Entry) []presentationVM {
 	}
 	closeOpen(out, cur)
 	return out
+}
+
+func verdictOf(g mirror.GateRun, at time.Time) verdictVM {
+	v := verdictVM{GateRun: g, At: at, Duration: humanMs(g.DurationMS)}
+	if len(g.Members) > 0 {
+		v.JudgeMembers = make([]verdictMemberVM, len(g.Members))
+		for i, m := range g.Members {
+			v.JudgeMembers[i] = verdictMemberVM{
+				Binding:   m.Binding,
+				Model:     verdictModel(m.Model),
+				Result:    m.Result,
+				TokensIn:  m.TokensIn,
+				TokensOut: m.TokensOut,
+				Duration:  humanMs(m.DurationMS),
+			}
+		}
+		return v
+	}
+	if g.Binding != "" || strings.TrimSpace(g.Model) != "" {
+		v.JudgeModel = verdictModel(g.Model)
+	}
+	return v
+}
+
+func verdictModel(model string) string {
+	if m := strings.TrimSpace(model); m != "" {
+		return m
+	}
+	return mirror.UnknownModel
 }
 
 func newRound(p presentationVM, g mirror.GateRun) bool {
