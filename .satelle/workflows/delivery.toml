@@ -17,7 +17,7 @@ hold = { rounds = 3, to = "blocked" }
 hold = { rounds = 3, to = "blocked" }
 
 [states.in_review]
-waits = "the pull-request review task (.satelle/tasks/pr-review.md), run for the item by a session other than the author's"
+waits = "the pull-request review run (.satelle/tasks/pr-review.md): the driving session starts it as a separate cold session, not its own, and waits for its verdict"
 
 [states.approved]
 enqueue = ["release"]
