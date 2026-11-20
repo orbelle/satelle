@@ -39,6 +39,12 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.constitution]
+skill = "satelle-constitution-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
 [gates.security]
 skill = "satelle-security-review"
 panel = ["reviewer-gemini-4-neon-high"]
@@ -119,7 +125,7 @@ from = ["in_progress"]
 to = "integration"
 groups = [
   { mode = "sequential", gates = ["judge-differs", "format-vet", "build-unit"] },
-  { mode = "sequential", gates = ["binary-scope", "security"] },
+  { mode = "sequential", gates = ["binary-scope", "security", "constitution"] },
   { mode = "parallel", gates = ["code-ac"] },
 ]
 
