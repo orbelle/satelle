@@ -52,7 +52,7 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.risk-assess]
 skill = "satelle-risk-assess-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-neon-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
