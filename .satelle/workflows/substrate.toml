@@ -29,6 +29,13 @@ skill = "satelle-judge-differs-from-performer-check"
 [gates.volatile-literals]
 skill = "satelle-volatile-literal-check"
 
+[gates.workflow-change]
+skill = "satelle-workflow-change-review"
+panel = ["reviewer-claude-sonnet-5-5-high"]
+combine = "all"
+trigger = "satelle-workflow-change-trigger"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
 [gates.reference-review]
 skill = "satelle-reference-review"
 panel = ["reviewer-claude-sonnet-5-5-high"]
@@ -57,7 +64,7 @@ from = ["in_progress"]
 to = "done"
 groups = [
   { mode = "sequential", gates = ["substrate-paths", "substrate-validate", "judge-differs", "volatile-literals"] },
-  { mode = "sequential", gates = ["reference-review"] },
+  { mode = "sequential", gates = ["workflow-change", "reference-review"] },
 ]
 
 [[transition]]

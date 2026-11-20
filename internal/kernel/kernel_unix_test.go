@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/gate"
@@ -178,6 +179,20 @@ func TestMultiStateGates(t *testing.T) {
 	if res.Gates[0].Notes != "lint "+it.ID+" abc123" || res.Gates[2].TokensIn != 3 {
 		t.Fatalf("gate details %+v", res.Gates)
 	}
+	evAfterOpenWork, err := k.Ledger.Read(it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reviewAt time.Time
+	for _, r := range GateRuns(evAfterOpenWork) {
+		if r.Transition == "open->work" && r.Gate == "review" && r.Result == gate.Accept {
+			reviewAt = r.At
+		}
+	}
+	if reviewAt.IsZero() {
+		t.Fatal("open->work review accept has no ledger timestamp")
+	}
+	wantCarryNote := "reuses accept on open->work at " + reviewAt.UTC().Format(time.RFC3339)
 
 	out, err := k.Perform(ctx, it.ID, "me")
 	if err != nil || out.Text != "did it" {
@@ -204,8 +219,14 @@ func TestMultiStateGates(t *testing.T) {
 
 	d.calls = nil
 	res, err = k.Transition(ctx, it.ID, "closed", "me")
-	if err != nil || res.Moved || gates(res) != "review=accept panel=accept strict=reject" {
+	if err != nil || res.Moved || gates(res) != "review=carried panel=accept strict=reject" {
 		t.Fatalf("work->closed 1: %v %s", err, gates(res))
+	}
+	if res.Gates[0].CarriedFrom == nil || res.Gates[0].CarriedFrom.Transition != "open->work" || !res.Gates[0].CarriedFrom.At.Equal(reviewAt) || res.Gates[0].Notes != wantCarryNote {
+		t.Fatalf("work->closed 1 review provenance %+v %q", res.Gates[0].CarriedFrom, res.Gates[0].Notes)
+	}
+	if len(d.calls) != 4 {
+		t.Fatalf("work->closed 1 calls %v", d.calls)
 	}
 	if len(res.Rejects()) != 1 || !strings.Contains(res.Gates[1].Notes, "2 of 3 accept") {
 		t.Fatalf("rejects %+v", res.Gates)
@@ -215,6 +236,9 @@ func TestMultiStateGates(t *testing.T) {
 	res, err = k.Transition(ctx, it.ID, "closed", "me")
 	if err != nil || !res.Moved || gates(res) != "review=carried panel=accept strict=accept" {
 		t.Fatalf("work->closed 2: %v %s", err, gates(res))
+	}
+	if res.Gates[0].CarriedFrom == nil || res.Gates[0].CarriedFrom.Transition != "open->work" || !res.Gates[0].CarriedFrom.At.Equal(reviewAt) || res.Gates[0].Notes != wantCarryNote {
+		t.Fatalf("work->closed 2 review provenance %+v %q", res.Gates[0].CarriedFrom, res.Gates[0].Notes)
 	}
 	for _, c := range d.calls {
 		if c == "judge:r1" {

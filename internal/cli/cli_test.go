@@ -458,6 +458,46 @@ func TestWorkflowShowGateTimeout(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowGateDiffMaxBytes(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	writeGatedWorkflow(t, dir)
+	ap := filepath.Join(dir, ".satelle", "agents.toml")
+	ab, err := os.ReadFile(ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ap, append(ab, []byte("\n[agents.judge-x9]\ncommand = \"claude\"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, ".satelle", "workflows", "gated.toml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra := "\n[gates.g2]\nskill = \"work\"\nagent = \"judge-x9\"\ndiff_max_bytes = 2048\n[gates.g3]\nskill = \"work\"\nagent = \"judge-x9\"\n"
+	if err := os.WriteFile(p, append(b, []byte(extra)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	must(t, "validate")
+	out := must(t, "workflow", "show", "gated")
+	var g2, g3 string
+	for _, l := range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(l, "  g2 "):
+			g2 = l
+		case strings.Contains(l, "  g3 "):
+			g3 = l
+		}
+	}
+	if !strings.HasSuffix(g2, "diff_max_bytes 2048") {
+		t.Fatalf("g2 line %q in:\n%s", g2, out)
+	}
+	if strings.Contains(g3, "diff_max_bytes") {
+		t.Fatalf("g3 line %q unexpectedly shows diff_max_bytes:\n%s", g3, out)
+	}
+}
+
 func appendRule(t *testing.T, dir, workflow, tag string) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(dir, ".satelle", "satelle.toml"), os.O_APPEND|os.O_WRONLY, 0)

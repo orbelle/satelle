@@ -34,30 +34,37 @@ const (
 	Error   = "error"
 )
 
+type CarriedFrom struct {
+	Transition string    `json:"transition"`
+	At         time.Time `json:"at,omitzero"`
+}
+
 type Result struct {
-	Transition  string   `json:"transition"`
-	Gate        string   `json:"gate"`
-	Binding     string   `json:"binding,omitempty"`
-	Result      string   `json:"result"`
-	Notes       string   `json:"notes,omitempty"`
-	TokensIn    int      `json:"tokens_in"`
-	TokensOut   int      `json:"tokens_out"`
-	DurationMS  int64    `json:"duration_ms"`
-	Coverage    string   `json:"coverage,omitempty"`
-	Attempt     string   `json:"attempt,omitempty"`
-	Changed     []string `json:"changed,omitempty"`
-	Warning     string   `json:"warning,omitempty"`
-	Class       string   `json:"class,omitempty"`
-	Members     []Member `json:"members,omitempty"`
-	Location    string   `json:"location,omitempty"`
-	Change      *Change  `json:"change,omitempty"`
-	Answer      string   `json:"answer,omitempty"`
-	Seq         int      `json:"seq,omitempty"`
-	Command     string   `json:"command,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Effort      string   `json:"effort,omitempty"`
-	PromptBytes int      `json:"prompt_bytes,omitempty"`
-	Tier        string   `json:"tier,omitempty"`
+	Transition  string       `json:"transition"`
+	Gate        string       `json:"gate"`
+	Binding     string       `json:"binding,omitempty"`
+	Result      string       `json:"result"`
+	Notes       string       `json:"notes,omitempty"`
+	TokensIn    int          `json:"tokens_in"`
+	TokensOut   int          `json:"tokens_out"`
+	DurationMS  int64        `json:"duration_ms"`
+	Coverage    string       `json:"coverage,omitempty"`
+	Attempt     string       `json:"attempt,omitempty"`
+	Changed     []string     `json:"changed,omitempty"`
+	Warning     string       `json:"warning,omitempty"`
+	Class       string       `json:"class,omitempty"`
+	Members     []Member     `json:"members,omitempty"`
+	Location    string       `json:"location,omitempty"`
+	Change      *Change      `json:"change,omitempty"`
+	CarriedFrom *CarriedFrom `json:"carried_from,omitempty"`
+	Answer      string       `json:"answer,omitempty"`
+	Seq         int          `json:"seq,omitempty"`
+	Command     string       `json:"command,omitempty"`
+	Model       string       `json:"model,omitempty"`
+	Effort      string       `json:"effort,omitempty"`
+	PromptBytes int          `json:"prompt_bytes,omitempty"`
+	Tier        string       `json:"tier,omitempty"`
+	At          time.Time    `json:"-"`
 
 	judges []judgeAnswer
 
@@ -361,6 +368,16 @@ func (r Run) bound(name string, g workflow.Gate) (time.Duration, string, error) 
 	return DefaultCheckTimeout, def, nil
 }
 
+func (r Run) diffBound(name string, g workflow.Gate) (int, string, error) {
+	if limit, set := g.DiffBound(); set {
+		if limit <= 0 {
+			return 0, "", fmt.Errorf("diff_max_bytes %d on gates.%s must be positive", limit, name)
+		}
+		return limit, "gates." + name + " diff_max_bytes", nil
+	}
+	return DefaultDiffMaxBytes, fmt.Sprintf("default; set diff_max_bytes on [gates.%s] to change it", name), nil
+}
+
 func checkFailure(err error, source, out string) string {
 	var te *TimeoutError
 	if errors.As(err, &te) {
@@ -434,8 +451,16 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 		if !skill.IsCheck() {
 			change = &Change{Base: r.Span.Base, Head: r.Span.Head, Branch: r.Span.Branch, Hash: ch}
 		}
-		if g.Carry && r.carried(name, c) {
-			return Result{Result: Carried, Coverage: c, Change: change, Notes: "an earlier accept covers the same change"}
+		if g.Carry {
+			if src, ok := r.carried(name, c); ok {
+				return Result{
+					Result:      Carried,
+					Coverage:    c,
+					Change:      change,
+					CarriedFrom: &CarriedFrom{Transition: src.Transition, At: src.At},
+					Notes:       carriedNotes(src),
+				}
+			}
 		}
 	}
 	if !ok {
@@ -457,7 +482,7 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 			}
 		}
 	default:
-		res = r.judge(ctx, g, skill)
+		res = r.judge(ctx, name, g, skill)
 	}
 	res.Coverage = coverage
 	if res.Result == Accept || res.Result == Reject {
@@ -504,20 +529,37 @@ func (r Run) diffWarning() string {
 	return ""
 }
 
-func (r Run) carried(gate, coverage string) bool {
-	for i := len(r.Prior) - 1; i >= 0; i-- {
-		p := r.Prior[i]
-		if p.Gate != gate || p.Transition != r.key() || p.Result == Skipped {
-			continue
-		}
-		return (p.Result == Accept || p.Result == Carried) && p.Coverage == coverage && p.Tier == r.tier
+func carriedNotes(src Result) string {
+	if src.At.IsZero() {
+		return fmt.Sprintf("reuses accept on %s", src.Transition)
 	}
-	return false
+	return fmt.Sprintf("reuses accept on %s at %s", src.Transition, src.At.UTC().Format(time.RFC3339))
 }
 
-func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) Result {
+func (r Run) carried(gate, coverage string) (Result, bool) {
+	for i := len(r.Prior) - 1; i >= 0; i-- {
+		p := r.Prior[i]
+		if p.Gate != gate || p.Result == Skipped {
+			continue
+		}
+		if p.Coverage != coverage || p.Tier != r.tier {
+			return Result{}, false
+		}
+		switch p.Result {
+		case Accept:
+			return p, true
+		case Carried:
+			continue
+		default:
+			return Result{}, false
+		}
+	}
+	return Result{}, false
+}
+
+func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill workflow.Skill) Result {
 	names := g.Judges()
-	prompt, err := r.prompt(g)
+	prompt, err := r.prompt(gateName, g)
 	if err != nil {
 		return Result{Result: Reject, Notes: err.Error(), Binding: strings.Join(names, ",")}
 	}
@@ -607,7 +649,7 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 	return res
 }
 
-func (r Run) prompt(g workflow.Gate) (string, error) {
+func (r Run) prompt(name string, g workflow.Gate) (string, error) {
 	it := r.Item
 	var b strings.Builder
 	fmt.Fprintf(&b, "Judge item %s moving from %q to %q.\n\n", it.ID, r.From, r.To)
@@ -633,15 +675,16 @@ func (r Run) prompt(g workflow.Gate) (string, error) {
 	if len(r.Untracked) > 0 {
 		fmt.Fprintf(&b, "Untracked files in the worktree (not in the item's change):\n%s\n", strings.Join(r.Untracked, "\n"))
 	}
+	bound, _, err := r.diffBound(name, g)
+	if err != nil {
+		return "", err
+	}
 	if r.Diff != nil {
 		d, err := r.Diff(g.Paths)
 		if err != nil {
 			return "", fmt.Errorf("diff: %w", err)
 		}
-		const max = 200_000
-		if len(d) > max {
-			d = d[:max] + "\n… diff truncated …\n"
-		}
+		d = formatPromptDiff(d, bound)
 		if d != "" {
 			fmt.Fprintf(&b, "\nDiff:\n%s\n", d)
 		}

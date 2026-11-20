@@ -879,7 +879,7 @@ item's branch does not widen the diff.`,
 			if location == "" {
 				location = kernel.LocalLocation(r.Tree)
 			}
-			_ = seatlife.Resolve(config.GlobalDir(), session, procgroup.Ancestors(os.Getpid()))
+			_ = seatlife.Resolve(config.GlobalDir(), session, procgroup.Ancestors(os.Getpid()), seatlife.Meta{})
 			s, err := k.Seat(args[0], session, location, base, actor())
 			if err != nil {
 				return err

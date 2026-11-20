@@ -52,13 +52,13 @@ func owner(t *testing.T, home, session string) *procgroup.Proc {
 func TestResolveTakesTheHooksCommonParent(t *testing.T) {
 	home := t.TempDir()
 	x := parent(t)
-	if err := Start(home, "s1", []procgroup.Proc{killed(t), procgroup.Self(), x}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), procgroup.Self(), x}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := StandingOf(home, here, seat("s1")); st != Unverified {
 		t.Fatalf("before the prompt hook: %s, want unverified (a hook-depth ancestor runs)", st)
 	}
-	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), procgroup.Self(), x}); err != nil {
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), procgroup.Self(), x}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o == nil || *o != procgroup.Self() {
@@ -72,10 +72,10 @@ func TestResolveTakesTheHooksCommonParent(t *testing.T) {
 func TestResolveIgnoresAnAncestorBeyondHookDepth(t *testing.T) {
 	home := t.TempDir()
 	x := parent(t)
-	if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t), x}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t), x}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), x}); err != nil {
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), x}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o != nil {
@@ -88,7 +88,7 @@ func TestStartKeepsALiveOwnerOutsideItsChain(t *testing.T) {
 	if err := Own(home, "s1", procgroup.Self()); err != nil {
 		t.Fatal(err)
 	}
-	if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o == nil || *o != procgroup.Self() {
@@ -104,7 +104,7 @@ func TestStartClearsAGoneOwner(t *testing.T) {
 	if err := Own(home, "s1", killed(t)); err != nil {
 		t.Fatal(err)
 	}
-	if err := Start(home, "s1", []procgroup.Proc{procgroup.Self()}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{procgroup.Self()}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o != nil {
@@ -117,7 +117,7 @@ func TestResolveClearsAGoneOwner(t *testing.T) {
 	if err := Own(home, "s1", killed(t)); err != nil {
 		t.Fatal(err)
 	}
-	if err := Resolve(home, "s1", []procgroup.Proc{killed(t)}); err != nil {
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t)}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if o := owner(t, home, "s1"); o != nil {
@@ -130,16 +130,16 @@ func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
 	t.Run("settled then re-read", func(t *testing.T) {
 		home := t.TempDir()
 		x := parent(t)
-		if err := Start(home, "s1", []procgroup.Proc{killed(t), self, x}); err != nil {
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), self, x}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
-		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self, x}); err != nil {
+		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self, x}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
 		if o := owner(t, home, "s1"); o == nil || *o != self {
 			t.Fatalf("owner %+v, want %+v", o, self)
 		}
-		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
 		if o := owner(t, home, "s1"); o == nil || *o != self {
@@ -152,7 +152,7 @@ func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
 	t.Run("twice before any prompt", func(t *testing.T) {
 		home := t.TempDir()
 		for range 2 {
-			if err := Start(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+			if err := Start(home, "s1", []procgroup.Proc{killed(t), self}, Meta{}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -165,13 +165,13 @@ func TestSessionStartAgainKeepsTheSessionLive(t *testing.T) {
 	})
 	t.Run("a re-read from another tree", func(t *testing.T) {
 		home := t.TempDir()
-		if err := Start(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), self}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
-		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}); err != nil {
+		if err := Start(home, "s1", []procgroup.Proc{killed(t), killed(t)}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
-		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self}); err != nil {
+		if err := Resolve(home, "s1", []procgroup.Proc{killed(t), self}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
 		if o := owner(t, home, "s1"); o == nil || *o != self {
@@ -192,10 +192,10 @@ func TestAHookSettledOwnerThatExitsIsGone(t *testing.T) {
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	_, start := procgroup.ProbeIdentity(cmd.Process.Pid)
 	o := procgroup.Proc{PID: cmd.Process.Pid, Start: start}
-	if err := Start(home, "s1", []procgroup.Proc{killed(t), o}); err != nil {
+	if err := Start(home, "s1", []procgroup.Proc{killed(t), o}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), o}); err != nil {
+	if err := Resolve(home, "s1", []procgroup.Proc{killed(t), o}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := owner(t, home, "s1"); got == nil || *got != o {
@@ -235,7 +235,7 @@ func TestStandingGoneWhenOwnerExited(t *testing.T) {
 
 func TestStandingWithoutOwner(t *testing.T) {
 	home := t.TempDir()
-	if err := Start(home, "live", []procgroup.Proc{procgroup.Self()}); err != nil {
+	if err := Start(home, "live", []procgroup.Proc{procgroup.Self()}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := StandingOf(home, here, seat("live")); st != Unverified {
@@ -244,7 +244,7 @@ func TestStandingWithoutOwner(t *testing.T) {
 	if rec, _ := Load(home, "live"); rec.Lapsed() {
 		t.Error("a record with a hook process running is lapsed")
 	}
-	if err := Start(home, "dead", []procgroup.Proc{killed(t), killed(t), procgroup.Self()}); err != nil {
+	if err := Start(home, "dead", []procgroup.Proc{killed(t), killed(t), procgroup.Self()}, Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	st, ev := StandingOf(home, here, seat("dead"))
@@ -290,7 +290,7 @@ func TestPruneKeepsSeatedSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range []string{"lapsed-seated", "lapsed-free"} {
-		if err := Start(home, s, []procgroup.Proc{killed(t), killed(t)}); err != nil {
+		if err := Start(home, s, []procgroup.Proc{killed(t), killed(t)}, Meta{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -308,5 +308,78 @@ func TestPruneKeepsSeatedSessions(t *testing.T) {
 func TestRecordRefusesAPathSession(t *testing.T) {
 	if err := Own(t.TempDir(), "../x", procgroup.Self()); err == nil {
 		t.Fatal("a session naming a path was recorded")
+	}
+}
+
+func TestSessionMetaPersistenceAndBackfill(t *testing.T) {
+	home := t.TempDir()
+
+	if err := Resolve(home, "s-absent", nil, Meta{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Load(home, "s-absent"); ok {
+		t.Fatal("Resolve with empty meta created a record")
+	}
+
+	if err := Resolve(home, "s-prompt", nil, Meta{Harness: "cursor", Model: "gemini-3.8-flash-high"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := Load(home, "s-prompt")
+	if !ok || rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash-high" {
+		t.Fatalf("after Resolve create: ok=%v rec=%+v", ok, rec)
+	}
+
+	if err := Start(home, "s1", nil, Meta{Harness: "cursor", Model: "gemini-3.8-flash-high"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok = Load(home, "s1")
+	if !ok || rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash-high" {
+		t.Fatalf("after Start: ok=%v rec=%+v", ok, rec)
+	}
+	atAfterStart := rec.At
+
+	if err := ObserveMeta(home, "s1", Meta{Harness: "claude", Model: "gemini-3.8-flash"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = Load(home, "s1")
+	if rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash-high" || !rec.At.Equal(atAfterStart) {
+		t.Fatalf("ObserveMeta clobbered existing meta: %+v (want At %v)", rec, atAfterStart)
+	}
+
+	if err := Start(home, "s1", nil, Meta{Harness: "cursor"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Resolve(home, "s1", nil, Meta{Harness: "cursor"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = Load(home, "s1")
+	if rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash-high" {
+		t.Fatalf("empty incoming model cleared stored model: %+v", rec)
+	}
+
+	if err := Resolve(home, "s1", nil, Meta{Harness: "cursor", Model: "claude-opus-5-5-high"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = Load(home, "s1")
+	if rec.Harness != "cursor" || rec.Model != "claude-opus-5-5-high" {
+		t.Fatalf("Resolve did not update model: %+v", rec)
+	}
+
+	if err := Start(home, "s-backfill", nil, Meta{Harness: "cursor"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ObserveMeta(home, "s-backfill", Meta{Harness: "claude", Model: "gemini-3.8-flash"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = Load(home, "s-backfill")
+	if rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash" {
+		t.Fatalf("ObserveMeta backfill: %+v", rec)
+	}
+	if err := ObserveMeta(home, "s-new", Meta{Harness: "cursor", Model: "gemini-3.8-flash"}); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok = Load(home, "s-new")
+	if !ok || rec.Harness != "cursor" || rec.Model != "gemini-3.8-flash" {
+		t.Fatalf("ObserveMeta on absent record: ok=%v rec=%+v", ok, rec)
 	}
 }

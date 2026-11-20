@@ -144,16 +144,27 @@ type SettingRow struct {
 	Section string `json:"section"`
 }
 
-type GateRun struct {
-	Transition string `json:"transition"`
-	Gate       string `json:"gate"`
-	Binding    string `json:"binding,omitempty"`
+type GateMember struct {
+	Binding    string `json:"binding"`
 	Result     string `json:"result"`
-	Notes      string `json:"notes,omitempty"`
-	TokensIn   int    `json:"tokens_in"`
-	TokensOut  int    `json:"tokens_out"`
-	DurationMS int64  `json:"duration_ms"`
-	Attempt    string `json:"attempt,omitempty"`
+	Model      string `json:"model,omitempty"`
+	TokensIn   int    `json:"tokens_in,omitempty"`
+	TokensOut  int    `json:"tokens_out,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+}
+
+type GateRun struct {
+	Transition string       `json:"transition"`
+	Gate       string       `json:"gate"`
+	Binding    string       `json:"binding,omitempty"`
+	Model      string       `json:"model,omitempty"`
+	Result     string       `json:"result"`
+	Notes      string       `json:"notes,omitempty"`
+	TokensIn   int          `json:"tokens_in"`
+	TokensOut  int          `json:"tokens_out"`
+	DurationMS int64        `json:"duration_ms"`
+	Attempt    string       `json:"attempt,omitempty"`
+	Members    []GateMember `json:"members,omitempty"`
 }
 
 type GateStart struct {
@@ -177,4 +188,5 @@ const (
 	GateReject           = "reject"
 	GateError            = "error"
 	TransitionSep        = "->"
+	UnknownModel         = "unknown"
 )

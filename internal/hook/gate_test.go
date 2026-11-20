@@ -277,11 +277,11 @@ func cursorFixture(t *testing.T, name string) []byte {
 
 func TestParseInputCursorFixtures(t *testing.T) {
 	start := ParseInput(cursorFixture(t, "sessionstart"))
-	if start.Session == "" || !start.Cursor || start.Event != "sessionStart" || !slices.Equal(start.Roots, []string{"/work/repo"}) {
+	if start.Session == "" || !start.Cursor || start.Event != "sessionStart" || !slices.Equal(start.Roots, []string{"/work/repo"}) || start.Model != "gemini-3.8-flash-high" {
 		t.Fatalf("sessionStart: %+v", start)
 	}
 	write := ParseInput(cursorFixture(t, "pretooluse-write"))
-	if !write.IsEdit() || write.IsShell() || write.Path != "/work/repo/ok.txt" || write.Session != start.Session || !write.Cursor {
+	if !write.IsEdit() || write.IsShell() || write.Path != "/work/repo/ok.txt" || write.Session != start.Session || !write.Cursor || write.Model != "gemini-3.8-flash" {
 		t.Errorf("Write: %+v (session start %q)", write, start.Session)
 	}
 	del := ParseInput(cursorFixture(t, "pretooluse-delete"))
@@ -302,6 +302,31 @@ func TestParseInputCursorFixtures(t *testing.T) {
 	}
 	if ParseInput([]byte(`{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/a"}}`)).Cursor {
 		t.Error("a claude payload reads as Cursor's")
+	}
+}
+
+func TestParseInputModelAndHarness(t *testing.T) {
+	ide := ParseInput([]byte(`{"session_id":"ide-1","cursor_version":"3.28.7","model_id":"claude-4.5-sonnet"}`))
+	if ide.Model != "claude-4.5-sonnet" || ide.Harness(Claude) != Cursor {
+		t.Errorf("cursor IDE model_id: %+v harness=%q", ide, ide.Harness(Claude))
+	}
+	camel := ParseInput([]byte(`{"session_id":"c-1","modelId":"gpt-5.4-high"}`))
+	if camel.Model != "gpt-5.4-high" || camel.Harness(Grok) != Grok {
+		t.Errorf("camel modelId: %+v harness=%q", camel, camel.Harness(Grok))
+	}
+	both := ParseInput([]byte(`{"session_id":"b-1","model":"primary-m","model_id":"fallback-m","modelId":"camel-m"}`))
+	if both.Model != "primary-m" {
+		t.Errorf("model precedence: got %q, want primary-m", both.Model)
+	}
+	claudeNoModel := ParseInput([]byte(`{"hook_event_name":"SessionStart","session_id":"cl-1","cwd":"/work/repo"}`))
+	if claudeNoModel.Model != "" || claudeNoModel.Harness(Claude) != Claude {
+		t.Errorf("claude without model: %+v harness=%q", claudeNoModel, claudeNoModel.Harness(Claude))
+	}
+	if got := (Input{Cursor: true}).Harness(Claude); got != Cursor {
+		t.Errorf("Cursor payload via claude flag: harness=%q, want %q", got, Cursor)
+	}
+	if got := (Input{}).Harness(" pi "); got != Pi {
+		t.Errorf("trimmed flag: harness=%q, want %q", got, Pi)
 	}
 }
 
@@ -369,7 +394,7 @@ func TestParseInputGrokFixtures(t *testing.T) {
 		return b
 	}
 	start := ParseInput(read("grok_session_start.json"))
-	if start.Session != "grok-session-0001" || start.Event != "SessionStart" || start.Cwd != "/work/repo" {
+	if start.Session != "grok-session-0001" || start.Event != "SessionStart" || start.Cwd != "/work/repo" || start.Model != "" {
 		t.Errorf("grok SessionStart: %+v", start)
 	}
 	stop := ParseInput(read("grok_stop.json"))
