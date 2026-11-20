@@ -58,7 +58,7 @@ attachment when the plan has that section, else the criteria in your prompt.
 5. **Agent-agnostic** ([[satelle-agent-agnostic]], regardless of the ACs). When
    the slice adds or changes parsing of agent output, usage/model accounting,
    tool grants, live sessions or transport behaviour, confirm each adapter
-   under `internal/agent` (claude.go, pi.go, grok.go) either works or records an
+   under `internal/agent` (every adapter there) either works or records an
    explicit adapter-named "unavailable" (never a silent zero, empty field or
    Claude default). **Reject** a single-provider mechanism with no stated
    handling for the other adapters (name them), and provider model names, flags
