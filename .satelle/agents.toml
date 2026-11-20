@@ -11,9 +11,9 @@ command = "cursor-agent"
 model = "gemini-4-neon-high"
 tools = ["Read", "Grep", "Glob", "Edit", "Write"]
 
-[agents."reviewer-claude-sonnet-5-5-low"]
+[agents."reviewer-claude-sonnet-5-5-high"]
 command = "cursor-agent"
-model = "claude-sonnet-5-5-low"
+model = "claude-sonnet-5-5-high"
 tools = ["Read", "Grep", "Glob"]
 
 [agents."reviewer-claude-opus-5-5-high"]

@@ -20,19 +20,19 @@ skill = "satelle-children-closed-check"
 
 [gates.done-review]
 skill = "satelle-story-done-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 

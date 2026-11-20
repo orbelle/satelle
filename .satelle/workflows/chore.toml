@@ -29,19 +29,19 @@ terminal = true
 
 [gates.story-review]
 skill = "satelle-story-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.binary-scope]
 skill = "satelle-binary-scope-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.constitution]
 skill = "satelle-constitution-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
@@ -105,13 +105,13 @@ skill = "satelle-release-installed-check"
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-claude-sonnet-5-5-low"]
+panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
