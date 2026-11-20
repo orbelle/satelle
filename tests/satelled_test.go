@@ -163,3 +163,82 @@ func TestSatelledIgnoresATempRepo(t *testing.T) {
 		t.Errorf("the Projects page does not list the added temp-dir project as not sent with no link:\n%s", landing)
 	}
 }
+
+func TestSatelledShowsJudgeModelsOnItemPage(t *testing.T) {
+	t.Parallel()
+	s := newSandboxOutsideTemp(t)
+	url := startSatelled(t, s)
+	s.must("init")
+	id := s.create("story", "--title", "judge models in satelled", "--criteria", "models appear beside verdicts").ID
+
+	payloads := []string{
+		`{"transition":"backlog->done","gate":"single-model","binding":"judge-a","model":"claude-opus-4-6","result":"accept","tokens_in":45,"tokens_out":12,"duration_ms":1300,"attempt":"att_1"}`,
+		`{"transition":"backlog->done","gate":"single-unknown","binding":"judge-b","result":"reject","notes":"missing case","attempt":"att_1"}`,
+		`{"transition":"backlog->done","gate":"panel-gate","binding":"judge-a,judge-b","result":"reject","tokens_in":150,"tokens_out":35,"duration_ms":2500,"attempt":"att_1","members":[{"binding":"judge-a","model":"gpt-5.4","result":"accept","tokens_in":80,"tokens_out":20,"duration_ms":1500},{"binding":"judge-b","result":"reject","tokens_in":70,"tokens_out":15,"duration_ms":1000}]}`,
+		`{"transition":"backlog->done","gate":"check-gate","result":"accept","duration_ms":100,"attempt":"att_1"}`,
+	}
+	for _, p := range payloads {
+		s.must("ledger", "append", id, "--kind", "gate.run", "--payload", p)
+	}
+
+	if out := s.must("project", "add"); !strings.Contains(out, "seeded satelled at "+url) {
+		t.Fatalf("project add: %s", out)
+	}
+	lines := strings.Split(strings.TrimSpace(s.must("project", "partitions")), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("partitions:\n%s", strings.Join(lines, "\n"))
+	}
+	key := strings.Fields(lines[1])[0]
+
+	page := httpGet(t, url+"/r/"+key+"/story/"+id)
+	vStart := strings.Index(page, "<h4>Verdicts</h4>")
+	vEnd := strings.Index(page, "<h4>Attachments</h4>")
+	if vStart < 0 || vEnd < vStart {
+		t.Fatalf("story page lacks Verdicts section:\n%s", page)
+	}
+	verdicts := page[vStart:vEnd]
+
+	ordered := []string{
+		"<th>Gate</th><th>Binding</th><th>Model</th><th>Result</th>",
+		"<td>single-model</td>",
+		`<td class="meta">judge-a</td>`,
+		`<td class="meta verdict-model">claude-opus-4-6</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+		"<td>single-unknown</td>",
+		`<td class="meta">judge-b</td>`,
+		`<td class="meta verdict-model">unknown</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		"<td>panel-gate</td>",
+		`<td class="meta">judge-a,judge-b</td>`,
+		`<td class="meta verdict-model">—</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		`<tr class="verdict verdict-member v-accept">`,
+		`<td class="meta">judge-a</td>`,
+		`<td class="meta verdict-model">gpt-5.4</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+		`<tr class="verdict verdict-member v-reject">`,
+		`<td class="meta">judge-b</td>`,
+		`<td class="meta verdict-model">unknown</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		"<td>check-gate</td>",
+		`<td class="meta">—</td>`,
+		`<td class="meta verdict-model">—</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+	}
+	at := 0
+	for _, want := range ordered {
+		i := strings.Index(verdicts[at:], want)
+		if i < 0 {
+			t.Errorf("Verdicts section missing %q after offset %d:\n%s", want, at, verdicts)
+			break
+		}
+		at += i + len(want)
+	}
+	checkStart := strings.Index(verdicts, "<td>check-gate</td>")
+	if checkStart >= 0 {
+		checkEnd := strings.Index(verdicts[checkStart:], "</tr>")
+		if checkEnd > 0 && strings.Contains(verdicts[checkStart:checkStart+checkEnd], "unknown") {
+			t.Errorf("check-gate row showed unknown:\n%s", verdicts[checkStart:checkStart+checkEnd])
+		}
+	}
+}

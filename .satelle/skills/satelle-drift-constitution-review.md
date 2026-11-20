@@ -59,8 +59,9 @@ line that show it fixed. A finding that still holds gets no line. Never state
 
 ## A truncated diff
 
-When the diff ends with `… diff truncated …`, the cut hid part of the change.
-The `Changed paths:` list is never cut. Read, in the work tree, every changed
+When the diff is truncated (ends with `… diff truncated at <bound> bytes; cut
+files:`), the cut hid part of the change and names the cut files. The
+`Changed paths:` list is never cut. Read, in the work tree, every changed
 path under `cmd/`, `internal/`, `go.mod`, `go.sum`, `.satelle/constitution.md`
 and `.satelle/principles/` whose hunk the cut hid or split, judge each one's
 full content, and put one line `READ <path>` per such file in your notes. An

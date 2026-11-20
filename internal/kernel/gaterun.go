@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
@@ -66,28 +65,12 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 }
 
 func GateRuns(events []ledger.Event) []gate.Result {
-	timed := timedGateRuns(events)
-	out := make([]gate.Result, 0, len(timed))
-	for _, t := range timed {
-		out = append(out, t.Result)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-type timedResult struct {
-	gate.Result
-	At time.Time
-}
-
-func timedGateRuns(events []ledger.Event) []timedResult {
-	var out []timedResult
+	var out []gate.Result
 	for _, e := range events {
 		var r gate.Result
 		if e.Kind == gate.KindRun && e.Decode(&r) == nil {
-			out = append(out, timedResult{Result: r, At: e.At})
+			r.At = e.At
+			out = append(out, r)
 		}
 	}
 	for i := 0; i < len(out); {
@@ -98,8 +81,8 @@ func timedGateRuns(events []ledger.Event) []timedResult {
 			}
 		}
 		run := out[i:j]
-		if run[0].Attempt != "" && !slices.ContainsFunc(run, func(r timedResult) bool { return r.Seq <= 0 }) {
-			slices.SortStableFunc(run, func(a, b timedResult) int { return a.Seq - b.Seq })
+		if run[0].Attempt != "" && !slices.ContainsFunc(run, func(r gate.Result) bool { return r.Seq <= 0 }) {
+			slices.SortStableFunc(run, func(a, b gate.Result) int { return a.Seq - b.Seq })
 		}
 		i = j
 	}

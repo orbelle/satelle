@@ -51,6 +51,7 @@ skill = "dry-bad"
 [gates.one]
 skill = "dry-review"
 agent = "judge-yes"
+diff_max_bytes = 1024
 [gates.split]
 skill = "dry-review"
 panel = ["judge-yes", "judge-no"]
@@ -131,9 +132,19 @@ func TestGateRunShowInput(t *testing.T) {
 	if strings.Contains(out, "the check failed here") {
 		t.Fatalf("the check ran:\n%s", out)
 	}
+	if strings.Contains(out, "diff_max_bytes:") {
+		t.Fatalf("check input printed diff_max_bytes:\n%s", out)
+	}
+
+	out = must(t, "gate", "run", "dry/one", "--item", id, "--from", "st-a", "--show-input")
+	for _, want := range []string{"gate one  judge", "diff_max_bytes: 1024 (gates.one diff_max_bytes)", "judges: judge-yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("one judge input: no %q in\n%s", want, out)
+		}
+	}
 
 	out = must(t, "gate", "run", "dry/split", "--item", id, "--from", "st-a", "--show-input")
-	for _, want := range []string{"gate split  judge", "judges: judge-yes, judge-no", "prompt:\nJudge item " + id + " moving from"} {
+	for _, want := range []string{"gate split  judge", "diff_max_bytes: 64000 (default; set diff_max_bytes on [gates.split] to change it)", "judges: judge-yes, judge-no", "prompt:\nJudge item " + id + " moving from"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("judge input: no %q in\n%s", want, out)
 		}

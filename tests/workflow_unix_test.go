@@ -3,11 +3,14 @@
 package tests
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fakeClaude(t *testing.T, s *sandbox) string {
@@ -351,5 +354,157 @@ func TestRoundCapHoldsForTheOperator(t *testing.T) {
 			t.Errorf("%s: story get lacks the held line:\n%s", c.name, out)
 		}
 	}
+	s.must("ledger", "verify")
+}
+
+const carryWorkflow = `name = "carryflow"
+[states.work]
+start = true
+[states.integration]
+[states.done]
+terminal = true
+
+[gates.suite]
+skill = "suite"
+carry = true
+
+[[transition]]
+from = ["work"]
+to = "integration"
+groups = [{ mode = "sequential", gates = ["suite"] }]
+[[transition]]
+from = ["integration"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["suite"] }]
+`
+
+func TestCarryGateCarriesAcrossTransitionsAndRerunsOnCoverageChange(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	s.must("init")
+	counter := filepath.Join(t.TempDir(), "count")
+	s.write(".satelle/workflows/carryflow.toml", carryWorkflow)
+	s.write(".satelle/skills/suite.md", "---\ntype: check\n---\n```sh\nn=0\n[ -f '"+counter+"' ] && n=$(cat '"+counter+"')\nn=$((n + 1))\nprintf '%s' \"$n\" > '"+counter+"'\necho \"suite run $n\"\n```\n")
+	s.write("src/app.go", "package app\n\nvar V = 1\n")
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "config")
+	s.must("validate")
+
+	count := func() int {
+		t.Helper()
+		b, err := os.ReadFile(counter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	type carriedFrom struct {
+		Transition string    `json:"transition"`
+		At         time.Time `json:"at"`
+	}
+	type runPayload struct {
+		Transition  string       `json:"transition"`
+		Gate        string       `json:"gate"`
+		Result      string       `json:"result"`
+		Notes       string       `json:"notes"`
+		CarriedFrom *carriedFrom `json:"carried_from"`
+	}
+	type runEvent struct {
+		At      time.Time       `json:"at"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	readRuns := func(id string) ([]runEvent, []runPayload) {
+		t.Helper()
+		var evs []runEvent
+		s.mustJSON(&evs, "ledger", "list", id, "--kind", "gate.run")
+		out := make([]runPayload, len(evs))
+		for i, e := range evs {
+			if err := json.Unmarshal(e.Payload, &out[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return evs, out
+	}
+
+	id1 := s.create("story", "--title", "carry-unchanged", "--workflow", "carryflow").ID
+	s.must("story", "set", id1, "--status", "integration")
+	if got := count(); got != 1 {
+		t.Fatalf("item 1 work->integration count = %d, want 1", got)
+	}
+	evs1, runs1 := readRuns(id1)
+	if len(runs1) != 1 || runs1[0].Result != "accept" || runs1[0].Transition != "work->integration" || runs1[0].CarriedFrom != nil {
+		t.Fatalf("item 1 run 1 = %+v", runs1)
+	}
+	t1 := evs1[0].At
+	t1Str := t1.UTC().Format(time.RFC3339)
+	wantNote := "reuses accept on work->integration at " + t1Str
+
+	setOut := s.must("story", "set", id1, "--status", "done")
+	if got := count(); got != 1 {
+		t.Fatalf("item 1 integration->done ran suite again: count = %d, want 1", got)
+	}
+	if !strings.Contains(setOut, "carried") || !strings.Contains(setOut, "work->integration") || !strings.Contains(setOut, t1Str) {
+		t.Errorf("story set output lacks carried provenance (%s):\n%s", wantNote, setOut)
+	}
+	routeOut := s.must("story", "route", id1)
+	if !strings.Contains(routeOut, "carried") || !strings.Contains(routeOut, "work->integration") || !strings.Contains(routeOut, t1Str) {
+		t.Errorf("story route output lacks carried provenance (%s):\n%s", wantNote, routeOut)
+	}
+	_, runs1 = readRuns(id1)
+	if len(runs1) != 2 {
+		t.Fatalf("item 1 gate runs = %d, want 2", len(runs1))
+	}
+	c := runs1[1]
+	if c.Result != "carried" || c.Transition != "integration->done" || c.CarriedFrom == nil || c.CarriedFrom.Transition != "work->integration" || !c.CarriedFrom.At.Equal(t1) || c.Notes != wantNote {
+		t.Fatalf("item 1 carried run = %+v (carried_from=%+v), want work->integration at %v (%q)", c, c.CarriedFrom, t1, wantNote)
+	}
+
+	id2 := s.create("story", "--title", "no-cross-item-carry", "--workflow", "carryflow").ID
+	s.must("story", "set", id2, "--status", "integration")
+	if got := count(); got != 2 {
+		t.Fatalf("item 2 work->integration count = %d, want 2 (no cross-item carry)", got)
+	}
+	_, runs2 := readRuns(id2)
+	if len(runs2) != 1 || runs2[0].Result != "accept" || runs2[0].CarriedFrom != nil {
+		t.Fatalf("item 2 run 1 = %+v", runs2)
+	}
+
+	id3 := s.create("story", "--title", "rerun-on-diff", "--workflow", "carryflow").ID
+	s.must("story", "set", id3, "--status", "integration")
+	if got := count(); got != 3 {
+		t.Fatalf("item 3 work->integration count = %d, want 3", got)
+	}
+	s.write("src/app.go", "package app\n\nvar V = 2\n")
+	s.must("story", "set", id3, "--status", "done")
+	if got := count(); got != 4 {
+		t.Fatalf("item 3 integration->done after tracked diff edit count = %d, want 4", got)
+	}
+	evs3, runs3 := readRuns(id3)
+	if len(runs3) != 2 || runs3[1].Result != "accept" || runs3[1].CarriedFrom != nil || strings.Contains(string(evs3[1].Payload), "carried_from") {
+		t.Fatalf("item 3 run 2 = %+v raw=%s", runs3[1], evs3[1].Payload)
+	}
+
+	id4 := s.create("story", "--title", "rerun-on-attachment", "--workflow", "carryflow").ID
+	s.must("story", "set", id4, "--status", "integration")
+	if got := count(); got != 5 {
+		t.Fatalf("item 4 work->integration count = %d, want 5", got)
+	}
+	if r := s.exec(satelleBin, "extra evidence\n", "story", "attach", id4, "--name", "evidence", "--file", "-"); r.code != 0 {
+		t.Fatalf("attach failed: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	s.must("story", "set", id4, "--status", "done")
+	if got := count(); got != 6 {
+		t.Fatalf("item 4 integration->done after attachment count = %d, want 6", got)
+	}
+	evs4, runs4 := readRuns(id4)
+	if len(runs4) != 2 || runs4[1].Result != "accept" || runs4[1].CarriedFrom != nil || strings.Contains(string(evs4[1].Payload), "carried_from") {
+		t.Fatalf("item 4 run 2 = %+v raw=%s", runs4[1], evs4[1].Payload)
+	}
+
 	s.must("ledger", "verify")
 }

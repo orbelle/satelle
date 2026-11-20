@@ -266,6 +266,14 @@ func (w *Workflow) validateGate(name string, g Gate, skill SkillLookup, agent Ag
 			bad("timeout bounds check scripts; this gate runs none")
 		}
 	}
+	if limit, set := g.DiffBound(); set {
+		if limit <= 0 {
+			bad("diff_max_bytes %d must be positive", limit)
+		}
+		if ok && sk.IsCheck() {
+			bad("diff_max_bytes bounds a judge prompt's diff; skill %q is a check", g.Skill)
+		}
+	}
 	return errs
 }
 

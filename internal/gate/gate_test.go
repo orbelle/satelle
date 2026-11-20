@@ -211,14 +211,141 @@ func TestSkippedAndCarried(t *testing.T) {
 	if !pass || results(rs) != "docs=skipped code=carried fresh=accept" || len(d.calls) != 1 {
 		t.Fatalf("%v %s %v", pass, results(rs), d.calls)
 	}
+	if rs[1].CarriedFrom == nil || rs[1].CarriedFrom.Transition != "s0->s1" || !rs[1].CarriedFrom.At.IsZero() || rs[1].Notes != "reuses accept on s0->s1" {
+		t.Fatalf("carried provenance: %+v %q", rs[1].CarriedFrom, rs[1].Notes)
+	}
 	r.Prior[0].Coverage = "older"
 	rs, _ = r.Execute(context.Background())
-	if results(rs) != "docs=skipped code=accept fresh=accept" {
-		t.Fatalf("%s", results(rs))
+	if results(rs) != "docs=skipped code=accept fresh=accept" || rs[1].CarriedFrom != nil {
+		t.Fatalf("%s %+v", results(rs), rs[1].CarriedFrom)
 	}
 	r.Prior = append(r.Prior, Result{Transition: "s0->s1", Gate: "code", Result: Reject, Coverage: "cov:**/*.go"})
-	if rs, _ = r.Execute(context.Background()); rs[1].Result != Accept {
-		t.Fatalf("%s", results(rs))
+	if rs, _ = r.Execute(context.Background()); rs[1].Result != Accept || rs[1].CarriedFrom != nil {
+		t.Fatalf("%s %+v", results(rs), rs[1].CarriedFrom)
+	}
+}
+
+func TestCarriedAcrossTransitions(t *testing.T) {
+	t1 := time.Date(2026, 11, 7, 10, 11, 12, 0, time.UTC)
+	t2 := t1.Add(5 * time.Minute)
+	wantNote := "reuses accept on s0->s1 at " + t1.Format(time.RFC3339)
+
+	gates := map[string]workflow.Gate{
+		"code":  {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}, Carry: true},
+		"suite": {Skill: "fail-if-run", Carry: true},
+	}
+	mk := func(from, to string, prior ...Result) (Run, *fakeDispatcher) {
+		r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code", "suite"}}}, gates)
+		r.Workflow.States["s2"] = workflow.State{}
+		r.Workflow.States["s3"] = workflow.State{Terminal: true}
+		r.Skills["fail-if-run"] = workflow.Skill{Name: "fail-if-run", Meta: map[string]string{"type": workflow.TypeCheck}, Script: "echo ran; exit 1"}
+		r.Dir = t.TempDir()
+		r.From, r.To = from, to
+		r.Transition = &workflow.Transition{From: []string{from}, To: to, Groups: r.Transition.Groups}
+		r.Prior = prior
+		return r, d
+	}
+
+	r, d := mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+	)
+	rs, pass := r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("cross-transition carry: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("%s carried provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+		raw, err := json.Marshal(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if _, hasAt := doc["At"]; hasAt {
+			t.Errorf("%s marshaled At field: %s", g.Gate, raw)
+		}
+		if _, hasAt := doc["at"]; hasAt {
+			t.Errorf("%s marshaled top-level at field: %s", g.Gate, raw)
+		}
+	}
+
+	r, d = mk("s2", "s3",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Carried, Coverage: "cov:**/*.go", CarriedFrom: &CarriedFrom{Transition: "s0->s1", At: t1}, At: t2},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+		Result{Transition: "s1->s2", Gate: "suite", Result: Carried, Coverage: "cov:", CarriedFrom: &CarriedFrom{Transition: "s0->s1", At: t1}, At: t2},
+	)
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("chained carry: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("chained %s provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+	}
+
+	r, d = mk("s2", "s3",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Skipped, At: t2},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+		Result{Transition: "s1->s2", Gate: "suite", Result: Skipped, At: t2},
+	)
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("intervening skipped: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("after skipped %s provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:old", At: t1},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+		t.Fatalf("changed coverage: %v %s calls=%v carried=%+v", pass, results(rs), d.calls, rs[0].CarriedFrom)
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Accept, Coverage: "cov:other", At: t2},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+		t.Fatalf("reverted coverage: %v %s calls=%v carried=%+v", pass, results(rs), d.calls, rs[0].CarriedFrom)
+	}
+
+	for _, bad := range []string{Reject, Error} {
+		r, d = mk("s1", "s2",
+			Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+			Result{Transition: "s1->s2", Gate: "code", Result: bad, Coverage: "cov:**/*.go", At: t2},
+		)
+		r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+		rs, pass = r.Execute(context.Background())
+		if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+			t.Fatalf("after %s: %v %s calls=%v carried=%+v", bad, pass, results(rs), d.calls, rs[0].CarriedFrom)
+		}
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", Tier: "t1", At: t1},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	r.Review = workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"code": {"t1": {"y1"}, "t2": {"y2"}}}}
+	r.Item.Tags = []string{"k:t2"}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || !sameSet(d.calls, []string{"y2"}) || rs[0].Tier != "t2" || rs[0].CarriedFrom != nil {
+		t.Fatalf("tier change across transitions: %v %s calls=%v tier=%q carried=%+v", pass, results(rs), d.calls, rs[0].Tier, rs[0].CarriedFrom)
 	}
 }
 
@@ -563,5 +690,115 @@ func TestReviewLeavesACheckGateAlone(t *testing.T) {
 	rs, _ := r.Execute(context.Background())
 	if rs[0].Tier != "" || len(d.calls) != 0 {
 		t.Fatalf("a check gate took a tier: %+v calls %v", rs[0], d.calls)
+	}
+}
+
+type promptRecorder struct {
+	agent.Dispatcher
+	mu      sync.Mutex
+	prompts map[string]string
+}
+
+func (p *promptRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	p.mu.Lock()
+	if p.prompts == nil {
+		p.prompts = map[string]string{}
+	}
+	p.prompts[req.Binding.Name] = req.Prompt
+	p.mu.Unlock()
+	return p.Dispatcher.Dispatch(ctx, role, req)
+}
+
+func TestJudgeDispatchAppliesDiffBoundAndSummaries(t *testing.T) {
+	bound := 500
+	deleted := makeDeletedSection("old.go", []string{"package old", "func Removed() {}", "var secret = 1"}, false)
+	small := makeModifiedSection("a_keep.go", 2)
+	medium := makeModifiedSection("b_cut.go", 30)
+	large := makeModifiedSection("c_huge.go", 3000)
+	fullDiff := deleted + small + medium + large
+	if len(fullDiff) < 100_000 || len(fullDiff) >= 200_000 {
+		t.Fatalf("fixture diff size %d must be between 100k and 200k", len(fullDiff))
+	}
+
+	gates := map[string]workflow.Gate{
+		"single":  {Skill: "judge", Agent: "y1", DiffMaxBytes: &bound},
+		"panel":   {Skill: "judge", Panel: []string{"y1", "y2"}, Combine: workflow.CombineAll, DiffMaxBytes: &bound},
+		"tiered":  {Skill: "judge", Agent: "y1", DiffMaxBytes: &bound},
+		"default": {Skill: "judge", Agent: "y2"},
+	}
+
+	runGate := func(gateName string, tags []string, rev workflow.Review) map[string]string {
+		t.Helper()
+		r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{gateName}}}, gates)
+		rec := &promptRecorder{Dispatcher: r.Dispatcher}
+		r.Dispatcher = rec
+		r.Item.Tags, r.Review = tags, rev
+		r.Diff = func([]string) (string, error) { return fullDiff, nil }
+		rs, pass := r.Execute(context.Background())
+		if !pass || len(rs) != 1 || rs[0].Result != Accept {
+			t.Fatalf("%s: pass=%v rs=%+v", gateName, pass, rs)
+		}
+		return rec.prompts
+	}
+
+	checkBounded500 := func(name, prompt string) {
+		t.Helper()
+		_, diffBlock, ok := strings.Cut(prompt, "\nDiff:\n")
+		if !ok {
+			t.Fatalf("%s: no Diff block in prompt", name)
+		}
+		diffHead, trailer, ok := strings.Cut(diffBlock, "… diff truncated at 500 bytes; cut files:\n")
+		if !ok {
+			t.Fatalf("%s: missing 500-byte truncation header:\n%s", name, diffBlock)
+		}
+		if len(strings.TrimSuffix(diffHead, "\n")) > 500 {
+			t.Fatalf("%s: diff body %d exceeds 500 bytes", name, len(diffHead))
+		}
+		if !strings.Contains(diffHead, "deleted file: old.go (3 lines)\n") {
+			t.Fatalf("%s: missing deleted-file summary:\n%s", name, diffHead)
+		}
+		if strings.Contains(prompt, "func Removed()") {
+			t.Fatalf("%s: deleted file content leaked into prompt", name)
+		}
+		for _, want := range []string{"- b_cut.go\n", "- c_huge.go\n"} {
+			if !strings.Contains(trailer, want) {
+				t.Fatalf("%s: cut list lacks %q:\n%s", name, want, trailer)
+			}
+		}
+		if strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- old.go\n") {
+			t.Fatalf("%s: uncut file listed in cut files:\n%s", name, trailer)
+		}
+	}
+
+	ps := runGate("single", nil, workflow.Review{})
+	checkBounded500("single", ps["y1"])
+
+	ps = runGate("panel", nil, workflow.Review{})
+	if ps["y1"] != ps["y2"] {
+		t.Fatal("panel members received different prompts")
+	}
+	checkBounded500("panel/y1", ps["y1"])
+
+	rev := workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"tiered": {"t2": {"y1", "y2"}}}}
+	ps = runGate("tiered", []string{"k:t2"}, rev)
+	if len(ps) != 2 || ps["y1"] != ps["y2"] {
+		t.Fatalf("tier panel prompts mismatch: got %d", len(ps))
+	}
+	checkBounded500("tiered/y1", ps["y1"])
+
+	ps = runGate("default", nil, workflow.Review{})
+	_, diffBlock, ok := strings.Cut(ps["y2"], "\nDiff:\n")
+	if !ok {
+		t.Fatal("default: no Diff block")
+	}
+	diffHead, trailer, ok := strings.Cut(diffBlock, "… diff truncated at 64000 bytes; cut files:\n")
+	if !ok {
+		t.Fatalf("default: 100k diff was not cut at 64000 bytes:\n%s", diffBlock[max(0, len(diffBlock)-300):])
+	}
+	if len(strings.TrimSuffix(diffHead, "\n")) > DefaultDiffMaxBytes {
+		t.Fatalf("default: diff body %d exceeds %d", len(diffHead), DefaultDiffMaxBytes)
+	}
+	if !strings.Contains(trailer, "- c_huge.go\n") || strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- b_cut.go\n") {
+		t.Fatalf("default: unexpected cut list:\n%s", trailer)
 	}
 }

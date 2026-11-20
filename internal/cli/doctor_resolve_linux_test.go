@@ -525,7 +525,7 @@ func TestResolveAsksAboutASessionWhoseHooksExited(t *testing.T) {
 			must(t, "story", "seat", id, "--session", "s-hooks")
 			home := config.GlobalDir()
 			a, b := killedProc(t), killedProc(t)
-			if err := seatlife.Start(home, "s-hooks", []procgroup.Proc{a, b}); err != nil {
+			if err := seatlife.Start(home, "s-hooks", []procgroup.Proc{a, b}, seatlife.Meta{}); err != nil {
 				t.Fatal(err)
 			}
 			rep, _, _ := doctorJSON(t)
