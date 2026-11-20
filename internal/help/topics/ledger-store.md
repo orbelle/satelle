@@ -192,6 +192,20 @@ answering confirms nothing. The project header and landing read `stale` once no
 pass has confirmed the mirror for over 6 minutes; its hover says since when
 and asks whether `satelle-sync.timer` is running.
 
+Each pass also makes doctor's fixes that need no answer, with no doctor run. In each project it releases a seat whose session has ended on this
+machine or whose item is in a terminal state, recorded as
+`satelle-sync.service`, and pushes the release in the same pass. It releases
+only where the store is local or the item was proven in sync with the store
+that pass: with the store unreachable, or the item diverged or refused, it
+leaves the seat, records why, and the first pass that syncs it releases it.
+After the last project it restarts satelled once when it runs another build
+than the installed one; it never restarts a satelled that is not answering and
+never installs or updates satelle. Each fix is one line of
+`satelle logs --doctor --session <session>`. Session start then lists a seat
+release or a build-skew restart only when the last pass, within 6 minutes,
+left it or did not clear it; `satelle doctor --session <session>` still lists
+every issue.
+
 `satelle remote fire`, a remote placement (`remote:<id>`), a remote node and
 `satelle remote status` move their run's item through satelle-server whatever
 `[ledger] store` names, because the node runs there, by the same replicator

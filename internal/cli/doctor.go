@@ -42,6 +42,7 @@ type doctorIssue struct {
 	item    string
 	session string
 	path    string
+	skew    bool
 }
 
 const (
@@ -52,6 +53,17 @@ const (
 	resolveFixItem        = "fix-item"
 	resolveRemoveProject  = "remove-project"
 )
+
+func unattended(is doctorIssue) bool {
+	return is.Resolve == resolveReleaseSeat || (is.Resolve == resolveRestartService && is.skew)
+}
+
+func (is doctorIssue) key() string {
+	if is.item != "" {
+		return is.item + " " + is.session
+	}
+	return is.Problem
+}
 
 type doctorReport struct {
 	Issues    []doctorIssue `json:"issues"`
@@ -450,10 +462,11 @@ func checkVersions(ctx context.Context, _ *doctorInput) ([]doctorIssue, []string
 	}
 	for _, m := range buildinfo.Drift(cli, running, installed) {
 		res := ""
-		if slices.Contains(m.Lines, "running") {
+		skew := slices.Contains(m.Lines, "running")
+		if skew {
 			res = resolveRestartService
 		}
-		out = append(out, doctorIssue{Check: "versions", Problem: m.Text, Fix: m.Remedy, Resolve: res})
+		out = append(out, doctorIssue{Check: "versions", Problem: m.Text, Fix: m.Remedy, Resolve: res, skew: skew})
 	}
 	return out, nil
 }

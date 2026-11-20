@@ -46,6 +46,10 @@ func ServerLogPath(globalDir string) string {
 	return filepath.Join(globalDir, DefaultDirName, "server.log")
 }
 
+func DoctorLogPath(globalDir string) string {
+	return filepath.Join(globalDir, DefaultDirName, "doctor.log")
+}
+
 func (s *Store) migrate() error {
 	if err := s.createTables(); err != nil {
 		return err

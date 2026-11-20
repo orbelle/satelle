@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/procgroup"
 	"github.com/bobmcallan/satelle/internal/seatlife"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
@@ -424,5 +426,10 @@ func sessionDoctor(dir, harness string) (block, notice string) {
 	in.harness = harness
 	in.sessionStart = true
 	rep := runDoctor(ctx, in)
+	if in.inRepo {
+		if st, _, err := syncstate.Load(config.GlobalDir(), uiRepoRoot(in.r)); err == nil {
+			rep = leftForSession(rep, st.Unattended, time.Now())
+		}
+	}
 	return doctorBlock(rep, doctorHookBudget), doctorNotice(rep)
 }

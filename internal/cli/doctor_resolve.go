@@ -14,12 +14,13 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/seatlife"
+	"github.com/bobmcallan/satelle/internal/syncstate"
 )
 
 const (
 	resultApplied  = "applied"
 	resultRemoved  = "removed"
-	resultReleased = "released"
+	resultReleased = syncstate.Released
 	resultKept     = "kept"
 	resultOpened   = "opened"
 	resultCarried  = "carried"
@@ -38,6 +39,10 @@ const (
 	leftNoFix  = "doctor cannot prove a fix for it"
 	leftConfig = "the configuration is invalid, so nothing can be recorded until it validates"
 	leftNoTTY  = "no controlling terminal to ask at"
+
+	leftNotSynced = "its chain was not proven in sync with the ledger store this pass, so a release could fork it"
+	leftInstall   = "installing or updating satelle is not done unattended"
+	leftStopped   = "satelled is not answering; only a build skew is restarted unattended"
 )
 
 type resolveAction struct {
@@ -46,6 +51,7 @@ type resolveAction struct {
 	Resolve string `json:"resolve"`
 	Result  string `json:"result"`
 	Detail  string `json:"detail,omitempty"`
+	key     string
 }
 
 type resolveLeft struct {
@@ -53,6 +59,7 @@ type resolveLeft struct {
 	Problem string `json:"problem"`
 	Why     string `json:"why"`
 	Fix     string `json:"fix"`
+	key     string
 }
 
 type resolveReport struct {
@@ -63,11 +70,11 @@ type resolveReport struct {
 }
 
 func (r *resolveReport) act(is doctorIssue, result, detail string) {
-	r.Actions = append(r.Actions, resolveAction{Check: is.Check, Problem: is.Problem, Resolve: is.Resolve, Result: result, Detail: detail})
+	r.Actions = append(r.Actions, resolveAction{Check: is.Check, Problem: is.Problem, Resolve: is.Resolve, Result: result, Detail: detail, key: is.key()})
 }
 
 func (r *resolveReport) leave(is doctorIssue, prefix, why string) {
-	r.Left = append(r.Left, resolveLeft{Check: is.Check, Problem: is.Problem, Why: why, Fix: prefix + is.Fix})
+	r.Left = append(r.Left, resolveLeft{Check: is.Check, Problem: is.Problem, Why: why, Fix: prefix + is.Fix, key: is.key()})
 }
 
 func (r resolveReport) failed() bool {
@@ -145,7 +152,7 @@ func resolveDoctor(ctx context.Context, in *doctorInput) resolveReport {
 		return rep
 	}
 	defer k.Close()
-	resolveSeats(k, &rep, by[resolveReleaseSeat], by[resolveAsk])
+	resolveSeats(k, &rep, by[resolveReleaseSeat], by[resolveAsk], actor())
 	openFixItem(k, in, &rep, fixItems)
 	pruneSessions(in)
 	return rep
@@ -185,9 +192,9 @@ func detail(out string, err error) string {
 	return d
 }
 
-func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssue) {
+func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssue, actor string) {
 	for _, is := range proven {
-		if err := k.Release(is.item, is.session, actor()); err != nil {
+		if err := k.Release(is.item, is.session, actor); err != nil {
 			rep.act(is, resultFailed, err.Error())
 			continue
 		}
@@ -210,7 +217,7 @@ func resolveSeats(k *kernel.Kernel, rep *resolveReport, proven, ask []doctorIssu
 		line, _ := rd.ReadString('\n')
 		switch strings.ToLower(strings.TrimSpace(line)) {
 		case answerRelease, answerRelease[:1]:
-			if err := k.Release(is.item, is.session, actor()); err != nil {
+			if err := k.Release(is.item, is.session, actor); err != nil {
 				rep.act(is, resultFailed, err.Error())
 				continue
 			}

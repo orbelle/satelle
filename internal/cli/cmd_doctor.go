@@ -115,7 +115,18 @@ fix, and each issue left with a why: line saying why it was left. Plain
 doctor's "acts on N" line counts what --resolve would act on from this
 terminal: the seats it would ask about only when a terminal is attached, and
 no ledger action under an invalid configuration. --resolve exits 0 when
-nothing is left and no action failed, else 1.`,
+nothing is left and no action failed, else 1.
+
+The sync timer's pass (satelle-sync.timer) makes the fixes that need no
+answer in every project on its own, with no doctor run: it releases a seat
+whose session has ended on this machine or whose item is in a terminal state,
+only where the ledger store is local or the item was proven in sync with the
+store that pass (otherwise it leaves the seat, recording why), and restarts
+satelled when it runs another build than the installed one. It never restarts
+a satelled that is not answering and never installs or updates satelle. Each
+fix it makes is one line of satelle logs --doctor; session start then lists a
+seat release or build-skew restart only when the timer's last pass left it.
+satelle doctor itself lists every issue.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()

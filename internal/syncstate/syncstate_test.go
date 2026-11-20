@@ -206,3 +206,86 @@ func TestLoadReadsAFileWithTheDroppedSubstrateKeys(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestRecordUnattendedKeepsTheOtherGroups(t *testing.T) {
+	g := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := RecordPass(g, "/r", Pass{Store: "s", Reason: "down"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordSnapshot(g, "/r", false, "no ui", now); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := Load(g, "/r")
+	u := Unattended{At: now, Actions: []UnattendedAction{{Check: "seats", Key: "sto_1 s", Problem: "p", Result: Released}},
+		Left: []UnattendedIssue{{Check: "versions", Key: "k", Problem: "q", Why: "w", Fix: "f"}}}
+	if err := RecordUnattended(g, "/r", u); err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := Load(g, "/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SyncReason != before.SyncReason || after.SyncPasses != before.SyncPasses || !after.SyncLastFailure.Equal(before.SyncLastFailure) ||
+		after.SnapshotReason != before.SnapshotReason || after.SnapshotPasses != before.SnapshotPasses {
+		t.Errorf("RecordUnattended changed the sync or snapshot group: %+v -> %+v", before, after)
+	}
+	if !after.Unattended.At.Equal(now) || len(after.Unattended.Actions) != 1 || len(after.Unattended.Left) != 1 || after.Unattended.Left[0] != u.Left[0] {
+		t.Errorf("unattended %+v, want %+v", after.Unattended, u)
+	}
+	if err := RecordUnattended(g, "/r", Unattended{At: now}); err != nil {
+		t.Fatal(err)
+	}
+	if again, _, _ := Load(g, "/r"); len(again.Unattended.Actions) != 0 || len(again.Unattended.Left) != 0 {
+		t.Errorf("RecordUnattended did not replace its group: %+v", again.Unattended)
+	}
+}
+
+func TestRecordPassKeepsUnattended(t *testing.T) {
+	g := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	u := Unattended{At: now, Left: []UnattendedIssue{{Check: "seats", Key: "sto_1 s", Why: "w"}}}
+	if err := RecordUnattended(g, "/r", u); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordPass(g, "/r", Pass{Store: LocalStore}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordSnapshot(g, "/r", true, "", now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	st, _, err := Load(g, "/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Unattended.At.Equal(now) || len(st.Unattended.Left) != 1 || st.Unattended.Left[0] != u.Left[0] {
+		t.Errorf("unattended after RecordPass and RecordSnapshot = %+v, want %+v", st.Unattended, u)
+	}
+}
+
+func TestUnattendedNames(t *testing.T) {
+	u := Unattended{
+		Left: []UnattendedIssue{{Check: "seats", Key: "sto_left s"}},
+		Actions: []UnattendedAction{
+			{Check: "versions", Key: "failed restart", Result: "failed"},
+			{Check: "versions", Key: "applied restart", Result: "applied"},
+			{Check: "seats", Key: "sto_released s", Result: Released},
+		},
+	}
+	cases := []struct {
+		name, check, key string
+		want             bool
+	}{
+		{"left", "seats", "sto_left s", true},
+		{"failed", "versions", "failed restart", true},
+		{"applied", "versions", "applied restart", true},
+		{"released", "seats", "sto_released s", false},
+		{"absent", "seats", "sto_other s", false},
+		{"same key, other check", "versions", "sto_left s", false},
+	}
+	for _, tc := range cases {
+		if got := u.Names(tc.check, tc.key); got != tc.want {
+			t.Errorf("%s: Names(%q, %q) = %v, want %v", tc.name, tc.check, tc.key, got, tc.want)
+		}
+	}
+}

@@ -739,6 +739,9 @@ func TestAutosyncPrunesGoneProject(t *testing.T) {
 	if strings.Contains(out, "skipped: no such directory") {
 		t.Errorf("the pass still visited the pruned path:\n%s", out)
 	}
+	if log := must(t, "logs", "--doctor"); strings.Count(log, "\t"+resultRemoved+"\t") != 1 || !strings.Contains(log, gone) {
+		t.Errorf("satelle logs --doctor does not hold one %s line naming %s:\n%s", resultRemoved, gone, log)
+	}
 
 	if hasPartition(t, m, "rk-gone") {
 		t.Error("partition rk-gone, whose path is gone, survived the pass")

@@ -31,6 +31,50 @@ type State struct {
 	SnapshotLastFailure time.Time `json:"snapshot_last_failure,omitempty"`
 	SnapshotReason      string    `json:"snapshot_reason,omitempty"`
 	SnapshotPasses      int       `json:"snapshot_passes,omitempty"`
+
+	Unattended Unattended `json:"unattended,omitzero"`
+}
+
+const Released = "released"
+
+type Unattended struct {
+	At      time.Time          `json:"at"`
+	Actions []UnattendedAction `json:"actions,omitempty"`
+	Left    []UnattendedIssue  `json:"left,omitempty"`
+}
+
+type UnattendedAction struct {
+	Check   string `json:"check"`
+	Key     string `json:"key"`
+	Problem string `json:"problem"`
+	Result  string `json:"result"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type UnattendedIssue struct {
+	Check   string `json:"check"`
+	Key     string `json:"key"`
+	Problem string `json:"problem"`
+	Why     string `json:"why"`
+	Fix     string `json:"fix"`
+}
+
+func (u Unattended) Names(check, key string) bool {
+	for _, l := range u.Left {
+		if l.Check == check && l.Key == key {
+			return true
+		}
+	}
+	for _, a := range u.Actions {
+		if a.Check == check && a.Key == key && a.Result != Released {
+			return true
+		}
+	}
+	return false
+}
+
+func RecordUnattended(globalDir, repoPath string, u Unattended) error {
+	return record(globalDir, repoPath, func(s *State) { s.Unattended = u })
 }
 
 var mu sync.Mutex

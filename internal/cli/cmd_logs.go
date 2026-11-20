@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,16 +15,21 @@ import (
 
 func logsCmd() *cobra.Command {
 	var tail int
-	var showPath, server bool
+	var showPath, server, doctor bool
 	cmd := &cobra.Command{
 		Use:   "logs",
-		Short: "Read this repo's runtime logs, or satelled's (--server)",
+		Short: "Read this repo's runtime logs, satelled's (--server), or the sync timer's doctor fixes (--doctor)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var path string
-			if server {
+			switch {
+			case server && doctor:
+				return errors.New("--doctor and --server name different logs; give one")
+			case server:
 				path = mirror.ServerLogPath(config.GlobalDir())
-			} else {
+			case doctor:
+				path = mirror.DoctorLogPath(config.GlobalDir())
+			default:
 				r, err := findRepo("")
 				if err != nil {
 					return err
@@ -47,6 +53,10 @@ func logsCmd() *cobra.Command {
 				return nil
 			}
 			raw, err := os.ReadFile(path)
+			if doctor && os.IsNotExist(err) {
+				fmt.Fprintf(cmd.OutOrStdout(), "no doctor actions logged at %s\n", path)
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -57,5 +67,6 @@ func logsCmd() *cobra.Command {
 	cmd.Flags().IntVar(&tail, "tail", 50, "last N lines")
 	cmd.Flags().BoolVar(&showPath, "path", false, "print the log path instead")
 	cmd.Flags().BoolVar(&server, "server", false, "satelled's log")
+	cmd.Flags().BoolVar(&doctor, "doctor", false, "the fixes the sync timer made on its own")
 	return cmd
 }
