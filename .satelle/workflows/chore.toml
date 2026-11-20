@@ -41,8 +41,6 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-# One concern, one reviewer (operator rulings, 2026-11-20): security is judged by
-# its own skill, never added to plan-review or code-ac.
 [gates.security]
 skill = "satelle-security-review"
 panel = ["reviewer-gemini-4-hydrogen-high"]
@@ -128,10 +126,8 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["in_progress"]
 to = "integration"
 groups = [
-  { mode = "sequential", gates = ["judge-differs", "binary-scope", "format-vet", "build-unit"] },
-  # Security before code-ac: the costliest miss is judged before fit to the
-  # criteria (operator rulings, 2026-11-20).
-  { mode = "sequential", gates = ["security"] },
+  { mode = "sequential", gates = ["judge-differs", "format-vet", "build-unit"] },
+  { mode = "sequential", gates = ["binary-scope", "security"] },
   { mode = "parallel", gates = ["code-ac"] },
 ]
 

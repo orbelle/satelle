@@ -37,8 +37,8 @@ func TestInitWritesTheWorkflowStandardSkill(t *testing.T) {
 	if tmpl := readRepo(t, "internal/kernel/template/skills/satelle-workflow-standard.md"); body != tmpl {
 		t.Error("init's skill differs from the template")
 	}
-	if own := readRepo(t, workflowStandardSkill); body != own {
-		t.Error("this repo's copy differs from the template")
+	if own := readRepo(t, workflowStandardSkill); withoutStandardLine(body) != withoutStandardLine(own) {
+		t.Error("this repo's copy differs from the template on more than its Standard line")
 	}
 	for _, w := range []string{"name: satelle-workflow-standard", "Standard: none set", "any workflow", "rule ids", "read it"} {
 		if !strings.Contains(body, w) {
@@ -120,4 +120,9 @@ func TestSessionStartCarriesTheWorkflowStandardSkill(t *testing.T) {
 	if !strings.Contains(ctx, "Standard: "+url) || strings.Contains(ctx, "none set") {
 		t.Errorf("session-start context does not carry the named standard as text:\n%s", ctx)
 	}
+}
+
+func withoutStandardLine(s string) string {
+	lines := strings.Split(s, "\n")
+	return strings.Join(slices.DeleteFunc(lines, func(l string) bool { return strings.HasPrefix(l, "Standard: ") }), "\n")
 }

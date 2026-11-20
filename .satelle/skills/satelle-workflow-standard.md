@@ -6,7 +6,7 @@ description: The session agent follows this before creating, changing or checkin
 
 # Workflow standard
 
-Standard: none set
+Standard: .satelle/principles/satelle-reviewer-order.md (the order of reviewers on a transition; it covers this repo's satelle workflows)
 
 The repo edits the Standard line above to name where its workflow standard
 is: a URL, a page, or a path in this repo.
