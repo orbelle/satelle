@@ -1,11 +1,11 @@
 [claude]
-context_limit_bytes = 10000
+context_limit_bytes = 16384
 
 [pi]
-context_limit_bytes = 10000
+context_limit_bytes = 16384
 
 [grok]
-context_limit_bytes = 10000
+context_limit_bytes = 16384
 
 [cursor]
-context_limit_bytes = 10000
+context_limit_bytes = 16384
