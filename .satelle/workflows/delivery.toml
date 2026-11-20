@@ -58,6 +58,14 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
 
+# One concern, one reviewer (operator rulings, 2026-11-20): security is judged by
+# its own skill, never added to plan-review or code-ac.
+[gates.security]
+skill = "satelle-security-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
+
 [gates.plan-review]
 skill = "satelle-story-plan-review"
 panel = ["reviewer-gemini-4-hydrogen-high"]
@@ -181,8 +189,12 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 [[transition]]
 from = ["plan"]
 to = "in_progress"
+# Reviewers run in sequence and fail fast, in priority order (operator rulings,
+# 2026-11-20): binary-scope first, since a plan in the wrong place makes later
+# verdicts moot; security next, the costliest miss; plan-review, fit to the
+# card, last.
 groups = [
-  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "risk-assess", "binary-scope", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "risk-assess", "binary-scope", "security", "plan-review"] },
 ]
 
 [[transition]]
@@ -190,6 +202,9 @@ from = ["in_progress"]
 to = "integration"
 groups = [
   { mode = "sequential", gates = ["definition-unchanged", "judge-differs", "binary-scope", "format-vet", "build-unit"] },
+  # Security before code-ac: the costliest miss is judged before fit to the
+  # criteria (operator rulings, 2026-11-20).
+  { mode = "sequential", gates = ["security"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]
 
