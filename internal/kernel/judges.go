@@ -68,7 +68,7 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 	for _, events := range byItem {
 		var runs []timedResult
 		for _, r := range timedGateRuns(events) {
-			if r.Binding != "" || len(r.Members) > 0 {
+			if isJudgedGateRun(r.Result) {
 				runs = append(runs, r)
 			}
 		}
@@ -77,10 +77,7 @@ func judgeRows(byItem [][]ledger.Event, since, until time.Time) []JudgeRow {
 				continue
 			}
 			for _, v := range verdictsOfResult(r.Result) {
-				model := v.model
-				if model == "" {
-					model = UnknownModel
-				}
+				model := normalizeModel(v.model)
 				key := [2]string{r.Gate, model}
 				t, ok := byKey[key]
 				if !ok {
@@ -157,4 +154,15 @@ func median(ds []int64) int64 {
 		return s[n/2]
 	}
 	return (s[n/2-1] + s[n/2]) / 2
+}
+
+func isJudgedGateRun(r gate.Result) bool {
+	return r.Binding != "" || len(r.Members) > 0
+}
+
+func normalizeModel(model string) string {
+	if model == "" {
+		return UnknownModel
+	}
+	return model
 }

@@ -423,6 +423,15 @@ older panel run without them counts in runs and verdicts only. `--since` and
 `YYYY-MM-DD` date or a duration back from now; `--json` prints the same rows
 as one document. The command only reads the ledger.
 
+To inspect one item's outcome, `satelle gate report --item <id> --session <session>`
+lists its workflow, current status (marked `terminal` when its workflow
+declares the state terminal), each performed state with its command and model
+from `performer.run` records, and each judged gate's rounds with its judge's
+model and verdict (expanding panel members; check gates, skipped and carried
+runs are omitted). A run recorded without a model shows `unknown`, never the
+model `agents.toml` names today. `--json` prints the same outcome and rows as
+one document; `--since` and `--until` do not apply with `--item`.
+
 ## Agents
 
 Bindings and adapters: satelle help agents.
