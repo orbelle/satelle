@@ -459,6 +459,9 @@ func workflowCmd() *cobra.Command {
 					if g.Timeout != "" {
 						fmt.Fprintf(out, "  timeout %s", g.Timeout)
 					}
+					if limit, ok := g.DiffBound(); ok {
+						fmt.Fprintf(out, "  diff_max_bytes %d", limit)
+					}
 					fmt.Fprintln(out)
 				}
 			}

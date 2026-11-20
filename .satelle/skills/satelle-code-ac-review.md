@@ -12,10 +12,11 @@ mapping. Read-only; do not run the suite or design an alternative.
 ## Enumeration — the slice
 
 Your prompt carries the item, its base commit, the changed paths and the diff
-since that base (cut at 200 000 bytes). That is the engaged slice. Judge those
-paths against the ACs, not the whole tree; open a changed file with Read when
-the diff is cut or the hunk alone does not settle an AC. When your prompt has no
-diff, fall back to Read/Grep of the tree. You have no shell.
+since that base (bounded per gate; a cut diff lists the cut files, and deleted
+files are summarised as path and line count). That is the engaged slice. Judge
+those paths against the ACs, not the whole tree; open a changed file with Read
+when the diff is cut or the hunk alone does not settle an AC. When your prompt
+has no diff, fall back to Read/Grep of the tree. You have no shell.
 
 Read the executor's `ac-evidence` and the `plan` from the record folder your
 prompt names (`attachments/ac-evidence`, `attachments/plan`).

@@ -19,8 +19,9 @@ when the story has one.
 - `.satelle/constitution.md` and every file in `.satelle/principles/`. Read
   them yourself, in full, before judging.
 - Every changed file whose hunk needs context, in the work tree. When the diff
-  ends with `… diff truncated …`, read each changed path whose hunk the cut
-  hid and put one line `READ <path>` per such file in your notes.
+  is truncated (ends with `… diff truncated at <bound> bytes; cut files:`), read
+  each cut file in the work tree and put one line `READ <path>` per such file in
+  your notes.
 
 ## What is drift
 

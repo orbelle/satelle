@@ -364,6 +364,16 @@ func (r Run) bound(name string, g workflow.Gate) (time.Duration, string, error) 
 	return DefaultCheckTimeout, def, nil
 }
 
+func (r Run) diffBound(name string, g workflow.Gate) (int, string, error) {
+	if limit, set := g.DiffBound(); set {
+		if limit <= 0 {
+			return 0, "", fmt.Errorf("diff_max_bytes %d on gates.%s must be positive", limit, name)
+		}
+		return limit, "gates." + name + " diff_max_bytes", nil
+	}
+	return DefaultDiffMaxBytes, fmt.Sprintf("default; set diff_max_bytes on [gates.%s] to change it", name), nil
+}
+
 func checkFailure(err error, source, out string) string {
 	var te *TimeoutError
 	if errors.As(err, &te) {
@@ -468,7 +478,7 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 			}
 		}
 	default:
-		res = r.judge(ctx, g, skill)
+		res = r.judge(ctx, name, g, skill)
 	}
 	res.Coverage = coverage
 	if res.Result == Accept || res.Result == Reject {
@@ -543,9 +553,9 @@ func (r Run) carried(gate, coverage string) (Result, bool) {
 	return Result{}, false
 }
 
-func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) Result {
+func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill workflow.Skill) Result {
 	names := g.Judges()
-	prompt, err := r.prompt(g)
+	prompt, err := r.prompt(gateName, g)
 	if err != nil {
 		return Result{Result: Reject, Notes: err.Error(), Binding: strings.Join(names, ",")}
 	}
@@ -635,7 +645,7 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 	return res
 }
 
-func (r Run) prompt(g workflow.Gate) (string, error) {
+func (r Run) prompt(name string, g workflow.Gate) (string, error) {
 	it := r.Item
 	var b strings.Builder
 	fmt.Fprintf(&b, "Judge item %s moving from %q to %q.\n\n", it.ID, r.From, r.To)
@@ -661,15 +671,16 @@ func (r Run) prompt(g workflow.Gate) (string, error) {
 	if len(r.Untracked) > 0 {
 		fmt.Fprintf(&b, "Untracked files in the worktree (not in the item's change):\n%s\n", strings.Join(r.Untracked, "\n"))
 	}
+	bound, _, err := r.diffBound(name, g)
+	if err != nil {
+		return "", err
+	}
 	if r.Diff != nil {
 		d, err := r.Diff(g.Paths)
 		if err != nil {
 			return "", fmt.Errorf("diff: %w", err)
 		}
-		const max = 200_000
-		if len(d) > max {
-			d = d[:max] + "\n… diff truncated …\n"
-		}
+		d = formatPromptDiff(d, bound)
 		if d != "" {
 			fmt.Fprintf(&b, "\nDiff:\n%s\n", d)
 		}
