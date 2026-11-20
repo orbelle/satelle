@@ -22,7 +22,9 @@ driving session, which fires the release queue ([[satelle-agent-goals]],
 3. **Run stories whose plans touch a common path one after another.** When two
    plans' `## Touches` name a common path, drive the second only after the
    first lands; parallel branches over the same files come back from the
-   release as conflicts.
+   release as conflicts. Inside an epic, whose children release together,
+   the second is not held: it is branched from the first's branch (stacked),
+   and both reach `approved` and release in the same run.
 4. **Overlap only what touches no shared host state**: readiness rounds,
    dispatched coders, unit tests and reviews of different stories. Record what
    overlapped when a failure might be interference.
