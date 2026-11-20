@@ -58,7 +58,7 @@ after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "sate
 
 [gates.security]
 skill = "satelle-security-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-neon-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
