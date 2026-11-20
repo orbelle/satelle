@@ -32,7 +32,8 @@ landing before it, and tests the combined candidate once.
 
 This check proves the head is ready for review; it does not approve. It is
 the last gate before review. The item then waits for the pull-request review
-task, which a session other than the author's runs: its judge's verdict is
+run, which the driving session starts as a separate cold session, as the
+task its `waits` text names says: its judge's verdict is
 published on this pull request's head as the satelle GitHub app. The approval
 gate, on the move out of review, passes only on the app's approving review of
 HEAD. No GitHub review is read here, and GitHub runs no tests. The pending

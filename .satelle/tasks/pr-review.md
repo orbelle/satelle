@@ -1,6 +1,7 @@
 # Pull-request review
 
-A task a session other than the author's runs, on demand, for one story whose
+A task a session other than the author's runs (the driving session starts
+it; see *Who starts it*), on demand, for one story whose
 pull request is open: the story's pull request head is judged cold, from a
 checkout that is not the author's worktree, and the verdict is published on
 that head as the satelle GitHub app. Its runs follow
@@ -11,6 +12,38 @@ verdict as a `github.review` event on the story's own chain.
 The author's session reads the result through
 `.satelle/skills/satelle-pr-approval-check.md`: an approval passes it; requested changes attach the review as
 `pr-review` and reopen the story there. The review run never moves the story.
+
+## Who starts it
+
+The session driving the story starts the run, as soon as the story is at the
+state that waits for it, and never runs the blocks of *Run it* itself: a
+review run by the author's own session is not a review. It starts a separate
+session of an agent harness in its non-interactive mode, from the main
+checkout, with a grant of shell and read tools and no edit tool, and this
+prompt, with the story id and pull request number filled in:
+
+```text
+You are a cold reviewer session, not the author. Follow
+.satelle/tasks/pr-review.md exactly for story <story> (pull request #<n>): find
+(or create once) the task "Review a story's pull request head", then do every
+block of the section "Run it" in order, using the session id from your own
+SessionStart context as <session>. Run every command on its own as one simple
+command; shell variables do not persist between your commands, so
+substitute literal values. When done, release the seat, remove the review
+checkout, and report the run id, the pr-review verdict and whether the review
+was published.
+```
+
+The separate session gets its own session id from its own session-start
+context, so the run's seat and events are not the author's. On the claude
+harness the command is `claude -p "<prompt>" --allowedTools Bash Read Grep Glob`;
+on another harness, use its non-interactive mode with the same grant. When the
+harness refuses to start that session (a permission mode that reads it as a
+session approving its own work), do not start it another way: report the
+refusal to the operator, who starts the review session or allows it.
+
+When the separate session reports, the driving session presents the story's
+move out of the waiting state; the approval gate reads the published review.
 
 ## The task
 

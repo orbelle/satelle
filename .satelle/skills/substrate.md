@@ -77,22 +77,30 @@ again. After the round cap the item is held at `blocked`: follow
 
 ## 6. Land: fast-forward main
 
-Only after the item is `done`, land exactly the commits the gates judged:
+Only after the item is `done`, land exactly the commits the gates judged. Run
+these from the main checkout, as written, with no `-C`:
 
 ```bash
 git fetch origin
 git push origin <id>:main
 ```
 
-The push is a plain fast-forward: git refuses it when `origin/main` has moved
-past the branch's base. Then rebase the branch onto `origin/main`
-(`git rebase origin/main`), run `satelle validate --session <session>` on the
-result, and push it the same way. A rebase that conflicts is not resolved in a
-done item: report it to the operator with the conflicting paths and stop.
+A done item's seat allows no edits, and the edit gate reads `git -C <worktree>`
+with a subcommand that is not read-only as acting on that tree
+(`satelle help edit-gate --session <session>`), so the same commands with `-C`
+are refused. The push names the branch, not the worktree, so it needs neither.
 
-Then bring the main checkout to `origin/main`
-(`git -C <main checkout> merge --ff-only origin/main`) and remove the item's
-worktree.
+The push is a plain fast-forward: git refuses it when `origin/main` has moved
+past the branch's base. Main's ruleset asks for a pull request, so the remote
+prints that the push bypassed that rule; for a done substrate item this is
+expected, because its gates on `in_progress -> done` are the review. When the
+fast-forward is refused, the branch must be brought onto `origin/main` and
+validated again, which changes a tree: do not do it in the done item. Report
+it to the operator with the branch and what `origin/main` gained.
+
+Then bring the main checkout to `origin/main` (`git merge --ff-only origin/main`,
+run in the main checkout) and remove the item's worktree
+(`git worktree remove <path>`).
 
 ## Do not
 
