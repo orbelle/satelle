@@ -73,20 +73,33 @@ func GateRuns(events []ledger.Event) []gate.Result {
 			out = append(out, r)
 		}
 	}
-	for i := 0; i < len(out); {
+	sortAttemptRuns(out, func(r gate.Result) (string, int) { return r.Attempt, r.Seq })
+	return out
+}
+
+func sortAttemptRuns[T any](items []T, meta func(T) (attempt string, seq int)) {
+	for i := 0; i < len(items); {
+		at, _ := meta(items[i])
 		j := i + 1
-		if out[i].Attempt != "" {
-			for j < len(out) && out[j].Attempt == out[i].Attempt {
+		if at != "" {
+			for j < len(items) {
+				nextAt, _ := meta(items[j])
+				if nextAt != at {
+					break
+				}
 				j++
 			}
 		}
-		run := out[i:j]
-		if run[0].Attempt != "" && !slices.ContainsFunc(run, func(r gate.Result) bool { return r.Seq <= 0 }) {
-			slices.SortStableFunc(run, func(a, b gate.Result) int { return a.Seq - b.Seq })
+		run := items[i:j]
+		if at != "" && !slices.ContainsFunc(run, func(x T) bool { _, seq := meta(x); return seq <= 0 }) {
+			slices.SortStableFunc(run, func(a, b T) int {
+				_, sa := meta(a)
+				_, sb := meta(b)
+				return sa - sb
+			})
 		}
 		i = j
 	}
-	return out
 }
 
 type recorder struct {

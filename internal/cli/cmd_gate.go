@@ -82,11 +82,11 @@ not judge; 1 the command failed.`,
 }
 
 func gateReportCmd() *cobra.Command {
-	var since, until string
+	var itemID, since, until string
 	var asJSON *bool
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: "Compare judges per gate and model from the ledger's gate runs, writing nothing",
+		Short: "Compare judges from the ledger, or show one item's outcome by performer and judge model",
 		Long: `Fold every judged gate.run on the ledger into one row per gate and model:
 runs, accepts, rejects, errors, confirmed catches, overturned rejects, the runs
 measured, tokens in and out, and the median duration. A panel member counts
@@ -103,17 +103,29 @@ carried their own tokens and duration counts in runs and verdicts only.
 --since and --until bound the window by the gate.run's time (since inclusive,
 until exclusive). Each takes an RFC 3339 time, a YYYY-MM-DD date (local
 midnight), or a Go duration back from now (168h). With neither, the whole
-ledger is read. The command only reads the ledger.`,
+ledger is read.
+
+With --item <id>, print one item's outcome instead: its workflow, current
+status (marked terminal when its workflow declares the state terminal), each
+performed state with its command and model, and each judged gate's rounds with
+its judge's model and verdict (expanding panel members). Runs recorded without
+a model show unknown, never the model agents.toml names today. --since and
+--until do not apply with --item. The command only reads the ledger.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			now := time.Now()
-			from, err := parseWhen(since, now)
-			if err != nil {
-				return fmt.Errorf("--since: %w", err)
+			if itemID != "" && (since != "" || until != "") {
+				return fmt.Errorf("--since and --until apply to the cross-item judge report, not --item")
 			}
-			to, err := parseWhen(until, now)
-			if err != nil {
-				return fmt.Errorf("--until: %w", err)
+			var from, to time.Time
+			if itemID == "" {
+				now := time.Now()
+				var err error
+				if from, err = parseWhen(since, now); err != nil {
+					return fmt.Errorf("--since: %w", err)
+				}
+				if to, err = parseWhen(until, now); err != nil {
+					return fmt.Errorf("--until: %w", err)
+				}
 			}
 			r, err := findRepo("")
 			if err != nil {
@@ -124,6 +136,17 @@ ledger is read. The command only reads the ledger.`,
 				return err
 			}
 			defer k.Close()
+			if itemID != "" {
+				out, err := k.ItemOutcome(itemID)
+				if err != nil {
+					return err
+				}
+				if *asJSON {
+					return writeJSON(cmd.OutOrStdout(), out)
+				}
+				printItemOutcome(cmd.OutOrStdout(), out)
+				return nil
+			}
 			rows, err := k.JudgeReport(from, to)
 			if err != nil {
 				return err
@@ -146,6 +169,7 @@ ledger is read. The command only reads the ledger.`,
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&itemID, "item", "", "show one item's outcome with the performer and judge models behind each step")
 	cmd.Flags().StringVar(&since, "since", "", "count gate runs at or after this time (RFC 3339, YYYY-MM-DD or a duration back from now)")
 	cmd.Flags().StringVar(&until, "until", "", "count gate runs before this time (RFC 3339, YYYY-MM-DD or a duration back from now)")
 	asJSON = jsonFlag(cmd)
@@ -187,6 +211,27 @@ func printJudgeRows(w io.Writer, since, until time.Time, rows []kernel.JudgeRow)
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", r.Gate, r.Model, r.Runs, r.Accepts, r.Rejects, r.Errors,
 			r.ConfirmedCatches, r.OverturnedRejects, r.Measured, r.TokensIn, r.TokensOut, median)
+	}
+	tw.Flush()
+}
+
+func printItemOutcome(w io.Writer, out kernel.ItemOutcome) {
+	term := ""
+	if out.Terminal {
+		term = " (terminal)"
+	}
+	fmt.Fprintf(w, "%s  workflow %s  status %s%s\n", out.Item, out.Workflow, out.Status, term)
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "KIND\tSTEP\tTRANSITION\tROUND\tRESULT\tBINDING\tCOMMAND\tMODEL")
+	cell := func(s string) string {
+		if s == "" {
+			return "-"
+		}
+		return s
+	}
+	for _, r := range out.Rows {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+			r.Kind, r.Step, cell(r.Transition), r.Round, r.Result, cell(r.Binding), cell(r.Command), r.Model)
 	}
 	tw.Flush()
 }
