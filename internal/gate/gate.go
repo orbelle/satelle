@@ -61,6 +61,8 @@ type Result struct {
 	Seq         int          `json:"seq,omitempty"`
 	Command     string       `json:"command,omitempty"`
 	Model       string       `json:"model,omitempty"`
+	Effort      string       `json:"effort,omitempty"`
+	PromptBytes int          `json:"prompt_bytes,omitempty"`
 	Tier        string       `json:"tier,omitempty"`
 	At          time.Time    `json:"-"`
 
@@ -91,15 +93,17 @@ func ToOf(key string) string {
 }
 
 type Member struct {
-	Binding    string `json:"binding"`
-	Result     string `json:"result"`
-	Class      string `json:"class,omitempty"`
-	Answer     string `json:"answer,omitempty"`
-	Command    string `json:"command,omitempty"`
-	Model      string `json:"model,omitempty"`
-	TokensIn   int    `json:"tokens_in,omitempty"`
-	TokensOut  int    `json:"tokens_out,omitempty"`
-	DurationMS int64  `json:"duration_ms,omitempty"`
+	Binding     string `json:"binding"`
+	Result      string `json:"result"`
+	Class       string `json:"class,omitempty"`
+	Answer      string `json:"answer,omitempty"`
+	Command     string `json:"command,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	PromptBytes int    `json:"prompt_bytes,omitempty"`
+	TokensIn    int    `json:"tokens_in,omitempty"`
+	TokensOut   int    `json:"tokens_out,omitempty"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
 }
 
 type judgeAnswer struct {
@@ -591,7 +595,7 @@ func (r Run) judge(ctx context.Context, gateName string, g workflow.Gate, skill 
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
 		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class, Command: m.Command, Model: m.Model,
-			TokensIn: m.TokensIn, TokensOut: m.TokensOut, DurationMS: m.dispatched.Milliseconds()})
+			Effort: m.Effort, PromptBytes: m.PromptBytes, TokensIn: m.TokensIn, TokensOut: m.TokensOut, DurationMS: m.dispatched.Milliseconds()})
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
 	}
 	pass := false
@@ -622,8 +626,9 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, re
 		res.Notes = fmt.Sprintf("agent %q is not in the catalog", name)
 		return res
 	}
-	res.Command, res.Model = b.Command, b.Model
-	req := agent.Request{Binding: b, System: skill.Body, Prompt: r.judgePrompt(rest, b.Brief), Dir: r.Dir}
+	prompt := r.judgePrompt(rest, b.Brief)
+	res.Command, res.Model, res.Effort, res.PromptBytes = b.Command, b.Model, b.Effort, len(prompt)
+	req := agent.Request{Binding: b, System: skill.Body, Prompt: prompt, Dir: r.Dir}
 	if r.Logs != "" {
 		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
 	}

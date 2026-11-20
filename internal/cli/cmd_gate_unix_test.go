@@ -12,19 +12,21 @@ import (
 
 func fakeJudge(t *testing.T, verdict, notes string) string {
 	t.Helper()
-	return fakeJudgeCapture(t, verdict, notes, "/dev/null")
+	bin, _ := fakeJudgeWithStdin(t, verdict, notes)
+	return bin
 }
 
-func fakeJudgeCapture(t *testing.T, verdict, notes, dst string) string {
+func fakeJudgeWithStdin(t *testing.T, verdict, notes string) (string, string) {
 	t.Helper()
 	answer, _ := json.Marshal(map[string]string{"verdict": verdict, "notes": notes})
 	result, _ := json.Marshal(map[string]any{"result": "judged\n" + string(answer), "usage": map[string]int{"input_tokens": 1, "output_tokens": 1}})
 	bin := filepath.Join(t.TempDir(), "claude")
-	script := "#!/bin/sh\ncat >'" + dst + "'\nprintf '%s\\n' '" + string(result) + "'\n"
+	stdinPath := bin + ".stdin"
+	script := "#!/bin/sh\ncat > \"$0.stdin\"\nprintf '%s\\n' '" + string(result) + "'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return bin
+	return bin, stdinPath
 }
 
 func writeDryWorkflow(t *testing.T, dir string) {
@@ -170,6 +172,137 @@ func TestGateRunRefusesAMalformedCall(t *testing.T) {
 	}
 }
 
+func TestGateRunLedgerRecordsEffortAndPromptBytes(t *testing.T) {
+	dir := isolate(t)
+	must(t, "init")
+	highBin, highStdin := fakeJudgeWithStdin(t, "accept", "single ok")
+	medBin, medStdin := fakeJudgeWithStdin(t, "accept", "med ok")
+	noneBin, noneStdin := fakeJudgeWithStdin(t, "accept", "none ok")
+	agents, err := os.ReadFile(filepath.Join(dir, ".satelle", "agents.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		".satelle/agents.toml": string(agents) + `
+[agents.judge-high]
+command = "` + highBin + `"
+model = "fake-high"
+effort = "high"
+tools = ["Read"]
+[agents.judge-med]
+command = "` + medBin + `"
+model = "fake-med"
+effort = "medium"
+tools = ["Read"]
+[agents.judge-none]
+command = "` + noneBin + `"
+model = "fake-none"
+tools = ["Read"]
+`,
+		".satelle/workflows/recorded.toml": `name = "recorded"
+[states.st-a]
+start = true
+[states.st-b]
+terminal = true
+[gates.chk]
+skill = "rec-ok"
+[gates.single]
+skill = "rec-review"
+agent = "judge-high"
+[gates.panel]
+skill = "rec-review"
+panel = ["judge-med", "judge-none"]
+combine = "all"
+[[transition]]
+from = ["st-a"]
+to = "st-b"
+groups = [{ mode = "sequential", gates = ["chk", "single", "panel"] }]
+`,
+		".satelle/skills/rec-ok.md":     "---\ntype: check\n---\n```sh\necho ok\n```\n",
+		".satelle/skills/rec-review.md": "---\nname: rec-review\n---\nReview it.\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	id := createID(t, "story", "create", "--workflow", "recorded", "--title", "record effort —é")
+	must(t, "story", "set", id, "--status", "st-b")
+
+	stdinBytes := func(path string) int {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read stdin capture %s: %v", path, err)
+		}
+		if len(b) == 0 {
+			t.Fatalf("captured stdin %s is empty", path)
+		}
+		return len(b)
+	}
+	highBytes := stdinBytes(highStdin)
+	medBytes := stdinBytes(medStdin)
+	noneBytes := stdinBytes(noneStdin)
+
+	out := must(t, "ledger", "list", id, "--kind", "gate.run", "--json")
+	var events []struct {
+		Payload map[string]any `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(out), &events); err != nil {
+		t.Fatalf("unmarshal gate.run events: %v\n%s", err, out)
+	}
+	byGate := map[string]map[string]any{}
+	for _, ev := range events {
+		name, _ := ev.Payload["gate"].(string)
+		byGate[name] = ev.Payload
+	}
+	if len(byGate) != 3 {
+		t.Fatalf("expected 3 gate.run events, got %d:\n%s", len(byGate), out)
+	}
+
+	chk := byGate["chk"]
+	for _, key := range []string{"effort", "prompt_bytes"} {
+		if _, has := chk[key]; has {
+			t.Errorf("check gate.run has %q: %v", key, chk)
+		}
+	}
+
+	single := byGate["single"]
+	if single["effort"] != "high" {
+		t.Errorf("single gate.run effort = %v, want high", single["effort"])
+	}
+	if single["prompt_bytes"] != float64(highBytes) {
+		t.Errorf("single gate.run prompt_bytes = %v, want %d", single["prompt_bytes"], highBytes)
+	}
+
+	panel := byGate["panel"]
+	for _, key := range []string{"effort", "prompt_bytes"} {
+		if _, has := panel[key]; has {
+			t.Errorf("panel top-level gate.run has %q: %v", key, panel)
+		}
+	}
+	members, ok := panel["members"].([]any)
+	if !ok || len(members) != 2 {
+		t.Fatalf("panel gate.run members = %v", panel["members"])
+	}
+	m0 := members[0].(map[string]any)
+	if m0["binding"] != "judge-med" || m0["effort"] != "medium" || m0["prompt_bytes"] != float64(medBytes) {
+		t.Errorf("panel member 0 = %v, want binding=judge-med effort=medium prompt_bytes=%d", m0, medBytes)
+	}
+	m1 := members[1].(map[string]any)
+	if _, has := m1["effort"]; has {
+		t.Errorf("panel member 1 without effort has effort key: %v", m1)
+	}
+	if m1["binding"] != "judge-none" || m1["prompt_bytes"] != float64(noneBytes) {
+		t.Errorf("panel member 1 = %v, want binding=judge-none prompt_bytes=%d", m1, noneBytes)
+	}
+}
+
 func TestGateRunJudgeBriefDeliveredOnStdin(t *testing.T) {
 	dir := isolate(t)
 	must(t, "init")
@@ -177,17 +310,17 @@ func TestGateRunJudgeBriefDeliveredOnStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	briefedCap := filepath.Join(t.TempDir(), "briefed.txt")
-	plainCap := filepath.Join(t.TempDir(), "plain.txt")
+	briefedBin, briefedCap := fakeJudgeWithStdin(t, "accept", "ok")
+	plainBin, plainCap := fakeJudgeWithStdin(t, "accept", "ok")
 	files := map[string]string{
 		".satelle/agents.toml": string(agents) + `
 [agents.judge-briefed]
-command = "` + fakeJudgeCapture(t, "accept", "ok", briefedCap) + `"
+command = "` + briefedBin + `"
 model = "fake-briefed"
 tools = ["Read"]
 brief = "Read only the changed files and what they touch."
 [agents.judge-plain]
-command = "` + fakeJudgeCapture(t, "accept", "ok", plainCap) + `"
+command = "` + plainBin + `"
 model = "fake-plain"
 tools = ["Read"]
 `,

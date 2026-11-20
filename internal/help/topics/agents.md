@@ -138,7 +138,8 @@ define, a field outside the schema, and an override that makes a binding
 invalid; each refusal names agents.local.toml. `satelle doctor --session <session>` lists every
 active override as a note, field by field, tracked -> effective. A
 `performer.run` records the command and model that ran, and a `gate.run` the
-judge's (each panel member's for a panel).
+judge's command, model and (when set) `effort` (each panel member's for a
+panel).
 
 `satelle init --session <session>` writes the ignore line into a new `.satelle/.gitignore`. A repo
 whose `.satelle/.gitignore` predates it adds the line `agents.local.toml`

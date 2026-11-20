@@ -176,6 +176,10 @@ while its coverage is unchanged (and while its review `tier` is unchanged when
 The carried `gate.run` names the reused accept's transition and time in
 `notes` and `carried_from`, even across chained carries; any change to
 coverage, or a newer reject or error, runs the gate again.
+Each judged `gate.run` also records the judge's `command`, `model`, `effort`
+(when its binding sets one; omitted when unset) and `prompt_bytes` (the byte
+length of the prompt given to the judge): on the top-level record for a single
+judge, and on each `members[]` entry for a panel.
 
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
