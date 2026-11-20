@@ -114,12 +114,14 @@ type DoctorCheck struct {
 }
 
 type DoctorOpen struct {
-	Name     string `toml:"name"`
-	Kind     string `toml:"kind"`
-	Status   string `toml:"status"`
-	Tag      string `toml:"tag"`
-	Category string `toml:"category"`
-	Fix      string `toml:"fix"`
+	Name      string `toml:"name"`
+	Kind      string `toml:"kind"`
+	Status    string `toml:"status"`
+	Tag       string `toml:"tag"`
+	Category  string `toml:"category"`
+	KeyPrefix string `toml:"key_prefix"`
+	OwnerTag  string `toml:"owner_tag"`
+	Fix       string `toml:"fix"`
 }
 
 func (o DoctorOpen) Selection() item.Selection {
@@ -403,6 +405,24 @@ func (c *Config) doctorProblems() []error {
 		}
 		if strings.TrimSpace(o.Fix) == "" {
 			errs = append(errs, fmt.Errorf("%s: items %q has no fix", DoctorFile, o.Name))
+		}
+		if o.KeyPrefix != "" || o.OwnerTag != "" {
+			switch {
+			case o.KeyPrefix == "":
+				errs = append(errs, fmt.Errorf("%s: items %q sets owner_tag without key_prefix", DoctorFile, o.Name))
+			case strings.TrimSpace(o.KeyPrefix) == "":
+				errs = append(errs, fmt.Errorf("%s: items %q key_prefix is blank", DoctorFile, o.Name))
+			}
+			switch {
+			case o.OwnerTag == "":
+				errs = append(errs, fmt.Errorf("%s: items %q sets key_prefix without owner_tag", DoctorFile, o.Name))
+			case strings.TrimSpace(o.OwnerTag) == "":
+				errs = append(errs, fmt.Errorf("%s: items %q owner_tag is blank", DoctorFile, o.Name))
+			case o.OwnerTag != strings.TrimSpace(o.OwnerTag):
+				errs = append(errs, fmt.Errorf("%s: items %q owner_tag %q has leading or trailing whitespace", DoctorFile, o.Name, o.OwnerTag))
+			case strings.Contains(o.OwnerTag, ":"):
+				errs = append(errs, fmt.Errorf("%s: items %q owner_tag %q holds ':', which separates a tag's key from its value", DoctorFile, o.Name, o.OwnerTag))
+			}
 		}
 	}
 	return errs

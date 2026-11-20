@@ -26,25 +26,41 @@ name = "drift"
 kind = "story"
 tag = "drift"
 fix = "satelle story get {id}"
+
+[[items]]
+name = "tracked"
+kind = "story"
+tag = "tracked"
+key_prefix = "key: "
+owner_tag = "owns"
+fix = "satelle story get {id}"
 `)
 	c, err := LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Doctor.Checks) != 1 || c.Doctor.Checks[0].Skill != "probe" || len(c.Doctor.Open) != 1 || c.Doctor.Open[0].Selection().Tag != "drift" {
+	if len(c.Doctor.Checks) != 1 || c.Doctor.Checks[0].Skill != "probe" || len(c.Doctor.Open) != 2 ||
+		c.Doctor.Open[0].Selection().Tag != "drift" || c.Doctor.Open[1].KeyPrefix != "key: " || c.Doctor.Open[1].OwnerTag != "owns" {
 		t.Fatalf("Doctor = %+v", c.Doctor)
 	}
 	if errs := Validate(root); len(errs) != 0 {
 		t.Fatalf("a good doctor.toml must validate: %v", errs)
 	}
 	cases := map[string]string{
-		"unknown key":   "[[check]]\nskill = \"probe\"\nfix = \"x\"\nbogus = 1\n",
-		"missing skill": "[[check]]\nskill = \"nope\"\nfix = \"x\"\n",
-		"not a check":   "[[check]]\nskill = \"prose\"\nfix = \"x\"\n",
-		"no check fix":  "[[check]]\nskill = \"probe\"\n",
-		"no selector":   "[[items]]\nname = \"a\"\nfix = \"x\"\n",
-		"no open fix":   "[[items]]\nname = \"a\"\ntag = \"t\"\n",
-		"duplicate":     "[[items]]\nname = \"a\"\ntag = \"t\"\nfix = \"x\"\n[[items]]\nname = \"a\"\ntag = \"u\"\nfix = \"x\"\n",
+		"unknown key":                  "[[check]]\nskill = \"probe\"\nfix = \"x\"\nbogus = 1\n",
+		"missing skill":                "[[check]]\nskill = \"nope\"\nfix = \"x\"\n",
+		"not a check":                  "[[check]]\nskill = \"prose\"\nfix = \"x\"\n",
+		"no check fix":                 "[[check]]\nskill = \"probe\"\n",
+		"no selector":                  "[[items]]\nname = \"a\"\nfix = \"x\"\n",
+		"no open fix":                  "[[items]]\nname = \"a\"\ntag = \"t\"\n",
+		"duplicate":                    "[[items]]\nname = \"a\"\ntag = \"t\"\nfix = \"x\"\n[[items]]\nname = \"a\"\ntag = \"u\"\nfix = \"x\"\n",
+		"key_prefix without owner_tag": "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"k: \"\nfix = \"x\"\n",
+		"owner_tag without key_prefix": "[[items]]\nname = \"a\"\ntag = \"t\"\nowner_tag = \"owns\"\nfix = \"x\"\n",
+		"blank key_prefix":             "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"   \"\nowner_tag = \"owns\"\nfix = \"x\"\n",
+		"blank owner_tag":              "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"k: \"\nowner_tag = \"   \"\nfix = \"x\"\n",
+		"colon in owner_tag":           "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"k: \"\nowner_tag = \"owns:x\"\nfix = \"x\"\n",
+		"leading space in owner_tag":   "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"k: \"\nowner_tag = \" owns\"\nfix = \"x\"\n",
+		"trailing space in owner_tag":  "[[items]]\nname = \"a\"\ntag = \"t\"\nkey_prefix = \"k: \"\nowner_tag = \"owns \"\nfix = \"x\"\n",
 	}
 	for name, body := range cases {
 		write(t, filepath.Join(root, DoctorFile), body)

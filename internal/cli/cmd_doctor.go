@@ -74,7 +74,11 @@ Its checks:
              classes every seat as here (this machine, session running),
              elsewhere (another machine), gone or unverified
   check:<s>  each check skill .satelle/doctor.toml names
-  open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects
+  open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects;
+             when key_prefix and owner_tag are set, each key line owned by
+             another open item's <owner_tag>:<key> tag is a note naming that
+             owner, and the entry is an issue only while keys remain unowned
+             (or when it carries no key lines)
 
 Outside a satelle repo only the machine checks (versions, upgrade, projects,
 sync) run; in a pre-1.0 repo only versions, upgrade, projects and the sync

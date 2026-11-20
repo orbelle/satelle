@@ -152,14 +152,22 @@ runs what `.satelle/doctor.toml` names:
     name = "<name>"             # unique; reported as open:<name>
     kind = "story"              # and/or tag, category, status (an item selection; one of kind, tag, category is required)
     tag = "<tag>"
+    key_prefix = "<prefix>"     # optional (paired with owner_tag): body line prefix naming one key per line
+    owner_tag = "<tag-key>"     # optional (paired with key_prefix): tag key on another open item (<owner_tag>:<key>)
     fix = "satelle story get {id}"  # {id} is replaced with the item's id
 
 A check skill runs in the working tree with no item: exit 0 is clean, exit 1
 is one issue per line it prints, any other exit (or a timeout) is one "could
 not check" issue. A doctor check must change nothing. An `[[items]]` entry
 reports each item it selects that is not in a terminal state of its workflow.
-`doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
-that does not know it ignores it.
+When `key_prefix` and `owner_tag` are both set, each body line starting with
+`key_prefix` names a key; any key carried as `<owner_tag>:<key>` on another
+open item (not matched by the entry's own selection) is reported as a note
+naming that owner, and the entry raises an issue only for keys with no open
+owner (or when the item carries no key lines). Both keys must be set together,
+neither may be blank, and `owner_tag` may not hold `:` or leading or trailing
+whitespace. `doctor.toml` is its own file, not a `satelle.toml` table, so an
+older satelle that does not know it ignores it.
 
 `satelle doctor --resolve --session <session>` fixes what doctor can prove (the service, seats
 whose session has ended on this machine or whose item is in a terminal state)
