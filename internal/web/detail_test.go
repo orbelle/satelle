@@ -262,3 +262,200 @@ func TestRoutesAllAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestVerdictOfModelResolution(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name        string
+		run         mirror.GateRun
+		wantModel   string
+		wantMembers []verdictMemberVM
+	}{
+		{
+			name:      "single judge with model",
+			run:       mirror.GateRun{Gate: "g1", Binding: "r1", Model: "claude-opus-4-6", Result: "accept"},
+			wantModel: "claude-opus-4-6",
+		},
+		{
+			name:      "single judge trims whitespace",
+			run:       mirror.GateRun{Gate: "g1", Binding: "r1", Model: "  gpt-5.4  ", Result: "accept"},
+			wantModel: "gpt-5.4",
+		},
+		{
+			name:      "single judge without model shows unknown",
+			run:       mirror.GateRun{Gate: "g1", Binding: "r1", Result: "reject"},
+			wantModel: mirror.UnknownModel,
+		},
+		{
+			name:      "model without binding still shows model",
+			run:       mirror.GateRun{Gate: "g1", Model: "gemini-2.5-pro", Result: "accept"},
+			wantModel: "gemini-2.5-pro",
+		},
+		{
+			name: "panel run populates member models and leaves parent empty",
+			run: mirror.GateRun{
+				Gate: "g2", Binding: "r1,r2", Result: "reject",
+				Members: []mirror.GateMember{
+					{Binding: "r1", Model: "gpt-5.4", Result: "reject", TokensIn: 110, TokensOut: 25, DurationMS: 2400},
+					{Binding: "r2", Result: "accept", TokensIn: 90, TokensOut: 15, DurationMS: 1200},
+				},
+			},
+			wantModel: "",
+			wantMembers: []verdictMemberVM{
+				{Binding: "r1", Model: "gpt-5.4", Result: "reject", TokensIn: 110, TokensOut: 25, Duration: "2.4s"},
+				{Binding: "r2", Model: mirror.UnknownModel, Result: "accept", TokensIn: 90, TokensOut: 15, Duration: "1.2s"},
+			},
+		},
+		{
+			name:      "check gate leaves model empty",
+			run:       mirror.GateRun{Gate: "check", Result: "accept"},
+			wantModel: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := verdictOf(tc.run, now)
+			if got.JudgeModel != tc.wantModel {
+				t.Errorf("JudgeModel = %q, want %q", got.JudgeModel, tc.wantModel)
+			}
+			if len(got.JudgeMembers) != len(tc.wantMembers) {
+				t.Fatalf("JudgeMembers = %+v, want %+v", got.JudgeMembers, tc.wantMembers)
+			}
+			for i, want := range tc.wantMembers {
+				if got.JudgeMembers[i] != want {
+					t.Errorf("JudgeMembers[%d] = %+v, want %+v", i, got.JudgeMembers[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestItemDetailShowsJudgeModels(t *testing.T) {
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	ev := func(id, itemID, kind string, m int, p any) json.RawMessage {
+		return raw(mirror.Event{ID: id, Item: itemID, Kind: kind, At: at(m), Actor: "ann", Payload: raw(p)})
+	}
+	snap := mirror.Snapshot{
+		RepoKey: "rk", Slug: "proj",
+		Stories: []json.RawMessage{
+			raw(mirror.Item{ID: "sto_1", Kind: "story", Title: "Judged Story", Status: "beta", Workflow: "flow", CreatedAt: t0, UpdatedAt: at(10)}),
+		},
+		Executions: []json.RawMessage{
+			raw(mirror.Item{ID: "exe_1", Kind: "execution", Title: "Judged Execution", Status: "beta", Workflow: "flow", CreatedAt: t0, UpdatedAt: at(10)}),
+		},
+		LedgerEvents: []json.RawMessage{
+			ev("e1", "sto_1", mirror.EventTransitioned, 0, map[string]string{"from": "", "to": "alpha"}),
+			ev("e2", "sto_1", mirror.EventGateRun, 1, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g1", Binding: "r1", Model: "claude-opus-4-6",
+				Result: "reject", Notes: "fix scope", TokensIn: 40, TokensOut: 10, DurationMS: 1100, Attempt: "a1",
+			}),
+			ev("e3", "sto_1", mirror.EventGateRun, 2, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g2", Binding: "r1,r2", Result: "reject", Notes: "panel split",
+				TokensIn: 200, TokensOut: 40, DurationMS: 3600, Attempt: "a1",
+				Members: []mirror.GateMember{
+					{Binding: "r1", Model: "gpt-5.4", Result: "reject", TokensIn: 110, TokensOut: 25, DurationMS: 2400},
+					{Binding: "r2", Result: "accept", TokensIn: 90, TokensOut: 15, DurationMS: 1200},
+				},
+			}),
+			ev("e4", "sto_1", mirror.EventGateRun, 3, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g1", Binding: "r1", Result: "accept",
+				TokensIn: 30, TokensOut: 8, DurationMS: 800, Attempt: "a2",
+			}),
+			ev("e5", "sto_1", mirror.EventGateRun, 4, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g2", Result: "accept", DurationMS: 200, Attempt: "a2",
+			}),
+			ev("e6", "sto_1", mirror.EventTransitioned, 5, map[string]string{"from": "alpha", "to": "beta"}),
+			ev("e7", "exe_1", mirror.EventGateRun, 6, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g1", Binding: "r1", Model: "gemini-2.5-pro", Result: "accept", Attempt: "e1",
+			}),
+			ev("e8", "exe_1", mirror.EventGateRun, 7, mirror.GateRun{
+				Transition: "alpha->beta", Gate: "g2", Binding: "r2", Result: "reject", Attempt: "e1",
+			}),
+		},
+		Docs: []json.RawMessage{
+			raw(mirror.Doc{Kind: mirror.DocKindWorkflows, Name: "flow", Body: "name = \"flow\"", Workflow: &fixtureWorkflow}),
+		},
+		Settings: raw(mirror.Settings{RepoRoot: "/p"}),
+		Identity: raw(mirror.IdentityMeta{ProjectName: "proj", RepoRoot: "/p"}),
+	}
+	srv := mirrorWith(t, snap)
+
+	for _, path := range []string{"/r/proj/story/sto_1", "/r/proj/fragment/story/sto_1"} {
+		body := httpGetBody(t, srv.URL+path)
+
+		pStart := strings.Index(body, "<h4>Progress</h4>")
+		pEnd := strings.Index(body, "<h4>Route</h4>")
+		if pStart < 0 || pEnd < pStart {
+			t.Fatalf("%s: missing Progress section", path)
+		}
+		progress := body[pStart:pEnd]
+		for _, want := range []string{
+			"g1 <span class=\"meta\">r1 · claude-opus-4-6</span>",
+			"g2 <span class=\"meta\">r1 (gpt-5.4): reject, r2 (unknown): accept</span>",
+		} {
+			if !strings.Contains(progress, want) {
+				t.Errorf("%s: Progress missing %q:\n%s", path, want, progress)
+			}
+		}
+
+		vStart := strings.Index(body, "<h4>Verdicts</h4>")
+		vEnd := strings.Index(body, "<h4>Attachments</h4>")
+		if vStart < 0 || vEnd < vStart {
+			t.Fatalf("%s: missing Verdicts section", path)
+		}
+		verdicts := body[vStart:vEnd]
+		inOrder(t, verdicts,
+			"<th>Gate</th><th>Binding</th><th>Model</th><th>Result</th>",
+			`<tr class="verdict v-reject">`,
+			"<td>g1</td>",
+			`<td class="meta">r1</td>`,
+			`<td class="meta verdict-model">claude-opus-4-6</td>`,
+			`<td><span class="verdict-result">reject</span></td>`,
+			`<tr class="verdict v-reject">`,
+			"<td>g2</td>",
+			`<td class="meta">r1,r2</td>`,
+			`<td class="meta verdict-model">—</td>`,
+			`<td><span class="verdict-result">reject</span></td>`,
+			`<tr class="verdict verdict-member v-reject">`,
+			`<td class="meta verdict-member-indent">↳</td>`,
+			`<td class="meta">r1</td>`,
+			`<td class="meta verdict-model">gpt-5.4</td>`,
+			`<td><span class="verdict-result">reject</span></td>`,
+			"110 in · 25 out",
+			"2.4s",
+			`<tr class="verdict verdict-member v-accept">`,
+			`<td class="meta verdict-member-indent">↳</td>`,
+			`<td class="meta">r2</td>`,
+			`<td class="meta verdict-model">unknown</td>`,
+			`<td><span class="verdict-result">accept</span></td>`,
+			"90 in · 15 out",
+			"1.2s",
+			`<tr class="verdict v-accept">`,
+			"<td>g1</td>",
+			`<td class="meta">r1</td>`,
+			`<td class="meta verdict-model">unknown</td>`,
+			`<td><span class="verdict-result">accept</span></td>`,
+			`<tr class="verdict v-accept">`,
+			"<td>g2</td>",
+			`<td class="meta">—</td>`,
+			`<td class="meta verdict-model">—</td>`,
+			`<td><span class="verdict-result">accept</span></td>`,
+		)
+		checkStart := strings.LastIndex(verdicts, "<td>g2</td>")
+		checkEnd := strings.Index(verdicts[checkStart:], "</tr>")
+		checkRow := verdicts[checkStart : checkStart+checkEnd]
+		if strings.Contains(checkRow, mirror.UnknownModel) {
+			t.Errorf("%s: check gate row showed unknown:\n%s", path, checkRow)
+		}
+	}
+
+	exeBody := httpGetBody(t, srv.URL+"/r/proj/execution/exe_1")
+	inOrder(t, exeBody,
+		"<h4>Verdicts</h4>",
+		`<td class="meta verdict-model">gemini-2.5-pro</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+		`<td class="meta verdict-model">unknown</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+	)
+}

@@ -35,6 +35,7 @@ func TestWireConstantsAreTheKernels(t *testing.T) {
 		mirror.GateReject:           gate.Reject,
 		mirror.GateError:            gate.Error,
 		mirror.TransitionSep:        gate.TransitionKey("", ""),
+		mirror.UnknownModel:         kernel.UnknownModel,
 	} {
 		if got != want {
 			t.Errorf("mirror has %q, the kernel %q", got, want)
@@ -726,5 +727,107 @@ func TestSatelledShowsAGateRunning(t *testing.T) {
 	}
 	if row := stories(); strings.Contains(row, "run live") || strings.Contains(row, "tone-live") || !strings.Contains(row, "tone-ok") {
 		t.Errorf("after the move, with no push by the test:\n%s", row)
+	}
+}
+
+func TestPushShowsGateModelsOnItemPage(t *testing.T) {
+	ctx := context.Background()
+	k, src := fixture(t)
+	srv, _ := satelled(t, "inst")
+	c := uipush.Client{Endpoint: srv.URL, InstanceID: "inst"}
+
+	it, err := k.Create(item.Fields{Kind: ptr("story"), Title: ptr("Models pushed")}, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := []gate.Result{
+		{
+			Transition: gate.TransitionKey("first", "second"),
+			Gate:       "single-with-model",
+			Binding:    "r1",
+			Model:      "claude-sonnet-4-6",
+			Result:     gate.Accept,
+			TokensIn:   50,
+			TokensOut:  12,
+			DurationMS: 1400,
+			Attempt:    "att_1",
+		},
+		{
+			Transition: gate.TransitionKey("first", "second"),
+			Gate:       "single-no-model",
+			Binding:    "r2",
+			Result:     gate.Reject,
+			Notes:      "needs detail",
+			Attempt:    "att_1",
+		},
+		{
+			Transition: gate.TransitionKey("first", "second"),
+			Gate:       "panel-mixed",
+			Binding:    "r1,r2",
+			Result:     gate.Reject,
+			TokensIn:   160,
+			TokensOut:  30,
+			DurationMS: 2800,
+			Attempt:    "att_1",
+			Members: []gate.Member{
+				{Binding: "r1", Model: "gpt-5.4", Result: gate.Accept, TokensIn: 100, TokensOut: 20, DurationMS: 1800},
+				{Binding: "r2", Result: gate.Reject, TokensIn: 60, TokensOut: 10, DurationMS: 1000},
+			},
+		},
+	}
+	for _, r := range runs {
+		if _, err := k.Ledger.Append(it.ID, gate.KindRun, "ann", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := k.Cache.SyncItem(k.Ledger, it.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Push(ctx, src, []string{it.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	page := get(t, srv.URL+"/r/proj/story/"+it.ID)
+	vStart := strings.Index(page, "<h4>Verdicts</h4>")
+	vEnd := strings.Index(page, "<h4>Attachments</h4>")
+	if vStart < 0 || vEnd < vStart {
+		t.Fatalf("pushed story page missing Verdicts section:\n%s", page)
+	}
+	verdicts := page[vStart:vEnd]
+	ordered := []string{
+		"<th>Gate</th><th>Binding</th><th>Model</th><th>Result</th>",
+		"<td>single-with-model</td>",
+		`<td class="meta">r1</td>`,
+		`<td class="meta verdict-model">claude-sonnet-4-6</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+		"<td>single-no-model</td>",
+		`<td class="meta">r2</td>`,
+		`<td class="meta verdict-model">unknown</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		"<td>panel-mixed</td>",
+		`<td class="meta">r1,r2</td>`,
+		`<td class="meta verdict-model">—</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		`<tr class="verdict verdict-member v-accept">`,
+		`<td class="meta">r1</td>`,
+		`<td class="meta verdict-model">gpt-5.4</td>`,
+		`<td><span class="verdict-result">accept</span></td>`,
+		"100 in · 20 out",
+		"1.8s",
+		`<tr class="verdict verdict-member v-reject">`,
+		`<td class="meta">r2</td>`,
+		`<td class="meta verdict-model">unknown</td>`,
+		`<td><span class="verdict-result">reject</span></td>`,
+		"60 in · 10 out",
+		"1.0s",
+	}
+	at := 0
+	for _, want := range ordered {
+		i := strings.Index(verdicts[at:], want)
+		if i < 0 {
+			t.Errorf("pushed story Verdicts missing %q after offset %d:\n%s", want, at, verdicts)
+			break
+		}
+		at += i + len(want)
 	}
 }

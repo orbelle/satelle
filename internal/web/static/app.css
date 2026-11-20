@@ -343,6 +343,9 @@ li.presentation.outcome-refused { border-left-color: var(--fail); }
 .pres-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .pres-outcome { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .verdict-table td, .verdict-table th { padding: 5px 8px; }
+.verdict-model { font-family: var(--mono); }
+tr.verdict-member td { padding-top: 3px; padding-bottom: 4px; background: var(--row-hover); }
+.verdict-member-indent { text-align: right; color: var(--muted); }
 tr.verdict.v-accept .verdict-result, tr.verdict.v-carried .verdict-result { color: var(--ok); }
 tr.verdict.v-reject .verdict-result { color: var(--fail); font-weight: 600; }
 tr.verdict.v-error .verdict-result { color: var(--warn); font-weight: 600; }
