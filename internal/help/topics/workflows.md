@@ -405,6 +405,24 @@ really dispatches its judges and logs them as above. `--show-input` prints the
 check's env and stdin, or the judge's prompt, and starts nothing. A gate with a
 long timeout runs as a background command, as `story set --status` does.
 
+To compare judges, `satelle gate report --session <session>` folds every judged
+gate.run on the ledger into one row per gate and model: runs, accepts, rejects,
+errors, confirmed catches, overturned rejects, the runs measured, tokens in and
+out, and the median duration. A panel member counts under its own model; a run
+recorded without a model counts under `unknown`, never a model read from
+`agents.toml`. A reject is a confirmed catch when the next accept of the same
+gate on the same item judged a different change (another coverage), and an
+overturned reject when it judged the same one; a panel member's reject in a run
+the gate accepted is overturned. The report counts recorded results, so a
+single judge's reject that an after check gave counts as that judge's. A
+panel's gate.run records each member's `tokens_in`, `tokens_out` and
+`duration_ms` (its dispatch alone; a single judge's duration is the whole
+gate's), and `measured` counts the runs behind the tokens and the median: an
+older panel run without them counts in runs and verdicts only. `--since` and
+`--until` bound the window by the gate.run's time, each an RFC 3339 time, a
+`YYYY-MM-DD` date or a duration back from now; `--json` prints the same rows
+as one document. The command only reads the ledger.
+
 ## Agents
 
 Bindings and adapters: satelle help agents.

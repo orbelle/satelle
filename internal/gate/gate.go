@@ -60,6 +60,8 @@ type Result struct {
 	judges []judgeAnswer
 
 	verdict bool
+
+	dispatched time.Duration
 }
 
 type Change struct {
@@ -82,12 +84,15 @@ func ToOf(key string) string {
 }
 
 type Member struct {
-	Binding string `json:"binding"`
-	Result  string `json:"result"`
-	Class   string `json:"class,omitempty"`
-	Answer  string `json:"answer,omitempty"`
-	Command string `json:"command,omitempty"`
-	Model   string `json:"model,omitempty"`
+	Binding    string `json:"binding"`
+	Result     string `json:"result"`
+	Class      string `json:"class,omitempty"`
+	Answer     string `json:"answer,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Model      string `json:"model,omitempty"`
+	TokensIn   int    `json:"tokens_in,omitempty"`
+	TokensOut  int    `json:"tokens_out,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
 type judgeAnswer struct {
@@ -543,7 +548,8 @@ func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) R
 		out.verdict = out.verdict && m.verdict
 		out.TokensIn += m.TokensIn
 		out.TokensOut += m.TokensOut
-		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class, Command: m.Command, Model: m.Model})
+		out.Members = append(out.Members, Member{Binding: m.Binding, Result: m.Result, Class: m.Class, Command: m.Command, Model: m.Model,
+			TokensIn: m.TokensIn, TokensOut: m.TokensOut, DurationMS: m.dispatched.Milliseconds()})
 		notes = append(notes, fmt.Sprintf("%s: %s: %s", m.Binding, m.Result, m.Notes))
 	}
 	pass := false
@@ -580,7 +586,7 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, pr
 		req.Log = logsread.DispatchPath(r.Logs, name, r.Item.ID, time.Now().UnixNano())
 	}
 	out, err := r.Dispatcher.Dispatch(ctx, agent.Judge, req)
-	res.TokensIn, res.TokensOut = out.TokensIn, out.TokensOut
+	res.TokensIn, res.TokensOut, res.dispatched = out.TokensIn, out.TokensOut, out.Duration
 	if out.Command != "" {
 		res.Command = out.Command
 	}
