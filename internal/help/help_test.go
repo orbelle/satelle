@@ -303,6 +303,34 @@ func TestCheckStdinKeysDocumented(t *testing.T) {
 	}
 }
 
+func TestAgentsTopicDocumentsAutoMode(t *testing.T) {
+	agents, ok := Get("agents")
+	if !ok {
+		t.Fatal("no agents topic")
+	}
+	for _, want := range []string{
+		"satelle agents auto-mode <harness> --session <session>",
+		".satelle/auto-mode.md",
+		"~/.claude/settings.json",
+		`"$defaults"`,
+		"unavailable",
+		"`pi`, `grok`, `cursor`",
+	} {
+		if !strings.Contains(agents.Body, want) {
+			t.Errorf("agents topic lacks %q", want)
+		}
+	}
+	cfg, ok := Get("configuration")
+	if !ok {
+		t.Fatal("no configuration topic")
+	}
+	for _, want := range []string{"`auto-mode.md`", "satelle agents auto-mode <harness> --session <session>"} {
+		if !strings.Contains(cfg.Body, want) {
+			t.Errorf("configuration topic lacks %q", want)
+		}
+	}
+}
+
 func TestDiffMaxBytesDocumented(t *testing.T) {
 	top, ok := Get("workflows")
 	if !ok {

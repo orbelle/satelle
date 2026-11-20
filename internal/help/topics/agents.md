@@ -61,6 +61,27 @@ file differs from the current set (absent, holding none, running a satelle
 command this binary lacks, or an older set), with `satelle agents install
 <harness> --session <session>` as the fix.
 
+## Auto-mode guidance
+
+`satelle agents auto-mode <harness> --session <session>` reads the repo's own
+`.satelle/auto-mode.md` (plain prose, one entry per non-empty line), prints the
+harness's auto-mode configuration block to stdout, and names where it belongs on
+stderr. It is print-only and writes no file.
+
+- `claude`: prints a JSON `autoMode` block whose `environment` list starts with
+  `"$defaults"` followed by each non-empty line of `.satelle/auto-mode.md`, and
+  names `~/.claude/settings.json` on stderr. Claude Code reads `autoMode` only
+  from `~/.claude/settings.json`, managed settings or `--settings`, never from a
+  project's `.claude/settings.json`.
+- `pi`, `grok`, `cursor`: reports that auto-mode guidance is unavailable for
+  that harness and writes nothing.
+
+A first `satelle init --session <session>` writes `.satelle/auto-mode.md` from
+the starter template and the repo owns and edits it; `satelle init --print
+.satelle/auto-mode.md --session <session>` prints the starter file. If
+`.satelle/auto-mode.md` is missing or not a regular file, the command fails
+without falling back to the starter template.
+
 ## Adapters
 
 The adapter is chosen by the basename of the command's first word.

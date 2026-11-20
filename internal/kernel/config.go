@@ -135,6 +135,7 @@ const (
 	AgentsFile      = "agents.toml"
 	AgentsLocalFile = "agents.local.toml"
 	SessionFile     = "session.md"
+	AutoModeFile    = "auto-mode.md"
 	WorkflowsDir    = "workflows"
 	SkillsDir       = "skills"
 	QueuesDir       = "queues"

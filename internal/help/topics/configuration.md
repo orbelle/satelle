@@ -92,6 +92,12 @@ key.
   edit takes effect with no rebuild. A first `satelle init --session <session>` writes it and the
   repo edits it; a repo without it gets a line naming the missing file, and
   `satelle doctor --session <session>` reports it until a substrate story adds it (see init.toml below).
+- `auto-mode.md` — the repo's prose auto-mode guidance, one entry per non-empty
+  line. `satelle agents auto-mode <harness> --session <session>` formats it into
+  the harness's auto-mode block on stdout and names where it belongs on stderr
+  without writing any file (see `satelle help agents --session <session>`). A
+  first `satelle init --session <session>` writes the starter copy and the repo
+  edits it.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.

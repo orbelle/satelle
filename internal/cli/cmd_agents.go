@@ -21,7 +21,7 @@ import (
 func agentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
-		Short: "Install, remove or refresh harness hook files (" + strings.Join(hook.Harnesses, ", ") + ")",
+		Short: "Install, remove or refresh harness hook files, or print auto-mode guidance (" + strings.Join(hook.Harnesses, ", ") + ")",
 		Long: `agents install writes a harness's hook file so its sessions call satelle's
 hook handlers: claude (.claude/settings.json), grok (.grok/hooks/satelle.json),
 pi (.pi/extensions/satelle.ts) and cursor (.cursor/hooks.json). satelle's
@@ -40,7 +40,10 @@ agents refresh applies the install rule to every registered project
 configuration directory (.claude, .cursor, .grok, .pi) the repo has. It leaves
 a file git tracks, a pi extension that is not satelle's, and every file of a
 repo whose .satelle/satelle.toml sets [hook] refresh = false, and names each.
-satelle update runs it after replacing the binaries.`,
+satelle update runs it after replacing the binaries.
+agents auto-mode <harness> prints a harness's auto-mode configuration block
+built from .satelle/auto-mode.md to stdout and names where it belongs on
+stderr, without writing any file.`,
 	}
 	for _, verb := range []string{"install", "remove"} {
 		cmd.AddCommand(&cobra.Command{
@@ -79,7 +82,64 @@ satelle update runs it after replacing the binaries.`,
 			return nil
 		},
 	})
+	cmd.AddCommand(&cobra.Command{
+		Use:       "auto-mode <harness>",
+		Short:     "Print a harness's auto-mode guidance block from " + config.DefaultDataDir + "/" + kernel.AutoModeFile,
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: hook.Harnesses,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			harness := args[0]
+			display, err := hook.AutoModeDisplay(harness)
+			if err != nil {
+				return err
+			}
+			r, err := findRepo("")
+			if err != nil {
+				return err
+			}
+			guidance, err := readRegularFile(filepath.Join(r.DataDir, kernel.AutoModeFile))
+			if err != nil {
+				return err
+			}
+			out, err := hook.FormatAutoMode(harness, guidance)
+			if err != nil {
+				return err
+			}
+			if _, err := cmd.OutOrStdout().Write(out); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.ErrOrStderr(), "belongs in %s\n", display)
+			return err
+		},
+	})
 	return cmd
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	linfo, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			rel := filepath.ToSlash(filepath.Join(config.DefaultDataDir, kernel.AutoModeFile))
+			return nil, fmt.Errorf("%s is missing; print the starter file with `satelle init --print %s --session <session>`", rel, rel)
+		}
+		return nil, err
+	}
+	if !linfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	finfo, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(linfo, finfo) || !finfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return io.ReadAll(f)
 }
 
 func installHooks(out io.Writer, tree string, harnesses []string, stale func(string) bool) error {
