@@ -171,6 +171,10 @@ start with no result for the item's newest presentation leaving the step. A
 dry run (`satelle gate run`) records neither. When `[review]` in `satelle.toml`
 picked the gate's reviewers, its `gate.run` records the item's `tier`, and an
 accept is carried only while the tier is the same (`satelle help configuration --session <session>`).
+Each judged `gate.run` also records the judge's `command`, `model`, `effort`
+(when its binding sets one; omitted when unset) and `prompt_bytes` (the byte
+length of the prompt given to the judge): on the top-level record for a single
+judge, and on each `members[]` entry for a panel.
 
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes

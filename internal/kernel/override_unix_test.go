@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -107,12 +108,14 @@ model = "gpt-x"
 	reqs := append([]agent.Request{}, d.reqs...)
 	d.mu.Unlock()
 	var perf, judge agent.Binding
+	var judgeReq agent.Request
 	for _, r := range reqs {
 		switch r.Binding.Name {
 		case "doer":
 			perf = r.Binding
 		case "r1":
 			judge = r.Binding
+			judgeReq = r
 		}
 	}
 	if perf.Command != "claude" || perf.Model != "small" || !reflect.DeepEqual(perf.Tools, []string{"Read", "Edit"}) {
@@ -138,8 +141,98 @@ model = "gpt-x"
 	if run.Command != "claude" || run.Model != "small" {
 		t.Errorf("performer.run records command %q model %q, want claude and small", run.Command, run.Model)
 	}
-	if res.Command != "cursor-agent" || res.Model != "gpt-x" {
-		t.Errorf("gate.run records command %q model %q, want cursor-agent and gpt-x", res.Command, res.Model)
+	if res.Command != "cursor-agent" || res.Model != "gpt-x" || res.Effort != "" || res.PromptBytes != len(judgeReq.Prompt) {
+		t.Errorf("gate.run records command %q model %q effort %q prompt_bytes %d, want cursor-agent, gpt-x, empty effort and %d",
+			res.Command, res.Model, res.Effort, res.PromptBytes, len(judgeReq.Prompt))
+	}
+}
+
+func TestGateRunRecordsEffectiveEffortAndPromptBytes(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		tracked    string
+		local      string
+		wantEffort string
+	}{
+		{"tracked effort", "effort = \"low\"\n", "", "low"},
+		{"overridden effort", "effort = \"low\"\n", "[agents.r1]\neffort = \"high\"\n", "high"},
+		{"cleared effort", "effort = \"low\"\n", "[agents.r1]\neffort = \"\"\n", ""},
+		{"unset effort", "", "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := overrideRoot(t, "", c.local)
+			if c.tracked != "" {
+				write(t, filepath.Join(root, AgentsFile), overrideAgents+c.tracked)
+			}
+			k, err := Open(Options{Root: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { k.Close() })
+			d := &fakeDispatcher{answers: map[string]string{"doer": "did it", "r1": accept}}
+			k.Dispatcher = d
+			ctx := context.Background()
+			it, err := k.Create(item.Fields{Kind: ptr("thing"), Title: ptr("t")}, "me")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := k.Transition(ctx, it.ID, "work", "me"); err != nil {
+				t.Fatal(err)
+			}
+			if res, err := k.Transition(ctx, it.ID, "closed", "me"); err != nil || !res.Moved {
+				t.Fatalf("close: %v %+v", err, res)
+			}
+			d.mu.Lock()
+			reqs := append([]agent.Request{}, d.reqs...)
+			d.mu.Unlock()
+			var judgeReq agent.Request
+			foundReq := false
+			for _, r := range reqs {
+				if r.Binding.Name == "r1" {
+					judgeReq, foundReq = r, true
+				}
+			}
+			if !foundReq || judgeReq.Prompt == "" {
+				t.Fatalf("no judge request captured: %+v", reqs)
+			}
+			ev, err := k.Ledger.Read(it.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var res gate.Result
+			var raw json.RawMessage
+			for _, e := range ev {
+				if e.Kind == gate.KindRun {
+					if err := e.Decode(&res); err != nil {
+						t.Fatal(err)
+					}
+					raw = e.Payload
+				}
+			}
+			if len(raw) == 0 {
+				t.Fatal("no gate.run event recorded")
+			}
+			if res.Effort != c.wantEffort {
+				t.Errorf("gate.run effort = %q, want %q", res.Effort, c.wantEffort)
+			}
+			if res.PromptBytes != len(judgeReq.Prompt) {
+				t.Errorf("gate.run prompt_bytes = %d, want %d", res.PromptBytes, len(judgeReq.Prompt))
+			}
+			var m map[string]any
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatal(err)
+			}
+			if c.wantEffort == "" {
+				if _, has := m["effort"]; has {
+					t.Errorf("gate.run JSON has effort key when unset: %s", raw)
+				}
+			} else if m["effort"] != c.wantEffort {
+				t.Errorf("gate.run JSON effort = %v, want %q", m["effort"], c.wantEffort)
+			}
+			if m["prompt_bytes"] != float64(len(judgeReq.Prompt)) {
+				t.Errorf("gate.run JSON prompt_bytes = %v, want %d", m["prompt_bytes"], len(judgeReq.Prompt))
+			}
+		})
 	}
 }
 

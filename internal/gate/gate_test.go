@@ -118,6 +118,7 @@ type fakeDispatcher struct {
 	answers map[string]string
 	usage   map[string]agent.Result
 	calls   []string
+	prompts map[string]string
 }
 
 func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
@@ -127,6 +128,10 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, role agent.Role, req agent.
 		return agent.Result{}, errors.New("not a judge")
 	}
 	f.calls = append(f.calls, req.Binding.Name)
+	if f.prompts == nil {
+		f.prompts = map[string]string{}
+	}
+	f.prompts[req.Binding.Name] = req.Prompt
 	text, ok := f.answers[req.Binding.Name]
 	if !ok {
 		return agent.Result{}, errors.New("no such fake")
@@ -312,8 +317,8 @@ func TestVerdictClassAndPanelMembers(t *testing.T) {
 		t.Fatalf("panel: %v %+v", pass, rs)
 	}
 	want := []Member{
-		{Binding: "y1", Result: Accept, Command: "claude", Model: "model-y1", TokensIn: 300, TokensOut: 20, DurationMS: 1500},
-		{Binding: "n1", Result: Reject, Class: "AC3", Command: "claude", Model: "model-n1", TokensIn: 700, TokensOut: 40, DurationMS: 4000},
+		{Binding: "y1", Result: Accept, Command: "claude", Model: "model-y1", PromptBytes: len(d.prompts["y1"]), TokensIn: 300, TokensOut: 20, DurationMS: 1500},
+		{Binding: "n1", Result: Reject, Class: "AC3", Command: "claude", Model: "model-n1", PromptBytes: len(d.prompts["n1"]), TokensIn: 700, TokensOut: 40, DurationMS: 4000},
 	}
 	if got := rs[0].Members; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("members %+v, want %+v", got, want)
@@ -563,5 +568,142 @@ func TestReviewLeavesACheckGateAlone(t *testing.T) {
 	rs, _ := r.Execute(context.Background())
 	if rs[0].Tier != "" || len(d.calls) != 0 {
 		t.Fatalf("a check gate took a tier: %+v calls %v", rs[0], d.calls)
+	}
+}
+
+func TestJudgeRecordsEffortAndPromptBytes(t *testing.T) {
+	marshalMap := func(t *testing.T, v any) map[string]any {
+		t.Helper()
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one"}}},
+		map[string]workflow.Gate{"one": {Skill: "judge", Agent: "y1"}})
+	b := r.Agents["y1"]
+	b.Effort = "high"
+	r.Agents["y1"] = b
+	r.Item.Body = "plain"
+	rs, pass := r.Execute(context.Background())
+	if !pass || len(rs) != 1 {
+		t.Fatalf("single with effort: %v %+v", pass, rs)
+	}
+	wantBytes := len(d.prompts["y1"])
+	if wantBytes == 0 || rs[0].Effort != "high" || rs[0].PromptBytes != wantBytes {
+		t.Fatalf("single with effort: effort=%q prompt_bytes=%d, want high and %d", rs[0].Effort, rs[0].PromptBytes, wantBytes)
+	}
+	raw := marshalMap(t, rs[0])
+	if raw["effort"] != "high" || raw["prompt_bytes"] != float64(wantBytes) {
+		t.Fatalf("single with effort JSON: %v", raw)
+	}
+
+	const utf8Suffix = "—é"
+	if len(utf8Suffix) != 5 {
+		t.Fatalf("utf8Suffix len = %d, want 5", len(utf8Suffix))
+	}
+	r.Item.Body = "plain" + utf8Suffix
+	rs2, pass := r.Execute(context.Background())
+	if !pass || len(rs2) != 1 || rs2[0].PromptBytes != wantBytes+5 || rs2[0].PromptBytes != len(d.prompts["y1"]) {
+		t.Fatalf("utf8 byte delta: got %d, want %d (delivered %d)", rs2[0].PromptBytes, wantBytes+5, len(d.prompts["y1"]))
+	}
+
+	r, d = setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"one"}}},
+		map[string]workflow.Gate{"one": {Skill: "judge", Agent: "y2"}})
+	rs, pass = r.Execute(context.Background())
+	if !pass || len(rs) != 1 || rs[0].Effort != "" || rs[0].PromptBytes == 0 || rs[0].PromptBytes != len(d.prompts["y2"]) {
+		t.Fatalf("single without effort: %v %+v", pass, rs)
+	}
+	raw = marshalMap(t, rs[0])
+	if _, has := raw["effort"]; has {
+		t.Fatalf("single without effort marshaled effort key: %v", raw)
+	}
+	if raw["prompt_bytes"] != float64(len(d.prompts["y2"])) {
+		t.Fatalf("single without effort JSON prompt_bytes = %v, want %d", raw["prompt_bytes"], len(d.prompts["y2"]))
+	}
+
+	r, d = setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"p"}}},
+		map[string]workflow.Gate{"p": {Skill: "judge", Panel: []string{"y1", "y2", "n1"}, Combine: workflow.CombineAny}})
+	y1 := r.Agents["y1"]
+	y1.Effort = "high"
+	r.Agents["y1"] = y1
+	n1 := r.Agents["n1"]
+	n1.Effort = "low"
+	r.Agents["n1"] = n1
+	rs, pass = r.Execute(context.Background())
+	if !pass || len(rs) != 1 || len(rs[0].Members) != 3 {
+		t.Fatalf("panel: %v %+v", pass, rs)
+	}
+	raw = marshalMap(t, rs[0])
+	for _, key := range []string{"effort", "prompt_bytes"} {
+		if _, has := raw[key]; has {
+			t.Fatalf("panel top-level marshaled %q: %v", key, raw)
+		}
+	}
+	rawMembers, ok := raw["members"].([]any)
+	if !ok || len(rawMembers) != 3 {
+		t.Fatalf("panel JSON members: %v", raw["members"])
+	}
+	wantEfforts := []string{"high", "", "low"}
+	for i, name := range []string{"y1", "y2", "n1"} {
+		m := rs[0].Members[i]
+		delivered := len(d.prompts[name])
+		if delivered == 0 || m.Effort != wantEfforts[i] || m.PromptBytes != delivered {
+			t.Errorf("member %s: effort=%q prompt_bytes=%d, want %q and %d", name, m.Effort, m.PromptBytes, wantEfforts[i], delivered)
+		}
+		jm := rawMembers[i].(map[string]any)
+		if wantEfforts[i] == "" {
+			if _, has := jm["effort"]; has {
+				t.Errorf("member %s without effort marshaled effort key: %v", name, jm)
+			}
+		} else if jm["effort"] != wantEfforts[i] {
+			t.Errorf("member %s JSON effort = %v, want %q", name, jm["effort"], wantEfforts[i])
+		}
+		if jm["prompt_bytes"] != float64(delivered) {
+			t.Errorf("member %s JSON prompt_bytes = %v, want %d", name, jm["prompt_bytes"], delivered)
+		}
+	}
+
+	r, d = setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"dead"}}},
+		map[string]workflow.Gate{"dead": {Skill: "judge", Agent: "dead"}})
+	r.Agents["dead"] = agent.Binding{Name: "dead", Command: "claude", Model: "model-dead", Effort: "medium"}
+	rs, pass = r.Execute(context.Background())
+	if pass || len(rs) != 1 || rs[0].Result != Error {
+		t.Fatalf("dispatch error: %v %+v", pass, rs)
+	}
+	if rs[0].Effort != "medium" || rs[0].PromptBytes == 0 || rs[0].PromptBytes != len(d.prompts["dead"]) {
+		t.Fatalf("dispatch error fields: effort=%q prompt_bytes=%d, want medium and %d", rs[0].Effort, rs[0].PromptBytes, len(d.prompts["dead"]))
+	}
+
+	gates := map[string]workflow.Gate{
+		"check":   {Skill: "chk"},
+		"skipped": {Skill: "judge", Agent: "y1", Paths: []string{"docs/**"}},
+		"carried": {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}, Carry: true},
+		"missing": {Skill: "judge", Agent: "ghost"},
+	}
+	r, _ = setup([]workflow.Group{{Mode: workflow.Parallel, Gates: []string{"check", "skipped", "carried", "missing"}}}, gates)
+	r.Dir = t.TempDir()
+	r.Skills["chk"] = workflow.Skill{Name: "chk", Meta: map[string]string{"type": workflow.TypeCheck}, Script: "exit 0"}
+	y1 = r.Agents["y1"]
+	y1.Effort = "high"
+	r.Agents["y1"] = y1
+	r.Prior = []Result{{Transition: "s0->s1", Gate: "carried", Result: Accept, Coverage: "cov:**/*.go"}}
+	rs, _ = r.Execute(context.Background())
+	if results(rs) != "check=accept skipped=skipped carried=carried missing=reject" {
+		t.Fatalf("non-judged results = %s", results(rs))
+	}
+	for _, x := range rs {
+		jm := marshalMap(t, x)
+		for _, key := range []string{"effort", "prompt_bytes"} {
+			if _, has := jm[key]; has {
+				t.Errorf("%s (%s) marshaled %q: %v", x.Gate, x.Result, key, jm)
+			}
+		}
 	}
 }
