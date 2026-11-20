@@ -11,8 +11,6 @@ hold = { rounds = 3, to = "blocked" }
 [states.integration]
 hold = { rounds = 3, to = "blocked" }
 
-# The pull request waits here for the review task; no hold, so the wait spends
-# no reject round.
 [states.in_review]
 waits = "the pull-request review task (.satelle/tasks/pr-review.md), run for the item by a session other than the author's"
 
@@ -70,21 +68,15 @@ skill = "satelle-integration-check"
 placement = "remote:integration"
 timeout = "40m"
 
-# Posts pending for satelle/pr-ready, satelle/pr-review and satelle/pr-approval
-# on the head before any other gate of integration -> in_review (the status
-# skill posts for every gate whose after names it); the review run posts
-# satelle/pr-review.
 [gates.pr-pending]
 skill = "satelle-gate-status-publish"
 
 [gates.pr-ready]
 skill = "satelle-pr-ready-check"
-# The status entry is last so it posts the result as it finally stands.
 after = ["satelle-gate-status-publish"]
 
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
-# The status entry is last so it posts the result as it finally stands.
 after = ["satelle-gate-status-publish"]
 
 [gates.change-judged]

@@ -1,11 +1,5 @@
 name = "pr-review"
 
-# A run of the pull-request review task (.satelle/tasks/pr-review.md): one
-# story's pull request head, judged cold from a checkout that is not the
-# author's worktree, by a session other than the author's. The gate below
-# names its judge; its publish check takes the story and the head from the
-# run's tags.
-
 [states.backlog]
 start = true
 
@@ -19,8 +13,6 @@ terminal = true
 skill = "satelle-code-ac-review"
 panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
-# The status entry is last so it posts satelle/pr-review as the result
-# finally stands.
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-pr-review-run-publish", "satelle-gate-status-publish"]
 
 [[transition]]
