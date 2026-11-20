@@ -1,3 +1,14 @@
+## [1.0.102] - 2026-11-20
+
+### Added
+- This repo's delivery and chore workflows judge every plan and every change with a security reviewer of its own skill, between the scope reviewer and the criteria reviewer (sto_b1a190c7)
+- This repo's delivery and chore workflows judge each story's own change against the constitution and principles before integration, so drift is fixed in the story that adds it (sto_d676beca)
+- satelle gate report [--since W] [--until W] [--json] compares judges per gate and model from the ledger's gate.run records: runs, accepts, rejects, errors, confirmed catches, overturned rejects, tokens and median duration. A run recorded without a model is reported under unknown. A panel's gate.run now records each member's tokens and duration. (sto_f9c9b46b)
+
+### Changed
+- This repo's reviewers run in a stated priority order (checks, scope, risk tier, security, then fit to the card or criteria), written as its workflow standard; its workflow files carry no comments (sto_21c69f27)
+- The pull-request gate skills take the pull request's base branch from the git remote's default branch when the item's workflow enqueues into no queue with a trigger base, so a workflow that lands through its own pull request is no longer refused at the ready, review-publish and approval gates (sto_bb630050)
+
 ## [1.0.101] - 2026-11-20
 
 ### Added
