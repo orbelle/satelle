@@ -34,28 +34,35 @@ const (
 	Error   = "error"
 )
 
+type CarriedFrom struct {
+	Transition string    `json:"transition"`
+	At         time.Time `json:"at,omitzero"`
+}
+
 type Result struct {
-	Transition string   `json:"transition"`
-	Gate       string   `json:"gate"`
-	Binding    string   `json:"binding,omitempty"`
-	Result     string   `json:"result"`
-	Notes      string   `json:"notes,omitempty"`
-	TokensIn   int      `json:"tokens_in"`
-	TokensOut  int      `json:"tokens_out"`
-	DurationMS int64    `json:"duration_ms"`
-	Coverage   string   `json:"coverage,omitempty"`
-	Attempt    string   `json:"attempt,omitempty"`
-	Changed    []string `json:"changed,omitempty"`
-	Warning    string   `json:"warning,omitempty"`
-	Class      string   `json:"class,omitempty"`
-	Members    []Member `json:"members,omitempty"`
-	Location   string   `json:"location,omitempty"`
-	Change     *Change  `json:"change,omitempty"`
-	Answer     string   `json:"answer,omitempty"`
-	Seq        int      `json:"seq,omitempty"`
-	Command    string   `json:"command,omitempty"`
-	Model      string   `json:"model,omitempty"`
-	Tier       string   `json:"tier,omitempty"`
+	Transition  string       `json:"transition"`
+	Gate        string       `json:"gate"`
+	Binding     string       `json:"binding,omitempty"`
+	Result      string       `json:"result"`
+	Notes       string       `json:"notes,omitempty"`
+	TokensIn    int          `json:"tokens_in"`
+	TokensOut   int          `json:"tokens_out"`
+	DurationMS  int64        `json:"duration_ms"`
+	Coverage    string       `json:"coverage,omitempty"`
+	Attempt     string       `json:"attempt,omitempty"`
+	Changed     []string     `json:"changed,omitempty"`
+	Warning     string       `json:"warning,omitempty"`
+	Class       string       `json:"class,omitempty"`
+	Members     []Member     `json:"members,omitempty"`
+	Location    string       `json:"location,omitempty"`
+	Change      *Change      `json:"change,omitempty"`
+	CarriedFrom *CarriedFrom `json:"carried_from,omitempty"`
+	Answer      string       `json:"answer,omitempty"`
+	Seq         int          `json:"seq,omitempty"`
+	Command     string       `json:"command,omitempty"`
+	Model       string       `json:"model,omitempty"`
+	Tier        string       `json:"tier,omitempty"`
+	At          time.Time    `json:"-"`
 
 	judges []judgeAnswer
 
@@ -430,8 +437,16 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 		if !skill.IsCheck() {
 			change = &Change{Base: r.Span.Base, Head: r.Span.Head, Branch: r.Span.Branch, Hash: ch}
 		}
-		if g.Carry && r.carried(name, c) {
-			return Result{Result: Carried, Coverage: c, Change: change, Notes: "an earlier accept covers the same change"}
+		if g.Carry {
+			if src, ok := r.carried(name, c); ok {
+				return Result{
+					Result:      Carried,
+					Coverage:    c,
+					Change:      change,
+					CarriedFrom: &CarriedFrom{Transition: src.Transition, At: src.At},
+					Notes:       carriedNotes(src),
+				}
+			}
 		}
 	}
 	if !ok {
@@ -500,15 +515,32 @@ func (r Run) diffWarning() string {
 	return ""
 }
 
-func (r Run) carried(gate, coverage string) bool {
+func carriedNotes(src Result) string {
+	if src.At.IsZero() {
+		return fmt.Sprintf("reuses accept on %s", src.Transition)
+	}
+	return fmt.Sprintf("reuses accept on %s at %s", src.Transition, src.At.UTC().Format(time.RFC3339))
+}
+
+func (r Run) carried(gate, coverage string) (Result, bool) {
 	for i := len(r.Prior) - 1; i >= 0; i-- {
 		p := r.Prior[i]
-		if p.Gate != gate || p.Transition != r.key() || p.Result == Skipped {
+		if p.Gate != gate || p.Result == Skipped {
 			continue
 		}
-		return (p.Result == Accept || p.Result == Carried) && p.Coverage == coverage && p.Tier == r.tier
+		if p.Coverage != coverage || p.Tier != r.tier {
+			return Result{}, false
+		}
+		switch p.Result {
+		case Accept:
+			return p, true
+		case Carried:
+			continue
+		default:
+			return Result{}, false
+		}
 	}
-	return false
+	return Result{}, false
 }
 
 func (r Run) judge(ctx context.Context, g workflow.Gate, skill workflow.Skill) Result {
