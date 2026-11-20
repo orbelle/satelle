@@ -19,6 +19,10 @@ driving session, which fires the release queue ([[satelle-agent-goals]],
 2. **Keep live runs away from a running integration suite.** A `satelle update --session <session>`,
    dogfood or scratch-repo run while a suite runs fails it for a reason outside
    the slice. The suite runs alone.
-3. **Overlap only what touches no shared host state**: readiness rounds,
+3. **Run stories whose plans touch a common path one after another.** When two
+   plans' `## Touches` name a common path, drive the second only after the
+   first lands; parallel branches over the same files come back from the
+   release as conflicts.
+4. **Overlap only what touches no shared host state**: readiness rounds,
    dispatched coders, unit tests and reviews of different stories. Record what
    overlapped when a failure might be interference.

@@ -19,7 +19,7 @@ wider. Each criterion is one requirement, **traceable** to the behaviour and
 judge it at that step. Evidence that exists only after release belongs on the
 release step, not on a code-step criterion.
 
-A card that carries two behaviours is split into two stories. A criterion no
+A card that carries two behaviours is narrowed to one; the other is dropped, and becomes its own story only when the operator asks for it. A criterion no
 wired gate can judge is narrowed until one can ([[satelle-start-small]]).
 
 ## The card is BDD

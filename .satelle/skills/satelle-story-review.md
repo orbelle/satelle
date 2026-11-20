@@ -41,7 +41,7 @@ The scenarios together meet the Feature, no narrower and no wider.
 
 The card is one behaviour ([[satelle-start-small]]). Refuse a card that holds
 two behaviours (two Features, or scenarios that serve different outcomes), or
-one too large for a single plan to slice and prove. Name the split.
+one too large for a single plan to slice and prove. Name the behaviour to keep and the one to drop.
 
 ## 4. Achievable and provable at its gates
 
@@ -68,7 +68,7 @@ cancel it as misaligned, or re-raise it as a substrate change.
 A reject names **each** failed property (1 to 5) with the card text that
 fails it, and its fix:
 
-- **split**: two behaviours; name the two stories;
+- **narrow**: two behaviours; name the one to keep and the one to drop;
 - **narrow**: too large, or a scenario no gate can judge; name what to cut;
 - **rewrite as scenarios**: a missing Feature or Background, or a criterion
   that is not Given/When/Then; show the shape for one of them;
