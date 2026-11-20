@@ -211,14 +211,141 @@ func TestSkippedAndCarried(t *testing.T) {
 	if !pass || results(rs) != "docs=skipped code=carried fresh=accept" || len(d.calls) != 1 {
 		t.Fatalf("%v %s %v", pass, results(rs), d.calls)
 	}
+	if rs[1].CarriedFrom == nil || rs[1].CarriedFrom.Transition != "s0->s1" || !rs[1].CarriedFrom.At.IsZero() || rs[1].Notes != "reuses accept on s0->s1" {
+		t.Fatalf("carried provenance: %+v %q", rs[1].CarriedFrom, rs[1].Notes)
+	}
 	r.Prior[0].Coverage = "older"
 	rs, _ = r.Execute(context.Background())
-	if results(rs) != "docs=skipped code=accept fresh=accept" {
-		t.Fatalf("%s", results(rs))
+	if results(rs) != "docs=skipped code=accept fresh=accept" || rs[1].CarriedFrom != nil {
+		t.Fatalf("%s %+v", results(rs), rs[1].CarriedFrom)
 	}
 	r.Prior = append(r.Prior, Result{Transition: "s0->s1", Gate: "code", Result: Reject, Coverage: "cov:**/*.go"})
-	if rs, _ = r.Execute(context.Background()); rs[1].Result != Accept {
-		t.Fatalf("%s", results(rs))
+	if rs, _ = r.Execute(context.Background()); rs[1].Result != Accept || rs[1].CarriedFrom != nil {
+		t.Fatalf("%s %+v", results(rs), rs[1].CarriedFrom)
+	}
+}
+
+func TestCarriedAcrossTransitions(t *testing.T) {
+	t1 := time.Date(2026, 11, 7, 10, 11, 12, 0, time.UTC)
+	t2 := t1.Add(5 * time.Minute)
+	wantNote := "reuses accept on s0->s1 at " + t1.Format(time.RFC3339)
+
+	gates := map[string]workflow.Gate{
+		"code":  {Skill: "judge", Agent: "y1", Paths: []string{"**/*.go"}, Carry: true},
+		"suite": {Skill: "fail-if-run", Carry: true},
+	}
+	mk := func(from, to string, prior ...Result) (Run, *fakeDispatcher) {
+		r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code", "suite"}}}, gates)
+		r.Workflow.States["s2"] = workflow.State{}
+		r.Workflow.States["s3"] = workflow.State{Terminal: true}
+		r.Skills["fail-if-run"] = workflow.Skill{Name: "fail-if-run", Meta: map[string]string{"type": workflow.TypeCheck}, Script: "echo ran; exit 1"}
+		r.Dir = t.TempDir()
+		r.From, r.To = from, to
+		r.Transition = &workflow.Transition{From: []string{from}, To: to, Groups: r.Transition.Groups}
+		r.Prior = prior
+		return r, d
+	}
+
+	r, d := mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+	)
+	rs, pass := r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("cross-transition carry: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("%s carried provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+		raw, err := json.Marshal(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if _, hasAt := doc["At"]; hasAt {
+			t.Errorf("%s marshaled At field: %s", g.Gate, raw)
+		}
+		if _, hasAt := doc["at"]; hasAt {
+			t.Errorf("%s marshaled top-level at field: %s", g.Gate, raw)
+		}
+	}
+
+	r, d = mk("s2", "s3",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Carried, Coverage: "cov:**/*.go", CarriedFrom: &CarriedFrom{Transition: "s0->s1", At: t1}, At: t2},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+		Result{Transition: "s1->s2", Gate: "suite", Result: Carried, Coverage: "cov:", CarriedFrom: &CarriedFrom{Transition: "s0->s1", At: t1}, At: t2},
+	)
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("chained carry: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("chained %s provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+	}
+
+	r, d = mk("s2", "s3",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Skipped, At: t2},
+		Result{Transition: "s0->s1", Gate: "suite", Result: Accept, Coverage: "cov:", At: t1},
+		Result{Transition: "s1->s2", Gate: "suite", Result: Skipped, At: t2},
+	)
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=carried suite=carried" || len(d.calls) != 0 {
+		t.Fatalf("intervening skipped: %v %s calls=%v", pass, results(rs), d.calls)
+	}
+	for _, g := range rs {
+		if g.CarriedFrom == nil || g.CarriedFrom.Transition != "s0->s1" || !g.CarriedFrom.At.Equal(t1) || g.Notes != wantNote {
+			t.Fatalf("after skipped %s provenance = %+v %q, want s0->s1 at %v", g.Gate, g.CarriedFrom, g.Notes, t1)
+		}
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:old", At: t1},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+		t.Fatalf("changed coverage: %v %s calls=%v carried=%+v", pass, results(rs), d.calls, rs[0].CarriedFrom)
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+		Result{Transition: "s1->s2", Gate: "code", Result: Accept, Coverage: "cov:other", At: t2},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+		t.Fatalf("reverted coverage: %v %s calls=%v carried=%+v", pass, results(rs), d.calls, rs[0].CarriedFrom)
+	}
+
+	for _, bad := range []string{Reject, Error} {
+		r, d = mk("s1", "s2",
+			Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", At: t1},
+			Result{Transition: "s1->s2", Gate: "code", Result: bad, Coverage: "cov:**/*.go", At: t2},
+		)
+		r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+		rs, pass = r.Execute(context.Background())
+		if !pass || results(rs) != "code=accept" || len(d.calls) != 1 || rs[0].CarriedFrom != nil {
+			t.Fatalf("after %s: %v %s calls=%v carried=%+v", bad, pass, results(rs), d.calls, rs[0].CarriedFrom)
+		}
+	}
+
+	r, d = mk("s1", "s2",
+		Result{Transition: "s0->s1", Gate: "code", Result: Accept, Coverage: "cov:**/*.go", Tier: "t1", At: t1},
+	)
+	r.Transition.Groups = []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"code"}}}
+	r.Review = workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"code": {"t1": {"y1"}, "t2": {"y2"}}}}
+	r.Item.Tags = []string{"k:t2"}
+	rs, pass = r.Execute(context.Background())
+	if !pass || results(rs) != "code=accept" || !sameSet(d.calls, []string{"y2"}) || rs[0].Tier != "t2" || rs[0].CarriedFrom != nil {
+		t.Fatalf("tier change across transitions: %v %s calls=%v tier=%q carried=%+v", pass, results(rs), d.calls, rs[0].Tier, rs[0].CarriedFrom)
 	}
 }
 

@@ -58,7 +58,7 @@ A gate is a named judgement on a transition:
     agent = "reviewer"           # or panel = ["a", "b"], combine = "all|any|majority"; satelle.toml [review] may pick them by the item's tier
     paths = ["**/*.go"]          # relevance: runs only when a changed path matches
     trigger = "relevant"         # relevance: a check skill; exit 0 runs the gate, exit 1 skips it
-    carry = true                 # an earlier accept over unchanged coverage is carried
+    carry = true                 # an earlier accept over unchanged coverage carries across transitions
     after = ["notes", "publish"] # check skills run in order once the gate has a verdict
     timeout = "30m"              # bounds this gate's check scripts; default 10m
     placement = "remote:integration"  # a check gate only: run its check on a node
@@ -168,9 +168,13 @@ the gates already started still record their results, and the item does not
 move. Results are read in declared order, so the round cap and carry see what
 they saw before. satelled shows a step's exit gates running while it holds a
 start with no result for the item's newest presentation leaving the step. A
-dry run (`satelle gate run`) records neither. When `[review]` in `satelle.toml`
-picked the gate's reviewers, its `gate.run` records the item's `tier`, and an
-accept is carried only while the tier is the same (`satelle help configuration --session <session>`).
+dry run (`satelle gate run`) records neither. A gate with `carry = true`
+reuses an earlier accept of the same gate on the same item across transitions
+while its coverage is unchanged (and while its review `tier` is unchanged when
+`[review]` in `satelle.toml` picked its reviewers; `satelle help configuration --session <session>`).
+The carried `gate.run` names the reused accept's transition and time in
+`notes` and `carried_from`, even across chained carries; any change to
+coverage, or a newer reject or error, runs the gate again.
 
 Use `after` to hold a verdict to a rule the gate declares, or to publish it.
 This repo's judged gates list `satelle-verdict-notes-check` (each judge's notes
