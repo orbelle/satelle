@@ -9,6 +9,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/gitfacts"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotenode"
@@ -78,6 +79,7 @@ func (r repo) openWith(readOnly string) (*kernel.Kernel, error) {
 	k.Host, _ = os.Hostname()
 	k.User = func() string { return seatUser(k.Host) }
 	k.Sessions = seatlife.Recorder{Home: home}
+	k.SessionMeta = func(session string) (string, string) { return sessionMeta(home, session) }
 	k.RemoteChecks = remotenode.GateChecker{Tree: r.Tree, DataDir: r.DataDir, Docker: provider.DockerLocal{}, Sprites: sprites, Out: os.Stderr}
 	watchWrites(k, r)
 	k.Progress = func(id string) { pushItem(r, id) }
@@ -95,6 +97,16 @@ func canonical(p string) string {
 }
 
 func sessionFromEnv() string { return config.SessionFromEnv() }
+
+func sessionMeta(home, session string) (harness, model string) {
+	if rec, ok := seatlife.Load(home, session); ok {
+		harness, model = rec.Harness, rec.Model
+	}
+	if harness == "" {
+		harness = hook.Caller()
+	}
+	return harness, model
+}
 
 func seatUser(host string) string {
 	if u := signedInUser(); u != nil {
