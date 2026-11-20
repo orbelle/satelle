@@ -9,8 +9,7 @@ description: The drift workflow's done gate (open → done). A drift item's bloc
 A drift item records findings: one `drift-key: <kind>:<file>:<subject>` body
 line each (a release's fix item, raised by `scripts/drift-fix.sh`, lists many;
 an older per-finding drift story one), and warnings, one
-`drift-warning: <key>` line each. The fix is other work. Warnings (the
-drift-claims judge's statements the source does not implement) and keys of kind
+`drift-warning: <key>` line each. The fix is other work. Warnings and keys of kind
 prose never block: only the other keys do.
 
 A blocking key passes in one of two ways, and the evidence stays on the

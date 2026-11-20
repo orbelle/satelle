@@ -32,8 +32,8 @@ func TestWorkflowChangeGateIsWiredOnWorkflowRoutes(t *testing.T) {
 		workflow, from, to string
 		after, before      []string
 	}{
-		{"delivery", "in_progress", "integration", []string{"definition-unchanged", "judge-differs", "format-vet", "build-unit", "binary-scope", "security", "constitution"}, []string{"code-ac"}},
-		{"chore", "in_progress", "integration", []string{"judge-differs", "format-vet", "build-unit", "binary-scope", "security", "constitution"}, []string{"code-ac"}},
+		{"delivery", "in_progress", "integration", []string{"definition-unchanged", "judge-differs", "format-vet", "build-unit", "security", "constitution"}, []string{"code-ac"}},
+		{"chore", "in_progress", "integration", []string{"judge-differs", "format-vet", "build-unit", "security", "constitution"}, []string{"code-ac"}},
 		{"substrate", "in_progress", "done", []string{"substrate-paths", "substrate-validate", "judge-differs", "volatile-literals"}, []string{"reference-review"}},
 	} {
 		w, ok := routes[c.workflow]

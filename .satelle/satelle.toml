@@ -46,13 +46,3 @@ edit_exempt_paths = [".satelle/**", ".claude/**", ".grok/**", ".gitignore"]
 [hook]
 inject = [".satelle/principles/satelle-agent-goals.md", ".satelle/principles/satelle-reference-not-restate.md", ".satelle/skills/satelle-workflow-standard.md"]
 
-[review]
-tier_tag = "risk"
-
-[review.panels.code-ac]
-low = ["reviewer-claude-sonnet-5-5-high"]
-high = ["reviewer-claude-opus-5-5-high"]
-
-[review.panels.security]
-low = ["reviewer-claude-sonnet-5-5-high"]
-high = ["reviewer-claude-opus-5-5-high"]

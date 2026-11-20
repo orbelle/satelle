@@ -41,7 +41,7 @@ Start from these, then check the change against every other principle:
    (`satelle-operator-rulings`).
 
 Judge only what this release changed. Drift that predates the base is not
-yours (the drift-claims gate reads the standing principles).
+yours.
 
 ## Re-check the open constitution findings
 

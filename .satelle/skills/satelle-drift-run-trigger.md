@@ -1,7 +1,7 @@
 ---
 name: satelle-drift-run-trigger
 type: check
-description: Trigger of the drift-constitution and drift-claims gates on runbook's in_progress → done. Relevant (exit 0) only for a run of the drift review task; every other run (release, cleanup) skips both gates (exit 1). Deterministic, no agent.
+description: Trigger of the drift-constitution and drift-closures gates on runbook's in_progress → done. Relevant (exit 0) only for a run of the drift review task; every other run (release, cleanup) skips them (exit 1). Deterministic, no agent.
 ---
 
 # Drift run trigger

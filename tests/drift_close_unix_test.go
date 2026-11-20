@@ -175,36 +175,6 @@ func TestDriftReviewClosesWhatTheRunNoLongerFinds(t *testing.T) {
 	}
 }
 
-func TestDriftReviewRecordsWarnings(t *testing.T) {
-	t.Parallel()
-	d := newDriftCloseSandbox(t)
-	exe := d.start(d.drift, stepSeat(t))
-	d.substrate(exe, "", "0")
-	d.step("## 2.")
-	d.step("## 3.")
-	d.step("## 4.")
-	d.citeReport(exe)
-	const warn = `WARN .satelle/principles/p.md:6 "queue entries live in the story chain" — internal/kernel/queue.go:62`
-	d.setFake("notes.claims", "checked .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/: 1 contradicted statements\n"+warn)
-	d.step("## 5.")
-	if g := latestRun(d.sandbox, exe, "drift-claims"); g.Result != "accept" || !strings.Contains(g.Notes, warn) {
-		t.Fatalf("drift-claims = %s (%q), want accept with the WARN line", g.Result, g.Notes)
-	}
-	if st := d.status(exe); st != "done" {
-		t.Fatalf("run is %s, want done: a warning never blocks", st)
-	}
-	out := d.step("## 6.")
-	fix := parseFixed(t, out.out)
-	if fix.findings != "0 findings" || fix.warnings != "1 warnings" {
-		t.Fatalf("step 6 = %+v, want one warning", fix)
-	}
-	body := d.get(fix.id).Body
-	want := "drift-warning: " + proseKey + "\n> .satelle/principles/p.md:6: prose: queue entries live in the story chain — internal/kernel/queue.go:62\n"
-	if !strings.Contains(body, want) || strings.Contains(body, "drift-key: prose:") {
-		t.Fatalf("the fix item lacks %q, or has a prose drift-key:\n%s", want, body)
-	}
-}
-
 func TestDriftConstitutionRunsOnAPrincipleEdit(t *testing.T) {
 	t.Parallel()
 	const unchanged = "package x\n\nfunc Foo() {}\n"
@@ -229,9 +199,6 @@ func TestDriftConstitutionRunsOnAPrincipleEdit(t *testing.T) {
 			}
 			if c.want == "skipped" && !strings.Contains(g.Notes, "no changed path matches") {
 				t.Fatalf("drift-constitution skipped for %q, want no changed path matches", g.Notes)
-			}
-			if g := latestRun(d.sandbox, exe, "drift-claims"); g.Result != "accept" {
-				t.Fatalf("drift-claims = %s (%q), want accept", g.Result, g.Notes)
 			}
 			ps := prompts(t, d.fake, "constitution")
 			if c.want == "skipped" {

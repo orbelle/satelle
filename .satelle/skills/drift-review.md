@@ -1,7 +1,7 @@
 ---
 name: drift-review
 type: skill
-description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, the drift-claims gate lists the principles' statements of mechanism the source at the run's head does not implement as warnings (it never blocks) when the range changed .version, the constitution or a principle, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item, each WARN line a warning in it. Fixes nothing inline.
+description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item. Fixes nothing inline.
 ---
 
 # Drift review (after every release)
@@ -27,8 +27,7 @@ the last review.
 every finding goes into the release's one drift-fix item
 (`scripts/drift-fix.sh`), tagged drift, drift-fix and `release:v<ver>`, and
 that item is the fix. The run closes every older drift item, each carried into
-the fix item or no longer found (step 4); the fix itself is other work. The
-drift-claims judge's findings are warnings in the fix item and never block. A
+the fix item or no longer found (step 4); the fix itself is other work. A
 gate that rejects is answered by recording its lines in the fix item, never by
 changing what it judged. An empty report is a pass.
 
@@ -89,7 +88,7 @@ rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
 ver=$(sed -n 's/^satelle\.version: *//p' .version)
 touch "$rd/judged.txt"
 satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
-jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
+jq -r '.[] | .payload | select(.gate == "drift-constitution") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 bash scripts/drift-fix.sh --open-findings > "$rd/open-findings.tsv" || exit 1
 awk -F'\t' -v res="$rd/resolved.txt" '
   BEGIN { while ((getline l < res) > 0) { sub(/^RESOLVED /, "", l); i = index(l, " — "); if (i) l = substr(l, 1, i - 1); r[l] = 1 } }
@@ -146,7 +145,7 @@ jq -r --arg fix "$fix" '.[] | select(.id != $fix) | .id as $id | (.body // "") |
 bash scripts/drift-fix.sh --keys < "$rd/findings.txt" > "$rd/found.txt" || exit 1
 awk -F'\t' -v found="$rd/found.txt" 'BEGIN { while ((getline l < found) > 0) f[l] = 1 } $2 !~ /^prose:/ && !($2 in f) { print $2 "\t" $1 }' "$rd/open.tsv" > "$rd/gone.txt"
 satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
-jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-claims") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
+jq -r '.[] | .payload | select(.gate == "drift-constitution") | .notes // ""' "$rd/gate-runs.json" | awk '/^RESOLVED / && !seen[$0]++' > "$rd/resolved.txt"
 {
   echo "# Drift review of $head$since"
   echo
@@ -155,7 +154,6 @@ jq -r '.[] | .payload | select(.gate == "drift-constitution" or .gate == "drift-
   echo "- satelle $(satelle version --session "$session" 2>/dev/null | head -1)"
   echo "- scripts/drift-check.sh: $(cat "$rd/substrate.exit")"
   echo "- drift-constitution: $base..$head over cmd/, internal/, go.mod, go.sum, .satelle/constitution.md, .satelle/principles/"
-  echo "- drift-claims: .satelle/constitution.md and .satelle/principles/ against cmd/ and internal/ at $head"
   echo
   echo "## Substrate findings"; cat "$rd/substrate.txt"; echo
   echo "## Constitution findings"; grep ': constitution: ' "$rd/judged.txt"; echo
@@ -244,7 +242,7 @@ exe=$(satelle execution list --parent "$task" --status in_progress --json --sess
 satelle execution set "$exe" --status done --session "$session" || satelle execution route "$exe" --session "$session"
 ```
 
-The move runs `drift-constitution`, then `drift-claims`, then
+The move runs `drift-constitution`, then
 `drift-closures`, then `validate-after`. On a reject, read the notes in
 `satelle execution route "$exe" --session <session>`:
 
@@ -254,12 +252,6 @@ The move runs `drift-constitution`, then `drift-claims`, then
   to `$rd/judged.txt`. A `RESOLVED <drift-key> — <evidence>` line needs no
   copying: steps 2 and 3 read it from the judge's gate run on the run's
   ledger. Run steps 2, 3 and 4 again, and present again.
-- `drift-claims` accepts by its skill, whatever it finds: its WARN lines are
-  recorded in step 6. If its judge rejects anyway, it has departed from its
-  skill: turn each `WARN <file>:<line> "<statement>" — <evidence>` line of the
-  reject into `<file>:<line>: prose: <statement> — <evidence>` in
-  `$rd/warnings.txt` and present again. A second reject stops the run: raise a
-  story against `.satelle/skills/satelle-drift-claims-review.md`.
 - A `drift-closures` reject: the attached report's `Closed` or `Stayed open`
   list does not match the items' states; run steps 3 and 4 again.
 
@@ -268,33 +260,10 @@ nothing to record: present again once. If the same reject comes back, stop and
 report it to the operator as a structural gap. Never present the run any
 other way, and never change the code or substrate a gate judged.
 
-## 6. Record the warnings
+## 6. Release the seat
 
-Steps 6 and 7 act on the run step 5 just presented done: the newest finished
-run of the task, by creation time (`execution list` lists oldest first).
-
-```sh
-session=<session>
-task=tas_a45ba066
-exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
-rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
-ver=$(sed -n 's/^satelle\.version: *//p' .version)
-touch "$rd/findings.txt" "$rd/warnings.txt"
-satelle ledger list "$exe" --kind gate.run --json --session "$session" > "$rd/gate-runs.json" || exit 1
-jq -r '[.[] | .payload | select(.gate == "drift-claims" and .result == "accept")] | last | .notes // ""' "$rd/gate-runs.json" |
-  sed -n 's/^WARN \([^ ]*\) "\(.*\)" — \(.*\)$/\1: prose: \2 — \3/p' >> "$rd/warnings.txt"
-awk '!seen[$0]++' "$rd/warnings.txt" > "$rd/warnings.new" && mv "$rd/warnings.new" "$rd/warnings.txt"
-cat "$rd/findings.txt" "$rd/warnings.txt" | bash scripts/drift-fix.sh "$ver" | tee "$rd/fix.txt"
-```
-
-Each `WARN <file>:<line> "<statement>" — <evidence>` line of the accepting
-drift-claims run becomes `<file>:<line>: prose: <statement> — <evidence>`, a
-`drift-warning:` line under the fix item's `## Warnings`, never a
-`drift-key:` line: a warning never holds the fix item open. With no fix item
-yet and at least one warning, this raises the release's fix item with only
-warnings.
-
-## 7. Release the seat
+This acts on the run step 5 just presented done: the newest finished run of
+the task, by creation time (`execution list` lists oldest first).
 
 ```sh
 session=<session>

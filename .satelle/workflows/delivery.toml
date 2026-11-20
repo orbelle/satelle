@@ -44,12 +44,6 @@ panel = ["reviewer-claude-sonnet-5-5-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
-[gates.risk-assess]
-skill = "satelle-risk-assess-review"
-panel = ["reviewer-claude-sonnet-5-5-high"]
-combine = "all"
-after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
-
 [gates.constitution]
 skill = "satelle-constitution-review"
 panel = ["reviewer-claude-sonnet-5-5-high"]
@@ -158,7 +152,7 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "risk-assess", "security", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "security", "plan-review"] },
 ]
 
 [[transition]]
@@ -166,7 +160,7 @@ from = ["in_progress"]
 to = "integration"
 groups = [
   { mode = "sequential", gates = ["definition-unchanged", "judge-differs", "format-vet", "build-unit"] },
-  { mode = "sequential", gates = ["binary-scope", "security", "constitution", "workflow-change"] },
+  { mode = "sequential", gates = ["security", "constitution", "workflow-change"] },
   { mode = "sequential", gates = ["code-ac"] },
 ]
 
