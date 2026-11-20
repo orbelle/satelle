@@ -91,16 +91,24 @@ func (s State) Agent() *Performer {
 }
 
 type Gate struct {
-	Skill     string   `toml:"skill"`
-	Agent     string   `toml:"agent"`
-	Panel     []string `toml:"panel"`
-	Combine   string   `toml:"combine"`
-	Paths     []string `toml:"paths"`
-	Trigger   string   `toml:"trigger"`
-	Carry     bool     `toml:"carry"`
-	After     []string `toml:"after"`
-	Timeout   string   `toml:"timeout"`
-	Placement string   `toml:"placement"`
+	Skill        string   `toml:"skill"`
+	Agent        string   `toml:"agent"`
+	Panel        []string `toml:"panel"`
+	Combine      string   `toml:"combine"`
+	Paths        []string `toml:"paths"`
+	Trigger      string   `toml:"trigger"`
+	Carry        bool     `toml:"carry"`
+	After        []string `toml:"after"`
+	Timeout      string   `toml:"timeout"`
+	DiffMaxBytes *int     `toml:"diff_max_bytes"`
+	Placement    string   `toml:"placement"`
+}
+
+func (g Gate) DiffBound() (int, bool) {
+	if g.DiffMaxBytes == nil {
+		return 0, false
+	}
+	return *g.DiffMaxBytes, true
 }
 
 func (g Gate) Bound() (time.Duration, error) {

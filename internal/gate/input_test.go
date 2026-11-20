@@ -10,10 +10,11 @@ import (
 )
 
 func TestInputIsWhatTheGateReceives(t *testing.T) {
+	bound := 500
 	gates := map[string]workflow.Gate{
 		"chk":   {Skill: "lint", Paths: []string{"a/**"}, Timeout: "3m"},
 		"trig":  {Skill: "lint", Trigger: "lint", After: []string{"lint"}},
-		"one":   {Skill: "judge", Agent: "y1", Carry: true},
+		"one":   {Skill: "judge", Agent: "y1", Carry: true, DiffMaxBytes: &bound},
 		"panel": {Skill: "judge", Panel: []string{"y1", "n1"}},
 	}
 	r, d := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"chk", "trig", "one", "panel"}}}, gates)
@@ -26,22 +27,32 @@ func TestInputIsWhatTheGateReceives(t *testing.T) {
 	if err != nil || chk.Kind != InputCheck || chk.Check == nil || !reflect.DeepEqual(*chk.Check, want) || chk.Trigger != nil {
 		t.Fatalf("check input %+v %v", chk, err)
 	}
-	if chk.SkillPath != "skills/lint.md" || chk.Dir != "/tree" || chk.Timeout.Minutes() != 3 || chk.Paths[0] != "a/**" {
+	if chk.SkillPath != "skills/lint.md" || chk.Dir != "/tree" || chk.Timeout.Minutes() != 3 || chk.Paths[0] != "a/**" || chk.DiffMaxBytes != 0 || chk.DiffBoundSource != "" {
 		t.Fatalf("check header %+v", chk)
 	}
 	trig, err := r.Input("trig")
 	if err != nil || trig.Trigger == nil || !reflect.DeepEqual(*trig.Trigger, want) || trig.After[0] != "lint" {
 		t.Fatalf("trigger input %+v %v", trig, err)
 	}
+	wantBound := map[string]struct {
+		max    int
+		source string
+	}{
+		"one":   {500, "gates.one diff_max_bytes"},
+		"panel": {DefaultDiffMaxBytes, "default; set diff_max_bytes on [gates.panel] to change it"},
+	}
 	for _, name := range []string{"one", "panel"} {
 		in, err := r.Input(name)
 		if err != nil || in.Kind != InputJudge {
 			t.Fatalf("%s: %+v %v", name, in, err)
 		}
-		rest, _ := r.promptRest(gates[name])
+		rest, _ := r.promptRest(name, gates[name])
 		prompt := r.judgePrompt(rest, "")
 		if in.Prompt != prompt || !reflect.DeepEqual(in.Judges, gates[name].Judges()) {
 			t.Fatalf("%s input %+v", name, in)
+		}
+		if wb := wantBound[name]; in.DiffMaxBytes != wb.max || in.DiffBoundSource != wb.source {
+			t.Fatalf("%s diff bound = %d (%q), want %d (%q)", name, in.DiffMaxBytes, in.DiffBoundSource, wb.max, wb.source)
 		}
 		for _, j := range gates[name].Judges() {
 			if in.Prompts[j] != prompt {

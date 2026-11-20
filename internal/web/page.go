@@ -555,22 +555,31 @@ const templatesSrc = `
   {{if .Item.Body}}<h4>Description</h4><pre class="prose">{{.Item.Body}}</pre>{{end}}
   {{if .Item.Criteria}}<h4>Criteria</h4><ul class="criteria">{{range .Item.Criteria}}<li>{{.}}</li>{{end}}</ul>{{else if .Item.AcceptanceCriteria}}<h4>Criteria</h4><pre class="prose">{{.Item.AcceptanceCriteria}}</pre>{{end}}
   {{if .Progress}}<h4>Progress</h4>
-  <ol class="stage-rejections">{{range .Progress}}<li>{{template "stageChip" .}}{{if .Rejected}}<ol>{{range .Rejected}}<li><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="meta">{{ftime .At}}</span>{{range .Verdicts}}<div class="stage-rejection">{{.Gate}} <span class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</span>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</div>{{end}}</li>{{end}}</ol>{{end}}</li>{{end}}</ol>{{end}}
+  <ol class="stage-rejections">{{range .Progress}}<li>{{template "stageChip" .}}{{if .Rejected}}<ol>{{range .Rejected}}<li><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="meta">{{ftime .At}}</span>{{range .Verdicts}}<div class="stage-rejection">{{.Gate}} <span class="meta">{{if .JudgeMembers}}{{range $i, $m := .JudgeMembers}}{{if $i}}, {{end}}{{$m.Binding}} ({{$m.Model}}): {{$m.Result}}{{end}}{{else if .Binding}}{{.Binding}} · {{.JudgeModel}}{{else if .JudgeModel}}{{.JudgeModel}}{{else}}—{{end}}</span>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</div>{{end}}</li>{{end}}</ol>{{end}}</li>{{end}}</ol>{{end}}
   <h4>Route</h4>
   <section class="route" data-workflow="{{.Route.Workflow}}">{{template "route" .Route}}</section>
   <h4>Verdicts</h4>
   {{if .Presentations}}<ol class="verdicts">{{range .Presentations}}<li class="presentation outcome-{{.Outcome}}">
     <div class="pres-head"><span class="wf-node sm">{{.From}}</span> → <span class="wf-node sm">{{.To}}</span> <span class="pres-outcome">{{.Outcome}}</span> <span class="meta">{{ftime .At}}</span></div>
     {{if .Verdicts}}<table class="panel-table verdict-table">
-      <thead><tr><th>Gate</th><th>Binding</th><th>Result</th><th>Tokens</th><th>Duration</th><th>Notes</th></tr></thead>
+      <thead><tr><th>Gate</th><th>Binding</th><th>Model</th><th>Result</th><th>Tokens</th><th>Duration</th><th>Notes</th></tr></thead>
       <tbody>{{range .Verdicts}}<tr class="verdict v-{{.Result}}">
         <td>{{.Gate}}</td>
         <td class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</td>
+        <td class="meta verdict-model">{{if .JudgeModel}}{{.JudgeModel}}{{else}}—{{end}}</td>
         <td><span class="verdict-result">{{.Result}}</span></td>
         <td class="meta">{{if or .TokensIn .TokensOut}}{{.TokensIn}} in · {{.TokensOut}} out{{else}}—{{end}}</td>
         <td class="meta">{{if .Duration}}{{.Duration}}{{else}}—{{end}}</td>
         <td>{{if .Notes}}<pre class="verdict-notes">{{.Notes}}</pre>{{end}}</td>
-      </tr>{{end}}</tbody>
+      </tr>{{range .JudgeMembers}}<tr class="verdict verdict-member v-{{.Result}}">
+        <td class="meta verdict-member-indent">↳</td>
+        <td class="meta">{{if .Binding}}{{.Binding}}{{else}}—{{end}}</td>
+        <td class="meta verdict-model">{{.Model}}</td>
+        <td><span class="verdict-result">{{.Result}}</span></td>
+        <td class="meta">{{if or .TokensIn .TokensOut}}{{.TokensIn}} in · {{.TokensOut}} out{{else}}—{{end}}</td>
+        <td class="meta">{{if .Duration}}{{.Duration}}{{else}}—{{end}}</td>
+        <td></td>
+      </tr>{{end}}{{end}}</tbody>
     </table>{{else}}<div class="meta">no gate on this transition</div>{{end}}
   </li>{{end}}</ol>{{else}}<div class="empty">No transition presented yet.</div>{{end}}
   <h4>Attachments</h4>

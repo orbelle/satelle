@@ -119,6 +119,9 @@ func runHookGate(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	session := hookSession(in)
+	if session != "" {
+		_ = seatlife.ObserveMeta(config.GlobalDir(), session, hookMeta(harness, in))
+	}
 	g := hook.Gate{Root: r.Tree, TempRoots: tempRootsOverride}
 	k, err := r.open()
 	if err != nil {
@@ -259,7 +262,7 @@ func runHookContext(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
 	}
-	recordSession(in, seatlife.Start)
+	recordSession(harness, in, seatlife.Start)
 	text, notice, ok := sessionContext(in, harness, true)
 	if !ok {
 		return nil
@@ -279,7 +282,7 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 	if hookDefers(harness, in) {
 		return nil
 	}
-	recordSession(in, seatlife.Resolve)
+	recordSession(harness, in, seatlife.Resolve)
 	text, _, ok := sessionContext(in, harness, false)
 	if !ok {
 		return nil
@@ -297,7 +300,11 @@ func runHookStopcheck(cmd *cobra.Command, harness string, in hook.Input) error {
 	return printAnswer(cmd, hook.StopAnswer(harness))
 }
 
-func recordSession(in hook.Input, record func(home, session string, ancestors []procgroup.Proc) error) {
+func hookMeta(harness string, in hook.Input) seatlife.Meta {
+	return seatlife.Meta{Harness: in.Harness(harness), Model: in.Model}
+}
+
+func recordSession(harness string, in hook.Input, record func(home, session string, ancestors []procgroup.Proc, meta seatlife.Meta) error) {
 	session := hookSession(in)
 	if session == "" {
 		return
@@ -306,10 +313,11 @@ func recordSession(in hook.Input, record func(home, session string, ancestors []
 		return
 	}
 	anc := procgroup.Ancestors(os.Getpid())
-	if len(anc) == 0 {
+	meta := hookMeta(harness, in)
+	if len(anc) == 0 && meta == (seatlife.Meta{}) {
 		return
 	}
-	_ = record(config.GlobalDir(), session, anc)
+	_ = record(config.GlobalDir(), session, anc, meta)
 }
 
 func sessionContext(in hook.Input, harness string, inject bool) (text, notice string, ok bool) {

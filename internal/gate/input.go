@@ -25,6 +25,8 @@ type Input struct {
 	Dir                    string
 	Timeout                time.Duration
 	TimeoutSource          string
+	DiffMaxBytes           int
+	DiffBoundSource        string
 	Placement              string
 	Paths                  []string
 	Carry                  bool
@@ -76,7 +78,12 @@ func (r Run) Input(name string) (Input, error) {
 	in.Kind = InputJudge
 	in.Judges = g.Judges()
 	in.Tier = tier
-	rest, err := r.promptRest(g)
+	diffMax, diffSource, err := r.diffBound(name, g)
+	if err != nil {
+		return in, err
+	}
+	in.DiffMaxBytes, in.DiffBoundSource = diffMax, diffSource
+	rest, err := r.promptRest(name, g)
 	if err != nil {
 		return in, err
 	}

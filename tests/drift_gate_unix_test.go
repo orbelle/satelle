@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/bobmcallan/satelle/internal/gate"
 )
 
 const driftTaskLine = `(?m)^task=(tas_[A-Za-z0-9_]+)$`
@@ -515,7 +518,7 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 		t.Fatal("an accept with no READ line closed a run whose diff was cut")
 	}
 	g := latestRun(d.sandbox, drift, "drift-constitution")
-	if g.Result != "reject" || !strings.Contains(g.Notes, "diff truncated at 200000 bytes") || !strings.Contains(g.Notes, "internal/z.go") {
+	if g.Result != "reject" || !strings.Contains(g.Notes, "diff truncated at 64000 bytes") || !strings.Contains(g.Notes, "internal/z.go") {
 		t.Fatalf("drift-constitution = %s (%q), want a reject naming internal/z.go", g.Result, g.Notes)
 	}
 	if st := d.status(drift); st != "in_progress" {
@@ -540,12 +543,11 @@ func TestDriftGateTruncatedDiffNeedsReads(t *testing.T) {
 func TestDriftAfterCheckMirrorsGate(t *testing.T) {
 	after := repoText(t, ".satelle/skills/satelle-drift-diff-covered.md")
 	limit := regexp.MustCompile(`(?m)^limit=(\d+)$`).FindStringSubmatch(after)
-	cut := regexp.MustCompile(`const max = ([0-9_]+)`).FindStringSubmatch(repoText(t, "internal/gate/gate.go"))
-	if limit == nil || cut == nil {
-		t.Fatalf("no limit= line in the after check (%v) or const max in gate.go (%v)", limit, cut)
+	if limit == nil {
+		t.Fatalf("no limit= line in the after check")
 	}
-	if want := strings.ReplaceAll(cut[1], "_", ""); limit[1] != want {
-		t.Errorf("after check limit=%s, gate prompt cuts at %s", limit[1], want)
+	if want := strconv.Itoa(gate.DefaultDiffMaxBytes); limit[1] != want {
+		t.Errorf("after check limit=%s, gate.DefaultDiffMaxBytes is %s", limit[1], want)
 	}
 	paths := regexp.MustCompile(`(?m)^paths='([^']*)'$`).FindStringSubmatch(after)
 	if paths == nil {

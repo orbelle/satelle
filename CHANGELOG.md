@@ -1,3 +1,14 @@
+## [1.0.103] - 2026-11-20
+
+### Added
+- satelled shows each judge's model beside its verdict on an item's page (single-judge runs, panel member sub-rows, and stage rejections), displaying unknown when a judged run was recorded without a model (sto_c82f84bf)
+- Moving an item out of a session-performed state (command = "session") by its seated interactive session appends a performer.run carrying command "session", the session's harness, and the model the harness's hook payload exposed, or "unavailable (<harness>)" when it exposes none (sto_1997266b)
+
+### Changed
+- Wired the workflow-change review gate onto delivery, chore, and substrate workflow transitions in [[satelle-reviewer-order]] and updated satelle-workflow-change-review to judge single-file TOML workflows and reviewer order (sto_a29690e8)
+- A gate with carry = true now reuses an earlier accept across transitions of the same item while its coverage (and review tier, when set) is unchanged, recording the reused accept's transition and time in the carried gate.run notes and carried_from; any change to coverage runs the gate again (sto_b4db7ee0)
+- A judge prompt's diff is now bounded per gate via `diff_max_bytes` on `[gates.<name>]` (default 64,000 bytes, down from 200,000); deleted files appear as their path and line count (or binary) instead of removed lines, and a cut diff names every file that was cut (sto_c6fc9361)
+
 ## [1.0.102] - 2026-11-20
 
 ### Added

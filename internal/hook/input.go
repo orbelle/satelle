@@ -34,7 +34,15 @@ type Input struct {
 	Path       string
 	Command    string
 	StopReason string
+	Model      string
 	Cursor     bool
+}
+
+func (in Input) Harness(flag string) string {
+	if in.Cursor {
+		return Cursor
+	}
+	return strings.TrimSpace(flag)
 }
 
 const TurnEndReason = "end_turn"
@@ -60,19 +68,22 @@ func ParseInput(raw []byte) Input {
 		Cmd               string `json:"cmd"`
 	}
 	var ev struct {
-		Event      string    `json:"hook_event_name"`
-		EventCamel string    `json:"hookEventName"`
-		Session    string    `json:"session_id"`
-		SessCamel  string    `json:"sessionId"`
-		Convers    string    `json:"conversation_id"`
-		CursorVer  string    `json:"cursor_version"`
-		Roots      []string  `json:"workspace_roots"`
-		Cwd        string    `json:"cwd"`
-		Tool       string    `json:"tool_name"`
-		ToolCamel  string    `json:"toolName"`
-		Input      toolInput `json:"tool_input"`
-		InputCamel toolInput `json:"toolInput"`
-		Reason     string    `json:"reason"`
+		Event        string    `json:"hook_event_name"`
+		EventCamel   string    `json:"hookEventName"`
+		Session      string    `json:"session_id"`
+		SessCamel    string    `json:"sessionId"`
+		Convers      string    `json:"conversation_id"`
+		CursorVer    string    `json:"cursor_version"`
+		Model        string    `json:"model"`
+		ModelID      string    `json:"model_id"`
+		ModelIDCamel string    `json:"modelId"`
+		Roots        []string  `json:"workspace_roots"`
+		Cwd          string    `json:"cwd"`
+		Tool         string    `json:"tool_name"`
+		ToolCamel    string    `json:"toolName"`
+		Input        toolInput `json:"tool_input"`
+		InputCamel   toolInput `json:"toolInput"`
+		Reason       string    `json:"reason"`
 	}
 	if json.Unmarshal(raw, &ev) != nil {
 		return Input{}
@@ -83,6 +94,7 @@ func ParseInput(raw []byte) Input {
 		Cwd:        strings.TrimSpace(ev.Cwd),
 		Roots:      ev.Roots,
 		Cursor:     strings.TrimSpace(ev.CursorVer) != "",
+		Model:      first(ev.Model, ev.ModelID, ev.ModelIDCamel),
 		Tool:       first(ev.Tool, ev.ToolCamel),
 		StopReason: strings.TrimSpace(ev.Reason),
 	}

@@ -1,21 +1,21 @@
 ---
 name: satelle-drift-diff-covered
 type: check
-description: After check of the drift-constitution gate. When the run's diff over the binary's sources is longer than the gate prompt's 200000-byte cut, it turns the judge's accept into a reject unless the notes carry a READ <path> line for every changed file the cut hid. Any other result is kept. Deterministic, no agent.
+description: After check of the drift-constitution gate. When the run's diff over the binary's sources is longer than the gate prompt's 64000-byte default cut, it turns the judge's accept into a reject unless the notes carry a READ <path> line for every changed file the cut hid. Any other result is kept. Deterministic, no agent.
 ---
 
 # Drift diff covered
 
-The gate prompt cuts a diff at 200000 bytes (`internal/gate/gate.go`, `const
-max`). A judge that accepted a cut diff must have read each hidden file in the
-work tree itself, and says so with one `READ <path>` line per file. The two
-values below restate the binary's cut and the gate's paths in
-`.satelle/workflows/runbook.toml`; `tests/drift_gate_unix_test.go` fails the
+The gate prompt cuts a diff at 64000 bytes by default (`internal/gate/diff.go`,
+`DefaultDiffMaxBytes`). A judge that accepted a cut diff must have read each
+hidden file in the work tree itself, and says so with one `READ <path>` line per
+file. The two values below restate the binary's default cut and the gate's paths
+in `.satelle/workflows/runbook.toml`; `tests/drift_gate_unix_test.go` fails the
 suite when either drifts.
 
 ```sh
 set -u
-limit=200000
+limit=64000
 paths='cmd/** internal/** go.mod go.sum .satelle/constitution.md .satelle/principles/**'
 [ "${SATELLE_GATE_RESULT:-}" = accept ] || exit 0
 notes=$(jq -r '.notes // ""')

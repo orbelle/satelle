@@ -78,6 +78,14 @@ The adapter is chosen by the basename of the command's first word.
 | cursor-agent | ask or force mode (below) | every shell command, in the run's own Cursor config | read-only grants |
 | session | not dispatched: the interactive session performs | the edit gate | never |
 
+When a seated interactive session moves an item out of a state whose performer
+has `command = "session"` (on a passing, non-hold, non-park transition),
+satelle appends a `performer.run` event with `command` set to `"session"`,
+`harness` naming the session's harness (from its hook record, falling back to
+the harness environment marker or `unknown`), and `model` equal to the model
+exposed by the harness's hook payload, or `unavailable (<harness>)` when the
+harness exposed no model.
+
 ## cursor-agent
 
 Cursor's own headless CLI, validated on cursor-agent 2026.10.22 and

@@ -790,42 +790,53 @@ func TestGateRunsReadsDeclaredOrder(t *testing.T) {
 func TestGateRunsKeepsCarry(t *testing.T) {
 	w := &workflow.Workflow{
 		Name:   "w",
-		States: map[string]workflow.State{"a": {Start: true}, "z": {Terminal: true}},
+		States: map[string]workflow.State{"a": {Start: true}, "b": {}, "z": {Terminal: true}},
 		Gates:  map[string]workflow.Gate{"g": {Skill: "review", Agent: "r1", Carry: true}},
 	}
 	tr := &workflow.Transition{From: []string{"a"}, To: "z", Groups: []workflow.Group{{Mode: workflow.Sequential, Gates: []string{"g"}}}}
+	tAccept := time.Date(2026, 11, 7, 12, 34, 56, 0, time.UTC)
+	tReject := tAccept.Add(-time.Minute)
 	recorded := []gate.Result{
-		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov", Attempt: "A", Seq: 2},
-		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov", Attempt: "A", Seq: 1},
+		{Transition: "a->b", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov", Attempt: "A", Seq: 2},
+		{Transition: "a->b", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov", Attempt: "A", Seq: 1},
 	}
-	var ev []ledger.Event
-	for _, r := range recorded {
-		ev = append(ev, runEvent(t, r))
+	evAccept, err := ledger.NewEventWith("e1", tAccept, "th_1", gate.KindRun, "me", recorded[0], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evReject, err := ledger.NewEventWith("e2", tReject, "th_1", gate.KindRun, "me", recorded[1], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := []ledger.Event{evAccept, evReject}
+	runs := GateRuns(ev)
+	if len(runs) != 2 || !runs[0].At.Equal(tReject) || !runs[1].At.Equal(tAccept) {
+		t.Fatalf("GateRuns timestamps = %v %v, want %v %v", runs[0].At, runs[1].At, tReject, tAccept)
 	}
 	declared := []gate.Result{
-		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov"},
-		{Transition: "a->z", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov"},
+		{Transition: "a->b", Gate: "g", Binding: "r1", Result: gate.Reject, Coverage: "cov", At: tReject},
+		{Transition: "a->b", Gate: "g", Binding: "r1", Result: gate.Accept, Coverage: "cov", At: tAccept},
 	}
-	carriedOver := func(prior []gate.Result) (bool, int) {
+	carriedOver := func(from, to string, prior []gate.Result) (gate.Result, int) {
 		d := &fakeDispatcher{answers: map[string]string{"r1": accept}}
 		run := gate.Run{
-			Item: item.Item{ID: "th_1"}, From: "a", To: "z", Transition: tr, Workflow: w,
+			Item: item.Item{ID: "th_1"}, From: from, To: to, Transition: tr, Workflow: w,
 			Skills:     map[string]workflow.Skill{"review": {Name: "review", Meta: map[string]string{}, Body: "r"}},
 			Agents:     agent.Catalog{"r1": agent.Binding{Name: "r1", Command: "claude", Model: "m", Tools: []string{"Read"}}},
 			Dispatcher: d, Prior: prior,
 			Coverage: func([]string) (string, string, error) { return "cov", "chg", nil },
 		}
 		r := run.Gate(context.Background(), "g")
-		return r.Result == gate.Carried, len(d.calls)
+		return r, len(d.calls)
 	}
-	if c, n := carriedOver(recorded); c || n != 1 {
-		t.Errorf("over recorded order: carried %v, judges %d; want false and 1", c, n)
+	if r, n := carriedOver("a", "b", recorded); r.Result == gate.Carried || n != 1 {
+		t.Errorf("over recorded order: result %s, judges %d; want not carried and 1", r.Result, n)
 	}
-	if c, n := carriedOver(GateRuns(ev)); !c || n != 0 {
-		t.Errorf("over GateRuns: carried %v, judges %d; want true and 0", c, n)
+	if r, n := carriedOver("b", "z", runs); r.Result != gate.Carried || n != 0 || r.CarriedFrom == nil || r.CarriedFrom.Transition != "a->b" || !r.CarriedFrom.At.Equal(tAccept) || r.Notes != "reuses accept on a->b at "+tAccept.Format(time.RFC3339) {
+		t.Errorf("over GateRuns across transitions: result %+v, judges %d", r, n)
 	}
-	if c, _ := carriedOver(declared); !c {
-		t.Error("over declared order: not carried")
+	if r, n := carriedOver("b", "z", declared); r.Result != gate.Carried || n != 0 || r.CarriedFrom == nil || r.CarriedFrom.Transition != "a->b" || !r.CarriedFrom.At.Equal(tAccept) {
+		t.Errorf("over declared order: result %+v, judges %d", r, n)
 	}
 }
 
