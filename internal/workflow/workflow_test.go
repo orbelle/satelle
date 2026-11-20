@@ -147,6 +147,10 @@ func TestInvalidWorkflows(t *testing.T) {
 		{"timeout zero", base + "[gates.g]\nskill = \"script\"\ntimeout = \"0s\"\n", `timeout "0s" must be positive`},
 		{"timeout negative", base + "[gates.g]\nskill = \"script\"\ntimeout = \"-1m\"\n", `timeout "-1m" must be positive`},
 		{"timeout on judge", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ntimeout = \"5m\"\n", "this gate runs none"},
+		{"diff_max_bytes zero", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ndiff_max_bytes = 0\n", "diff_max_bytes 0 must be positive"},
+		{"diff_max_bytes negative", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ndiff_max_bytes = -10\n", "diff_max_bytes -10 must be positive"},
+		{"diff_max_bytes not an int", base + "[gates.g]\nskill = \"judge\"\nagent = \"a1\"\ndiff_max_bytes = \"500\"\n", "diff_max_bytes"},
+		{"diff_max_bytes on check", base + "[gates.g]\nskill = \"script\"\ndiff_max_bytes = 500\n", `skill "script" is a check`},
 		{"resumes without park", base + "[states.a2]\nresumes = true\n", "not a park state"},
 		{"operator with agent", base + "[states.b]\nperformer = { operator = \"x\", agent = \"a1\" }\n[[transition]]\nfrom = [\"a\"]\nto = \"b\"\n", `state "b" performer is the operator; it takes no agent or skill`},
 		{"operator with skill", base + "[states.b]\nperformer = { operator = \"x\", skill = \"work\" }\n[[transition]]\nfrom = [\"a\"]\nto = \"b\"\n", "it takes no agent or skill"},
@@ -642,5 +646,49 @@ func TestLoadSkillsSkipsReadme(t *testing.T) {
 	}
 	if _, ok := got["a"]; !ok {
 		t.Fatalf("loaded %v, want a", got)
+	}
+}
+
+func TestGateDiffMaxBytes(t *testing.T) {
+	body := `
+[states.s0]
+start = true
+[states.s1]
+terminal = true
+
+[gates.bounded]
+skill = "judge"
+agent = "a1"
+diff_max_bytes = 4096
+
+[gates.unbounded]
+skill = "judge"
+agent = "a1"
+
+[[transition]]
+from = ["s0"]
+to = "s1"
+groups = [{ gates = ["bounded", "unbounded"] }]
+`
+	w, err := parse(t, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.Validate(skillOf, agentOf); len(errs) > 0 {
+		t.Fatalf("unexpected problems: %v", errs)
+	}
+	if limit, set := w.Gates["bounded"].DiffBound(); !set || limit != 4096 {
+		t.Fatalf("bounded DiffBound = %d, %v; want 4096, true", limit, set)
+	}
+	if limit, set := w.Gates["unbounded"].DiffBound(); set || limit != 0 || w.Gates["unbounded"].DiffMaxBytes != nil {
+		t.Fatalf("unbounded DiffBound = %d, %v (%v); want 0, false, nil", limit, set, w.Gates["unbounded"].DiffMaxBytes)
+	}
+	rev := Review{TierTag: "k", Panels: map[string]map[string][]string{"bounded": {"t2": {"a1", "a2"}}}}
+	resolved, tier, err := rev.Resolve("bounded", w.Gates["bounded"], []string{"t2"})
+	if err != nil || tier != "t2" {
+		t.Fatalf("Resolve = %+v %q %v", resolved, tier, err)
+	}
+	if limit, set := resolved.DiffBound(); !set || limit != 4096 {
+		t.Fatalf("tier-resolved DiffBound = %d, %v; want 4096, true", limit, set)
 	}
 }

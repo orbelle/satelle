@@ -302,3 +302,16 @@ func TestCheckStdinKeysDocumented(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffMaxBytesDocumented(t *testing.T) {
+	top, ok := Get("workflows")
+	if !ok {
+		t.Fatal("no workflows topic")
+	}
+	body := strings.Join(strings.Fields(top.Body), " ")
+	for _, want := range []string{"diff_max_bytes", "64,000", "cut files:", "deleted file:"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the workflows topic lacks %q", want)
+		}
+	}
+}

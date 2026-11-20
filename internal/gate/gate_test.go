@@ -565,3 +565,113 @@ func TestReviewLeavesACheckGateAlone(t *testing.T) {
 		t.Fatalf("a check gate took a tier: %+v calls %v", rs[0], d.calls)
 	}
 }
+
+type promptRecorder struct {
+	agent.Dispatcher
+	mu      sync.Mutex
+	prompts map[string]string
+}
+
+func (p *promptRecorder) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	p.mu.Lock()
+	if p.prompts == nil {
+		p.prompts = map[string]string{}
+	}
+	p.prompts[req.Binding.Name] = req.Prompt
+	p.mu.Unlock()
+	return p.Dispatcher.Dispatch(ctx, role, req)
+}
+
+func TestJudgeDispatchAppliesDiffBoundAndSummaries(t *testing.T) {
+	bound := 500
+	deleted := makeDeletedSection("old.go", []string{"package old", "func Removed() {}", "var secret = 1"}, false)
+	small := makeModifiedSection("a_keep.go", 2)
+	medium := makeModifiedSection("b_cut.go", 30)
+	large := makeModifiedSection("c_huge.go", 3000)
+	fullDiff := deleted + small + medium + large
+	if len(fullDiff) < 100_000 || len(fullDiff) >= 200_000 {
+		t.Fatalf("fixture diff size %d must be between 100k and 200k", len(fullDiff))
+	}
+
+	gates := map[string]workflow.Gate{
+		"single":  {Skill: "judge", Agent: "y1", DiffMaxBytes: &bound},
+		"panel":   {Skill: "judge", Panel: []string{"y1", "y2"}, Combine: workflow.CombineAll, DiffMaxBytes: &bound},
+		"tiered":  {Skill: "judge", Agent: "y1", DiffMaxBytes: &bound},
+		"default": {Skill: "judge", Agent: "y2"},
+	}
+
+	runGate := func(gateName string, tags []string, rev workflow.Review) map[string]string {
+		t.Helper()
+		r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{gateName}}}, gates)
+		rec := &promptRecorder{Dispatcher: r.Dispatcher}
+		r.Dispatcher = rec
+		r.Item.Tags, r.Review = tags, rev
+		r.Diff = func([]string) (string, error) { return fullDiff, nil }
+		rs, pass := r.Execute(context.Background())
+		if !pass || len(rs) != 1 || rs[0].Result != Accept {
+			t.Fatalf("%s: pass=%v rs=%+v", gateName, pass, rs)
+		}
+		return rec.prompts
+	}
+
+	checkBounded500 := func(name, prompt string) {
+		t.Helper()
+		_, diffBlock, ok := strings.Cut(prompt, "\nDiff:\n")
+		if !ok {
+			t.Fatalf("%s: no Diff block in prompt", name)
+		}
+		diffHead, trailer, ok := strings.Cut(diffBlock, "… diff truncated at 500 bytes; cut files:\n")
+		if !ok {
+			t.Fatalf("%s: missing 500-byte truncation header:\n%s", name, diffBlock)
+		}
+		if len(strings.TrimSuffix(diffHead, "\n")) > 500 {
+			t.Fatalf("%s: diff body %d exceeds 500 bytes", name, len(diffHead))
+		}
+		if !strings.Contains(diffHead, "deleted file: old.go (3 lines)\n") {
+			t.Fatalf("%s: missing deleted-file summary:\n%s", name, diffHead)
+		}
+		if strings.Contains(prompt, "func Removed()") {
+			t.Fatalf("%s: deleted file content leaked into prompt", name)
+		}
+		for _, want := range []string{"- b_cut.go\n", "- c_huge.go\n"} {
+			if !strings.Contains(trailer, want) {
+				t.Fatalf("%s: cut list lacks %q:\n%s", name, want, trailer)
+			}
+		}
+		if strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- old.go\n") {
+			t.Fatalf("%s: uncut file listed in cut files:\n%s", name, trailer)
+		}
+	}
+
+	ps := runGate("single", nil, workflow.Review{})
+	checkBounded500("single", ps["y1"])
+
+	ps = runGate("panel", nil, workflow.Review{})
+	if ps["y1"] != ps["y2"] {
+		t.Fatal("panel members received different prompts")
+	}
+	checkBounded500("panel/y1", ps["y1"])
+
+	rev := workflow.Review{TierTag: "k", Panels: map[string]map[string][]string{"tiered": {"t2": {"y1", "y2"}}}}
+	ps = runGate("tiered", []string{"k:t2"}, rev)
+	if len(ps) != 2 || ps["y1"] != ps["y2"] {
+		t.Fatalf("tier panel prompts mismatch: got %d", len(ps))
+	}
+	checkBounded500("tiered/y1", ps["y1"])
+
+	ps = runGate("default", nil, workflow.Review{})
+	_, diffBlock, ok := strings.Cut(ps["y2"], "\nDiff:\n")
+	if !ok {
+		t.Fatal("default: no Diff block")
+	}
+	diffHead, trailer, ok := strings.Cut(diffBlock, "… diff truncated at 64000 bytes; cut files:\n")
+	if !ok {
+		t.Fatalf("default: 100k diff was not cut at 64000 bytes:\n%s", diffBlock[max(0, len(diffBlock)-300):])
+	}
+	if len(strings.TrimSuffix(diffHead, "\n")) > DefaultDiffMaxBytes {
+		t.Fatalf("default: diff body %d exceeds %d", len(diffHead), DefaultDiffMaxBytes)
+	}
+	if !strings.Contains(trailer, "- c_huge.go\n") || strings.Contains(trailer, "- a_keep.go\n") || strings.Contains(trailer, "- b_cut.go\n") {
+		t.Fatalf("default: unexpected cut list:\n%s", trailer)
+	}
+}

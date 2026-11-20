@@ -61,6 +61,7 @@ A gate is a named judgement on a transition:
     carry = true                 # an earlier accept over unchanged coverage is carried
     after = ["notes", "publish"] # check skills run in order once the gate has a verdict
     timeout = "30m"              # bounds this gate's check scripts; default 10m
+    diff_max_bytes = 64000       # bounds the diff in a judge's prompt; default 64000
     placement = "remote:integration"  # a check gate only: run its check on a node
 
 A transition runs its groups in order. A `sequential` group stops at its first
@@ -192,6 +193,17 @@ timeout)`, or `timed out after 10m0s (default; set timeout on
 [gates.full-test] to raise it)`. A trigger or `after` that times out keeps its
 `trigger <skill>: ` or `after <skill>: ` prefix. A timeout is a failure, not a
 verdict, so of the `after` list only an `after: always` entry runs on it.
+
+A judged gate's `diff_max_bytes` (a positive integer) bounds the diff included
+in its judge prompt; without it the default of 64,000 bytes applies.
+`satelle validate --session <session>` refuses a value that is not positive or
+`diff_max_bytes` on a check gate (strict workflow decoding also refuses
+`diff_max_bytes` on older satelle versions). Before the bound is measured, each
+deleted file is summarised to its path and line count (`deleted file: <path>
+(<N> lines)`, or `(binary)` for a deleted binary file) rather than its removed
+lines. When the assembled diff exceeds the bound, it is cut on a UTF-8 rune
+boundary at or below `diff_max_bytes` and ends with `… diff truncated at
+<bound> bytes; cut files:` naming each file whose section was cut or omitted.
 
 `satelle story set <id> --status <to> --session <session>` runs the gates in that command before
 it returns. A gate with a long `timeout` (see `satelle workflow show --session <session>`) can
