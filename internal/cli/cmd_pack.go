@@ -528,7 +528,11 @@ func packPublishCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bundle, err := pack.Collect(filepath.Join(r.DataDir, kernel.SkillsDir), args[0])
+			data, err := resolveInTree("pack publish", r.Tree, r.DataDir)
+			if err != nil {
+				return err
+			}
+			bundle, err := pack.Collect(filepath.Join(data, kernel.SkillsDir), args[0])
 			if err != nil {
 				return err
 			}
