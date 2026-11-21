@@ -1,3 +1,8 @@
+## [1.0.111] - 2026-11-21
+
+### Added
+- satelle pack install <ref> --version <v> places a verified pack version's skill directories under .satelle/skills/ and records the ref, version, digest and each file's sha256 in .satelle/packs.toml; a path that exists and is not the pack's is refused by name, and a failed verification or an unreadable pack writes nothing (sto_23a1be8f)
+
 ## [1.0.110] - 2026-11-21
 
 ### Added
