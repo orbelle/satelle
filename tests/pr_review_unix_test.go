@@ -1447,11 +1447,11 @@ var prGateSkills = []string{statusSkill, "satelle-pr-ready-check", approveFromRe
 
 func baseBranchLines(t *testing.T, text string) string {
 	t.Helper()
-	_, rest, ok := strings.Cut(text, "# base branch: begin\n")
+	_, rest, ok := strings.Cut(text, "resolve_base_branch() {\n")
 	if !ok {
 		return ""
 	}
-	block, _, ok := strings.Cut(rest, "# base branch: end\n")
+	block, _, ok := strings.Cut(rest, "\n}\nresolve_base_branch\n")
 	if !ok {
 		t.Fatal("a base branch block has no end line")
 	}

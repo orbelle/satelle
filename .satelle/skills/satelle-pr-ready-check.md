@@ -76,51 +76,52 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   exit 1
 fi
 story=$SATELLE_ITEM
-# base branch: begin
-route=$(satelle story route "$story" --json 2>&1) || { echo "could not read the route of $story: $route"; exit 1; }
-wf=$(printf '%s' "$route" | jq -r '.workflow // empty')
-bases=
-for q in $(printf '%s' "$route" | jq -r '[.states[]?.enqueue[]?] | unique | .[]'); do
-  b=$(satelle queue get "$q" --json 2>/dev/null | jq -r '.trigger.base // empty')
-  [ -n "$b" ] && bases="$bases$q $b
+resolve_base_branch() {
+  route=$(satelle story route "$story" --json 2>&1) || { echo "could not read the route of $story: $route"; exit 1; }
+  wf=$(printf '%s' "$route" | jq -r '.workflow // empty')
+  bases=
+  for q in $(printf '%s' "$route" | jq -r '[.states[]?.enqueue[]?] | unique | .[]'); do
+    b=$(satelle queue get "$q" --json 2>/dev/null | jq -r '.trigger.base // empty')
+    [ -n "$b" ] && bases="$bases$q $b
 "
-done
-n=$(printf '%s' "$bases" | awk 'NF { print $2 }' | sort -u | grep -c .)
-if [ "$n" -gt 1 ]; then
-  echo "the queues the workflow $wf of $story enqueues into name $n trigger bases ($(printf '%s' "$bases" | awk 'NF { printf "%s%s base %s", s, $1, $2; s = "; " }')), so the pull request's base branch is ambiguous: give them one base"
-  exit 1
-fi
-if [ "$n" -eq 0 ]; then
-  why="the workflow $wf of $story enqueues into no queue with a trigger base"
-  alt="or give a queue its states enqueue into base = \"<remote>/<branch>\" under [trigger]"
-  remotes=$(git remote)
-  remote=$(git config --get checkout.defaultRemote)
-  if [ -n "$remote" ]; then
-    printf '%s\n' "$remotes" | grep -qxF -e "$remote" || { echo "$why, and checkout.defaultRemote names $remote, which git remote does not list, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote> naming one git remote lists, $alt"; exit 1; }
-  else
-    case $(printf '%s' "$remotes" | grep -c .) in
-      0) echo "$why, and this repo has no git remote, so the pull request's base branch cannot be read: git remote add <remote> <url>, $alt"; exit 1 ;;
-      1) remote=$remotes ;;
-      *) echo "$why, and this repo has several git remotes ($(printf '%s' "$remotes" | tr '\n' ' ')) and no checkout.defaultRemote, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote>, $alt"; exit 1 ;;
-    esac
-  fi
-  heads=$(GIT_TERMINAL_PROMPT=0 git ls-remote --symref -- "$remote" HEAD 2>&1) || { echo "$why, and could not read the default branch of the remote $remote: $heads; $alt"; exit 1; }
-  branch=$(printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && index($1, "ref: refs/heads/") == 1 { print substr($1, 17); exit }')
-  if [ -z "$branch" ] || ! printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && $1 !~ /^ref: / { f = 1 } END { exit !f }'; then
-    echo "$why, and the remote $remote names no default branch, so the pull request's base branch cannot be read: set the default branch of the repository $remote names, $alt"
+  done
+  n=$(printf '%s' "$bases" | awk 'NF { print $2 }' | sort -u | grep -c .)
+  if [ "$n" -gt 1 ]; then
+    echo "the queues the workflow $wf of $story enqueues into name $n trigger bases ($(printf '%s' "$bases" | awk 'NF { printf "%s%s base %s", s, $1, $2; s = "; " }')), so the pull request's base branch is ambiguous: give them one base"
     exit 1
   fi
-  base_queue=
-  base_ref="$remote/$branch"
-else
-  base_queue=$(printf '%s' "$bases" | awk 'NF { print $1; exit }')
-  base_ref=$(printf '%s' "$bases" | awk 'NF { print $2; exit }')
-  case "$base_ref" in
-    ?*/?*) remote=${base_ref%%/*} branch=${base_ref#*/} ;;
-    *) echo "the queue $base_queue has trigger base $base_ref, which is not <remote>/<branch>, so the pull request's base branch cannot be read: set base = \"<remote>/<branch>\" under its [trigger]"; exit 1 ;;
-  esac
-fi
-# base branch: end
+  if [ "$n" -eq 0 ]; then
+    why="the workflow $wf of $story enqueues into no queue with a trigger base"
+    alt="or give a queue its states enqueue into base = \"<remote>/<branch>\" under [trigger]"
+    remotes=$(git remote)
+    remote=$(git config --get checkout.defaultRemote)
+    if [ -n "$remote" ]; then
+      printf '%s\n' "$remotes" | grep -qxF -e "$remote" || { echo "$why, and checkout.defaultRemote names $remote, which git remote does not list, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote> naming one git remote lists, $alt"; exit 1; }
+    else
+      case $(printf '%s' "$remotes" | grep -c .) in
+        0) echo "$why, and this repo has no git remote, so the pull request's base branch cannot be read: git remote add <remote> <url>, $alt"; exit 1 ;;
+        1) remote=$remotes ;;
+        *) echo "$why, and this repo has several git remotes ($(printf '%s' "$remotes" | tr '\n' ' ')) and no checkout.defaultRemote, so the pull request's base branch cannot be read: git config checkout.defaultRemote <remote>, $alt"; exit 1 ;;
+      esac
+    fi
+    heads=$(GIT_TERMINAL_PROMPT=0 git ls-remote --symref -- "$remote" HEAD 2>&1) || { echo "$why, and could not read the default branch of the remote $remote: $heads; $alt"; exit 1; }
+    branch=$(printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && index($1, "ref: refs/heads/") == 1 { print substr($1, 17); exit }')
+    if [ -z "$branch" ] || ! printf '%s\n' "$heads" | awk -F '\t' '$2 == "HEAD" && $1 !~ /^ref: / { f = 1 } END { exit !f }'; then
+      echo "$why, and the remote $remote names no default branch, so the pull request's base branch cannot be read: set the default branch of the repository $remote names, $alt"
+      exit 1
+    fi
+    base_queue=
+    base_ref="$remote/$branch"
+  else
+    base_queue=$(printf '%s' "$bases" | awk 'NF { print $1; exit }')
+    base_ref=$(printf '%s' "$bases" | awk 'NF { print $2; exit }')
+    case "$base_ref" in
+      ?*/?*) remote=${base_ref%%/*} branch=${base_ref#*/} ;;
+      *) echo "the queue $base_queue has trigger base $base_ref, which is not <remote>/<branch>, so the pull request's base branch cannot be read: set base = \"<remote>/<branch>\" under its [trigger]"; exit 1 ;;
+    esac
+  fi
+}
+resolve_base_branch
 waits=$(printf '%s' "$route" | jq -r --arg s "$SATELLE_TO" '[.states[]? | select(.name == $s) | .waits // empty][0] // empty')
 git fetch -q "$remote" || { echo "git fetch $remote failed"; exit 1; }
 head=$(git rev-parse HEAD)
