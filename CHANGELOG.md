@@ -1,3 +1,9 @@
+## [1.0.120] - 2026-11-21
+
+### Changed
+- satelle-pr-gates 1.0.3: satelle-pr-approve-from-review takes each route's verdict gate and move from the repo's own .satelle/pr-gates.routes (one line per workflow), read from the base branch's committed tip, so a repo whose routes are judged by different gates keeps the installed member unedited; a route named nowhere keeps code-ac on in_progress -> integration. (sto_0b261013)
+- The claude, cursor, grok and pi integrations each live in their own package under internal/integration, backed by shared dispatch and hook contracts in internal/integration/common and one provider registry; internal/hook and internal/agent delegate to it with no change in behaviour. (sto_e3ffa36c)
+
 ## [1.0.119] - 2026-11-21
 
 ### Added
