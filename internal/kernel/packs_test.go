@@ -166,7 +166,6 @@ func TestPackDuplicateNameRefused(t *testing.T) {
 		}
 	}
 
-	// Verify Kernel.Validate forwards k.Packs too.
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -259,7 +258,6 @@ agents = ["r1"]
 		t.Fatalf("v1 judge system prompt = %+v", d1.reqs)
 	}
 
-	// Modify member skill bytes with no .satelle/packs.toml present.
 	write(t, filepath.Join(root, SkillsDir, "my-check", workflow.SkillFile), "---\nname: my-check\ntype: check\ndescription: check v2 edited\n---\n\nEdited body.\n\n```sh\nsh scripts/check.sh\n```\n")
 	write(t, filepath.Join(root, SkillsDir, "my-check", "scripts", "check.sh"), "echo pack-check-v2-edited\n")
 	write(t, filepath.Join(root, SkillsDir, "my-judge", workflow.SkillFile), "---\nname: my-judge\ntype: skill\ndescription: judge v2 edited\n---\n\nRUBRIC-V2-EDITED\n")

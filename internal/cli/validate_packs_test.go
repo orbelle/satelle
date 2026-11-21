@@ -282,7 +282,6 @@ scripts = ["sh"]
 		t.Fatalf("v1 ledger lacks PACK_GATE_MARKER_V1:\n%s", led1)
 	}
 
-	// Edit member skill bytes with no .satelle/packs.toml present.
 	writeFile(t, filepath.Join(dir, ".satelle", "skills", "pack-check", "SKILL.md"), "---\nname: pack-check\ntype: check\ndescription: check v2 edited\n---\n\nEdited locally.\n\n```sh\nsh scripts/check.sh\n```\n")
 	writeFile(t, filepath.Join(dir, ".satelle", "skills", "pack-check", "scripts", "check.sh"), "echo PACK_GATE_MARKER_V2_EDITED\n")
 
