@@ -1,3 +1,11 @@
+## [1.0.109] - 2026-11-21
+
+### Added
+- A pack is defined by a pack.toml in its entry skill's directory, naming the pack, its version, its member skills and what it needs; satelle validate reports an unknown key in it and refuses a missing required field or a member skill that does not exist (sto_fc0f50b1)
+
+### Changed
+- This repo's satelle-pr-ready-check is a skill directory that carries its own changelog check (scripts/changelog-lines.sh), so the pull-request gate needs no file outside its directory; the release keeps scripts/changelog-items.sh, and a test holds the two to the same accepted lines (sto_c5ab6dcc)
+
 ## [1.0.108] - 2026-11-21
 
 ### Added
