@@ -122,14 +122,15 @@ func packInstallCmd() *cobra.Command {
 		Short: "Install a verified pack's skill directories under .satelle/skills and record them in .satelle/packs.toml",
 		Long: "Install fetches and verifies a pack version, then places its entry and member skill directories under .satelle/skills " +
 			"and records its ref, version, digest, skills and each file's sha256 in .satelle/packs.toml. It needs a seat at this worktree on a state " +
-			"whose performer may change the tree, honours [gate] locked_paths for every file it writes, and writes nothing when a check fails.",
+			"whose performer may change the tree, honours [gate] locked_paths for every file it writes, and writes nothing when a check fails. " +
+			"It validates the whole configuration as it will stand with the pack's skills written, and writes nothing when that configuration is invalid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, ver, err := packArgs(args[0], version)
 			if err != nil {
 				return err
 			}
-			data, names, check, closeFn, err := packTarget("pack install")
+			data, names, check, closeFn, err := packTarget("pack install", true)
 			if err != nil {
 				return err
 			}
@@ -169,22 +170,33 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
-func packTarget(verb string) (string, pack.Names, func(string) error, func(), error) {
-	k, r, err := openKernel()
+func packTarget(verb string, prospective bool) (string, pack.Names, func(string) error, func(), error) {
+	r, err := findRepo("")
 	if err != nil {
 		return "", pack.Names{}, nil, nil, err
 	}
-	closeFn := func() { k.Close() }
+	session := sessionFromEnv()
+	g := hook.Gate{Root: r.Tree, TempRoots: []string{}}
+	closeFn := func() {}
+	if prospective && len(kernel.Validate(r.DataDir)) > 0 {
+		st, err := kernel.LoadSettings(r.DataDir)
+		if err != nil {
+			return "", pack.Names{}, nil, nil, err
+		}
+		g.Locked = st.Gate.LockedPaths
+		g.Grant = func(tree string) hook.Grant { return seatGrantUnconfigured(r, session, tree) }
+	} else {
+		k, err := r.open()
+		if err != nil {
+			return "", pack.Names{}, nil, nil, err
+		}
+		closeFn = func() { k.Close() }
+		g.Locked = k.Settings.Gate.LockedPaths
+		g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
+	}
 	fail := func(err error) (string, pack.Names, func(string) error, func(), error) {
 		closeFn()
 		return "", pack.Names{}, nil, nil, err
-	}
-	session := sessionFromEnv()
-	g := hook.Gate{
-		Root:      r.Tree,
-		Locked:    k.Settings.Gate.LockedPaths,
-		TempRoots: []string{},
-		Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
 	}
 	resolve := func(p string) (string, error) { return resolveInTree(verb, r.Tree, p) }
 	check := func(p string) error {
@@ -204,7 +216,13 @@ func packTarget(verb string) (string, pack.Names, func(string) error, func(), er
 	if err != nil {
 		return fail(err)
 	}
-	names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix, MergeDir: kernel.PackMergeDir}
+	names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix, MergeDir: kernel.PackMergeDir,
+		Validate: func(skills string) error {
+			if errs := kernel.ValidateWithSkills(data, skills); len(errs) > 0 {
+				return errors.Join(errs...)
+			}
+			return nil
+		}}
 	recordPath := filepath.Join(data, names.Record)
 	for _, p := range []string{filepath.Join(data, names.Skills), recordPath} {
 		if err := check(p); err != nil {
@@ -228,14 +246,15 @@ func packUpdateCmd() *cobra.Command {
 			"or it is a local file the new version now publishes) is left exactly as it is, and its installed-version and new-version copies " +
 			"are written under .satelle/pack-merge/<ref>/<version>/ and named for the agent to merge; satelle merges nothing. packs.toml then " +
 			"records the new version. It needs a seat at this worktree on a state whose performer may change the tree, honours [gate] locked_paths " +
-			"for every file it writes, and writes nothing when a check fails.",
+			"for every file it writes, and writes nothing when a check fails. It validates the whole configuration as it will stand with the pack's skills written, " +
+			"and writes nothing when that configuration is invalid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, ver, err := packArgs(args[0], version)
 			if err != nil {
 				return err
 			}
-			data, names, check, closeFn, err := packTarget("pack update")
+			data, names, check, closeFn, err := packTarget("pack update", true)
 			if err != nil {
 				return err
 			}
@@ -327,7 +346,7 @@ func packRemoveCmd() *cobra.Command {
 			if ref == "" {
 				return errors.New("pack ref is required")
 			}
-			data, names, check, closeFn, err := packTarget("pack remove")
+			data, names, check, closeFn, err := packTarget("pack remove", false)
 			if err != nil {
 				return err
 			}

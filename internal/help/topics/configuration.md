@@ -214,7 +214,11 @@ at this worktree on a state whose performer may change the tree, whatever
 it writes. It refuses a `.satelle`, `skills` or `packs.toml` that resolves
 outside the worktree, a skill directory (or single-file skill of the same
 name) that already exists and is not recorded as that pack's, and the same pack
-at another version; the same version and digest again writes nothing. When a
+at another version; the same version and digest again writes nothing. The
+current configuration need not be valid, for example when workflows already
+name the pack's skills: install validates the whole configuration as it will
+stand with the pack's skills written, and when that is invalid it writes
+nothing and the error names each problem. When a
 check, the verification or the read fails, nothing is written and
 `.satelle/packs.toml` is unchanged. Installed skills are the repo's own to wire
 and edit; install never merges or overwrites them. It records each pack in
@@ -252,8 +256,12 @@ version, skills or file paths are not safe relative names (or whose files lie
 outside its recorded skills), a version that is not a single safe name, a
 symlinked skill directory or file, a new member directory that already exists
 unrecorded, and merge copies an earlier update left at
-`.satelle/pack-merge/<ref>`. When a check, the verification or a write fails,
-nothing is written and `.satelle/packs.toml` is unchanged.
+`.satelle/pack-merge/<ref>`. Like install, it validates the whole
+configuration as it will stand with the new version's skills written, so a
+workflow may already name a skill only the new version provides; when that
+configuration is invalid it writes nothing and the error names each problem.
+When a check, the verification or a write fails, nothing is written and
+`.satelle/packs.toml` is unchanged.
 
 `satelle pack status [--json] --session <session>` lists each pack
 `.satelle/packs.toml` records: its ref and version, each recorded file whose

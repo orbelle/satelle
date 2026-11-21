@@ -3,6 +3,7 @@ package pack
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -327,6 +328,30 @@ func Update(dataDir, ref string, next Verified, installed func() (Verified, erro
 		}
 	}
 
+	apply := func(dst string) error {
+		for _, p := range backup {
+			abs, err := under(dst, p)
+			if err != nil {
+				return err
+			}
+			if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		if err := stageInto(dst, next.subset(place), ""); err != nil {
+			return err
+		}
+		for _, p := range res.Removed {
+			if err := pruneEmptyDirs(dst, p, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := prospect(dataDir, skillsDir, names.StagePrefix, ref, next.version, apply, names.Validate); err != nil {
+		return UpdateResult{}, err
+	}
+
 	files := make([]InstalledFile, len(next.files))
 	for i, f := range next.files {
 		files[i] = InstalledFile{Path: f.path, SHA256: f.sha256}
@@ -448,24 +473,10 @@ func commitUpdate(dataDir, skillsDir, recordPath, prefix string, c updateCommit,
 		undos = append(undos, func() { _ = os.Remove(dst) })
 	}
 	for _, p := range c.removed {
-		for dir := path.Dir(p); dir != "."; dir = path.Dir(dir) {
-			abs, err := under(skillsDir, dir)
-			if err != nil {
-				return undo(err)
-			}
-			info, err := os.Lstat(abs)
-			if err != nil || !info.IsDir() {
-				break
-			}
-			ents, err := os.ReadDir(abs)
-			if err != nil || len(ents) > 0 {
-				break
-			}
-			if err := os.Remove(abs); err != nil {
-				return undo(fmt.Errorf("remove %s: %w", abs, err))
-			}
-			mode := info.Mode().Perm()
+		if err := pruneEmptyDirs(skillsDir, p, func(abs string, mode os.FileMode) {
 			undos = append(undos, func() { _ = os.Mkdir(abs, mode) })
+		}); err != nil {
+			return undo(err)
 		}
 	}
 	if len(c.copies) > 0 {
