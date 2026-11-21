@@ -35,7 +35,8 @@ Prefer the plan attachment over re-deriving the slice from the story body.
 
 If **no plan is attached**, say so and stop — do not invent one.
 
-If the record holds `release-sendback` (why a release run sent the item back),
+If the record holds `pr-review` (the satelle GitHub app's requested changes on
+your PR head) or `release-sendback` (why a release run sent the item back),
 read the newest one first: it is why the item is back at in_progress, and each
 point in it must be addressed before you present again. On a send-back, merge
 origin/main into your branch (`git fetch origin && git merge origin/main`);
