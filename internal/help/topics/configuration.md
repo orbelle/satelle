@@ -253,6 +253,21 @@ unrecorded, and merge copies an earlier update left at
 `.satelle/pack-merge/<ref>`. When a check, the verification or a write fails,
 nothing is written and `.satelle/packs.toml` is unchanged.
 
+`satelle pack status [--json] --session <session>` lists each pack
+`.satelle/packs.toml` records: its ref and version, each recorded file whose
+sha256 differs (edited) or that is gone (missing), shown as
+`.satelle/skills/<path>`, and the newest version the marketplace serves (the
+pack's latest version; it does not compare versions). Local edits are
+expected and never fail it. It needs no seat and writes nothing. It refuses a
+symlinked `packs.toml`, skills directory, skill directory or file, a
+`.satelle` that resolves outside the worktree, and a recorded ref or version
+that is not a plain name (letters, digits and `. _ + @ / -`, not starting with
+`-`). With no pack installed it never contacts the marketplace. When the
+marketplace cannot be read, each pack's `newest_error` says so and it still
+exits 0. `--json` prints `{"packs": [{"ref", "name", "version", "edited",
+"missing", "newest", "newest_error"}]}`. The shipped doctor check
+`satelle-pack-version-check` runs it and reports a newer version (below,
+under doctor.toml).
 `satelle pack remove <ref> [--force] --session <session>` deletes each file
 `.satelle/packs.toml` records for an installed pack whose sha256 still matches,
 prunes each skill directory that leaves empty, and drops the pack's entry from
@@ -306,6 +321,16 @@ and prints each non-empty line of its output as a note naming the check
 the check's fix, any other exit (or a timeout) is one "could not check" issue.
 A doctor check must change nothing. An `[[items]]` entry reports each item it
 selects that is not in a terminal state of its workflow.
+`satelle init --session <session>` ships the check `satelle-pack-version-check`,
+which runs pack status (above, under pack.toml) and raises an issue for each
+installed pack with a newer version, naming its installed and newest version
+and the `satelle pack update <ref> --version <newest> --session <session>`
+command; an unreadable marketplace is a note, never an issue. Configure it to have doctor report newer pack versions:
+
+    [[check]]
+    skill = "satelle-pack-version-check"
+    fix = "in a seat that may change the tree, run the update command the issue names, then merge each edited file it lists under .satelle/pack-merge"
+
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.
 

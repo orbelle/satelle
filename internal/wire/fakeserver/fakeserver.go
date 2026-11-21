@@ -51,6 +51,7 @@ type Server struct {
 	packs      map[packKey]*seededPack
 	packAdmins map[string]map[string]bool
 	published  []*satellepb.PublishPackRequest
+	packOrder  map[string][]string
 	nextID     int
 	grpc       *grpc.Server
 	down       bool

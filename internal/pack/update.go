@@ -75,6 +75,44 @@ func fileSHA256(p string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+type fileState int
+
+const (
+	stateUnchanged fileState = iota
+	stateEdited
+	stateMissing
+)
+
+func locate(skillsDir, rel string) (string, bool, error) {
+	if err := checkAncestors(skillsDir, rel); err != nil {
+		return "", false, err
+	}
+	cur, err := under(skillsDir, rel)
+	if err != nil {
+		return "", false, err
+	}
+	present, err := presentAs(cur, false)
+	return cur, present, err
+}
+
+func recordedState(skillsDir, rel, want string) (fileState, error) {
+	cur, present, err := locate(skillsDir, rel)
+	if err != nil {
+		return 0, err
+	}
+	if !present {
+		return stateMissing, nil
+	}
+	got, err := fileSHA256(cur)
+	if err != nil {
+		return 0, err
+	}
+	if got != want {
+		return stateEdited, nil
+	}
+	return stateUnchanged, nil
+}
+
 func Update(dataDir, ref string, next Verified, installed func() (Verified, error), names Names, check func(abs string) error) (UpdateResult, error) {
 	if err := ValidatePath(ref); err != nil {
 		return UpdateResult{}, fmt.Errorf("pack ref: %w", err)
@@ -162,33 +200,14 @@ func Update(dataDir, ref string, next Verified, installed func() (Verified, erro
 	var place, backup []string
 	var edited []string
 	for _, p := range all {
-		if err := checkAncestors(skillsDir, p); err != nil {
-			return UpdateResult{}, err
-		}
-		cur, err := under(skillsDir, p)
-		if err != nil {
-			return UpdateResult{}, err
-		}
-		present, err := presentAs(cur, false)
-		if err != nil {
-			return UpdateResult{}, err
-		}
 		want, wasRecorded := recorded[p]
-		switch {
-		case !wasRecorded && present:
-			edited = append(edited, p)
-		case !wasRecorded:
-			res.Added = append(res.Added, p)
-			place = append(place, p)
-		case !present:
-			edited = append(edited, p)
-		default:
-			got, err := fileSHA256(cur)
+		if wasRecorded {
+			state, err := recordedState(skillsDir, p, want)
 			if err != nil {
 				return UpdateResult{}, err
 			}
 			switch {
-			case got != want:
+			case state != stateUnchanged:
 				edited = append(edited, p)
 			case published[p]:
 				res.Replaced = append(res.Replaced, p)
@@ -198,6 +217,17 @@ func Update(dataDir, ref string, next Verified, installed func() (Verified, erro
 				res.Removed = append(res.Removed, p)
 				backup = append(backup, p)
 			}
+			continue
+		}
+		_, present, err := locate(skillsDir, p)
+		if err != nil {
+			return UpdateResult{}, err
+		}
+		if present {
+			edited = append(edited, p)
+		} else {
+			res.Added = append(res.Added, p)
+			place = append(place, p)
 		}
 	}
 

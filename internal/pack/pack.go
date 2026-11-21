@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
@@ -84,6 +85,35 @@ func ValidateSegment(s string) error {
 		return fmt.Errorf("pack path %q is not a single name", s)
 	}
 	return nil
+}
+
+const maxTokenLen = 200
+
+func ValidateToken(s string) error {
+	if len(s) == 0 || len(s) > maxTokenLen || !isASCIIAlnum(s[0]) {
+		return errNotPlain
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !isASCIIAlnum(c) && !strings.ContainsRune("._+@/-", rune(c)) {
+			return errNotPlain
+		}
+	}
+	return nil
+}
+
+var errNotPlain = errors.New("is not a plain name (letters, digits and . _ + @ / -, not starting with -)")
+
+func Printable(s string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, s))
+}
+
+func isASCIIAlnum(b byte) bool {
+	return isASCIIAlpha(b) || (b >= '0' && b <= '9')
 }
 
 func isASCIIAlpha(b byte) bool {

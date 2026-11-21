@@ -73,3 +73,17 @@ Follow this when the user asks to add, take or install a pack.
 Tell the user the skills installed (from the install output or
 `.satelle/packs.toml`), each gate wired and where, the pack's needs, and the
 security reviewer finding.
+
+## 8. Keep packs current
+
+- Run `satelle pack status --session <session>` to see each installed pack's
+  version, its locally edited and missing files, and the newest version the
+  marketplace serves. Local edits are expected.
+- To have doctor report newer versions, add to `.satelle/doctor.toml`:
+
+      [[check]]
+      skill = "satelle-pack-version-check"
+      fix = "in a seat that may change the tree, run the update command the issue names, then merge each edited file it lists under .satelle/pack-merge"
+
+- Leave it to the user to decide when to run the `satelle pack update`
+  command an issue names.

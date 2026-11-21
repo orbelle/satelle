@@ -372,6 +372,8 @@ func TestPackTomlDocumented(t *testing.T) {
 		".satelle/packs.toml",
 		"satelle pack install",
 		"satelle pack update",
+		"satelle pack status",
+		"satelle-pack-version-check",
 		"satelle pack remove",
 		"satelle pack publish",
 		"--force",

@@ -2,6 +2,10 @@
 skill = "satelle-drift-ownership-check"
 fix = "satelle story get <id>: fix each unowned drift-key under its Findings, or tag the open story that will fix it drift-owns:<drift-key>; the next drift review closes it"
 
+[[check]]
+skill = "satelle-pack-version-check"
+fix = "in a seat that may change the tree, run the update command the issue names, then merge each edited file it lists under .satelle/pack-merge"
+
 [resolve]
 kind = "story"
 tag = "substrate-fix"

@@ -2,6 +2,7 @@ package fakeserver_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -98,5 +99,41 @@ func TestPackService(t *testing.T) {
 	}
 	if n := len(srv.Published()); n != 4 {
 		t.Errorf("recorded %d publish request(s), want 4", n)
+	}
+}
+
+func TestGetPackNamesLatestVersion(t *testing.T) {
+	ctx := context.Background()
+	srv := fakeserver.Start(t, "tok-ada", "tok-other")
+	ada, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok-ada"}, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ada.Close() })
+
+	for _, v := range []string{"1.0.0", "1.1.0", "1.0.0"} {
+		b, _ := fakeserver.PackBundle("review", v, []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte(v)}})
+		srv.SeedPack("acme/review", v, b)
+	}
+	got, err := ada.Packs.GetPack(ctx, &satellepb.GetPackRequest{Ref: "acme/review", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := got.GetPack()
+	if p.GetRef() != "acme/review" || p.GetName() != "review" || p.GetLatestVersion() != "1.1.0" ||
+		!slices.Equal(p.GetVersions(), []string{"1.0.0", "1.1.0"}) || got.GetManifest().GetVersion() != "1.0.0" {
+		t.Errorf("GetPack = %v", got)
+	}
+
+	priv, _ := fakeserver.PackBundle("priv", "2.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("secret")}})
+	srv.SeedPack("acme/priv", "2.0.0", priv, "tok-other")
+	for _, r := range []*satellepb.GetPackRequest{
+		{Ref: "acme/priv", Version: "2.0.0"},
+		{Ref: "acme/review", Version: "9.9.9"},
+		{Ref: "acme/missing", Version: "1.0.0"},
+	} {
+		if _, err := ada.Packs.GetPack(ctx, r); !hosted.IsNotFound(err) {
+			t.Errorf("GetPack %v: %v, want NotFound", r, err)
+		}
 	}
 }

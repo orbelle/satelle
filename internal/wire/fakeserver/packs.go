@@ -85,6 +85,12 @@ func (s *Server) SeedPack(ref, version string, bundle *satellepb.PackBundle, rea
 	if s.packs == nil {
 		s.packs = map[packKey]*seededPack{}
 	}
+	if s.packOrder == nil {
+		s.packOrder = map[string][]string{}
+	}
+	if !slices.Contains(s.packOrder[ref], version) {
+		s.packOrder[ref] = append(s.packOrder[ref], version)
+	}
 	var allowed map[string]bool
 	if len(readers) > 0 {
 		allowed = make(map[string]bool, len(readers))
@@ -103,16 +109,20 @@ type packsSvc struct {
 	s *Server
 }
 
-func (p packsSvc) FetchPack(ctx context.Context, r *satellepb.GetPackRequest) (*satellepb.PackBundle, error) {
-	tok := bearer(ctx)
-	p.s.mu.Lock()
-	defer p.s.mu.Unlock()
+func (p packsSvc) readable(ctx context.Context, r *satellepb.GetPackRequest) (*seededPack, error) {
 	entry := p.s.packs[packKey{ref: r.GetRef(), version: r.GetVersion()}]
-	if entry == nil {
+	if entry == nil || (len(entry.readers) > 0 && !entry.readers[bearer(ctx)]) {
 		return nil, status.Errorf(codes.NotFound, "pack %s@%s not found", r.GetRef(), r.GetVersion())
 	}
-	if len(entry.readers) > 0 && !entry.readers[tok] {
-		return nil, status.Errorf(codes.NotFound, "pack %s@%s not found", r.GetRef(), r.GetVersion())
+	return entry, nil
+}
+
+func (p packsSvc) FetchPack(ctx context.Context, r *satellepb.GetPackRequest) (*satellepb.PackBundle, error) {
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+	entry, err := p.readable(ctx, r)
+	if err != nil {
+		return nil, err
 	}
 	return proto.Clone(entry.bundle).(*satellepb.PackBundle), nil
 }
@@ -170,5 +180,29 @@ func (p packsSvc) PublishPack(ctx context.Context, r *satellepb.PublishPackReque
 		files[i] = proto.Clone(f).(*satellepb.PackFile)
 	}
 	p.s.packs[key] = &seededPack{bundle: &satellepb.PackBundle{Version: version, Files: files}}
+	if p.s.packOrder == nil {
+		p.s.packOrder = map[string][]string{}
+	}
+	p.s.packOrder[ref] = append(p.s.packOrder[ref], m.GetVersion())
 	return proto.Clone(version).(*satellepb.PackVersion), nil
+}
+
+func (p packsSvc) GetPack(ctx context.Context, r *satellepb.GetPackRequest) (*satellepb.PackVersion, error) {
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+	entry, err := p.readable(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	manifest := entry.bundle.GetVersion().GetManifest()
+	order := slices.Clone(p.s.packOrder[r.GetRef()])
+	return &satellepb.PackVersion{
+		Pack: &satellepb.Pack{
+			Ref:           r.GetRef(),
+			Name:          manifest.GetName(),
+			LatestVersion: order[len(order)-1],
+			Versions:      order,
+		},
+		Manifest: proto.Clone(manifest).(*satellepb.PackManifest),
+	}, nil
 }
