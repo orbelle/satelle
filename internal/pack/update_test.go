@@ -14,7 +14,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-var updateNames = Names{Skills: "skills", Record: "packs.toml", StagePrefix: ".satelle-pack-staging", MergeDir: "pack-merge"}
+var updateNames = Names{Skills: "skills", Record: "packs.toml", StagePrefix: ".satelle-pack-staging", MergeDir: "pack-merge", Validate: acceptAll}
 
 func versionedFiles(version string) []fakeserver.PackFile {
 	files := reviewFiles()
@@ -319,5 +319,69 @@ func TestUpdateChecksEveryWrittenPath(t *testing.T) {
 	}
 	if after := snapshot(t, data); !maps.Equal(before, after) {
 		t.Error("a denied update changed the data dir")
+	}
+}
+
+func TestUpdateValidatesProspect(t *testing.T) {
+	data := installed12(t)
+	before := snapshot(t, filepath.Join(data, "skills"))
+	record, _ := os.ReadFile(filepath.Join(data, "packs.toml"))
+	names := updateNames
+	validated := false
+	names.Validate = func(dir string) error {
+		validated = true
+		noSymlinks(t, dir)
+		if b, err := os.ReadFile(filepath.Join(dir, "review-lint", "notes.md")); err != nil || string(b) != "notes\n" {
+			t.Errorf("prospect review-lint/notes.md = %q (%v)", b, err)
+		}
+		if b, _ := os.ReadFile(filepath.Join(dir, "review", "SKILL.md")); !strings.Contains(string(b), "1.3.0") {
+			t.Errorf("prospect review/SKILL.md = %q, want the 1.3.0 body", b)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "review-lint", "scripts")); !os.IsNotExist(err) {
+			t.Errorf("prospect still holds the removed review-lint/scripts (%v)", err)
+		}
+		return errors.New("workflow adopt: skill \"missing\" is not in skills/")
+	}
+	_, err := Update(data, "acme/review", verified(t, "1.3.0", nextFiles()), neverFetched(t), names, allow)
+	if err == nil || !strings.Contains(err.Error(), "invalid; nothing was written") {
+		t.Fatalf("Update: %v", err)
+	}
+	if !validated {
+		t.Error("the configuration was not validated")
+	}
+	if after := snapshot(t, filepath.Join(data, "skills")); !maps.Equal(before, after) {
+		t.Errorf("skills changed:\nbefore %v\nafter  %v", before, after)
+	}
+	if after, _ := os.ReadFile(filepath.Join(data, "packs.toml")); string(after) != string(record) {
+		t.Error("a refused update rewrote packs.toml")
+	}
+	if e := entries(t, data); !slices.Equal(e, []string{"packs.toml", "skills"}) {
+		t.Errorf("data dir holds %v", e)
+	}
+
+	names.Validate = func(dir string) error { return nil }
+	if _, err := Update(data, "acme/review", verified(t, "1.3.0", nextFiles()), neverFetched(t), names, allow); err != nil {
+		t.Fatalf("Update with a valid prospect: %v", err)
+	}
+}
+
+func TestUpdateRefusesWithoutValidator(t *testing.T) {
+	data := installed12(t)
+	before := snapshot(t, filepath.Join(data, "skills"))
+	record, _ := os.ReadFile(filepath.Join(data, "packs.toml"))
+	names := updateNames
+	names.Validate = nil
+	_, err := Update(data, "acme/review", verified(t, "1.3.0", nextFiles()), neverFetched(t), names, allow)
+	if err == nil || !strings.Contains(err.Error(), "no configuration validator") {
+		t.Fatalf("Update: %v", err)
+	}
+	if after := snapshot(t, filepath.Join(data, "skills")); !maps.Equal(before, after) {
+		t.Error("a refused update changed the skills dir")
+	}
+	if after, _ := os.ReadFile(filepath.Join(data, "packs.toml")); string(after) != string(record) {
+		t.Error("a refused update rewrote packs.toml")
+	}
+	if e := entries(t, data); !slices.Equal(e, []string{"packs.toml", "skills"}) {
+		t.Errorf("data dir holds %v", e)
 	}
 }

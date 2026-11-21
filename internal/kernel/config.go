@@ -292,6 +292,10 @@ func normalizeUnknownKeys(root string, keys []workflow.UnknownKey) []workflow.Un
 }
 
 func LoadConfig(root string) (*Config, error) {
+	return loadConfig(root, filepath.Join(root, SkillsDir))
+}
+
+func loadConfig(root, skillsDir string) (*Config, error) {
 	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Packs: map[string]workflow.Pack{}, Agents: agent.Catalog{},
 		Queues: map[string]*workflow.Queue{}}
 	var errs []error
@@ -354,7 +358,7 @@ func LoadConfig(root string) (*Config, error) {
 	} else {
 		c.Workflows = wfs
 	}
-	if sk, err := workflow.LoadSkills(filepath.Join(root, SkillsDir)); err != nil {
+	if sk, err := workflow.LoadSkills(skillsDir); err != nil {
 		errs = append(errs, err)
 		if sk != nil {
 			c.Skills = sk
@@ -362,7 +366,7 @@ func LoadConfig(root string) (*Config, error) {
 	} else {
 		c.Skills = sk
 	}
-	if pks, un, err := workflow.LoadPacks(filepath.Join(root, SkillsDir)); err != nil {
+	if pks, un, err := workflow.LoadPacks(skillsDir); err != nil {
 		errs = append(errs, err)
 		if pks != nil {
 			c.Packs = pks
@@ -615,7 +619,14 @@ func (c *Config) bindingProblems(w *workflow.Workflow) []error {
 }
 
 func Validate(root string) []error {
-	c, err := LoadConfig(root)
+	return validate(LoadConfig(root))
+}
+
+func ValidateWithSkills(root, skillsDir string) []error {
+	return validate(loadConfig(root, skillsDir))
+}
+
+func validate(c *Config, err error) []error {
 	var errs []error
 	if err != nil {
 		errs = append(errs, err)

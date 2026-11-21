@@ -1,53 +1,74 @@
 ---
 name: satelle-pr-approve-from-review
 type: check
-description: Publishes the satelle GitHub app's approving review on the story's open pull request head from the accepted code-ac verdict that judged that exact change, and records it as a github.review event on the story's own chain, where satelle-pr-approval-check reads it. Refuses when no accepted code-ac verdict exists, when the change has moved since code-ac judged it, or when the pull request head is not the judged change. The pull request is selected against the base branch, read as satelle-pr-ready-check reads it. Deterministic, no agent; reads GitHub with gh.
+description: Publishes the satelle GitHub app's approving review on the story's open pull request head from the accepted verdict that judged that exact change, of the gate its verdict_gate= line names (default code-ac) on the move its verdict_from= and verdict_to= lines name (default in_progress -> integration), or of the gate and move the item's route names in the repo's own .satelle/pr-gates.routes on the base branch's committed tip, so the installed member stays unedited, and records it as a github.review event on the story's own chain, where satelle-pr-approval-check reads it. Refuses when no accepted verdict of that gate exists, when the change has moved since that gate judged it, or when the pull request head is not the judged change. The pull request is selected against the base branch, read as satelle-pr-ready-check reads it. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR approve from code review
 
-A pull request head that already passed the `code-ac` gate needs no second
-judge. This check verifies that the open pull request head is the exact change
-`code-ac` accepted, then publishes the satelle GitHub app's `APPROVE` review
-on that head and records it as a `github.review` event on the story's own
-chain.
+A pull request head that already passed the gate that judges the change needs
+no second judge. This check verifies that the open pull request head is the
+exact change that gate accepted, then publishes the satelle GitHub app's
+`APPROVE` review on that head and records it as a `github.review` event on the
+story's own chain.
 
 1. The working tree must have no uncommitted changes to tracked files, so
    `HEAD` is the exact tree whose diff is compared.
-2. The verdict is the `code-ac` `gate.run` satelle recorded on the story's
-   latest move from `in_progress` into `integration`, the one move that
-   runs `code-ac`: the last one before that `item.transitioned` event,
-   which only a move appends. A resume from `blocked` into `integration`
-   runs no gate, so it never stands in for that move. Any `code-ac`
-   `gate.run` after it refuses the check, since a `gate.run` can be
-   appended by hand. That verdict must be `accept` or `carried` and
-   must have recorded a change. When `carried`, the binding and notes are read
-   from the matching `code-ac` `accept` verdict.
-3. The pull request is selected as `satelle-pr-ready-check` selects it: open,
+2. The verdict gate and its move are the item's route's line in
+   `.satelle/pr-gates.routes` on the base branch (below), else the
+   `verdict_gate=`, `verdict_from=` and `verdict_to=` lines (default
+   `code-ac` on `in_progress` -> `integration`).
+3. The verdict is the `gate.run` of that gate that satelle recorded on the
+   story's latest move from the `verdict_from` state into the `verdict_to`
+   state, the move that runs that gate: the last
+   one before that `item.transitioned` event, which only a move appends. A
+   resume from `blocked` into the `verdict_to` state runs no gate, so it never
+   stands in for that move. Any `gate.run` of that gate after it refuses the
+   check, since a `gate.run` can be appended by hand. That verdict must be
+   `accept` or `carried` and must have recorded a change. When `carried`, the
+   binding and notes are read from the matching `accept` verdict of that gate.
+4. The pull request is selected as `satelle-pr-ready-check` selects it: open,
    not a draft, against the base branch, and a title ending `(<story>)`. The
    base branch is the trigger base of the queue the story's workflow enqueues
    into, or, when it enqueues into no queue with one, the default branch of
    the git remote (`checkout.defaultRemote`, else the only remote), read as
    `satelle-pr-ready-check` reads it (`resolve_base_branch` is the same in
    both).
-4. The pull request head must equal both `HEAD` and the `now_head` reported by
-   `code-ac`'s judged change, and the change's `now` hash must equal its
+5. The pull request head must equal both `HEAD` and the `now_head` reported by
+   that gate's judged change, and the change's `now` hash must equal its
    `judged` hash (the same comparison `satelle-change-judged-check` makes).
    Otherwise no approval is published and the move is refused naming both the
    pull request head and the judged change.
-5. The body's first line names the project, the gate `code-ac`, its binding,
-   the story and the head; the `code-ac` judge's notes follow.
-6. The story's own `github.review` events on the head decide whether to
+6. The body's first line names the project, the verdict gate, its binding,
+   the story and the head; that gate's judge's notes follow.
+7. The story's own `github.review` events on the head decide whether to
    publish: an approval is never published over requested changes on the same
    head, nor twice.
-7. After publishing, `github.review` is appended to the story with `event`,
+8. After publishing, `github.review` is appended to the story with `event`,
    `pull_number`, `commit_sha`, `review_id`, `html_url`, `repository` and
    `body_sha256`. It is a ledger event, not an attachment, so the story's
    judged coverage (which hashes attachments) is unchanged.
 
+`verdict_gate`, `verdict_from` and `verdict_to` below name the default gate
+whose accepted verdict is published and the move that runs it. A route whose
+judge of the change is another gate on another move names them on its own line
+of the repo's `.satelle/pr-gates.routes`, and the installed member stays
+unedited. Each line is `<workflow> <verdict_gate> <verdict_from> <verdict_to>`,
+for example `substrate reference-review in_progress approval`; blank lines and
+lines starting with `#` are skipped. The file is the repo's own: the pack never
+ships it. The check reads it only from the tip of the base branch, fetched from
+its remote, never from the working tree or the story's own commits, so a route
+change takes effect once it is committed and landed on the base branch. With no
+such file, no line for the route, or a base remote this clone does not list,
+the default lines stand. Two lines for one workflow, a line without four
+fields, or a base branch that cannot be fetched refuse the check.
+
 ```sh
 #!/usr/bin/env bash
 set -u
+verdict_gate=code-ac
+verdict_from=in_progress
+verdict_to=integration
 for tool in gh jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so the review cannot be published"; exit 1; }
 done
@@ -61,49 +82,6 @@ fi
 story=$SATELLE_ITEM
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "the tree has uncommitted changes to tracked files; commit them, push, then present the move again"
-  exit 1
-fi
-ledger=$(satelle ledger list "$story" --json 2>&1) || { echo "could not read the ledger of $story: $ledger"; exit 1; }
-kind=$(printf '%s' "$ledger" | jq -r 'map(select(.kind == "item.created"))[0].payload.kind // empty')
-[ -n "$kind" ] || { echo "$story: its ledger names no kind"; exit 1; }
-into=$(printf '%s' "$ledger" | jq '[to_entries[] | select(.value.kind == "item.transitioned" and .value.payload.from == "in_progress" and .value.payload.to == "integration") | .key] | last // empty')
-[ -n "$into" ] || { echo "$story: it never moved from in_progress into integration, so no code-ac verdict was recorded on that move; no approval published"; exit 1; }
-later=$(printf '%s' "$ledger" | jq --argjson i "$into" '[to_entries[] | select(.key > $i and .value.kind == "gate.run" and .value.payload.gate == "code-ac")] | length')
-if [ "$later" != 0 ]; then
-  echo "$story: a code-ac gate.run was recorded after its latest move from in_progress into integration, so the verdict cannot be tied to that move; no approval published"
-  exit 1
-fi
-last_run=$(printf '%s' "$ledger" | jq -c --argjson i "$into" '[to_entries[] | select(.key < $i and .value.kind == "gate.run" and .value.payload.gate == "code-ac") | .value.payload] | last // empty')
-last_res=$(printf '%s' "$last_run" | jq -r '.result // empty')
-if [ "$last_res" != accept ] && [ "$last_res" != carried ]; then
-  echo "$story: no accepted code-ac verdict (latest: ${last_res:-none}); no approval published"
-  exit 1
-fi
-if ! printf '%s' "$last_run" | jq -e '.change != null' >/dev/null; then
-  echo "$story: the latest code-ac verdict recorded no change; re-run code-ac"
-  exit 1
-fi
-if [ "$last_res" = carried ]; then
-  cov=$(printf '%s' "$last_run" | jq -r '.coverage // empty')
-  src=$(printf '%s' "$ledger" | jq -c --arg cov "$cov" '
-    ([.[] | select(.kind == "gate.run") | .payload | select(.gate == "code-ac" and .result == "accept" and ($cov == "" or .coverage == $cov))] | last)
-    // ([.[] | select(.kind == "gate.run") | .payload | select(.gate == "code-ac" and .result == "accept")] | last)
-    // empty')
-  binding=$(printf '%s' "$src" | jq -r '.binding // empty')
-  notes=$(printf '%s' "$src" | jq -r '.notes // empty')
-else
-  binding=$(printf '%s' "$last_run" | jq -r '.binding // empty')
-  notes=$(printf '%s' "$last_run" | jq -r '.notes // empty')
-fi
-[ -n "$binding" ] || binding=code-ac
-report=$(satelle "$kind" diff "$story" --json 2>&1) || { echo "could not read the diff of $story: $report"; exit 1; }
-j=$(printf '%s' "$report" | jq -c '[(.judged // [])[] | select(.gate == "code-ac" and (.result == "accept" or .result == "carried"))] | last // empty')
-judged=$(printf '%s' "$j" | jq -r '.judged // empty')
-now=$(printf '%s' "$j" | jq -r '.now // empty')
-now_head=$(printf '%s' "$j" | jq -r '.now_head // empty')
-tr=$(printf '%s' "$j" | jq -r '.transition // empty')
-if [ -z "$judged" ] || [ -z "$now" ]; then
-  echo "$story: no judged change recorded for code-ac; re-run code-ac"
   exit 1
 fi
 resolve_base_branch() {
@@ -152,6 +130,69 @@ resolve_base_branch() {
   fi
 }
 resolve_base_branch
+routes=.satelle/pr-gates.routes
+if git remote | grep -qxF -e "$remote"; then
+  fetched=$(GIT_TERMINAL_PROMPT=0 git fetch -q "$remote" "refs/heads/$branch" 2>&1) || { echo "could not fetch $remote $branch to read $routes: $fetched"; exit 1; }
+  base_tip=$(git rev-parse --verify -q FETCH_HEAD) || { echo "could not fetch $remote $branch to read $routes: git fetch recorded no FETCH_HEAD"; exit 1; }
+  if git cat-file -e "$base_tip:$routes" 2>/dev/null; then
+    picked=$(git show "$base_tip:$routes" | awk -v wf="$wf" 'NF && substr($1, 1, 1) != "#" && $1 == wf { print NR, NF, $2, $3, $4 }')
+    case $(printf '%s' "$picked" | grep -c .) in
+      0) ;;
+      1)
+        read -r num nf g f t <<<"$picked"
+        if [ "$nf" != 4 ]; then
+          echo "$routes on $remote/$branch line $num names the workflow $wf with $nf fields, so its verdict cannot be read: write it as <workflow> <verdict_gate> <verdict_from> <verdict_to>"
+          exit 1
+        fi
+        verdict_gate=$g verdict_from=$f verdict_to=$t
+        ;;
+      *) echo "$routes on $remote/$branch names the workflow $wf on several lines ($(printf '%s\n' "$picked" | awk '{ printf "%s%s", s, $1; s = ", " }')), so its verdict is ambiguous: keep one line for $wf"; exit 1 ;;
+    esac
+  fi
+fi
+ledger=$(satelle ledger list "$story" --json 2>&1) || { echo "could not read the ledger of $story: $ledger"; exit 1; }
+kind=$(printf '%s' "$ledger" | jq -r 'map(select(.kind == "item.created"))[0].payload.kind // empty')
+[ -n "$kind" ] || { echo "$story: its ledger names no kind"; exit 1; }
+into=$(printf '%s' "$ledger" | jq --arg f "$verdict_from" --arg t "$verdict_to" '[to_entries[] | select(.value.kind == "item.transitioned" and .value.payload.from == $f and .value.payload.to == $t) | .key] | last // empty')
+[ -n "$into" ] || { echo "$story: it never moved from $verdict_from into $verdict_to, so no $verdict_gate verdict was recorded on that move; no approval published"; exit 1; }
+later=$(printf '%s' "$ledger" | jq --argjson i "$into" --arg g "$verdict_gate" '[to_entries[] | select(.key > $i and .value.kind == "gate.run" and .value.payload.gate == $g)] | length')
+if [ "$later" != 0 ]; then
+  echo "$story: a $verdict_gate gate.run was recorded after its latest move from $verdict_from into $verdict_to, so the verdict cannot be tied to that move; no approval published"
+  exit 1
+fi
+last_run=$(printf '%s' "$ledger" | jq -c --argjson i "$into" --arg g "$verdict_gate" '[to_entries[] | select(.key < $i and .value.kind == "gate.run" and .value.payload.gate == $g) | .value.payload] | last // empty')
+last_res=$(printf '%s' "$last_run" | jq -r '.result // empty')
+if [ "$last_res" != accept ] && [ "$last_res" != carried ]; then
+  echo "$story: no accepted $verdict_gate verdict (latest: ${last_res:-none}); no approval published"
+  exit 1
+fi
+if ! printf '%s' "$last_run" | jq -e '.change != null' >/dev/null; then
+  echo "$story: the latest $verdict_gate verdict recorded no change; re-run $verdict_gate"
+  exit 1
+fi
+if [ "$last_res" = carried ]; then
+  cov=$(printf '%s' "$last_run" | jq -r '.coverage // empty')
+  src=$(printf '%s' "$ledger" | jq -c --arg cov "$cov" --arg g "$verdict_gate" '
+    ([.[] | select(.kind == "gate.run") | .payload | select(.gate == $g and .result == "accept" and ($cov == "" or .coverage == $cov))] | last)
+    // ([.[] | select(.kind == "gate.run") | .payload | select(.gate == $g and .result == "accept")] | last)
+    // empty')
+  binding=$(printf '%s' "$src" | jq -r '.binding // empty')
+  notes=$(printf '%s' "$src" | jq -r '.notes // empty')
+else
+  binding=$(printf '%s' "$last_run" | jq -r '.binding // empty')
+  notes=$(printf '%s' "$last_run" | jq -r '.notes // empty')
+fi
+[ -n "$binding" ] || binding=$verdict_gate
+report=$(satelle "$kind" diff "$story" --json 2>&1) || { echo "could not read the diff of $story: $report"; exit 1; }
+j=$(printf '%s' "$report" | jq -c --arg g "$verdict_gate" '[(.judged // [])[] | select(.gate == $g and (.result == "accept" or .result == "carried"))] | last // empty')
+judged=$(printf '%s' "$j" | jq -r '.judged // empty')
+now=$(printf '%s' "$j" | jq -r '.now // empty')
+now_head=$(printf '%s' "$j" | jq -r '.now_head // empty')
+tr=$(printf '%s' "$j" | jq -r '.transition // empty')
+if [ -z "$judged" ] || [ -z "$now" ]; then
+  echo "$story: no judged change recorded for $verdict_gate; re-run $verdict_gate"
+  exit 1
+fi
 head=$(git rev-parse HEAD)
 prs=$(gh pr list --state open --base "$branch" --json number,headRefOid,title,isDraft --limit 100 2>&1) ||
   { echo "could not list pull requests against $branch: $prs"; exit 1; }
@@ -167,17 +208,17 @@ if [ -z "$pr" ] || [ -z "$pr_head" ]; then
 fi
 short=${pr_head:0:12}
 if [ "$pr_head" != "$head" ] || [ "$pr_head" != "$now_head" ]; then
-  echo "$story: pull request #$pr head $short is not the change code-ac accepted (judged ${judged:0:12}, head ${now_head:0:12}); push the judged head or re-run code-ac"
+  echo "$story: pull request #$pr head $short is not the change $verdict_gate accepted (judged ${judged:0:12}, head ${now_head:0:12}); push the judged head or re-run $verdict_gate"
   exit 1
 fi
 if [ "$now" != "$judged" ]; then
   from=${tr%%->*}; into=${tr#*->}
-  echo "$story: pull request #$pr head $short (change ${now:0:12}) is not the change code-ac accepted on $from -> $into (judged ${judged:0:12}); re-run code-ac: return $story to $from, present $into again, then present ${SATELLE_TO:-the target state} again"
+  echo "$story: pull request #$pr head $short (change ${now:0:12}) is not the change $verdict_gate accepted on $from -> $into (judged ${judged:0:12}); re-run $verdict_gate: return $story to $from, present $into again, then present ${SATELLE_TO:-the target state} again"
   exit 1
 fi
 slug=$(satelle project show 2>&1 | sed -n 's/^slug: *//p')
 [ -n "$slug" ] || { echo "no project bound: bind this repo (satelle project bind <project> --session <session>)"; exit 1; }
-body=$(printf 'satelle · project %s · gate code-ac (%s) on %s head %s: approve\n\n%s' "$slug" "$binding" "$story" "$short" "$notes")
+body=$(printf 'satelle · project %s · gate %s (%s) on %s head %s: approve\n\n%s' "$slug" "$verdict_gate" "$binding" "$story" "$short" "$notes")
 sum=$(printf '%s' "$body" | sha256 | cut -d' ' -f1)
 recorded=$(satelle ledger list "$story" --kind github.review --json | jq -c --arg h "$pr_head" '[.[] | .payload | select(.commit_sha == $h)]') ||
   { echo "could not read the github.review events of $story"; exit 1; }

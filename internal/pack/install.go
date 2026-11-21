@@ -17,6 +17,7 @@ type Names struct {
 	Record      string
 	StagePrefix string
 	MergeDir    string
+	Validate    func(skillsDir string) error
 }
 
 type Result struct {
@@ -120,6 +121,10 @@ func Install(dataDir, ref string, v Verified, names Names, check func(abs string
 		return Result{}, fmt.Errorf("pack %s is already installed at version %s (digest %.12s); install does not change an installed pack; use satelle pack update to change it", ref, in.Version, in.Digest)
 	}
 	if err := refuseForeign(skillsDir, dataDir, ref, rec, dirs, names); err != nil {
+		return Result{}, err
+	}
+
+	if err := prospect(dataDir, skillsDir, names.StagePrefix, ref, v.version, func(dst string) error { return stageFiles(dst, v) }, names.Validate); err != nil {
 		return Result{}, err
 	}
 

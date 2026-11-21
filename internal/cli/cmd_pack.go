@@ -23,9 +23,9 @@ import (
 func packCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pack",
-		Short: "Fetch, install, update, remove, report and publish packs on the satelle.dev marketplace",
+		Short: "Fetch, install, update, remove, report, publish and change the visibility of packs on the satelle.dev marketplace",
 	}
-	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packRemoveCmd(), packStatusCmd(), packPublishCmd())
+	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packRemoveCmd(), packStatusCmd(), packPublishCmd(), packVisibilityCmd())
 	return cmd
 }
 
@@ -122,14 +122,15 @@ func packInstallCmd() *cobra.Command {
 		Short: "Install a verified pack's skill directories under .satelle/skills and record them in .satelle/packs.toml",
 		Long: "Install fetches and verifies a pack version, then places its entry and member skill directories under .satelle/skills " +
 			"and records its ref, version, digest, skills and each file's sha256 in .satelle/packs.toml. It needs a seat at this worktree on a state " +
-			"whose performer may change the tree, honours [gate] locked_paths for every file it writes, and writes nothing when a check fails.",
+			"whose performer may change the tree, honours [gate] locked_paths for every file it writes, and writes nothing when a check fails. " +
+			"It validates the whole configuration as it will stand with the pack's skills written, and writes nothing when that configuration is invalid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, ver, err := packArgs(args[0], version)
 			if err != nil {
 				return err
 			}
-			data, names, check, closeFn, err := packTarget("pack install")
+			data, names, check, closeFn, err := packTarget("pack install", true)
 			if err != nil {
 				return err
 			}
@@ -169,22 +170,33 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
-func packTarget(verb string) (string, pack.Names, func(string) error, func(), error) {
-	k, r, err := openKernel()
+func packTarget(verb string, prospective bool) (string, pack.Names, func(string) error, func(), error) {
+	r, err := findRepo("")
 	if err != nil {
 		return "", pack.Names{}, nil, nil, err
 	}
-	closeFn := func() { k.Close() }
+	session := sessionFromEnv()
+	g := hook.Gate{Root: r.Tree, TempRoots: []string{}}
+	closeFn := func() {}
+	if prospective && len(kernel.Validate(r.DataDir)) > 0 {
+		st, err := kernel.LoadSettings(r.DataDir)
+		if err != nil {
+			return "", pack.Names{}, nil, nil, err
+		}
+		g.Locked = st.Gate.LockedPaths
+		g.Grant = func(tree string) hook.Grant { return seatGrantUnconfigured(r, session, tree) }
+	} else {
+		k, err := r.open()
+		if err != nil {
+			return "", pack.Names{}, nil, nil, err
+		}
+		closeFn = func() { k.Close() }
+		g.Locked = k.Settings.Gate.LockedPaths
+		g.Grant = func(tree string) hook.Grant { return grantAt(k, session, tree) }
+	}
 	fail := func(err error) (string, pack.Names, func(string) error, func(), error) {
 		closeFn()
 		return "", pack.Names{}, nil, nil, err
-	}
-	session := sessionFromEnv()
-	g := hook.Gate{
-		Root:      r.Tree,
-		Locked:    k.Settings.Gate.LockedPaths,
-		TempRoots: []string{},
-		Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
 	}
 	resolve := func(p string) (string, error) { return resolveInTree(verb, r.Tree, p) }
 	check := func(p string) error {
@@ -204,7 +216,13 @@ func packTarget(verb string) (string, pack.Names, func(string) error, func(), er
 	if err != nil {
 		return fail(err)
 	}
-	names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix, MergeDir: kernel.PackMergeDir}
+	names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix, MergeDir: kernel.PackMergeDir,
+		Validate: func(skills string) error {
+			if errs := kernel.ValidateWithSkills(data, skills); len(errs) > 0 {
+				return errors.Join(errs...)
+			}
+			return nil
+		}}
 	recordPath := filepath.Join(data, names.Record)
 	for _, p := range []string{filepath.Join(data, names.Skills), recordPath} {
 		if err := check(p); err != nil {
@@ -228,14 +246,15 @@ func packUpdateCmd() *cobra.Command {
 			"or it is a local file the new version now publishes) is left exactly as it is, and its installed-version and new-version copies " +
 			"are written under .satelle/pack-merge/<ref>/<version>/ and named for the agent to merge; satelle merges nothing. packs.toml then " +
 			"records the new version. It needs a seat at this worktree on a state whose performer may change the tree, honours [gate] locked_paths " +
-			"for every file it writes, and writes nothing when a check fails.",
+			"for every file it writes, and writes nothing when a check fails. It validates the whole configuration as it will stand with the pack's skills written, " +
+			"and writes nothing when that configuration is invalid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, ver, err := packArgs(args[0], version)
 			if err != nil {
 				return err
 			}
-			data, names, check, closeFn, err := packTarget("pack update")
+			data, names, check, closeFn, err := packTarget("pack update", true)
 			if err != nil {
 				return err
 			}
@@ -327,7 +346,7 @@ func packRemoveCmd() *cobra.Command {
 			if ref == "" {
 				return errors.New("pack ref is required")
 			}
-			data, names, check, closeFn, err := packTarget("pack remove")
+			data, names, check, closeFn, err := packTarget("pack remove", false)
 			if err != nil {
 				return err
 			}
@@ -513,7 +532,16 @@ var packVisibilities = map[string]satellepb.PackVisibility{
 	"shared":    satellepb.PackVisibility_PACK_VISIBILITY_SHARED,
 }
 
-func packPublishVisibility(visibility string, shareWith []string) (satellepb.PackVisibility, []string, error) {
+func packVisibilityName(v satellepb.PackVisibility) string {
+	for name, have := range packVisibilities {
+		if have == v {
+			return name
+		}
+	}
+	return ""
+}
+
+func packVisibilityFlags(visibility string, shareWith []string) (satellepb.PackVisibility, []string, error) {
 	v := strings.TrimSpace(visibility)
 	if v == "" {
 		return 0, nil, errors.New("--visibility is required: public, workspace or shared")
@@ -561,7 +589,7 @@ func packPublishCmd() *cobra.Command {
 			if ws == "" {
 				return errors.New("--workspace is required")
 			}
-			vis, shared, err := packPublishVisibility(visibility, shareWith)
+			vis, shared, err := packVisibilityFlags(visibility, shareWith)
 			if err != nil {
 				return err
 			}
@@ -622,8 +650,93 @@ func packPublishCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&workspace, "workspace", "", "owner satelle.dev workspace id (required)")
-	cmd.Flags().StringVar(&visibility, "visibility", "", "who on satelle.dev may see the pack: public, workspace or shared (required)")
-	cmd.Flags().StringArrayVar(&shareWith, "share-with", nil, "a satelle.dev workspace id the pack is shared with (repeatable; only with --visibility shared)")
+	packVisibilityFlagVars(cmd, &visibility, &shareWith)
+	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+func packVisibilityFlagVars(cmd *cobra.Command, visibility *string, shareWith *[]string) {
+	cmd.Flags().StringVar(visibility, "visibility", "", "who on satelle.dev may see the pack: public, workspace or shared (required)")
+	cmd.Flags().StringArrayVar(shareWith, "share-with", nil, "a satelle.dev workspace id the pack is shared with (repeatable; only with --visibility shared)")
+}
+
+const packVisibilityUnchanged = "; the visibility was not changed"
+
+func packVisibilityCmd() *cobra.Command {
+	var server, visibility string
+	var shareWith []string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "visibility <ref> --visibility public|workspace|shared [--share-with ID]... [--server URL]",
+		Short: "Change who on satelle.dev may see a published pack",
+		Long: "Visibility changes a published pack's visibility (public, workspace or shared) and the workspaces it is shared with, " +
+			"without publishing a version. The ref is <owner workspace id>/<name>. Only admins of the owner satelle.dev workspace may " +
+			"change it; to anyone who is not a member of that workspace the pack is not found. The flags are validated as publish " +
+			"validates them, and a refused flag sends nothing. --share-with sends the whole shared list, so leaving a workspace out " +
+			"revokes its share; --visibility workspace drops every share. Visibility writes nothing locally and needs no seat.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref := strings.TrimSpace(args[0])
+			owner, name, ok := strings.Cut(ref, "/")
+			if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+				return fmt.Errorf("pack ref %q is not <owner workspace id>/<name>", ref)
+			}
+			vis, shared, err := packVisibilityFlags(visibility, shareWith)
+			if err != nil {
+				return err
+			}
+			srv, err := projectServer(server)
+			if err != nil {
+				return err
+			}
+			c, err := dial(srv)
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+			got, err := c.Packs.SetPackVisibility(cmd.Context(), &satellepb.SetPackVisibilityRequest{Ref: ref, Visibility: vis, SharedWith: shared})
+			if errors.Is(err, hosted.ErrLoginRequired) {
+				return fmt.Errorf("pack visibility: %w"+packVisibilityUnchanged, err)
+			}
+			switch status.Code(err) {
+			case codes.OK:
+			case codes.PermissionDenied:
+				return fmt.Errorf("only admins of workspace %s may change the visibility of %s: ask an admin of %s to run satelle pack visibility"+packVisibilityUnchanged, owner, ref, owner)
+			case codes.NotFound:
+				return fmt.Errorf("pack %s was not found, or you are not a member of its owner workspace %s: check the ref and that you are signed in (satelle whoami) as a member of %s"+packVisibilityUnchanged, ref, owner, owner)
+			default:
+				return hosted.Describe("pack visibility", err)
+			}
+			if got.GetRef() != "" {
+				ref = got.GetRef()
+			}
+			now := packVisibilityName(got.GetVisibility())
+			if now == "" {
+				return fmt.Errorf("pack visibility: satelle.dev changed %s but answered with no known visibility (%d); run satelle pack visibility again to confirm", ref, int32(got.GetVisibility()))
+			}
+			sharedWith := append([]string{}, got.GetSharedWith()...)
+			if *asJSON {
+				ownerID := got.GetOwnerWorkspaceId()
+				if ownerID == "" {
+					ownerID = owner
+				}
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"ref":                ref,
+					"owner_workspace_id": ownerID,
+					"visibility":         now,
+					"shared_with":        sharedWith,
+				})
+			}
+			line := ref + " is now " + now
+			if len(sharedWith) > 0 {
+				line += " (shared with " + strings.Join(sharedWith, ", ") + ")"
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+			return nil
+		},
+	}
+	packVisibilityFlagVars(cmd, &visibility, &shareWith)
 	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
 	asJSON = jsonFlag(cmd)
 	return cmd

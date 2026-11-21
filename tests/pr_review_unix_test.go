@@ -151,6 +151,7 @@ type prNames struct {
 	pending, ready, approve, approval           string
 	queue, base, waits                          string
 	codeACOnRoute, readyOnRoute, approveOnRoute bool
+	route                                       func(gates string) string
 }
 
 func repoQueueBase(t *testing.T) string {
@@ -248,7 +249,11 @@ tools = ["Read", "Edit"]
 	if n.queue != "" {
 		enqueue = []string{n.queue}
 	}
-	s.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, toIntegration, toReview, []string{n.approval}, enqueue, n.waits))
+	if n.route != nil {
+		s.write(".satelle/workflows/delivery.toml", n.route(gates+gateTOML(t, "reference-review", codeAC)))
+	} else {
+		s.write(".satelle/workflows/delivery.toml", prSandboxWorkflowWith(t, gates, toIntegration, toReview, []string{n.approval}, enqueue, n.waits))
+	}
 	if n.queue != "" {
 		s.write(".satelle/queues/"+n.queue+".toml", queueTOML(n.base, "delivery"))
 	}
@@ -981,6 +986,290 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	p.must("ledger", "verify")
 }
 
+const defaultVerdictLines = "verdict_gate=code-ac\nverdict_from=in_progress\nverdict_to=integration\n"
+
+func TestPRApproveFromReviewVerdictLines(t *testing.T) {
+	skills, err := workflow.LoadSkills("../.satelle/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok := skills[approveFromReviewSkill]
+	if !ok {
+		t.Fatalf("no skill %s", approveFromReviewSkill)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(defaultVerdictLines, "\n"), "\n") {
+		if got := len(regexp.MustCompile(`(?m)^`+regexp.QuoteMeta(line)+`$`).FindAllString(sk.Script, -1)); got != 1 {
+			t.Errorf("%s holds the line %q %d times, want 1", approveFromReviewSkill, line, got)
+		}
+	}
+	lines := strings.Split(sk.Script, "\n")
+	if len(lines) < 2 || lines[0] != "#!/usr/bin/env bash" || lines[1] != "set -u" {
+		t.Fatalf("%s's shell does not open with the shebang and set -u: %q", approveFromReviewSkill, lines[:min(2, len(lines))])
+	}
+	assign := regexp.MustCompile(`^[a-z_]+=\S*$`)
+	var top []string
+	for _, ln := range lines[2:] {
+		if !assign.MatchString(ln) {
+			break
+		}
+		top = append(top, ln)
+	}
+	if got := strings.Join(top, "\n") + "\n"; got != defaultVerdictLines {
+		t.Errorf("the value lines at the top of %s's shell are %q, want %q", approveFromReviewSkill, got, defaultVerdictLines)
+	}
+	rest := strings.Replace(sk.Script, defaultVerdictLines, "", 1)
+	for _, w := range []string{"code-ac", "in_progress", "integration"} {
+		if m := regexp.MustCompile(`\b` + w + `\b`).FindString(rest); m != "" {
+			t.Errorf("%s's shell names %s outside its value lines", approveFromReviewSkill, w)
+		}
+	}
+}
+
+func substrateRoute(name, gates string) string {
+	return `name = ` + strconv.Quote(name) + `
+[states.backlog]
+start = true
+[states.in_progress]
+performer = { agent = "executor", skill = "coder" }
+[states.approval]
+[states.blocked]
+park = true
+resumes = true
+[states.done]
+terminal = true
+
+` + gates + `
+[[transition]]
+from = ["backlog"]
+to = "in_progress"
+[[transition]]
+from = ["in_progress"]
+to = "approval"
+` + sequential([]string{"reference-review"}) + `[[transition]]
+from = ["approval"]
+to = "in_progress"
+[[transition]]
+from = ["in_progress", "approval"]
+to = "blocked"
+[[transition]]
+from = ["blocked"]
+to = "@prior"
+[[transition]]
+from = ["approval"]
+to = "done"
+`
+}
+
+func TestPRApproveFromReviewReadsTheNamedVerdict(t *testing.T) {
+	n := repoPRNames(t)
+	n.queue = ""
+	n.route = func(gates string) string { return substrateRoute("delivery", gates) }
+	p := newPRSandboxNamed(t, n)
+	origin := realDir(t, t.TempDir())
+	p.exec("git", "", "init", "-q", "--bare", origin)
+	p.git("remote", "add", "origin", origin)
+	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+	p.git("fetch", "-q", "origin")
+	short := p.head[:12]
+
+	onRoute := func(pr int) string {
+		t.Helper()
+		id := p.create("story", "--title", "change", "--criteria", "it is reviewed").ID
+		p.must("story", "seat", id, "--base", p.old)
+		p.must("story", "set", id, "--status", "in_progress")
+		p.must("story", "set", id, "--status", "approval")
+		p.setPR(pr, p.head, "change ("+id+")")
+		return id
+	}
+	runShell := func(id, block string) result {
+		t.Helper()
+		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, "approval", "done"
+		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
+		return p.exec("bash", "", "-c", block)
+	}
+	shell := shBlock0(t, repoSkillRel(t, approveFromReviewSkill))
+	named := strings.Replace(shell, defaultVerdictLines, "verdict_gate=reference-review\nverdict_from=in_progress\nverdict_to=approval\n", 1)
+	if named == shell {
+		t.Fatalf("%s's shell holds no default value lines", approveFromReviewSkill)
+	}
+
+	p.judge("accept", "every criterion is met: AC1 to AC4 hold on src/change.go")
+	id := onRoute(31)
+	if run := lastRun(p.gateRuns(id), "reference-review"); run.Result != "accept" || run.Transition != "in_progress->approval" {
+		t.Fatalf("reference-review %+v", run)
+	}
+	if run := lastRun(p.gateRuns(id), "code-ac"); run.Gate != "" {
+		t.Fatalf("code-ac ran on the substrate route: %+v", run)
+	}
+	r := runShell(id, named)
+	if r.code != 0 || !strings.Contains(r.out, "published APPROVE on "+id+" head "+short) {
+		t.Fatalf("named verdict: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	revs := p.srv.PublishedReviews("acme")
+	if len(revs) != 1 {
+		t.Fatalf("published %d reviews, want 1", len(revs))
+	}
+	rv := revs[0]
+	if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != 31 {
+		t.Fatalf("published %v", rv)
+	}
+	first, rest, _ := strings.Cut(rv.GetBody(), "\n")
+	if want := "satelle · project acme · gate reference-review (" + p.reviewer + ") on " + id + " head " + short + ": approve"; first != want {
+		t.Errorf("body's first line %q, want %q", first, want)
+	}
+	if !strings.Contains(rest, "every criterion is met: AC1 to AC4 hold on src/change.go") {
+		t.Errorf("body lacks the reference-review notes:\n%s", rv.GetBody())
+	}
+	gr := p.githubReviews(id)
+	if len(gr) != 1 || gr[0]["event"] != "APPROVE" || gr[0]["commit_sha"] != p.head || gr[0]["pull_number"] != float64(31) {
+		t.Fatalf("github.review %v", gr)
+	}
+
+	other := onRoute(32)
+	r = runShell(other, shell)
+	if r.code == 0 || !strings.Contains(r.out, "never moved from in_progress into integration") || p.published() != 1 || len(p.githubReviews(other)) != 0 {
+		t.Fatalf("default lines on the substrate route: exit %d, published %d (want 1)\n%s%s", r.code, p.published(), r.out, r.err)
+	}
+	p.must("ledger", "verify")
+}
+
+const prGateRoutes = ".satelle/pr-gates.routes"
+
+func TestPRApproveFromReviewTakesTheRouteValues(t *testing.T) {
+	n := repoPRNames(t)
+	n.queue = ""
+	n.codeACOnRoute = true
+	n.approveOnRoute = true
+	p := newPRSandboxNamed(t, n)
+	origin := realDir(t, t.TempDir())
+	p.exec("git", "", "init", "-q", "--bare", origin)
+	p.git("remote", "add", "origin", origin)
+	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
+	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+
+	refReview := gateTOML(t, "reference-review", repoPRGateSet(t)["code-ac"])
+	p.write(".satelle/workflows/substrate.toml", substrateRoute("substrate", refReview))
+	p.write(".satelle/satelle.toml", prSandboxConfig(t)+"\n[[workflows.rule]]\nworkflow = \"substrate\"\ncategory = \"substrate\"\n")
+	p.git("add", "-A")
+	p.git("commit", "-q", "-m", "the substrate route")
+	p.mustConfigValid()
+	p.head = strings.TrimSpace(p.git("rev-parse", "HEAD"))
+	short := p.head[:12]
+
+	pushRoutes := func(body string) {
+		t.Helper()
+		blob := strings.TrimSpace(p.exec("git", body, "hash-object", "-w", "--stdin").out)
+		p.env["GIT_INDEX_FILE"] = filepath.Join(t.TempDir(), "index")
+		p.git("read-tree", p.old)
+		p.git("update-index", "--add", "--cacheinfo", "100644,"+blob+","+prGateRoutes)
+		tree := strings.TrimSpace(p.git("write-tree"))
+		delete(p.env, "GIT_INDEX_FILE")
+		c := strings.TrimSpace(p.git("commit-tree", tree, "-p", p.old, "-m", "routes"))
+		p.git("push", "-q", "-f", "origin", c+":refs/heads/trunk")
+	}
+	runShell := func(id string) result {
+		t.Helper()
+		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, "", ""
+		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
+		return p.exec("bash", "", "-c", shBlock0(t, repoSkillRel(t, approveFromReviewSkill)))
+	}
+	onSubstrate := func(pr int) string {
+		t.Helper()
+		id := p.create("story", "--title", "change", "--criteria", "it is reviewed", "--category", "substrate").ID
+		p.must("story", "seat", id, "--base", p.old)
+		p.must("story", "set", id, "--status", "in_progress")
+		p.must("story", "set", id, "--status", "approval")
+		if run := lastRun(p.gateRuns(id), "reference-review"); run.Result != "accept" || run.Transition != "in_progress->approval" {
+			t.Fatalf("reference-review on %s %+v", id, run)
+		}
+		p.setPR(pr, p.head, "change ("+id+")")
+		return id
+	}
+	published := func(id string, pr int, gate, notes string) {
+		t.Helper()
+		r := runShell(id)
+		if r.code != 0 || !strings.Contains(r.out, "published APPROVE on "+id+" head "+short) {
+			t.Fatalf("%s: exit %d\n%s%s", id, r.code, r.out, r.err)
+		}
+		revs := p.srv.PublishedReviews("acme")
+		rv := revs[len(revs)-1]
+		if rv.GetEvent() != "APPROVE" || rv.GetCommitSha() != p.head || rv.GetPullNumber() != int64(pr) {
+			t.Fatalf("%s: published %v", id, rv)
+		}
+		first, rest, _ := strings.Cut(rv.GetBody(), "\n")
+		if want := "satelle · project acme · gate " + gate + " (" + p.reviewer + ") on " + id + " head " + short + ": approve"; first != want {
+			t.Errorf("%s: body's first line %q, want %q", id, first, want)
+		}
+		if !strings.Contains(rest, notes) {
+			t.Errorf("%s: body lacks the %s notes:\n%s", id, gate, rv.GetBody())
+		}
+		if gr := p.githubReviews(id); len(gr) != 1 || gr[0]["event"] != "APPROVE" || gr[0]["pull_number"] != float64(pr) {
+			t.Fatalf("%s: github.review %v", id, gr)
+		}
+	}
+	refused := func(id, name string, has ...string) {
+		t.Helper()
+		before := p.published()
+		r := runShell(id)
+		for _, h := range has {
+			if r.code == 0 || !strings.Contains(r.out, h) {
+				t.Errorf("%s: exit %d, want a refusal naming %q\n%s%s", name, r.code, h, r.out, r.err)
+			}
+		}
+		if p.published() != before || len(p.githubReviews(id)) != 0 {
+			t.Errorf("%s: published %d (want %d), github.review %v", name, p.published(), before, p.githubReviews(id))
+		}
+	}
+
+	pushRoutes("# verdicts per route\n\n  substrate   reference-review in_progress approval\n")
+
+	p.judge("accept", "code-ac: every criterion is met, AC1 holds on src/change.go")
+	a := p.item(31, true)
+	published(a, 31, "code-ac", "code-ac: every criterion is met, AC1 holds on src/change.go")
+
+	p.judge("accept", "reference-review: every criterion is met, AC1 holds as src/change.go says")
+	b := onSubstrate(32)
+	if run := lastRun(p.gateRuns(b), "code-ac"); run.Gate != "" {
+		t.Fatalf("code-ac ran on the substrate route: %+v", run)
+	}
+	published(b, 32, "reference-review", "reference-review: every criterion is met, AC1 holds as src/change.go says")
+
+	installed, err := os.ReadFile(filepath.Join(p.dir, repoSkillRel(t, approveFromReviewSkill)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(installed) != repoText(t, repoSkillRel(t, approveFromReviewSkill)) {
+		t.Fatalf("the installed %s differs from the pack's", approveFromReviewSkill)
+	}
+
+	c := onSubstrate(33)
+	p.write(prGateRoutes, "substrate code-ac in_progress integration\n")
+	published(c, 33, "reference-review", "reference-review: every criterion is met, AC1 holds as src/change.go says")
+	if err := os.Remove(filepath.Join(p.dir, prGateRoutes)); err != nil {
+		t.Fatal(err)
+	}
+
+	pushRoutes("other reference-review in_progress approval\n")
+	d := onSubstrate(34)
+	refused(d, "no line for the route", "never moved from in_progress into integration")
+
+	pushRoutes("substrate reference-review in_progress approval\nsubstrate code-ac in_progress integration\n")
+	refused(d, "two lines", prGateRoutes, "substrate", "several lines")
+
+	pushRoutes("# one route\nsubstrate reference-review approval\n")
+	refused(d, "three fields", prGateRoutes, "line 2", "<workflow> <verdict_gate> <verdict_from> <verdict_to>")
+
+	pushRoutes("substrate reference-review in_progress approval\n")
+	p.write(".satelle/workflows/substrate.toml", strings.Replace(substrateRoute("substrate", refReview), "[states.approval]\n", "[states.approval]\nenqueue = [\"landing\"]\n", 1))
+	p.write(".satelle/queues/landing.toml", queueTOML("origin/trunk", "substrate"))
+	p.git("add", "-A")
+	p.git("commit", "-q", "-m", "the substrate route lands through a queue")
+	p.git("remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing"))
+	refused(d, "fetch failure", "could not fetch origin trunk to read "+prGateRoutes)
+	p.must("ledger", "verify")
+}
+
 func TestPRReviewWaitsAtReviewWithoutAReview(t *testing.T) {
 	p := newPRSandbox(t)
 	id := p.reviewing(50, true)
@@ -1501,7 +1790,7 @@ func baseBranchLines(t *testing.T, text string) string {
 }
 
 func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
-	strip := strings.NewReplacer("--name pr-review", "", `.name == "pr-review"`, "", "`pr-review`", "")
+	strip := strings.NewReplacer("--name pr-review", "", `.name == "pr-review"`, "", "`pr-review`", "", prGateRoutes, "")
 	forbidden := map[string]*regexp.Regexp{
 		"the word main":               regexp.MustCompile(`\bmain\b`),
 		"a gates= assignment":         regexp.MustCompile(`(?m)^\s*gates=`),
@@ -1565,15 +1854,12 @@ func TestPRGatePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(packs) != 1 {
-		t.Fatalf("packs under .satelle/skills: %v, want one", packs)
-	}
 	pk, ok := packs[prGateEntry]
 	if !ok {
 		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
 	}
-	if pk.Version != "1.0.1" {
-		t.Errorf("pack %s version %q, want 1.0.1", prGateEntry, pk.Version)
+	if pk.Version != "1.0.3" {
+		t.Errorf("pack %s version %q, want 1.0.3", prGateEntry, pk.Version)
 	}
 	var packFiles []string
 	for _, name := range append([]string{prGateEntry}, prGateSkills...) {
@@ -1669,10 +1955,17 @@ func TestPRGatePack(t *testing.T) {
 	}
 	for _, w := range []string{"ruleset", "satelle/<gate>", "after", "checkout.defaultRemote",
 		".satelle/skills/satelle-pack.md", "substrate story", "satelle init",
-		"code-ac", "in_progress", "integration", "cannot use", "unwired", "own skill"} {
+		"code-ac", "in_progress", "integration", "cannot use", "unwired", "own skill",
+		"verdict_gate=", "verdict_from=", "verdict_to=", prGateRoutes, "unedited", "base branch"} {
 		if !strings.Contains(guide, w) {
 			t.Errorf("the pack guide does not say %q", w)
 		}
+	}
+	if strings.Contains(guide, "edits those three lines") {
+		t.Error("the pack guide still tells a route to edit its installed copy of the member")
+	}
+	if member := repoText(t, repoSkillRel(t, approveFromReviewSkill)); !strings.Contains(member, prGateRoutes) || !strings.Contains(member, "unedited") {
+		t.Errorf("%s does not say a route names its values in %s with the member unedited", approveFromReviewSkill, prGateRoutes)
 	}
 	if strings.Contains(strings.ReplaceAll(guide, ".satelle/skills/satelle-pack.md", ""), "skills/satelle-pack.md") {
 		t.Error("the pack guide names skills/satelle-pack.md without its .satelle/ path")

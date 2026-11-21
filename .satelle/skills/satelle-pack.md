@@ -1,7 +1,7 @@
 ---
 name: satelle-pack
 type: skill
-description: Followed by the session agent when the user asks to add a pack. It installs the pack with satelle pack install, reads the entry skill's guide and needs, proposes each gate for the repo's own workflow from the current workflow, the pack's hints and the user's directions, applies only what the user confirms, and says when the landing route has no security reviewer.
+description: Followed by the session agent when the user asks to add a pack. It first finds a workflow state whose performer may change the tree, proposing one to the user when the repo has none, installs the pack with satelle pack install, reads the entry skill's guide and needs, proposes each gate for the repo's own workflow from the current workflow, the pack's hints and the user's directions, applies only what the user confirms, and says when the landing route has no security reviewer.
 ---
 
 # Take a pack
@@ -26,10 +26,50 @@ Follow this when the user asks to add, take or install a pack.
 
 ## 3. Install
 
+Install needs a seat at this worktree on a state whose performer may change
+the tree. Find or add one before installing.
+
+- **Find a state that may change the tree.** Read each workflow
+  `satelle validate --session <session>` loads with
+  `satelle workflow show <name> --session <session>`. A state may change the
+  tree when it has an agent performer and its `edits` is unset or `"tree"`
+  (`satelle help edit-gate --session <session>`). When one exists, move the
+  item there and seat it (`satelle story seat <id> --session <session>`), then
+  install.
+- **When none exists**, as on a repo just made by satelle init, whose starter
+  workflow goes backlog -> done with no performer, propose to the user the
+  state and agent to add, naming both files and showing the TOML:
+  - in `.satelle/workflows/<name>.toml`, added to the workflow:
+
+        [states.in_progress]
+        performer = { agent = "executor", skill = "satelle-pack" }
+
+        [[transition]]
+        from = ["backlog"]
+        to = "in_progress"
+
+        [[transition]]
+        from = ["in_progress"]
+        to = "done"
+
+  - in `.satelle/agents.toml`:
+
+        [agents.executor]
+        command = "session"
+
+  Say that the existing backlog -> done transition stays, and that the user
+  may choose other state and agent names.
+- **Apply only when the user confirms.** Edit nothing until then. On the
+  user's confirmation, add by hand exactly what was confirmed, run
+  `satelle validate --session <session>` until it reports the configuration
+  valid, move the item to the new state
+  (`satelle story set <id> --status in_progress --session <session>`), seat
+  it (`satelle story seat <id> --session <session>`), then install. When the
+  user declines, tell them install needs such a seat, and stop without
+  installing.
 - Run `satelle pack install <ref> --version <v> --session <session>`.
-- It needs a seat at this worktree on a state whose performer may change the
-  tree. `satelle help configuration --session <session>` (`## pack.toml`) says
-  what install refuses. When a check fails it writes nothing, and
+  `satelle help configuration --session <session>` (`## pack.toml`) says what
+  install refuses. When a check fails it writes nothing, and
   `.satelle/packs.toml` is unchanged: report the refusal to the user.
 - Install records the pack in `.satelle/packs.toml`. Installed skills are the
   repo's own to edit; install never merges or overwrites them.
