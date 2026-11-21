@@ -18,9 +18,9 @@ import (
 func packCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pack",
-		Short: "Fetch and install packs from the satelle.dev marketplace",
+		Short: "Fetch, install, update and remove packs from the satelle.dev marketplace",
 	}
-	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd())
+	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packRemoveCmd())
 	return cmd
 }
 
@@ -306,6 +306,76 @@ func packUpdateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&version, "version", "", "pack version to update to")
 	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+func packRemoveCmd() *cobra.Command {
+	var force bool
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "remove <ref> [--force]",
+		Short: "Delete an installed pack's recorded files and its .satelle/packs.toml entry",
+		Long: "Remove deletes each file .satelle/packs.toml records for the pack, prunes the skill directories that leaves empty, " +
+			"and drops the pack's entry from packs.toml. A recorded file whose sha256 differs from packs.toml is locally edited: remove " +
+			"refuses and names each one, unless --force, which deletes them too. A file the pack did not record is never deleted; it and " +
+			"its directory are kept. .satelle/pack-merge is left alone. It contacts no marketplace, needs a seat at this worktree on a state " +
+			"whose performer may change the tree, honours [gate] locked_paths for every path it changes, and writes nothing when a check fails. " +
+			"A workflow that still names a removed skill is reported by satelle validate.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref := strings.TrimSpace(args[0])
+			if ref == "" {
+				return errors.New("pack ref is required")
+			}
+			data, names, check, closeFn, err := packTarget("pack remove")
+			if err != nil {
+				return err
+			}
+			defer closeFn()
+			res, err := pack.Remove(data, ref, force, names, check)
+			if err != nil {
+				return err
+			}
+			skills := filepath.ToSlash(filepath.Join(filepath.Base(data), names.Skills))
+			shown := func(paths []string) []string {
+				out := make([]string, len(paths))
+				for i, p := range paths {
+					out[i] = skills + "/" + p
+				}
+				return out
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"ref":     res.Ref,
+					"name":    res.Name,
+					"version": res.Version,
+					"digest":  res.Digest,
+					"skills":  res.Skills,
+					"removed": shown(res.Removed),
+					"edited":  shown(res.Edited),
+					"missing": shown(res.Missing),
+					"kept":    shown(res.Kept),
+					"record":  filepath.ToSlash(filepath.Join(filepath.Base(data), names.Record)),
+					"forced":  res.Forced,
+				})
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "removed %s@%s (%d file(s) from %s); dropped from .satelle/packs.toml\n",
+				res.Ref, res.Version, len(res.Removed), strings.Join(res.Skills, ", "))
+			for _, p := range shown(res.Edited) {
+				fmt.Fprintf(out, "removed edited %s\n", p)
+			}
+			for _, p := range shown(res.Missing) {
+				fmt.Fprintf(out, "missing %s: already gone\n", p)
+			}
+			for _, p := range shown(res.Kept) {
+				fmt.Fprintf(out, "kept %s: not recorded by the pack\n", p)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "remove locally edited recorded files too")
 	asJSON = jsonFlag(cmd)
 	return cmd
 }

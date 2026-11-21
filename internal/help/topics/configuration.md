@@ -132,7 +132,8 @@ its `commands` key.
   are not skills.
 - `skills/<name>/pack.toml` — optional: defines a skill pack in its entry
   skill's directory (`skills/<name>/SKILL.md` is the wiring guide) (below).
-- `packs.toml` — written by `satelle pack install` and `satelle pack update`:
+- `packs.toml` — written by `satelle pack install`, `satelle pack update` and
+  `satelle pack remove`:
   each installed pack's ref, version, digest, skills and each file's sha256 as
   published (below, under pack.toml).
 - `pack-merge/` — written by `satelle pack update`: the installed-version and
@@ -251,6 +252,23 @@ symlinked skill directory or file, a new member directory that already exists
 unrecorded, and merge copies an earlier update left at
 `.satelle/pack-merge/<ref>`. When a check, the verification or a write fails,
 nothing is written and `.satelle/packs.toml` is unchanged.
+
+`satelle pack remove <ref> [--force] --session <session>` deletes each file
+`.satelle/packs.toml` records for an installed pack whose sha256 still matches,
+prunes each skill directory that leaves empty, and drops the pack's entry from
+`.satelle/packs.toml` (the file stays, empty when no pack is left). It contacts
+no marketplace. A recorded file whose sha256 differs is locally edited: remove
+refuses, names each edited file and removes nothing, unless `--force`, which
+deletes the edited recorded files too. A recorded file already gone is
+reported missing and does not block. A file the pack did not record is never
+deleted, even with `--force`: it and its directory are kept and named.
+`.satelle/pack-merge/` is left alone. Remove needs the same seat and honours
+the same `[gate] locked_paths` as install, refuses a `packs.toml` entry that is
+not safe as update does, a symlinked skill directory or file, and a pack that
+is not installed; when a check or a write fails, nothing is written and
+`.satelle/packs.toml` is unchanged. Remove never edits a workflow: a workflow
+that still names a removed skill is reported by
+`satelle validate --session <session>`.
 
 ## doctor.toml
 

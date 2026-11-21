@@ -117,13 +117,18 @@ func (r Record) Owner(dir string) (string, bool) {
 }
 
 func (r Record) With(in Installed) Record {
-	out := Record{Packs: make([]Installed, 0, len(r.Packs)+1)}
+	out := r.Without(in.Ref)
+	out.Packs = append(out.Packs, in)
+	return out
+}
+
+func (r Record) Without(ref string) Record {
+	out := Record{Packs: make([]Installed, 0, len(r.Packs))}
 	for _, p := range r.Packs {
-		if p.Ref != in.Ref {
+		if p.Ref != ref {
 			out.Packs = append(out.Packs, p)
 		}
 	}
-	out.Packs = append(out.Packs, in)
 	return out
 }
 
