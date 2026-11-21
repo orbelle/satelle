@@ -1,3 +1,17 @@
+## [1.0.119] - 2026-11-21
+
+### Added
+- `satelle pack visibility <ref> --visibility public|workspace|shared [--share-with ID]...` changes a published pack's visibility and shared workspaces through SetPackVisibility, validating the flags as `satelle pack publish` does (sto_68a28f11)
+- The security reviewer ships as the satelle-security-reviewer pack 1.0.0: the security review skill and a guide that says where in a workflow it belongs, what reviewer it needs and how to run it only on changes that touch scripts (sto_545aeb8d)
+
+### Changed
+- The pull-request review gate reads the verdict gate and move named on its verdict_gate=, verdict_from= and verdict_to= lines (default code-ac on in_progress -> integration), so a substrate route judged by reference-review can publish the app's approving review: satelle-pr-gates 1.0.2 (sto_326439cd)
+- The satelle-pack skill has the agent find, before `satelle pack install`, a workflow state whose performer may change the tree, and on a fresh repo propose (and add only on the user's confirmation) an `in_progress` state with an `executor` session agent, so install is no longer refused there. (sto_e70b0f2b)
+
+### Fixed
+- The pull-request gate pack is 1.0.1: its members carry no shell comment, and its guide names `.satelle/skills/satelle-pack.md` (from the substrate story `satelle init` prints where a repo lacks it), says the review gate needs `code-ac` on the move from in_progress into integration, and says each member may stay unwired or give way to the repo's own skill (sto_870c9500)
+- satelle pack install and update validate the configuration as it will stand with the pack's skills written, so a repo whose workflows already name a pack's skills takes the pack in one install (sto_6d2f7c2c)
+
 ## [1.0.118] - 2026-11-21
 
 ### Changed
