@@ -52,9 +52,6 @@ func LoadRecord(path string) (Record, error) {
 	return r, nil
 }
 
-// Validate refuses an entry whose version, skills or file paths are not safe
-// relative names, a file outside a recorded skill directory, or a malformed
-// sha256, so no recorded value can lead a path out of its directory.
 func (in Installed) Validate() error {
 	if err := ValidateSegment(in.Version); err != nil {
 		return fmt.Errorf("version: %w", err)

@@ -22,8 +22,6 @@ func versionedFiles(version string) []fakeserver.PackFile {
 	return files
 }
 
-// nextFiles is 1.3.0: review/SKILL.md changes, check.sh is dropped and
-// review-lint/notes.md is added.
 func nextFiles() []fakeserver.PackFile {
 	files := versionedFiles("1.3.0")
 	files[0].Body = []byte("---\nname: review\n---\nWire the review pack, 1.3.0.\n")
@@ -31,7 +29,6 @@ func nextFiles() []fakeserver.PackFile {
 	return append(files, fakeserver.PackFile{Path: "review-lint/notes.md", Body: []byte("notes\n")})
 }
 
-// snapshot maps each path under dir to its kind, mode and body.
 func snapshot(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}

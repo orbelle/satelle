@@ -134,8 +134,6 @@ func Install(dataDir, ref string, v Verified, names Names, check func(abs string
 	return res, nil
 }
 
-// refuseForeign refuses a skill directory dirs names that exists on disk (or
-// as a single-file skill) or is recorded as another pack's.
 func refuseForeign(skillsDir, dataDir, ref string, rec Record, dirs []string, names Names) error {
 	show := func(name string) string { return path.Join(filepath.Base(dataDir), names.Skills, name) }
 	for _, d := range dirs {

@@ -20,8 +20,6 @@ func update(t *testing.T, srv *fakeserver.Server, ref, version string, extra ...
 	return run(t, "", append([]string{"pack", "update", ref, "--version", version, "--server", srv.URL}, extra...)...)
 }
 
-// reviewPack130 drops check.sh and adds review-lint/notes.md beside a
-// changed review/SKILL.md.
 func reviewPack130() []fakeserver.PackFile {
 	files := reviewPack("1.3.0")
 	files[0].Body = append(skillBody("review"), []byte("Now 1.3.0.\n")...)
@@ -29,7 +27,6 @@ func reviewPack130() []fakeserver.PackFile {
 	return append(files, fakeserver.PackFile{Path: "review-lint/notes.md", Body: []byte("notes\n")})
 }
 
-// reviewPack130Edits changes review/SKILL.md, review-lint/SKILL.md and check.sh.
 func reviewPack130Edits() []fakeserver.PackFile {
 	files := reviewPack("1.3.0")
 	files[0].Body = append(skillBody("review"), []byte("Now 1.3.0.\n")...)

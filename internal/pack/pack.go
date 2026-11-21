@@ -76,8 +76,6 @@ func ValidatePath(p string) error {
 	return nil
 }
 
-// ValidateSegment accepts a single relative name (a skill directory or a
-// version): a ValidatePath path with no '/'.
 func ValidateSegment(s string) error {
 	if err := ValidatePath(s); err != nil {
 		return err
@@ -286,7 +284,6 @@ func stageFiles(stage string, v Verified) error {
 	return stageInto(stage, v, "")
 }
 
-// stageInto writes v's files under stage, below prefix when it is not empty.
 func stageInto(stage string, v Verified, prefix string) error {
 	for _, f := range v.files {
 		rel := f.path

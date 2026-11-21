@@ -164,11 +164,6 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
-// packTarget opens the kernel and returns the worktree's .satelle directory,
-// the pack names, and the edit-gate check every written path passes: a seat
-// on a state that may change the tree, [gate] locked_paths, and a path that
-// resolves inside the worktree. It checks the skills directory and
-// packs.toml and reads the record before any fetch.
 func packTarget(verb string) (string, pack.Names, func(string) error, func(), error) {
 	k, r, err := openKernel()
 	if err != nil {

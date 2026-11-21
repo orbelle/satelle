@@ -11,10 +11,6 @@ import (
 	"strings"
 )
 
-// EditedFile is a recorded or newly published file update left as it is:
-// Path is relative to the skills directory, Installed and New the worktree
-// paths of the installed-version and new-version copies ("" when that
-// version does not publish the file).
 type EditedFile struct {
 	Path      string `json:"path"`
 	Installed string `json:"installed,omitempty"`
@@ -35,8 +31,6 @@ type UpdateResult struct {
 	AlreadyInstalled bool         `json:"already_installed,omitempty"`
 }
 
-// under joins rel onto base and refuses a result that is base itself or
-// lies outside it.
 func under(base, rel string) (string, error) {
 	p := filepath.Join(base, filepath.FromSlash(rel))
 	r, err := filepath.Rel(base, p)
@@ -46,8 +40,6 @@ func under(base, rel string) (string, error) {
 	return p, nil
 }
 
-// checkAncestors refuses a symlinked or non-directory parent of rel between
-// base and rel itself.
 func checkAncestors(base, rel string) error {
 	segs := strings.Split(rel, "/")
 	cur := base
@@ -83,14 +75,6 @@ func fileSHA256(p string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// Update moves the installed pack ref to the verified version next. A file
-// whose sha256 still matches the record is replaced, removed or added; an
-// edited file (sha256 differs, missing, or an unrecorded local file the new
-// version now publishes) is left as it is, and its installed-version and
-// new-version copies are written under <MergeDir>/<ref>/<version>/ for the
-// agent to merge. installed fetches the recorded version, only when an
-// edited recorded file needs its copy. Every path is passed to check before
-// anything is written, and a failure writes nothing.
 func Update(dataDir, ref string, next Verified, installed func() (Verified, error), names Names, check func(abs string) error) (UpdateResult, error) {
 	if err := ValidatePath(ref); err != nil {
 		return UpdateResult{}, fmt.Errorf("pack ref: %w", err)
@@ -332,8 +316,6 @@ type updateCommit struct {
 	mergeDir               string
 }
 
-// makeDirs creates each missing directory of rel under base, refusing a
-// symlinked or non-directory one, and returns those it created.
 func makeDirs(base, rel string) ([]string, error) {
 	var created []string
 	if rel == "" || rel == "." {
@@ -356,10 +338,6 @@ func makeDirs(base, rel string) ([]string, error) {
 	return created, nil
 }
 
-// commitUpdate stages the new files and merge copies, moves each replaced or
-// removed file aside, places the new files, prunes directories the removals
-// emptied, places the merge copies and writes the record last; any failure
-// undoes every step in reverse.
 func commitUpdate(dataDir, skillsDir, recordPath, prefix string, c updateCommit, rec Record) error {
 	if _, err := presentAs(recordPath, false); err != nil {
 		return err
