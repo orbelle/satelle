@@ -378,3 +378,34 @@ func TestValidateSegment(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateToken(t *testing.T) {
+	for _, ok := range []string{"acme/review", "1.2.3", "1.0.0+build.1", "wks_ab12/name"} {
+		if err := pack.ValidateToken(ok); err != nil {
+			t.Errorf("ValidateToken(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "-a", "a b", "a\tb", "a\nb", "a;b", "a$b", "a\x1bb", strings.Repeat("a", 201)} {
+		err := pack.ValidateToken(bad)
+		if err == nil {
+			t.Errorf("ValidateToken(%q) accepted", bad)
+			continue
+		}
+		if bad != "" && strings.Contains(err.Error(), bad) {
+			t.Errorf("ValidateToken(%q) echoes the value: %v", bad, err)
+		}
+	}
+	if err := pack.ValidateToken(strings.Repeat("a", 200)); err != nil {
+		t.Errorf("200 bytes refused: %v", err)
+	}
+}
+
+func TestPrintable(t *testing.T) {
+	got := pack.Printable("a\nb\x1b[0m c\t")
+	if strings.ContainsFunc(got, func(r rune) bool { return r < 0x20 || r == 0x7f || r == ' ' || r == ' ' }) {
+		t.Errorf("Printable kept a control rune: %q", got)
+	}
+	if got != "a b [0m c" {
+		t.Errorf("Printable = %q", got)
+	}
+}

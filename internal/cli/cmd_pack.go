@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -20,7 +24,7 @@ func packCmd() *cobra.Command {
 		Use:   "pack",
 		Short: "Fetch and install packs from the satelle.dev marketplace",
 	}
-	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd())
+	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packStatusCmd())
 	return cmd
 }
 
@@ -164,6 +168,14 @@ func packInstallCmd() *cobra.Command {
 	return cmd
 }
 
+func resolveInTree(verb, tree, p string) (string, error) {
+	c := canonicalPath(p)
+	if !hook.Within(tree, c) {
+		return "", fmt.Errorf("%s: %s resolves to %s, outside the worktree %s", verb, p, c, tree)
+	}
+	return c, nil
+}
+
 func packTarget(verb string) (string, pack.Names, func(string) error, func(), error) {
 	k, r, err := openKernel()
 	if err != nil {
@@ -181,13 +193,7 @@ func packTarget(verb string) (string, pack.Names, func(string) error, func(), er
 		TempRoots: []string{},
 		Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
 	}
-	resolve := func(p string) (string, error) {
-		c := canonicalPath(p)
-		if !hook.Within(r.Tree, c) {
-			return "", fmt.Errorf("%s: %s resolves to %s, outside the worktree %s", verb, p, c, r.Tree)
-		}
-		return c, nil
-	}
+	resolve := func(p string) (string, error) { return resolveInTree(verb, r.Tree, p) }
 	check := func(p string) error {
 		c, err := resolve(p)
 		if err != nil {
@@ -308,4 +314,124 @@ func packUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
 	asJSON = jsonFlag(cmd)
 	return cmd
+}
+
+const (
+	marketplaceUnread = "the marketplace could not be read: "
+	packLookupTimeout = 10 * time.Second
+)
+
+func packStatusCmd() *cobra.Command {
+	var server string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "status [--server URL]",
+		Short: "List each installed pack's version, its locally edited and missing files, and the newest version the marketplace serves",
+		Long: "Status reads .satelle/packs.toml and lists each installed pack's ref and version, every recorded file whose sha256 differs " +
+			"(edited) or that is gone (missing), and the newest version the marketplace serves (its latest version; no version comparison). " +
+			"It needs no seat and writes nothing. It refuses a symlinked record, skills directory, skill directory or file, and a .satelle " +
+			"outside the worktree. When the marketplace cannot be read it says so in newest_error and still exits 0.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := findRepo("")
+			if err != nil {
+				return err
+			}
+			data, err := resolveInTree("pack status", r.Tree, r.DataDir)
+			if err != nil {
+				return err
+			}
+			names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile}
+			sts, err := pack.Status(data, names)
+			if err != nil {
+				return err
+			}
+			if len(sts) > 0 {
+				lookupNewest(cmd.Context(), server, sts)
+			}
+			skills := filepath.ToSlash(filepath.Join(filepath.Base(data), names.Skills))
+			for i := range sts {
+				for j, p := range sts[i].Edited {
+					sts[i].Edited[j] = skills + "/" + p
+				}
+				for j, p := range sts[i].Missing {
+					sts[i].Missing[j] = skills + "/" + p
+				}
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{"packs": sts})
+			}
+			out := cmd.OutOrStdout()
+			if len(sts) == 0 {
+				fmt.Fprintln(out, "no packs installed (.satelle/packs.toml records none)")
+				return nil
+			}
+			for _, st := range sts {
+				if st.NewestError != "" {
+					fmt.Fprintf(out, "%s %s: newest unknown (%s)\n", st.Ref, st.Version, st.NewestError)
+				} else {
+					fmt.Fprintf(out, "%s %s: newest %s\n", st.Ref, st.Version, st.Newest)
+				}
+				for _, p := range st.Edited {
+					fmt.Fprintf(out, "  edited %s\n", quoteControl(p))
+				}
+				for _, p := range st.Missing {
+					fmt.Fprintf(out, "  missing %s\n", quoteControl(p))
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+func lookupNewest(ctx context.Context, server string, sts []pack.PackStatus) {
+	unread := func(err error) {
+		for i := range sts {
+			sts[i].NewestError = marketplaceUnread + pack.Printable(err.Error())
+		}
+	}
+	srv, err := projectServer(server)
+	if err != nil {
+		unread(err)
+		return
+	}
+	c, err := dial(srv)
+	if err != nil {
+		unread(err)
+		return
+	}
+	defer c.Close()
+	for i := range sts {
+		callCtx, cancel := context.WithTimeout(ctx, packLookupTimeout)
+		resp, err := c.Packs.GetPack(callCtx, &satellepb.GetPackRequest{Ref: sts[i].Ref, Version: sts[i].Version})
+		cancel()
+		sts[i].Newest, sts[i].NewestError = newestOf(sts[i].Ref, sts[i].Version, resp, err)
+	}
+}
+
+func newestOf(ref, version string, resp *satellepb.PackVersion, err error) (string, string) {
+	switch {
+	case err != nil && hosted.IsNotFound(err):
+		return "", fmt.Sprintf("%spack %s version %s was not found", marketplaceUnread, ref, version)
+	case err != nil:
+		return "", marketplaceUnread + pack.Printable(hosted.Describe("pack status", err).Error())
+	}
+	latest := resp.GetPack().GetLatestVersion()
+	switch {
+	case latest == "":
+		return "", marketplaceUnread + "it named no latest version"
+	case pack.ValidateSegment(latest) != nil || pack.ValidateToken(latest) != nil:
+		return "", marketplaceUnread + "it named a latest version that is not a plain version"
+	}
+	return latest, ""
+}
+
+func quoteControl(s string) string {
+	if strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }) >= 0 {
+		return strconv.Quote(s)
+	}
+	return s
 }
