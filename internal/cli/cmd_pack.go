@@ -507,22 +507,63 @@ func resolveInTree(verb, tree, p string) (string, error) {
 	return c, nil
 }
 
+var packVisibilities = map[string]satellepb.PackVisibility{
+	"public":    satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC,
+	"workspace": satellepb.PackVisibility_PACK_VISIBILITY_WORKSPACE,
+	"shared":    satellepb.PackVisibility_PACK_VISIBILITY_SHARED,
+}
+
+func packPublishVisibility(visibility string, shareWith []string) (satellepb.PackVisibility, []string, error) {
+	v := strings.TrimSpace(visibility)
+	if v == "" {
+		return 0, nil, errors.New("--visibility is required: public, workspace or shared")
+	}
+	vis, ok := packVisibilities[v]
+	if !ok {
+		return 0, nil, fmt.Errorf("--visibility %q is not public, workspace or shared", v)
+	}
+	shared := make([]string, 0, len(shareWith))
+	for _, id := range shareWith {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return 0, nil, errors.New("--share-with needs a workspace id")
+		}
+		shared = append(shared, id)
+	}
+	if vis != satellepb.PackVisibility_PACK_VISIBILITY_SHARED && len(shared) > 0 {
+		return 0, nil, errors.New("--share-with is only for --visibility shared")
+	}
+	if vis == satellepb.PackVisibility_PACK_VISIBILITY_SHARED && len(shared) == 0 {
+		return 0, nil, errors.New("--visibility shared needs at least one --share-with workspace id")
+	}
+	if len(shared) == 0 {
+		shared = nil
+	}
+	return vis, shared, nil
+}
+
 func packPublishCmd() *cobra.Command {
-	var workspace, server string
+	var workspace, server, visibility string
+	var shareWith []string
 	var asJSON *bool
 	cmd := &cobra.Command{
-		Use:   "publish <entry> --workspace ID [--server URL]",
+		Use:   "publish <entry> --workspace ID --visibility public|workspace|shared [--share-with ID]... [--server URL]",
 		Short: "Publish a pack version to the satelle.dev marketplace from its entry skill",
 		Long: "Publish reads .satelle/skills/<entry>/pack.toml and publishes the pack at its version for the owner satelle.dev workspace, " +
 			"sending the entry and member skill directories' files, sha256s and digest exactly as the working tree holds them, with paths " +
 			"relative to .satelle/skills. It refuses a symlink or non-regular file in those directories and any layout install would refuse. " +
 			"Only admins of the owner satelle.dev workspace may publish, and the same version with different files is refused; either way " +
-			"nothing is published. Publish writes nothing locally.",
+			"nothing is published. Publish writes nothing locally. The pack's --visibility (public, workspace or shared) is required, with no " +
+			"default, and is sent with the publish; shared names the workspaces it is shared with, one --share-with each.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws := strings.TrimSpace(workspace)
 			if ws == "" {
 				return errors.New("--workspace is required")
+			}
+			vis, shared, err := packPublishVisibility(visibility, shareWith)
+			if err != nil {
+				return err
 			}
 			r, err := findRepo("")
 			if err != nil {
@@ -546,7 +587,9 @@ func packPublishCmd() *cobra.Command {
 				return err
 			}
 			defer c.Close()
-			got, err := c.Packs.PublishPack(cmd.Context(), &satellepb.PublishPackRequest{OwnerWorkspaceId: ws, Manifest: manifest, Files: bundle.GetFiles()})
+			got, err := c.Packs.PublishPack(cmd.Context(), &satellepb.PublishPackRequest{
+				OwnerWorkspaceId: ws, Manifest: manifest, Files: bundle.GetFiles(), Visibility: vis, SharedWith: shared,
+			})
 			switch status.Code(err) {
 			case codes.OK:
 			case codes.AlreadyExists:
@@ -579,6 +622,8 @@ func packPublishCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&workspace, "workspace", "", "owner satelle.dev workspace id (required)")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "who on satelle.dev may see the pack: public, workspace or shared (required)")
+	cmd.Flags().StringArrayVar(&shareWith, "share-with", nil, "a satelle.dev workspace id the pack is shared with (repeatable; only with --visibility shared)")
 	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
 	asJSON = jsonFlag(cmd)
 	return cmd

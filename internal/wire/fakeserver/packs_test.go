@@ -3,6 +3,7 @@ package fakeserver_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -71,7 +72,8 @@ func TestPackService(t *testing.T) {
 
 	srv.SetPackAdmins("ws_1", "tok-ada")
 	made, _ := fakeserver.PackBundle("made", "1.0.0", []fakeserver.PackFile{{Path: "made/SKILL.md", Body: []byte("made")}})
-	req := &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: made.GetVersion().GetManifest(), Files: made.GetFiles()}
+	req := &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: made.GetVersion().GetManifest(), Files: made.GetFiles(),
+		Visibility: satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC}
 	if _, err := other.Packs.PublishPack(ctx, req); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("non-admin publish: got %v, want PermissionDenied", err)
 	}
@@ -93,12 +95,36 @@ func TestPackService(t *testing.T) {
 		t.Errorf("fetched %v, want %v", got, made)
 	}
 	changed, _ := fakeserver.PackBundle("made", "1.0.0", []fakeserver.PackFile{{Path: "made/SKILL.md", Body: []byte("changed")}})
-	_, err = ada.Packs.PublishPack(ctx, &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: changed.GetVersion().GetManifest(), Files: changed.GetFiles()})
+	_, err = ada.Packs.PublishPack(ctx, &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: changed.GetVersion().GetManifest(), Files: changed.GetFiles(),
+		Visibility: satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC})
 	if status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("changed version: got %v, want AlreadyExists", err)
 	}
 	if n := len(srv.Published()); n != 4 {
 		t.Errorf("recorded %d publish request(s), want 4", n)
+	}
+}
+
+func TestPublishPackRefusesUnspecifiedVisibility(t *testing.T) {
+	ctx := context.Background()
+	srv := fakeserver.Start(t, "tok-ada")
+	ada, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: "tok-ada"}, hosted.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ada.Close() })
+	srv.SetPackAdmins("ws_1", "tok-ada")
+
+	made, _ := fakeserver.PackBundle("made", "1.0.0", []fakeserver.PackFile{{Path: "made/SKILL.md", Body: []byte("made")}})
+	_, err = ada.Packs.PublishPack(ctx, &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: made.GetVersion().GetManifest(), Files: made.GetFiles()})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("unspecified visibility: got %v, want InvalidArgument", err)
+	}
+	if want := `visibility "" is not public, workspace or shared`; !strings.Contains(status.Convert(err).Message(), want) {
+		t.Errorf("message = %q, want it to contain %q", status.Convert(err).Message(), want)
+	}
+	if _, err := ada.Packs.FetchPack(ctx, &satellepb.GetPackRequest{Ref: "ws_1/made", Version: "1.0.0"}); status.Code(err) != codes.NotFound {
+		t.Errorf("fetch after refused publish: got %v, want NotFound", err)
 	}
 }
 

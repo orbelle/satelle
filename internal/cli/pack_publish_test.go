@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
+	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
 func publishFixture(t *testing.T, dir string) []fakeserver.PackFile {
@@ -38,7 +39,7 @@ func publishFixture(t *testing.T, dir string) []fakeserver.PackFile {
 
 func publish(t *testing.T, srv *fakeserver.Server, entry, ws string, extra ...string) (string, error) {
 	t.Helper()
-	return run(t, "", append([]string{"pack", "publish", entry, "--workspace", ws, "--server", srv.URL}, extra...)...)
+	return run(t, "", append([]string{"pack", "publish", entry, "--workspace", ws, "--server", srv.URL, "--visibility", "workspace"}, extra...)...)
 }
 
 func TestPackPublishSendsManifestAndFiles(t *testing.T) {
@@ -62,6 +63,9 @@ func TestPackPublishSendsManifestAndFiles(t *testing.T) {
 	}
 	req := pubs[0]
 	man := req.GetManifest()
+	if req.GetVisibility() != satellepb.PackVisibility_PACK_VISIBILITY_WORKSPACE || len(req.GetSharedWith()) != 0 {
+		t.Fatalf("request visibility = %v shared with %v, want workspace and none", req.GetVisibility(), req.GetSharedWith())
+	}
 	if req.GetOwnerWorkspaceId() != "ws_1" || man.GetName() != "review" || man.GetVersion() != "1.2.3" || man.GetDigest() != digest {
 		t.Fatalf("request = %s %s@%s digest %s, want ws_1 review@1.2.3 digest %s", req.GetOwnerWorkspaceId(), man.GetName(), man.GetVersion(), man.GetDigest(), digest)
 	}
@@ -97,7 +101,7 @@ func TestPackPublishSendsManifestAndFiles(t *testing.T) {
 		}
 	}
 
-	raw := must(t, "pack", "publish", "rev", "--workspace", "ws_1", "--server", srv.URL, "--json")
+	raw := must(t, "pack", "publish", "rev", "--workspace", "ws_1", "--server", srv.URL, "--visibility", "workspace", "--json")
 	var got struct {
 		Ref       string   `json:"ref"`
 		Workspace string   `json:"owner_workspace_id"`
@@ -115,7 +119,7 @@ func TestPackPublishSendsManifestAndFiles(t *testing.T) {
 		t.Fatalf("json = %+v", got)
 	}
 
-	if _, err := run(t, "", "pack", "publish", "rev", "--server", srv.URL); err == nil || !strings.Contains(err.Error(), "--workspace is required") {
+	if _, err := run(t, "", "pack", "publish", "rev", "--server", srv.URL, "--visibility", "workspace"); err == nil || !strings.Contains(err.Error(), "--workspace is required") {
 		t.Errorf("missing --workspace: %v", err)
 	}
 	before := len(srv.Published())
@@ -173,5 +177,60 @@ func TestPackPublishPermissionDenied(t *testing.T) {
 	}
 	if _, err := run(t, "", "pack", "fetch", "ws_2/review", "--version", "1.2.3", "--dir", filepath.Join(t.TempDir(), "x"), "--server", srv.URL); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("fetch of refused pack: %v", err)
+	}
+}
+
+func TestPackPublishSendsVisibility(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	m := newMachine(t)
+	publishFixture(t, m.dir)
+	srv.SetPackAdmins("ws_1", testToken)
+
+	for _, c := range []struct {
+		flags  []string
+		vis    satellepb.PackVisibility
+		shared []string
+	}{
+		{[]string{"--visibility", "public"}, satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC, nil},
+		{[]string{"--visibility", "workspace"}, satellepb.PackVisibility_PACK_VISIBILITY_WORKSPACE, nil},
+		{[]string{"--visibility", "shared", "--share-with", "ws_2", "--share-with", "ws_3"}, satellepb.PackVisibility_PACK_VISIBILITY_SHARED, []string{"ws_2", "ws_3"}},
+	} {
+		args := append([]string{"pack", "publish", "rev", "--workspace", "ws_1", "--server", srv.URL}, c.flags...)
+		if _, err := run(t, "", args...); err != nil {
+			t.Fatalf("%v: %v", c.flags, err)
+		}
+		pubs := srv.Published()
+		req := pubs[len(pubs)-1]
+		if req.GetVisibility() != c.vis || !slices.Equal(req.GetSharedWith(), c.shared) {
+			t.Errorf("%v: request visibility %v shared with %v, want %v %v", c.flags, req.GetVisibility(), req.GetSharedWith(), c.vis, c.shared)
+		}
+	}
+}
+
+func TestPackPublishRefusesVisibilityFlags(t *testing.T) {
+	srv := fakeserver.Start(t, testToken)
+	m := newMachine(t)
+	publishFixture(t, m.dir)
+	srv.SetPackAdmins("ws_1", testToken)
+
+	for _, c := range []struct {
+		flags []string
+		names string
+	}{
+		{nil, "--visibility"},
+		{[]string{"--visibility", "private"}, "--visibility"},
+		{[]string{"--visibility", "public", "--share-with", "ws_2"}, "--share-with"},
+		{[]string{"--visibility", "workspace", "--share-with", "ws_2"}, "--share-with"},
+		{[]string{"--visibility", "shared"}, "--share-with"},
+		{[]string{"--visibility", "shared", "--share-with", " "}, "--share-with"},
+	} {
+		args := append([]string{"pack", "publish", "rev", "--workspace", "ws_1", "--server", srv.URL}, c.flags...)
+		_, err := run(t, "", args...)
+		if err == nil || !strings.Contains(err.Error(), c.names) {
+			t.Errorf("%v: err = %v, want it to name %s", c.flags, err, c.names)
+		}
+	}
+	if n := len(srv.Published()); n != 0 {
+		t.Errorf("refused publishes reached the server: %d request(s)", n)
 	}
 }

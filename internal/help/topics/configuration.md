@@ -298,6 +298,12 @@ single-skill pack lists only its entry in `skills`. Publish refuses a symlink
 or non-regular file anywhere in those directories, and any layout install
 would refuse. Only the owner's admins may publish, and the same version with
 different files is refused; in both cases nothing is published. Publish writes nothing locally.
+Publish also needs the pack's `--visibility`, who on satelle.dev may see it,
+as `satelle pack publish --help --session <session>` lists; it is required and
+has no default. A shared pack names each owner it is shared with by
+`--share-with <id>`, repeated, and `--share-with` is refused on any other
+visibility. A missing or inconsistent visibility is refused before anything is
+read or sent.
 
 ## doctor.toml
 

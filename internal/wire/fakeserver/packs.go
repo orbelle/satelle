@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
+	"strconv"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -150,11 +151,24 @@ func (s *Server) Published() []*satellepb.PublishPackRequest {
 	return out
 }
 
+var packVisibilityNames = map[satellepb.PackVisibility]string{
+	satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC:    "public",
+	satellepb.PackVisibility_PACK_VISIBILITY_WORKSPACE: "workspace",
+	satellepb.PackVisibility_PACK_VISIBILITY_SHARED:    "shared",
+}
+
 func (p packsSvc) PublishPack(ctx context.Context, r *satellepb.PublishPackRequest) (*satellepb.PackVersion, error) {
 	tok := bearer(ctx)
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 	p.s.published = append(p.s.published, proto.Clone(r).(*satellepb.PublishPackRequest))
+	if v := r.GetVisibility(); packVisibilityNames[v] == "" {
+		name := ""
+		if v != satellepb.PackVisibility_PACK_VISIBILITY_UNSPECIFIED {
+			name = strconv.Itoa(int(v))
+		}
+		return nil, status.Errorf(codes.InvalidArgument, "visibility %q is not public, workspace or shared", name)
+	}
 	ws := r.GetOwnerWorkspaceId()
 	if !p.s.packAdmins[ws][tok] {
 		return nil, status.Errorf(codes.PermissionDenied, "only admins of workspace %s may publish its packs", ws)
