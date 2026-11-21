@@ -73,7 +73,10 @@ Its checks:
              exists (satelle <kind> release <id> --session <session>); a note
              classes every seat as here (this machine, session running),
              elsewhere (another machine), gone or unverified
-  check:<s>  each check skill .satelle/doctor.toml names
+  check:<s>  each check skill .satelle/doctor.toml names: exit 0 prints each
+             non-empty line as a note and raises no issue; exit 1 prints each
+             line as an issue with the check's fix; any other exit reports
+             could not check
   open:<n>   each open item a .satelle/doctor.toml [[items]] entry selects
 
 Outside a satelle repo only the machine checks (versions, upgrade, projects,

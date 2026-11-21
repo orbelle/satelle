@@ -154,10 +154,12 @@ runs what `.satelle/doctor.toml` names:
     tag = "<tag>"
     fix = "satelle story get {id}"  # {id} is replaced with the item's id
 
-A check skill runs in the working tree with no item: exit 0 is clean, exit 1
-is one issue per line it prints, any other exit (or a timeout) is one "could
-not check" issue. A doctor check must change nothing. An `[[items]]` entry
-reports each item it selects that is not in a terminal state of its workflow.
+A check skill runs in the working tree with no item: exit 0 raises no issue
+and prints each non-empty line of its output as a note naming the check
+(printing nothing adds no note), exit 1 is one issue per line it prints with
+the check's fix, any other exit (or a timeout) is one "could not check" issue.
+A doctor check must change nothing. An `[[items]]` entry reports each item it
+selects that is not in a terminal state of its workflow.
 `doctor.toml` is its own file, not a `satelle.toml` table, so an older satelle
 that does not know it ignores it.
 
