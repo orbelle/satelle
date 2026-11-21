@@ -73,3 +73,21 @@ func TestRecordRoundTripAndOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordWithout(t *testing.T) {
+	a := Installed{Ref: "acme/a", Version: "1.0.0", Skills: []string{"a"}}
+	b := Installed{Ref: "acme/b", Version: "2.0.0", Skills: []string{"b"}}
+	rec := Record{}.With(a).With(b)
+	if got := rec.Without("acme/a"); !reflect.DeepEqual(got.Packs, []Installed{b}) {
+		t.Errorf("Without(acme/a) = %+v", got)
+	}
+	if got := rec.Without("acme/c"); !reflect.DeepEqual(got.Packs, rec.Packs) {
+		t.Errorf("Without(acme/c) = %+v", got)
+	}
+	if got := rec.Without("acme/a").Without("acme/b"); len(got.Packs) != 0 {
+		t.Errorf("Without both = %+v", got)
+	}
+	if len(rec.Packs) != 2 {
+		t.Errorf("Without changed the receiver: %+v", rec)
+	}
+}

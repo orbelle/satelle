@@ -1,3 +1,8 @@
+## [1.0.114] - 2026-11-21
+
+### Added
+- satelle pack remove <ref> deletes an installed pack's files and its .satelle/packs.toml entry; it refuses and names any locally edited file unless --force is given (sto_5d4f2443)
+
 ## [1.0.113] - 2026-11-21
 
 ### Added
