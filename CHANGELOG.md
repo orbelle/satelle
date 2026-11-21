@@ -1,3 +1,11 @@
+## [1.0.118] - 2026-11-21
+
+### Changed
+- The pull-request gate skills ship as one pack: the satelle-pr-gates entry skill's pack.toml names satelle-gate-status-publish, satelle-pr-ready-check, satelle-pr-approve-from-review and satelle-pr-approval-check, each now a skill directory, and its SKILL.md says where each gate goes, what it reads, and how a branch ruleset requires their statuses from the satelle app (sto_08693743)
+
+### Fixed
+- satelle pack publish takes --visibility public, workspace or shared (required) and --share-with <workspace id> (repeatable, for shared) and sends them, so satelle.dev accepts the publish; a missing or inconsistent visibility exits non-zero and sends nothing, and the test fake now refuses an unspecified visibility with InvalidArgument as satelle.dev does (sto_934883ec)
+
 ## [1.0.117] - 2026-11-21
 
 ### Changed
