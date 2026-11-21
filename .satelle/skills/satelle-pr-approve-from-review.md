@@ -14,7 +14,11 @@ chain.
 
 1. The working tree must have no uncommitted changes to tracked files, so
    `HEAD` is the exact tree whose diff is compared.
-2. The story's latest `code-ac` `gate.run` must be `accept` or `carried` and
+2. The verdict is the `code-ac` `gate.run` satelle recorded on the story's
+   latest move into `integration`: the last one before that
+   `item.transitioned` event, which only a move appends. Any `code-ac`
+   `gate.run` after it refuses the check, since a `gate.run` can be
+   appended by hand. That verdict must be `accept` or `carried` and
    must have recorded a change. When `carried`, the binding and notes are read
    from the matching `code-ac` `accept` verdict.
 3. The pull request is selected as `satelle-pr-ready-check` selects it: open,
@@ -60,7 +64,14 @@ fi
 ledger=$(satelle ledger list "$story" --json 2>&1) || { echo "could not read the ledger of $story: $ledger"; exit 1; }
 kind=$(printf '%s' "$ledger" | jq -r 'map(select(.kind == "item.created"))[0].payload.kind // empty')
 [ -n "$kind" ] || { echo "$story: its ledger names no kind"; exit 1; }
-last_run=$(printf '%s' "$ledger" | jq -c '[.[] | select(.kind == "gate.run") | .payload | select(.gate == "code-ac")] | last // empty')
+into=$(printf '%s' "$ledger" | jq '[to_entries[] | select(.value.kind == "item.transitioned" and .value.payload.to == "integration") | .key] | last // empty')
+[ -n "$into" ] || { echo "$story: it never moved into integration, so no code-ac verdict was recorded on that move; no approval published"; exit 1; }
+later=$(printf '%s' "$ledger" | jq --argjson i "$into" '[to_entries[] | select(.key > $i and .value.kind == "gate.run" and .value.payload.gate == "code-ac")] | length')
+if [ "$later" != 0 ]; then
+  echo "$story: a code-ac gate.run was recorded after its latest move into integration, so the verdict cannot be tied to that move; no approval published"
+  exit 1
+fi
+last_run=$(printf '%s' "$ledger" | jq -c --argjson i "$into" '[to_entries[] | select(.key < $i and .value.kind == "gate.run" and .value.payload.gate == "code-ac") | .value.payload] | last // empty')
 last_res=$(printf '%s' "$last_run" | jq -r '.result // empty')
 if [ "$last_res" != accept ] && [ "$last_res" != carried ]; then
   echo "$story: no accepted code-ac verdict (latest: ${last_res:-none}); no approval published"
