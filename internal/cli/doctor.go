@@ -727,7 +727,13 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	case err != nil:
 		return []doctorIssue{{Check: name, Problem: "could not check: " + err.Error(), Fix: "run the script in .satelle/skills/" + c.Skill + ".md"}}, nil
 	case code == 0:
-		return nil, nil
+		var notes []string
+		for _, line := range strings.Split(out, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				notes = append(notes, name+": "+line)
+			}
+		}
+		return nil, notes
 	case code == 1:
 		var issues []doctorIssue
 		for _, line := range strings.Split(out, "\n") {

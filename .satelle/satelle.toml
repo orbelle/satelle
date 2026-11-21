@@ -7,11 +7,6 @@ kind = "execution"
 tag = "block-breaker"
 
 [[workflows.rule]]
-workflow = "pr-review"
-kind = "execution"
-tag = "pr-review"
-
-[[workflows.rule]]
 workflow = "runbook"
 kind = "execution"
 

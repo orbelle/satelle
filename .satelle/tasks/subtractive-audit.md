@@ -62,7 +62,7 @@ satelle execution release "$exe" --session "$session"
 
 Show the operator the audit-report. The run files nothing: a proposal becomes
 a story only when the operator picks it ([[satelle-story-shape]]). File each
-picked proposal as a card in that shape, in the category
+picked proposal as a story in that shape, in the category
 [[satelle-chore-category]] gives it, with the shared tags
 [[satelle-group-related-stories]] asks for, and its `order:<N>` from the
 report's priority.

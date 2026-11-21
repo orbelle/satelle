@@ -9,4 +9,4 @@ own workflow (`satelle task set <id> --status <terminal state> --session <sessio
 
 A file here defines a task this repo's process relies on: its ACTION, its
 VERIFICATION, the command that creates it on the ledger when it is missing,
-and how a session runs it (`block-breaker.md`, `pr-review.md`, `subtractive-audit.md`).
+and how a session runs it (`block-breaker.md`, `subtractive-audit.md`).

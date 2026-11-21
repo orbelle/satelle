@@ -1,3 +1,20 @@
+## [1.0.106] - 2026-11-21
+
+### Changed
+- A passing doctor check skill configured in .satelle/doctor.toml (exit 0) now prints each line of its output as a doctor note, check:<skill>: <line>, without raising an issue or a session-start notice; a pass with no output adds nothing (sto_1397bd34)
+
+### Removed
+- This repo's separate pull-request review run and its second judge are gone: the satelle app's approval is published on the pull request head from the code-ac verdict that head already passed, under the same satelle/pr-review status (sto_2cd187fd)
+
+## [1.0.105] - 2026-11-21
+
+### Added
+- satelle.v1 defines PackService and its pack messages, the marketplace wire shared with satelle-server; no command uses it yet. (sto_02ea1488)
+
+### Removed
+- The unwired gates ac-evidence, architecture, instruction-change, outcome-review and done-review are gone from the delivery workflow, with their unreached skills; the coder and PR review no longer ask for an ac-evidence attachment (sto_b19fb45a)
+- The risk-assess gate and the review tier table, binary-scope on in_progress -> integration (it stays on plan), and the drift-claims gate are removed from this repo's workflows with their unreached skills; security and code-ac use their own reviewer (sto_82682f6a)
+
 ## [1.0.104] - 2026-11-20
 
 ### Added

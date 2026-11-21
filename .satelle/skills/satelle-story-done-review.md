@@ -1,7 +1,7 @@
 ---
 name: satelle-story-done-review
 type: skill
-description: Spine gate into done. Isolated read-only reviewer — parents by children-resolved; others by the behavior on the story card, then the residual ACs, against presented evidence. Does not re-plan at close.
+description: Spine gate into done. Isolated read-only reviewer — parents by children-resolved; others by the behavior on the story, then the residual ACs, against presented evidence. Does not re-plan at close.
 ---
 
 # Story done review (→ done)
@@ -27,9 +27,9 @@ unresolved on reject. Do not judge the parent's own ACs.
 The record's `children.md` was written when your prompt was; judge from it. A
 clean list is not a licence to wave through children you can see are open.
 
-### Every other story — the behavior on the card, then the ACs
+### Every other story — the behavior on the story, then the ACs
 
-The numbered criteria derive from the card's behavior; they are not a second
+The numbered criteria derive from the story's behavior; they are not a second
 spec. Judge the behavior first. The numbered criteria are the
 `## Acceptance criteria` section of the `plan` attachment in the record folder
 when the plan has that section, else the criteria in your prompt.
@@ -54,8 +54,8 @@ when the plan has that section, else the criteria in your prompt.
    `unmet` fails like `not met`.
 
 **No numbered criteria** (a route with no plan step): compare the change to the
-card's behavior directly and record it as the behavior line. The absence of
-criteria is not acceptance and not rejection; it leaves the card as the whole
+story's behavior directly and record it as the behavior line. The absence of
+criteria is not acceptance and not rejection; it leaves the story as the whole
 spec.
 
 ## Verdict

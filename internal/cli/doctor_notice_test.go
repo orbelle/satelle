@@ -26,6 +26,14 @@ func TestDoctorNotice(t *testing.T) {
 	if got := doctorNotice(doctorReport{Unchecked: []string{"z"}}); got != "" {
 		t.Errorf("unchecked checks alone gave a notice: %q", got)
 	}
+	if got := doctorNotice(doctorReport{Notes: []string{"check:fixture-check: owned by sto_11111111"}}); got != "" {
+		t.Errorf("notes alone gave a notice: %q", got)
+	}
+	withNotes := rep
+	withNotes.Notes = []string{"check:fixture-check: owned by sto_11111111"}
+	if got := doctorNotice(withNotes); got != want {
+		t.Errorf("notice with notes:\n%q\nwant\n%q", got, want)
+	}
 }
 
 func TestDoctorBlockGolden(t *testing.T) {
@@ -43,5 +51,13 @@ func TestDoctorBlockGolden(t *testing.T) {
 		"  not checked within 2s at session start: y, z; `satelle doctor` runs them\n"
 	if got := doctorBlock(rep, 2*time.Second); got != want {
 		t.Errorf("block:\n%q\nwant\n%q", got, want)
+	}
+	if got := doctorBlock(doctorReport{Notes: []string{"check:fixture-check: owned by sto_11111111"}}, 2*time.Second); got != "" {
+		t.Errorf("notes alone gave a block: %q", got)
+	}
+	withNotes := rep
+	withNotes.Notes = []string{"check:fixture-check: owned by sto_11111111"}
+	if got := doctorBlock(withNotes, 2*time.Second); got != want {
+		t.Errorf("block with notes:\n%q\nwant\n%q", got, want)
 	}
 }

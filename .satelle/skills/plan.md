@@ -49,8 +49,8 @@ criteria from what you proved, then plan them.
    numbered list (`1. …`, `2. …`). Each criterion is exactly one line that
    starts `<n>. `: no wrapped continuation lines, no sub-bullets, and no prose
    between criteria anywhere in the section. Each criterion is one technical
-   requirement that meets the card's behavior and is provable by the gate that
-   judges it ([[satelle-story-shape]]): quote the card words it derives from,
+   requirement that meets the story's behavior and is provable by the gate that
+   judges it ([[satelle-story-shape]]): quote the story words it derives from,
    and name the observable outcome and its proof.
 
    Where a raiser draft is kept, keep its text. Where one is replaced or
@@ -94,7 +94,7 @@ Read the repository (Read/Grep/Glob) to ground the plan in the real code, then w
 - **Names the slice.** Files to add/change and briefly why each. The slice never edits `CHANGELOG.md` or `.version`: a story's changelog lines are recorded as the item's `changelog` attachment (the `### <Section>` and `- <line>` format `scripts/changelog-items.sh` reads), and the release writes `CHANGELOG.md` from those attachments. Name the section and the line in the plan instead.
 - **Declares the paths it touches.** A `## Touches` section lists one repo-relative path or glob per line, each as `- <path>`, covering every file the plan says it changes or adds; a test, doc or substrate file counts like any other. It declares paths only, never a risk rating: the step being reviewed does not choose how hard it is reviewed. A plan without the section is rejected before plan-review runs.
 - **Names what each dispatch's receiver reads for itself.** For every dispatch the plan designs (a seat, a reviewer, a summariser, any agent the change hands work to), name the receiving seat, its grant, and what it reads for itself (the CLI, the files on disk); send it the instruction and pointers (ids, paths, retrieval commands), never content it can fetch.
-- **Keeps the card's constraints.** A partial solution or technical decision the story card records as context is a constraint on the implementation: list each under a `## Constraints from the card` heading, quoting it, and say how the plan honours it. Never drop, replace or contradict one silently; if the evidence says it cannot hold, say so and why.
+- **Keeps the story's constraints.** A partial solution or technical decision the story records as context is a constraint on the implementation: list each under a `## Constraints from the story` heading, quoting it, and say how the plan honours it. Never drop, replace or contradict one silently; if the evidence says it cannot hold, say so and why.
 - **Calls out risks / decisions.** Anything the implementer shouldn't have to re-derive (a seam, an ordering constraint, a config knob, a migration).
 - Stays a PLAN — no code, just the shape of the change and the evidence each AC needs.
 

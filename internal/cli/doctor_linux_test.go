@@ -678,3 +678,146 @@ func TestHookContextInlinesWithNoLimitForTheHarness(t *testing.T) {
 	hasAll(t, "pi", ctx, indexReadLine, "inlined they are over pi's configured session-start limit")
 	hasNone(t, "pi", raw, indexNonceA, indexNonceB)
 }
+
+func TestDoctorConfiguredCheckPassOutputAsNotes(t *testing.T) {
+	writeCheck := func(t *testing.T, f *doctorFixture, script string) {
+		t.Helper()
+		writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "fixture-check.md"), "---\nname: fixture-check\ntype: check\n---\n\n```sh\n"+script+"\n```\n")
+	}
+	checkNotes := func(rep doctorReport) []string {
+		var out []string
+		for _, n := range rep.Notes {
+			if strings.HasPrefix(n, "check:fixture-check:") {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+
+	t.Run("pass prints notes", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		writeCheck(t, f, "printf '  first finding  \\r\\n\\n   \\t  \\n  second finding\\n'\nexit 0")
+		r, err := findRepo("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := digest(t, f.dir, os.Getenv("SATELLE_HOME"), r.Runtime)
+		rep, text, err := doctorJSON(t)
+		if d := sameDigest(before, digest(t, f.dir, os.Getenv("SATELLE_HOME"), r.Runtime)); len(d) != 0 {
+			t.Fatalf("doctor wrote: %v", d)
+		}
+		if err != nil {
+			t.Fatalf("doctor failed: %v\n%s", err, text)
+		}
+		if len(rep.Issues) != 0 {
+			t.Errorf("issues = %+v, want none", rep.Issues)
+		}
+		wantNotes := []string{
+			"check:fixture-check: first finding",
+			"check:fixture-check: second finding",
+		}
+		if got := checkNotes(rep); !slices.Equal(got, wantNotes) {
+			t.Errorf("check notes = %q, want %q", got, wantNotes)
+		}
+		for _, want := range []string{
+			"note: check:fixture-check: first finding\n",
+			"note: check:fixture-check: second finding\n",
+			"no issues\n",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("text lacks %q:\n%s", want, text)
+			}
+		}
+		if strings.Contains(text, "fix what it names") {
+			t.Errorf("passing check printed its fix:\n%s", text)
+		}
+	})
+
+	t.Run("fail raises issues", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		writeCheck(t, f, "printf 'first problem\\n\\nsecond problem\\n'\nexit 1")
+		rep, text, err := doctorJSON(t)
+		if ExitCodeOf(err) != 1 {
+			t.Fatalf("exit %d, want 1 (%v)\n%s", ExitCodeOf(err), err, text)
+		}
+		wantIssues := []doctorIssue{
+			{Check: "check:fixture-check", Problem: "first problem", Fix: "fix what it names", Resolve: resolveFixItem},
+			{Check: "check:fixture-check", Problem: "second problem", Fix: "fix what it names", Resolve: resolveFixItem},
+		}
+		if !slices.Equal(rep.Issues, wantIssues) {
+			t.Errorf("issues = %+v, want %+v", rep.Issues, wantIssues)
+		}
+		if got := checkNotes(rep); len(got) != 0 {
+			t.Errorf("failing check added notes: %q", got)
+		}
+		for _, want := range []string{
+			"check:fixture-check: first problem\n  fix: fix what it names\n",
+			"check:fixture-check: second problem\n  fix: fix what it names\n",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("text lacks %q:\n%s", want, text)
+			}
+		}
+	})
+
+	for _, tc := range []struct {
+		name, script string
+	}{
+		{"pass silent", "exit 0"},
+		{"pass whitespace only", "printf '\\n   \\t\\n'\nexit 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newDoctorFixture(t)
+			writeCheck(t, f, tc.script)
+			rep, text, err := doctorJSON(t)
+			if err != nil {
+				t.Fatalf("doctor failed: %v\n%s", err, text)
+			}
+			if len(rep.Issues) != 0 {
+				t.Errorf("issues = %+v, want none", rep.Issues)
+			}
+			if got := checkNotes(rep); len(got) != 0 {
+				t.Errorf("silent check added notes: %q", got)
+			}
+			if !strings.Contains(text, "no issues") {
+				t.Errorf("text lacks %q:\n%s", "no issues", text)
+			}
+			if strings.Contains(text, "note: check:fixture-check:") {
+				t.Errorf("text unexpectedly printed a check note:\n%s", text)
+			}
+		})
+	}
+
+	t.Run("session start ignores check notes", func(t *testing.T) {
+		f := newDoctorFixture(t)
+		writeCheck(t, f, "printf 'owned by sto_11111111\\nowned by sto_22222222\\n'\nexit 0")
+		rep, text, err := doctorJSON(t)
+		if err != nil {
+			t.Fatalf("doctor failed: %v\n%s", err, text)
+		}
+		wantNotes := []string{
+			"check:fixture-check: owned by sto_11111111",
+			"check:fixture-check: owned by sto_22222222",
+		}
+		if got := checkNotes(rep); !slices.Equal(got, wantNotes) {
+			t.Fatalf("check notes = %q, want %q", got, wantNotes)
+		}
+
+		ctx, msg, raw := hookContextText(t, f.dir)
+		if msg != "" || strings.Contains(raw, "systemMessage") {
+			t.Errorf("notes alone produced a systemMessage: msg=%q\n%s", msg, raw)
+		}
+		if strings.Contains(ctx, "satelle doctor:") || strings.Contains(ctx, "check:fixture-check") {
+			t.Errorf("notes alone appeared in session-start context:\n%s", ctx)
+		}
+
+		createID(t, "story", "create", "--title", "a drift", "--criteria", "c", "--tag", "drift")
+		ctx, msg, _ = hookContextText(t, f.dir)
+		if !strings.HasPrefix(msg, "satelle doctor: 1 issue(s)") || strings.Contains(msg, "check:fixture-check") {
+			t.Errorf("systemMessage = %q, want 1 issue and no check:fixture-check", msg)
+		}
+		if !strings.Contains(ctx, "satelle doctor: 1 issue(s)") || strings.Contains(ctx, "check:fixture-check") {
+			t.Errorf("context = %q, want 1 issue and no check:fixture-check", ctx)
+		}
+	})
+}

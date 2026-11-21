@@ -24,7 +24,7 @@ satelle task create --title "Break a held story's block" --input-kind story --in
 A story held at blocked after its round cap is read cold before any new story is raised (.satelle/session.md).
 
 ACTION: follow .satelle/tasks/block-breaker.md, section "Run it", for the one held story the session names: attach its record to the run (held-item, held-plan, held-findings), tag the run block-breaker and reselect it into the block-breaker workflow, move it to the breaking state whose binding is of another family than every dissenting judge, and perform it. Copy the block-resolution the breaker returns onto the held story, and present the run done.
-VERIFICATION: the run's block-resolution names the held story and either rules it answerable, with a change (plan, driver-note or card-amendment) and an answer for each dissent the hold names, or rules it blocked with the reason no change within the card can answer the dissent; the held story carries the same block-resolution. The run's done gate (satelle-block-resolution-check) checks both.
+VERIFICATION: the run's block-resolution names the held story and either rules it answerable, with a change (plan, driver-note or story-amendment) and an answer for each dissent the hold names, or rules it blocked with the reason no change within the story can answer the dissent; the held story carries the same block-resolution. The run's done gate (satelle-block-resolution-check) checks both.
 EOF
 ```
 
@@ -65,7 +65,7 @@ state per family.
 1. Strike every family a dissenting binding runs.
 2. Of the states left, prefer one whose family is not also the held work's
    author: the planner's for a hold on plan, the session's own harness for a
-   hold on code or on the card. If only the author's family is left, take it:
+   hold on code or on the story. If only the author's family is left, take it:
    every other family dissented.
 3. If no state is left, every family dissented: do not run the breaker. The
    hold goes to the operator as it is.

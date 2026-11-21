@@ -19,16 +19,16 @@ wider. Each criterion is one requirement, **traceable** to the behaviour and
 judge it at that step. Evidence that exists only after release belongs on the
 release step, not on a code-step criterion.
 
-A card that carries two behaviours is narrowed to one; the other is dropped, and becomes its own story only when the operator asks for it. A criterion no
+A story that carries two behaviours is narrowed to one; the other is dropped, and becomes its own story only when the operator asks for it. A criterion no
 wired gate can judge is narrowed until one can ([[satelle-start-small]]).
 
-## The card is BDD
+## The story is BDD
 
 The behaviour is written as a **Feature**: *As a* role, *I want* a capability,
 *so that* an outcome. A **Background** gives the context its scenarios share:
 what exists, the evidence that raised it, a decision already made. Each
 acceptance criterion is a **scenario**: *Given* a context, *When* an action,
-*Then* an observable outcome. The card is judged in that shape before any plan
+*Then* an observable outcome. The story is judged in that shape before any plan
 (`satelle-story-review`).
 
 ```text
