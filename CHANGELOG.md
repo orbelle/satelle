@@ -1,3 +1,11 @@
+## [1.0.106] - 2026-11-21
+
+### Changed
+- A passing doctor check skill configured in .satelle/doctor.toml (exit 0) now prints each line of its output as a doctor note, check:<skill>: <line>, without raising an issue or a session-start notice; a pass with no output adds nothing (sto_1397bd34)
+
+### Removed
+- This repo's separate pull-request review run and its second judge are gone: the satelle app's approval is published on the pull request head from the code-ac verdict that head already passed, under the same satelle/pr-review status (sto_2cd187fd)
+
 ## [1.0.105] - 2026-11-21
 
 ### Added
