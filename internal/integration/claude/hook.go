@@ -59,7 +59,7 @@ func (Hook) Context(event, text, notice string) []byte {
 func (Hook) StopAnswer() []byte             { return nil }
 func (Hook) StopBlock(reason string) []byte { return common.DecisionBlock(reason) }
 
-func (Hook) AutoModeDisplay() string { return autoModeFile }
+func (Hook) AutoModeDisplay() (string, error) { return autoModeFile, nil }
 
 func (Hook) FormatAutoMode(guidance []byte) ([]byte, error) {
 	type block struct {

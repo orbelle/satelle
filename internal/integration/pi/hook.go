@@ -67,3 +67,7 @@ func (Hook) Remove(prev []byte) ([]byte, bool, error) { return nil, owned(prev),
 func (Hook) Commands(string) ([]string, error) { return nil, nil }
 
 func (Hook) Installed(raw []byte) bool { return owned(raw) }
+
+func (Hook) AutoModeDisplay() (string, error) { return "", common.AutoModeUnavailable(Name) }
+
+func (Hook) FormatAutoMode([]byte) ([]byte, error) { return nil, common.AutoModeUnavailable(Name) }

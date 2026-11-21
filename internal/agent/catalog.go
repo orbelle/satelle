@@ -174,8 +174,6 @@ func ValidTool(t string) error {
 	return fmt.Errorf("tool %q is not one of %s or Bash(<prefix>:*)", t, strings.Join(common.PlainTools, " "))
 }
 
-func IsScoped(t string) bool { return common.IsScoped(t) }
-
 func IsReadOnly(grant []string) bool { return common.IsReadOnly(grant) }
 
 func Preset(b Binding) string {

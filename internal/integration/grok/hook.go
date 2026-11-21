@@ -82,3 +82,7 @@ func (Hook) Remove(prev []byte) ([]byte, bool, error) { return common.RemoveNest
 func (Hook) Commands(path string) ([]string, error) { return common.CollectNestedHookCommands(path) }
 
 func (Hook) Installed(raw []byte) bool { return common.NamesAnyVerb(raw, Name) }
+
+func (Hook) AutoModeDisplay() (string, error) { return "", common.AutoModeUnavailable(Name) }
+
+func (Hook) FormatAutoMode([]byte) ([]byte, error) { return nil, common.AutoModeUnavailable(Name) }

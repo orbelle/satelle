@@ -61,10 +61,7 @@ type HookAdapter interface {
 	Remove(prev []byte) (body []byte, removeFile bool, err error)
 	Commands(path string) ([]string, error)
 	Installed(raw []byte) bool
-}
-
-type AutoModeAdapter interface {
-	AutoModeDisplay() string
+	AutoModeDisplay() (string, error)
 	FormatAutoMode(guidance []byte) ([]byte, error)
 }
 
