@@ -1,0 +1,6 @@
+name = "satelle-security-reviewer"
+version = "1.0.0"
+skills = ["satelle-security-review"]
+
+[needs]
+agents = ["a read-only reviewer of another model family than the author"]
