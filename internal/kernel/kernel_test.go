@@ -328,6 +328,7 @@ func TestOpenLogsIsConfigLogsDir(t *testing.T) {
 }
 
 func TestSettingsTableSplitCoversSchema(t *testing.T) {
+	strictSettingsTables := []string{"workflows", "gate", "review"}
 	ty := reflect.TypeOf(Settings{})
 	var tags []string
 	for i := range ty.NumField() {

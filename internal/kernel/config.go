@@ -198,7 +198,6 @@ func (c *Config) agentProblems() []error {
 }
 
 var (
-	strictSettingsTables  = []string{"workflows", "gate", "review"}
 	lenientSettingsTables = []string{"hook", "items", "service", "sync", "ledger"}
 )
 
