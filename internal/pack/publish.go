@@ -13,12 +13,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Collect builds the bundle a pack publishes from the working tree: the entry
-// skill directory <skillsDir>/<entry>, which holds pack.toml, and each member
-// skill directory pack.toml lists, with paths relative to skillsDir. Every
-// name is validated and every path is checked (no symlink, no non-regular
-// file) before it is read, and the result is run through Verify and Layout,
-// so it is exactly what satelle pack fetch and install accept.
 func Collect(skillsDir, entry string) (*satellepb.PackBundle, error) {
 	if err := ValidateSegment(entry); err != nil {
 		return nil, fmt.Errorf("entry skill: %w", err)
