@@ -2,8 +2,10 @@ package pack
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +13,9 @@ import (
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 )
 
-var testNames = Names{Skills: "skills", Record: "packs.toml", StagePrefix: ".satelle-pack-staging"}
+var testNames = Names{Skills: "skills", Record: "packs.toml", StagePrefix: ".satelle-pack-staging", Validate: acceptAll}
+
+func acceptAll(string) error { return nil }
 
 const reviewPackToml = "name = \"review\"\nversion = \"1.2.3\"\nskills = [\"review-lint\"]\n"
 
@@ -231,5 +235,145 @@ func TestInstallRollsBackOnCommitFailure(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(data, "packs.toml"))
 	if string(before) != string(after) {
 		t.Error("the record changed on a failed commit")
+	}
+}
+
+func noStaging(t *testing.T, data string) {
+	t.Helper()
+	if left, _ := filepath.Glob(filepath.Join(data, testNames.StagePrefix+"*")); len(left) > 0 {
+		t.Errorf("staging left behind: %v", left)
+	}
+}
+
+func noSymlinks(t *testing.T, dir string) {
+	t.Helper()
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			t.Errorf("the prospect holds a symlink at %s", p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallRefusesSymlinkedSkillsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	data := t.TempDir()
+	elsewhere := filepath.Join(data, "elsewhere")
+	if err := os.Mkdir(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(data, "skills")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	called := false
+	names := testNames
+	names.Validate = func(string) error { called = true; return nil }
+	_, err := Install(data, "acme/review", verified(t, "1.2.3", reviewFiles()), names, allow)
+	if err == nil || !strings.Contains(err.Error(), "symlink is not allowed") {
+		t.Fatalf("Install: %v", err)
+	}
+	if called {
+		t.Error("the configuration was validated over a symlinked skills dir")
+	}
+	if e := entries(t, elsewhere); len(e) != 0 {
+		t.Errorf("the symlink target holds %v", e)
+	}
+	if _, err := os.Lstat(filepath.Join(data, "packs.toml")); !os.IsNotExist(err) {
+		t.Errorf("packs.toml exists (%v)", err)
+	}
+	noStaging(t, data)
+}
+
+func TestInstallProspectHoldsNoSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	root := t.TempDir()
+	data := filepath.Join(root, "data")
+	outside := filepath.Join(root, "outside")
+	skills := filepath.Join(data, "skills")
+	for _, d := range []string{filepath.Join(outside, "subdir"), filepath.Join(skills, "other")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "ext.md"), []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "subdir", "note.md"), []byte("note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skills, "other", "SKILL.md"), []byte("---\nname: other\n---\nOther.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		filepath.Join(skills, "ext.md"):        filepath.Join("..", "..", "outside", "ext.md"),
+		filepath.Join(skills, "other", "sub"):  filepath.Join("..", "..", "..", "outside", "subdir"),
+		filepath.Join(skills, "other", "loop"): "..",
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	before := snapshot(t, outside)
+	names := testNames
+	validated := false
+	names.Validate = func(dir string) error {
+		validated = true
+		noSymlinks(t, dir)
+		if b, err := os.ReadFile(filepath.Join(dir, "ext.md")); err != nil || string(b) != "external\n" {
+			t.Errorf("prospect ext.md = %q (%v)", b, err)
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, "other", "sub", "note.md")); err != nil || string(b) != "note\n" {
+			t.Errorf("prospect other/sub/note.md = %q (%v)", b, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "review-lint", "SKILL.md")); err != nil {
+			t.Errorf("prospect review-lint/SKILL.md: %v", err)
+		}
+		return nil
+	}
+	if _, err := Install(data, "acme/review", verified(t, "1.2.3", reviewFiles()), names, allow); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !validated {
+		t.Error("the configuration was not validated")
+	}
+	if after := snapshot(t, outside); !maps.Equal(before, after) {
+		t.Errorf("outside changed:\nbefore %v\nafter  %v", before, after)
+	}
+	noStaging(t, data)
+}
+
+func TestInstallRefusedByProspectValidation(t *testing.T) {
+	data := t.TempDir()
+	names := testNames
+	names.Validate = func(string) error { return errors.New("workflow adopt: skill \"missing\" is not in skills/") }
+	_, err := Install(data, "acme/review", verified(t, "1.2.3", reviewFiles()), names, allow)
+	if err == nil || !strings.Contains(err.Error(), "invalid; nothing was written") || !strings.Contains(err.Error(), `"missing"`) {
+		t.Fatalf("Install: %v", err)
+	}
+	if e := entries(t, data); len(e) != 0 {
+		t.Errorf("data dir holds %v", e)
+	}
+}
+
+func TestInstallRefusesWithoutValidator(t *testing.T) {
+	data := t.TempDir()
+	names := testNames
+	names.Validate = nil
+	_, err := Install(data, "acme/review", verified(t, "1.2.3", reviewFiles()), names, allow)
+	if err == nil || !strings.Contains(err.Error(), "no configuration validator") {
+		t.Fatalf("Install: %v", err)
+	}
+	if e := entries(t, data); len(e) != 0 {
+		t.Errorf("the data dir holds %v", e)
 	}
 }

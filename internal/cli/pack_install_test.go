@@ -437,3 +437,98 @@ func TestPackInstallWritesNothingOnFailure(t *testing.T) {
 		noStage(t, dir)
 	}
 }
+
+func writeAdoptWorkflow(t *testing.T, dir, skill string) {
+	t.Helper()
+	p := filepath.Join(dir, ".satelle", "workflows", "adopt.toml")
+	body := `name = "adopt"
+[states.a-start]
+start = true
+[states.a-work]
+performer = { agent = "agent-x9", skill = "` + skill + `" }
+[states.a-done]
+terminal = true
+[[transition]]
+from = ["a-start"]
+to = "a-work"
+[[transition]]
+from = ["a-work"]
+to = "a-done"
+`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, "", "validate"); err == nil || !strings.Contains(out+err.Error(), skill) {
+		t.Fatalf("validate before the pack: %v\n%s; want a problem naming %s", err, out, skill)
+	}
+}
+
+func TestPackInstallValidatesWithPackSkills(t *testing.T) {
+	dir, srv, _ := packRepo(t)
+	writeAdoptWorkflow(t, dir, "review-lint")
+
+	_, err := install(t, srv, "acme/review", "1.2.3", "--session", "s-2")
+	if err == nil || !strings.Contains(err.Error(), "Seat one with") {
+		t.Errorf("unseated install on an invalid configuration: %v, want the seat refusal", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".satelle", "skills", "review")); !os.IsNotExist(err) {
+		t.Errorf("unseated install wrote skills/review (%v)", err)
+	}
+	noStage(t, dir)
+
+	out, err := install(t, srv, "acme/review", "1.2.3", "--session", "s-1")
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out), "installed acme/review@1.2.3 ") {
+		t.Errorf("output %q", out)
+	}
+	must(t, "validate")
+	noStage(t, dir)
+}
+
+func TestPackInstallUpdateRefuseUncuredConfiguration(t *testing.T) {
+	refused := func(t *testing.T, dir string, before map[string]string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("the pack was written over an invalid configuration")
+		}
+		for _, w := range []string{"configuration", "invalid", "nothing was written", `skill "missing-skill" is not in skills/`} {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("error %q does not contain %q", err, w)
+			}
+		}
+		if after := tree(t, filepath.Join(dir, ".satelle", "skills")); !maps.Equal(after, before) {
+			t.Errorf(".satelle/skills changed:\nbefore %v\nafter  %v", before, after)
+		}
+		noStage(t, dir)
+	}
+	t.Run("install", func(t *testing.T) {
+		dir, srv, _ := packRepo(t)
+		writeAdoptWorkflow(t, dir, "missing-skill")
+		before := tree(t, filepath.Join(dir, ".satelle", "skills"))
+		_, err := install(t, srv, "acme/review", "1.2.3", "--session", "s-1")
+		refused(t, dir, before, err)
+		if _, err := os.Lstat(filepath.Join(dir, ".satelle", "packs.toml")); !os.IsNotExist(err) {
+			t.Errorf("packs.toml exists (%v)", err)
+		}
+	})
+	t.Run("update", func(t *testing.T) {
+		dir, srv, _ := packRepo(t)
+		if out, err := install(t, srv, "acme/review", "1.2.3", "--session", "s-1"); err != nil {
+			t.Fatalf("install: %v\n%s", err, out)
+		}
+		seedPack(srv, "acme/review", "1.3.0", reviewPack130())
+		writeAdoptWorkflow(t, dir, "missing-skill")
+		before := tree(t, filepath.Join(dir, ".satelle", "skills"))
+		record, _ := os.ReadFile(filepath.Join(dir, ".satelle", "packs.toml"))
+		_, err := update(t, srv, "acme/review", "1.3.0", "--session", "s-1")
+		refused(t, dir, before, err)
+		if after, _ := os.ReadFile(filepath.Join(dir, ".satelle", "packs.toml")); string(after) != string(record) {
+			t.Errorf("packs.toml changed:\n%s", after)
+		}
+		if v, _, _ := recordedPack(t, dir); v != "1.2.3" {
+			t.Errorf("recorded version %s, want 1.2.3", v)
+		}
+	})
+}

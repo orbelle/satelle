@@ -204,6 +204,12 @@ func grantAt(k *kernel.Kernel, session, tree string) hook.Grant {
 }
 
 func grantUnconfigured(r repo, session, tree string) hook.Grant {
+	g := seatGrantUnconfigured(r, session, tree)
+	g.Tree = false
+	return g
+}
+
+func seatGrantUnconfigured(r repo, session, tree string) hook.Grant {
 	var g hook.Grant
 	if session == "" {
 		return g
@@ -237,6 +243,8 @@ func grantUnconfigured(r repo, session, tree string) hook.Grant {
 			g = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status, Unread: err.Error()}
 		case scope == workflow.EditsAttachments:
 			g = hook.Grant{AttachOnly: true, Item: it.ID, State: it.Status}
+		case scope == workflow.EditsTree:
+			g.Tree = true
 		}
 	}
 	return g

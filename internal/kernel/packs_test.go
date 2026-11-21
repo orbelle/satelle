@@ -136,3 +136,23 @@ func TestPackDuplicateNameRefused(t *testing.T) {
 		t.Errorf("Kernel.Validate did not report duplicate pack name: %v", kerrs)
 	}
 }
+
+func TestValidateWithSkills(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, DoctorFile), "[[check]]\nskill = \"extra\"\nfix = \"do it\"\n")
+	errs := Validate(root)
+	if len(errs) == 0 || !strings.Contains(errors.Join(errs...).Error(), `"extra"`) {
+		t.Fatalf("Validate = %v, want a problem naming extra", errs)
+	}
+	prospect := filepath.Join(t.TempDir(), SkillsDir)
+	write(t, filepath.Join(prospect, "extra.md"), "---\nname: extra\ntype: check\n---\n\n```sh\nexit 0\n```\n")
+	if errs := ValidateWithSkills(root, prospect); len(errs) != 0 {
+		t.Fatalf("ValidateWithSkills = %v, want none", errs)
+	}
+	if errs := Validate(root); len(errs) == 0 {
+		t.Fatal("Validate passed after ValidateWithSkills; the real skills dir must still lack extra")
+	}
+}

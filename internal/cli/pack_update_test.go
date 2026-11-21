@@ -328,3 +328,28 @@ func TestPackUpdateRefusals(t *testing.T) {
 		refused(t, dir, before, err, "merge copies from an earlier update remain")
 	})
 }
+
+func TestPackUpdateValidatesWithNewPackSkills(t *testing.T) {
+	dir, srv, _ := packRepo(t)
+	if out, err := install(t, srv, "acme/review", "1.2.3", "--session", "s-1"); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	files := reviewPack("1.4.0")
+	files[1].Body = []byte("name = \"review\"\nversion = \"1.4.0\"\nskills = [\"review-lint\", \"review-extra\"]\n")
+	files = append(files, fakeserver.PackFile{Path: "review-extra/SKILL.md", Body: skillBody("review-extra")})
+	seedPack(srv, "acme/review", "1.4.0", files)
+	writeAdoptWorkflow(t, dir, "review-extra")
+
+	out, err := update(t, srv, "acme/review", "1.4.0", "--session", "s-1")
+	if err != nil {
+		t.Fatalf("update: %v\n%s", err, out)
+	}
+	if v, _, _ := recordedPack(t, dir); v != "1.4.0" {
+		t.Errorf("recorded version %s, want 1.4.0", v)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".satelle", "skills", "review-extra", "SKILL.md")); err != nil {
+		t.Errorf("review-extra/SKILL.md: %v", err)
+	}
+	must(t, "validate")
+	noStage(t, dir)
+}
