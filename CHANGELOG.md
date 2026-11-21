@@ -1,3 +1,8 @@
+## [1.0.116] - 2026-11-21
+
+### Added
+- satelle pack publish <entry> --workspace <id> publishes a pack at its pack.toml version from the entry and member skill directories as the working tree holds them, with the same files, sha256s and digest satelle pack fetch checks; a refused version or permission exits non-zero and publishes nothing (sto_c96fffce)
+
 ## [1.0.115] - 2026-11-21
 
 ### Added
