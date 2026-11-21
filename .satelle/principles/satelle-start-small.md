@@ -18,7 +18,7 @@ Examples:
 
 - **Docker before sprites.** Prove a run in a local container before running it
   on sprites.
-- **Splitting oversized stories at groom.** A card too big for one behaviour is
+- **Splitting oversized stories at groom.** A story too big for one behaviour is
   split before it is driven.
 - **Narrowing a criterion no wired gate can judge.** The criterion shrinks to
   what a gate on the path can prove.

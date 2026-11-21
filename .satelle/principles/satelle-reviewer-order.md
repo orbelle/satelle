@@ -3,7 +3,7 @@ name: satelle-reviewer-order
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
-description: The reviewers on a transition run in sequence and fail fast, in a priority order: deterministic checks, then scope, then classifiers later reviewers read, then the costliest misses, then fit to the card or criteria. An agent adding or moving a reviewer places it by this order.
+description: The reviewers on a transition run in sequence and fail fast, in a priority order: deterministic checks, then scope, then classifiers later reviewers read, then the costliest misses, then fit to the story or criteria. An agent adding or moving a reviewer places it by this order.
 ---
 
 # Reviewer order
@@ -24,7 +24,7 @@ isolated. On a transition they run in this order:
    later verdict moot.
 3. **The costliest misses** (security, then the constitution reviewer): a miss
    here ships a risk no later fix fully undoes.
-4. **Fit to the card or the criteria** (plan-review, code-ac): judged last, on
+4. **Fit to the story or the criteria** (plan-review, code-ac): judged last, on
    a change that is in scope and safe.
 
 A reviewer that reads another's output always runs after it. The reason for

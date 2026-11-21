@@ -15,7 +15,7 @@ the story, and the resolution must be in the form `block-breaker.md` gives:
   and whose own record the run carries as its `held-item` attachment (its
   first word is that id);
 - `ruling: answerable`, with at least one `change:` line, each `plan`,
-  `driver-note` or `card-amendment`, and an `answer:` line for each; or
+  `driver-note` or `story-amendment`, and an `answer:` line for each; or
 - `ruling: blocked`, with a non-empty `reason:` line;
 - the held story's newest `block-resolution` attachment is the same body as
   the run's (equal sha256): copy it with
@@ -63,13 +63,13 @@ case "$ruling" in
   answerable)
     changes=$(printf '%s\n' "$res" | grep -c '^change:' || true)
     answers=$(printf '%s\n' "$res" | grep -c '^answer: *[^[:space:]]' || true)
-    bad=$(printf '%s\n' "$res" | grep '^change:' | grep -Ev '^change: *(plan|driver-note|card-amendment) *$' || true)
+    bad=$(printf '%s\n' "$res" | grep '^change:' | grep -Ev '^change: *(plan|driver-note|story-amendment) *$' || true)
     if [ "$changes" -eq 0 ]; then
       echo "$run: ruling answerable names no change: give each dissent a 'change:' and an 'answer:' line"
       exit 1
     fi
     if [ -n "$bad" ]; then
-      echo "$run: a change is none of plan, driver-note, card-amendment:"
+      echo "$run: a change is none of plan, driver-note, story-amendment:"
       printf '%s\n' "$bad"
       exit 1
     fi
@@ -80,7 +80,7 @@ case "$ruling" in
     ;;
   blocked)
     if [ -z "$(field reason | tr -d '[:space:]')" ]; then
-      echo "$run: ruling blocked gives no 'reason:' why no change within the card answers the dissent"
+      echo "$run: ruling blocked gives no 'reason:' why no change within the story answers the dissent"
       exit 1
     fi
     ;;

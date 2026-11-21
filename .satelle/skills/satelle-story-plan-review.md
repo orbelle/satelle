@@ -1,14 +1,14 @@
 ---
 name: satelle-story-plan-review
 type: skill
-description: Plan gate — on plan → in_progress, or backlog → plan when readiness proposes its plan first. Read-only reviewer validates the ATTACHED plan against the behavior the story card states: each criterion cites the card behavior it proves, the criteria are not narrower than the card, recorded partial solutions are kept. Never invents a competing plan.
+description: Plan gate — on plan → in_progress, or backlog → plan when readiness proposes its plan first. Read-only reviewer validates the ATTACHED plan against the behavior the story states: each criterion cites the story behavior it proves, the criteria are not narrower than the story, recorded partial solutions are kept. Never invents a competing plan.
 ---
 
 # Story plan review (plan gate)
 
 ## Primary objective
 
-Validate the **presented** plan against the **story card**. Answer only: may the
+Validate the **presented** plan against the **story**. Answer only: may the
 story advance across this edge (the move is the first line of your prompt)? Do
 **not** create-and-complete this step. Do **not** invent a competing plan and
 match against it.
@@ -43,30 +43,30 @@ finding cites text in the newest body.
 The plan may author the criteria when the story has none. Where the story
 arrived with raiser draft criteria and the plan replaces or changes them, the
 plan must say which and why, citing evidence. Replacing a draft for evidence is
-not weakening; narrowing the card is.
+not weakening; narrowing the story is.
 
-## 3. Judge against the card
+## 3. Judge against the story
 
-The reference is the behavior the **story card's body** states — not the
-criteria. The criteria are a derivation of the card; they
-**do not replace the card**: a plan is accepted only when its criteria and its implementation still
-produce the behavior on the card.
+The reference is the behavior the **story's body** states — not the
+criteria. The criteria are a derivation of the story; they
+**do not replace the story**: a plan is accepted only when its criteria and its implementation still
+produce the behavior on the story.
 
-- **Each criterion must cite the card behavior it proves**, by quoting or naming
+- **Each criterion must cite the story behavior it proves**, by quoting or naming
   it. A criterion that cites none is a finding.
-- **Not narrower than the card.** Taken together the criteria must prove all of
-  the behavior the card states. A set **narrower than the card** — one that
-  leaves part of that behavior unproven — is refused; quote the card text left
+- **Not narrower than the story.** Taken together the criteria must prove all of
+  the behavior the story states. A set **narrower than the story** — one that
+  leaves part of that behavior unproven — is refused; quote the story text left
   uncovered.
-- **Kept constraints.** A partial solution or technical decision the card records
+- **Kept constraints.** A partial solution or technical decision the story records
   as context constrains the plan. A plan whose implementation drops, replaces or
   contradicts one is refused; name the constraint and the plan text that breaks it.
 - **Story shape** ([[satelle-story-shape]], [[satelle-start-small]]). The
-  card's own shape (its Feature, its scenarios, its intent and its alignment
+  story's own shape (its Feature, its scenarios, its intent and its alignment
   with the constitution) was judged before planning, by
   `satelle-story-review`; do not judge it again. Refuse when the plan breaks
   it:
-  - a criterion is not **traceable** to the card's behaviour, or not **provable at**
+  - a criterion is not **traceable** to the story's behaviour, or not **provable at**
     the gate that judges it, which includes a code-step criterion whose
     evidence exists only after release;
   - the planned slice is not the **smallest slice** that proves the behaviour:
@@ -82,8 +82,8 @@ Each criterion must be:
   is a finding.
 - **Testable** — it names an observable outcome and how it is proven.
 - **Outcome, not mechanism** — it says what must be true, not which function to
-  write, unless the mechanism is itself the card's behavior.
-- **Faithful to the card** — together they deliver what the body asks for (§3).
+  write, unless the mechanism is itself the story's behavior.
+- **Faithful to the story** — together they deliver what the body asks for (§3).
 
 ## 5. Judge the plan
 
@@ -114,31 +114,31 @@ plan** (approach and/or files, and what evidence will prove it).
   defect.
 
 - **Accept** when the criteria pass sections 3 and 4 and every one is covered
-  without contradicting the card.
+  without contradicting the story.
 - **Reject** when a criterion is untraced, untestable, unfaithful or cites no
-  card behavior, the set is narrower than the card, the story shape fails (§3),
+  story behavior, the set is narrower than the story, the story shape fails (§3),
   the implementation drops a recorded constraint, a dispatch embeds readable
   content, a changed or added file is missing from `## Touches` (name the file), or a criterion is unplanned, hand-waved, contradicted or
   without a proof path — name it. Falsify checkable plan claims against the repo
   only when the plan asserts something already exists; do not rewrite the plan.
 
-## 6. Stay inside the card
+## 6. Stay inside the story
 
-This gate is held to the card's behaviour. Breadth (whether the story should
+This gate is held to the story's behaviour. Breadth (whether the story should
 exist, its intent, its alignment with the constitution and the principles) is
 judged once, before any plan, by the story-review judge
 (`satelle-story-review`); it is not re-litigated here.
 
-- **Each reject names the card criterion or scenario it fails, and why**:
-  the criterion (`AC<n>`) or the card text the plan does not meet, and the
+- **Each reject names the story criterion or scenario it fails, and why**:
+  the criterion (`AC<n>`) or the story text the plan does not meet, and the
   plan text that fails it. The standing rules sections 3 to 5 state (kept
   constraints, proof path, root cause, dispatch pointers) hold for every
-  card: a reject under one names that rule and the criterion whose plan
-  breaks it. A finding that names no criterion, card behaviour or standing
+  story: a reject under one names that rule and the criterion whose plan
+  breaks it. A finding that names no criterion, story behaviour or standing
   rule of this skill is not a blocker.
-- **A concern outside the card's behaviour is a note in an accept, never a
-  reject**: style, wording, code or files the card does not touch, a better
-  design the card did not ask for, or a principle the card does not touch.
+- **A concern outside the story's behaviour is a note in an accept, never a
+  reject**: style, wording, code or files the story does not touch, a better
+  design the story did not ask for, or a principle the story does not touch.
   Write it in the accept's notes as `note: ...`, so the driver can raise it as
   its own story.
 

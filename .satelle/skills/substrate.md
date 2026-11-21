@@ -43,7 +43,7 @@ satelle -C ../<id> story seat <id> --session <session>
 
 ## 3. Edit `.satelle/` only
 
-- Make the smallest edit the card asks for.
+- Make the smallest edit the story asks for.
 - Write a reference, not a restated value ([[satelle-reference-not-restate]]):
   name the command, file or `[[link]]` that answers a version, count, status or
   list, in prose and in code examples alike. A fact that must be recorded is

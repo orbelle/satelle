@@ -55,7 +55,7 @@ Judge the change against these rules:
    3. Classifiers a later reviewer reads, before the reviewer that reads them.
    4. The costliest misses (security, then constitution, then domain process
       guards such as workflow-change).
-   5. Fit to the card or criteria, judged last.
+   5. Fit to the story or criteria, judged last.
 
    A reviewer that reads another's output always runs after it. **Reject** any
    change that adds, removes or moves a reviewer gate against
