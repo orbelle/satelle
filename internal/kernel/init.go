@@ -50,9 +50,6 @@ func altSkillPath(rel string) string {
 	if !ok {
 		return ""
 	}
-	if name, ok := strings.CutSuffix(rest, "/"+workflow.SkillFile); ok && name != "" && !strings.Contains(name, "/") {
-		return SkillsDir + "/" + name + ".md"
-	}
 	if name, ok := strings.CutSuffix(rest, ".md"); ok && name != "" && !strings.Contains(name, "/") && rest != "README.md" {
 		return SkillsDir + "/" + name + "/" + workflow.SkillFile
 	}
