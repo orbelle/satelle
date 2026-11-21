@@ -163,3 +163,64 @@ func TestGetPackNamesLatestVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestSetPackVisibility(t *testing.T) {
+	ctx := context.Background()
+	srv := fakeserver.Start(t, "tok-ada", "tok-other")
+	dial := func(tok string) *hosted.Client {
+		c, err := hosted.Dial(srv.URL, hosted.NodeTokenStore{Server: srv.URL, Token: tok}, hosted.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	}
+	ada, other := dial("tok-ada"), dial("tok-other")
+	b, _ := fakeserver.PackBundle("review", "1.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("v1")}})
+	srv.SeedPack("ws_1/review", "1.0.0", b)
+	srv.SetPackAdmins("ws_1", "tok-ada")
+
+	got, err := ada.Packs.SetPackVisibility(ctx, &satellepb.SetPackVisibilityRequest{
+		Ref: "ws_1/review", Visibility: satellepb.PackVisibility_PACK_VISIBILITY_SHARED, SharedWith: []string{"ws_2", "ws_3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetRef() != "ws_1/review" || got.GetOwnerWorkspaceId() != "ws_1" || got.GetName() != "review" ||
+		got.GetVisibility() != satellepb.PackVisibility_PACK_VISIBILITY_SHARED || !slices.Equal(got.GetSharedWith(), []string{"ws_2", "ws_3"}) ||
+		got.GetLatestVersion() != "1.0.0" {
+		t.Errorf("SetPackVisibility = %v", got)
+	}
+	read, err := ada.Packs.GetPack(ctx, &satellepb.GetPackRequest{Ref: "ws_1/review", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := read.GetPack(); p.GetVisibility() != satellepb.PackVisibility_PACK_VISIBILITY_SHARED || !slices.Equal(p.GetSharedWith(), []string{"ws_2", "ws_3"}) {
+		t.Errorf("GetPack after change = %v", p)
+	}
+
+	for _, c := range []struct {
+		client *hosted.Client
+		req    *satellepb.SetPackVisibilityRequest
+		code   codes.Code
+	}{
+		{ada, &satellepb.SetPackVisibilityRequest{Ref: "ws_9/missing", Visibility: satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC}, codes.NotFound},
+		{ada, &satellepb.SetPackVisibilityRequest{Ref: "noslash", Visibility: satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC}, codes.NotFound},
+		{other, &satellepb.SetPackVisibilityRequest{Ref: "ws_1/review", Visibility: satellepb.PackVisibility_PACK_VISIBILITY_PUBLIC}, codes.PermissionDenied},
+		{ada, &satellepb.SetPackVisibilityRequest{Ref: "ws_1/review"}, codes.InvalidArgument},
+	} {
+		if _, err := c.client.Packs.SetPackVisibility(ctx, c.req); status.Code(err) != c.code {
+			t.Errorf("%v: got %v, want %v", c.req, err, c.code)
+		}
+	}
+	read, err = ada.Packs.GetPack(ctx, &satellepb.GetPackRequest{Ref: "ws_1/review", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.GetPack().GetVisibility() != satellepb.PackVisibility_PACK_VISIBILITY_SHARED {
+		t.Errorf("refused change altered the visibility: %v", read.GetPack())
+	}
+	if n := len(srv.VisibilityRequests()); n != 5 {
+		t.Errorf("recorded %d request(s), want 5", n)
+	}
+}

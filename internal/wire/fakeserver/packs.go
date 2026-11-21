@@ -162,12 +162,8 @@ func (p packsSvc) PublishPack(ctx context.Context, r *satellepb.PublishPackReque
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 	p.s.published = append(p.s.published, proto.Clone(r).(*satellepb.PublishPackRequest))
-	if v := r.GetVisibility(); packVisibilityNames[v] == "" {
-		name := ""
-		if v != satellepb.PackVisibility_PACK_VISIBILITY_UNSPECIFIED {
-			name = strconv.Itoa(int(v))
-		}
-		return nil, status.Errorf(codes.InvalidArgument, "visibility %q is not public, workspace or shared", name)
+	if err := knownVisibility(r.GetVisibility()); err != nil {
+		return nil, err
 	}
 	ws := r.GetOwnerWorkspaceId()
 	if !p.s.packAdmins[ws][tok] {
@@ -216,7 +212,63 @@ func (p packsSvc) GetPack(ctx context.Context, r *satellepb.GetPackRequest) (*sa
 			Name:          manifest.GetName(),
 			LatestVersion: order[len(order)-1],
 			Versions:      order,
+			Visibility:    p.s.packVis[r.GetRef()].GetVisibility(),
+			SharedWith:    slices.Clone(p.s.packVis[r.GetRef()].GetSharedWith()),
 		},
 		Manifest: proto.Clone(manifest).(*satellepb.PackManifest),
 	}, nil
+}
+
+func knownVisibility(v satellepb.PackVisibility) error {
+	if packVisibilityNames[v] != "" {
+		return nil
+	}
+	name := ""
+	if v != satellepb.PackVisibility_PACK_VISIBILITY_UNSPECIFIED {
+		name = strconv.Itoa(int(v))
+	}
+	return status.Errorf(codes.InvalidArgument, "visibility %q is not public, workspace or shared", name)
+}
+
+func (s *Server) VisibilityRequests() []*satellepb.SetPackVisibilityRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*satellepb.SetPackVisibilityRequest, len(s.visReqs))
+	for i, r := range s.visReqs {
+		out[i] = proto.Clone(r).(*satellepb.SetPackVisibilityRequest)
+	}
+	return out
+}
+
+func (p packsSvc) SetPackVisibility(ctx context.Context, r *satellepb.SetPackVisibilityRequest) (*satellepb.Pack, error) {
+	tok := bearer(ctx)
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+	p.s.visReqs = append(p.s.visReqs, proto.Clone(r).(*satellepb.SetPackVisibilityRequest))
+	ref := r.GetRef()
+	owner, name, ok := strings.Cut(ref, "/")
+	order := p.s.packOrder[ref]
+	if !ok || len(order) == 0 {
+		return nil, status.Errorf(codes.NotFound, "pack %s not found", ref)
+	}
+	if !p.s.packAdmins[owner][tok] {
+		return nil, status.Errorf(codes.PermissionDenied, "only admins of workspace %s may change the visibility of its packs", owner)
+	}
+	if err := knownVisibility(r.GetVisibility()); err != nil {
+		return nil, err
+	}
+	pk := &satellepb.Pack{
+		Ref:              ref,
+		OwnerWorkspaceId: owner,
+		Name:             name,
+		Visibility:       r.GetVisibility(),
+		SharedWith:       slices.Clone(r.GetSharedWith()),
+		LatestVersion:    order[len(order)-1],
+		Versions:         slices.Clone(order),
+	}
+	if p.s.packVis == nil {
+		p.s.packVis = map[string]*satellepb.Pack{}
+	}
+	p.s.packVis[ref] = pk
+	return proto.Clone(pk).(*satellepb.Pack), nil
 }
