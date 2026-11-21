@@ -1572,6 +1572,28 @@ func TestPRGatePack(t *testing.T) {
 	if !ok {
 		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
 	}
+	if pk.Version != "1.0.1" {
+		t.Errorf("pack %s version %q, want 1.0.1", prGateEntry, pk.Version)
+	}
+	var packFiles []string
+	for _, name := range append([]string{prGateEntry}, prGateSkills...) {
+		err := filepath.WalkDir(filepath.Join("..", ".satelle", "skills", name), func(path string, d os.DirEntry, err error) error {
+			if err != nil || !d.Type().IsRegular() {
+				return err
+			}
+			rel, err := filepath.Rel("..", path)
+			packFiles = append(packFiles, rel)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := exec.Command("sh", append([]string{"scripts/comments.sh", "check"}, packFiles...)...)
+	check.Dir = ".."
+	if out, err := check.CombinedOutput(); err != nil {
+		t.Errorf("the pack's files hold comments (%v):\n%s", err, out)
+	}
 	members := slices.Sorted(slices.Values(pk.Skills))
 	if want := slices.Sorted(slices.Values(prGateSkills)); !slices.Equal(members, want) {
 		t.Errorf("pack %s members %v, want %v", prGateEntry, members, want)
@@ -1645,10 +1667,15 @@ func TestPRGatePack(t *testing.T) {
 			t.Errorf("the pack guide does not name %s", w)
 		}
 	}
-	for _, w := range []string{"ruleset", "satelle/<gate>", "after", "checkout.defaultRemote"} {
+	for _, w := range []string{"ruleset", "satelle/<gate>", "after", "checkout.defaultRemote",
+		".satelle/skills/satelle-pack.md", "substrate story", "satelle init",
+		"code-ac", "in_progress", "integration", "cannot use", "unwired", "own skill"} {
 		if !strings.Contains(guide, w) {
 			t.Errorf("the pack guide does not say %q", w)
 		}
+	}
+	if strings.Contains(strings.ReplaceAll(guide, ".satelle/skills/satelle-pack.md", ""), "skills/satelle-pack.md") {
+		t.Error("the pack guide names skills/satelle-pack.md without its .satelle/ path")
 	}
 	if strings.Contains(guide, "satelle github") {
 		t.Error("the pack guide names satelle github")

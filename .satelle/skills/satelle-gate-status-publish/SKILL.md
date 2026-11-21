@@ -48,7 +48,7 @@ for tool in jq git satelle; do
 done
 head=$(git rev-parse HEAD 2>/dev/null) || { echo "no HEAD, so no status is posted"; exit 0; }
 short=${head:0:12}
-post() { # context state description
+post() {
   satelle github status --sha "$head" --context "$1" --state "$2" --description "$3" --json 2>&1
 }
 if [ -z "${SATELLE_GATE:-}" ]; then

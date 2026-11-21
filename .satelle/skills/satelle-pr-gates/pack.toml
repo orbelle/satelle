@@ -1,5 +1,5 @@
 name = "satelle-pr-gates"
-version = "1.0.0"
+version = "1.0.1"
 skills = ["satelle-gate-status-publish", "satelle-pr-ready-check", "satelle-pr-approve-from-review", "satelle-pr-approval-check"]
 
 [needs]

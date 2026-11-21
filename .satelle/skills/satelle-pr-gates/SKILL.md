@@ -44,12 +44,19 @@ Name each gate as the taking workflow likes; the roles are fixed.
   same move, after the ready gate. It needs a gate named `code-ac` on the
   item's move from `in_progress` into `integration`, and reads that gate's
   verdict from the item's ledger, so the workflow needs those two states and
-  that gate.
+  that gate. A route without that move, such as a substrate route, gives no
+  such verdict and cannot use the review gate.
 - **The approval gate** names `satelle-pr-approval-check` and goes on the move
   out of the review state into the approved state. When the app requests
   changes it reopens the item at `in_progress`, so the workflow needs that
   rework edge. The review state may declare `waits`; the check quotes it while
   no approval is present.
+
+Each member is wired only where the repo wants it. Any member may stay
+unwired, or give way to the repo's own skill for the same role: a repo that
+runs its own ready check keeps it and leaves `satelle-pr-ready-check` unwired.
+The approval gate reads the review the review gate publishes, so wire it with
+the review gate or with whatever publishes that approving review in its place.
 
 ## What each reads
 
@@ -86,4 +93,12 @@ of the same head never stays green.
 ## Taking the pack
 
 Install it with `satelle pack install <ref> --version <v> --session <session>`,
-then wire each gate with the user as `skills/satelle-pack.md` says.
+then wire each gate with the user as the satelle-pack skill,
+`.satelle/skills/satelle-pack.md`, says.
+
+A repo that lacks that file gets it from the substrate story
+`satelle init --session <session>` prints for it:
+`satelle init --session <session>` and `satelle doctor --session <session>`
+name it as a shipped file the repo lacks, with the story to raise and the
+`satelle init --print <path> --session <session>` command that writes it.
+Raising that story is the user's call.
