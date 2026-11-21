@@ -271,6 +271,40 @@ func TestInitShipsTheUpgradeSkill(t *testing.T) {
 	}
 }
 
+func TestInitShipsThePackSkill(t *testing.T) {
+	const packSkill = "satelle-pack"
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", packSkill+".md")); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok := c.Skills[packSkill]
+	if !ok || sk.Meta["name"] != packSkill || sk.IsCheck() {
+		t.Fatalf("skill = %+v, %v", sk.Meta, ok)
+	}
+	if probs := Validate(root); len(probs) != 0 {
+		t.Fatalf("validate: %v", probs)
+	}
+	for _, tok := range []string{
+		"`satelle pack install <ref> --version <v> --session <session>`",
+		"`.satelle/skills/<entry>/SKILL.md`", "guide", "`[needs]`",
+		"`satelle workflow show <name> --session <session>`",
+		"`.satelle/workflows/<name>.toml`", "`[gates.<gate>]`", "user's directions",
+		"`satelle validate --session <session>`",
+		"landing route", "security reviewer", "security reviewer pack", "Change no workflow",
+	} {
+		if !strings.Contains(sk.Body, tok) {
+			t.Errorf("the pack skill does not name %s", tok)
+		}
+	}
+}
+
 func TestWorkflowFor(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".satelle")
 	if err := Init(root); err != nil {

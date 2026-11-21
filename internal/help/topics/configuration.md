@@ -135,6 +135,11 @@ its `commands` key.
 - `packs.toml` — written by `satelle pack install`: each installed pack's
   ref, version, digest, skills and each file's sha256 as published (below,
   under pack.toml).
+- `skills/satelle-pack.md` — written by `satelle init --session <session>`:
+  the agent's instructions for installing a pack with `satelle pack install`,
+  reading its entry skill's guide, wiring its gates into the repo's own
+  workflow with the user, and saying when the landing route has no security
+  reviewer.
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to

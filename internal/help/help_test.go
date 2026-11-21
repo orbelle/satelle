@@ -352,6 +352,9 @@ func TestPackTomlDocumented(t *testing.T) {
 	if !strings.Contains(top.Body, "`skills/<name>/pack.toml`") {
 		t.Error("configuration topic does not list skills/<name>/pack.toml")
 	}
+	if !strings.Contains(top.Body, "`skills/satelle-pack.md`") {
+		t.Error("configuration topic does not list skills/satelle-pack.md")
+	}
 	pack := helpSection(t, "configuration", "## pack.toml")
 	for _, want := range []string{
 		".satelle/skills/<entry>/pack.toml",
