@@ -22,7 +22,8 @@ member itself depends on it.
   contains the base branch, and has an open pull request and a changelog
   attachment.
 - `skills/satelle-pr-approve-from-review/SKILL.md`: publishes the app's
-  approving review on the head from the accepted `code-ac` verdict.
+  approving review on the head from the accepted verdict of the gate its
+  `verdict_gate=` line names.
 - `skills/satelle-pr-approval-check/SKILL.md`: passes only on the app's
   approving review on the head.
 
@@ -41,11 +42,14 @@ Name each gate as the taking workflow likes; the roles are fixed.
 - **The ready gate** names `satelle-pr-ready-check` and goes on the move into
   the review state, after the pending gate.
 - **The review gate** names `satelle-pr-approve-from-review` and goes on the
-  same move, after the ready gate. It needs a gate named `code-ac` on the
-  item's move from `in_progress` into `integration`, and reads that gate's
-  verdict from the item's ledger, so the workflow needs those two states and
-  that gate. A route without that move, such as a substrate route, gives no
-  such verdict and cannot use the review gate.
+  same move, after the ready gate. It reads from the item's ledger the
+  accepted verdict of the gate its member's `verdict_gate=` line names,
+  recorded on the move its `verdict_from=` and `verdict_to=` lines name; they
+  default to `code-ac` on `in_progress` -> `integration`. A route whose change
+  is judged by another gate on another move, such as a substrate route's
+  `reference-review` on `in_progress` -> `approval`, edits those three lines in
+  its installed copy of the member. A route that records no accepted verdict of
+  the named gate on the named move cannot use the review gate.
 - **The approval gate** names `satelle-pr-approval-check` and goes on the move
   out of the review state into the approved state. When the app requests
   changes it reopens the item at `in_progress`, so the workflow needs that
@@ -67,7 +71,9 @@ the review gate or with whatever publishes that approving review in its place.
 - **Ready gate:** the item's `changelog` attachment, the open non-draft pull
   request whose title ends with the item id in parentheses, and HEAD pushed
   and containing the base branch.
-- **Review gate:** the accepted `code-ac` verdict and the change it judged. It
+- **Review gate:** the accepted verdict of the gate its `verdict_gate=` line
+  names on the move its `verdict_from=` and `verdict_to=` lines name, and the
+  change it judged. It
   publishes the review through the project's GitHub binding on its satelle
   server, so the project must be bound to a GitHub repository there.
 - **Approval gate:** the app's reviews on the head, read with `gh` and matched
