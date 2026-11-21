@@ -51,8 +51,8 @@ skills = ["member-a"]
 	}
 
 	pk := packs["my-pack"]
-	if pk.Entry != "my-pack" || pk.File != filepath.Join(dir, "my-pack", PackFile) {
-		t.Errorf("entry/file = %q / %q", pk.Entry, pk.File)
+	if pk.File != filepath.Join(dir, "my-pack", PackFile) {
+		t.Errorf("file = %q", pk.File)
 	}
 	if pk.Name != "my-pack" || pk.Version != "1.2.3" {
 		t.Errorf("name/version = %q / %q", pk.Name, pk.Version)
@@ -133,53 +133,53 @@ func TestPackValidateProblems(t *testing.T) {
 	}{
 		{
 			name:  "missing name",
-			pack:  Pack{Entry: "my-pack", File: file, Version: "1.0.0", Skills: []string{"dir-a"}},
+			pack:  Pack{File: file, Version: "1.0.0", Skills: []string{"dir-a"}},
 			wants: []string{file, "name is required"},
 		},
 		{
 			name:  "blank name",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "   ", Version: "1.0.0", Skills: []string{"dir-a"}},
+			pack:  Pack{File: file, Name: "   ", Version: "1.0.0", Skills: []string{"dir-a"}},
 			wants: []string{file, "name is required"},
 		},
 		{
 			name:  "missing version",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Skills: []string{"dir-a"}},
+			pack:  Pack{File: file, Name: "p", Skills: []string{"dir-a"}},
 			wants: []string{file, "version is required"},
 		},
 		{
 			name:  "missing skills",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0"},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0"},
 			wants: []string{file, "skills is required"},
 		},
 		{
 			name:  "empty entry in skills",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a", " "}},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a", " "}},
 			wants: []string{file, "skills contains an empty skill name"},
 		},
 		{
 			name:  "traversal entry in skills",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"../other", "a/b", `a\b`, ".", "..", " dir-a"}},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0", Skills: []string{"../other", "a/b", `a\b`, ".", "..", " dir-a"}},
 			wants: []string{file, `../other`, `a/b`, `a\\b`, `"."`, `".."`, `" dir-a"`, "not a valid skill directory name"},
 		},
 		{
 			name:  "duplicate skill in skills",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a", "dir-a"}},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a", "dir-a"}},
 			wants: []string{file, `skills lists "dir-a" more than once`},
 		},
 		{
 			name:  "missing member skill",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"ghost"}},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0", Skills: []string{"ghost"}},
 			wants: []string{file, `member skill "ghost" does not exist`},
 		},
 		{
 			name:  "single-file member skill",
-			pack:  Pack{Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"flat"}},
+			pack:  Pack{File: file, Name: "p", Version: "1.0.0", Skills: []string{"flat"}},
 			wants: []string{file, `member skill "flat" is a single-file skill`, "skills/flat.md", "skills/flat/SKILL.md"},
 		},
 		{
 			name: "empty entries in needs",
 			pack: Pack{
-				Entry: "my-pack", File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a"},
+				File: file, Name: "p", Version: "1.0.0", Skills: []string{"dir-a"},
 				Needs: PackNeeds{
 					Scripts: []string{"sh", ""},
 					Agents:  []string{" "},

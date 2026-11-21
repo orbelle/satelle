@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -20,7 +19,6 @@ type PackNeeds struct {
 }
 
 type Pack struct {
-	Entry   string    `toml:"-"`
 	File    string    `toml:"-"`
 	Name    string    `toml:"name"`
 	Version string    `toml:"version"`
@@ -87,7 +85,6 @@ func LoadPacks(dir string) (map[string]Pack, []UnknownKey, error) {
 			continue
 		}
 		unknown = append(unknown, un...)
-		pk.Entry = entry
 		pk.File = packPath
 		out[entry] = pk
 	}
@@ -96,13 +93,6 @@ func LoadPacks(dir string) (map[string]Pack, []UnknownKey, error) {
 
 func (p Pack) Validate(skill SkillLookup) []error {
 	file := p.File
-	if file == "" {
-		if p.Entry != "" {
-			file = path.Join("skills", p.Entry, PackFile)
-		} else {
-			file = PackFile
-		}
-	}
 	var errs []error
 	bad := func(format string, args ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", file, fmt.Sprintf(format, args...)))
@@ -131,9 +121,6 @@ func (p Pack) Validate(skill SkillLookup) []error {
 				continue
 			}
 			seen[member] = true
-			if skill == nil {
-				continue
-			}
 			sk, ok := skill(member)
 			if !ok {
 				bad("member skill %q does not exist (no skills/%s/%s)", member, member, SkillFile)
