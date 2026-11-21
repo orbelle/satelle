@@ -270,3 +270,22 @@ task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status done --json --session "$session" | jq -r 'max_by(.created_at) | .id // empty')
 satelle execution release "$exe" --session "$session"
 ```
+
+## Owning a drift finding
+
+An open story (one without the `drift` tag) claims ownership of a carried
+finding by tagging it with the exact `drift-key: ` value from the open drift
+item's body:
+
+`satelle story set <id> --add-tag "drift-owns:<drift-key>" --session <session>`
+
+`.satelle/doctor.toml` runs `.satelle/skills/satelle-drift-ownership-check.md`
+for open drift items: when every `drift-key: ` of every open drift item is
+owned by an open story, `satelle doctor --session <session>` reports no drift
+issue and prints one note per owned key naming the owning story; otherwise it
+raises a drift issue naming each unowned key. When an owning story reaches
+`done` or `cancelled` (or any other terminal state) while the key is still
+carried, the key is unowned again and becomes a doctor issue.
+
+Ownership suppresses only doctor issues and never closes a drift item; a drift
+item closes only through `.satelle/skills/satelle-drift-resolved-check.md`.

@@ -1,8 +1,6 @@
-[[items]]
-name = "drift"
-kind = "story"
-tag = "drift"
-fix = "satelle story get {id}: fix what each drift-key under its Findings names; the next drift review closes it"
+[[check]]
+skill = "satelle-drift-ownership-check"
+fix = "satelle story get <id>: fix each unowned drift-key under its Findings, or tag the open story that will fix it drift-owns:<drift-key>; the next drift review closes it"
 
 [resolve]
 kind = "story"
