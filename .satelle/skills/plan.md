@@ -63,8 +63,13 @@ criteria from what you proved, then plan them.
    `plan` attachment, every later gate's record carries it, and the plan-review,
    code-ac, outcome and done reviews judge against it. So write the lines to
    stand as-is, with nothing else before the next `##`.
-   When the story's own criteria already hold up against the evidence, you may
-   omit the section; the story's criteria are then the criteria.
+   When the story's own criteria already hold up against the evidence, leave
+   the section out entirely: no `## Acceptance criteria` heading and no
+   sentence saying the criteria stand or how they are numbered. The story's
+   criteria are then the criteria, planned as `AC1`, `AC2`, … in the story's
+   order. When you do write the section, it holds only the numbered one-line
+   criteria and nothing else before the next `##` heading: plan review
+   rejects any other line in it.
 4. **Report configuration; do not apply it.** You are read-only. When a story
    lacks an `order:` tag its siblings carry, a `surface:` tag the repo
    vocabulary requires, or a child for a stated criterion that no child owns,
