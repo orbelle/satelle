@@ -2,7 +2,6 @@
 
 ### Added
 - satelle init ships the satelle-pack skill: how an agent installs a pack with satelle pack install, reads its entry skill's guide, adds each gate to the repo's own workflow with the user's directions, and says when the route that lands the change has no security reviewer (sto_0c14215b)
-- satelle pack update <ref> --version <v> replaces an installed pack's unedited files with the new version and leaves each locally edited file as it is, with its installed-version and new-version copies under .satelle/pack-merge/<ref>/<version>/ for the agent to merge; .satelle/packs.toml records the new version (sto_5441aae2)
 
 ## [1.0.111] - 2026-11-21
 
