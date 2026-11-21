@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -59,18 +60,19 @@ type LedgerSettings struct {
 }
 
 type Config struct {
-	Root      string
-	Settings  Settings
-	Workflows map[string]*workflow.Workflow
-	Skills    map[string]workflow.Skill
-	Agents    agent.Catalog
-	Overrides []agent.Override
-	Queues    map[string]*workflow.Queue
-	Doctor    DoctorSettings
-	Volatile  substrate.VolatileRules
-	UI        UISettings
-	Init      InitSettings
-	Harness   map[string]HarnessSettings
+	Root        string
+	Settings    Settings
+	Workflows   map[string]*workflow.Workflow
+	Skills      map[string]workflow.Skill
+	Agents      agent.Catalog
+	Overrides   []agent.Override
+	Queues      map[string]*workflow.Queue
+	Doctor      DoctorSettings
+	Volatile    substrate.VolatileRules
+	UI          UISettings
+	Init        InitSettings
+	Harness     map[string]HarnessSettings
+	UnknownKeys []workflow.UnknownKey
 }
 
 type HarnessSettings struct {
@@ -195,56 +197,149 @@ func (c *Config) agentProblems() []error {
 	return errs
 }
 
-func LoadSettings(root string) (Settings, error) {
-	var st Settings
-	path := filepath.Join(root, SettingsFile)
-	err := workflow.DecodeStrict(path, &st)
-	if err != nil {
-		if retired := retiredRules(path); retired != nil {
-			return st, retired
+var (
+	strictSettingsTables  = []string{"workflows", "gate", "review"}
+	lenientSettingsTables = []string{"hook", "items", "service", "sync", "ledger"}
+)
+
+func isRetiredRulesKey(u workflow.UnknownKey) bool {
+	return u.Table == "rules" || strings.HasPrefix(u.Table, "rules.") || strings.HasPrefix(u.Table, "rules[") || (u.Table == "" && u.Key == "rules")
+}
+
+func isLenientSettingsKey(u workflow.UnknownKey) bool {
+	for _, t := range lenientSettingsTables {
+		if u.Table == t || strings.HasPrefix(u.Table, t+".") {
+			return true
 		}
 	}
+	return false
+}
+
+func strictKeyName(u workflow.UnknownKey) string {
+	if u.Table == "" {
+		return u.Key
+	}
+	return u.Table + "." + u.Key
+}
+
+func loadSettings(root string) (Settings, []workflow.UnknownKey, error) {
+	var st Settings
+	path := filepath.Join(root, SettingsFile)
+	unknown, err := workflow.Decode(path, &st)
+	if err != nil {
+		if retired := retiredRules(path); retired != nil {
+			return st, nil, retired
+		}
+		return st, nil, err
+	}
+	var lenient []workflow.UnknownKey
+	var strictKeys []string
+	hasRules := false
+	for _, u := range unknown {
+		switch {
+		case isRetiredRulesKey(u):
+			hasRules = true
+		case isLenientSettingsKey(u):
+			lenient = append(lenient, u)
+		default:
+			strictKeys = append(strictKeys, strictKeyName(u))
+		}
+	}
+	var errs []error
+	if hasRules {
+		if retired := retiredRules(path); retired != nil {
+			errs = append(errs, retired)
+		}
+	}
+	if len(strictKeys) > 0 {
+		errs = append(errs, fmt.Errorf("%s: unknown key %s", path, strings.Join(strictKeys, ", ")))
+	}
+	if len(errs) > 0 {
+		return st, nil, errors.Join(errs...)
+	}
+	return st, lenient, nil
+}
+
+func LoadSettings(root string) (Settings, error) {
+	st, _, err := loadSettings(root)
 	return st, err
+}
+
+func normalizeUnknownKeys(root string, keys []workflow.UnknownKey) []workflow.UnknownKey {
+	if len(keys) == 0 {
+		return nil
+	}
+	clean := filepath.Clean(root)
+	base := filepath.Base(clean)
+	out := make([]workflow.UnknownKey, len(keys))
+	for i, u := range keys {
+		if rel, err := filepath.Rel(clean, u.File); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			u.File = filepath.ToSlash(filepath.Join(base, rel))
+		}
+		out[i] = u
+	}
+	slices.SortFunc(out, func(a, b workflow.UnknownKey) int {
+		return cmp.Or(
+			cmp.Compare(a.File, b.File),
+			cmp.Compare(a.Table, b.Table),
+			cmp.Compare(a.Key, b.Key),
+			cmp.Compare(a.Value, b.Value),
+		)
+	})
+	return slices.Compact(out)
 }
 
 func LoadConfig(root string) (*Config, error) {
 	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{},
 		Queues: map[string]*workflow.Queue{}}
 	var errs []error
+	var unknown []workflow.UnknownKey
 	if err := legacyProblem(root); err != nil {
 		errs = append(errs, err)
 	}
-	st, err := LoadSettings(root)
+	st, un, err := loadSettings(root)
 	c.Settings = st
+	unknown = append(unknown, un...)
 	if err != nil {
 		errs = append(errs, err)
 	}
 	if p := filepath.Join(root, DoctorFile); exists(p) {
-		if err := workflow.DecodeStrict(p, &c.Doctor); err != nil {
+		un, err := workflow.Decode(p, &c.Doctor)
+		unknown = append(unknown, un...)
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if s, err := LoadInit(root); err != nil {
+	if s, un, err := loadInit(root); err != nil {
 		c.Init = s
+		unknown = append(unknown, un...)
 		errs = append(errs, err)
 	} else {
 		c.Init = s
+		unknown = append(unknown, un...)
 	}
 	if p := filepath.Join(root, VolatileFile); exists(p) {
-		if err := workflow.DecodeStrict(p, &c.Volatile); err != nil {
+		un, err := workflow.Decode(p, &c.Volatile)
+		unknown = append(unknown, un...)
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if p := filepath.Join(root, UIFile); exists(p) {
-		if err := workflow.DecodeStrict(p, &c.UI); err != nil {
+		un, err := workflow.Decode(p, &c.UI)
+		unknown = append(unknown, un...)
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if p := filepath.Join(root, HarnessFile); exists(p) {
-		if err := workflow.DecodeStrict(p, &c.Harness); err != nil {
+		un, err := workflow.Decode(p, &c.Harness)
+		unknown = append(unknown, un...)
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+	c.UnknownKeys = normalizeUnknownKeys(root, unknown)
 	if cat, ovs, err := LoadAgents(root); err != nil {
 		errs = append(errs, err)
 	} else {

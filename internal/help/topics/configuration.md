@@ -1,7 +1,17 @@
 # Configuration
 
-Everything satelle runs lives in `.satelle/`, in git, owned by you. An unknown
-key refuses to run; `satelle validate --session <session>` lists every problem.
+Everything satelle runs lives in `.satelle/`, in git, owned by you. Process-control
+files and tables (`workflows/*.toml`, `queues/*.toml`, `agents.toml`,
+`agents.local.toml`, and `satelle.toml`'s `[workflows]`, `[gate]` and `[review]`
+tables, as well as any top-level key or table `satelle.toml` does not read) are
+decoded strictly and refuse an unknown key. Lenient files (`doctor.toml`,
+`ui.toml`, `init.toml`, `volatile.toml`, `harness.toml`) and the known advisory
+tables of `satelle.toml` (`[hook]`, `[items]`, `[service]`, `[sync]`, `[ledger]`)
+load and ignore an unknown key, while `satelle validate --session <session>`
+(under `unknown_keys`) and `satelle doctor --session <session>` (under
+`unknown-keys`) report each one with its file, table and value; missing required
+keys and refused values still fail configuration loading. `satelle validate --session <session>`
+lists every problem.
 
 ## The substrate check
 
@@ -68,8 +78,8 @@ key.
 
   `[hook] refresh = false` opts the repo out of the harness hook refresh that
   `satelle update --session <session>` and the sync pass run (see `satelle help agents --session <session>`).
-  `satelle.toml` is decoded strictly, so a repo that sets `refresh` needs
-  satelle at this version or later on every machine that opens it.
+  `[hook]` is a lenient advisory table, so unknown keys inside it are ignored
+  and reported by `satelle validate --session <session>` and `satelle doctor --session <session>`.
 
   `[review]` picks a gate's reviewers from the item's tier. The tier is the
   value of the item's tag whose key is `tier_tag`, set by whatever the repo
@@ -82,9 +92,9 @@ key.
   named gate. A carried accept is carried only for the same tier. `satelle
   validate --session <session>` refuses a panel agent missing from `agents.toml`, a gate no
   workflow has, a check gate, and a blank or `:`-holding `tier_tag`; panel
-  agents get the same judge checks as a gate's own. `satelle.toml` is decoded
-  strictly, so a repo that sets `[review]` needs satelle at this version or
-  later on every machine that opens it.
+  agents get the same judge checks as a gate's own. `[review]`, `[workflows]`,
+  `[gate]` and unknown top-level keys or tables of `satelle.toml` are decoded
+  strictly, so a misspelt key or table there fails configuration loading.
 
 - `session.md` — the session guidance: how to pass `--session`, the edit
   gate and the drive rule. The context hook (at session start), the prompt
@@ -140,7 +150,7 @@ key.
 
 `satelle doctor --session <session>` reports what is wrong here, each issue with the command that
 fixes it, and changes nothing; the session-start hook runs the same checks
-within 2 s. Besides its kernel checks (config, substrate, volatile, init, harness,
+within 2 s. Besides its kernel checks (config, unknown-keys, substrate, volatile, init, harness,
 versions, sync, seats) it
 runs what `.satelle/doctor.toml` names:
 

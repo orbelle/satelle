@@ -348,16 +348,17 @@ kind = "queue"
 
 func TestQueueFileProblems(t *testing.T) {
 	cases := map[string]string{
-		"syntax":         "title = \n",
-		"unknown key":    "title = \"x\"\ncolour = \"red\"\n",
-		"no title":       "[filter]\nkind = \"story\"\n",
-		"empty filter":   "title = \"x\"\n[filter]\n",
-		"both targets":   "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nworkflow = \"triage\"\n",
-		"no target":      "title = \"x\"\n[trigger]\nbase = \"main\"\n",
-		"negative size":  "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nmin_size = -1\n",
-		"workflow":       "title = \"x\"\n[trigger]\nworkflow = \"nope\"\n",
-		"invalid id":     "id = \"bad id\"\ntitle = \"x\"\n",
-		"bad file name!": "title = \"x\"\n",
+		"syntax":          "title = \n",
+		"unknown key":     "title = \"x\"\ncolour = \"red\"\n",
+		"misspelt filter": "title = \"x\"\n[filter]\nstatuz = \"approved\"\n",
+		"no title":        "[filter]\nkind = \"story\"\n",
+		"empty filter":    "title = \"x\"\n[filter]\n",
+		"both targets":    "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nworkflow = \"triage\"\n",
+		"no target":       "title = \"x\"\n[trigger]\nbase = \"main\"\n",
+		"negative size":   "title = \"x\"\n[trigger]\ntask = \"tas_1\"\nmin_size = -1\n",
+		"workflow":        "title = \"x\"\n[trigger]\nworkflow = \"nope\"\n",
+		"invalid id":      "id = \"bad id\"\ntitle = \"x\"\n",
+		"bad file name!":  "title = \"x\"\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

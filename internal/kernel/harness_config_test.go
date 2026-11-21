@@ -3,8 +3,11 @@ package kernel
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func TestHarnessLimitsLoadAndValidate(t *testing.T) {
@@ -37,7 +40,6 @@ func TestHarnessLimitsLoadAndValidate(t *testing.T) {
 		"a zero limit":                  "[claude]\ncontext_limit_bytes = 0\n",
 		"a negative limit":              "[claude]\ncontext_limit_bytes = -4\n",
 		"a table with no limit":         "[claude]\n",
-		"an unknown key":                "[claude]\ncontext_limit_bytes = 10\nlimit = 3\n",
 	} {
 		write(body)
 		errs := Validate(root)
@@ -52,5 +54,20 @@ func TestHarnessLimitsLoadAndValidate(t *testing.T) {
 		if !strings.Contains(joined, HarnessFile) {
 			t.Errorf("%s: the problem does not name %s:\n%s", name, HarnessFile, joined)
 		}
+	}
+	write("[claude]\ncontext_limit_bytes = 10\nlimit = 3\n")
+	if errs := Validate(root); len(errs) != 0 {
+		t.Fatalf("unknown key in %s failed Validate: %v", HarnessFile, errs)
+	}
+	c, err = LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Harness["claude"].ContextLimitBytes != 10 {
+		t.Errorf("ContextLimitBytes = %d, want 10", c.Harness["claude"].ContextLimitBytes)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/harness.toml", Table: "claude", Key: "limit", Value: "3"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }

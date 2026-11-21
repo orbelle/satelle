@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func TestDoctorConfig(t *testing.T) {
@@ -38,7 +40,6 @@ fix = "satelle story get {id}"
 		t.Fatalf("a good doctor.toml must validate: %v", errs)
 	}
 	cases := map[string]string{
-		"unknown key":   "[[check]]\nskill = \"probe\"\nfix = \"x\"\nbogus = 1\n",
 		"missing skill": "[[check]]\nskill = \"nope\"\nfix = \"x\"\n",
 		"not a check":   "[[check]]\nskill = \"prose\"\nfix = \"x\"\n",
 		"no check fix":  "[[check]]\nskill = \"probe\"\n",
@@ -51,6 +52,18 @@ fix = "satelle story get {id}"
 		if errs := Validate(root); len(errs) == 0 {
 			t.Errorf("%s: validate found no problem in %q", name, body)
 		}
+	}
+	write(t, filepath.Join(root, DoctorFile), "[[check]]\nskill = \"probe\"\nfix = \"x\"\nbogus = 1\n")
+	c, err = LoadConfig(root)
+	if err != nil {
+		t.Fatalf("unknown key in doctor.toml failed load: %v", err)
+	}
+	if errs := Validate(root); len(errs) != 0 {
+		t.Errorf("unknown key in doctor.toml failed Validate: %v", errs)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/doctor.toml", Table: "check", Key: "bogus", Value: "1"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }
 
@@ -187,8 +200,16 @@ func TestDoctorResolveConfig(t *testing.T) {
 		})
 	}
 	write(t, filepath.Join(root, DoctorFile), "[resolve]\nstatus = \"backlog\"\n")
-	if _, err := LoadConfig(root); err == nil {
-		t.Error("a [resolve] status key loaded")
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatalf("unknown [resolve] status key failed load: %v", err)
+	}
+	if c.Doctor.Resolve.Selection().Status != "" {
+		t.Errorf("Selection().Status = %q, want empty", c.Doctor.Resolve.Selection().Status)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/doctor.toml", Table: "resolve", Key: "status", Value: `"backlog"`}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }
 

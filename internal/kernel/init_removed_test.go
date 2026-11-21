@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 const skillRel = "skills/satelle-workflow-standard.md"
@@ -37,8 +39,16 @@ func TestRemovedRecordIsHonoured(t *testing.T) {
 	if plan, _ := InitPlan(root); !slices.Equal(plan, []string{SessionFile}) {
 		t.Errorf("with an unknown key InitPlan = %v, want only %s", plan, SessionFile)
 	}
-	if errs := Validate(root); len(errs) == 0 {
-		t.Error("an unknown key in init.toml is no problem")
+	if errs := Validate(root); len(errs) != 0 {
+		t.Errorf("an unknown key in init.toml failed Validate: %v", errs)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/init.toml", Key: "bogus", Value: "1"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }
 

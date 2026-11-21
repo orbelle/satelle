@@ -53,6 +53,10 @@ command = "session"
 	if _, err := LoadCatalog(p); err == nil || !strings.Contains(err.Error(), "agents.x.colour") {
 		t.Fatalf("strict: %v", err)
 	}
+	os.WriteFile(p, []byte("[agents.x]\ncommand = \"claude\"\ndenies = [\"Write\"]\n"), 0o644)
+	if _, err := LoadCatalog(p); err == nil || !strings.Contains(err.Error(), "agents.x.denies") {
+		t.Fatalf("misspelt deny: %v", err)
+	}
 	bad := Catalog{"x": {Name: "x", Command: "aider", Tools: []string{"Delete"}, Placement: "moon"}}
 	if errs := bad.Validate(); len(errs) != 3 {
 		t.Fatalf("want 3 problems, got %v", errs)

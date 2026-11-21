@@ -118,8 +118,14 @@ rejected the move, listing each rejecting gate and its notes.
   (`satelle ledger rebuild --session <session>`).
 - **Configuration**, in the repo under `.satelle/` and tracked in git:
   `satelle.toml`, `agents.toml`, `workflows/<name>.toml` and `skills/<name>.md`.
-  An unknown key refuses to run; `satelle validate --session <session>` lists every problem. See
-  `satelle help configuration --session <session>`.
+  Process-control files and tables (`workflows/*.toml`, `queues/*.toml`,
+  `agents.toml`, its local override agents.local.toml, the workflows, gate and review tables of
+  `satelle.toml`, and unknown top-level keys or tables in `satelle.toml`)
+  refuse an unknown key; lenient files (`doctor.toml`, the optional ui.toml, `init.toml`,
+  `volatile.toml`, `harness.toml`) and the known advisory tables of `satelle.toml`
+  (hook, items, service, sync and ledger) load and report each
+  unknown key in `satelle validate --session <session>` and `satelle doctor --session <session>`.
+  See `satelle help configuration --session <session>`.
 
 ## Workflows, gates and agents
 

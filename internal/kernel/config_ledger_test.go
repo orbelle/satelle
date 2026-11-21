@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/ledgerstore"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func loadLedger(t *testing.T, extra string) (*Config, error) {
@@ -46,6 +47,14 @@ func TestLedgerStoreLoads(t *testing.T) {
 	if _, err := loadLedger(t, "# no store key"); err != nil {
 		t.Errorf("[ledger] without store: %v", err)
 	}
+	c, err = loadLedger(t, "other = 1")
+	if err != nil {
+		t.Fatalf("unknown [ledger] key failed load: %v", err)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/satelle.toml", Table: "ledger", Key: "other", Value: "1"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
+	}
 }
 
 func TestLedgerStoreRefusals(t *testing.T) {
@@ -53,7 +62,6 @@ func TestLedgerStoreRefusals(t *testing.T) {
 		`store = "s3"`: `"satelle.dev" or "local"`,
 		`store = { command = "x", bucket = "b" }`: "unknown key bucket",
 		`store = { command = "" }`:                "command is required",
-		`other = 1`:                               "unknown key ledger.other",
 		`store = 3`:                               "[ledger] store",
 		`store = ["x"]`:                           "[ledger] store",
 		`store = "azure"`:                         "[ledger] store",

@@ -19,6 +19,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func initCmd() *cobra.Command {
@@ -232,6 +233,14 @@ func tagWarnings(r repo, configValid bool) ([]kernel.TagWarning, error) {
 	return kernel.TagWarnings(items), nil
 }
 
+func unknownKeyFindings(dataDir string) []workflow.UnknownKey {
+	cfg, _ := kernel.LoadConfig(dataDir)
+	if cfg == nil || len(cfg.UnknownKeys) == 0 {
+		return []workflow.UnknownKey{}
+	}
+	return cfg.UnknownKeys
+}
+
 func skillWarnings(dataDir string, configValid bool) []kernel.SkillWarning {
 	if !configValid {
 		return []kernel.SkillWarning{}
@@ -278,7 +287,17 @@ workflow (a performer skill, a gate skill, trigger or after), doctor check or
 [hook] inject entry names, that satelle init does not ship, and whose
 skills/<name>.md path no skill so reached names in its body, as
 <file>: skill <name>: ... (under the skill_warnings key with --json). A
-README.md in skills/ is not a skill. These are listed without failing the check.`,
+README.md in skills/ is not a skill. These are listed without failing the check.
+
+It also lists each unknown key in a lenient .satelle configuration file
+(doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml) or in a known
+advisory table of satelle.toml ([hook], [items], [service], [sync], [ledger]),
+as <file>: [<table>] <key> = <value> (or <file>: <key> = <value> at top level),
+under the unknown_keys key with --json. These are listed without failing the
+check; satelle doctor reports each as an unknown-keys issue. Unknown keys in
+workflows/*.toml, queues/*.toml, agents.toml, agents.local.toml, in
+satelle.toml's [workflows], [gate] or [review] tables, or any unknown top-level
+key or table in satelle.toml fail configuration loading.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := findRepo("")
@@ -302,6 +321,7 @@ README.md in skills/ is not a skill. These are listed without failing the check.
 				problems = append(problems, fmt.Errorf("tag_warnings: %w", err))
 			}
 			unnamed := skillWarnings(r.DataDir, len(problems) == 0)
+			unknown := unknownKeyFindings(r.DataDir)
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}
@@ -309,12 +329,18 @@ README.md in skills/ is not a skill. These are listed without failing the check.
 					msgs = append(msgs, p.Error())
 				}
 				if err := writeJSON(cmd.OutOrStdout(), map[string]any{"root": r.DataDir, "valid": valid, "problems": msgs, substrate.Field: drift,
-					substrate.VolatileField: volatile, "tag_warnings": tagged, "skill_warnings": unnamed}); err != nil {
+					substrate.VolatileField: volatile, "tag_warnings": tagged, "skill_warnings": unnamed, "unknown_keys": unknown}); err != nil {
 					return err
 				}
 			} else {
 				if valid {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: configuration valid\n", r.DataDir)
+				}
+				if len(unknown) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "unknown keys in %s (%d):\n", r.DataDir, len(unknown))
+					for _, u := range unknown {
+						fmt.Fprintln(cmd.OutOrStdout(), u.String())
+					}
 				}
 				if len(volatile) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "volatile literals in %s (%d):\n", r.DataDir, len(volatile))

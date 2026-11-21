@@ -149,7 +149,7 @@ func TestDoctorReportsEachIssueAndChangesNothing(t *testing.T) {
 		{name: "invalid config", setup: func(t *testing.T, f *doctorFixture) {
 			p := filepath.Join(f.dir, ".satelle", "satelle.toml")
 			b, _ := os.ReadFile(p)
-			writeFile(t, p, string(b)+"\nbogus_key = 1\n")
+			writeFile(t, p, string(b)+"\n[gate]\nbogus_key = 1\n")
 		}, want: []want{{"config", "bogus_key", "satelle validate"}}},
 		{name: "substrate drift", setup: func(t *testing.T, f *doctorFixture) {
 			writeFile(t, filepath.Join(f.dir, ".satelle", "skills", "stale.md"), "---\nname: stale\ntype: skill\ndescription: Names a removed command.\n---\n\nRun `satelle story docs <id>`.\n")

@@ -493,7 +493,7 @@ func TestDoctorActsOnCountsWhatResolveActsOn(t *testing.T) {
 		must(t, "story", "set", done, "--status", "done")
 		p := filepath.Join(f.dir, ".satelle", "satelle.toml")
 		b, _ := os.ReadFile(p)
-		writeFile(t, p, string(b)+"\nbogus_key = 1\n")
+		writeFile(t, p, string(b)+"\n[gate]\nbogus_key = 1\n")
 		withTerminal(t, "")
 		doc, _, _ := doctorJSON(t)
 		if !slices.ContainsFunc(doc.Issues, func(is doctorIssue) bool {
@@ -680,7 +680,7 @@ func TestResolveOpensOneFixItemForEveryFinding(t *testing.T) {
 			if tc.invalid {
 				p := filepath.Join(f.dir, ".satelle", "satelle.toml")
 				b, _ := os.ReadFile(p)
-				writeFile(t, p, string(b)+"\nbogus_key = 1\n")
+				writeFile(t, p, string(b)+"\n[gate]\nbogus_key = 1\n")
 			}
 			before := digest(t, f.dir)
 			rep, out, err := resolveJSON(t)

@@ -106,6 +106,7 @@ func doctorChecks(in *doctorInput) []doctorCheck {
 	}
 	checks = append(checks,
 		doctorCheck{"config", checkConfig},
+		doctorCheck{checkUnknownKeysName, checkUnknownKeys},
 		doctorCheck{substrate.Field, checkSubstrate},
 		doctorCheck{substrate.VolatileField, checkVolatile},
 		doctorCheck{"init", checkInit},
@@ -215,6 +216,26 @@ func checkConfig(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 				out = append(out, doctorIssue{Check: "config", Problem: line, Fix: "satelle validate", Resolve: resolveFixItem})
 			}
 		}
+	}
+	return out, nil
+}
+
+const (
+	checkUnknownKeysName = "unknown-keys"
+	unknownKeyFix        = "satelle does not read this key: ask what it is for, then remove it if mistyped or keep it if intentional"
+)
+
+func checkUnknownKeys(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
+	if in.cfg == nil || len(in.cfg.UnknownKeys) == 0 {
+		return nil, nil
+	}
+	out := make([]doctorIssue, 0, len(in.cfg.UnknownKeys))
+	for _, u := range in.cfg.UnknownKeys {
+		out = append(out, doctorIssue{
+			Check:   checkUnknownKeysName,
+			Problem: u.String(),
+			Fix:     unknownKeyFix,
+		})
 	}
 	return out, nil
 }

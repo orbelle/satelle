@@ -114,6 +114,8 @@ func TestInvalidWorkflows(t *testing.T) {
 		name, body, want string
 	}{
 		{"unknown key", base + "colour = 1\n", "unknown key transition.colour"},
+		{"misspelt group", base + "[[transition]]\nfrom = [\"a\"]\nto = \"a\"\ngroup = [{ gates = [\"g\"] }]\n", "unknown key transition.group"},
+		{"misspelt panels", base + "[gates.g]\nskill = \"judge\"\npanels = [\"a1\"]\n", "unknown key gates.g.panels"},
 		{"no start", "[states.z]\nterminal = true\n", "exactly one start"},
 		{"two starts", base + "[states.b]\nstart = true\n", "exactly one start"},
 		{"no terminal", "[states.a]\nstart = true\n", "at least one terminal"},

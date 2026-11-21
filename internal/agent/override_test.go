@@ -88,6 +88,10 @@ func TestOverrideRefusesUnknownAgentsAndFields(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unknown key agents.grok.colour") {
 		t.Errorf("an unknown field: %v", err)
 	}
+	_, _, err = c.Override(writeLocal(t, "[agents.grok]\ndenies = [\"Write\"]\n"))
+	if err == nil || !strings.Contains(err.Error(), "unknown key agents.grok.denies") {
+		t.Errorf("a misspelt deny field: %v", err)
+	}
 	_, _, err = c.Override(writeLocal(t, "stray = 1\n"))
 	if err == nil || !strings.Contains(err.Error(), "unknown key stray") {
 		t.Errorf("a stray top-level key: %v", err)

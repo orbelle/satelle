@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/substrate"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func initVolatile(t *testing.T) (string, *Config) {
@@ -141,7 +142,6 @@ func TestDefaultVolatilePatternsMatchTheirShapes(t *testing.T) {
 func TestVolatileConfigProblems(t *testing.T) {
 	root, _ := initVolatile(t)
 	cases := map[string]string{
-		"unknown key":        "bogus = 1\n",
 		"nameless":           "[[pattern]]\nmatch = 'x'\n",
 		"duplicate":          "[[pattern]]\nname = 'a'\nmatch = 'x'\n[[pattern]]\nname = 'a'\nmatch = 'y'\n",
 		"bad match":          "[[pattern]]\nname = 'a'\nmatch = '('\n",
@@ -169,6 +169,18 @@ func TestVolatileConfigProblems(t *testing.T) {
 				t.Fatalf("no problem names %s: %v", VolatileFile, errs)
 			}
 		})
+	}
+	write(t, filepath.Join(root, VolatileFile), "bogus = 1\n")
+	if errs := Validate(root); len(errs) != 0 {
+		t.Fatalf("unknown key in %s failed Validate: %v", VolatileFile, errs)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/volatile.toml", Key: "bogus", Value: "1"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }
 

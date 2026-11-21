@@ -2,8 +2,10 @@ package kernel
 
 import (
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func TestLoadSettingsReadsHookRefresh(t *testing.T) {
@@ -22,9 +24,23 @@ func TestLoadSettingsReadsHookRefresh(t *testing.T) {
 			t.Errorf("%q: Refreshes() = %v, want %v", body, got, want)
 		}
 	}
-	root := t.TempDir()
-	write(t, filepath.Join(root, SettingsFile), "[hook]\nrefreshh = false\n")
-	if _, err := LoadSettings(root); err == nil || !strings.Contains(err.Error(), "unknown key") {
-		t.Errorf("unknown [hook] key: %v, want an unknown key error", err)
+	root := filepath.Join(t.TempDir(), ".satelle")
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, SettingsFile), "[workflows]\ndefault = \"default\"\n[hook]\nrefreshh = false\n")
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatalf("unknown [hook] key failed load: %v", err)
+	}
+	if !c.Settings.Hook.Refreshes() {
+		t.Error("unknown [hook] key changed Refreshes() default")
+	}
+	if errs := Validate(root); len(errs) != 0 {
+		t.Errorf("Validate reported problems for unknown [hook] key: %v", errs)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/satelle.toml", Table: "hook", Key: "refreshh", Value: "false"}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }

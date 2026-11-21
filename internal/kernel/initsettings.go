@@ -18,13 +18,18 @@ type InitSettings struct {
 
 func (s InitSettings) CategorySet() bool { return strings.TrimSpace(s.Category) != "" }
 
-func LoadInit(root string) (InitSettings, error) {
+func loadInit(root string) (InitSettings, []workflow.UnknownKey, error) {
 	var s InitSettings
 	p := filepath.Join(root, InitFile)
 	if !exists(p) {
-		return s, nil
+		return s, nil, nil
 	}
-	err := workflow.DecodeStrict(p, &s)
+	un, err := workflow.Decode(p, &s)
+	return s, un, err
+}
+
+func LoadInit(root string) (InitSettings, error) {
+	s, _, err := loadInit(root)
 	return s, err
 }
 

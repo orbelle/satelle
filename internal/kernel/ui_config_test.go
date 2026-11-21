@@ -3,8 +3,11 @@ package kernel
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 func TestUIConfig(t *testing.T) {
@@ -35,7 +38,6 @@ func TestUIConfig(t *testing.T) {
 	for name, body := range map[string]string{
 		"a colour outside the palette": "[tag_colours]\nsurface = \"pink\"\n",
 		"an empty tag":                 "[tag_colours]\n\"\" = \"ok\"\n",
-		"an unknown table":             "[colours]\nsurface = \"ok\"\n",
 	} {
 		write(body)
 		errs := Validate(root)
@@ -50,5 +52,20 @@ func TestUIConfig(t *testing.T) {
 		if !strings.Contains(joined, UIFile) {
 			t.Errorf("%s: the problem does not name %s:\n%s", name, UIFile, joined)
 		}
+	}
+	write("[tag_colours]\nsurface = \"warn\"\n[colours]\nsurface = \"ok\"\n")
+	if errs := Validate(root); len(errs) != 0 {
+		t.Fatalf("unknown table in %s failed Validate: %v", UIFile, errs)
+	}
+	c, err = LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.UI.TagColours["surface"] != "warn" {
+		t.Errorf("TagColours = %v, want surface=warn", c.UI.TagColours)
+	}
+	want := []workflow.UnknownKey{{File: ".satelle/ui.toml", Table: "colours", Key: "surface", Value: `"ok"`}}
+	if !slices.Equal(c.UnknownKeys, want) {
+		t.Errorf("UnknownKeys = %+v, want %+v", c.UnknownKeys, want)
 	}
 }

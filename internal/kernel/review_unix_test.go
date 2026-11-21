@@ -138,3 +138,51 @@ groups = [{ gates = ["review"] }]
 		t.Errorf("a gate name that is a check everywhere: %q", all)
 	}
 }
+
+func TestReviewUnknownKeysRefused(t *testing.T) {
+	cases := []struct {
+		name, extra, want, forbid string
+	}{
+		{"misspelt tier", "\n[review]\ntier = \"risk\"\n", "review.tier", ""},
+		{"misspelt panel", "\n[review]\ntier_tag = \"risk\"\n[review.panel.review]\nlow = [\"r1\"]\n", "review.panel.review.low", ""},
+		{"empty subtable", "\n[review]\ntier_tag = \"risk\"\n[review.extra]\n", "review.extra", ""},
+		{"top-level reviews", "\n[reviews]\ntier_tag = \"risk\"\n", "reviews.tier_tag", ""},
+		{"review alongside lenient hook", "\n[review]\ntier = \"risk\"\n[hook]\nrefreshh = false\n", "review.tier", "refreshh"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := reviewRoot(t, tc.extra)
+			_, serr := LoadSettings(root)
+			_, cerr := LoadConfig(root)
+			_, oerr := Open(Options{Root: root})
+			var vmsg []string
+			for _, e := range Validate(root) {
+				vmsg = append(vmsg, e.Error())
+			}
+			for fn, msg := range map[string]string{
+				"LoadSettings": errText(serr),
+				"LoadConfig":   errText(cerr),
+				"Open":         errText(oerr),
+				"Validate":     strings.Join(vmsg, "\n"),
+			} {
+				if msg == "" {
+					t.Errorf("%s accepted %s", fn, tc.name)
+					continue
+				}
+				if !strings.Contains(msg, SettingsFile) || !strings.Contains(msg, tc.want) {
+					t.Errorf("%s error %q lacks %q and %q", fn, msg, SettingsFile, tc.want)
+				}
+				if tc.forbid != "" && strings.Contains(msg, tc.forbid) {
+					t.Errorf("%s error %q leaked lenient key %q", fn, msg, tc.forbid)
+				}
+			}
+		})
+	}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

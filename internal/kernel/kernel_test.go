@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -323,4 +325,168 @@ func TestOpenLogsIsConfigLogsDir(t *testing.T) {
 		}
 		k.Close()
 	}
+}
+
+func TestSettingsTableSplitCoversSchema(t *testing.T) {
+	ty := reflect.TypeOf(Settings{})
+	var tags []string
+	for i := range ty.NumField() {
+		tag := ty.Field(i).Tag.Get("toml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	seen := map[string]string{}
+	for _, name := range strictSettingsTables {
+		if prev, dup := seen[name]; dup {
+			t.Errorf("%q classified twice (%s and strict)", name, prev)
+		}
+		seen[name] = "strict"
+	}
+	for _, name := range lenientSettingsTables {
+		if prev, dup := seen[name]; dup {
+			t.Errorf("%q classified twice (%s and lenient)", name, prev)
+		}
+		seen[name] = "lenient"
+	}
+	for _, tag := range tags {
+		if _, ok := seen[tag]; !ok {
+			t.Errorf("Settings toml tag %q is not classified in strictSettingsTables or lenientSettingsTables", tag)
+		}
+	}
+	for name := range seen {
+		if !slices.Contains(tags, name) {
+			t.Errorf("classified table %q is not a toml tag on Settings", name)
+		}
+	}
+}
+
+func TestSatelleTomlStrictAndLenientSplit(t *testing.T) {
+	strictCases := []struct {
+		name, body, want, forbid string
+	}{
+		{"workflows unknown key", "[workflows]\ndefault = \"default\"\nmystery = 1\n", "workflows.mystery", ""},
+		{"workflows rule misspelt tags", "[workflows]\ndefault = \"default\"\n[[workflows.rule]]\nworkflow = \"default\"\nkind = \"story\"\ntags = \"epic\"\n", "workflows.rule.tags", ""},
+		{"workflows empty subtable", "[workflows]\ndefault = \"default\"\n[workflows.extra]\n", "workflows.extra", ""},
+		{"gate misspelt locked_path", "[workflows]\ndefault = \"default\"\n[gate]\nlocked_path = [\"a\"]\n", "gate.locked_path", ""},
+		{"gate misspelt edit_exempt_path", "[workflows]\ndefault = \"default\"\n[gate]\nedit_exempt_path = [\"a\"]\n", "gate.edit_exempt_path", ""},
+		{"gate empty subtable", "[workflows]\ndefault = \"default\"\n[gate.extra]\n", "gate.extra", ""},
+		{"top-level scalar", "foo = 1\n[workflows]\ndefault = \"default\"\n", "unknown key foo", ""},
+		{"top-level gates table", "[workflows]\ndefault = \"default\"\n[gates]\nlocked_paths = [\"a\"]\n", "gates.locked_paths", ""},
+		{"top-level empty gates table", "[workflows]\ndefault = \"default\"\n[gates]\n", "unknown key gates", ""},
+		{"top-level reviews table", "[workflows]\ndefault = \"default\"\n[reviews]\ntier_tag = \"risk\"\n", "reviews.tier_tag", ""},
+		{"top-level workflow.rule", "[workflows]\ndefault = \"default\"\n[[workflow.rule]]\nworkflow = \"default\"\ncategory = \"x\"\n", "workflow.rule.category", ""},
+		{"top-level hooks table", "[workflows]\ndefault = \"default\"\n[hooks]\nrefresh = false\n", "hooks.refresh", ""},
+		{"quoted dotted table", "[workflows]\ndefault = \"default\"\n[\"hook.extra\"]\nx = 1\n", `"hook.extra".x`, ""},
+		{"strict alongside lenient hook", "[workflows]\ndefault = \"default\"\n[gate]\nlocked_path = [\"a\"]\n[hook]\nrefreshh = false\n", "gate.locked_path", "refreshh"},
+	}
+	for _, tc := range strictCases {
+		t.Run("strict/"+tc.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), ".satelle")
+			if err := Init(root); err != nil {
+				t.Fatal(err)
+			}
+			write(t, filepath.Join(root, SettingsFile), tc.body)
+			_, serr := LoadSettings(root)
+			_, cerr := LoadConfig(root)
+			_, oerr := Open(Options{Root: root})
+			vprobs := Validate(root)
+			var vmsg []string
+			for _, e := range vprobs {
+				vmsg = append(vmsg, e.Error())
+			}
+			checks := map[string]string{
+				"LoadSettings": "",
+				"LoadConfig":   "",
+				"Open":         "",
+				"Validate":     strings.Join(vmsg, "\n"),
+			}
+			if serr != nil {
+				checks["LoadSettings"] = serr.Error()
+			}
+			if cerr != nil {
+				checks["LoadConfig"] = cerr.Error()
+			}
+			if oerr != nil {
+				checks["Open"] = oerr.Error()
+			}
+			for fn, msg := range checks {
+				if msg == "" {
+					t.Errorf("%s accepted strict unknown key:\n%s", fn, tc.body)
+					continue
+				}
+				if !strings.Contains(msg, SettingsFile) || !strings.Contains(msg, tc.want) {
+					t.Errorf("%s error %q lacks %q and %q", fn, msg, SettingsFile, tc.want)
+				}
+				if tc.forbid != "" && strings.Contains(msg, tc.forbid) {
+					t.Errorf("%s error %q leaked lenient key %q", fn, msg, tc.forbid)
+				}
+			}
+		})
+	}
+
+	t.Run("lenient advisory tables", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), ".satelle")
+		if err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(root, SettingsFile), `
+[workflows]
+default = "default"
+
+[hook]
+refresh = false
+extra_hook = "hi"
+[hook.sub]
+depth = 2
+
+[items]
+prefix = { story = "sty" }
+extra_items = true
+
+[service]
+port = 9090
+extra_service = 7
+
+[sync]
+enabled = true
+url = "https://example.invalid"
+extra_sync = "v"
+
+[ledger]
+store = "local"
+extra_ledger = ["a", "b"]
+`)
+		st, err := LoadSettings(root)
+		if err != nil {
+			t.Fatalf("LoadSettings: %v", err)
+		}
+		if st.Hook.Refreshes() || st.Prefix("story") != "sty" || st.Service.Port != 9090 || !st.Sync.Enabled || st.Sync.URL != "https://example.invalid" || st.Ledger.Store.Kind != "local" {
+			t.Fatalf("known settings lost: %+v", st)
+		}
+		c, err := LoadConfig(root)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if errs := Validate(root); len(errs) != 0 {
+			t.Fatalf("Validate: %v", errs)
+		}
+		k, err := Open(Options{Root: root})
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		k.Close()
+		want := []workflow.UnknownKey{
+			{File: ".satelle/satelle.toml", Table: "hook", Key: "extra_hook", Value: `"hi"`},
+			{File: ".satelle/satelle.toml", Table: "hook.sub", Key: "depth", Value: "2"},
+			{File: ".satelle/satelle.toml", Table: "items", Key: "extra_items", Value: "true"},
+			{File: ".satelle/satelle.toml", Table: "ledger", Key: "extra_ledger", Value: `["a", "b"]`},
+			{File: ".satelle/satelle.toml", Table: "service", Key: "extra_service", Value: "7"},
+			{File: ".satelle/satelle.toml", Table: "sync", Key: "extra_sync", Value: `"v"`},
+		}
+		if !slices.Equal(c.UnknownKeys, want) {
+			t.Fatalf("UnknownKeys:\ngot:  %+v\nwant: %+v", c.UnknownKeys, want)
+		}
+	})
 }
