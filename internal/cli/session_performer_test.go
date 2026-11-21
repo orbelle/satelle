@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
 )
@@ -129,7 +130,7 @@ func TestSessionPerformerCLICursorModelExposed(t *testing.T) {
 func TestSessionPerformerCLIUnavailableModelAcrossHarnesses(t *testing.T) {
 	grokFixture := func(t *testing.T, dir, sess string) string {
 		t.Helper()
-		b, err := os.ReadFile(filepath.Join(hookTestdata, "grok_session_start.json"))
+		b, err := os.ReadFile(filepath.Join(integrationTestdata(hook.Grok), "grok_session_start.json"))
 		if err != nil {
 			t.Fatal(err)
 		}

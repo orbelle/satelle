@@ -79,14 +79,28 @@ command = "session"
 	if errs := piShell.Validate(); len(errs) != 0 {
 		t.Fatalf("a Bash-granted pi binding: %v", errs)
 	}
-	if a, err := AdapterFor(Binding{Command: "/opt/x/cursor-agent"}); err != nil || a.Name() != PresetCursor {
+	if a, err := AdapterFor(Binding{Command: "/opt/x/cursor-agent"}); err != nil || a.Name() != "cursor-agent" {
 		t.Fatalf("AdapterFor(/opt/x/cursor-agent) = %v, %v", a, err)
 	}
 }
 
+func argvOf(t *testing.T, req Request) ([]string, error) {
+	t.Helper()
+	a, err := AdapterFor(req.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a.Argv(req)
+}
+
+func withCommand(req Request, command string) Request {
+	req.Binding.Command = command
+	return req
+}
+
 func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	performer := Request{Binding: Binding{Name: "p", Command: "claude --x", Model: "m", Tools: []string{"Read", "Bash(go test:*)"}, Deny: []string{"Write"}}, Deny: PerformerDenies, System: "sys"}
-	argv, err := claude{}.Argv(performer)
+	argv, err := argvOf(t, performer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,21 +110,21 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 			t.Fatalf("claude argv lacks %q: %s", want, got)
 		}
 	}
-	if _, err := (grok{}).Argv(performer); err == nil {
+	if _, err := argvOf(t, withCommand(performer, "grok")); err == nil {
 		t.Fatal("grok expressed a scoped deny")
 	}
-	if _, err := (pi{}).Argv(performer); err == nil {
+	if _, err := argvOf(t, withCommand(performer, "pi")); err == nil {
 		t.Fatal("pi expressed a scoped deny")
 	}
 	editor := Request{Binding: Binding{Command: "pi", Tools: []string{"Read", "Edit", "Glob"}, Deny: []string{"Edit"}}, Deny: PerformerDenies}
-	argv, err = pi{}.Argv(editor)
+	argv, err = argvOf(t, editor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(argv, " "); !strings.Contains(got, "--tools read,find,ls") || !strings.Contains(got, "--no-session") {
 		t.Fatalf("pi argv %s", got)
 	}
-	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Model: "m", Tools: []string{"Read", "Grep", "Glob"}}})
+	argv, err = argvOf(t, Request{Binding: Binding{Command: "cursor-agent", Model: "m", Tools: []string{"Read", "Grep", "Glob"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,19 +132,16 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 		t.Fatalf("cursor judge argv %s", got)
 	}
 	writer := []string{"Read", "Grep", "Glob", "Edit", "Write"}
-	argv, err = cursor{}.Argv(Request{Binding: Binding{Command: "cursor-agent", Tools: writer}, Deny: PerformerDenies})
+	argv, err = argvOf(t, Request{Binding: Binding{Command: "cursor-agent", Tools: writer}, Deny: PerformerDenies})
 	if err != nil || !slices.Contains(argv, "--force") || slices.Contains(argv, "--mode") {
 		t.Fatalf("cursor performer argv %v %v", argv, err)
-	}
-	if g, err := cursorFor(Binding{Tools: writer}, PerformerDenies); err != nil || !slices.Equal(g.rules, []string{cursorDenyAllShell}) {
-		t.Fatalf("cursor performer rules %v %v", g.rules, err)
 	}
 	for name, tools := range map[string][]string{
 		"Bash with Edit":    {"Read", "Grep", "Glob", "Edit", "Write", "Bash"},
 		"Bash without Edit": {"Read", "Grep", "Glob", "Bash"},
 		"scoped Bash":       {"Read", "Grep", "Glob", "Edit", "Write", "Bash(go test:*)"},
 	} {
-		if _, err := (cursor{}).Argv(Request{Binding: Binding{Command: "cursor-agent", Tools: tools}, Deny: PerformerDenies}); err == nil || !strings.Contains(err.Error(), "grant no Bash") {
+		if _, err := argvOf(t, Request{Binding: Binding{Command: "cursor-agent", Tools: tools}, Deny: PerformerDenies}); err == nil || !strings.Contains(err.Error(), "grant no Bash") {
 			t.Errorf("cursor %s: %v", name, err)
 		}
 	}
@@ -140,11 +151,11 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 		"NotebookEdit": {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit"}},
 		"effort":       {Command: "cursor-agent", Tools: []string{"Read", "Grep", "Glob"}, Effort: "high"},
 	} {
-		if _, err := (cursor{}).Argv(Request{Binding: b}); err == nil {
+		if _, err := argvOf(t, Request{Binding: b}); err == nil {
 			t.Errorf("cursor expressed %s", name)
 		}
 	}
-	argv, err = grok{}.Argv(Request{Binding: Binding{Command: "grok", Tools: []string{"Read", "Grep"}, Deny: []string{"Write"}}, Prompt: "do"})
+	argv, err = argvOf(t, Request{Binding: Binding{Command: "grok", Tools: []string{"Read", "Grep"}, Deny: []string{"Write"}}, Prompt: "do"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,43 +164,15 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 	}
 }
 
-func TestParseEnvelopes(t *testing.T) {
-	res, err := parseClaude([]byte(`{"type":"result","subtype":"success","is_error":false,"result":"ok","usage":{"input_tokens":22,"cache_creation_input_tokens":11000,"cache_read_input_tokens":2500,"output_tokens":300},"modelUsage":{"claude-x":{"outputTokens":300}}}`))
-	if err != nil || res.Text != "ok" || res.TokensIn != 13522 || res.TokensOut != 300 || res.Model != "claude-x" {
-		t.Fatalf("claude %+v %v", res, err)
-	}
-	if _, err := parseClaude([]byte(`{"subtype":"error_max_turns","is_error":true}`)); err == nil {
-		t.Fatal("error envelope accepted")
-	}
-	res, err = parseGrok([]byte(`{"text":"hi","usage":{"input_tokens":6435,"cache_read_input_tokens":512,"output_tokens":24},"modelUsage":{"grok-b":{"outputTokens":24}}}`))
-	if err != nil || res.Text != "hi" || res.TokensIn != 6947 || res.TokensOut != 24 || res.Model != "grok-b" {
-		t.Fatalf("grok %+v %v", res, err)
-	}
-	stream, err := os.ReadFile("testdata/cursor-stream.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err = parseCursor(stream)
-	if err != nil || res.Text != "OK" || res.TokensIn != 4+9854+10126 || res.TokensOut != 4 || res.Model != "Claude Opus 5.5 300K Medium" {
-		t.Fatalf("cursor %+v %v", res, err)
-	}
-}
-
 func TestNoAdapterPutsThePromptInArgv(t *testing.T) {
 	const prompt = "UNIQUE-PROMPT-TEXT"
-	for _, c := range []struct {
-		name string
-		a    interface {
-			Argv(Request) ([]string, error)
-		}
-		cmd string
-	}{{"claude", claude{}, "claude"}, {"pi", pi{}, "pi"}, {"grok", grok{}, "grok"}, {"cursor-agent", cursor{}, "cursor-agent"}} {
-		argv, err := c.a.Argv(Request{Binding: Binding{Command: c.cmd, Tools: []string{"Read", "Grep", "Glob"}}, Prompt: prompt, System: "skill"})
+	for _, cmd := range []string{"claude", "pi", "grok", "cursor-agent"} {
+		argv, err := argvOf(t, Request{Binding: Binding{Command: cmd, Tools: []string{"Read", "Grep", "Glob"}}, Prompt: prompt, System: "skill"})
 		if err != nil {
-			t.Fatalf("%s: %v", c.name, err)
+			t.Fatalf("%s: %v", cmd, err)
 		}
 		if strings.Contains(strings.Join(argv, "\x00"), prompt) {
-			t.Errorf("%s puts the prompt in argv: %q", c.name, argv)
+			t.Errorf("%s puts the prompt in argv: %q", cmd, argv)
 		}
 	}
 }

@@ -22,14 +22,18 @@ func isolateCursor(t *testing.T) string {
 	return dir
 }
 
-var hookTestdata = func() string {
+var integrationDir = func() string {
 	wd, _ := os.Getwd()
-	return filepath.Join(wd, "..", "hook", "testdata")
+	return filepath.Join(wd, "..", "integration")
 }()
+
+func integrationTestdata(harness string) string {
+	return filepath.Join(integrationDir, harness, "testdata")
+}
 
 func cursorPayload(t *testing.T, fixture, session, root, path, command string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(hookTestdata, "cursor-"+fixture+".json"))
+	b, err := os.ReadFile(filepath.Join(integrationTestdata(hook.Cursor), "cursor-"+fixture+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}

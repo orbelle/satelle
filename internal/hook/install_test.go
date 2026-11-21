@@ -11,6 +11,9 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/bobmcallan/satelle/internal/integration/common"
+	piint "github.com/bobmcallan/satelle/internal/integration/pi"
 )
 
 func TestSatelleCall(t *testing.T) {
@@ -52,8 +55,8 @@ func TestSatelleCall(t *testing.T) {
 		"timeout 5 satelle hook gate --harness claude":      false,
 		"satelle doctor":                                    false,
 	} {
-		if got := ownsCommand(cmd); got != want {
-			t.Errorf("ownsCommand(%q) = %v, want %v", cmd, got, want)
+		if got := common.OwnsCommand(cmd); got != want {
+			t.Errorf("OwnsCommand(%q) = %v, want %v", cmd, got, want)
 		}
 	}
 }
@@ -284,11 +287,11 @@ func TestRefreshLeavesAnUnownedPiExtension(t *testing.T) {
 	if _, changed, err := Install(root, Pi, nil); err != nil || !changed {
 		t.Fatalf("Install = %v, %v; want it replaced", changed, err)
 	}
-	writeFile(t, path, piOwnedMarker+" old\n")
+	writeFile(t, path, piint.OwnedMarker+" old\n")
 	if _, changed, err := Refresh(root, Pi, nil); err != nil || !changed {
 		t.Fatalf("Refresh of a marked old file = %v, %v; want rewritten", changed, err)
 	}
-	if b, _ := os.ReadFile(path); !bytes.Equal(b, piExtension()) {
+	if b, _ := os.ReadFile(path); !bytes.Equal(b, piint.Extension()) {
 		t.Error("Refresh did not write the current extension")
 	}
 }

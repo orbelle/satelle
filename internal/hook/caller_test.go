@@ -23,7 +23,7 @@ type callerCapture struct {
 
 func callerFixture(t *testing.T, harness string) callerCapture {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "caller-"+harness+".json"))
+	b, err := os.ReadFile(filepath.Join("..", "integration", harness, "testdata", "caller-"+harness+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestCallerMarkersAreCaptured(t *testing.T) {
 			continue
 		}
 		if !seen[h][n] {
-			t.Errorf("marker %s (%s) is not set in testdata/caller-%s.json", n, h, h)
+			t.Errorf("marker %s (%s) is not set in internal/integration/%s/testdata/caller-%s.json", n, h, h, h)
 		}
 	}
 	for _, p := range prefixes {
@@ -111,7 +111,7 @@ func TestCallerMarkersAreCaptured(t *testing.T) {
 			found = found || strings.HasPrefix(name, p)
 		}
 		if !found {
-			t.Errorf("marker prefix %s (%s) matches no name in testdata/caller-%s.json", p, h, h)
+			t.Errorf("marker prefix %s (%s) matches no name in internal/integration/%s/testdata/caller-%s.json", p, h, h, h)
 		}
 	}
 }

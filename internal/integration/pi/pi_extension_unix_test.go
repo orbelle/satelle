@@ -1,6 +1,6 @@
 //go:build unix
 
-package hook
+package pi
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
 const piDriver = `import ext from "./satelle.mts";
@@ -45,10 +47,10 @@ func TestPiExtensionNotifiesTheUserAtSessionStart(t *testing.T) {
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fake := "#!/bin/sh\ncat >/dev/null\nif [ \"$2\" = \"" + VerbContext + "\" ]; then cat \"$FAKE_OUT\"; exit \"$FAKE_CODE\"; fi\nexit 0\n"
+	fake := "#!/bin/sh\ncat >/dev/null\nif [ \"$2\" = \"" + common.VerbContext + "\" ]; then cat \"$FAKE_OUT\"; exit \"$FAKE_CODE\"; fi\nexit 0\n"
 	for name, body := range map[string]string{
 		filepath.Join(bin, "satelle"):     fake,
-		filepath.Join(dir, "satelle.mts"): string(piExtension()),
+		filepath.Join(dir, "satelle.mts"): string(Extension()),
 		filepath.Join(dir, "driver.mjs"):  piDriver,
 	} {
 		if err := os.WriteFile(name, []byte(body), 0o755); err != nil {

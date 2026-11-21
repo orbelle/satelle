@@ -1,4 +1,4 @@
-package agent
+package claude
 
 import (
 	"context"
@@ -6,24 +6,31 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
-type claude struct{}
+const (
+	Name = "claude"
+	CLI  = "claude"
+)
 
-func (claude) Name() string         { return PresetClaude }
-func (claude) EnforcesGrants() bool { return true }
+type Dispatch struct{}
 
-func (claude) Argv(req Request) ([]string, error) {
+func (Dispatch) Name() string         { return CLI }
+func (Dispatch) EnforcesGrants() bool { return true }
+
+func (Dispatch) Argv(req common.Request) ([]string, error) {
 	b := req.Binding
-	bin, extra, err := commandFields(b)
+	bin, extra, err := common.CommandFields(b)
 	if err != nil {
 		return nil, err
 	}
 	var offered []string
 	for _, t := range b.Tools {
 		base := t
-		if IsScoped(t) {
-			base = ToolBash
+		if common.IsScoped(t) {
+			base = common.ToolBash
 		}
 		if !slices.Contains(offered, base) {
 			offered = append(offered, base)
@@ -41,7 +48,7 @@ func (claude) Argv(req Request) ([]string, error) {
 	if len(b.Tools) > 0 {
 		argv = append(argv, "--allowedTools", strings.Join(b.Tools, ","))
 	}
-	plain, scoped := splitDenies(b.Tools, req.denies())
+	plain, scoped := common.SplitDenies(b.Tools, req.Denies())
 	if deny := append(plain, scoped...); len(deny) > 0 {
 		argv = append(argv, "--disallowedTools", strings.Join(deny, ","))
 	}
@@ -51,19 +58,19 @@ func (claude) Argv(req Request) ([]string, error) {
 	return argv, nil
 }
 
-func (c claude) Run(ctx context.Context, req Request) (Result, error) {
+func (c Dispatch) Run(ctx context.Context, req common.Request) (common.Result, error) {
 	argv, err := c.Argv(req)
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
-	out, err := runOnce(ctx, argv, req.Prompt, req)
+	out, err := common.RunOnce(ctx, argv, req.Prompt, req)
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
-	return parseClaude(out)
+	return parse(out)
 }
 
-type claudeEnvelope struct {
+type envelope struct {
 	Result  string `json:"result"`
 	IsError bool   `json:"is_error"`
 	Subtype string `json:"subtype"`
@@ -73,12 +80,10 @@ type claudeEnvelope struct {
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
-	ModelUsage map[string]struct {
-		OutputTokens int `json:"outputTokens"`
-	} `json:"modelUsage"`
+	ModelUsage common.ModelUsage `json:"modelUsage"`
 }
 
-func (e claudeEnvelope) tokens() (in, out int) {
+func (e envelope) tokens() (in, out int) {
 	if e.Usage == nil {
 		return 0, 0
 	}
@@ -86,22 +91,12 @@ func (e claudeEnvelope) tokens() (in, out int) {
 	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens, u.OutputTokens
 }
 
-func (e claudeEnvelope) model() string {
-	best, most := "", -1
-	for name, m := range e.ModelUsage {
-		if m.OutputTokens > most || (m.OutputTokens == most && name < best) {
-			best, most = name, m.OutputTokens
-		}
-	}
-	return best
-}
-
-func parseClaude(out []byte) (Result, error) {
-	var env claudeEnvelope
+func parse(out []byte) (common.Result, error) {
+	var env envelope
 	if err := json.Unmarshal(out, &env); err != nil {
-		return Result{Text: string(out)}, fmt.Errorf("claude: output is not a json envelope: %w", err)
+		return common.Result{Text: string(out)}, fmt.Errorf("claude: output is not a json envelope: %w", err)
 	}
-	res := Result{Text: env.Result, Model: env.model()}
+	res := common.Result{Text: env.Result, Model: env.ModelUsage.SelectModelByOutput()}
 	res.TokensIn, res.TokensOut = env.tokens()
 	if env.IsError || strings.HasPrefix(env.Subtype, "error") {
 		return res, fmt.Errorf("claude: run ended with %s: %s", env.Subtype, env.Result)

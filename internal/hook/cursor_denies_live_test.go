@@ -71,7 +71,7 @@ func cursorShellCalls(stream []byte) []shellCall {
 }
 
 func TestCursorShellCallsClassifiesTheCapturedStream(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "agent", "testdata", "cursor-stream-denied.jsonl"))
+	b, err := os.ReadFile(filepath.Join("..", "integration", Cursor, "testdata", "cursor-stream-denied.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}

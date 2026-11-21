@@ -1,6 +1,6 @@
 //go:build !windows
 
-package agent
+package cursor_test
 
 import (
 	"context"
@@ -10,7 +10,29 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
+
+type (
+	Binding = agent.Binding
+	Request = agent.Request
+	Runner  = agent.Runner
+)
+
+const (
+	Judge   = agent.Judge
+	Perform = agent.Perform
+)
+
+func read(t *testing.T, p string) string {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
 func fakeCursor(t *testing.T, stream string, exit int) (bin, argvFile, stdinFile, permsFile string) {
 	t.Helper()
@@ -140,7 +162,7 @@ func TestCursorProjectConfig(t *testing.T) {
 			}
 			bin, argvFile, _, _ := fakeCursor(t, string(stream), 0)
 			_, err := Runner{}.Dispatch(context.Background(), Judge, Request{Binding: Binding{Name: "j", Command: bin, Tools: ro}, Prompt: "p", Dir: dir})
-			ran := fileExists(argvFile)
+			ran := common.FileExists(argvFile)
 			if c.refuse {
 				if err == nil || !strings.Contains(err.Error(), cli) || ran {
 					t.Fatalf("not refused (ran=%v): %v", ran, err)

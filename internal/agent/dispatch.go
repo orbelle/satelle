@@ -1,80 +1,43 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/bobmcallan/satelle/internal/procgroup"
+	"github.com/bobmcallan/satelle/internal/integration"
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
-type Request struct {
-	Binding Binding
-	System  string
-	Prompt  string
-	Deny    []string
-	Dir     string
-	Env     []string
-	Log     string
-
-	promptFile string
-	log        *dispatchLog
-}
-
-func (r Request) denies() []string { return append(append([]string{}, r.Binding.Deny...), r.Deny...) }
-
-type Result struct {
-	Text      string
-	TokensIn  int
-	TokensOut int
-	Model     string
-	Command   string
-	Duration  time.Duration
-}
-
-type Adapter interface {
-	Name() string
-	EnforcesGrants() bool
-	Argv(req Request) ([]string, error)
-	Run(ctx context.Context, req Request) (Result, error)
-}
-
-const (
-	PresetClaude  = "claude"
-	PresetPi      = "pi"
-	PresetGrok    = "grok"
-	PresetCursor  = "cursor-agent"
-	PresetSession = "session"
+type (
+	Request = common.Request
+	Result  = common.Result
+	Adapter = common.DispatchAdapter
 )
+
+const PresetSession = "session"
 
 func AdapterFor(b Binding) (Adapter, error) {
-	bin, _, err := commandFields(b)
+	bin, _, err := common.CommandFields(b)
 	if err != nil {
 		return nil, err
 	}
-	switch preset(bin) {
-	case PresetClaude:
-		return claude{}, nil
-	case PresetPi:
-		return pi{}, nil
-	case PresetGrok:
-		return grok{}, nil
-	case PresetCursor:
-		return cursor{}, nil
-	case PresetSession:
+	p := common.Preset(bin)
+	if p == PresetSession {
 		return session{}, nil
 	}
-	return nil, fmt.Errorf("command %q names no adapter (%s, %s, %s, %s or %s)", b.Command, PresetClaude, PresetPi, PresetGrok, PresetCursor, PresetSession)
+	if a, ok := integration.Dispatch(p); ok {
+		return a, nil
+	}
+	names := append(integration.Dispatches(), PresetSession)
+	return nil, fmt.Errorf("command %q names no adapter (%s or %s)", b.Command, strings.Join(names[:len(names)-1], ", "), names[len(names)-1])
 }
 
 func IsSession(b Binding) bool {
-	bin, _, err := commandFields(b)
-	return err == nil && preset(bin) == PresetSession
+	bin, _, err := common.CommandFields(b)
+	return err == nil && common.Preset(bin) == PresetSession
 }
 
 type Role string
@@ -96,7 +59,7 @@ func CheckJudge(b Binding) error {
 		return err
 	}
 	if !IsReadOnly(b.Tools) {
-		return fmt.Errorf("agent %q may not judge: its grant %v is not read-only (%s)", b.Name, b.Tools, strings.Join(readTools, " "))
+		return fmt.Errorf("agent %q may not judge: its grant %v is not read-only (%s)", b.Name, b.Tools, strings.Join(common.ReadTools, " "))
 	}
 	if !a.EnforcesGrants() {
 		return fmt.Errorf("agent %q may not judge: the %s adapter does not enforce tool grants", b.Name, a.Name())
@@ -128,8 +91,8 @@ func (Runner) Dispatch(ctx context.Context, role Role, req Request) (Result, err
 	default:
 		return Result{}, fmt.Errorf("unknown role %q", role)
 	}
-	req.log = openLog(req.Log)
-	defer closeLog(req.log, req.Log)
+	req.Trace = common.OpenLog(req.Log)
+	defer closeLog(req.Trace, req.Log)
 	start := time.Now()
 	res, err := a.Run(ctx, req)
 	res.Duration = time.Since(start)
@@ -152,37 +115,4 @@ func (session) Argv(Request) ([]string, error) {
 func (s session) Run(context.Context, Request) (Result, error) {
 	_, err := s.Argv(Request{})
 	return Result{}, err
-}
-
-func runOnce(ctx context.Context, argv []string, stdin string, req Request) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = req.Dir
-	cmd.Env = append(os.Environ(), req.Env...)
-	procgroup.Set(cmd)
-	cmd.Cancel = func() error { return procgroup.Kill(cmd) }
-	cmd.WaitDelay = 2 * time.Second
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	req.log.argv(argv)
-	err := cmd.Run()
-	req.log.output("< ", out.Bytes())
-	req.log.output("stderr: ", errb.Bytes())
-	if ctx.Err() != nil {
-		return out.Bytes(), fmt.Errorf("%s: %w", argv[0], ctx.Err())
-	}
-	if err != nil {
-		return out.Bytes(), fmt.Errorf("%s: %w: %s", argv[0], err, tail(errb.Bytes(), 2000))
-	}
-	return out.Bytes(), nil
-}
-
-func tail(b []byte, n int) string {
-	b = bytes.TrimSpace(b)
-	if len(b) > n {
-		b = b[len(b)-n:]
-	}
-	return string(b)
 }

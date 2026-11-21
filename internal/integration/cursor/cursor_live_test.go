@@ -1,6 +1,6 @@
 //go:build !windows
 
-package agent
+package cursor_test
 
 import (
 	"context"

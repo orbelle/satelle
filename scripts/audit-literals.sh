@@ -10,7 +10,7 @@ names=$( {
   ls .satelle/skills/*.md | xargs -n1 basename | sed 's/\.md$//'
 } | sort -u | grep -v '^README$')
 pat=$(printf '"%s"|' $names); pat=${pat%|}
-allow='^internal/agent/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
+allow='^internal/integration/pi/pi\.go:.*"cancelled": true|^internal/hook/bashscan\.go:.*"done": true|^internal/remotechan/channel\.go:.*msgDone += "done"'
 allow="$allow"'|^internal/substrate/substrate\.go:[0-9]+:const Field = "substrate"$|^internal/cli/cmd_item\.go:.*BoolVar\(&onlyOpen, "open",|^internal/hosted/browser\.go:.*name, args = "open",|^internal/web/detail\.go:[0-9]+:(// drew\. Outcome is "moved", "refused" or "open"|	outcomeOpen += "open"$)'
 allow="$allow"'|^internal/cli/doctor_resolve\.go:[0-9]+:	answerRelease += "release"'
 hits=$(find internal cmd -name '*.go' ! -name '*_test.go' -print0 | xargs -0 grep -nE "$pat" | grep -vE "$allow" || true)

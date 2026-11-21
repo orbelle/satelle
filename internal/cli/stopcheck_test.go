@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/seatlife"
 )
 
@@ -330,7 +331,7 @@ func fireRun(t *testing.T) string {
 
 func grokFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "hook", "testdata", name))
+	raw, err := os.ReadFile(filepath.Join(integrationTestdata(hook.Grok), name))
 	if err != nil {
 		t.Fatal(err)
 	}

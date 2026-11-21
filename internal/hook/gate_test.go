@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gittest"
+	piint "github.com/bobmcallan/satelle/internal/integration/pi"
 )
 
 func newRepo(t *testing.T) string {
@@ -268,7 +269,7 @@ func TestParseInputAcrossHarnesses(t *testing.T) {
 
 func cursorFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "cursor-"+name+".json"))
+	b, err := os.ReadFile(filepath.Join("..", "integration", Cursor, "testdata", "cursor-"+name+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,11 +278,11 @@ func cursorFixture(t *testing.T, name string) []byte {
 
 func TestParseInputCursorFixtures(t *testing.T) {
 	start := ParseInput(cursorFixture(t, "sessionstart"))
-	if start.Session == "" || !start.Cursor || start.Event != "sessionStart" || !slices.Equal(start.Roots, []string{"/work/repo"}) || start.Model != "gemini-3.8-flash-high" {
+	if start.Session == "" || start.DetectedHarness != Cursor || start.Event != "sessionStart" || !slices.Equal(start.Roots, []string{"/work/repo"}) || start.Model != "gemini-3.8-flash-high" {
 		t.Fatalf("sessionStart: %+v", start)
 	}
 	write := ParseInput(cursorFixture(t, "pretooluse-write"))
-	if !write.IsEdit() || write.IsShell() || write.Path != "/work/repo/ok.txt" || write.Session != start.Session || !write.Cursor || write.Model != "gemini-3.8-flash" {
+	if !write.IsEdit() || write.IsShell() || write.Path != "/work/repo/ok.txt" || write.Session != start.Session || write.DetectedHarness != Cursor || write.Model != "gemini-3.8-flash" {
 		t.Errorf("Write: %+v (session start %q)", write, start.Session)
 	}
 	del := ParseInput(cursorFixture(t, "pretooluse-delete"))
@@ -293,14 +294,14 @@ func TestParseInputCursorFixtures(t *testing.T) {
 		t.Errorf("Shell: %+v", sh)
 	}
 	compat := ParseInput(cursorFixture(t, "claudecompat-pretooluse"))
-	if !compat.Cursor || !compat.IsEdit() {
+	if compat.DetectedHarness != Cursor || !compat.IsEdit() {
 		t.Errorf("Cursor's run of a .claude/settings.json hook does not mark Cursor: %+v", compat)
 	}
 	conv := ParseInput([]byte(`{"conversation_id":"c1","cursor_version":"x"}`))
 	if conv.Session != "c1" {
 		t.Errorf("conversation_id is not the session fallback: %+v", conv)
 	}
-	if ParseInput([]byte(`{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/a"}}`)).Cursor {
+	if ParseInput([]byte(`{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/a"}}`)).DetectedHarness != "" {
 		t.Error("a claude payload reads as Cursor's")
 	}
 }
@@ -322,7 +323,7 @@ func TestParseInputModelAndHarness(t *testing.T) {
 	if claudeNoModel.Model != "" || claudeNoModel.Harness(Claude) != Claude {
 		t.Errorf("claude without model: %+v harness=%q", claudeNoModel, claudeNoModel.Harness(Claude))
 	}
-	if got := (Input{Cursor: true}).Harness(Claude); got != Cursor {
+	if got := (Input{DetectedHarness: Cursor}).Harness(Claude); got != Cursor {
 		t.Errorf("Cursor payload via claude flag: harness=%q, want %q", got, Cursor)
 	}
 	if got := (Input{}).Harness(" pi "); got != Pi {
@@ -387,7 +388,7 @@ func TestStopBlockEnvelopes(t *testing.T) {
 
 func TestParseInputGrokFixtures(t *testing.T) {
 	read := func(name string) []byte {
-		b, err := os.ReadFile(filepath.Join("testdata", name))
+		b, err := os.ReadFile(filepath.Join("..", "integration", Grok, "testdata", name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -502,7 +503,7 @@ func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 func TestDefersToCursorInstall(t *testing.T) {
 	root := t.TempDir()
 	at := func() (string, bool) { return root, true }
-	fromCursor := Input{Cursor: true}
+	fromCursor := Input{DetectedHarness: Cursor}
 	if Defers(Claude, fromCursor, at) {
 		t.Error("defers with no cursor install")
 	}
@@ -561,7 +562,7 @@ func TestInstallKeepsUserHooksAndRemoveStripsOurs(t *testing.T) {
 		t.Fatal(err)
 	}
 	pi, _ := os.ReadFile(filepath.Join(root, ".pi", "extensions", "satelle.ts"))
-	if !strings.Contains(string(pi), piOwnedMarker) || strings.Contains(string(pi), "__SATELLE_") {
+	if !strings.Contains(string(pi), piint.OwnedMarker) || strings.Contains(string(pi), "__SATELLE_") {
 		t.Fatalf("pi extension not rendered:\n%s", pi)
 	}
 	if i, j := strings.Index(string(pi), `pi.on("session_start"`), strings.Index(string(pi), `pi.on("before_agent_start"`); i < 0 || j < i {

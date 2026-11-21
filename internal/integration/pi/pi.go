@@ -1,4 +1,4 @@
-package agent
+package pi
 
 import (
 	"bufio"
@@ -8,48 +8,47 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"time"
 
+	"github.com/bobmcallan/satelle/internal/integration/common"
 	"github.com/bobmcallan/satelle/internal/procgroup"
 )
 
-type pi struct{}
+const (
+	Name = "pi"
+	CLI  = "pi"
+)
 
-func (pi) Name() string         { return PresetPi }
-func (pi) EnforcesGrants() bool { return true }
+type Dispatch struct{}
+
+func (Dispatch) Name() string         { return CLI }
+func (Dispatch) EnforcesGrants() bool { return true }
 
 var piColdFlags = []string{"--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-mcp", "--no-themes"}
 
 var piTools = map[string][]string{
-	ToolRead:  {"read"},
-	ToolGrep:  {"grep"},
-	ToolGlob:  {"find", "ls"},
-	ToolEdit:  {"edit"},
-	ToolWrite: {"write"},
-	ToolBash:  {"bash"},
+	common.ToolRead:  {"read"},
+	common.ToolGrep:  {"grep"},
+	common.ToolGlob:  {"find", "ls"},
+	common.ToolEdit:  {"edit"},
+	common.ToolWrite: {"write"},
+	common.ToolBash:  {"bash"},
 }
 
 const piGrace = 2 * time.Second
 
-func (pi) Argv(req Request) ([]string, error) {
+func (Dispatch) Argv(req common.Request) ([]string, error) {
 	b := req.Binding
-	bin, extra, err := commandFields(b)
+	bin, extra, err := common.CommandFields(b)
 	if err != nil {
 		return nil, err
 	}
-	plain, scoped := splitDenies(b.Tools, req.denies())
+	plain, scoped := common.SplitDenies(b.Tools, req.Denies())
 	if len(scoped) > 0 {
 		return nil, fmt.Errorf("pi adapter cannot express the scoped deny %s on a grant that runs a shell", strings.Join(scoped, ", "))
 	}
-	var grant []string
-	for _, t := range b.Tools {
-		if !slices.Contains(plain, t) {
-			grant = append(grant, t)
-		}
-	}
-	tools, err := translate(PresetPi, piTools, grant)
+	tools, err := common.TranslateTools(CLI, piTools, common.Granted(b, plain))
 	if err != nil {
 		return nil, err
 	}
@@ -117,12 +116,12 @@ const (
 	piStatsID  = "satelle-stats"
 )
 
-func (p pi) Run(ctx context.Context, req Request) (Result, error) {
+func (p Dispatch) Run(ctx context.Context, req common.Request) (common.Result, error) {
 	argv, err := p.Argv(req)
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
-	req.log.argv(argv)
+	req.Trace.Argv(argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = req.Dir
 	cmd.Env = append(os.Environ(), req.Env...)
@@ -130,16 +129,16 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.WaitDelay = piGrace
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return Result{}, fmt.Errorf("pi: start: %w", err)
+		return common.Result{}, fmt.Errorf("pi: start: %w", err)
 	}
 	lines := make(chan []byte)
 	go func() {
@@ -148,7 +147,7 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 		for {
 			line, err := r.ReadBytes('\n')
 			if t := bytes.TrimSpace(line); len(t) > 0 {
-				req.log.line("< ", t)
+				req.Trace.Line("< ", t)
 				lines <- t
 			}
 			if err != nil {
@@ -170,16 +169,16 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 			_ = procgroup.Kill(cmd)
 			<-done
 		}
-		req.log.output("stderr: ", stderr.Bytes())
+		req.Trace.Output("stderr: ", stderr.Bytes())
 	}
 	send := func(v map[string]any) error {
 		b, _ := json.Marshal(v)
-		req.log.line("> ", b)
+		req.Trace.Line("> ", b)
 		_, err := stdin.Write(append(b, '\n'))
 		return err
 	}
 
-	var res Result
+	var res common.Result
 	var lastText string
 	var text *string
 	settled, gotText, gotStats := false, false, false
@@ -248,7 +247,7 @@ func (p pi) Run(ctx context.Context, req Request) (Result, error) {
 		case line, open := <-lines:
 			if !open {
 				end()
-				return res, fmt.Errorf("pi exited before it settled: %s", tail(stderr.Bytes(), 2000))
+				return res, fmt.Errorf("pi exited before it settled: %s", common.Tail(stderr.Bytes(), 2000))
 			}
 			if err := handle(line); err != nil {
 				end()
@@ -281,7 +280,7 @@ replies:
 		res.Text = *text
 	}
 	if strings.TrimSpace(res.Text) == "" {
-		return res, fmt.Errorf("pi settled without an answer: %s", tail(stderr.Bytes(), 2000))
+		return res, fmt.Errorf("pi settled without an answer: %s", common.Tail(stderr.Bytes(), 2000))
 	}
 	return res, nil
 }

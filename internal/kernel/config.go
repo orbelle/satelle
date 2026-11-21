@@ -189,7 +189,7 @@ func (c *Config) agentProblems() []error {
 	var errs []error
 	for _, name := range c.Agents.Names() {
 		o, overridden := c.override(name)
-		for _, err := range c.Agents[name].Problems() {
+		for _, err := range agent.Problems(c.Agents[name]) {
 			if overridden {
 				errs = append(errs, fmt.Errorf("%s: agents.%s: %w (overriding %s)", AgentsLocalFile, name, err, strings.Join(o.Fields, ", ")))
 			} else {

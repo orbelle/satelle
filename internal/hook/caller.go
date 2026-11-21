@@ -2,48 +2,44 @@ package hook
 
 import (
 	"os"
+	"slices"
 	"strings"
-)
 
-var (
-	cursorMarkers    = []string{"CURSOR_AGENT", "CURSOR_INVOKED_AS"}
-	piMarkers        = []string{"PI_CODING_AGENT"}
-	piMarkerPrefix   = "PI_SESSION_"
-	grokMarkers      = []string{"GROK_AGENT"}
-	claudeMarkers    = []string{"CLAUDECODE"}
-	callerOverClaude = []string{Cursor, Pi, Grok}
+	"github.com/bobmcallan/satelle/internal/integration"
 )
 
 func CallerFrom(environ []string) string {
 	set := map[string]bool{}
+	adapters := integration.Hooks()
 	for _, kv := range environ {
 		name, value, _ := strings.Cut(kv, "=")
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		switch {
-		case contains(cursorMarkers, name):
-			set[Cursor] = true
-		case contains(piMarkers, name) || strings.HasPrefix(name, piMarkerPrefix):
-			set[Pi] = true
-		case contains(grokMarkers, name):
-			set[Grok] = true
-		case contains(claudeMarkers, name):
-			set[Claude] = true
+		for _, a := range adapters {
+			names, prefixes := a.CallerMarkers()
+			if slices.Contains(names, name) || slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
+				set[a.Name()] = true
+				break
+			}
 		}
 	}
-	found := ""
-	for _, h := range callerOverClaude {
-		if !set[h] {
+	found, fallback := "", ""
+	for _, a := range adapters {
+		if a.Fallback() {
+			fallback = a.Name()
+			continue
+		}
+		if !set[a.Name()] {
 			continue
 		}
 		if found != "" {
 			return ""
 		}
-		found = h
+		found = a.Name()
 	}
-	if found == "" && set[Claude] {
-		return Claude
+	if found == "" && fallback != "" && set[fallback] {
+		return fallback
 	}
 	return found
 }
@@ -51,17 +47,10 @@ func CallerFrom(environ []string) string {
 func Caller() string { return CallerFrom(os.Environ()) }
 
 func CallerMarkers() (names, prefixes []string) {
-	for _, l := range [][]string{cursorMarkers, piMarkers, grokMarkers, claudeMarkers} {
-		names = append(names, l...)
+	for _, a := range integration.Hooks() {
+		n, p := a.CallerMarkers()
+		names = append(names, n...)
+		prefixes = append(prefixes, p...)
 	}
-	return names, []string{piMarkerPrefix}
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return names, prefixes
 }

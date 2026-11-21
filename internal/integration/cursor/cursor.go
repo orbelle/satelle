@@ -1,4 +1,4 @@
-package agent
+package cursor
 
 import (
 	"bufio"
@@ -13,12 +13,19 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
-type cursor struct{}
+const (
+	Name = "cursor"
+	CLI  = "cursor-agent"
+)
 
-func (cursor) Name() string         { return PresetCursor }
-func (cursor) EnforcesGrants() bool { return true }
+type Dispatch struct{}
+
+func (Dispatch) Name() string         { return CLI }
+func (Dispatch) EnforcesGrants() bool { return true }
 
 const cursorDenyAllShell = "Shell(**)"
 
@@ -27,40 +34,35 @@ type cursorGrant struct {
 	rules []string
 }
 
-func cursorFor(b Binding, denies []string) (cursorGrant, error) {
-	plain, _ := splitDenies(b.Tools, denies)
-	var grant []string
-	for _, t := range b.Tools {
-		if !slices.Contains(plain, t) {
-			grant = append(grant, t)
-		}
-	}
+func cursorFor(b common.Binding, denies []string) (cursorGrant, error) {
+	plain, _ := common.SplitDenies(b.Tools, denies)
+	grant := common.Granted(b, plain)
 	has := func(t string) bool { return slices.Contains(grant, t) }
-	if grantsBash(grant) {
+	if common.GrantsBash(grant) {
 		return cursorGrant{}, errors.New("cursor-agent cannot hold a shell to satelle's performer denies: Cursor's Shell rules match the commands it parses, so a heredoc or here-string body or an editor variable escapes them; grant no Bash (see satelle help agents)")
 	}
-	if has(ToolNotebookEdit) {
-		return cursorGrant{}, fmt.Errorf("cursor-agent cannot express the grant %s", ToolNotebookEdit)
+	if has(common.ToolNotebookEdit) {
+		return cursorGrant{}, fmt.Errorf("cursor-agent cannot express the grant %s", common.ToolNotebookEdit)
 	}
-	if !(has(ToolRead) && has(ToolGrep) && has(ToolGlob)) {
+	if !(has(common.ToolRead) && has(common.ToolGrep) && has(common.ToolGlob)) {
 		return cursorGrant{}, errors.New("cursor-agent grants Read, Grep and Glob together")
 	}
-	if has(ToolEdit) != has(ToolWrite) {
+	if has(common.ToolEdit) != has(common.ToolWrite) {
 		return cursorGrant{}, errors.New("cursor-agent has one write permission: grant Edit and Write together")
 	}
-	return cursorGrant{ask: IsReadOnly(grant), rules: []string{cursorDenyAllShell}}, nil
+	return cursorGrant{ask: common.IsReadOnly(grant), rules: []string{cursorDenyAllShell}}, nil
 }
 
-func (cursor) Argv(req Request) ([]string, error) {
+func (Dispatch) Argv(req common.Request) ([]string, error) {
 	b := req.Binding
-	bin, extra, err := commandFields(b)
+	bin, extra, err := common.CommandFields(b)
 	if err != nil {
 		return nil, err
 	}
 	if b.Effort != "" {
 		return nil, fmt.Errorf("cursor-agent carries effort in the model id (e.g. claude-opus-5-5-high); drop effort %q", b.Effort)
 	}
-	g, err := cursorFor(b, req.denies())
+	g, err := cursorFor(b, req.Denies())
 	if err != nil {
 		return nil, err
 	}
@@ -77,36 +79,36 @@ func (cursor) Argv(req Request) ([]string, error) {
 	return argv, nil
 }
 
-func cursorStdin(req Request) string {
+func cursorStdin(req common.Request) string {
 	if req.System == "" {
 		return req.Prompt
 	}
 	return "<system>\n" + req.System + "\n</system>\n\n" + req.Prompt
 }
 
-func (c cursor) Run(ctx context.Context, req Request) (Result, error) {
+func (c Dispatch) Run(ctx context.Context, req common.Request) (common.Result, error) {
 	argv, err := c.Argv(req)
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
-	g, _ := cursorFor(req.Binding, req.denies())
+	g, _ := cursorFor(req.Binding, req.Denies())
 	if err := cursorProjectConfig(req.Dir); err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
 	cfg, cleanup, err := cursorConfigDir(req, g.rules)
 	if err != nil {
-		return Result{}, err
+		return common.Result{}, err
 	}
 	defer cleanup()
 	req.Env = append(append([]string{}, req.Env...), "CURSOR_CONFIG_DIR="+cfg)
-	out, err := runOnce(ctx, argv, cursorStdin(req), req)
+	out, err := common.RunOnce(ctx, argv, cursorStdin(req), req)
 	if err != nil {
-		return Result{}, cursorFailure(argv[0], out, err)
+		return common.Result{}, cursorFailure(argv[0], out, err)
 	}
 	return parseCursor(out)
 }
 
-func cursorAuthDir(req Request) string {
+func cursorAuthDir(req common.Request) string {
 	for i := len(req.Env) - 1; i >= 0; i-- {
 		if v, ok := strings.CutPrefix(req.Env[i], "CURSOR_CONFIG_DIR="); ok && v != "" {
 			return v
@@ -122,13 +124,13 @@ func cursorAuthDir(req Request) string {
 	return filepath.Join(home, ".config", "cursor")
 }
 
-func cursorConfigDir(req Request, rules []string) (string, func(), error) {
+func cursorConfigDir(req common.Request, rules []string) (string, func(), error) {
 	dir, err := os.MkdirTemp("", "satelle-cursor-")
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	if auth := filepath.Join(cursorAuthDir(req), "auth.json"); fileExists(auth) {
+	if auth := filepath.Join(cursorAuthDir(req), "auth.json"); common.FileExists(auth) {
 		if err := os.Symlink(auth, filepath.Join(dir, "auth.json")); err != nil {
 			cleanup()
 			return "", nil, err
@@ -148,7 +150,7 @@ func cursorConfigDir(req Request, rules []string) (string, func(), error) {
 		return "", nil, err
 	}
 	written, _ := json.Marshal(rules)
-	req.log.line("cursor permissions: ", written)
+	req.Trace.Line("cursor permissions: ", written)
 	return dir, cleanup, nil
 }
 
@@ -188,8 +190,6 @@ func cursorProjectConfig(dir string) error {
 	}
 }
 
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
-
 type cursorEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
@@ -221,10 +221,10 @@ func readCursorStream(out []byte) []cursorEvent {
 	return evs
 }
 
-func parseCursor(out []byte) (Result, error) {
+func parseCursor(out []byte) (common.Result, error) {
 	evs := readCursorStream(out)
 	if len(evs) == 0 {
-		return Result{}, errors.New("cursor-agent: output is not a stream-json stream")
+		return common.Result{}, errors.New("cursor-agent: output is not a stream-json stream")
 	}
 	var res *cursorEvent
 	model := ""
@@ -239,18 +239,18 @@ func parseCursor(out []byte) (Result, error) {
 		}
 	}
 	if res == nil {
-		return Result{}, errors.New("cursor-agent: stream ended without a result event")
+		return common.Result{}, errors.New("cursor-agent: stream ended without a result event")
 	}
 	if res.Model != "" {
 		model = res.Model
 	}
 	if res.IsError || strings.HasPrefix(res.Subtype, "error") {
-		return Result{}, fmt.Errorf("cursor-agent: run ended with %s: %s", res.Subtype, res.Result)
+		return common.Result{}, fmt.Errorf("cursor-agent: run ended with %s: %s", res.Subtype, res.Result)
 	}
 	if strings.TrimSpace(res.Result) == "" {
-		return Result{}, errors.New("cursor-agent: run ended with no answer")
+		return common.Result{}, errors.New("cursor-agent: run ended with no answer")
 	}
-	r := Result{Text: res.Result, Model: model}
+	r := common.Result{Text: res.Result, Model: model}
 	if u := res.Usage; u != nil {
 		r.TokensIn = u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
 		r.TokensOut = u.OutputTokens

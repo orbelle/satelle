@@ -1,56 +1,41 @@
 package hook
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/integration"
+	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
-const autoModeDefaults = "$defaults"
+var ErrAutoModeUnavailable = common.ErrAutoModeUnavailable
 
-var ErrAutoModeUnavailable = errors.New("auto-mode guidance is unavailable")
+func AutoModeLines(guidance []byte) []string { return common.AutoModeLines(guidance) }
 
-type autoModeBlock struct {
-	Environment []string `json:"environment"`
-}
-
-type autoModeDoc struct {
-	AutoMode autoModeBlock `json:"autoMode"`
-}
-
-func AutoModeLines(guidance []byte) []string {
-	var out []string
-	for _, line := range strings.Split(string(guidance), "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			out = append(out, trimmed)
-		}
+func autoModeAdapter(harness string) (common.AutoModeAdapter, error) {
+	a, ok := integration.Hook(harness)
+	if !ok {
+		return nil, fmt.Errorf("unknown harness %q (one of %s)", harness, strings.Join(Harnesses, ", "))
 	}
-	return out
+	am, ok := a.(common.AutoModeAdapter)
+	if !ok {
+		return nil, common.AutoModeUnavailable(harness)
+	}
+	return am, nil
 }
 
 func AutoModeDisplay(harness string) (string, error) {
-	switch harness {
-	case Claude:
-		return "~/.claude/settings.json", nil
-	case Pi, Grok, Cursor:
-		return "", fmt.Errorf("%s: %w", harness, ErrAutoModeUnavailable)
+	am, err := autoModeAdapter(harness)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("unknown harness %q (one of %s)", harness, strings.Join(Harnesses, ", "))
+	return am.AutoModeDisplay(), nil
 }
 
 func FormatAutoMode(harness string, guidance []byte) ([]byte, error) {
-	if _, err := AutoModeDisplay(harness); err != nil {
+	am, err := autoModeAdapter(harness)
+	if err != nil {
 		return nil, err
 	}
-	env := append([]string{autoModeDefaults}, AutoModeLines(guidance)...)
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(autoModeDoc{AutoMode: autoModeBlock{Environment: env}}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return am.FormatAutoMode(guidance)
 }
