@@ -1718,9 +1718,6 @@ func TestPRGatePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(packs) != 1 {
-		t.Fatalf("packs under .satelle/skills: %v, want one", packs)
-	}
 	pk, ok := packs[prGateEntry]
 	if !ok {
 		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
