@@ -576,7 +576,10 @@ func checkSeats(_ context.Context, in *doctorInput) ([]doctorIssue, []string) {
 	var elsewhere, gone, unverified []string
 	seen := 0
 	for _, ri := range items {
-		terminal := isTerminal(in.cfg, ri.it)
+		terminal := false
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
+			terminal = true
+		}
 		for _, s := range ri.seats {
 			seen++
 			rec, ok := seatlife.Load(home, s.Session)
@@ -689,113 +692,25 @@ func readItems(in *doctorInput) ([]readItem, error) {
 	return out, nil
 }
 
-func isTerminal(cfg *kernel.Config, it item.Item) bool {
-	if cfg == nil {
-		return false
-	}
-	w := cfg.Workflows[it.Workflow]
-	return w != nil && w.IsTerminal(it.Status)
-}
-
-type keyOwner struct {
-	id, status string
-}
-
-func indexKeyOwners(cfg *kernel.Config, items []readItem, sel item.Selection, ownerTag string) map[string][]keyOwner {
-	owners := map[string][]keyOwner{}
-	for _, ri := range items {
-		if isTerminal(cfg, ri.it) || sel.Matches(ri.it) {
-			continue
-		}
-		for _, tag := range ri.it.Tags {
-			k, v, ok := item.TagKV(tag)
-			if !ok || k != ownerTag {
-				continue
-			}
-			val := strings.TrimSpace(v)
-			if val == "" {
-				continue
-			}
-			if slices.ContainsFunc(owners[val], func(o keyOwner) bool { return o.id == ri.it.ID }) {
-				continue
-			}
-			owners[val] = append(owners[val], keyOwner{id: ri.it.ID, status: ri.it.Status})
-		}
-	}
-	return owners
-}
-
-func extractBodyKeys(body, prefix string) []string {
-	var keys []string
-	seen := map[string]bool{}
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimRight(line, "\r")
-		rest, ok := strings.CutPrefix(line, prefix)
-		if !ok {
-			continue
-		}
-		key := strings.TrimSpace(rest)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		keys = append(keys, key)
-	}
-	return keys
-}
-
-func formatKeyOwners(owners []keyOwner) string {
-	parts := make([]string, len(owners))
-	for i, o := range owners {
-		parts[i] = fmt.Sprintf("%s (%s)", o.id, o.status)
-	}
-	return strings.Join(parts, ", ")
-}
-
 func openItems(in *doctorInput, o kernel.DoctorOpen) ([]doctorIssue, []string) {
 	items, err := readItems(in)
 	if err != nil {
 		return []doctorIssue{{Check: "open:" + o.Name, Problem: err.Error(), Fix: "satelle ledger verify"}}, nil
 	}
 	sel := o.Selection()
-	useOwnership := strings.TrimSpace(o.KeyPrefix) != "" && strings.TrimSpace(o.OwnerTag) != "" &&
-		o.OwnerTag == strings.TrimSpace(o.OwnerTag) && !strings.Contains(o.OwnerTag, ":")
-	var owners map[string][]keyOwner
-	if useOwnership {
-		owners = indexKeyOwners(in.cfg, items, sel, o.OwnerTag)
-	}
 	var out []doctorIssue
-	var notes []string
 	for _, ri := range items {
-		if !sel.Matches(ri.it) || isTerminal(in.cfg, ri.it) {
+		if !sel.Matches(ri.it) {
 			continue
 		}
-		fix := strings.ReplaceAll(o.Fix, "{id}", ri.it.ID)
-		var keys []string
-		if useOwnership {
-			keys = extractBodyKeys(ri.it.Body, o.KeyPrefix)
-		}
-		if len(keys) == 0 {
-			out = append(out, doctorIssue{Check: "open:" + o.Name,
-				Problem: fmt.Sprintf("%s is %s: %s", ri.it.ID, ri.it.Status, ri.it.Title),
-				Fix:     fix})
+		if w := in.cfg.Workflows[ri.it.Workflow]; w != nil && w.IsTerminal(ri.it.Status) {
 			continue
 		}
-		var unowned []string
-		for _, k := range keys {
-			if list := owners[k]; len(list) > 0 {
-				notes = append(notes, fmt.Sprintf("open:%s: %s (%s) owned by %s", o.Name, k, ri.it.ID, formatKeyOwners(list)))
-				continue
-			}
-			unowned = append(unowned, k)
-		}
-		if len(unowned) > 0 {
-			out = append(out, doctorIssue{Check: "open:" + o.Name,
-				Problem: fmt.Sprintf("%s is %s: %s; unowned: %s", ri.it.ID, ri.it.Status, ri.it.Title, strings.Join(unowned, ", ")),
-				Fix:     fix})
-		}
+		out = append(out, doctorIssue{Check: "open:" + o.Name,
+			Problem: fmt.Sprintf("%s is %s: %s", ri.it.ID, ri.it.Status, ri.it.Title),
+			Fix:     strings.ReplaceAll(o.Fix, "{id}", ri.it.ID)})
 	}
-	return out, notes
+	return out, nil
 }
 
 func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorCheck) ([]doctorIssue, []string) {
