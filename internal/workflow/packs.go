@@ -91,6 +91,18 @@ func LoadPacks(dir string) (map[string]Pack, []UnknownKey, error) {
 	return out, unknown, errors.Join(errs...)
 }
 
+// ParsePack decodes the text of a pack.toml read from file, which names it in
+// errors. Unknown keys are left for validate to report once the pack is on
+// disk, as LoadPacks leaves them.
+func ParsePack(file string, data []byte) (Pack, error) {
+	var pk Pack
+	if _, err := DecodeData(file, data, &pk); err != nil {
+		return Pack{}, err
+	}
+	pk.File = file
+	return pk, nil
+}
+
 func (p Pack) Validate(skill SkillLookup) []error {
 	file := p.File
 	var errs []error

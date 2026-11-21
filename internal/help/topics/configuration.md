@@ -132,6 +132,9 @@ its `commands` key.
   are not skills.
 - `skills/<name>/pack.toml` — optional: defines a skill pack in its entry
   skill's directory (`skills/<name>/SKILL.md` is the wiring guide) (below).
+- `packs.toml` — written by `satelle pack install`: each installed pack's
+  ref, version, digest, skills and each file's sha256 as published (below,
+  under pack.toml).
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to
@@ -187,6 +190,35 @@ permission, it is decoded leniently: an unknown key is reported by
 validation. The kernel never refuses to load or run a skill for its content,
 and loading or running edited pack member skills requires no
 `.satelle/packs.toml`.
+
+`satelle pack install <ref> --version <v> --session <session>` fetches a pack
+version from the marketplace, verifies it as `satelle pack fetch` does, and
+places it under `.satelle/skills/`. The published files are paths relative to
+`.satelle/skills/`: one entry directory holding `SKILL.md` and `pack.toml`, and
+the member skill directories its `skills` lists, as siblings; a file at the
+bundle root, a second `pack.toml`, a directory that is neither entry nor
+member, or a `pack.toml` validate would refuse is refused. Install needs a seat
+at this worktree on a state whose performer may change the tree, whatever
+`[gate] edit_exempt_paths` says, and `[gate] locked_paths` apply to every file
+it writes. It refuses a `.satelle`, `skills` or `packs.toml` that resolves
+outside the worktree, a skill directory (or single-file skill of the same
+name) that already exists and is not recorded as that pack's, and the same pack
+at another version; the same version and digest again writes nothing. When a
+check, the verification or the read fails, nothing is written and
+`.satelle/packs.toml` is unchanged. Installed skills are the repo's own to wire
+and edit; install never merges or overwrites them. It records each pack in
+`.satelle/packs.toml`, sorted by ref and path:
+
+    [[pack]]
+    ref = "<owner>/<name>"
+    name = "<pack-name>"
+    version = "<version>"
+    digest = "<sha256 of the pack>"
+    skills = ["<entry>", "<member-skill>"]   # the directories placed
+
+      [[pack.file]]
+      path = "<entry>/SKILL.md"            # relative to .satelle/skills/
+      sha256 = "<sha256 as published>"
 
 ## doctor.toml
 

@@ -658,3 +658,36 @@ func TestNativePath(t *testing.T) {
 		}
 	}
 }
+
+func TestGateEmptyTempRootsDoesNotAllowTemp(t *testing.T) {
+	root := newRepo(t)
+	other := newRepo(t)
+	target := filepath.Join(other, "f.txt")
+	if !UnderTemp(nil, target) {
+		t.Skip("the test repositories are not under the system temp dir")
+	}
+	if v := (Gate{Root: root}).Edit(target); !v.Allow {
+		t.Fatalf("nil TempRoots: a temp path was denied: %s", v.Reason)
+	}
+	if v := (Gate{Root: root, TempRoots: []string{}}).Edit(target); v.Allow {
+		t.Error("empty TempRoots: a temp path in another repository was allowed")
+	}
+	if UnderTemp([]string{}, target) {
+		t.Error("UnderTemp with no roots matched")
+	}
+
+	for _, c := range []struct {
+		root, target string
+		want         bool
+	}{
+		{"/a/b", "/a/b", true},
+		{"/a/b", "/a/b/c", true},
+		{"/a/b", "/a/bc", false},
+		{"/a/b", "/a/b/../c", false},
+		{"/a/b", "/a", false},
+	} {
+		if got := Within(c.root, c.target); got != c.want || got != within(c.root, c.target) {
+			t.Errorf("Within(%q, %q) = %v, want %v", c.root, c.target, got, c.want)
+		}
+	}
+}

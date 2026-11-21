@@ -21,6 +21,7 @@ type DigestEntry struct {
 type verifiedFile struct {
 	path       string
 	executable bool
+	sha256     string
 	body       []byte
 }
 
@@ -181,6 +182,7 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 		files = append(files, verifiedFile{
 			path:       p,
 			executable: ref.GetExecutable(),
+			sha256:     actual,
 			body:       slices.Clone(body),
 		})
 	}
@@ -235,27 +237,8 @@ func Write(dir string, v Verified) error {
 	}
 	defer os.RemoveAll(stage)
 
-	for _, f := range v.files {
-		dest := filepath.Join(stage, filepath.FromSlash(f.path))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return fmt.Errorf("create directory for %q: %w", f.path, err)
-		}
-		mode := os.FileMode(0o644)
-		if f.executable {
-			mode = 0o755
-		}
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
-		if err != nil {
-			return fmt.Errorf("create %q: %w", f.path, err)
-		}
-		_, wErr := out.Write(f.body)
-		cErr := out.Close()
-		if wErr != nil {
-			return fmt.Errorf("write %q: %w", f.path, wErr)
-		}
-		if cErr != nil {
-			return fmt.Errorf("close %q: %w", f.path, cErr)
-		}
+	if err := stageFiles(stage, v); err != nil {
+		return err
 	}
 
 	if !existed {
@@ -283,6 +266,34 @@ func Write(dir string, v Verified) error {
 			return fmt.Errorf("commit %q to %q: %w", entry.Name(), dir, err)
 		}
 		moved = append(moved, dst)
+	}
+	return nil
+}
+
+// stageFiles writes every verified file under stage, each created anew with
+// its published mode.
+func stageFiles(stage string, v Verified) error {
+	for _, f := range v.files {
+		dest := filepath.Join(stage, filepath.FromSlash(f.path))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return fmt.Errorf("create directory for %q: %w", f.path, err)
+		}
+		mode := os.FileMode(0o644)
+		if f.executable {
+			mode = 0o755
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+		if err != nil {
+			return fmt.Errorf("create %q: %w", f.path, err)
+		}
+		_, wErr := out.Write(f.body)
+		cErr := out.Close()
+		if wErr != nil {
+			return fmt.Errorf("write %q: %w", f.path, wErr)
+		}
+		if cErr != nil {
+			return fmt.Errorf("close %q: %w", f.path, cErr)
+		}
 	}
 	return nil
 }

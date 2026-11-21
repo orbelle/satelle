@@ -216,6 +216,10 @@ func relSlash(root, abs string) string {
 	return filepath.ToSlash(rel)
 }
 
+// Within reports whether target is root or under it, by the rule the gate
+// uses to tell a path in the tree from one outside it.
+func Within(root, target string) bool { return within(root, target) }
+
 func within(root, target string) bool {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(target) == "" {
 		return false

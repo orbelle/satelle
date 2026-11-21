@@ -367,6 +367,11 @@ func TestPackTomlDocumented(t *testing.T) {
 		"unknown_keys",
 		"unknown-keys",
 		".satelle/packs.toml",
+		"satelle pack install",
+		"[[pack]]",
+		"[[pack.file]]",
+		"sha256",
+		"locked_paths",
 	} {
 		if !strings.Contains(pack, want) {
 			t.Errorf("pack.toml section lacks %q", want)

@@ -295,3 +295,34 @@ func TestLoadPacksMissingEntrySkillAndSymlink(t *testing.T) {
 		}
 	})
 }
+
+func TestParsePackMatchesLoadPacks(t *testing.T) {
+	text := `
+name = "my-pack"
+version = "1.2.3"
+skills = ["member-a"]
+extra = "kept for validate"
+
+[needs]
+scripts = ["sh"]
+`
+	dir := filepath.Join(t.TempDir(), "skills")
+	writeSkillFile(t, dir, "my-pack/SKILL.md", "---\nname: my-pack\ntype: skill\ndescription: d\n---\n\nD.\n")
+	writeSkillFile(t, dir, "my-pack/pack.toml", text)
+	packs, _, err := LoadPacks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := packs["my-pack"]
+	parsed, err := ParsePack(loaded.File, []byte(text))
+	if err != nil {
+		t.Fatalf("ParsePack: %v", err)
+	}
+	if parsed.File != loaded.File || parsed.Name != loaded.Name || parsed.Version != loaded.Version ||
+		!slices.Equal(parsed.Skills, loaded.Skills) || !slices.Equal(parsed.Needs.Scripts, loaded.Needs.Scripts) {
+		t.Errorf("ParsePack = %+v, LoadPacks = %+v", parsed, loaded)
+	}
+	if _, err := ParsePack("review/pack.toml", []byte("name = [\n")); err == nil || !strings.Contains(err.Error(), "review/pack.toml") {
+		t.Errorf("malformed pack.toml: %v", err)
+	}
+}

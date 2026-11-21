@@ -3,6 +3,7 @@ package workflow
 import (
 	"cmp"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,7 +27,16 @@ func (u UnknownKey) String() string {
 }
 
 func Decode(path string, v any) ([]UnknownKey, error) {
-	md, err := toml.DecodeFile(path, v)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return DecodeData(path, data, v)
+}
+
+// DecodeData decodes TOML text read from path, as Decode does the file itself.
+func DecodeData(path string, data []byte, v any) ([]UnknownKey, error) {
+	md, err := toml.Decode(string(data), v)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -36,7 +46,7 @@ func Decode(path string, v any) ([]UnknownKey, error) {
 	}
 	leaves := leafKeys(un)
 	var raw map[string]any
-	if _, err := toml.DecodeFile(path, &raw); err != nil {
+	if _, err := toml.Decode(string(data), &raw); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	var out []UnknownKey

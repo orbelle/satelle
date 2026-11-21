@@ -131,6 +131,7 @@ func (o DoctorOpen) Selection() item.Selection {
 
 const (
 	SettingsFile    = "satelle.toml"
+	PacksFile       = "packs.toml"
 	DoctorFile      = "doctor.toml"
 	VolatileFile    = "volatile.toml"
 	UIFile          = "ui.toml"
