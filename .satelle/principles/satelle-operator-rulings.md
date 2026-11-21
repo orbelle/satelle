@@ -129,7 +129,8 @@ are reviewed*).
   ensuring agents understand how to use satelle and optimal skill rules (eg.
   reference over content)." The init template's substrate is shipped into each
   repo and overridable there (operator, 2026-11-13;
-  satelle-mechanism-vs-substrate).
+  satelle-mechanism-vs-substrate). Read against *Doctor is feedback, not
+  edit* under 2026-11-21.
 - **All panel members must agree, for now.** "Panel - lets maintain all must
   agree (for now) but ... open up the discussion." Panels keep combine = "all";
   consultation inside the reviewer circle before the cold gate is the
@@ -142,7 +143,9 @@ are reviewed*).
   tracked, hence that is an update to the repo. The repo is protected by the
   users method, hence satelle should advise the user (warning) and ask how to
   resolve. If not resolved the warning will turn into an error." (operator,
-  2026-11-13; satelle-mechanism-vs-substrate).
+  2026-11-13; satelle-mechanism-vs-substrate). Narrowed by *Doctor is
+  feedback, not edit* under 2026-11-21: doctor reports and does not escalate
+  on its own.
 - **A mirror-only queue chain adopts the store's.** Asked whether the sync
   principle or the queue adoption gives, the operator amended the principle
   (operator, 2026-11-13; satelle-sync-architecture §4).
@@ -183,8 +186,9 @@ are reviewed*).
   -p" (operator, 2026-11-17). Each step of the work (its plan, its code, its
   pull request) has at least one review by a judge of another model family
   than its author. A cold judge of the author's family may review the step
-  beside it, as a panel member or as a review of its own, such as the
-  pull-request review task. The plan and code reviewers stand as ruled on
+  beside it, as a panel member or as a review of its own. The pull-request
+  review task is dropped under 2026-11-21 (*No second judge on the same
+  diff*). The plan and code reviewers stand as ruled on
   2026-11-13: "the plan reviewer(s) and code reviewer(s) there should be at
   least 1 non-matching llm. eg. claude vs gpt vs grok models." and "Can be
   more than 1 reviewer, however, at least 1 is a different model." (operator,
@@ -228,3 +232,58 @@ are reviewed*).
   fast; the sequence is a priority order, and an agent adding or moving a
   reviewer places it by that order (sto_70f455db). The session coordinates
   the verdicts.
+
+## 2026-11-21
+
+- **What satelle is: kernel first.** satelle provides "a cli that enables an
+  agent to construct stories, with required satelle and user meta data
+  (tags), workflows, with skills and gated steps according to user
+  requirements, and enable an agent to implement stories, which update the
+  repos code, by following the required workflow." "The contents and how the
+  substrate works, is the user/agent responsibility." "satelle has no
+  responsibility over the users/repos workflow." (operator, 2026-11-21).
+- **The kernel runs anything.** "The kernel is NOT in control of
+  skill/packs/etc. Kernel is not concerned about the content, only the
+  function i.e. must work with satelle", "and that bar is low." The binary
+  never refuses to load or run a skill for what it contains (operator,
+  2026-11-21).
+- **Doctor is feedback, not edit.** Doctor's functions "are assistance to the
+  user/agent and hence is (should be) configurable in the substrate ... they
+  remain, but fundamentally, offer feedback on the substrate not edit." A
+  check a repo wants is configured in its own substrate, and doctor reports;
+  the user and the agent decide (operator, 2026-11-21).
+- **satelle starts with something.** The init template and the conventional
+  tags stay: "satelle has to start somewhere ... an absolute blank satelle
+  would do nothing." (operator, 2026-11-21).
+- **The edit gate is function.** Once satelle is installed, the repo is
+  locked down for the supported agent CLIs: an agent edits it only through a
+  seat on a story. That may become an option later; the default is locked
+  down. The stop check follows the repo's own workflow configuration
+  (operator, 2026-11-21).
+- **Unknown keys are not a blocker.** satelle has a default set of required
+  keys and values; "additional keys are not a blocker ... It is however a
+  doctor check" (operator, 2026-11-21; sto_9fdace64).
+- **Skills are self-contained.** A skill follows the Claude skills practice:
+  when it needs a script or asset, the skill is a directory that holds it.
+  No script is shared between skills (operator, 2026-11-21; sto_cd3bfa52).
+- **Packs are ordinary skills.** A pack installs as skill directories like any
+  other skill and ships skills only, never workflows: "the agent installs (in
+  the workflow) based upon the current workflow, pack hints and the user
+  directions." "a published pack, can do anything." Local edits to an
+  installed pack are expected, and satelle does none of the merge on an
+  update. "doctor checks for new versions, user implements." The satelle
+  workspace owns satelle's published packs. When the route that lands a pack
+  has no security reviewer, the agent says so and points to a security
+  reviewer pack (operator, 2026-11-21; epic sto_713c7bb3).
+- **The orchestrator orchestrates.** "the orchestrator is orchestrating, and
+  the coder / planner are just actioning. That appears acceptable, if not
+  preferable." The dispatched planner and coder plan and edit; the driving
+  session runs the build, the tests and code generation and records what it
+  ran on the story (operator, 2026-11-21).
+- **No second judge on the same diff.** "Yes, drop the pull request judge, if
+  duplicating actions." The satelle app's approval is published from the
+  code review the head already passed (operator, 2026-11-21; sto_2cd187fd).
+- **Start small, prove and scale.** "As always, start small, prove and scale."
+  (operator, 2026-11-21).
+- **An item is a story.** Process text names the item a story; no other word
+  is used for it (operator, 2026-11-21; sto_8ffb804d).
