@@ -48,6 +48,7 @@ type Server struct {
 	relays   map[string]*relayPair
 	streams  map[*relayStream]bool
 	gh       map[string]*github
+	packs    map[packKey]*seededPack
 	nextID   int
 	grpc     *grpc.Server
 	down     bool
@@ -90,6 +91,7 @@ func Start(t testing.TB, tokens ...string) *Server {
 	satellepb.RegisterNodeServiceServer(g, nodes{s: s})
 	satellepb.RegisterRelayServiceServer(g, relay{s: s})
 	satellepb.RegisterGitHubServiceServer(g, githubSvc{s: s})
+	satellepb.RegisterPackServiceServer(g, packsSvc{s: s})
 	chainpb.RegisterChainServer(g, chain{s: s})
 	s.grpc = g
 	go func() { _ = g.Serve(ln) }()

@@ -57,6 +57,7 @@ type Client struct {
 	Nodes       satellepb.NodeServiceClient
 	Relay       satellepb.RelayServiceClient
 	GitHub      satellepb.GitHubServiceClient
+	Packs       satellepb.PackServiceClient
 	Chain       chainpb.ChainClient
 }
 
@@ -105,6 +106,7 @@ func Dial(server string, store Store, o Options) (*Client, error) {
 	c.Nodes = satellepb.NewNodeServiceClient(conn)
 	c.Relay = satellepb.NewRelayServiceClient(conn)
 	c.GitHub = satellepb.NewGitHubServiceClient(conn)
+	c.Packs = satellepb.NewPackServiceClient(conn)
 	c.Chain = chainpb.NewChainClient(conn)
 	return c, nil
 }
