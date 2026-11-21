@@ -3,8 +3,6 @@
 package tests
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,66 +11,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
-	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
-
-type itPackFile struct {
-	path       string
-	body       []byte
-	executable bool
-}
-
-func itSHA256(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func itPackBundle(name, version string, files []itPackFile) (*satellepb.PackBundle, string) {
-	type entry struct {
-		path string
-		sum  string
-	}
-	refs := make([]*satellepb.PackFileRef, len(files))
-	pfiles := make([]*satellepb.PackFile, len(files))
-	entries := make([]entry, len(files))
-	for i, f := range files {
-		sum := itSHA256(f.body)
-		refs[i] = &satellepb.PackFileRef{
-			Path:       f.path,
-			Sha256:     sum,
-			Size:       int64(len(f.body)),
-			Executable: f.executable,
-		}
-		pfiles[i] = &satellepb.PackFile{
-			Path:   f.path,
-			Sha256: sum,
-			Body:   slices.Clone(f.body),
-		}
-		entries[i] = entry{path: f.path, sum: sum}
-	}
-	slices.SortFunc(entries, func(a, b entry) int {
-		return strings.Compare(a.path, b.path)
-	})
-	var buf strings.Builder
-	for _, e := range entries {
-		buf.WriteString(e.sum)
-		buf.WriteString("  ")
-		buf.WriteString(e.path)
-		buf.WriteByte('\n')
-	}
-	digest := itSHA256([]byte(buf.String()))
-	return &satellepb.PackBundle{
-		Version: &satellepb.PackVersion{
-			Manifest: &satellepb.PackManifest{
-				Name:    name,
-				Version: version,
-				Files:   refs,
-				Digest:  digest,
-			},
-		},
-		Files: pfiles,
-	}, digest
-}
 
 func TestPackFetchEndToEnd(t *testing.T) {
 	t.Parallel()
@@ -80,12 +19,12 @@ func TestPackFetchEndToEnd(t *testing.T) {
 	s := newSandbox(t)
 	s.env["SATELLE_TOKEN"] = devToken
 
-	files := []itPackFile{
-		{path: "SKILL.md", body: []byte("# Pack skill\n")},
-		{path: "scripts/run.sh", body: []byte("#!/bin/sh\necho ok\n"), executable: true},
-		{path: "sub/readme.txt", body: []byte("details\n")},
+	files := []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("# Pack skill\n")},
+		{Path: "scripts/run.sh", Body: []byte("#!/bin/sh\necho ok\n"), Executable: true},
+		{Path: "sub/readme.txt", Body: []byte("details\n")},
 	}
-	valid, digest := itPackBundle("review", "1.0.0", files)
+	valid, digest := fakeserver.PackBundle("review", "1.0.0", files)
 	srv.SeedPack("acme/review", "1.0.0", valid)
 
 	t.Run("AC1 writes verified pack", func(t *testing.T) {
@@ -96,21 +35,21 @@ func TestPackFetchEndToEnd(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", out, wantLine)
 		}
 		for _, f := range files {
-			p := filepath.Join(newDir, filepath.FromSlash(f.path))
+			p := filepath.Join(newDir, filepath.FromSlash(f.Path))
 			got, err := os.ReadFile(p)
 			if err != nil {
-				t.Fatalf("read %s: %v", f.path, err)
+				t.Fatalf("read %s: %v", f.Path, err)
 			}
-			if string(got) != string(f.body) {
-				t.Errorf("%s = %q, want %q", f.path, got, f.body)
+			if string(got) != string(f.Body) {
+				t.Errorf("%s = %q, want %q", f.Path, got, f.Body)
 			}
 			if runtime.GOOS != "windows" {
 				st, err := os.Stat(p)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if (st.Mode()&0o111 != 0) != f.executable {
-					t.Errorf("%s mode %o executable=%v, want %v", f.path, st.Mode().Perm(), st.Mode()&0o111 != 0, f.executable)
+				if (st.Mode()&0o111 != 0) != f.Executable {
+					t.Errorf("%s mode %o executable=%v, want %v", f.Path, st.Mode().Perm(), st.Mode()&0o111 != 0, f.Executable)
 				}
 			}
 		}
@@ -135,11 +74,11 @@ func TestPackFetchEndToEnd(t *testing.T) {
 	})
 
 	t.Run("AC2 rejects tampered file and bad digest", func(t *testing.T) {
-		tampered, _ := itPackBundle("tampered", "1.0.0", files)
+		tampered, _ := fakeserver.PackBundle("tampered", "1.0.0", files)
 		tampered.Files[0].Body = []byte("# Tampered\n")
 		srv.SeedPack("acme/tampered", "1.0.0", tampered)
 
-		badDigest, _ := itPackBundle("baddigest", "1.0.0", files)
+		badDigest, _ := fakeserver.PackBundle("baddigest", "1.0.0", files)
 		wrongDigest := strings.Repeat("b", 64)
 		badDigest.Version.Manifest.Digest = wrongDigest
 		srv.SeedPack("acme/baddigest", "1.0.0", badDigest)
@@ -184,17 +123,17 @@ func TestPackFetchEndToEnd(t *testing.T) {
 		for _, tc := range []struct {
 			ref     string
 			badPath string
-			files   []itPackFile
+			files   []fakeserver.PackFile
 		}{
-			{"acme/abs", "/abs/SKILL.md", []itPackFile{{path: "/abs/SKILL.md", body: []byte("x")}}},
-			{"acme/dotdot", "../escape/SKILL.md", []itPackFile{{path: "../escape/SKILL.md", body: []byte("x")}}},
-			{"acme/nested-dotdot", "sub/../../escape", []itPackFile{{path: "sub/../../escape", body: []byte("x")}}},
-			{"acme/dup", "dup/SKILL.md", []itPackFile{
-				{path: "dup/SKILL.md", body: []byte("one")},
-				{path: "dup/SKILL.md", body: []byte("two")},
+			{"acme/abs", "/abs/SKILL.md", []fakeserver.PackFile{{Path: "/abs/SKILL.md", Body: []byte("x")}}},
+			{"acme/dotdot", "../escape/SKILL.md", []fakeserver.PackFile{{Path: "../escape/SKILL.md", Body: []byte("x")}}},
+			{"acme/nested-dotdot", "sub/../../escape", []fakeserver.PackFile{{Path: "sub/../../escape", Body: []byte("x")}}},
+			{"acme/dup", "dup/SKILL.md", []fakeserver.PackFile{
+				{Path: "dup/SKILL.md", Body: []byte("one")},
+				{Path: "dup/SKILL.md", Body: []byte("two")},
 			}},
 		} {
-			b, _ := itPackBundle("bad", "1.0.0", tc.files)
+			b, _ := fakeserver.PackBundle("bad", "1.0.0", tc.files)
 			srv.SeedPack(tc.ref, "1.0.0", b)
 
 			parent := t.TempDir()
@@ -214,7 +153,7 @@ func TestPackFetchEndToEnd(t *testing.T) {
 	})
 
 	t.Run("AC4 reports unreadable and missing packs as not found", func(t *testing.T) {
-		priv, _ := itPackBundle("priv", "1.0.0", []itPackFile{{path: "SKILL.md", body: []byte("secret")}})
+		priv, _ := fakeserver.PackBundle("priv", "1.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("secret")}})
 		srv.SeedPack("acme/priv", "1.0.0", priv, "tok-other")
 
 		for _, ref := range []string{"acme/priv", "acme/unknown"} {

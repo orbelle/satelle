@@ -29,12 +29,7 @@ func TestPackService(t *testing.T) {
 	}
 	t.Cleanup(func() { other.Close() })
 
-	pub := &satellepb.PackBundle{
-		Version: &satellepb.PackVersion{
-			Manifest: &satellepb.PackManifest{Name: "pub", Version: "1.0.0", Digest: "abc"},
-		},
-		Files: []*satellepb.PackFile{{Path: "SKILL.md", Body: []byte("hello")}},
-	}
+	pub, _ := fakeserver.PackBundle("pub", "1.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("hello")}})
 	srv.SeedPack("acme/pub", "1.0.0", pub)
 
 	for name, client := range map[string]*hosted.Client{"ada": ada, "other": other} {
@@ -47,12 +42,7 @@ func TestPackService(t *testing.T) {
 		}
 	}
 
-	priv := &satellepb.PackBundle{
-		Version: &satellepb.PackVersion{
-			Manifest: &satellepb.PackManifest{Name: "priv", Version: "2.0.0", Digest: "def"},
-		},
-		Files: []*satellepb.PackFile{{Path: "SKILL.md", Body: []byte("secret")}},
-	}
+	priv, _ := fakeserver.PackBundle("priv", "2.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("secret")}})
 	srv.SeedPack("acme/priv", "2.0.0", priv, "tok-other")
 
 	got, err := other.Packs.FetchPack(ctx, &satellepb.GetPackRequest{Ref: "acme/priv", Version: "2.0.0"})

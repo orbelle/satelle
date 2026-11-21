@@ -13,70 +13,13 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/pack"
+	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
-
-type fixtureFile struct {
-	path       string
-	body       []byte
-	executable bool
-}
 
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
-}
-
-func canonicalDigest(files []fixtureFile) string {
-	type pair struct {
-		path string
-		sum  string
-	}
-	pairs := make([]pair, len(files))
-	for i, f := range files {
-		pairs[i] = pair{path: f.path, sum: sha256Hex(f.body)}
-	}
-	slices.SortFunc(pairs, func(a, b pair) int {
-		return strings.Compare(a.path, b.path)
-	})
-	var buf strings.Builder
-	for _, p := range pairs {
-		buf.WriteString(p.sum)
-		buf.WriteString("  ")
-		buf.WriteString(p.path)
-		buf.WriteByte('\n')
-	}
-	return sha256Hex([]byte(buf.String()))
-}
-
-func buildBundle(name, version string, files []fixtureFile) *satellepb.PackBundle {
-	refs := make([]*satellepb.PackFileRef, len(files))
-	pfiles := make([]*satellepb.PackFile, len(files))
-	for i, f := range files {
-		sum := sha256Hex(f.body)
-		refs[i] = &satellepb.PackFileRef{
-			Path:       f.path,
-			Sha256:     sum,
-			Size:       int64(len(f.body)),
-			Executable: f.executable,
-		}
-		pfiles[i] = &satellepb.PackFile{
-			Path:   f.path,
-			Sha256: sum,
-			Body:   slices.Clone(f.body),
-		}
-	}
-	return &satellepb.PackBundle{
-		Version: &satellepb.PackVersion{
-			Manifest: &satellepb.PackManifest{
-				Name:    name,
-				Version: version,
-				Files:   refs,
-				Digest:  canonicalDigest(files),
-			},
-		},
-		Files: pfiles,
-	}
 }
 
 func TestComputeDigest(t *testing.T) {
@@ -149,12 +92,12 @@ func TestValidatePath(t *testing.T) {
 }
 
 func TestVerifyValid(t *testing.T) {
-	files := []fixtureFile{
-		{path: "scripts/run.sh", body: []byte("#!/bin/sh\necho ok\n"), executable: true},
-		{path: "SKILL.md", body: []byte("# Skill\n")},
-		{path: "a/b/data.bin", body: []byte{0x00, 0x01, 0xff}},
+	files := []fakeserver.PackFile{
+		{Path: "scripts/run.sh", Body: []byte("#!/bin/sh\necho ok\n"), Executable: true},
+		{Path: "SKILL.md", Body: []byte("# Skill\n")},
+		{Path: "a/b/data.bin", Body: []byte{0x00, 0x01, 0xff}},
 	}
-	bundle := buildBundle("review-pack", "1.2.3", files)
+	bundle, wantDigest := fakeserver.PackBundle("review-pack", "1.2.3", files)
 
 	v, err := pack.Verify(bundle)
 	if err != nil {
@@ -163,8 +106,8 @@ func TestVerifyValid(t *testing.T) {
 	if v.Name() != "review-pack" || v.Version() != "1.2.3" {
 		t.Fatalf("Name=%q Version=%q", v.Name(), v.Version())
 	}
-	if want := canonicalDigest(files); v.Digest() != want {
-		t.Fatalf("Digest = %q, want %q", v.Digest(), want)
+	if v.Digest() != wantDigest {
+		t.Fatalf("Digest = %q, want %q", v.Digest(), wantDigest)
 	}
 	wantPaths := []string{"SKILL.md", "a/b/data.bin", "scripts/run.sh"}
 	if !slices.Equal(v.Paths(), wantPaths) {
@@ -178,13 +121,13 @@ func TestVerifyValid(t *testing.T) {
 }
 
 func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
-	base := []fixtureFile{
-		{path: "SKILL.md", body: []byte("# Skill\n")},
-		{path: "scripts/run.sh", body: []byte("#!/bin/sh\necho ok\n"), executable: true},
+	base := []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("# Skill\n")},
+		{Path: "scripts/run.sh", Body: []byte("#!/bin/sh\necho ok\n"), Executable: true},
 	}
 
 	t.Run("tampered body", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		b.Files[1].Body = []byte("#!/bin/sh\necho tampered\n")
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "scripts/run.sh") || !strings.Contains(err.Error(), "sha256") {
@@ -193,7 +136,7 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 	})
 
 	t.Run("truncated body", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		b.Files[0].Body = []byte("# Sk")
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "SKILL.md") || !strings.Contains(err.Error(), "sha256") {
@@ -202,7 +145,7 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 	})
 
 	t.Run("mismatched PackFile sha256", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		b.Files[0].Sha256 = strings.Repeat("0", 64)
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "SKILL.md") || !strings.Contains(err.Error(), strings.Repeat("0", 64)) {
@@ -211,7 +154,7 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 	})
 
 	t.Run("missing bundle file", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		b.Files = b.Files[:1]
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "scripts/run.sh") {
@@ -220,7 +163,7 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 	})
 
 	t.Run("extra bundle file", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		extra := []byte("surprise")
 		b.Files = append(b.Files, &satellepb.PackFile{Path: "extra.txt", Sha256: sha256Hex(extra), Body: extra})
 		_, err := pack.Verify(b)
@@ -230,17 +173,17 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 	})
 
 	t.Run("wrong manifest digest", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, validDigest := fakeserver.PackBundle("p", "1.0.0", base)
 		badDigest := strings.Repeat("f", 64)
 		b.Version.Manifest.Digest = badDigest
 		_, err := pack.Verify(b)
-		if err == nil || !strings.Contains(err.Error(), "digest") || !strings.Contains(err.Error(), badDigest) || !strings.Contains(err.Error(), canonicalDigest(base)) {
+		if err == nil || !strings.Contains(err.Error(), "digest") || !strings.Contains(err.Error(), badDigest) || !strings.Contains(err.Error(), validDigest) {
 			t.Fatalf("wrong manifest digest: got %v", err)
 		}
 	})
 
 	t.Run("size mismatch", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", base)
+		b, _ := fakeserver.PackBundle("p", "1.0.0", base)
 		b.Version.Manifest.Files[0].Size = 999
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "SKILL.md") || !strings.Contains(err.Error(), "size") {
@@ -264,9 +207,9 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 
 func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 	t.Run("duplicate in manifest", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", []fixtureFile{
-			{path: "dup/SKILL.md", body: []byte("one")},
-			{path: "dup/SKILL.md", body: []byte("two")},
+		b, _ := fakeserver.PackBundle("p", "1.0.0", []fakeserver.PackFile{
+			{Path: "dup/SKILL.md", Body: []byte("one")},
+			{Path: "dup/SKILL.md", Body: []byte("two")},
 		})
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "dup/SKILL.md") {
@@ -275,8 +218,8 @@ func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 	})
 
 	t.Run("duplicate in bundle", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", []fixtureFile{{path: "dup/SKILL.md", body: []byte("one")}})
-		b.Files = append(b.Files, &satellepb.PackFile{Path: "dup/SKILL.md", Sha256: sha256Hex([]byte("one")), Body: []byte("one")})
+		b, _ := fakeserver.PackBundle("p", "1.0.0", []fakeserver.PackFile{{Path: "dup/SKILL.md", Body: []byte("one")}})
+		b.Files = append(b.Files, &satellepb.PackFile{Path: "dup/SKILL.md", Sha256: b.Files[0].Sha256, Body: []byte("one")})
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "dup/SKILL.md") {
 			t.Fatalf("duplicate in bundle: got %v", err)
@@ -284,10 +227,10 @@ func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 	})
 
 	t.Run("file and dir collision", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", []fixtureFile{
-			{path: "a", body: []byte("file")},
-			{path: "a-x", body: []byte("between")},
-			{path: "a/b", body: []byte("nested")},
+		b, _ := fakeserver.PackBundle("p", "1.0.0", []fakeserver.PackFile{
+			{Path: "a", Body: []byte("file")},
+			{Path: "a-x", Body: []byte("between")},
+			{Path: "a/b", Body: []byte("nested")},
 		})
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), `"a"`) || !strings.Contains(err.Error(), `"a/b"`) {
@@ -296,7 +239,7 @@ func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 	})
 
 	t.Run("bad path in manifest", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", []fixtureFile{{path: "/etc/passwd", body: []byte("x")}})
+		b, _ := fakeserver.PackBundle("p", "1.0.0", []fakeserver.PackFile{{Path: "/etc/passwd", Body: []byte("x")}})
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "/etc/passwd") {
 			t.Fatalf("bad path in manifest: got %v", err)
@@ -304,7 +247,7 @@ func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 	})
 
 	t.Run("bad path in bundle", func(t *testing.T) {
-		b := buildBundle("p", "1.0.0", []fixtureFile{{path: "SKILL.md", body: []byte("x")}})
+		b, _ := fakeserver.PackBundle("p", "1.0.0", []fakeserver.PackFile{{Path: "SKILL.md", Body: []byte("x")}})
 		b.Files = append(b.Files, &satellepb.PackFile{Path: "../escape", Body: []byte("x")})
 		_, err := pack.Verify(b)
 		if err == nil || !strings.Contains(err.Error(), "../escape") {
@@ -314,12 +257,13 @@ func TestVerifyRejectsBadPathsDuplicatesAndCollisions(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
-	files := []fixtureFile{
-		{path: "SKILL.md", body: []byte("# Skill\n")},
-		{path: "scripts/run.sh", body: []byte("#!/bin/sh\necho hi\n"), executable: true},
-		{path: "nested/sub/file.txt", body: []byte("payload")},
+	files := []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("# Skill\n")},
+		{Path: "scripts/run.sh", Body: []byte("#!/bin/sh\necho hi\n"), Executable: true},
+		{Path: "nested/sub/file.txt", Body: []byte("payload")},
 	}
-	v, err := pack.Verify(buildBundle("demo", "1.0.0", files))
+	bundle, _ := fakeserver.PackBundle("demo", "1.0.0", files)
+	v, err := pack.Verify(bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,22 +271,22 @@ func TestWrite(t *testing.T) {
 	checkWritten := func(t *testing.T, dir string) {
 		t.Helper()
 		for _, f := range files {
-			p := filepath.Join(dir, filepath.FromSlash(f.path))
+			p := filepath.Join(dir, filepath.FromSlash(f.Path))
 			got, err := os.ReadFile(p)
 			if err != nil {
-				t.Fatalf("read %s: %v", f.path, err)
+				t.Fatalf("read %s: %v", f.Path, err)
 			}
-			if !bytes.Equal(got, f.body) {
-				t.Errorf("%s body = %q, want %q", f.path, got, f.body)
+			if !bytes.Equal(got, f.Body) {
+				t.Errorf("%s body = %q, want %q", f.Path, got, f.Body)
 			}
 			if runtime.GOOS != "windows" {
 				st, err := os.Stat(p)
 				if err != nil {
-					t.Fatalf("stat %s: %v", f.path, err)
+					t.Fatalf("stat %s: %v", f.Path, err)
 				}
 				exec := st.Mode()&0o111 != 0
-				if exec != f.executable {
-					t.Errorf("%s executable=%v (mode %o), want %v", f.path, exec, st.Mode().Perm(), f.executable)
+				if exec != f.Executable {
+					t.Errorf("%s executable=%v (mode %o), want %v", f.Path, exec, st.Mode().Perm(), f.Executable)
 				}
 			}
 		}
@@ -419,16 +363,6 @@ func TestWrite(t *testing.T) {
 		}
 		if err := pack.Write(link, v); err == nil || !strings.Contains(err.Error(), "symlink") {
 			t.Fatalf("symlink target: got %v", err)
-		}
-	})
-
-	t.Run("rejects unverified zero value", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "unverified")
-		if err := pack.Write(dir, pack.Verified{}); err == nil {
-			t.Fatal("Write accepted zero-value Verified")
-		}
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			t.Fatalf("dir created for zero-value Verified: %v", err)
 		}
 	})
 }

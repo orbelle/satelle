@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,77 +10,18 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
-	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
-
-type packFixtureFile struct {
-	path       string
-	body       []byte
-	executable bool
-}
-
-func packSHA256(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func makePackBundle(name, version string, files []packFixtureFile) (*satellepb.PackBundle, string) {
-	type entry struct {
-		path string
-		sum  string
-	}
-	refs := make([]*satellepb.PackFileRef, len(files))
-	pfiles := make([]*satellepb.PackFile, len(files))
-	entries := make([]entry, len(files))
-	for i, f := range files {
-		sum := packSHA256(f.body)
-		refs[i] = &satellepb.PackFileRef{
-			Path:       f.path,
-			Sha256:     sum,
-			Size:       int64(len(f.body)),
-			Executable: f.executable,
-		}
-		pfiles[i] = &satellepb.PackFile{
-			Path:   f.path,
-			Sha256: sum,
-			Body:   slices.Clone(f.body),
-		}
-		entries[i] = entry{path: f.path, sum: sum}
-	}
-	slices.SortFunc(entries, func(a, b entry) int {
-		return strings.Compare(a.path, b.path)
-	})
-	var buf strings.Builder
-	for _, e := range entries {
-		buf.WriteString(e.sum)
-		buf.WriteString("  ")
-		buf.WriteString(e.path)
-		buf.WriteByte('\n')
-	}
-	digest := packSHA256([]byte(buf.String()))
-	return &satellepb.PackBundle{
-		Version: &satellepb.PackVersion{
-			Manifest: &satellepb.PackManifest{
-				Name:    name,
-				Version: version,
-				Files:   refs,
-				Digest:  digest,
-			},
-		},
-		Files: pfiles,
-	}, digest
-}
 
 func TestPackFetchWritesVerifiedPack(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
 
-	files := []packFixtureFile{
-		{path: "SKILL.md", body: []byte("# Review skill\n")},
-		{path: "scripts/check.sh", body: []byte("#!/bin/sh\necho ok\n"), executable: true},
-		{path: "sub/data.txt", body: []byte("hello world\n")},
+	files := []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("# Review skill\n")},
+		{Path: "scripts/check.sh", Body: []byte("#!/bin/sh\necho ok\n"), Executable: true},
+		{Path: "sub/data.txt", Body: []byte("hello world\n")},
 	}
-	bundle, digest := makePackBundle("review", "1.2.3", files)
+	bundle, digest := fakeserver.PackBundle("review", "1.2.3", files)
 	srv.SeedPack("acme/review", "1.2.3", bundle)
 
 	newDir := filepath.Join(t.TempDir(), "dest")
@@ -92,21 +31,21 @@ func TestPackFetchWritesVerifiedPack(t *testing.T) {
 		t.Fatalf("output = %q, want %q", out, wantLine)
 	}
 	for _, f := range files {
-		p := filepath.Join(newDir, filepath.FromSlash(f.path))
+		p := filepath.Join(newDir, filepath.FromSlash(f.Path))
 		got, err := os.ReadFile(p)
 		if err != nil {
-			t.Fatalf("read %s: %v", f.path, err)
+			t.Fatalf("read %s: %v", f.Path, err)
 		}
-		if string(got) != string(f.body) {
-			t.Errorf("%s = %q, want %q", f.path, got, f.body)
+		if string(got) != string(f.Body) {
+			t.Errorf("%s = %q, want %q", f.Path, got, f.Body)
 		}
 		if runtime.GOOS != "windows" {
 			st, err := os.Stat(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if (st.Mode()&0o111 != 0) != f.executable {
-				t.Errorf("%s mode %o executable=%v, want %v", f.path, st.Mode().Perm(), st.Mode()&0o111 != 0, f.executable)
+			if (st.Mode()&0o111 != 0) != f.Executable {
+				t.Errorf("%s mode %o executable=%v, want %v", f.Path, st.Mode().Perm(), st.Mode()&0o111 != 0, f.Executable)
 			}
 		}
 	}
@@ -133,9 +72,9 @@ func TestPackFetchWritesVerifiedPack(t *testing.T) {
 		t.Fatalf("json = %+v", got)
 	}
 	for _, f := range files {
-		b, err := os.ReadFile(filepath.Join(emptyDir, filepath.FromSlash(f.path)))
-		if err != nil || string(b) != string(f.body) {
-			t.Errorf("emptyDir %s = %q (%v)", f.path, b, err)
+		b, err := os.ReadFile(filepath.Join(emptyDir, filepath.FromSlash(f.Path)))
+		if err != nil || string(b) != string(f.Body) {
+			t.Errorf("emptyDir %s = %q (%v)", f.Path, b, err)
 		}
 	}
 
@@ -146,7 +85,7 @@ func TestPackFetchWritesVerifiedPack(t *testing.T) {
 		t.Errorf("missing --dir: %v", err)
 	}
 
-	wrongVer, _ := makePackBundle("review", "2.0.0", files)
+	wrongVer, _ := fakeserver.PackBundle("review", "2.0.0", files)
 	srv.SeedPack("acme/review", "1.2.4", wrongVer)
 	verDir := filepath.Join(t.TempDir(), "ver-mismatch")
 	if _, err := run(t, "", "pack", "fetch", "acme/review", "--version", "1.2.4", "--dir", verDir, "--server", srv.URL); err == nil || !strings.Contains(err.Error(), "2.0.0") || !strings.Contains(err.Error(), "1.2.4") {
@@ -161,16 +100,16 @@ func TestPackFetchRejectsTamperedFileAndBadDigest(t *testing.T) {
 	srv := fakeserver.Start(t, testToken)
 	newMachine(t)
 
-	files := []packFixtureFile{
-		{path: "SKILL.md", body: []byte("# Good\n")},
-		{path: "scripts/run.sh", body: []byte("#!/bin/sh\necho ok\n"), executable: true},
+	files := []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("# Good\n")},
+		{Path: "scripts/run.sh", Body: []byte("#!/bin/sh\necho ok\n"), Executable: true},
 	}
 
-	tampered, _ := makePackBundle("tampered", "1.0.0", files)
+	tampered, _ := fakeserver.PackBundle("tampered", "1.0.0", files)
 	tampered.Files[1].Body = []byte("#!/bin/sh\necho evil\n")
 	srv.SeedPack("acme/tampered", "1.0.0", tampered)
 
-	badDigest, validDigest := makePackBundle("baddigest", "1.0.0", files)
+	badDigest, validDigest := fakeserver.PackBundle("baddigest", "1.0.0", files)
 	wrongDigest := strings.Repeat("a", 64)
 	badDigest.Version.Manifest.Digest = wrongDigest
 	srv.SeedPack("acme/baddigest", "1.0.0", badDigest)
@@ -230,40 +169,40 @@ func TestPackFetchRejectsBadPathsAndDuplicates(t *testing.T) {
 		name    string
 		ref     string
 		badPath string
-		files   []packFixtureFile
+		files   []fakeserver.PackFile
 	}{
 		{
 			name:    "absolute path",
 			ref:     "acme/abs",
 			badPath: "/abs/SKILL.md",
-			files:   []packFixtureFile{{path: "/abs/SKILL.md", body: []byte("bad")}},
+			files:   []fakeserver.PackFile{{Path: "/abs/SKILL.md", Body: []byte("bad")}},
 		},
 		{
 			name:    "parent traversal",
 			ref:     "acme/dotdot",
 			badPath: "../escape/SKILL.md",
-			files:   []packFixtureFile{{path: "../escape/SKILL.md", body: []byte("bad")}},
+			files:   []fakeserver.PackFile{{Path: "../escape/SKILL.md", Body: []byte("bad")}},
 		},
 		{
 			name:    "nested traversal",
 			ref:     "acme/nested-dotdot",
 			badPath: "sub/../../escape",
-			files:   []packFixtureFile{{path: "sub/../../escape", body: []byte("bad")}},
+			files:   []fakeserver.PackFile{{Path: "sub/../../escape", Body: []byte("bad")}},
 		},
 		{
 			name:    "duplicate path",
 			ref:     "acme/dup",
 			badPath: "dup/SKILL.md",
-			files: []packFixtureFile{
-				{path: "dup/SKILL.md", body: []byte("first")},
-				{path: "dup/SKILL.md", body: []byte("second")},
+			files: []fakeserver.PackFile{
+				{Path: "dup/SKILL.md", Body: []byte("first")},
+				{Path: "dup/SKILL.md", Body: []byte("second")},
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle, _ := makePackBundle(tc.name, "1.0.0", tc.files)
+			bundle, _ := fakeserver.PackBundle(tc.name, "1.0.0", tc.files)
 			srv.SeedPack(tc.ref, "1.0.0", bundle)
 
 			parent := t.TempDir()
@@ -287,8 +226,8 @@ func TestPackFetchUnreadableAndMissingIsNotFound(t *testing.T) {
 	srv := fakeserver.Start(t, testToken, "tok-other")
 	newMachine(t)
 
-	bundle, _ := makePackBundle("secret", "1.0.0", []packFixtureFile{
-		{path: "SKILL.md", body: []byte("private")},
+	bundle, _ := fakeserver.PackBundle("secret", "1.0.0", []fakeserver.PackFile{
+		{Path: "SKILL.md", Body: []byte("private")},
 	})
 	srv.SeedPack("acme/secret", "1.0.0", bundle, "tok-other")
 

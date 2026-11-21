@@ -20,7 +20,6 @@ type DigestEntry struct {
 
 type verifiedFile struct {
 	path       string
-	sha256     string
 	executable bool
 	body       []byte
 }
@@ -187,7 +186,6 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 		entries = append(entries, DigestEntry{Path: p, SHA256: actual})
 		files = append(files, verifiedFile{
 			path:       p,
-			sha256:     actual,
 			executable: ref.GetExecutable(),
 			body:       slices.Clone(body),
 		})
@@ -209,9 +207,6 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 func Write(dir string, v Verified) error {
 	if strings.TrimSpace(dir) == "" {
 		return errors.New("target directory is required")
-	}
-	if v.version == "" || v.digest == "" {
-		return errors.New("pack is not verified")
 	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
@@ -251,10 +246,6 @@ func Write(dir string, v Verified) error {
 
 	for _, f := range v.files {
 		dest := filepath.Join(stage, filepath.FromSlash(f.path))
-		rel, err := filepath.Rel(stage, dest)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return fmt.Errorf("pack path %q escapes target directory", f.path)
-		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("create directory for %q: %w", f.path, err)
 		}

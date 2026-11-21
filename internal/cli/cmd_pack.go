@@ -83,11 +83,7 @@ func packFetchCmd() *cobra.Command {
 					"files":   verified.Paths(),
 				})
 			}
-			digestShort := verified.Digest()
-			if len(digestShort) > 12 {
-				digestShort = digestShort[:12]
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "fetched %s@%s (%d file(s), digest %s) into %s\n", ref, verified.Version(), len(verified.Paths()), digestShort, target)
+			fmt.Fprintf(cmd.OutOrStdout(), "fetched %s@%s (%d file(s), digest %s) into %s\n", ref, verified.Version(), len(verified.Paths()), verified.Digest()[:12], target)
 			return nil
 		},
 	}
