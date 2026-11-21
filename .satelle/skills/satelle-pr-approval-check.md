@@ -7,8 +7,8 @@ description: The approval gate, on the move out of review. Passes only on the sa
 # PR approval (the satelle GitHub app's review on the head)
 
 The satelle GitHub app (app id 5379260, bot account `satelle[bot]`, id
-344745317) publishes the verdict of the pull-request review task on the pull request;
-the waiting state's `waits` text names that task.
+344745317) publishes the approving review on the pull request from the accepted
+`code-ac` verdict (`satelle-pr-approve-from-review`).
 orbelle-reviewer (app 5563015, account 350948835) is internal and its reviews
 never count. Approval is read back from GitHub, not from satelle.dev.
 
@@ -25,8 +25,8 @@ never count. Approval is read back from GitHub, not from satelle.dev.
   APPROVED, CHANGES_REQUESTED or DISMISSED one decides. A COMMENTED review
   decides nothing, and a review of an older head does not count.
   - APPROVED passes only when the item's ledger records that review's id as
-    a `github.review` APPROVE with `commit_sha` equal to HEAD, the event the
-    review task's publish check (`satelle-pr-review-run-publish`) appends. GitHub re-points an
+    a `github.review` APPROVE with `commit_sha` equal to HEAD, the event
+    `satelle-pr-approve-from-review` appends. GitHub re-points an
     older approval's `commit_id` to a new head when the branch moves
     (`tests/testdata/github/reviews/README.md`, "GitHub re-points an older
     review's commit_id"), so `commit_id` alone is not trusted. An approval
@@ -37,9 +37,8 @@ never count. Approval is read back from GitHub, not from satelle.dev.
     newest `pr-review` already holds it) and moves the item, still at
     `$SATELLE_FROM`, to `in_progress` on the rework edge, then rejects. The
     coder's next run reads it.
-  - DISMISSED, or no review, rejects and never reopens; with no review the
-    notes quote the waiting state's `waits` text, naming the review task to
-    run, and the item waits where it is.
+  - DISMISSED, or no review, rejects and never reopens; when the current state
+    declares `waits`, the notes quote it.
 
 `app_account` is the owner of this value: release.md step 0 reads it from the
 line below.

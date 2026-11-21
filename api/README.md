@@ -57,9 +57,10 @@ review's event and body are the client's, passed through.
 - `PublishReview{project, pull_number, commit_sha, event, body}` publishes a
   review as the app and answers `{review_id, html_url, repository}`. The CLI
   is `satelle github review --pr N --sha S --event E [--body-file F|-]
-  [--json]`; satelle's own pull-request review task publishes its verdict this way
-  (`.satelle/skills/satelle-pr-review-run-publish.md`) and records what was
-  published as a `github.review` event on the reviewed item.
+  [--json]`; `satelle-pr-approve-from-review`
+  (`.satelle/skills/satelle-pr-approve-from-review.md`) publishes the approval
+  from the accepted `code-ac` verdict this way and records what was published
+  as a `github.review` event on the story.
 - `PublishStatus{project, commit_sha, state, context, description,
   target_url}` publishes a commit status as the app and answers
   `{status_id, repository}`. The CLI is `satelle github status --sha S

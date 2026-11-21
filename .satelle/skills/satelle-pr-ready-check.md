@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's hand-off to the review and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md as the base branch has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for review; the item then waits at the next state for the pull-request review task its waits text names, run by another session, and enters approved only when the approval gate (the app's approving review on HEAD) accepts. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to approval and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md as the base branch has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for approval: satelle-pr-approve-from-review then publishes the satelle app's approving review on HEAD from the accepted code-ac verdict, and the approval gate enters approved only when the app's approving review on HEAD is present. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off; the session then fires the release)
@@ -27,14 +27,12 @@ landing before it, and tests the combined candidate once.
   not `<remote>/<branch>`, and a fallback that cannot be read (no remote,
   several remotes and no `checkout.defaultRemote`, a remote naming no default
   branch) are refused, naming what to fix.
-- **The review task.** The waiting state's `waits` text names the
-  pull-request review task; the last line quotes it.
+- **Waiting state.** When the target state declares `waits`, the last line
+  quotes it.
 
-This check proves the head is ready for review; it does not approve. It is
-the last gate before review. The item then waits for the pull-request review
-run, which the driving session starts as a separate cold session, as the
-task its `waits` text names says: its judge's verdict is
-published on this pull request's head as the satelle GitHub app. The approval
+This check proves the head is ready; it does not approve. On the same move,
+`satelle-pr-approve-from-review` runs after it and publishes the satelle GitHub
+app's approving review on HEAD from the accepted `code-ac` verdict. The approval
 gate, on the move out of review, passes only on the app's approving review of
 HEAD. No GitHub review is read here, and GitHub runs no tests. The pending
 gate runs first on the same move, and each pull-request gate's result is

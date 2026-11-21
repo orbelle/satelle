@@ -17,7 +17,6 @@ hold = { rounds = 3, to = "blocked" }
 hold = { rounds = 3, to = "blocked" }
 
 [states.in_review]
-waits = "the pull-request review run (.satelle/tasks/pr-review.md): the driving session starts it as a separate cold session, not its own, and waits for its verdict"
 
 [states.approved]
 enqueue = ["release"]
@@ -109,6 +108,10 @@ skill = "satelle-gate-status-publish"
 skill = "satelle-pr-ready-check"
 after = ["satelle-gate-status-publish"]
 
+[gates.pr-review]
+skill = "satelle-pr-approve-from-review"
+after = ["satelle-gate-status-publish"]
+
 [gates.pr-approval]
 skill = "satelle-pr-approval-check"
 after = ["satelle-gate-status-publish"]
@@ -168,7 +171,7 @@ groups = [
 from = ["integration"]
 to = "in_review"
 groups = [
-  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready"] },
+  { mode = "sequential", gates = ["pr-pending", "integration-check", "pr-ready", "pr-review"] },
 ]
 
 [[transition]]
