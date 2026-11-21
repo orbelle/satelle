@@ -223,6 +223,12 @@ func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
 func (r Run) env() CheckEnv { return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base} }
 
+func (r Run) envFor(sk workflow.Skill) CheckEnv {
+	env := r.env()
+	env.SkillDir = sk.Dir
+	return env
+}
+
 func (r Run) gate(name string) (workflow.Gate, string, bool, error) {
 	g, ok := r.Workflow.Gates[name]
 	if !ok {
@@ -292,7 +298,7 @@ func (r Run) afterOne(ctx context.Context, name string, g workflow.Gate, skillNa
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after skill %q is missing", skillName))
 		return false
 	}
-	env := r.afterEnv(name, *res)
+	env := r.afterEnv(name, *res, skill)
 	limit, source, berr := r.bound(name, g)
 	if berr != nil {
 		res.Notes = joinNotes(res.Notes, fmt.Sprintf("after %s: %v", skillName, berr))
@@ -318,7 +324,7 @@ func (r Run) afterAlways(ctx context.Context, name string, g workflow.Gate, skil
 		failed(berr.Error())
 		return
 	}
-	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.afterEnv(name, *res), limit)
+	passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.afterEnv(name, *res, skill), limit)
 	switch {
 	case err != nil:
 		failed(checkFailure(err, source, out))
@@ -329,8 +335,8 @@ func (r Run) afterAlways(ctx context.Context, name string, g workflow.Gate, skil
 	}
 }
 
-func (r Run) afterEnv(name string, res Result) CheckEnv {
-	env := r.env()
+func (r Run) afterEnv(name string, res Result, sk workflow.Skill) CheckEnv {
+	env := r.envFor(sk)
 	env.Gate, env.Result, env.Binding, env.Notes = name, res.Result, res.Binding, res.Notes
 	for _, j := range res.judges {
 		env.Members = append(env.Members, CheckMember{Binding: j.binding, Result: j.result, Notes: j.notes})
@@ -418,7 +424,7 @@ func (r Run) decide(ctx context.Context, name string) Result {
 		if !ok {
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger skill %q is missing", g.Trigger)}
 		}
-		code, out, err := RunCheckCode(ctx, trig.Script, r.Dir, r.env(), limit)
+		code, out, err := RunCheckCode(ctx, trig.Script, r.Dir, r.envFor(trig), limit)
 		switch {
 		case err != nil:
 			return Result{Result: Reject, Notes: fmt.Sprintf("trigger %s: %s", g.Trigger, checkFailure(err, source, out))}
@@ -471,7 +477,7 @@ func (r Run) judged(ctx context.Context, name string, g workflow.Gate, limit tim
 	case skill.IsCheck() && strings.HasPrefix(g.Placement, agent.PlaceRemote):
 		res = r.remote(ctx, name, g, skill, limit, source)
 	case skill.IsCheck():
-		passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.env(), limit)
+		passed, out, err := RunCheck(ctx, skill.Script, r.Dir, r.envFor(skill), limit)
 		res = Result{Result: Reject, Notes: out}
 		if err != nil {
 			res.Notes = checkFailure(err, source, out)

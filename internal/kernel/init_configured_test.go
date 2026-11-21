@@ -99,3 +99,49 @@ func TestShippedIsTheTemplateSource(t *testing.T) {
 		}
 	}
 }
+
+func TestInitPreservesEditedSkillDirectory(t *testing.T) {
+	const editedShipped = "---\nname: satelle-workflow-standard\ntype: skill\ndescription: edited shipped\n---\n\nStandard: custom.md\n"
+	const editedCustom = "---\nname: custom-dir\ntype: skill\ndescription: edited custom\n---\n\ncustom body\n"
+
+	for _, configured := range []bool{false, true} {
+		name := "unconfigured"
+		if configured {
+			name = "configured"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), ".satelle")
+			if configured {
+				write(t, filepath.Join(root, SettingsFile), "[workflows]\ndefault = \"delivery\"\n")
+				write(t, filepath.Join(root, WorkflowsDir, "delivery.toml"), "name = \"delivery\"\n\n[states.backlog]\nstart = true\n\n[states.done]\nterminal = true\n\n[[transition]]\nfrom = [\"backlog\"]\nto = \"done\"\n")
+			}
+			shippedDirSkill := filepath.Join(root, SkillsDir, "satelle-workflow-standard", "SKILL.md")
+			customDirSkill := filepath.Join(root, SkillsDir, "custom-dir", "SKILL.md")
+			write(t, shippedDirSkill, editedShipped)
+			write(t, customDirSkill, editedCustom)
+
+			plan, err := InitPlan(root)
+			if err != nil {
+				t.Fatalf("InitPlan: %v", err)
+			}
+			if slices.Contains(plan, "skills/satelle-workflow-standard.md") {
+				t.Errorf("InitPlan would create duplicate skills/satelle-workflow-standard.md: %v", plan)
+			}
+			if err := Init(root); err != nil {
+				t.Fatalf("Init: %v", err)
+			}
+			if b, err := os.ReadFile(shippedDirSkill); err != nil || string(b) != editedShipped {
+				t.Errorf("shipped SKILL.md changed: %q (%v)", b, err)
+			}
+			if b, err := os.ReadFile(customDirSkill); err != nil || string(b) != editedCustom {
+				t.Errorf("custom SKILL.md changed: %q (%v)", b, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, SkillsDir, "satelle-workflow-standard.md")); !os.IsNotExist(err) {
+				t.Errorf("Init created duplicate single-file skill beside SKILL.md: %v", err)
+			}
+			if errs := Validate(root); len(errs) != 0 {
+				t.Errorf("Validate after Init: %v", errs)
+			}
+		})
+	}
+}

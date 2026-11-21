@@ -44,7 +44,7 @@ func (r Run) remote(ctx context.Context, name string, g workflow.Gate, skill wor
 	case r.Head.Commit == "" || r.Head.Ref == "":
 		return Result{Result: Reject, Notes: prefix + "no pushed head to check"}
 	}
-	out, err := r.Remote.RunRemote(ctx, RemoteCheck{Remote: id, Gate: name, Script: skill.Script, Env: r.env(), Head: r.Head, Timeout: limit})
+	out, err := r.Remote.RunRemote(ctx, RemoteCheck{Remote: id, Gate: name, Script: skill.Script, Env: r.envFor(skill), Head: r.Head, Timeout: limit})
 	loc := ""
 	if out.Node != "" {
 		loc = agent.PlaceRemote + out.Node

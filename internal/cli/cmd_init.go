@@ -282,12 +282,14 @@ conventional values (satelle help satelle) and whose value is none of them, as
 <item>: tag "<tag>": conventional values are <values> (under the tag_warnings
 key with --json). These are listed without failing the check.
 
-When the configuration is valid it also lists each skill in skills/ that no
-workflow (a performer skill, a gate skill, trigger or after), doctor check or
-[hook] inject entry names, that satelle init does not ship, and whose
-skills/<name>.md path no skill so reached names in its body, as
+When the configuration is valid it also lists each skill in skills/
+(skills/<name>.md or skills/<name>/SKILL.md) that no workflow (a performer
+skill, a gate skill, trigger or after), doctor check or [hook] inject entry
+names, that satelle init does not ship, and whose skills/<name>.md or
+skills/<name>/SKILL.md path no skill so reached names in its body, as
 <file>: skill <name>: ... (under the skill_warnings key with --json). A
-README.md in skills/ is not a skill. These are listed without failing the check.
+README.md in skills/ and subdirectories without SKILL.md are not skills. These
+are listed without failing the check.
 
 It also lists each unknown key in a lenient .satelle configuration file
 (doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml) or in a known

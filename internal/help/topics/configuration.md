@@ -20,8 +20,8 @@ lists every problem.
 the files of `skills/`, `principles/`, `tasks/`, `workflows/` and `queues/`
 (backtick spans and fenced or indented blocks of `.md` files, backtick spans of
 `.toml` files, every line of `.sh` files; not under `testdata/`), and every
-`[[name]]` link outside code, which must name `principles/<name>.md` or
-`skills/<name>.md`. A mention whose next word is a placeholder (`<...>`,
+`[[name]]` link outside code, which must name `principles/<name>.md`,
+`skills/<name>.md` or `skills/<name>/SKILL.md`. A mention whose next word is a placeholder (`<...>`,
 `$...`) is not checked. Each miss is one line,
 `<file>:<line>: <kind>: <subject> — <why>`, of kind command, flag, topic or
 link; with `--json` they are the `substrate` list beside `problems`. Any miss
@@ -40,10 +40,10 @@ one `see <name>: <path>` line per file is written to stderr after its own
 output, so stdout (a `--json` document, an attachment's body) is as it was.
 A command that fails names no file. An entry keys exactly the command it
 names, not its subcommands. Only the top-level `.md` files of `principles/`
-and `skills/` are read, and satelle prints what the frontmatter names: it
-knows no file by name. An entry that is not a command of this binary is a
-substrate finding of kind command, on the file and line of its `commands`
-key.
+and `skills/`, and `skills/<name>/SKILL.md`, are read, and satelle prints what
+the frontmatter names: it knows no file by name. An entry that is not a command
+of this binary is a substrate finding of kind command, on the file and line of
+its `commands` key.
 
 - `satelle.toml` — settings:
 
@@ -111,14 +111,24 @@ key.
 - `agents.toml` — the agents catalog (see `satelle help workflows --session <session>`).
 - `agents.local.toml` — this machine's overrides of agents.toml, field by field; ignored by git (see `satelle help agents --session <session>`).
 - `workflows/<name>.toml` — one workflow per file.
-- `skills/<name>.md` — the skills performers, gates and checks follow. A
-  skill is named by a workflow (a performer skill, a gate skill, trigger or
-  after), a doctor.toml check or a `[hook] inject` entry, is shipped by
-  `satelle init --session <session>`, or is reached by its `skills/<name>.md`
-  path in the body of a skill so named. `satelle validate --session <session>`
-  lists every other skill under `skill_warnings` without failing the check.
-  A `README.md` in `skills/` and the files of its subdirectories are not
-  skills.
+- `skills/<name>.md` or `skills/<name>/SKILL.md` — the skills performers, gates
+  and checks follow. A skill may be a single file (`skills/<name>.md`) or a
+  self-contained directory in the Agent Skills layout (`skills/<name>/SKILL.md`
+  beside the `scripts/` and `assets/` it owns). Defining both `skills/<name>.md`
+  and `skills/<name>/SKILL.md` is a configuration problem reported by
+  `satelle validate --session <session>`. For a skill directory,
+  `satelle validate --session <session>` checks that every `scripts/<file>` and
+  `assets/<file>` path named in backticks or a fenced shell block exists under
+  that skill's directory, and refuses paths under `.satelle/scripts/`, paths
+  under another skill's directory (except prose backtick references to another
+  skill's `SKILL.md`), and `../` escapes. A skill is named by a workflow (a
+  performer skill, a gate skill, trigger or after), a doctor.toml check or a
+  `[hook] inject` entry, is shipped by `satelle init --session <session>`, or
+  is reached by its `skills/<name>.md` or `skills/<name>/SKILL.md` path in the
+  body of a skill so named. `satelle validate --session <session>` lists every
+  other skill under `skill_warnings` without failing the check. A `README.md`
+  in `skills/` and subdirectories without `SKILL.md` (including `testdata/`)
+  are not skills.
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to

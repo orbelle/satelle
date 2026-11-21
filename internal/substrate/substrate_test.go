@@ -69,7 +69,7 @@ func TestCheckText(t *testing.T) {
 		{".satelle/skills/topic.md", "md", "See `satelle help no-such-topic`.\n",
 			".satelle/skills/topic.md:1: topic: satelle help no-such-topic — no-such-topic is not a help topic or command of satelle"},
 		{".satelle/principles/dead.md", "md", "Ship small ([[satelle-start-small]]).\n",
-			".satelle/principles/dead.md:1: link: satelle-start-small — no .satelle/principles/satelle-start-small.md or .satelle/skills/satelle-start-small.md"},
+			".satelle/principles/dead.md:1: link: satelle-start-small — no .satelle/principles/satelle-start-small.md, .satelle/skills/satelle-start-small.md or .satelle/skills/satelle-start-small/SKILL.md"},
 		{"x.md", "md", "`satelle nosuch`\n", "x.md:1: command: satelle nosuch — nosuch is not a command of satelle"},
 		{"x.md", "md", "`satelle ledger list --output-… y`\n", "x.md:1: flag: satelle ledger list --output — --output-… begins no flag of satelle ledger list"},
 		{"x.sh", "sh", "satelle story nope # comment\n", "x.sh:1: command: satelle story nope — nope is not a subcommand of satelle story"},
@@ -216,6 +216,38 @@ func TestCheckReportsKeyedCommands(t *testing.T) {
 		".satelle/principles/bad.md:4: command: satelle * — * is not a command of satelle",
 		".satelle/principles/bad.md:4: command: satelle — names no command",
 		".satelle/skills/worse.md:2: command: satelle reindex — reindex is not a command of satelle",
+	}
+	if !reflect.DeepEqual(lines(got), want) {
+		t.Fatalf("findings:\n got %q\nwant %q", lines(got), want)
+	}
+}
+
+func TestCheckDirectorySkillsAndScripts(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, ".satelle")
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(data, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("skills/dirskill/SKILL.md", "---\nname: dirskill\ntype: skill\ncommands: story get\n---\n\nRun `satelle nope`.\n")
+	write("skills/dirskill/scripts/run.sh", "satelle story bogus\n")
+	write("skills/noskill/notes.md", "not a skill\n")
+	write("principles/ref.md", "See [[dirskill]] and [[noskill]].\n")
+
+	got, err := Check(data, fixtureTree())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		".satelle/principles/ref.md:1: link: noskill — no .satelle/principles/noskill.md, .satelle/skills/noskill.md or .satelle/skills/noskill/SKILL.md",
+		".satelle/skills/dirskill/SKILL.md:7: command: satelle nope — nope is not a command of satelle",
+		".satelle/skills/dirskill/scripts/run.sh:1: command: satelle story bogus — bogus is not a subcommand of satelle story",
 	}
 	if !reflect.DeepEqual(lines(got), want) {
 		t.Fatalf("findings:\n got %q\nwant %q", lines(got), want)

@@ -54,7 +54,7 @@ it.
 A gate is a named judgement on a transition:
 
     [gates.review]
-    skill = "review"             # .satelle/skills/review.md
+    skill = "review"             # .satelle/skills/review.md or .satelle/skills/review/SKILL.md
     agent = "reviewer"           # or panel = ["a", "b"], combine = "all|any|majority"; satelle.toml [review] may pick them by the item's tier
     paths = ["**/*.go"]          # relevance: runs only when a changed path matches
     trigger = "relevant"         # relevance: a check skill; exit 0 runs the gate, exit 1 skips it
@@ -106,6 +106,13 @@ notes. Each check also gets one JSON object on stdin with the same values:
 `id` (`SATELLE_ITEM`) is the item's id, `from` (`SATELLE_FROM`) the state
 the move leaves, `to` (`SATELLE_TO`) the state it enters, and `base`
 (`SATELLE_BASE`) the base commit the item's change is read against.
+
+When a check skill is a directory (`.satelle/skills/<name>/SKILL.md`),
+`SATELLE_SKILL_DIR` is set to the skill's directory and `skill_dir` is added to
+the stdin JSON object. The script still runs with the item's worktree as its
+working directory, and shell check scripts resolve relative `scripts/<file>`
+and `assets/<file>` paths against `$SATELLE_SKILL_DIR` automatically, both
+locally and on a remote node.
 
 Reviewer independence is the repo's configuration, not the binary's. `satelle
 init --session <session>` writes the check skill `satelle-judge-differs-from-performer-check` to

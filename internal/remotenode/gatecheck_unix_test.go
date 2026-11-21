@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gittest"
 )
 
 func TestGateWrapperRunsTheCheck(t *testing.T) {
@@ -29,7 +30,7 @@ func TestGateWrapperRunsTheCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		wrapper, err := gateWrapperScript(env, c.script)
+		wrapper, err := gateWrapperScript(env, c.script, "")
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -58,9 +59,132 @@ func TestGateWrapperRunsTheCheck(t *testing.T) {
 			t.Fatalf("%s: the wrapper names the node dir", c.name)
 		}
 	}
-	if _, err := gateWrapperScript(env, "#!\n"); err == nil {
+	if _, err := gateWrapperScript(env, "#!\n", ""); err == nil {
 		t.Error("a #! naming no interpreter was accepted")
 	}
+}
+
+func TestGateWrapperAndStageGateSkillDir(t *testing.T) {
+	t.Run("normal directory check via stageGate", func(t *testing.T) {
+		tree := t.TempDir()
+		gittest.Git(t, tree, "init", "-q", "-b", "main")
+		skillDir := filepath.Join(tree, ".satelle", "skills", "my-check")
+		if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), []byte("printf 'dir=%s\\n' \"$SATELLE_SKILL_DIR\"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gittest.Git(t, tree, "add", "-A")
+		gittest.Git(t, tree, "commit", "-q", "-m", "init")
+		head := gittest.Git(t, tree, "rev-parse", "HEAD")
+
+		root := t.TempDir()
+		inDir := filepath.Join(root, "in")
+		workDir := filepath.Join(root, "work")
+		if err := os.MkdirAll(filepath.Join(workDir, ".satelle", "skills", "my-check", "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workDir, ".satelle", "skills", "my-check", "scripts", "run.sh"), []byte("printf 'dir=%s\\n' \"$SATELLE_SKILL_DIR\"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		c := gate.RemoteCheck{
+			Gate:   "my-check",
+			Script: "sh scripts/run.sh\n",
+			Env:    gate.CheckEnv{Item: "sto_1", From: "a", To: "b", Base: head, SkillDir: skillDir},
+			Head:   gate.Head{Ref: "refs/heads/main", Commit: head},
+		}
+		if _, err := stageGate(tree, inDir, c); err != nil {
+			t.Fatalf("stageGate: %v", err)
+		}
+		stagedScript, err := os.ReadFile(filepath.Join(inDir, gateScript))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(stagedScript) != "sh \"$SATELLE_SKILL_DIR\"/scripts/run.sh\n" {
+			t.Errorf("staged script = %q", stagedScript)
+		}
+		stagedPayload, err := os.ReadFile(filepath.Join(inDir, gatePayload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(stagedPayload), "skill_dir") || strings.Contains(string(stagedPayload), skillDir) {
+			t.Errorf("payload leaked host skill dir: %s", stagedPayload)
+		}
+		stagedWrapper, err := os.ReadFile(filepath.Join(inDir, gateWrapper))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantExport := `export SATELLE_SKILL_DIR="$root/work/"'.satelle/skills/my-check'`
+		if !strings.Contains(string(stagedWrapper), wantExport) {
+			t.Errorf("wrapper lacks %q:\n%s", wantExport, stagedWrapper)
+		}
+		if strings.Contains(string(stagedWrapper), skillDir) {
+			t.Errorf("wrapper leaked host skill dir %q:\n%s", skillDir, stagedWrapper)
+		}
+		if out, err := exec.Command("sh", filepath.Join(inDir, gateWrapper), root).CombinedOutput(); err != nil {
+			t.Fatalf("wrapper exec: %v\n%s", err, out)
+		}
+		exit, _ := os.ReadFile(filepath.Join(root, "out", gateExit))
+		log, _ := os.ReadFile(filepath.Join(root, "out", gateLog))
+		wantLog := "dir=" + root + "/work/.satelle/skills/my-check\n"
+		if strings.TrimSpace(string(exit)) != "0" || string(log) != wantLog {
+			t.Fatalf("exit=%q log=%q, want 0 and %q", exit, log, wantLog)
+		}
+	})
+
+	t.Run("adversarial skill directory name", func(t *testing.T) {
+		rel := ".satelle/skills/x$(echo pwn)`echo pwn2`\" ' s"
+		env := gate.CheckEnv{Item: "sto_1", From: "a", To: "b", Base: "abc"}
+		script := "printf '%s' \"$SATELLE_SKILL_DIR\"\n"
+		wrapper, err := gateWrapperScript(env, script, rel)
+		if err != nil {
+			t.Fatalf("gateWrapperScript: %v", err)
+		}
+		root := t.TempDir()
+		for _, d := range []string{"in", "work"} {
+			if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for name, body := range map[string]string{
+			gateScript: script, gatePayload: string(env.Payload()), gateWrapper: wrapper,
+		} {
+			if err := os.WriteFile(filepath.Join(root, "in", name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if out, err := exec.Command("sh", filepath.Join(root, "in", gateWrapper), root).CombinedOutput(); err != nil {
+			t.Fatalf("wrapper exec: %v\n%s", err, out)
+		}
+		exit, _ := os.ReadFile(filepath.Join(root, "out", gateExit))
+		log, _ := os.ReadFile(filepath.Join(root, "out", gateLog))
+		want := root + "/work/" + rel
+		if strings.TrimSpace(string(exit)) != "0" || string(log) != want {
+			t.Fatalf("exit=%q log=%q, want 0 and %q", exit, log, want)
+		}
+	})
+
+	t.Run("invalid skillRel refused", func(t *testing.T) {
+		env := gate.CheckEnv{Item: "sto_1"}
+		for _, bad := range []string{"/abs/path", ".", "..", "../outside", "a/../../outside"} {
+			if _, err := gateWrapperScript(env, "exit 0\n", bad); err == nil {
+				t.Errorf("gateWrapperScript accepted invalid skillRel %q", bad)
+			}
+		}
+		tree := t.TempDir()
+		outside := t.TempDir()
+		c := gate.RemoteCheck{
+			Gate:   "g",
+			Script: "exit 0\n",
+			Env:    gate.CheckEnv{Item: "sto_1", SkillDir: outside},
+			Head:   gate.Head{Ref: "refs/heads/main", Commit: "abc"},
+		}
+		if _, err := stageGate(tree, t.TempDir(), c); err == nil {
+			t.Error("stageGate accepted SkillDir outside tree")
+		}
+	})
 }
 
 func TestParseExit(t *testing.T) {

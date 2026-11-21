@@ -51,15 +51,26 @@ func References(dataDir string) ([]Reference, error) {
 			return nil, err
 		}
 		for _, e := range ents {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			var p, stem string
+			switch {
+			case !e.IsDir() && strings.HasSuffix(e.Name(), ".md"):
+				p = filepath.Join(dataDir, d, e.Name())
+				stem = strings.TrimSuffix(e.Name(), ".md")
+			case d == "skills" && e.IsDir() && e.Name() != "testdata":
+				cand := filepath.Join(dataDir, d, e.Name(), workflow.SkillFile)
+				info, err := os.Stat(cand)
+				if err != nil || !info.Mode().IsRegular() {
+					continue
+				}
+				p = cand
+				stem = e.Name()
+			default:
 				continue
 			}
-			p := filepath.Join(dataDir, d, e.Name())
 			b, err := os.ReadFile(p)
 			if err != nil {
 				continue
 			}
-			stem := strings.TrimSuffix(e.Name(), ".md")
 			sk, err := workflow.ParseSkill(stem, string(b))
 			if err != nil {
 				continue

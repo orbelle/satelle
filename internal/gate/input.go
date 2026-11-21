@@ -105,6 +105,6 @@ func (r Run) Input(name string) (Input, error) {
 }
 
 func (r Run) checkInput(skill string) *CheckInput {
-	env := r.env()
+	env := r.envFor(r.Skills[skill])
 	return &CheckInput{Skill: skill, Env: env.Vars(), Stdin: string(env.Payload())}
 }

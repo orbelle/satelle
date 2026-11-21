@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 type SkillWarning struct {
@@ -18,7 +20,17 @@ func (w SkillWarning) String() string {
 	return fmt.Sprintf("%s: skill %s: named by no workflow, doctor check or [hook] inject entry, and by no skill one of them reaches", w.File, w.Skill)
 }
 
-var skillPath = regexp.MustCompile(`skills/([A-Za-z0-9_-]+)\.md`)
+var skillPath = regexp.MustCompile(`skills/([A-Za-z0-9_-]+)(?:\.md|/SKILL\.md)`)
+
+func skillNameFromRel(rest string) (string, bool) {
+	if name, ok := strings.CutSuffix(rest, "/"+workflow.SkillFile); ok && name != "" && !strings.Contains(name, "/") {
+		return name, true
+	}
+	if name, ok := strings.CutSuffix(rest, ".md"); ok && name != "" && !strings.Contains(name, "/") {
+		return name, true
+	}
+	return "", false
+}
 
 func (c *Config) SkillWarnings() []SkillWarning {
 	base := filepath.Base(c.Root)
@@ -41,14 +53,18 @@ func (c *Config) SkillWarnings() []SkillWarning {
 	injectPrefix := base + "/" + SkillsDir + "/"
 	for _, p := range c.Settings.Hook.Inject {
 		clean := path.Clean(filepath.ToSlash(p))
-		if strings.HasPrefix(clean, injectPrefix) && strings.HasSuffix(clean, ".md") {
-			reach(strings.TrimSuffix(strings.TrimPrefix(clean, injectPrefix), ".md"))
+		if rest, ok := strings.CutPrefix(clean, injectPrefix); ok {
+			if name, ok := skillNameFromRel(rest); ok {
+				reach(name)
+			}
 		}
 	}
 	if shipped, err := ShippedFiles(); err == nil {
 		for _, f := range shipped {
-			if rest, ok := strings.CutPrefix(f, SkillsDir+"/"); ok && strings.HasSuffix(rest, ".md") {
-				reach(strings.TrimSuffix(rest, ".md"))
+			if rest, ok := strings.CutPrefix(f, SkillsDir+"/"); ok {
+				if name, ok := skillNameFromRel(rest); ok {
+					reach(name)
+				}
 			}
 		}
 	}
@@ -68,7 +84,11 @@ func (c *Config) SkillWarnings() []SkillWarning {
 	sort.Strings(names)
 	out := []SkillWarning{}
 	for _, name := range names {
-		out = append(out, SkillWarning{Skill: name, File: base + "/" + SkillsDir + "/" + name + ".md"})
+		file := base + "/" + SkillsDir + "/" + name + ".md"
+		if c.Skills[name].IsDir() {
+			file = base + "/" + SkillsDir + "/" + name + "/" + workflow.SkillFile
+		}
+		out = append(out, SkillWarning{Skill: name, File: file})
 	}
 	return out
 }

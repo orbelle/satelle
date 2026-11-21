@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -280,9 +281,55 @@ func collectLog(ctx context.Context, h provider.Handle, root, tmp string) string
 	return strings.TrimSpace(string(b))
 }
 
+func validateSkillRel(rel string) error {
+	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") {
+		return fmt.Errorf("skill directory %q must be relative to the worktree", rel)
+	}
+	if slices.Contains(strings.Split(rel, "/"), "..") {
+		return fmt.Errorf("skill directory %q escapes the worktree", rel)
+	}
+	clean := path.Clean(rel)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return fmt.Errorf("skill directory %q escapes the worktree", rel)
+	}
+	return nil
+}
+
+func resolveAbsPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	if eval, err := filepath.EvalSymlinks(abs); err == nil {
+		return eval, nil
+	}
+	return abs, nil
+}
+
 func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 	if err := os.MkdirAll(in, 0o755); err != nil {
 		return false, err
+	}
+	skillRel := ""
+	if c.Env.SkillDir != "" {
+		c.Script = gate.ResolveSkillScript(c.Script)
+		treeAbs, err := resolveAbsPath(tree)
+		if err != nil {
+			return false, err
+		}
+		skillAbs, err := resolveAbsPath(c.Env.SkillDir)
+		if err != nil {
+			return false, err
+		}
+		rel, err := filepath.Rel(treeAbs, skillAbs)
+		if err != nil {
+			return false, fmt.Errorf("skill directory %q is outside worktree %q: %w", c.Env.SkillDir, tree, err)
+		}
+		skillRel = filepath.ToSlash(rel)
+		if err := validateSkillRel(skillRel); err != nil {
+			return false, err
+		}
+		c.Env.SkillDir = ""
 	}
 	repo := gitfacts.Repo{Dir: tree}
 	if err := repo.Bundle(filepath.Join(in, gateBundle), c.Head.Ref); err != nil {
@@ -297,7 +344,7 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 			return false, err
 		}
 	}
-	wrapper, err := gateWrapperScript(c.Env, c.Script)
+	wrapper, err := gateWrapperScript(c.Env, c.Script, skillRel)
 	if err != nil {
 		return false, err
 	}
@@ -313,7 +360,12 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 	return len(shallow) > 0, nil
 }
 
-func gateWrapperScript(env gate.CheckEnv, script string) (string, error) {
+func gateWrapperScript(env gate.CheckEnv, script, skillRel string) (string, error) {
+	if skillRel != "" {
+		if err := validateSkillRel(skillRel); err != nil {
+			return "", err
+		}
+	}
 	argv, shebang, err := gate.ScriptInterpreter(script)
 	if err != nil {
 		return "", err
@@ -323,6 +375,9 @@ func gateWrapperScript(env gate.CheckEnv, script string) (string, error) {
 	for _, kv := range env.Vars() {
 		k, v, _ := strings.Cut(kv, "=")
 		fmt.Fprintf(&b, "export %s=%s\n", k, ShQuote(v))
+	}
+	if skillRel != "" {
+		fmt.Fprintf(&b, "export SATELLE_SKILL_DIR=\"$root/work/\"%s\n", ShQuote(skillRel))
 	}
 	b.WriteString("cd \"$root/work\" || exit 1\n")
 	redirect := ` < "$root/in/` + gatePayload + `" > "$root/out/` + gateLog + `" 2>&1`

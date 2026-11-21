@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -446,5 +447,102 @@ func TestAfterAlwaysRunsOnEveryResult(t *testing.T) {
 				t.Errorf("%s notes lack %q: %q", x.Gate, w, x.Notes)
 			}
 		}
+	}
+}
+
+func TestResolveSkillScript(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bare script", "scripts/run.sh\n", `"$SATELLE_SKILL_DIR"/scripts/run.sh` + "\n"},
+		{"sh script", "sh scripts/run.sh\n", `sh "$SATELLE_SKILL_DIR"/scripts/run.sh` + "\n"},
+		{"bash script and asset", "bash scripts/run.sh assets/data.txt\n", `bash "$SATELLE_SKILL_DIR"/scripts/run.sh "$SATELLE_SKILL_DIR"/assets/data.txt` + "\n"},
+		{"dot slash script", "./scripts/run.sh ./assets/data.txt\n", `"$SATELLE_SKILL_DIR"/scripts/run.sh "$SATELLE_SKILL_DIR"/assets/data.txt` + "\n"},
+		{"command substitution", "out=$(sh scripts/run.sh)\necho \"$(sh scripts/run.sh)\"\n", "out=$(sh \"$SATELLE_SKILL_DIR\"/scripts/run.sh)\necho \"$(sh \"$SATELLE_SKILL_DIR\"/scripts/run.sh)\"\n"},
+		{"quoted paths", "sh \"scripts/my script.sh\" 'assets/my data.txt'\n", "sh \"$SATELLE_SKILL_DIR/scripts/my script.sh\" \"$SATELLE_SKILL_DIR\"/'assets/my data.txt'\n"},
+		{"comments untouched", "# sh scripts/run.sh\necho hi # assets/data.txt\n", "# sh scripts/run.sh\necho hi # assets/data.txt\n"},
+		{"already prefixed or nested untouched", "sh $SATELLE_SKILL_DIR/scripts/run.sh \"$SATELLE_SKILL_DIR/assets/data.txt\" other/scripts/run.sh\n", "sh $SATELLE_SKILL_DIR/scripts/run.sh \"$SATELLE_SKILL_DIR/assets/data.txt\" other/scripts/run.sh\n"},
+		{"shell shebang rewritten", "#!/usr/bin/env bash\nsh scripts/run.sh\n", "#!/usr/bin/env bash\nsh \"$SATELLE_SKILL_DIR\"/scripts/run.sh\n"},
+		{"non-shell shebang untouched", "#!/usr/bin/env python3\nopen('scripts/run.sh')\n", "#!/usr/bin/env python3\nopen('scripts/run.sh')\n"},
+	}
+	for _, tc := range cases {
+		if got := ResolveSkillScript(tc.in); got != tc.want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestRunCheckDirectorySkillFromWorktree(t *testing.T) {
+	worktree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(worktree, "marker.txt"), []byte("from-worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skillRoot := filepath.Join(t.TempDir(), "my skill dir")
+	if err := os.MkdirAll(filepath.Join(skillRoot, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillRoot, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scriptBody := "#!/bin/sh\nprintf 'pwd=%s\\nmarker=%s\\nasset=%s\\nskill_dir=%s\\n' \"$PWD\" \"$(cat marker.txt)\" \"$(cat \"$1\")\" \"$SATELLE_SKILL_DIR\"\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "scripts", "check.sh"), []byte(scriptBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "assets", "rule.txt"), []byte("from-asset\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wantWorktree := worktree
+	if resolved, err := filepath.EvalSymlinks(worktree); err == nil {
+		wantWorktree = resolved
+	}
+	wantSkillDir := skillRoot
+	if resolved, err := filepath.EvalSymlinks(skillRoot); err == nil {
+		wantSkillDir = resolved
+	}
+
+	for _, tc := range []struct {
+		name   string
+		script string
+	}{
+		{"via sh", "sh scripts/check.sh assets/rule.txt\n"},
+		{"executable", "scripts/check.sh assets/rule.txt\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := setup([]workflow.Group{{Mode: workflow.Sequential, Gates: []string{"dircheck"}}}, map[string]workflow.Gate{
+				"dircheck": {Skill: "dircheck"},
+			})
+			r.Dir = worktree
+			r.Skills["dircheck"] = workflow.Skill{
+				Name:   "dircheck",
+				Path:   filepath.Join(wantSkillDir, workflow.SkillFile),
+				Dir:    wantSkillDir,
+				Meta:   map[string]string{workflow.KeyType: workflow.TypeCheck},
+				Script: tc.script,
+			}
+			in, err := r.Input("dircheck")
+			if err != nil || in.Check == nil {
+				t.Fatalf("Input: %+v %v", in, err)
+			}
+			if !strings.Contains(strings.Join(in.Check.Env, "\n"), "SATELLE_SKILL_DIR="+wantSkillDir) || !strings.Contains(in.Check.Stdin, `"skill_dir":`) {
+				t.Errorf("Input lacks skill dir: env=%v stdin=%s", in.Check.Env, in.Check.Stdin)
+			}
+			rs, pass := r.Execute(context.Background())
+			if !pass || len(rs) != 1 || rs[0].Result != Accept {
+				t.Fatalf("Execute: pass=%v rs=%+v", pass, rs)
+			}
+			for _, want := range []string{
+				"pwd=" + wantWorktree,
+				"marker=from-worktree",
+				"asset=from-asset",
+				"skill_dir=" + wantSkillDir,
+			} {
+				if !strings.Contains(rs[0].Notes, want) {
+					t.Errorf("notes lack %q:\n%s", want, rs[0].Notes)
+				}
+			}
+		})
 	}
 }

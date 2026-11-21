@@ -475,7 +475,7 @@ func (c *Config) doctorProblems() []error {
 		case ch.Skill == "":
 			errs = append(errs, fmt.Errorf("%s: check %d names no skill", DoctorFile, i+1))
 		case !ok:
-			errs = append(errs, fmt.Errorf("%s: check %d names skill %q, which has no %s/%s.md", DoctorFile, i+1, ch.Skill, SkillsDir, ch.Skill))
+			errs = append(errs, fmt.Errorf("%s: check %d names skill %q, which has no %s/%s.md or %s/%s/%s", DoctorFile, i+1, ch.Skill, SkillsDir, ch.Skill, SkillsDir, ch.Skill, workflow.SkillFile))
 		case !sk.IsCheck():
 			errs = append(errs, fmt.Errorf("%s: check %d names skill %q, which is not a check (type: check)", DoctorFile, i+1, ch.Skill))
 		}

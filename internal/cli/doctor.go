@@ -26,6 +26,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/seatlife"
 	"github.com/bobmcallan/satelle/internal/substrate"
 	"github.com/bobmcallan/satelle/internal/syncstate"
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 const (
@@ -740,13 +741,17 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 	if !ok || !sk.IsCheck() {
 		return []doctorIssue{{Check: name, Problem: fmt.Sprintf("skill %s is not a check skill", c.Skill), Fix: "satelle validate"}}, nil
 	}
-	code, out, err := gate.RunCheckCode(ctx, sk.Script, in.r.Tree, gate.CheckEnv{}, doctorCheckTimeout)
+	skillPath := ".satelle/skills/" + c.Skill + ".md"
+	if sk.IsDir() {
+		skillPath = ".satelle/skills/" + c.Skill + "/" + workflow.SkillFile
+	}
+	code, out, err := gate.RunCheckCode(ctx, sk.Script, in.r.Tree, gate.CheckEnv{SkillDir: sk.Dir}, doctorCheckTimeout)
 	if ctx.Err() != nil {
 		return []doctorIssue{{Check: name, Problem: errUnchecked.Error()}}, nil
 	}
 	switch {
 	case err != nil:
-		return []doctorIssue{{Check: name, Problem: "could not check: " + err.Error(), Fix: "run the script in .satelle/skills/" + c.Skill + ".md"}}, nil
+		return []doctorIssue{{Check: name, Problem: "could not check: " + err.Error(), Fix: "run the script in " + skillPath}}, nil
 	case code == 0:
 		var notes []string
 		for _, line := range strings.Split(out, "\n") {
@@ -767,7 +772,7 @@ func runConfiguredCheck(ctx context.Context, in *doctorInput, c kernel.DoctorChe
 		}
 		return issues, nil
 	default:
-		return []doctorIssue{{Check: name, Problem: fmt.Sprintf("could not check (exit %d): %s", code, strings.TrimSpace(out)), Fix: "run the script in .satelle/skills/" + c.Skill + ".md"}}, nil
+		return []doctorIssue{{Check: name, Problem: fmt.Sprintf("could not check (exit %d): %s", code, strings.TrimSpace(out)), Fix: "run the script in " + skillPath}}, nil
 	}
 }
 

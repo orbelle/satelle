@@ -48,6 +48,7 @@ func TestReferences(t *testing.T) {
 	write("principles/bare.md", "commands: story get\n")
 	write("principles/empty.md", "---\nname: empty\ncommands:\n---\n")
 	write("skills/broken.md", "---\nname: broken\ntype: check\ncommands: story get\n---\n\nno script\n")
+	write("skills/dirkeyed/SKILL.md", "---\nname: dirkeyed-skill\ndescription: from dir\ncommands: story list\n---\n\nbody\n")
 	write("skills/keyed.md", "---\nname: keyed-skill\ncommands: task get\n---\n\nbody\n")
 	write("skills/notes.txt", "---\ncommands: story get\n---\n")
 	write("skills/sub/inner.md", "---\nname: inner\ncommands: story get\n---\n")
@@ -59,6 +60,7 @@ func TestReferences(t *testing.T) {
 	want := []Reference{
 		{Name: "bracketed", Description: "bracketed and quoted", Path: ".satelle/principles/bracketed.md", Line: 4, Commands: []string{"story get", "task get"}},
 		{Name: "plain-rule", Description: "a plain list", Path: ".satelle/principles/plain.md", Line: 4, Commands: []string{"story get", "story list"}},
+		{Name: "dirkeyed-skill", Description: "from dir", Path: ".satelle/skills/dirkeyed/SKILL.md", Line: 4, Commands: []string{"story list"}},
 		{Name: "keyed-skill", Path: ".satelle/skills/keyed.md", Line: 3, Commands: []string{"task get"}},
 	}
 	if !reflect.DeepEqual(got, want) {

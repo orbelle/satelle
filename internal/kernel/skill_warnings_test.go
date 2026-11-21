@@ -117,3 +117,33 @@ func TestFreshInitHasNoSkillWarnings(t *testing.T) {
 		t.Fatalf("a fresh init warns on %v", got)
 	}
 }
+
+func TestSkillWarningsDirectorySkills(t *testing.T) {
+	root := skillWarningsRoot(t)
+	write(t, filepath.Join(root, WorkflowsDir, "named.toml"), skillWarningsWorkflow)
+	write(t, filepath.Join(root, SkillsDir, "a", "SKILL.md"), "---\nname: a\ntype: check\ndescription: d\n---\n\nSee `.satelle/skills/b/SKILL.md`.\n\n```sh\nexit 0\n```\n")
+	write(t, filepath.Join(root, SkillsDir, "b", "SKILL.md"), plainSkill("b", "Then follow `skills/c/SKILL.md`."))
+	write(t, filepath.Join(root, SkillsDir, "c", "SKILL.md"), plainSkill("c", "body"))
+	write(t, filepath.Join(root, SkillsDir, "probe", "SKILL.md"), "---\nname: probe\ntype: check\ndescription: d\n---\n\n```sh\nexit 0\n```\n")
+	write(t, filepath.Join(root, SkillsDir, "injected", "SKILL.md"), plainSkill("injected", "body"))
+	write(t, filepath.Join(root, SkillsDir, "orphan-dir", "SKILL.md"), plainSkill("orphan-dir", "body"))
+	write(t, filepath.Join(root, DoctorFile), "[[check]]\nskill = \"probe\"\nfix = \"do it\"\n")
+	settings := filepath.Join(root, SettingsFile)
+	b, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const from = "inject = ["
+	write(t, settings, strings.Replace(string(b), from, from+"\".satelle/skills/injected/SKILL.md\", ", 1))
+	if errs := Validate(root); len(errs) != 0 {
+		t.Fatalf("problems: %v", errs)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c.SkillWarnings()
+	if len(got) != 1 || got[0].Skill != "orphan-dir" || got[0].File != ".satelle/skills/orphan-dir/SKILL.md" {
+		t.Fatalf("warnings %+v, want only orphan-dir at .satelle/skills/orphan-dir/SKILL.md", got)
+	}
+}

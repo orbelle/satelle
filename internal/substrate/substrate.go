@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 const (
@@ -239,7 +241,7 @@ func CheckText(file, ext, text string, tree Tree, links map[string]bool) []Findi
 			for _, m := range reLink.FindAllString(reSpanAny.ReplaceAllString(line, ""), -1) {
 				name := m[2 : len(m)-2]
 				if !links[name] {
-					c.miss(KindLink, name, "no .satelle/principles/"+name+".md or .satelle/skills/"+name+".md")
+					c.miss(KindLink, name, "no .satelle/principles/"+name+".md, .satelle/skills/"+name+".md or .satelle/skills/"+name+"/"+workflow.SkillFile)
 				}
 			}
 		}
@@ -257,6 +259,13 @@ func Check(dataDir string, tree Tree) ([]Finding, error) {
 		for _, e := range ents {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 				links[strings.TrimSuffix(e.Name(), ".md")] = true
+				continue
+			}
+			if d == "skills" && e.IsDir() && e.Name() != "testdata" {
+				p := filepath.Join(dataDir, d, e.Name(), workflow.SkillFile)
+				if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+					links[e.Name()] = true
+				}
 			}
 		}
 	}

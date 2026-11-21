@@ -11,6 +11,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
 //go:embed all:template
@@ -43,6 +45,20 @@ func Shipped(rel string) ([]byte, error) {
 
 func Configured(root string) bool { return exists(filepath.Join(root, SettingsFile)) }
 
+func altSkillPath(rel string) string {
+	rest, ok := strings.CutPrefix(rel, SkillsDir+"/")
+	if !ok {
+		return ""
+	}
+	if name, ok := strings.CutSuffix(rest, "/"+workflow.SkillFile); ok && name != "" && !strings.Contains(name, "/") {
+		return SkillsDir + "/" + name + ".md"
+	}
+	if name, ok := strings.CutSuffix(rest, ".md"); ok && name != "" && !strings.Contains(name, "/") && rest != "README.md" {
+		return SkillsDir + "/" + name + "/" + workflow.SkillFile
+	}
+	return ""
+}
+
 func InitPlan(root string) ([]string, error) {
 	configured := Configured(root)
 	var removed []string
@@ -56,6 +72,9 @@ func InitPlan(root string) ([]string, error) {
 			continue
 		}
 		if exists(filepath.Join(root, filepath.FromSlash(rel))) {
+			continue
+		}
+		if alt := altSkillPath(rel); alt != "" && exists(filepath.Join(root, filepath.FromSlash(alt))) {
 			continue
 		}
 		out = append(out, rel)

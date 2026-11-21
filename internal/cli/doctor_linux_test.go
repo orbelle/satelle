@@ -821,3 +821,35 @@ func TestDoctorConfiguredCheckPassOutputAsNotes(t *testing.T) {
 		}
 	})
 }
+
+func TestDoctorDirectoryCheckSkillRunsFromWorktree(t *testing.T) {
+	f := newDoctorFixture(t)
+	skillDir := filepath.Join(f.dir, ".satelle", "skills", "dir-probe")
+	writeFile(t, filepath.Join(skillDir, "SKILL.md"), "---\nname: dir-probe\ntype: check\ndescription: directory doctor check\n---\n\n```sh\nsh scripts/probe.sh assets/label.txt\n```\n")
+	writeFile(t, filepath.Join(skillDir, "assets", "label.txt"), "probe-asset\n")
+	writeFile(t, filepath.Join(skillDir, "scripts", "probe.sh"), "[ -f .satelle/satelle.toml ] || { echo not-in-worktree; exit 2; }\n[ ! -d scripts ] || { echo repo-scripts-exists; exit 2; }\nlabel=$(cat \"$1\")\nif [ -f DIR_FAIL ]; then\n  printf '%s: %s\\n' \"$label\" \"$(cat DIR_FAIL)\"\n  exit 1\nfi\necho \"$label: clean\"\nexit 0\n")
+	doctorToml := filepath.Join(f.dir, ".satelle", "doctor.toml")
+	cur, err := os.ReadFile(doctorToml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, doctorToml, string(cur)+"\n[[check]]\nskill = \"dir-probe\"\nfix = \"fix dir probe\"\n")
+
+	rep, text, err := doctorJSON(t)
+	if err != nil || len(rep.Issues) != 0 {
+		t.Fatalf("clean directory doctor check: err=%v issues=%+v\n%s", err, rep.Issues, text)
+	}
+	if !slices.Contains(rep.Notes, "check:dir-probe: probe-asset: clean") {
+		t.Errorf("notes lack directory check pass line: %v", rep.Notes)
+	}
+
+	writeFile(t, filepath.Join(f.dir, "DIR_FAIL"), "broken-in-tree\n")
+	rep, text, err = doctorJSON(t)
+	if ExitCodeOf(err) != 1 {
+		t.Fatalf("failing directory doctor check: exit=%d err=%v\n%s", ExitCodeOf(err), err, text)
+	}
+	want := doctorIssue{Check: "check:dir-probe", Problem: "probe-asset: broken-in-tree", Fix: "fix dir probe", Resolve: resolveFixItem}
+	if !slices.Contains(rep.Issues, want) {
+		t.Errorf("issues %+v lack %+v", rep.Issues, want)
+	}
+}
