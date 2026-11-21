@@ -184,13 +184,7 @@ func packTarget(verb string) (string, pack.Names, func(string) error, func(), er
 		TempRoots: []string{},
 		Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
 	}
-	resolve := func(p string) (string, error) {
-		c := canonicalPath(p)
-		if !hook.Within(r.Tree, c) {
-			return "", fmt.Errorf("%s: %s resolves to %s, outside the worktree %s", verb, p, c, r.Tree)
-		}
-		return c, nil
-	}
+	resolve := func(p string) (string, error) { return resolveInTree(verb, r.Tree, p) }
 	check := func(p string) error {
 		c, err := resolve(p)
 		if err != nil {
