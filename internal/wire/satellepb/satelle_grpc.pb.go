@@ -1627,3 +1627,295 @@ var GitHubService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "satelle/v1/satelle.proto",
 }
+
+const (
+	PackService_ListPacks_FullMethodName         = "/satelle.v1.PackService/ListPacks"
+	PackService_GetPack_FullMethodName           = "/satelle.v1.PackService/GetPack"
+	PackService_FetchPack_FullMethodName         = "/satelle.v1.PackService/FetchPack"
+	PackService_PublishPack_FullMethodName       = "/satelle.v1.PackService/PublishPack"
+	PackService_SetPackVisibility_FullMethodName = "/satelle.v1.PackService/SetPackVisibility"
+	PackService_ListPackEvents_FullMethodName    = "/satelle.v1.PackService/ListPackEvents"
+)
+
+// PackServiceClient is the client API for PackService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type PackServiceClient interface {
+	ListPacks(ctx context.Context, in *ListPacksRequest, opts ...grpc.CallOption) (*ListPacksResponse, error)
+	GetPack(ctx context.Context, in *GetPackRequest, opts ...grpc.CallOption) (*PackVersion, error)
+	FetchPack(ctx context.Context, in *GetPackRequest, opts ...grpc.CallOption) (*PackBundle, error)
+	PublishPack(ctx context.Context, in *PublishPackRequest, opts ...grpc.CallOption) (*PackVersion, error)
+	SetPackVisibility(ctx context.Context, in *SetPackVisibilityRequest, opts ...grpc.CallOption) (*Pack, error)
+	ListPackEvents(ctx context.Context, in *ListPackEventsRequest, opts ...grpc.CallOption) (*ListPackEventsResponse, error)
+}
+
+type packServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPackServiceClient(cc grpc.ClientConnInterface) PackServiceClient {
+	return &packServiceClient{cc}
+}
+
+func (c *packServiceClient) ListPacks(ctx context.Context, in *ListPacksRequest, opts ...grpc.CallOption) (*ListPacksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPacksResponse)
+	err := c.cc.Invoke(ctx, PackService_ListPacks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *packServiceClient) GetPack(ctx context.Context, in *GetPackRequest, opts ...grpc.CallOption) (*PackVersion, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PackVersion)
+	err := c.cc.Invoke(ctx, PackService_GetPack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *packServiceClient) FetchPack(ctx context.Context, in *GetPackRequest, opts ...grpc.CallOption) (*PackBundle, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PackBundle)
+	err := c.cc.Invoke(ctx, PackService_FetchPack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *packServiceClient) PublishPack(ctx context.Context, in *PublishPackRequest, opts ...grpc.CallOption) (*PackVersion, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PackVersion)
+	err := c.cc.Invoke(ctx, PackService_PublishPack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *packServiceClient) SetPackVisibility(ctx context.Context, in *SetPackVisibilityRequest, opts ...grpc.CallOption) (*Pack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Pack)
+	err := c.cc.Invoke(ctx, PackService_SetPackVisibility_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *packServiceClient) ListPackEvents(ctx context.Context, in *ListPackEventsRequest, opts ...grpc.CallOption) (*ListPackEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPackEventsResponse)
+	err := c.cc.Invoke(ctx, PackService_ListPackEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PackServiceServer is the server API for PackService service.
+// All implementations must embed UnimplementedPackServiceServer
+// for forward compatibility.
+type PackServiceServer interface {
+	ListPacks(context.Context, *ListPacksRequest) (*ListPacksResponse, error)
+	GetPack(context.Context, *GetPackRequest) (*PackVersion, error)
+	FetchPack(context.Context, *GetPackRequest) (*PackBundle, error)
+	PublishPack(context.Context, *PublishPackRequest) (*PackVersion, error)
+	SetPackVisibility(context.Context, *SetPackVisibilityRequest) (*Pack, error)
+	ListPackEvents(context.Context, *ListPackEventsRequest) (*ListPackEventsResponse, error)
+	mustEmbedUnimplementedPackServiceServer()
+}
+
+// UnimplementedPackServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPackServiceServer struct{}
+
+func (UnimplementedPackServiceServer) ListPacks(context.Context, *ListPacksRequest) (*ListPacksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPacks not implemented")
+}
+func (UnimplementedPackServiceServer) GetPack(context.Context, *GetPackRequest) (*PackVersion, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPack not implemented")
+}
+func (UnimplementedPackServiceServer) FetchPack(context.Context, *GetPackRequest) (*PackBundle, error) {
+	return nil, status.Error(codes.Unimplemented, "method FetchPack not implemented")
+}
+func (UnimplementedPackServiceServer) PublishPack(context.Context, *PublishPackRequest) (*PackVersion, error) {
+	return nil, status.Error(codes.Unimplemented, "method PublishPack not implemented")
+}
+func (UnimplementedPackServiceServer) SetPackVisibility(context.Context, *SetPackVisibilityRequest) (*Pack, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetPackVisibility not implemented")
+}
+func (UnimplementedPackServiceServer) ListPackEvents(context.Context, *ListPackEventsRequest) (*ListPackEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPackEvents not implemented")
+}
+func (UnimplementedPackServiceServer) mustEmbedUnimplementedPackServiceServer() {}
+func (UnimplementedPackServiceServer) testEmbeddedByValue()                     {}
+
+// UnsafePackServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PackServiceServer will
+// result in compilation errors.
+type UnsafePackServiceServer interface {
+	mustEmbedUnimplementedPackServiceServer()
+}
+
+func RegisterPackServiceServer(s grpc.ServiceRegistrar, srv PackServiceServer) {
+	// If the following call panics, it indicates UnimplementedPackServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PackService_ServiceDesc, srv)
+}
+
+func _PackService_ListPacks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPacksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).ListPacks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_ListPacks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).ListPacks(ctx, req.(*ListPacksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PackService_GetPack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).GetPack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_GetPack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).GetPack(ctx, req.(*GetPackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PackService_FetchPack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).FetchPack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_FetchPack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).FetchPack(ctx, req.(*GetPackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PackService_PublishPack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublishPackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).PublishPack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_PublishPack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).PublishPack(ctx, req.(*PublishPackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PackService_SetPackVisibility_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPackVisibilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).SetPackVisibility(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_SetPackVisibility_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).SetPackVisibility(ctx, req.(*SetPackVisibilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PackService_ListPackEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPackEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PackServiceServer).ListPackEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PackService_ListPackEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PackServiceServer).ListPackEvents(ctx, req.(*ListPackEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PackService_ServiceDesc is the grpc.ServiceDesc for PackService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PackService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "satelle.v1.PackService",
+	HandlerType: (*PackServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListPacks",
+			Handler:    _PackService_ListPacks_Handler,
+		},
+		{
+			MethodName: "GetPack",
+			Handler:    _PackService_GetPack_Handler,
+		},
+		{
+			MethodName: "FetchPack",
+			Handler:    _PackService_FetchPack_Handler,
+		},
+		{
+			MethodName: "PublishPack",
+			Handler:    _PackService_PublishPack_Handler,
+		},
+		{
+			MethodName: "SetPackVisibility",
+			Handler:    _PackService_SetPackVisibility_Handler,
+		},
+		{
+			MethodName: "ListPackEvents",
+			Handler:    _PackService_ListPackEvents_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "satelle/v1/satelle.proto",
+}

@@ -352,3 +352,130 @@ message PullRequestEvent {
   string sender = 8;
   google.protobuf.Timestamp received_at = 9;
 }
+
+service PackService {
+  rpc ListPacks(ListPacksRequest) returns (ListPacksResponse);
+  rpc GetPack(GetPackRequest) returns (PackVersion);
+  rpc FetchPack(GetPackRequest) returns (PackBundle);
+  rpc PublishPack(PublishPackRequest) returns (PackVersion);
+  rpc SetPackVisibility(SetPackVisibilityRequest) returns (Pack);
+  rpc ListPackEvents(ListPackEventsRequest) returns (ListPackEventsResponse);
+}
+
+enum PackVisibility {
+  PACK_VISIBILITY_UNSPECIFIED = 0;
+  PACK_VISIBILITY_PUBLIC = 1;
+  PACK_VISIBILITY_WORKSPACE = 2;
+  PACK_VISIBILITY_SHARED = 3;
+}
+
+message Pack {
+  string ref = 1;
+  string owner_workspace_id = 2;
+  string name = 3;
+  string description = 4;
+  PackVisibility visibility = 5;
+  repeated string shared_with = 6;
+  string latest_version = 7;
+  repeated string versions = 8;
+}
+
+message PackSource {
+  string repo = 1;
+  string ref = 2;
+  string commit = 3;
+}
+
+message PackFileRef {
+  string path = 1;
+  string sha256 = 2;
+  int64 size = 3;
+  bool executable = 4;
+}
+
+message PackNeeds {
+  repeated string scripts = 1;
+  repeated string workflows = 2;
+  repeated string agents = 3;
+  repeated string network = 4;
+  repeated string secrets = 5;
+}
+
+message PackManifest {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  PackSource source = 4;
+  repeated PackFileRef files = 5;
+  PackNeeds needs = 6;
+  string digest = 7;
+}
+
+message PackVersion {
+  Pack pack = 1;
+  PackManifest manifest = 2;
+  string published_by = 3;
+  google.protobuf.Timestamp published_at = 4;
+}
+
+message PackFile {
+  string path = 1;
+  string sha256 = 2;
+  bytes body = 3;
+}
+
+message PackBundle {
+  PackVersion version = 1;
+  repeated PackFile files = 2;
+}
+
+message ListPacksRequest {
+  string owner_workspace_id = 1;
+  string query = 2;
+}
+message ListPacksResponse { repeated Pack packs = 1; }
+
+message GetPackRequest {
+  string ref = 1;
+  string version = 2;
+}
+
+message PublishPackRequest {
+  string owner_workspace_id = 1;
+  PackManifest manifest = 2;
+  repeated PackFile files = 3;
+  PackVisibility visibility = 4;
+  repeated string shared_with = 5;
+}
+
+message SetPackVisibilityRequest {
+  string ref = 1;
+  PackVisibility visibility = 2;
+  repeated string shared_with = 3;
+}
+
+enum PackEventKind {
+  PACK_EVENT_KIND_UNSPECIFIED = 0;
+  PACK_EVENT_KIND_PUBLISHED = 1;
+  PACK_EVENT_KIND_READ = 2;
+  PACK_EVENT_KIND_VISIBILITY_CHANGED = 3;
+}
+
+message PackEvent {
+  PackEventKind kind = 1;
+  string ref = 2;
+  string version = 3;
+  string actor_user_id = 4;
+  string actor_workspace_id = 5;
+  google.protobuf.Timestamp at = 6;
+}
+
+message ListPackEventsRequest {
+  string ref = 1;
+  string owner_workspace_id = 2;
+  string page_token = 3;
+}
+message ListPackEventsResponse {
+  repeated PackEvent events = 1;
+  string next_page_token = 2;
+}
