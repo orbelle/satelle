@@ -147,3 +147,29 @@ func TestSkillWarningsDirectorySkills(t *testing.T) {
 		t.Fatalf("warnings %+v, want only orphan-dir at .satelle/skills/orphan-dir/SKILL.md", got)
 	}
 }
+
+func TestSkillWarningsReachPackEntryAndMembers(t *testing.T) {
+	root := skillWarningsRoot(t)
+	write(t, filepath.Join(root, SkillsDir, "my-pack", "SKILL.md"), plainSkill("my-pack", "Wiring guide."))
+	write(t, filepath.Join(root, SkillsDir, "my-pack", "pack.toml"), "name = \"my-pack\"\nversion = \"1.0.0\"\nskills = [\"member-a\", \"member-b\"]\n")
+	write(t, filepath.Join(root, SkillsDir, "member-a", "SKILL.md"), plainSkill("member-a", "Member A."))
+	write(t, filepath.Join(root, SkillsDir, "member-b", "SKILL.md"), plainSkill("member-b", "Member B."))
+	write(t, filepath.Join(root, SkillsDir, "orphan", "SKILL.md"), plainSkill("orphan", "Orphan."))
+	if errs := Validate(root); len(errs) != 0 {
+		t.Fatalf("validate: %v", errs)
+	}
+	if got := skillWarningNames(t, root); len(got) != 1 || got[0] != "orphan" {
+		t.Fatalf("warned skills %v, want only orphan", got)
+	}
+	c, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c.SkillWarnings()
+	if got[0].File != ".satelle/skills/orphan/SKILL.md" {
+		t.Errorf("orphan warning file %q", got[0].File)
+	}
+	if !strings.Contains(got[0].String(), "pack.toml") {
+		t.Errorf("warning line %q does not name pack.toml as a namer", got[0].String())
+	}
+}

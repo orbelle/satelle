@@ -284,8 +284,9 @@ key with --json). These are listed without failing the check.
 
 When the configuration is valid it also lists each skill in skills/
 (skills/<name>.md or skills/<name>/SKILL.md) that no workflow (a performer
-skill, a gate skill, trigger or after), doctor check or [hook] inject entry
-names, that satelle init does not ship, and whose skills/<name>.md or
+skill, a gate skill, trigger or after), doctor check, [hook] inject entry or
+pack.toml (its entry skill and the member skills its skills lists) names, that
+satelle init does not ship, and whose skills/<name>.md or
 skills/<name>/SKILL.md path no skill so reached names in its body, as
 <file>: skill <name>: ... (under the skill_warnings key with --json). A
 README.md in skills/ and subdirectories without SKILL.md are not skills. These

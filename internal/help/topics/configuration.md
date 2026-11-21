@@ -124,7 +124,9 @@ its `commands` key.
   under another skill's directory (except prose backtick references to another
   skill's `SKILL.md`), and `../` escapes. A skill is named by a workflow (a
   performer skill, a gate skill, trigger or after), a doctor.toml check or a
-  `[hook] inject` entry, is shipped by `satelle init --session <session>`, or
+  `[hook] inject` entry, is a pack's entry skill or a member its
+  `skills/<name>/pack.toml` lists, is shipped by
+  `satelle init --session <session>`, or
   is reached by its `skills/<name>.md` or `skills/<name>/SKILL.md` path in the
   body of a skill so named. `satelle validate --session <session>` lists every
   other skill under `skill_warnings` without failing the check. A `README.md`

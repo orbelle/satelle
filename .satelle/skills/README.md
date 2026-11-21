@@ -13,6 +13,7 @@ says what each means.
 `satelle validate --session <session>` refuses duplicate skills defined at both
 `<name>.md` and `<name>/SKILL.md`, missing `scripts/` or `assets/` paths in a
 skill directory, and paths outside that skill's own directory, and lists any
-skill that no workflow, doctor check or `[hook] inject` entry names. This
+skill that no workflow, doctor check, `[hook] inject` entry or `pack.toml`
+names. This
 README, subdirectories without `SKILL.md` and the files under `testdata/` are
 not skills.

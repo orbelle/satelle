@@ -31,10 +31,19 @@ secrets = ["API_TOKEN"]
 	writeFile(t, filepath.Join(dir, ".satelle", "skills", "pack-check", "SKILL.md"), "---\nname: pack-check\ntype: check\ndescription: check\n---\n\n```sh\nsh scripts/check.sh\n```\n")
 	writeFile(t, filepath.Join(dir, ".satelle", "skills", "pack-check", "scripts", "check.sh"), "exit 0\n")
 	writeFile(t, filepath.Join(dir, ".satelle", "skills", "pack-judge", "SKILL.md"), "---\nname: pack-judge\ntype: skill\ndescription: judge\n---\n\nJudge.\n")
+	writeFile(t, filepath.Join(dir, ".satelle", "skills", "stray", "SKILL.md"), "---\nname: stray\ntype: skill\ndescription: stray\n---\n\nStray.\n")
 
 	out := must(t, "validate")
 	if !strings.Contains(out, "configuration valid") {
 		t.Fatalf("validate output:\n%s", out)
+	}
+	for _, name := range []string{"quality-pack", "pack-check", "pack-judge"} {
+		if strings.Contains(out, "skill "+name+":") {
+			t.Errorf("validate reports pack skill %s as unreached:\n%s", name, out)
+		}
+	}
+	if !strings.Contains(out, "skill stray:") {
+		t.Errorf("validate does not report the unreached skill stray:\n%s", out)
 	}
 	if strings.Contains(out, "unknown keys") {
 		t.Fatalf("validate reported unexpected unknown keys:\n%s", out)
@@ -42,15 +51,21 @@ secrets = ["API_TOKEN"]
 
 	raw := must(t, "validate", "--json")
 	var doc struct {
-		Valid       bool                  `json:"valid"`
-		Problems    []string              `json:"problems"`
-		UnknownKeys []workflow.UnknownKey `json:"unknown_keys"`
+		Valid         bool                  `json:"valid"`
+		Problems      []string              `json:"problems"`
+		UnknownKeys   []workflow.UnknownKey `json:"unknown_keys"`
+		SkillWarnings []struct {
+			Skill string `json:"skill"`
+		} `json:"skill_warnings"`
 	}
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		t.Fatalf("validate --json: %v\n%s", err, raw)
 	}
 	if !doc.Valid || len(doc.Problems) != 0 || doc.UnknownKeys == nil || len(doc.UnknownKeys) != 0 {
 		t.Fatalf("validate --json = %+v, want valid with empty problems and empty unknown_keys", doc)
+	}
+	if len(doc.SkillWarnings) != 1 || doc.SkillWarnings[0].Skill != "stray" {
+		t.Fatalf("validate --json skill_warnings = %+v, want only stray", doc.SkillWarnings)
 	}
 }
 

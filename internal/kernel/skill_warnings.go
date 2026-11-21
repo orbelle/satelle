@@ -17,7 +17,7 @@ type SkillWarning struct {
 }
 
 func (w SkillWarning) String() string {
-	return fmt.Sprintf("%s: skill %s: named by no workflow, doctor check or [hook] inject entry, and by no skill one of them reaches", w.File, w.Skill)
+	return fmt.Sprintf("%s: skill %s: named by no workflow, doctor check, [hook] inject entry or pack.toml, and by no skill one of them reaches", w.File, w.Skill)
 }
 
 var skillPath = regexp.MustCompile(`skills/([A-Za-z0-9_-]+)(?:\.md|/SKILL\.md)`)
@@ -66,6 +66,12 @@ func (c *Config) SkillWarnings() []SkillWarning {
 					reach(name)
 				}
 			}
+		}
+	}
+	for _, entry := range sortedKeys(c.Packs) {
+		reach(entry)
+		for _, member := range c.Packs[entry].Skills {
+			reach(member)
 		}
 	}
 	for len(queue) > 0 {
