@@ -343,3 +343,33 @@ func TestDiffMaxBytesDocumented(t *testing.T) {
 		}
 	}
 }
+
+func TestPackTomlDocumented(t *testing.T) {
+	top, ok := Get("configuration")
+	if !ok {
+		t.Fatal("no configuration topic")
+	}
+	if !strings.Contains(top.Body, "`skills/<name>/pack.toml`") {
+		t.Error("configuration topic does not list skills/<name>/pack.toml")
+	}
+	pack := helpSection(t, "configuration", "## pack.toml")
+	for _, want := range []string{
+		".satelle/skills/<entry>/pack.toml",
+		"SKILL.md",
+		`name = "<pack-name>"`,
+		`version = "<version>"`,
+		`skills = ["<member-skill>"]`,
+		"[needs]",
+		`scripts = ["<script>"]`,
+		`agents = ["<agent>"]`,
+		`network = ["<host>"]`,
+		`secrets = ["<secret>"]`,
+		"unknown_keys",
+		"unknown-keys",
+		".satelle/packs.toml",
+	} {
+		if !strings.Contains(pack, want) {
+			t.Errorf("pack.toml section lacks %q", want)
+		}
+	}
+}

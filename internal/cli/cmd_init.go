@@ -292,8 +292,9 @@ README.md in skills/ and subdirectories without SKILL.md are not skills. These
 are listed without failing the check.
 
 It also lists each unknown key in a lenient .satelle configuration file
-(doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml) or in a known
-advisory table of satelle.toml ([hook], [items], [service], [sync], [ledger]),
+(doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml,
+skills/<name>/pack.toml) or in a known advisory table of satelle.toml
+([hook], [items], [service], [sync], [ledger]),
 as <file>: [<table>] <key> = <value> (or <file>: <key> = <value> at top level),
 under the unknown_keys key with --json. These are listed without failing the
 check; satelle doctor reports each as an unknown-keys issue. Unknown keys in

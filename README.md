@@ -122,7 +122,7 @@ rejected the move, listing each rejecting gate and its notes.
   `agents.toml`, its local override agents.local.toml, the workflows, gate and review tables of
   `satelle.toml`, and unknown top-level keys or tables in `satelle.toml`)
   refuse an unknown key; lenient files (`doctor.toml`, the optional ui.toml, `init.toml`,
-  `volatile.toml`, `harness.toml`) and the known advisory tables of `satelle.toml`
+  `volatile.toml`, `harness.toml`, `skills/<name>/pack.toml`) and the known advisory tables of `satelle.toml`
   (hook, items, service, sync and ledger) load and report each
   unknown key in `satelle validate --session <session>` and `satelle doctor --session <session>`.
   See `satelle help configuration --session <session>`.

@@ -20,11 +20,12 @@ ledger store.
 Its checks:
   config        the configuration is invalid (satelle validate)
   unknown-keys  a key satelle does not read in a lenient .satelle file
-                (doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml)
-                or in a known advisory table of satelle.toml ([hook], [items],
-                [service], [sync], [ledger]): listed with its file, table and
-                value without stopping satelle from loading (ask what it is
-                for, then remove it if mistyped or keep it if intentional)
+                (doctor.toml, ui.toml, init.toml, volatile.toml, harness.toml,
+                skills/<name>/pack.toml) or in a known advisory table of
+                satelle.toml ([hook], [items], [service], [sync], [ledger]):
+                listed with its file, table and value without stopping satelle
+                from loading (ask what it is for, then remove it if mistyped or
+                keep it if intentional)
   substrate     a satelle command, flag, help topic or [[link]] the repo's
              .satelle skills, principles, tasks, workflows or queues name that
              this binary lacks (satelle validate)

@@ -33,6 +33,7 @@ type Kernel struct {
 	Workflows     map[string]*workflow.Workflow
 	Rules         workflow.Rules
 	Skills        map[string]workflow.Skill
+	Packs         map[string]workflow.Pack
 	Agents        agent.Catalog
 	Overrides     []agent.Override
 	Queues        map[string]*workflow.Queue
@@ -93,7 +94,7 @@ func Open(o Options) (*Kernel, error) {
 	}
 	k := &Kernel{
 		Root: o.Root, Dir: o.Dir, Settings: cfg.Settings, Ledger: led, Cache: c,
-		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Agents: cfg.Agents, Overrides: cfg.Overrides,
+		Workflows: cfg.Workflows, Rules: cfg.Settings.Workflows, Skills: cfg.Skills, Packs: cfg.Packs, Agents: cfg.Agents, Overrides: cfg.Overrides,
 		Queues: cfg.Queues, queueFiles: QueueIndex(cfg.Settings, cfg.Queues), Harness: cfg.Harness,
 		Dispatcher: agent.Runner{}, Now: time.Now, Logs: config.LogsDir(o.Runtime),
 	}
@@ -114,7 +115,7 @@ func Open(o Options) (*Kernel, error) {
 func (k *Kernel) Close() error { return k.Cache.Close() }
 
 func (k *Kernel) Validate() []error {
-	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness}
+	c := &Config{Root: k.Root, Settings: k.Settings, Workflows: k.Workflows, Skills: k.Skills, Packs: k.Packs, Agents: k.Agents, Overrides: k.Overrides, Queues: k.Queues, Harness: k.Harness}
 	c.Settings.Workflows = k.Rules
 	return c.Problems()
 }

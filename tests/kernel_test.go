@@ -433,3 +433,221 @@ func TestStrictConfigFilesRefuseUnknownKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestPackValidationAndModifiedMemberSkill(t *testing.T) {
+	t.Parallel()
+	s := newSandbox(t)
+	s.must("init", "--hooks=claude")
+
+	s.write(".satelle/workflows/default.toml", `name = "default"
+[states.backlog]
+start = true
+[states.done]
+terminal = true
+
+[gates.pack-check]
+skill = "pack-check"
+
+[[transition]]
+from = ["backlog"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["pack-check"] }]
+`)
+	s.write(".satelle/skills/my-pack/SKILL.md", "---\nname: my-pack\ntype: skill\ndescription: wiring guide\n---\n\nWiring guide.\n")
+	s.write(".satelle/skills/my-pack/pack.toml", `
+name = "my-pack"
+version = "1.0.0"
+skills = ["pack-check", "pack-judge"]
+
+[needs]
+scripts = ["sh"]
+agents = ["reviewer"]
+network = ["api.example.com"]
+secrets = ["API_TOKEN"]
+`)
+	s.write(".satelle/skills/pack-check/SKILL.md", "---\nname: pack-check\ntype: check\ndescription: pack check\n---\n\n```sh\nsh scripts/check.sh\n```\n")
+	s.write(".satelle/skills/pack-check/scripts/check.sh", "echo PACK_IT_MARKER_V1\n")
+	s.write(".satelle/skills/pack-judge/SKILL.md", "---\nname: pack-judge\ntype: skill\ndescription: pack judge\n---\n\nJudge rubric.\n")
+
+	if out := s.must("validate"); !strings.Contains(out, "configuration valid") {
+		t.Fatalf("AC1 validate:\n%s", out)
+	}
+	type validateDoc struct {
+		Valid       bool     `json:"valid"`
+		Problems    []string `json:"problems"`
+		UnknownKeys []struct {
+			File  string `json:"file"`
+			Table string `json:"table"`
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		} `json:"unknown_keys"`
+	}
+	var vdoc validateDoc
+	s.mustJSON(&vdoc, "validate")
+	if !vdoc.Valid || len(vdoc.Problems) != 0 || len(vdoc.UnknownKeys) != 0 {
+		t.Fatalf("AC1 validate --json = %+v", vdoc)
+	}
+
+	if _, err := os.Stat(filepath.Join(s.dir, ".satelle", "packs.toml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .satelle/packs.toml, got err=%v", err)
+	}
+	it1 := s.create("story", "--title", "pack v1", "--criteria", "runs")
+	s.must("story", "set", it1.ID, "--status", "done")
+	led1 := s.must("ledger", "list", it1.ID, "--json")
+	if !strings.Contains(led1, "PACK_IT_MARKER_V1") {
+		t.Fatalf("AC4 v1 ledger lacks PACK_IT_MARKER_V1:\n%s", led1)
+	}
+
+	s.write(".satelle/skills/pack-check/SKILL.md", "---\nname: pack-check\ntype: check\ndescription: pack check edited\n---\n\nEdited body.\n\n```sh\nsh scripts/check.sh\n```\n")
+	s.write(".satelle/skills/pack-check/scripts/check.sh", "echo PACK_IT_MARKER_V2_EDITED\n")
+	if _, err := os.Stat(filepath.Join(s.dir, ".satelle", "packs.toml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .satelle/packs.toml after edit, got err=%v", err)
+	}
+	if out := s.must("validate"); !strings.Contains(out, "configuration valid") {
+		t.Fatalf("AC4 validate after edit:\n%s", out)
+	}
+	s.must("status")
+	it2 := s.create("story", "--title", "pack v2", "--criteria", "runs edited")
+	s.must("story", "set", it2.ID, "--status", "done")
+	led2 := s.must("ledger", "list", it2.ID, "--json")
+	if !strings.Contains(led2, "PACK_IT_MARKER_V2_EDITED") {
+		t.Fatalf("AC4 v2 ledger lacks PACK_IT_MARKER_V2_EDITED:\n%s", led2)
+	}
+
+	s.write(".satelle/skills/my-pack/pack.toml", `
+name = "my-pack"
+version = "1.0.0"
+skills = ["pack-check", "pack-judge"]
+author = "orbelle"
+
+[needs]
+scripts = ["sh"]
+workflows = ["delivery"]
+`)
+	valOut := s.must("validate")
+	if !strings.Contains(valOut, "configuration valid") {
+		t.Fatalf("AC2 validate:\n%s", valOut)
+	}
+	wantUnknown := []string{
+		`.satelle/skills/my-pack/pack.toml: author = "orbelle"`,
+		`.satelle/skills/my-pack/pack.toml: [needs] workflows = ["delivery"]`,
+	}
+	for _, line := range wantUnknown {
+		if n := strings.Count(valOut, line); n != 1 {
+			t.Errorf("AC2 validate has %q %d times, want 1:\n%s", line, n, valOut)
+		}
+	}
+	vdoc = validateDoc{}
+	s.mustJSON(&vdoc, "validate")
+	if !vdoc.Valid || len(vdoc.Problems) != 0 || len(vdoc.UnknownKeys) != 2 {
+		t.Fatalf("AC2 validate --json = %+v", vdoc)
+	}
+	doc := s.run("doctor", "--json")
+	if doc.code != 1 {
+		t.Fatalf("AC2 doctor --json exit=%d\n%s%s", doc.code, doc.out, doc.err)
+	}
+	var ddoc struct {
+		Issues []struct {
+			Check   string `json:"check"`
+			Problem string `json:"problem"`
+		} `json:"issues"`
+	}
+	if err := json.Unmarshal([]byte(doc.out), &ddoc); err != nil {
+		t.Fatalf("AC2 doctor --json: %v\n%s", err, doc.out)
+	}
+	var gotUnknown []string
+	for _, is := range ddoc.Issues {
+		if is.Check == "config" {
+			t.Errorf("AC2 doctor reported config issue: %+v", is)
+		}
+		if is.Check == "unknown-keys" {
+			gotUnknown = append(gotUnknown, is.Problem)
+		}
+	}
+	if !slices.Equal(gotUnknown, wantUnknown) {
+		t.Fatalf("AC2 doctor unknown-keys:\ngot:  %v\nwant: %v", gotUnknown, wantUnknown)
+	}
+
+	s.write(".satelle/skills/flat-member.md", "---\nname: flat-member\ntype: skill\n---\n\nFlat.\n")
+	ac3Cases := []struct {
+		name  string
+		write func()
+		wants []string
+	}{
+		{
+			name: "missing name",
+			write: func() {
+				s.write(".satelle/skills/my-pack/pack.toml", "version = \"1.0.0\"\nskills = [\"pack-check\"]\n")
+			},
+			wants: []string{"skills/my-pack/pack.toml", "name"},
+		},
+		{
+			name: "missing version alongside unknown key",
+			write: func() {
+				s.write(".satelle/skills/my-pack/pack.toml", "name = \"my-pack\"\nskills = [\"pack-check\"]\nextra = 1\n")
+			},
+			wants: []string{"skills/my-pack/pack.toml", "version"},
+		},
+		{
+			name:  "missing skills",
+			write: func() { s.write(".satelle/skills/my-pack/pack.toml", "name = \"my-pack\"\nversion = \"1.0.0\"\n") },
+			wants: []string{"skills/my-pack/pack.toml", "skills"},
+		},
+		{
+			name: "missing member skill",
+			write: func() {
+				s.write(".satelle/skills/my-pack/pack.toml", "name = \"my-pack\"\nversion = \"1.0.0\"\nskills = [\"missing-member\"]\n")
+			},
+			wants: []string{"skills/my-pack/pack.toml", "missing-member"},
+		},
+		{
+			name: "single-file member skill",
+			write: func() {
+				s.write(".satelle/skills/my-pack/pack.toml", "name = \"my-pack\"\nversion = \"1.0.0\"\nskills = [\"flat-member\"]\n")
+			},
+			wants: []string{"skills/my-pack/pack.toml", "flat-member"},
+		},
+		{
+			name: "pack.toml without SKILL.md",
+			write: func() {
+				s.write(".satelle/skills/my-pack/pack.toml", "name = \"my-pack\"\nversion = \"1.0.0\"\nskills = [\"pack-check\"]\n")
+				s.write(".satelle/skills/no-skill-dir/pack.toml", "name = \"no-skill\"\nversion = \"1.0.0\"\nskills = [\"pack-check\"]\n")
+			},
+			wants: []string{"skills/no-skill-dir/pack.toml", "SKILL.md"},
+		},
+	}
+	for _, tc := range ac3Cases {
+		tc.write()
+		r := s.run("validate")
+		msg := filepath.ToSlash(r.out + "\n" + r.err)
+		if r.code == 0 {
+			t.Errorf("AC3 %s: validate exited 0:\n%s", tc.name, msg)
+		}
+		for _, w := range tc.wants {
+			if !strings.Contains(msg, w) {
+				t.Errorf("AC3 %s: validate output lacks %q:\n%s", tc.name, w, msg)
+			}
+		}
+		rj := s.run("validate", "--json")
+		if rj.code == 0 {
+			t.Errorf("AC3 %s: validate --json exited 0:\n%s", tc.name, rj.out)
+		}
+		var rep struct {
+			Valid    bool     `json:"valid"`
+			Problems []string `json:"problems"`
+		}
+		if err := json.Unmarshal([]byte(rj.out), &rep); err != nil {
+			t.Errorf("AC3 %s: validate --json unmarshal: %v\n%s", tc.name, err, rj.out)
+			continue
+		}
+		if rep.Valid {
+			t.Errorf("AC3 %s: validate --json reported valid=true", tc.name)
+		}
+		joined := filepath.ToSlash(strings.Join(rep.Problems, "\n"))
+		for _, w := range tc.wants {
+			if !strings.Contains(joined, w) {
+				t.Errorf("AC3 %s: validate --json problems lack %q:\n%s", tc.name, w, joined)
+			}
+		}
+	}
+}

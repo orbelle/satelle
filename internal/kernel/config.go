@@ -64,6 +64,7 @@ type Config struct {
 	Settings    Settings
 	Workflows   map[string]*workflow.Workflow
 	Skills      map[string]workflow.Skill
+	Packs       map[string]workflow.Pack
 	Agents      agent.Catalog
 	Overrides   []agent.Override
 	Queues      map[string]*workflow.Queue
@@ -289,7 +290,7 @@ func normalizeUnknownKeys(root string, keys []workflow.UnknownKey) []workflow.Un
 }
 
 func LoadConfig(root string) (*Config, error) {
-	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Agents: agent.Catalog{},
+	c := &Config{Root: root, Workflows: map[string]*workflow.Workflow{}, Skills: map[string]workflow.Skill{}, Packs: map[string]workflow.Pack{}, Agents: agent.Catalog{},
 		Queues: map[string]*workflow.Queue{}}
 	var errs []error
 	var unknown []workflow.UnknownKey
@@ -338,7 +339,6 @@ func LoadConfig(root string) (*Config, error) {
 			errs = append(errs, err)
 		}
 	}
-	c.UnknownKeys = normalizeUnknownKeys(root, unknown)
 	if cat, ovs, err := LoadAgents(root); err != nil {
 		errs = append(errs, err)
 	} else {
@@ -360,6 +360,17 @@ func LoadConfig(root string) (*Config, error) {
 	} else {
 		c.Skills = sk
 	}
+	if pks, un, err := workflow.LoadPacks(filepath.Join(root, SkillsDir)); err != nil {
+		errs = append(errs, err)
+		if pks != nil {
+			c.Packs = pks
+		}
+		unknown = append(unknown, un...)
+	} else {
+		c.Packs = pks
+		unknown = append(unknown, un...)
+	}
+	c.UnknownKeys = normalizeUnknownKeys(root, unknown)
 	if qs, err := workflow.LoadQueues(filepath.Join(root, QueuesDir)); err != nil {
 		errs = append(errs, err)
 		if qs != nil {
@@ -423,6 +434,7 @@ func (c *Config) Problems() []error {
 	for _, n := range sortedKeys(c.Skills) {
 		errs = append(errs, c.Skills[n].Problems()...)
 	}
+	errs = append(errs, c.packProblems()...)
 	errs = append(errs, c.queueProblems()...)
 	errs = append(errs, c.doctorProblems()...)
 	for _, err := range c.Volatile.Problems() {
@@ -498,6 +510,26 @@ func (c *Config) doctorProblems() []error {
 		if strings.TrimSpace(o.Fix) == "" {
 			errs = append(errs, fmt.Errorf("%s: items %q has no fix", DoctorFile, o.Name))
 		}
+	}
+	return errs
+}
+
+func (c *Config) packProblems() []error {
+	var errs []error
+	skill := func(n string) (workflow.Skill, bool) { s, ok := c.Skills[n]; return s, ok }
+	seenName := map[string]workflow.Pack{}
+	for _, entry := range sortedKeys(c.Packs) {
+		pk := c.Packs[entry]
+		errs = append(errs, pk.Validate(skill)...)
+		name := strings.TrimSpace(pk.Name)
+		if name == "" {
+			continue
+		}
+		if other, dup := seenName[name]; dup {
+			errs = append(errs, fmt.Errorf("%s: duplicate pack name %q (also defined in %s)", pk.File, name, other.File))
+			continue
+		}
+		seenName[name] = pk
 	}
 	return errs
 }

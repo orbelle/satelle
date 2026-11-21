@@ -5,7 +5,8 @@ files and tables (`workflows/*.toml`, `queues/*.toml`, `agents.toml`,
 `agents.local.toml`, and `satelle.toml`'s `[workflows]`, `[gate]` and `[review]`
 tables, as well as any top-level key or table `satelle.toml` does not read) are
 decoded strictly and refuse an unknown key. Lenient files (`doctor.toml`,
-`ui.toml`, `init.toml`, `volatile.toml`, `harness.toml`) and the known advisory
+`ui.toml`, `init.toml`, `volatile.toml`, `harness.toml`,
+`skills/<name>/pack.toml`) and the known advisory
 tables of `satelle.toml` (`[hook]`, `[items]`, `[service]`, `[sync]`, `[ledger]`)
 load and ignore an unknown key, while `satelle validate --session <session>`
 (under `unknown_keys`) and `satelle doctor --session <session>` (under
@@ -129,6 +130,8 @@ its `commands` key.
   other skill under `skill_warnings` without failing the check. A `README.md`
   in `skills/` and subdirectories without `SKILL.md` (including `testdata/`)
   are not skills.
+- `skills/<name>/pack.toml` — optional: defines a skill pack in its entry
+  skill's directory (`skills/<name>/SKILL.md` is the wiring guide) (below).
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to
@@ -155,6 +158,35 @@ its `commands` key.
 - `harness.toml` — optional: each harness's session-start limit, over which
   `satelle hook context` lists the `[hook] inject` files instead of printing
   them (below).
+
+## pack.toml
+
+A pack is a set of skill directories under `.satelle/skills/` defined by
+`.satelle/skills/<entry>/pack.toml` in its entry skill's directory (whose
+`SKILL.md` is the wiring guide). A pack ships skills only, never workflows.
+
+    name = "<pack-name>"            # required, unique across packs
+    version = "<version>"           # required
+    skills = ["<member-skill>"]     # required; each must exist as skills/<member>/SKILL.md
+
+    [needs]                         # optional; declares what the pack needs
+    scripts = ["<script>"]          # optional
+    agents = ["<agent>"]            # optional
+    network = ["<host>"]            # optional
+    secrets = ["<secret>"]          # optional
+
+`satelle validate --session <session>` refuses a `pack.toml` in a directory
+without `SKILL.md`, a symlinked or non-regular `pack.toml`, a duplicate pack
+`name`, a missing or blank `name`, `version` or `skills`, an invalid,
+duplicate or missing member skill (every member must be a skill directory
+`skills/<member>/SKILL.md`, not a single-file `skills/<member>.md`), or an
+empty entry under `[needs]`. Because `pack.toml` defines no gate or
+permission, it is decoded leniently: an unknown key is reported by
+`satelle validate --session <session>` (under `unknown_keys`) and
+`satelle doctor --session <session>` (under `unknown-keys`) without failing
+validation. The kernel never refuses to load or run a skill for its content,
+and loading or running edited pack member skills requires no
+`.satelle/packs.toml`.
 
 ## doctor.toml
 
