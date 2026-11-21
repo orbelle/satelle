@@ -106,9 +106,6 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 	manifestFiles := make(map[string]*satellepb.PackFileRef, len(manifest.GetFiles()))
 	manifestPaths := make([]string, 0, len(manifest.GetFiles()))
 	for _, ref := range manifest.GetFiles() {
-		if ref == nil {
-			return Verified{}, errors.New("pack manifest contains nil file entry")
-		}
 		p := ref.GetPath()
 		if err := ValidatePath(p); err != nil {
 			return Verified{}, err
@@ -122,9 +119,6 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 
 	bundleFiles := make(map[string]*satellepb.PackFile, len(bundle.GetFiles()))
 	for _, f := range bundle.GetFiles() {
-		if f == nil {
-			return Verified{}, errors.New("pack bundle contains nil file entry")
-		}
 		p := f.GetPath()
 		if err := ValidatePath(p); err != nil {
 			return Verified{}, err
@@ -205,9 +199,6 @@ func Verify(bundle *satellepb.PackBundle) (Verified, error) {
 }
 
 func Write(dir string, v Verified) error {
-	if strings.TrimSpace(dir) == "" {
-		return errors.New("target directory is required")
-	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("resolve directory %q: %w", dir, err)
