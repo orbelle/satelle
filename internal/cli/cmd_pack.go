@@ -80,8 +80,6 @@ func packArgs(ref, version string) (string, string, error) {
 	return ref, version, nil
 }
 
-// fetchVerified fetches ref at version and verifies every file, the digest and
-// the version; a pack the caller may not read is not found.
 func fetchVerified(cmd *cobra.Command, ref, version, server string) (pack.Verified, error) {
 	srv, err := projectServer(server)
 	if err != nil {

@@ -34,7 +34,6 @@ func Decode(path string, v any) ([]UnknownKey, error) {
 	return DecodeData(path, data, v)
 }
 
-// DecodeData decodes TOML text read from path, as Decode does the file itself.
 func DecodeData(path string, data []byte, v any) ([]UnknownKey, error) {
 	md, err := toml.Decode(string(data), v)
 	if err != nil {

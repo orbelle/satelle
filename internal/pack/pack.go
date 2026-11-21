@@ -270,8 +270,6 @@ func Write(dir string, v Verified) error {
 	return nil
 }
 
-// stageFiles writes every verified file under stage, each created anew with
-// its published mode.
 func stageFiles(stage string, v Verified) error {
 	for _, f := range v.files {
 		dest := filepath.Join(stage, filepath.FromSlash(f.path))

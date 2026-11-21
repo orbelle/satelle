@@ -12,16 +12,12 @@ import (
 	"github.com/bobmcallan/satelle/internal/workflow"
 )
 
-// Names are the file names Install places under the data directory: the
-// skills directory, the installed-pack record, and the prefix of its staging
-// directory. The caller owns them, so pack depends on neither.
 type Names struct {
 	Skills      string
 	Record      string
 	StagePrefix string
 }
 
-// Result is what Install placed, or found already placed.
 type Result struct {
 	Ref              string   `json:"ref"`
 	Name             string   `json:"name"`
@@ -32,10 +28,6 @@ type Result struct {
 	AlreadyInstalled bool     `json:"already_installed,omitempty"`
 }
 
-// Layout reads a verified bundle as skill directories relative to the skills
-// directory: one entry directory holding SKILL.md and pack.toml, and the member
-// skill directories its pack.toml lists, as siblings. It returns the entry and
-// every directory to place, the entry first and the members sorted.
 func Layout(v Verified) (string, []string, error) {
 	tops := map[string]bool{}
 	var entries []string
@@ -93,13 +85,6 @@ func Layout(v Verified) (string, []string, error) {
 	return entry, dirs, nil
 }
 
-// Install places a verified pack's skill directories under dataDir's skills
-// directory and records them in dataDir's record. check is called with every
-// path Install would create or replace before anything is written, and the
-// first error it returns refuses the install. A skill directory that already
-// exists and is not recorded as ref's refuses the install; so does ref
-// installed at another version. ref installed at this version and digest
-// writes nothing.
 func Install(dataDir, ref string, v Verified, names Names, check func(abs string) error) (Result, error) {
 	_, dirs, err := Layout(v)
 	if err != nil {
@@ -158,8 +143,6 @@ func Install(dataDir, ref string, v Verified, names Names, check func(abs string
 	return res, nil
 }
 
-// presentAs reports whether p exists, refusing it as a symlink or as other than a
-// directory (wantDir) or a regular file.
 func presentAs(p string, wantDir bool) (bool, error) {
 	info, err := os.Lstat(p)
 	if errors.Is(err, os.ErrNotExist) {
@@ -179,8 +162,6 @@ func presentAs(p string, wantDir bool) (bool, error) {
 	return true, nil
 }
 
-// commit stages every file and the new record under dataDir, then renames each
-// skill directory and the record into place; a failed rename removes what it moved.
 func commit(dataDir, skillsDir, recordPath, prefix string, dirs []string, v Verified, rec Record) error {
 	skillsExisted, err := presentAs(skillsDir, true)
 	if err != nil {

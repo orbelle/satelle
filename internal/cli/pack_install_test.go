@@ -38,15 +38,12 @@ func singlePack(name, version string) []fakeserver.PackFile {
 	}
 }
 
-// seedPack seeds ref at version with files and returns its digest.
 func seedPack(srv *fakeserver.Server, ref, version string, files []fakeserver.PackFile, readers ...string) string {
 	bundle, digest := fakeserver.PackBundle(strings.TrimPrefix(ref, "acme/"), version, files)
 	srv.SeedPack(ref, version, bundle, readers...)
 	return digest
 }
 
-// packRepo is a repo seated by session s-1 on a story in the tree-editing state
-// st-build of writePlanWorkflow, with acme/review@1.2.3 seeded.
 func packRepo(t *testing.T) (string, *fakeserver.Server, string) {
 	t.Helper()
 	srv := fakeserver.Start(t, testToken)
@@ -64,8 +61,6 @@ func install(t *testing.T, srv *fakeserver.Server, ref, version string, extra ..
 	return run(t, "", append([]string{"pack", "install", ref, "--version", version, "--server", srv.URL}, extra...)...)
 }
 
-// tree lists every path under dir with each file's bytes, so a test can tell
-// that nothing under it changed.
 func tree(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}

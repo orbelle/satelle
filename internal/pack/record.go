@@ -11,13 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Record is .satelle/packs.toml: what satelle pack install placed, as published.
 type Record struct {
 	Packs []Installed `toml:"pack"`
 }
 
-// Installed is one installed pack: its ref, the version and digest it was
-// installed at, the skill directories it placed, and each file's published sha256.
 type Installed struct {
 	Ref     string          `toml:"ref"`
 	Name    string          `toml:"name"`
@@ -27,15 +24,11 @@ type Installed struct {
 	Files   []InstalledFile `toml:"file"`
 }
 
-// InstalledFile is one file of an installed pack, its path relative to the
-// skills directory.
 type InstalledFile struct {
 	Path   string `toml:"path"`
 	SHA256 string `toml:"sha256"`
 }
 
-// LoadRecord reads the record at path. A missing file is an empty record; a
-// malformed one, or one with a key the record does not know, is an error naming path.
 func LoadRecord(path string) (Record, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -59,7 +52,6 @@ func LoadRecord(path string) (Record, error) {
 	return r, nil
 }
 
-// Find returns the entry installed under ref.
 func (r Record) Find(ref string) (Installed, bool) {
 	for _, p := range r.Packs {
 		if p.Ref == ref {
@@ -69,7 +61,6 @@ func (r Record) Find(ref string) (Installed, bool) {
 	return Installed{}, false
 }
 
-// Owner returns the ref of the pack that placed the skill directory dir.
 func (r Record) Owner(dir string) (string, bool) {
 	for _, p := range r.Packs {
 		if slices.Contains(p.Skills, dir) {
@@ -79,7 +70,6 @@ func (r Record) Owner(dir string) (string, bool) {
 	return "", false
 }
 
-// With returns the record with in replacing any entry of the same ref.
 func (r Record) With(in Installed) Record {
 	out := Record{Packs: make([]Installed, 0, len(r.Packs)+1)}
 	for _, p := range r.Packs {
@@ -110,10 +100,8 @@ func (r Record) encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// renameRecord commits a written record; a variable so a test can fail the commit.
 var renameRecord = os.Rename
 
-// writeRecord writes r to path through a temporary file in dir, renamed into place.
 func writeRecord(dir, path string, r Record) error {
 	data, err := r.encode()
 	if err != nil {
