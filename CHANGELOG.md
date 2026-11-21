@@ -1,3 +1,8 @@
+## [1.0.110] - 2026-11-21
+
+### Added
+- satelle pack fetch <ref> --version <v> --dir <dir> fetches a pack version from the satelle.dev marketplace over PackService and writes it under the directory only when every file's sha256 and the pack digest match; an unsafe path, a mismatch or a pack the caller may not read writes nothing and names the reason (sto_f8c8bdba)
+
 ## [1.0.109] - 2026-11-21
 
 ### Added
