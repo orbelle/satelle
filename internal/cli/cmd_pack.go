@@ -20,7 +20,7 @@ func packCmd() *cobra.Command {
 		Use:   "pack",
 		Short: "Fetch and install packs from the satelle.dev marketplace",
 	}
-	cmd.AddCommand(packFetchCmd(), packInstallCmd())
+	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd())
 	return cmd
 }
 
@@ -124,52 +124,11 @@ func packInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			k, r, err := openKernel()
+			data, names, check, closeFn, err := packTarget("pack install")
 			if err != nil {
 				return err
 			}
-			defer k.Close()
-			session := sessionFromEnv()
-			g := hook.Gate{
-				Root:      r.Tree,
-				Locked:    k.Settings.Gate.LockedPaths,
-				TempRoots: []string{},
-				Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
-			}
-			resolve := func(p string) (string, error) {
-				c := canonicalPath(p)
-				if !hook.Within(r.Tree, c) {
-					return "", fmt.Errorf("pack install: %s resolves to %s, outside the worktree %s", p, c, r.Tree)
-				}
-				return c, nil
-			}
-			check := func(p string) error {
-				c, err := resolve(p)
-				if err != nil {
-					return err
-				}
-				if v := g.Edit(c); !v.Allow {
-					if session == "" {
-						return errors.New(v.Reason + " (no session id: pass --session or set SATELLE_SESSION)")
-					}
-					return errors.New(v.Reason)
-				}
-				return nil
-			}
-			data, err := resolve(r.DataDir)
-			if err != nil {
-				return err
-			}
-			names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix}
-			recordPath := filepath.Join(data, names.Record)
-			for _, p := range []string{filepath.Join(data, names.Skills), recordPath} {
-				if err := check(p); err != nil {
-					return err
-				}
-			}
-			if _, err := pack.LoadRecord(recordPath); err != nil {
-				return err
-			}
+			defer closeFn()
 			verified, err := fetchVerified(cmd, ref, ver, server)
 			if err != nil {
 				return err
@@ -200,6 +159,157 @@ func packInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "", "pack version to install")
+	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+// packTarget opens the kernel and returns the worktree's .satelle directory,
+// the pack names, and the edit-gate check every written path passes: a seat
+// on a state that may change the tree, [gate] locked_paths, and a path that
+// resolves inside the worktree. It checks the skills directory and
+// packs.toml and reads the record before any fetch.
+func packTarget(verb string) (string, pack.Names, func(string) error, func(), error) {
+	k, r, err := openKernel()
+	if err != nil {
+		return "", pack.Names{}, nil, nil, err
+	}
+	closeFn := func() { k.Close() }
+	fail := func(err error) (string, pack.Names, func(string) error, func(), error) {
+		closeFn()
+		return "", pack.Names{}, nil, nil, err
+	}
+	session := sessionFromEnv()
+	g := hook.Gate{
+		Root:      r.Tree,
+		Locked:    k.Settings.Gate.LockedPaths,
+		TempRoots: []string{},
+		Grant:     func(tree string) hook.Grant { return grantAt(k, session, tree) },
+	}
+	resolve := func(p string) (string, error) {
+		c := canonicalPath(p)
+		if !hook.Within(r.Tree, c) {
+			return "", fmt.Errorf("%s: %s resolves to %s, outside the worktree %s", verb, p, c, r.Tree)
+		}
+		return c, nil
+	}
+	check := func(p string) error {
+		c, err := resolve(p)
+		if err != nil {
+			return err
+		}
+		if v := g.Edit(c); !v.Allow {
+			if session == "" {
+				return errors.New(v.Reason + " (no session id: pass --session or set SATELLE_SESSION)")
+			}
+			return errors.New(v.Reason)
+		}
+		return nil
+	}
+	data, err := resolve(r.DataDir)
+	if err != nil {
+		return fail(err)
+	}
+	names := pack.Names{Skills: kernel.SkillsDir, Record: kernel.PacksFile, StagePrefix: packStagePrefix, MergeDir: kernel.PackMergeDir}
+	recordPath := filepath.Join(data, names.Record)
+	for _, p := range []string{filepath.Join(data, names.Skills), recordPath} {
+		if err := check(p); err != nil {
+			return fail(err)
+		}
+	}
+	if _, err := pack.LoadRecord(recordPath); err != nil {
+		return fail(err)
+	}
+	return data, names, check, closeFn, nil
+}
+
+func packUpdateCmd() *cobra.Command {
+	var version, server string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "update <ref> --version V [--server URL]",
+		Short: "Move an installed pack to another verified version, leaving locally edited files for the agent to merge",
+		Long: "Update fetches and verifies a pack version and moves the installed pack recorded in .satelle/packs.toml to it. " +
+			"A file whose sha256 still matches packs.toml is replaced, removed or added. An edited file (its sha256 differs, it is missing, " +
+			"or it is a local file the new version now publishes) is left exactly as it is, and its installed-version and new-version copies " +
+			"are written under .satelle/pack-merge/<ref>/<version>/ and named for the agent to merge; satelle merges nothing. packs.toml then " +
+			"records the new version. It needs a seat at this worktree on a state whose performer may change the tree, honours [gate] locked_paths " +
+			"for every file it writes, and writes nothing when a check fails.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, ver, err := packArgs(args[0], version)
+			if err != nil {
+				return err
+			}
+			data, names, check, closeFn, err := packTarget("pack update")
+			if err != nil {
+				return err
+			}
+			defer closeFn()
+			next, err := fetchVerified(cmd, ref, ver, server)
+			if err != nil {
+				return err
+			}
+			rec, err := pack.LoadRecord(filepath.Join(data, names.Record))
+			if err != nil {
+				return err
+			}
+			installed := func() (pack.Verified, error) {
+				in, _ := rec.Find(ref)
+				return fetchVerified(cmd, ref, in.Version, server)
+			}
+			res, err := pack.Update(data, ref, next, installed, names, check)
+			if err != nil {
+				return err
+			}
+			skills := filepath.ToSlash(filepath.Join(filepath.Base(data), names.Skills))
+			shown := func(paths []string) []string {
+				out := make([]string, len(paths))
+				for i, p := range paths {
+					out[i] = skills + "/" + p
+				}
+				return out
+			}
+			edited := make([]pack.EditedFile, len(res.Edited))
+			for i, e := range res.Edited {
+				edited[i] = pack.EditedFile{Path: skills + "/" + e.Path, Installed: e.Installed, New: e.New}
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"ref":               res.Ref,
+					"name":              res.Name,
+					"from_version":      res.FromVersion,
+					"version":           res.Version,
+					"digest":            res.Digest,
+					"skills":            res.Skills,
+					"replaced":          shown(res.Replaced),
+					"added":             shown(res.Added),
+					"removed":           shown(res.Removed),
+					"edited":            edited,
+					"record":            filepath.ToSlash(filepath.Join(filepath.Base(data), names.Record)),
+					"already_installed": res.AlreadyInstalled,
+				})
+			}
+			out := cmd.OutOrStdout()
+			if res.AlreadyInstalled {
+				fmt.Fprintf(out, "%s@%s is already installed; nothing written\n", res.Ref, res.Version)
+				return nil
+			}
+			fmt.Fprintf(out, "updated %s %s -> %s (%d replaced, %d added, %d removed, %d edited left for merging, digest %.12s); recorded in .satelle/packs.toml\n",
+				res.Ref, res.FromVersion, res.Version, len(res.Replaced), len(res.Added), len(res.Removed), len(res.Edited), res.Digest)
+			none := func(s string) string {
+				if s == "" {
+					return "(none)"
+				}
+				return s
+			}
+			for _, e := range edited {
+				fmt.Fprintf(out, "edited %s: installed %s, new %s\n", e.Path, none(e.Installed), none(e.New))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&version, "version", "", "pack version to update to")
 	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
 	asJSON = jsonFlag(cmd)
 	return cmd

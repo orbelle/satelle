@@ -132,9 +132,12 @@ its `commands` key.
   are not skills.
 - `skills/<name>/pack.toml` — optional: defines a skill pack in its entry
   skill's directory (`skills/<name>/SKILL.md` is the wiring guide) (below).
-- `packs.toml` — written by `satelle pack install`: each installed pack's
-  ref, version, digest, skills and each file's sha256 as published (below,
-  under pack.toml).
+- `packs.toml` — written by `satelle pack install` and `satelle pack update`:
+  each installed pack's ref, version, digest, skills and each file's sha256 as
+  published (below, under pack.toml).
+- `pack-merge/` — written by `satelle pack update`: the installed-version and
+  new-version copies of each locally edited pack file, for the agent to merge
+  and then remove (below, under pack.toml).
 - `skills/satelle-workflow-standard.md` — written by `satelle init --session <session>`:
   the agent's instructions for creating, changing or checking a workflow
   against the repo's workflow standard. The repo edits its `Standard:` line to
@@ -219,6 +222,30 @@ and edit; install never merges or overwrites them. It records each pack in
       [[pack.file]]
       path = "<entry>/SKILL.md"            # relative to .satelle/skills/
       sha256 = "<sha256 as published>"
+
+`satelle pack update <ref> --version <v> --session <session>` moves an
+installed pack to another version, fetched and verified as install does; it
+does not compare versions, and the installed version again writes nothing. A
+file is edited when its sha256 differs from `.satelle/packs.toml` or it is
+missing, and an unrecorded local file at a path the new version publishes is
+edited too. Every unedited file is replaced by the new version's, removed when
+the new version drops it (with any skill directory that leaves empty), and
+each file the new version adds is placed. Each edited file is left exactly as
+it is and named with its copies,
+`.satelle/pack-merge/<ref>/<installed-version>/<path>` and
+`.satelle/pack-merge/<ref>/<new-version>/<path>` (`(none)` for a version that
+does not publish it); satelle merges nothing: the agent merges them into the
+file and then removes `.satelle/pack-merge/<ref>`. The installed-version
+copies are fetched from the marketplace and must match the recorded digest.
+`.satelle/packs.toml` then records the new version and its published sha256s.
+Update needs the same seat and honours the same `[gate] locked_paths` as
+install. It refuses a pack that is not installed, a `packs.toml` entry whose
+version, skills or file paths are not safe relative names (or whose files lie
+outside its recorded skills), a version that is not a single safe name, a
+symlinked skill directory or file, a new member directory that already exists
+unrecorded, and merge copies an earlier update left at
+`.satelle/pack-merge/<ref>`. When a check, the verification or a write fails,
+nothing is written and `.satelle/packs.toml` is unchanged.
 
 ## doctor.toml
 

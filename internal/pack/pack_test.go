@@ -365,3 +365,16 @@ func TestWrite(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateSegment(t *testing.T) {
+	for _, s := range []string{"1.2.3", "review"} {
+		if err := pack.ValidateSegment(s); err != nil {
+			t.Errorf("ValidateSegment(%q): %v", s, err)
+		}
+	}
+	for _, s := range []string{"", ".", "..", "a/b", `a\b`, "C:x", "x\n"} {
+		if err := pack.ValidateSegment(s); err == nil {
+			t.Errorf("ValidateSegment(%q) accepted it", s)
+		}
+	}
+}

@@ -52,6 +52,55 @@ func LoadRecord(path string) (Record, error) {
 	return r, nil
 }
 
+// Validate refuses an entry whose version, skills or file paths are not safe
+// relative names, a file outside a recorded skill directory, or a malformed
+// sha256, so no recorded value can lead a path out of its directory.
+func (in Installed) Validate() error {
+	if err := ValidateSegment(in.Version); err != nil {
+		return fmt.Errorf("version: %w", err)
+	}
+	skills := map[string]bool{}
+	for _, s := range in.Skills {
+		if err := ValidateSegment(s); err != nil {
+			return fmt.Errorf("skills: %w", err)
+		}
+		if skills[s] {
+			return fmt.Errorf("skills: %q appears twice", s)
+		}
+		skills[s] = true
+	}
+	paths := map[string]bool{}
+	for _, f := range in.Files {
+		if err := ValidatePath(f.Path); err != nil {
+			return fmt.Errorf("file: %w", err)
+		}
+		if paths[f.Path] {
+			return fmt.Errorf("file %q appears twice", f.Path)
+		}
+		paths[f.Path] = true
+		if top, _, _ := strings.Cut(f.Path, "/"); !skills[top] {
+			return fmt.Errorf("file %q is not in a recorded skill directory", f.Path)
+		}
+		if !isSHA256(f.SHA256) {
+			return fmt.Errorf("file %q: sha256 %q is not 64 lowercase hex characters", f.Path, f.SHA256)
+		}
+	}
+	return nil
+}
+
+func isSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func (r Record) Find(ref string) (Installed, bool) {
 	for _, p := range r.Packs {
 		if p.Ref == ref {

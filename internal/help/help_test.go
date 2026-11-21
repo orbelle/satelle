@@ -368,6 +368,8 @@ func TestPackTomlDocumented(t *testing.T) {
 		"unknown-keys",
 		".satelle/packs.toml",
 		"satelle pack install",
+		"satelle pack update",
+		"pack-merge",
 		"[[pack]]",
 		"[[pack.file]]",
 		"sha256",

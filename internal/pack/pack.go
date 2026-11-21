@@ -76,6 +76,18 @@ func ValidatePath(p string) error {
 	return nil
 }
 
+// ValidateSegment accepts a single relative name (a skill directory or a
+// version): a ValidatePath path with no '/'.
+func ValidateSegment(s string) error {
+	if err := ValidatePath(s); err != nil {
+		return err
+	}
+	if strings.Contains(s, "/") {
+		return fmt.Errorf("pack path %q is not a single name", s)
+	}
+	return nil
+}
+
 func isASCIIAlpha(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
@@ -271,8 +283,20 @@ func Write(dir string, v Verified) error {
 }
 
 func stageFiles(stage string, v Verified) error {
+	return stageInto(stage, v, "")
+}
+
+// stageInto writes v's files under stage, below prefix when it is not empty.
+func stageInto(stage string, v Verified, prefix string) error {
 	for _, f := range v.files {
-		dest := filepath.Join(stage, filepath.FromSlash(f.path))
+		rel := f.path
+		if prefix != "" {
+			rel = prefix + "/" + f.path
+		}
+		dest, err := under(stage, rel)
+		if err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("create directory for %q: %w", f.path, err)
 		}

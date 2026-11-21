@@ -16,6 +16,7 @@ type Names struct {
 	Skills      string
 	Record      string
 	StagePrefix string
+	MergeDir    string
 }
 
 type Result struct {
@@ -116,20 +117,10 @@ func Install(dataDir, ref string, v Verified, names Names, check func(abs string
 			res.AlreadyInstalled = true
 			return res, nil
 		}
-		return Result{}, fmt.Errorf("pack %s is already installed at version %s (digest %.12s); install does not change an installed pack", ref, in.Version, in.Digest)
+		return Result{}, fmt.Errorf("pack %s is already installed at version %s (digest %.12s); install does not change an installed pack; use satelle pack update to change it", ref, in.Version, in.Digest)
 	}
-	show := func(name string) string { return path.Join(filepath.Base(dataDir), names.Skills, name) }
-	for _, d := range dirs {
-		for _, name := range []string{d, d + ".md"} {
-			if _, err := os.Lstat(filepath.Join(skillsDir, name)); err == nil {
-				return Result{}, fmt.Errorf("pack %s: %s already exists and is not recorded as installed by %s in %s", ref, show(name), ref, path.Join(filepath.Base(dataDir), names.Record))
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return Result{}, fmt.Errorf("pack %s: %s: %w", ref, show(name), err)
-			}
-		}
-		if owner, ok := rec.Owner(d); ok {
-			return Result{}, fmt.Errorf("pack %s: %s is recorded as installed by %s in %s", ref, show(d), owner, path.Join(filepath.Base(dataDir), names.Record))
-		}
+	if err := refuseForeign(skillsDir, dataDir, ref, rec, dirs, names); err != nil {
+		return Result{}, err
 	}
 
 	files := make([]InstalledFile, len(v.files))
@@ -141,6 +132,25 @@ func Install(dataDir, ref string, v Verified, names Names, check func(abs string
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// refuseForeign refuses a skill directory dirs names that exists on disk (or
+// as a single-file skill) or is recorded as another pack's.
+func refuseForeign(skillsDir, dataDir, ref string, rec Record, dirs []string, names Names) error {
+	show := func(name string) string { return path.Join(filepath.Base(dataDir), names.Skills, name) }
+	for _, d := range dirs {
+		for _, name := range []string{d, d + ".md"} {
+			if _, err := os.Lstat(filepath.Join(skillsDir, name)); err == nil {
+				return fmt.Errorf("pack %s: %s already exists and is not recorded as installed by %s in %s", ref, show(name), ref, path.Join(filepath.Base(dataDir), names.Record))
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("pack %s: %s: %w", ref, show(name), err)
+			}
+		}
+		if owner, ok := rec.Owner(d); ok {
+			return fmt.Errorf("pack %s: %s is recorded as installed by %s in %s", ref, show(d), owner, path.Join(filepath.Base(dataDir), names.Record))
+		}
+	}
+	return nil
 }
 
 func presentAs(p string, wantDir bool) (bool, error) {
