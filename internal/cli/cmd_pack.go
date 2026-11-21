@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/bobmcallan/satelle/internal/hook"
 	"github.com/bobmcallan/satelle/internal/hosted"
@@ -18,9 +20,9 @@ import (
 func packCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pack",
-		Short: "Fetch, install, update and remove packs from the satelle.dev marketplace",
+		Short: "Fetch, install, update, remove and publish packs on the satelle.dev marketplace",
 	}
-	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packRemoveCmd())
+	cmd.AddCommand(packFetchCmd(), packInstallCmd(), packUpdateCmd(), packRemoveCmd(), packPublishCmd())
 	return cmd
 }
 
@@ -376,6 +378,79 @@ func packRemoveCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "remove locally edited recorded files too")
+	asJSON = jsonFlag(cmd)
+	return cmd
+}
+
+func packPublishCmd() *cobra.Command {
+	var workspace, server string
+	var asJSON *bool
+	cmd := &cobra.Command{
+		Use:   "publish <entry> --workspace ID [--server URL]",
+		Short: "Publish a pack version to the satelle.dev marketplace from its entry skill",
+		Long: "Publish reads .satelle/skills/<entry>/pack.toml and publishes the pack at its version for the owner satelle.dev workspace, " +
+			"sending the entry and member skill directories' files, sha256s and digest exactly as the working tree holds them, with paths " +
+			"relative to .satelle/skills. It refuses a symlink or non-regular file in those directories and any layout install would refuse. " +
+			"Only admins of the owner satelle.dev workspace may publish, and the same version with different files is refused; either way " +
+			"nothing is published. Publish writes nothing locally.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ws := strings.TrimSpace(workspace)
+			if ws == "" {
+				return errors.New("--workspace is required")
+			}
+			r, err := findRepo("")
+			if err != nil {
+				return err
+			}
+			bundle, err := pack.Collect(filepath.Join(r.DataDir, kernel.SkillsDir), args[0])
+			if err != nil {
+				return err
+			}
+			manifest := bundle.GetVersion().GetManifest()
+			srv, err := projectServer(server)
+			if err != nil {
+				return err
+			}
+			c, err := dial(srv)
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+			got, err := c.Packs.PublishPack(cmd.Context(), &satellepb.PublishPackRequest{OwnerWorkspaceId: ws, Manifest: manifest, Files: bundle.GetFiles()})
+			switch status.Code(err) {
+			case codes.OK:
+			case codes.AlreadyExists:
+				return fmt.Errorf("pack %s version %s is already published with different files for workspace %s; nothing was published", manifest.GetName(), manifest.GetVersion(), ws)
+			case codes.PermissionDenied:
+				return fmt.Errorf("you may not publish packs for workspace %s; nothing was published", ws)
+			default:
+				return hosted.Describe("pack publish", err)
+			}
+			ref := got.GetPack().GetRef()
+			if ref == "" {
+				ref = ws + "/" + manifest.GetName()
+			}
+			paths := make([]string, len(manifest.GetFiles()))
+			for i, f := range manifest.GetFiles() {
+				paths[i] = f.GetPath()
+			}
+			if *asJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"ref":                ref,
+					"owner_workspace_id": ws,
+					"name":               manifest.GetName(),
+					"version":            manifest.GetVersion(),
+					"digest":             manifest.GetDigest(),
+					"files":              paths,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "published %s@%s (%d file(s), digest %.12s)\n", ref, manifest.GetVersion(), len(paths), manifest.GetDigest())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&workspace, "workspace", "", "owner satelle.dev workspace id (required)")
+	cmd.Flags().StringVar(&server, "server", "", "satelle.dev server URL")
 	asJSON = jsonFlag(cmd)
 	return cmd
 }

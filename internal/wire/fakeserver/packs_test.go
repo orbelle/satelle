@@ -67,4 +67,36 @@ func TestPackService(t *testing.T) {
 	if status.Code(err) != codes.NotFound || !hosted.IsNotFound(err) {
 		t.Fatalf("missing version: got %v, want NotFound", err)
 	}
+
+	srv.SetPackAdmins("ws_1", "tok-ada")
+	made, _ := fakeserver.PackBundle("made", "1.0.0", []fakeserver.PackFile{{Path: "made/SKILL.md", Body: []byte("made")}})
+	req := &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: made.GetVersion().GetManifest(), Files: made.GetFiles()}
+	if _, err := other.Packs.PublishPack(ctx, req); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("non-admin publish: got %v, want PermissionDenied", err)
+	}
+	pv, err := ada.Packs.PublishPack(ctx, req)
+	if err != nil {
+		t.Fatalf("admin publish: %v", err)
+	}
+	if pv.GetPack().GetRef() != "ws_1/made" || pv.GetPack().GetOwnerWorkspaceId() != "ws_1" {
+		t.Errorf("published pack = %v", pv.GetPack())
+	}
+	if _, err := ada.Packs.PublishPack(ctx, req); err != nil {
+		t.Errorf("same digest republish: %v", err)
+	}
+	got, err = other.Packs.FetchPack(ctx, &satellepb.GetPackRequest{Ref: "ws_1/made", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("fetch published: %v", err)
+	}
+	if !proto.Equal(got.GetVersion().GetManifest(), made.GetVersion().GetManifest()) || !proto.Equal(got.GetFiles()[0], made.GetFiles()[0]) {
+		t.Errorf("fetched %v, want %v", got, made)
+	}
+	changed, _ := fakeserver.PackBundle("made", "1.0.0", []fakeserver.PackFile{{Path: "made/SKILL.md", Body: []byte("changed")}})
+	_, err = ada.Packs.PublishPack(ctx, &satellepb.PublishPackRequest{OwnerWorkspaceId: "ws_1", Manifest: changed.GetVersion().GetManifest(), Files: changed.GetFiles()})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("changed version: got %v, want AlreadyExists", err)
+	}
+	if n := len(srv.Published()); n != 4 {
+		t.Errorf("recorded %d publish request(s), want 4", n)
+	}
 }

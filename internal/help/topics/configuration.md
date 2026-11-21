@@ -270,6 +270,18 @@ is not installed; when a check or a write fails, nothing is written and
 that still names a removed skill is reported by
 `satelle validate --session <session>`.
 
+`satelle pack publish <entry> --session <session>` publishes the pack defined
+by `.satelle/skills/<entry>/pack.toml` for its owner on satelle.dev, named by
+the owner's id (see `satelle pack publish --help --session <session>`), at
+`pack.toml`'s `version`. It sends the entry and member skill directories as
+the working tree holds them (untracked files included), with paths relative to
+`.satelle/skills/`, each file's sha256 and the digest `satelle pack fetch`
+verifies. The entry and every member must be a plain directory name; a
+single-skill pack lists only its entry in `skills`. Publish refuses a symlink
+or non-regular file anywhere in those directories, and any layout install
+would refuse. Only the owner's admins may publish, and the same version with
+different files is refused; in both cases nothing is published. Publish writes nothing locally.
+
 ## doctor.toml
 
 `satelle doctor --session <session>` reports what is wrong here, each issue with the command that

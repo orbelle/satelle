@@ -33,26 +33,28 @@ const MaxMissing = 100
 type Server struct {
 	URL string
 
-	mu       sync.Mutex
-	tokens   map[string]bool
-	me       *satellepb.GetMeResponse
-	calls    []Call
-	projects []*satellepb.Project
-	spaces   []*satellepb.Workspace
-	chains   map[string]map[string][]*chainpb.Event
-	subs     map[*subscriber]bool
-	items    map[string]map[string]*satellepb.Item
-	atts     []*satellepb.Attachment
-	runs     map[string]*satellepb.ItemRun
-	nodes    map[string]*Node
-	relays   map[string]*relayPair
-	streams  map[*relayStream]bool
-	gh       map[string]*github
-	packs    map[packKey]*seededPack
-	nextID   int
-	grpc     *grpc.Server
-	down     bool
-	failing  []string
+	mu         sync.Mutex
+	tokens     map[string]bool
+	me         *satellepb.GetMeResponse
+	calls      []Call
+	projects   []*satellepb.Project
+	spaces     []*satellepb.Workspace
+	chains     map[string]map[string][]*chainpb.Event
+	subs       map[*subscriber]bool
+	items      map[string]map[string]*satellepb.Item
+	atts       []*satellepb.Attachment
+	runs       map[string]*satellepb.ItemRun
+	nodes      map[string]*Node
+	relays     map[string]*relayPair
+	streams    map[*relayStream]bool
+	gh         map[string]*github
+	packs      map[packKey]*seededPack
+	packAdmins map[string]map[string]bool
+	published  []*satellepb.PublishPackRequest
+	nextID     int
+	grpc       *grpc.Server
+	down       bool
+	failing    []string
 }
 
 type Call struct {

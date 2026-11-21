@@ -116,3 +116,59 @@ func (p packsSvc) FetchPack(ctx context.Context, r *satellepb.GetPackRequest) (*
 	}
 	return proto.Clone(entry.bundle).(*satellepb.PackBundle), nil
 }
+
+func (s *Server) SetPackAdmins(workspace string, tokens ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.packAdmins == nil {
+		s.packAdmins = map[string]map[string]bool{}
+	}
+	set := make(map[string]bool, len(tokens))
+	for _, tok := range tokens {
+		set[tok] = true
+	}
+	s.packAdmins[workspace] = set
+}
+
+func (s *Server) Published() []*satellepb.PublishPackRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*satellepb.PublishPackRequest, len(s.published))
+	for i, r := range s.published {
+		out[i] = proto.Clone(r).(*satellepb.PublishPackRequest)
+	}
+	return out
+}
+
+func (p packsSvc) PublishPack(ctx context.Context, r *satellepb.PublishPackRequest) (*satellepb.PackVersion, error) {
+	tok := bearer(ctx)
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+	p.s.published = append(p.s.published, proto.Clone(r).(*satellepb.PublishPackRequest))
+	ws := r.GetOwnerWorkspaceId()
+	if !p.s.packAdmins[ws][tok] {
+		return nil, status.Errorf(codes.PermissionDenied, "only admins of workspace %s may publish its packs", ws)
+	}
+	m := r.GetManifest()
+	ref := ws + "/" + m.GetName()
+	key := packKey{ref: ref, version: m.GetVersion()}
+	if have := p.s.packs[key]; have != nil {
+		if have.bundle.GetVersion().GetManifest().GetDigest() != m.GetDigest() {
+			return nil, status.Errorf(codes.AlreadyExists, "pack %s version %s already exists with a different digest", ref, m.GetVersion())
+		}
+		return proto.Clone(have.bundle.GetVersion()).(*satellepb.PackVersion), nil
+	}
+	version := &satellepb.PackVersion{
+		Pack:     &satellepb.Pack{Ref: ref, OwnerWorkspaceId: ws, Name: m.GetName(), LatestVersion: m.GetVersion()},
+		Manifest: proto.Clone(m).(*satellepb.PackManifest),
+	}
+	if p.s.packs == nil {
+		p.s.packs = map[packKey]*seededPack{}
+	}
+	files := make([]*satellepb.PackFile, len(r.GetFiles()))
+	for i, f := range r.GetFiles() {
+		files[i] = proto.Clone(f).(*satellepb.PackFile)
+	}
+	p.s.packs[key] = &seededPack{bundle: &satellepb.PackBundle{Version: version, Files: files}}
+	return proto.Clone(version).(*satellepb.PackVersion), nil
+}
