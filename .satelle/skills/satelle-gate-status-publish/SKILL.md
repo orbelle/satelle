@@ -31,8 +31,9 @@ the project is bound to.
   `failure`.
 - **Who posted it.** After a post, the check reads the head's statuses back
   from GitHub and compares the newest one for that context's `creator.id` with
-  `app_account`, which it reads from `satelle-pr-approval-check.md` (that
-  file owns the value). Its line names the account either way.
+  `app_account`, the satelle app's account id, which this skill holds on its
+  own line below. `skills/satelle-pr-approval-check/SKILL.md` holds the same
+  value; the two change together. Its line names the account either way.
 - **Never refuses.** It exits 0 on every path. A status the server refuses, a
   missing tool or a dry run is a line in the gate's notes; the gate's result
   is unchanged.
@@ -41,6 +42,7 @@ the project is bound to.
 #!/usr/bin/env bash
 set -u
 self=satelle-gate-status-publish
+app_account=344745317
 for tool in jq git satelle; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is not installed, so no status is posted"; exit 0; }
 done
@@ -88,7 +90,6 @@ if ! out=$(post "$ctx" "$state" "$desc"); then
   echo "$ctx not published on $short: $out"
   exit 0
 fi
-app_account=$(sed -n 's/^app_account=//p' .satelle/skills/satelle-pr-approval-check.md)
 if ! command -v gh >/dev/null 2>&1; then
   echo "$ctx $state published on $short; could not read it back from GitHub (gh is not installed)"
   exit 0

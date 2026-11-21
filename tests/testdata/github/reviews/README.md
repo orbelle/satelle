@@ -16,7 +16,7 @@ The account the approval check matches is the user-facing satelle GitHub app's
 (`gh api 'users/satelle[bot]' --jq .id`, confirmed 2026-11-08), per the
 operator ruling in `.satelle/principles/satelle-operator-rulings.md`. It is the
 `user.id` every review by the app carries, and the `app_account` of
-`.satelle/skills/satelle-pr-approval-check.md`.
+`.satelle/skills/satelle-pr-approval-check/SKILL.md`.
 
 Every other file is one case for the approval check, the publish check and the
 release run's review read (`tests/pr_review_unix_test.go`). Each is a copy of

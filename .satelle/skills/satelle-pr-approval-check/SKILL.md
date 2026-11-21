@@ -39,8 +39,9 @@ never count. Approval is read back from GitHub, not from satelle.dev.
   - DISMISSED, or no review, rejects and never reopens; when the current state
     declares `waits`, the notes quote it.
 
-`app_account` is the owner of this value: release.md step 0 reads it from the
-line below.
+`app_account` below is the satelle app's account id.
+`skills/satelle-gate-status-publish/SKILL.md` holds the same value; a skill
+outside the pack may read it from this line.
 
 ```sh
 #!/usr/bin/env bash

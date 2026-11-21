@@ -461,7 +461,8 @@ func TestReleaseRulesRestated(t *testing.T) {
 func TestReleaseCarriesALandedItemToDone(t *testing.T) {
 	c := newCandidateSandbox(t, false)
 	for _, name := range []string{"satelle-pr-approval-check", "satelle-changelog-entry-check", "satelle-release-kept-check"} {
-		c.write(".satelle/skills/"+name+".md", rebindTask(t, ".satelle/skills/"+name+".md", c.task.ID))
+		rel := repoSkillRel(t, name)
+		c.write(rel, rebindTask(t, rel, c.task.ID))
 	}
 	c.write(".satelle/workflows/flow.toml", `name = "flow"
 [states.backlog]

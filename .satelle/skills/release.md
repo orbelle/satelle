@@ -127,8 +127,8 @@ review on that head, and a review of a landed head sends nothing back.
 ```sh
 session=<session>
 id=<id>
-app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check.md)
-[ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check.md" >&2; exit 1; }
+app_account=$(sed -n 's/^app_account=\([0-9][0-9]*\).*/\1/p' .satelle/skills/satelle-pr-approval-check/SKILL.md)
+[ -n "$app_account" ] || { echo "no app_account= line in .satelle/skills/satelle-pr-approval-check/SKILL.md" >&2; exit 1; }
 pr=$(gh pr list --state open --base main --json number,headRefOid,title --limit 100 |
   jq -c --arg id "($id)" '[.[] | select(.title | endswith($id))][0] // empty')
 if [ -z "$pr" ]; then

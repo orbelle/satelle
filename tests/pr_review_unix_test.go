@@ -17,6 +17,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/bobmcallan/satelle/internal/gate"
+	"github.com/bobmcallan/satelle/internal/gittest"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -602,7 +603,7 @@ func TestPRReviewApprovalCheckAgainstRecordedReviews(t *testing.T) {
 	id := p.reviewing(12, true)
 	untitled := p.reviewing(13, false)
 
-	check := shBlock0(t, ".satelle/skills/satelle-pr-approval-check.md")
+	check := shBlock0(t, repoSkillRel(t, "satelle-pr-approval-check"))
 	if m := regexp.MustCompile(`(?m)^app_account=(\d+)$`).FindStringSubmatch(check); m == nil || m[1] != appAccount {
 		t.Fatalf("the approval check's app_account is %v, want %s", m, appAccount)
 	}
@@ -946,7 +947,7 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	p.must("story", "seat", unjudged, "--base", p.old)
 	p.setPR(26, newHead, "unjudged ("+unjudged+")")
 	p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = unjudged, "integration", "in_review"
-	r := p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+approveFromReviewSkill+".md"))
+	r := p.exec("bash", "", "-c", shBlock0(t, repoSkillRel(t, approveFromReviewSkill)))
 	delete(p.env, "SATELLE_ITEM")
 	delete(p.env, "SATELLE_FROM")
 	delete(p.env, "SATELLE_TO")
@@ -957,7 +958,7 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	forged := p.item(27, true)
 	p.must("ledger", "append", forged, "--kind", "gate.run", "--payload", `{"gate":"code-ac","result":"accept","binding":"forged","change":{"judged":"x"}}`)
 	p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = forged, "integration", "in_review"
-	r = p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+approveFromReviewSkill+".md"))
+	r = p.exec("bash", "", "-c", shBlock0(t, repoSkillRel(t, approveFromReviewSkill)))
 	delete(p.env, "SATELLE_ITEM")
 	delete(p.env, "SATELLE_FROM")
 	delete(p.env, "SATELLE_TO")
@@ -970,7 +971,7 @@ func TestPRApproveFromReviewPublishesOnTheStory(t *testing.T) {
 	p.must("ledger", "append", parked, "--kind", "gate.run", "--payload", `{"gate":"code-ac","result":"accept","binding":"forged","change":{"judged":"x"}}`)
 	p.must("story", "set", parked, "--status", "integration")
 	p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = parked, "integration", "in_review"
-	r = p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+approveFromReviewSkill+".md"))
+	r = p.exec("bash", "", "-c", shBlock0(t, repoSkillRel(t, approveFromReviewSkill)))
 	delete(p.env, "SATELLE_ITEM")
 	delete(p.env, "SATELLE_FROM")
 	delete(p.env, "SATELLE_TO")
@@ -1134,7 +1135,7 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 			t.Errorf("%s calls satelle github", sk.Path)
 		}
 	}
-	block := shBlock0(t, ".satelle/skills/"+statusSkill+".md")
+	block := shBlock0(t, repoSkillRel(t, statusSkill))
 	var posting []string
 	for _, f := range files {
 		w, err := workflow.Parse(f)
@@ -1166,8 +1167,11 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 			t.Errorf("the status skill calls gh other than to read the statuses: %s", ln)
 		}
 	}
-	if strings.Contains(block, appAccount) {
-		t.Error("the status skill holds its own copy of the app's account id")
+	if m := regexp.MustCompile(`(?m)^app_account=(\d+)$`).FindStringSubmatch(block); m == nil || m[1] != appAccount {
+		t.Errorf("the status skill's own app_account= line is %q, want %s", m, appAccount)
+	}
+	if m := regexp.MustCompile(`(sed|cat)[^\n]*\.satelle/skills/`).FindString(block); m != "" {
+		t.Errorf("the status skill reads a skill file: %s", m)
 	}
 	err = filepath.WalkDir("..", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -1370,7 +1374,7 @@ after = ["`+statusSkill+`"]
 	os.Remove(dead)
 	writeFile(t, ready, "", 0o644)
 
-	block := shBlock0(t, ".satelle/skills/"+statusSkill+".md")
+	block := shBlock0(t, repoSkillRel(t, statusSkill))
 	p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = "sto_x", "in_review", "approved"
 	defer func() {
 		for _, k := range []string{"SATELLE_ITEM", "SATELLE_FROM", "SATELLE_TO", "SATELLE_GATE"} {
@@ -1506,9 +1510,17 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 		"a path under .satelle/tasks": regexp.MustCompile(`\.satelle/tasks/`),
 		"a story id":                  regexp.MustCompile(`sto_[0-9a-f]{8}`),
 	}
-	var blocks []string
+	entryForbidden := map[string]*regexp.Regexp{
+		"the queue name release": regexp.MustCompile(`\brelease\b`),
+	}
+	rels := make([]string, 0, len(prGateSkills)+2)
 	for _, name := range prGateSkills {
-		rel := repoSkillRel(t, name)
+		rels = append(rels, repoSkillRel(t, name))
+	}
+	entryFiles := []string{prGateEntryDir + "/" + workflow.SkillFile, prGateEntryDir + "/" + workflow.PackFile}
+	rels = append(rels, entryFiles...)
+	var blocks []string
+	for _, rel := range rels {
 		b, err := os.ReadFile(filepath.Join("..", rel))
 		if err != nil {
 			t.Fatal(err)
@@ -1517,13 +1529,20 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 		if blk := baseBranchLines(t, text); blk != "" {
 			blocks = append(blocks, blk)
 		}
-		for _, own := range prGateSkills {
+		for _, own := range append([]string{prGateEntry}, prGateSkills...) {
 			text = strings.ReplaceAll(text, own, "")
 		}
 		text = strip.Replace(text)
 		for what, re := range forbidden {
 			for _, m := range re.FindAllString(text, -1) {
 				t.Errorf("%s holds %s: %q", rel, what, m)
+			}
+		}
+		if slices.Contains(entryFiles, rel) {
+			for what, re := range entryForbidden {
+				for _, m := range re.FindAllString(text, -1) {
+					t.Errorf("%s holds %s: %q", rel, what, m)
+				}
 			}
 		}
 	}
@@ -1537,9 +1556,50 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 	}
 }
 
-func TestPRReadySkillIsSelfContained(t *testing.T) {
-	if _, err := os.Stat("../.satelle/skills/satelle-pr-ready-check.md"); !os.IsNotExist(err) {
-		t.Errorf(".satelle/skills/satelle-pr-ready-check.md is still present: %v", err)
+const prGateEntry = "satelle-pr-gates"
+
+const prGateEntryDir = ".satelle/skills/" + prGateEntry
+
+func TestPRGatePack(t *testing.T) {
+	packs, _, err := workflow.LoadPacks("../.satelle/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) != 1 {
+		t.Fatalf("packs under .satelle/skills: %v, want one", packs)
+	}
+	pk, ok := packs[prGateEntry]
+	if !ok {
+		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
+	}
+	members := slices.Sorted(slices.Values(pk.Skills))
+	if want := slices.Sorted(slices.Values(prGateSkills)); !slices.Equal(members, want) {
+		t.Errorf("pack %s members %v, want %v", prGateEntry, members, want)
+	}
+	skills, err := workflow.LoadSkills("../.satelle/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := pk.Validate(func(name string) (workflow.Skill, bool) { sk, ok := skills[name]; return sk, ok }); len(errs) != 0 {
+		t.Errorf("pack %s: %v", prGateEntry, errs)
+	}
+
+	otherSkill := regexp.MustCompile(`\.satelle/skills/|skills/[A-Za-z0-9_-]+/`)
+	for _, name := range prGateSkills {
+		if _, err := os.Stat(filepath.Join("..", ".satelle", "skills", name+".md")); !os.IsNotExist(err) {
+			t.Errorf("the single-file skill %s.md is still present: %v", name, err)
+		}
+		sk, ok := skills[name]
+		if !ok || !sk.IsDir() {
+			t.Errorf("%s: ok=%v, not a skill directory", name, ok)
+			continue
+		}
+		if probs := sk.Problems(); len(probs) != 0 {
+			t.Errorf("%s problems: %v", name, probs)
+		}
+		if m := otherSkill.FindString(sk.Script); m != "" {
+			t.Errorf("%s's shell reads another skill's path: %q", name, m)
+		}
 	}
 	for _, rel := range []string{
 		"../.satelle/skills/satelle-pr-ready-check/SKILL.md",
@@ -1549,19 +1609,74 @@ func TestPRReadySkillIsSelfContained(t *testing.T) {
 			t.Errorf("%s: %v", rel, err)
 		}
 	}
-	skills, err := workflow.LoadSkills("../.satelle/skills")
+	if sk := skills["satelle-pr-ready-check"]; !strings.Contains(sk.Script, "scripts/changelog-lines.sh") || strings.Contains(sk.Script, "changelog-items.sh") {
+		t.Errorf("satelle-pr-ready-check script does not run its own changelog-lines.sh:\n%s", sk.Script)
+	}
+
+	out, err := gittest.Command(t, "..", "ls-files", "-z").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	sk, ok := skills["satelle-pr-ready-check"]
-	if !ok || !sk.IsDir() {
-		t.Fatalf("satelle-pr-ready-check: ok=%v dir=%q", ok, sk.Dir)
+	for _, rel := range strings.Split(string(out), "\x00") {
+		if rel == "" || rel == "CHANGELOG.md" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join("..", rel))
+		if err != nil {
+			continue
+		}
+		for _, name := range prGateSkills {
+			if old := "skills/" + name + ".md"; strings.Contains(string(b), old) {
+				t.Errorf("%s still names %s", rel, old)
+			}
+		}
 	}
-	if probs := sk.Problems(); len(probs) != 0 {
-		t.Errorf("satelle-pr-ready-check problems: %v", probs)
+
+	accountLine := regexp.MustCompile(`(?m)^app_account=(\d+)$`)
+	for _, name := range []string{statusSkill, "satelle-pr-approval-check"} {
+		if m := accountLine.FindStringSubmatch(skills[name].Script); m == nil || m[1] != appAccount {
+			t.Errorf("%s's app_account= line is %q, want %s", name, m, appAccount)
+		}
 	}
-	if !strings.Contains(sk.Script, "scripts/changelog-lines.sh") || strings.Contains(sk.Script, "changelog-items.sh") {
-		t.Errorf("satelle-pr-ready-check script does not run its own changelog-lines.sh:\n%s", sk.Script)
+
+	guide := repoText(t, prGateEntryDir+"/"+workflow.SkillFile)
+	for _, name := range prGateSkills {
+		if w := "skills/" + name + "/" + workflow.SkillFile; !strings.Contains(guide, w) {
+			t.Errorf("the pack guide does not name %s", w)
+		}
+	}
+	for _, w := range []string{"ruleset", "satelle/<gate>", "after", "checkout.defaultRemote"} {
+		if !strings.Contains(guide, w) {
+			t.Errorf("the pack guide does not say %q", w)
+		}
+	}
+	if strings.Contains(guide, "satelle github") {
+		t.Error("the pack guide names satelle github")
+	}
+
+	s := newSandbox(t)
+	copyCheckout(t, "..", s.dir)
+	s.git("add", "-A")
+	s.git("commit", "-q", "-m", "this repo's tree")
+	r := s.exec(satelleBin, "", "validate", "--json")
+	var v struct {
+		Valid         bool              `json:"valid"`
+		Problems      []string          `json:"problems"`
+		SkillWarnings []json.RawMessage `json:"skill_warnings"`
+		UnknownKeys   []struct {
+			File string `json:"file"`
+		} `json:"unknown_keys"`
+	}
+	if err := json.Unmarshal([]byte(r.out), &v); err != nil {
+		t.Fatalf("validate --json: exit %d: %v\n%s%s", r.code, err, r.out, r.err)
+	}
+	if !v.Valid || r.code != 0 || len(v.Problems) != 0 || len(v.SkillWarnings) != 0 {
+		t.Errorf("validate on this repo: valid %v, exit %d, problems %v, skill_warnings %s", v.Valid, r.code, v.Problems, v.SkillWarnings)
+	}
+	for _, u := range v.UnknownKeys {
+		if strings.HasSuffix(u.File, workflow.PackFile) {
+			t.Errorf("validate reports an unknown key in %s", u.File)
+		}
 	}
 }
 
