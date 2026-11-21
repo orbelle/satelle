@@ -305,6 +305,16 @@ has no default. A shared pack names each owner it is shared with by
 visibility. A missing or inconsistent visibility is refused before anything is
 read or sent.
 
+`satelle pack visibility <ref> --visibility <visibility> [--share-with <id>]... --session <session>`
+changes who on satelle.dev may see a pack already published, named
+`<owner id>/<name>`, without publishing a version; the visibilities are those
+`satelle pack visibility --help --session <session>` lists. Only the owner's
+admins may change it, and anyone who is not a member of the owner is told the
+pack was not found; a refusal changes nothing. The flags are validated as
+publish validates them, and a refused flag or ref sends nothing.
+`--share-with` sends the whole shared list, so leaving an id out revokes that
+owner's share. Visibility writes nothing locally and needs no seat.
+
 ## doctor.toml
 
 `satelle doctor --session <session>` reports what is wrong here, each issue with the command that
