@@ -95,10 +95,10 @@ func ComputeDigest(entries []DigestEntry) string {
 }
 
 func Verify(bundle *satellepb.PackBundle) (Verified, error) {
-	if bundle == nil || bundle.GetVersion() == nil || bundle.GetVersion().GetManifest() == nil {
+	manifest := bundle.GetVersion().GetManifest()
+	if manifest == nil {
 		return Verified{}, errors.New("pack bundle is missing manifest")
 	}
-	manifest := bundle.GetVersion().GetManifest()
 	if strings.TrimSpace(manifest.GetVersion()) == "" {
 		return Verified{}, errors.New("pack manifest is missing version")
 	}

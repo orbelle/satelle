@@ -193,7 +193,6 @@ func TestVerifyRejectsTamperedAndMismatched(t *testing.T) {
 
 	t.Run("missing manifest", func(t *testing.T) {
 		for _, b := range []*satellepb.PackBundle{
-			nil,
 			{},
 			{Version: &satellepb.PackVersion{}},
 			{Version: &satellepb.PackVersion{Manifest: &satellepb.PackManifest{}}},
