@@ -50,8 +50,8 @@ Before presenting the move into review, the session:
 4. opens the pull request against the base branch:
    `gh pr create --base <base branch> --title "<title> (<id>)" --body "<id>: <criteria>"`.
 
-The `changelog` attachment holds the item's lines in this format, owned by
-`scripts/changelog-items.sh`:
+The `changelog` attachment holds the item's lines in this format, checked by
+`scripts/changelog-lines.sh`:
 
 ```markdown
 ### Added
@@ -141,7 +141,7 @@ if ! cl=$(satelle story attachment "$SATELLE_ITEM" changelog 2>/dev/null); then
   echo "no changelog attachment on $SATELLE_ITEM: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session> (### Added|Changed|Deprecated|Removed|Fixed|Security|Breaking, then one - line per entry)"
   exit 1
 fi
-if ! why=$(printf '%s\n' "$cl" | bash scripts/changelog-items.sh lines "$SATELLE_ITEM" 2>&1 >/dev/null); then
+if ! why=$(printf '%s\n' "$cl" | bash scripts/changelog-lines.sh "$SATELLE_ITEM" 2>&1 >/dev/null); then
   echo "the changelog attachment on $SATELLE_ITEM is refused: $why"
   exit 1
 fi

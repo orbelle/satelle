@@ -435,7 +435,7 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 }
 
 func TestReleaseRulesRestated(t *testing.T) {
-	files := []string{".satelle/skills/release.md", ".satelle/skills/satelle-integration-check.md", ".satelle/skills/satelle-pr-ready-check.md", ".satelle/workflows/delivery.toml"}
+	files := []string{".satelle/skills/release.md", ".satelle/skills/satelle-integration-check.md", ".satelle/skills/satelle-pr-ready-check/SKILL.md", ".satelle/workflows/delivery.toml"}
 	text := map[string]string{}
 	for _, f := range files {
 		b, err := os.ReadFile("../" + f)

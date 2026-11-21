@@ -7,7 +7,7 @@ description: CI/CD gate on approved → done. On a binary-unchanged release (the
 # Changelog entry
 
 Items never edit CHANGELOG.md: each records its lines as an attachment named
-`changelog` (format in `satelle-pr-ready-check.md`, owned by
+`changelog` (format in `satelle-pr-ready-check/SKILL.md`, owned by
 `scripts/changelog-items.sh`). The release run writes the version section,
 `## [<version>] - <date>`, from the attachments of the items it lands, on top
 of the file in its one bump commit. This check runs once per landed item, so

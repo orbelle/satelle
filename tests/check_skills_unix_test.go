@@ -4,6 +4,7 @@ package tests
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,8 +66,8 @@ from = ["defined"]
 to = "retired"
 `)
 	s.write(".satelle/skills/fixture-accept.md", "---\nname: fixture-accept\ntype: check\n---\n\n```sh\nexit 0\n```\n")
-	for _, name := range repoCheckSkills(t) {
-		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
+	for _, sk := range repoCheckSkills(t) {
+		copyRepoSkill(t, s, sk)
 	}
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	for p, body := range extra {
@@ -104,19 +105,53 @@ to = "retired"
 	return c
 }
 
-func repoCheckSkills(t *testing.T) []string {
+func copyRepoSkill(t *testing.T, s *sandbox, sk workflow.Skill) {
+	t.Helper()
+	if !sk.IsDir() {
+		b, err := os.ReadFile(sk.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.write(".satelle/skills/"+sk.Name+".md", string(b))
+		return
+	}
+	err := filepath.WalkDir(sk.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(sk.Dir, p)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		writeFile(t, filepath.Join(s.dir, ".satelle", "skills", sk.Name, rel), string(b), info.Mode().Perm())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func repoCheckSkills(t *testing.T) []workflow.Skill {
 	t.Helper()
 	skills, err := workflow.LoadSkills("../.satelle/skills")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
-	for name, sk := range skills {
+	var out []workflow.Skill
+	for _, sk := range skills {
 		if sk.IsCheck() {
-			out = append(out, name)
+			out = append(out, sk)
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	if len(out) == 0 {
 		t.Fatal("this repo has no check skill")
 	}
@@ -309,8 +344,8 @@ func TestCheckSkillsNameOnlyRealCommands(t *testing.T) {
 	s := newSandbox(t)
 	s.env["SATELLE_BIN"] = satelleBin
 	s.must("init")
-	for _, name := range repoCheckSkills(t) {
-		s.write(".satelle/skills/"+name+".md", repoText(t, ".satelle/skills/"+name+".md"))
+	for _, sk := range repoCheckSkills(t) {
+		copyRepoSkill(t, s, sk)
 	}
 	s.git("add", "-A")
 	s.git("commit", "-q", "-m", "check skills")

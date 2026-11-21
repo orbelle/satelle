@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-func changelogItems(t *testing.T, stdin string, args ...string) (string, string, int) {
+func runBashScript(t *testing.T, script, stdin string, args ...string) (string, string, int) {
 	t.Helper()
-	cmd := exec.Command("bash", append([]string{"changelog-items.sh"}, args...)...)
+	cmd := exec.Command("bash", append([]string{script}, args...)...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -21,11 +21,16 @@ func changelogItems(t *testing.T, stdin string, args ...string) (string, string,
 	if err != nil {
 		ee, ok := err.(*exec.ExitError)
 		if !ok {
-			t.Fatalf("changelog-items.sh %v: %v", args, err)
+			t.Fatalf("%s %v: %v", script, args, err)
 		}
 		code = ee.ExitCode()
 	}
 	return out.String(), errb.String(), code
+}
+
+func changelogItems(t *testing.T, stdin string, args ...string) (string, string, int) {
+	t.Helper()
+	return runBashScript(t, "changelog-items.sh", stdin, args...)
 }
 
 func attachment(t *testing.T, dir, id, body string) string {
@@ -136,5 +141,50 @@ func TestHas(t *testing.T) {
 				t.Fatalf("exit %d\n%s%s\nwant %q", code, out, errOut, tc.want)
 			}
 		})
+	}
+}
+
+func TestSkillChangelogLinesMatchesChangelogItems(t *testing.T) {
+	skillScript := filepath.Join("..", ".satelle", "skills", "satelle-pr-ready-check", "scripts", "changelog-lines.sh")
+	var allSections strings.Builder
+	for _, s := range []string{"Added", "Changed", "Deprecated", "Removed", "Fixed", "Security", "Breaking"} {
+		allSections.WriteString("### " + s + "\n- a " + s + " entry\n\n")
+	}
+	for _, tc := range []struct {
+		name string
+		in   string
+		code int
+	}{
+		{"every section", allSections.String(), 0},
+		{"repeated section", "### Added\n- one\n### Fixed\n- two\n### Added\n- three\n", 0},
+		{"id already present", "### Changed\n- already named (sto_1)\n- shared (sto_0, sto_1)\n- not named\n", 0},
+		{"crlf and spaces", "### Added  \r\n-   trimmed entry  \r\n\r\n", 0},
+		{"empty", "\n\n", 1},
+		{"only heading", "### Added\n", 1},
+		{"entry before heading", "- early\n### Added\n- fine\n", 1},
+		{"unknown section", "### Added\n- fine\n### Misc\n- odd\n", 1},
+		{"continuation", "### Added\n- first\n  continued\n", 1},
+		{"empty entry", "### Fixed\n- fine\n- \n", 1},
+		{"bare dash", "### Fixed\n-\n", 1},
+		{"heading without space", "###Added\n- x\n", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wantOut, wantErr, wantCode := changelogItems(t, tc.in, "lines", "sto_1")
+			if wantCode != tc.code {
+				t.Fatalf("changelog-items.sh exit %d, want %d\nstdout %q\nstderr %q", wantCode, tc.code, wantOut, wantErr)
+			}
+			gotOut, gotErr, gotCode := runBashScript(t, skillScript, tc.in, "sto_1")
+			if gotCode != wantCode || gotOut != wantOut || gotErr != wantErr {
+				t.Fatalf("parity mismatch:\nchangelog-items.sh: exit %d stdout %q stderr %q\nchangelog-lines.sh: exit %d stdout %q stderr %q",
+					wantCode, wantOut, wantErr, gotCode, gotOut, gotErr)
+			}
+		})
+	}
+	for _, args := range [][]string{nil, {""}, {"sto_1", "extra"}} {
+		_, _, wantCode := changelogItems(t, "### Added\n- x\n", append([]string{"lines"}, args...)...)
+		_, _, gotCode := runBashScript(t, skillScript, "### Added\n- x\n", args...)
+		if wantCode != 2 || gotCode != 2 {
+			t.Fatalf("args %v: changelog-items.sh exit %d, changelog-lines.sh exit %d, want 2", args, wantCode, gotCode)
+		}
 	}
 }

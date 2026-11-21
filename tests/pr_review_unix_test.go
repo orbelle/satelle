@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/wire/fakeserver"
 	"github.com/bobmcallan/satelle/internal/workflow"
@@ -214,16 +215,12 @@ func newPRSandboxNamed(t *testing.T, n prNames) *prSandbox {
 	if ready.Skill != "satelle-pr-ready-check" || ready.Agent != "" || !slices.Equal(ready.After, []string{statusSkill}) {
 		t.Fatalf("pr-ready is %+v", ready)
 	}
-	skills, err := filepath.Glob("../.satelle/skills/*.md")
+	skills, err := workflow.LoadSkills("../.satelle/skills")
 	if err != nil || len(skills) == 0 {
 		t.Fatalf("no repo skills: %v", err)
 	}
-	for _, f := range skills {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.write(".satelle/skills/"+filepath.Base(f), string(b))
+	for _, sk := range skills {
+		copyRepoSkill(t, s, sk)
 	}
 	s.write(".satelle/satelle.toml", prSandboxConfig(t))
 	s.write(".satelle/agents.toml", fmt.Sprintf("[agents.%q]\n", reviewer)+`command = "claude"
@@ -1086,7 +1083,7 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 	if routed != 2 {
 		t.Fatalf("checked %d of delivery.toml and chore.toml", routed)
 	}
-	if strings.Contains(shBlock0(t, ".satelle/skills/satelle-pr-ready-check.md"), `echo "approved:`) {
+	if strings.Contains(shBlock0(t, ".satelle/skills/satelle-pr-ready-check/SKILL.md"), `echo "approved:`) {
 		t.Error("pr-ready still approves")
 	}
 	for _, retired := range []string{
@@ -1124,14 +1121,17 @@ func TestPRReviewGatesAreOnTheRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	skills, _ := filepath.Glob("../.satelle/skills/*.md")
-	for _, f := range skills {
-		b, err := os.ReadFile(f)
+	skills, err := workflow.LoadSkills("../.satelle/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range skills {
+		b, err := os.ReadFile(sk.Path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if base := filepath.Base(f); strings.Contains(string(b), "satelle github") && base != approveFromReviewSkill+".md" && base != statusSkill+".md" {
-			t.Errorf("%s calls satelle github", base)
+		if strings.Contains(string(b), "satelle github") && sk.Name != approveFromReviewSkill && sk.Name != statusSkill {
+			t.Errorf("%s calls satelle github", sk.Path)
 		}
 	}
 	block := shBlock0(t, ".satelle/skills/"+statusSkill+".md")
@@ -1220,6 +1220,31 @@ func shBlock0(t *testing.T, rel string) string {
 		t.Fatalf("%s: unclosed sh block", rel)
 	}
 	return bindSession(block)
+}
+
+func repoSkillRel(t *testing.T, name string) string {
+	t.Helper()
+	dirRel := ".satelle/skills/" + name + "/" + workflow.SkillFile
+	if _, err := os.Stat(filepath.Join("..", dirRel)); err == nil {
+		return dirRel
+	}
+	return ".satelle/skills/" + name + ".md"
+}
+
+func runSkillCheck(t *testing.T, s *sandbox, skill string) result {
+	t.Helper()
+	rel := repoSkillRel(t, skill)
+	block := shBlock0(t, rel)
+	if strings.HasSuffix(rel, "/"+workflow.SkillFile) {
+		dir, err := filepath.Abs(filepath.Dir(filepath.Join("..", rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.env["SATELLE_SKILL_DIR"] = dir
+		defer delete(s.env, "SATELLE_SKILL_DIR")
+		block = gate.ResolveSkillScript(block)
+	}
+	return s.exec("bash", "", "-c", block)
 }
 
 func idBlock(t *testing.T, rel, heading, id string) string {
@@ -1483,7 +1508,8 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 	}
 	var blocks []string
 	for _, name := range prGateSkills {
-		b, err := os.ReadFile("../.satelle/skills/" + name + ".md")
+		rel := repoSkillRel(t, name)
+		b, err := os.ReadFile(filepath.Join("..", rel))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1497,7 +1523,7 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 		text = strip.Replace(text)
 		for what, re := range forbidden {
 			for _, m := range re.FindAllString(text, -1) {
-				t.Errorf("%s.md holds %s: %q", name, what, m)
+				t.Errorf("%s holds %s: %q", rel, what, m)
 			}
 		}
 	}
@@ -1511,6 +1537,34 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 	}
 }
 
+func TestPRReadySkillIsSelfContained(t *testing.T) {
+	if _, err := os.Stat("../.satelle/skills/satelle-pr-ready-check.md"); !os.IsNotExist(err) {
+		t.Errorf(".satelle/skills/satelle-pr-ready-check.md is still present: %v", err)
+	}
+	for _, rel := range []string{
+		"../.satelle/skills/satelle-pr-ready-check/SKILL.md",
+		"../.satelle/skills/satelle-pr-ready-check/scripts/changelog-lines.sh",
+	} {
+		if _, err := os.Stat(rel); err != nil {
+			t.Errorf("%s: %v", rel, err)
+		}
+	}
+	skills, err := workflow.LoadSkills("../.satelle/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, ok := skills["satelle-pr-ready-check"]
+	if !ok || !sk.IsDir() {
+		t.Fatalf("satelle-pr-ready-check: ok=%v dir=%q", ok, sk.Dir)
+	}
+	if probs := sk.Problems(); len(probs) != 0 {
+		t.Errorf("satelle-pr-ready-check problems: %v", probs)
+	}
+	if !strings.Contains(sk.Script, "scripts/changelog-lines.sh") || strings.Contains(sk.Script, "changelog-items.sh") {
+		t.Errorf("satelle-pr-ready-check script does not run its own changelog-lines.sh:\n%s", sk.Script)
+	}
+}
+
 func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
 	n := prNames{pending: "pending-x", ready: "ready-x", approve: "publish-x", approval: "approve-x", queue: "landing", base: "origin/trunk",
 		waits: "the external approval", codeACOnRoute: true, readyOnRoute: true, approveOnRoute: true}
@@ -1518,14 +1572,6 @@ func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
 	origin := realDir(t, t.TempDir())
 	p.exec("git", "", "init", "-q", "--bare", origin)
 	p.git("remote", "add", "origin", origin)
-	script, err := os.ReadFile("../scripts/changelog-items.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(p.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
-	p.git("add", "-A")
-	p.git("commit", "-q", "-m", "changelog script")
-	p.head = strings.TrimSpace(p.git("rev-parse", "HEAD"))
 	p.git("push", "-q", "origin", p.old+":refs/heads/trunk")
 	p.git("push", "-q", "origin", "HEAD:refs/heads/change")
 	p.git("fetch", "-q", "origin")
@@ -1610,7 +1656,7 @@ func TestPRGateSkillsTakeTheRepoValues(t *testing.T) {
 		t.Helper()
 		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, from, to
 		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
-		return p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+skill+".md"))
+		return runSkillCheck(t, p.sandbox, skill)
 	}
 	commit := func(files map[string]string) {
 		t.Helper()
@@ -1673,14 +1719,6 @@ func TestPRGateSkillsFallBackToTheRemoteDefaultBranch(t *testing.T) {
 	origin := realDir(t, t.TempDir())
 	p.exec("git", "", "init", "-q", "--bare", origin)
 	p.git("remote", "add", "origin", origin)
-	script, err := os.ReadFile("../scripts/changelog-items.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(p.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
-	p.git("add", "-A")
-	p.git("commit", "-q", "-m", "changelog script")
-	p.head = strings.TrimSpace(p.git("rev-parse", "HEAD"))
 	p.git("push", "-q", "origin", p.old+":refs/heads/stem")
 	p.git("push", "-q", "origin", "HEAD:refs/heads/change")
 	p.exec("git", "", "-C", origin, "symbolic-ref", "HEAD", "refs/heads/stem")
@@ -1740,7 +1778,7 @@ func TestPRGateSkillsFallBackToTheRemoteDefaultBranch(t *testing.T) {
 		t.Helper()
 		p.env["SATELLE_ITEM"], p.env["SATELLE_FROM"], p.env["SATELLE_TO"] = id, "in_review", "approved"
 		defer func() { delete(p.env, "SATELLE_ITEM"); delete(p.env, "SATELLE_FROM"); delete(p.env, "SATELLE_TO") }()
-		return p.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/"+skill+".md"))
+		return runSkillCheck(t, p.sandbox, skill)
 	}
 	checks := []string{"satelle-pr-ready-check", "satelle-pr-approval-check"}
 	allBaseChecks := []string{"satelle-pr-ready-check", approveFromReviewSkill, "satelle-pr-approval-check"}

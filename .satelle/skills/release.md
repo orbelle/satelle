@@ -34,7 +34,7 @@ pushed-back item reopens; it never becomes a new story, and its worktree stays
 (step 10 keeps the worktree of an item that is not in a terminal state).
 
 Items never edit `CHANGELOG.md`: each records its lines as an attachment named
-`changelog` (format in `satelle-pr-ready-check.md`, owned by
+`changelog` (format in `satelle-pr-ready-check/SKILL.md`, owned by
 `scripts/changelog-items.sh`), and this run writes the version section from
 the items it lands (step 3).
 

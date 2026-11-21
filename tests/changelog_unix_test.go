@@ -364,12 +364,11 @@ func TestPRReadyRequiresChangelogAttachment(t *testing.T) {
 	c.pr(id, head)
 	dir := c.worktree("p", false)
 	c.assertFixtures([]string{head}, dir)
-	check := shBlock0(t, ".satelle/skills/satelle-pr-ready-check.md")
 	ready := func() result {
 		c.env["SATELLE_ITEM"] = id
 		defer delete(c.env, "SATELLE_ITEM")
 		var r result
-		c.at(dir, func() { r = c.exec("bash", "", "-c", check) })
+		c.at(dir, func() { r = runSkillCheck(t, c.sandbox, "satelle-pr-ready-check") })
 		return r
 	}
 	if r := ready(); r.code != 1 || !strings.Contains(r.out, "no changelog attachment on "+id) || !strings.Contains(r.out, "--name changelog") {
@@ -450,7 +449,7 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 	c.pr(idB, merged)
 	c.env["SATELLE_ITEM"] = idB
 	c.at(dir, func() {
-		if r := c.exec("bash", "", "-c", shBlock0(t, ".satelle/skills/satelle-pr-ready-check.md")); r.code != 0 {
+		if r := runSkillCheck(t, c.sandbox, "satelle-pr-ready-check"); r.code != 0 {
 			t.Fatalf("pr-ready on B merged: exit %d\n%s%s", r.code, r.out, r.err)
 		}
 	})
