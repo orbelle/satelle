@@ -28,7 +28,7 @@ if [ -z "$key" ]; then
 fi
 in=$(cat)
 first=$(printf '%s' "$in" | jq -r '((.members // [])[0].notes // .notes // "")' 2>/dev/null | head -1)
-tier=$(printf '%s\n' "$first" | sed -n 's/^ *TIER: *\(low\|high\) *$/\1/p')
+tier=$(printf '%s\n' "$first" | sed -nE 's/^ *TIER: *(low|high) *$/\1/p')
 why=
 if [ -z "$tier" ]; then
   tier=high
