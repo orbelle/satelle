@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's hand-off to approval and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md and every file under docs/releases as the base branch has them, the item carries a valid changelog attachment (its lines, which the release run writes to docs/releases/v<version>.md), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for approval: satelle-pr-approve-from-review then publishes the satelle app's approving review on HEAD from the accepted code-ac verdict, and the approval gate enters approved only when the app's approving review on HEAD is present. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to approval and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md and every file under docs/releases as the base branch has them (it may only delete CHANGELOG.md and add the notes of a version already released, older than the base's satelle.version), the item carries a valid changelog attachment (its lines, which the release run writes to docs/releases/v<version>.md), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for approval: satelle-pr-approve-from-review then publishes the satelle app's approving review on HEAD from the accepted code-ac verdict, and the approval gate enters approved only when the app's approving review on HEAD is present. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off; the session then fires the release)
@@ -68,6 +68,15 @@ At least one entry; a section may repeat. Items never edit `CHANGELOG.md` or
 a file under `docs/releases/`: the release run writes the version's notes to
 `docs/releases/v<version>.md` from the attachments, so two items cut from the
 same base never conflict over them.
+
+One change to them is an item's: backfilling the archive. A head may delete
+`CHANGELOG.md` and add `docs/releases/v<ver>.md` (or `docs/releases/v0.md`,
+the pre-1.0 archive) for a `<ver>` the base branch lacks that sorts below the
+base's `satelle.version`: that version is already released, and no release
+writes its notes again. Adding the current or a later version's file, editing
+or deleting a notes file the base has, and editing `CHANGELOG.md` are refused,
+naming the path. This skill's `scripts/notes-paths.sh` judges them, and
+release step 2a runs the base's copy of it, so a head cannot relax the rule.
 
 ```sh
 set -u
@@ -137,6 +146,9 @@ if ! git merge-base --is-ancestor "$base_ref" "$head"; then
   exit 1
 fi
 paths=$(git diff --name-only "$base_ref" "$head" -- CHANGELOG.md docs/releases) || { echo "git diff $base_ref $head failed"; exit 1; }
+if [ -n "$paths" ]; then
+  paths=$(bash scripts/notes-paths.sh "$base_ref" "$head") || { echo "judging the release-notes paths of HEAD ${head:0:12} against $base_ref failed"; exit 1; }
+fi
 if [ -n "$paths" ]; then
   paths=$(printf '%s' "$paths" | tr '\n' ' ')
   cmds=

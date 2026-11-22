@@ -631,3 +631,55 @@ func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 		}
 	}
 }
+
+func TestItemBackfillsReleasedNotes(t *testing.T) {
+	c := newChangelogSandbox(t)
+	const rule = ".satelle/skills/satelle-pr-ready-check/scripts/notes-paths.sh"
+	notes := func(ver string) [2]string {
+		return [2]string{"docs/releases/v" + ver + ".md", "## [" + ver + "] - 2026-01-01\n\n### Added\n- " + ver + "\n"}
+	}
+	main := c.branch("released", c.base,
+		[2]string{".version", "satelle.version: 1.0.9\nsatelled.version: 1.0.9\n"},
+		[2]string{rule, repoText(t, rule)},
+		notes("1.0.8"))
+	c.git("push", "-q", "origin", main+":refs/heads/main")
+	c.git("fetch", "-q", "origin")
+	cases := []struct {
+		name, refused string
+		files         [][2]string
+	}{
+		{"backfill", "", [][2]string{{"CHANGELOG.md", ""}, notes("1.0.5"), notes("0")}},
+		{"current", "docs/releases/v1.0.9.md", [][2]string{notes("1.0.9")}},
+		{"later", "docs/releases/v1.0.10.md", [][2]string{{"CHANGELOG.md", ""}, notes("1.0.10")}},
+		{"modify", "docs/releases/v1.0.8.md", [][2]string{{"docs/releases/v1.0.8.md", "## [1.0.8] - 2026-01-01\n\n### Added\n- rewritten\n"}}},
+		{"delete", "docs/releases/v1.0.8.md", [][2]string{{"docs/releases/v1.0.8.md", ""}}},
+		{"changelog", "CHANGELOG.md", [][2]string{{"CHANGELOG.md", baseChangelog + "- an edit\n"}, notes("1.0.5")}},
+	}
+	for _, tc := range cases {
+		id := c.story("### Changed\n- " + tc.name + "\n")
+		head := c.branch(tc.name, main, tc.files...)
+		c.pr(id, head)
+		dir := c.worktree(tc.name, false)
+		c.assertFixtures([]string{head}, dir)
+		c.env["SATELLE_ITEM"] = id
+		var r result
+		c.at(dir, func() { r = runSkillCheck(t, c.sandbox, "satelle-pr-ready-check") })
+		delete(c.env, "SATELLE_ITEM")
+		got := c.verdict(id, head, main)
+		if tc.refused == "" {
+			if r.code != 0 || !strings.Contains(r.out, "ready: PR #") {
+				t.Errorf("%s: pr-ready refused the backfill: exit %d\n%s%s", tc.name, r.code, r.out, r.err)
+			}
+			if want := id + ": keep head " + head; got != want {
+				t.Errorf("%s: step 2a %q, want %q", tc.name, got, want)
+			}
+			continue
+		}
+		if r.code != 1 || !strings.Contains(r.out, "edits "+tc.refused+";") {
+			t.Errorf("%s: pr-ready does not refuse naming only %s: exit %d\n%s%s", tc.name, tc.refused, r.code, r.out, r.err)
+		}
+		if !strings.HasPrefix(got, id+": send back: head "+head+" edits "+tc.refused+";") {
+			t.Errorf("%s: step 2a %q, want a send-back naming only %s", tc.name, got, tc.refused)
+		}
+	}
+}

@@ -1892,8 +1892,8 @@ func TestPRGatePack(t *testing.T) {
 	if !ok {
 		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
 	}
-	if pk.Version != "1.0.4" {
-		t.Errorf("pack %s version %q, want 1.0.4", prGateEntry, pk.Version)
+	if pk.Version != "1.0.5" {
+		t.Errorf("pack %s version %q, want 1.0.5", prGateEntry, pk.Version)
 	}
 	var packFiles []string
 	for _, name := range append([]string{prGateEntry}, prGateSkills...) {

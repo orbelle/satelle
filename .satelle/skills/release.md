@@ -33,7 +33,8 @@ reason recorded on the item; every send-back reason below says so. A
 pushed-back item reopens; it never becomes a new story, and its worktree stays
 (step 10 keeps the worktree of an item that is not in a terminal state).
 
-Items never edit `CHANGELOG.md` or a file under `docs/releases/`: each records
+Items never edit `CHANGELOG.md` or a file under `docs/releases/`, beyond
+backfilling the notes of versions already released (step 2a): each records
 its lines as an attachment named `changelog` (format in
 `satelle-pr-ready-check/SKILL.md`, owned by `scripts/changelog-items.sh`), and
 this run writes the version's notes to `docs/releases/v<version>.md` from the
@@ -192,7 +193,13 @@ that is a failed step, which stops the run. The head's own
 without the script is sent back too. The release-notes test (`CHANGELOG.md`
 and every file under `docs/releases/`) reads the head's own commits only
 (`$tip...$head`, from their merge base), so a head cut from an older main is
-not mistaken for one that edits them.
+not mistaken for one that edits them. Backfilling the archive is the one
+change it keeps: deleting `CHANGELOG.md`, and adding `docs/releases/v<ver>.md`
+(or `docs/releases/v0.md`) that `$tip` lacks for a `<ver>` below `$tip`'s
+`satelle.version`, a version already released. `$tip`'s copy of
+`satelle-pr-ready-check/scripts/notes-paths.sh`, the pull-request gate's rule,
+judges them (never the head's, so a head cannot relax the rule; a tip without
+it sends back every path); every other change is sent back naming the path.
 
 ```sh
 session=<session>
@@ -211,6 +218,10 @@ fi
 paths=
 if [ -z "$why" ]; then
   paths=$(git diff --name-only "$tip...$head" -- CHANGELOG.md docs/releases) || { echo "git diff $tip...$head failed, so the changelog of $id cannot be judged" >&2; exit 1; }
+  rule=.satelle/skills/satelle-pr-ready-check/scripts/notes-paths.sh
+  if [ -n "$paths" ] && git cat-file -e "$tip:$rule" 2>/dev/null; then
+    paths=$(bash <(git show "$tip:$rule") "$tip" "$head") || { echo "judging the release-notes paths of $head against $tip failed, so the changelog of $id cannot be judged" >&2; exit 1; }
+  fi
   paths=$(printf '%s' "$paths" | tr '\n' ' ')
 fi
 if [ -n "$why" ]; then
