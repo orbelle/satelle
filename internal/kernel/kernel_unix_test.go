@@ -310,6 +310,12 @@ func TestSeatsAttachmentsTasks(t *testing.T) {
 	if _, _, err := k.TaskRun(it.ID, "", "me"); err == nil {
 		t.Fatal("item without inputs ran as a task")
 	}
+	if ids, err := k.TaskInputs(task.ID); err != nil || strings.Join(ids, ",") != strings.Join(run.Inputs, ",") {
+		t.Fatalf("TaskInputs = %v, %v; the run recorded %v", ids, err, run.Inputs)
+	}
+	if _, err := k.TaskInputs(it.ID); err == nil || !strings.Contains(err.Error(), "names no input selection") {
+		t.Fatalf("TaskInputs of an item with no selection = %v", err)
+	}
 }
 
 func capped(t *testing.T, hold string) (*Kernel, *fakeDispatcher) {

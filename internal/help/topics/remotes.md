@@ -40,9 +40,20 @@ the container after the run, as does a failed run; `docker rm -f
 satelle-node-<node>` removes it. With `scope = "run"` an accepted run's
 container is removed.
 
-A local node is given no secrets and fetches nothing: `[secrets]`, `[[repo]]`
-and a task `[drive]` are refused locally. `max_nodes`, `idle_destroy` and
-`keep_warm` are not applied: each fire runs one node.
+A docker-local node runs a task drive: `satelle remote fire <remote-id> <task>
+--session <session>`, for the task its `[drive] task` names, hands the node
+the task's chain and the chains of the items its input selection names, and no
+other. The node creates one execution of the task and drives it on its
+workflow, which the remote's overlay `satelle.toml` chooses
+(`docker-task-probe` uses `probe`). Every chain the run wrote comes back, the
+execution's and those of the items it changed, and each is verified before any
+is imported: a chain that does not verify imports nothing and concludes the
+run `reject`, naming it. No seat is taken for a task. `remote status
+<remote-id> <task>` shows the run.
+
+A local node is given no secrets and fetches nothing:
+`[secrets]` and `[[repo]]` are refused locally. `max_nodes`, `idle_destroy`
+and `keep_warm` are not applied: each fire runs one node.
 
 ## Remotes through satelle-server
 

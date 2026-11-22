@@ -45,6 +45,11 @@ case "$cmd" in
   cp)
     cp -R "$(map "$1")" "$(map "$2")" || exit 1
     [ -f "$FAKE/bad-bundle" ] && [ -f "$(map "$2")/head.bundle" ] && : > "$(map "$2")/head.bundle"
+    if [ -f "$FAKE/bad-chain" ]; then
+      case "$1" in */node/runtime/ledger)
+        for f in "$(map "$2")"/exe_*.jsonl; do [ -f "$f" ] && sed -i '1s/Probe a/probe a/' "$f"; done ;;
+      esac
+    fi
     exit 0 ;;
   exec)
     name=$1; shift
@@ -199,8 +204,12 @@ func TestDockerLocalFireRoundTrip(t *testing.T) {
 	if strings.Index(out, hint) > strings.Index(out, "running the node on "+id) {
 		t.Fatalf("the hint follows the node's run:\n%s", out)
 	}
-	if v := s.exec(filepath.Join(fake, "docker"), "", "exec", name, "satelle", "version"); v.code != 0 || !strings.HasPrefix(v.out, "satelle ") {
-		t.Fatalf("docker exec after fire (scope job): %+v", v)
+	removed := false
+	for _, l := range log[runLocal+1:] {
+		removed = removed || (strings.HasPrefix(l, "rm ") && strings.Contains(l, name))
+	}
+	if !removed {
+		t.Fatalf("the accepted run did not remove %s (scope run):\n%s", name, b)
 	}
 
 	after := s.get(id)
@@ -454,4 +463,242 @@ func TestDockerLocalFireOnDaemon(t *testing.T) {
 		t.Fatalf("status:\n%s", st)
 	}
 	s.must("ledger", "verify")
+}
+
+const failCheck = `---
+name: probe-fail-check
+type: check
+description: A check that fails, for the test of a task's failing step.
+---
+
+` + "```sh\necho probe step failed\nexit 1\n```\n"
+
+func taskSandbox(t *testing.T, withFake bool) (s *sandbox, task, input, fake string) {
+	t.Helper()
+	s, _, fake = dockerLocalSandbox(t, withFake)
+	for _, rel := range []string{
+		"workflows/probe.toml",
+		"skills/satelle-probe-version-check.md",
+		"remotes/docker-task-probe/remote.toml",
+		"remotes/docker-task-probe/satelle.toml",
+	} {
+		b, err := os.ReadFile(filepath.Join("..", ".satelle", filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.write(".satelle/"+rel, string(b))
+	}
+	probe, err := os.ReadFile(filepath.Join("..", ".satelle", "workflows", "probe.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.write(".satelle/workflows/probe-fail.toml", strings.NewReplacer(`name = "probe"`, `name = "probe-fail"`,
+		"probe-version", "probe-fail", "satelle-probe-version-check", "probe-fail-check").Replace(string(probe)))
+	s.write(".satelle/skills/probe-fail-check.md", failCheck)
+	s.write(".satelle/remotes/docker-task-fail/satelle.toml", "[workflows]\ndefault = \"probe-fail\"\n")
+	task = s.create("task", "--title", "Probe a docker-local task drive", "--input-kind", "story", "--input-tag", "remote-probe").ID
+	input = s.create("story", "--title", "a probe input", "--tag", "remote-probe").ID
+	def, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "remotes", "docker-task-probe", "remote.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := regexp.MustCompile(`(?m)^task = ".*"$`).ReplaceAllString(string(def), `task = "`+task+`"`)
+	s.write(".satelle/remotes/docker-task-probe/remote.toml", pinned)
+	s.write(".satelle/remotes/docker-task-fail/remote.toml", strings.Replace(pinned, `name = "docker-task-probe"`, `name = "docker-task-fail"`, 1))
+	s.git("add", ".satelle")
+	s.git("commit", "-q", "-m", "task probe")
+	return s, task, input, fake
+}
+
+type execRow struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+func executionsOf(s *sandbox, task string) []execRow {
+	s.t.Helper()
+	var rows []execRow
+	s.mustJSON(&rows, "execution", "list", "--parent", task)
+	return rows
+}
+
+func runLocalCount(t *testing.T, fake string) int {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(fake, "log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(regexp.MustCompile(`(?m)^exec satelle-node-nod_[0-9a-f]+ satelle node run-local`).FindAll(b, -1))
+}
+
+func TestDockerLocalFireTask(t *testing.T) {
+	t.Parallel()
+	s, task, input, fake := taskSandbox(t, true)
+	if r := s.run("remote", "fire", "docker-task-probe", input); r.code == 0 || !strings.Contains(r.err, "[drive] task is "+task) {
+		t.Fatalf("fire at an input story: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(fake, "log")); strings.Contains(string(b), "run -d") {
+		t.Fatalf("a container started for a refused fire:\n%s", b)
+	}
+
+	out := s.must("remote", "fire", "docker-task-probe", task)
+	t.Logf("fire:\n%s", out)
+	m := nodeLine.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("fire output names no node:\n%s", out)
+	}
+	node := m[1]
+	if !strings.Contains(out, "docker-task-probe on "+task+": concluded (node "+node+")") || !strings.Contains(out, "verdict: accept") {
+		t.Fatalf("fire output:\n%s", out)
+	}
+	b, err := os.ReadFile(filepath.Join(fake, "log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, x := strings.Index(string(b), "run -d --name "+m[2]+" "), strings.Index(string(b), "exec "+m[2]+" satelle node run-local"); r < 0 || x < 0 || r > x {
+		t.Fatalf("docker log: run at %d, run-local at %d\n%s", r, x, b)
+	}
+
+	execs := executionsOf(s, task)
+	if len(execs) != 1 || execs[0].Status != "done" {
+		t.Fatalf("executions of %s = %+v, want one at done", task, execs)
+	}
+	gateRuns := 0
+	for _, e := range chainOf(s, execs[0].ID) {
+		if e.Actor != "node:"+node {
+			t.Fatalf("execution event %s by %q, want node:%s", e.Kind, e.Actor, node)
+		}
+		if e.Kind == "gate.run" {
+			gateRuns++
+		}
+	}
+	if gateRuns != 1 {
+		t.Fatalf("the execution has %d gate.run events", gateRuns)
+	}
+	if v := s.must("ledger", "verify"); !strings.Contains(v, "chains intact") {
+		t.Fatalf("ledger verify: %s", v)
+	}
+	st := s.must("remote", "status", "docker-task-probe", task)
+	if !strings.HasPrefix(st, "docker-task-probe on "+task+": concluded (node "+node+")\nverdict: accept\n") ||
+		!strings.Contains(st, "execution exe_") || !strings.Contains(st, " over 1 items") || !strings.Contains(st, "imported ") {
+		t.Fatalf("status:\n%s", st)
+	}
+	for _, e := range chainOf(s, task) {
+		if e.Kind == "seat.bound" {
+			t.Fatal("the task was seated for a task drive")
+		}
+	}
+
+	help := s.must("help", "remotes")
+	for _, want := range []string{"A docker-local node runs a task drive", "`[secrets]` and `[[repo]]` are refused locally"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("satelle help remotes misses %q", want)
+		}
+	}
+	if strings.Contains(help, "a task `[drive]`") {
+		t.Error("satelle help remotes still refuses a task drive")
+	}
+}
+
+func TestDockerLocalFireTaskRejectsABrokenChain(t *testing.T) {
+	t.Parallel()
+	s, task, _, fake := taskSandbox(t, true)
+	writeFile(t, filepath.Join(fake, "bad-chain"), "", 0o644)
+	r := s.run("remote", "fire", "docker-task-probe", task)
+	if r.code == 0 {
+		t.Fatalf("a fire whose chain does not verify exited 0:\n%s", r.out)
+	}
+	st := s.must("remote", "status", "docker-task-probe", task)
+	if !strings.Contains(st, ": concluded (node ") || !strings.Contains(st, "verdict: reject") ||
+		!regexp.MustCompile(`the node's chain of exe_[0-9a-f]+ does not verify`).MatchString(st) {
+		t.Fatalf("status:\n%s", st)
+	}
+	if execs := executionsOf(s, task); len(execs) != 0 {
+		t.Fatalf("executions imported from a broken run: %+v", execs)
+	}
+	s.must("ledger", "verify")
+}
+
+func TestDockerLocalFireTaskStepFails(t *testing.T) {
+	t.Parallel()
+	s, task, _, fake := taskSandbox(t, true)
+	r := s.run("remote", "fire", "docker-task-fail", task)
+	if r.code == 0 {
+		t.Fatalf("a fire whose step fails exited 0:\n%s", r.out)
+	}
+	st := s.must("remote", "status", "docker-task-fail", task)
+	if !strings.Contains(st, ": concluded (node ") || !strings.Contains(st, "verdict: reject") ||
+		!strings.Contains(st, "probe-fail") || !strings.Contains(st, "probe step failed") {
+		t.Fatalf("status:\n%s", st)
+	}
+	execs := executionsOf(s, task)
+	if len(execs) != 1 || execs[0].Status != "backlog" {
+		t.Fatalf("executions of %s = %+v, want one at backlog", task, execs)
+	}
+	gateRuns := 0
+	for _, e := range chainOf(s, execs[0].ID) {
+		if e.Kind == "gate.run" {
+			gateRuns++
+		}
+	}
+	if gateRuns != 1 {
+		t.Fatalf("the failing step ran %d times", gateRuns)
+	}
+	if n := runLocalCount(t, fake); n != 1 {
+		t.Fatalf("the node ran %d times", n)
+	}
+	s.must("ledger", "verify")
+}
+
+func TestDockerLocalFireTaskOnDaemon(t *testing.T) {
+	real, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("docker is not installed")
+	}
+	if out, err := exec.Command(real, "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
+		t.Skipf("docker daemon unavailable: %v: %s", err, out)
+	}
+	repo, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, task, _, _ := taskSandbox(t, false)
+	gate, shimDir := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(gate, "release"), "", 0o644)
+	shim := strings.NewReplacer("@GATE@", gate, "@REAL@", real, "@REPO@", repo, "@SANDBOX@", s.dir).Replace(gateShim)
+	writeFile(t, filepath.Join(shimDir, "docker"), shim, 0o755)
+	s.path = append([]string{shimDir}, s.path...)
+	var name string
+	t.Cleanup(func() {
+		if name != "" {
+			_ = exec.Command(real, "rm", "-f", name).Run()
+		}
+	})
+	r := s.run("remote", "fire", "docker-task-probe", task)
+	if m := nodeLine.FindStringSubmatch(r.out); m != nil {
+		name = m[2]
+	}
+	if r.code != 0 {
+		t.Fatalf("fire on the daemon: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	t.Logf("fire:\n%s", r.out)
+	st := s.must("remote", "status", "docker-task-probe", task)
+	if !strings.Contains(st, ": concluded (node ") || !strings.Contains(st, "verdict: accept") {
+		t.Fatalf("status:\n%s", st)
+	}
+	execs := executionsOf(s, task)
+	if len(execs) != 1 || execs[0].Status != "done" {
+		t.Fatalf("executions of %s = %+v, want one at done", task, execs)
+	}
+	ranOnNode := false
+	for _, e := range chainOf(s, execs[0].ID) {
+		ranOnNode = ranOnNode || e.Kind == "gate.run" && strings.HasPrefix(e.Actor, "node:nod_")
+	}
+	if !ranOnNode {
+		t.Fatal("the execution's gate did not run on the node")
+	}
+	s.must("ledger", "verify")
+	if name != "" && exec.Command(real, "container", "inspect", name).Run() == nil {
+		t.Fatalf("the container %s is left after an accepted run with scope run", name)
+	}
 }

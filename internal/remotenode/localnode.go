@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/agent"
@@ -45,8 +46,8 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 	if err := json.Unmarshal(b, &run); err != nil {
 		return LocalOutcome{}, fmt.Errorf("%s: %w", localRunFile, err)
 	}
-	if run.NodeID == "" || run.Run.ItemID == "" || run.Run.Mode != ModeItem {
-		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item run", localRunFile)
+	if run.NodeID == "" || run.Run.ItemID == "" || run.Run.Mode != ModeItem && run.Run.Mode != ModeTask {
+		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item or task run", localRunFile)
 	}
 	fmt.Fprintf(o.Log, "node: definition %s, run %s %s\n", def.Name, run.Run.Mode, run.Run.ItemID)
 
@@ -69,25 +70,22 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 	}
 	defer k.Close()
 
-	src, err := ledger.Open(in)
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	chain, err := src.Read(run.Run.ItemID)
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	if len(chain) == 0 {
-		return LocalOutcome{}, fmt.Errorf("the run's item %s has no chain in %s", run.Run.ItemID, in)
-	}
-	if err := ledger.VerifyChain(run.Run.ItemID, chain); err != nil {
-		return LocalOutcome{}, fmt.Errorf("the item's chain does not verify: %w", err)
-	}
-	if _, err := k.Ledger.Import(chain); err != nil {
+	if err := importIn(k.Ledger, in, run.Run.ItemID); err != nil {
 		return LocalOutcome{}, err
 	}
 	if err := k.Cache.Sync(k.Ledger); err != nil {
 		return LocalOutcome{}, err
+	}
+	actor := "node:" + run.NodeID
+	target, prefix := run.Run.ItemID, ""
+	if run.Run.Mode == ModeTask {
+		exec, rec, err := k.TaskRun(run.Run.ItemID, "", actor)
+		if err != nil {
+			return LocalOutcome{}, err
+		}
+		target = exec.ID
+		prefix = fmt.Sprintf("task %s: execution %s over %d items\n", run.Run.ItemID, exec.ID, len(rec.Inputs))
+		fmt.Fprint(o.Log, "node: "+prefix)
 	}
 
 	var warn string
@@ -95,17 +93,47 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 		warn = fmt.Sprintf("warning: the definition pins satelle %s; the node runs %s", def.SatelleVersion, o.Version)
 		fmt.Fprintln(o.Log, "node:", warn)
 	}
-	fmt.Fprintf(o.Log, "node: driving %s\n", run.Run.ItemID)
-	res, err := k.DriveSteps(ctx, run.Run.ItemID, "node:"+run.NodeID, run.Steps)
+	fmt.Fprintf(o.Log, "node: driving %s\n", target)
+	res, err := k.DriveSteps(ctx, target, actor, run.Steps)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
-	out := LocalOutcome{Verdict: res.Verdict, Notes: fmt.Sprintf("%s: %s", run.Run.ItemID, res.Notes), Steps: res.Steps}
+	out := LocalOutcome{Verdict: res.Verdict, Notes: fmt.Sprintf("%s%s: %s", prefix, target, res.Notes), Steps: res.Steps}
 	if warn != "" {
 		out.Notes += "\n" + warn
 	}
-	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", run.Run.ItemID, res.Item.Status, res.Notes)
+	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
+}
+
+func importIn(dst *ledger.Store, in, itemID string) error {
+	src, err := ledger.Open(in)
+	if err != nil {
+		return err
+	}
+	ids, err := src.Items()
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(ids, itemID) {
+		return fmt.Errorf("the run's item %s has no chain in %s", itemID, in)
+	}
+	for _, id := range ids {
+		chain, err := src.Read(id)
+		if err != nil {
+			return err
+		}
+		if len(chain) == 0 {
+			return fmt.Errorf("the chain of %s in %s is empty", id, in)
+		}
+		if err := ledger.VerifyChain(id, chain); err != nil {
+			return fmt.Errorf("the chain of %s does not verify: %w", id, err)
+		}
+		if _, err := dst.Import(chain); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeOutcome(dir string, out LocalOutcome) error {

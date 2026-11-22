@@ -618,25 +618,38 @@ func (k *Kernel) runInputs(run string) []string {
 	return rec.Inputs
 }
 
+func (k *Kernel) TaskInputs(taskID string) ([]string, error) {
+	task, err := k.Get(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.Inputs == nil {
+		return nil, fmt.Errorf("item %s names no input selection", taskID)
+	}
+	matches, err := k.selectInputs(*task.Inputs)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, m := range matches {
+		if m.ID != taskID && m.Parent != taskID {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
 func (k *Kernel) TaskRun(taskID, baseRef, actor string) (item.Item, TaskRunRecord, error) {
 	rec := TaskRunRecord{Task: taskID}
+	inputs, err := k.TaskInputs(taskID)
+	if err != nil {
+		return item.Item{}, rec, err
+	}
 	task, err := k.Get(taskID)
 	if err != nil {
 		return item.Item{}, rec, err
 	}
-	if task.Inputs == nil {
-		return item.Item{}, rec, fmt.Errorf("item %s names no input selection", taskID)
-	}
-	matches, err := k.selectInputs(*task.Inputs)
-	if err != nil {
-		return item.Item{}, rec, err
-	}
-	rec.Inputs = []string{}
-	for _, m := range matches {
-		if m.ID != taskID && m.Parent != taskID {
-			rec.Inputs = append(rec.Inputs, m.ID)
-		}
-	}
+	rec.Inputs = inputs
 	kind, title := ExecutionKind, task.Title
 	return k.startRun("", item.Fields{Kind: &kind, Title: &title, Parent: &taskID}, baseRef, rec, actor)
 }

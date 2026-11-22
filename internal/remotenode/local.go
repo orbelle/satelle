@@ -195,6 +195,17 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if _, err := k.Get(o.Item); err != nil {
 		return nil, err
 	}
+	chains := []string{o.Item}
+	if def.RunsTask() {
+		if o.Item != def.Drive.Task {
+			return nil, fmt.Errorf("remote %s: [drive] task is %s; fire it with satelle remote fire %s %s", o.Remote, def.Drive.Task, o.Remote, def.Drive.Task)
+		}
+		inputs, err := k.TaskInputs(o.Item)
+		if err != nil {
+			return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+		}
+		chains = append(chains, inputs...)
+	}
 	if err := recoverStale(ctx, o); err != nil {
 		return nil, err
 	}
@@ -224,10 +235,12 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err != nil {
 		return stopped(err)
 	}
-	if _, err := k.Seat(o.Item, node, kernel.LocationRemote+node, "", o.Actor); err != nil {
-		return stopped(err)
+	seated := !def.RunsTask()
+	if seated {
+		if _, err := k.Seat(o.Item, node, kernel.LocationRemote+node, "", o.Actor); err != nil {
+			return stopped(err)
+		}
 	}
-	seated := true
 	release := func() error {
 		if !seated {
 			return nil
@@ -237,7 +250,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	defer func() { _ = release() }()
 
-	out, err := runNode(ctx, o, h, node)
+	out, err := runNode(ctx, o, h, node, chains)
 	if err != nil {
 		if rerr := release(); rerr != nil {
 			err = errors.Join(err, rerr)
@@ -275,8 +288,6 @@ func gateNodeRefusal(def remotedef.Definition) error {
 		return errors.New("[secrets] is not served to a local node: nothing here hands out secrets")
 	case len(def.Repos) > 0:
 		return errors.New("[[repo]] is not fetched by a local node")
-	case def.RunsTask():
-		return errors.New("[drive] kind = \"task\" does not run locally; a local node drives an item")
 	}
 	return nil
 }
@@ -316,7 +327,7 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 	return nil
 }
 
-func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string) (LocalOutcome, error) {
+func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string, chains []string) (LocalOutcome, error) {
 	k := o.Kernel
 	tmp, err := os.MkdirTemp("", "satelle-fire-")
 	if err != nil {
@@ -324,7 +335,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string)
 	}
 	defer os.RemoveAll(tmp)
 	in := filepath.Join(tmp, "in")
-	if err := stageIn(o, in, node); err != nil {
+	if err := stageIn(o, in, node, chains); err != nil {
 		return LocalOutcome{}, err
 	}
 	if _, err := h.Exec(ctx, "mkdir", "-p", LocalNodeDir); err != nil {
@@ -337,7 +348,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string)
 	log, execErr := h.Exec(ctx, "satelle", "node", "run-local", "--dir", LocalNodeDir)
 
 	back := filepath.Join(tmp, "back")
-	if err := os.MkdirAll(filepath.Join(back, "ledger"), 0o755); err != nil {
+	if err := os.MkdirAll(back, 0o755); err != nil {
 		return LocalOutcome{}, err
 	}
 	outcomeFile := filepath.Join(back, localOutcome)
@@ -356,13 +367,17 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string)
 		return LocalOutcome{}, fmt.Errorf("the node's outcome: %w", err)
 	}
 	runtime := path.Join(LocalNodeDir, "runtime")
-	if err := h.CopyOut(ctx, path.Join(runtime, "ledger", o.Item+".jsonl"), filepath.Join(back, "ledger", o.Item+".jsonl")); err != nil {
+	if err := h.CopyOut(ctx, path.Join(runtime, "ledger"), filepath.Join(back, "ledger")); err != nil {
 		return LocalOutcome{}, err
 	}
 	if err := h.CopyOut(ctx, path.Join(runtime, "blobs"), filepath.Join(back, "blobs")); err != nil {
 		return LocalOutcome{}, err
 	}
-	added, err := importBack(k, back, o.Item)
+	added, err := importBack(k, back, chains, node)
+	if broken := (*ledger.BrokenLink)(nil); errors.As(err, &broken) {
+		return LocalOutcome{Verdict: kernel.VerdictReject,
+			Notes: fmt.Sprintf("the node's chain of %s does not verify: %s; nothing of the run was imported", broken.Item, broken.Reason)}, nil
+	}
 	if err != nil {
 		return LocalOutcome{}, err
 	}
@@ -370,7 +385,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string)
 	return out, nil
 }
 
-func stageIn(o FireOptions, in, node string) error {
+func stageIn(o FireOptions, in, node string, chains []string) error {
 	if err := os.MkdirAll(filepath.Join(in, "ledger"), 0o755); err != nil {
 		return err
 	}
@@ -378,18 +393,23 @@ func stageIn(o FireOptions, in, node string) error {
 	if err != nil {
 		return err
 	}
-	runJSON, err := json.Marshal(LocalRun{NodeID: node, Run: RunDescriptor{Mode: ModeItem, ItemID: o.Item}, Steps: o.Steps})
+	mode := ModeItem
+	if o.Definition.RunsTask() {
+		mode = ModeTask
+	}
+	runJSON, err := json.Marshal(LocalRun{NodeID: node, Run: RunDescriptor{Mode: mode, ItemID: o.Item}, Steps: o.Steps})
 	if err != nil {
 		return err
 	}
-	chain, err := os.ReadFile(o.Kernel.Ledger.Path(o.Item))
-	if err != nil {
-		return err
+	files := map[string][]byte{localDefinition: o.Bundle, localSubstrate: sub, localRunFile: runJSON}
+	for _, id := range chains {
+		chain, err := os.ReadFile(o.Kernel.Ledger.Path(id))
+		if err != nil {
+			return err
+		}
+		files[filepath.Join("ledger", id+".jsonl")] = chain
 	}
-	for name, b := range map[string][]byte{
-		localDefinition: o.Bundle, localSubstrate: sub, localRunFile: runJSON,
-		filepath.Join("ledger", o.Item+".jsonl"): chain,
-	} {
+	for name, b := range files {
 		if err := os.WriteFile(filepath.Join(in, name), b, 0o644); err != nil {
 			return err
 		}
@@ -397,26 +417,42 @@ func stageIn(o FireOptions, in, node string) error {
 	return nil
 }
 
-func importBack(k *kernel.Kernel, dir, itemID string) (int, error) {
-	if err := copyBlobs(k.Ledger, filepath.Join(dir, "blobs")); err != nil {
-		return 0, err
-	}
+func importBack(k *kernel.Kernel, dir string, sent []string, node string) (int, error) {
 	st, err := ledger.Open(dir)
 	if err != nil {
 		return 0, err
 	}
-	events, err := st.Read(itemID)
+	ids, err := st.Items()
 	if err != nil {
 		return 0, err
 	}
-	if err := ledger.VerifyChain(itemID, events); err != nil {
-		return 0, fmt.Errorf("the node's chain does not verify: %w", err)
+	actor := "node:" + node
+	var chains [][]ledger.Event
+	for _, id := range ids {
+		events, err := st.Read(id)
+		if err != nil {
+			return 0, err
+		}
+		if len(events) == 0 || !slices.Contains(sent, id) && events[0].Actor != actor {
+			continue
+		}
+		if err := ledger.VerifyChain(id, events); err != nil {
+			return 0, err
+		}
+		chains = append(chains, events)
 	}
-	added, err := k.Ledger.Import(events)
-	if err != nil {
-		return added, fmt.Errorf("the item changed here while the node ran: %w", err)
+	if err := copyBlobs(k.Ledger, filepath.Join(dir, "blobs")); err != nil {
+		return 0, err
 	}
-	return added, k.Cache.Sync(k.Ledger)
+	total := 0
+	for _, events := range chains {
+		added, err := k.Ledger.Import(events)
+		total += added
+		if err != nil {
+			return total, fmt.Errorf("%s changed here while the node ran: %w", events[0].Item, err)
+		}
+	}
+	return total, k.Cache.Sync(k.Ledger)
 }
 
 func copyBlobs(dst *ledger.Store, blobs string) error {

@@ -1,0 +1,14 @@
+version = 1
+name = "docker-task-probe"
+provider = "docker-local"
+satelle_version = "1.0.21"
+
+[drive]
+kind = "task"
+task = "tas_ebb785d9"
+
+[setup]
+on_create = ["satelle version"]
+
+[lifecycle]
+scope = "run"

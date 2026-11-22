@@ -97,8 +97,8 @@ func localRuns(r repo) remotenode.LocalRuns {
 func remoteFireCmd() *cobra.Command {
 	var steps int
 	cmd := &cobra.Command{
-		Use:   "fire <remote-id> <item>",
-		Short: "Fire a run of the remote for the item (a docker-local remote runs here)",
+		Use:   "fire <remote-id> <item-or-task>",
+		Short: "Fire a run of the remote for the item, or of its task (a docker-local remote runs here)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if steps < 0 {
@@ -173,7 +173,7 @@ func remoteStatusCmd() *cobra.Command {
 	var wait time.Duration
 	var asJSON *bool
 	cmd := &cobra.Command{
-		Use:   "status <remote-id> <item>",
+		Use:   "status <remote-id> <item-or-task>",
 		Short: "Show the latest run of the remote for the item; pull its chain once it concluded",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
