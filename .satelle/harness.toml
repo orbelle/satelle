@@ -9,3 +9,6 @@ context_limit_bytes = 16384
 
 [cursor]
 context_limit_bytes = 16384
+
+[agy]
+context_limit_bytes = 16384
