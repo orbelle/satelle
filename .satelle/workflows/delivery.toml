@@ -49,6 +49,12 @@ panel = ["reviewer-gemini-4-hydrogen-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
+[gates.risk-assess]
+skill = "satelle-risk-assess-review"
+panel = ["reviewer-gemini-4-hydrogen-high"]
+combine = "all"
+after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check", "satelle-risk-tier-record"]
+
 [gates.security]
 skill = "satelle-security-review"
 panel = ["reviewer-gemini-4-neon-high"]
@@ -155,7 +161,7 @@ groups = [{ mode = "sequential", gates = ["story-review"] }]
 from = ["plan"]
 to = "in_progress"
 groups = [
-  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "security", "plan-review"] },
+  { mode = "sequential", gates = ["tree-unchanged", "plan-touches", "binary-scope", "risk-assess", "security", "plan-review"] },
 ]
 
 [[transition]]
