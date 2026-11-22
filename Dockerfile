@@ -2,8 +2,7 @@
 # the same node runs on any container host. `satelle remote fire` builds it as
 # satelle-node:local for a docker-local remote that names no [machine] image.
 # The Makefile stamps .version; .dockerignore keeps .git out, so the binary
-# carries the plain base version. The final stage installs jq because the check
-# skills read the ledger with it, and a node with no network cannot install it.
+# carries the plain base version.
 FROM golang:1.27-alpine AS build
 RUN apk add --no-cache make bash
 WORKDIR /src
