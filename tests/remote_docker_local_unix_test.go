@@ -99,6 +99,17 @@ type chainEvent struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+func gateOf(t *testing.T, e chainEvent) string {
+	t.Helper()
+	var p struct {
+		Gate string `json:"gate"`
+	}
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		t.Fatalf("%s payload: %v", e.Kind, err)
+	}
+	return p.Gate
+}
+
 func seatsOf(s *sandbox, id string) []json.RawMessage {
 	s.t.Helper()
 	var got struct {
@@ -479,6 +490,7 @@ func taskSandbox(t *testing.T, withFake bool) (s *sandbox, task, input, fake str
 	for _, rel := range []string{
 		"workflows/probe.toml",
 		"skills/satelle-probe-version-check.md",
+		"skills/satelle-change-judged-check.md",
 		"remotes/docker-task-probe/remote.toml",
 		"remotes/docker-task-probe/satelle.toml",
 	} {
@@ -568,12 +580,12 @@ func TestDockerLocalFireTask(t *testing.T) {
 		if e.Actor != "node:"+node {
 			t.Fatalf("execution event %s by %q, want node:%s", e.Kind, e.Actor, node)
 		}
-		if e.Kind == "gate.run" {
+		if e.Kind == "gate.run" && gateOf(t, e) == "probe-version" {
 			gateRuns++
 		}
 	}
 	if gateRuns != 1 {
-		t.Fatalf("the execution has %d gate.run events", gateRuns)
+		t.Fatalf("the execution has %d gate.run events of probe-version", gateRuns)
 	}
 	if v := s.must("ledger", "verify"); !strings.Contains(v, "chains intact") {
 		t.Fatalf("ledger verify: %s", v)
@@ -637,7 +649,7 @@ func TestDockerLocalFireTaskStepFails(t *testing.T) {
 	}
 	gateRuns := 0
 	for _, e := range chainOf(s, execs[0].ID) {
-		if e.Kind == "gate.run" {
+		if e.Kind == "gate.run" && gateOf(t, e) == "probe-fail" {
 			gateRuns++
 		}
 	}

@@ -12,5 +12,5 @@ COPY . .
 RUN CGO_ENABLED=0 make build
 
 FROM alpine:3
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates jq
 COPY --from=build /src/satelle /usr/local/bin/satelle
