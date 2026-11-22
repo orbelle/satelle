@@ -21,6 +21,7 @@ export function el() {
       if (k === "then") return undefined;
       if (k === "id") return (v) => { node.id = v; return p; };
       if (k === "bg") return () => { node.bg = true; return p; };
+      if (k === "text_color") return (v) => { node.color = v; return p; };
       if (k === "child") return (c) => { add(c); return p; };
       if (k === "children") return (cs) => { for (const c of cs ?? []) add(c); return p; };
       if (k === "when") return (c, f) => (c ? f(p) : p);
@@ -57,9 +58,9 @@ const panelHerdr = `import { execFile } from "node:child_process";
 export const spaces = () => globalThis.__spaces ?? [];
 export const panes = () => [];
 export const focused = () => null;
-export const props = () => ({ folder: process.env.PANEL_FOLDER });
+export const props = () => ({ folder: process.env.PANEL_FOLDER, story: process.env.PANEL_STORY || undefined });
 export const checking = () => false;
-export const theme = () => new Proxy({}, { get: () => "#000000" });
+export const theme = () => new Proxy({}, { get: (_, k) => k });
 export const run = () => {};
 export const watchFolder = () => new Promise(() => {});
 export function exec(cmd, args, opts) {
@@ -98,6 +99,8 @@ const snap = (view) => {
     chip: find(root, (n) => typeof n.id === "string" && n.id.startsWith("mode-") && n.bg).map((n) => n.id).join(","),
     filter: view.input.value(),
     clear: find(root, (n) => n.id === "satelle-filter-clear").map(text),
+    steps: find(root, (n) => typeof n.id === "string" && n.id.startsWith("step-")).map((n) => ({ id: n.id, text: text(n),
+      counts: n.kids.filter((k) => k && k.kids && /^\(\d+\)$/.test(text(k))).map((k) => ({ text: text(k), color: k.color })) })),
     store: { ...store },
   };
 };
@@ -169,7 +172,9 @@ case "$1" in
 version)
   if [ "${FAKE_VERSION_CODE:-0}" != 0 ]; then echo "satelle: version broke" >&2; exit "$FAKE_VERSION_CODE"; fi
   cat "$FAKE_VERSION_FILE"; exit 0 ;;
-story) cat "$FAKE_STORIES"; exit 0 ;;
+story)
+  if [ "$2" = route ]; then cat "$FAKE_ROUTE"; else cat "$FAKE_STORIES"; fi; exit 0 ;;
+ledger) cat "$FAKE_LEDGER"; exit 0 ;;
 *) exit 1 ;;
 esac
 `
@@ -186,6 +191,16 @@ type panelSnap struct {
 	Filter string            `json:"filter"`
 	Clear  []string          `json:"clear"`
 	Store  map[string]string `json:"store"`
+	Steps  []panelStep       `json:"steps"`
+}
+
+type panelStep struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Counts []struct {
+		Text  string `json:"text"`
+		Color string `json:"color"`
+	} `json:"counts"`
 }
 
 type panelRun struct {
@@ -205,6 +220,9 @@ type panelCase struct {
 	scenario    string
 	storeFile   string
 	seed        string
+	story       string
+	route       string
+	ledger      string
 }
 
 func runPanel(t *testing.T, c panelCase) panelRun {
@@ -229,9 +247,12 @@ func runPanel(t *testing.T, c panelCase) panelRun {
 		main = strings.Replace(main, from, `from "./`+mod+`.mjs"`, 1)
 	}
 	versionFile, storiesFile := filepath.Join(dir, "version.txt"), filepath.Join(dir, "stories.json")
-	stories := c.stories
-	if stories == "" {
-		stories = "[]"
+	routeFile, ledgerFile := filepath.Join(dir, "route.json"), filepath.Join(dir, "ledger.json")
+	orDefault := func(v, d string) string {
+		if v == "" {
+			return d
+		}
+		return v
 	}
 	for name, body := range map[string]string{
 		filepath.Join(dir, "main.mjs"):      main,
@@ -241,7 +262,9 @@ func runPanel(t *testing.T, c panelCase) panelRun {
 		filepath.Join(dir, "driver.mjs"):    panelDriver,
 		filepath.Join(bin, "satelle"):       fakeSatelle,
 		versionFile:                         c.version + "\n",
-		storiesFile:                         stories,
+		storiesFile:                         orDefault(c.stories, "[]"),
+		routeFile:                           orDefault(c.route, "{}"),
+		ledgerFile:                          orDefault(c.ledger, "[]"),
 	} {
 		if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -259,7 +282,8 @@ func runPanel(t *testing.T, c panelCase) panelRun {
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=" + path, "HOME=" + dir, "PANEL_FOLDER=" + folder,
 		"FAKE_VERSION_FILE=" + versionFile, "FAKE_VERSION_CODE=" + code, "FAKE_STORIES=" + storiesFile, "NEXT_VERSION=" + c.next,
-		"SCENARIO=" + c.scenario, "STORE_FILE=" + c.storeFile, "STORE_SEED=" + c.seed}
+		"SCENARIO=" + c.scenario, "STORE_FILE=" + c.storeFile, "STORE_SEED=" + c.seed,
+		"PANEL_STORY=" + c.story, "FAKE_ROUTE=" + routeFile, "FAKE_LEDGER=" + ledgerFile}
 	stdout, err := cmd.Output()
 	if err != nil {
 		var stderr []byte
@@ -456,5 +480,52 @@ func TestPanelClearAllEmptiesFilterKeepsChip(t *testing.T) {
 	store := r.Snaps[3].Store
 	if store["filter:s1"] != "" || store["mode:s1"] != "backlog" {
 		t.Errorf("store = %v, want filter:s1 empty and mode:s1=backlog", store)
+	}
+}
+
+const rejectStories = `[{"id":"sto_r","title":"Story R","status":"implement","updated_at":"2026-01-01T00:00:00Z"}]`
+
+const rejectRoute = `{"status":"implement","states":[{"name":"backlog","start":true},{"name":"plan"},{"name":"implement","current":true},{"name":"done","terminal":true}],` +
+	`"transitions":[{"from":["backlog"],"to":"plan"},{"from":["plan"],"to":"implement"},{"from":["implement"],"to":"done"}]}`
+
+func gateRun(transition, gate, attempt, result string) string {
+	return `{"kind":"gate.run","payload":{"transition":"` + transition + `","gate":"` + gate + `","attempt":"` + attempt + `","result":"` + result + `"}}`
+}
+
+func rejectLedger() string {
+	events := []string{
+		`{"kind":"item.created","payload":{"status":"backlog"}}`,
+		`{"kind":"item.transitioned","payload":{"from":"backlog","to":"plan"}}`,
+		gateRun("plan->implement", "g1", "a1", "reject"), gateRun("plan->implement", "g2", "a1", "accept"),
+		gateRun("plan->implement", "g1", "a2", "accept"), gateRun("plan->implement", "g2", "a2", "reject"),
+		gateRun("plan->implement", "g1", "a3", "error"), gateRun("plan->implement", "g2", "a3", "accept"),
+		gateRun("plan->implement", "g1", "a4", "accept"), gateRun("plan->implement", "g2", "a4", "accept"),
+		`{"kind":"item.transitioned","payload":{"from":"plan","to":"implement"}}`,
+		gateRun("implement->done", "g1", "b1", "error"),
+	}
+	return "[" + strings.Join(events, ",") + "]"
+}
+
+func TestPanelStepChipShowsRejectedRounds(t *testing.T) {
+	r := runPanel(t, panelCase{stories: rejectStories, story: "sto_r", route: rejectRoute, ledger: rejectLedger()})
+	steps := map[string]panelStep{}
+	for _, s := range r.Snaps[0].Steps {
+		steps[strings.TrimPrefix(s.ID, "step-sto_r-")] = s
+	}
+	if len(steps) != 4 {
+		t.Fatalf("step chips = %+v, want backlog, plan, implement and done", r.Snaps[0].Steps)
+	}
+	plan := steps["plan"]
+	if len(plan.Counts) != 1 || plan.Counts[0].Text != "(2)" || plan.Counts[0].Color != "ansi1" {
+		t.Errorf("plan chip counts = %+v, want one (2) in ansi1", plan.Counts)
+	}
+	if plan.Text != "✓ plan(2)" {
+		t.Errorf("plan chip text = %q, want %q", plan.Text, "✓ plan(2)")
+	}
+	for _, name := range []string{"backlog", "implement", "done"} {
+		s := steps[name]
+		if len(s.Counts) != 0 || strings.Contains(s.Text, "(") {
+			t.Errorf("%s chip = %+v, want no rejected-round count", name, s)
+		}
 	}
 }

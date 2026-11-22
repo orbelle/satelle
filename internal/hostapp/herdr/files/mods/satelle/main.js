@@ -21,15 +21,29 @@ const key = () => JSON.stringify(location());
 const took = (ms) => !ms ? null : ms < 1000 ? ms + "ms" : ms < 60000 ? Math.round(ms / 1000) + "s" : Math.floor(ms / 60000) + "m " + Math.round((ms % 60000) / 1000) + "s";
 
 function readLedger(events) {
-  const runs = {}, performers = {}, visited = new Set();
+  const runs = {}, performers = {}, visited = new Set(), rejected = {};
+  let round = null;
+  const close = () => {
+    if (round?.reject) { const from = String(round.transition ?? "").split("->")[0]; rejected[from] = (rejected[from] ?? 0) + 1; }
+    round = null;
+  };
   for (const e of events) {
     const p = e.payload ?? {};
-    if (e.kind === "gate.run") (runs[p.transition + " " + p.gate] ??= []).push(p);
+    if (e.kind === "gate.run") {
+      (runs[p.transition + " " + p.gate] ??= []).push(p);
+      const attempt = p.attempt ?? "";
+      if (!round || round.transition !== p.transition || ((attempt || round.attempt) ? attempt !== round.attempt : round.gates.has(p.gate))) {
+        close(); round = { transition: p.transition, attempt, gates: new Set(), reject: false };
+      }
+      round.gates.add(p.gate);
+      if (p.result === "reject") round.reject = true;
+    }
     else if (e.kind === "performer.run") performers[p.state] = p;
-    else if (e.kind === "item.transitioned") { visited.add(p.from); visited.add(p.to); }
+    else if (e.kind === "item.transitioned") { close(); visited.add(p.from); visited.add(p.to); }
     else if (e.kind === "item.created" && p.status) visited.add(p.status);
   }
-  return { runs, performers, visited };
+  close();
+  return { runs, performers, visited, rejected };
 }
 
 function mainPath(route) {
@@ -59,8 +73,9 @@ const SAMPLE_VERSION = "satelle 0.0.0 (sample)";
 const SAMPLE_LEDGER = [
   { kind: "item.transitioned", payload: { from: "backlog", to: "plan" } },
   { kind: "performer.run", payload: { state: "plan", binding: "planner", model: "m", duration_ms: 61000 } },
-  { kind: "gate.run", payload: { transition: "plan->done", gate: "a", result: "accept", notes: "fine", duration_ms: 40 } },
-  { kind: "gate.run", payload: { transition: "plan->done", gate: "b", binding: "reviewer", model: "m", result: "error", notes: "why", duration_ms: 5000 } },
+  { kind: "gate.run", payload: { transition: "plan->done", gate: "b", attempt: "r1", binding: "reviewer", model: "m", result: "reject", notes: "not yet", duration_ms: 4000 } },
+  { kind: "gate.run", payload: { transition: "plan->done", gate: "a", attempt: "r2", result: "accept", notes: "fine", duration_ms: 40 } },
+  { kind: "gate.run", payload: { transition: "plan->done", gate: "b", attempt: "r2", binding: "reviewer", model: "m", result: "error", notes: "why", duration_ms: 5000 } },
 ];
 
 export default class Satelle extends View {
@@ -237,15 +252,16 @@ export default class Satelle extends View {
     const picked = names.includes(this.step[s.id]) ? this.step[s.id] : route.status;
     const past = (name, i) => name !== route.status && (history ? history.visited.has(name) : at >= 0 && i < at);
     const steps = names.map((name, i) => {
-      const current = name === route.status, done = past(name, i), on = name === picked;
-      return div().id("step-" + s.id + "-" + name).px(6).py(1).rounded(4).border_1().text_size(11).cursor_pointer()
+      const current = name === route.status, done = past(name, i), on = name === picked, rej = history?.rejected[name] ?? 0;
+      return h_flex().gap(3).id("step-" + s.id + "-" + name).px(6).py(1).rounded(4).border_1().text_size(11).cursor_pointer()
         .border_color(current ? now : on ? t.foreground : t.border)
         .text_color(current ? now : done ? t.muted : t.dim)
         .when(current, (e) => e.font_semibold())
         .when(on, (e) => e.bg(t.selected))
         .hover((st) => st.bg(t.hover))
         .on_click((_e, cx) => { this.step[s.id] = name; cx.notify(); })
-        .child(done ? "✓ " + name : name);
+        .child(div().child(done ? "✓ " + name : name))
+        .when(rej > 0, (e) => e.child(div().text_color(t.ansi1).child("(" + rej + ")")));
     });
     const exits = (route.transitions ?? []).filter((tr) => tr.from.includes(picked) && (tr.gates ?? []).length);
     const mark = { accept: ["✓", t.ansi2], reject: ["✕", t.ansi1], error: ["!", t.blocked] };
