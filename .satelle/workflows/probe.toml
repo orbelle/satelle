@@ -1,0 +1,22 @@
+name = "probe"
+
+[states.backlog]
+start = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.probe-version]
+skill = "satelle-probe-version-check"
+
+[[transition]]
+from = ["backlog"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["probe-version"] }]
+
+[[transition]]
+from = ["backlog"]
+to = "cancelled"
