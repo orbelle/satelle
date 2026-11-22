@@ -1,6 +1,7 @@
 name = "satelle-pr-gates"
-version = "1.0.3"
+version = "1.0.4"
 skills = ["satelle-gate-status-publish", "satelle-pr-ready-check", "satelle-pr-approve-from-review", "satelle-pr-approval-check"]
 
 [needs]
+scripts = ["satelle-pr-ready-check/scripts/changelog-lines.sh"]
 network = ["api.github.com"]

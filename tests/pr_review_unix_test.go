@@ -5,6 +5,7 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1847,6 +1848,39 @@ func TestPRGateSkillsHoldNoRepoValue(t *testing.T) {
 
 const prGateEntry = "satelle-pr-gates"
 
+func checkPackScriptNeeds(t *testing.T, pk workflow.Pack, skills map[string]workflow.Skill) {
+	t.Helper()
+	skillsDir := filepath.Join("..", ".satelle", "skills")
+	declared := map[string]bool{}
+	for _, s := range pk.Needs.Scripts {
+		declared[s] = true
+		if fi, err := os.Stat(filepath.Join(skillsDir, filepath.FromSlash(s))); err != nil || !fi.Mode().IsRegular() {
+			t.Errorf("pack %s declares script %s, which is no file under .satelle/skills: %v", pk.Name, s, err)
+		}
+	}
+	scriptRef := regexp.MustCompile(`scripts/[A-Za-z0-9._-]+`)
+	for _, member := range pk.Skills {
+		run := map[string]bool{}
+		ents, err := os.ReadDir(filepath.Join(skillsDir, member, "scripts"))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		for _, e := range ents {
+			if e.Type().IsRegular() {
+				run[member+"/scripts/"+e.Name()] = true
+			}
+		}
+		for _, ref := range scriptRef.FindAllString(skills[member].Script, -1) {
+			run[member+"/"+ref] = true
+		}
+		for _, s := range slices.Sorted(maps.Keys(run)) {
+			if !declared[s] {
+				t.Errorf("pack %s member %s runs %s, which its [needs] scripts does not declare: %v", pk.Name, member, s, pk.Needs.Scripts)
+			}
+		}
+	}
+}
+
 const prGateEntryDir = ".satelle/skills/" + prGateEntry
 
 func TestPRGatePack(t *testing.T) {
@@ -1858,8 +1892,8 @@ func TestPRGatePack(t *testing.T) {
 	if !ok {
 		t.Fatalf("no pack has entry %s: %v", prGateEntry, packs)
 	}
-	if pk.Version != "1.0.3" {
-		t.Errorf("pack %s version %q, want 1.0.3", prGateEntry, pk.Version)
+	if pk.Version != "1.0.4" {
+		t.Errorf("pack %s version %q, want 1.0.4", prGateEntry, pk.Version)
 	}
 	var packFiles []string
 	for _, name := range append([]string{prGateEntry}, prGateSkills...) {
@@ -1919,6 +1953,10 @@ func TestPRGatePack(t *testing.T) {
 	}
 	if sk := skills["satelle-pr-ready-check"]; !strings.Contains(sk.Script, "scripts/changelog-lines.sh") || strings.Contains(sk.Script, "changelog-items.sh") {
 		t.Errorf("satelle-pr-ready-check script does not run its own changelog-lines.sh:\n%s", sk.Script)
+	}
+	checkPackScriptNeeds(t, pk, skills)
+	if !slices.Equal(pk.Needs.Network, []string{"api.github.com"}) {
+		t.Errorf("pack %s [needs] network %v, want [api.github.com]", prGateEntry, pk.Needs.Network)
 	}
 
 	out, err := gittest.Command(t, "..", "ls-files", "-z").Output()
