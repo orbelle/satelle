@@ -46,6 +46,11 @@ func TestThisReposSessionStartOpensWithTheFramingLine(t *testing.T) {
 			} `json:"hookSpecificOutput"`
 			Cursor string `json:"additional_context"`
 			Grok   string `json:"systemMessage"`
+			Agy    []struct {
+				System struct {
+					Message string `json:"systemMessage"`
+				} `json:"systemMessage"`
+			} `json:"injectSteps"`
 		}
 		if err := json.Unmarshal([]byte(r.out), &env); err != nil {
 			t.Fatalf("%s: %v\n%s", h, err, r.out)
@@ -56,6 +61,10 @@ func TestThisReposSessionStartOpensWithTheFramingLine(t *testing.T) {
 			ctx = env.Cursor
 		case hook.Grok:
 			ctx = env.Grok
+		case hook.Agy:
+			if len(env.Agy) > 0 {
+				ctx = env.Agy[0].System.Message
+			}
 		}
 		if !strings.HasPrefix(ctx, description+"\n") {
 			t.Errorf("%s: this repo's session start does not open with the framing line:\n%.400s", h, ctx)
