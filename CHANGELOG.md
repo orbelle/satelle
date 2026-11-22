@@ -1,4 +1,10 @@
-## [1.0.121] - 2026-11-22
+## [1.0.122] - 2026-11-22
+
+### Added
+- agy (Antigravity CLI) interactive sessions run under satelle: `satelle agents install|refresh|remove agy` manages satelle's own `"satelle"` entries in `.agents/hooks.json` and keeps every other owner's hooks; sessions get the session context and once-per-turn reminders as `injectSteps`; file writes and `run_command` pass the edit gate; a turn's end with an owed move is continued once; `satelle status` and `satelle doctor` report agy wiring; `command = "agy"` bindings mark agy in use; auto-mode guidance reports agy as unavailable. (sto_aed30d81)
+
+### Changed
+- agy dispatch no longer refuses a `.agents/hooks.json` that holds only satelle's own agy hooks, exactly as `satelle agents install agy` writes them; any other workspace hook file is still refused. (sto_aed30d81)## [1.0.121] - 2026-11-22
 
 ### Added
 - An agy (Antigravity CLI) dispatch adapter: a binding with command = "agy" runs headlessly as a judge or performer, with the prompt on stdin, per-run --settings permissions plus a default-deny tool guard, no shell grant, and model and token usage read from agy's stream-json. (sto_3fa969fd)
