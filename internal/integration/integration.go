@@ -16,7 +16,6 @@ const (
 	Pi     = pi.Name
 	Grok   = grok.Name
 	Cursor = cursor.Name
-	Agy    = agy.Name
 )
 
 type provider struct {

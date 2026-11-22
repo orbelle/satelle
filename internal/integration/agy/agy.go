@@ -17,10 +17,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
-const (
-	Name = "agy"
-	CLI  = "agy"
-)
+const CLI = "agy"
 
 const (
 	settingsPlaceholder = "<settings file>"
