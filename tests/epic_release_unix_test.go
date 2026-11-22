@@ -20,7 +20,7 @@ func TestEpicClosesAfterTheReleaseRun(t *testing.T) {
 		}
 	}
 	const principle = ".satelle/principles/satelle-agent-goals.md"
-	const sendBackSentence = "Drive that child again to `approved` before the next fire."
+	const sendBackSentence = "Drive that child again to `approved`; a later release takes it."
 
 	b, err := os.ReadFile(filepath.Join("..", principle))
 	if err != nil {
@@ -176,7 +176,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 
 	ready := shBlockVar(t, principle, "## Driving an epic", "epic", epic.ID)
 	step0 := shBlock(t, ".satelle/skills/release.md", "## 0.", task.ID)
-	fireLine := "every open child of " + epic.ID + " is approved: fire the release"
+	openLine := "these children of " + epic.ID + " are open: the epic stays underway"
 	closeLine := "no open child of " + epic.ID + ": close it"
 	readiness := func() result {
 		t.Helper()
@@ -223,8 +223,8 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	}
 
 	s.must("story", "set", a, "--status", "approved")
-	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" backlog") || strings.Contains(r.out, a) ||
-		!strings.Contains(r.err, "drive these to approved before the fire") {
+	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" backlog") || !strings.Contains(r.out, a+" approved") ||
+		!strings.Contains(r.err, openLine) {
 		t.Fatalf("readiness with B in backlog: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if r := s.run("story", "set", epic.ID, "--status", "done"); r.code != 2 || !strings.Contains(r.err, "gate children-closed") {
@@ -232,7 +232,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	}
 
 	s.must("story", "set", bID, "--status", "approved")
-	if r := readiness(); r.code != 0 || strings.TrimSpace(r.out) != fireLine {
+	if r := readiness(); r.code != 1 || !strings.Contains(r.out, a+" approved") || !strings.Contains(r.out, bID+" approved") || !strings.Contains(r.err, openLine) {
 		t.Fatalf("readiness with both approved: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	run1 := fire(a, bID)
@@ -246,7 +246,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	s.must("execution", "set", run1, "--status", "done")
 
 	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" in_progress") ||
-		!strings.Contains(r.err, "drive these to approved before the fire") {
+		!strings.Contains(r.err, openLine) {
 		t.Fatalf("readiness after the send-back: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if r := s.run("story", "set", epic.ID, "--status", "done"); r.code != 2 || !strings.Contains(r.err, "gate children-closed") || !strings.Contains(r.err, bID) {
@@ -257,7 +257,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	}
 
 	s.must("story", "set", bID, "--status", "approved")
-	if r := readiness(); r.code != 0 || strings.TrimSpace(r.out) != fireLine {
+	if r := readiness(); r.code != 1 || !strings.Contains(r.out, bID+" approved") || !strings.Contains(r.err, openLine) {
 		t.Fatalf("readiness with B approved again: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	run2 := fire(bID)

@@ -3,7 +3,7 @@ name: satelle-agent-goals
 type: principle
 tags: [type:principle, principles:session]
 applies_to: ["*"]
-description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; a story's drive does not end at approved: the session that drove it there fires the release and follows the run to done. An epic's children are driven to approved, and the driving agent fires the release when every open child is approved, then closes the epic. A hold parks the item for the operator: run the block breaker on it, then report it and stop, unless its resolution changes only the plan or a driver note.
+description: Drive a story to the terminal state of its configured workflow with every gate accepted. Status is the sole proof of done. Never work around a block (gate, hook, fence); raise a story for the work, or surface a structural gap and stop. One story at a time outside an epic; a story's drive does not end at approved: the session that drove it there fires the release and follows the run to done. An epic's children are driven to approved; the driving agent or the operator decides when to fire a release, so an epic may ship in one release or several, and the epic closes when every child is done. A hold parks the item for the operator: run the block breaker on it, then report it and stop, unless its resolution changes only the plan or a driver note.
 ---
 
 # Agent goals
@@ -47,12 +47,15 @@ Drive a single engaged story to its terminal state before engaging another. A
 story's drive does not end at `approved`: the session that drove it there
 fires the release (`satelle queue fire release --session <session>`,
 release.md step 0) and follows the run until the story is `done`; it waits
-only at a park state or a state that declares `waits`. An epic's children
-reach `approved` and then `done` together through the release run; see
-*Driving an epic*. Reason: a child reaches `done` only through
-a release run, and the release fires only once every open child is approved, so
-driving one child to its terminal state before engaging the next would
-deadlock. This is that rule's consequence, not an ordering rule.
+only at a park state or a state that declares `waits`.
+
+**When to release is a call, the agent's or the operator's.** The driving
+agent or the operator decides when to fire the release queue: one approved
+story, or several together, by the number of approved stories and the impact
+of shipping them. A run takes every approved story in the queue, whoever
+drove it. Within an epic, children reach `approved` and are released when that
+call is made, so an epic may ship in one release or several; see *Driving an
+epic*.
 
 ## Driving an epic
 
@@ -62,22 +65,20 @@ it. Move the epic `backlog → underway`, its workflow's only route to `done`.
 
 **Drive epic `<id>` to done:**
 
-1. Drive each child on its own category workflow to `approved`; the driving
-   session fires the release from there (step 3).
-2. Run the readiness block below with `EPIC_ID` replaced by the epic's id. It
-   exits 0 printing `every open child of <epic> is approved: fire the release`
-   when the epic has open children and every one is `approved`. It exits 1,
-   listing `<id> <status>` for each open child not yet approved (an earlier DEV
-   state, or blocked), when any is not: drive those first and do not fire. It
-   exits 0 printing `no open child of <epic>: close it` when no child is open.
-   It exits 2 when the epic id does not resolve or the list fails.
-3. On "fire the release", follow `.satelle/skills/release.md` from step 0 (it
-   fires the `release` queue) through step 11 (the drift review). The run
-   takes every approved story in the queue, the epic's children among them.
-4. After the release run and the drift run are `done`, run the readiness block
-   again. When it says "close it", present
-   `satelle story set <epic> --status done --session <session>`. The children-closed and
-   done-review gates judge the move.
+1. Drive each child on its own category workflow to `approved`.
+2. Release when the driving agent or the operator decides to: after one
+   child, or once several are approved, by their number and the impact of
+   shipping them. Follow `.satelle/skills/release.md` from step 0 (it fires the
+   `release` queue) through step 11 (the drift review). The run takes every
+   approved story in the queue, the epic's children among them. An epic may
+   have one release or several.
+3. When the epic's work is done, run the block below with `EPIC_ID` replaced
+   by the epic's id. It exits 0 printing `no open child of <epic>: close it`
+   when no child is open; then present
+   `satelle story set <epic> --status done --session <session>`, and the
+   children-closed and done-review gates judge the move. It exits 1, listing
+   `<id> <status>` for each open child, when any is open. It exits 2 when the
+   epic id does not resolve or the list fails.
 
 ```sh
 session=<session>
@@ -88,21 +89,16 @@ if [ "$(printf '%s\n' "$open" | jq length)" -eq 0 ]; then
   echo "no open child of $epic: close it"
   exit 0
 fi
-pending=$(printf '%s\n' "$open" | jq -r '.[] | select(.status != "approved") | "\(.id) \(.status)"')
-if [ -n "$pending" ]; then
-  printf '%s\n' "$pending"
-  echo "drive these to approved before the fire" >&2
-  exit 1
-fi
-echo "every open child of $epic is approved: fire the release"
+printf '%s\n' "$open" | jq -r '.[] | "\(.id) \(.status)"'
+echo "these children of $epic are open: the epic stays underway" >&2
+exit 1
 ```
 
 **A child the release sends back** is `in_progress` again, with a
 `release-sendback` attachment naming the reason (read it with
 `satelle story attachment <id> release-sendback --session <session>`). The epic stays `underway`,
 because children-closed refuses the epic's done move while that child is open.
-Drive that child again to `approved` before the next fire. Then rerun the
-readiness block and fire again before closing the epic.
+Drive that child again to `approved`; a later release takes it.
 
 ## When an engaged story cannot satisfy its ACs
 

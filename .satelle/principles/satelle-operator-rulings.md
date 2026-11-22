@@ -304,3 +304,8 @@ are reviewed*).
   install realtime secrets, without storing". "need to always consider satelle
   as the kernal, everthing else is user configuration." (operator, 2026-11-22;
   epic sto_426138e8, [[satelle-agent-operates-remotes]]).
+- **The agent or the operator decides when to release.** "The descision on
+  releases is defined in many areas, and the operator or the agent makes the
+  call. That is the only point to ensure is in the agent context. e.g an epic
+  may have 1 or 3 releases depending on the no. of stories or impact of
+  releases." (operator, 2026-11-22; [[satelle-agent-goals]]).

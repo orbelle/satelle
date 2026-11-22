@@ -27,10 +27,10 @@ workflow. The session that enqueued the story fires it and drives that run to
 done, for a single story as for an epic's children. Task and story share only
 the PR and the story's chain; the task records its outcome
 on the story and never takes its seat or worktree. An epic's children release
-like any approved story: when every open child is approved the driving agent
-fires the release queue (`.satelle/skills/release.md` step 0), and the epic
-closes through its own gates once they reach done; a child the run sends back
-keeps the epic open.
+like any approved story: the driving agent or the operator decides when to
+fire the release queue (`.satelle/skills/release.md` step 0), so an epic may
+ship in one release or several, and the epic closes through its own gates once
+every child is done; a child the run sends back keeps the epic open.
 
 ## 3. Forge actions are commands the repo configures
 Opening, reviewing, approving and merging a PR are repo-declared commands
