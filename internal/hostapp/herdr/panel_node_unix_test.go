@@ -24,6 +24,7 @@ export function el() {
       if (k === "child") return (c) => { add(c); return p; };
       if (k === "children") return (cs) => { for (const c of cs ?? []) add(c); return p; };
       if (k === "when") return (c, f) => (c ? f(p) : p);
+      if (k === "on_click") return (f) => { node.click = f; return p; };
       return () => p;
     },
   });
@@ -96,6 +97,7 @@ const snap = (view) => {
     list: find(root, (n) => n.id === "satelle-list").map(text).join(""),
     chip: find(root, (n) => typeof n.id === "string" && n.id.startsWith("mode-") && n.bg).map((n) => n.id).join(","),
     filter: view.input.value(),
+    clear: find(root, (n) => n.id === "satelle-filter-clear").map(text),
     store: { ...store },
   };
 };
@@ -120,6 +122,16 @@ const scenarios = {
     await enter(view, "s1");
     out.snaps.push(snap(view));
     await enter(view, "s3");
+    out.snaps.push(snap(view));
+  },
+  async clear(view) {
+    view.setMode("backlog", cx);
+    out.snaps.push(snap(view));
+    view.input.__type("epic:remotes", cx);
+    out.snaps.push(snap(view));
+    const btn = find(view.render(cx).__node, (n) => n.id === "satelle-filter-clear");
+    if (btn.length !== 1 || !btn[0].click) throw new Error("no satelle-filter-clear button to click");
+    btn[0].click({}, cx);
     out.snaps.push(snap(view));
   },
   async "restart-set"(view) {
@@ -172,6 +184,7 @@ type panelSnap struct {
 	List   string            `json:"list"`
 	Chip   string            `json:"chip"`
 	Filter string            `json:"filter"`
+	Clear  []string          `json:"clear"`
 	Store  map[string]string `json:"store"`
 }
 
@@ -407,5 +420,41 @@ func TestPanelSpaceStateSurvivesRestart(t *testing.T) {
 	wantSpace(t, "s1 after restart", r.Snaps[0], "mode-backlog", "epic:remotes", "")
 	if r.Snaps[0].Store["mode:s1"] != "backlog" || r.Snaps[0].Store["filter:s1"] != "epic:remotes" {
 		t.Errorf("persisted store = %v", r.Snaps[0].Store)
+	}
+}
+
+const backlogStories = `[{"id":"sto_c","title":"Story C","status":"backlog","tags":["epic:remotes"],"updated_at":"2026-01-03T00:00:00Z"},` +
+	`{"id":"sto_d","title":"Story D","status":"backlog","updated_at":"2026-01-02T00:00:00Z"},` +
+	`{"id":"sto_e","title":"Story E","status":"plan","tags":["epic:remotes"],"updated_at":"2026-01-01T00:00:00Z"}]`
+
+func runClear(t *testing.T) panelRun {
+	t.Helper()
+	r := runPanel(t, panelCase{scenario: "clear", stories: backlogStories})
+	if len(r.Snaps) != 4 {
+		t.Fatalf("driver rendered %d times, want 4", len(r.Snaps))
+	}
+	return r
+}
+
+func TestPanelClearAllShowsWithFilterText(t *testing.T) {
+	r := runClear(t)
+	if got := r.Snaps[1].Clear; len(got) != 0 {
+		t.Errorf("empty filter: clear buttons = %q, want none", got)
+	}
+	if got := r.Snaps[2].Clear; len(got) != 1 || got[0] != "clear all" {
+		t.Errorf("filter with text: clear buttons = %q, want [\"clear all\"]", got)
+	}
+	if got := r.Snaps[3].Clear; len(got) != 0 {
+		t.Errorf("after clear all: clear buttons = %q, want none", got)
+	}
+}
+
+func TestPanelClearAllEmptiesFilterKeepsChip(t *testing.T) {
+	r := runClear(t)
+	wantSpace(t, "typed epic:remotes on backlog", r.Snaps[2], "mode-backlog", "epic:remotes", "sto_c")
+	wantSpace(t, "after clear all", r.Snaps[3], "mode-backlog", "", "sto_c,sto_d")
+	store := r.Snaps[3].Store
+	if store["filter:s1"] != "" || store["mode:s1"] != "backlog" {
+		t.Errorf("store = %v, want filter:s1 empty and mode:s1=backlog", store)
 	}
 }
