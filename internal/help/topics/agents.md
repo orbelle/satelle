@@ -225,3 +225,33 @@ whose `.satelle/.gitignore` predates it adds the line `agents.local.toml`
 in a commit of its own, through its workflow; doctor names it until then. The
 file is not locked against agent edits by default; a repo that wants that sets
 `[gate] locked_paths = [".satelle/agents.local.toml"]`.
+
+## herdr panel
+
+herdr-app (herdr.dev) is a desktop app for terminals and coding agents.
+satelle ships a stories panel for it, with a `satelle` layout that places the
+panel beside the focused pane and shows it only while the focused folder is a
+satelle repo. The panel is read-only: it runs satelle's `story list`,
+`story route`, `ledger list` and `runtime path` commands in the focused
+pane's folder and shows the stories, their criteria and description,
+and each workflow step with its gates' results and reviewers.
+
+`satelle herdr install --session <session>` installs it on this machine (the install is per machine, not
+per repo). It writes these files under herdr's home and names each one:
+
+- `mods/satelle/main.js` and `mods/satelle/mod.json` (the panel)
+- `layouts/satelle.json` and `layouts/satelle.svg` (the layout and its preview)
+
+herdr's home is `~/.config/herdr-app` on Linux, macOS and Windows
+(`%USERPROFILE%\.config\herdr-app`), by herdr's documentation. `HERDR_APP_HOME`
+moves it, and the machine setting `herdr.home`
+(`satelle settings set herdr.home <folder> --session <session>`) moves it over both. The setting holds
+nothing while herdr is at its default; an install whose home came from a
+non-default `HERDR_APP_HOME` records that folder there, so a later refresh
+started without the variable finds it. A home that does not exist is refused
+and nothing is written.
+
+`satelle update --session <session>` refreshes the panel, through `satelle agents refresh --session <session>`, where
+it was installed, and never adds it to a machine that did not ask. A herdr
+outcome never fails update. A panel file changed outside satelle is left and
+named; `satelle herdr install --force --session <session>` replaces it.

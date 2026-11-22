@@ -1,0 +1,233 @@
+package herdr
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+//go:embed files
+var shipped embed.FS
+
+const EnvHome = "HERDR_APP_HOME"
+
+const RecordName = "herdr-panel.json"
+
+var ErrNoHome = errors.New("herdr's home does not exist")
+
+type File struct {
+	Rel  string
+	Body []byte
+}
+
+var order = []string{"mods/satelle/main.js", "mods/satelle/mod.json", "layouts/satelle.json", "layouts/satelle.svg"}
+
+func Files() []File {
+	out := make([]File, len(order))
+	for i, rel := range order {
+		b, err := shipped.ReadFile(path.Join("files", rel))
+		if err != nil {
+			panic(fmt.Sprintf("herdr: embedded %s: %v", rel, err))
+		}
+		out[i] = File{Rel: rel, Body: b}
+	}
+	return out
+}
+
+type Source int
+
+const (
+	SourceDefault Source = iota
+	SourceEnv
+	SourceSetting
+)
+
+func (s Source) String() string {
+	switch s {
+	case SourceEnv:
+		return "$" + EnvHome
+	case SourceSetting:
+		return "the setting herdr.home"
+	}
+	return "herdr's default"
+}
+
+func DefaultHome(goos, userHome string) string {
+	sep := "/"
+	if goos == "windows" {
+		sep = `\`
+	}
+	return strings.TrimRight(userHome, `/\`) + sep + ".config" + sep + "herdr-app"
+}
+
+func Resolve(goos, userHome, env, setting string) (string, Source) {
+	if s := strings.TrimSpace(setting); s != "" {
+		return s, SourceSetting
+	}
+	if e := strings.TrimSpace(env); e != "" {
+		return e, SourceEnv
+	}
+	return DefaultHome(goos, userHome), SourceDefault
+}
+
+func Home(setting string) (string, Source) {
+	userHome, _ := os.UserHomeDir()
+	return Resolve(runtime.GOOS, userHome, os.Getenv(EnvHome), setting)
+}
+
+func LocalDefault() string {
+	userHome, _ := os.UserHomeDir()
+	return DefaultHome(runtime.GOOS, userHome)
+}
+
+type Kept struct {
+	Path, Reason string
+}
+
+type Result struct {
+	Written, Current []string
+	Kept             []Kept
+	NotInstalled     bool
+	HomeGone         bool
+}
+
+const (
+	ReasonChanged = "changed outside satelle"
+	ReasonMissing = "removed outside satelle"
+)
+
+type record struct {
+	Homes map[string]map[string]string `json:"homes"`
+}
+
+func recordPath(satelleHome string) string { return filepath.Join(satelleHome, RecordName) }
+
+func loadRecord(satelleHome string) (record, error) {
+	rec := record{Homes: map[string]map[string]string{}}
+	b, err := os.ReadFile(recordPath(satelleHome))
+	if errors.Is(err, fs.ErrNotExist) {
+		return rec, nil
+	}
+	if err != nil {
+		return rec, err
+	}
+	if err := json.Unmarshal(b, &rec); err != nil {
+		return rec, fmt.Errorf("read %s: %w", recordPath(satelleHome), err)
+	}
+	if rec.Homes == nil {
+		rec.Homes = map[string]map[string]string{}
+	}
+	return rec, nil
+}
+
+func saveRecord(satelleHome string, rec record) error {
+	if err := os.MkdirAll(satelleHome, 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(recordPath(satelleHome), append(b, '\n'), 0o644)
+}
+
+func sum(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}
+
+func homeKey(home string) string {
+	if abs, err := filepath.Abs(home); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(home)
+}
+
+func Install(home, satelleHome string, force bool) (Result, error) {
+	if st, err := os.Stat(home); err != nil || !st.IsDir() {
+		return Result{}, ErrNoHome
+	}
+	return apply(home, satelleHome, force, false)
+}
+
+func Refresh(home, satelleHome string) (Result, error) {
+	rec, err := loadRecord(satelleHome)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, ok := rec.Homes[homeKey(home)]; !ok {
+		return Result{NotInstalled: true}, nil
+	}
+	if st, err := os.Stat(home); err != nil || !st.IsDir() {
+		return Result{HomeGone: true}, nil
+	}
+	return apply(home, satelleHome, false, true)
+}
+
+func apply(home, satelleHome string, force, refresh bool) (Result, error) {
+	rec, err := loadRecord(satelleHome)
+	if err != nil {
+		return Result{}, err
+	}
+	key := homeKey(home)
+	was := rec.Homes[key]
+	now := map[string]string{}
+	var res Result
+	var errs []error
+	for _, f := range Files() {
+		p := filepath.Join(key, filepath.FromSlash(f.Rel))
+		want := sum(f.Body)
+		have, err := os.ReadFile(p)
+		switch {
+		case err == nil && bytes.Equal(have, f.Body):
+			now[f.Rel] = want
+			res.Current = append(res.Current, p)
+			continue
+		case err != nil && !errors.Is(err, fs.ErrNotExist):
+			errs = append(errs, err)
+			keep(now, was, f.Rel)
+			continue
+		case err != nil && refresh && !force:
+			res.Kept = append(res.Kept, Kept{p, ReasonMissing})
+			keep(now, was, f.Rel)
+			continue
+		case err == nil && !force && sum(have) != was[f.Rel]:
+			res.Kept = append(res.Kept, Kept{p, ReasonChanged})
+			keep(now, was, f.Rel)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			errs = append(errs, err)
+			keep(now, was, f.Rel)
+			continue
+		}
+		if err := os.WriteFile(p, f.Body, 0o644); err != nil {
+			errs = append(errs, err)
+			keep(now, was, f.Rel)
+			continue
+		}
+		now[f.Rel] = want
+		res.Written = append(res.Written, p)
+	}
+	rec.Homes[key] = now
+	if err := saveRecord(satelleHome, rec); err != nil {
+		errs = append(errs, fmt.Errorf("record %s: %w", recordPath(satelleHome), err))
+	}
+	return res, errors.Join(errs...)
+}
+
+func keep(now, was map[string]string, rel string) {
+	if h, ok := was[rel]; ok {
+		now[rel] = h
+	}
+}

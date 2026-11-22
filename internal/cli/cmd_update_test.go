@@ -547,3 +547,38 @@ func TestUpdateQuietWithoutPreV1Projects(t *testing.T) {
 		t.Errorf("update named an upgrade with none registered:\n%s", out)
 	}
 }
+
+func TestUpdateCurrentBinaryRefreshesHerdr(t *testing.T) {
+	home := isolateHerdr(t, true)
+	must(t, "herdr", "install")
+	ageInstall(t, home)
+	fakeInstall(t, false)
+	releaseServer(t, "v"+buildinfo.Version, nil, nil, "")
+	out := must(t, "update")
+	assertShipped(t, home)
+	if !strings.Contains(out, "refreshed herdr panel: ") {
+		t.Errorf("update did not refresh the herdr panel:\n%s", out)
+	}
+}
+
+func TestUpdateSucceedsWithoutHerdrHome(t *testing.T) {
+	home := isolateHerdr(t, false)
+	fakeInstall(t, false)
+	releaseServer(t, "v"+buildinfo.Version, nil, nil, "")
+	if out := must(t, "update"); strings.Contains(out, "herdr panel") {
+		t.Errorf("update spoke of a panel never installed:\n%s", out)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Error("update created herdr's home")
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	must(t, "herdr", "install")
+	if err := os.RemoveAll(home); err != nil {
+		t.Fatal(err)
+	}
+	if out := must(t, "update"); !strings.Contains(out, "herdr panel: "+home+" is gone; not refreshed") {
+		t.Errorf("update did not name the gone home:\n%s", out)
+	}
+}

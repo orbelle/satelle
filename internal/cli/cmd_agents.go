@@ -75,9 +75,12 @@ stderr, without writing any file.`,
 	cmd.AddCommand(&cobra.Command{
 		Use:   "refresh",
 		Short: "Refresh the hook files of every registered project's harnesses in use",
-		Args:  cobra.NoArgs,
+		Long: `refresh gives each harness in use in every registered project satelle's
+current hook files. It also refreshes the herdr panel where 'satelle herdr
+install' put it, and adds it nowhere else.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if failed := refreshAllHooks(cmd.OutOrStdout()); failed > 0 {
+			if failed := refreshMachine(cmd.OutOrStdout()); failed > 0 {
 				return &exitError{code: ExitError, msg: fmt.Sprintf("agents refresh: %d harness file(s) or project(s) not refreshed", failed)}
 			}
 			return nil

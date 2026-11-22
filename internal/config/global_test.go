@@ -77,3 +77,22 @@ func TestUpgradeStartClean(t *testing.T) {
 		t.Error("an unlisted root is start-clean")
 	}
 }
+
+func TestSaveGlobalHerdrOnlyWhenSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SATELLE_HOME", home)
+	if err := SaveGlobal(GlobalConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, GlobalConfigName))
+	if strings.Contains(string(b), "herdr") {
+		t.Fatalf("an unset herdr home renders:\n%s", b)
+	}
+	if err := SaveGlobal(GlobalConfig{Herdr: HerdrConfig{Home: "/srv/herdr"}}); err != nil {
+		t.Fatal(err)
+	}
+	gc, err := LoadGlobal()
+	if err != nil || gc.Herdr.Home != "/srv/herdr" {
+		t.Fatalf("herdr home round trip = %q (%v)", gc.Herdr.Home, err)
+	}
+}
