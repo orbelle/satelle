@@ -10,4 +10,4 @@ kind = "item"
 on_create = ["satelle version"]
 
 [lifecycle]
-scope = "job"
+scope = "run"
