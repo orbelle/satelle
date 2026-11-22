@@ -103,7 +103,7 @@ func TestFormatAutoModeClaude(t *testing.T) {
 }
 
 func TestAutoModeOtherHarnessesUnavailable(t *testing.T) {
-	for _, h := range []string{Pi, Grok, Cursor} {
+	for _, h := range []string{Pi, Grok, Cursor, Agy} {
 		display, err := AutoModeDisplay(h)
 		if !errors.Is(err, ErrAutoModeUnavailable) || display != "" {
 			t.Errorf("AutoModeDisplay(%q) = (%q, %v), want ErrAutoModeUnavailable", h, display, err)

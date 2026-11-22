@@ -1,6 +1,6 @@
 # The edit gate and blocks
 
-Harness hooks (`satelle agents install claude|pi|grok|cursor --session <session>`) send every edit
+Harness hooks (`satelle agents install claude|pi|grok|cursor|agy --session <session>`) send every edit
 and shell command a session makes to `satelle hook gate`. The gate allows an edit only
 when **the editing session holds a seat, at this worktree, on an item whose
 current state's performer may change the tree** (a state with an agent
@@ -112,7 +112,8 @@ names it in its place. A dispatched run (its session comes from
 Each harness receives the block in its own envelope: claude, pi (its
 extension sends the reason as a user message) and grok read
 `{"decision":"block","reason":"<reason>"}`; cursor reads
-`{"followup_message":"<reason>"}`.
+`{"followup_message":"<reason>"}`; agy reads
+`{"decision":"continue","reason":"<reason>"}`.
 
 ## grok sessions
 
@@ -125,6 +126,32 @@ still settles the session's owner. The stop check blocks with
 `decision: block`, which grok feeds back to the model as a user message; a
 Stop grok fires at session end (`reason` `channel_closed` or `shutdown`) is
 let through and leaves the marker as it was.
+
+## agy sessions
+
+`satelle agents install agy --session <session>` writes satelle's entries under the top-level
+`"satelle"` key of the repo's `.agents/hooks.json`, keeping every other key's
+hooks; `satelle agents remove agy --session <session>` strips only satelle's,
+and deletes the file when nothing else is left. agy (Antigravity CLI) runs:
+
+- `PreToolUse` (matcher `write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|sed_file|notebook_edit|run_command`)
+  → `satelle hook gate --harness agy`. A refusal answers
+  `{"decision":"deny","reason":"<reason>"}`; an allowed call prints nothing,
+  so agy's own permission checks still run. agy runs a hook in the repo's
+  `.agents/` directory and sends the repo's path in the payload, which the
+  gate reads.
+- `SessionStart` → `satelle hook context --harness agy`, answered as
+  `{"injectSteps":[{"systemMessage":{"systemMessage":"<context>"}}]}`, with a
+  doctor notice as a second step (the `[hook] inject` files, or their list
+  when they are over agy's limit in `.satelle/harness.toml`).
+- `PreInvocation` → `satelle hook prompt --harness agy`. agy fires it before
+  every model call; the reminder is injected only at a user turn's start
+  (`invocationNum` 0), and the calls within a turn answer `{}`. Every call
+  settles the session's owner.
+- `Stop` → `satelle hook stopcheck --harness agy`. Only a turn's normal end
+  (`terminationReason` `NO_TOOL_CALL` with no continuation active) is
+  blocked, once, with `{"decision":"continue","reason":"<reason>"}`; any
+  other stop answers `{}`.
 
 ## cursor-agent sessions
 

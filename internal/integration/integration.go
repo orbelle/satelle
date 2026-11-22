@@ -16,6 +16,7 @@ const (
 	Pi     = pi.Name
 	Grok   = grok.Name
 	Cursor = cursor.Name
+	Agy    = agy.Name
 )
 
 type provider struct {
@@ -26,18 +27,17 @@ type provider struct {
 var providers = []provider{
 	{claude.Hook{}, claude.Dispatch{}},
 	{pi.Hook{}, pi.Dispatch{}},
+	{agy.Hook{}, agy.Dispatch{}},
 	{grok.Hook{}, grok.Dispatch{}},
 	{cursor.Hook{}, cursor.Dispatch{}},
 }
 
-var dispatchOnly = []common.DispatchAdapter{agy.Dispatch{}}
-
 func dispatches() []common.DispatchAdapter {
-	out := make([]common.DispatchAdapter, 0, len(providers)+len(dispatchOnly))
+	out := make([]common.DispatchAdapter, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, p.dispatch)
 	}
-	return append(out, dispatchOnly...)
+	return out
 }
 
 func Names() []string {

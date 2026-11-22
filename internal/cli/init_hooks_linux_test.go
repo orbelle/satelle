@@ -73,7 +73,7 @@ func TestInitHooksTakesTheHarnessAsASeparateWord(t *testing.T) {
 				t.Errorf("%s exists (err %v)", rel, err)
 			}
 		}
-		if !strings.HasSuffix(out, "harness hooks not installed: grok, cursor\n"+cmdLine) {
+		if !strings.HasSuffix(out, "harness hooks not installed: agy, grok, cursor\n"+cmdLine) {
 			t.Fatalf("init --hooks claude,pi:\n%s", out)
 		}
 		wantOnlyWired(t, dir, hook.Claude, hook.Pi)

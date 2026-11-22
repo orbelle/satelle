@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/bobmcallan/satelle/internal/agent"
+	"github.com/bobmcallan/satelle/internal/integration/agy"
 	"github.com/bobmcallan/satelle/internal/integration/common"
 )
 
@@ -193,6 +194,11 @@ func TestDispatchAgy(t *testing.T) {
 }
 
 func TestAgyHostConfig(t *testing.T) {
+	plan, _, err := agy.Hook{}.Plan(nil, true, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	satellePlan := string(plan)
 	write := func(t *testing.T, p, body string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -221,18 +227,24 @@ func TestAgyHostConfig(t *testing.T) {
 		set    setup
 		refuse bool
 	}{
-		"workspace hooks above":      {at(".agents/hooks.json", `{}`), true},
-		"toolPermission":             {at(".antigravity/settings.json", `{"toolPermission":"always-proceed"}`), true},
-		"permissions.allow":          {at(".antigravity/settings.json", `{"permissions":{"allow":["command(*)"]}}`), true},
-		"not JSON":                   {at(".antigravity/settings.json", `allow everything`), true},
-		"home .agents hooks":         {inHome(".agents/hooks.json", `{}`), true},
-		"user PreToolUse hook":       {inHome(".gemini/config/hooks.json", `{"o":{"PreToolUse":[{"matcher":"*","hooks":[]}]}}`), true},
-		"user lifecycle hooks":       {inHome(".gemini/config/hooks.json", `{"orca":{"PreInvocation":[],"Stop":[],"PostToolUse":[{"matcher":"*","hooks":[]}]}}`), false},
-		"workspace deny-only":        {at(".antigravity/settings.json", `{"permissions":{"deny":["command(*)"]}}`), false},
-		"no config":                  {func(*testing.T, string, string) string { return "" }, false},
-		"user settings with allow":   {inHome(".gemini/antigravity-cli/settings.json", `{"toolPermission":"always-proceed","permissions":{"allow":["command(*)"]}}`), false},
-		"user settings with hooks":   {inHome(".gemini/antigravity-cli/settings.json", `{"hooks":{}}`), true},
-		"cli hooks with unknown evt": {inHome(".gemini/antigravity-cli/hooks.json", `{"o":{"Decide":[]}}`), true},
+		"workspace hooks above":                {at(".agents/hooks.json", `{}`), true},
+		"satelle-only workspace hooks":         {at(".agents/hooks.json", satellePlan), false},
+		"satelle and another owner":            {at(".agents/hooks.json", `{"satelle":{"Stop":[{"type":"command","command":"satelle hook stopcheck --harness agy"}]},"o":{"Stop":[]}}`), true},
+		"satelle owner with a wrapped command": {at(".agents/hooks.json", `{"satelle":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"satelle hook gate --harness agy && true"}]}]}}`), true},
+		"satelle owner with an unknown verb":   {at(".agents/hooks.json", `{"satelle":{"Stop":[{"type":"command","command":"satelle hook reindex --harness agy"}]}}`), true},
+		"satelle owner with an extra key":      {at(".agents/hooks.json", `{"satelle":{"Stop":[{"type":"command","command":"satelle hook stopcheck --harness agy","env":{"X":"1"}}]}}`), true},
+		"home satelle-only hooks":              {inHome(".agents/hooks.json", satellePlan), false},
+		"toolPermission":                       {at(".antigravity/settings.json", `{"toolPermission":"always-proceed"}`), true},
+		"permissions.allow":                    {at(".antigravity/settings.json", `{"permissions":{"allow":["command(*)"]}}`), true},
+		"not JSON":                             {at(".antigravity/settings.json", `allow everything`), true},
+		"home .agents hooks":                   {inHome(".agents/hooks.json", `{}`), true},
+		"user PreToolUse hook":                 {inHome(".gemini/config/hooks.json", `{"o":{"PreToolUse":[{"matcher":"*","hooks":[]}]}}`), true},
+		"user lifecycle hooks":                 {inHome(".gemini/config/hooks.json", `{"orca":{"PreInvocation":[],"Stop":[],"PostToolUse":[{"matcher":"*","hooks":[]}]}}`), false},
+		"workspace deny-only":                  {at(".antigravity/settings.json", `{"permissions":{"deny":["command(*)"]}}`), false},
+		"no config":                            {func(*testing.T, string, string) string { return "" }, false},
+		"user settings with allow":             {inHome(".gemini/antigravity-cli/settings.json", `{"toolPermission":"always-proceed","permissions":{"allow":["command(*)"]}}`), false},
+		"user settings with hooks":             {inHome(".gemini/antigravity-cli/settings.json", `{"hooks":{}}`), true},
+		"cli hooks with unknown evt":           {inHome(".gemini/antigravity-cli/hooks.json", `{"o":{"Decide":[]}}`), true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()

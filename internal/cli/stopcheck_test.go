@@ -311,6 +311,50 @@ func TestStopcheckGrok(t *testing.T) {
 	}
 }
 
+func TestStopcheckAgy(t *testing.T) {
+	const session = "927af7a5-0a83-415e-ade8-04f6bc753737"
+	dir := stopFixture(t)
+	id := stopAt(t, session, "in_progress", "approved")
+	payload := func(edit func(map[string]any)) string {
+		doc := agyDoc(t, "stop")
+		doc["cwd"], doc["workspacePaths"] = dir, []string{dir}
+		if edit != nil {
+			edit(doc)
+		}
+		b, _ := json.Marshal(doc)
+		return string(b)
+	}
+	maxSteps := payload(func(d map[string]any) { d["terminationReason"] = "MAX_STEPS" })
+	if out := stopWith(t, maxSteps, "agy"); out != "{}" {
+		t.Errorf("a MAX_STEPS Stop answered %q", out)
+	}
+	if out := stopWith(t, payload(func(d map[string]any) { d["continuationActive"] = true }), "agy"); out != "{}" {
+		t.Errorf("a continuation Stop answered %q", out)
+	}
+	if _, err := os.Stat(stopMarker(session)); err == nil {
+		t.Error("a non-turn-end Stop wrote the marker")
+	}
+	out := stopWith(t, payload(nil), "agy")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || strings.Count(out, "\n") != 0 {
+		t.Fatalf("agy block is not one JSON object: %q", out)
+	}
+	reason, _ := doc["reason"].(string)
+	if len(doc) != 2 || doc["decision"] != "continue" || reason == "" {
+		t.Fatalf("not an agy continue answer: %s", out)
+	}
+	hasAll(t, "agy reason", reason, id, "satelle queue fire release --session "+session)
+	hasAll(t, "agy reason", reason, guidanceLines(t, dir)...)
+	if out := stopWith(t, payload(nil), "agy"); out != "{}" {
+		t.Errorf("the second stop in a row answered %q", out)
+	}
+	clearStop(t, session)
+	must(t, "story", "set", id, "--status", "done")
+	if out := stopWith(t, payload(nil), "agy"); out != "{}" {
+		t.Errorf("a settled session's stop answered %q", out)
+	}
+}
+
 func TestStopcheckPi(t *testing.T) {
 	dir := stopFixture(t)
 	id := stopAt(t, "pi-1", "in_progress", "approved")

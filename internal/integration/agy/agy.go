@@ -238,10 +238,86 @@ func agyHostConfig(dir, home string) error {
 }
 
 func refuseHooksFile(p string) error {
-	if common.FileExists(p) {
-		return fmt.Errorf("agy: %s defines hooks that run in every agy run under it; satelle will not run repository hook code in a dispatch", p)
+	if !common.FileExists(p) {
+		return nil
 	}
-	return nil
+	if b, err := os.ReadFile(p); err == nil && satelleOnly(b) {
+		return nil
+	}
+	return fmt.Errorf("agy: %s defines hooks that run in every agy run under it; satelle will not run repository hook code in a dispatch", p)
+}
+
+func satelleOnly(b []byte) bool {
+	var doc map[string]map[string][]json.RawMessage
+	if json.Unmarshal(b, &doc) != nil || len(doc) != 1 {
+		return false
+	}
+	events, ok := doc[owner]
+	if !ok || len(events) == 0 {
+		return false
+	}
+	for _, entries := range events {
+		for _, raw := range entries {
+			if !satelleEntry(raw) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func satelleEntry(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	if _, grouped := fields["hooks"]; !grouped {
+		return satelleHandler(raw)
+	}
+	for k := range fields {
+		if k != "matcher" && k != "hooks" {
+			return false
+		}
+	}
+	var group struct {
+		Matcher *string           `json:"matcher"`
+		Hooks   []json.RawMessage `json:"hooks"`
+	}
+	if json.Unmarshal(raw, &group) != nil || len(group.Hooks) == 0 {
+		return false
+	}
+	for _, h := range group.Hooks {
+		if !satelleHandler(h) {
+			return false
+		}
+	}
+	return true
+}
+
+func satelleHandler(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	for k := range fields {
+		if k != "type" && k != "command" && k != "timeout" {
+			return false
+		}
+	}
+	var h struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Timeout *int   `json:"timeout"`
+	}
+	if json.Unmarshal(raw, &h) != nil || h.Type != "command" {
+		return false
+	}
+	for _, verb := range common.Verbs {
+		if h.Command == common.Command(verb, Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func workspaceSettings(p string) error {

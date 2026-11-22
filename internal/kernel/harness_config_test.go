@@ -24,7 +24,7 @@ func TestHarnessLimitsLoadAndValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("[claude]\ncontext_limit_bytes = 9000\n\n[grok]\ncontext_limit_bytes = 1\n")
+	write("[claude]\ncontext_limit_bytes = 9000\n\n[grok]\ncontext_limit_bytes = 1\n\n[agy]\ncontext_limit_bytes = 9000\n")
 	if errs := Validate(root); len(errs) != 0 {
 		t.Fatalf("a good %s: %v", HarnessFile, errs)
 	}
@@ -32,7 +32,7 @@ func TestHarnessLimitsLoadAndValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Harness["claude"].ContextLimitBytes != 9000 || c.Harness["grok"].ContextLimitBytes != 1 || len(c.Harness) != 2 {
+	if c.Harness["claude"].ContextLimitBytes != 9000 || c.Harness["grok"].ContextLimitBytes != 1 || c.Harness["agy"].ContextLimitBytes != 9000 || len(c.Harness) != 3 {
 		t.Errorf("loaded %v", c.Harness)
 	}
 	for name, body := range map[string]string{

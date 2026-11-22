@@ -162,11 +162,18 @@ func TestAgentsRefreshRewritesRegisteredProjects(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(c, ".grok"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	d := harnessProject(t, true)
+	putFile(t, filepath.Join(d, ".satelle", kernel.AgentsFile), "[agents.r]\ncommand = \"agy\"\n")
+	dFile := filepath.Join(d, ".agents", "hooks.json")
+	putFile(t, dFile, `{"other-plugin":{"Stop":[{"type":"command","command":"./mine.sh"}]}}`)
 	other := harnessProject(t, false)
 	otherFile := staleHarness(t, other, hook.Claude)
 	otherState := pin(t, otherFile)
 
 	out := must(t, "agents", "refresh")
+	if cmds := commandsOf(t, d, hook.Agy); !current(cmds, hook.Agy) || !slices.Contains(cmds, "./mine.sh") {
+		t.Errorf("repo D's agy hooks (agents.toml runs agy): %q", cmds)
+	}
 	cmds := commandsOf(t, a, hook.Claude)
 	if slices.Contains(cmds, "satelle reindex") || !slices.Contains(cmds, `sh -c "satelle reindex"`) ||
 		!slices.Contains(cmds, "echo satelle is great") || !current(cmds, hook.Claude) {
@@ -187,7 +194,8 @@ func TestAgentsRefreshRewritesRegisteredProjects(t *testing.T) {
 		t.Error("the unregistered repo's hook file changed")
 	}
 	for _, want := range []string{"refreshed claude hooks: " + aFile, "refreshed cursor hooks: " + filepath.Join(b, ".cursor", "hooks.json"),
-		"refreshed grok hooks: " + filepath.Join(c, ".grok", "hooks", "satelle.json"), "harness files: 3 refreshed across 3 project(s)"} {
+		"refreshed grok hooks: " + filepath.Join(c, ".grok", "hooks", "satelle.json"), "refreshed agy hooks: " + dFile,
+		"harness files: 4 refreshed across 4 project(s)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("agents refresh lacks %q:\n%s", want, out)
 		}

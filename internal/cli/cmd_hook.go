@@ -40,7 +40,10 @@ frontmatter has framing: true. When printing the
 calling harness's limit in .satelle/harness.toml, context lists each file by
 description and path instead (see satelle help configuration). Grok reads the session
 context as its SessionStart systemMessage and discards a prompt hook's output,
-so the prompt hook prints nothing for grok. Under cursor, a call Cursor
+so the prompt hook prints nothing for grok. agy reads the session context and
+the prompt reminder as injectSteps; its prompt hook (PreInvocation) reminds
+once per user turn and answers {} on the invocations within a turn, and its
+stop answers decision "continue" to block. Under cursor, a call Cursor
 sends to another harness's entries stays silent once .cursor/hooks.json holds
 satelle's own (see satelle help edit-gate).`,
 		Hidden: false,
@@ -291,6 +294,9 @@ func runHookPrompt(cmd *cobra.Command, harness string, in hook.Input) error {
 		return nil
 	}
 	recordSession(harness, in, seatlife.Resolve)
+	if in.MidTurn {
+		return printAnswer(cmd, hook.Context(harness, hook.EventPrompt, "", ""))
+	}
 	text, _, ok := sessionContext(in, harness, false)
 	if !ok {
 		return nil

@@ -12,6 +12,7 @@ const (
 	Pi     = integration.Pi
 	Grok   = integration.Grok
 	Cursor = integration.Cursor
+	Agy    = integration.Agy
 )
 
 var Harnesses = integration.Names()

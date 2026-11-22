@@ -137,9 +137,10 @@ func TestRefreshAddsAndUpdatesSatelleEntries(t *testing.T) {
 `)
 	cursor := filepath.Join(root, ".cursor", "hooks.json")
 	writeFile(t, cursor, `{"version": 1, "hooks": {"stop": [{"command": "satelle reindex"}, {"command": "echo satelle is great"}]}}`)
+	writeFile(t, filepath.Join(root, ".agents", "hooks.json"), `{"other-plugin": {"Stop": [{"type": "command", "command": "./mine.sh"}]}, "satelle": {"SessionStart": [{"type": "command", "command": "satelle reindex"}]}}`)
 
 	kept := []string{"echo hi", "npm test", "satelle doctor", "echo satelle is great", `sh -c "satelle reindex"`, "FOO=1 satelle reindex"}
-	for _, h := range []string{Claude, Cursor, Grok} {
+	for _, h := range []string{Claude, Cursor, Grok, Agy} {
 		path, changed, err := Refresh(root, h, lacksReindex)
 		if err != nil || !changed {
 			t.Fatalf("Refresh(%s) = %v, %v; want changed", h, changed, err)
@@ -196,13 +197,17 @@ func TestRefreshAddsAndUpdatesSatelleEntries(t *testing.T) {
 			if _, err := os.Stat(path); err != nil {
 				t.Errorf("grok file not created: %v", err)
 			}
+		case Agy:
+			if !slices.Contains(cmds, "./mine.sh") {
+				t.Errorf("%s lost another owner's hook: %q", path, cmds)
+			}
 		}
 	}
 }
 
 func TestInstallWritesNothingWhenHooksAreEqual(t *testing.T) {
 	old := time.Now().Add(-time.Hour).Truncate(time.Second)
-	for _, h := range []string{Claude, Grok, Cursor} {
+	for _, h := range []string{Claude, Grok, Cursor, Agy} {
 		t.Run(h, func(t *testing.T) {
 			root := t.TempDir()
 			path, changed, err := Install(root, h, nil)
@@ -321,7 +326,7 @@ func TestCommandsListsEveryHandler(t *testing.T) {
 }
 
 func TestForCLI(t *testing.T) {
-	for cli, want := range map[string]string{"claude": Claude, "pi": Pi, "grok": Grok, "cursor-agent": Cursor} {
+	for cli, want := range map[string]string{"claude": Claude, "pi": Pi, "grok": Grok, "cursor-agent": Cursor, "agy": Agy} {
 		if got, ok := ForCLI(cli); !ok || got != want {
 			t.Errorf("ForCLI(%q) = %q, %v; want %q", cli, got, ok, want)
 		}

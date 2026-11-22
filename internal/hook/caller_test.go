@@ -46,7 +46,7 @@ func joinEnv(envs ...[]string) []string {
 }
 
 func TestCallerFrom(t *testing.T) {
-	cursor, pi, grok := callerFixture(t, Cursor), callerFixture(t, Pi), callerFixture(t, Grok)
+	cursor, pi, grok, agy := callerFixture(t, Cursor), callerFixture(t, Pi), callerFixture(t, Grok), callerFixture(t, Agy)
 	for _, c := range []struct {
 		name string
 		env  []string
@@ -65,6 +65,10 @@ func TestCallerFrom(t *testing.T) {
 		{"cursor and grok", joinEnv(cursor.Shell.Env, grok.Shell.Env), ""},
 		{"cursor, grok and claude", joinEnv(cursor.Shell.Env, grok.Shell.Env, []string{"CLAUDECODE=1"}), ""},
 		{"pi and cursor", joinEnv(pi.Shell.Env, cursor.Hook.Env), ""},
+		{"agy hook call", agy.Hook.Env, Agy},
+		{"agy shell", agy.Shell.Env, Agy},
+		{"agy inside claude", joinEnv([]string{"CLAUDECODE=1"}, agy.Hook.Env), Agy},
+		{"agy and cursor", joinEnv(agy.Hook.Env, cursor.Shell.Env), ""},
 		{"no marker", []string{"HOME=/h", "PATH=/bin"}, ""},
 		{"empty value is unset", []string{"CLAUDECODE=", "GROK_AGENT=  "}, ""},
 		{"look-alikes are not markers", []string{"CURSOR_VERSION=1", "CURSOR_PROJECT_DIR=/p", "CURSOR_CONFIG_DIR=/c", "XCURSOR_SIZE=24", "CLAUDE_PROJECT_DIR=/p", "CLAUDE_CODE_OAUTH_TOKEN=x", "GROK_AGENT_ID=7"}, ""},
@@ -73,7 +77,7 @@ func TestCallerFrom(t *testing.T) {
 			t.Errorf("%s: CallerFrom(%v) = %q, want %q", c.name, c.env, got, c.want)
 		}
 	}
-	for _, c := range []callerCapture{cursor, pi, grok} {
+	for _, c := range []callerCapture{cursor, pi, grok, agy} {
 		for _, env := range [][]string{c.Hook.Env, c.Shell.Env} {
 			if got := CallerFrom(env); got != "" && got != c.Harness {
 				t.Errorf("%s %s environment detected as %q", c.Harness, c.Version, got)
@@ -84,7 +88,7 @@ func TestCallerFrom(t *testing.T) {
 
 func TestCallerMarkersAreCaptured(t *testing.T) {
 	seen := map[string]map[string]bool{}
-	for _, h := range []string{Cursor, Pi, Grok} {
+	for _, h := range []string{Cursor, Pi, Grok, Agy} {
 		c := callerFixture(t, h)
 		seen[h] = map[string]bool{}
 		for _, kv := range joinEnv(c.Hook.Env, c.Shell.Env) {

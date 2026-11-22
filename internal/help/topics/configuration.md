@@ -384,7 +384,7 @@ workflow's to set, so there is no `status`. While the configuration is invalid n
 ## harness.toml
 
 `.satelle/harness.toml` is optional. It holds one table per harness
-(`claude`, `pi`, `grok`, `cursor`) with that harness's session-start limit:
+(`claude`, `pi`, `agy`, `grok`, `cursor`) with that harness's session-start limit:
 
     [claude]
     context_limit_bytes = <bytes>

@@ -42,7 +42,7 @@ func TestDoctorHarnessCheck(t *testing.T) {
 		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "claude: .claude/settings.json is absent") || issues[0].Fix != "satelle agents install claude" || issues[0].Resolve != "" {
 			t.Fatalf("unwired claude caller: issues %+v", issues)
 		}
-		if len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, grok, cursor") {
+		if len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, agy, grok, cursor") {
 			t.Fatalf("unwired others: notes %q", notes)
 		}
 		must(t, "agents", "install", "claude")
@@ -70,11 +70,21 @@ func TestDoctorHarnessCheck(t *testing.T) {
 			t.Fatalf("issues %+v", issues)
 		}
 	})
+	t.Run("agy inside a claude shell, nothing wired", func(t *testing.T) {
+		isolate(t)
+		t.Setenv("CLAUDECODE", "1")
+		t.Setenv("ANTIGRAVITY_AGENT", "1")
+		must(t, "init")
+		issues, _ := harnessFindings(t)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "agy: .agents/hooks.json is absent, so this session has no satelle context or edit gate") || issues[0].Fix != "satelle agents install agy" {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
 	t.Run("caller unknown, nothing wired", func(t *testing.T) {
 		isolate(t)
 		must(t, "init")
 		issues, notes := harnessFindings(t)
-		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "no harness is wired (claude, pi, grok, cursor)") || issues[0].Fix != "satelle agents install <harness>" {
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "no harness is wired (claude, pi, agy, grok, cursor)") || issues[0].Fix != "satelle agents install <harness>" {
 			t.Fatalf("issues %+v", issues)
 		}
 		if len(notes) != 0 {
@@ -88,7 +98,7 @@ func TestDoctorHarnessCheck(t *testing.T) {
 		if len(issues) != 0 {
 			t.Fatalf("issues %+v", issues)
 		}
-		if len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, grok, cursor") {
+		if len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, agy, grok, cursor") {
 			t.Fatalf("notes %q", notes)
 		}
 	})
@@ -145,6 +155,7 @@ func TestStatusShowsHarnessWiring(t *testing.T) {
 	for _, want := range []string{
 		"claude   installed                  .claude/settings.json",
 		"pi       not installed              .pi/extensions/satelle.ts",
+		"agy      not installed              .agents/hooks.json",
 		"grok     installed but git-ignored  .grok/hooks/satelle.json (.gitignore:1: .grok/)",
 		"cursor   not installed              .cursor/hooks.json",
 	} {
@@ -160,7 +171,7 @@ func TestStatusShowsHarnessWiring(t *testing.T) {
 	if len(rep.Harnesses) != len(hook.Harnesses) {
 		t.Fatalf("status --json harnesses: %+v", rep.Harnesses)
 	}
-	states := map[string]string{hook.Claude: hook.WiringInstalled, hook.Pi: hook.WiringNotInstalled, hook.Grok: hook.WiringIgnored, hook.Cursor: hook.WiringNotInstalled}
+	states := map[string]string{hook.Claude: hook.WiringInstalled, hook.Pi: hook.WiringNotInstalled, hook.Agy: hook.WiringNotInstalled, hook.Grok: hook.WiringIgnored, hook.Cursor: hook.WiringNotInstalled}
 	for i, w := range rep.Harnesses {
 		if w.Harness != hook.Harnesses[i] || w.State != states[w.Harness] {
 			t.Errorf("harnesses[%d] = %+v, want %s %s", i, w, hook.Harnesses[i], states[hook.Harnesses[i]])
@@ -175,16 +186,16 @@ func TestInitNamesTheHarnessesItLeftUnwired(t *testing.T) {
 	const cmdLine = "  satelle agents install <harness>   # gives that harness's sessions satelle's context and the edit gate; commit the file it writes\n"
 	isolate(t)
 	out := must(t, "init")
-	if !strings.HasSuffix(out, "harness hooks not installed: claude, pi, grok, cursor\n"+cmdLine) {
+	if !strings.HasSuffix(out, "harness hooks not installed: claude, pi, agy, grok, cursor\n"+cmdLine) {
 		t.Fatalf("init:\n%s", out)
 	}
 	isolate(t)
 	out = must(t, "init", "--hooks=claude")
-	if !strings.HasSuffix(out, "harness hooks not installed: pi, grok, cursor\n"+cmdLine) {
+	if !strings.HasSuffix(out, "harness hooks not installed: pi, agy, grok, cursor\n"+cmdLine) {
 		t.Fatalf("init --hooks=claude:\n%s", out)
 	}
 	isolate(t)
-	out = must(t, "init", "--hooks=claude,pi,grok,cursor")
+	out = must(t, "init", "--hooks=claude,pi,agy,grok,cursor")
 	if strings.Contains(out, "not installed") || strings.Contains(out, "agents install") {
 		t.Fatalf("init with every harness wired still names one:\n%s", out)
 	}
@@ -259,6 +270,28 @@ func TestDoctorReportsInUseHarnessesThatDiffer(t *testing.T) {
 			t.Fatalf("issues %+v", issues)
 		}
 	})
+	t.Run("agents.toml runs agy, no .agents", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		putFile(t, filepath.Join(dir, ".satelle", kernel.AgentsFile), "[agents.r]\ncommand = \"agy\"\n")
+		issues := harnessIssuesOf(t, hook.Agy)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, "agy: .agents/hooks.json is absent") || issues[0].Fix != "satelle agents install agy" {
+			t.Fatalf("issues %+v", issues)
+		}
+		must(t, "agents", "install", "agy")
+		if issues := harnessIssuesOf(t, hook.Agy); len(issues) != 0 {
+			t.Fatalf("after agents install agy: issues %+v", issues)
+		}
+	})
+	t.Run(".agents with no satelle hooks", func(t *testing.T) {
+		dir := isolate(t)
+		must(t, "init")
+		putFile(t, filepath.Join(dir, ".agents", "hooks.json"), `{"other-plugin":{"Stop":[{"type":"command","command":"./mine.sh"}]}}`)
+		issues := harnessIssuesOf(t, hook.Agy)
+		if len(issues) != 1 || !strings.Contains(issues[0].Problem, ".agents/hooks.json holds no satelle hooks") || issues[0].Fix != "satelle agents install agy" {
+			t.Fatalf("issues %+v", issues)
+		}
+	})
 	t.Run(".cursor with no satelle hooks", func(t *testing.T) {
 		dir := isolate(t)
 		must(t, "init")
@@ -315,7 +348,7 @@ func TestDoctorReportsInUseHarnessesThatDiffer(t *testing.T) {
 		isolate(t)
 		must(t, "init", "--hooks=claude")
 		issues, notes := harnessFindings(t)
-		if len(issues) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, grok, cursor") {
+		if len(issues) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "not wired: pi, agy, grok, cursor") {
 			t.Fatalf("issues %+v, notes %q", issues, notes)
 		}
 	})

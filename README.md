@@ -43,7 +43,7 @@ curl -fsSL https://github.com/bobmcallan/satelle/releases/latest/download/instal
 cd <your-repo>
 satelle init --session <session>
 # initialised <repo>/.satelle (configuration valid)
-# harness hooks not installed: claude, pi, grok, cursor
+# harness hooks not installed: claude, pi, agy, grok, cursor
 #   and the command that wires one
 
 satelle agents install claude --session <session>
@@ -64,7 +64,7 @@ satelle doctor --session <session>
   satelle is and what to run, and it ends by naming the harnesses left unwired.
 - `satelle agents install <harness> --session <session>` wires an agent harness to satelle, so its
   sessions are told about satelle at session start and their edits pass through
-  the edit gate. The harnesses are `claude`, `pi`, `grok` and `cursor`; name
+  the edit gate. The harnesses are `claude`, `pi`, `agy`, `grok` and `cursor`; name
   each one you use. `satelle init --hooks --session <session>` does both steps in one. Commit the
   file it writes so a clone is wired too.
 - `satelle doctor --session <session>` reports what is wrong here, each issue with the command that
@@ -101,7 +101,7 @@ rejected the move, listing each rejecting gate and its notes.
 - **Is this harness wired?** `satelle status --session <session>` lists each harness as installed
   or not, and `satelle doctor --session <session>` reports the calling harness when it is not. The
   hook file is in the repo with satelle's entries: `.claude/settings.json`, `.pi/extensions/satelle.ts`,
-  `.grok/hooks/satelle.json` or `.cursor/hooks.json`. If not,
+  `.grok/hooks/satelle.json`, `.cursor/hooks.json` or `.agents/hooks.json`. If not,
   `satelle agents install <harness> --session <session>`.
 - **What can it do?** `satelle help --session <session>`, then `satelle help workflows --session <session>`,
   `satelle help edit-gate --session <session>` and `satelle help agents --session <session>`.

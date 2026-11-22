@@ -186,7 +186,7 @@ func TestReadmeNamesTheBinaryAndRepo(t *testing.T) {
 		}
 	}
 
-	bare := map[string]bool{"satelle": true, "satelled": true, "claude": true, "pi": true, "grok": true, "cursor": true,
+	bare := map[string]bool{"satelle": true, "satelled": true, "claude": true, "pi": true, "grok": true, "cursor": true, "agy": true,
 		"SATELLE_INSTALL_DIR": true, "SATELLE_NO_SERVICE=1": true, "--no-service": true, "no issues": true,
 		"<check>: <problem>": true, "fix:": true, "make install": true, "... | sh -s -- --no-service": true,
 		"<session>": true, "--session": true}

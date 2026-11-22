@@ -328,7 +328,7 @@ func TestAgentsTopicDocumentsAutoMode(t *testing.T) {
 		"~/.claude/settings.json",
 		`"$defaults"`,
 		"unavailable",
-		"`pi`, `grok`, `cursor`",
+		"`pi`, `grok`, `cursor`, `agy`",
 	} {
 		if !strings.Contains(agents.Body, want) {
 			t.Errorf("agents topic lacks %q", want)

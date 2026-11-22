@@ -413,6 +413,56 @@ func TestParseInputGrokFixtures(t *testing.T) {
 	}
 }
 
+func TestParseInputAgy(t *testing.T) {
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join("..", "integration", Agy, "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	const (
+		session = "927af7a5-0a83-415e-ade8-04f6bc753737"
+		wt      = "/tmp/agy-hooks-probe-a7FdFA/wt"
+		model   = "gemini-3.8-flash-low"
+	)
+	common := func(name string, in Input) {
+		t.Helper()
+		if in.DetectedHarness != Agy || in.Session != session || in.Model != model || in.Cwd != wt || !slices.Equal(in.Roots, []string{wt}) {
+			t.Errorf("%s: %+v", name, in)
+		}
+	}
+	start := ParseInput(read("agy-sessionstart.json"))
+	common("SessionStart", start)
+	if start.Event != "SessionStart" {
+		t.Errorf("SessionStart event: %+v", start)
+	}
+	for name, path := range map[string]string{"agy-pretooluse-write_file.json": wt + "/b.txt", "agy-pretooluse-edit_file.json": wt + "/a.txt"} {
+		in := ParseInput(read(name))
+		common(name, in)
+		if !in.IsEdit() || in.IsShell() || in.Path != path || in.Event != "PreToolUse" {
+			t.Errorf("%s: %+v", name, in)
+		}
+	}
+	sh := ParseInput(read("agy-pretooluse-run_command.json"))
+	common("run_command", sh)
+	if !sh.IsShell() || sh.IsEdit() || sh.Tool != "run_command" || sh.Command != "echo CMD-OK" {
+		t.Errorf("run_command: %+v", sh)
+	}
+	stop := ParseInput(read("agy-stop.json"))
+	common("Stop", stop)
+	if stop.StopReason != TurnEndReason || !stop.TurnEnd() {
+		t.Errorf("Stop: %+v", stop)
+	}
+	grok, err := os.ReadFile(filepath.Join("..", "integration", Grok, "testdata", "grok_session_start.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in := ParseInput(grok); in.DetectedHarness == Agy {
+		t.Errorf("agy claimed grok's SessionStart: %+v", in)
+	}
+}
+
 func TestInstallCursorKeepsUserEntriesAndRemoveStripsOurs(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".cursor", "hooks.json")

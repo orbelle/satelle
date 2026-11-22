@@ -592,6 +592,11 @@ func (f *doctorFixture) context(t *testing.T, harness string) (ctx, raw string) 
 		} `json:"hookSpecificOutput"`
 		Cursor string `json:"additional_context"`
 		Grok   string `json:"systemMessage"`
+		Agy    []struct {
+			SystemMessage struct {
+				SystemMessage string `json:"systemMessage"`
+			} `json:"systemMessage"`
+		} `json:"injectSteps"`
 	}
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
 		t.Fatalf("hook context --harness %s: %v\n%s", harness, err, raw)
@@ -601,6 +606,11 @@ func (f *doctorFixture) context(t *testing.T, harness string) (ctx, raw string) 
 		return env.Cursor, raw
 	case hook.Grok:
 		return env.Grok, raw
+	case hook.Agy:
+		if len(env.Agy) == 0 {
+			return "", raw
+		}
+		return env.Agy[0].SystemMessage.SystemMessage, raw
 	}
 	return env.Hook.Context, raw
 }

@@ -42,6 +42,7 @@ type HookInput struct {
 	StopReason      string
 	Model           string
 	DetectedHarness string
+	MidTurn         bool
 }
 
 type HookAdapter interface {

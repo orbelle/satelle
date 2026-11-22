@@ -49,6 +49,7 @@ func TestWiringOf(t *testing.T) {
 		Grok:   {Harness: Grok, File: ".grok/hooks/satelle.json", State: WiringIgnored, Rule: ".gitignore:2: .grok/", Present: true},
 		Cursor: {Harness: Cursor, File: ".cursor/hooks.json", State: WiringNotInstalled, Present: true},
 		Pi:     {Harness: Pi, File: ".pi/extensions/satelle.ts", State: WiringNotInstalled},
+		Agy:    {Harness: Agy, File: ".agents/hooks.json", State: WiringNotInstalled},
 	}
 	for h, w := range want {
 		if got[h] != w {

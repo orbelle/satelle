@@ -1,0 +1,55 @@
+{
+  "harness": "agy",
+  "cli": "agy",
+  "version": "1.5.14",
+  "captured": "2026-11-22",
+  "hook": {
+    "label": "gate@PreToolUse",
+    "env": [
+      "ANTIGRAVITY_AGENT=1",
+      "ANTIGRAVITY_AGENTAPI_EXE=/work/.local/share/mise/installs/antigravity-cli/1.5.14/antigravity",
+      "ANTIGRAVITY_APP_DATA_DIR=/work/.gemini/antigravity-cli",
+      "ANTIGRAVITY_CONVERSATION_ID=927af7a5-0a83-415e-ade8-04f6bc753737",
+      "ANTIGRAVITY_LS_VERSION=cli-1.5.14",
+      "ANTIGRAVITY_PROJECT_ID=default-cli-project"
+    ]
+  },
+  "shell": {
+    "ancestors": [
+      "/work/.local/bin/agy",
+      "/usr/bin/timeout",
+      "/usr/bin/bash",
+      "/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.330/node_modules/.mise/@anthropic-ai+claude-code@2.1.330/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+      "/work/.local/bin/satelle",
+      "/work/.local/share/mise/installs/antigravity-cli/1.5.14/antigravity",
+      "/usr/bin/bash",
+      "/work/.local/bin/herdr-core",
+      "not read",
+      "not read"
+    ],
+    "env": [
+      "ANTIGRAVITY_AGENT=1",
+      "ANTIGRAVITY_AGENTAPI_EXE=/work/.local/bin/agy",
+      "ANTIGRAVITY_APP_DATA_DIR=/work/.gemini/antigravity-cli",
+      "ANTIGRAVITY_CONVERSATION_ID=1643aff4-d7f8-4cf7-a569-919161b10bf6",
+      "ANTIGRAVITY_CSRF_TOKEN=redacted",
+      "ANTIGRAVITY_LS_ADDRESS=localhost:45647",
+      "ANTIGRAVITY_LS_VERSION=cli-1.5.14",
+      "ANTIGRAVITY_PROJECT_ID=default-cli-project",
+      "ANTIGRAVITY_SOURCE_METADATA={\"tool\":{\"conversationId\":\"1643aff4-d7f8-4cf7-a569-919161b10bf6\",\"stepIndex\":2,\"toolCall\":{\"id\":\"call_7098077928509956004\",\"name\":\"run_command\",\"argumentsJson\":\"{\\\"CommandLine\\\":\\\"/tmp/agy-probe-script-e5x1Nd/cap.sh /tmp/agy-shellenv-VYlk3Y\\\",\\\"WaitMsBeforeAsync\\\":10000,\\\"toolSummary\\\":\\\"Run probe capture script\\\"}\"}}}",
+      "ANTIGRAVITY_TRAJECTORY_ID=e3af1948-84f1-49ed-954b-2a3d6935437a",
+      "CLAUDECODE=1",
+      "CLAUDE_CODE_CHILD_NOTES_DIR=/tmp/claude-1000/-home-bobmcallan-Development-orbelle-sto-aed30d81/b5bac01f-a4a8-4153-a31b-a7b4ca702cbd/started",
+      "CLAUDE_CODE_CHILD_SESSION=1",
+      "CLAUDE_CODE_ENTRYPOINT=sdk-cli",
+      "CLAUDE_CODE_EXECPATH=/work/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.330/node_modules/.mise/@anthropic-ai+claude-code@2.1.330/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+      "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1",
+      "CLAUDE_CODE_MESSAGING_SOCKET=redacted",
+      "CLAUDE_CODE_MESSAGING_TOKEN=redacted",
+      "CLAUDE_CODE_SESSION_ATTENDED=0",
+      "CLAUDE_CODE_SESSION_ID=b5bac01f-a4a8-4153-a31b-a7b4ca702cbd",
+      "CLAUDE_EFFORT=medium",
+      "CLAUDE_PID=957631"
+    ]
+  }
+}

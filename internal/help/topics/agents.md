@@ -25,11 +25,13 @@ brief (or a blank one) receives the prompt unchanged.
 
 ## Harness hooks
 
-`satelle agents install claude|pi|grok|cursor --session <session>` writes the harness's hook file
+`satelle agents install claude|pi|grok|cursor|agy --session <session>` writes the harness's hook file
 so its interactive sessions run under the edit gate, the session-start
 context, the prompt hook and the stop check: `.claude/settings.json`,
-`.pi/extensions/satelle.ts`, `.grok/hooks/satelle.json` and
-`.cursor/hooks.json`. A `cursor-agent` session and a session in the Cursor
+`.pi/extensions/satelle.ts`, `.grok/hooks/satelle.json`,
+`.cursor/hooks.json` and `.agents/hooks.json` (agy: satelle's entries sit
+under its own top-level `"satelle"` key, and every other key's hooks are
+kept). A `cursor-agent` session and a session in the Cursor
 IDE's agent drive stories this way (see `satelle help edit-gate --session <session>`). It writes no `.cursor/cli.json`.
 
 `satelle status --session <session>` shows each harness's wiring in the repo (`installed`,
@@ -52,8 +54,8 @@ an if-block) is not satelle's and is left as it is, so edit a wrapped hook by
 hand. A file whose hooks would not change is not written.
 
 A harness is in use in a repo when `.satelle/agents.toml` runs its CLI
-(`claude`, `cursor-agent`, `grok`, `pi`) or the repo has its configuration
-directory (`.claude/`, `.cursor/`, `.grok/`, `.pi/`). `satelle agents refresh --session <session>`
+(`claude`, `cursor-agent`, `grok`, `pi`, `agy`) or the repo has its configuration
+directory (`.claude/`, `.cursor/`, `.grok/`, `.pi/`, `.agents/`). `satelle agents refresh --session <session>`
 applies the install rule to each harness in use in every registered project
 (`satelle help projects --session <session>`); `satelle update --session <session>` runs it after replacing the
 binaries, and the sync pass (`satelle ledger autosync --session <session>`) runs it per project.
@@ -78,7 +80,7 @@ stderr. It is print-only and writes no file.
   names `~/.claude/settings.json` on stderr. Claude Code reads `autoMode` only
   from `~/.claude/settings.json`, managed settings or `--settings`, never from a
   project's `.claude/settings.json`.
-- `pi`, `grok`, `cursor`: reports that auto-mode guidance is unavailable for
+- `pi`, `grok`, `cursor`, `agy`: reports that auto-mode guidance is unavailable for
   that harness and writes nothing.
 
 A first `satelle init --session <session>` writes `.satelle/auto-mode.md` from
@@ -181,7 +183,8 @@ stream is in its dispatch log.
   refused.
 - A run refuses, naming the file, before anything runs: a `.agents/hooks.json`
   in the run's directory or any directory above it, or in your home
-  directory; a `.antigravity/settings.json` there that does not decode or sets
+  directory, unless it holds only satelle's own agy hooks, exactly as
+  `satelle agents install agy --session <session>` writes them; a `.antigravity/settings.json` there that does not decode or sets
   `permissions.allow`, `permissions.ask`, `toolPermission`, `agentMode` or
   `hooks`; a user hook file (`~/.gemini/config/hooks.json`,
   `~/.gemini/antigravity-cli/hooks.json`) that does not decode or defines any

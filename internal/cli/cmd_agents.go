@@ -24,7 +24,8 @@ func agentsCmd() *cobra.Command {
 		Short: "Install, remove or refresh harness hook files, or print auto-mode guidance (" + strings.Join(hook.Harnesses, ", ") + ")",
 		Long: `agents install writes a harness's hook file so its sessions call satelle's
 hook handlers: claude (.claude/settings.json), grok (.grok/hooks/satelle.json),
-pi (.pi/extensions/satelle.ts) and cursor (.cursor/hooks.json). satelle's
+pi (.pi/extensions/satelle.ts), cursor (.cursor/hooks.json) and agy
+(.agents/hooks.json, under its "satelle" key; other keys are kept). satelle's
 entries are the hook commands whose first word is satelle and whose second is
 hook: they are replaced by the current set. A command whose first word is
 satelle naming a command this binary lacks (the pre-v1 satelle reindex) is
@@ -36,8 +37,8 @@ working tree only; commit the change in that repo.
 agents remove strips satelle's entries again.
 agents refresh applies the install rule to every registered project
 (~/.satelle/config.toml [projects]), to each harness in use there: one its
-.satelle/agents.toml runs (claude, cursor-agent, grok or pi) or whose
-configuration directory (.claude, .cursor, .grok, .pi) the repo has. It leaves
+.satelle/agents.toml runs (claude, cursor-agent, grok, pi or agy) or whose
+configuration directory (.claude, .cursor, .grok, .pi, .agents) the repo has. It leaves
 a file git tracks, a pi extension that is not satelle's, and every file of a
 repo whose .satelle/satelle.toml sets [hook] refresh = false, and names each.
 satelle update runs it after replacing the binaries.
