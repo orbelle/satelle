@@ -13,6 +13,7 @@ func TestPlanSkillKeepsChangelogInTheAttachment(t *testing.T) {
 		"never edits `CHANGELOG.md` or `.version`",
 		"`changelog` attachment",
 		"scripts/changelog-items.sh",
+		"docs/releases/v<version>.md",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("plan.md does not say %q", want)

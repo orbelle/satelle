@@ -4,7 +4,7 @@ set -uo pipefail
 sections="Added Changed Deprecated Removed Fixed Security Breaking"
 
 usage() {
-  echo "usage: changelog-items.sh lines <id> | render <ver> <date> <id>:<file>... | has <changelog> <ver> <id>:<file>" >&2
+  echo "usage: changelog-items.sh lines <id> | render <ver> <date> <id>:<file>... | write <path> <ver> <date> <id>:<file>... | has <changelog> <ver> <id>:<file>" >&2
   exit 2
 }
 
@@ -58,6 +58,16 @@ render() {
   return 0
 }
 
+write() {
+  [ $# -ge 4 ] || usage
+  local path=$1 out
+  shift
+  [ -e "$path" ] && { echo "$path exists: a release never rewrites another version's notes" >&2; return 1; }
+  out=$(render "$@") || return 1
+  mkdir -p "$(dirname "$path")" || return 1
+  printf '%s\n' "$out" >"$path.tmp.$$" && mv "$path.tmp.$$" "$path" || { rm -f "$path.tmp.$$"; echo "cannot write $path" >&2; return 1; }
+}
+
 has() {
   [ $# -eq 3 ] || usage
   local log=$1 ver=$2 out
@@ -86,6 +96,7 @@ cmd=${1:-}
 case "$cmd" in
   lines) lines "$@" ;;
   render) render "$@" ;;
+  write) write "$@" ;;
   has) has "$@" ;;
   *) usage ;;
 esac

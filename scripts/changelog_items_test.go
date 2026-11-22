@@ -114,6 +114,63 @@ func TestRenderOrdersSectionsAndItems(t *testing.T) {
 	}
 }
 
+func TestWriteReleaseNotes(t *testing.T) {
+	dir := t.TempDir()
+	a := attachment(t, dir, "sto_a", "### Fixed\n- a fix\n### Added\n- a feature\n")
+	b := attachment(t, dir, "sto_b", "### Breaking\n- b break\n### Changed\n- b change (sto_b)\n### Added\n- b feature\n")
+	log := filepath.Join(dir, "CHANGELOG.md")
+	archive := "## [1.2.2] - 2026-11-01\n\n### Added\n- old (sto_0)\n"
+	if err := os.WriteFile(log, []byte(archive), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	notes := filepath.Join(dir, "docs", "releases", "v1.2.3.md")
+	out, errOut, code := changelogItems(t, "", "write", notes, "1.2.3", "2026-11-07", a, b)
+	want := `## [1.2.3] - 2026-11-07
+
+### Added
+- a feature (sto_a)
+- b feature (sto_b)
+
+### Changed
+- b change (sto_b)
+
+### Fixed
+- a fix (sto_a)
+
+### Breaking
+- b break (sto_b)
+`
+	got, _ := os.ReadFile(notes)
+	if code != 0 || string(got) != want {
+		t.Fatalf("exit %d\n%s%s\nfile\n%q\nwant\n%q", code, out, errOut, got, want)
+	}
+	if after, _ := os.ReadFile(log); string(after) != archive {
+		t.Fatalf("write changed CHANGELOG.md:\n%s", after)
+	}
+	for _, item := range []string{a, b} {
+		if out, errOut, code := changelogItems(t, "", "has", notes, "1.2.3", item); code != 0 {
+			t.Fatalf("has %s: exit %d\n%s%s", item, code, out, errOut)
+		}
+	}
+	if _, errOut, code := changelogItems(t, "", "write", notes, "1.2.3", "2026-11-08", a); code != 1 || !strings.Contains(errOut, "exists") {
+		t.Fatalf("second write: exit %d\n%s", code, errOut)
+	}
+	if again, _ := os.ReadFile(notes); string(again) != want {
+		t.Fatalf("second write changed the notes:\n%s", again)
+	}
+	bad := attachment(t, dir, "sto_c", "### Misc\n- odd\n")
+	other := filepath.Join(dir, "docs", "releases", "v1.2.4.md")
+	if _, errOut, code := changelogItems(t, "", "write", other, "1.2.4", "2026-11-08", a, bad); code != 1 || !strings.Contains(errOut, "unknown section") {
+		t.Fatalf("malformed: exit %d\n%s", code, errOut)
+	}
+	if _, err := os.Stat(other); !os.IsNotExist(err) {
+		t.Fatalf("a malformed attachment created %s: %v", other, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(other)); len(entries) != 1 {
+		t.Fatalf("docs/releases holds %d entries, want only v1.2.3.md", len(entries))
+	}
+}
+
 func TestHas(t *testing.T) {
 	dir := t.TempDir()
 	a := attachment(t, dir, "sto_a", "### Added\n- a feature\n### Fixed\n- a fix\n")

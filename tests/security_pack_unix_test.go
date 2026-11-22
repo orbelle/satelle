@@ -153,7 +153,7 @@ func TestSecurityReviewSkillHoldsNoRepoValue(t *testing.T) {
 		t.Fatalf("git grep: %v", err)
 	}
 	for _, f := range strings.Fields(string(named)) {
-		if f != "CHANGELOG.md" {
+		if f != "CHANGELOG.md" && !strings.HasPrefix(f, "docs/releases/") {
 			t.Errorf("%s names the removed single-file skill", f)
 		}
 	}

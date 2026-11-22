@@ -45,8 +45,9 @@ work; the route re-runs the full suite at integration -> in_review.
 
 Record the item's changelog lines as its `changelog` attachment
 (`satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`,
-format in `satelle-pr-ready-check/SKILL.md`). Never edit `CHANGELOG.md` or
-`.version`: the release run writes the version section from the attachments.
+format in `satelle-pr-ready-check/SKILL.md`). Never edit `CHANGELOG.md`, a file
+under `docs/releases/`, or `.version`: the release run writes
+`docs/releases/v<version>.md` from the attachments.
 
 ## Implement the plan's slice — and only that
 

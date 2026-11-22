@@ -325,12 +325,12 @@ func TestChangelogVerdictReadsTheHeadsOwnCommits(t *testing.T) {
 	id := c.story("### Added\n- A adds\n")
 	head := c.branch("a", c.base, [2]string{"a.txt", "a\n"})
 	wt := c.worktree("origin/main", true)
-	c.at(wt, func() { c.write("CHANGELOG.md", "## [1.0.1] - 2026-02-01\n\n### Added\n- Z adds\n\n"+baseChangelog) })
+	c.at(wt, func() { c.write("docs/releases/v1.0.1.md", "## [1.0.1] - 2026-02-01\n\n### Added\n- Z adds\n") })
 	c.bump(wt, "1.0.1")
 	c.assertFixtures([]string{head})
 	main := c.rev("origin/main")
-	if c.exec("git", "", "diff", "--quiet", main, head, "--", "CHANGELOG.md").code == 0 {
-		t.Fatal("setup: main's CHANGELOG.md does not differ from the head's")
+	if c.exec("git", "", "diff", "--quiet", main, head, "--", "docs/releases").code == 0 {
+		t.Fatal("setup: main's docs/releases does not differ from the head's")
 	}
 	if got, want := c.verdict(id, head, main), id+": keep head "+head; got != want {
 		t.Fatalf("%q, want %q", got, want)
@@ -452,8 +452,8 @@ func TestReleaseRulesRestated(t *testing.T) {
 	if !strings.Contains(strings.Join(strings.Fields(text[files[0]]), " "), "main only ever fast-forwards to a tree the release tested") {
 		t.Error("release.md does not say main only ever fast-forwards to a tree the release tested")
 	}
-	if !strings.Contains(text[files[0]], "Commit only `.version` and `CHANGELOG.md`") ||
-		!strings.Contains(shBlock(t, files[0], "## 4.", "tas_x"), `-- . ':!.version' ':!CHANGELOG.md'`) {
+	if !strings.Contains(text[files[0]], "Commit only `.version` and `docs/releases/v<ver>.md`") ||
+		!strings.Contains(shBlock(t, files[0], "## 4.", "tas_x"), `-- . ':!.version' ":!docs/releases/v$ver.md"`) {
 		t.Error("step 3's commit list and step 4's guard name different files")
 	}
 }
@@ -527,7 +527,7 @@ to = "cancelled"
 		t.Fatalf("R1 step 3: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	writeFile(t, filepath.Join(wt1, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.0\n", 0o644)
-	c.exec("git", "", "-C", wt1, "add", ".version", "CHANGELOG.md")
+	c.exec("git", "", "-C", wt1, "add", ".version", "docs/releases")
 	c.exec("git", "", "-C", wt1, "commit", "-q", "-m", "chore(release): v1.0.1")
 	c.mustBlock("## 4.")
 	c.git("fetch", "-q", "origin")
@@ -549,11 +549,7 @@ to = "cancelled"
 	wtB := c.worktree("origin/main", true)
 	c.at(wtB, func() {
 		c.write("b.txt", "b\n")
-		cl, err := os.ReadFile(filepath.Join(wtB, "CHANGELOG.md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		c.write("CHANGELOG.md", "## [1.0.2] - 2026-03-01\n\n### Added\n- B adds a thing (sto_0000000b)\n\n"+string(cl))
+		c.write("docs/releases/v1.0.2.md", "## [1.0.2] - 2026-03-01\n\n### Added\n- B adds a thing (sto_0000000b)\n")
 		c.write(".version", "satelle.version: 1.0.2\nsatelled.version: 1.0.0\n")
 		c.git("add", "-A")
 		c.git("commit", "-q", "-m", "chore(release): v1.0.2")
@@ -623,6 +619,9 @@ to = "cancelled"
 	}
 	if got, _ := os.ReadFile(filepath.Join(wt2, "CHANGELOG.md")); string(got) != changelog {
 		t.Fatalf("R2 step 3 changed CHANGELOG.md:\n%s", got)
+	}
+	if st := c.git("-C", wt2, "status", "--porcelain", "--", "docs/releases"); st != "" {
+		t.Fatalf("R2 step 3 changed docs/releases:\n%s", st)
 	}
 	c.mustBlock("## 4.")
 	c.git("fetch", "-q", "origin")

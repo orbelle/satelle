@@ -1964,7 +1964,7 @@ func TestPRGatePack(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rel := range strings.Split(string(out), "\x00") {
-		if rel == "" || rel == "CHANGELOG.md" {
+		if rel == "" || rel == "CHANGELOG.md" || strings.HasPrefix(rel, "docs/releases/") {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join("..", rel))

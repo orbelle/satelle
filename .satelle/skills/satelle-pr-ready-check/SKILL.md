@@ -1,7 +1,7 @@
 ---
 name: satelle-pr-ready-check
 type: check
-description: DEV's hand-off to approval and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md as the base branch has it, the item carries a valid changelog attachment (its lines, which the release run writes into the changelog), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for approval: satelle-pr-approve-from-review then publishes the satelle app's approving review on HEAD from the accepted code-ac verdict, and the approval gate enters approved only when the app's approving review on HEAD is present. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
+description: DEV's hand-off to approval and then the release run (integration → in_review); the session then fires the release queue (satelle queue fire release --session <session>) and drives the run, so approved is not the session's end. HEAD is committed and pushed, contains the base branch, leaves CHANGELOG.md and every file under docs/releases as the base branch has them, the item carries a valid changelog attachment (its lines, which the release run writes to docs/releases/v<version>.md), and an open, non-draft pull request against the base branch has HEAD as its head and a title ending with the item id. The base branch is the trigger base of the queue the item's workflow enqueues into, or, when it enqueues into no queue with one, the default branch of the git remote (checkout.defaultRemote, else the only remote). Proves the head is ready for approval: satelle-pr-approve-from-review then publishes the satelle app's approving review on HEAD from the accepted code-ac verdict, and the approval gate enters approved only when the app's approving review on HEAD is present. No GitHub test run is read. Deterministic, no agent; reads GitHub with gh.
 ---
 
 # PR ready (DEV → CI/CD hand-off; the session then fires the release)
@@ -42,8 +42,9 @@ Before presenting the move into review, the session:
 
 1. works the item on its own branch, named by its id, cut from the base branch
    (or stacked on another approved item's head, to ship together);
-2. commits without touching `CHANGELOG.md` or `.version` (the release run
-   writes the version section and bumps the version once), and records its
+2. commits without touching `CHANGELOG.md`, a file under `docs/releases/`, or
+   `.version` (the release run writes the version's notes to
+   `docs/releases/v<version>.md` and bumps the version once), and records its
    changelog lines on the item as an attachment named `changelog`:
    `satelle story attach <id> --name changelog --type text/markdown --file - --session <session>`;
 3. pushes: `git push -u origin <branch>`;
@@ -63,8 +64,10 @@ The `changelog` attachment holds the item's lines in this format, checked by
 A heading is `### <Section>`, Section one of Added, Changed, Deprecated,
 Removed, Fixed, Security, Breaking. Every entry is a single `- <text>` line
 under a heading; blank lines are ignored and any other line is refused, named.
-At least one entry; a section may repeat. Items never edit `CHANGELOG.md`, so
-two items cut from the same base never conflict over it.
+At least one entry; a section may repeat. Items never edit `CHANGELOG.md` or
+a file under `docs/releases/`: the release run writes the version's notes to
+`docs/releases/v<version>.md` from the attachments, so two items cut from the
+same base never conflict over them.
 
 ```sh
 set -u
@@ -133,8 +136,15 @@ if ! git merge-base --is-ancestor "$base_ref" "$head"; then
   echo "HEAD ${head:0:12} does not contain $base_ref $(git rev-parse --short=12 "$base_ref"): move the item back to in_progress, merge $base_ref into the branch (git fetch $remote && git merge $base_ref; never rebase, so the pushed head is not rewritten and the push needs no force), resolve any conflict in the real work, push, and come through integration again"
   exit 1
 fi
-if ! git diff --quiet "$base_ref" "$head" -- CHANGELOG.md; then
-  echo "HEAD ${head:0:12} edits CHANGELOG.md; the release run writes it. Restore it (git checkout $base_ref -- CHANGELOG.md), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session>"
+paths=$(git diff --name-only "$base_ref" "$head" -- CHANGELOG.md docs/releases) || { echo "git diff $base_ref $head failed"; exit 1; }
+if [ -n "$paths" ]; then
+  paths=$(printf '%s' "$paths" | tr '\n' ' ')
+  cmds=
+  for p in $paths; do
+    if git cat-file -e "$base_ref:$p" 2>/dev/null; then c="git checkout $base_ref -- $p"; else c="git rm $p"; fi
+    cmds="${cmds:+$cmds && }$c"
+  done
+  echo "HEAD ${head:0:12} edits $paths; the release run writes them. Restore them ($cmds), commit, and record your lines as the item's changelog attachment: satelle story attach $SATELLE_ITEM --name changelog --file - --session <session>"
   exit 1
 fi
 if ! cl=$(satelle story attachment "$SATELLE_ITEM" changelog 2>/dev/null); then

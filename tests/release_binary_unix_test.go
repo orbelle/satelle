@@ -305,8 +305,8 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	if got := b.must("execution", "attachment", run, "release-binary"); got != rec {
 		t.Fatalf("release-binary on %s:\n%s\nwant the decision\n%s", run, got, rec)
 	}
-	if r := b.exec("git", "", "diff", "--quiet", oldMain, "origin/main", "--", ".version", "CHANGELOG.md"); r.code != 0 {
-		t.Fatal(".version or CHANGELOG.md changed on a binary-unchanged run")
+	if r := b.exec("git", "", "diff", "--quiet", oldMain, "origin/main", "--", ".version", "CHANGELOG.md", "docs/releases"); r.code != 0 {
+		t.Fatal(".version, CHANGELOG.md or docs/releases changed on a binary-unchanged run")
 	}
 	if got := b.tags(); got != tagsBefore {
 		t.Fatalf("tags after the run:\n%s\nbefore:\n%s", got, tagsBefore)
@@ -406,7 +406,8 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	writeFile(t, filepath.Join(bw, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: "+time.Now().UTC().Format("2006-01-02T15:04:05Z")+"\n", 0o644)
-	b.exec("git", "", "-C", bw, "commit", "-q", "-am", "chore(release): v1.0.1")
+	b.exec("git", "", "-C", bw, "add", "-A")
+	b.exec("git", "", "-C", bw, "commit", "-q", "-m", "chore(release): v1.0.1")
 	b.exec("git", "", "-C", bw, "push", "-q", "origin", "HEAD:refs/heads/main")
 	b.refused(idX, "ci-published", "no successful release.yml run")
 	if g := latestRun(b.sandbox, idX, "version-stamp"); g.Result != "accept" {
@@ -435,8 +436,8 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 		t.Fatalf("done %s: exit %d\n%s%s", idA, r.code, r.out, r.err)
 	}
 	b.must("execution", "set", runU, "--status", "done")
-	if strings.Contains(b.git("show", "origin/main:CHANGELOG.md"), idA) {
-		t.Fatal("run U wrote a version section")
+	if strings.Contains(b.git("show", "origin/main:CHANGELOG.md"), idA) || strings.TrimSpace(b.git("ls-tree", "--name-only", "origin/main", "docs/releases/")) != "" {
+		t.Fatal("run U wrote release notes")
 	}
 
 	idB, _ := b.story("b", "### Fixed\n- B fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 1 }\n"})
@@ -457,7 +458,7 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	if r := b.exec("bash", "", "-c", changelogBlock(t, wt, "1.0.1", idA, idB)); r.code != 0 {
 		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	b.exec("git", "", "-C", wt, "add", ".version", "CHANGELOG.md")
+	b.exec("git", "", "-C", wt, "add", ".version", "docs/releases")
 	b.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
 	if got, _ := os.ReadFile(filepath.Join(rd, "tested")); strings.TrimSpace(string(got)) != tested {
 		t.Fatalf("tested moved to %s", got)
@@ -465,8 +466,8 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	if r := carried(); r.code != 0 || strings.TrimSpace(r.out) != idA {
 		t.Fatalf("carried after the bump commit: exit %d %q, want %s\n%s", r.code, r.out, idA, r.err)
 	}
-	cl, _ := os.ReadFile(filepath.Join(wt, "CHANGELOG.md"))
-	section, _, _ := strings.Cut(string(cl), "\n## [1.0.0]")
+	cl, _ := os.ReadFile(filepath.Join(wt, "docs", "releases", "v1.0.1.md"))
+	section := string(cl)
 	if !strings.HasPrefix(section, "## [1.0.1] - ") || !strings.Contains(section, "- A adds a doc ("+idA+")\n") || !strings.Contains(section, "- B fixes the source ("+idB+")\n") {
 		t.Fatalf("the [1.0.1] section:\n%s", section)
 	}
@@ -477,8 +478,8 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	b.git("fetch", "-q", "origin", "--tags")
 	attachment := filepath.Join(b.fake, "a.changelog")
 	writeFile(t, attachment, b.must("story", "attachment", idA, "changelog"), 0o644)
-	main := filepath.Join(b.fake, "CHANGELOG.md")
-	writeFile(t, main, b.git("show", "origin/main:CHANGELOG.md"), 0o644)
+	main := filepath.Join(b.fake, "v1.0.1.md")
+	writeFile(t, main, b.git("show", "origin/main:docs/releases/v1.0.1.md"), 0o644)
 	if r := b.exec("bash", "", "scripts/changelog-items.sh", "has", main, "1.0.1", idA+":"+attachment); r.code != 0 {
 		t.Fatalf("[1.0.1] on origin/main lacks %s's lines: %s%s", idA, r.out, r.err)
 	}
@@ -507,7 +508,7 @@ func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	if r := b.exec("bash", "", "-c", changelogBlock(t, wt, "1.0.1", id)); r.code != 0 {
 		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	b.exec("git", "", "-C", wt, "add", ".version", "CHANGELOG.md")
+	b.exec("git", "", "-C", wt, "add", ".version", "docs/releases")
 	b.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
 	tagsBefore := strings.Fields(b.tags())
 	b.mustBlock("## 4.")
@@ -529,7 +530,7 @@ func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	var bumps []string
 	for _, c := range strings.Fields(b.git("rev-list", oldMain+"..origin/main", "--", ".version")) {
 		bumps = append(bumps, c)
-		if files := strings.Fields(b.git("diff", "--name-only", c+"^", c)); !slices.Equal(files, []string{".version", "CHANGELOG.md"}) {
+		if files := strings.Fields(b.git("diff", "--name-only", c+"^", c)); !slices.Equal(files, []string{".version", "docs/releases/v1.0.1.md"}) {
 			t.Fatalf("the bump commit %s touches %v", c, files)
 		}
 	}

@@ -33,10 +33,12 @@ reason recorded on the item; every send-back reason below says so. A
 pushed-back item reopens; it never becomes a new story, and its worktree stays
 (step 10 keeps the worktree of an item that is not in a terminal state).
 
-Items never edit `CHANGELOG.md`: each records its lines as an attachment named
-`changelog` (format in `satelle-pr-ready-check/SKILL.md`, owned by
-`scripts/changelog-items.sh`), and this run writes the version section from
-the items it lands (step 3).
+Items never edit `CHANGELOG.md` or a file under `docs/releases/`: each records
+its lines as an attachment named `changelog` (format in
+`satelle-pr-ready-check/SKILL.md`, owned by `scripts/changelog-items.sh`), and
+this run writes the version's notes to `docs/releases/v<version>.md` from the
+items it lands (step 3). `CHANGELOG.md` is the archive of every version released before
+`docs/releases/` held the notes, and no release edits it.
 
 The run's items reach `done` only through it: the `release-run` gate on
 `approved → done` refuses any item no in-progress run lists. Every step below
@@ -183,12 +185,14 @@ in turn, with its `head` from step 0, a carried item's merged head included,
 and `tip=origin/main`). Its verdict is
 its output, never its exit status: every item outcome prints exactly one line
 and exits 0, so a send-back never stops the run. It exits 1 only when it
-cannot judge at all (git, satelle or bash is not on PATH, named on stderr):
+cannot judge at all (git, satelle or bash is not on PATH, or git cannot diff
+the head, named on stderr):
 that is a failed step, which stops the run. The head's own
 `scripts/changelog-items.sh` validates the attachment, so a legacy head
-without the script is sent back too. The CHANGELOG.md test reads the head's
-own commits only (`$tip...$head`, from their merge base), so a head cut from
-an older main is not mistaken for one that edits the changelog.
+without the script is sent back too. The release-notes test (`CHANGELOG.md`
+and every file under `docs/releases/`) reads the head's own commits only
+(`$tip...$head`, from their merge base), so a head cut from an older main is
+not mistaken for one that edits them.
 
 ```sh
 session=<session>
@@ -204,10 +208,20 @@ elif ! git cat-file -e "$head:scripts/changelog-items.sh" 2>/dev/null; then
 elif ! out=$(printf '%s\n' "$cl" | bash <(git show "$head:scripts/changelog-items.sh") lines "$id" 2>&1 >/dev/null); then
   why=${out:-the attachment is refused}
 fi
+paths=
+if [ -z "$why" ]; then
+  paths=$(git diff --name-only "$tip...$head" -- CHANGELOG.md docs/releases) || { echo "git diff $tip...$head failed, so the changelog of $id cannot be judged" >&2; exit 1; }
+  paths=$(printf '%s' "$paths" | tr '\n' ' ')
+fi
 if [ -n "$why" ]; then
   echo "$id: send back: no valid changelog attachment on head $head: merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and record the lines with satelle story attach $id --name changelog --file - --session <session> ($why)"
-elif ! git diff --quiet "$tip...$head" -- CHANGELOG.md; then
-  echo "$id: send back: head $head edits CHANGELOG.md; restore it (git checkout origin/main -- CHANGELOG.md), move the lines to the changelog attachment, and merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force)"
+elif [ -n "$paths" ]; then
+  cmds=
+  for p in $paths; do
+    if git cat-file -e "$tip:$p" 2>/dev/null; then c="git checkout origin/main -- $p"; else c="git rm $p"; fi
+    cmds="${cmds:+$cmds && }$c"
+  done
+  echo "$id: send back: head $head edits $paths; restore them ($cmds), move the lines to the changelog attachment, and merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force)"
 else
   echo "$id: keep head $head"
 fi
@@ -466,9 +480,9 @@ non-zero, which stops the run with nothing pushed.
 
 ## 3. Bump once
 
-Binary changed only: a `binary: unchanged` run writes no version section and
+Binary changed only: a `binary: unchanged` run writes no release notes and
 skips to step 4. Its items keep their lines on their `changelog` attachments,
-and the next binary-changed run writes them into its section, first.
+and the next binary-changed run writes them into its notes, first.
 
 In the candidate worktree `$wt` (`$rd/candidate`), on top of the tested
 candidate, so the session's own tree is untouched.
@@ -483,7 +497,7 @@ published it); otherwise set it to the latest tag's patch + 1. Set
 ### Carried from binary-unchanged runs
 
 The items earlier binary-unchanged runs landed since the published version
-have no section yet. The candidate's `scripts/release-binary.sh carried` lists
+have no release notes yet. The candidate's `scripts/release-binary.sh carried` lists
 them, oldest first: it walks this task's finished runs back to the last
 binary-changed one, and keeps each landed item whose head is under the tested
 candidate and not under the published `v*` tag (read from the tags merged into
@@ -501,44 +515,49 @@ bash "$wt/scripts/release-binary.sh" carried "$task" "$wt" "$(cat "$rd/tested")"
 
 ### Changelog from the items
 
-Write the version section from the kept items' `changelog` attachments, in
-landing order (`$rd/kept`, queue order), in `$wt`. The section, `## [<ver>] - <date>`
-(UTC date) with each item's lines under their `### <Section>` in fixed order
-(Added, Changed, Deprecated, Removed, Fixed, Security, Breaking), each line
-ending with its item id, is written as the file's first `## [` heading;
-nothing is staged above it. The lines are copied verbatim; the run never
-edits an item's content. A missing attachment stops the run. A resumed run
-whose CHANGELOG.md already has the `## [<ver>] - ` heading changes nothing.
+Write the version's notes to `docs/releases/v<version>.md` from the kept
+items' `changelog` attachments, in landing order (`$rd/kept`, queue order), in
+`$wt`. The file holds one section, `## [<ver>] - <date>` (UTC date) with each
+item's lines under their `### <Section>` in fixed order (Added, Changed,
+Deprecated, Removed, Fixed, Security, Breaking), each line ending with its item
+id, and ends in exactly one newline; nothing is staged above it.
+`scripts/changelog-items.sh write` renders the section before it creates the
+file, so a malformed attachment writes nothing, and it refuses a file that
+exists. The lines are copied verbatim; the run never edits an item's content.
+A missing attachment stops the run. A resumed run whose
+`docs/releases/v<ver>.md` exists changes nothing. `CHANGELOG.md` is the
+archive of every version released before `docs/releases/` held the notes: the
+run never reads or edits it.
 
 `ids` lists the carried items first, oldest first, then the kept items in
 landing order (an id already carried is not listed again), except each whose
 build line (step 2a) says `contained, released in v<X>`: that release already
-wrote its lines, and changelog-entry accepts its done from that section. When
-no item is left, the section is not written and CHANGELOG.md is left as it is.
+wrote its lines, and changelog-entry accepts its done from that release's
+notes. When no item is left, no notes file is written.
 
 ```sh
 session=<session>
 ids="<carried ids, oldest first, then the kept ids in landing order, without those released before>"
 ver=<satelle.version>
-[ -n "$ids" ] || { echo "every kept item was released before: the version section is left as it is"; exit 0; }
+[ -n "$ids" ] || { echo "every kept item was released before: no release notes are written"; exit 0; }
 d=$(mktemp -d) || exit 1
 args=
 for id in $ids; do
   satelle story attachment "$id" changelog --session "$session" >"$d/$id" 2>/dev/null || { echo "no changelog attachment on $id: stop the run" >&2; rm -rf "$d"; exit 1; }
   args="$args $id:$d/$id"
 done
-if awk -v h="## [$ver] - " 'index($0, h) == 1 { f = 1 } END { exit !f }' "$wt/CHANGELOG.md"; then
-  echo "CHANGELOG.md already has the [$ver] section (a resumed run)"
+notes="$wt/docs/releases/v$ver.md"
+if [ -e "$notes" ]; then
+  echo "docs/releases/v$ver.md already exists (a resumed run)"
 else
-  { bash "$wt/scripts/changelog-items.sh" render "$ver" "$(date -u +%Y-%m-%d)" $args && cat "$wt/CHANGELOG.md"; } >"$d/CHANGELOG.md" || { echo "writing the [$ver] section failed: stop the run" >&2; rm -rf "$d"; exit 1; }
-  cat "$d/CHANGELOG.md" >"$wt/CHANGELOG.md"
-  echo "CHANGELOG.md: the [$ver] section written from $ids"
+  bash "$wt/scripts/changelog-items.sh" write "$notes" "$ver" "$(date -u +%Y-%m-%d)" $args || { echo "writing docs/releases/v$ver.md failed: stop the run" >&2; rm -rf "$d"; exit 1; }
+  echo "docs/releases/v$ver.md written from $ids"
 fi
 rm -rf "$d"
 ```
 
-Commit only `.version` and `CHANGELOG.md`, so the tested tree is otherwise
-unchanged: `chore(release): v<ver>, satelled <sver> (<exe>: <ids>)`. Skip the
+Commit only `.version` and `docs/releases/v<ver>.md` (`git add` the new
+file), so the tested tree is otherwise unchanged: `chore(release): v<ver>, satelled <sver> (<exe>: <ids>)`. Skip the
 commit when nothing changed (a resumed run). Step 4's guard excludes exactly
 these two files; a file added to the bump is added to both lists.
 
@@ -552,7 +571,8 @@ or names another candidate; on `binary: unchanged`, with "a binary-unchanged
 run pushes the tested candidate and nothing on top" when HEAD is not exactly
 the tested commit; on `binary: changed`, with "the candidate changed after the
 suite ran" when the tested commit is not under HEAD or HEAD differs from it
-outside `.version` and `CHANGELOG.md`; and with "drift-check has not passed on
+outside `.version` and `docs/releases/v<ver>.md` (a `CHANGELOG.md` change
+stops it too); and with "drift-check has not passed on
 the tested candidate" when the drift gate's sha (`$rd/drift-checked`) is not
 the tested one. Beside `release-kept` it attaches `release-drift`, the drift
 gate's exit on the tested sha and every miss the run fixed, and
@@ -577,8 +597,8 @@ tested=$(cat "$rd/tested" 2>/dev/null)
 [ "$(sed -n 's/^candidate: //p' "$rd/release-binary" 2>/dev/null)" = "$tested" ] || { echo "the run has not decided on the tested candidate $tested: run ### Decide: did the binary change first" >&2; exit 1; }
 if grep -qx 'binary: unchanged' "$rd/release-binary"; then
   [ "$(git -C "$wt" rev-parse HEAD)" = "$tested" ] || { echo "a binary-unchanged run pushes the tested candidate and nothing on top: stop the run" >&2; exit 1; }
-elif ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
-  ! git -C "$wt" diff --quiet "$tested" HEAD -- . ':!.version' ':!CHANGELOG.md'; then
+elif ver=$(sed -n 's/^satelle\.version: *//p' "$wt/.version"); ! git -C "$wt" merge-base --is-ancestor "$tested" HEAD ||
+  ! git -C "$wt" diff --quiet "$tested" HEAD -- . ':!.version' ":!docs/releases/v$ver.md"; then
   echo "the candidate changed after the suite ran (or the suite has not passed on it): stop the run" >&2
   exit 1
 fi
@@ -672,7 +692,7 @@ the run (`satelle execution attach "$exe" --name release-evidence --file - --ses
 - the candidate sha and the `make test` result (with the log's tail when it failed)
 - the `release-binary` record (the decision and the paths that decided it)
 - main before and after, and the bump commit
-- the version section written (its heading and the ids it names)
+- the release notes written: `docs/releases/v<ver>.md`, its heading and the ids it names
 - the release.yml run URL, head sha and conclusion
 - both tags with their asset names
 - the step-0 and pre-step-7 binary sha256s, the backup dir listing and the restore line
@@ -681,7 +701,7 @@ the run (`satelle execution attach "$exe" --name release-evidence --file - --ses
 
 On a binary-unchanged run the evidence is the record, main before and after
 (after is the tested candidate), the step 8 lines and each item's final
-status: there is no bump commit, version section, `release.yml` run, tag,
+status: there is no bump commit, release notes, `release.yml` run, tag,
 backup or restore line.
 
 Then present the run `in_progress → done` (validate-after) and release its
