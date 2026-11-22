@@ -61,7 +61,7 @@ type sandbox struct {
 	path []string
 }
 
-var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_", "CLAUDECODE", "CURSOR_", "PI_", "GROK_"}
+var scrubbed = []string{"HOME", "USERPROFILE", "XDG_", "SATELLE_", "CLAUDE_", "GIT_", "CLAUDECODE", "CURSOR_", "PI_", "GROK_", "ANTIGRAVITY_"}
 
 func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
