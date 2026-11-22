@@ -1,4 +1,10 @@
-## [1.0.120] - 2026-11-21
+## [1.0.121] - 2026-11-22
+
+### Added
+- An agy (Antigravity CLI) dispatch adapter: a binding with command = "agy" runs headlessly as a judge or performer, with the prompt on stdin, per-run --settings permissions plus a default-deny tool guard, no shell grant, and model and token usage read from agy's stream-json. (sto_3fa969fd)
+
+### Fixed
+- satelle-pr-gates 1.0.4 declares in [needs] scripts the satelle-pr-ready-check/scripts/changelog-lines.sh its ready check runs, so a pack-review security gate passes the pack unedited (sto_7d074dd7)## [1.0.120] - 2026-11-21
 
 ### Changed
 - satelle-pr-gates 1.0.3: satelle-pr-approve-from-review takes each route's verdict gate and move from the repo's own .satelle/pr-gates.routes (one line per workflow), read from the base branch's committed tip, so a repo whose routes are judged by different gates keeps the installed member unedited; a route named nowhere keeps code-ac on in_progress -> integration. (sto_0b261013)
