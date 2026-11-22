@@ -45,3 +45,11 @@ satelle execution list --parent "$task" --session "$session"
 
 The node is handed the task's chain and the chains of the stories tagged
 `remote-probe`, and no other. Its run is verified by the VERIFICATION above.
+
+## On a plain image
+
+`.satelle/remotes/docker-plain-probe/` fires the same task on
+`debian:stable-slim`, an image with no satelle: the fire copies its own
+satelle into the node before setup, and the remote's `setup.sh` installs git
+and jq, as a sprite is prepared. Run it as above with `docker-plain-probe` in
+place of `docker-task-probe`; it needs network for apt.

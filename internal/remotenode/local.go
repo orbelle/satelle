@@ -173,18 +173,19 @@ func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
 }
 
 type FireOptions struct {
-	Kernel        *kernel.Kernel
-	Tree, DataDir string
-	Runs          LocalRuns
-	Remote        string
-	Definition    remotedef.Definition
-	Bundle        []byte
-	Item          string
-	Steps         int
-	Actor         string
-	Docker        provider.DockerLocal
-	Out           io.Writer
-	Secrets       Secrets
+	Kernel                *kernel.Kernel
+	Tree, DataDir         string
+	Runs                  LocalRuns
+	Remote                string
+	Definition            remotedef.Definition
+	Bundle                []byte
+	Item                  string
+	Steps                 int
+	Actor                 string
+	Docker                provider.DockerLocal
+	Out                   io.Writer
+	Secrets               Secrets
+	Binary, BinaryVersion string
 }
 
 type Secrets struct {
@@ -275,6 +276,18 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err := ensureNodeImage(ctx, o.Docker, o.Tree, def, o.Out); err != nil {
 		return nil, err
 	}
+	plain := def.Machine.Image != ""
+	cannotGive := func(reason string) error {
+		return fmt.Errorf("remote %s: image %s cannot be given satelle: %s", o.Remote, def.Machine.Image, reason)
+	}
+	var arch string
+	if plain {
+		a, err := linuxArch(o.Binary)
+		if err != nil {
+			return nil, cannotGive(err.Error())
+		}
+		arch = a
+	}
 	node, err := newNodeID()
 	if err != nil {
 		return nil, err
@@ -300,6 +313,14 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	if err != nil {
 		return stopped(err)
+	}
+	if plain {
+		fmt.Fprintf(o.Out, "copying satelle into the node at %s\n", NodeSatellePath)
+		if err := giveSatelle(ctx, h, o.Binary, o.BinaryVersion, arch); err != nil {
+			serr := h.Stop(context.WithoutCancel(ctx))
+			fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+			return stopped(errors.Join(cannotGive(err.Error()), serr))
+		}
 	}
 	seated := !def.RunsTask()
 	if seated {

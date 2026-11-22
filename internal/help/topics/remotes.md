@@ -24,7 +24,7 @@ smallest one is `docker-probe`:
     satelle remote status docker-probe <item> [--wait 5m] --session <session>
 
 `remote fire` builds the node image from the repo's Dockerfile as
-`satelle-node:local` (unless `[machine] image` names another), starts the
+`satelle-node:local`, unless `[machine] image` names another, starts the
 container `satelle-node-<node>` with no network, seats the item at
 `remote:<node>`, and hands the node its definition, the repo's tracked
 `.satelle` files, its run and the item's chain. The node is given its secrets,
@@ -34,6 +34,17 @@ item goes) and concludes; the fire verifies the chain the node returns,
 imports it, releases the seat (also on failure) and records the run, which
 `remote status` shows. The item's chain here carries the node's events, by
 `node:<node>`.
+
+A docker-local node may start from a plain image that [setup] prepares, as a
+sprite does. When `[machine] image` names one (debian, ubuntu), the image
+needs no satelle: satelle is copied in at the fire. The fire copies its own
+satelle (linux, the node's architecture) to `/usr/local/bin/satelle` before
+setup and checks it runs there as its own version; `[setup]` runs the repo's
+scripts that install the rest. `docker-plain-probe` does this on
+`debian:stable-slim`, its `setup.sh` installing git and jq. An image the fire
+cannot give satelle to (another architecture, a firing machine that is not
+linux, no writable `/usr/local/bin`) is refused before setup, naming the image
+and the reason: the container is removed and nothing is imported.
 
 The fire prints `docker exec -it satelle-node-<node> sh` before the node
 runs: inspect the container while it runs. `[lifecycle] scope = "job"` keeps

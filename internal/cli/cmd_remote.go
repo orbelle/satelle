@@ -107,6 +107,17 @@ func takeFireSecrets(id string) (remotenode.Secrets, error) {
 	return s, nil
 }
 
+func firingBinary() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
 func localRuns(r repo) remotenode.LocalRuns {
 	return remotenode.LocalRuns{Dir: filepath.Join(r.Runtime, remotenode.RemotesDir)}
 }
@@ -139,6 +150,7 @@ func remoteFireCmd() *cobra.Command {
 					Kernel: k, Tree: r.Tree, DataDir: r.DataDir, Runs: localRuns(r),
 					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Actor: actor(),
 					Out: cmd.OutOrStdout(), Secrets: secrets,
+					Binary: firingBinary(), BinaryVersion: buildinfo.Resolve().String(),
 				})
 				if err != nil {
 					return err

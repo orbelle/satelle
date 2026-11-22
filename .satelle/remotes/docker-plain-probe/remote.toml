@@ -1,0 +1,20 @@
+version = 1
+name = "docker-plain-probe"
+provider = "docker-local"
+satelle_version = "1.0.124"
+
+[machine]
+image = "debian:stable-slim"
+
+[drive]
+kind = "task"
+task = "tas_ebb785d9"
+
+[setup]
+on_create = ["sh .satelle/remotes/docker-plain-probe/setup.sh"]
+
+[network]
+allow = ["deb.debian.org"]
+
+[lifecycle]
+scope = "run"

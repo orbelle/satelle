@@ -413,3 +413,15 @@ func TestAgentsTopicDocumentsHerdrPanel(t *testing.T) {
 		}
 	}
 }
+
+func TestRemotesTopicDocumentsAPlainImage(t *testing.T) {
+	top, ok := Get("remotes")
+	if !ok {
+		t.Fatal("no remotes topic")
+	}
+	for _, want := range []string{"may start from a plain image that [setup] prepares", "satelle is copied in at the fire", "docker-plain-probe", "is refused before setup, naming the image\nand the reason"} {
+		if !strings.Contains(top.Body, want) {
+			t.Errorf("the remotes topic lacks %q", want)
+		}
+	}
+}
