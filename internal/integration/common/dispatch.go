@@ -35,6 +35,14 @@ type Request struct {
 	Env     []string
 	Log     string
 	Trace   *Log
+	Redact  func(string) string
+}
+
+func (r Request) Clean(s string) string {
+	if r.Redact == nil {
+		return s
+	}
+	return r.Redact(s)
 }
 
 func (r Request) Denies() []string {
@@ -168,7 +176,7 @@ func RunOnce(ctx context.Context, argv []string, stdin string, req Request) ([]b
 		return out.Bytes(), fmt.Errorf("%s: %w", argv[0], ctx.Err())
 	}
 	if err != nil {
-		return out.Bytes(), fmt.Errorf("%s: %w: %s", argv[0], err, Tail(errb.Bytes(), 2000))
+		return out.Bytes(), fmt.Errorf("%s: %w: %s", argv[0], err, Tail([]byte(req.Clean(errb.String())), 2000))
 	}
 	return out.Bytes(), nil
 }

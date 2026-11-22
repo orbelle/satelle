@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -109,5 +110,66 @@ func TestContainerNameAndProviders(t *testing.T) {
 	}
 	if len((FlySprite{}).SetupCommands()) != 1 || len((DockerLocal{}).SetupCommands()) != 0 {
 		t.Error("setup commands")
+	}
+}
+
+func fakeDockerScript(t *testing.T, body string) (DockerLocal, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake docker is a shell script")
+	}
+	dir := t.TempDir()
+	log := dir + "/argv"
+	if err := writeScript(dir+"/docker", "#!/bin/sh\necho \"$*\" >> "+log+"\n"+body); err != nil {
+		t.Fatal(err)
+	}
+	return DockerLocal{Docker: dir + "/docker"}, log
+}
+
+func TestDockerLocalStartNoSetup(t *testing.T) {
+	d, log := fakeDockerScript(t, "exit 0\n")
+	def := remotedef.Definition{Setup: remotedef.Setup{OnCreate: []string{"echo created"}, PostStart: []string{"echo started"}}}
+	if _, err := d.Start(context.Background(), def, Run{NodeID: "nod_1", NoSetup: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := readFile(log)
+	if strings.Contains(b, "sh -c") {
+		t.Fatalf("setup ran with NoSetup:\n%s", b)
+	}
+	if _, err := d.Start(context.Background(), def, Run{NodeID: "nod_2"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ = readFile(log); !strings.Contains(b, "exec satelle-node-nod_2 sh -c echo created") {
+		t.Fatalf("setup did not run without NoSetup:\n%s", b)
+	}
+}
+
+func TestDockerLocalExecStdin(t *testing.T) {
+	dir := t.TempDir()
+	d, log := fakeDockerScript(t, "cat > "+dir+"/stdin\n")
+	h := &container{d: d, name: "satelle-node-nod_3"}
+	var _ StdinExec = h
+	const payload = `{"NAME":"stdin-only-value"}`
+	if _, err := h.ExecStdin(context.Background(), strings.NewReader(payload), "satelle", "node", "run-local"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := readFile(log)
+	if strings.TrimSpace(b) != "exec -i satelle-node-nod_3 satelle node run-local" {
+		t.Fatalf("argv = %q", b)
+	}
+	if got, _ := readFile(dir + "/stdin"); got != payload {
+		t.Fatalf("stdin = %q", got)
+	}
+}
+
+func TestDockerLocalExecStdinErrorCarriesNoOutput(t *testing.T) {
+	d, _ := fakeDockerScript(t, "echo printed-value-abc123\nexit 1\n")
+	h := &container{d: d, name: "satelle-node-nod_4"}
+	out, err := h.ExecStdin(context.Background(), strings.NewReader("{}"), "satelle")
+	if err == nil || strings.Contains(err.Error(), "printed-value-abc123") {
+		t.Fatalf("error = %v", err)
+	}
+	if !strings.Contains(string(out), "printed-value-abc123") {
+		t.Fatalf("output = %q", out)
 	}
 }

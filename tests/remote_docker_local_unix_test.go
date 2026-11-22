@@ -20,6 +20,7 @@ const fakeDocker = `#!/bin/sh
 FAKE='@FAKE@'
 SATELLE='@SATELLE@'
 echo "$*" >> "$FAKE/log"
+env >> "$FAKE/docker-env.log"
 map() {
   case "$1" in
     satelle-node-*:*) echo "$FAKE/${1%%:*}${1#*:}" ;;
@@ -52,6 +53,7 @@ case "$cmd" in
     fi
     exit 0 ;;
   exec)
+    [ "$1" = -i ] && shift
     name=$1; shift
     [ -d "$FAKE/$name" ] || { echo "Error: no such container: $name" >&2; exit 1; }
     prog=$1; shift
@@ -67,6 +69,15 @@ case "$cmd" in
       set -- "$@" "$a"
     done
     shift $n
+    if [ -n "$FAKE_LEAK_BLOB" ] && [ "$prog" = "$SATELLE" ]; then
+      "$prog" "$@"; rc=$?
+      blobs="$FAKE/$name/node/runtime/blobs"
+      mkdir -p "$blobs"
+      printf '%s' "$FAKE_LEAK_BLOB" > "$blobs/leak.tmp"
+      sum=$(sha256sum "$blobs/leak.tmp" | cut -d' ' -f1)
+      mv "$blobs/leak.tmp" "$blobs/$sum"
+      exit $rc
+    fi
     exec "$prog" "$@" ;;
   *) echo "fake docker: $cmd not faked" >&2; exit 1 ;;
 esac
@@ -200,7 +211,7 @@ func TestDockerLocalFireRoundTrip(t *testing.T) {
 		switch {
 		case strings.HasPrefix(l, "run -d --name "+name+" "):
 			run = i
-		case strings.HasPrefix(l, "exec "+name+" satelle node run-local"):
+		case strings.HasPrefix(l, "exec -i "+name+" satelle node run-local"):
 			runLocal = i
 		case strings.HasPrefix(l, "rm ") && runLocal < 0:
 			t.Fatalf("rm before the node ran: %q", l)
@@ -356,6 +367,7 @@ REAL='@REAL@'
 REPO='@REPO@'
 SANDBOX='@SANDBOX@'
 echo "$*" >> "$GATE/log"
+env >> "$GATE/docker-env.log"
 if [ "$1" = build ]; then
   if [ "$*" = "build -t satelle-node:local -f $SANDBOX/Dockerfile $SANDBOX" ]; then
     exec "$REAL" build -t satelle-node:local -f "$REPO/Dockerfile" "$REPO"
@@ -363,8 +375,8 @@ if [ "$1" = build ]; then
   echo "gate shim: unexpected build: $*" >&2
   exit 2
 fi
-if [ "$1" = exec ] && [ "$3 $4 $5" = "satelle node run-local" ]; then
-  echo "$2" > "$GATE/running"
+if [ "$1" = exec ] && { [ "$3 $4 $5" = "satelle node run-local" ] || [ "$4 $5 $6" = "satelle node run-local" ]; }; then
+  if [ "$2" = -i ]; then echo "$3" > "$GATE/running"; else echo "$2" > "$GATE/running"; fi
   while [ ! -f "$GATE/release" ]; do sleep 0.2; done
 fi
 exec "$REAL" "$@"
@@ -456,7 +468,7 @@ func TestDockerLocalFireOnDaemon(t *testing.T) {
 		t.Fatalf("no docker exec hint for %s before the node ran:\n%s", name, stdout.String())
 	}
 	sl := shimLog()
-	if r, x := strings.Index(sl, "run -d --name "+name+" "), strings.Index(sl, "exec "+name+" satelle node run-local"); r < 0 || x < 0 || r > x {
+	if r, x := strings.Index(sl, "run -d --name "+name+" "), strings.Index(sl, "exec -i "+name+" satelle node run-local"); r < 0 || x < 0 || r > x {
 		t.Fatalf("shim log: run at %d, gated exec at %d\n%s", r, x, sl)
 	}
 	v, err := exec.Command(real, "exec", name, "satelle", "version").CombinedOutput()
@@ -540,7 +552,7 @@ func runLocalCount(t *testing.T, fake string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return len(regexp.MustCompile(`(?m)^exec satelle-node-nod_[0-9a-f]+ satelle node run-local`).FindAll(b, -1))
+	return len(regexp.MustCompile(`(?m)^exec -i satelle-node-nod_[0-9a-f]+ satelle node run-local`).FindAll(b, -1))
 }
 
 func TestDockerLocalFireTask(t *testing.T) {
@@ -567,7 +579,7 @@ func TestDockerLocalFireTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r, x := strings.Index(string(b), "run -d --name "+m[2]+" "), strings.Index(string(b), "exec "+m[2]+" satelle node run-local"); r < 0 || x < 0 || r > x {
+	if r, x := strings.Index(string(b), "run -d --name "+m[2]+" "), strings.Index(string(b), "exec -i "+m[2]+" satelle node run-local"); r < 0 || x < 0 || r > x {
 		t.Fatalf("docker log: run at %d, run-local at %d\n%s", r, x, b)
 	}
 
@@ -602,7 +614,7 @@ func TestDockerLocalFireTask(t *testing.T) {
 	}
 
 	help := s.must("help", "remotes")
-	for _, want := range []string{"A docker-local node runs a task drive", "`[secrets]` and `[[repo]]` are refused locally"} {
+	for _, want := range []string{"A docker-local node runs a task drive", "a docker definition declaring a secret may allow no host", "`[secrets.override]` and `[[repo]]` are refused locally"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("satelle help remotes misses %q", want)
 		}

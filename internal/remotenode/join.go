@@ -213,7 +213,7 @@ func (j *joiner) work(parent context.Context) (Outcome, error) {
 			return Outcome{}, err
 		}
 	}
-	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, env)
+	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, env, nil)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -283,7 +283,7 @@ func (j *joiner) runSetup(ctx context.Context, dir string, def remotedef.Definit
 	return nil
 }
 
-func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher agent.Dispatcher, env []string) (*kernel.Kernel, error) {
+func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher agent.Dispatcher, env []string, redact func(string) string) (*kernel.Kernel, error) {
 	if err := writeOverlay(root, overlay); err != nil {
 		return nil, err
 	}
@@ -300,17 +300,22 @@ func openNodeKernel(root, tree, runtime string, overlay []fileEntry, dispatcher 
 		b.Placement = agent.PlaceLocal
 		k.Agents[name] = b
 	}
-	k.Dispatcher = withEnv{inner: dispatcher, env: env}
+	k.Redact = redact
+	k.Dispatcher = withEnv{inner: dispatcher, env: env, redact: redact}
 	return k, nil
 }
 
 type withEnv struct {
-	inner agent.Dispatcher
-	env   []string
+	inner  agent.Dispatcher
+	env    []string
+	redact func(string) string
 }
 
 func (w withEnv) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
 	req.Env = append(append([]string{}, req.Env...), w.env...)
+	if w.redact != nil {
+		req.Redact = w.redact
+	}
 	return w.inner.Dispatch(ctx, role, req)
 }
 

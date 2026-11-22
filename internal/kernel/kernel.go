@@ -47,6 +47,7 @@ type Kernel struct {
 	Now           func() time.Time
 	CheckTimeout  time.Duration
 	Logs          string
+	Redact        func(string) string
 	Machine, Host string
 	User          func() string
 	Sessions      SessionOwner

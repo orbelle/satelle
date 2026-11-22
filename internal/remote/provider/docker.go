@@ -43,6 +43,18 @@ func (d DockerLocal) docker(ctx context.Context, env []string, args ...string) (
 	return out.Bytes(), nil
 }
 
+func (d DockerLocal) dockerIn(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, d.bin(), args...)
+	cmd.Env = os.Environ()
+	cmd.Stdin = stdin
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		return out.Bytes(), fmt.Errorf("docker %s: %w", args[0], err)
+	}
+	return out.Bytes(), nil
+}
+
 func (d DockerLocal) Available(ctx context.Context) error {
 	_, err := d.docker(ctx, nil, "info", "--format", "{{.ServerVersion}}")
 	return err
@@ -88,10 +100,14 @@ func (d DockerLocal) Start(ctx context.Context, def remotedef.Definition, run Ru
 		return nil, err
 	}
 	h := &container{d: d, name: name}
-	for _, phase := range []struct {
+	phases := []struct {
 		name string
 		cmds []string
-	}{{"on_create", def.Setup.OnCreate}, {"post_start", def.Setup.PostStart}} {
+	}{{"on_create", def.Setup.OnCreate}, {"post_start", def.Setup.PostStart}}
+	if run.NoSetup {
+		phases = nil
+	}
+	for _, phase := range phases {
 		for i, c := range phase.cmds {
 			if _, err := h.Exec(ctx, "sh", "-c", c); err != nil {
 				return h, fmt.Errorf("setup %s command %d failed in %s: %w", phase.name, i+1, name, err)
@@ -119,6 +135,10 @@ func (c *container) ID() string { return c.name }
 
 func (c *container) Exec(ctx context.Context, argv ...string) ([]byte, error) {
 	return c.d.docker(ctx, nil, append([]string{"exec", c.name}, argv...)...)
+}
+
+func (c *container) ExecStdin(ctx context.Context, stdin io.Reader, argv ...string) ([]byte, error) {
+	return c.d.dockerIn(ctx, stdin, append([]string{"exec", "-i", c.name}, argv...)...)
 }
 
 func (c *container) CopyIn(ctx context.Context, host, machine string) error {
