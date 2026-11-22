@@ -31,7 +31,6 @@ var providers = []provider{
 	{cursor.Hook{}, cursor.Dispatch{}},
 }
 
-// dispatchOnly adapters run headless dispatches but have no harness hooks.
 var dispatchOnly = []common.DispatchAdapter{agy.Dispatch{}}
 
 func dispatches() []common.DispatchAdapter {

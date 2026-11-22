@@ -43,9 +43,6 @@ type fake struct {
 
 func (f fake) file(name string) string { return filepath.Join(f.rec, name) }
 
-// fakeAgy records its argv, stdin, the run's settings and guard hook files
-// with their paths, and the auto-update variable, then prints stream and
-// exits with exit.
 func fakeAgy(t *testing.T, stream string, exit int) fake {
 	t.Helper()
 	dir := t.TempDir()

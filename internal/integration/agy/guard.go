@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-// complementMatcher returns a flat, |-separated list of anchored RE2
-// branches, with no parentheses, that matches every tool name except the
-// allowed ones. agy splits a PreToolUse matcher on | before it compiles each
-// branch, so nested alternation would not match.
 func complementMatcher(allowed []string) string {
 	root := &trieNode{children: map[byte]*trieNode{}}
 	for _, name := range allowed {
@@ -77,10 +73,6 @@ func denyCommand() string {
 	return "printf '" + body + "'"
 }
 
-// guardHooks is the hook file a run's guard directory carries: one PreToolUse
-// entry that denies every tool outside tools. agy matches the matcher against
-// the tool name only, so neither the prompt nor tool arguments reach it, and
-// the command reads and interpolates nothing.
 func guardHooks(tools []string) ([]byte, error) {
 	doc := map[string]any{
 		guardOwner: map[string]any{

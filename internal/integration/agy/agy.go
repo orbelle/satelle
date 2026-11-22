@@ -32,8 +32,6 @@ const (
 	autoUpdateEnv       = "AGY_CLI_DISABLE_AUTO_UPDATE=true"
 )
 
-// actions are the rule actions agy's permission engine evaluates; a rule
-// naming anything else is ignored, which is why the guard hook exists.
 var actions = []string{"read_file", "write_file", "command", "unsandboxed", "mcp", "read_url", "execute_url", "download_url"}
 
 var efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -184,8 +182,6 @@ func (d Dispatch) Run(ctx context.Context, req common.Request) (common.Result, e
 	return parseAgy(out)
 }
 
-// agyFiles writes the run's session settings and guard hook under tmp, never
-// under the working tree; the caller removes tmp when the run ends.
 func agyFiles(req common.Request, tmp string, g agyGrant) (settings, guard string, err error) {
 	perms, err := json.Marshal(map[string]any{"permissions": map[string]any{"allow": g.Allow, "deny": g.Deny}})
 	if err != nil {
@@ -214,11 +210,8 @@ func agyFiles(req common.Request, tmp string, g agyGrant) (settings, guard strin
 	return settings, guard, nil
 }
 
-// lifecycleEvents are the user hook events that cannot decide a tool call.
 var lifecycleEvents = []string{"PreInvocation", "PostInvocation", "Stop", "PostToolUse"}
 
-// agyHostConfig refuses, naming the file, any agy config that would run
-// repository code in the run or could loosen the run's grant.
 func agyHostConfig(dir, home string) error {
 	for d := dir; ; {
 		if err := refuseHooksFile(filepath.Join(d, ".agents", "hooks.json")); err != nil {

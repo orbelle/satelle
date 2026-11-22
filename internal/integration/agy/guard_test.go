@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// initTools is init.tools from the captured stream (agy 1.5.14).
 func initTools(t *testing.T) []string {
 	t.Helper()
 	line := strings.SplitN(string(fixture(t, "agy-stream.jsonl")), "\n", 2)[0]
