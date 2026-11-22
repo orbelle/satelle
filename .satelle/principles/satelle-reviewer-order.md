@@ -22,9 +22,11 @@ isolated. On a transition they run in this order:
    change they refuse is not worth a judge's tokens.
 2. **Scope** (binary-scope): a plan or change in the wrong place makes every
    later verdict moot.
-3. **The costliest misses** (security, then the constitution reviewer): a miss
+3. **Classifiers a later reviewer reads** (risk-assess, whose tier picks the
+   security and code-ac judges): before the reviewer that reads them.
+4. **The costliest misses** (security, then the constitution reviewer): a miss
    here ships a risk no later fix fully undoes.
-4. **Fit to the story or the criteria** (plan-review, code-ac): judged last, on
+5. **Fit to the story or the criteria** (plan-review, code-ac): judged last, on
    a change that is in scope and safe.
 
 A reviewer that reads another's output always runs after it. The reason for
