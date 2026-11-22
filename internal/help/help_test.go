@@ -128,6 +128,20 @@ func TestLedgerStoreChoiceDocumented(t *testing.T) {
 	}
 }
 
+func TestAgentsTopicDocumentsAgy(t *testing.T) {
+	var agents string
+	for _, top := range List() {
+		if top.Name == "agents" {
+			agents = top.Body
+		}
+	}
+	for _, want := range []string{"agy", "--input-format stream-json", "--settings", "--add-dir", "PreToolUse", "command(*)", ".agents/hooks.json", ".antigravity/settings.json", "AGY_CLI_DISABLE_AUTO_UPDATE"} {
+		if !strings.Contains(agents, want) {
+			t.Errorf("agents topic lacks %q", want)
+		}
+	}
+}
+
 func TestAgentsTopicDocumentsCursor(t *testing.T) {
 	var agents, workflows string
 	for _, top := range List() {

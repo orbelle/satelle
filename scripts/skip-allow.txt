@@ -23,5 +23,8 @@ github.com/bobmcallan/satelle/tests TestRemoteGateServiceOnDaemon needs a runnin
 # Live Cursor session under satelle hooks (sto_e51c7fb9): opt-in, needs cursor-agent signed in and billed.
 github.com/bobmcallan/satelle/tests TestCursorSessionRunsUnderSatelleHooks runs cursor-agent live only with SATELLE_LIVE_CURSOR=1; the hook answers are covered by the internal/cli Cursor tests that always run
 
+# Live agy judge run (sto_3fa969fd): opt-in, needs agy signed in.
+github.com/bobmcallan/satelle/internal/integration/agy TestAgyJudgeHasNoShellOrEdit runs agy live only with SATELLE_LIVE_AGY=1; the fake-agy dispatch tests always run
+
 # bwrap mode can only be proved where bubblewrap runs (sto_e3c6bfb6).
 github.com/bobmcallan/satelle/scripts TestHermeticBwrapMakesCallerSatelleHomeReadOnly needs bubblewrap with unprivileged user namespaces; a container node runs make test in the opted-in snapshot mode, whose guard TestHermeticCatchesWriteToCallerRealSatelleHome always proves

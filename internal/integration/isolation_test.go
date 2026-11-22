@@ -9,6 +9,7 @@ import (
 const module = "github.com/bobmcallan/satelle/internal/"
 
 var providerPackages = []string{
+	module + "integration/agy",
 	module + "integration/claude",
 	module + "integration/cursor",
 	module + "integration/grok",

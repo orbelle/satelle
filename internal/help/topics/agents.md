@@ -3,7 +3,7 @@
 `.satelle/agents.toml` is a free catalog of bindings:
 
     [agents.reviewer]
-    command = "claude"           # claude | pi | grok | cursor-agent | session, or a command line
+    command = "claude"           # claude | pi | grok | cursor-agent | agy | session, or a command line
     model = "..."
     tools = ["Read", "Grep", "Glob"]
 
@@ -97,6 +97,7 @@ The adapter is chosen by the basename of the command's first word.
 | pi | --tools | plain denies removed from the grant; a scoped deny on a shell grant is refused | read-only grants |
 | grok | --tools | --deny; a scoped deny on a shell grant is refused | read-only grants |
 | cursor-agent | ask or force mode (below) | every shell command, in the run's own Cursor config | read-only grants |
+| agy | per-run --settings permissions (read_file, write_file) plus a default-deny PreToolUse guard | every other rule action and every tool outside the grant | read-only grants |
 | session | not dispatched: the interactive session performs | the edit gate | never |
 
 When a seated interactive session moves an item out of a state whose performer
@@ -140,6 +141,60 @@ stream, every tool call included, is in its dispatch log.
   decode, makes the run fail, naming the file. A deny-only file is allowed.
 - A run that fails names why (cursor-agent missing, not signed in, an error
   result, no answer, a project config) and is never a verdict.
+
+## agy
+
+The Antigravity CLI, validated on agy 1.5.14, signed in on the machine. agy
+is a dispatch adapter only: it has no harness hooks and `satelle agents
+install` does not name it. A run is `agy --input-format stream-json
+--output-format stream-json --disable-slash-commands --settings <settings
+file> --add-dir <run dir> --add-dir <guard dir>`, then `--model <model>` and
+`--effort <effort>` when the binding sets them. There is no `-p` and no
+`--mode`: the skill and the work go on stdin as one NDJSON `user` event
+(`{"event":"user","message":{"content":...}}`), never in argv, and the run's
+stream is in its dispatch log.
+
+- The grant is held in two layers, both written to a temporary directory
+  removed when the run ends; nothing is written to the working tree, and
+  `--settings` is session-only, so the user's own agy settings are never
+  changed.
+  - The `--settings` file allows the granted rule actions and denies every
+    other one of agy's eight (`read_file`, `write_file`, `command(*)`,
+    `unsandboxed`, `mcp`, `read_url`, `execute_url`, `download_url`). Its
+    deny outranks an allow in the user's or the repository's agy settings.
+  - agy's rules cannot name its other tools (web search, browser, subagents,
+    notebooks, scheduling and the rest), so the second `--add-dir` is a guard
+    directory whose `.agents/hooks.json` holds one `PreToolUse` hook that
+    denies every tool outside the grant by name, tools agy adds later
+    included. Its matcher sees only the tool name, never the prompt or the
+    tool's arguments.
+- A read-only grant (Read, Grep, Glob) allows `read_file` only, and can judge.
+  An Edit and Write grant adds `write_file` (agy's write and edit tools).
+- Bash and scoped Bash grants are refused, at `satelle validate --session <session>`. agy's
+  `command(...)` deny rules match the command text, so a variable expansion
+  (`CMD="satelle story"; $CMD set ...`) escapes them, and they cannot hold a
+  shell to the performer denies.
+- Read, Grep and Glob are granted together, Edit and Write together.
+  NotebookEdit is refused.
+- `effort` is one of low, medium, high, xhigh, max; a model id that already
+  ends in an effort (e.g. `gemini-4-hydrogen-high`) with `effort` set is
+  refused.
+- A run refuses, naming the file, before anything runs: a `.agents/hooks.json`
+  in the run's directory or any directory above it, or in your home
+  directory; a `.antigravity/settings.json` there that does not decode or sets
+  `permissions.allow`, `permissions.ask`, `toolPermission`, `agentMode` or
+  `hooks`; a user hook file (`~/.gemini/config/hooks.json`,
+  `~/.gemini/antigravity-cli/hooks.json`) that does not decode or defines any
+  event but `PreInvocation`, `PostInvocation`, `Stop` and `PostToolUse`, which
+  cannot decide a tool call; and a `~/.gemini/antigravity-cli/settings.json`
+  that sets `hooks`. Lifecycle-only user hooks run, as user-owned code.
+- Every run sets `AGY_CLI_DISABLE_AUTO_UPDATE=true`, so a self-update never
+  races a dispatch.
+- The model is the stream's `init.model`, or `unavailable (agy)` when agy
+  names none; tokens in are input plus cache-read tokens, tokens out the
+  output tokens.
+- A run that fails names why (agy missing, not signed in, an error result, no
+  answer, a refused config) and is never a verdict.
 
 ## This machine's overrides
 

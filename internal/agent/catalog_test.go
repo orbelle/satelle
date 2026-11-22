@@ -82,6 +82,23 @@ command = "session"
 	if a, err := AdapterFor(Binding{Command: "/opt/x/cursor-agent"}); err != nil || a.Name() != "cursor-agent" {
 		t.Fatalf("AdapterFor(/opt/x/cursor-agent) = %v, %v", a, err)
 	}
+	agyJudge := Catalog{"a": {Name: "a", Command: "agy", Model: "gemini-4-hydrogen", Effort: "high", Tools: []string{"Read", "Grep", "Glob"}}}
+	if errs := agyJudge.Validate(); len(errs) != 0 {
+		t.Fatalf("a read-only agy binding: %v", errs)
+	}
+	if err := CheckJudge(agyJudge["a"]); err != nil {
+		t.Fatalf("a read-only agy binding may judge: %v", err)
+	}
+	if err := CheckJudge(Binding{Name: "e", Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write"}}); err == nil {
+		t.Fatal("an Edit-granted agy binding may judge")
+	}
+	agyShell := Catalog{"as": {Name: "as", Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}}}
+	if errs := agyShell.Validate(); len(errs) != 1 || !strings.Contains(errs[0].Error(), "agents.as") || !strings.Contains(errs[0].Error(), "grant no Bash") {
+		t.Fatalf("a Bash-granted agy binding: %v", errs)
+	}
+	if a, err := AdapterFor(Binding{Command: "/opt/x/agy"}); err != nil || a.Name() != "agy" {
+		t.Fatalf("AdapterFor(/opt/x/agy) = %v, %v", a, err)
+	}
 }
 
 func argvOf(t *testing.T, req Request) ([]string, error) {
@@ -155,6 +172,31 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 			t.Errorf("cursor expressed %s", name)
 		}
 	}
+	argv, err = argvOf(t, Request{Binding: Binding{Command: "agy", Model: "gemini-4-hydrogen", Effort: "high", Tools: []string{"Read", "Grep", "Glob"}}, Prompt: "do", System: "sys"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(argv, " "); got != "agy --input-format stream-json --output-format stream-json --disable-slash-commands --settings <settings file> --add-dir <run dir> --add-dir <guard dir> --model gemini-4-hydrogen --effort high" {
+		t.Fatalf("agy judge argv %s", got)
+	}
+	if _, err := argvOf(t, Request{Binding: Binding{Command: "agy", Tools: writer}, Deny: PerformerDenies}); err != nil {
+		t.Fatalf("agy performer: %v", err)
+	}
+	for name, b := range map[string]Binding{
+		"Bash":              {Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}},
+		"Bash without Edit": {Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Bash"}},
+		"scoped Bash":       {Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash(go test:*)"}},
+		"NotebookEdit":      {Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit"}},
+		"only Edit":         {Command: "agy", Tools: []string{"Read", "Grep", "Glob", "Edit"}},
+		"missing Glob":      {Command: "agy", Tools: []string{"Read", "Grep"}},
+		"unknown effort":    {Command: "agy", Tools: []string{"Read", "Grep", "Glob"}, Effort: "extreme"},
+		"effort twice":      {Command: "agy", Tools: []string{"Read", "Grep", "Glob"}, Model: "gemini-4-hydrogen-high", Effort: "low"},
+	} {
+		_, err := argvOf(t, Request{Binding: b, Deny: PerformerDenies})
+		if err == nil || (strings.HasPrefix(name, "Bash") || name == "scoped Bash") && !strings.Contains(err.Error(), "grant no Bash") {
+			t.Errorf("agy %s: %v", name, err)
+		}
+	}
 	argv, err = argvOf(t, Request{Binding: Binding{Command: "grok", Tools: []string{"Read", "Grep"}, Deny: []string{"Write"}}, Prompt: "do"})
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +208,7 @@ func TestArgvExpressesGrantsAndDenies(t *testing.T) {
 
 func TestNoAdapterPutsThePromptInArgv(t *testing.T) {
 	const prompt = "UNIQUE-PROMPT-TEXT"
-	for _, cmd := range []string{"claude", "pi", "grok", "cursor-agent"} {
+	for _, cmd := range []string{"claude", "pi", "grok", "cursor-agent", "agy"} {
 		argv, err := argvOf(t, Request{Binding: Binding{Command: cmd, Tools: []string{"Read", "Grep", "Glob"}}, Prompt: prompt, System: "skill"})
 		if err != nil {
 			t.Fatalf("%s: %v", cmd, err)

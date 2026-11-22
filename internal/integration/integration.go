@@ -3,6 +3,7 @@ package integration
 import (
 	"slices"
 
+	"github.com/bobmcallan/satelle/internal/integration/agy"
 	"github.com/bobmcallan/satelle/internal/integration/claude"
 	"github.com/bobmcallan/satelle/internal/integration/common"
 	"github.com/bobmcallan/satelle/internal/integration/cursor"
@@ -15,6 +16,7 @@ const (
 	Pi     = pi.Name
 	Grok   = grok.Name
 	Cursor = cursor.Name
+	Agy    = agy.Name
 )
 
 type provider struct {
@@ -27,6 +29,17 @@ var providers = []provider{
 	{pi.Hook{}, pi.Dispatch{}},
 	{grok.Hook{}, grok.Dispatch{}},
 	{cursor.Hook{}, cursor.Dispatch{}},
+}
+
+// dispatchOnly adapters run headless dispatches but have no harness hooks.
+var dispatchOnly = []common.DispatchAdapter{agy.Dispatch{}}
+
+func dispatches() []common.DispatchAdapter {
+	out := make([]common.DispatchAdapter, 0, len(providers)+len(dispatchOnly))
+	for _, p := range providers {
+		out = append(out, p.dispatch)
+	}
+	return append(out, dispatchOnly...)
 }
 
 func Names() []string {
@@ -73,17 +86,17 @@ func IsShellTool(tool string) bool {
 }
 
 func Dispatches() []string {
-	out := make([]string, 0, len(providers))
-	for _, p := range providers {
-		out = append(out, p.dispatch.Name())
+	var out []string
+	for _, d := range dispatches() {
+		out = append(out, d.Name())
 	}
 	return out
 }
 
 func Dispatch(preset string) (common.DispatchAdapter, bool) {
-	for _, p := range providers {
-		if p.dispatch.Name() == preset {
-			return p.dispatch, true
+	for _, d := range dispatches() {
+		if d.Name() == preset {
+			return d, true
 		}
 	}
 	return nil, false
