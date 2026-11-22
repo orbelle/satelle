@@ -151,7 +151,7 @@ key by project; River and the derive job; story data out of Snapshot.
    table, column, config key, test and help text the change replaces are
    deleted, with their callers migrated. No compatibility shim, dual path,
    deprecated alias or "kept for now".
-2. **Declare breaking changes.** A `### Breaking` entry in CHANGELOG states what
+2. **Declare breaking changes.** A `### Breaking` entry in the release notes states what
    broke and the exact command that heals it. `init-heals:` only when `satelle
    init --session <session>` alone heals it.
 3. **No new warnings across the machine.** The binary and the web service are

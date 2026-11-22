@@ -33,13 +33,14 @@ reason recorded on the item; every send-back reason below says so. A
 pushed-back item reopens; it never becomes a new story, and its worktree stays
 (step 10 keeps the worktree of an item that is not in a terminal state).
 
-Items never edit `CHANGELOG.md` or a file under `docs/releases/`, beyond
+Items never edit a file under `docs/releases/`, beyond
 backfilling the notes of versions already released (step 2a): each records
 its lines as an attachment named `changelog` (format in
 `satelle-pr-ready-check/SKILL.md`, owned by `scripts/changelog-items.sh`), and
 this run writes the version's notes to `docs/releases/v<version>.md` from the
-items it lands (step 3). `CHANGELOG.md` is the archive of every version released before
-`docs/releases/` held the notes, and no release edits it.
+items it lands (step 3). Every released version has its own notes file there
+(`docs/releases/v0.md` holds the 0.0.x and serve-v0.0.x notes), and no release
+edits an earlier version's file.
 
 The run's items reach `done` only through it: the `release-run` gate on
 `approved → done` refuses any item no in-progress run lists. Every step below
@@ -190,13 +191,14 @@ cannot judge at all (git, satelle or bash is not on PATH, or git cannot diff
 the head, named on stderr):
 that is a failed step, which stops the run. The head's own
 `scripts/changelog-items.sh` validates the attachment, so a legacy head
-without the script is sent back too. The release-notes test (`CHANGELOG.md`
-and every file under `docs/releases/`) reads the head's own commits only
+without the script is sent back too. The release-notes test (every file under
+`docs/releases/`, and any `CHANGELOG.md`) reads the head's own commits only
 (`$tip...$head`, from their merge base), so a head cut from an older main is
-not mistaken for one that edits them. Backfilling the archive is the one
-change it keeps: deleting `CHANGELOG.md`, and adding `docs/releases/v<ver>.md`
-(or `docs/releases/v0.md`) that `$tip` lacks for a `<ver>` below `$tip`'s
-`satelle.version`, a version already released (the rule is read from `$tip`,
+not mistaken for one that edits them. Backfilling the notes of released
+versions is the one change it keeps: adding `docs/releases/v<ver>.md` (or
+`docs/releases/v0.md`) that `$tip` lacks for a `<ver>` below `$tip`'s
+`satelle.version`, a version already released, and deleting a `CHANGELOG.md`
+`$tip` still has (the rule is read from `$tip`,
 never the head, so a head cannot relax it; a tip without a `.version` sends
 back every path); every other change is sent back naming the path.
 
@@ -547,9 +549,7 @@ id, and ends in exactly one newline; nothing is staged above it.
 file, so a malformed attachment writes nothing, and it refuses a file that
 exists. The lines are copied verbatim; the run never edits an item's content.
 A missing attachment stops the run. A resumed run whose
-`docs/releases/v<ver>.md` exists changes nothing. `CHANGELOG.md` is the
-archive of every version released before `docs/releases/` held the notes: the
-run never reads or edits it.
+`docs/releases/v<ver>.md` exists changes nothing.
 
 `ids` lists the carried items first, oldest first, then the kept items in
 landing order (an id already carried is not listed again), except each whose
@@ -593,8 +593,7 @@ or names another candidate; on `binary: unchanged`, with "a binary-unchanged
 run pushes the tested candidate and nothing on top" when HEAD is not exactly
 the tested commit; on `binary: changed`, with "the candidate changed after the
 suite ran" when the tested commit is not under HEAD or HEAD differs from it
-outside `.version` and `docs/releases/v<ver>.md` (a `CHANGELOG.md` change
-stops it too); and with "drift-check has not passed on
+outside `.version` and `docs/releases/v<ver>.md`; and with "drift-check has not passed on
 the tested candidate" when the drift gate's sha (`$rd/drift-checked`) is not
 the tested one. Beside `release-kept` it attaches `release-drift`, the drift
 gate's exit on the tested sha and every miss the run fixed, and

@@ -48,7 +48,7 @@ func newChangelogSandbox(t *testing.T) *changelogSandbox {
 	s.git("remote", "add", "origin", origin)
 	s.must("init")
 	s.write(".version", "satelle.version: 1.0.0\nsatelled.version: 1.0.0\n")
-	s.write("CHANGELOG.md", baseChangelog)
+	s.write("docs/releases/v1.0.0.md", baseChangelog)
 	writeFile(t, filepath.Join(s.dir, "scripts", "changelog-items.sh"), string(script), 0o755)
 	writeFile(t, filepath.Join(s.dir, "scripts", "release-binary.sh"), repoText(t, "scripts/release-binary.sh"), 0o755)
 	s.write(".satelle/workflows/default.toml", `name = "default"
@@ -291,8 +291,8 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	notes := filepath.Join(wt, "docs", "releases", "v1.0.1.md")
 	unchanged := func(when string) {
 		t.Helper()
-		if got, _ := os.ReadFile(filepath.Join(wt, "CHANGELOG.md")); string(got) != baseChangelog {
-			t.Fatalf("%s changed CHANGELOG.md:\n%s", when, got)
+		if got, _ := os.ReadFile(filepath.Join(wt, "docs", "releases", "v1.0.0.md")); string(got) != baseChangelog {
+			t.Fatalf("%s changed docs/releases/v1.0.0.md:\n%s", when, got)
 		}
 	}
 	got, _ := os.ReadFile(notes)
@@ -355,8 +355,8 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	if r := c.exec("bash", "", "-c", changelogBlock(t, wtE, "1.0.3")); r.code != 0 || !strings.Contains(r.out, "released before") {
 		t.Fatalf("step 3 with no unreleased item: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	if after, _ := os.ReadFile(filepath.Join(wtE, "CHANGELOG.md")); string(after) != baseChangelog {
-		t.Fatalf("step 3 with no unreleased item changed CHANGELOG.md:\n%s", after)
+	if after, _ := os.ReadFile(filepath.Join(wtE, "docs", "releases", "v1.0.0.md")); string(after) != baseChangelog {
+		t.Fatalf("step 3 with no unreleased item changed docs/releases/v1.0.0.md:\n%s", after)
 	}
 	if _, err := os.Stat(filepath.Join(wtE, "docs", "releases", "v1.0.3.md")); !os.IsNotExist(err) {
 		t.Fatalf("step 3 with no unreleased item wrote docs/releases/v1.0.3.md: %v", err)
@@ -382,18 +382,24 @@ func TestReleaseWritesChangelogFromItems(t *testing.T) {
 	}
 }
 
-func TestChangelogEntryReadsCHANGELOGForOlderVersions(t *testing.T) {
+func TestChangelogEntryReadsOnlyDocsReleases(t *testing.T) {
 	c := newChangelogSandbox(t)
 	idL := c.story("### Fixed\n- L fixes a thing\n")
 	idM := c.story("### Added\n- M adds a thing\n")
-	legacy := c.worktree("origin/main", true)
-	c.at(legacy, func() {
+	idO := c.story("### Added\n- O is only in a CHANGELOG.md\n")
+	split := c.worktree("origin/main", true)
+	c.at(split, func() {
 		c.write(".version", "satelle.version: 1.0.1\nsatelled.version: 1.0.0\n")
-		c.write("CHANGELOG.md", "## [1.0.1] - 2026-02-01\n\n### Fixed\n- L fixes a thing ("+idL+")\n\n"+baseChangelog)
-		c.git("commit", "-q", "-am", "chore(release): v1.0.1 (old scheme)")
+		c.write("docs/releases/v1.0.1.md", "## [1.0.1] - 2026-02-01\n\n### Fixed\n- L fixes a thing ("+idL+")\n")
+		c.write("CHANGELOG.md", "## [1.0.1] - 2026-02-01\n\n### Added\n- O is only in a CHANGELOG.md ("+idO+")\n\n"+baseChangelog)
+		c.git("add", "-A")
+		c.git("commit", "-q", "-m", "chore(release): v1.0.1 (notes split from the archive)")
 		c.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	})
 	c.git("fetch", "-q", "origin")
+	if strings.Contains(repoText(t, ".satelle/skills/satelle-changelog-entry-check.md"), "CHANGELOG.md") {
+		t.Error("satelle-changelog-entry-check names CHANGELOG.md; it reads docs/releases only")
+	}
 	check := shBlock(t, ".satelle/skills/satelle-changelog-entry-check.md", "", "tas_00000000")
 	gate := c.worktree("origin/main", true)
 	entry := func(id string) result {
@@ -406,8 +412,11 @@ func TestChangelogEntryReadsCHANGELOGForOlderVersions(t *testing.T) {
 		})
 		return r
 	}
-	if r := entry(idL); r.code != 0 || !strings.Contains(r.out, "CHANGELOG.md on origin/main opens with the [1.0.1] section") {
-		t.Fatalf("changelog-entry for a version older than docs/releases: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := entry(idL); r.code != 0 || !strings.Contains(r.out, "docs/releases/v1.0.1.md on origin/main opens with the [1.0.1] section") {
+		t.Fatalf("changelog-entry for 1.0.1: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if r := entry(idO); r.code != 1 || !strings.Contains(r.out, "docs/releases/v1.0.1.md on origin/main lacks "+idO+"'s lines") {
+		t.Fatalf("changelog-entry accepted an item only a CHANGELOG.md holds: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 
 	wt := c.worktree("origin/main", true)
@@ -418,8 +427,8 @@ func TestChangelogEntryReadsCHANGELOGForOlderVersions(t *testing.T) {
 	if r := entry(idM); r.code != 0 || !strings.Contains(r.out, "docs/releases/v1.0.2.md on origin/main opens with the [1.0.2] section") {
 		t.Fatalf("changelog-entry for 1.0.2: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	if r := entry(idL); r.code != 0 || !strings.Contains(r.out, "CHANGELOG.md on origin/main holds every line of "+idL+"'s changelog attachment in the [1.0.1] section, the release that published it") {
-		t.Fatalf("changelog-entry for an item CHANGELOG.md published: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := entry(idL); r.code != 0 || !strings.Contains(r.out, "docs/releases/v1.0.1.md on origin/main holds every line of "+idL+"'s changelog attachment in the [1.0.1] section, the release that published it") {
+		t.Fatalf("changelog-entry for an item docs/releases/v1.0.1.md published: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 
 	c.at(wt, func() {
@@ -428,7 +437,7 @@ func TestChangelogEntryReadsCHANGELOGForOlderVersions(t *testing.T) {
 		c.git("push", "-q", "origin", "HEAD:refs/heads/main")
 	})
 	c.git("fetch", "-q", "origin")
-	if r := entry(idM); r.code != 1 || !strings.Contains(r.out, "docs/releases/v1.0.3.md") {
+	if r := entry(idM); r.code != 1 || !strings.Contains(r.out, "origin/main has no docs/releases/v1.0.3.md") || strings.Contains(r.out, "CHANGELOG.md") {
 		t.Fatalf("changelog-entry for a version with no notes: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 }
@@ -464,20 +473,21 @@ func TestPRReadyRequiresChangelogAttachment(t *testing.T) {
 	}
 	c.attach(id, "### Added\n- P adds\n")
 	if r := ready(); r.code != 0 || !strings.Contains(r.out, "ready: PR #1") {
-		t.Fatalf("(d) valid attachment, CHANGELOG.md untouched: exit %d\n%s%s", r.code, r.out, r.err)
+		t.Fatalf("(d) valid attachment, docs/releases untouched: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.at(dir, func() {
 		c.write("CHANGELOG.md", "## [1.0.0] - 2026-01-01\n\n### Added\n- P's line\n- The first release.\n")
-		c.git("commit", "-q", "-am", "edit changelog")
+		c.git("add", "-A")
+		c.git("commit", "-q", "-m", "add a CHANGELOG.md")
 		c.git("push", "-q", "origin", "p")
 	})
 	c.pr(id, c.rev("p"))
 	if r := ready(); r.code != 1 || !strings.Contains(r.out, "edits CHANGELOG.md") || !strings.Contains(r.out, "--name changelog") ||
-		!strings.Contains(r.out, "git checkout origin/main -- CHANGELOG.md") {
-		t.Fatalf("(c) head edits CHANGELOG.md: exit %d\n%s%s", r.code, r.out, r.err)
+		!strings.Contains(r.out, "git rm CHANGELOG.md") {
+		t.Fatalf("(c) head adds CHANGELOG.md: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.at(dir, func() {
-		c.git("checkout", "-q", "origin/main", "--", "CHANGELOG.md")
+		c.git("rm", "-q", "CHANGELOG.md")
 		c.write("docs/releases/v1.0.1.md", "## [1.0.1] - 2026-02-01\n\n### Added\n- P adds\n")
 		c.git("add", "-A")
 		c.git("commit", "-q", "-m", "write release notes")
@@ -532,11 +542,11 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 		if u := strings.TrimSpace(c.git("diff", "--name-only", "--diff-filter=U")); u != "" {
 			t.Fatalf("unmerged paths: %s", u)
 		}
-		if r := c.exec("git", "", "diff", "--quiet", c.base, headB, "--", "CHANGELOG.md"); r.code != 0 {
-			t.Fatal("B's own commits touch CHANGELOG.md")
+		if r := c.exec("git", "", "diff", "--quiet", c.base, headB, "--", "docs/releases"); r.code != 0 {
+			t.Fatal("B's own commits touch docs/releases")
 		}
-		if r := c.exec("git", "", "diff", "--quiet", "origin/main", "HEAD", "--", "CHANGELOG.md"); r.code != 0 {
-			t.Fatal("the merge did not take main's CHANGELOG.md unchanged")
+		if r := c.exec("git", "", "diff", "--quiet", "origin/main", "HEAD", "--", "docs/releases"); r.code != 0 {
+			t.Fatal("the merge did not take main's docs/releases unchanged")
 		}
 		c.git("push", "-q", "origin", "b")
 	})
@@ -556,7 +566,7 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 
 	ctl := newChangelogSandbox(t)
 	line := func(s string) [2]string {
-		return [2]string{"CHANGELOG.md", "## [1.0.0] - 2026-01-01\n\n### Added\n- " + s + "\n- The first release.\n"}
+		return [2]string{"docs/releases/v1.0.0.md", "## [1.0.0] - 2026-01-01\n\n### Added\n- " + s + "\n- The first release.\n"}
 	}
 	headX := ctl.branch("x", ctl.base, [2]string{"x.txt", "x\n"}, line("X's line"))
 	ctl.branch("y", ctl.base, [2]string{"y.txt", "y\n"}, line("Y's line"))
@@ -567,8 +577,8 @@ func TestSentBackItemMergesMainCleanly(t *testing.T) {
 		if r := ctl.exec("git", "", "merge", "--no-edit", "-q", "origin/main"); r.code == 0 {
 			t.Fatal("control: merging main into Y did not conflict")
 		}
-		if u := strings.Fields(ctl.git("diff", "--name-only", "--diff-filter=U")); !slices.Equal(u, []string{"CHANGELOG.md"}) {
-			t.Fatalf("control: unmerged paths %v, want only CHANGELOG.md", u)
+		if u := strings.Fields(ctl.git("diff", "--name-only", "--diff-filter=U")); !slices.Equal(u, []string{"docs/releases/v1.0.0.md"}) {
+			t.Fatalf("control: unmerged paths %v, want only docs/releases/v1.0.0.md", u)
 		}
 	})
 }
@@ -644,6 +654,7 @@ func TestItemBackfillsReleasedNotes(t *testing.T) {
 	main := c.branch("released", c.base,
 		[2]string{".version", "satelle.version: 1.0.9\nsatelled.version: 1.0.9\n"},
 		[2]string{rule, repoText(t, rule)},
+		[2]string{"CHANGELOG.md", baseChangelog},
 		notes("1.0.8"))
 	c.git("push", "-q", "origin", main+":refs/heads/main")
 	c.git("fetch", "-q", "origin")

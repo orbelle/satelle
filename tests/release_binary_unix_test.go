@@ -305,8 +305,8 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	if got := b.must("execution", "attachment", run, "release-binary"); got != rec {
 		t.Fatalf("release-binary on %s:\n%s\nwant the decision\n%s", run, got, rec)
 	}
-	if r := b.exec("git", "", "diff", "--quiet", oldMain, "origin/main", "--", ".version", "CHANGELOG.md", "docs/releases"); r.code != 0 {
-		t.Fatal(".version, CHANGELOG.md or docs/releases changed on a binary-unchanged run")
+	if r := b.exec("git", "", "diff", "--quiet", oldMain, "origin/main", "--", ".version", "docs/releases"); r.code != 0 {
+		t.Fatal(".version or docs/releases changed on a binary-unchanged run")
 	}
 	if got := b.tags(); got != tagsBefore {
 		t.Fatalf("tags after the run:\n%s\nbefore:\n%s", got, tagsBefore)
@@ -436,7 +436,7 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 		t.Fatalf("done %s: exit %d\n%s%s", idA, r.code, r.out, r.err)
 	}
 	b.must("execution", "set", runU, "--status", "done")
-	if strings.Contains(b.git("show", "origin/main:CHANGELOG.md"), idA) || strings.TrimSpace(b.git("ls-tree", "--name-only", "origin/main", "docs/releases/")) != "" {
+	if got := strings.TrimSpace(b.git("ls-tree", "--name-only", "origin/main", "docs/releases/")); got != "docs/releases/v1.0.0.md" {
 		t.Fatal("run U wrote release notes")
 	}
 

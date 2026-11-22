@@ -118,8 +118,11 @@ func TestWriteReleaseNotes(t *testing.T) {
 	dir := t.TempDir()
 	a := attachment(t, dir, "sto_a", "### Fixed\n- a fix\n### Added\n- a feature\n")
 	b := attachment(t, dir, "sto_b", "### Breaking\n- b break\n### Changed\n- b change (sto_b)\n### Added\n- b feature\n")
-	log := filepath.Join(dir, "CHANGELOG.md")
+	log := filepath.Join(dir, "docs", "releases", "v1.2.2.md")
 	archive := "## [1.2.2] - 2026-11-01\n\n### Added\n- old (sto_0)\n"
+	if err := os.MkdirAll(filepath.Dir(log), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(log, []byte(archive), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +148,7 @@ func TestWriteReleaseNotes(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s\nfile\n%q\nwant\n%q", code, out, errOut, got, want)
 	}
 	if after, _ := os.ReadFile(log); string(after) != archive {
-		t.Fatalf("write changed CHANGELOG.md:\n%s", after)
+		t.Fatalf("write changed docs/releases/v1.2.2.md:\n%s", after)
 	}
 	for _, item := range []string{a, b} {
 		if out, errOut, code := changelogItems(t, "", "has", notes, "1.2.3", item); code != 0 {
@@ -166,15 +169,15 @@ func TestWriteReleaseNotes(t *testing.T) {
 	if _, err := os.Stat(other); !os.IsNotExist(err) {
 		t.Fatalf("a malformed attachment created %s: %v", other, err)
 	}
-	if entries, _ := os.ReadDir(filepath.Dir(other)); len(entries) != 1 {
-		t.Fatalf("docs/releases holds %d entries, want only v1.2.3.md", len(entries))
+	if entries, _ := os.ReadDir(filepath.Dir(other)); len(entries) != 2 {
+		t.Fatalf("docs/releases holds %d entries, want only v1.2.2.md and v1.2.3.md", len(entries))
 	}
 }
 
 func TestHas(t *testing.T) {
 	dir := t.TempDir()
 	a := attachment(t, dir, "sto_a", "### Added\n- a feature\n### Fixed\n- a fix\n")
-	log := filepath.Join(dir, "CHANGELOG.md")
+	log := filepath.Join(dir, "notes.md")
 	write := func(body string) {
 		t.Helper()
 		if err := os.WriteFile(log, []byte(body), 0o644); err != nil {

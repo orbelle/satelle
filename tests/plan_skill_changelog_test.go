@@ -10,7 +10,7 @@ import (
 func TestPlanSkillKeepsChangelogInTheAttachment(t *testing.T) {
 	text := repoText(t, ".satelle/skills/plan.md")
 	for _, want := range []string{
-		"never edits `CHANGELOG.md` or `.version`",
+		"never edits `.version` nor any file under `docs/releases/`",
 		"`changelog` attachment",
 		"scripts/changelog-items.sh",
 		"docs/releases/v<version>.md",

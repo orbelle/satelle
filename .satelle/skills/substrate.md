@@ -105,7 +105,7 @@ run in the main checkout) and remove the item's worktree
 ## Do not
 
 - Edit a path outside `.satelle/`; the paths gate refuses it.
-- Bump a version, edit `CHANGELOG.md` or `docs/releases/`, tag, publish, or install: the binary is
+- Bump a version, edit `docs/releases/`, tag, publish, or install: the binary is
   unchanged, so nothing is released.
 - Merge to main before the item is `done`, or merge anything but a fast-forward.
 - Move past a rejecting gate, or change the item's status any other way.
