@@ -1,15 +1,15 @@
 ---
 name: satelle-probe-version-check
 type: check
-description: The one gate of the probe workflow. Prints the version of the satelle that runs it and exits 0, so a drive of a probe item shows where its check ran. Deterministic, no agent.
+description: The check of the probe workflow. Prints the version of the satelle that runs it and exits 0, so a drive of a probe item shows where its check ran and which satelle ran it. Deterministic, no agent.
 ---
 
 # Probe version
 
-The probe workflow (`.satelle/workflows/probe.toml`) exists to give a remote
-node something it can drive end to end: one move, `backlog -> done`, with no
-performer and this one check. The check proves only that a check ran on the
-node and which satelle ran it; its output is the gate's notes.
+The probe workflow gives a remote node an item it can drive end to end with no
+performer; its states and gates are `satelle workflow show probe --session
+<session>`. This check proves only that a check ran on the node and which
+satelle ran it; its output is the gate's notes.
 
 ```sh
 set -u
