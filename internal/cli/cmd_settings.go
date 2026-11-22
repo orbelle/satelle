@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/config"
+	"github.com/bobmcallan/satelle/internal/hostapp/herdr"
 )
 
 type machineSetting struct {
@@ -63,6 +64,12 @@ var machineSettings = []machineSetting{
 			g.Service.Endpoint = v
 			return nil
 		}},
+	{"herdr.home", "herdr-app's home folder; empty is $" + herdr.EnvHome + ", else herdr's default",
+		func(g config.GlobalConfig) (string, string) {
+			eff, _ := herdr.Home(g.Herdr.Home)
+			return g.Herdr.Home, eff
+		},
+		func(g *config.GlobalConfig, v string) error { g.Herdr.Home = v; return nil }},
 }
 
 func findSetting(key string) (machineSetting, error) {

@@ -104,7 +104,9 @@ the installed binary: each harness in use gets satelle's current hooks, and a
 hook naming a satelle command the binary lacks is removed. It names each file
 git tracks and each repo whose .satelle/satelle.toml sets [hook] refresh =
 false, and leaves them. A refresh that does not finish (a --version pin to a
-build without agents refresh among the causes) makes update exit 1.
+build without agents refresh among the causes) makes update exit 1. The same
+refresh brings satelle's herdr panel up to date where 'satelle herdr install'
+put it; a herdr outcome never fails update.
 
 Last, whether or not anything was replaced, update lists each registered
 project whose .satelle is pre-1.0, with 'satelle upgrade --archive' to run in
@@ -176,7 +178,7 @@ it: this satelle cannot read them.`,
 			var hookErr error
 			if cliBin != nil {
 				hookErr = hookFailure(updateRefresh(ctx, target, out, cmd.ErrOrStderr()))
-			} else if failed := refreshAllHooks(out); failed > 0 {
+			} else if failed := refreshMachine(out); failed > 0 {
 				hookErr = hookFailure(fmt.Errorf("%d harness file(s) or project(s) not refreshed", failed))
 			}
 			legacy := registeredLegacy()

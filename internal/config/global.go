@@ -34,6 +34,13 @@ type GlobalConfig struct {
 	Upgrade  UpgradeConfig      `toml:"upgrade"`
 	UI       UIConfig           `toml:"ui"`
 	Hosted   GlobalHostedConfig `toml:"hosted"`
+	Herdr    HerdrConfig        `toml:"herdr"`
+}
+
+// HerdrConfig is where herdr-app keeps its home on this machine, set only when
+// it is not herdr's default.
+type HerdrConfig struct {
+	Home string `toml:"home"`
 }
 
 type GlobalHostedConfig struct {
@@ -237,6 +244,7 @@ func SaveGlobal(gc GlobalConfig) error {
 	body := fmt.Sprintf(globalTemplate, gc.Service.ResolvePort(), gc.Service.ResolveAddr(), strings.TrimSpace(gc.Service.Endpoint), gc.Service.Repo,
 		tomlStrings(gc.Projects.Paths), tomlStrings(gc.Upgrade.StartClean), gc.UI.Theme, gc.Hosted.ResolveServer())
 	body += renderHostedPush(gc.Hosted.Push)
+	body += renderHerdr(gc.Herdr)
 	path := GlobalConfigPath()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
@@ -273,6 +281,14 @@ func renderHostedPush(push *bool) string {
 		return doc + "# push = false\n"
 	}
 	return doc + fmt.Sprintf("push = %t\n", *push)
+}
+
+func renderHerdr(h HerdrConfig) string {
+	home := strings.TrimSpace(h.Home)
+	if home == "" {
+		return ""
+	}
+	return fmt.Sprintf("\n[herdr]\n# herdr-app's home when not its default (satelle herdr install)\nhome = %q\n", home)
 }
 
 const globalTemplate = `# satelle global config (machine-wide, ~/.satelle/config.toml).

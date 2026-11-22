@@ -403,3 +403,13 @@ func TestPackTomlDocumented(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentsTopicDocumentsHerdrPanel(t *testing.T) {
+	sec := helpSection(t, "agents", "## herdr panel")
+	for _, want := range []string{"herdr-app", "stories panel", "satelle herdr install --session <session>", "mods/satelle/main.js",
+		"layouts/satelle.json", "~/.config/herdr-app", "Linux", "macOS", "Windows", "HERDR_APP_HOME", "herdr.home", "satelle update"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("the herdr panel section lacks %q", want)
+		}
+	}
+}
