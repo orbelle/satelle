@@ -20,6 +20,7 @@ export function el() {
       if (k === "__node") return node;
       if (k === "then") return undefined;
       if (k === "id") return (v) => { node.id = v; return p; };
+      if (k === "bg") return () => { node.bg = true; return p; };
       if (k === "child") return (c) => { add(c); return p; };
       if (k === "children") return (cs) => { for (const c of cs ?? []) add(c); return p; };
       if (k === "when") return (c, f) => (c ? f(p) : p);
@@ -34,14 +35,25 @@ export const div = () => el();
 const panelBase = `import { el } from "./gpui-kit.mjs";
 export const v_flex = () => el();
 export const h_flex = () => el();
-export const InputState = { new: () => ({ on() {}, value: () => "", set_value() {} }) };
+export const InputState = {
+  new: () => {
+    let value = "";
+    const on = {};
+    return {
+      on(ev, fn) { on[ev] = fn; },
+      value: () => value,
+      set_value(v) { value = v; },
+      __type(v, cx) { value = v; on.change?.({}, cx); },
+    };
+  },
+};
 export const Input = { new: () => el() };
 export const Scrollbar = { vertical: () => el() };
 export const TextView = { markdown: () => el() };
 `
 
 const panelHerdr = `import { execFile } from "node:child_process";
-export const spaces = () => [];
+export const spaces = () => globalThis.__spaces ?? [];
 export const panes = () => [];
 export const focused = () => null;
 export const props = () => ({ folder: process.env.PANEL_FOLDER });
@@ -61,7 +73,8 @@ export function exec(cmd, args, opts) {
 
 const panelDriver = `import Satelle from "./main.mjs";
 import fs from "node:fs";
-const store = {};
+const storeFile = process.env.STORE_FILE;
+const store = storeFile && fs.existsSync(storeFile) ? JSON.parse(fs.readFileSync(storeFile, "utf8")) : JSON.parse(process.env.STORE_SEED || "{}");
 globalThis.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); } };
 const pending = new Set(), intervals = [];
 const cx = {
@@ -81,10 +94,43 @@ const snap = (view) => {
     footers: footer.length,
     stories: find(root, (n) => typeof n.id === "string" && n.id.startsWith("story-")).map((n) => ({ id: n.id, text: text(n) })),
     list: find(root, (n) => n.id === "satelle-list").map(text).join(""),
+    chip: find(root, (n) => typeof n.id === "string" && n.id.startsWith("mode-") && n.bg).map((n) => n.id).join(","),
+    filter: view.input.value(),
+    store: { ...store },
   };
+};
+const enter = async (view, id) => {
+  globalThis.__spaces = ["s1", "s2", "s3"].map((s) => ({ id: s, active: s === id, tabs: [] }));
+  view.render(cx);
+  await settle();
+};
+const scenarios = {
+  async spaces(view) {
+    view.input.__type("epic:remotes", cx);
+    out.snaps.push(snap(view));
+    await enter(view, "s2");
+    out.snaps.push(snap(view));
+    view.setMode("done", cx);
+    await settle();
+    await enter(view, "s1");
+    out.snaps.push(snap(view));
+    view.setMode("backlog", cx);
+    await enter(view, "s2");
+    out.snaps.push(snap(view));
+    await enter(view, "s1");
+    out.snaps.push(snap(view));
+    await enter(view, "s3");
+    out.snaps.push(snap(view));
+  },
+  async "restart-set"(view) {
+    view.setMode("backlog", cx);
+    view.input.__type("epic:remotes", cx);
+    out.snaps.push(snap(view));
+  },
 };
 const out = { snaps: [], intervals, threw: false, sameView: false };
 try {
+  if (process.env.SCENARIO) globalThis.__spaces = [{ id: "s1", active: true, tabs: [] }, { id: "s2", active: false, tabs: [] }];
   const view = new Satelle();
   view.init({}, cx);
   await settle();
@@ -97,6 +143,8 @@ try {
     out.snaps.push(snap(view));
     out.sameView = before === view;
   }
+  await scenarios[process.env.SCENARIO]?.(view);
+  if (storeFile) fs.writeFileSync(storeFile, JSON.stringify(store));
 } catch (e) {
   out.threw = true; out.error = String(e && e.stack || e);
 }
@@ -121,7 +169,10 @@ type panelSnap struct {
 		ID   string `json:"id"`
 		Text string `json:"text"`
 	} `json:"stories"`
-	List string `json:"list"`
+	List   string            `json:"list"`
+	Chip   string            `json:"chip"`
+	Filter string            `json:"filter"`
+	Store  map[string]string `json:"store"`
 }
 
 type panelRun struct {
@@ -138,6 +189,9 @@ type panelCase struct {
 	stories     string
 	next        string
 	noSatelle   bool
+	scenario    string
+	storeFile   string
+	seed        string
 }
 
 func runPanel(t *testing.T, c panelCase) panelRun {
@@ -191,7 +245,8 @@ func runPanel(t *testing.T, c panelCase) panelRun {
 	cmd := exec.Command(node, "driver.mjs")
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=" + path, "HOME=" + dir, "PANEL_FOLDER=" + folder,
-		"FAKE_VERSION_FILE=" + versionFile, "FAKE_VERSION_CODE=" + code, "FAKE_STORIES=" + storiesFile, "NEXT_VERSION=" + c.next}
+		"FAKE_VERSION_FILE=" + versionFile, "FAKE_VERSION_CODE=" + code, "FAKE_STORIES=" + storiesFile, "NEXT_VERSION=" + c.next,
+		"SCENARIO=" + c.scenario, "STORE_FILE=" + c.storeFile, "STORE_SEED=" + c.seed}
 	stdout, err := cmd.Output()
 	if err != nil {
 		var stderr []byte
@@ -273,4 +328,84 @@ func TestPanelFooterUnknownVersionKeepsStories(t *testing.T) {
 			t.Errorf("list = %q (stories %+v), want the exec error shown and no stories", s.List, s.Stories)
 		}
 	})
+}
+
+const spaceStories = `[{"id":"sto_a","title":"Story A","status":"plan","tags":["epic:remotes"],"updated_at":"2026-01-02T00:00:00Z"},` +
+	`{"id":"sto_b","title":"Story B","status":"plan","updated_at":"2026-01-01T00:00:00Z"}]`
+
+func storyIDs(s panelSnap) string {
+	ids := make([]string, 0, len(s.Stories))
+	for _, st := range s.Stories {
+		ids = append(ids, strings.TrimPrefix(st.ID, "story-"))
+	}
+	return strings.Join(ids, ",")
+}
+
+func wantSpace(t *testing.T, label string, s panelSnap, chip, filter, stories string) {
+	t.Helper()
+	if s.Chip != chip {
+		t.Errorf("%s: selected chip = %q, want %q", label, s.Chip, chip)
+	}
+	if s.Filter != filter {
+		t.Errorf("%s: filter box = %q, want %q", label, s.Filter, filter)
+	}
+	if got := storyIDs(s); got != stories {
+		t.Errorf("%s: stories = %q, want %q", label, got, stories)
+	}
+}
+
+func runSpaces(t *testing.T, seed string) panelRun {
+	t.Helper()
+	r := runPanel(t, panelCase{scenario: "spaces", stories: spaceStories, seed: seed})
+	if len(r.Snaps) != 7 {
+		t.Fatalf("driver rendered %d times, want 7", len(r.Snaps))
+	}
+	return r
+}
+
+func TestPanelChipFollowsSpace(t *testing.T) {
+	r := runSpaces(t, "")
+	wantSpace(t, "s2 after s1 set backlog", r.Snaps[4], "mode-done", "", "")
+	wantSpace(t, "back to s1", r.Snaps[5], "mode-backlog", "epic:remotes", "")
+	store := r.Snaps[6].Store
+	if store["mode:s1"] != "backlog" || store["mode:s2"] != "done" {
+		t.Errorf("store = %v, want mode:s1=backlog and mode:s2=done", store)
+	}
+	if _, ok := store["mode"]; ok {
+		t.Errorf("store = %v, has a global mode key", store)
+	}
+}
+
+func TestPanelFilterFollowsSpace(t *testing.T) {
+	r := runSpaces(t, "")
+	wantSpace(t, "s1 before typing", r.Snaps[0], "mode-active", "", "sto_a,sto_b")
+	wantSpace(t, "s1 typed epic:remotes", r.Snaps[1], "mode-active", "epic:remotes", "sto_a")
+	wantSpace(t, "switch to s2", r.Snaps[2], "mode-active", "", "sto_a,sto_b")
+	wantSpace(t, "back to s1", r.Snaps[3], "mode-active", "epic:remotes", "sto_a")
+	store := r.Snaps[6].Store
+	if store["filter:s1"] != "epic:remotes" || store["filter:s2"] != "" {
+		t.Errorf("store = %v, want filter:s1=epic:remotes and no filter text for s2", store)
+	}
+}
+
+func TestPanelUntouchedSpaceDefaults(t *testing.T) {
+	t.Run("never chosen", func(t *testing.T) {
+		r := runSpaces(t, "")
+		wantSpace(t, "fresh s3", r.Snaps[6], "mode-active", "", "sto_a,sto_b")
+	})
+	t.Run("legacy global mode ignored", func(t *testing.T) {
+		r := runSpaces(t, `{"mode":"backlog"}`)
+		wantSpace(t, "fresh s1", r.Snaps[0], "mode-active", "", "sto_a,sto_b")
+		wantSpace(t, "fresh s3", r.Snaps[6], "mode-active", "", "sto_a,sto_b")
+	})
+}
+
+func TestPanelSpaceStateSurvivesRestart(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "store.json")
+	runPanel(t, panelCase{scenario: "restart-set", storeFile: file, stories: spaceStories})
+	r := runPanel(t, panelCase{scenario: "restart-read", storeFile: file, stories: spaceStories})
+	wantSpace(t, "s1 after restart", r.Snaps[0], "mode-backlog", "epic:remotes", "")
+	if r.Snaps[0].Store["mode:s1"] != "backlog" || r.Snaps[0].Store["filter:s1"] != "epic:remotes" {
+		t.Errorf("persisted store = %v", r.Snaps[0].Store)
+	}
 }

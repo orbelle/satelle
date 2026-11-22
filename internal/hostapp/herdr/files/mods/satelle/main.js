@@ -5,9 +5,12 @@ import { spaces, panes, focused, exec, run, watchFolder, theme, props, checking 
 const MODES = ["active", "backlog", "done", "all"];
 const MAX_ROWS = 200;
 
+const activeSpace = () => spaces().find((s) => s.active) ?? null;
+const spaceId = () => activeSpace()?.id ?? "";
+
 function location() {
   const fixed = props()?.folder;
-  const space = spaces().find((s) => s.active), f = focused(), all = panes();
+  const space = activeSpace(), f = focused(), all = panes();
   const pane = f?.pane ? all.find((p) => p.pane === f.pane) : null;
   let cwd = fixed || pane?.cwd || f?.cwd;
   if (!cwd && f?.tab) cwd = all.find((p) => p.tab === f.tab && p.cwd)?.cwd;
@@ -70,13 +73,13 @@ export default class Satelle extends View {
       return;
     }
     this.open = []; this.rest = null; this.openIds = new Set();
-    this.mode = localStorage.getItem("mode") ?? "active"; if (!MODES.includes(this.mode)) this.mode = "active";
-    this.filter = ""; this.expanded = {}; this.sections = {}; this.routes = {}; this.ledgers = {}; this.step = {}; this.gateOpen = {};
+    this.expanded = {}; this.sections = {}; this.routes = {}; this.ledgers = {}; this.step = {}; this.gateOpen = {};
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "Filter: id, title, status, tag" });
-    this.input.on("change", (_e, cx) => { this.filter = this.input.value(); cx.notify(); });
+    this.input.on("change", (_e, cx) => this.setFilter(this.input.value(), cx));
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+    this.enterSpace(spaceId());
     if (checking()) {
       this.context = key(); this.version = SAMPLE_VERSION; this.open = [SAMPLE]; this.openIds = new Set([SAMPLE.id]);
       this.expanded[SAMPLE.id] = true; this.sections[SAMPLE.id + ":body"] = true; this.routes[SAMPLE.id] = SAMPLE_ROUTE; this.ledgers[SAMPLE.id] = readLedger(SAMPLE_LEDGER); this.gateOpen[SAMPLE.id + ":plan>done:b"] = true;
@@ -175,9 +178,24 @@ export default class Satelle extends View {
     });
   }
 
+  enterSpace(id) {
+    this.space = id;
+    const mode = localStorage.getItem("mode:" + id);
+    this.mode = MODES.includes(mode) ? mode : "active";
+    this.filter = localStorage.getItem("filter:" + id) ?? "";
+    this.input.set_value(this.filter);
+  }
+
+  wantsRest() { return (this.mode === "done" || this.mode === "all") && !this.rest; }
+
   setMode(mode, cx) {
-    this.mode = mode; localStorage.setItem("mode", mode);
-    if ((mode === "done" || mode === "all") && !this.rest) this.refresh(cx);
+    this.mode = mode; localStorage.setItem("mode:" + this.space, mode);
+    if (this.wantsRest()) this.refresh(cx);
+    cx.notify();
+  }
+
+  setFilter(value, cx) {
+    this.filter = value; localStorage.setItem("filter:" + this.space, value);
     cx.notify();
   }
 
@@ -286,8 +304,8 @@ export default class Satelle extends View {
       .on_click((_e, cx) => {
         cx.stop_propagation();
         const words = this.filter.split(/\s+/).filter(Boolean), had = words.some((w) => w.toLowerCase() === token.toLowerCase());
-        this.filter = (had ? words.filter((w) => w.toLowerCase() !== token.toLowerCase()) : [...words, token]).join(" ");
-        this.input.set_value(this.filter); cx.notify();
+        const next = (had ? words.filter((w) => w.toLowerCase() !== token.toLowerCase()) : [...words, token]).join(" ");
+        this.input.set_value(next); this.setFilter(next, cx);
       });
     const kv = (k, v, color, extra) => pick(h_flex().px(5).rounded(3).bg(color + "22").text_color(color), k + ":" + v)
       .child(div().font_semibold().child(k)).child(div().opacity(0.55).child(":")).child(div().child(v))
@@ -328,7 +346,11 @@ export default class Satelle extends View {
 
   render(cx) {
     if (this.watcher) { if (!checking()) this.detect(cx); return div(); }
-    if (!checking() && key() !== this.context) this.refresh(cx);
+    if (!checking()) {
+      const moved = spaceId() !== this.space;
+      if (moved) this.enterSpace(spaceId());
+      if (key() !== this.context || (moved && this.wantsRest())) this.refresh(cx);
+    }
     const t = theme(), rows = this.rows(), shown = rows.slice(0, MAX_ROWS);
     const repo = (this.cwd ?? location().cwd ?? "").split("/").filter(Boolean).pop() ?? "";
     const empty = this.error || (this.loading ? "Loading stories…" : this.filter ? "No stories match" : "No " + (this.mode === "all" ? "" : this.mode + " ") + "stories");
