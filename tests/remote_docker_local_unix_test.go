@@ -199,8 +199,12 @@ func TestDockerLocalFireRoundTrip(t *testing.T) {
 	if strings.Index(out, hint) > strings.Index(out, "running the node on "+id) {
 		t.Fatalf("the hint follows the node's run:\n%s", out)
 	}
-	if v := s.exec(filepath.Join(fake, "docker"), "", "exec", name, "satelle", "version"); v.code != 0 || !strings.HasPrefix(v.out, "satelle ") {
-		t.Fatalf("docker exec after fire (scope job): %+v", v)
+	removed := false
+	for _, l := range log[runLocal+1:] {
+		removed = removed || (strings.HasPrefix(l, "rm ") && strings.Contains(l, name))
+	}
+	if !removed {
+		t.Fatalf("the accepted run did not remove %s (scope run):\n%s", name, b)
 	}
 
 	after := s.get(id)
