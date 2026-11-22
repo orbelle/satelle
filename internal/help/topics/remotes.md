@@ -49,7 +49,11 @@ workflow, which the remote's overlay `satelle.toml` chooses
 (`docker-task-probe` uses `probe`). Every chain the run wrote comes back, the
 execution's and those of the items it changed, and each is verified before any
 is imported: a chain that does not verify imports nothing and concludes the
-run `reject`, naming it. No seat is taken for a task. `remote status
+run `reject`, naming it. A chain that also gained an event here while the
+node ran is refused at its fork, never merged: the run's record names it with
+the head here and the node's head, every other chain is imported, and the run
+concludes `reject`. The node's events past the shared history are scanned for
+declared secrets like any other. No seat is taken for a task. `remote status
 <remote-id> <task>` shows the run.
 
 A docker-local node is given the secrets its `[secrets] names` declare, each

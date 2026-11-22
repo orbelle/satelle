@@ -116,9 +116,9 @@ func TestRunLocalDrivesOneStep(t *testing.T) {
 			t.Fatalf("event %d (%s) by %q, want node:nod_aaaa", i, e.Kind, e.Actor)
 		}
 	}
-	added, err := importBack(k, filepath.Join(nodeDir, "runtime"), []string{it.ID}, "nod_aaaa", nil)
-	if err != nil || added != len(chain)-len(staged) {
-		t.Fatalf("importBack = %d, %v", added, err)
+	res, err := importBack(k, filepath.Join(nodeDir, "runtime"), []string{it.ID}, "nod_aaaa", nil)
+	if err != nil || res.Added != len(chain)-len(staged) || len(res.Forked) != 0 {
+		t.Fatalf("importBack = %+v, %v", res, err)
 	}
 	if got, err := k.Get(it.ID); err != nil || got.Status != "b" {
 		t.Fatalf("the item here after import = %+v, %v", got, err)
@@ -373,9 +373,9 @@ func TestRunLocalRunsATask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	added, err := importBack(f.k, runtime, f.chains(), node, nil)
-	if err != nil || added != len(events)+1 {
-		t.Fatalf("importBack = %d, %v; want %d", added, err, len(events)+1)
+	res, err := importBack(f.k, runtime, f.chains(), node, nil)
+	if err != nil || res.Added != len(events)+1 || len(res.Forked) != 0 {
+		t.Fatalf("importBack = %+v, %v; want %d added and no fork", res, err, len(events)+1)
 	}
 	got, err := f.k.Get(exec)
 	if err != nil || got.Parent != f.task || got.Status != "done" || got.Workflow != "chk" {
@@ -451,6 +451,90 @@ func TestImportBackRefusesABrokenChain(t *testing.T) {
 	}
 	if blobs() != blobsBefore {
 		t.Fatal("blobs were copied for a broken run")
+	}
+}
+
+func TestImportBackRefusesAForkedChainAndImportsTheRest(t *testing.T) {
+	f := newTaskFixture(t, "echo checked")
+	const node = "nod_f0rk"
+	nodeDir := f.stage(t, node)
+	if _, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := filepath.Join(nodeDir, "runtime")
+	exec := nodeCreated(t, runtime, f.chains(), "node:"+node)[0]
+	st, err := ledger.Open(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(f.inputs[0], item.KindUpdated, "node:"+node, item.Fields{Title: ptr("one, changed by the run")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(f.inputs[1], item.KindUpdated, "node:"+node, item.Fields{Title: ptr("two, changed by the run")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.k.Update(f.inputs[0], item.Fields{Title: ptr("one, changed here meanwhile")}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	here, err := f.k.Ledger.Read(f.inputs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	there, err := st.Read(f.inputs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	hereHead, nodeHead := here[len(here)-1].Hash, there[len(there)-1].Hash
+	nodeTask, err := st.Read(f.task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := importBack(f.k, runtime, f.chains(), node, nil)
+	if err != nil {
+		t.Fatalf("importBack = %v", err)
+	}
+	want := ForkedChain{Item: f.inputs[0], Seq: len(here) - 1, Here: hereHead, Node: nodeHead}
+	if len(res.Forked) != 1 || res.Forked[0] != want {
+		t.Fatalf("forked = %+v, want [%+v]", res.Forked, want)
+	}
+	after, err := f.k.Ledger.Read(f.inputs[0])
+	if err != nil || len(after) != len(here) || after[len(after)-1].Hash != hereHead {
+		t.Fatalf("the forked chain here = %d events, %v", len(after), err)
+	}
+	if in, err := f.k.Get(f.inputs[0]); err != nil || in.Title != "one, changed here meanwhile" {
+		t.Fatalf("the forked input here = %+v, %v", in, err)
+	}
+	if got, err := f.k.Get(exec); err != nil || got.Parent != f.task {
+		t.Fatalf("the execution here = %+v, %v", got, err)
+	}
+	if in, err := f.k.Get(f.inputs[1]); err != nil || in.Title != "two, changed by the run" {
+		t.Fatalf("the other input here = %+v, %v", in, err)
+	}
+	if task, err := f.k.Ledger.Read(f.task); err != nil || task[len(task)-1].Hash != nodeTask[len(nodeTask)-1].Hash {
+		t.Fatalf("the task chain here does not hold the node's: %v", err)
+	}
+	if err := f.k.Ledger.Verify(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConcludeImportRejectsAndNamesBothHeads(t *testing.T) {
+	h1, h2 := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	out := concludeImport(LocalOutcome{Verdict: kernel.VerdictAccept, Notes: "ran\n"},
+		imported{Added: 3, Forked: []ForkedChain{{Item: "sto_x", Seq: 2, Here: h1, Node: h2}}})
+	if out.Verdict != kernel.VerdictReject {
+		t.Fatalf("verdict = %q", out.Verdict)
+	}
+	line := "diverged: sto_x at event 2: this machine holds " + ledger.ShortHash(h1) + ", the node " + ledger.ShortHash(h2) + "; not imported"
+	if !strings.Contains(out.Notes, "imported 3 event(s)") || !strings.Contains(out.Notes, line) {
+		t.Fatalf("notes = %q", out.Notes)
+	}
+}
+
+func TestConcludeImportWithoutAForkKeepsTheVerdict(t *testing.T) {
+	out := concludeImport(LocalOutcome{Verdict: kernel.VerdictAccept, Notes: "ran"}, imported{Added: 3})
+	if out.Verdict != kernel.VerdictAccept || !strings.Contains(out.Notes, "imported 3 event(s)") || strings.Contains(out.Notes, "diverged") {
+		t.Fatalf("outcome = %+v", out)
 	}
 }
 
@@ -863,27 +947,33 @@ func TestImportBackRefusesASecretInTheRecord(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		value string
-		leak  func(t *testing.T, runtime, exec string)
+		leak  func(t *testing.T, f taskFixture, runtime, exec string)
 	}{
-		{"a string field", plain, func(t *testing.T, runtime, exec string) {
+		{"a string field", plain, func(t *testing.T, _ taskFixture, runtime, exec string) {
 			appendToNodeChain(t, runtime, exec, item.Fields{Title: ptr("leaked " + plain)})
 		}},
-		{"an escaped multi-line value", special, func(t *testing.T, runtime, exec string) {
+		{"an escaped multi-line value", special, func(t *testing.T, _ taskFixture, runtime, exec string) {
 			appendToNodeChain(t, runtime, exec, item.Fields{Body: ptr("leaked:\n" + special)})
 		}},
-		{"an object key", plain, func(t *testing.T, runtime, exec string) {
+		{"an object key", plain, func(t *testing.T, _ taskFixture, runtime, exec string) {
 			appendToNodeChain(t, runtime, exec, map[string]any{plain: "x"})
 		}},
-		{"a key in JSON held as a string", special, func(t *testing.T, runtime, exec string) {
+		{"a key in JSON held as a string", special, func(t *testing.T, _ taskFixture, runtime, exec string) {
 			inner, _ := json.Marshal(map[string]int{special: 1})
 			appendToNodeChain(t, runtime, exec, map[string]any{"notes": string(inner)})
 		}},
-		{"a blob", plain, func(t *testing.T, runtime, _ string) {
+		{"a blob", plain, func(t *testing.T, _ taskFixture, runtime, _ string) {
 			st, err := ledger.Open(runtime)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if _, err := st.PutBlob([]byte("a step wrote " + plain)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a forked event", plain, func(t *testing.T, f taskFixture, runtime, _ string) {
+			appendToNodeChain(t, runtime, f.inputs[0], item.Fields{Title: ptr("leaked " + plain)})
+			if _, err := f.k.Update(f.inputs[0], item.Fields{Title: ptr("changed here meanwhile")}, "ada"); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -897,7 +987,7 @@ func TestImportBackRefusesASecretInTheRecord(t *testing.T) {
 			}
 			runtime := filepath.Join(nodeDir, "runtime")
 			exec := nodeCreated(t, runtime, f.chains(), "node:"+node)[0]
-			tc.leak(t, runtime, exec)
+			tc.leak(t, f, runtime, exec)
 			itemsBefore, _ := f.k.Ledger.Items()
 			blobsDir := filepath.Join(f.k.Ledger.Dir(), "blobs")
 			blobsBefore, _ := os.ReadDir(blobsDir)

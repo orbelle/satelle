@@ -219,6 +219,15 @@ func (e *StaleTail) Error() string {
 	return fmt.Sprintf("ledger: event %s: prev %q does not link to tail %q", e.Event, e.Prev, e.Tail)
 }
 
+type Diverges struct {
+	Item string
+	Seq  int
+}
+
+func (e *Diverges) Error() string {
+	return fmt.Sprintf("ledger: %s diverges at event %d", e.Item, e.Seq)
+}
+
 func (s *Store) Import(events []Event) (added int, err error) {
 	have := map[string][]Event{}
 	seen := map[string]int{}
@@ -234,7 +243,7 @@ func (s *Store) Import(events []Event) (added int, err error) {
 		seen[e.Item]++
 		if pos < len(local) {
 			if local[pos].Hash != e.Hash {
-				return added, fmt.Errorf("ledger: %s diverges at event %d", e.Item, pos)
+				return added, &Diverges{Item: e.Item, Seq: pos}
 			}
 			continue
 		}
