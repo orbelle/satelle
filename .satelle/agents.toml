@@ -20,3 +20,8 @@ tools = ["Read", "Grep", "Glob"]
 command = "agy"
 model = "gemini-4-neon-high"
 tools = ["Read", "Grep", "Glob"]
+
+[agents."reviewer-gemini-4-argon-high"]
+command = "agy"
+model = "gemini-4-argon-high"
+tools = ["Read", "Grep", "Glob"]

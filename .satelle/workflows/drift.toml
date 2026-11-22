@@ -19,7 +19,7 @@ skill = "satelle-change-judged-check"
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-argon-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 

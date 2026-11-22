@@ -31,27 +31,27 @@ skill = "satelle-volatile-literal-check"
 
 [gates.workflow-change]
 skill = "satelle-workflow-change-review"
-panel = ["reviewer-gemini-4-neon-high"]
+panel = ["reviewer-gemini-4-argon-high"]
 combine = "all"
 trigger = "satelle-workflow-change-trigger"
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.reference-review]
 skill = "satelle-reference-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-argon-high"]
 combine = "all"
 carry = true
 after = ["satelle-verdict-notes-check", "satelle-verdict-reference-check"]
 
 [gates.blocked-review]
 skill = "satelle-story-blocked-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-argon-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
 [gates.cancel-review]
 skill = "satelle-story-cancel-review"
-panel = ["reviewer-gemini-4-hydrogen-high"]
+panel = ["reviewer-gemini-4-argon-high"]
 combine = "all"
 after = ["satelle-verdict-notes-check"]
 
