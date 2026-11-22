@@ -9,13 +9,16 @@ terminal = true
 [states.cancelled]
 terminal = true
 
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
 [gates.probe-version]
 skill = "satelle-probe-version-check"
 
 [[transition]]
 from = ["backlog"]
 to = "done"
-groups = [{ mode = "sequential", gates = ["probe-version"] }]
+groups = [{ mode = "sequential", gates = ["change-judged", "probe-version"] }]
 
 [[transition]]
 from = ["backlog"]
