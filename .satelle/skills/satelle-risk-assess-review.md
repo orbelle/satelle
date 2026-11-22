@@ -26,7 +26,8 @@ other gates do.
 
 Always accept: the rating never blocks the move. The first line of `notes` is
 the rating, exactly `TIER: low` or `TIER: high`; the lines after it give the
-reason, naming the paths or behaviour that decided it.
+reason, naming the paths or behaviour that decided it. Only the first line is
+read as the rating.
 
 ```json
 {"verdict": "accept", "notes": "TIER: high\n<why: the paths or behaviour that decided it>"}
