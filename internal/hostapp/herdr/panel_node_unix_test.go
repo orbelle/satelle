@@ -226,6 +226,26 @@ type panelCase struct {
 	story       string
 	route       string
 	ledger      string
+	checking    string
+}
+
+const panelChecking = "export const checking = () => false;\n"
+
+func herdrStub(t *testing.T, c panelCase) string {
+	t.Helper()
+	if !strings.Contains(panelHerdr, panelChecking) {
+		t.Fatalf("the herdr stub no longer has the line %q", panelChecking)
+	}
+	switch c.checking {
+	case "":
+		return panelHerdr
+	case "absent":
+		return strings.Replace(panelHerdr, panelChecking, "", 1)
+	case "true":
+		return strings.Replace(panelHerdr, panelChecking, "export const checking = () => true;\n", 1)
+	}
+	t.Fatalf("unknown checking %q", c.checking)
+	return ""
 }
 
 func runPanel(t *testing.T, c panelCase) panelRun {
@@ -261,7 +281,7 @@ func runPanel(t *testing.T, c panelCase) panelRun {
 		filepath.Join(dir, "main.mjs"):      main,
 		filepath.Join(dir, "gpui-kit.mjs"):  panelKit,
 		filepath.Join(dir, "gpui-base.mjs"): panelBase,
-		filepath.Join(dir, "herdr.mjs"):     panelHerdr,
+		filepath.Join(dir, "herdr.mjs"):     herdrStub(t, c),
 		filepath.Join(dir, "driver.mjs"):    panelDriver,
 		filepath.Join(bin, "satelle"):       fakeSatelle,
 		versionFile:                         c.version + "\n",
@@ -379,6 +399,38 @@ func storyIDs(s panelSnap) string {
 		ids = append(ids, strings.TrimPrefix(st.ID, "story-"))
 	}
 	return strings.Join(ids, ",")
+}
+
+func TestPanelLoadsWithoutCheckingExport(t *testing.T) {
+	const v = "satelle 9.8.7 (commit abc, built now)"
+	for _, checking := range []string{"absent", ""} {
+		t.Run("checking="+checking, func(t *testing.T) {
+			r := runPanel(t, panelCase{version: v, stories: spaceStories, checking: checking})
+			if r.Threw {
+				t.Fatalf("the panel threw: %s", r.Error)
+			}
+			if got := storyIDs(r.Snaps[0]); got != "sto_a,sto_b" {
+				t.Errorf("stories = %q, want %q", got, "sto_a,sto_b")
+			}
+			if got := footerOf(t, r.Snaps[0]); got != v {
+				t.Errorf("footer = %q, want %q", got, v)
+			}
+		})
+	}
+}
+
+func TestPanelCheckingShowsSample(t *testing.T) {
+	r := runPanel(t, panelCase{checking: "true"})
+	s := r.Snaps[0]
+	if got := storyIDs(s); got != "sto_sample" {
+		t.Fatalf("stories = %q, want %q", got, "sto_sample")
+	}
+	if !strings.Contains(s.Stories[0].Text, "A sample story") {
+		t.Errorf("story text = %q, want it to contain %q", s.Stories[0].Text, "A sample story")
+	}
+	if got := footerOf(t, s); got != "satelle 0.0.0 (sample)" {
+		t.Errorf("footer = %q, want %q", got, "satelle 0.0.0 (sample)")
+	}
 }
 
 func wantSpace(t *testing.T, label string, s panelSnap, chip, filter, stories string) {

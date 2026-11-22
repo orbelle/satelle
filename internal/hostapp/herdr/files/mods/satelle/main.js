@@ -1,6 +1,9 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, TextView } from "gpui-base";
-import { spaces, panes, focused, exec, run, watchFolder, theme, props, checking } from "herdr";
+import * as herdr from "herdr";
+
+const { spaces, panes, focused, exec, run, watchFolder, theme, props } = herdr;
+const checking = () => typeof herdr.checking === "function" && Boolean(herdr.checking());
 
 const MODES = ["active", "backlog", "done", "all"];
 const MAX_ROWS = 200;
