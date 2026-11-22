@@ -482,8 +482,6 @@ type imported struct {
 	Forked []ForkedChain
 }
 
-// ForkedChain is a returned chain refused at its fork: it gained an event
-// here while the node held it. Here and Node are the two full head hashes.
 type ForkedChain struct {
 	Item       string
 	Seq        int
@@ -612,8 +610,6 @@ func secretInRecord(k *kernel.Kernel, chains [][]ledger.Event, blobs string, val
 		if err != nil {
 			return err
 		}
-		// Scan from the end of the shared history: on a fork the node's own
-		// events below len(held) are new too.
 		p, err := ledger.SharedPrefix(held, len(events), func(i int) (string, error) { return events[i].Hash, nil })
 		if err != nil {
 			return err
