@@ -88,6 +88,8 @@ const cx = {
 const settle = async () => { while (pending.size) await Promise.allSettled([...pending]); };
 const text = (n) => typeof n === "string" ? n : n && n.kids ? n.kids.map(text).join("") : "";
 const find = (n, pred, out = []) => { if (n && n.kids) { if (pred(n)) out.push(n); for (const k of n.kids) find(k, pred, out); } return out; };
+const counted = (root, prefix) => find(root, (n) => typeof n.id === "string" && n.id.startsWith(prefix)).map((n) => ({ id: n.id, text: text(n),
+  counts: n.kids.filter((k) => k && k.kids && /^\(\d+\)$/.test(text(k))).map((k) => ({ text: text(k), color: k.color })) }));
 const snap = (view) => {
   const root = view.render(cx).__node;
   const footer = find(root, (n) => n.id === "satelle-footer");
@@ -99,8 +101,8 @@ const snap = (view) => {
     chip: find(root, (n) => typeof n.id === "string" && n.id.startsWith("mode-") && n.bg).map((n) => n.id).join(","),
     filter: view.input.value(),
     clear: find(root, (n) => n.id === "satelle-filter-clear").map(text),
-    steps: find(root, (n) => typeof n.id === "string" && n.id.startsWith("step-")).map((n) => ({ id: n.id, text: text(n),
-      counts: n.kids.filter((k) => k && k.kids && /^\(\d+\)$/.test(text(k))).map((k) => ({ text: text(k), color: k.color })) })),
+    steps: counted(root, "step-"),
+    gates: counted(root, "gate-"),
     store: { ...store },
   };
 };
@@ -192,6 +194,7 @@ type panelSnap struct {
 	Clear  []string          `json:"clear"`
 	Store  map[string]string `json:"store"`
 	Steps  []panelStep       `json:"steps"`
+	Gates  []panelStep       `json:"gates"`
 }
 
 type panelStep struct {
@@ -526,6 +529,46 @@ func TestPanelStepChipShowsRejectedRounds(t *testing.T) {
 		s := steps[name]
 		if len(s.Counts) != 0 || strings.Contains(s.Text, "(") {
 			t.Errorf("%s chip = %+v, want no rejected-round count", name, s)
+		}
+	}
+}
+
+const gateStories = `[{"id":"sto_g","title":"Story G","status":"plan","updated_at":"2026-01-01T00:00:00Z"}]`
+
+const gateRoute = `{"status":"plan","states":[{"name":"backlog","start":true},{"name":"plan","current":true},{"name":"done","terminal":true}],` +
+	`"transitions":[{"from":["backlog"],"to":"plan"},{"from":["plan"],"to":"done","gates":[{"gate":"a","result":"accept"},{"gate":"b","result":"accept"},{"gate":"c","result":"accept"}]}]}`
+
+func gateLedger() string {
+	events := []string{
+		`{"kind":"item.created","payload":{"status":"backlog"}}`,
+		`{"kind":"item.transitioned","payload":{"from":"backlog","to":"plan"}}`,
+		gateRun("plan->done", "a", "r1", "accept"), gateRun("plan->done", "b", "r1", "reject"), gateRun("plan->done", "c", "r1", "error"),
+		gateRun("plan->done", "a", "r2", "accept"), gateRun("plan->done", "b", "r2", "reject"), gateRun("plan->done", "c", "r2", "accept"),
+		gateRun("plan->done", "a", "r3", "accept"), gateRun("plan->done", "b", "r3", "accept"),
+	}
+	return "[" + strings.Join(events, ",") + "]"
+}
+
+func TestPanelGateRowShowsRejectedRuns(t *testing.T) {
+	r := runPanel(t, panelCase{stories: gateStories, story: "sto_g", route: gateRoute, ledger: gateLedger()})
+	gates := map[string]panelStep{}
+	for _, g := range r.Snaps[0].Gates {
+		gates[strings.TrimPrefix(g.ID, "gate-sto_g:plan>done:")] = g
+	}
+	if len(gates) != 3 {
+		t.Fatalf("gate rows = %+v, want a, b and c on plan->done", r.Snaps[0].Gates)
+	}
+	b := gates["b"]
+	if len(b.Counts) != 1 || b.Counts[0].Text != "(2)" || b.Counts[0].Color != "ansi1" {
+		t.Errorf("gate b counts = %+v, want one (2) in ansi1", b.Counts)
+	}
+	if !strings.HasPrefix(b.Text, "✓b(2)") {
+		t.Errorf("gate b text = %q, want the count beside the name (prefix %q)", b.Text, "✓b(2)")
+	}
+	for _, name := range []string{"a", "c"} {
+		g := gates[name]
+		if len(g.Counts) != 0 || strings.Contains(g.Text, "(") {
+			t.Errorf("gate %s row = %+v, want no rejected-run count", name, g)
 		}
 	}
 }

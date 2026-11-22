@@ -277,6 +277,7 @@ export default class Satelle extends View {
         .children(tr.gates.map((g) => {
           const [glyph, color] = mark[g.result] ?? ["○", t.dim];
           const runs = history?.runs[picked + "->" + tr.to + " " + g.gate] ?? [], last = g.result ? runs[runs.length - 1] : null;
+          const rej = runs.filter((r) => r.result === "reject").length;
           const k = s.id + ":" + picked + ">" + tr.to + ":" + g.gate, open = Boolean(this.gateOpen[k]);
           const notes = last?.notes ?? g.notes ?? "", failed = Boolean(g.result) && g.result !== "accept";
           const who = last ? [last.binding ?? "check", last.binding && last.model && !last.binding.includes(last.model) ? last.model : null, took(last.duration_ms), runs.length > 1 ? "run " + runs.length : null].filter(Boolean).join(" · ") : "";
@@ -286,6 +287,7 @@ export default class Satelle extends View {
               .on_click((_e, cx) => { if (notes) { this.gateOpen[k] = !open; cx.notify(); } })
               .child(div().w(12).flex_none().text_color(color).child(glyph))
               .child(div().flex_none().text_color(g.result ? t.foreground : t.muted).child(g.gate))
+              .when(rej > 0, (e) => e.child(div().flex_none().text_color(t.ansi1).child("(" + rej + ")")))
               .when(failed, (e) => e.child(div().flex_none().text_size(11).text_color(color).child(g.result)))
               .when(Boolean(who), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(who))))
             .when(Boolean(shown), (e) => e.child(div().pl(18).pb(2).text_size(11).text_color(t.muted).child(shown)));
