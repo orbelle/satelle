@@ -196,10 +196,9 @@ and every file under `docs/releases/`) reads the head's own commits only
 not mistaken for one that edits them. Backfilling the archive is the one
 change it keeps: deleting `CHANGELOG.md`, and adding `docs/releases/v<ver>.md`
 (or `docs/releases/v0.md`) that `$tip` lacks for a `<ver>` below `$tip`'s
-`satelle.version`, a version already released. `$tip`'s copy of
-`satelle-pr-ready-check/scripts/notes-paths.sh`, the pull-request gate's rule,
-judges them (never the head's, so a head cannot relax the rule; a tip without
-it sends back every path); every other change is sent back naming the path.
+`satelle.version`, a version already released (the rule is read from `$tip`,
+never the head, so a head cannot relax it; a tip without a `.version` sends
+back every path); every other change is sent back naming the path.
 
 ```sh
 session=<session>
@@ -217,12 +216,24 @@ elif ! out=$(printf '%s\n' "$cl" | bash <(git show "$head:scripts/changelog-item
 fi
 paths=
 if [ -z "$why" ]; then
-  paths=$(git diff --name-only "$tip...$head" -- CHANGELOG.md docs/releases) || { echo "git diff $tip...$head failed, so the changelog of $id cannot be judged" >&2; exit 1; }
-  rule=.satelle/skills/satelle-pr-ready-check/scripts/notes-paths.sh
-  if [ -n "$paths" ] && git cat-file -e "$tip:$rule" 2>/dev/null; then
-    paths=$(bash <(git show "$tip:$rule") "$tip" "$head") || { echo "judging the release-notes paths of $head against $tip failed, so the changelog of $id cannot be judged" >&2; exit 1; }
-  fi
-  paths=$(printf '%s' "$paths" | tr '\n' ' ')
+  diff=$(git diff --no-renames --name-status "$tip...$head" -- CHANGELOG.md docs/releases) || { echo "git diff $tip...$head failed, so the changelog of $id cannot be judged" >&2; exit 1; }
+  cur=$(git show "$tip:.version" 2>/dev/null | awk '$1 == "satelle.version:" { print $2; exit }')
+  while IFS=$'\t' read -r st p; do
+    [ -n "$p" ] || continue
+    case "$st:$p" in
+      D:CHANGELOG.md) continue ;;
+      A:docs/releases/v*.md)
+        v=${p#docs/releases/v}
+        v=${v%.md}
+        if [ -n "$cur" ] && [[ $v =~ ^[0-9]+(\.[0-9]+)*$ ]] && [ "$v" != "$cur" ] &&
+          [ "$(printf '%s\n%s\n' "$v" "$cur" | sort -V | head -n 1)" = "$v" ] &&
+          ! git cat-file -e "$tip:$p" 2>/dev/null; then
+          continue
+        fi
+        ;;
+    esac
+    paths="${paths:+$paths }$p"
+  done <<<"$diff"
 fi
 if [ -n "$why" ]; then
   echo "$id: send back: no valid changelog attachment on head $head: merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and record the lines with satelle story attach $id --name changelog --file - --session <session> ($why)"

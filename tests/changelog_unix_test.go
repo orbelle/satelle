@@ -635,6 +635,9 @@ func TestProcessUsesNoUnreleasedHeading(t *testing.T) {
 func TestItemBackfillsReleasedNotes(t *testing.T) {
 	c := newChangelogSandbox(t)
 	const rule = ".satelle/skills/satelle-pr-ready-check/scripts/notes-paths.sh"
+	if release := repoText(t, ".satelle/skills/release.md"); strings.Contains(release, "satelle-pr-ready-check/scripts/") {
+		t.Error("release.md runs a script of satelle-pr-ready-check; a skill is self-contained and applies the backfill rule inline")
+	}
 	notes := func(ver string) [2]string {
 		return [2]string{"docs/releases/v" + ver + ".md", "## [" + ver + "] - 2026-01-01\n\n### Added\n- " + ver + "\n"}
 	}

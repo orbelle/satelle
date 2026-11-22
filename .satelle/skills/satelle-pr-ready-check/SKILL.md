@@ -75,8 +75,9 @@ the pre-1.0 archive) for a `<ver>` the base branch lacks that sorts below the
 base's `satelle.version`: that version is already released, and no release
 writes its notes again. Adding the current or a later version's file, editing
 or deleting a notes file the base has, and editing `CHANGELOG.md` are refused,
-naming the path. This skill's `scripts/notes-paths.sh` judges them, and
-release step 2a runs the base's copy of it, so a head cannot relax the rule.
+naming the path. This skill's `scripts/notes-paths.sh` judges them; release
+step 2a applies the same rule from the base's own release skill, so a head
+cannot relax it.
 
 ```sh
 set -u
