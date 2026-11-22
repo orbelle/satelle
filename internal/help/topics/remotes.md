@@ -41,7 +41,7 @@ needs no satelle: satelle is copied in at the fire. The fire copies its own
 satelle (linux, the node's architecture) to `/usr/local/bin/satelle` before
 setup and checks it runs there as its own version; `[setup]` runs the repo's
 scripts that install the rest. `docker-plain-probe` does this on
-`debian:stable-slim`, its `setup.sh` installing git and jq. An image the fire
+`debian:stable-slim`, its `[setup]` running a script that installs git and jq. An image the fire
 cannot give satelle to (another architecture, a firing machine that is not
 linux, no writable `/usr/local/bin`) is refused before setup, naming the image
 and the reason: the container is removed and nothing is imported.

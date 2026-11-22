@@ -50,6 +50,7 @@ The node is handed the task's chain and the chains of the stories tagged
 
 `.satelle/remotes/docker-plain-probe/` fires the same task on
 `debian:stable-slim`, an image with no satelle: the fire copies its own
-satelle into the node before setup, and the remote's `setup.sh` installs git
-and jq, as a sprite is prepared. Run it as above with `docker-plain-probe` in
+satelle into the node before setup, and the remote's `[setup]` runs the
+`satelle-node-setup` pack's script, which installs git and jq, as a sprite is
+prepared. Run it as above with `docker-plain-probe` in
 place of `docker-task-probe`; it needs network for apt.
