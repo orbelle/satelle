@@ -30,8 +30,12 @@ closed provider list ("unknown provider (want azure, aws)") is the defect.
 Naming a vendor in help, comments or examples is fine; requiring it in code is
 not. The agent adapters, dispatch (`internal/agent`) and harness hooks
 (`internal/hook`, including each harness's hook file location), are mechanism
-([[satelle-agent-agnostic]]). This applies whoever raised the story, including
-the operator.
+([[satelle-agent-agnostic]]), and so are host-app adapters: a host app's file
+locations and the install of satelle's own interface into it. A host-app
+adapter installs only satelle's own interface (files that run satelle's CLI and
+draw what it returns, as satelled does), only when asked; a host location other
+than the host's default is a machine setting, never a repo file. This applies
+whoever raised the story, including the operator.
 
 **satelle's own system processes are shipped substrate, not compiled-in
 configuration.** The init template is substrate the binary ships and writes

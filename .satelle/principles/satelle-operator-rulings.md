@@ -287,3 +287,12 @@ are reviewed*).
   (operator, 2026-11-21).
 - **An item is a story.** Process text names the item a story; no other word
   is used for it (operator, 2026-11-21; sto_8ffb804d).
+
+## 2026-11-22
+
+- **A host app for coding agents gets a host-app adapter.** "amend the
+  principles first": satelle may install and keep current its own interface
+  inside a host app such as herdr, through a host-app adapter
+  ([[satelle-agent-agnostic]], [[satelle-mechanism-vs-substrate]]), rather
+  than shipping that interface outside the binary (operator, 2026-11-22;
+  sto_4f988424, unblocking sto_ab933beb).
