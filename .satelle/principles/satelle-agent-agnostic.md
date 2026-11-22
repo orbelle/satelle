@@ -3,7 +3,7 @@ name: satelle-agent-agnostic
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
-description: satelle drives any agent CLI over any transport. Provider specifics live only in that provider's adapter (dispatch adapters in internal/agent, harness hook adapters in internal/hook) or in configuration; every mechanism works for each adapter or records an adapter-named "unavailable"; tests and dogfood cover non-Claude adapters.
+description: satelle drives any agent CLI over any transport. Provider specifics live only in that provider's adapter (dispatch adapters in internal/agent, harness hook adapters in internal/hook, host-app adapters) or in configuration; every mechanism works for each adapter or records an adapter-named "unavailable"; tests and dogfood cover non-Claude adapters.
 ---
 
 # satelle is agent-agnostic
@@ -11,14 +11,19 @@ description: satelle drives any agent CLI over any transport. Provider specifics
 1. **Provider specifics in one place.** Wire formats, CLI flags, tool names
    and model names live only in that provider's adapter or in configuration;
    never in engine, verb, gate, kernel or CLI code, never as a Claude default.
-   satelle has two kinds of adapter, both provided and maintained in satelle:
+   satelle has three kinds of adapter, all provided and maintained in satelle:
    - **dispatch adapters** (`internal/agent`): how satelle runs an agent CLI
      as a performer or judge (argv, flags, grants, usage and model parsing);
    - **harness hook adapters** (`internal/hook`): how satelle's hooks sit
      inside an interactive harness session (claude, pi, grok, cursor-agent):
      each harness's hook file location and schema, its payload parsing, its
      answer envelopes, and install and remove. The edit gate itself
-     (`hook.Gate`) stays harness-neutral.
+     (`hook.Gate`) stays harness-neutral;
+   - **host-app adapters**: how satelle's own interface sits inside a host
+     app that runs coding agents (herdr, for example): where the host keeps
+     its files on each OS, the environment variable or machine setting that
+     moves them, and installing, refreshing and removing satelle's own
+     interface files there.
 2. **Every adapter, or explicit "unavailable".** Mechanism that reads agent
    output (usage, model, events, sessions) handles every adapter in
    `internal/agent` on each transport it supports, or records an
