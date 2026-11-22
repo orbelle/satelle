@@ -463,7 +463,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if err := h.CopyOut(ctx, path.Join(runtime, "blobs"), filepath.Join(back, "blobs")); err != nil {
 		return LocalOutcome{}, err
 	}
-	added, err := importBack(k, back, chains, node, o.Secrets.Values)
+	res, err := importBack(k, back, chains, node, o.Secrets.Values)
 	if broken := (*ledger.BrokenLink)(nil); errors.As(err, &broken) {
 		return LocalOutcome{Verdict: kernel.VerdictReject,
 			Notes: fmt.Sprintf("the node's chain of %s does not verify: %s; nothing of the run was imported", broken.Item, broken.Reason)}, nil
@@ -474,8 +474,34 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if err != nil {
 		return LocalOutcome{}, err
 	}
-	out.Notes = strings.TrimRight(out.Notes, "\n") + fmt.Sprintf("\nimported %d event(s)", added)
-	return out, nil
+	return concludeImport(out, res), nil
+}
+
+type imported struct {
+	Added  int
+	Forked []ForkedChain
+}
+
+type ForkedChain struct {
+	Item       string
+	Seq        int
+	Here, Node string
+}
+
+func (f ForkedChain) Line() string {
+	return fmt.Sprintf("diverged: %s at event %d: this machine holds %s, the node %s; not imported",
+		f.Item, f.Seq, ledger.ShortHash(f.Here), ledger.ShortHash(f.Node))
+}
+
+func concludeImport(out LocalOutcome, res imported) LocalOutcome {
+	out.Notes = strings.TrimRight(out.Notes, "\n") + fmt.Sprintf("\nimported %d event(s)", res.Added)
+	for _, f := range res.Forked {
+		out.Notes += "\n" + f.Line()
+	}
+	if len(res.Forked) > 0 {
+		out.Verdict = kernel.VerdictReject
+	}
+	return out
 }
 
 func stageIn(o FireOptions, in, node string, chains []string) error {
@@ -510,45 +536,54 @@ func stageIn(o FireOptions, in, node string, chains []string) error {
 	return nil
 }
 
-func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (int, error) {
+func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (imported, error) {
+	var res imported
 	st, err := ledger.Open(dir)
 	if err != nil {
-		return 0, err
+		return res, err
 	}
 	ids, err := st.Items()
 	if err != nil {
-		return 0, err
+		return res, err
 	}
 	actor := "node:" + node
 	var chains [][]ledger.Event
 	for _, id := range ids {
 		events, err := st.Read(id)
 		if err != nil {
-			return 0, err
+			return res, err
 		}
 		if len(events) == 0 || !slices.Contains(sent, id) && events[0].Actor != actor {
 			continue
 		}
 		if err := ledger.VerifyChain(id, events); err != nil {
-			return 0, err
+			return res, err
 		}
 		chains = append(chains, events)
 	}
 	if err := secretInRecord(k, chains, filepath.Join(dir, "blobs"), values); err != nil {
-		return 0, err
+		return res, err
 	}
 	if err := copyBlobs(k.Ledger, filepath.Join(dir, "blobs")); err != nil {
-		return 0, err
+		return res, err
 	}
-	total := 0
 	for _, events := range chains {
 		added, err := k.Ledger.Import(events)
-		total += added
+		res.Added += added
+		if d := (*ledger.Diverges)(nil); errors.As(err, &d) {
+			held, rerr := k.Ledger.Read(d.Item)
+			if rerr != nil {
+				return res, rerr
+			}
+			res.Forked = append(res.Forked, ForkedChain{Item: d.Item, Seq: d.Seq,
+				Here: held[len(held)-1].Hash, Node: events[len(events)-1].Hash})
+			continue
+		}
 		if err != nil {
-			return total, fmt.Errorf("%s changed here while the node ran: %w", events[0].Item, err)
+			return res, err
 		}
 	}
-	return total, k.Cache.Sync(k.Ledger)
+	return res, k.Cache.Sync(k.Ledger)
 }
 
 type SecretInRecord struct{ Name string }
@@ -575,7 +610,11 @@ func secretInRecord(k *kernel.Kernel, chains [][]ledger.Event, blobs string, val
 		if err != nil {
 			return err
 		}
-		for _, e := range events[min(len(held), len(events)):] {
+		p, err := ledger.SharedPrefix(held, len(events), func(i int) (string, error) { return events[i].Hash, nil })
+		if err != nil {
+			return err
+		}
+		for _, e := range events[p:] {
 			b, err := json.Marshal(e)
 			if err != nil {
 				return err

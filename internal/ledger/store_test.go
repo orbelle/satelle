@@ -106,8 +106,13 @@ func TestImportAndAppendRaw(t *testing.T) {
 	}
 	other, _ := Open(t.TempDir())
 	other.Append("a", "k", "someone", nil)
-	if _, err := other.Import(events); err == nil {
-		t.Fatal("divergent chain accepted")
+	_, err := other.Import(events)
+	var d *Diverges
+	if !errors.As(err, &d) || d.Item != "a" || d.Seq != 0 {
+		t.Fatalf("divergent chain: %v, want *Diverges at a/0", err)
+	}
+	if err.Error() != "ledger: a diverges at event 0" {
+		t.Fatalf("divergence text = %q", err.Error())
 	}
 }
 
