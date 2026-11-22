@@ -51,6 +51,8 @@ const SAMPLE_ROUTE = {
   transitions: [{ from: ["backlog"], to: "plan" }, { from: ["plan"], to: "done", gates: [{ gate: "a", result: "accept" }, { gate: "b", result: "error", notes: "why" }, { gate: "c" }] }],
 };
 
+const SAMPLE_VERSION = "satelle 0.0.0 (sample)";
+
 const SAMPLE_LEDGER = [
   { kind: "item.transitioned", payload: { from: "backlog", to: "plan" } },
   { kind: "performer.run", payload: { state: "plan", binding: "planner", model: "m", duration_ms: 61000 } },
@@ -76,7 +78,7 @@ export default class Satelle extends View {
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     if (checking()) {
-      this.context = key(); this.open = [SAMPLE]; this.openIds = new Set([SAMPLE.id]);
+      this.context = key(); this.version = SAMPLE_VERSION; this.open = [SAMPLE]; this.openIds = new Set([SAMPLE.id]);
       this.expanded[SAMPLE.id] = true; this.sections[SAMPLE.id + ":body"] = true; this.routes[SAMPLE.id] = SAMPLE_ROUTE; this.ledgers[SAMPLE.id] = readLedger(SAMPLE_LEDGER); this.gateOpen[SAMPLE.id + ":plan>done:b"] = true;
       return;
     }
@@ -102,6 +104,7 @@ export default class Satelle extends View {
     if (this.loading) { this.again = true; return; }
     const { cwd, on } = location(), context = key();
     this.context = context;
+    this.loadVersion(cwd, on, cx);
     if (!cwd) { this.error = "No folder"; this.open = []; this.rest = null; return; }
     this.loading = true;
     const wantAll = this.mode === "done" || this.mode === "all";
@@ -126,6 +129,18 @@ export default class Satelle extends View {
         this.loading = false; cx.notify();
         if (this.again || key() !== context) { this.again = false; this.refresh(cx); }
       }
+    });
+  }
+
+  loadVersion(cwd, on, cx) {
+    cx.spawn(async (cx) => {
+      let version = null;
+      try {
+        const r = await exec("satelle", ["version"], cwd ? { cwd, on } : { on });
+        const line = r.code === 0 ? (r.stdout ?? "").trim().split("\n")[0].trim() : "";
+        version = line || null;
+      } catch {}
+      this.version = version; cx.notify();
     });
   }
 
@@ -343,6 +358,8 @@ export default class Satelle extends View {
           .children(shown.map((s) => this.row(s, t)))
           .when(!shown.length, (e) => e.child(div().p(8).text_color(this.error ? t.blocked : t.dim).child(empty)))
           .when(rows.length > MAX_ROWS, (e) => e.child(div().p(8).text_size(11).text_color(t.dim).child("Showing the first " + MAX_ROWS + " of " + rows.length + ": filter to narrow"))))
-        .child(Scrollbar.vertical("satelle-list").absolute().inset_0()));
+        .child(Scrollbar.vertical("satelle-list").absolute().inset_0()))
+      .child(h_flex().id("satelle-footer").h(24).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(10).text_color(t.dim)
+        .child(div().min_w(0).truncate().child(this.version === undefined ? "satelle version …" : this.version ?? "satelle version unknown")));
   }
 }

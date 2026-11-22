@@ -232,9 +232,11 @@ herdr-app (herdr.dev) is a desktop app for terminals and coding agents.
 satelle ships a stories panel for it, with a `satelle` layout that places the
 panel beside the focused pane and shows it only while the focused folder is a
 satelle repo. The panel is read-only: it runs satelle's `story list`,
-`story route`, `ledger list` and `runtime path` commands in the focused
-pane's folder and shows the stories, their criteria and description,
-and each workflow step with its gates' results and reviewers.
+`story route`, `ledger list`, `runtime path` and `version` commands in the
+focused pane's folder and shows the stories, their criteria and description,
+and each workflow step with its gates' results and reviewers. Its footer
+shows the satelle version that its `version` command prints on that machine,
+re-read on each refresh, or "unknown" when it cannot be read.
 
 `satelle herdr install --session <session>` installs it on this machine (the install is per machine, not
 per repo). It writes these files under herdr's home and names each one:

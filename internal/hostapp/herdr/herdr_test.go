@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -106,5 +107,27 @@ func TestInstallAndRefreshRule(t *testing.T) {
 	}
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("install created herdr's home")
+	}
+}
+
+func TestEmbeddedPanelReadsVersionEachRefresh(t *testing.T) {
+	main := string(Files()[0].Body)
+	for _, want := range []string{`exec("satelle", ["version"]`, `"satelle-footer"`, `"satelle version unknown"`} {
+		if !strings.Contains(main, want) {
+			t.Errorf("embedded main.js lacks %s", want)
+		}
+	}
+	start := strings.Index(main, "  refresh(cx) {")
+	end := strings.Index(main, "  watch(cwd, on, cx) {")
+	if start < 0 || end < start {
+		t.Fatalf("cannot locate refresh in embedded main.js (refresh at %d, watch at %d)", start, end)
+	}
+	if !strings.Contains(main[start:end], "this.loadVersion(") {
+		t.Error("refresh does not call this.loadVersion, so the footer would not follow satelle update")
+	}
+	for _, v := range regexp.MustCompile(`\d+\.\d+\.\d+`).FindAllString(main, -1) {
+		if v != "0.0.0" {
+			t.Errorf("embedded main.js hard-codes version %s; the footer must come from satelle version", v)
+		}
 	}
 }
