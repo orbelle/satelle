@@ -110,9 +110,6 @@ func TestInstallAndRefreshRule(t *testing.T) {
 	}
 }
 
-// TestEmbeddedPanelReadsVersionEachRefresh runs without node: the shipped
-// panel reads satelle version on every refresh, renders it in a footer, says
-// unknown when it cannot, and carries no release version of its own.
 func TestEmbeddedPanelReadsVersionEachRefresh(t *testing.T) {
 	main := string(Files()[0].Body)
 	for _, want := range []string{`exec("satelle", ["version"]`, `"satelle-footer"`, `"satelle version unknown"`} {

@@ -11,9 +11,6 @@ import (
 	"testing"
 )
 
-// The panel imports herdr's runtime modules by bare name. These stubs stand in
-// for them so the shipped main.js runs under node: elements record their id
-// and children, and exec runs the real satelle on PATH (a fake one here).
 const panelKit = `export class View {}
 export function el() {
   const node = { id: null, kids: [] };
@@ -136,14 +133,13 @@ type panelRun struct {
 }
 
 type panelCase struct {
-	version     string // first contents of the version file
-	versionCode string // exit code of satelle version
-	stories     string // stdout of satelle story list
-	next        string // version file contents before a second refresh, if any
-	noSatelle   bool   // PATH holds no satelle
+	version     string
+	versionCode string
+	stories     string
+	next        string
+	noSatelle   bool
 }
 
-// runPanel runs the embedded main.js under node against a fake satelle.
 func runPanel(t *testing.T, c panelCase) panelRun {
 	t.Helper()
 	node, err := exec.LookPath("node")
