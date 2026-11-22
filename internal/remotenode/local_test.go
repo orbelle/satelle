@@ -2,12 +2,16 @@ package remotenode
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,6 +20,8 @@ import (
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/remote/provider"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/wire/satellepb"
 )
 
@@ -110,7 +116,7 @@ func TestRunLocalDrivesOneStep(t *testing.T) {
 			t.Fatalf("event %d (%s) by %q, want node:nod_aaaa", i, e.Kind, e.Actor)
 		}
 	}
-	added, err := importBack(k, filepath.Join(nodeDir, "runtime"), []string{it.ID}, "nod_aaaa")
+	added, err := importBack(k, filepath.Join(nodeDir, "runtime"), []string{it.ID}, "nod_aaaa", nil)
 	if err != nil || added != len(chain)-len(staged) {
 		t.Fatalf("importBack = %d, %v", added, err)
 	}
@@ -367,7 +373,7 @@ func TestRunLocalRunsATask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	added, err := importBack(f.k, runtime, f.chains(), node)
+	added, err := importBack(f.k, runtime, f.chains(), node, nil)
 	if err != nil || added != len(events)+1 {
 		t.Fatalf("importBack = %d, %v; want %d", added, err, len(events)+1)
 	}
@@ -426,7 +432,7 @@ func TestImportBackRefusesABrokenChain(t *testing.T) {
 		lens[id] = len(ev)
 	}
 	blobsBefore := blobs()
-	_, err = importBack(f.k, runtime, f.chains(), node)
+	_, err = importBack(f.k, runtime, f.chains(), node, nil)
 	var broken *ledger.BrokenLink
 	if !errors.As(err, &broken) || broken.Item != exec {
 		t.Fatalf("importBack of a broken chain = %v", err)
@@ -446,4 +452,483 @@ func TestImportBackRefusesABrokenChain(t *testing.T) {
 	if blobs() != blobsBefore {
 		t.Fatal("blobs were copied for a broken run")
 	}
+}
+
+const probeSecret = "SATELLE_PROBE_SECRET"
+
+func secretFixture(t *testing.T, check string, setup []string, extra string) taskFixture {
+	t.Helper()
+	f := newTaskFixture(t, check)
+	root := filepath.Join(f.tree, ".satelle")
+	var on strings.Builder
+	for i, c := range setup {
+		if i > 0 {
+			on.WriteString(", ")
+		}
+		on.WriteString("'''" + c + "'''")
+	}
+	def := "version = 1\nname = \"tprobe\"\nprovider = \"docker-local\"\nsatelle_version = \"1.0.0\"\n\n[secrets]\nnames = [\"" + probeSecret + "\"]\n\n" +
+		"[drive]\nkind = \"task\"\ntask = \"" + f.task + "\"\n\n[setup]\non_create = [" + on.String() + "]\n\n[lifecycle]\nscope = \"run\"\n" + extra
+	writeFiles(t, root, map[string]string{"remotes/tprobe/remote.toml": def})
+	d, bundle, err := LoadLocal(root, "tprobe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.def.Definition, f.def.Bundle = d, bundle
+	t.Setenv(probeSecret, "")
+	t.Setenv("HOME", t.TempDir())
+	return f
+}
+
+func secretPayload(t *testing.T, values map[string]string) *strings.Reader {
+	t.Helper()
+	b, err := json.Marshal(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.NewReader(string(b))
+}
+
+func probeCheckScript(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", ".satelle", "skills", "satelle-probe-secret-check.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body, ok := strings.Cut(string(b), "```sh\n")
+	if !ok {
+		t.Fatal("the secret-probe skill has no sh block")
+	}
+	body, _, _ = strings.Cut(body, "```")
+	return strings.TrimSpace(body)
+}
+
+func probeSetup(t *testing.T) []string {
+	t.Helper()
+	def, _, err := LoadLocal(filepath.Join("..", "..", ".satelle"), "docker-secret-probe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return def.Setup.OnCreate
+}
+
+func randomHex(t *testing.T, n int) string {
+	t.Helper()
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func multiLineSecret(t *testing.T, lines int) string {
+	t.Helper()
+	var b strings.Builder
+	for i := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(randomHex(t, 32))
+	}
+	return b.String()
+}
+
+func assertNoSecret(t *testing.T, where, s, value string) {
+	t.Helper()
+	if !strings.Contains(s, "[secret]") {
+		t.Errorf("%s holds no [secret]:\n%s", where, s)
+	}
+	for i := 0; i+16 <= len(value); i++ {
+		if strings.Contains(s, value[i:i+16]) {
+			t.Errorf("%s holds a 16-byte window of the value at %d", where, i)
+			return
+		}
+	}
+	for _, line := range strings.Split(value, "\n") {
+		if len(line) >= 8 && strings.Contains(s, line) {
+			t.Errorf("%s holds a line of the value", where)
+			return
+		}
+	}
+}
+
+func gateNotes(t *testing.T, runtime, id string) []string {
+	t.Helper()
+	st, err := ledger.Open(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := st.Read(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notes []string
+	for _, e := range events {
+		if e.Kind != "gate.run" {
+			continue
+		}
+		var p struct {
+			Notes string `json:"notes"`
+		}
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		notes = append(notes, p.Notes)
+	}
+	return notes
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestRunLocalHandsSecretsToSetupAndSteps(t *testing.T) {
+	f := secretFixture(t, probeCheckScript(t), probeSetup(t), "")
+	v := randomHex(t, 32)
+	const node = "nod_5ec1"
+	nodeDir := f.stage(t, node)
+	var log strings.Builder
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log,
+		Secrets: secretPayload(t, map[string]string{probeSecret: v})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Verdict != kernel.VerdictAccept {
+		t.Fatalf("outcome = %+v\n%s", out, log.String())
+	}
+	runtime := filepath.Join(nodeDir, "runtime")
+	exec := nodeCreated(t, runtime, f.chains(), "node:"+node)[0]
+	notes := strings.Join(gateNotes(t, runtime, exec), "\n")
+	for _, want := range []string{"step sha256:" + sha256Hex(v), "setup sha256:" + sha256Hex(v), "argv clean:", "env names: "} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("gate.run notes miss %q:\n%s", want, notes)
+		}
+	}
+	for where, s := range map[string]string{"notes": notes, "outcome": out.Notes, "log": log.String()} {
+		if strings.Contains(s, v) {
+			t.Errorf("the %s holds the value", where)
+		}
+	}
+	if _, err := importBack(f.k, runtime, f.chains(), node, map[string]string{probeSecret: v}); err != nil {
+		t.Fatalf("importBack of a clean run = %v", err)
+	}
+}
+
+func TestRunLocalSetsOnlyDeclaredSecrets(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	const extra = "SATELLE_SECRET_TEST_UNDECLARED"
+	t.Setenv(extra, "")
+	os.Unsetenv(extra)
+	nodeDir := f.stage(t, "nod_5ec2")
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
+		Secrets: secretPayload(t, map[string]string{probeSecret: "declared-value", extra: "undeclared-value"})})
+	if err != nil || out.Verdict != kernel.VerdictAccept {
+		t.Fatalf("RunLocal = %+v, %v", out, err)
+	}
+	if v, ok := os.LookupEnv(extra); ok {
+		t.Fatalf("an undeclared payload key was set: %q", v)
+	}
+	if v := os.Getenv(probeSecret); v != "declared-value" {
+		t.Fatalf("the declared secret is %q", v)
+	}
+}
+
+func TestRunLocalRefusesAMissingSecret(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	for name, in := range map[string]*strings.Reader{
+		"absent": secretPayload(t, map[string]string{"OTHER": "x"}),
+		"empty":  secretPayload(t, map[string]string{probeSecret: ""}),
+		"broken": strings.NewReader("not json"),
+	} {
+		_, err := RunLocal(context.Background(), LocalOptions{Dir: f.stage(t, "nod_5ec3"), Version: "1.0.0", Secrets: in})
+		if err == nil {
+			t.Errorf("%s: RunLocal ran without its secret", name)
+		}
+	}
+	if _, err := RunLocal(context.Background(), LocalOptions{Dir: f.stage(t, "nod_5ec3"), Version: "1.0.0"}); err == nil ||
+		!strings.Contains(err.Error(), probeSecret) {
+		t.Fatalf("RunLocal with no stdin = %v", err)
+	}
+}
+
+func TestRunLocalRedactsSetupAndFailure(t *testing.T) {
+	f := secretFixture(t, "echo checked", []string{`printf '%s\n' "$SATELLE_PROBE_SECRET"; exit 1`}, "")
+	v := "-----BEGIN PRIVATE KEY-----\n" + multiLineSecret(t, 45) + "\n-----END PRIVATE KEY-----"
+	var log strings.Builder
+	_, err := RunLocal(context.Background(), LocalOptions{Dir: f.stage(t, "nod_5ec4"), Version: "1.0.0", Log: &log,
+		Secrets: secretPayload(t, map[string]string{probeSecret: v})})
+	if err == nil {
+		t.Fatal("a failing setup did not fail the run")
+	}
+	assertNoSecret(t, "the log", log.String(), v)
+	if !strings.Contains(err.Error(), "setup on_create command 1") {
+		t.Fatalf("error = %v", err)
+	}
+	for i := 0; i+16 <= len(v); i++ {
+		if strings.Contains(err.Error(), v[i:i+16]) {
+			t.Fatal("the error holds part of the value")
+		}
+	}
+}
+
+func TestRunLocalRedactsCheckOutputAtTheSource(t *testing.T) {
+	check := `printf '%s\n' "$SATELLE_PROBE_SECRET"
+head -c 1147 /dev/zero | tr '\0' a
+printf '%s' "$SATELLE_PROBE_SECRET"
+head -c 5000 /dev/zero | tr '\0' b
+exit 1`
+	f := secretFixture(t, check, nil, "")
+	v := multiLineSecret(t, 10)[:600]
+	const node = "nod_5ec5"
+	nodeDir := f.stage(t, node)
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0",
+		Secrets: secretPayload(t, map[string]string{probeSecret: v})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Verdict != kernel.VerdictReject {
+		t.Fatalf("outcome = %+v", out)
+	}
+	runtime := filepath.Join(nodeDir, "runtime")
+	exec := nodeCreated(t, runtime, f.chains(), "node:"+node)[0]
+	notes := gateNotes(t, runtime, exec)
+	if len(notes) == 0 || !strings.Contains(notes[0], "bytes elided") {
+		t.Fatalf("the check's notes were not bounded: %q", notes)
+	}
+	assertNoSecret(t, "the gate.run notes", strings.Join(notes, "\n"), v)
+	assertNoSecret(t, "the outcome (the drive's stop reason)", out.Notes, v)
+	b, err := os.ReadFile(filepath.Join(nodeDir, "out", localOutcome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written LocalOutcome
+	if err := json.Unmarshal(b, &written); err != nil {
+		t.Fatal(err)
+	}
+	assertNoSecret(t, "outcome.json", written.Notes, v)
+	if !strings.Contains(written.Notes, "chk: [secret]") {
+		t.Errorf("the stop reason is not the redacted first line: %s", written.Notes)
+	}
+	if _, err := importBack(f.k, runtime, f.chains(), node, map[string]string{probeSecret: v}); err != nil {
+		t.Fatalf("importBack of a run redacted at the source = %v", err)
+	}
+}
+
+func TestTakeSecretsUnsetsDeclaredNames(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	const other = "SATELLE_SECRET_TEST_OTHER"
+	t.Setenv(probeSecret, "the-value")
+	t.Setenv(other, "keep")
+	s, err := TakeSecrets(f.def.Definition, os.LookupEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Values[probeSecret] != "the-value" || !slices.Equal(s.Names, []string{probeSecret}) || !slices.Equal(s.Redact, []string{"the-value"}) {
+		t.Fatalf("TakeSecrets = %+v", s)
+	}
+	if v, ok := os.LookupEnv(probeSecret); ok {
+		t.Fatalf("%s is still set after it was taken: %q", probeSecret, v)
+	}
+	if os.Getenv(other) != "keep" {
+		t.Fatal("an undeclared variable was dropped")
+	}
+}
+
+func TestTakeSecretsRefusesUnsetName(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	def := f.def.Definition
+	def.Secrets.Names = []string{"SET_ONE", "UNSET_ONE", "EMPTY_ONE"}
+	env := map[string]string{"SET_ONE": "set-value-123", "EMPTY_ONE": ""}
+	_, err := TakeSecrets(def, func(n string) (string, bool) { v, ok := env[n]; return v, ok })
+	if err == nil || err.Error() != "secrets UNSET_ONE, EMPTY_ONE are not set in the firing shell's environment" {
+		t.Fatalf("TakeSecrets = %v", err)
+	}
+}
+
+func TestLocalRefusalSecretWithNetworkAllow(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	def := f.def.Definition
+	if err := localRefusal(def); err != nil {
+		t.Fatalf("a secret with no allow entry was refused: %v", err)
+	}
+	allowed := def
+	allowed.Network.Allow = []string{"example.com"}
+	if err := localRefusal(allowed); err == nil || !strings.Contains(err.Error(), "may allow no host") || !strings.Contains(err.Error(), "not enforced on docker") {
+		t.Fatalf("a secret beside an allow entry = %v", err)
+	}
+	over := def
+	over.Secrets.Override = map[string]remotedef.OverrideValue{"TOKEN": "satelle:token"}
+	if err := localRefusal(over); err == nil || !strings.Contains(err.Error(), "[secrets.override]") {
+		t.Fatalf("an override entry = %v", err)
+	}
+	if err := gateNodeRefusal(def); err == nil {
+		t.Fatal("the gate path serves [secrets]")
+	}
+}
+
+func fakeDockerFor(t *testing.T, body string) (script, log string) {
+	t.Helper()
+	dir := t.TempDir()
+	script, log = filepath.Join(dir, "docker"), filepath.Join(dir, "log")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$*\" >> "+log+"\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return script, log
+}
+
+func TestFireLocalRefusesUntakenSecrets(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	script, log := fakeDockerFor(t, "exit 0\n")
+	o := f.def
+	o.Docker, o.Runs = provider.DockerLocal{Docker: script}, LocalRuns{Dir: t.TempDir()}
+	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "secrets were not taken before the fire") {
+		t.Fatalf("FireLocal with untaken secrets = %v", err)
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Fatal("docker ran for a fire whose secrets were not taken")
+	}
+}
+
+func TestFireRedactsTheNodeReport(t *testing.T) {
+	v := multiLineSecret(t, 50)[:3000]
+	for _, tc := range []struct {
+		name, out string
+		code      int
+	}{
+		{"straddling the tail", v + strings.Repeat("z", 1000), 1},
+		{"ending with the value", "node: starting\n" + v, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := secretFixture(t, "echo checked", nil, "")
+			dir := t.TempDir()
+			outFile, stdinFile := filepath.Join(dir, "out"), filepath.Join(dir, "stdin")
+			if err := os.WriteFile(outFile, []byte(tc.out), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			script, log := fakeDockerFor(t, `case "$1" in
+  exec) if [ "$2" = -i ]; then cat > `+stdinFile+`; cat `+outFile+`; exit `+strconv.Itoa(tc.code)+`; fi; exit 0 ;;
+  cp) case "$2" in satelle-node-*) exit 1 ;; esac; exit 0 ;;
+  *) exit 0 ;;
+esac
+`)
+			var out strings.Builder
+			o := f.def
+			o.Docker, o.Runs, o.Out = provider.DockerLocal{Docker: script}, LocalRuns{Dir: t.TempDir()}, &out
+			o.Secrets = Secrets{Names: []string{probeSecret}, Values: map[string]string{probeSecret: v}, Redact: []string{v}}
+			run, err := FireLocal(context.Background(), o)
+			if err == nil || run == nil || run.GetState() != RunStopped {
+				t.Fatalf("FireLocal = %v, %v", run, err)
+			}
+			assertNoSecret(t, "the run's reason", run.GetReason(), v)
+			assertNoSecret(t, "the error", err.Error(), v)
+			saved, serr := os.ReadFile(o.Runs.path(o.Remote, o.Item))
+			if serr != nil {
+				t.Fatal(serr)
+			}
+			if strings.Contains(string(saved), v[:16]) || strings.Contains(string(saved), v[len(v)-16:]) {
+				t.Error("the saved run holds part of the value")
+			}
+			if strings.Contains(out.String(), v[:16]) {
+				t.Error("the fire's output holds part of the value")
+			}
+			b, _ := os.ReadFile(log)
+			if strings.Contains(string(b), v[:16]) {
+				t.Error("docker's argv held the value")
+			}
+			if !strings.Contains(string(b), "exec -i satelle-node-") {
+				t.Errorf("the node was not run with stdin:\n%s", b)
+			}
+			if got, _ := os.ReadFile(stdinFile); !strings.Contains(string(got), probeSecret) {
+				t.Errorf("the node's stdin = %q", got)
+			}
+		})
+	}
+}
+
+func appendToNodeChain(t *testing.T, runtime, id string, payload any) {
+	t.Helper()
+	st, err := ledger.Open(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(id, item.KindUpdated, "node:x", payload); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImportBackRefusesASecretInTheRecord(t *testing.T) {
+	plain := randomHex(t, 24)
+	special := "line one \"quoted\" <&>\nline two " + randomHex(t, 8)
+	for _, tc := range []struct {
+		name  string
+		value string
+		leak  func(t *testing.T, runtime, exec string)
+	}{
+		{"a string field", plain, func(t *testing.T, runtime, exec string) {
+			appendToNodeChain(t, runtime, exec, item.Fields{Title: ptr("leaked " + plain)})
+		}},
+		{"an escaped multi-line value", special, func(t *testing.T, runtime, exec string) {
+			appendToNodeChain(t, runtime, exec, item.Fields{Body: ptr("leaked:\n" + special)})
+		}},
+		{"an object key", plain, func(t *testing.T, runtime, exec string) {
+			appendToNodeChain(t, runtime, exec, map[string]any{plain: "x"})
+		}},
+		{"a key in JSON held as a string", special, func(t *testing.T, runtime, exec string) {
+			inner, _ := json.Marshal(map[string]int{special: 1})
+			appendToNodeChain(t, runtime, exec, map[string]any{"notes": string(inner)})
+		}},
+		{"a blob", plain, func(t *testing.T, runtime, _ string) {
+			st, err := ledger.Open(runtime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.PutBlob([]byte("a step wrote " + plain)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newTaskFixture(t, "echo checked")
+			const node = "nod_1eak"
+			nodeDir := f.stage(t, node)
+			if _, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0"}); err != nil {
+				t.Fatal(err)
+			}
+			runtime := filepath.Join(nodeDir, "runtime")
+			exec := nodeCreated(t, runtime, f.chains(), "node:"+node)[0]
+			tc.leak(t, runtime, exec)
+			itemsBefore, _ := f.k.Ledger.Items()
+			blobsDir := filepath.Join(f.k.Ledger.Dir(), "blobs")
+			blobsBefore, _ := os.ReadDir(blobsDir)
+			_, err := importBack(f.k, runtime, f.chains(), node, map[string]string{probeSecret: tc.value})
+			var leak *SecretInRecord
+			if !errors.As(err, &leak) || leak.Name != probeSecret {
+				t.Fatalf("importBack = %v", err)
+			}
+			if strings.Contains(err.Error(), tc.value) {
+				t.Fatal("the refusal holds the value")
+			}
+			if itemsAfter, _ := f.k.Ledger.Items(); len(itemsAfter) != len(itemsBefore) {
+				t.Fatalf("items %v, were %v", itemsAfter, itemsBefore)
+			}
+			if blobsAfter, _ := os.ReadDir(blobsDir); len(blobsAfter) != len(blobsBefore) {
+				t.Fatal("blobs were copied from a refused record")
+			}
+		})
+	}
+	t.Run("a value already held here", func(t *testing.T) {
+		f := newTaskFixture(t, "echo checked")
+		if _, err := f.k.Update(f.inputs[0], item.Fields{Title: ptr("held " + plain)}, "ada"); err != nil {
+			t.Fatal(err)
+		}
+		const node = "nod_be1d"
+		nodeDir := f.stage(t, node)
+		if _, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := importBack(f.k, filepath.Join(nodeDir, "runtime"), f.chains(), node, map[string]string{probeSecret: plain}); err != nil {
+			t.Fatalf("importBack with the value only in events held here = %v", err)
+		}
+	})
 }

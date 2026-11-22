@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobmcallan/satelle/internal/buildinfo"
+	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
@@ -90,6 +91,22 @@ func localRemote(r repo, id string) (def remotedef.Definition, bundle []byte, ok
 	return def, bundle, def.Provider == remotedef.ProviderDockerLocal, nil
 }
 
+func takeFireSecrets(id string) (remotenode.Secrets, error) {
+	dataDir, ok := config.FindDataDir("")
+	if !ok {
+		return remotenode.Secrets{}, nil
+	}
+	def, _, err := remotenode.LoadLocal(dataDir, id)
+	if err != nil || def.Provider != remotedef.ProviderDockerLocal {
+		return remotenode.Secrets{}, nil
+	}
+	s, err := remotenode.TakeSecrets(def, os.LookupEnv)
+	if err != nil {
+		return remotenode.Secrets{}, fmt.Errorf("remote %s: %w", id, err)
+	}
+	return s, nil
+}
+
 func localRuns(r repo) remotenode.LocalRuns {
 	return remotenode.LocalRuns{Dir: filepath.Join(r.Runtime, remotenode.RemotesDir)}
 }
@@ -104,6 +121,10 @@ func remoteFireCmd() *cobra.Command {
 			if steps < 0 {
 				return fmt.Errorf("--steps %d: a step count is 0 or more", steps)
 			}
+			secrets, err := takeFireSecrets(args[0])
+			if err != nil {
+				return err
+			}
 			k, r, err := openKernel()
 			if err != nil {
 				return err
@@ -117,7 +138,7 @@ func remoteFireCmd() *cobra.Command {
 				run, err := remotenode.FireLocal(cmd.Context(), remotenode.FireOptions{
 					Kernel: k, Tree: r.Tree, DataDir: r.DataDir, Runs: localRuns(r),
 					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Actor: actor(),
-					Out: cmd.OutOrStdout(),
+					Out: cmd.OutOrStdout(), Secrets: secrets,
 				})
 				if err != nil {
 					return err
@@ -328,7 +349,7 @@ and writes its outcome to <dir>/out; the starter copies the chain back. It
 exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := remotenode.RunLocal(cmd.Context(), remotenode.LocalOptions{Dir: dir, Log: cmd.ErrOrStderr(), Version: buildinfo.Version})
+			out, err := remotenode.RunLocal(cmd.Context(), remotenode.LocalOptions{Dir: dir, Log: cmd.ErrOrStderr(), Version: buildinfo.Version, Secrets: cmd.InOrStdin()})
 			if err != nil {
 				return err
 			}

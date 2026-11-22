@@ -18,6 +18,7 @@ type Run struct {
 	NodeID, Token, Server string
 	Binary                string
 	Join                  bool
+	NoSetup               bool
 }
 
 type Handle interface {
@@ -27,6 +28,10 @@ type Handle interface {
 	CopyOut(ctx context.Context, machine, host string) error
 	Logs(ctx context.Context) ([]byte, error)
 	Stop(ctx context.Context) error
+}
+
+type StdinExec interface {
+	ExecStdin(ctx context.Context, stdin io.Reader, argv ...string) ([]byte, error)
 }
 
 type Provider interface {

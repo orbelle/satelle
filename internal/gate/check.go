@@ -26,6 +26,7 @@ type CheckEnv struct {
 	Binding, Notes       string
 	SkillDir             string
 	Members              []CheckMember
+	Redact               func(string) string
 }
 
 type CheckMember struct {
@@ -326,7 +327,11 @@ func RunCheckCode(ctx context.Context, script, dir string, env CheckEnv, timeout
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err = cmd.Run()
-	notes := bound(out.Bytes())
+	raw := out.String()
+	if env.Redact != nil {
+		raw = env.Redact(raw)
+	}
+	notes := bound([]byte(raw))
 	if ctx.Err() != nil {
 		return -1, notes, &TimeoutError{Bound: timeout}
 	}

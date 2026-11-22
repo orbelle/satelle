@@ -1,18 +1,22 @@
 package remotenode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/filebundle"
 	"github.com/bobmcallan/satelle/internal/ledger"
+	"github.com/bobmcallan/satelle/internal/remotedef"
 )
 
 type LocalOptions struct {
@@ -20,12 +24,32 @@ type LocalOptions struct {
 	Log        io.Writer
 	Version    string
 	Dispatcher agent.Dispatcher
+	Secrets    io.Reader
 }
 
-func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
+const maxSecretPayload = 1 << 20
+
+const localSetupTimeout = 20 * time.Minute
+
+func RunLocal(ctx context.Context, o LocalOptions) (out LocalOutcome, err error) {
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
+	var values []string
+	var buf bytes.Buffer
+	log := o.Log
+	o.Log = &buf
+	defer func() {
+		_, _ = io.WriteString(log, redact(buf.String(), values))
+		out.Notes = redact(out.Notes, values)
+		if err != nil {
+			err = errors.New(redact(err.Error(), values))
+		}
+	}()
+	return runLocal(ctx, o, &values)
+}
+
+func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutcome, error) {
 	if o.Dispatcher == nil {
 		o.Dispatcher = agent.Runner{}
 	}
@@ -50,6 +74,15 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item or task run", localRunFile)
 	}
 	fmt.Fprintf(o.Log, "node: definition %s, run %s %s\n", def.Name, run.Run.Mode, run.Run.ItemID)
+	if *values, err = readSecrets(def, o.Secrets); err != nil {
+		return LocalOutcome{}, err
+	}
+	var clean func(string) string
+	if len(*values) > 0 {
+		vs := *values
+		clean = func(s string) string { return redact(s, vs) }
+		fmt.Fprintf(o.Log, "node: read %d secrets\n", len(vs))
+	}
 
 	tree := filepath.Join(o.Dir, "work")
 	root := filepath.Join(tree, ".satelle")
@@ -64,7 +97,19 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 	if err := filebundle.Write(root, entries, false, nil); err != nil {
 		return LocalOutcome{}, err
 	}
-	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, nil)
+	for _, phase := range []struct {
+		name string
+		cmds []string
+	}{{SetupOnCreate, def.Setup.OnCreate}, {SetupPostStart, def.Setup.PostStart}} {
+		if len(phase.cmds) == 0 {
+			continue
+		}
+		fmt.Fprintf(o.Log, "node: setup %s: %d commands\n", phase.name, len(phase.cmds))
+		if err := RunSetup(ctx, tree, phase.name, phase.cmds, nil, localSetupTimeout, o.Log); err != nil {
+			return LocalOutcome{}, err
+		}
+	}
+	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, nil, clean)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
@@ -102,8 +147,44 @@ func RunLocal(ctx context.Context, o LocalOptions) (LocalOutcome, error) {
 	if warn != "" {
 		out.Notes += "\n" + warn
 	}
+	out.Notes = redact(out.Notes, *values)
 	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
+}
+
+func readSecrets(def remotedef.Definition, in io.Reader) ([]string, error) {
+	names := secretNames(def)
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if in == nil {
+		return nil, fmt.Errorf("the definition declares secret %s and none was given on stdin", names[0])
+	}
+	b, err := io.ReadAll(io.LimitReader(in, maxSecretPayload+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading secrets from stdin: %w", err)
+	}
+	if len(b) > maxSecretPayload {
+		return nil, fmt.Errorf("the secrets on stdin are over %d bytes", maxSecretPayload)
+	}
+	var given map[string]string
+	if err := json.Unmarshal(b, &given); err != nil {
+		return nil, errors.New("the secrets on stdin are not a JSON object of names to values")
+	}
+	taken := map[string]string{}
+	for _, n := range names {
+		v := given[n]
+		if v == "" {
+			return nil, fmt.Errorf("secret %s was not given on stdin", n)
+		}
+		taken[n] = v
+	}
+	for _, n := range names {
+		if err := os.Setenv(n, taken[n]); err != nil {
+			return nil, fmt.Errorf("secret %s: %w", n, err)
+		}
+	}
+	return longestFirst(taken), nil
 }
 
 func importIn(dst *ledger.Store, in, itemID string) error {

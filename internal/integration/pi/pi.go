@@ -247,7 +247,7 @@ func (p Dispatch) Run(ctx context.Context, req common.Request) (common.Result, e
 		case line, open := <-lines:
 			if !open {
 				end()
-				return res, fmt.Errorf("pi exited before it settled: %s", common.Tail(stderr.Bytes(), 2000))
+				return res, fmt.Errorf("pi exited before it settled: %s", common.Tail([]byte(req.Clean(stderr.String())), 2000))
 			}
 			if err := handle(line); err != nil {
 				end()
@@ -280,7 +280,7 @@ replies:
 		res.Text = *text
 	}
 	if strings.TrimSpace(res.Text) == "" {
-		return res, fmt.Errorf("pi settled without an answer: %s", common.Tail(stderr.Bytes(), 2000))
+		return res, fmt.Errorf("pi settled without an answer: %s", common.Tail([]byte(req.Clean(stderr.String())), 2000))
 	}
 	return res, nil
 }

@@ -1,6 +1,7 @@
 package remotenode
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -182,6 +184,62 @@ type FireOptions struct {
 	Actor         string
 	Docker        provider.DockerLocal
 	Out           io.Writer
+	Secrets       Secrets
+}
+
+type Secrets struct {
+	Names  []string
+	Values map[string]string
+	Redact []string
+}
+
+func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool)) (Secrets, error) {
+	if err := localRefusal(def); err != nil {
+		return Secrets{}, err
+	}
+	names := secretNames(def)
+	values := map[string]string{}
+	var missing []string
+	for _, n := range names {
+		v, ok := lookup(n)
+		if !ok || v == "" {
+			missing = append(missing, n)
+			continue
+		}
+		values[n] = v
+	}
+	switch len(missing) {
+	case 0:
+	case 1:
+		return Secrets{}, fmt.Errorf("secret %s is not set in the firing shell's environment", missing[0])
+	default:
+		return Secrets{}, fmt.Errorf("secrets %s are not set in the firing shell's environment", strings.Join(missing, ", "))
+	}
+	for _, n := range names {
+		if err := os.Unsetenv(n); err != nil {
+			return Secrets{}, fmt.Errorf("secret %s: %w", n, err)
+		}
+	}
+	return Secrets{Names: names, Values: values, Redact: longestFirst(values)}, nil
+}
+
+func secretNames(def remotedef.Definition) []string {
+	var names []string
+	for _, e := range def.SecretEntries() {
+		names = append(names, e.Key)
+	}
+	return names
+}
+
+func longestFirst(values map[string]string) []string {
+	var out []string
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int { return len(b) - len(a) })
+	return out
 }
 
 func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
@@ -191,6 +249,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	if err := localRefusal(def); err != nil {
 		return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+	}
+	for _, n := range secretNames(def) {
+		if _, ok := o.Secrets.Values[n]; !ok || !slices.Contains(o.Secrets.Names, n) {
+			return nil, fmt.Errorf("remote %s: secret %s: secrets were not taken before the fire", o.Remote, n)
+		}
 	}
 	if _, err := k.Get(o.Item); err != nil {
 		return nil, err
@@ -221,13 +284,16 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		return nil, err
 	}
 	stopped := func(err error) (*satellepb.ItemRun, error) {
+		if len(o.Secrets.Redact) > 0 {
+			err = errors.New(redact(err.Error(), o.Secrets.Redact))
+		}
 		run.State, run.Reason = RunStopped, tailOf(err.Error(), 2000)
 		if serr := o.Runs.Save(o.Remote, o.Item, run); serr != nil {
 			err = errors.Join(err, serr)
 		}
 		return run, err
 	}
-	h, err := o.Docker.Start(ctx, def, provider.Run{NodeID: node})
+	h, err := o.Docker.Start(ctx, def, provider.Run{NodeID: node, NoSetup: true})
 	if h != nil {
 		fmt.Fprintf(o.Out, "node %s in container %s\n", node, h.ID())
 		fmt.Fprintf(o.Out, "inspect it: docker exec -it %s sh\n", h.ID())
@@ -276,10 +342,17 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 }
 
 func localRefusal(def remotedef.Definition) error {
-	if def.Provider != remotedef.ProviderDockerLocal {
+	switch {
+	case def.Provider != remotedef.ProviderDockerLocal:
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
+	case len(def.Secrets.Override) > 0:
+		return errors.New("[secrets.override] is not served to a local node: a docker-local node reads each [secrets] name from the firing shell")
+	case len(def.SecretEntries()) > 0 && len(def.Network.Allow) > 0:
+		return errors.New("a docker-local definition that declares [secrets] may allow no host: the [network] allow-list is not enforced on docker")
+	case len(def.Repos) > 0:
+		return errors.New("[[repo]] is not fetched by a local node")
 	}
-	return gateNodeRefusal(def)
+	return nil
 }
 
 func gateNodeRefusal(def remotedef.Definition) error {
@@ -344,8 +417,24 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if err := h.CopyIn(ctx, in, path.Join(LocalNodeDir, "in")); err != nil {
 		return LocalOutcome{}, err
 	}
+	sx, ok := h.(provider.StdinExec)
+	if !ok {
+		return LocalOutcome{}, fmt.Errorf("the node's handle %s cannot pass stdin to the node", h.ID())
+	}
+	values := o.Secrets.Values
+	if values == nil {
+		values = map[string]string{}
+	}
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return LocalOutcome{}, err
+	}
 	fmt.Fprintf(o.Out, "running the node on %s\n", o.Item)
-	log, execErr := h.Exec(ctx, "satelle", "node", "run-local", "--dir", LocalNodeDir)
+	raw, execErr := sx.ExecStdin(ctx, bytes.NewReader(payload), "satelle", "node", "run-local", "--dir", LocalNodeDir)
+	log := redact(string(raw), o.Secrets.Redact)
+	if execErr != nil {
+		execErr = errors.New(redact(execErr.Error(), o.Secrets.Redact))
+	}
 
 	back := filepath.Join(tmp, "back")
 	if err := os.MkdirAll(back, 0o755); err != nil {
@@ -354,9 +443,9 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	outcomeFile := filepath.Join(back, localOutcome)
 	if err := h.CopyOut(ctx, path.Join(LocalNodeDir, "out", localOutcome), outcomeFile); err != nil {
 		if execErr != nil {
-			return LocalOutcome{}, fmt.Errorf("the node failed: %w", execErr)
+			return LocalOutcome{}, fmt.Errorf("the node failed: %w\n%s", execErr, tailOf(log, 2000))
 		}
-		return LocalOutcome{}, fmt.Errorf("the node wrote no outcome: %w\n%s", err, tailOf(string(log), 2000))
+		return LocalOutcome{}, fmt.Errorf("the node wrote no outcome: %w\n%s", err, tailOf(log, 2000))
 	}
 	var out LocalOutcome
 	b, err := os.ReadFile(outcomeFile)
@@ -366,6 +455,7 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if err := json.Unmarshal(b, &out); err != nil {
 		return LocalOutcome{}, fmt.Errorf("the node's outcome: %w", err)
 	}
+	out.Notes = redact(out.Notes, o.Secrets.Redact)
 	runtime := path.Join(LocalNodeDir, "runtime")
 	if err := h.CopyOut(ctx, path.Join(runtime, "ledger"), filepath.Join(back, "ledger")); err != nil {
 		return LocalOutcome{}, err
@@ -373,10 +463,13 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if err := h.CopyOut(ctx, path.Join(runtime, "blobs"), filepath.Join(back, "blobs")); err != nil {
 		return LocalOutcome{}, err
 	}
-	added, err := importBack(k, back, chains, node)
+	added, err := importBack(k, back, chains, node, o.Secrets.Values)
 	if broken := (*ledger.BrokenLink)(nil); errors.As(err, &broken) {
 		return LocalOutcome{Verdict: kernel.VerdictReject,
 			Notes: fmt.Sprintf("the node's chain of %s does not verify: %s; nothing of the run was imported", broken.Item, broken.Reason)}, nil
+	}
+	if leak := (*SecretInRecord)(nil); errors.As(err, &leak) {
+		return LocalOutcome{Verdict: kernel.VerdictReject, Notes: leak.Error() + "; nothing of the run was imported"}, nil
 	}
 	if err != nil {
 		return LocalOutcome{}, err
@@ -417,7 +510,7 @@ func stageIn(o FireOptions, in, node string, chains []string) error {
 	return nil
 }
 
-func importBack(k *kernel.Kernel, dir string, sent []string, node string) (int, error) {
+func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (int, error) {
 	st, err := ledger.Open(dir)
 	if err != nil {
 		return 0, err
@@ -441,6 +534,9 @@ func importBack(k *kernel.Kernel, dir string, sent []string, node string) (int, 
 		}
 		chains = append(chains, events)
 	}
+	if err := secretInRecord(k, chains, filepath.Join(dir, "blobs"), values); err != nil {
+		return 0, err
+	}
 	if err := copyBlobs(k.Ledger, filepath.Join(dir, "blobs")); err != nil {
 		return 0, err
 	}
@@ -453,6 +549,109 @@ func importBack(k *kernel.Kernel, dir string, sent []string, node string) (int, 
 		}
 	}
 	return total, k.Cache.Sync(k.Ledger)
+}
+
+type SecretInRecord struct{ Name string }
+
+func (e *SecretInRecord) Error() string {
+	return fmt.Sprintf("the node's record carries the value of declared secret %s", e.Name)
+}
+
+func secretInRecord(k *kernel.Kernel, chains [][]ledger.Event, blobs string, values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	names := slices.Sorted(maps.Keys(values))
+	hit := func(s string) string {
+		for _, n := range names {
+			if v := values[n]; v != "" && strings.Contains(s, v) {
+				return n
+			}
+		}
+		return ""
+	}
+	for _, events := range chains {
+		held, err := k.Ledger.Read(events[0].Item)
+		if err != nil {
+			return err
+		}
+		for _, e := range events[min(len(held), len(events)):] {
+			b, err := json.Marshal(e)
+			if err != nil {
+				return err
+			}
+			if n := walkJSON(b, hit); n != "" {
+				return &SecretInRecord{Name: n}
+			}
+		}
+	}
+	entries, err := os.ReadDir(blobs)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if _, err := k.Ledger.GetBlob(e.Name()); err == nil {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(blobs, e.Name()))
+		if err != nil {
+			return err
+		}
+		if n := hit(string(b)); n != "" {
+			return &SecretInRecord{Name: n}
+		}
+		if n := walkJSON(b, hit); n != "" {
+			return &SecretInRecord{Name: n}
+		}
+	}
+	return nil
+}
+
+func walkJSON(b []byte, hit func(string) string) string {
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return ""
+	}
+	return walkValue(v, hit)
+}
+
+func walkValue(v any, hit func(string) string) string {
+	switch t := v.(type) {
+	case map[string]any:
+		for key, child := range t {
+			if n := walkString(key, hit); n != "" {
+				return n
+			}
+			if n := walkValue(child, hit); n != "" {
+				return n
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if n := walkValue(child, hit); n != "" {
+				return n
+			}
+		}
+	case string:
+		return walkString(t, hit)
+	}
+	return ""
+}
+
+func walkString(s string, hit func(string) string) string {
+	if n := hit(s); n != "" {
+		return n
+	}
+	if t := strings.TrimSpace(s); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") || strings.HasPrefix(t, "\"") {
+		return walkJSON([]byte(t), hit)
+	}
+	return ""
 }
 
 func copyBlobs(dst *ledger.Store, blobs string) error {

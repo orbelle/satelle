@@ -25,9 +25,10 @@ smallest one is `docker-probe`:
 
 `remote fire` builds the node image from the repo's Dockerfile as
 `satelle-node:local` (unless `[machine] image` names another), starts the
-container `satelle-node-<node>` with no network, runs setup in it, seats the
-item at `remote:<node>`, and hands the node its definition, the repo's
-tracked `.satelle` files, its run and the item's chain. The node drives the
+container `satelle-node-<node>` with no network, seats the item at
+`remote:<node>`, and hands the node its definition, the repo's tracked
+`.satelle` files, its run and the item's chain. The node is given its secrets,
+then runs setup, then drives the
 item (`--steps N` bounds it to N steps; 0, the default, goes as far as the
 item goes) and concludes; the fire verifies the chain the node returns,
 imports it, releases the seat (also on failure) and records the run, which
@@ -51,8 +52,17 @@ is imported: a chain that does not verify imports nothing and concludes the
 run `reject`, naming it. No seat is taken for a task. `remote status
 <remote-id> <task>` shows the run.
 
-A local node is given no secrets and fetches nothing:
-`[secrets]` and `[[repo]]` are refused locally. `max_nodes`, `idle_destroy`
+A docker-local node is given the secrets its `[secrets] names` declare, each
+read from the environment of the shell that fires and handed to the node
+process over its stdin, never in argv, the container's configuration, the
+ledger or on disk; a name not set there refuses the fire before any container
+starts, the node replaces each value in what it reports, and a node record
+that carries a declared value is not imported. `[network] allow` is not
+enforced on docker, so
+a docker definition declaring a secret may allow no host.
+`[secrets.override]` and `[[repo]]` are refused locally. Where a value comes
+from is yours: wrap the fire in whatever sets the name (a keyring, a secrets
+manager); `docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`
 and `keep_warm` are not applied: each fire runs one node.
 
 ## Remotes through satelle-server
@@ -101,8 +111,8 @@ fetch and the check. A Postgres beside the suite, on an alpine image:
     ]
     post_start = ["su postgres -c 'pg_ctl -D /var/lib/postgresql/data -w start'"]
 
-The image must have git (or setup installs it). As for a fire, `[secrets]`
-and `[[repo]]` are refused: the check rejects naming them.
+The image must have git (or setup installs it). Unlike a fire, `[secrets]`
+and `[[repo]]` are refused for a gate: the check rejects naming them.
 
 Lifecycle: with `scope = "run"` an accepted check's container is removed; a
 reject or a failure leaves it to inspect, and the gate's notes say `docker rm

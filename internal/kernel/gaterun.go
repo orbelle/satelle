@@ -46,6 +46,7 @@ func (k *Kernel) gateRun(it item.Item, events []ledger.Event, w *workflow.Workfl
 		Diff:         func(paths []string) (string, error) { return k.diffSpan(sp, paths) },
 		Remote:       k.RemoteChecks,
 		Logs:         k.Logs,
+		Redact:       k.Redact,
 	}
 	if k.Git != nil {
 		run.Span = k.runSpan(events, sp)

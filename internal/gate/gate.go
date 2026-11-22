@@ -134,6 +134,7 @@ type Run struct {
 	Head         Head
 	HeadErr      error
 	Logs         string
+	Redact       func(string) string
 	Started      func(seq int, gate string) error
 	Finished     func(seq int, res Result)
 
@@ -221,7 +222,16 @@ func (r Run) Gate(ctx context.Context, name string) Result {
 
 func (r Run) key() string { return TransitionKey(r.From, r.To) }
 
-func (r Run) env() CheckEnv { return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base} }
+func (r Run) env() CheckEnv {
+	return CheckEnv{Item: r.Item.ID, From: r.From, To: r.To, Base: r.Base, Redact: r.Redact}
+}
+
+func (r Run) clean(s string) string {
+	if r.Redact == nil {
+		return s
+	}
+	return r.Redact(s)
+}
 
 func (r Run) envFor(sk workflow.Skill) CheckEnv {
 	env := r.env()
@@ -263,6 +273,10 @@ func (r Run) one(ctx context.Context, name string) Result {
 		res.Changed = r.Changed
 	}
 	res.DurationMS = time.Since(start).Milliseconds()
+	res.Notes, res.Answer, res.Warning = r.clean(res.Notes), r.clean(res.Answer), r.clean(res.Warning)
+	for i := range res.Members {
+		res.Members[i].Answer = r.clean(res.Members[i].Answer)
+	}
 	return res
 }
 
@@ -650,9 +664,10 @@ func (r Run) judgeOne(ctx context.Context, name string, skill workflow.Skill, re
 		res.Result, res.Notes = Error, "dispatch failed: "+err.Error()
 		return res
 	}
-	v, parsed := parseVerdict(out.Text)
+	text := r.clean(out.Text)
+	v, parsed := parseVerdict(text)
 	res.Result, res.Notes, res.Class, res.verdict = v.Verdict, v.Notes, v.Class, parsed
-	res.judges = []judgeAnswer{{binding: name, result: v.Verdict, notes: v.Notes, answer: out.Text}}
+	res.judges = []judgeAnswer{{binding: name, result: v.Verdict, notes: v.Notes, answer: text}}
 	return res
 }
 
