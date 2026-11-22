@@ -4,13 +4,17 @@
 - agy (Antigravity CLI) interactive sessions run under satelle: `satelle agents install|refresh|remove agy` manages satelle's own `"satelle"` entries in `.agents/hooks.json` and keeps every other owner's hooks; sessions get the session context and once-per-turn reminders as `injectSteps`; file writes and `run_command` pass the edit gate; a turn's end with an owed move is continued once; `satelle status` and `satelle doctor` report agy wiring; `command = "agy"` bindings mark agy in use; auto-mode guidance reports agy as unavailable. (sto_aed30d81)
 
 ### Changed
-- agy dispatch no longer refuses a `.agents/hooks.json` that holds only satelle's own agy hooks, exactly as `satelle agents install agy` writes them; any other workspace hook file is still refused. (sto_aed30d81)## [1.0.121] - 2026-11-22
+- agy dispatch no longer refuses a `.agents/hooks.json` that holds only satelle's own agy hooks, exactly as `satelle agents install agy` writes them; any other workspace hook file is still refused. (sto_aed30d81)
+
+## [1.0.121] - 2026-11-22
 
 ### Added
 - An agy (Antigravity CLI) dispatch adapter: a binding with command = "agy" runs headlessly as a judge or performer, with the prompt on stdin, per-run --settings permissions plus a default-deny tool guard, no shell grant, and model and token usage read from agy's stream-json. (sto_3fa969fd)
 
 ### Fixed
-- satelle-pr-gates 1.0.4 declares in [needs] scripts the satelle-pr-ready-check/scripts/changelog-lines.sh its ready check runs, so a pack-review security gate passes the pack unedited (sto_7d074dd7)## [1.0.120] - 2026-11-21
+- satelle-pr-gates 1.0.4 declares in [needs] scripts the satelle-pr-ready-check/scripts/changelog-lines.sh its ready check runs, so a pack-review security gate passes the pack unedited (sto_7d074dd7)
+
+## [1.0.120] - 2026-11-21
 
 ### Changed
 - satelle-pr-gates 1.0.3: satelle-pr-approve-from-review takes each route's verdict gate and move from the repo's own .satelle/pr-gates.routes (one line per workflow), read from the base branch's committed tip, so a repo whose routes are judged by different gates keeps the installed member unedited; a route named nowhere keeps code-ac on in_progress -> integration. (sto_0b261013)
