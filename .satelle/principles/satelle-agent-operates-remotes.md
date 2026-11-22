@@ -3,36 +3,58 @@ name: satelle-agent-operates-remotes
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
-description: Agents operate remotes through satelle (the CLI, in a repo) and satelle.dev (the MCP, for claude.ai or grok.com), never the user by hand. A remote reads exactly the secrets its accepted definition declares; there are no grants. A person only enters a secret's value, in the satelle.dev UI.
+description: Agents operate remotes, never the user by hand. The machine that fires a run opens the connection to the node and operates it; no server is required, and satelle.dev is one place a remote may be operated from. A node is isolated to its one task. A remote reads exactly the secrets its definition declares, from the source the definition names, when the run starts, and stores them nowhere; an agent never handles a value. Connection, host and secret source are the repo's configuration.
 ---
 
 # Agents operate remotes
 
 An agent registers, configures, checks, starts, watches and retires a remote.
-In a repo the agent uses the satelle CLI; satelle.dev's MCP tools are the same
-surface for orchestrating from claude.ai or grok.com, where there is no repo. It
-never hands a remote step to the user; a step its tools cannot do is a satelle
-or satelle.dev story.
+It never hands a remote step to the user; a step its tools cannot do is a
+satelle or satelle.dev story.
+
+## The firing machine operates the node
+
+A run is machine-initiated: the machine that fires it opens the connection to
+the node, gives it its work and reads its result back. No node calls back to a
+server, so a remote needs no server. satelle.dev is one place a remote may be
+operated from (its MCP tools, for claude.ai or grok.com where there is no
+repo), not the only one; in a repo the agent fires the remote with the satelle
+CLI (`satelle help remotes --session <session>`).
+
+A node is isolated to its task: it gets one task or item, the secrets its
+definition declares and the network its definition allows, and nothing else of
+the machine that fired it.
+
+satelle is the kernel; everything else is configuration
+([[satelle-mechanism-vs-substrate]]). The binary carries one node contract. How
+the node is reached (a local docker, a docker host over SSH or Tailscale SSH),
+which host and image it runs, and where each secret's value comes from are the
+remote's definition, in the repo.
+
+Which parts of this model are built is the state of the remotes epic's stories
+(`satelle story list --parent sto_426138e8 --session <session>`), not this page.
 
 ## Secrets: declared, never granted
 
 - A secret is a name, a value and a scope (personal or team), and nothing else:
   no readers list, no per-remote or per-workflow grant.
-- A remote's definition declares each secret it needs by name: `satelle:<KEY>`
-  in `[secrets]`, or `${satelle.<KEY>}` / `${satelle.<userid>.<KEY>}` in `[env]`.
-  Accepting that definition version is the authorisation. A personal or
-  owner_only remote reads its registering user's personal secrets; a team remote
-  reads its workspace's team secrets. Scopes never cross, no remote reads
-  another user's personal secrets, and a wake key is never readable as a secret.
+- A remote's definition declares each secret it needs by name. Accepting that
+  definition version is the authorisation. Scopes never cross, no remote reads
+  another user's personal secrets, and a wake key is never readable as a
+  secret.
 - A different token is a different key name. There are no aliases and no
   per-remote override of one key.
 - No agent proposes, makes or checks a grant (satelle-server sty_f7c38cc5
   removed them).
 
-A remote is configured before it starts, and its declared secrets are resolved
-at node start. Nothing is put into a running remote unless its story names why.
+A value is read from the source the definition names when the run starts, and
+is stored nowhere: not in the definition, the image, the container's
+configuration, the ledger or on either machine's disk. The firing machine's
+environment is one source; the satelle.dev UI is another. Where a value comes
+from is the user's: a keyring, a secrets manager or a vault is whatever the
+user wraps the fire in.
 
-Entering a secret's value, in the satelle.dev UI, is the user's only part. An
-agent never reads, prints, types or attaches a secret value; it names the key in
-the definition. A refused remote call is brought to the user as an approval of
-that call, not as manual work.
+An agent never reads, prints, types or attaches a secret value; it names the
+key in the definition. Putting a value in its source is the user's only part.
+A refused remote call is brought to the user as an approval of that call, not
+as manual work.

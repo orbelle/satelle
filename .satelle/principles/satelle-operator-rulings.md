@@ -296,3 +296,11 @@ are reviewed*).
   ([[satelle-agent-agnostic]], [[satelle-mechanism-vs-substrate]]), rather
   than shipping that interface outside the binary (operator, 2026-11-22;
   sto_4f988424, unblocking sto_ab933beb).
+- **Remotes are machine-initiated.** "confirmed, machine-initiated." The
+  machine that fires a run opens the connection to the node, gives it its work
+  and reads its result; no node calls back to a server. "the remotes are like
+  an isloated sub agent that performs a task." "connection should be SSH (or
+  similar), or bake a public/private key into satelle, wich can transport and
+  install realtime secrets, without storing". "need to always consider satelle
+  as the kernal, everthing else is user configuration." (operator, 2026-11-22;
+  epic sto_426138e8, [[satelle-agent-operates-remotes]]).
