@@ -18,8 +18,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/hostapp/herdr"
 )
 
-// isolateHerdr isolates the test and returns herdr's default home under the
-// test HOME, created when create is set.
 func isolateHerdr(t *testing.T, create bool) string {
 	t.Helper()
 	isolate(t)
@@ -72,8 +70,6 @@ func assertShipped(t *testing.T, home string, skip ...string) {
 	}
 }
 
-// ageInstall makes the installed panel look written by an older satelle:
-// other bytes, recorded as what satelle wrote.
 func ageInstall(t *testing.T, home string) {
 	t.Helper()
 	recPath := filepath.Join(config.GlobalDir(), herdr.RecordName)

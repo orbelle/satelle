@@ -1,6 +1,3 @@
-// Package herdr is satelle's host-app adapter for herdr-app (herdr.dev): it
-// knows where herdr-app keeps its mods and layouts, and installs and refreshes
-// satelle's stories panel there. The panel's files ship inside the binary.
 package herdr
 
 import (
@@ -22,18 +19,12 @@ import (
 //go:embed files
 var shipped embed.FS
 
-// EnvHome names herdr-app's home when it is not the default.
 const EnvHome = "HERDR_APP_HOME"
 
-// RecordName is the file under satelle's home that records what satelle wrote
-// into each herdr home. It is satelle's runtime state, never a herdr file.
 const RecordName = "herdr-panel.json"
 
-// ErrNoHome is returned by Install when herdr's home does not exist.
 var ErrNoHome = errors.New("herdr's home does not exist")
 
-// File is one file of the panel: its slash-separated path under herdr's home
-// and the content this binary ships.
 type File struct {
 	Rel  string
 	Body []byte
@@ -41,7 +32,6 @@ type File struct {
 
 var order = []string{"mods/satelle/main.js", "mods/satelle/mod.json", "layouts/satelle.json", "layouts/satelle.svg"}
 
-// Files returns the panel's files in a fixed order.
 func Files() []File {
 	out := make([]File, len(order))
 	for i, rel := range order {
@@ -54,7 +44,6 @@ func Files() []File {
 	return out
 }
 
-// Source says where a resolved home came from.
 type Source int
 
 const (
@@ -73,8 +62,6 @@ func (s Source) String() string {
 	return "herdr's default"
 }
 
-// DefaultHome is herdr-app's documented home for goos: ~/.config/herdr-app on
-// Linux, macOS and Windows alike. A pure join, so it answers for any goos.
 func DefaultHome(goos, userHome string) string {
 	sep := "/"
 	if goos == "windows" {
@@ -83,7 +70,6 @@ func DefaultHome(goos, userHome string) string {
 	return strings.TrimRight(userHome, `/\`) + sep + ".config" + sep + "herdr-app"
 }
 
-// Resolve picks herdr's home: the setting over $HERDR_APP_HOME over the default.
 func Resolve(goos, userHome, env, setting string) (string, Source) {
 	if s := strings.TrimSpace(setting); s != "" {
 		return s, SourceSetting
@@ -94,24 +80,20 @@ func Resolve(goos, userHome, env, setting string) (string, Source) {
 	return DefaultHome(goos, userHome), SourceDefault
 }
 
-// Home resolves herdr's home on this machine.
 func Home(setting string) (string, Source) {
 	userHome, _ := os.UserHomeDir()
 	return Resolve(runtime.GOOS, userHome, os.Getenv(EnvHome), setting)
 }
 
-// LocalDefault is herdr's default home on this machine.
 func LocalDefault() string {
 	userHome, _ := os.UserHomeDir()
 	return DefaultHome(runtime.GOOS, userHome)
 }
 
-// Kept is a panel file satelle left as it found it.
 type Kept struct {
 	Path, Reason string
 }
 
-// Result says what an install or refresh did, with absolute paths.
 type Result struct {
 	Written, Current []string
 	Kept             []Kept
@@ -119,7 +101,6 @@ type Result struct {
 	HomeGone         bool
 }
 
-// Reasons a file is kept.
 const (
 	ReasonChanged = "changed outside satelle"
 	ReasonMissing = "removed outside satelle"
@@ -172,9 +153,6 @@ func homeKey(home string) string {
 	return filepath.Clean(home)
 }
 
-// Install writes the panel into home. A file satelle wrote and nobody changed
-// since is replaced; a file changed outside satelle, or a taken name satelle
-// never wrote, is kept unless force.
 func Install(home, satelleHome string, force bool) (Result, error) {
 	if st, err := os.Stat(home); err != nil || !st.IsDir() {
 		return Result{}, ErrNoHome
@@ -182,8 +160,6 @@ func Install(home, satelleHome string, force bool) (Result, error) {
 	return apply(home, satelleHome, force, false)
 }
 
-// Refresh brings the panel up to date where Install put it, and touches
-// nothing in a home satelle never installed into.
 func Refresh(home, satelleHome string) (Result, error) {
 	rec, err := loadRecord(satelleHome)
 	if err != nil {

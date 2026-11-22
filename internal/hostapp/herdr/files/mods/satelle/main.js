@@ -1,6 +1,3 @@
-// Satelle stories for the repo the focused pane is in: a filterable list, each
-// story expanding to its workflow progress, criteria and description.
-// Reads only: everything comes from "satelle story list/route --json".
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, TextView } from "gpui-base";
 import { spaces, panes, focused, exec, run, watchFolder, theme, props, checking } from "herdr";
@@ -13,17 +10,13 @@ function location() {
   const space = spaces().find((s) => s.active), f = focused(), all = panes();
   const pane = f?.pane ? all.find((p) => p.pane === f.pane) : null;
   let cwd = fixed || pane?.cwd || f?.cwd;
-  // This panel focused: it has no folder of its own, so use a terminal beside it.
   if (!cwd && f?.tab) cwd = all.find((p) => p.tab === f.tab && p.cwd)?.cwd;
-  // Alone in its tab: a terminal elsewhere in the space.
   if (!cwd && space) { const tabs = space.tabs.map((tab) => tab.id); cwd = all.find((p) => tabs.includes(p.tab) && p.cwd)?.cwd; }
   return { cwd: cwd || space?.folder || null, on: space?.machine ?? null };
 }
 const key = () => JSON.stringify(location());
 const took = (ms) => !ms ? null : ms < 1000 ? ms + "ms" : ms < 60000 ? Math.round(ms / 1000) + "s" : Math.floor(ms / 60000) + "m " + Math.round((ms % 60000) / 1000) + "s";
 
-// What the story's ledger says happened: each gate's runs (who judged, how), each state's
-// last performer, and the states the story has been in.
 function readLedger(events) {
   const runs = {}, performers = {}, visited = new Set();
   for (const e of events) {
@@ -36,7 +29,6 @@ function readLedger(events) {
   return { runs, performers, visited };
 }
 
-// The workflow's main line: from the start state, the first forward transition each time.
 function mainPath(route) {
   const states = route.states ?? [], byName = Object.fromEntries(states.map((s) => [s.name, s]));
   let at = states.find((s) => s.start)?.name;
@@ -68,9 +60,6 @@ const SAMPLE_LEDGER = [
 
 export default class Satelle extends View {
   init(_props, cx) {
-    // props.watch: this copy draws nothing; it shows the layout node of that id while the
-    // focused folder is a satelle repo and hides it otherwise. It sits in a block that is
-    // always shown, because a copy in a hidden block never starts.
     this.watcher = props()?.watch ?? null;
     if (this.watcher) {
       if (checking()) return;
@@ -91,7 +80,6 @@ export default class Satelle extends View {
       this.expanded[SAMPLE.id] = true; this.sections[SAMPLE.id + ":body"] = true; this.routes[SAMPLE.id] = SAMPLE_ROUTE; this.ledgers[SAMPLE.id] = readLedger(SAMPLE_LEDGER); this.gateOpen[SAMPLE.id + ":plan>done:b"] = true;
       return;
     }
-    // props.story: a story to show opened.
     if (props()?.story) this.expanded[props().story] = true;
     this.refresh(cx);
     cx.timer.every(20000, (cx) => this.refresh(cx));
@@ -103,9 +91,8 @@ export default class Satelle extends View {
     this.detecting = true;
     cx.spawn(async (cx) => {
       let found = false;
-      try { found = Boolean(cwd) && (await exec("satelle", ["runtime", "path"], { cwd, on })).code === 0; } catch { /* not installed there */ }
+      try { found = Boolean(cwd) && (await exec("satelle", ["runtime", "path"], { cwd, on })).code === 0; } catch {}
       this.detecting = false; this.context = context;
-      // Only on a change, so showing or hiding it by hand holds until the repo changes.
       if (found !== this.found) { this.found = found; run(found ? "layout.show" : "layout.hide", { id: this.watcher }); }
       if (key() !== context) this.detect(cx);
     });
@@ -142,8 +129,6 @@ export default class Satelle extends View {
     });
   }
 
-  // Refresh as soon as the repo's ledger changes (here only; the timer covers the rest).
-  // Only the ledger folder: reads touch the cache beside it, which would loop.
   watch(cwd, on, cx) {
     if (on || this.watchedFor === cwd) return;
     this.watchedFor = cwd;
@@ -171,7 +156,7 @@ export default class Satelle extends View {
         if (r.code === 0) { this.routes[id] = JSON.parse(r.stdout); cx.notify(); }
         const l = await exec("satelle", ["ledger", "list", id, "--json"], { cwd, on });
         if (l.code === 0) { this.ledgers[id] = readLedger(JSON.parse(l.stdout || "[]") ?? []); cx.notify(); }
-      } catch { /* the row shows no progress */ }
+      } catch {}
     });
   }
 
@@ -206,7 +191,6 @@ export default class Satelle extends View {
     if (s.status === "cancelled") return t.dim;
     if (!this.openIds.has(s.id)) return t.done;
     if (s.status === "backlog") return t.muted;
-    // As satelled: green while someone is working it, amber when current but idle.
     return (s.working ?? []).length ? t.ansi2 : t.working;
   }
 
@@ -218,7 +202,6 @@ export default class Satelle extends View {
     const now = live ? t.ansi2 : t.working;
     const names = at < 0 ? [...path, route.status] : path;
     const picked = names.includes(this.step[s.id]) ? this.step[s.id] : route.status;
-    // Done: the ledger says the story has been there; without it, what precedes the current state.
     const past = (name, i) => name !== route.status && (history ? history.visited.has(name) : at >= 0 && i < at);
     const steps = names.map((name, i) => {
       const current = name === route.status, done = past(name, i), on = name === picked;
@@ -281,10 +264,8 @@ export default class Satelle extends View {
         s.body ? TextView.markdown("body-" + s.id, s.body).selectable(true) : div().text_color(t.dim).child("None")));
   }
 
-  // The chips satelled shows under a title: category, workflow, assignees, then the tags.
   chips(s, t) {
     const working = s.working ?? [];
-    // A click adds the chip to the filter, or takes it out again.
     const pick = (el, token) => el.id("chip-" + s.id + "-" + token).cursor_pointer().hover((st) => st.opacity(0.75))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => {

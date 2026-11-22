@@ -85,8 +85,6 @@ func printHerdrKept(out io.Writer, kept []herdr.Kept) {
 	}
 }
 
-// refreshHerdr refreshes the herdr panel where 'satelle herdr install' put it.
-// Its outcome never fails the caller: herdr is optional on a machine.
 func refreshHerdr(out io.Writer) {
 	g, err := config.LoadGlobal()
 	if err != nil {
@@ -111,8 +109,6 @@ func refreshHerdr(out io.Writer) {
 	}
 }
 
-// refreshMachine is the refresh 'satelle update' runs: every registered
-// project's harness files, then the herdr panel.
 func refreshMachine(out io.Writer) (failed int) {
 	failed = refreshAllHooks(out)
 	refreshHerdr(out)

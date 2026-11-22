@@ -37,8 +37,6 @@ type GlobalConfig struct {
 	Herdr    HerdrConfig        `toml:"herdr"`
 }
 
-// HerdrConfig is where herdr-app keeps its home on this machine, set only when
-// it is not herdr's default.
 type HerdrConfig struct {
 	Home string `toml:"home"`
 }
