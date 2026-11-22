@@ -1,0 +1,7 @@
+name = "satelle-node-setup"
+version = "1.0.0"
+skills = ["satelle-node-setup"]
+
+[needs]
+scripts = ["satelle-node-setup/scripts/base-tools.sh"]
+network = ["deb.debian.org"]
