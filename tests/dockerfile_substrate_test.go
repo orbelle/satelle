@@ -10,13 +10,8 @@ import (
 	"testing"
 )
 
-// requiredNodePackages are the packages the node image's final stage must
-// install: the check skills that run on a node call them.
 var requiredNodePackages = []string{"jq"}
 
-// finalStagePackages returns the packages the last stage of a Dockerfile
-// installs with apk add. Earlier stages, the build stage among them, do not
-// count: a later FROM replaces them in the image.
 func finalStagePackages(dockerfile string) []string {
 	var lines []string
 	var cur strings.Builder
@@ -78,7 +73,6 @@ func finalStagePackages(dockerfile string) []string {
 	return pkgs
 }
 
-// missingPackages returns the required packages not among pkgs, in order.
 func missingPackages(pkgs, required []string) []string {
 	have := map[string]bool{}
 	for _, p := range pkgs {
