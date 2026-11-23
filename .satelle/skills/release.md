@@ -580,7 +580,17 @@ node=$(printf '%s' "$st" | jq -r '.node // empty')
 verdict=$(printf '%s' "$st" | jq -r '.verdict // empty')
 line=$(printf '%s' "$st" | jq -r '"state \(.state) node \(.node) verdict \(.verdict) \(.reason // "")"')
 back="$rd/node-out/$node/back"
-shaped() { grep -rlE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' "$@" && { echo "a token-shaped string is in the files above: nothing is attached" >&2; return 0; }; return 1; }
+shaped() {
+  local p f=()
+  for p in "$@"; do [ -e "$p" ] && f+=("$p"); done
+  [ "${#f[@]}" -gt 0 ] || return 1
+  grep -rlE 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' "${f[@]}"
+  case $? in
+    0) echo "a token-shaped string is in the files above: nothing is attached" >&2; return 0 ;;
+    1) return 1 ;;
+    *) echo "the token scan could not read ${f[*]}: nothing is attached" >&2; return 0 ;;
+  esac
+}
 v=$(bash .satelle/skills/satelle-release-node/scripts/release-node.sh verify "$rd" "$node" "$session" 2>&1); vcode=$?
 printf '%s\n' "$v"
 if [ "$verdict" = accept ] && [ "$vcode" = 0 ] && ! grep -q '^failed step ' "$back/result"; then
@@ -609,7 +619,7 @@ fi
     echo "suspect $id: printf '%s\n' 'the release candidate $(cat "$rd/drift-checked") failed in run $exe (release-evidence); merge origin/main into the branch (git fetch origin && git merge origin/main; never rebase, so the push needs no force) and come through integration again' | satelle story attach $id --name release-sendback --file - --session <session> && satelle story set $id --status in_progress --session <session>"
   done <"$rd/kept"
 } >"$rd/release-evidence"
-shaped "$rd/release-evidence" ${back:+"$back"} 2>/dev/null && exit 1
+shaped "$rd/release-evidence" "$back" && exit 1
 satelle execution attach "$exe" --name release-evidence --type text/plain --file "$rd/release-evidence" --session "$session" || exit 1
 if [ -n "$(git ls-remote origin "refs/heads/release/$exe")" ]; then git push -q origin --delete "release/$exe"; fi
 satelle execution set "$exe" --status cancelled --session "$session" || exit 1

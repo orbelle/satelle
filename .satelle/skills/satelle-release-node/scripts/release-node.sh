@@ -405,6 +405,10 @@ verify() {
       ver=$(v version)
       if [ "$(v binary)" = unchanged ]; then
         [ "$mainnow" = "$cand" ] || no "a binary-unchanged run left main at $mainnow, not the candidate"
+      elif ! printf '%s\n' "$ver" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+'; then
+        no "version is not a plain x.y.z version"
+      elif [ "$ver" != "$(git show "$mainnow:.version" 2>/dev/null | sed -n 's/^satelle\.version: *//p')" ]; then
+        no "version $ver is not the satelle.version on origin/main $mainnow"
       elif ! git diff --quiet "$cand" "$mainnow" -- . ':!.version' ":!docs/releases/v$ver.md"; then
         no "main differs from the candidate outside .version and docs/releases/v$ver.md"
       fi
@@ -421,7 +425,9 @@ verify() {
   esac
   local ne
   ne=$(v node-execution)
-  if [ -n "$ne" ]; then
+  if [ -n "$ne" ] && ! printf '%s\n' "$ne" | grep -qxE 'exe_[0-9a-f]+'; then
+    no "node-execution $ne is not an execution id"
+  elif [ -n "$ne" ]; then
     satelle ledger list "$ne" --json --session "$session" 2>/dev/null | jq -e --arg a "node:$node" 'any(.[]; .actor == $a)' >/dev/null ||
       no "the node execution $ne carries no event by node:$node"
   else
