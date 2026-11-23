@@ -68,7 +68,9 @@ verify() {
   sn="satelle-$(printf '%s' "$node" | tr '_' '-')"
   if ! command -v sprite >/dev/null 2>&1; then
     no "the sprite CLI is not on PATH, so $sn cannot be checked"
-  elif sprite list --prefix "$sn" 2>/dev/null | grep -qx "$sn"; then
+  elif ! sl=$(sprite list --prefix "$sn" 2>/dev/null); then
+    no "sprite list failed, so $sn cannot be checked"
+  elif printf '%s\n' "$sl" | grep -qx "$sn"; then
     no "the sprite $sn is still listed"
   else
     echo "sprite $sn is not listed"

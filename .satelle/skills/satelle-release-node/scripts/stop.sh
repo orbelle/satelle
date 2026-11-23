@@ -38,5 +38,9 @@ if [ -n "${SATELLE_RELEASE_OUT:-}" ]; then
   (bring_back) || true
 fi
 sprite destroy --force "$n" </dev/null >&2 && exit 0
-sprite list --prefix "$n" 2>/dev/null | grep -qx "$n" && { echo "release-stop: $n is still listed" >&2; exit 1; }
+if ! l=$(sprite list --prefix "$n" 2>/dev/null); then
+  echo "release-stop: sprite destroy failed and sprite list cannot say whether $n is gone" >&2
+  exit 1
+fi
+printf '%s\n' "$l" | grep -qx "$n" && { echo "release-stop: $n is still listed" >&2; exit 1; }
 exit 0
