@@ -838,8 +838,8 @@ func TestLocalRefusalSecretWithNetworkAllow(t *testing.T) {
 	}
 	allowed := def
 	allowed.Network.Allow = []string{"example.com"}
-	if err := localRefusal(allowed); err == nil || !strings.Contains(err.Error(), "may allow no host") || !strings.Contains(err.Error(), "not enforced on docker") {
-		t.Fatalf("a secret beside an allow entry = %v", err)
+	if err := localRefusal(allowed); err != nil {
+		t.Fatalf("a secret beside an allow entry was refused: %v", err)
 	}
 	over := def
 	over.Secrets.Override = map[string]remotedef.OverrideValue{"TOKEN": "satelle:token"}

@@ -84,3 +84,27 @@ func TestDockerLocalBuildCopyArgv(t *testing.T) {
 		t.Fatal("Exists on an inspect that fails = true")
 	}
 }
+
+func TestDockerLocalWithoutAnAllowListHasNoNetwork(t *testing.T) {
+	d, log := fakeDockerScript(t, "exit 0\n")
+	def := remotedef.Definition{Repos: []remotedef.Repo{{URL: "https://example.com/r.git"}}}
+	if _, err := d.Start(context.Background(), def, Run{NodeID: "nod_5", Server: "https://satelle.example", NoSetup: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := readFile(log)
+	if !strings.Contains(b, "--network none") || strings.Contains(b, "network create") || strings.Contains(b, "SATELLE_NETWORK_ALLOW") {
+		t.Fatalf("docker calls:\n%s", b)
+	}
+}
+
+func TestDockerLocalRefusesAnAllowListWithNoEgress(t *testing.T) {
+	d, log := fakeDockerScript(t, "exit 0\n")
+	def := remotedef.Definition{Network: remotedef.Network{Allow: []string{"proxy.golang.org"}}}
+	h, err := d.Start(context.Background(), def, Run{NodeID: "nod_6"})
+	if err == nil || h != nil || !strings.Contains(err.Error(), "no satelle binary to serve the [network] allow-list") {
+		t.Fatalf("Start = %v, %v", h, err)
+	}
+	if b, _ := readFile(log); b != "" {
+		t.Fatalf("docker was called:\n%s", b)
+	}
+}

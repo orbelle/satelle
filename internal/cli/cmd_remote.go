@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +21,7 @@ import (
 	"github.com/bobmcallan/satelle/internal/hosted"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/ledgerrepl"
+	"github.com/bobmcallan/satelle/internal/remote/egress"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 	"github.com/bobmcallan/satelle/internal/remotenode"
@@ -149,7 +153,7 @@ func remoteFireCmd() *cobra.Command {
 				run, err := remotenode.FireLocal(cmd.Context(), remotenode.FireOptions{
 					Kernel: k, Tree: r.Tree, DataDir: r.DataDir, Runs: localRuns(r),
 					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Actor: actor(),
-					Out: cmd.OutOrStdout(), Secrets: secrets,
+					Out: cmd.OutOrStdout(), Secrets: secrets, Docker: provider.DockerLocal{Egress: firingBinary()},
 					Binary: firingBinary(), BinaryVersion: buildinfo.Resolve().String(),
 				})
 				if err != nil {
@@ -307,7 +311,54 @@ func printRun(out io.Writer, remote, itemID string, run *satellepb.ItemRun, pull
 
 func nodeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "node", Short: "Run as a remote node", Hidden: true}
-	cmd.AddCommand(nodeJoinCmd(), nodeRunLocalCmd())
+	cmd.AddCommand(nodeJoinCmd(), nodeRunLocalCmd(), nodeEgressCmd())
+	return cmd
+}
+
+func nodeEgressCmd() *cobra.Command {
+	var subnet, allow string
+	var port int
+	var ready bool
+	cmd := &cobra.Command{
+		Use:   "egress --subnet <cidr> --port <n> --allow <hosts>",
+		Short: "Serve a docker node's [network] allow-list as its only route out",
+		Long: `egress is what a docker node's proxy container runs. It listens only on its
+one address inside --subnet (the node's internal network) and forwards a
+CONNECT or an absolute http:// request only to a host --allow names. With
+--ready it dials that address instead and exits 0 when the proxy answers.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			addrs, err := net.InterfaceAddrs()
+			if err != nil {
+				return err
+			}
+			addr, err := egress.ListenAddr(addrs, subnet, port)
+			if err != nil {
+				return err
+			}
+			if ready {
+				return egress.Probe(addr)
+			}
+			var hosts []string
+			for _, h := range strings.Split(allow, ",") {
+				if h = strings.TrimSpace(h); h != "" {
+					hosts = append(hosts, h)
+				}
+			}
+			if len(hosts) == 0 {
+				return errors.New("--allow names no host")
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			fmt.Fprintf(cmd.ErrOrStderr(), "satelle egress: listening on %s for %s\n", addr, strings.Join(hosts, ","))
+			return egress.Serve(ctx, addr, remotedef.Network{Allow: hosts}, cmd.ErrOrStderr())
+		},
+	}
+	cmd.Flags().StringVar(&subnet, "subnet", "", "the node's internal network, as a CIDR")
+	cmd.Flags().IntVar(&port, "port", provider.EgressPort, "the port to listen on")
+	cmd.Flags().StringVar(&allow, "allow", "", "the hosts the node may reach, comma-separated")
+	cmd.Flags().BoolVar(&ready, "ready", false, "dial the proxy's address and exit 0 when it answers")
+	_ = cmd.MarkFlagRequired("subnet")
 	return cmd
 }
 

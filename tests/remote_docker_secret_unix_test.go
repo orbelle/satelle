@@ -229,18 +229,6 @@ func TestDockerLocalFireSecretUnset(t *testing.T) {
 	}
 }
 
-func TestDockerLocalFireSecretWithAllowRefused(t *testing.T) {
-	t.Parallel()
-	b := secretSandbox(t, true, func(def string) string { return def + "\n[network]\nallow = [\"example.com\"]\n" })
-	r := b.fire()
-	if r.code == 0 || !strings.Contains(r.err, "may allow no host") || !strings.Contains(r.err, "not enforced on docker") {
-		t.Fatalf("fire with a secret and an allow entry: exit %d\n%s%s", r.code, r.out, r.err)
-	}
-	if log, _ := os.ReadFile(filepath.Join(b.fake, "log")); strings.Contains(string(log), "run -d") {
-		t.Fatalf("a container started for a refused fire:\n%s", log)
-	}
-}
-
 func TestDockerLocalFireSecretLeakRefused(t *testing.T) {
 	t.Parallel()
 	b := secretSandbox(t, true, nil)

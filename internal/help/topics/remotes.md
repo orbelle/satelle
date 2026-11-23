@@ -82,9 +82,7 @@ read from the environment of the shell that fires and handed to the node
 process over its stdin, never in argv, the container's configuration, the
 ledger or on disk; a name not set there refuses the fire before any container
 starts, the node replaces each value in what it reports, and a node record
-that carries a declared value is not imported. `[network] allow` is not
-enforced on docker, so
-a docker definition declaring a secret may allow no host.
+that carries a declared value is not imported. `[network] allow` is enforced on docker through satelle's egress proxy: the node's only route out is the proxy, which reaches only the hosts the list names, and a fire or gate check that cannot enforce the list refuses before the node starts.
 `[secrets.override]` and `[[repo]]` are refused locally. Where a value comes
 from is yours: wrap the fire in whatever sets the name (a keyring, a secrets
 manager); `docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`

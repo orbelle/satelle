@@ -2,6 +2,7 @@ package remotedef
 
 import (
 	"maps"
+	"net"
 	"net/url"
 	"path"
 	"slices"
@@ -122,6 +123,27 @@ type Repo struct {
 
 type Network struct {
 	Allow []string `toml:"allow" json:"allow,omitempty"`
+}
+
+func (n Network) Permits(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return false
+	}
+	literal := net.ParseIP(host) != nil
+	for _, e := range n.Allow {
+		e = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
+		if e == "" {
+			continue
+		}
+		if e == host {
+			return true
+		}
+		if d, ok := strings.CutPrefix(e, "*."); ok && !literal && d != "" && strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
 }
 
 type LifecycleScope string

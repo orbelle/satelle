@@ -614,13 +614,16 @@ func TestDockerLocalFireTask(t *testing.T) {
 	}
 
 	help := s.must("help", "remotes")
-	for _, want := range []string{"A docker-local node runs a task drive", "a docker definition declaring a secret may allow no host", "`[secrets.override]` and `[[repo]]` are refused locally"} {
+	for _, want := range []string{"A docker-local node runs a task drive", "`[network] allow` is enforced on docker through satelle's egress proxy", "`[secrets.override]` and `[[repo]]` are refused locally"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("satelle help remotes misses %q", want)
 		}
 	}
 	if strings.Contains(help, "a task `[drive]`") {
 		t.Error("satelle help remotes still refuses a task drive")
+	}
+	if strings.Contains(help, "may allow no host") {
+		t.Error("satelle help remotes still says a secret may allow no host")
 	}
 }
 

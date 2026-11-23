@@ -257,6 +257,9 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			return nil, fmt.Errorf("remote %s: secret %s: secrets were not taken before the fire", o.Remote, n)
 		}
 	}
+	if err := egressRefusal(ctx, o.Docker, def); err != nil {
+		return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+	}
 	if _, err := k.Get(o.Item); err != nil {
 		return nil, err
 	}
@@ -343,7 +346,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		if rerr := release(); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
-		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with docker rm -f %s\n", h.ID(), h.ID())
+		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
 		return stopped(err)
 	}
 	if err := release(); err != nil {
@@ -359,7 +362,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		}
 		fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
 	} else {
-		fmt.Fprintf(o.Out, "the container %s is left running; remove it with docker rm -f %s\n", h.ID(), h.ID())
+		fmt.Fprintf(o.Out, "the container %s is left running; remove it with %s\n", h.ID(), provider.RemoveHint(h))
 	}
 	return run, nil
 }
@@ -370,10 +373,36 @@ func localRefusal(def remotedef.Definition) error {
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
 	case len(def.Secrets.Override) > 0:
 		return errors.New("[secrets.override] is not served to a local node: a docker-local node reads each [secrets] name from the firing shell")
-	case len(def.SecretEntries()) > 0 && len(def.Network.Allow) > 0:
-		return errors.New("a docker-local definition that declares [secrets] may allow no host: the [network] allow-list is not enforced on docker")
 	case len(def.Repos) > 0:
 		return errors.New("[[repo]] is not fetched by a local node")
+	}
+	return nil
+}
+
+func egressRefusal(ctx context.Context, d provider.DockerLocal, def remotedef.Definition) error {
+	if len(def.Network.Allow) == 0 {
+		return nil
+	}
+	refuse := func(format string, a ...any) error {
+		return fmt.Errorf("[network] allow cannot be enforced here: "+format, a...)
+	}
+	if d.Egress == "" {
+		return refuse("no satelle binary to serve it")
+	}
+	arch, err := linuxArch(d.Egress)
+	if err != nil {
+		return refuse("%v", err)
+	}
+	raw, err := d.Architecture(ctx)
+	if err != nil {
+		return refuse("docker info: %v", err)
+	}
+	host, ok := nodeArch(raw)
+	if !ok {
+		return refuse("the docker host reports architecture %s, which satelle does not build", raw)
+	}
+	if host != arch {
+		return refuse("the docker host is linux/%s; the firing satelle is linux/%s: no egress proxy for it", host, arch)
 	}
 	return nil
 }

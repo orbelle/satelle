@@ -70,3 +70,33 @@ func TestRepoName(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkPermits(t *testing.T) {
+	n := Network{Allow: []string{"proxy.golang.org", "*.example.org", "10.0.0.7", "Sum.Golang.Org."}}
+	for host, want := range map[string]bool{
+		"proxy.golang.org":      true,
+		"PROXY.golang.org":      true,
+		"proxy.golang.org.":     true,
+		"golang.org":            false,
+		"evil.proxy.golang.org": false,
+		"a.example.org":         true,
+		"b.a.example.org":       true,
+		"example.org":           false,
+		"badexample.org":        false,
+		"sum.golang.org":        true,
+		"10.0.0.7":              true,
+		"10.0.0.8":              false,
+		"":                      false,
+		".":                     false,
+	} {
+		if got := n.Permits(host); got != want {
+			t.Errorf("Permits(%q) = %v, want %v", host, got, want)
+		}
+	}
+	if (Network{Allow: []string{"*.0.0.7"}}).Permits("10.0.0.7") {
+		t.Error("a wildcard admitted an IP literal")
+	}
+	if (Network{}).Permits("proxy.golang.org") {
+		t.Error("an empty allow-list admitted a host")
+	}
+}

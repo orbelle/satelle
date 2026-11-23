@@ -143,6 +143,9 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 
 	switch def.Provider {
 	case remotedef.ProviderDockerLocal:
+		if err := egressRefusal(ctx, g.Docker, def); err != nil {
+			return res, fmt.Errorf("remote %s: %w", c.Remote, err)
+		}
 		leave, root, phase = true, LocalNodeDir, "building the node image"
 		if err := ensureNodeImage(ctx, g.Docker, g.Tree, def, out); err != nil {
 			return fail(err, "")
@@ -243,7 +246,7 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 }
 
 func leftNote(h provider.Handle) string {
-	return fmt.Sprintf("the container %s is left to inspect: docker exec -it %s sh; remove it with docker rm -f %s", h.ID(), h.ID(), h.ID())
+	return fmt.Sprintf("the container %s is left to inspect: docker exec -it %s sh; remove it with %s", h.ID(), h.ID(), provider.RemoveHint(h))
 }
 
 func collectLog(ctx context.Context, h provider.Handle, root, tmp string) string {

@@ -5,12 +5,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
@@ -19,8 +23,18 @@ const NodeImage = "satelle-node:local"
 
 const keepAlive = "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done"
 
+const (
+	EgressAlias = "satelle-egress"
+	EgressPort  = 3128
+	egressPath  = "/satelle-egress"
+	egressPolls = 20
+)
+
+var egressPollGap = 250 * time.Millisecond
+
 type DockerLocal struct {
 	Docker string
+	Egress string
 }
 
 func (DockerLocal) Name() remotedef.Provider { return remotedef.ProviderDockerLocal }
@@ -70,6 +84,26 @@ func (d DockerLocal) BuildNodeImage(ctx context.Context, tree string) error {
 	return err
 }
 
+func (d DockerLocal) Architecture(ctx context.Context) (string, error) {
+	out, err := d.docker(ctx, nil, "info", "--format", "{{.Architecture}}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (d DockerLocal) networkSubnet(ctx context.Context, network string) (string, error) {
+	out, err := d.docker(ctx, nil, "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", network)
+	if err != nil {
+		return "", err
+	}
+	cidr := strings.TrimSpace(string(out))
+	if _, _, err := net.ParseCIDR(cidr); err != nil {
+		return "", fmt.Errorf("docker network inspect %s: the subnet %q is not a CIDR", network, cidr)
+	}
+	return cidr, nil
+}
+
 func (d DockerLocal) Exists(ctx context.Context, name string) bool {
 	_, err := d.docker(ctx, nil, "container", "inspect", "--format", "{{.Id}}", name)
 	return err == nil
@@ -80,26 +114,44 @@ func (d DockerLocal) Start(ctx context.Context, def remotedef.Definition, run Ru
 	if image == "" {
 		image = NodeImage
 	}
-	name := ContainerName(run.NodeID)
+	suffix := nodeSuffix(run.NodeID)
+	name := "satelle-node-" + suffix
+	h := &container{d: d, name: name}
 	args := []string{"run", "-d", "--name", name, "--label", "satelle.node=" + run.NodeID,
-		"-e", EnvNodeID + "=" + run.NodeID, "-e", EnvServer + "=" + run.Server,
-		"-e", "SATELLE_NETWORK_ALLOW=" + strings.Join(def.Network.Allow, ",")}
+		"-e", EnvNodeID + "=" + run.NodeID, "-e", EnvServer + "=" + run.Server}
 	var env []string
 	if run.Token != "" {
 		args = append(args, "-e", EnvNodeToken)
 		env = append(env, EnvNodeToken+"="+run.Token)
 	}
-	if len(def.Network.Allow) == 0 && len(def.Repos) == 0 && run.Server == "" {
+	if len(def.Network.Allow) == 0 {
 		args = append(args, "--network", "none")
+	} else {
+		if d.Egress == "" {
+			return nil, errors.New("[network] allow cannot be enforced here: no satelle binary to serve the [network] allow-list")
+		}
+		if err := d.startEgress(ctx, h, image, run.NodeID, suffix, def.Network.Allow); err != nil {
+			return nil, err
+		}
+		proxy := fmt.Sprintf("http://%s:%d", EgressAlias, EgressPort)
+		args = append(args, "--network", h.network)
+		for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
+			args = append(args, "-e", k+"="+proxy)
+		}
+		for _, k := range []string{"NO_PROXY", "no_proxy"} {
+			args = append(args, "-e", k+"=localhost,127.0.0.1")
+		}
 	}
 	if run.Binary != "" {
 		args = append(args, "-v", run.Binary+":/usr/local/bin/satelle:ro")
 	}
 	args = append(args, "--entrypoint", "sh", image, "-c", keepAlive)
 	if _, err := d.docker(ctx, env, args...); err != nil {
+		if h.network != "" {
+			return nil, errors.Join(err, h.teardown(context.WithoutCancel(ctx)))
+		}
 		return nil, err
 	}
-	h := &container{d: d, name: name}
 	phases := []struct {
 		name string
 		cmds []string
@@ -122,13 +174,59 @@ func (d DockerLocal) Start(ctx context.Context, def remotedef.Definition, run Ru
 	return h, nil
 }
 
+func (d DockerLocal) startEgress(ctx context.Context, h *container, image, nodeID, suffix string, allow []string) error {
+	network, egress := "satelle-net-"+suffix, "satelle-egress-"+suffix
+	label := "satelle.node=" + nodeID
+	if _, err := d.docker(ctx, nil, "network", "create", "--internal", "--label", label, network); err != nil {
+		return err
+	}
+	h.network = network
+	fail := func(err error) error { return errors.Join(err, h.teardown(context.WithoutCancel(ctx))) }
+	subnet, err := d.networkSubnet(ctx, network)
+	if err != nil {
+		return fail(err)
+	}
+	port := strconv.Itoa(EgressPort)
+	if _, err := d.docker(ctx, nil, "create", "--name", egress, "--label", label, "--entrypoint", egressPath, image,
+		"node", "egress", "--subnet", subnet, "--port", port, "--allow", strings.Join(allow, ",")); err != nil {
+		return fail(err)
+	}
+	h.egress = egress
+	steps := [][]string{
+		{"cp", d.Egress, egress + ":" + egressPath},
+		{"network", "connect", "--alias", EgressAlias, network, egress},
+		{"start", egress},
+	}
+	for _, args := range steps {
+		if _, err := d.docker(ctx, nil, args...); err != nil {
+			return fail(err)
+		}
+	}
+	var perr error
+	for i := 0; i < egressPolls; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return fail(ctx.Err())
+			case <-time.After(egressPollGap):
+			}
+		}
+		if _, perr = d.docker(ctx, nil, "exec", egress, egressPath, "node", "egress", "--ready", "--subnet", subnet, "--port", port); perr == nil {
+			return nil
+		}
+	}
+	logs, _ := d.docker(context.WithoutCancel(ctx), nil, "logs", egress)
+	return fail(fmt.Errorf("the egress proxy did not start in %s: %s", image, strings.TrimSpace(tailOf(string(logs), 2000))))
+}
+
 func (DockerLocal) Hold(context.Context, string, io.Writer) func() { return func() {} }
 
 func (DockerLocal) SetupCommands() []string { return nil }
 
 type container struct {
-	d    DockerLocal
-	name string
+	d               DockerLocal
+	name            string
+	egress, network string
 }
 
 func (c *container) ID() string { return c.name }
@@ -156,11 +254,54 @@ func (c *container) Logs(ctx context.Context) ([]byte, error) {
 }
 
 func (c *container) Stop(ctx context.Context) error {
-	_, err := c.d.docker(ctx, nil, "rm", "-f", c.name)
+	args := []string{"rm", "-f", c.name}
+	if c.egress != "" {
+		args = append(args, c.egress)
+	}
+	_, err := c.d.docker(ctx, nil, args...)
+	if c.network != "" {
+		_, nerr := c.d.docker(ctx, nil, "network", "rm", c.network)
+		err = errors.Join(err, nerr)
+	}
 	return err
 }
 
-func ContainerName(nodeID string) string {
+func (c *container) teardown(ctx context.Context) error {
+	var errs []error
+	if _, err := c.d.docker(ctx, nil, "rm", "-f", c.name); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such container") {
+		errs = append(errs, err)
+	}
+	if c.egress != "" {
+		if _, err := c.d.docker(ctx, nil, "rm", "-f", c.egress); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.network != "" {
+		if _, err := c.d.docker(ctx, nil, "network", "rm", c.network); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func RemoveHint(h Handle) string {
+	c, ok := h.(*container)
+	if !ok {
+		return "docker rm -f " + h.ID()
+	}
+	hint := "docker rm -f " + c.name
+	if c.egress != "" {
+		hint += " " + c.egress
+	}
+	if c.network != "" {
+		hint += " && docker network rm " + c.network
+	}
+	return hint
+}
+
+func ContainerName(nodeID string) string { return "satelle-node-" + nodeSuffix(nodeID) }
+
+func nodeSuffix(nodeID string) string {
 	var b strings.Builder
 	for _, r := range nodeID {
 		switch {
@@ -175,7 +316,7 @@ func ContainerName(nodeID string) string {
 		_, _ = rand.Read(n[:])
 		b.WriteString(hex.EncodeToString(n[:]))
 	}
-	return "satelle-node-" + b.String()
+	return b.String()
 }
 
 func tailOf(s string, n int) string {
