@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -185,29 +184,23 @@ func (c *changelogSandbox) verdict(id, head, tip string) string {
 
 func changelogBlock(t *testing.T, wt, ver string, ids ...string) string {
 	t.Helper()
-	b, err := os.ReadFile("../.satelle/skills/release.md")
+	script, err := filepath.Abs("../" + releaseNodeScript)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := string(b)
-	i := strings.Index(doc, "### Changelog from the items")
-	if i < 0 {
-		t.Fatal("release.md has no ### Changelog from the items")
-	}
-	_, rest, ok := strings.Cut(doc[i:], "```sh\n")
-	if !ok {
-		t.Fatal("release.md has no sh block after ### Changelog from the items")
-	}
-	block, _, _ := strings.Cut(rest, "```")
-	for name, val := range map[string]string{"ids": `"` + strings.Join(ids, " ") + `"`, "ver": ver} {
-		re := regexp.MustCompile(`(?m)^` + name + `=.*$`)
-		if len(re.FindAllString(block, -1)) != 1 {
-			t.Fatalf("the step-3 block has no single %s= line:\n%s", name, block)
-		}
-		block = re.ReplaceAllLiteralString(block, name+"="+val)
-	}
-	return "wt=" + wt + "\n" + bindSession(block)
+	return `set -u
+root=$(mktemp -d) || exit 1
+mkdir -p "$root/in/changelog" && ln -s '` + wt + `' "$root/work" || exit 1
+: >"$root/in/notes-ids"
+for id in ` + strings.Join(ids, " ") + `; do
+  satelle story attachment "$id" changelog >"$root/in/changelog/$id" 2>/dev/null || { echo "no changelog attachment on $id: stop the run" >&2; exit 1; }
+  echo "$id" >>"$root/in/notes-ids"
+done
+SATELLE_RELEASE_ROOT="$root" bash '` + script + `' notes '` + ver + `'
+`
 }
+
+const releaseNodeScript = ".satelle/skills/satelle-release-node/scripts/release-node.sh"
 
 func (c *changelogSandbox) bump(wt, ver string) {
 	c.t.Helper()

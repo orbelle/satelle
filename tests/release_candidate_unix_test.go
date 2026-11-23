@@ -16,19 +16,55 @@ import (
 
 type candidateSandbox struct {
 	*changelogSandbox
-	task     item.Item
-	suiteLog string
-	tmp      string
-	ids      []string
-	held     string
+	task      item.Item
+	suiteLog  string
+	suiteHome string
+	tmp       string
+	ids       []string
+	held      string
+	rd        string
+	origin    string
+	asRoot    bool
 }
 
-const fakeStateGH = `#!/bin/sh
-case "$1" in
-  pr)
-    s=open; prev=
-    for a in "$@"; do [ "$prev" = --state ] && s=$a; prev=$a; done
+const nodeToken = "ghp_0123456789abcdefghijKLMNOPQRSTuvwxyz01"
+
+const releaseRepo = "https://github.com/orbelle/satelle"
+
+const releaseGH = `#!/bin/sh
+printf '%s\n' "$*" >>"$FAKE_DIR/gh.log"
+[ -n "${GH_TOKEN:-}" ] && printf 'token sha256 %s\n' "$(printf %s "$GH_TOKEN" | sha256sum | cut -d' ' -f1)" >>"$FAKE_DIR/gh.log"
+opt() { want=$1; shift; prev=; for a in "$@"; do [ "$prev" = "$want" ] && { echo "$a"; return; }; prev=$a; done; }
+case "$1 $2" in
+  "pr list")
+    s=$(opt --state "$@"); s=${s:-open}
     jq --arg s "$s" '[.[] | select($s == "all" or ((.state // "OPEN") | ascii_downcase) == $s)]' "$FAKE_DIR/prs.json" ;;
+  "workflow run")
+    ref=$(opt --ref "$@")
+    echo "main at dispatch $(git -C "$ORIGIN" rev-parse main)" >>"$FAKE_DIR/gh.log"
+    sha=$(git -C "$ORIGIN" rev-parse "refs/heads/$ref") || exit 1
+    concl=success
+    [ -f "$FAKE_DIR/fail-release" ] && concl=failure
+    if [ "$concl" = success ]; then
+      ver=$(git -C "$ORIGIN" show "$sha:.version" | awk '$1 == "satelle.version:" { print $2 }')
+      sver=$(git -C "$ORIGIN" show "$sha:.version" | awk '$1 == "satelled.version:" { print $2 }')
+      for t in "v$ver" "serve-v$sver"; do
+        git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$t" >/dev/null || git -C "$ORIGIN" tag "$t" "$sha" || exit 1
+      done
+    fi
+    printf '[{"databaseId":7,"headSha":"%s","headBranch":"%s","status":"completed","conclusion":"%s","url":"https://ci.example/7"}]\n' "$sha" "$ref" "$concl" >"$FAKE_DIR/runs.json" ;;
+  "run list")
+    b=$(opt --branch "$@")
+    if [ -n "$b" ]; then jq --arg b "$b" '[.[] | select(.headBranch == $b)]' "$FAKE_DIR/runs.json" 2>/dev/null || echo '[]'
+    else cat "$FAKE_DIR/runs.json" 2>/dev/null || echo '[]'; fi ;;
+  "run watch") exit 0 ;;
+  "run view") jq '.[0]' "$FAKE_DIR/runs.json" ;;
+  "release view")
+    git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$3" >/dev/null || { echo "release not found" >&2; exit 1; }
+    case " $* " in
+      *" --jq "*) echo 1 ;;
+      *) printf '{"tagName":"%s","assets":[{"name":"%s.tar.gz"}]}\n' "$3" "$3" ;;
+    esac ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
 `
@@ -45,10 +81,11 @@ func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *ca
 	c := &candidateSandbox{changelogSandbox: &changelogSandbox{sandbox: s}, task: task}
 	c.tmp = realDir(t, t.TempDir())
 	c.suiteLog = filepath.Join(realDir(t, t.TempDir()), "suite.log")
+	c.suiteHome = realDir(t, t.TempDir())
+	c.origin = origin
 	s.env["TMPDIR"] = c.tmp
-	s.env["SUITE_LOG"] = c.suiteLog
 
-	mk := "test:\n\tgit rev-parse HEAD >>\"$$SUITE_LOG\"\n"
+	mk := "test:\n\tgit rev-parse HEAD >>'" + c.suiteLog + "'\n"
 	if red {
 		mk += "\texit 1\n"
 	}
@@ -72,6 +109,11 @@ func newCandidateSandboxWith(t *testing.T, red bool, base map[string]string) *ca
 	s.git(append([]string{"add"}, add...)...)
 	s.git("commit", "-q", "-m", "base")
 	s.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	s.env["GIT_CONFIG_COUNT"] = "4"
+	s.env["GIT_CONFIG_KEY_3"] = "url." + origin + ".insteadOf"
+	s.env["GIT_CONFIG_VALUE_3"] = releaseRepo
+	s.env["ORIGIN"] = origin
+	s.git("remote", "set-url", "origin", releaseRepo)
 	s.git("fetch", "-q", "origin")
 	c.base = s.rev("HEAD")
 
@@ -110,7 +152,7 @@ groups = [{ mode = "sequential", gates = ["release-run"] }]
 	s.must("validate")
 
 	c.fake = realDir(t, t.TempDir())
-	writeFile(t, filepath.Join(c.fake, "gh"), fakeStateGH, 0o755)
+	writeFile(t, filepath.Join(c.fake, "gh"), releaseGH, 0o755)
 	writeFile(t, filepath.Join(c.fake, "prs.json"), "[]", 0o644)
 	writeFile(t, filepath.Join(c.fake, "go"), `#!/bin/sh
 out=; prev=
@@ -128,11 +170,121 @@ func (c *candidateSandbox) item(name, path, body string) (string, string) {
 	c.t.Helper()
 	head := c.branch(name, c.base, [2]string{path, body})
 	id := c.create("story", "--title", "change "+name).ID
+	c.attach(id, "### Added\n- "+name+" lands\n")
 	c.must("story", "set", id, "--status", "approved")
 	c.pr(id, head)
 	c.ids = append(c.ids, id)
 	return id, head
 }
+
+func (c *candidateSandbox) nodeRoot() string { return filepath.Join(c.rd, "node-root") }
+
+func (c *candidateSandbox) node(step string, args ...string) result {
+	c.t.Helper()
+	root := c.nodeRoot()
+	if step == "input" {
+		if err := os.RemoveAll(root); err != nil {
+			c.t.Fatal(err)
+		}
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			c.t.Fatal(err)
+		}
+		if r := c.exec("cp", "", "-R", filepath.Join(c.rd, "node-in"), filepath.Join(root, "in")); r.code != 0 {
+			c.t.Fatalf("seeding the node's input: %s%s", r.out, r.err)
+		}
+	}
+	path := ""
+	for _, kv := range c.environ() {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+		}
+	}
+	env := map[string]string{"SATELLE_RELEASE_ROOT": root, "SATELLE_RELEASE_TEST_SAME_UID": "1", "GH_TOKEN": nodeToken,
+		"SATELLE_RELEASE_SUITE_PATH": path, "SATELLE_RELEASE_SUITE_HOME": c.suiteHome, "SATELLE_RELEASE_POLL": "0"}
+	if c.asRoot {
+		delete(env, "SATELLE_RELEASE_TEST_SAME_UID")
+	}
+	if tok, ok := c.env["NODE_GH_TOKEN"]; ok {
+		env["GH_TOKEN"] = tok
+	}
+	for k, v := range env {
+		c.env[k] = v
+	}
+	defer func() {
+		for k := range env {
+			delete(c.env, k)
+		}
+	}()
+	script, err := filepath.Abs("../" + releaseNodeScript)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return c.exec("bash", "", append([]string{script, step}, args...)...)
+}
+
+func (c *candidateSandbox) nodeSteps(steps ...string) result {
+	c.t.Helper()
+	for _, st := range steps {
+		if r := c.node(st); r.code != 0 {
+			return r
+		}
+	}
+	return result{}
+}
+
+func (c *candidateSandbox) mustNode(steps ...string) {
+	c.t.Helper()
+	if r := c.nodeSteps(steps...); r.code != 0 {
+		c.t.Fatalf("node %v: exit %d\n%s%s\n%s", steps, r.code, r.out, r.err, c.nodeFile("out/log"))
+	}
+}
+
+func (c *candidateSandbox) nodeFile(rel string) string {
+	c.t.Helper()
+	b, err := os.ReadFile(filepath.Join(c.nodeRoot(), rel))
+	if err != nil && !os.IsNotExist(err) {
+		c.t.Fatal(err)
+	}
+	return string(b)
+}
+
+func (c *candidateSandbox) nodeTest() result {
+	c.t.Helper()
+	if r := c.block(nodeInputHeading); r.code != 0 {
+		return r
+	}
+	return c.nodeSteps("input", "clone", "fetch", "test")
+}
+
+func (c *candidateSandbox) mustNodeTest() {
+	c.t.Helper()
+	if r := c.nodeTest(); r.code != 0 {
+		c.t.Fatalf("the node's test: exit %d\n%s%s\n%s", r.code, r.out, r.err, c.nodeFile("out/log"))
+	}
+}
+
+func (c *candidateSandbox) attachDecision(run string) {
+	c.t.Helper()
+	c.must("execution", "attach", run, "--name", "release-binary", "--type", "text/plain", "--file", filepath.Join(c.nodeRoot(), "out", "release-binary"))
+}
+
+func (c *candidateSandbox) land(run string) result {
+	c.t.Helper()
+	r := c.nodeSteps("bump", "guard", "publish", "push")
+	if r.code == 0 {
+		c.attachDecision(run)
+	}
+	return r
+}
+
+func (c *candidateSandbox) mustLand(run string) {
+	c.t.Helper()
+	if r := c.land(run); r.code != 0 {
+		c.t.Fatalf("the node's landing: exit %d\n%s%s\n%s", r.code, r.out, r.err, c.nodeFile("out/log"))
+	}
+}
+
+func (c *candidateSandbox) work() string { return filepath.Join(c.nodeRoot(), "work") }
 
 func (c *candidateSandbox) block(heading string) result {
 	c.t.Helper()
@@ -158,7 +310,8 @@ func (c *candidateSandbox) mustBlock(heading string) string {
 
 func (c *candidateSandbox) decide() string {
 	c.t.Helper()
-	return c.mustBlock("### Decide: did the binary change")
+	c.mustNode("decide")
+	return c.nodeFile("out/release-binary")
 }
 
 func (c *candidateSandbox) driftGate() string {
@@ -174,7 +327,8 @@ func (c *candidateSandbox) fire() (string, string) {
 	if len(runs) != 1 || runs[0].Status != "in_progress" {
 		c.t.Fatalf("runs %+v", runs)
 	}
-	return runs[0].ID, filepath.Join(c.tmp, "satelle-release-"+runs[0].ID)
+	c.rd = filepath.Join(c.tmp, "satelle-release-"+runs[0].ID)
+	return runs[0].ID, c.rd
 }
 
 func (c *candidateSandbox) merged(id string) {
@@ -260,31 +414,29 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 		t.Fatalf("send back with nothing to send:\n%s", out)
 	}
 	c.driftGate()
-	c.mustBlock("### Test the candidate once")
+	c.mustNodeTest()
 	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != cand {
 		t.Fatalf("make test ran on %v, want once on the candidate %s", runs, cand)
 	}
 
-	writeFile(t, filepath.Join(wt, "late.txt"), "late\n", 0o644)
-	c.exec("git", "", "-C", wt, "add", "late.txt")
-	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "late change")
-	if r := c.block("## 4."); r.code == 0 || !strings.Contains(r.err, "changed after the suite ran") {
-		t.Fatalf("step 4 on a changed candidate: exit %d\n%s%s", r.code, r.out, r.err)
+	work := c.work()
+	writeFile(t, filepath.Join(work, "late.txt"), "late\n", 0o644)
+	c.exec("git", "", "-C", work, "add", "late.txt")
+	c.exec("git", "", "-C", work, "commit", "-q", "-m", "late change")
+	if r := c.node("guard"); r.code == 0 || !strings.Contains(r.out, "failed step guard: the candidate changed after the suite ran") {
+		t.Fatalf("guard on a changed candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
+	c.git("fetch", "-q", "origin")
 	if got := c.rev("origin/main"); got != oldMain {
 		t.Fatalf("origin/main moved to %s on a refused push", got)
 	}
-	c.exec("git", "", "-C", wt, "reset", "-q", "--hard", cand)
+	c.exec("git", "", "-C", work, "reset", "-q", "--hard", cand)
 
-	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\n", 0o644)
-	c.exec("git", "", "-C", wt, "add", ".version")
-	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
-	bump := strings.TrimSpace(c.exec("git", "", "-C", wt, "rev-parse", "HEAD").out)
-	c.mustBlock("## 4.")
+	c.mustLand(run)
 	c.git("fetch", "-q", "origin")
-	if got := c.rev("origin/main"); got != bump || c.rev(bump+"^") != cand {
-		t.Fatalf("origin/main %s, want the bump %s on the tested candidate %s", got, bump, cand)
+	if got := c.rev("origin/main"); got != cand {
+		t.Fatalf("origin/main %s, want the tested candidate %s (its version is unpublished, so nothing is bumped)", got, cand)
 	}
 	if !c.ancestor(oldMain, cand) {
 		t.Fatal("origin/main did not fast-forward from the old main")
@@ -300,8 +452,8 @@ func TestReleaseLandsEveryApprovedItem(t *testing.T) {
 	if runs := c.suiteRuns(); len(runs) != 1 {
 		t.Fatalf("make test ran %d times", len(runs))
 	}
-	if _, err := os.Stat(rd); !os.IsNotExist(err) {
-		t.Fatalf("the run directory %s survives the push: %v", rd, err)
+	if r := c.exec("git", "", "ls-remote", "origin", "refs/heads/release/"+run); strings.TrimSpace(r.out) != "" {
+		t.Fatalf("release/%s survives the push: %s", run, r.out)
 	}
 	if got, want := c.must("execution", "attachment", run, "release-kept"), idA+" "+headA+"\n"+idB+" "+headB+"\n"+idC+" "+headC+"\n"; got != want {
 		t.Fatalf("release-kept on %s:\n%s\nwant\n%s", run, got, want)
@@ -345,7 +497,7 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 	idH, headH := c.item("h", "h.txt", "h\n")
 	heldWhy := "head " + headH + " edits CHANGELOG.md; restore it"
 	c.held = idH + ": send back: " + heldWhy + "\n" + idX + ": keep head " + headX
-	_, rd := c.fire()
+	run, rd := c.fire()
 
 	out := c.mustBlock("### Build the candidate")
 	got := itemLines(out)
@@ -375,12 +527,12 @@ func TestReleaseConflictSendsBackOne(t *testing.T) {
 		t.Fatalf("held %s: %s, release-sendback %q", idH, c.status(idH), got)
 	}
 	c.driftGate()
-	c.mustBlock("### Test the candidate once")
+	c.mustNodeTest()
 	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 {
 		t.Fatalf("make test ran %d times", len(runs))
 	}
-	c.mustBlock("## 4.")
+	c.mustLand(run)
 	c.git("fetch", "-q", "origin")
 	if c.ancestor(headY, "origin/main") || c.ancestor(headH, "origin/main") {
 		t.Fatal("the conflicting or held head landed")
@@ -404,29 +556,25 @@ func TestReleaseRedCandidateLandsNothing(t *testing.T) {
 
 	c.mustBlock("### Build the candidate")
 	c.driftGate()
-	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "make test failed") {
-		t.Fatalf("2d on a red candidate: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := c.nodeTest(); r.code != 1 || !strings.Contains(r.out, "failed step test: suite-exit ") {
+		t.Fatalf("the node's test on a red candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	sb, err := os.ReadFile(filepath.Join(rd, "sendback"))
-	if err != nil {
-		t.Fatal(err)
+	if got := c.nodeFile("back/result"); !strings.Contains(got, "failed step test: suite-exit ") || !strings.Contains(got, "secret-scan clean") {
+		t.Fatalf("back/result of a red suite:\n%s", got)
 	}
-	if lines := strings.Split(strings.TrimRight(string(sb), "\n"), "\n"); len(lines) != 1 || !strings.HasPrefix(lines[0], idM+"\t") ||
-		!strings.Contains(lines[0], "failed make test") {
-		t.Fatalf("sendback %q, want %s only", sb, idM)
+	if sb, _ := os.ReadFile(filepath.Join(rd, "sendback")); len(sb) != 0 {
+		t.Fatalf("a red suite sent back within the run: %q", sb)
 	}
-	c.mustBlock("### Send back")
-	if st := c.status(idM); st != "in_progress" {
-		t.Fatalf("%s is %s, want in_progress", idM, st)
+	for _, id := range []string{idF, idM} {
+		if st := c.status(id); st != "approved" {
+			t.Fatalf("%s is %s, want approved", id, st)
+		}
 	}
-	if st := c.status(idF); st != "approved" {
-		t.Fatalf("%s is %s, want approved", idF, st)
-	}
-	if r := c.block("### Decide: did the binary change"); r.code != 1 || !strings.Contains(r.err, "the suite has not passed") {
+	if r := c.node("decide"); r.code != 1 || !strings.Contains(r.out, "failed step decide: the suite has not passed") {
 		t.Fatalf("decide on a red candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
-	if r := c.block("## 4."); r.code == 0 || !strings.Contains(r.err, "changed after the suite ran") {
-		t.Fatalf("step 4 with no tested candidate: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := c.node("guard"); r.code == 0 || !strings.Contains(r.out, "changed after the suite ran") {
+		t.Fatalf("guard with no tested candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.git("fetch", "-q", "origin")
 	if got := c.rev("origin/main"); got != oldMain {
@@ -453,7 +601,7 @@ func TestReleaseRulesRestated(t *testing.T) {
 		t.Error("release.md does not say main only ever fast-forwards to a tree the release tested")
 	}
 	if !strings.Contains(text[files[0]], "Commit only `.version` and `docs/releases/v<ver>.md`") ||
-		!strings.Contains(shBlock(t, files[0], "## 4.", "tas_x"), `-- . ':!.version' ":!docs/releases/v$ver.md"`) {
+		!strings.Contains(repoText(t, releaseNodeScript), `-- . ':!.version' ":!docs/releases/v$ver.md"`) {
 		t.Error("step 3's commit list and step 4's guard name different files")
 	}
 }
@@ -520,19 +668,14 @@ to = "cancelled"
 	}
 	c.mustBlock("### Send back")
 	c.driftGate()
-	c.mustBlock("### Test the candidate once")
+	c.mustNodeTest()
 	c.decide()
-	wt1 := filepath.Join(rd1, "candidate")
-	if r := c.exec("bash", "", "-c", changelogBlock(t, wt1, "1.0.1", idA)); r.code != 0 {
-		t.Fatalf("R1 step 3: exit %d\n%s%s", r.code, r.out, r.err)
+	c.mustLand(r1)
+	c.git("fetch", "-q", "origin", "--tags")
+	if c.rev("v1.0.1^{commit}") != c.rev("origin/main") || c.git("show", "origin/main:.version") != "satelle.version: 1.0.1\nsatelled.version: 1.0.0\n" {
+		t.Fatalf("R1 did not publish v1.0.1 at main:\n%s", c.git("show", "origin/main:.version"))
 	}
-	writeFile(t, filepath.Join(wt1, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.0\n", 0o644)
-	c.exec("git", "", "-C", wt1, "add", ".version", "docs/releases")
-	c.exec("git", "", "-C", wt1, "commit", "-q", "-m", "chore(release): v1.0.1")
-	c.mustBlock("## 4.")
-	c.git("fetch", "-q", "origin")
-	c.git("tag", "v1.0.1", "origin/main")
-	c.git("push", "-q", "origin", "v1.0.1")
+	_ = rd1
 	if got := c.must("execution", "attachment", r1, "release-kept"); got != idA+" "+headA+"\n" {
 		t.Fatalf("R1 release-kept %q", got)
 	}
@@ -550,7 +693,7 @@ to = "cancelled"
 	c.at(wtB, func() {
 		c.write("b.txt", "b\n")
 		c.write("docs/releases/v1.0.2.md", "## [1.0.2] - 2026-03-01\n\n### Added\n- B adds a thing (sto_0000000b)\n")
-		c.write(".version", "satelle.version: 1.0.2\nsatelled.version: 1.0.0\n")
+		c.write(".version", "satelle.version: 1.0.2\nsatelled.version: 1.0.1\n")
 		c.git("add", "-A")
 		c.git("commit", "-q", "-m", "chore(release): v1.0.2")
 		c.git("push", "-q", "origin", "HEAD:refs/heads/main")
@@ -607,23 +750,22 @@ to = "cancelled"
 		t.Fatalf("release-sendback on %s: %q", idC, got)
 	}
 	c.driftGate()
-	c.mustBlock("### Test the candidate once")
+	c.mustNodeTest()
 	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 2 || runs[1] != main {
 		t.Fatalf("make test ran on %v, want R2's once on origin/main %s", runs, main)
 	}
-	wt2 := filepath.Join(rd2, "candidate")
-	r := c.exec("bash", "", "-c", changelogBlock(t, wt2, "1.0.2"))
-	if r.code != 0 || !strings.Contains(r.out, "released before") {
-		t.Fatalf("R2 step 3 with no unreleased item: exit %d\n%s%s", r.code, r.out, r.err)
+	if ids := c.nodeFile("in/notes-ids"); strings.TrimSpace(ids) != "" {
+		t.Fatalf("R2 notes ids %q, want none: %s was released in v1.0.1", ids, idA)
 	}
-	if got, _ := os.ReadFile(filepath.Join(wt2, "docs", "releases", "v1.0.0.md")); string(got) != changelog {
-		t.Fatalf("R2 step 3 changed docs/releases/v1.0.0.md:\n%s", got)
+	c.mustLand(r2)
+	if log := c.nodeFile("out/log"); !strings.Contains(log, "released before") {
+		t.Fatalf("R2 bump with no unreleased item:\n%s", log)
 	}
-	if st := c.git("-C", wt2, "status", "--porcelain", "--", "docs/releases"); st != "" {
-		t.Fatalf("R2 step 3 changed docs/releases:\n%s", st)
+	if got := c.git("show", "origin/main:docs/releases/v1.0.0.md"); got != changelog {
+		t.Fatalf("R2 changed docs/releases/v1.0.0.md:\n%s", got)
 	}
-	c.mustBlock("## 4.")
+	_ = rd2
 	c.git("fetch", "-q", "origin")
 	if got := c.rev("origin/main"); got != main {
 		t.Fatalf("R2 moved origin/main to %s", got)
@@ -675,14 +817,14 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rd, "drift-checked")); !os.IsNotExist(err) {
 		t.Fatalf("drift-checked written for a refused candidate: %v", err)
 	}
-	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
-		t.Fatalf("test block on an unchecked candidate: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := c.nodeTest(); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
+		t.Fatalf("the node's input on an unchecked candidate: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if runs := c.suiteRuns(); len(runs) != 0 {
 		t.Fatalf("make test ran on a candidate the drift gate refused: %v", runs)
 	}
-	if r := c.block("## 4."); r.code == 0 {
-		t.Fatalf("step 4 pushed a refused candidate:\n%s", r.out)
+	if r := c.exec("git", "", "ls-remote", "origin", "refs/heads/release/"+run); strings.TrimSpace(r.out) != "" {
+		t.Fatalf("a refused candidate was pushed to release/%s", run)
 	}
 	c.git("fetch", "-q", "origin")
 	if got := c.rev("origin/main"); got != oldMain {
@@ -701,21 +843,17 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 	writeFile(t, filepath.Join(wt, "late.txt"), "late\n", 0o644)
 	c.exec("git", "", "-C", wt, "add", "late.txt")
 	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "late")
-	if r := c.block("### Test the candidate once"); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
-		t.Fatalf("test block after a later commit: exit %d\n%s%s", r.code, r.out, r.err)
+	if r := c.nodeTest(); r.code != 1 || !strings.Contains(r.err, "the drift gate has not passed") {
+		t.Fatalf("the node's input after a later commit: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	c.exec("git", "", "-C", wt, "reset", "-q", "--hard", fixCommit)
 	c.driftGate()
-	c.mustBlock("### Test the candidate once")
+	c.mustNodeTest()
 	c.decide()
 	if runs := c.suiteRuns(); len(runs) != 1 || runs[0] != fixCommit {
 		t.Fatalf("make test ran on %v, want once on %s", runs, fixCommit)
 	}
-
-	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\n", 0o644)
-	c.exec("git", "", "-C", wt, "add", ".version")
-	c.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
-	c.mustBlock("## 4.")
+	c.mustLand(run)
 	c.git("fetch", "-q", "origin")
 	if !c.ancestor(fixCommit, "origin/main") {
 		t.Fatal("origin/main does not carry the drift-fix commit")
@@ -725,3 +863,5 @@ func TestReleaseDriftGateRefusesThenFixes(t *testing.T) {
 		t.Fatalf("release-drift:\n%s", got)
 	}
 }
+
+const nodeInputHeading = "\n### The node's input\n"

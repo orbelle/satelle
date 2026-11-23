@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 type binarySandbox struct {
@@ -60,31 +59,6 @@ func binaryModule(t *testing.T) map[string]string {
 `,
 	}
 }
-
-const binaryGH = `#!/bin/sh
-printf '%s\n' "$*" >>"$FAKE_DIR/gh.log"
-case "$1 $2" in
-  "pr list")
-    s=open; prev=
-    for a in "$@"; do [ "$prev" = --state ] && s=$a; prev=$a; done
-    jq --arg s "$s" '[.[] | select($s == "all" or ((.state // "OPEN") | ascii_downcase) == $s)]' "$FAKE_DIR/prs.json" ;;
-  "workflow run")
-    sha=$(git -C "$ORIGIN" rev-parse main) || exit 1
-    ver=$(git -C "$ORIGIN" show main:.version | awk '$1 == "satelle.version:" { print $2 }')
-    sver=$(git -C "$ORIGIN" show main:.version | awk '$1 == "satelled.version:" { print $2 }')
-    git -C "$ORIGIN" tag "v$ver" "$sha" && git -C "$ORIGIN" tag "serve-v$sver" "$sha" || exit 1
-    printf '[{"databaseId":7,"headSha":"%s","status":"completed","conclusion":"success","url":"https://ci.example/7"}]\n' "$sha" >"$FAKE_DIR/runs.json" ;;
-  "run list") cat "$FAKE_DIR/runs.json" 2>/dev/null || echo '[]' ;;
-  "run watch") exit 0 ;;
-  "release view")
-    git -C "$ORIGIN" rev-parse -q --verify "refs/tags/$3" >/dev/null || { echo "release not found" >&2; exit 1; }
-    case " $* " in
-      *" --jq "*) echo 1 ;;
-      *) printf '{"tagName":"%s","assets":[{"name":"%s.tar.gz"}]}\n' "$3" "$3" ;;
-    esac ;;
-  *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
-esac
-`
 
 const binaryShim = `#!/bin/sh
 installed() { # ver sver sha
@@ -175,7 +149,7 @@ func newBinarySandbox(t *testing.T) *binarySandbox {
 		t.Fatal("go is required by the binary decision and is not on PATH")
 	}
 	c := newCandidateSandboxWith(t, false, binaryModule(t))
-	b := &binarySandbox{candidateSandbox: c, origin: strings.TrimSpace(c.git("remote", "get-url", "origin"))}
+	b := &binarySandbox{candidateSandbox: c, origin: c.origin}
 	c.git("tag", "v1.0.0", c.base)
 	c.git("tag", "serve-v1.0.0", c.base)
 	c.git("push", "-q", "origin", "v1.0.0", "serve-v1.0.0")
@@ -189,10 +163,8 @@ if [ "$1" = build ]; then
 fi
 exec `+realGo+` "$@"
 `, 0o755)
-	writeFile(t, filepath.Join(c.fake, "gh"), binaryGH, 0o755)
 	writeFile(t, filepath.Join(c.fake, "satelle"), binaryShim, 0o755)
 	writeFile(t, filepath.Join(c.fake, "satelled"), "#!/bin/sh\n", 0o755)
-	c.env["ORIGIN"] = b.origin
 	c.env["REAL_SATELLE"] = satelleBin
 
 	for _, name := range []string{"satelle-version-stamp-check", "satelle-changelog-entry-check", "satelle-ci-published-check",
@@ -234,12 +206,17 @@ func (b *binarySandbox) tested() (string, string, string, string) {
 	b.mustBlock("### Build the candidate")
 	b.mustBlock("### Send back")
 	b.driftGate()
-	b.mustBlock("### Test the candidate once")
-	sha, err := os.ReadFile(filepath.Join(rd, "tested"))
-	if err != nil {
-		b.t.Fatal(err)
+	b.mustNodeTest()
+	var sha string
+	for _, l := range strings.Split(b.nodeFile("out/result"), "\n") {
+		if v, ok := strings.CutPrefix(l, "tested "); ok {
+			sha = v
+		}
 	}
-	return run, rd, filepath.Join(rd, "candidate"), strings.TrimSpace(string(sha))
+	if sha == "" {
+		b.t.Fatalf("the node recorded no tested candidate:\n%s", b.nodeFile("out/result"))
+	}
+	return run, rd, b.work(), sha
 }
 
 func (b *binarySandbox) fakeLog(name string) string {
@@ -297,7 +274,7 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	if want := []string{"other .satelle/agents.toml", "other docs/n.md", "other docs/x.md", "other internal/a/a_test.go"}; first != "binary: unchanged" || !slices.Equal(paths, want) {
 		t.Fatalf("decide: %s with %q, want binary: unchanged with %q\n%s", first, paths, want, rec)
 	}
-	b.mustBlock("## 4.")
+	b.mustLand(run)
 	b.git("fetch", "-q", "origin")
 	if got := b.rev("origin/main"); got != tested {
 		t.Fatalf("origin/main %s, want the tested candidate %s", got, tested)
@@ -344,13 +321,16 @@ func TestReleaseBinaryUnchangedLandsWithoutAVersion(t *testing.T) {
 	}
 
 	idT, _ := b.story("t", "### Changed\n- T edits a topic\n", [2]string{"internal/a/topics/t.md", "t, edited\n"})
-	b.tested()
+	runT, _, _, _ := b.tested()
 	rec = b.decide()
 	want := []string{"build built internal/a/topics/t.md", "other .satelle/agents.toml", "other docs/n.md", "other docs/x.md", "other internal/a/a_test.go"}
 	if first, paths := recordLines(rec); first != "binary: changed" || !slices.Equal(paths, want) {
 		t.Fatalf("decide on an edited topic: %s with %q\n%s", first, paths, rec)
 	}
-	b.mustBlock("## 4.")
+	if r := b.nodeSteps("guard", "push"); r.code != 0 {
+		t.Fatalf("guard and push with the bump skipped: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	b.attachDecision(runT)
 	b.refused(idT, "version-stamp", "v1.0.0 is already published at")
 	if log := b.fakeLog("satelle.log"); log != "" {
 		t.Fatalf("satelle.log:\n%s", log)
@@ -375,14 +355,15 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	}
 
 	b.exec("git", "", "-C", wt, "push", "-q", "origin", "HEAD:refs/heads/main")
+	b.git("fetch", "-q", "origin")
 	if got := of(); got != "run: "+run+"\nbinary: unrecorded\n" {
 		t.Fatalf("of with no record: %q", got)
 	}
 	b.refused(idX, "version-stamp", "v1.0.0 is already published at")
 
-	b.git("tag", "-d", "serve-v1.0.0")
+	b.exec("git", "", "-C", wt, "tag", "-d", "serve-v1.0.0")
 	r := b.exec("bash", "", filepath.Join(wt, "scripts/release-binary.sh"), "decide", wt)
-	b.git("fetch", "-q", "origin", "--tags")
+	b.exec("git", "", "-C", wt, "fetch", "-q", "origin", "--tags")
 	if r.code != 0 || !strings.Contains(r.out, "binary: changed\n") || !strings.Contains(r.out, "\nreason: serve-v1.0.0 is not a published tag") {
 		t.Fatalf("decide without the serve tag: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -394,21 +375,18 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 	}
 	b.refused(idX, "version-stamp", "the bump was skipped")
 
-	b.mustBlock("## 4.")
+	b.attachDecision(run)
 	if got := of(); got != "run: "+run+"\n"+rec {
-		t.Fatalf("of after step 4:\n%s\nwant\n%s", got, rec)
+		t.Fatalf("of with the node's decision:\n%s\nwant\n%s", got, rec)
 	}
 	b.refused(idX, "version-stamp", "the bump was skipped")
 
-	b.git("fetch", "-q", "origin")
-	bw := b.worktree("origin/main", true)
-	if r := b.exec("bash", "", "-c", changelogBlock(t, bw, "1.0.1", idX)); r.code != 0 {
-		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
+	writeFile(t, filepath.Join(b.nodeRoot(), "in", "notes-ids"), idX+"\n", 0o600)
+	b.mustNode("bump")
+	if got := b.exec("git", "", "-C", wt, "show", "HEAD:.version").out; !strings.HasPrefix(got, "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: ") {
+		t.Fatalf("the bump wrote .version:\n%s", got)
 	}
-	writeFile(t, filepath.Join(bw, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: "+time.Now().UTC().Format("2006-01-02T15:04:05Z")+"\n", 0o644)
-	b.exec("git", "", "-C", bw, "add", "-A")
-	b.exec("git", "", "-C", bw, "commit", "-q", "-m", "chore(release): v1.0.1")
-	b.exec("git", "", "-C", bw, "push", "-q", "origin", "HEAD:refs/heads/main")
+	b.exec("git", "", "-C", wt, "push", "-q", "origin", "HEAD:refs/heads/main")
 	b.refused(idX, "ci-published", "no successful release.yml run")
 	if g := latestRun(b.sandbox, idX, "version-stamp"); g.Result != "accept" {
 		t.Fatalf("version-stamp with the bump: %+v", g)
@@ -419,6 +397,9 @@ func TestReleaseBinaryChangedStillRefusesSkippedSteps(t *testing.T) {
 		t.Fatalf("fake dispatch: %s%s", r.out, r.err)
 	}
 	b.refused(idX, "release-installed", "satelle version is not satelle 1[.]0[.]1")
+	if strings.Count(b.fakeLog("gh.log"), "workflow run") != 1 {
+		t.Fatalf("gh.log:\n%s", b.fakeLog("gh.log"))
+	}
 	if g := latestRun(b.sandbox, idX, "ci-published"); g.Result != "accept" {
 		t.Fatalf("ci-published once published: %+v", g)
 	}
@@ -431,55 +412,42 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 	if first, _ := recordLines(b.decide()); first != "binary: unchanged" {
 		t.Fatalf("run U decided %s", first)
 	}
-	b.mustBlock("## 4.")
+	b.mustLand(runU)
 	if r := b.done(idA); r.code != 0 {
 		t.Fatalf("done %s: exit %d\n%s%s", idA, r.code, r.out, r.err)
 	}
 	b.must("execution", "set", runU, "--status", "done")
+	b.git("fetch", "-q", "origin")
 	if got := strings.TrimSpace(b.git("ls-tree", "--name-only", "origin/main", "docs/releases/")); got != "docs/releases/v1.0.0.md" {
 		t.Fatal("run U wrote release notes")
 	}
 
 	idB, _ := b.story("b", "### Fixed\n- B fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 1 }\n"})
-	_, rd, wt, tested := b.tested()
+	runC, _, _, tested := b.tested()
+	if got := strings.Fields(b.nodeFile("in/notes-ids")); !slices.Equal(got, []string{idA, idB}) {
+		t.Fatalf("notes ids %q, want the carried %s first, then %s", got, idA, idB)
+	}
+	writeFile(t, filepath.Join(b.fake, "fail-execution-list"), "", 0o644)
+	if r := b.block(nodeInputHeading); r.code == 0 || !strings.Contains(r.err, "cannot list the items earlier binary-unchanged runs carried") {
+		t.Fatalf("the node's input with a failing run list: exit %d %q\n%s", r.code, r.out, r.err)
+	}
+	os.Remove(filepath.Join(b.fake, "fail-execution-list"))
 	if first, _ := recordLines(b.decide()); first != "binary: changed" {
 		t.Fatalf("run C decided %s", first)
 	}
-	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: "+time.Now().UTC().Format("2006-01-02T15:04:05Z")+"\n", 0o644)
-	carried := func() result { return b.block("### Carried from binary-unchanged runs") }
-	if r := carried(); r.code != 0 || strings.TrimSpace(r.out) != idA {
-		t.Fatalf("carried after the bump: exit %d %q, want %s\n%s", r.code, r.out, idA, r.err)
+	b.mustLand(runC)
+	if strings.Contains(b.nodeFile("out/result"), "tested ") && !strings.Contains(b.nodeFile("out/result"), "tested "+tested) {
+		t.Fatalf("tested moved:\n%s", b.nodeFile("out/result"))
 	}
-	writeFile(t, filepath.Join(b.fake, "fail-execution-list"), "", 0o644)
-	if r := carried(); r.code == 0 || strings.Contains(r.out, idA) {
-		t.Fatalf("carried with a failing run list: exit %d %q", r.code, r.out)
-	}
-	os.Remove(filepath.Join(b.fake, "fail-execution-list"))
-	if r := b.exec("bash", "", "-c", changelogBlock(t, wt, "1.0.1", idA, idB)); r.code != 0 {
-		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
-	}
-	b.exec("git", "", "-C", wt, "add", ".version", "docs/releases")
-	b.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
-	if got, _ := os.ReadFile(filepath.Join(rd, "tested")); strings.TrimSpace(string(got)) != tested {
-		t.Fatalf("tested moved to %s", got)
-	}
-	if r := carried(); r.code != 0 || strings.TrimSpace(r.out) != idA {
-		t.Fatalf("carried after the bump commit: exit %d %q, want %s\n%s", r.code, r.out, idA, r.err)
-	}
-	cl, _ := os.ReadFile(filepath.Join(wt, "docs", "releases", "v1.0.1.md"))
-	section := string(cl)
+	b.git("fetch", "-q", "origin", "--tags")
+	section := b.git("show", "origin/main:docs/releases/v1.0.1.md")
 	if !strings.HasPrefix(section, "## [1.0.1] - ") || !strings.Contains(section, "- A adds a doc ("+idA+")\n") || !strings.Contains(section, "- B fixes the source ("+idB+")\n") {
 		t.Fatalf("the [1.0.1] section:\n%s", section)
 	}
-	b.mustBlock("## 4.")
-	if r := b.exec(filepath.Join(b.fake, "gh"), "", "workflow", "run", "release.yml", "--ref", "main"); r.code != 0 {
-		t.Fatalf("fake dispatch: %s%s", r.out, r.err)
-	}
-	b.git("fetch", "-q", "origin", "--tags")
 	attachment := filepath.Join(b.fake, "a.changelog")
 	writeFile(t, attachment, b.must("story", "attachment", idA, "changelog"), 0o644)
 	main := filepath.Join(b.fake, "v1.0.1.md")
-	writeFile(t, main, b.git("show", "origin/main:docs/releases/v1.0.1.md"), 0o644)
+	writeFile(t, main, section, 0o644)
 	if r := b.exec("bash", "", "scripts/changelog-items.sh", "has", main, "1.0.1", idA+":"+attachment); r.code != 0 {
 		t.Fatalf("[1.0.1] on origin/main lacks %s's lines: %s%s", idA, r.out, r.err)
 	}
@@ -489,40 +457,34 @@ func TestReleaseCarriesUnchangedRunsChangelog(t *testing.T) {
 }
 
 func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
-	for heading, want := range map[string]string{"## 5.": goldenStep5, "## 6.": goldenStep6, "## 7.": goldenStep7} {
-		if got := fencedAfter(t, heading); got != want {
-			t.Errorf("release.md %s block changed:\n%s\nwant\n%s", heading, got, want)
-		}
+	if got := fencedAfter(t, "## 7."); got != goldenStep7 {
+		t.Errorf("release.md ## 7. block changed:\n%s\nwant\n%s", got, goldenStep7)
 	}
 	b := newBinarySandbox(t)
 	id, _ := b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 2 }\n"})
 	oldMain := b.rev("origin/main")
-	_, _, wt, _ := b.tested()
+	run, _, _, _ := b.tested()
 	if first, paths := recordLines(b.decide()); first != "binary: changed" || !slices.Equal(paths, []string{"build built internal/a/b.go"}) {
 		t.Fatalf("decide: %s %q", first, paths)
 	}
-	writeFile(t, filepath.Join(wt, ".version"), "satelle.version: 1.0.1\nsatelled.version: 1.0.1\nsatelle.build: "+time.Now().UTC().Format("2006-01-02T15:04:05Z")+"\n", 0o644)
-	if r := b.block("### Carried from binary-unchanged runs"); r.code != 0 || r.out != "" {
-		t.Fatalf("carried with no earlier run: exit %d %q\n%s", r.code, r.out, r.err)
+	if got := strings.Fields(b.nodeFile("in/notes-ids")); !slices.Equal(got, []string{id}) {
+		t.Fatalf("notes ids with no earlier run %q, want %s", got, id)
 	}
-	if r := b.exec("bash", "", "-c", changelogBlock(t, wt, "1.0.1", id)); r.code != 0 {
-		t.Fatalf("step 3: exit %d\n%s%s", r.code, r.out, r.err)
-	}
-	b.exec("git", "", "-C", wt, "add", ".version", "docs/releases")
-	b.exec("git", "", "-C", wt, "commit", "-q", "-m", "chore(release): v1.0.1")
 	tagsBefore := strings.Fields(b.tags())
-	b.mustBlock("## 4.")
+	b.mustLand(run)
+	result := b.nodeFile("out/result")
+	for _, want := range []string{"version 1.0.1\n", "sver 1.0.1\n", "release-yml https://ci.example/7 ", " success\n", "tag v1.0.1 ", "tag serve-v1.0.1 ", "main-before " + oldMain + "\n", "main-after "} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("the node's result lacks %q:\n%s", want, result)
+		}
+	}
 
-	steps := map[string]string{"<id>": "7", "<ver>": "1.0.1", "<sver>": "1.0.1",
-		`<the path in the [...] of the "installed" line of satelle service status>`: filepath.Join(b.fake, "satelled")}
-	for _, heading := range []string{"## 5.", "## 6.", "## 7."} {
-		block := bindSession(fencedAfter(t, heading))
-		for k, v := range steps {
-			block = strings.ReplaceAll(block, k, v)
-		}
-		if r := b.exec("bash", "", "-c", block); r.code != 0 {
-			t.Fatalf("%s: exit %d\n%s%s", heading, r.code, r.out, r.err)
-		}
+	block := bindSession(fencedAfter(t, "## 7."))
+	for k, v := range map[string]string{"<ver>": "1.0.1", `<the path in the [...] of the "installed" line of satelle service status>`: filepath.Join(b.fake, "satelled")} {
+		block = strings.ReplaceAll(block, k, v)
+	}
+	if r := b.exec("bash", "", "-c", block); r.code != 0 {
+		t.Fatalf("## 7.: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 
 	b.git("fetch", "-q", "origin", "--tags")
@@ -537,8 +499,11 @@ func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	if len(bumps) != 1 || bumps[0] != main {
 		t.Fatalf("bump commits %v, want one at origin/main %s", bumps, main)
 	}
-	if n := strings.Count(b.fakeLog("gh.log"), "workflow run release.yml --ref main\n"); n != 1 {
-		t.Fatalf("%d release.yml dispatches:\n%s", n, b.fakeLog("gh.log"))
+	if n := strings.Count(b.fakeLog("gh.log"), "workflow run release.yml --ref release/"+run+" --repo orbelle/satelle\n"); n != 1 || strings.Count(b.fakeLog("gh.log"), "workflow run") != 1 {
+		t.Fatalf("%d release.yml dispatches on release/%s:\n%s", n, run, b.fakeLog("gh.log"))
+	}
+	if !strings.Contains(b.fakeLog("gh.log"), "main at dispatch "+oldMain+"\n") {
+		t.Fatalf("release.yml was dispatched after main moved:\n%s", b.fakeLog("gh.log"))
 	}
 	var newTags []string
 	for _, tg := range strings.Fields(b.git("tag", "-l")) {
@@ -583,13 +548,6 @@ func fencedAfter(t *testing.T, heading string) string {
 	block, _, _ := strings.Cut(rest, "```")
 	return block
 }
-
-const goldenStep5 = "gh workflow run release.yml --ref main\n" +
-	"gh run list --workflow release.yml --limit 5 --json databaseId,headSha,url\n" +
-	"gh run watch <id> --exit-status\n"
-
-const goldenStep6 = "gh release view v<ver> --json tagName,assets\n" +
-	"gh release view serve-v<sver> --json tagName,assets\n"
 
 const goldenStep7 = "session=<session>\n" +
 	"sbin=$(command -v satelle)\n" +

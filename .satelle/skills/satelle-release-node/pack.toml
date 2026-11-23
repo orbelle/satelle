@@ -1,0 +1,6 @@
+name = "satelle-release-node"
+version = "1.0.0"
+skills = ["satelle-release-node"]
+
+[needs]
+scripts = ["satelle-release-node/scripts/start.sh", "satelle-release-node/scripts/stop.sh", "satelle-release-node/scripts/tools.sh", "satelle-release-node/scripts/release-node.sh"]

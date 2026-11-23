@@ -1,0 +1,28 @@
+version = 1
+name = "release-sprite"
+provider = "command"
+satelle_version = "1.0.133"
+
+[connect]
+check = ["sh", ".satelle/skills/satelle-node-sprite/scripts/check.sh"]
+start = ["sh", ".satelle/skills/satelle-release-node/scripts/start.sh", "{node}"]
+network = ["sh", ".satelle/skills/satelle-node-sprite/scripts/network.sh", "{node}"]
+copy_in = ["sh", ".satelle/skills/satelle-node-sprite/scripts/copy-in.sh", "{src}", "{node}", "{dst}"]
+exec = ["sh", ".satelle/skills/satelle-node-sprite/scripts/exec.sh", "{node}", "--"]
+stop = ["sh", ".satelle/skills/satelle-release-node/scripts/stop.sh", "{node}"]
+
+[secrets]
+names = ["GH_TOKEN"]
+
+[drive]
+kind = "task"
+task = "tas_4f3e11d8"
+
+[setup]
+on_create = ["satelle --version", "env -u GH_TOKEN sh .satelle/skills/satelle-node-setup/scripts/base-tools.sh", "env -u GH_TOKEN sh .satelle/skills/satelle-release-node/scripts/tools.sh"]
+
+[network]
+allow = ["archive.ubuntu.com", "security.ubuntu.com", "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+
+[lifecycle]
+scope = "run"

@@ -1,0 +1,26 @@
+name = "release-node"
+
+[states.backlog]
+start = true
+
+[states.done]
+terminal = true
+
+[states.cancelled]
+terminal = true
+
+[gates.change-judged]
+skill = "satelle-change-judged-check"
+
+[gates.release-node]
+skill = "satelle-release-node-check"
+timeout = "2h"
+
+[[transition]]
+from = ["backlog"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["change-judged", "release-node"] }]
+
+[[transition]]
+from = ["backlog"]
+to = "cancelled"
