@@ -25,10 +25,6 @@ type Node struct {
 	Refuse           map[string][2]string
 	Run              *satellepb.RunDescriptor
 	LostAfterSeconds int32
-	// HoldHeartbeat, when set, holds the node's first running status in the
-	// handler until it is closed or the node posts its conclusion, then records
-	// it: a server that received the call and records it late. ReadSecret waits
-	// for that heartbeat to arrive, so it is in flight before the run can end.
 	HoldHeartbeat chan struct{}
 
 	channelKey       []byte

@@ -129,14 +129,8 @@ func (j *joiner) say(format string, args ...any) {
 	fmt.Fprintln(j.o.Log, "node:", line)
 }
 
-// heartbeatCallLimit bounds one heartbeat Status call, so a server that never
-// answers cannot hold the node's conclusion forever.
 const heartbeatCallLimit = 30 * time.Second
 
-// heartbeat posts the node's running status until the run ends. A call already
-// sent is not cancelled by the run's end: it is let finish (within
-// heartbeatCallLimit), so the conclusion Join posts after work returns is the
-// last status the server records.
 func (j *joiner) heartbeat(ctx context.Context, stop context.CancelCauseFunc, step func() string) {
 	t := time.NewTicker(j.o.Heartbeat)
 	defer t.Stop()
