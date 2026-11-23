@@ -118,6 +118,44 @@ func TestCommandRunsNoShell(t *testing.T) {
 	}
 }
 
+// TestCommandCallerArgvIsNotSubstituted: only the [connect] exec argv takes
+// {node}, {src} and {dst}; the arguments and paths a caller passes reach the
+// node verbatim.
+func TestCommandCallerArgvIsNotSubstituted(t *testing.T) {
+	c, dir := recordingConnect(t)
+	h, err := Command{}.Start(context.Background(), remotedef.Definition{Connect: c}, Run{NodeID: "nod_6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argvOf(t, dir)
+	if _, err := h.Exec(context.Background(), "true", "{node}", "{src}-{dst}"); err != nil {
+		t.Fatal(err)
+	}
+	if got := argvOf(t, dir); got != "argc 5\narg exec\narg nod_6\narg true\narg {node}\narg {src}-{dst}\n" {
+		t.Fatalf("exec argv:\n%s", got)
+	}
+	if _, err := h.(StdinExec).ExecStdin(context.Background(), strings.NewReader(""), "true", "{node}"); err != nil {
+		t.Fatal(err)
+	}
+	if got := argvOf(t, dir); got != "argc 4\narg exec\narg nod_6\narg true\narg {node}\n" {
+		t.Fatalf("exec-stdin argv:\n%s", got)
+	}
+	src := filepath.Join(t.TempDir(), "{node}")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "f"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "back")
+	if err := h.CopyOut(context.Background(), src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dst, "f")); string(b) != "y" {
+		t.Fatalf("copied out %q from a path holding {node}", b)
+	}
+}
+
 func TestCommandCopyOut(t *testing.T) {
 	c, _ := recordingConnect(t)
 	h, err := Command{}.Start(context.Background(), remotedef.Definition{Connect: c}, Run{NodeID: "nod_3"})

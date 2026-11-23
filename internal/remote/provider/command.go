@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -32,7 +31,7 @@ func (Command) Check(ctx context.Context, def remotedef.Definition, node string)
 	if len(def.Connect.Check) == 0 {
 		return nil
 	}
-	_, err := runConnect(ctx, "check", def.Connect.Check, connectVars(node, "", ""), nil, false)
+	_, err := runConnect(ctx, "check", def.Connect.Check, nil, connectVars(node, "", ""), nil, false)
 	return err
 }
 
@@ -42,7 +41,7 @@ func (Command) Node(def remotedef.Definition, node string) Handle {
 
 func (Command) Start(ctx context.Context, def remotedef.Definition, run Run) (Handle, error) {
 	n := &commandNode{c: def.Connect, node: run.NodeID}
-	if _, err := runConnect(ctx, "start", def.Connect.Start, n.vars("", ""), nil, false); err != nil {
+	if _, err := runConnect(ctx, "start", def.Connect.Start, nil, n.vars("", ""), nil, false); err != nil {
 		return n, err
 	}
 	return n, nil
@@ -58,22 +57,21 @@ func (n *commandNode) vars(src, dst string) *strings.Replacer { return connectVa
 func (n *commandNode) ID() string { return n.node }
 
 func (n *commandNode) Exec(ctx context.Context, argv ...string) ([]byte, error) {
-	return runConnect(ctx, "exec", append(slices.Clone(n.c.Exec), argv...), n.vars("", ""), nil, false)
+	return runConnect(ctx, "exec", n.c.Exec, argv, n.vars("", ""), nil, false)
 }
 
 func (n *commandNode) ExecStdin(ctx context.Context, stdin io.Reader, argv ...string) ([]byte, error) {
-	return runConnect(ctx, "exec", append(slices.Clone(n.c.Exec), argv...), n.vars("", ""), stdin, false)
+	return runConnect(ctx, "exec", n.c.Exec, argv, n.vars("", ""), stdin, false)
 }
 
 func (n *commandNode) CopyIn(ctx context.Context, host, machine string) error {
-	_, err := runConnect(ctx, "copy_in", n.c.CopyIn, n.vars(host, machine), nil, false)
+	_, err := runConnect(ctx, "copy_in", n.c.CopyIn, nil, n.vars(host, machine), nil, false)
 	return err
 }
 
 func (n *commandNode) CopyOut(ctx context.Context, machine, host string) error {
 	base := path.Base(machine)
-	argv := append(slices.Clone(n.c.Exec), "tar", "-C", path.Dir(machine), "-cf", "-", base)
-	out, err := runConnect(ctx, "exec", argv, n.vars("", ""), nil, true)
+	out, err := runConnect(ctx, "exec", n.c.Exec, []string{"tar", "-C", path.Dir(machine), "-cf", "-", base}, n.vars("", ""), nil, true)
 	if err != nil {
 		return err
 	}
@@ -83,7 +81,7 @@ func (n *commandNode) CopyOut(ctx context.Context, machine, host string) error {
 func (n *commandNode) Logs(context.Context) ([]byte, error) { return nil, nil }
 
 func (n *commandNode) Stop(ctx context.Context) error {
-	_, err := runConnect(ctx, "stop", n.c.Stop, n.vars("", ""), nil, false)
+	_, err := runConnect(ctx, "stop", n.c.Stop, nil, n.vars("", ""), nil, false)
 	return err
 }
 
@@ -112,11 +110,14 @@ func renderArgv(argv []string) string {
 	return strings.Join(parts, " ")
 }
 
-func runConnect(ctx context.Context, key string, argv []string, vars *strings.Replacer, stdin io.Reader, stdoutOnly bool) ([]byte, error) {
-	if len(argv) == 0 || strings.TrimSpace(argv[0]) == "" {
+// runConnect runs the [connect] argv named by key, with its placeholders
+// substituted, followed by extra verbatim: a caller's arguments are never
+// read as placeholders.
+func runConnect(ctx context.Context, key string, template, extra []string, vars *strings.Replacer, stdin io.Reader, stdoutOnly bool) ([]byte, error) {
+	if len(template) == 0 || strings.TrimSpace(template[0]) == "" {
 		return nil, fmt.Errorf("[connect] %s names no command", key)
 	}
-	argv = substitute(argv, vars)
+	argv := append(substitute(template, vars), extra...)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = os.Environ()
 	cmd.Stdin = stdin
@@ -156,11 +157,11 @@ func untar(r io.Reader, base, host string) error {
 		}
 		name := strings.TrimSuffix(strings.TrimPrefix(hd.Name, "./"), "/")
 		clean := path.Clean(name)
-		if path.IsAbs(name) || clean != name || clean == ".." || strings.HasPrefix(clean, "../") {
+		if strings.Contains(name, `\`) || path.IsAbs(name) || clean != name || clean == ".." || strings.HasPrefix(clean, "../") {
 			return fmt.Errorf("copying %s out of the node: the archive holds %q, outside %s", base, hd.Name, base)
 		}
 		rel, ok := strings.CutPrefix(clean, base)
-		if !ok || rel != "" && !strings.HasPrefix(rel, "/") {
+		if !ok || rel != "" && (!strings.HasPrefix(rel, "/") || !filepath.IsLocal(filepath.FromSlash(rel[1:]))) {
 			return fmt.Errorf("copying %s out of the node: the archive holds %q, outside %s", base, hd.Name, base)
 		}
 		dst := host + filepath.FromSlash(rel)
