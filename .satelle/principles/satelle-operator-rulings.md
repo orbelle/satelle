@@ -309,3 +309,12 @@ are reviewed*).
   call. That is the only point to ensure is in the agent context. e.g an epic
   may have 1 or 3 releases depending on the no. of stories or impact of
   releases." (operator, 2026-11-22; [[satelle-agent-goals]]).
+
+## 2026-11-24
+
+- **A remote's secrets come from the repo's untracked .satelle/.env, locally.**
+  "secrets is where we get stuck each time. With a local first approach, the
+  secrets must be transported fropm the local repo, hence stored (not tracked)
+  in the repo. THat is the local approach, later they can come from a supported
+  secrets service like infisical, or satelle.dev." (operator, 2026-11-24;
+  sto_b01dda27, [[satelle-agent-operates-remotes]]).

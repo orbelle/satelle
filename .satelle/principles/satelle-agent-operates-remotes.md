@@ -3,7 +3,7 @@ name: satelle-agent-operates-remotes
 type: principle
 tags: [type:principle]
 applies_to: ["*"]
-description: Agents operate remotes, never the user by hand. The machine that fires a run opens the connection to the node and operates it; no server is required, and satelle.dev is one place a remote may be operated from. A node is isolated to its one task. A remote reads exactly the secrets its definition declares, from the source the definition names, when the run starts, and stores them nowhere; an agent never handles a value. Connection, host and secret source are the repo's configuration.
+description: Agents operate remotes, never the user by hand. The machine that fires a run opens the connection to the node and operates it; no server is required, and satelle.dev is one place a remote may be operated from. A node is isolated to its one task. A remote reads exactly the secrets its definition declares, locally from the repo's untracked .satelle/.env, when the run starts, and copies them nowhere; an agent never handles a value. Connection, host and secret source are the repo's configuration.
 ---
 
 # Agents operate remotes
@@ -47,12 +47,14 @@ Which parts of this model are built is the state of the remotes epic's stories
 - No agent proposes, makes or checks a grant (satelle-server sty_f7c38cc5
   removed them).
 
-A value is read from the source the definition names when the run starts, and
-is stored nowhere: not in the definition, the image, the container's
-configuration, the ledger or on either machine's disk. The firing machine's
-environment is one source; the satelle.dev UI is another. Where a value comes
-from is the user's: a keyring, a secrets manager or a vault is whatever the
-user wraps the fire in.
+A value is read from its source when the run starts and is copied nowhere:
+not into the definition, the image, the node's configuration or disk, the
+ledger or a commit. Locally the source is the repo's own secrets file,
+`.satelle/.env`: untracked and ignored by git, written by the user, and the one
+place a value rests on the firing machine. Later a supported secrets service
+(Infisical, satelle.dev) is a source in its place. The value reaches the node
+only over the connection the fire opens, and the node holds it in its process
+environment for its one run (operator, 2026-11-24, [[satelle-operator-rulings]]).
 
 An agent never reads, prints, types or attaches a secret value; it names the
 key in the definition. Putting a value in its source is the user's only part.
