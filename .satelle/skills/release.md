@@ -650,7 +650,7 @@ other than the value's own. Keep the current value when it is above that
 latest and its own tag is absent or points at the candidate (a resumed run already
 published it); otherwise set it to the latest tag's patch + 1. Set
 `satelle.build=$(date -u +%Y-%m-%dT%H:%M:%SZ)` when either changed. The rule's
-one owner is `release-node.sh`, whose header states it.
+one implementation is `release-node.sh bump`.
 
 ### Carried from binary-unchanged runs
 
