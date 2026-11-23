@@ -302,8 +302,6 @@ func commandSecretSandbox(t *testing.T) (sb *secretBox, root, guard string) {
 	return sb, root, guard
 }
 
-// assertCommandProbe asserts a command fire gave the node sb.value, without
-// docker, and returns the node.
 func assertCommandProbe(t *testing.T, sb *secretBox, guard string, r result) string {
 	t.Helper()
 	if r.code != 0 {

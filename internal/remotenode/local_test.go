@@ -924,8 +924,6 @@ func TestTakeSecretsRefusesUnsetName(t *testing.T) {
 	}
 }
 
-// secretsRepo makes a git repo whose .satelle/.env holds body; ignore adds a
-// .gitignore rule for .env. It returns the repo's .satelle dir.
 func secretsRepo(t *testing.T, ignore bool, body string) string {
 	t.Helper()
 	tree := t.TempDir()
@@ -995,8 +993,6 @@ func TestTakeSecretsRefusesMalformedRepoEnvFile(t *testing.T) {
 	}
 }
 
-// Each unsafe file's line 1 is malformed: a file that was read would refuse
-// with the parse message, so the git message proves no value was read.
 const unreadableBody = "NOT_A_PAIR_LINE\n"
 
 func TestTakeSecretsRefusesUnignoredRepoEnvFile(t *testing.T) {

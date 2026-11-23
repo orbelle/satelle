@@ -552,8 +552,6 @@ func TestDockerLocalFireSecretFailureOnDaemon(t *testing.T) {
 	assertNoNodeOnDaemon(t, real, m[1])
 }
 
-// repoEnv writes the sandbox's .satelle/.env; ignore commits a .gitignore rule
-// for .env first.
 func (b *secretBox) repoEnv(t *testing.T, ignore bool, body string) {
 	t.Helper()
 	if ignore {

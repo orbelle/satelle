@@ -272,10 +272,6 @@ type Secrets struct {
 	Redact []string
 }
 
-// TakeSecrets takes each [secrets] name from the firing shell, else from the
-// repo's untracked, ignored .satelle/.env under dataDir. Every declared name is
-// read and unset before the file's git checks spawn a child, so no git child
-// inherits a value.
 func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool), dataDir string) (Secrets, error) {
 	if err := localRefusal(def); err != nil {
 		return Secrets{}, err
