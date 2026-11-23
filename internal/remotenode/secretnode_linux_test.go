@@ -10,8 +10,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 )
 
-// failingNodeDocker answers like a docker host whose node command fails: run-local
-// exits 1, or with hold set sleeps until the fire's context ends it.
 func failingNodeDocker(t *testing.T, hold bool) (script, log string) {
 	t.Helper()
 	runLocal := "cat > /dev/null; echo node failed; exit 1"
