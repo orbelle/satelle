@@ -6,7 +6,7 @@ description: The full local suite, once, on the edge to in_review (integration â
 
 # Integration check (the full suite, once, before in_review)
 
-Runs `make test`, the full hermetic suite (unit and integration), on the head
+Downloads the module graph with `go mod download`, then runs `make test`, the full hermetic suite (unit and integration), on the head
 that becomes the pull request's head, before the PR check and failing fast.
 Each head is tested here; a release run then builds one candidate from its
 items (fast-forwarding or merging their heads in queue order) and runs
@@ -14,6 +14,12 @@ items (fast-forwarding or merging their heads in queue order) and runs
 to a tree the release tested (operator, 2026-11-06; sto_4d68812e). It asserts
 the installed binary and the live service are unchanged before and after.
 Verifies; installs and restarts nothing.
+
+The download runs before the hermetic wrapper, with the check's own
+environment, so on a node whose only route out is its egress proxy the
+modules come through that proxy; the wrapper (`scripts/hermetic.sh`) does not
+pass proxy variables through, and the suite reads the module cache the
+download filled.
 
 ```check
 #!/usr/bin/env bash
@@ -32,6 +38,10 @@ fi
 
 if [ -f /.dockerenv ] && ! bwrap --dev-bind / / true >/dev/null 2>&1; then
   export SATELLE_HERMETIC_ALLOW_SNAPSHOT=1
+fi
+if ! go mod download; then
+  echo "OBJECTIVE 2 FAILED (module download): go mod download exited non-zero before make test"
+  exit 1
 fi
 make test
 suite_ec=$?
