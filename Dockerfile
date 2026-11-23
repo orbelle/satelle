@@ -2,8 +2,7 @@
 # the same node runs on any container host. `satelle remote fire` builds it as
 # satelle-node:local for a docker-local remote that names no [machine] image.
 # The Makefile stamps .version; .dockerignore keeps .git out, so the binary
-# carries the plain base version. The node runs repo scripts that declare bash
-# (scripts/drift-check.sh), so the final stage installs bash.
+# carries the plain base version.
 FROM golang:1.27-alpine AS build
 RUN apk add --no-cache make bash
 WORKDIR /src
