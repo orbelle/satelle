@@ -342,7 +342,7 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		}
 	}
 	secret := len(secretNames(def)) > 0
-	remove := def.Lifecycle.Scope != remotedef.ScopeJob || secret
+	remove := def.Lifecycle.Scope != remotedef.ScopeJob
 	torn := false
 	tear := func() error {
 		torn = true
