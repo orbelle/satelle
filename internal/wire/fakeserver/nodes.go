@@ -25,7 +25,7 @@ type Node struct {
 	Refuse           map[string][2]string
 	Run              *satellepb.RunDescriptor
 	LostAfterSeconds int32
-	HoldHeartbeat chan struct{}
+	HoldHeartbeat    chan struct{}
 
 	channelKey       []byte
 	statuses         []*satellepb.ReportStatusRequest
