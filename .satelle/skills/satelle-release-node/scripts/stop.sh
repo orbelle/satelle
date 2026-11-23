@@ -15,6 +15,7 @@ bring_back() {
   [ -s "$t/back.tar" ] || { refuse "the node sent no back archive"; return 1; }
   tar -tvf "$t/back.tar" >"$t/list" 2>/dev/null || { refuse "the back archive does not list"; return 1; }
   if cut -c1 "$t/list" | grep -qv '^[-d]$'; then refuse "the back archive holds a member that is not a file or directory"; return 1; fi
+  if grep -q ' link to \| -> ' "$t/list"; then refuse "the back archive holds a link"; return 1; fi
   tar -tf "$t/back.tar" >"$t/names" 2>/dev/null || { refuse "the back archive does not list"; return 1; }
   while IFS= read -r m; do
     case $m in
@@ -29,9 +30,10 @@ bring_back() {
   mkdir "$t/x" || return 1
   tar -xf "$t/back.tar" -C "$t/x" --no-same-owner --no-same-permissions 2>/dev/null || { refuse "the back archive does not extract"; return 1; }
   [ -z "$(find "$t/x" ! -type f ! -type d | head -n1)" ] || { refuse "the extracted back holds a member that is not a file or directory"; return 1; }
+  [ -z "$(find "$t/x" -type f -links +1 | head -n1)" ] || { refuse "the extracted back holds a hard link"; return 1; }
   [ -d "$t/x/back" ] || { refuse "the back archive holds no back"; return 1; }
   rm -rf "$dst"
-  mkdir -p "$dst" && mv "$t/x/back" "$dst/back"
+  mkdir -p "$dst" && mv "$t/x/back" "$dst/back" || { rm -rf "$dst"; refuse "the back could not be moved into place"; return 1; }
 }
 
 if [ -n "${SATELLE_RELEASE_OUT:-}" ]; then
