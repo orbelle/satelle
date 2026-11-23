@@ -534,9 +534,6 @@ func concludeImport(out LocalOutcome, res imported) LocalOutcome {
 	return out
 }
 
-// stageIn writes what the node reads from /node/in. With [drive] checkout it
-// stages the firing tree's HEAD commit (stageHead) in place of the .satelle
-// substrate and returns that commit and whether the tree is shallow.
 func stageIn(o FireOptions, in, node string, chains []string) (string, bool, error) {
 	if err := os.MkdirAll(filepath.Join(in, "ledger"), 0o755); err != nil {
 		return "", false, err

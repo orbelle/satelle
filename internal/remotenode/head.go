@@ -12,10 +12,6 @@ import (
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 )
 
-// stageHead writes a git bundle of ref from tree into in, with the tree's
-// shallow file beside it when the tree is shallow, so a node with no network
-// can check the commit out (checkoutHead). It reports whether the tree is
-// shallow.
 func stageHead(tree, in, ref string) (bool, error) {
 	if err := os.MkdirAll(in, 0o755); err != nil {
 		return false, err
@@ -36,10 +32,6 @@ func stageHead(tree, in, ref string) (bool, error) {
 	return len(shallow) > 0, nil
 }
 
-// checkoutHead checks commit out, detached, at root/work in the node, from the
-// bundle stageHead wrote and the node copied to root/in, and verifies the work
-// tree is at it. On a failure it returns the failing git step's output and
-// name.
 func checkoutHead(ctx context.Context, h provider.Handle, root, ref, commit string, shallow bool) ([]byte, string, error) {
 	work := path.Join(root, "work")
 	type fetchStep struct {

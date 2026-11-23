@@ -162,9 +162,6 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
 }
 
-// runGateNotes is every gate.run actor wrote on target, in ledger order, as a
-// "gate <gate> <result>:" line followed by the gate's full notes, so the run's
-// record carries what each gate printed and not only its first line.
 func runGateNotes(l *ledger.Store, target, actor string) (string, error) {
 	events, err := l.Read(target)
 	if err != nil {

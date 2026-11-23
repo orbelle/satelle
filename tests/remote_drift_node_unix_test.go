@@ -12,9 +12,6 @@ import (
 	"testing"
 )
 
-// driftNodeSandbox is a repo with the docker-drift-check remote, its
-// drift-node workflow and checks, and scripts/drift-check.sh, committed, with
-// the remote's task created and pinned.
 func driftNodeSandbox(t *testing.T, withFake bool) (s *sandbox, task, fake string) {
 	t.Helper()
 	s, _, fake = dockerLocalSandbox(t, withFake)
@@ -68,7 +65,6 @@ func gateRunsOf(t *testing.T, s *sandbox, id string) []nodeGateRun {
 	return runs
 }
 
-// assertRemoved checks the fake docker removed the node's container.
 func assertRemoved(t *testing.T, fake, container, out string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(fake, container)); err == nil {
@@ -89,7 +85,6 @@ func assertRemoved(t *testing.T, fake, container, out string) {
 func TestDockerLocalFireDriftCheck(t *testing.T) {
 	t.Parallel()
 	s, task, fake := driftNodeSandbox(t, true)
-	// An uncommitted drift: the node judges the HEAD commit, not this tree.
 	s.write(".satelle/skills/stale.md", "---\nname: stale\ntype: skill\ndescription: s\n---\n\nRun `satelle nosuchcmd <id>`.\n")
 
 	out := s.must("remote", "fire", "docker-drift-check", task)
