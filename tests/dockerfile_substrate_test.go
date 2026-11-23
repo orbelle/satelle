@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var requiredNodePackages = []string{"jq"}
+var requiredNodePackages = []string{"git", "jq", "bash"}
 
 func finalStagePackages(dockerfile string) []string {
 	var lines []string
@@ -87,7 +87,7 @@ func missingPackages(pkgs, required []string) []string {
 	return missing
 }
 
-func TestNodeImageFinalStageInstallsJq(t *testing.T) {
+func TestNodeImageFinalStageInstallsTheNodeTools(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +102,7 @@ func TestFinalStagePackagesReadsOnlyTheLastStage(t *testing.T) {
 	cases := []struct {
 		name       string
 		dockerfile string
+		required   []string
 		missing    []string
 	}{
 		{
@@ -143,6 +144,16 @@ RUN apk add --no-cache git ca-certificates
 			missing: []string{"jq"},
 		},
 		{
+			name: "bash only in the build stage",
+			dockerfile: `FROM golang:1.27-alpine AS build
+RUN apk add --no-cache make bash
+FROM alpine:3
+RUN apk add --no-cache git ca-certificates jq
+`,
+			required: []string{"bash"},
+			missing:  []string{"bash"},
+		},
+		{
 			name: "apk add split across a continuation",
 			dockerfile: `FROM alpine:3
 # packages
@@ -153,7 +164,11 @@ RUN apk add --no-cache git \
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := missingPackages(finalStagePackages(c.dockerfile), requiredNodePackages)
+			required := c.required
+			if required == nil {
+				required = []string{"jq"}
+			}
+			got := missingPackages(finalStagePackages(c.dockerfile), required)
 			if !reflect.DeepEqual(got, c.missing) {
 				t.Errorf("missing packages = %v, want %v", got, c.missing)
 			}

@@ -1,0 +1,15 @@
+version = 1
+name = "docker-drift-check"
+provider = "docker-local"
+satelle_version = "1.0.127"
+
+[drive]
+kind = "task"
+task = "tas_83b3cf66"
+checkout = true
+
+[setup]
+on_create = ["satelle version"]
+
+[lifecycle]
+scope = "run"

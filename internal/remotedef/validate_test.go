@@ -66,8 +66,18 @@ func TestEveryTestdataAndRepoDefinitionValidates(t *testing.T) {
 	}
 }
 
+const checkoutV1 = `version = 1
+provider = "docker-local"
+satelle_version = "0.0.709"
+
+[drive]
+kind = "task"
+task = "sweep"
+checkout = true
+`
+
 func TestMinimalDefinitionsValidateClean(t *testing.T) {
-	for _, body := range []string{minimalV1, taskV1} {
+	for _, body := range []string{minimalV1, taskV1, checkoutV1} {
 		if fs := Validate([]byte(body)); len(fs) != 0 {
 			t.Errorf("findings = %+v for\n%s", fs, body)
 		}
@@ -111,6 +121,8 @@ func TestV1FieldFindings(t *testing.T) {
 		{"drive kind missing", strings.Replace(minimalV1, "kind = \"item\"\n", "", 1), "drive.kind"},
 		{"task on an item drive", minimalV1 + "task = \"x\"\n", "drive.task"},
 		{"task kind needs a task", strings.Replace(minimalV1, `kind = "item"`, `kind = "task"`, 1), "drive.task"},
+		{"checkout on an item drive", minimalV1 + "checkout = true\n", "drive.checkout"},
+		{"checkout on a sprite", taskV1 + "checkout = true\n", "drive.checkout"},
 		{"repo with a credential", minimalV1 + "[[repo]]\nurl = \"https://u:" + sentinel + "@github.com/a/b\"\nref = \"main\"\n", "repo[0].url"},
 		{"repo over ssh", minimalV1 + "[[repo]]\nurl = \"ssh://github.com/a/b\"\nref = \"main\"\n", "repo[0].url"},
 		{"ref as an option", minimalV1 + "[[repo]]\nurl = \"https://github.com/a/b\"\nref = \"-" + sentinel + "\"\n", "repo[0].ref"},

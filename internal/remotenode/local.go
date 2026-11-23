@@ -124,9 +124,10 @@ func SubstrateBundle(tree, dataDir string) ([]byte, error) {
 }
 
 type LocalRun struct {
-	NodeID string        `json:"node_id"`
-	Run    RunDescriptor `json:"run"`
-	Steps  int           `json:"steps,omitempty"`
+	NodeID   string        `json:"node_id"`
+	Run      RunDescriptor `json:"run"`
+	Steps    int           `json:"steps,omitempty"`
+	Checkout string        `json:"checkout,omitempty"`
 }
 
 type LocalOutcome struct {
@@ -352,10 +353,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
 		return run, err
 	}
-	if out.Verdict == kernel.VerdictAccept && def.Lifecycle.Scope != remotedef.ScopeJob {
+	if def.Lifecycle.Scope != remotedef.ScopeJob {
 		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
 			return run, err
 		}
+		fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
 	} else {
 		fmt.Fprintf(o.Out, "the container %s is left running; remove it with docker rm -f %s\n", h.ID(), h.ID())
 	}
@@ -429,7 +431,8 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	}
 	defer os.RemoveAll(tmp)
 	in := filepath.Join(tmp, "in")
-	if err := stageIn(o, in, node, chains); err != nil {
+	commit, shallow, err := stageIn(o, in, node, chains)
+	if err != nil {
 		return LocalOutcome{}, err
 	}
 	if _, err := h.Exec(ctx, "mkdir", "-p", LocalNodeDir); err != nil {
@@ -437,6 +440,12 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	}
 	if err := h.CopyIn(ctx, in, path.Join(LocalNodeDir, "in")); err != nil {
 		return LocalOutcome{}, err
+	}
+	if commit != "" {
+		fmt.Fprintf(o.Out, "checking out %s in the node at %s\n", commit, path.Join(LocalNodeDir, "work"))
+		if b, _, err := checkoutHead(ctx, h, LocalNodeDir, "HEAD", commit, shallow); err != nil {
+			return LocalOutcome{}, fmt.Errorf("%w\n%s", err, tailOf(string(b), 2000))
+		}
 	}
 	sx, ok := h.(provider.StdinExec)
 	if !ok {
@@ -525,36 +534,54 @@ func concludeImport(out LocalOutcome, res imported) LocalOutcome {
 	return out
 }
 
-func stageIn(o FireOptions, in, node string, chains []string) error {
+// stageIn writes what the node reads from /node/in. With [drive] checkout it
+// stages the firing tree's HEAD commit (stageHead) in place of the .satelle
+// substrate and returns that commit and whether the tree is shallow.
+func stageIn(o FireOptions, in, node string, chains []string) (string, bool, error) {
 	if err := os.MkdirAll(filepath.Join(in, "ledger"), 0o755); err != nil {
-		return err
-	}
-	sub, err := SubstrateBundle(o.Tree, o.DataDir)
-	if err != nil {
-		return err
+		return "", false, err
 	}
 	mode := ModeItem
 	if o.Definition.RunsTask() {
 		mode = ModeTask
 	}
-	runJSON, err := json.Marshal(LocalRun{NodeID: node, Run: RunDescriptor{Mode: mode, ItemID: o.Item}, Steps: o.Steps})
-	if err != nil {
-		return err
+	lr := LocalRun{NodeID: node, Run: RunDescriptor{Mode: mode, ItemID: o.Item}, Steps: o.Steps}
+	files := map[string][]byte{localDefinition: o.Bundle}
+	var shallow bool
+	if o.Definition.Drive.Checkout {
+		commit, err := gitfacts.Repo{Dir: o.Tree}.Head()
+		if err != nil {
+			return "", false, fmt.Errorf("the firing tree's HEAD: %w", err)
+		}
+		if shallow, err = stageHead(o.Tree, in, "HEAD"); err != nil {
+			return "", false, err
+		}
+		lr.Checkout = commit
+	} else {
+		sub, err := SubstrateBundle(o.Tree, o.DataDir)
+		if err != nil {
+			return "", false, err
+		}
+		files[localSubstrate] = sub
 	}
-	files := map[string][]byte{localDefinition: o.Bundle, localSubstrate: sub, localRunFile: runJSON}
+	runJSON, err := json.Marshal(lr)
+	if err != nil {
+		return "", false, err
+	}
+	files[localRunFile] = runJSON
 	for _, id := range chains {
 		chain, err := os.ReadFile(o.Kernel.Ledger.Path(id))
 		if err != nil {
-			return err
+			return "", false, err
 		}
 		files[filepath.Join("ledger", id+".jsonl")] = chain
 	}
 	for name, b := range files {
 		if err := os.WriteFile(filepath.Join(in, name), b, 0o644); err != nil {
-			return err
+			return "", false, err
 		}
 	}
-	return nil
+	return lr.Checkout, shallow, nil
 }
 
 func importBack(k *kernel.Kernel, dir string, sent []string, node string, values map[string]string) (imported, error) {

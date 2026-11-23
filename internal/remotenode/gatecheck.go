@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/bobmcallan/satelle/internal/gate"
-	"github.com/bobmcallan/satelle/internal/gitfacts"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
@@ -200,27 +199,8 @@ func (g GateChecker) RunRemote(ctx context.Context, c gate.RemoteCheck) (gate.Re
 	}
 
 	phase = "fetching the head"
-	work := path.Join(root, "work")
-	type fetchStep struct {
-		name string
-		argv []string
-	}
-	steps := []fetchStep{{"init", []string{"git", "init", "-q", work}}}
-	if shallow {
-		steps = append(steps, fetchStep{"shallow", []string{"cp", path.Join(root, "in", gateShallow), path.Join(work, ".git", gateShallow)}})
-	}
-	steps = append(steps,
-		fetchStep{"fetch", []string{"git", "-C", work, "fetch", "-q", path.Join(root, "in", gateBundle), c.Head.Ref}},
-		fetchStep{"checkout", []string{"git", "-C", work, "checkout", "-q", "--detach", c.Head.Commit}},
-	)
-	for _, step := range steps {
-		if b, err := h.Exec(ctx, step.argv...); err != nil {
-			return fail(fmt.Errorf("the node could not check out the head %s (git %s): %w", c.Head.Commit, step.name, err), string(b))
-		}
-	}
-	got, err := h.Exec(ctx, "git", "-C", work, "rev-parse", "HEAD")
-	if err != nil || strings.TrimSpace(string(got)) != c.Head.Commit {
-		return fail(fmt.Errorf("the node could not check out the head %s: it is at %q (%v)", c.Head.Commit, strings.TrimSpace(string(got)), err), "")
+	if b, _, err := checkoutHead(ctx, h, root, c.Head.Ref, c.Head.Commit, shallow); err != nil {
+		return fail(err, string(b))
 	}
 
 	phase = "running the check"
@@ -331,18 +311,9 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 		}
 		c.Env.SkillDir = ""
 	}
-	repo := gitfacts.Repo{Dir: tree}
-	if err := repo.Bundle(filepath.Join(in, gateBundle), c.Head.Ref); err != nil {
-		return false, err
-	}
-	shallow, err := repo.ShallowCommits()
+	shallow, err := stageHead(tree, in, c.Head.Ref)
 	if err != nil {
 		return false, err
-	}
-	if len(shallow) > 0 {
-		if err := os.WriteFile(filepath.Join(in, gateShallow), []byte(strings.Join(shallow, "\n")+"\n"), 0o644); err != nil {
-			return false, err
-		}
 	}
 	wrapper, err := gateWrapperScript(c.Env, c.Script, skillRel)
 	if err != nil {
@@ -357,7 +328,7 @@ func stageGate(tree, in string, c gate.RemoteCheck) (bool, error) {
 			return false, err
 		}
 	}
-	return len(shallow) > 0, nil
+	return shallow, nil
 }
 
 func gateWrapperScript(env gate.CheckEnv, script, skillRel string) (string, error) {

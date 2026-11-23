@@ -1,7 +1,7 @@
 ---
 name: drift-review
 type: skill
-description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item. Fixes nothing inline.
+description: The procedure a run of the drift review task follows after every release (release.md step 11) — check the substrate against the released binary (scripts/drift-check.sh, the rules of satelle validate, run on the docker-local node docker-drift-check), raise the release's one drift-fix item listing every finding (scripts/drift-fix.sh), attach drift-report with the fix item, the other open drift items and the keys this run no longer finds, close every older drift item (each carried into the fix item or resolved on the report) and list each closed and each still open with its reason, then present the run done, where the drift-constitution gate judges the release's binary change against the constitution, and the drift-closures gate checks the closed and stayed-open lists against the kernel; each DRIFT line becomes a finding of the fix item. Fixes nothing inline.
 ---
 
 # Drift review (after every release)
@@ -70,13 +70,39 @@ session=<session>
 task=tas_a45ba066
 exe=$(satelle execution list --parent "$task" --status in_progress --json --session "$session" | jq -r '.[0].id')
 rd="${TMPDIR:-/tmp}/satelle-drift-$exe"
-bash scripts/drift-check.sh > "$rd/substrate.txt"; echo "drift-check exit $?" | tee "$rd/substrate.exit"
+dtask=$(sed -n 's/^task = "\(.*\)"$/\1/p' .satelle/remotes/docker-drift-check/remote.toml)
+[ -n "$dtask" ] || { echo "docker-drift-check names no [drive] task" >&2; exit 1; }
+satelle remote fire docker-drift-check "$dtask" --session "$session" > "$rd/node-fire.txt" 2>&1
+echo "fire exit $?" >> "$rd/node-fire.txt"
+cat "$rd/node-fire.txt"
+nexe=$(grep -o 'execution exe_[0-9a-f]*' "$rd/node-fire.txt" | head -1 | cut -d' ' -f2)
+[ -n "$nexe" ] || { echo "the fire names no execution: see $rd/node-fire.txt" >&2; exit 1; }
+satelle ledger list "$nexe" --kind gate.run --json --session "$session" \
+  | jq -r '[.[] | .payload | select(.gate == "drift-check")] | last | .notes // empty' > "$rd/node.txt"
+code=$(sed -n 's/^drift-check exit \([0-9]*\)$/\1/p' "$rd/node.txt" | tail -1)
+[ -n "$code" ] || { echo "the node's run $nexe has no drift-check exit: see $rd/node-fire.txt" >&2; exit 1; }
+grep -v -e '^satelle: ' -e '^drift-check exit ' "$rd/node.txt" > "$rd/substrate.txt"
+echo "drift-check exit $code" | tee "$rd/substrate.exit"
 cat "$rd/substrate.txt"
+satelle execution attach "$exe" --name drift-node --type text/plain --file "$rd/node-fire.txt" --session "$session"
 ```
 
-drift-check prints `satelle validate --session <session>`'s substrate findings and configuration
-problems, one line each. Exit 1 means misses; exit 2 means it could not check:
-stop and report its reason.
+drift-check runs on the docker-local node `docker-drift-check`
+(`.satelle/tasks/docker-drift-check.md`): the fire gives a container this
+checkout's HEAD commit (the released tag, or main after a binary-unchanged
+release), with no network and no secret, and the node runs
+`scripts/drift-check.sh` against it with the node image's satelle, built from
+this tree. The execution is taken from this fire's own output, never from an
+older run, and its `drift-check` gate's notes are the result: a `satelle:`
+line naming the satelle that ran, then drift-check's lines, then `drift-check
+exit <N>`. drift-check prints `satelle validate --session <session>`'s
+substrate findings and configuration problems, one line each. Exit 1 means
+misses; exit 2 means it could not check: stop and report its reason. A fire
+that names no execution, or a run rejected by `change-judged` before
+`drift-check` ran (no drift-check gate.run, so no exit), stops the same way,
+naming `$rd/node-fire.txt`. The fire is attached to the run as `drift-node`.
+Only this step runs on the node: the drift-constitution judge (step 5) stays
+local.
 
 ## 2. Raise the release's fix item
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/filebundle"
+	"github.com/bobmcallan/satelle/internal/gate"
 	"github.com/bobmcallan/satelle/internal/ledger"
 	"github.com/bobmcallan/satelle/internal/remotedef"
 )
@@ -86,16 +87,20 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 
 	tree := filepath.Join(o.Dir, "work")
 	root := filepath.Join(tree, ".satelle")
-	sub, err := os.ReadFile(filepath.Join(in, localSubstrate))
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	entries, err := filebundle.Decode(sub, nil)
-	if err != nil {
-		return LocalOutcome{}, fmt.Errorf("%s: %w", localSubstrate, err)
-	}
-	if err := filebundle.Write(root, entries, false, nil); err != nil {
-		return LocalOutcome{}, err
+	if run.Checkout == "" {
+		sub, err := os.ReadFile(filepath.Join(in, localSubstrate))
+		if err != nil {
+			return LocalOutcome{}, err
+		}
+		entries, err := filebundle.Decode(sub, nil)
+		if err != nil {
+			return LocalOutcome{}, fmt.Errorf("%s: %w", localSubstrate, err)
+		}
+		if err := filebundle.Write(root, entries, false, nil); err != nil {
+			return LocalOutcome{}, err
+		}
+	} else {
+		fmt.Fprintf(o.Log, "node: work tree at %s\n", run.Checkout)
 	}
 	for _, phase := range []struct {
 		name string
@@ -144,12 +149,42 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		return LocalOutcome{}, err
 	}
 	out := LocalOutcome{Verdict: res.Verdict, Notes: fmt.Sprintf("%s%s: %s", prefix, target, res.Notes), Steps: res.Steps}
+	gates, err := runGateNotes(k.Ledger, target, actor)
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	out.Notes += gates
 	if warn != "" {
 		out.Notes += "\n" + warn
 	}
 	out.Notes = redact(out.Notes, *values)
 	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
+}
+
+// runGateNotes is every gate.run actor wrote on target, in ledger order, as a
+// "gate <gate> <result>:" line followed by the gate's full notes, so the run's
+// record carries what each gate printed and not only its first line.
+func runGateNotes(l *ledger.Store, target, actor string) (string, error) {
+	events, err := l.Read(target)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, e := range events {
+		if e.Kind != gate.KindRun || e.Actor != actor {
+			continue
+		}
+		var r gate.Result
+		if err := json.Unmarshal(e.Payload, &r); err != nil {
+			return "", fmt.Errorf("a gate.run of %s: %w", target, err)
+		}
+		fmt.Fprintf(&b, "\ngate %s %s:", r.Gate, r.Result)
+		if notes := strings.TrimRight(r.Notes, "\n"); notes != "" {
+			b.WriteString("\n" + notes)
+		}
+	}
+	return b.String(), nil
 }
 
 func readSecrets(def remotedef.Definition, in io.Reader) ([]string, error) {

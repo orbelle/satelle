@@ -152,8 +152,9 @@ var DriveKinds = []DriveKind{DriveTask, DriveItem}
 func (k DriveKind) KeepsWarm() bool { return k == DriveTask }
 
 type Drive struct {
-	Kind DriveKind `toml:"kind" json:"kind,omitempty"`
-	Task string    `toml:"task" json:"task,omitempty"`
+	Kind     DriveKind `toml:"kind" json:"kind,omitempty"`
+	Task     string    `toml:"task" json:"task,omitempty"`
+	Checkout bool      `toml:"checkout" json:"checkout,omitempty"`
 }
 
 func (d Definition) RunsTask() bool { return d.Drive.Kind == DriveTask }

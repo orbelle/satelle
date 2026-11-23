@@ -49,8 +49,18 @@ and the reason: the container is removed and nothing is imported.
 The fire prints `docker exec -it satelle-node-<node> sh` before the node
 runs: inspect the container while it runs. `[lifecycle] scope = "job"` keeps
 the container after the run, as does a failed run; `docker rm -f
-satelle-node-<node>` removes it. With `scope = "run"` an accepted run's
-container is removed.
+satelle-node-<node>` removes it. With `scope = "run"` a concluded run's
+container is removed, accepted or rejected. A run that stopped (the node
+failed and wrote no outcome) is left to inspect, as is every run with
+`scope = "job"`.
+
+A docker-local task remote may set `[drive] checkout = true`: the fire bundles
+the firing tree's HEAD commit and checks it out, detached, at the node's work
+tree before setup, with no network, in place of the tracked `.satelle` files.
+`docker-drift-check` uses it to run `scripts/drift-check.sh` on the commit.
+The default node image carries git, jq and bash. A concluded run's notes carry
+each gate the node ran, as `gate <gate> <result>:` followed by the gate's full
+notes.
 
 A docker-local node runs a task drive: `satelle remote fire <remote-id> <task>
 --session <session>`, for the task its `[drive] task` names, hands the node

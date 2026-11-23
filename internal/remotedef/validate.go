@@ -95,7 +95,7 @@ func check(body []byte) (Definition, []Finding) {
 		}
 	}
 	v.checkLifecycle(def.Lifecycle, def.Drive.Kind)
-	v.checkDrive(def.Drive)
+	v.checkDrive(def.Drive, def.Provider)
 	return def, v.out
 }
 
@@ -363,7 +363,15 @@ func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
 	}
 }
 
-func (v *validator) checkDrive(d Drive) {
+func (v *validator) checkDrive(d Drive, p Provider) {
+	if d.Checkout {
+		switch {
+		case d.Kind != DriveTask:
+			v.fail("drive.checkout", "belongs to the task kind only")
+		case p != ProviderDockerLocal:
+			v.fail("drive.checkout", "is given only by a docker-local node: the fire checks the firing tree's HEAD out in the node")
+		}
+	}
 	switch {
 	case d.Kind == "":
 		v.fail("drive.kind", "required: one of "+enumList(DriveKinds))

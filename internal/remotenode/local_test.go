@@ -71,7 +71,7 @@ func stageNode(t *testing.T, tree string, k *kernel.Kernel, itemID, node string,
 	nodeDir := t.TempDir()
 	o := FireOptions{Kernel: k, Tree: tree, DataDir: filepath.Join(tree, ".satelle"), Remote: "probe",
 		Definition: def, Bundle: bundle, Item: itemID, Steps: steps}
-	if err := stageIn(o, filepath.Join(nodeDir, "in"), node, []string{itemID}); err != nil {
+	if _, _, err := stageIn(o, filepath.Join(nodeDir, "in"), node, []string{itemID}); err != nil {
 		t.Fatal(err)
 	}
 	return nodeDir
@@ -280,7 +280,7 @@ func (f taskFixture) stage(t *testing.T, node string) string {
 		t.Fatal(err)
 	}
 	nodeDir := t.TempDir()
-	if err := stageIn(f.def, filepath.Join(nodeDir, "in"), node, append([]string{f.task}, inputs...)); err != nil {
+	if _, _, err := stageIn(f.def, filepath.Join(nodeDir, "in"), node, append([]string{f.task}, inputs...)); err != nil {
 		t.Fatal(err)
 	}
 	return nodeDir

@@ -671,6 +671,11 @@ func TestDockerLocalFireTaskStepFails(t *testing.T) {
 	if n := runLocalCount(t, fake); n != 1 {
 		t.Fatalf("the node ran %d times", n)
 	}
+	m := nodeLine.FindStringSubmatch(r.out)
+	if m == nil {
+		t.Fatalf("fire output names no node:\n%s", r.out)
+	}
+	assertRemoved(t, fake, m[2], r.out)
 	s.must("ledger", "verify")
 }
 
