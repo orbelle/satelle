@@ -99,6 +99,7 @@ table names it, as argv lists.
     [connect]
     check   = ["my-node-cli", "ready"]                         # optional
     start   = ["my-node-cli", "create", "{node}"]
+    network = ["my-node-cli", "firewall", "{node}"]
     copy_in = ["my-node-cli", "copy", "{src}", "{node}:{dst}"]
     exec    = ["my-node-cli", "exec", "{node}", "--"]
     stop    = ["my-node-cli", "destroy", "{node}"]
@@ -106,13 +107,13 @@ table names it, as argv lists.
 satelle substitutes `{node}` (the node id, `nod_<hex>`) in every list, and
 `{src}` (a path on this machine) and `{dst}` (a path on the node) in copy_in;
 any other `{word}` is refused. Each command is run as its argv, never through
-a shell, with the firing shell's environment. start, copy_in, exec and stop
-are required; a definition that lacks one is reported by `satelle validate
+a shell, with the firing shell's environment. start, network, copy_in, exec
+and stop are required; a definition that lacks one is reported by `satelle validate
 --session <session>` and its fire is refused before any command runs.
 
 `remote fire` runs check first, when the definition names one: a non-zero
 exit refuses the fire before start, naming the check command and the tail of
-its output. Then start, then copy_in of the firing satelle (linux, the node's
+its output. Then start, then network, then copy_in of the firing satelle (linux, the node's
 architecture) to `/usr/local/bin/satelle`, then the node contract over exec:
 `uname -m`, `satelle --version`, `mkdir -p /node`, copy_in of the run to
 `/node/in`, then the node's own run over `/node`, given its secrets on stdin
@@ -129,7 +130,14 @@ concludes, accepted or rejected, and when it fails; with `scope = "job"` the
 node is left and the fire prints the stop command. A run left `running` here
 by an interrupted fire is recovered at the next fire by running stop for its
 node, so stop should succeed for a node that is already gone.
-`[network] allow` is refused on a command remote until it is enforced there.
+
+`[network] allow` is applied by `[connect] network` and read back before any
+work starts. Right after start, satelle runs the network command with the
+list on its stdin, one host per line (empty for deny-all, which is applied
+too). The command must print on stdout only the hosts the node now allows,
+one per line; satelle compares them with the definition's list as a set. A
+list that differs, or a network command that fails, refuses the run naming
+both lists, and stop runs for the node before anything is copied in.
 
 ## Remotes through satelle-server
 

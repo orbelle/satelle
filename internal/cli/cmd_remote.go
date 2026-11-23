@@ -42,8 +42,8 @@ A docker-local remote runs locally: 'remote fire' builds the node image from
 the repo's Dockerfile, starts the node's container, seats the item at
 remote:<node>, runs the node on the item and imports its chain, verified. It
 needs docker, and no sign-in or bound project. A command remote runs here too:
-'remote fire' reaches its node through the start, copy_in, exec and stop
-argv lists its [connect] table names, copies satelle in and runs the same
+'remote fire' reaches its node through the start, network, copy_in, exec and
+stop argv lists its [connect] table names, copies satelle in and runs the same
 node contract over exec. Any other remote is started by
 satelle-server for the bound project: 'remote fire' pushes the item's chain
 to the bound project first, whatever [ledger] store names, and refuses an

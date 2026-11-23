@@ -16,6 +16,7 @@ kind = "item"
 
 [connect]
 start = ["node-cli", "start", "{node}"]
+network = ["node-cli", "network", "{node}"]
 copy_in = ["node-cli", "copy", "{node}", "{src}", "{dst}"]
 exec = ["node-cli", "exec", "{node}"]
 stop = ["node-cli", "stop", "{node}"]

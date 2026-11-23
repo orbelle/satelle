@@ -240,6 +240,7 @@ func (v *validator) checkConnect(def Definition, raw map[string]any) {
 	}{
 		{"check", c.Check, "", node},
 		{"start", c.Start, "the argv list that starts the node {node}", node},
+		{"network", c.Network, "[connect] network, the argv list that applies [network] allow to the node {node}: the list on its stdin, one host per line (empty for deny-all), and the hosts the node now allows printed back, one per line", node},
 		{"copy_in", c.CopyIn, "the argv list that copies the host path {src} to the node path {dst}", copyIn},
 		{"exec", c.Exec, "the argv list that runs a command on the node {node}; the command's argv follows it", node},
 		{"stop", c.Stop, "the argv list that stops the node {node} and removes it", node},
@@ -269,9 +270,6 @@ func (v *validator) checkConnect(def Definition, raw map[string]any) {
 				v.fail("connect.copy_in", "names no "+p+": copy_in copies {src} on this machine to {dst} on the node")
 			}
 		}
-	}
-	if len(def.Network.Allow) > 0 {
-		v.fail("network.allow", "is not enforced on a command remote: nothing limits a command node's network yet; remove the list")
 	}
 }
 

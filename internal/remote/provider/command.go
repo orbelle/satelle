@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,7 +45,42 @@ func (Command) Start(ctx context.Context, def remotedef.Definition, run Run) (Ha
 	if _, err := runConnect(ctx, "start", def.Connect.Start, nil, n.vars("", ""), nil, false); err != nil {
 		return n, err
 	}
-	return n, nil
+	return n, n.applyNetwork(ctx, def.Network.Allow)
+}
+
+func (n *commandNode) applyNetwork(ctx context.Context, allow []string) error {
+	var stdin strings.Builder
+	for _, h := range allow {
+		stdin.WriteString(h + "\n")
+	}
+	out, err := runConnect(ctx, "network", n.c.Network, nil, n.vars("", ""), strings.NewReader(stdin.String()), true)
+	if err != nil {
+		return err
+	}
+	reported, declared := hostSet(strings.Split(string(out), "\n")), hostSet(allow)
+	if slices.Equal(reported, declared) {
+		return nil
+	}
+	return fmt.Errorf("[connect] network %s: the node %s allows %s; the definition's [network] allow is %s",
+		renderArgv(substitute(n.c.Network, n.vars("", ""))), n.node, renderHosts(reported), renderHosts(declared))
+}
+
+func hostSet(hosts []string) []string {
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if h = strings.TrimSpace(h); h != "" {
+			out = append(out, h)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func renderHosts(hosts []string) string {
+	if len(hosts) == 0 {
+		return "[] (deny-all)"
+	}
+	return "[" + strings.Join(hosts, ", ") + "]"
 }
 
 type commandNode struct {

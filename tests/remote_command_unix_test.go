@@ -23,6 +23,9 @@ case "$cmd" in
     [ -f "$ROOT/fail-check" ] && { echo "fixture check failed: $ROOT/fail-check present"; exit 1; }
     exit 0 ;;
   start) mkdir -p "$ROOT/$1/node" "$ROOT/$1/home" ;;
+  network)
+    cat > "$ROOT/network.$1"
+    if [ -f "$ROOT/network-report" ]; then cat "$ROOT/network-report"; else cat "$ROOT/network.$1"; fi ;;
   copy_in)
     dst="$ROOT/$1$3"
     mkdir -p "$(dirname "$dst")" && cp -R "$2" "$dst" ;;
@@ -52,6 +55,7 @@ const commandConnect = `
 [connect]
 check = ["satelle-fixture-node", "check"]
 start = ["satelle-fixture-node", "start", "{node}"]
+network = ["satelle-fixture-node", "network", "{node}"]
 copy_in = ["satelle-fixture-node", "copy_in", "{node}", "{src}", "{dst}"]
 exec = ["satelle-fixture-node", "exec", "{node}"]
 stop = ["satelle-fixture-node", "stop", "{node}"]
@@ -166,6 +170,7 @@ func TestCommandRemoteFireTask(t *testing.T) {
 	assertInOrder(t, b.log(t),
 		"check\n",
 		"start "+node+"\n",
+		"network "+node+"\n",
 		"exec "+node+" uname -m\n",
 		"copy_in "+node+" "+satelleBin+" /usr/local/bin/satelle\n",
 		"exec "+node+" satelle --version\n",
@@ -178,6 +183,9 @@ func TestCommandRemoteFireTask(t *testing.T) {
 	)
 	if _, err := os.Stat(filepath.Join(b.root, node)); !os.IsNotExist(err) {
 		t.Fatalf("the node's directory is still there: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(b.root, "network."+node)); err != nil || len(got) != 0 {
+		t.Fatalf("the network command of a definition with no allow got %q, %v; want deny-all (empty stdin)", got, err)
 	}
 
 	execs := executionsOf(s, b.task)
@@ -369,13 +377,15 @@ func TestCommandRemoteDefinitionRefused(t *testing.T) {
 	t.Parallel()
 	b := commandSandbox(t, "run")
 	good := commandDefinition("command-bad", b.task, "run", "")
+	const noNetwork = `network = ["satelle-fixture-node", "network", "{node}"]` + "\n"
 	for _, c := range []struct {
 		key, body string
 	}{
 		{"connect.start", strings.Replace(good, `start = ["satelle-fixture-node", "start", "{node}"]`+"\n", "", 1)},
 		{"connect.exec", strings.Replace(good, `exec = ["satelle-fixture-node", "exec", "{node}"]`+"\n", "", 1)},
 		{"connect.stop", strings.Replace(good, `stop = ["satelle-fixture-node", "stop", "{node}"]`+"\n", "", 1)},
-		{"network.allow", commandDefinition("command-bad", b.task, "run", "\n[network]\nallow = [\"example.com\"]\n")},
+		{"connect.network", strings.Replace(good, noNetwork, "", 1)},
+		{"connect.network", strings.Replace(commandDefinition("command-bad", b.task, "run", "\n[network]\nallow = [\"example.com\"]\n"), noNetwork, "", 1)},
 	} {
 		if c.body == good {
 			t.Fatalf("%s: the definition was not changed", c.key)
@@ -408,4 +418,70 @@ func TestCommandRemoteDefinitionRefused(t *testing.T) {
 		}
 	}
 	b.assertNoDocker(t)
+}
+
+func TestCommandRemoteNetworkAllow(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, report string
+	}{
+		{"applied", ""},
+		{"mismatch", "evil.example.com\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			b := commandSandbox(t, "run")
+			overlay, err := os.ReadFile(filepath.Join(b.s.dir, ".satelle", "remotes", "command-task-probe", "satelle.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.s.write(".satelle/remotes/command-net/remote.toml", commandDefinition("command-net", b.task, "run", "\n[network]\nallow = [\"api.example.com\", \"*.pkg.dev\"]\n"))
+			b.s.write(".satelle/remotes/command-net/satelle.toml", string(overlay))
+			b.s.git("add", ".satelle")
+			b.s.git("commit", "-q", "-m", "command-net")
+			if c.report != "" {
+				writeFile(t, filepath.Join(b.root, "network-report"), c.report, 0o644)
+			}
+			r := b.s.run("remote", "fire", "command-net", b.task)
+			node := nodeOf(t, r.out)
+			got, err := os.ReadFile(filepath.Join(b.root, "network."+node))
+			if err != nil || string(got) != "api.example.com\n*.pkg.dev\n" {
+				t.Fatalf("the network command got %q, %v; want the definition's list", got, err)
+			}
+			log := b.log(t)
+			if c.report == "" {
+				if r.code != 0 || !strings.Contains(r.out, "verdict: accept") {
+					t.Fatalf("fire: exit %d\n%s%s", r.code, r.out, r.err)
+				}
+				assertInOrder(t, log, "start "+node+"\n", "network "+node+"\n", "copy_in "+node+" ")
+				if strings.Index(log, "copy_in ") < strings.Index(log, "network ") {
+					t.Fatalf("copy_in ran before network:\n%s", log)
+				}
+				return
+			}
+			if r.code == 0 {
+				t.Fatalf("a fire whose node reports another list exited 0:\n%s", r.out)
+			}
+			for _, want := range []string{"the node " + node + " allows [evil.example.com]", "[network] allow is [*.pkg.dev, api.example.com]"} {
+				if !strings.Contains(r.err, want) {
+					t.Fatalf("the refusal misses %q:\n%s", want, r.err)
+				}
+			}
+			if log != "check\nstart "+node+"\nnetwork "+node+"\nstop "+node+"\n" {
+				t.Fatalf("the fixture log of a refused network:\n%s", log)
+			}
+			if _, err := os.Stat(filepath.Join(b.root, node)); !os.IsNotExist(err) {
+				t.Fatalf("the node's directory is still there: %v", err)
+			}
+			var st struct{ State, Node string }
+			b.s.mustJSON(&st, "remote", "status", "command-net", b.task)
+			if st.State != "stopped" || st.Node != node {
+				t.Fatalf("remote status = %+v, want stopped on %s", st, node)
+			}
+			if execs := executionsOf(b.s, b.task); len(execs) != 0 {
+				t.Fatalf("executions of a refused network: %+v", execs)
+			}
+			b.assertNoDocker(t)
+		})
+	}
 }

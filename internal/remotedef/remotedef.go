@@ -37,11 +37,12 @@ const (
 var Providers = []Provider{ProviderDockerLocal, ProviderFlySprite, ProviderCommand}
 
 type Connect struct {
-	Check  []string `toml:"check" json:"check,omitempty"`
-	Start  []string `toml:"start" json:"start,omitempty"`
-	CopyIn []string `toml:"copy_in" json:"copy_in,omitempty"`
-	Exec   []string `toml:"exec" json:"exec,omitempty"`
-	Stop   []string `toml:"stop" json:"stop,omitempty"`
+	Check   []string `toml:"check" json:"check,omitempty"`
+	Start   []string `toml:"start" json:"start,omitempty"`
+	Network []string `toml:"network" json:"network,omitempty"`
+	CopyIn  []string `toml:"copy_in" json:"copy_in,omitempty"`
+	Exec    []string `toml:"exec" json:"exec,omitempty"`
+	Stop    []string `toml:"stop" json:"stop,omitempty"`
 }
 
 const (

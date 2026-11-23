@@ -176,6 +176,7 @@ kind = "item"
 [connect]
 check = ["node-cli", "check"]
 start = ["node-cli", "start", "{node}"]
+network = ["node-cli", "network", "{node}"]
 copy_in = ["node-cli", "copy", "{src}", "{node}:{dst}"]
 exec = ["node-cli", "exec", "{node}", "--"]
 stop = ["node-cli", "stop", "{node}"]
@@ -185,11 +186,14 @@ func TestCommandDefinition(t *testing.T) {
 	if fs := Validate([]byte(commandV1)); len(fs) != 0 {
 		t.Fatalf("findings = %+v", fs)
 	}
+	if fs := Validate([]byte(commandV1 + "\n[network]\nallow = [\"example.com\"]\n")); len(fs) != 0 {
+		t.Fatalf("an allow list applied by [connect] network: findings = %+v", fs)
+	}
 	def, err := Parse([]byte(commandV1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.Provider != ProviderCommand || def.Connect.Exec[2] != "{node}" || def.Connect.CopyIn[3] != "{node}:{dst}" {
+	if def.Provider != ProviderCommand || def.Connect.Exec[2] != "{node}" || def.Connect.Network[2] != "{node}" || def.Connect.CopyIn[3] != "{node}:{dst}" {
 		t.Fatalf("decoded = %+v", def)
 	}
 	drop := func(key string) string {
@@ -204,7 +208,9 @@ func TestCommandDefinition(t *testing.T) {
 		{"no stop", drop("stop"), "connect.stop", "required"},
 		{"empty stop", strings.Replace(commandV1, `stop = ["node-cli", "stop", "{node}"]`, `stop = []`, 1), "connect.stop", "required"},
 		{"empty argv0", strings.Replace(commandV1, `stop = ["node-cli",`, `stop = [" ",`, 1), "connect.stop[0]", "is empty"},
-		{"allow", commandV1 + "\n[network]\nallow = [\"example.com\"]\n", "network.allow", "is not enforced on a command remote"},
+		{"no network", drop("network"), "connect.network", "required: [connect] network"},
+		{"allow without network", drop("network") + "\n[network]\nallow = [\"example.com\"]\n", "connect.network", "required: [connect] network"},
+		{"network placeholder", strings.Replace(commandV1, `"network", "{node}"]`, `"network", "{src}"]`, 1), "connect.network[2]", "names {src}"},
 		{"unknown placeholder", strings.Replace(commandV1, `"stop", "{node}"]`, `"stop", "{nodes}"]`, 1), "connect.stop[2]", "names {nodes}, which satelle does not substitute"},
 		{"src outside copy_in", strings.Replace(commandV1, `"exec", "{node}", "--"]`, `"exec", "{src}"]`, 1), "connect.exec[2]", "names {src}"},
 		{"copy_in without dst", strings.Replace(commandV1, `"{node}:{dst}"`, `"{node}"`, 1), "connect.copy_in", "names no {dst}"},
