@@ -118,9 +118,6 @@ func TestCommandRunsNoShell(t *testing.T) {
 	}
 }
 
-// TestCommandCallerArgvIsNotSubstituted: only the [connect] exec argv takes
-// {node}, {src} and {dst}; the arguments and paths a caller passes reach the
-// node verbatim.
 func TestCommandCallerArgvIsNotSubstituted(t *testing.T) {
 	c, dir := recordingConnect(t)
 	h, err := Command{}.Start(context.Background(), remotedef.Definition{Connect: c}, Run{NodeID: "nod_6"})

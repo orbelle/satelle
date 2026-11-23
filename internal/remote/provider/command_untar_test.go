@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// TestUntarRefusesABackslashEscape runs on every platform: on Windows a
-// backslash is a separator, so an entry such as ledger/..\..\escape would
-// leave the host directory if it were joined after a POSIX-only check.
 func TestUntarRefusesABackslashEscape(t *testing.T) {
 	cases := map[string]string{
 		"backslash dotdot": `ledger/..\..\escape`,

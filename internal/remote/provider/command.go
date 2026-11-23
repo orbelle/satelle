@@ -110,9 +110,6 @@ func renderArgv(argv []string) string {
 	return strings.Join(parts, " ")
 }
 
-// runConnect runs the [connect] argv named by key, with its placeholders
-// substituted, followed by extra verbatim: a caller's arguments are never
-// read as placeholders.
 func runConnect(ctx context.Context, key string, template, extra []string, vars *strings.Replacer, stdin io.Reader, stdoutOnly bool) ([]byte, error) {
 	if len(template) == 0 || strings.TrimSpace(template[0]) == "" {
 		return nil, fmt.Errorf("[connect] %s names no command", key)
