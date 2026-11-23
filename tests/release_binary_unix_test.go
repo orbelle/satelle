@@ -534,6 +534,51 @@ func TestReleaseBinaryChangedBumpsPublishesInstallsOnce(t *testing.T) {
 	}
 }
 
+func TestReleaseNodeBumpFollowsTheVersionRule(t *testing.T) {
+	b := newBinarySandbox(t)
+	b.story("x", "### Fixed\n- X fixes the source\n", [2]string{"internal/a/b.go", "package a\n\nfunc B() { _ = 2 }\n"})
+	_, _, work, tested := b.tested()
+	if first, _ := recordLines(b.decide()); first != "binary: changed" {
+		t.Fatalf("decide: %s", first)
+	}
+	older := b.base
+	cases := []struct {
+		name string
+		tags map[string]string
+		cur  string
+		want string
+	}{
+		{"own tag on an older commit", map[string]string{"1.0.0": older, "1.0.1": older}, "1.0.1", "1.0.2"},
+		{"below the newest tag", map[string]string{"1.0.0": older, "1.0.1": older}, "1.0.0", "1.0.2"},
+		{"resumed: own tag at the candidate", map[string]string{"1.0.0": older, "1.0.1": tested}, "1.0.1", "1.0.1"},
+		{"above every tag", map[string]string{"1.0.0": older, "1.0.1": older}, "1.1.0", "1.1.0"},
+		{"one tag", map[string]string{"1.0.0": older}, "1.0.0", "1.0.1"},
+	}
+	for _, tc := range cases {
+		b.git("-C", work, "reset", "-q", "--hard", tested)
+		if old := strings.Fields(b.git("-C", work, "tag", "-l")); len(old) > 0 {
+			b.git(append([]string{"-C", work, "tag", "-d"}, old...)...)
+		}
+		for v, sha := range tc.tags {
+			b.git("-C", work, "tag", "v"+v, sha)
+			b.git("-C", work, "tag", "serve-v"+v, sha)
+		}
+		writeFile(t, filepath.Join(work, ".version"), "satelle.version: "+tc.cur+"\nsatelled.version: "+tc.cur+"\nsatelle.build: 2026-01-01T00:00:00Z\n", 0o644)
+		if r := b.node("bump"); r.code != 0 {
+			t.Fatalf("%s: bump exit %d\n%s%s\n%s", tc.name, r.code, r.out, r.err, b.nodeFile("out/log"))
+		}
+		got := b.git("-C", work, "show", "HEAD:.version")
+		for _, want := range []string{"satelle.version: " + tc.want + "\n", "satelled.version: " + tc.want + "\n"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: .version\n%swant %q", tc.name, got, want)
+			}
+		}
+		if build := strings.Contains(got, "satelle.build: 2026-01-01T00:00:00Z\n"); build != (tc.want == tc.cur) {
+			t.Errorf("%s: satelle.build restamped %v, want %v:\n%s", tc.name, !build, tc.want != tc.cur, got)
+		}
+	}
+}
+
 func fencedAfter(t *testing.T, heading string) string {
 	t.Helper()
 	doc := repoText(t, ".satelle/skills/release.md")

@@ -607,56 +607,7 @@ func TestReleaseRulesRestated(t *testing.T) {
 }
 
 func TestReleaseCarriesALandedItemToDone(t *testing.T) {
-	c := newCandidateSandbox(t, false)
-	for _, name := range []string{"satelle-pr-approval-check", "satelle-changelog-entry-check", "satelle-release-kept-check"} {
-		rel := repoSkillRel(t, name)
-		c.write(rel, rebindTask(t, rel, c.task.ID))
-	}
-	c.write(".satelle/workflows/flow.toml", `name = "flow"
-[states.backlog]
-start = true
-[states.approved]
-enqueue = ["release"]
-[states.in_progress]
-[states.done]
-terminal = true
-[gates.release-run]
-skill = "satelle-release-run-check"
-[gates.changelog-entry]
-skill = "satelle-changelog-entry-check"
-[[transition]]
-from = ["backlog"]
-to = "approved"
-[[transition]]
-from = ["approved"]
-to = "in_progress"
-[[transition]]
-from = ["approved"]
-to = "done"
-groups = [{ mode = "sequential", gates = ["release-run", "changelog-entry"] }]
-`)
-	c.write(".satelle/workflows/runbook.toml", `name = "runbook"
-[states.backlog]
-start = true
-[states.in_progress]
-[states.done]
-terminal = true
-[states.cancelled]
-terminal = true
-[gates.release-kept]
-skill = "satelle-release-kept-check"
-[[transition]]
-from = ["backlog"]
-to = "in_progress"
-[[transition]]
-from = ["in_progress"]
-to = "done"
-groups = [{ mode = "sequential", gates = ["release-kept"] }]
-[[transition]]
-from = ["*"]
-to = "cancelled"
-`)
-	c.must("validate")
+	c := newKeptSandbox(t, nil)
 	c.git("tag", "v1.0.0", c.base)
 	c.git("push", "-q", "origin", "v1.0.0")
 
@@ -799,6 +750,85 @@ to = "cancelled"
 	}
 	if c.ancestor(headC, "origin/main") {
 		t.Fatal("the control's head landed")
+	}
+}
+
+func newKeptSandbox(t *testing.T, base map[string]string) *candidateSandbox {
+	t.Helper()
+	c := newCandidateSandboxWith(t, false, base)
+	for _, name := range []string{"satelle-pr-approval-check", "satelle-changelog-entry-check", "satelle-release-kept-check"} {
+		rel := repoSkillRel(t, name)
+		c.write(rel, rebindTask(t, rel, c.task.ID))
+	}
+	c.write(".satelle/workflows/flow.toml", `name = "flow"
+[states.backlog]
+start = true
+[states.approved]
+enqueue = ["release"]
+[states.in_progress]
+[states.done]
+terminal = true
+[gates.release-run]
+skill = "satelle-release-run-check"
+[gates.changelog-entry]
+skill = "satelle-changelog-entry-check"
+[[transition]]
+from = ["backlog"]
+to = "approved"
+[[transition]]
+from = ["approved"]
+to = "in_progress"
+[[transition]]
+from = ["approved"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["release-run", "changelog-entry"] }]
+`)
+	c.write(".satelle/workflows/runbook.toml", `name = "runbook"
+[states.backlog]
+start = true
+[states.in_progress]
+[states.done]
+terminal = true
+[states.cancelled]
+terminal = true
+[gates.release-kept]
+skill = "satelle-release-kept-check"
+[[transition]]
+from = ["backlog"]
+to = "in_progress"
+[[transition]]
+from = ["in_progress"]
+to = "done"
+groups = [{ mode = "sequential", gates = ["release-kept"] }]
+[[transition]]
+from = ["*"]
+to = "cancelled"
+`)
+	c.must("validate")
+	return c
+}
+
+func TestReleaseBumpsPastTheNewestOfSeveralTags(t *testing.T) {
+	c := newKeptSandbox(t, map[string]string{".version": "satelle.version: 1.0.1\nsatelled.version: 1.0.0\n"})
+	c.git("tag", "v1.0.0", c.base)
+	c.git("tag", "v1.0.1", c.base)
+	c.git("push", "-q", "origin", "v1.0.0", "v1.0.1")
+
+	id, _ := c.item("a", "a2.txt", "a\n")
+	c.attach(id, "### Fixed\n- A fixes a thing\n")
+	run, _ := c.fire()
+	c.mustBlock("### Build the candidate")
+	c.mustBlock("### Send back")
+	c.driftGate()
+	c.mustNodeTest()
+	c.decide()
+	c.mustLand(run)
+	c.git("fetch", "-q", "origin", "--tags")
+	if got := c.git("show", "origin/main:.version"); !strings.HasPrefix(got, "satelle.version: 1.0.2\n") {
+		t.Fatalf("origin/main's .version after a run over v1.0.0 and v1.0.1:\n%s", got)
+	}
+	if c.rev("v1.0.2^{commit}") != c.rev("origin/main") {
+		t.Fatal("v1.0.2 is not at origin/main")
 	}
 }
 

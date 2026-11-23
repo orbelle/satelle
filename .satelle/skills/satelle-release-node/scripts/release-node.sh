@@ -212,14 +212,16 @@ step_decide() {
 }
 
 nextver() {
-  local p=$1 cur=$2 cand=$3 latest own
-  latest=$(g tag -l "$p*" | sed "s/^$p//" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | grep -vxF "$cur" | sort -V | tail -n1)
+  local p=$1 cur=$2 cand=$3 all others latest own
+  all=$(g tag -l "$p*" | sed "s/^$p//" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+  others=$(printf '%s\n' "$all" | grep -vxF "$cur" | tail -n1)
   own=$(g rev-parse -q --verify "refs/tags/$p$cur^{commit}" 2>/dev/null)
-  if [ -n "$cur" ] && { [ -z "$latest" ] || [ "$(printf '%s\n%s\n' "$latest" "$cur" | sort -V | tail -n1)" = "$cur" ]; } &&
+  if [ -n "$cur" ] && { [ -z "$others" ] || [ "$(printf '%s\n%s\n' "$others" "$cur" | sort -V | tail -n1)" = "$cur" ]; } &&
     { [ -z "$own" ] || [ "$own" = "$cand" ]; }; then
     echo "$cur"
     return 0
   fi
+  latest=$(printf '%s\n' "$all" | tail -n1)
   [ -n "$latest" ] || latest=$cur
   [ -n "$latest" ] || return 1
   echo "${latest%.*}.$((${latest##*.} + 1))"

@@ -520,8 +520,9 @@ Once, from the session's tree detached at the drift-checked candidate (`git
 checkout --detach <candidate>`): the fire bundles that tree's tracked
 `.satelle` and reads `release-sprite` from it, so a release ships with the node
 part it carries. Run it attached (a secret-bearing fire refuses `--detach`), as
-a background command with a timeout above 2h30: setup, the suite and
-`release.yml` take time, and the node's gate allows 2h. The fire reads
+a background command whose timeout is above the release-node gate's timeout,
+with margin for setup, the suite and `release.yml`; read that timeout with
+`satelle workflow show release-node --session <session>`. The fire reads
 `GH_TOKEN` from the firing shell or the repo's untracked `.satelle/.env` and
 gives it to the node on the exec command's stdin only; this block never reads
 either. The task is the remote's `[drive] task`.
@@ -598,9 +599,10 @@ if [ "$verdict" = accept ] && [ "$vcode" = 0 ] && ! grep -q '^failed step ' "$ba
   shaped "$back" "$rd/release-node" && exit 1
   satelle execution attach "$exe" --name release-binary --type text/plain --file "$back/release-binary" --session "$session" || exit 1
   satelle execution attach "$exe" --name release-node --type text/plain --file "$rd/release-node" --session "$session" || exit 1
+  ma=$(sed -n 's/^main-after //p' "$back/result")
   git worktree remove --force "$wt"
   rm -rf "$rd"
-  echo "the node's part landed: main is $(sed -n 's/^main-after //p' "$back/result" 2>/dev/null || true)"
+  echo "the node's part landed: main is $ma"
   exit 0
 fi
 if [ "$verdict" = accept ] || grep -q '^main-after ' "$back/result" 2>/dev/null; then
@@ -645,10 +647,11 @@ them into its notes, first.
 In the node's clone of the candidate, on top of the tested candidate.
 
 For `satelle.version` against the `v*` tags and `satelled.version` against the
-`serve-v*` tags: strip the prefix, `sort -V`, and compare with the latest tag
-other than the value's own. Keep the current value when it is above that
-latest and its own tag is absent or points at the candidate (a resumed run already
-published it); otherwise set it to the latest tag's patch + 1. Set
+`serve-v*` tags (prefix stripped, `sort -V`): keep the current value when it
+is at or above every tag other than its own and its own tag is absent or points
+at the candidate (a resumed run already published it); otherwise set it to the
+patch + 1 of the latest tag of all, its own included; with no tag, the current
+value's patch + 1. Set
 `satelle.build=$(date -u +%Y-%m-%dT%H:%M:%SZ)` when either changed. The rule's
 one implementation is `release-node.sh bump`.
 

@@ -227,6 +227,9 @@ func TestReleaseRunsItsNodePartOnASprite(t *testing.T) {
 	if x.rev(main+"^") != cand || x.rev("v1.0.1^{commit}") != main {
 		t.Fatalf("origin/main %s is not one bump on the tested candidate %s with v1.0.1 at it", main, cand)
 	}
+	if want := "the node's part landed: main is " + main + "\n"; !strings.HasSuffix(read.out, want) {
+		t.Fatalf("the read block's output does not end %q:\n%s", want, read.out)
+	}
 	if !strings.Contains(x.fakeLog("gh.log"), "main at dispatch "+oldMain+"\n") {
 		t.Fatalf("release.yml was not dispatched before main moved:\n%s", x.fakeLog("gh.log"))
 	}
