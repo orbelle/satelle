@@ -25,10 +25,19 @@ type Node struct {
 	Refuse           map[string][2]string
 	Run              *satellepb.RunDescriptor
 	LostAfterSeconds int32
+	// HoldHeartbeat, when set, holds the node's first running status in the
+	// handler until it is closed or the node posts its conclusion, then records
+	// it: a server that received the call and records it late. ReadSecret waits
+	// for that heartbeat to arrive, so it is in flight before the run can end.
+	HoldHeartbeat chan struct{}
 
-	channelKey []byte
-	statuses   []*satellepb.ReportStatusRequest
-	ended      bool
+	channelKey       []byte
+	statuses         []*satellepb.ReportStatusRequest
+	ended            bool
+	held             bool
+	heartbeatArrived chan struct{}
+	concluded        chan struct{}
+	concludedOnce    bool
 }
 
 func (s *Server) AddNode(n *Node) {
@@ -36,6 +45,9 @@ func (s *Server) AddNode(n *Node) {
 	defer s.mu.Unlock()
 	if n.Secrets == nil {
 		n.Secrets = map[string]string{}
+	}
+	if n.HoldHeartbeat != nil {
+		n.heartbeatArrived, n.concluded = make(chan struct{}), make(chan struct{})
 	}
 	s.nodes[n.ID] = n
 }
@@ -182,6 +194,19 @@ func (n nodes) GetDefinition(ctx context.Context, r *satellepb.GetDefinitionRequ
 
 func (n nodes) ReadSecret(ctx context.Context, r *satellepb.ReadSecretRequest) (*satellepb.Secret, error) {
 	n.s.mu.Lock()
+	var arrived chan struct{}
+	if node := n.s.nodes[r.GetNodeId()]; node != nil {
+		arrived = node.heartbeatArrived
+	}
+	n.s.mu.Unlock()
+	if arrived != nil {
+		select {
+		case <-arrived:
+		case <-ctx.Done():
+			return nil, status.FromContextError(ctx.Err()).Err()
+		}
+	}
+	n.s.mu.Lock()
 	defer n.s.mu.Unlock()
 	node, err := n.node(ctx, r.GetNodeId())
 	if err != nil {
@@ -238,7 +263,21 @@ func (n nodes) ReportStatus(ctx context.Context, r *satellepb.ReportStatusReques
 	if err != nil {
 		return nil, err
 	}
+	if node.HoldHeartbeat != nil && r.GetState() == "running" && !node.held {
+		node.held = true
+		close(node.heartbeatArrived)
+		n.s.mu.Unlock()
+		select {
+		case <-node.HoldHeartbeat:
+		case <-node.concluded:
+		}
+		n.s.mu.Lock()
+	}
 	node.statuses = append(node.statuses, proto.Clone(r).(*satellepb.ReportStatusRequest))
+	if node.concluded != nil && r.GetState() == "concluded" && !node.concludedOnce {
+		node.concludedOnce = true
+		close(node.concluded)
+	}
 	return &satellepb.ReportStatusResponse{LostAfterSeconds: node.LostAfterSeconds}, nil
 }
 
