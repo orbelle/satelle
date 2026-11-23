@@ -89,7 +89,7 @@ func newSpriteBox(t *testing.T) *spriteBox {
 	for _, rel := range []string{
 		".satelle/skills/satelle-node-sprite/SKILL.md", ".satelle/skills/satelle-node-sprite/pack.toml",
 		".satelle/skills/satelle-release-node/SKILL.md", ".satelle/skills/satelle-release-node/pack.toml",
-		".satelle/skills/satelle-release-node-check.md", ".satelle/skills/satelle-change-judged-check.md",
+		".satelle/skills/satelle-change-judged-check.md", "scripts/release-node-verify.sh",
 		".satelle/workflows/release-node.toml", ".satelle/remotes/release-sprite/satelle.toml",
 	} {
 		copyRepoFile(t, b.sandbox, rel)

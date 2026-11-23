@@ -13,7 +13,7 @@ terminal = true
 skill = "satelle-change-judged-check"
 
 [gates.release-node]
-skill = "satelle-release-node-check"
+skill = "satelle-release-node"
 timeout = "2h"
 
 [[transition]]

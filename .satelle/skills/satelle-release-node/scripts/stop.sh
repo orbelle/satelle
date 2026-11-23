@@ -1,13 +1,6 @@
 #!/bin/sh
-# Brings back /release/back only, by the rules of provider.untar
-# (internal/remote/provider/command.go): regular files and directories under
-# back, no absolute path and no .. component, extracted owner-less into a fresh
-# temp dir before anything reads it. Destroying the sprite never depends on it.
-here=$(cd "$(dirname "$0")" && pwd)
-sprite=$here/../../satelle-node-sprite/scripts
-. "$sprite/name.sh"
 node=$1
-n=$(sprite_name "$node")
+n="satelle-$(printf '%s' "$node" | tr '_' '-')"
 
 refuse() {
   echo "release-stop: $*; nothing of $node is brought back" >&2
@@ -44,4 +37,6 @@ bring_back() {
 if [ -n "${SATELLE_RELEASE_OUT:-}" ]; then
   (bring_back) || true
 fi
-exec sh "$sprite/stop.sh" "$node"
+sprite destroy --force "$n" </dev/null >&2 && exit 0
+sprite list --prefix "$n" 2>/dev/null | grep -qx "$n" && { echo "release-stop: $n is still listed" >&2; exit 1; }
+exit 0

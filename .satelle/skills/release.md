@@ -544,7 +544,7 @@ SATELLE_RELEASE_IN="$rd/node-in" SATELLE_RELEASE_OUT="$rd/node-out" satelle remo
 
 Once, after the fire returned, whatever it printed and whatever its exit
 status (a rejected node part exits non-zero). It reads `satelle remote
-status release-sprite <task> --json --session <session>`, then `release-node.sh verify`, which
+status release-sprite <task> --json --session <session>`, then `scripts/release-node-verify.sh`, which
 reads only `$rd/node-out/<node>/back`. On accept, verify checks the result is
 this run's, that it tested the candidate, that origin/main is `main-after`
 and differs from the candidate only in `.version` and the notes (nothing on a
@@ -591,7 +591,7 @@ shaped() {
     *) echo "the token scan could not read ${f[*]}: nothing is attached" >&2; return 0 ;;
   esac
 }
-v=$(bash .satelle/skills/satelle-release-node/scripts/release-node.sh verify "$rd" "$node" "$session" 2>&1); vcode=$?
+v=$(bash scripts/release-node-verify.sh "$rd" "$node" "$session" 2>&1); vcode=$?
 printf '%s\n' "$v"
 if [ "$verdict" = accept ] && [ "$vcode" = 0 ] && ! grep -q '^failed step ' "$back/result"; then
   { cat "$back/result"; echo "$line"; printf '%s\n' "$v"; } >"$rd/release-node"
