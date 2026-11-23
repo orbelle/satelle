@@ -277,9 +277,9 @@ func TestCommandRemoteStopsTheNode(t *testing.T) {
 	})
 }
 
-func TestCommandRemoteSecretOnStdin(t *testing.T) {
-	t.Parallel()
-	sb := secretSandbox(t, false, nil)
+func commandSecretSandbox(t *testing.T) (sb *secretBox, root, guard string) {
+	t.Helper()
+	sb = secretSandbox(t, false, nil)
 	s := sb.s
 	def, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "remotes", "docker-secret-probe", "remote.toml"))
 	if err != nil {
@@ -298,11 +298,14 @@ func TestCommandRemoteSecretOnStdin(t *testing.T) {
 	s.write(".satelle/remotes/command-secret-probe/satelle.toml", string(overlay))
 	s.git("add", ".satelle")
 	s.git("commit", "-q", "-m", "command secret probe")
-	root, guard := installCommandNode(t, s)
+	root, guard = installCommandNode(t, s)
+	return sb, root, guard
+}
 
-	s.env[secretName] = sb.value
-	r := s.run("remote", "fire", "command-secret-probe", sb.task)
-	delete(s.env, secretName)
+// assertCommandProbe asserts a command fire gave the node sb.value, without
+// docker, and returns the node.
+func assertCommandProbe(t *testing.T, sb *secretBox, guard string, r result) string {
+	t.Helper()
 	if r.code != 0 {
 		t.Fatalf("fire: exit %d\n%s%s", r.code, r.out, r.err)
 	}
@@ -321,6 +324,26 @@ func TestCommandRemoteSecretOnStdin(t *testing.T) {
 			t.Errorf("the probe's notes miss %q:\n%s", line, notes)
 		}
 	}
+	return node
+}
+
+func TestCommandFireSecretFromRepoEnv(t *testing.T) {
+	t.Parallel()
+	sb, root, guard := commandSecretSandbox(t)
+	sb.repoEnv(t, true, secretName+"='"+sb.value+"'\nOTHER_IN_FILE=other-"+randomSecret(t)+"\n")
+	assertCommandProbe(t, sb, guard, sb.s.run("remote", "fire", "command-secret-probe", sb.task))
+	sb.assertEnvLogsClean(t, filepath.Join(root, "env.log"))
+	sb.assertNowhere(t, map[string]string{"the fixture node's files": root, "the sandbox home": sb.s.home})
+}
+
+func TestCommandRemoteSecretOnStdin(t *testing.T) {
+	t.Parallel()
+	sb, root, guard := commandSecretSandbox(t)
+	s := sb.s
+	s.env[secretName] = sb.value
+	r := s.run("remote", "fire", "command-secret-probe", sb.task)
+	delete(s.env, secretName)
+	node := assertCommandProbe(t, sb, guard, r)
 
 	log, err := os.ReadFile(filepath.Join(root, "log"))
 	if err != nil {

@@ -114,15 +114,20 @@ declared secrets like any other. No seat is taken for a task. `remote status
 <remote-id> <task>` shows the run.
 
 A docker-local node is given the secrets its `[secrets] names` declare, each
-read from the environment of the shell that fires and handed to the node
-process over its stdin, never in argv, the container's configuration, the
-ledger or on disk; a name not set there refuses the fire before any container
-starts, the node replaces each value in what it reports, and a node record
+read from the environment of the shell that fires, or from the repo's
+`.satelle/.env` when the shell does not set it (the shell wins when both do),
+and handed to the node process over its stdin, never in argv, the container's
+configuration, the ledger or on disk; a name set in neither refuses the fire
+before any container starts, the node replaces each value in what it reports, and a node record
 that carries a declared value is not imported. A node that was given secrets
 never outlives its run (see `[lifecycle] scope` above). `[network] allow` is enforced on docker through satelle's egress proxy: the node's only route out is the proxy, which reaches only the hosts the list names, and a fire or gate check that cannot enforce the list refuses before the node starts.
-`[secrets.override]` and `[[repo]]` are refused locally. Where a value comes
-from is yours: wrap the fire in whatever sets the name (a keyring, a secrets
-manager); `docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`
+`[secrets.override]` and `[[repo]]` are refused locally. You write the values:
+`.satelle/.env` holds blank lines, `#` comments and `KEY=VALUE` lines, a value
+optionally in matching single or double quotes, and only the declared names
+are taken from it. It must be untracked and ignored by git; a tracked,
+unignored or malformed file refuses the fire before any node starts, naming
+the file (and a malformed line's number, never its content).
+`docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`
 and `keep_warm` are not applied: each fire runs one node.
 
 ## command: reached by the commands its definition names
@@ -158,7 +163,8 @@ architecture) to `/usr/local/bin/satelle`, then the node contract over exec:
 copy_in copies as `cp -R` does to a `{dst}` that does not exist yet. Every
 chain that comes back is verified before it is imported, as on docker-local.
 
-The declared `[secrets] names` are taken from the firing shell and removed
+The declared `[secrets] names` are taken from the firing shell or the repo's
+`.satelle/.env`, as on docker-local, and removed
 from the environment every command runs with: each value reaches the node
 only on exec's stdin. With `[lifecycle] scope = "run"` stop runs when the run
 concludes, accepted or rejected, and when it fails; with `scope = "job"` the

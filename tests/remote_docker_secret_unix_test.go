@@ -222,7 +222,7 @@ func TestDockerLocalFireSecretUnset(t *testing.T) {
 	t.Parallel()
 	b := secretSandbox(t, true, nil)
 	r := b.s.run("remote", "fire", "docker-secret-probe", b.task)
-	if r.code == 0 || !strings.Contains(r.err, secretName) || !strings.Contains(r.err, "not set in the firing shell's environment") {
+	if r.code == 0 || !strings.Contains(r.err, secretName) || !strings.Contains(r.err, "not set in the firing shell's environment or in .satelle/.env") {
 		t.Fatalf("fire with the secret unset: exit %d\n%s%s", r.code, r.out, r.err)
 	}
 	if log, _ := os.ReadFile(filepath.Join(b.fake, "log")); strings.Contains(string(log), "run -d") || strings.Contains(string(log), "build") {
@@ -550,4 +550,117 @@ func TestDockerLocalFireSecretFailureOnDaemon(t *testing.T) {
 		t.Errorf("the fire did not say the container is removed:\n%s", r.out)
 	}
 	assertNoNodeOnDaemon(t, real, m[1])
+}
+
+// repoEnv writes the sandbox's .satelle/.env; ignore commits a .gitignore rule
+// for .env first.
+func (b *secretBox) repoEnv(t *testing.T, ignore bool, body string) {
+	t.Helper()
+	if ignore {
+		b.s.write(".gitignore", ".env\n")
+		b.s.git("add", ".gitignore")
+		b.s.git("commit", "-q", "-m", "ignore .env")
+	}
+	b.s.write(".satelle/.env", body)
+}
+
+func (b *secretBox) assertRefusedBeforeNode(t *testing.T, r result, wants ...string) {
+	t.Helper()
+	if r.code == 0 {
+		t.Fatalf("the fire was not refused:\n%s", r.out)
+	}
+	for _, w := range wants {
+		if !strings.Contains(r.err, w) {
+			t.Errorf("the refusal misses %q:\n%s", w, r.err)
+		}
+	}
+	if log, _ := os.ReadFile(filepath.Join(b.fake, "log")); strings.Contains(string(log), "run -d") || strings.Contains(string(log), "build") {
+		t.Fatalf("docker ran for a refused fire:\n%s", log)
+	}
+}
+
+func TestDockerLocalFireSecretFromRepoEnv(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	other := randomSecret(t)
+	b.repoEnv(t, true, "# the probe's secret\n"+secretName+"=\""+b.value+"\"\nOTHER_IN_FILE="+other+"\n")
+	notes := b.assertProbe(t, b.s.run("remote", "fire", "docker-secret-probe", b.task))
+	if strings.Contains(notes, other) {
+		t.Error("an undeclared line of the file reached the node's notes")
+	}
+	envFile := filepath.Join(b.s.dir, ".satelle", ".env")
+	for _, root := range []string{b.s.dir, b.s.home, filepath.Join(b.fake, "log")} {
+		for _, hit := range filesHolding(t, root, other) {
+			if hit != envFile {
+				t.Errorf("an undeclared value of the file is in %s", hit)
+			}
+		}
+	}
+	nodes, _ := filepath.Glob(filepath.Join(b.fake, "satelle-node-*", "node"))
+	for _, n := range nodes {
+		b.assertNowhere(t, map[string]string{"the node's directories": n})
+		if hits := filesHolding(t, n, other); len(hits) > 0 {
+			t.Errorf("an undeclared value of the file is in the node: %v", hits)
+		}
+	}
+	for _, hit := range filesHolding(t, b.s.dir, b.value) {
+		if hit != envFile {
+			t.Errorf("the value is in %s", hit)
+		}
+	}
+	b.assertNowhere(t, map[string]string{
+		"the home (runtime dir, run record)": b.s.home,
+		"the docker argv log":                filepath.Join(b.fake, "log"),
+		"the git argv log":                   filepath.Join(b.logs, "git-argv.log"),
+	})
+	b.assertEnvLogsClean(t, filepath.Join(b.fake, "docker-env.log"), filepath.Join(b.logs, "git-env.log"))
+	if _, err := os.Stat(filepath.Join(b.logs, "git-env.log")); err != nil {
+		t.Fatal("the git shim never ran: the git children were not observed")
+	}
+}
+
+func TestDockerLocalFireSecretShellWinsOverRepoEnv(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	decoy := randomSecret(t)
+	b.repoEnv(t, true, secretName+"="+decoy+"\n")
+	notes := b.assertProbe(t, b.fire())
+	sum := sha256.Sum256([]byte(decoy))
+	if strings.Contains(notes, hex.EncodeToString(sum[:])) {
+		t.Errorf("the node was given the file's value, not the shell's:\n%s", notes)
+	}
+	b.assertEnvLogsClean(t, filepath.Join(b.fake, "docker-env.log"), filepath.Join(b.logs, "git-env.log"))
+	if _, err := os.Stat(filepath.Join(b.logs, "git-env.log")); err != nil {
+		t.Fatal("the git shim never ran: the git children were not observed")
+	}
+}
+
+func TestDockerLocalFireSecretMalformedRepoEnv(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	const bad = "SATELLE_MALFORMED_CONTENT_xyz"
+	b.repoEnv(t, true, secretName+"=dummy-value\n"+bad+"\n")
+	r := b.s.run("remote", "fire", "docker-secret-probe", b.task)
+	b.assertRefusedBeforeNode(t, r, ".satelle/.env", "line 2")
+	if strings.Contains(r.out+r.err, bad) {
+		t.Errorf("the refusal holds the line's content:\n%s", r.err)
+	}
+}
+
+func TestDockerLocalFireSecretRepoEnvNotIgnored(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	b.repoEnv(t, false, secretName+"=dummy-value\n")
+	if r := b.s.exec("git", "", "check-ignore", "-q", ".satelle/.env"); r.code != 1 {
+		t.Fatalf("precondition: git check-ignore .satelle/.env exited %d, want 1 (not ignored)", r.code)
+	}
+	b.assertRefusedBeforeNode(t, b.s.run("remote", "fire", "docker-secret-probe", b.task), ".satelle/.env", "not ignored")
+}
+
+func TestDockerLocalFireSecretRepoEnvTracked(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	b.repoEnv(t, true, secretName+"=dummy-value\n")
+	b.s.git("add", "-f", ".satelle/.env")
+	b.assertRefusedBeforeNode(t, b.s.run("remote", "fire", "docker-secret-probe", b.task), ".satelle/.env", "tracked")
 }

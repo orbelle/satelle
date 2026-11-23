@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -892,7 +893,7 @@ func TestTakeSecretsUnsetsDeclaredNames(t *testing.T) {
 	const other = "SATELLE_SECRET_TEST_OTHER"
 	t.Setenv(probeSecret, "the-value")
 	t.Setenv(other, "keep")
-	s, err := TakeSecrets(f.def.Definition, os.LookupEnv)
+	s, err := TakeSecrets(f.def.Definition, os.LookupEnv, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -912,8 +913,129 @@ func TestTakeSecretsRefusesUnsetName(t *testing.T) {
 	def := f.def.Definition
 	def.Secrets.Names = []string{"SET_ONE", "UNSET_ONE", "EMPTY_ONE"}
 	env := map[string]string{"SET_ONE": "set-value-123", "EMPTY_ONE": ""}
-	_, err := TakeSecrets(def, func(n string) (string, bool) { v, ok := env[n]; return v, ok })
-	if err == nil || err.Error() != "secrets UNSET_ONE, EMPTY_ONE are not set in the firing shell's environment" {
+	lookup := func(n string) (string, bool) { v, ok := env[n]; return v, ok }
+	const want = "secrets UNSET_ONE, EMPTY_ONE are not set in the firing shell's environment or in .satelle/.env"
+	if _, err := TakeSecrets(def, lookup, t.TempDir()); err == nil || err.Error() != want {
+		t.Fatalf("TakeSecrets with no file = %v", err)
+	}
+	dataDir := secretsRepo(t, true, "EMPTY_ONE=\nUNRELATED_IN_FILE=unrelated\n")
+	if _, err := TakeSecrets(def, lookup, dataDir); err == nil || err.Error() != want {
+		t.Fatalf("TakeSecrets with a file = %v", err)
+	}
+}
+
+// secretsRepo makes a git repo whose .satelle/.env holds body; ignore adds a
+// .gitignore rule for .env. It returns the repo's .satelle dir.
+func secretsRepo(t *testing.T, ignore bool, body string) string {
+	t.Helper()
+	tree := t.TempDir()
+	gittest.Git(t, tree, "init", "-q")
+	if ignore {
+		if err := os.WriteFile(filepath.Join(tree, ".gitignore"), []byte(".env\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return secretsDataDir(t, tree, body)
+}
+
+func secretsDataDir(t *testing.T, tree, body string) string {
+	t.Helper()
+	dataDir := filepath.Join(tree, ".satelle")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dataDir
+}
+
+func setLookup(names ...string) func(string) (string, bool) {
+	return func(n string) (string, bool) {
+		if slices.Contains(names, n) {
+			return "shell-" + n, true
+		}
+		return "", false
+	}
+}
+
+func TestTakeSecretsReadsRepoEnvFile(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, true, "# a comment\n"+probeSecret+"=file-value-1\nOTHER_IN_FILE=other-value\n")
+	s, err := TakeSecrets(f.def.Definition, setLookup(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(s.Values, map[string]string{probeSecret: "file-value-1"}) || !slices.Equal(s.Names, []string{probeSecret}) || !slices.Equal(s.Redact, []string{"file-value-1"}) {
+		t.Fatalf("TakeSecrets = %+v", s)
+	}
+	if slices.Contains(s.Redact, "other-value") {
+		t.Fatalf("an undeclared line of the file was taken: %+v", s)
+	}
+}
+
+func TestTakeSecretsShellWinsOverRepoEnvFile(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, true, probeSecret+"=file-value\n")
+	s, err := TakeSecrets(f.def.Definition, func(string) (string, bool) { return "shell-value", true }, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Values[probeSecret] != "shell-value" || !slices.Equal(s.Redact, []string{"shell-value"}) {
+		t.Fatalf("TakeSecrets = %+v", s)
+	}
+}
+
+func TestTakeSecretsRefusesMalformedRepoEnvFile(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, true, "A=b\nSATELLE_MALFORMED_CONTENT_xyz\n")
+	_, err := TakeSecrets(f.def.Definition, setLookup(probeSecret), dataDir)
+	if err == nil || !strings.Contains(err.Error(), ".satelle/.env line 2") || strings.Contains(err.Error(), "SATELLE_MALFORMED_CONTENT_xyz") {
+		t.Fatalf("TakeSecrets = %v", err)
+	}
+}
+
+// Each unsafe file's line 1 is malformed: a file that was read would refuse
+// with the parse message, so the git message proves no value was read.
+const unreadableBody = "NOT_A_PAIR_LINE\n"
+
+func TestTakeSecretsRefusesUnignoredRepoEnvFile(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, false, unreadableBody)
+	_, err := TakeSecrets(f.def.Definition, setLookup(probeSecret), dataDir)
+	if err == nil || err.Error() != ".satelle/.env is not ignored by git: a secrets file must be untracked and ignored; no value was read from it" {
+		t.Fatalf("TakeSecrets = %v", err)
+	}
+}
+
+func TestTakeSecretsRefusesTrackedRepoEnvFile(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, true, unreadableBody)
+	gittest.Git(t, filepath.Dir(dataDir), "add", "-f", ".satelle/.env")
+	_, err := TakeSecrets(f.def.Definition, setLookup(probeSecret), dataDir)
+	if err == nil || err.Error() != ".satelle/.env is tracked by git: a secrets file must be untracked and ignored; no value was read from it" {
+		t.Fatalf("TakeSecrets = %v", err)
+	}
+}
+
+func TestTakeSecretsRefusesRepoEnvFileOutsideGit(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	t.Setenv("GIT_CEILING_DIRECTORIES", os.TempDir())
+	dataDir := secretsDataDir(t, t.TempDir(), unreadableBody)
+	_, err := TakeSecrets(f.def.Definition, setLookup(probeSecret), dataDir)
+	if err == nil || !strings.HasPrefix(err.Error(), ".satelle/.env: cannot tell whether git ignores it") {
+		t.Fatalf("TakeSecrets = %v", err)
+	}
+}
+
+func TestTakeSecretsRefusesWhenTracksErrors(t *testing.T) {
+	f := secretFixture(t, "echo checked", nil, "")
+	dataDir := secretsRepo(t, true, unreadableBody)
+	was := repoTracks
+	t.Cleanup(func() { repoTracks = was })
+	repoTracks = func(string, string) (bool, error) { return false, errors.New("ls-files failed") }
+	_, err := TakeSecrets(f.def.Definition, setLookup(probeSecret), dataDir)
+	if err == nil || !strings.HasPrefix(err.Error(), ".satelle/.env: cannot tell whether git tracks it") {
 		t.Fatalf("TakeSecrets = %v", err)
 	}
 }

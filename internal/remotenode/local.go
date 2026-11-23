@@ -272,32 +272,51 @@ type Secrets struct {
 	Redact []string
 }
 
-func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool)) (Secrets, error) {
+// TakeSecrets takes each [secrets] name from the firing shell, else from the
+// repo's untracked, ignored .satelle/.env under dataDir. Every declared name is
+// read and unset before the file's git checks spawn a child, so no git child
+// inherits a value.
+func TakeSecrets(def remotedef.Definition, lookup func(string) (string, bool), dataDir string) (Secrets, error) {
 	if err := localRefusal(def); err != nil {
 		return Secrets{}, err
 	}
 	names := secretNames(def)
-	values := map[string]string{}
-	var missing []string
-	for _, n := range names {
-		v, ok := lookup(n)
-		if !ok || v == "" {
-			missing = append(missing, n)
-			continue
-		}
-		values[n] = v
+	if len(names) == 0 {
+		return Secrets{}, nil
 	}
-	switch len(missing) {
-	case 0:
-	case 1:
-		return Secrets{}, fmt.Errorf("secret %s is not set in the firing shell's environment", missing[0])
-	default:
-		return Secrets{}, fmt.Errorf("secrets %s are not set in the firing shell's environment", strings.Join(missing, ", "))
+	shell := map[string]string{}
+	for _, n := range names {
+		if v, ok := lookup(n); ok && v != "" {
+			shell[n] = v
+		}
 	}
 	for _, n := range names {
 		if err := os.Unsetenv(n); err != nil {
 			return Secrets{}, fmt.Errorf("secret %s: %w", n, err)
 		}
+	}
+	file, err := fileSecrets(dataDir)
+	if err != nil {
+		return Secrets{}, err
+	}
+	values := map[string]string{}
+	var missing []string
+	for _, n := range names {
+		switch {
+		case shell[n] != "":
+			values[n] = shell[n]
+		case file[n] != "":
+			values[n] = file[n]
+		default:
+			missing = append(missing, n)
+		}
+	}
+	switch len(missing) {
+	case 0:
+	case 1:
+		return Secrets{}, fmt.Errorf("secret %s is not set in the firing shell's environment or in %s", missing[0], secretsFileName)
+	default:
+		return Secrets{}, fmt.Errorf("secrets %s are not set in the firing shell's environment or in %s", strings.Join(missing, ", "), secretsFileName)
 	}
 	return Secrets{Names: names, Values: values, Redact: longestFirst(values)}, nil
 }
@@ -526,7 +545,7 @@ func localRefusal(def remotedef.Definition) error {
 	case !RunsHere(def):
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
 	case len(def.Secrets.Override) > 0:
-		return errors.New("[secrets.override] is not served to a local node: a local node reads each [secrets] name from the firing shell")
+		return errors.New("[secrets.override] is not served to a local node: a local node reads each [secrets] name from the firing shell or the repo's .satelle/.env")
 	case len(def.Repos) > 0:
 		return errors.New("[[repo]] is not fetched by a local node")
 	}

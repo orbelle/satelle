@@ -109,7 +109,7 @@ func takeFireSecrets(id string) (remotenode.Secrets, error) {
 	if err != nil || !remotenode.RunsHere(def) {
 		return remotenode.Secrets{}, nil
 	}
-	s, err := remotenode.TakeSecrets(def, os.LookupEnv)
+	s, err := remotenode.TakeSecrets(def, os.LookupEnv, dataDir)
 	if err != nil {
 		return remotenode.Secrets{}, fmt.Errorf("remote %s: %w", id, err)
 	}
