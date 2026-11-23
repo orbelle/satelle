@@ -424,6 +424,7 @@ It exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 
 func nodeRunLocalCmd() *cobra.Command {
 	var dir string
+	var progress bool
 	cmd := &cobra.Command{
 		Use:   "run-local",
 		Short: "Run the local node a docker-local fire started, from the files it handed over",
@@ -433,7 +434,7 @@ and writes its outcome to <dir>/out; the starter copies the chain back. It
 exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := remotenode.RunLocal(cmd.Context(), remotenode.LocalOptions{Dir: dir, Log: cmd.ErrOrStderr(), Version: buildinfo.Version, Secrets: cmd.InOrStdin()})
+			out, err := remotenode.RunLocal(cmd.Context(), remotenode.LocalOptions{Dir: dir, Log: cmd.ErrOrStderr(), Version: buildinfo.Version, Secrets: cmd.InOrStdin(), Progress: progress})
 			if err != nil {
 				return err
 			}
@@ -445,6 +446,7 @@ exits 0 when the run concluded accepting, 2 when it concluded rejecting.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", remotenode.LocalNodeDir, "the node's root")
+	cmd.Flags().BoolVar(&progress, "progress", false, "write the step the node last started to <dir>/out/progress; refused when the definition declares [secrets]")
 	return cmd
 }
 

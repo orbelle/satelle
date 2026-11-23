@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/item"
 	"github.com/bobmcallan/satelle/internal/kernel"
 	"github.com/bobmcallan/satelle/internal/remote/provider"
@@ -34,7 +36,9 @@ case "$cmd" in
   run)
     while [ $# -gt 0 ]; do [ "$1" = --name ] && name=$2; shift; done
     mkdir -p "$FAKE/$name" ;;
-  container) [ -d "$FAKE/$(last "$@")" ] ;;
+  container)
+    [ -f "$FAKE/../hang-inspect" ] && exec sleep 30
+    [ -d "$FAKE/$(last "$@")" ] ;;
   rm) shift; for c; do rm -rf "$FAKE/$c"; done ;;
   cp)
     if [ "$2" = - ]; then
@@ -46,6 +50,7 @@ case "$cmd" in
     cp -R "$(map "$1")" "$(map "$2")" ;;
   exec)
     [ "$1" = -d ] && exit 0
+    [ -f "$FAKE/../hang-exec" ] && exec sleep 30
     name=$1; shift
     [ -d "$FAKE/$name" ] || { echo "Error: no such container: $name" >&2; exit 1; }
     [ "$1" = ls ] && [ -f "$FAKE/../fail-ls" ] && { echo "Error: the daemon is gone" >&2; exit 1; }
@@ -108,9 +113,14 @@ func (d detached) exit(t *testing.T, code, log string) {
 
 func (d detached) bringBack(t *testing.T) (*satellepb.ItemRun, string, error) {
 	t.Helper()
+	return d.bringBackWith(t, context.Background(), 0)
+}
+
+func (d detached) bringBackWith(t *testing.T, ctx context.Context, bound time.Duration) (*satellepb.ItemRun, string, error) {
+	t.Helper()
 	var out strings.Builder
-	run, err := BringBackLocal(context.Background(), BringBackOptions{Kernel: d.o.Kernel, Runs: d.o.Runs, Remote: d.o.Remote,
-		Item: d.o.Item, Definition: d.o.Definition, Docker: d.o.Docker, Actor: "ada", Out: &out})
+	run, err := BringBackLocal(ctx, BringBackOptions{Kernel: d.o.Kernel, Runs: d.o.Runs, Remote: d.o.Remote,
+		Item: d.o.Item, Definition: d.o.Definition, Docker: d.o.Docker, Actor: "ada", Out: &out, Bound: bound})
 	return run, out.String(), err
 }
 
@@ -170,6 +180,9 @@ func TestFireLocalDetachRefusals(t *testing.T) {
 	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--detach cannot hand a node its secrets") {
 		t.Fatalf("FireLocal --detach with [secrets] = %v", err)
 	}
+	if _, err := o.Runs.LoadDetached(o.Remote, o.Item); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused --detach saved a detached record: %v", err)
+	}
 	o.Definition = remotedef.Definition{Provider: remotedef.ProviderCommand}
 	if _, err := FireLocal(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--detach applies to a docker-local remote") {
 		t.Fatalf("FireLocal --detach on a command remote = %v", err)
@@ -182,7 +195,7 @@ func TestFireLocalDetachRefusals(t *testing.T) {
 func TestBringBackLocalImportsAConcludedRun(t *testing.T) {
 	d := fireDetached(t, itemFire(t))
 	log := d.dockerLog(t)
-	if !strings.Contains(log, "exec -d "+provider.ContainerName(d.run.GetNodeId())+" sh -c satelle node run-local --dir /node </dev/null >/node/out/node.log 2>&1; echo $? >/node/out/exit") ||
+	if !strings.Contains(log, "exec -d "+provider.ContainerName(d.run.GetNodeId())+" sh -c satelle node run-local --dir /node --progress </dev/null >/node/out/node.log 2>&1; echo $? >/node/out/exit") ||
 		strings.Contains(log, "exec -i") {
 		t.Fatalf("the node was not started detached:\n%s", log)
 	}
@@ -393,5 +406,202 @@ func TestLocalRunsRefusesAPathOutsideItsDir(t *testing.T) {
 	}
 	if _, err := os.Stat(runs.Dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("something was written under %s: %v", runs.Dir, err)
+	}
+}
+
+func TestBringBackLocalReportsRunningWithProgress(t *testing.T) {
+	d := fireDetached(t, itemFire(t))
+	fired, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item)
+	if err != nil || fired.Answered.IsZero() {
+		t.Fatalf("the fire recorded no answer: %+v, %v", fired, err)
+	}
+
+	run, _, err := d.bringBack(t)
+	if err != nil || run.GetState() != RunRunning || run.GetNotes() != "" {
+		t.Fatalf("a node with no progress yet = %v, %v", run, err)
+	}
+
+	writeFiles(t, filepath.Join(d.nodeDir, "out"), map[string]string{"progress": "dispatch perform\n"})
+	run, _, err = d.bringBack(t)
+	if err != nil || run.GetState() != RunRunning || run.GetNotes() != "progress: dispatch perform" || !d.seated(t) {
+		t.Fatalf("a working node = %v, %v (seated %v)", run, err, d.seated(t))
+	}
+	side, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item)
+	if err != nil || side.Answered.IsZero() || side.Answered.Before(fired.Answered) {
+		t.Fatalf("the answer was not recorded: %+v (fired %v), %v", side, fired.Answered, err)
+	}
+	stored, err := d.o.Runs.Load(d.o.Remote, d.o.Item)
+	if err != nil || stored.GetState() != RunRunning || stored.GetNotes() != "" {
+		t.Fatalf("the stored run was rewritten: %v, %v", stored, err)
+	}
+}
+
+type snapshot struct {
+	chain       int
+	head        string
+	run, side   string
+	dockerLines int
+}
+
+func (d detached) snapshot(t *testing.T) snapshot {
+	t.Helper()
+	events, err := d.o.Kernel.Ledger.Read(d.o.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	return snapshot{chain: len(events), head: events[len(events)-1].Hash,
+		run:         read(d.o.Runs.path(d.o.Remote, d.o.Item)),
+		side:        read(d.o.Runs.detachedPath(d.o.Remote, d.o.Item)),
+		dockerLines: strings.Count(d.dockerLog(t), "\n")}
+}
+
+func (d detached) recordedNothing(t *testing.T, before snapshot) {
+	t.Helper()
+	after := d.snapshot(t)
+	if after.chain != before.chain || after.head != before.head {
+		t.Errorf("the item's chain changed: %d events, was %d", after.chain, before.chain)
+	}
+	if after.run != before.run || after.side != before.side {
+		t.Errorf("the run or its detached record was rewritten:\n%s\n%s", after.run, after.side)
+	}
+	if !d.seated(t) || d.released(t) {
+		t.Error("the node's seat was released")
+	}
+	added := strings.Join(strings.Split(d.dockerLog(t), "\n")[before.dockerLines:], "\n")
+	if strings.Contains(added, "rm ") {
+		t.Errorf("the container was removed:\n%s", added)
+	}
+	if run, err := d.o.Runs.Load(d.o.Remote, d.o.Item); err != nil || run.GetState() != RunRunning ||
+		strings.Contains(run.GetReason(), "container is gone") {
+		t.Errorf("the stored run = %v, %v", run, err)
+	}
+}
+
+func TestBringBackLocalReportsALostNode(t *testing.T) {
+	for _, hang := range []string{"hang-exec", "hang-inspect"} {
+		t.Run(hang, func(t *testing.T) {
+			d := fireDetached(t, itemFire(t))
+			side, err := d.o.Runs.LoadDetached(d.o.Remote, d.o.Item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := d.snapshot(t)
+			writeFiles(t, d.fake, map[string]string{hang: ""})
+			began := time.Now()
+			run, _, err := d.bringBackWith(t, context.Background(), 300*time.Millisecond)
+			if took := time.Since(began); took > 5*time.Second {
+				t.Fatalf("status took %s", took)
+			}
+			if err != nil || run.GetState() != RunLost || !strings.Contains(run.GetReason(), "did not answer within 300ms") ||
+				!strings.Contains(run.GetReason(), side.Answered.Format(time.RFC3339)) {
+				t.Fatalf("a node that does not answer = %v, %v", run, err)
+			}
+			d.recordedNothing(t, before)
+
+			if err := os.Remove(filepath.Join(d.fake, hang)); err != nil {
+				t.Fatal(err)
+			}
+			d.conclude(t)
+			run, out, err := d.bringBack(t)
+			if err != nil || run.GetState() != RunConcluded || run.GetVerdict() != kernel.VerdictAccept {
+				t.Fatalf("the bring-back after lost = %v, %v\n%s", run, err, out)
+			}
+		})
+	}
+	t.Run("no answer recorded", func(t *testing.T) {
+		d := fireDetached(t, itemFire(t))
+		if err := writeRunFile(d.o.Runs.detachedPath(d.o.Remote, d.o.Item), []byte(`{"chains":["`+d.o.Item+`"]}`)); err != nil {
+			t.Fatal(err)
+		}
+		writeFiles(t, d.fake, map[string]string{"hang-exec": ""})
+		run, _, err := d.bringBackWith(t, context.Background(), 300*time.Millisecond)
+		if err != nil || run.GetState() != RunLost || !strings.Contains(run.GetReason(), "no answer is recorded") {
+			t.Fatalf("lost with no recorded answer = %v, %v", run, err)
+		}
+	})
+}
+
+func TestBringBackLocalCancelledRecordsNothing(t *testing.T) {
+	for _, hang := range []string{"hang-inspect", "hang-exec"} {
+		t.Run(hang, func(t *testing.T) {
+			d := fireDetached(t, itemFire(t))
+			before := d.snapshot(t)
+			writeFiles(t, d.fake, map[string]string{hang: ""})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			time.AfterFunc(200*time.Millisecond, cancel)
+			began := time.Now()
+			run, _, err := d.bringBackWith(t, ctx, 10*time.Second)
+			if took := time.Since(began); took > 5*time.Second {
+				t.Fatalf("status took %s", took)
+			}
+			if !errors.Is(err, context.Canceled) || run != nil {
+				t.Fatalf("a cancelled status = %v, %v", run, err)
+			}
+			d.recordedNothing(t, before)
+		})
+	}
+}
+
+type progressSpy struct {
+	inner agent.Dispatcher
+	path  string
+	reads []string
+}
+
+func (p *progressSpy) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	b, _ := os.ReadFile(p.path)
+	p.reads = append(p.reads, string(b))
+	return p.inner.Dispatch(ctx, role, req)
+}
+
+func stagedAtB(t *testing.T, node string) string {
+	t.Helper()
+	tree, k, it := localFixture(t, "1.0.0")
+	if _, err := k.Transition(context.Background(), it.ID, "b", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	return stageNode(t, tree, k, it.ID, node, 0)
+}
+
+func lineAnswers() *answers {
+	return &answers{text: map[string]string{"doer": "did it", "r1": `{"verdict":"accept","notes":"fine"}`}}
+}
+
+func TestRunLocalRecordsStepsAsItGoes(t *testing.T) {
+	nodeDir := stagedAtB(t, "nod_p1")
+	progress := filepath.Join(nodeDir, "out", detachedProgress)
+	stub := lineAnswers()
+	spy := &progressSpy{inner: stub, path: progress}
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Progress: true, Dispatcher: spy})
+	if err != nil || out.Verdict != kernel.VerdictAccept {
+		t.Fatalf("RunLocal = %+v, %v", out, err)
+	}
+	if got := strings.Join(stub.calls, " "); got != "perform:doer judge:r1" {
+		t.Fatalf("dispatched %s", got)
+	}
+	if strings.Join(spy.reads, "|") != "dispatch perform\n|dispatch judge\n" {
+		t.Fatalf("progress at each dispatch = %q", spy.reads)
+	}
+	if b, err := os.ReadFile(progress); err != nil || string(b) != "concluded accept at c\n" {
+		t.Fatalf("the last progress = %q, %v", b, err)
+	}
+}
+
+func TestRunLocalWritesNoProgressWhenAttached(t *testing.T) {
+	nodeDir := stagedAtB(t, "nod_p2")
+	out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Dispatcher: lineAnswers()})
+	if err != nil || out.Verdict != kernel.VerdictAccept {
+		t.Fatalf("RunLocal = %+v, %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(nodeDir, "out", detachedProgress)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("an attached run wrote progress: %v", err)
 	}
 }

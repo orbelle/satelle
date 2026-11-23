@@ -16,8 +16,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/bobmcallan/satelle/internal/config"
 	"github.com/bobmcallan/satelle/internal/filebundle"
@@ -45,6 +47,7 @@ const (
 	RunRunning   = "running"
 	RunConcluded = "concluded"
 	RunStopped   = "stopped"
+	RunLost      = "lost"
 )
 
 func RunFinished(state string) bool { return state == RunConcluded || state == RunStopped }
@@ -193,9 +196,10 @@ func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
 }
 
 type LocalDetached struct {
-	Chains []string `json:"chains"`
-	Remove bool     `json:"remove,omitempty"`
-	Egress bool     `json:"egress,omitempty"`
+	Chains   []string  `json:"chains"`
+	Remove   bool      `json:"remove,omitempty"`
+	Egress   bool      `json:"egress,omitempty"`
+	Answered time.Time `json:"answered,omitzero"`
 }
 
 func (r LocalRuns) SaveDetached(remote, itemID string, d LocalDetached) error {
@@ -768,8 +772,9 @@ func regularTree(dir string) error {
 }
 
 const (
-	detachedLog  = "node.log"
-	detachedExit = "exit"
+	detachedLog      = "node.log"
+	detachedExit     = "exit"
+	detachedProgress = "progress"
 )
 
 func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node string, chains []string, remove bool) error {
@@ -784,13 +789,14 @@ func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node s
 	if !ok {
 		return fmt.Errorf("the node's handle %s cannot run detached", h.ID())
 	}
-	script := fmt.Sprintf("satelle node run-local --dir %s </dev/null >%s 2>&1; echo $? >%s",
+	script := fmt.Sprintf("satelle node run-local --dir %s --progress </dev/null >%s 2>&1; echo $? >%s",
 		LocalNodeDir, path.Join(outDir, detachedLog), path.Join(outDir, detachedExit))
 	fmt.Fprintf(o.Out, "running the node on %s, detached\n", o.Item)
 	if err := dx.ExecDetached(ctx, "sh", "-c", script); err != nil {
 		return err
 	}
-	return o.Runs.SaveDetached(o.Remote, o.Item, LocalDetached{Chains: chains, Remove: remove, Egress: len(o.Definition.Network.Allow) > 0})
+	return o.Runs.SaveDetached(o.Remote, o.Item, LocalDetached{Chains: chains, Remove: remove,
+		Egress: len(o.Definition.Network.Allow) > 0, Answered: time.Now().UTC()})
 }
 
 type BringBackOptions struct {
@@ -802,7 +808,10 @@ type BringBackOptions struct {
 	Docker     provider.DockerLocal
 	Actor      string
 	Out        io.Writer
+	Bound      time.Duration
 }
+
+const AnswerBound = 15 * time.Second
 
 func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, error) {
 	if err := o.Runs.check(o.Remote, o.Item); err != nil {
@@ -831,17 +840,73 @@ func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun
 		err := stopLeftRun(k, o.Runs, o.Remote, o.Item, run, tailOf(reason, 2000), left, o.Actor, o.Out)
 		return run, errors.Join(err, o.Runs.DropDetached(o.Remote, o.Item))
 	}
-	if node == "" || !o.Docker.Exists(ctx, provider.ContainerName(node)) {
+	if node == "" {
+		return stop("the node's container is gone", "its container is gone")
+	}
+	bound := o.Bound
+	if bound <= 0 {
+		bound = AnswerBound
+	}
+	probe, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	lost := func() bool { return errors.Is(probe.Err(), context.DeadlineExceeded) && ctx.Err() == nil }
+	lostRun := func() (*satellepb.ItemRun, error) {
+		l := proto.Clone(run).(*satellepb.ItemRun)
+		l.State = RunLost
+		l.Reason = fmt.Sprintf("the node did not answer within %s; ", bound)
+		if sidecar.Answered.IsZero() {
+			l.Reason += "no answer is recorded"
+		} else {
+			l.Reason += "it last answered at " + sidecar.Answered.Format(time.RFC3339)
+		}
+		return l, nil
+	}
+	if !o.Docker.Exists(probe, provider.ContainerName(node)) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if lost() {
+			return lostRun()
+		}
 		return stop("the node's container is gone", "its container is gone")
 	}
 	h := o.Docker.Node(o.Definition, node, sidecar.Egress)
-	listing, err := h.Exec(ctx, "ls", "-A", path.Join(LocalNodeDir, "out"))
+	listing, err := h.Exec(probe, "ls", "-A", path.Join(LocalNodeDir, "out"))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if lost() {
+			return lostRun()
+		}
 		return nil, fmt.Errorf("reading what node %s left: %w", node, err)
 	}
 	names := strings.Fields(string(listing))
 	if !slices.Contains(names, detachedExit) {
-		return run, nil
+		var progress string
+		if slices.Contains(names, detachedProgress) {
+			b, err := h.Exec(probe, "cat", path.Join(LocalNodeDir, "out", detachedProgress))
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if lost() {
+					return lostRun()
+				}
+			} else {
+				progress = firstLine(strings.TrimSpace(tailOf(string(b), 2000)))
+			}
+		}
+		sidecar.Answered = time.Now().UTC()
+		if err := o.Runs.SaveDetached(o.Remote, o.Item, sidecar); err != nil {
+			return nil, err
+		}
+		working := proto.Clone(run).(*satellepb.ItemRun)
+		working.State = RunRunning
+		if progress != "" {
+			working.Notes = "progress: " + progress
+		}
+		return working, nil
 	}
 	left := func(reason string) (*satellepb.ItemRun, error) {
 		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))

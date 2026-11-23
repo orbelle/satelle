@@ -26,6 +26,49 @@ type LocalOptions struct {
 	Version    string
 	Dispatcher agent.Dispatcher
 	Secrets    io.Reader
+	Progress   bool
+}
+
+type stepLog struct{ path string }
+
+func (s *stepLog) record(line string) {
+	if s == nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(line+"\n"), 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, s.path)
+}
+
+func (s *stepLog) start(mode, item string) { s.record(fmt.Sprintf("start %s %s", mode, item)) }
+
+func (s *stepLog) setup(phase string, i, n int) { s.record(fmt.Sprintf("setup %s %d/%d", phase, i, n)) }
+
+func (s *stepLog) execution(task, exec string) {
+	s.record(fmt.Sprintf("task %s: execution %s", task, exec))
+}
+
+func (s *stepLog) drive(target string) { s.record("drive " + target) }
+
+func (s *stepLog) dispatch(role agent.Role) { s.record("dispatch " + string(role)) }
+
+func (s *stepLog) concluded(verdict, status string) {
+	s.record(fmt.Sprintf("concluded %s at %s", verdict, status))
+}
+
+type stepDispatcher struct {
+	inner agent.Dispatcher
+	steps *stepLog
+}
+
+func (d stepDispatcher) Dispatch(ctx context.Context, role agent.Role, req agent.Request) (agent.Result, error) {
+	d.steps.dispatch(role)
+	return d.inner.Dispatch(ctx, role, req)
 }
 
 const maxSecretPayload = 1 << 20
@@ -63,6 +106,14 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	if err != nil {
 		return LocalOutcome{}, err
 	}
+	var steps *stepLog
+	if o.Progress {
+		if names := secretNames(def); len(names) > 0 {
+			return LocalOutcome{}, fmt.Errorf("--progress cannot be given to a node whose definition declares secret %s", names[0])
+		}
+		steps = &stepLog{path: filepath.Join(o.Dir, "out", detachedProgress)}
+		o.Dispatcher = stepDispatcher{inner: o.Dispatcher, steps: steps}
+	}
 	var run LocalRun
 	b, err := os.ReadFile(filepath.Join(in, localRunFile))
 	if err != nil {
@@ -74,6 +125,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 	if run.NodeID == "" || run.Run.ItemID == "" || run.Run.Mode != ModeItem && run.Run.Mode != ModeTask {
 		return LocalOutcome{}, fmt.Errorf("%s names no node or item, or is not an item or task run", localRunFile)
 	}
+	steps.start(run.Run.Mode, run.Run.ItemID)
 	fmt.Fprintf(o.Log, "node: definition %s, run %s %s\n", def.Name, run.Run.Mode, run.Run.ItemID)
 	if *values, err = readSecrets(def, o.Secrets); err != nil {
 		return LocalOutcome{}, err
@@ -110,8 +162,15 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 			continue
 		}
 		fmt.Fprintf(o.Log, "node: setup %s: %d commands\n", phase.name, len(phase.cmds))
-		if err := RunSetup(ctx, tree, phase.name, phase.cmds, nil, localSetupTimeout, o.Log); err != nil {
-			return LocalOutcome{}, err
+		for i, c := range phase.cmds {
+			steps.setup(phase.name, i+1, len(phase.cmds))
+			if err := RunSetup(ctx, tree, phase.name, []string{c}, nil, localSetupTimeout, o.Log); err != nil {
+				var se *SetupError
+				if errors.As(err, &se) {
+					se.Index = i + 1
+				}
+				return LocalOutcome{}, err
+			}
 		}
 	}
 	k, err := openNodeKernel(root, tree, filepath.Join(o.Dir, "runtime"), overlay, o.Dispatcher, nil, clean)
@@ -134,6 +193,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 			return LocalOutcome{}, err
 		}
 		target = exec.ID
+		steps.execution(run.Run.ItemID, exec.ID)
 		prefix = fmt.Sprintf("task %s: execution %s over %d items\n", run.Run.ItemID, exec.ID, len(rec.Inputs))
 		fmt.Fprint(o.Log, "node: "+prefix)
 	}
@@ -143,6 +203,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		warn = fmt.Sprintf("warning: the definition pins satelle %s; the node runs %s", def.SatelleVersion, o.Version)
 		fmt.Fprintln(o.Log, "node:", warn)
 	}
+	steps.drive(target)
 	fmt.Fprintf(o.Log, "node: driving %s\n", target)
 	res, err := k.DriveSteps(ctx, target, actor, run.Steps)
 	if err != nil {
@@ -158,6 +219,7 @@ func runLocal(ctx context.Context, o LocalOptions, values *[]string) (LocalOutco
 		out.Notes += "\n" + warn
 	}
 	out.Notes = redact(out.Notes, *values)
+	steps.concluded(res.Verdict, res.Item.Status)
 	fmt.Fprintf(o.Log, "node: %s at %s: %s\n", target, res.Item.Status, res.Notes)
 	return out, writeOutcome(filepath.Join(o.Dir, "out"), out)
 }

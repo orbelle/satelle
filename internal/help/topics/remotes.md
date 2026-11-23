@@ -45,9 +45,17 @@ command asks. Once the node has concluded it imports the node's chains,
 verified as a fire does, records the run concluded with its verdict, releases
 the node's seat and, with `scope = "run"`, removes the container; a node that
 failed, or whose container is gone, is recorded stopped with the reason and
-its seat released. A node still working stays running. `--detach` is refused
-for a command remote and for a definition with `[secrets]`, which reach a node
-only on the stdin of an attached run.
+its seat released. A node still working that answers within the status bound
+(15s) is reported running, with the step it last started: its start, a setup
+command, a drive, an agent dispatch or its conclusion. That progress line is
+satelle's own step text and never carries command or agent output. A node that
+does not answer within the bound is reported lost, with when it last answered;
+lost records nothing, stops nothing and releases no seat, and the next
+`remote status` asks again. An interrupted status records nothing either.
+`--detach` is refused for a command remote and for a definition with
+`[secrets]`, which reach a node only on the stdin of an attached run; the node
+itself refuses `--progress`, the flag a detached start passes, for such a
+definition.
 
 A docker-local node may start from a plain image that [setup] prepares, as a
 sprite does. When `[machine] image` names one (debian, ubuntu), the image

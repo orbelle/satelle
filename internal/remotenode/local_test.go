@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -542,6 +543,18 @@ const probeSecret = "SATELLE_PROBE_SECRET"
 
 func secretFixture(t *testing.T, check string, setup []string, extra string) taskFixture {
 	t.Helper()
+	f := tprobeFixture(t, check, setup, extra, "[secrets]\nnames = [\""+probeSecret+"\"]\n\n")
+	t.Setenv(probeSecret, "")
+	return f
+}
+
+func setupFixture(t *testing.T, check string, setup []string) taskFixture {
+	t.Helper()
+	return tprobeFixture(t, check, setup, "", "")
+}
+
+func tprobeFixture(t *testing.T, check string, setup []string, extra, secrets string) taskFixture {
+	t.Helper()
 	f := newTaskFixture(t, check)
 	root := filepath.Join(f.tree, ".satelle")
 	var on strings.Builder
@@ -551,7 +564,7 @@ func secretFixture(t *testing.T, check string, setup []string, extra string) tas
 		}
 		on.WriteString("'''" + c + "'''")
 	}
-	def := "version = 1\nname = \"tprobe\"\nprovider = \"docker-local\"\nsatelle_version = \"1.0.0\"\n\n[secrets]\nnames = [\"" + probeSecret + "\"]\n\n" +
+	def := "version = 1\nname = \"tprobe\"\nprovider = \"docker-local\"\nsatelle_version = \"1.0.0\"\n\n" + secrets +
 		"[drive]\nkind = \"task\"\ntask = \"" + f.task + "\"\n\n[setup]\non_create = [" + on.String() + "]\n\n[lifecycle]\nscope = \"run\"\n" + extra
 	writeFiles(t, root, map[string]string{"remotes/tprobe/remote.toml": def})
 	d, bundle, err := LoadLocal(root, "tprobe")
@@ -559,7 +572,6 @@ func secretFixture(t *testing.T, check string, setup []string, extra string) tas
 		t.Fatal(err)
 	}
 	f.def.Definition, f.def.Bundle = d, bundle
-	t.Setenv(probeSecret, "")
 	t.Setenv("HOME", t.TempDir())
 	return f
 }
@@ -622,6 +634,11 @@ func assertNoSecret(t *testing.T, where, s, value string) {
 	if !strings.Contains(s, "[secret]") {
 		t.Errorf("%s holds no [secret]:\n%s", where, s)
 	}
+	assertNoPart(t, where, s, value)
+}
+
+func assertNoPart(t *testing.T, where, s, value string) {
+	t.Helper()
 	for i := 0; i+16 <= len(value); i++ {
 		if strings.Contains(s, value[i:i+16]) {
 			t.Errorf("%s holds a 16-byte window of the value at %d", where, i)
@@ -796,6 +813,77 @@ exit 1`
 	}
 	if _, err := importBack(f.k, runtime, f.chains(), node, map[string]string{probeSecret: v}); err != nil {
 		t.Fatalf("importBack of a run redacted at the source = %v", err)
+	}
+}
+
+func TestRunLocalProgressHoldsNoSetupOutput(t *testing.T) {
+	v := "-----BEGIN PRIVATE KEY-----\n" + multiLineSecret(t, 45) + "\n-----END PRIVATE KEY-----"
+	steps := regexp.MustCompile(`^(start|setup|task|drive|dispatch|concluded) `)
+	clean := func(where, s string) {
+		t.Helper()
+		assertNoPart(t, where, s, v)
+		for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+			if !steps.MatchString(l) {
+				t.Errorf("%s holds a line that is not a step: %q", where, l)
+			}
+		}
+	}
+	print := "printf '%s' '" + v + "'"
+	for _, tc := range []struct {
+		name, copy string
+		fails      bool
+	}{{"concludes", "cp ../out/progress ../snap", false}, {"fails", "cp ../out/progress ../snap; exit 1", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setupFixture(t, "echo checked", []string{print, tc.copy})
+			nodeDir := f.stage(t, "nod_5ec6")
+			var log strings.Builder
+			out, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Log: &log, Progress: true})
+			if !strings.Contains(log.String(), "-----END PRIVATE KEY-----") {
+				t.Fatalf("the setup printed nothing:\n%s", log.String())
+			}
+			snap, err2 := os.ReadFile(filepath.Join(nodeDir, "snap"))
+			if err2 != nil || string(snap) != "setup on_create 2/2\n" {
+				t.Fatalf("progress during setup = %q, %v", snap, err2)
+			}
+			clean("the snapshot", string(snap))
+			final, err2 := os.ReadFile(filepath.Join(nodeDir, "out", detachedProgress))
+			if err2 != nil {
+				t.Fatal(err2)
+			}
+			clean("the progress file", string(final))
+			if tc.fails {
+				if err == nil || !strings.Contains(err.Error(), "setup on_create command 2: ") {
+					t.Fatalf("a failing second setup command = %v", err)
+				}
+				if string(final) != "setup on_create 2/2\n" {
+					t.Fatalf("the progress after a failed setup = %q", final)
+				}
+				return
+			}
+			if err != nil || out.Verdict != kernel.VerdictAccept {
+				t.Fatalf("RunLocal = %+v, %v\n%s", out, err, log.String())
+			}
+			if !regexp.MustCompile(`^concluded accept at \S+\n$`).Match(final) {
+				t.Fatalf("the last progress = %q", final)
+			}
+		})
+	}
+}
+
+func TestRunLocalRefusesProgressWithSecrets(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "marker")
+	f := secretFixture(t, "echo checked", []string{"touch " + marker}, "")
+	nodeDir := f.stage(t, "nod_5ec7")
+	_, err := RunLocal(context.Background(), LocalOptions{Dir: nodeDir, Version: "1.0.0", Progress: true,
+		Secrets: secretPayload(t, map[string]string{probeSecret: "the-value"})})
+	if err == nil || !strings.Contains(err.Error(), probeSecret) || !strings.Contains(err.Error(), "--progress") {
+		t.Fatalf("RunLocal --progress with [secrets] = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(nodeDir, "out", detachedProgress)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused run wrote progress: %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused run ran its setup: %v", err)
 	}
 }
 
