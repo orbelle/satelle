@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,6 +70,17 @@ func (d DockerLocal) dockerIn(ctx context.Context, stdin io.Reader, args ...stri
 	return out.Bytes(), nil
 }
 
+func (d DockerLocal) dockerOut(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, d.bin(), args...)
+	cmd.Env = os.Environ()
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("docker %s: %w: %s", args[0], err, strings.TrimSpace(tailOf(errOut.String(), 2000)))
+	}
+	return out.Bytes(), nil
+}
+
 func (d DockerLocal) Available(ctx context.Context) error {
 	_, err := d.docker(ctx, nil, "info", "--format", "{{.ServerVersion}}")
 	return err
@@ -107,6 +119,15 @@ func (d DockerLocal) networkSubnet(ctx context.Context, network string) (string,
 func (d DockerLocal) Exists(ctx context.Context, name string) bool {
 	_, err := d.docker(ctx, nil, "container", "inspect", "--format", "{{.Id}}", name)
 	return err == nil
+}
+
+func (d DockerLocal) Node(def remotedef.Definition, nodeID string, egress bool) Handle {
+	suffix := nodeSuffix(nodeID)
+	h := &container{d: d, name: "satelle-node-" + suffix}
+	if egress {
+		h.egress, h.network = "satelle-egress-"+suffix, "satelle-net-"+suffix
+	}
+	return h
 }
 
 func (d DockerLocal) Start(ctx context.Context, def remotedef.Definition, run Run) (Handle, error) {
@@ -239,14 +260,22 @@ func (c *container) ExecStdin(ctx context.Context, stdin io.Reader, argv ...stri
 	return c.d.dockerIn(ctx, stdin, append([]string{"exec", "-i", c.name}, argv...)...)
 }
 
+func (c *container) ExecDetached(ctx context.Context, argv ...string) error {
+	_, err := c.d.docker(ctx, nil, append([]string{"exec", "-d", c.name}, argv...)...)
+	return err
+}
+
 func (c *container) CopyIn(ctx context.Context, host, machine string) error {
 	_, err := c.d.docker(ctx, nil, "cp", host, c.name+":"+machine)
 	return err
 }
 
 func (c *container) CopyOut(ctx context.Context, machine, host string) error {
-	_, err := c.d.docker(ctx, nil, "cp", c.name+":"+machine, host)
-	return err
+	out, err := c.d.dockerOut(ctx, "cp", c.name+":"+machine, "-")
+	if err != nil {
+		return err
+	}
+	return untar(bytes.NewReader(out), path.Base(machine), host)
 }
 
 func (c *container) Logs(ctx context.Context) ([]byte, error) {

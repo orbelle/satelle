@@ -37,6 +37,18 @@ imports it, releases the seat (also on failure) and records the run, which
 `remote status` shows. The item's chain here carries the node's events, by
 `node:<node>`.
 
+`remote fire <remote> <item> --detach` does not hold the session: it returns
+once the docker-local node has started and been given its work, printing the
+node, and records the run running while the node goes on working. Nothing
+brings the run back on its own: `remote status <remote> <item>` does, when a
+command asks. Once the node has concluded it imports the node's chains,
+verified as a fire does, records the run concluded with its verdict, releases
+the node's seat and, with `scope = "run"`, removes the container; a node that
+failed, or whose container is gone, is recorded stopped with the reason and
+its seat released. A node still working stays running. `--detach` is refused
+for a command remote and for a definition with `[secrets]`, which reach a node
+only on the stdin of an attached run.
+
 A docker-local node may start from a plain image that [setup] prepares, as a
 sprite does. When `[machine] image` names one (debian, ubuntu), the image
 needs no satelle: satelle is copied in at the fire. The fire copies its own

@@ -49,9 +49,16 @@ const (
 
 func RunFinished(state string) bool { return state == RunConcluded || state == RunStopped }
 
-func LoadLocal(dataDir, id string) (remotedef.Definition, []byte, error) {
+func validRemoteID(id string) error {
 	if err := filebundle.CheckPath(id, nil); err != nil || strings.Contains(id, "/") {
-		return remotedef.Definition{}, nil, fmt.Errorf("%q is not a remote id", id)
+		return fmt.Errorf("%q is not a remote id", id)
+	}
+	return nil
+}
+
+func LoadLocal(dataDir, id string) (remotedef.Definition, []byte, error) {
+	if err := validRemoteID(id); err != nil {
+		return remotedef.Definition{}, nil, err
 	}
 	dir := filepath.Join(dataDir, RemotesDir, id)
 	def, err := os.ReadFile(filepath.Join(dir, DefinitionFile))
@@ -142,7 +149,24 @@ func (r LocalRuns) path(remote, itemID string) string {
 	return filepath.Join(r.Dir, remote, itemID+".json")
 }
 
+func (r LocalRuns) check(remote, itemID string) error {
+	if err := validRemoteID(remote); err != nil {
+		return err
+	}
+	if !ledger.ValidItem(itemID) {
+		return fmt.Errorf("%q is not an item id", itemID)
+	}
+	return nil
+}
+
+func (r LocalRuns) detachedPath(remote, itemID string) string {
+	return filepath.Join(r.Dir, remote, itemID+".detached.json")
+}
+
 func (r LocalRuns) Load(remote, itemID string) (*satellepb.ItemRun, error) {
+	if err := r.check(remote, itemID); err != nil {
+		return nil, err
+	}
 	b, err := os.ReadFile(r.path(remote, itemID))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -158,12 +182,60 @@ func (r LocalRuns) Load(remote, itemID string) (*satellepb.ItemRun, error) {
 }
 
 func (r LocalRuns) Save(remote, itemID string, run *satellepb.ItemRun) error {
-	p := r.path(remote, itemID)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := r.check(remote, itemID); err != nil {
 		return err
 	}
 	b, err := protojson.MarshalOptions{Multiline: true}.Marshal(run)
 	if err != nil {
+		return err
+	}
+	return writeRunFile(r.path(remote, itemID), b)
+}
+
+type LocalDetached struct {
+	Chains []string `json:"chains"`
+	Remove bool     `json:"remove,omitempty"`
+	Egress bool     `json:"egress,omitempty"`
+}
+
+func (r LocalRuns) SaveDetached(remote, itemID string, d LocalDetached) error {
+	if err := r.check(remote, itemID); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeRunFile(r.detachedPath(remote, itemID), b)
+}
+
+func (r LocalRuns) LoadDetached(remote, itemID string) (LocalDetached, error) {
+	var d LocalDetached
+	if err := r.check(remote, itemID); err != nil {
+		return d, err
+	}
+	b, err := os.ReadFile(r.detachedPath(remote, itemID))
+	if err != nil {
+		return d, err
+	}
+	if err := json.Unmarshal(b, &d); err != nil {
+		return d, fmt.Errorf("the detached run of %s for %s: %w", remote, itemID, err)
+	}
+	return d, nil
+}
+
+func (r LocalRuns) DropDetached(remote, itemID string) error {
+	if err := r.check(remote, itemID); err != nil {
+		return err
+	}
+	if err := os.Remove(r.detachedPath(remote, itemID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func writeRunFile(p string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
 	tmp := p + ".tmp"
@@ -182,6 +254,7 @@ type FireOptions struct {
 	Bundle                []byte
 	Item                  string
 	Steps                 int
+	Detach                bool
 	Actor                 string
 	Docker                provider.DockerLocal
 	Out                   io.Writer
@@ -251,6 +324,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	if err := localRefusal(def); err != nil {
 		return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+	}
+	if o.Detach {
+		if err := detachRefusal(def); err != nil {
+			return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+		}
 	}
 	for _, n := range secretNames(def) {
 		if _, ok := o.Secrets.Values[n]; !ok || !slices.Contains(o.Secrets.Names, n) {
@@ -402,6 +480,15 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		seated = true
 	}
 
+	if o.Detach {
+		if err := startDetached(ctx, o, h, node, chains, remove); err != nil {
+			return failAfterStart(err)
+		}
+		seated = false
+		fmt.Fprintf(o.Out, "node %s is running on %s; bring it back with satelle remote status %s %s\n", node, o.Item, o.Remote, o.Item)
+		return run, nil
+	}
+
 	out, err := runNode(ctx, o, h, node, chains)
 	if err != nil {
 		return failAfterStart(err)
@@ -438,6 +525,16 @@ func localRefusal(def remotedef.Definition) error {
 		return errors.New("[secrets.override] is not served to a local node: a local node reads each [secrets] name from the firing shell")
 	case len(def.Repos) > 0:
 		return errors.New("[[repo]] is not fetched by a local node")
+	}
+	return nil
+}
+
+func detachRefusal(def remotedef.Definition) error {
+	switch {
+	case def.Provider != remotedef.ProviderDockerLocal:
+		return errors.New("--detach applies to a docker-local remote")
+	case len(secretNames(def)) > 0:
+		return errors.New("--detach cannot hand a node its secrets: they reach it only on the stdin of an attached run")
 	}
 	return nil
 }
@@ -504,49 +601,70 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 	} else if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
 		return fmt.Errorf("a run of %s on %s is running on node %s (container %s)", o.Remote, o.Item, node, provider.ContainerName(node))
 	}
-	prev.State, prev.Reason = RunStopped, reason
-	if err := o.Runs.Save(o.Remote, o.Item, prev); err != nil {
+	if err := stopLeftRun(o.Kernel, o.Runs, o.Remote, o.Item, prev, reason, left, o.Actor, o.Out); err != nil {
 		return err
 	}
+	return o.Runs.DropDetached(o.Remote, o.Item)
+}
+
+func stopLeftRun(k *kernel.Kernel, runs LocalRuns, remote, itemID string, run *satellepb.ItemRun, reason, left, actor string, out io.Writer) error {
+	run.State, run.Reason = RunStopped, reason
+	if err := runs.Save(remote, itemID, run); err != nil {
+		return err
+	}
+	node := run.GetNodeId()
+	held, err := releaseNodeSeat(k, itemID, node, actor)
+	if held {
+		fmt.Fprintf(out, "the run on node %s was left behind: %s; releasing its seat\n", node, left)
+	}
+	return err
+}
+
+func releaseNodeSeat(k *kernel.Kernel, itemID, node, actor string) (bool, error) {
 	if node == "" {
-		return nil
+		return false, nil
 	}
-	events, err := o.Kernel.Ledger.Read(o.Item)
+	events, err := k.Ledger.Read(itemID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, s := range item.FoldSeats(events) {
 		if s.Session == node {
-			fmt.Fprintf(o.Out, "the run on node %s was left behind: %s; releasing its seat\n", node, left)
-			return o.Kernel.Release(o.Item, node, o.Actor)
+			return true, k.Release(itemID, node, actor)
+		}
+	}
+	return false, nil
+}
+
+func giveWork(ctx context.Context, o FireOptions, h provider.Handle, node string, chains []string) error {
+	tmp, err := os.MkdirTemp("", "satelle-fire-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	in := filepath.Join(tmp, "in")
+	commit, shallow, err := stageIn(o, in, node, chains)
+	if err != nil {
+		return err
+	}
+	if _, err := h.Exec(ctx, "mkdir", "-p", LocalNodeDir); err != nil {
+		return err
+	}
+	if err := h.CopyIn(ctx, in, path.Join(LocalNodeDir, "in")); err != nil {
+		return err
+	}
+	if commit != "" {
+		fmt.Fprintf(o.Out, "checking out %s in the node at %s\n", commit, path.Join(LocalNodeDir, "work"))
+		if b, _, err := checkoutHead(ctx, h, LocalNodeDir, "HEAD", commit, shallow); err != nil {
+			return fmt.Errorf("%w\n%s", err, tailOf(string(b), 2000))
 		}
 	}
 	return nil
 }
 
 func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string, chains []string) (LocalOutcome, error) {
-	k := o.Kernel
-	tmp, err := os.MkdirTemp("", "satelle-fire-")
-	if err != nil {
+	if err := giveWork(ctx, o, h, node, chains); err != nil {
 		return LocalOutcome{}, err
-	}
-	defer os.RemoveAll(tmp)
-	in := filepath.Join(tmp, "in")
-	commit, shallow, err := stageIn(o, in, node, chains)
-	if err != nil {
-		return LocalOutcome{}, err
-	}
-	if _, err := h.Exec(ctx, "mkdir", "-p", LocalNodeDir); err != nil {
-		return LocalOutcome{}, err
-	}
-	if err := h.CopyIn(ctx, in, path.Join(LocalNodeDir, "in")); err != nil {
-		return LocalOutcome{}, err
-	}
-	if commit != "" {
-		fmt.Fprintf(o.Out, "checking out %s in the node at %s\n", commit, path.Join(LocalNodeDir, "work"))
-		if b, _, err := checkoutHead(ctx, h, LocalNodeDir, "HEAD", commit, shallow); err != nil {
-			return LocalOutcome{}, fmt.Errorf("%w\n%s", err, tailOf(string(b), 2000))
-		}
 	}
 	sx, ok := h.(provider.StdinExec)
 	if !ok {
@@ -566,7 +684,15 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 	if execErr != nil {
 		execErr = errors.New(redact(execErr.Error(), o.Secrets.Redact))
 	}
+	return bringBack(ctx, o.Kernel, h, chains, node, o.Secrets, execErr, log)
+}
 
+func bringBack(ctx context.Context, k *kernel.Kernel, h provider.Handle, chains []string, node string, secrets Secrets, execErr error, log string) (LocalOutcome, error) {
+	tmp, err := os.MkdirTemp("", "satelle-back-")
+	if err != nil {
+		return LocalOutcome{}, err
+	}
+	defer os.RemoveAll(tmp)
 	back := filepath.Join(tmp, "back")
 	if err := os.MkdirAll(back, 0o755); err != nil {
 		return LocalOutcome{}, err
@@ -579,22 +705,25 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 		return LocalOutcome{}, fmt.Errorf("the node wrote no outcome: %w\n%s", err, tailOf(log, 2000))
 	}
 	var out LocalOutcome
-	b, err := os.ReadFile(outcomeFile)
+	b, err := readRegular(outcomeFile)
 	if err != nil {
 		return LocalOutcome{}, err
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		return LocalOutcome{}, fmt.Errorf("the node's outcome: %w", err)
 	}
-	out.Notes = redact(out.Notes, o.Secrets.Redact)
+	out.Notes = redact(out.Notes, secrets.Redact)
 	runtime := path.Join(LocalNodeDir, "runtime")
-	if err := h.CopyOut(ctx, path.Join(runtime, "ledger"), filepath.Join(back, "ledger")); err != nil {
-		return LocalOutcome{}, err
+	for _, name := range []string{"ledger", "blobs"} {
+		dst := filepath.Join(back, name)
+		if err := h.CopyOut(ctx, path.Join(runtime, name), dst); err != nil {
+			return LocalOutcome{}, err
+		}
+		if err := regularTree(dst); err != nil {
+			return LocalOutcome{}, err
+		}
 	}
-	if err := h.CopyOut(ctx, path.Join(runtime, "blobs"), filepath.Join(back, "blobs")); err != nil {
-		return LocalOutcome{}, err
-	}
-	res, err := importBack(k, back, chains, node, o.Secrets.Values)
+	res, err := importBack(k, back, chains, node, secrets.Values)
 	if broken := (*ledger.BrokenLink)(nil); errors.As(err, &broken) {
 		return LocalOutcome{Verdict: kernel.VerdictReject,
 			Notes: fmt.Sprintf("the node's chain of %s does not verify: %s; nothing of the run was imported", broken.Item, broken.Reason)}, nil
@@ -606,6 +735,177 @@ func runNode(ctx context.Context, o FireOptions, h provider.Handle, node string,
 		return LocalOutcome{}, err
 	}
 	return concludeImport(out, res), nil
+}
+
+func readRegular(p string) ([]byte, error) {
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s from the node is not a regular file", filepath.Base(p))
+	}
+	return os.ReadFile(p)
+}
+
+func regularTree(dir string) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s from the node is not a directory", filepath.Base(dir))
+	}
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return fmt.Errorf("%s from the node is neither a file nor a directory", filepath.Base(p))
+		}
+		return nil
+	})
+}
+
+const (
+	detachedLog  = "node.log"
+	detachedExit = "exit"
+)
+
+func startDetached(ctx context.Context, o FireOptions, h provider.Handle, node string, chains []string, remove bool) error {
+	if err := giveWork(ctx, o, h, node, chains); err != nil {
+		return err
+	}
+	outDir := path.Join(LocalNodeDir, "out")
+	if _, err := h.Exec(ctx, "mkdir", "-p", outDir); err != nil {
+		return err
+	}
+	dx, ok := h.(provider.DetachedExec)
+	if !ok {
+		return fmt.Errorf("the node's handle %s cannot run detached", h.ID())
+	}
+	script := fmt.Sprintf("satelle node run-local --dir %s </dev/null >%s 2>&1; echo $? >%s",
+		LocalNodeDir, path.Join(outDir, detachedLog), path.Join(outDir, detachedExit))
+	fmt.Fprintf(o.Out, "running the node on %s, detached\n", o.Item)
+	if err := dx.ExecDetached(ctx, "sh", "-c", script); err != nil {
+		return err
+	}
+	return o.Runs.SaveDetached(o.Remote, o.Item, LocalDetached{Chains: chains, Remove: remove, Egress: len(o.Definition.Network.Allow) > 0})
+}
+
+type BringBackOptions struct {
+	Kernel     *kernel.Kernel
+	Runs       LocalRuns
+	Remote     string
+	Item       string
+	Definition remotedef.Definition
+	Docker     provider.DockerLocal
+	Actor      string
+	Out        io.Writer
+}
+
+func BringBackLocal(ctx context.Context, o BringBackOptions) (*satellepb.ItemRun, error) {
+	if err := o.Runs.check(o.Remote, o.Item); err != nil {
+		return nil, err
+	}
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	run, err := o.Runs.Load(o.Remote, o.Item)
+	if err != nil {
+		return nil, err
+	}
+	if RunFinished(run.GetState()) {
+		return run, nil
+	}
+	sidecar, err := o.Runs.LoadDetached(o.Remote, o.Item)
+	if errors.Is(err, fs.ErrNotExist) {
+		return run, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	node := run.GetNodeId()
+	k := o.Kernel
+	stop := func(reason, left string) (*satellepb.ItemRun, error) {
+		err := stopLeftRun(k, o.Runs, o.Remote, o.Item, run, tailOf(reason, 2000), left, o.Actor, o.Out)
+		return run, errors.Join(err, o.Runs.DropDetached(o.Remote, o.Item))
+	}
+	if node == "" || !o.Docker.Exists(ctx, provider.ContainerName(node)) {
+		return stop("the node's container is gone", "its container is gone")
+	}
+	h := o.Docker.Node(o.Definition, node, sidecar.Egress)
+	listing, err := h.Exec(ctx, "ls", "-A", path.Join(LocalNodeDir, "out"))
+	if err != nil {
+		return nil, fmt.Errorf("reading what node %s left: %w", node, err)
+	}
+	names := strings.Fields(string(listing))
+	if !slices.Contains(names, detachedExit) {
+		return run, nil
+	}
+	left := func(reason string) (*satellepb.ItemRun, error) {
+		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+		return stop(reason, "it stopped: "+firstLine(reason))
+	}
+	if !slices.Contains(names, localOutcome) {
+		code, log, err := detachedFailure(ctx, h)
+		if err != nil {
+			return left(err.Error())
+		}
+		return left(fmt.Sprintf("the node failed: exit %s\n%s", code, tailOf(log, 2000)))
+	}
+	out, err := bringBack(ctx, k, h, sidecar.Chains, node, Secrets{}, nil, "")
+	if err != nil {
+		return left(err.Error())
+	}
+	if _, err := releaseNodeSeat(k, o.Item, node, o.Actor); err != nil {
+		return left(err.Error())
+	}
+	run.State, run.Verdict, run.Notes = RunConcluded, out.Verdict, out.Notes
+	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
+		return run, err
+	}
+	if err := o.Runs.DropDetached(o.Remote, o.Item); err != nil {
+		return run, err
+	}
+	if !sidecar.Remove {
+		fmt.Fprintf(o.Out, "the container %s is left running; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+		return run, nil
+	}
+	if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+		fmt.Fprintf(o.Out, "removing the container %s failed: %v; remove it with %s\n", h.ID(), err, provider.RemoveHint(h))
+		return run, err
+	}
+	fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+	return run, nil
+}
+
+func detachedFailure(ctx context.Context, h provider.Handle) (code, log string, err error) {
+	tmp, err := os.MkdirTemp("", "satelle-back-")
+	if err != nil {
+		return "", "", err
+	}
+	defer os.RemoveAll(tmp)
+	read := func(name string) (string, error) {
+		f := filepath.Join(tmp, name)
+		if err := h.CopyOut(ctx, path.Join(LocalNodeDir, "out", name), f); err != nil {
+			return "", err
+		}
+		b, err := readRegular(f)
+		return string(b), err
+	}
+	if code, err = read(detachedExit); err != nil {
+		return "", "", err
+	}
+	if log, err = read(detachedLog); err != nil {
+		log = fmt.Sprintf("the node's log could not be read: %v", err)
+	}
+	return strings.TrimSpace(code), log, nil
+}
+
+func firstLine(s string) string {
+	l, _, _ := strings.Cut(s, "\n")
+	return l
 }
 
 type imported struct {

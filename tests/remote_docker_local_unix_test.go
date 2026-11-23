@@ -47,15 +47,25 @@ case "$cmd" in
   container) [ -d "$FAKE/$(last "$@")" ] ;;
   rm) rm -rf "$FAKE/$(last "$@")" ;;
   cp)
+    if [ "$2" = - ]; then
+      src=$(map "$1")
+      [ -e "$src" ] || { echo "Error: no such file: $1" >&2; exit 1; }
+      tmp=$(mktemp -d)
+      cp -R "$src" "$tmp/" || exit 1
+      if [ -f "$FAKE/bad-chain" ]; then
+        case "$1" in */node/runtime/ledger)
+          for f in "$tmp"/ledger/exe_*.jsonl; do [ -f "$f" ] && sed -i '1s/Probe a/probe a/' "$f"; done ;;
+        esac
+      fi
+      tar -C "$tmp" -cf - "$(basename "$src")"; rc=$?
+      rm -rf "$tmp"
+      exit $rc
+    fi
     cp -R "$(map "$1")" "$(map "$2")" || exit 1
     [ -f "$FAKE/bad-bundle" ] && [ -f "$(map "$2")/head.bundle" ] && : > "$(map "$2")/head.bundle"
-    if [ -f "$FAKE/bad-chain" ]; then
-      case "$1" in */node/runtime/ledger)
-        for f in "$(map "$2")"/exe_*.jsonl; do [ -f "$f" ] && sed -i '1s/Probe a/probe a/' "$f"; done ;;
-      esac
-    fi
     exit 0 ;;
   exec)
+    if [ "$1" = -d ]; then [ -d "$FAKE/$2" ] || exit 1; exit 0; fi
     [ "$1" = -i ] && shift
     name=$1; shift
     [ -d "$FAKE/$name" ] || { echo "Error: no such container: $name" >&2; exit 1; }

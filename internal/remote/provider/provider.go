@@ -34,6 +34,10 @@ type StdinExec interface {
 	ExecStdin(ctx context.Context, stdin io.Reader, argv ...string) ([]byte, error)
 }
 
+type DetachedExec interface {
+	ExecDetached(ctx context.Context, argv ...string) error
+}
+
 type Provider interface {
 	Name() remotedef.Provider
 	Start(ctx context.Context, def remotedef.Definition, run Run) (Handle, error)

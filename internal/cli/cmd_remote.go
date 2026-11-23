@@ -131,6 +131,7 @@ func localRuns(r repo) remotenode.LocalRuns {
 
 func remoteFireCmd() *cobra.Command {
 	var steps int
+	var detach bool
 	cmd := &cobra.Command{
 		Use:   "fire <remote-id> <item-or-task>",
 		Short: "Fire a run of the remote for the item, or of its task (a docker-local or command remote runs here)",
@@ -139,9 +140,13 @@ func remoteFireCmd() *cobra.Command {
 			if steps < 0 {
 				return fmt.Errorf("--steps %d: a step count is 0 or more", steps)
 			}
-			secrets, err := takeFireSecrets(args[0])
-			if err != nil {
-				return err
+			var secrets remotenode.Secrets
+			if !detach {
+				s, err := takeFireSecrets(args[0])
+				if err != nil {
+					return err
+				}
+				secrets = s
 			}
 			k, r, err := openKernel()
 			if err != nil {
@@ -157,7 +162,7 @@ func remoteFireCmd() *cobra.Command {
 				defer stop()
 				run, err := remotenode.FireLocal(ctx, remotenode.FireOptions{
 					Kernel: k, Tree: r.Tree, DataDir: r.DataDir, Runs: localRuns(r),
-					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Actor: actor(),
+					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Detach: detach, Actor: actor(),
 					Out: cmd.OutOrStdout(), Secrets: secrets, Docker: provider.DockerLocal{Egress: firingBinary()},
 					Binary: firingBinary(), BinaryVersion: buildinfo.Resolve().String(),
 				})
@@ -165,6 +170,9 @@ func remoteFireCmd() *cobra.Command {
 					return err
 				}
 				printRun(cmd.OutOrStdout(), args[0], args[1], run, 0)
+				if detach {
+					return nil
+				}
 				if run.GetVerdict() != kernel.VerdictAccept {
 					return &exitError{code: ExitBlocked, msg: "the run concluded " + run.GetVerdict(), quiet: true}
 				}
@@ -173,9 +181,13 @@ func remoteFireCmd() *cobra.Command {
 			if steps != 0 {
 				return errors.New("--steps applies to a remote that runs here")
 			}
+			if detach {
+				return errors.New("--detach applies to a docker-local remote")
+			}
 			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error { return fireOnServer(cmd, k, b, args) })
 		},
 	}
+	cmd.Flags().BoolVar(&detach, "detach", false, "a docker-local node: return once the node has started and been given its work; bring the run back with satelle remote status")
 	cmd.Flags().IntVar(&steps, "steps", 0, "a node that runs here (docker-local or command) drives at most this many steps (default 0: as far as the item goes)")
 	return cmd
 }
@@ -224,7 +236,7 @@ func remoteStatusCmd() *cobra.Command {
 				return err
 			}
 			defer k.Close()
-			_, _, local, err := localRemote(r, args[0])
+			def, _, local, err := localRemote(r, args[0])
 			if err != nil {
 				return err
 			}
@@ -247,8 +259,12 @@ func remoteStatusCmd() *cobra.Command {
 				return nil
 			}
 			if local {
-				runs := localRuns(r)
-				return show(func(context.Context) (*satellepb.ItemRun, error) { return runs.Load(args[0], args[1]) }, nil)
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				cmd.SetContext(ctx)
+				o := remotenode.BringBackOptions{Kernel: k, Runs: localRuns(r), Remote: args[0], Item: args[1],
+					Definition: def, Docker: provider.DockerLocal{}, Actor: actor(), Out: cmd.ErrOrStderr()}
+				return show(func(ctx context.Context) (*satellepb.ItemRun, error) { return remotenode.BringBackLocal(ctx, o) }, nil)
 			}
 			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error {
 				return show(func(ctx context.Context) (*satellepb.ItemRun, error) {

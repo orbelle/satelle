@@ -173,3 +173,18 @@ func TestDockerLocalExecStdinErrorCarriesNoOutput(t *testing.T) {
 		t.Fatalf("output = %q", out)
 	}
 }
+
+func TestContainerExecDetached(t *testing.T) {
+	d, log := fakeDockerScript(t, "exit 0\n")
+	h := d.Node(remotedef.Definition{}, "nod_3", false)
+	dx, ok := h.(DetachedExec)
+	if !ok {
+		t.Fatal("a docker-local handle does not run detached")
+	}
+	if err := dx.ExecDetached(context.Background(), "sh", "-c", "satelle node run-local --dir /node"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := readFile(log); b != "exec -d satelle-node-nod_3 sh -c satelle node run-local --dir /node\n" {
+		t.Fatalf("argv = %q", b)
+	}
+}
