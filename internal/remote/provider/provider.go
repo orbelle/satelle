@@ -47,6 +47,8 @@ func For(name remotedef.Provider) (Provider, error) {
 		return DockerLocal{}, nil
 	case remotedef.ProviderFlySprite:
 		return FlySprite{}, nil
+	case remotedef.ProviderCommand:
+		return Command{}, nil
 	}
 	return nil, fmt.Errorf("provider %q has no adapter", name)
 }

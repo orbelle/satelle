@@ -257,8 +257,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			return nil, fmt.Errorf("remote %s: secret %s: secrets were not taken before the fire", o.Remote, n)
 		}
 	}
-	if err := egressRefusal(ctx, o.Docker, def); err != nil {
-		return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+	command := def.Provider == remotedef.ProviderCommand
+	if !command {
+		if err := egressRefusal(ctx, o.Docker, def); err != nil {
+			return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+		}
 	}
 	if _, err := k.Get(o.Item); err != nil {
 		return nil, err
@@ -277,15 +280,20 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err := recoverStale(ctx, o); err != nil {
 		return nil, err
 	}
-	if err := ensureNodeImage(ctx, o.Docker, o.Tree, def, o.Out); err != nil {
-		return nil, err
+	if !command {
+		if err := ensureNodeImage(ctx, o.Docker, o.Tree, def, o.Out); err != nil {
+			return nil, err
+		}
 	}
-	plain := def.Machine.Image != ""
+	give := command || def.Machine.Image != ""
 	cannotGive := func(reason string) error {
+		if command {
+			return fmt.Errorf("remote %s: the node cannot be given satelle: %s", o.Remote, reason)
+		}
 		return fmt.Errorf("remote %s: image %s cannot be given satelle: %s", o.Remote, def.Machine.Image, reason)
 	}
 	var arch string
-	if plain {
+	if give {
 		a, err := linuxArch(o.Binary)
 		if err != nil {
 			return nil, cannotGive(err.Error())
@@ -295,6 +303,11 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	node, err := newNodeID()
 	if err != nil {
 		return nil, err
+	}
+	if command {
+		if err := (provider.Command{}).Check(ctx, def, node); err != nil {
+			return nil, fmt.Errorf("remote %s: %w", o.Remote, err)
+		}
 	}
 	run := &satellepb.ItemRun{State: RunRunning, NodeId: node}
 	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
@@ -310,19 +323,36 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		}
 		return run, err
 	}
-	h, err := o.Docker.Start(ctx, def, provider.Run{NodeID: node, NoSetup: true})
-	if h != nil {
-		fmt.Fprintf(o.Out, "node %s in container %s\n", node, h.ID())
-		fmt.Fprintf(o.Out, "inspect it: docker exec -it %s sh\n", h.ID())
+	var h provider.Handle
+	if command {
+		h, err = provider.Command{}.Start(ctx, def, provider.Run{NodeID: node, NoSetup: true})
+		fmt.Fprintf(o.Out, "node %s started by [connect] start\n", node)
+		fmt.Fprintf(o.Out, "stop it: %s\n", provider.RemoveHint(h))
+		if err != nil {
+			return stopped(errors.Join(err, h.Stop(context.WithoutCancel(ctx))))
+		}
+	} else {
+		h, err = o.Docker.Start(ctx, def, provider.Run{NodeID: node, NoSetup: true})
+		if h != nil {
+			fmt.Fprintf(o.Out, "node %s in container %s\n", node, h.ID())
+			fmt.Fprintf(o.Out, "inspect it: docker exec -it %s sh\n", h.ID())
+		}
+		if err != nil {
+			return stopped(err)
+		}
 	}
-	if err != nil {
-		return stopped(err)
+	removed := func() {
+		if command {
+			fmt.Fprintf(o.Out, "the node %s is stopped\n", node)
+		} else {
+			fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+		}
 	}
-	if plain {
+	if give {
 		fmt.Fprintf(o.Out, "copying satelle into the node at %s\n", NodeSatellePath)
 		if err := giveSatelle(ctx, h, o.Binary, o.BinaryVersion, arch); err != nil {
 			serr := h.Stop(context.WithoutCancel(ctx))
-			fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
+			removed()
 			return stopped(errors.Join(cannotGive(err.Error()), serr))
 		}
 	}
@@ -341,12 +371,21 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	}
 	defer func() { _ = release() }()
 
+	scopeRun := def.Lifecycle.Scope != remotedef.ScopeJob
 	out, err := runNode(ctx, o, h, node, chains)
 	if err != nil {
 		if rerr := release(); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
-		fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+		switch {
+		case command && scopeRun:
+			err = errors.Join(err, h.Stop(context.WithoutCancel(ctx)))
+			removed()
+		case command:
+			fmt.Fprintf(o.Out, "the node %s is left; stop it with %s\n", node, provider.RemoveHint(h))
+		default:
+			fmt.Fprintf(o.Out, "the container %s is left to inspect; remove it with %s\n", h.ID(), provider.RemoveHint(h))
+		}
 		return stopped(err)
 	}
 	if err := release(); err != nil {
@@ -356,23 +395,30 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
 		return run, err
 	}
-	if def.Lifecycle.Scope != remotedef.ScopeJob {
+	switch {
+	case scopeRun:
 		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
 			return run, err
 		}
-		fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
-	} else {
+		removed()
+	case command:
+		fmt.Fprintf(o.Out, "the node %s is left running; stop it with %s\n", node, provider.RemoveHint(h))
+	default:
 		fmt.Fprintf(o.Out, "the container %s is left running; remove it with %s\n", h.ID(), provider.RemoveHint(h))
 	}
 	return run, nil
 }
 
+func RunsHere(def remotedef.Definition) bool {
+	return def.Provider == remotedef.ProviderDockerLocal || def.Provider == remotedef.ProviderCommand
+}
+
 func localRefusal(def remotedef.Definition) error {
 	switch {
-	case def.Provider != remotedef.ProviderDockerLocal:
+	case !RunsHere(def):
 		return fmt.Errorf("provider %s does not run locally", def.Provider)
 	case len(def.Secrets.Override) > 0:
-		return errors.New("[secrets.override] is not served to a local node: a docker-local node reads each [secrets] name from the firing shell")
+		return errors.New("[secrets.override] is not served to a local node: a local node reads each [secrets] name from the firing shell")
 	case len(def.Repos) > 0:
 		return errors.New("[[repo]] is not fetched by a local node")
 	}
@@ -429,10 +475,19 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 		return nil
 	}
 	node := prev.GetNodeId()
-	if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
+	reason, left := "the node's container is gone", "its container is gone"
+	if o.Definition.Provider == remotedef.ProviderCommand {
+		reason, left = "the run was left running; its node was stopped", "its node was stopped"
+		if node != "" {
+			h := provider.Command{}.Node(o.Definition, node)
+			if err := h.Stop(ctx); err != nil {
+				fmt.Fprintf(o.Out, "stopping the node %s the run left behind: %v\n", node, err)
+			}
+		}
+	} else if node != "" && o.Docker.Exists(ctx, provider.ContainerName(node)) {
 		return fmt.Errorf("a run of %s on %s is running on node %s (container %s)", o.Remote, o.Item, node, provider.ContainerName(node))
 	}
-	prev.State, prev.Reason = RunStopped, "the node's container is gone"
+	prev.State, prev.Reason = RunStopped, reason
 	if err := o.Runs.Save(o.Remote, o.Item, prev); err != nil {
 		return err
 	}
@@ -445,7 +500,7 @@ func recoverStale(ctx context.Context, o FireOptions) error {
 	}
 	for _, s := range item.FoldSeats(events) {
 		if s.Session == node {
-			fmt.Fprintf(o.Out, "the run on node %s was left behind: its container is gone; releasing its seat\n", node)
+			fmt.Fprintf(o.Out, "the run on node %s was left behind: %s; releasing its seat\n", node, left)
 			return o.Kernel.Release(o.Item, node, o.Actor)
 		}
 	}

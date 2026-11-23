@@ -851,6 +851,24 @@ func TestLocalRefusalSecretWithNetworkAllow(t *testing.T) {
 	}
 }
 
+func TestRunsHereAndLocalRefusalByProvider(t *testing.T) {
+	for _, p := range remotedef.Providers {
+		def := remotedef.Definition{Provider: p}
+		want := p == remotedef.ProviderDockerLocal || p == remotedef.ProviderCommand
+		if RunsHere(def) != want {
+			t.Errorf("RunsHere(%s) = %v, want %v", p, !want, want)
+		}
+		if err := localRefusal(def); (err == nil) != want {
+			t.Errorf("localRefusal(%s) = %v", p, err)
+		}
+	}
+	over := remotedef.Definition{Provider: remotedef.ProviderCommand,
+		Secrets: remotedef.Secrets{Override: map[string]remotedef.OverrideValue{"TOKEN": "satelle:token"}}}
+	if err := localRefusal(over); err == nil || !strings.Contains(err.Error(), "[secrets.override]") {
+		t.Fatalf("a command remote's override entry = %v", err)
+	}
+}
+
 func fakeDockerFor(t *testing.T, body string) (script, log string) {
 	t.Helper()
 	dir := t.TempDir()

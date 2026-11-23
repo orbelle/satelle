@@ -41,7 +41,10 @@ brings the item's ledger and its verdict back.
 A docker-local remote runs locally: 'remote fire' builds the node image from
 the repo's Dockerfile, starts the node's container, seats the item at
 remote:<node>, runs the node on the item and imports its chain, verified. It
-needs docker, and no sign-in or bound project. Any other remote is started by
+needs docker, and no sign-in or bound project. A command remote runs here too:
+'remote fire' reaches its node through the start, copy_in, exec and stop
+argv lists its [connect] table names, copies satelle in and runs the same
+node contract over exec. Any other remote is started by
 satelle-server for the bound project: 'remote fire' pushes the item's chain
 to the bound project first, whatever [ledger] store names, and refuses an
 item that diverged from it; 'remote status' pulls it back once the run
@@ -92,7 +95,7 @@ func localRemote(r repo, id string) (def remotedef.Definition, bundle []byte, ok
 	case err != nil:
 		return def, nil, false, err
 	}
-	return def, bundle, def.Provider == remotedef.ProviderDockerLocal, nil
+	return def, bundle, remotenode.RunsHere(def), nil
 }
 
 func takeFireSecrets(id string) (remotenode.Secrets, error) {
@@ -101,7 +104,7 @@ func takeFireSecrets(id string) (remotenode.Secrets, error) {
 		return remotenode.Secrets{}, nil
 	}
 	def, _, err := remotenode.LoadLocal(dataDir, id)
-	if err != nil || def.Provider != remotedef.ProviderDockerLocal {
+	if err != nil || !remotenode.RunsHere(def) {
 		return remotenode.Secrets{}, nil
 	}
 	s, err := remotenode.TakeSecrets(def, os.LookupEnv)
@@ -130,7 +133,7 @@ func remoteFireCmd() *cobra.Command {
 	var steps int
 	cmd := &cobra.Command{
 		Use:   "fire <remote-id> <item-or-task>",
-		Short: "Fire a run of the remote for the item, or of its task (a docker-local remote runs here)",
+		Short: "Fire a run of the remote for the item, or of its task (a docker-local or command remote runs here)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if steps < 0 {
@@ -166,12 +169,12 @@ func remoteFireCmd() *cobra.Command {
 				return nil
 			}
 			if steps != 0 {
-				return errors.New("--steps applies to a docker-local remote")
+				return errors.New("--steps applies to a remote that runs here")
 			}
 			return withBound(k, r, cmd.ErrOrStderr(), func(b bound) error { return fireOnServer(cmd, k, b, args) })
 		},
 	}
-	cmd.Flags().IntVar(&steps, "steps", 0, "a docker-local node drives at most this many steps (default 0: as far as the item goes)")
+	cmd.Flags().IntVar(&steps, "steps", 0, "a node that runs here (docker-local or command) drives at most this many steps (default 0: as far as the item goes)")
 	return cmd
 }
 

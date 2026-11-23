@@ -266,6 +266,10 @@ principle or skill keys itself to with a commands line in its frontmatter
 printed as <file>:<line>: <kind>: <subject> — <why> (listed under the
 substrate key with --json) and fails the check, but never stops the kernel opening.
 
+Each remote definition (remotes/<id>/remote.toml) is checked against the v1
+schema; a finding is a problem, remotes/<id>/remote.toml: <key>: <message>,
+that fails the check but never stops the kernel opening.
+
 It also lists each line of the files .satelle/volatile.toml names under
 paths (shipped: the .satelle Markdown) that matches one of that file's
 volatile patterns (a version string, "currently", a model id), as
@@ -326,6 +330,7 @@ key or table in satelle.toml fail configuration loading.`,
 			}
 			unnamed := skillWarnings(r.DataDir, len(problems) == 0)
 			unknown := unknownKeyFindings(r.DataDir)
+			problems = append(problems, kernel.RemoteDefinitionProblems(r.DataDir)...)
 			valid := len(problems) == 0 && len(drift) == 0
 			if *asJSON {
 				msgs := []string{}

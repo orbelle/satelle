@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -162,5 +163,62 @@ func TestMalformedTOMLNamesPositionOnly(t *testing.T) {
 	}
 	if b, _ := json.Marshal(fs); strings.Contains(string(b), sentinel) {
 		t.Fatalf("parse finding echoed the input: %s", b)
+	}
+}
+
+const commandV1 = `version = 1
+provider = "command"
+satelle_version = "0.0.709"
+
+[drive]
+kind = "item"
+
+[connect]
+check = ["node-cli", "check"]
+start = ["node-cli", "start", "{node}"]
+copy_in = ["node-cli", "copy", "{src}", "{node}:{dst}"]
+exec = ["node-cli", "exec", "{node}", "--"]
+stop = ["node-cli", "stop", "{node}"]
+`
+
+func TestCommandDefinition(t *testing.T) {
+	if fs := Validate([]byte(commandV1)); len(fs) != 0 {
+		t.Fatalf("findings = %+v", fs)
+	}
+	def, err := Parse([]byte(commandV1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Provider != ProviderCommand || def.Connect.Exec[2] != "{node}" || def.Connect.CopyIn[3] != "{node}:{dst}" {
+		t.Fatalf("decoded = %+v", def)
+	}
+	drop := func(key string) string {
+		return regexp.MustCompile(`(?m)^`+key+` = .*\n`).ReplaceAllString(commandV1, "")
+	}
+	for _, c := range []struct {
+		name, body, key, msg string
+	}{
+		{"no start", drop("start"), "connect.start", "required"},
+		{"no copy_in", drop("copy_in"), "connect.copy_in", "required"},
+		{"no exec", drop("exec"), "connect.exec", "required"},
+		{"no stop", drop("stop"), "connect.stop", "required"},
+		{"empty stop", strings.Replace(commandV1, `stop = ["node-cli", "stop", "{node}"]`, `stop = []`, 1), "connect.stop", "required"},
+		{"empty argv0", strings.Replace(commandV1, `stop = ["node-cli",`, `stop = [" ",`, 1), "connect.stop[0]", "is empty"},
+		{"allow", commandV1 + "\n[network]\nallow = [\"example.com\"]\n", "network.allow", "is not enforced on a command remote"},
+		{"unknown placeholder", strings.Replace(commandV1, `"stop", "{node}"]`, `"stop", "{nodes}"]`, 1), "connect.stop[2]", "names {nodes}, which satelle does not substitute"},
+		{"src outside copy_in", strings.Replace(commandV1, `"exec", "{node}", "--"]`, `"exec", "{src}"]`, 1), "connect.exec[2]", "names {src}"},
+		{"copy_in without dst", strings.Replace(commandV1, `"{node}:{dst}"`, `"{node}"`, 1), "connect.copy_in", "names no {dst}"},
+		{"not a list", strings.Replace(commandV1, `exec = ["node-cli", "exec", "{node}", "--"]`, `exec = "node-cli exec {node}"`, 1), "connect.exec", "must be a list"},
+		{"connect on docker-local", minimalV1 + "\n[connect]\nstart = [\"x\"]\n", "connect", `belongs to provider "command" only`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fs := Errors(Validate([]byte(c.body)))
+			if !slices.ContainsFunc(fs, func(f Finding) bool { return f.Key == c.key && strings.Contains(f.Message, c.msg) }) {
+				t.Fatalf("findings = %+v, want %s: %s", fs, c.key, c.msg)
+			}
+			if _, err := Parse([]byte(c.body)); err == nil || !strings.Contains(err.Error(), c.key) {
+				t.Fatalf("Parse = %v, want a refusal naming %s", err, c.key)
+			}
+		})
 	}
 }

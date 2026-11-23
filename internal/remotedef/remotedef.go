@@ -23,6 +23,7 @@ type Definition struct {
 	Network        Network   `toml:"network" json:"network,omitzero"`
 	Lifecycle      Lifecycle `toml:"lifecycle" json:"lifecycle,omitzero"`
 	Drive          Drive     `toml:"drive" json:"drive,omitzero"`
+	Connect        Connect   `toml:"connect" json:"connect,omitzero"`
 }
 
 type Provider string
@@ -30,9 +31,24 @@ type Provider string
 const (
 	ProviderDockerLocal Provider = "docker-local"
 	ProviderFlySprite   Provider = "fly-sprite"
+	ProviderCommand     Provider = "command"
 )
 
-var Providers = []Provider{ProviderDockerLocal, ProviderFlySprite}
+var Providers = []Provider{ProviderDockerLocal, ProviderFlySprite, ProviderCommand}
+
+type Connect struct {
+	Check  []string `toml:"check" json:"check,omitempty"`
+	Start  []string `toml:"start" json:"start,omitempty"`
+	CopyIn []string `toml:"copy_in" json:"copy_in,omitempty"`
+	Exec   []string `toml:"exec" json:"exec,omitempty"`
+	Stop   []string `toml:"stop" json:"stop,omitempty"`
+}
+
+const (
+	PlaceholderNode = "{node}"
+	PlaceholderSrc  = "{src}"
+	PlaceholderDst  = "{dst}"
+)
 
 type Machine struct {
 	Region string `toml:"region" json:"region,omitempty"`

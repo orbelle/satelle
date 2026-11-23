@@ -85,6 +85,7 @@ func check(body []byte) (Definition, []Finding) {
 		v.fail("satelle_version", "is not a MAJOR.MINOR.PATCH version")
 	}
 	v.checkProvider(def)
+	v.checkConnect(def, sub(raw, "connect"))
 	v.checkMachine(def.Machine, sub(raw, "machine"))
 	v.checkSetup(def.Setup)
 	v.checkSecrets(def)
@@ -216,6 +217,61 @@ func (v *validator) checkProvider(def Definition) {
 		v.fail("provider", "required: one of "+strings.Join(providerNames(), ", "))
 	case !slices.Contains(Providers, def.Provider):
 		v.fail("provider", "is not one of "+strings.Join(providerNames(), ", "))
+	}
+}
+
+var placeholderPattern = regexp.MustCompile(`\{[^{}]*\}`)
+
+func (v *validator) checkConnect(def Definition, raw map[string]any) {
+	if def.Provider != ProviderCommand {
+		if len(raw) > 0 {
+			v.fail("connect", `belongs to provider "`+string(ProviderCommand)+`" only`)
+		}
+		return
+	}
+	c := def.Connect
+	node := []string{PlaceholderNode}
+	copyIn := []string{PlaceholderNode, PlaceholderSrc, PlaceholderDst}
+	for _, f := range []struct {
+		key      string
+		argv     []string
+		required string
+		allowed  []string
+	}{
+		{"check", c.Check, "", node},
+		{"start", c.Start, "the argv list that starts the node {node}", node},
+		{"copy_in", c.CopyIn, "the argv list that copies the host path {src} to the node path {dst}", copyIn},
+		{"exec", c.Exec, "the argv list that runs a command on the node {node}; the command's argv follows it", node},
+		{"stop", c.Stop, "the argv list that stops the node {node} and removes it", node},
+	} {
+		at := "connect." + f.key
+		if len(f.argv) == 0 {
+			if f.required != "" {
+				v.fail(at, "required: "+f.required)
+			}
+			continue
+		}
+		if strings.TrimSpace(f.argv[0]) == "" {
+			v.fail(at+"[0]", "is empty")
+		}
+		for i, a := range f.argv {
+			for _, p := range placeholderPattern.FindAllString(a, -1) {
+				if !slices.Contains(f.allowed, p) {
+					v.fail(fmt.Sprintf("%s[%d]", at, i), "names "+p+", which satelle does not substitute")
+				}
+			}
+		}
+	}
+	if len(c.CopyIn) > 0 {
+		joined := strings.Join(c.CopyIn, "\x00")
+		for _, p := range []string{PlaceholderSrc, PlaceholderDst} {
+			if !strings.Contains(joined, p) {
+				v.fail("connect.copy_in", "names no "+p+": copy_in copies {src} on this machine to {dst} on the node")
+			}
+		}
+	}
+	if len(def.Network.Allow) > 0 {
+		v.fail("network.allow", "is not enforced on a command remote: nothing limits a command node's network yet; remove the list")
 	}
 }
 

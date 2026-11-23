@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -632,6 +634,32 @@ func validate(c *Config, err error) []error {
 		errs = append(errs, err)
 	}
 	return append(errs, c.Problems()...)
+}
+
+func RemoteDefinitionProblems(root string) []error {
+	entries, err := os.ReadDir(filepath.Join(root, RemotesDir))
+	if err != nil {
+		return nil
+	}
+	var errs []error
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		rel := path.Join(RemotesDir, e.Name(), RemoteFile)
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", rel, err))
+			continue
+		}
+		for _, f := range remotedef.Errors(remotedef.Validate(b)) {
+			errs = append(errs, fmt.Errorf("%s: %s: %s", rel, f.Key, f.Message))
+		}
+	}
+	return errs
 }
 
 func (c *Config) gatePlacementProblems(w *workflow.Workflow) []error {

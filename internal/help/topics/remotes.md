@@ -1,7 +1,7 @@
 # Remotes and placement
 
 A remote is a definition, `.satelle/remotes/<id>/remote.toml` (schema v1:
-provider, machine, repo, drive, secrets, setup, network, lifecycle,
+provider, machine, repo, drive, secrets, setup, network, lifecycle, connect,
 satelle_version), that nodes are started from. A node is one image plus a
 work item or task, credentials and network rules. It reads its definition,
 run and secrets, fetches the declared repos read-only, runs setup, then drives
@@ -12,7 +12,9 @@ brings the ledger back and concludes with a verdict.
     satelle remote status <remote-id> <item> --session <session>   # the run, and its verdict and notes
 
 Providers: `docker-local` runs the definition as a local container, here;
-`fly-sprite` nodes are started by satelle-server.
+`command` reaches its node, from here, through the commands its definition
+names; `fly-sprite` nodes are started by satelle-server. `satelle validate
+--session <session>` checks every remote definition against the v1 schema.
 
 ## docker-local: runs locally
 
@@ -87,6 +89,47 @@ that carries a declared value is not imported. `[network] allow` is enforced on 
 from is yours: wrap the fire in whatever sets the name (a keyring, a secrets
 manager); `docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`
 and `keep_warm` are not applied: each fire runs one node.
+
+## command: reached by the commands its definition names
+
+A remote with `provider = "command"` runs from here like docker-local, but
+satelle compiles in no way of reaching its node: the definition's `[connect]`
+table names it, as argv lists.
+
+    [connect]
+    check   = ["my-node-cli", "ready"]                         # optional
+    start   = ["my-node-cli", "create", "{node}"]
+    copy_in = ["my-node-cli", "copy", "{src}", "{node}:{dst}"]
+    exec    = ["my-node-cli", "exec", "{node}", "--"]
+    stop    = ["my-node-cli", "destroy", "{node}"]
+
+satelle substitutes `{node}` (the node id, `nod_<hex>`) in every list, and
+`{src}` (a path on this machine) and `{dst}` (a path on the node) in copy_in;
+any other `{word}` is refused. Each command is run as its argv, never through
+a shell, with the firing shell's environment. start, copy_in, exec and stop
+are required; a definition that lacks one is reported by `satelle validate
+--session <session>` and its fire is refused before any command runs.
+
+`remote fire` runs check first, when the definition names one: a non-zero
+exit refuses the fire before start, naming the check command and the tail of
+its output. Then start, then copy_in of the firing satelle (linux, the node's
+architecture) to `/usr/local/bin/satelle`, then the node contract over exec:
+`uname -m`, `satelle --version`, `mkdir -p /node`, copy_in of the run to
+`/node/in`, then the node's own run over `/node`, given its secrets on stdin
+(which runs `[setup]` and drives the item or task), and the record copied back as `tar -C <dir> -cf -
+<name>` through exec, read from exec's stdout. So the node needs `tar`,
+`uname` and `mkdir`, exec must keep the node command's stdout clean, and
+copy_in copies as `cp -R` does to a `{dst}` that does not exist yet. Every
+chain that comes back is verified before it is imported, as on docker-local.
+
+The declared `[secrets] names` are taken from the firing shell and removed
+from the environment every command runs with: each value reaches the node
+only on exec's stdin. With `[lifecycle] scope = "run"` stop runs when the run
+concludes, accepted or rejected, and when it fails; with `scope = "job"` the
+node is left and the fire prints the stop command. A run left `running` here
+by an interrupted fire is recovered at the next fire by running stop for its
+node, so stop should succeed for a node that is already gone.
+`[network] allow` is refused on a command remote until it is enforced there.
 
 ## Remotes through satelle-server
 

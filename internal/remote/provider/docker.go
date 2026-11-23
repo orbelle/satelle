@@ -285,6 +285,9 @@ func (c *container) teardown(ctx context.Context) error {
 }
 
 func RemoveHint(h Handle) string {
+	if hinted, ok := h.(interface{ RemoveHint() string }); ok {
+		return hinted.RemoveHint()
+	}
 	c, ok := h.(*container)
 	if !ok {
 		return "docker rm -f " + h.ID()
