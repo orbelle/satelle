@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bobmcallan/satelle/internal/agent"
 	"github.com/bobmcallan/satelle/internal/hosted"
@@ -275,6 +276,32 @@ func TestJoinConcludesRejectingWhenASecretIsRefused(t *testing.T) {
 	st := l.srv.NodeStatuses("nod_r")
 	if last := st[len(st)-1]; last.GetState() != StateConcluded || !strings.Contains(last.GetNotes(), "secret NOTE refused") || !l.srv.NodeEnded("nod_r") {
 		t.Fatalf("conclusion = %+v, ended %v", last, l.srv.NodeEnded("nod_r"))
+	}
+}
+
+func TestJoinConcludesAfterAHeartbeatHeldAcrossTheRunsEnd(t *testing.T) {
+	l := newLocalRepo(t)
+	release := make(chan struct{})
+	l.srv.AddNode(&fakeserver.Node{ID: "nod_h", Token: "node-tok", Bundle: nodeBundle(t), Version: "v1", HoldHeartbeat: release,
+		Run: &satellepb.RunDescriptor{Mode: ModeItem, Project: l.project, ItemId: "sto_00000000"}})
+	answered := time.AfterFunc(time.Second, func() { close(release) })
+	defer answered.Stop()
+	out, err := Join(context.Background(), JoinOptions{Server: l.srv.URL, NodeID: "nod_h", Token: "node-tok", Dir: t.TempDir(),
+		Dispatcher: &answers{}, Heartbeat: time.Hour})
+	var refusal *SecretRefusal
+	if !errors.As(err, &refusal) || out.Verdict != kernel.VerdictReject {
+		t.Fatalf("Join = %+v, %v", out, err)
+	}
+	st := l.srv.NodeStatuses("nod_h")
+	var states []string
+	for _, s := range st {
+		states = append(states, s.GetState())
+	}
+	if len(st) != 2 || states[0] != StateRunning || states[1] != StateConcluded {
+		t.Fatalf("statuses = %v, want the held heartbeat's running then concluded", states)
+	}
+	if last := st[len(st)-1]; !strings.Contains(last.GetNotes(), "secret NOTE refused") || !l.srv.NodeEnded("nod_h") {
+		t.Fatalf("conclusion = %+v, ended %v", last, l.srv.NodeEnded("nod_h"))
 	}
 }
 

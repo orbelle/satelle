@@ -129,12 +129,19 @@ func (j *joiner) say(format string, args ...any) {
 	fmt.Fprintln(j.o.Log, "node:", line)
 }
 
+const heartbeatCallLimit = 30 * time.Second
+
 func (j *joiner) heartbeat(ctx context.Context, stop context.CancelCauseFunc, step func() string) {
 	t := time.NewTicker(j.o.Heartbeat)
 	defer t.Stop()
 	for {
-		reply, err := j.nc.Status(ctx, NodeStatus{State: StateRunning, RunState: StateRunning, ItemID: j.itemID(),
+		if ctx.Err() != nil {
+			return
+		}
+		callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), heartbeatCallLimit)
+		reply, err := j.nc.Status(callCtx, NodeStatus{State: StateRunning, RunState: StateRunning, ItemID: j.itemID(),
 			Step: step(), Progress: j.lastProgress(), SetupLog: j.setupTail()})
+		cancel()
 		var refused *TokenRefusedError
 		switch {
 		case errors.As(err, &refused):
