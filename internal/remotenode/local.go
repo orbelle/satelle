@@ -341,27 +341,38 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 			return stopped(err)
 		}
 	}
-	removed := func() {
+	secret := len(secretNames(def)) > 0
+	remove := def.Lifecycle.Scope != remotedef.ScopeJob || secret
+	torn := false
+	tear := func() error {
+		torn = true
+		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+			if command {
+				fmt.Fprintf(o.Out, "stopping the node %s failed: %v; stop it with %s\n", node, err, provider.RemoveHint(h))
+			} else {
+				fmt.Fprintf(o.Out, "removing the container %s failed: %v; remove it with %s\n", h.ID(), err, provider.RemoveHint(h))
+			}
+			return err
+		}
 		if command {
 			fmt.Fprintf(o.Out, "the node %s is stopped\n", node)
 		} else {
 			fmt.Fprintf(o.Out, "the container %s is removed\n", h.ID())
 		}
+		return nil
 	}
+	defer func() {
+		if secret && !torn {
+			_ = tear()
+		}
+	}()
 	if give {
 		fmt.Fprintf(o.Out, "copying satelle into the node at %s\n", NodeSatellePath)
 		if err := giveSatelle(ctx, h, o.Binary, o.BinaryVersion, arch); err != nil {
-			serr := h.Stop(context.WithoutCancel(ctx))
-			removed()
-			return stopped(errors.Join(cannotGive(err.Error()), serr))
+			return stopped(errors.Join(cannotGive(err.Error()), tear()))
 		}
 	}
-	seated := !def.RunsTask()
-	if seated {
-		if _, err := k.Seat(o.Item, node, kernel.LocationRemote+node, "", o.Actor); err != nil {
-			return stopped(err)
-		}
-	}
+	seated := false
 	release := func() error {
 		if !seated {
 			return nil
@@ -370,17 +381,13 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		return k.Release(o.Item, node, o.Actor)
 	}
 	defer func() { _ = release() }()
-
-	scopeRun := def.Lifecycle.Scope != remotedef.ScopeJob
-	out, err := runNode(ctx, o, h, node, chains)
-	if err != nil {
+	failAfterStart := func(err error) (*satellepb.ItemRun, error) {
 		if rerr := release(); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
 		switch {
-		case command && scopeRun:
-			err = errors.Join(err, h.Stop(context.WithoutCancel(ctx)))
-			removed()
+		case (command && remove) || secret:
+			err = errors.Join(err, tear())
 		case command:
 			fmt.Fprintf(o.Out, "the node %s is left; stop it with %s\n", node, provider.RemoveHint(h))
 		default:
@@ -388,19 +395,29 @@ func FireLocal(ctx context.Context, o FireOptions) (*satellepb.ItemRun, error) {
 		}
 		return stopped(err)
 	}
+	if !def.RunsTask() {
+		if _, err := k.Seat(o.Item, node, kernel.LocationRemote+node, "", o.Actor); err != nil {
+			return failAfterStart(err)
+		}
+		seated = true
+	}
+
+	out, err := runNode(ctx, o, h, node, chains)
+	if err != nil {
+		return failAfterStart(err)
+	}
 	if err := release(); err != nil {
-		return stopped(err)
+		return failAfterStart(err)
 	}
 	run.State, run.Verdict, run.Notes = RunConcluded, out.Verdict, out.Notes
 	if err := o.Runs.Save(o.Remote, o.Item, run); err != nil {
 		return run, err
 	}
 	switch {
-	case scopeRun:
-		if err := h.Stop(context.WithoutCancel(ctx)); err != nil {
+	case remove:
+		if err := tear(); err != nil {
 			return run, err
 		}
-		removed()
 	case command:
 		fmt.Fprintf(o.Out, "the node %s is left running; stop it with %s\n", node, provider.RemoveHint(h))
 	default:

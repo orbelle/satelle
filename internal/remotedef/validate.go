@@ -95,7 +95,7 @@ func check(body []byte) (Definition, []Finding) {
 			v.fail(fmt.Sprintf("network.allow[%d]", i), "is not a hostname or *.domain")
 		}
 	}
-	v.checkLifecycle(def.Lifecycle, def.Drive.Kind)
+	v.checkLifecycle(def)
 	v.checkDrive(def.Drive, def.Provider)
 	return def, v.out
 }
@@ -393,7 +393,8 @@ func (v *validator) checkPermissions(at string, raw any) {
 	}
 }
 
-func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
+func (v *validator) checkLifecycle(def Definition) {
+	l, kind := def.Lifecycle, def.Drive.Kind
 	if l.KeepWarm != nil {
 		switch {
 		case *l.KeepWarm < 0:
@@ -406,6 +407,9 @@ func (v *validator) checkLifecycle(l Lifecycle, kind DriveKind) {
 	}
 	if l.Scope != "" && !slices.Contains(LifecycleScopes, l.Scope) {
 		v.fail("lifecycle.scope", "is not "+enumList(LifecycleScopes))
+	}
+	if l.Scope == ScopeJob && (len(def.Secrets.Names) > 0 || len(def.Secrets.Override) > 0) {
+		v.fail("lifecycle.scope", `is "job", which leaves the node running after its run: a definition that declares [secrets] must use [lifecycle] scope = "run", so no node that was given a secret outlives its run`)
 	}
 	if l.IdleDestroy != "" {
 		if d, err := time.ParseDuration(l.IdleDestroy); err != nil || d <= 0 {

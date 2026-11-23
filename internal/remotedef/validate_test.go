@@ -114,6 +114,8 @@ func TestV1FieldFindings(t *testing.T) {
 		{"github-app with no permissions", withRepo + "[secrets.override]\nGH_TOKEN = { provider = \"github-app\" }\n", "secrets.override.GH_TOKEN.permissions"},
 		{"bad permission level", withRepo + "[secrets.override]\nGH_TOKEN = { provider = \"github-app\", permissions = { contents = \"" + sentinel + "\" } }\n", "secrets.override.GH_TOKEN.permissions.contents"},
 		{"bad scope", minimalV1 + "[lifecycle]\nscope = \"" + sentinel + "\"\n", "lifecycle.scope"},
+		{"secrets names on a job scope", minimalV1 + "[secrets]\nnames = [\"A\"]\n[lifecycle]\nscope = \"job\"\n", "lifecycle.scope"},
+		{"secrets override on a job scope", minimalV1 + "[secrets.override]\nA = \"satelle:A\"\n[lifecycle]\nscope = \"job\"\n", "lifecycle.scope"},
 		{"bad idle_destroy", minimalV1 + "[lifecycle]\nidle_destroy = \"" + sentinel + "\"\n", "lifecycle.idle_destroy"},
 		{"max_nodes zero", minimalV1 + "[lifecycle]\nmax_nodes = 0\n", "lifecycle.max_nodes"},
 		{"keep_warm on an item drive", minimalV1 + "[lifecycle]\nkeep_warm = 1\n", "lifecycle.keep_warm"},
@@ -143,6 +145,24 @@ func TestV1FieldFindings(t *testing.T) {
 				t.Errorf("Parse = %v, want a refusal naming %q", err, c.key)
 			}
 		})
+	}
+}
+
+func TestSecretsRequireRunScope(t *testing.T) {
+	job := minimalV1 + "[secrets]\nnames = [\"A\"]\n[lifecycle]\nscope = \"job\"\n"
+	fs := Errors(Validate([]byte(job)))
+	if !slices.ContainsFunc(fs, func(f Finding) bool {
+		return f.Key == "lifecycle.scope" && strings.Contains(f.Message, "[lifecycle] scope") && strings.Contains(f.Message, "[secrets]")
+	}) {
+		t.Fatalf("want lifecycle.scope naming [lifecycle] scope and [secrets]; findings=%+v", fs)
+	}
+	for name, body := range map[string]string{
+		"secrets on a run scope":   minimalV1 + "[secrets]\nnames = [\"A\"]\n[lifecycle]\nscope = \"run\"\n",
+		"job scope with no secret": minimalV1 + "[lifecycle]\nscope = \"job\"\n",
+	} {
+		if fs := Validate([]byte(body)); len(fs) != 0 {
+			t.Errorf("%s: findings = %+v", name, fs)
+		}
 	}
 }
 

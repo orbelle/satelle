@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 const secretName = "SATELLE_PROBE_SECRET"
@@ -297,39 +298,25 @@ func TestDockerLocalFireSecretOnDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := secretSandbox(t, false, func(def string) string {
-		return strings.Replace(def, `scope = "run"`, `scope = "job"`, 1)
-	})
-	gate, shimDir := t.TempDir(), t.TempDir()
-	writeFile(t, filepath.Join(gate, "release"), "", 0o644)
-	shim := strings.NewReplacer("@GATE@", gate, "@REAL@", real, "@REPO@", repo, "@SANDBOX@", b.s.dir).Replace(gateShim)
-	writeFile(t, filepath.Join(shimDir, "docker"), shim, 0o755)
-	b.s.path = append([]string{shimDir}, b.s.path...)
+	b := secretSandbox(t, false, nil)
+	gate := daemonGate(t, b, real, repo)
+	writeFile(t, filepath.Join(gate, "hold-rm"), "", 0o644)
 	other := "SATELLE_SECRET_TEST_OTHER_" + randomSecret(t)[:8]
 	b.s.env[other] = "x"
 	var name string
 	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(gate, "rm-release"), nil, 0o644)
 		if name != "" {
 			_ = exec.Command(real, "rm", "-f", name).Run()
 		}
 	})
-	r := b.fire()
-	if m := nodeLine.FindStringSubmatch(r.out); m != nil {
+	f := b.startFire(t)
+	f.waitFor(t, filepath.Join(gate, "removing"))
+	if m := nodeLine.FindStringSubmatch(f.stdout.String()); m != nil {
 		name = m[2]
 	}
-	notes := b.assertProbe(t, r)
-	t.Logf("probe notes:\n%s", notes)
-	names := ""
-	for _, l := range strings.Split(notes, "\n") {
-		if strings.HasPrefix(l, "env names: ") {
-			names = l
-		}
-	}
-	if !strings.Contains(names, secretName) || strings.Contains(names, other) {
-		t.Errorf("the node's environment names: %q", names)
-	}
 	if name == "" {
-		t.Fatal("no container named")
+		t.Fatalf("no container named:\n%s", f.stdout.String())
 	}
 	for what, args := range map[string][]string{
 		"docker inspect of the container": {"inspect", name},
@@ -348,6 +335,20 @@ func TestDockerLocalFireSecretOnDaemon(t *testing.T) {
 	if out, err := exec.Command(real, "cp", name+":/node", nodeCopy).CombinedOutput(); err != nil {
 		t.Fatalf("docker cp: %v: %s", err, out)
 	}
+	writeFile(t, filepath.Join(gate, "rm-release"), "", 0o644)
+	r := f.wait(t)
+	notes := b.assertProbe(t, r)
+	t.Logf("probe notes:\n%s", notes)
+	names := ""
+	for _, l := range strings.Split(notes, "\n") {
+		if strings.HasPrefix(l, "env names: ") {
+			names = l
+		}
+	}
+	if !strings.Contains(names, secretName) || strings.Contains(names, other) {
+		t.Errorf("the node's environment names: %q", names)
+	}
+	assertNoNodeOnDaemon(t, real, nodeLine.FindStringSubmatch(r.out)[1])
 	b.assertNowhere(t, map[string]string{
 		"the sandbox (definition, ledger, tree)": b.s.dir,
 		"the home (runtime dir, run record)":     b.s.home,
@@ -356,4 +357,197 @@ func TestDockerLocalFireSecretOnDaemon(t *testing.T) {
 		"the node's directories":                 nodeCopy,
 	})
 	b.assertEnvLogsClean(t, filepath.Join(gate, "docker-env.log"), filepath.Join(b.logs, "git-env.log"))
+}
+
+func daemonGate(t *testing.T, b *secretBox, real, repo string) string {
+	t.Helper()
+	gate, shimDir := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(gate, "release"), "", 0o644)
+	shim := strings.NewReplacer("@GATE@", gate, "@REAL@", real, "@REPO@", repo, "@SANDBOX@", b.s.dir).Replace(gateShim)
+	writeFile(t, filepath.Join(shimDir, "docker"), shim, 0o755)
+	b.s.path = append([]string{shimDir}, b.s.path...)
+	return gate
+}
+
+func assertNoNodeOnDaemon(t *testing.T, real, node string) {
+	t.Helper()
+	for what, args := range map[string][]string{
+		"container": {"ps", "-a", "-q", "--filter", "label=satelle.node=" + node},
+		"network":   {"network", "ls", "-q", "--filter", "label=satelle.node=" + node},
+	} {
+		out, err := exec.Command(real, args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("docker %v: %v: %s", args, err, out)
+		}
+		if strings.TrimSpace(string(out)) != "" {
+			t.Errorf("a %s labelled satelle.node=%s remains: %s", what, node, out)
+		}
+	}
+}
+
+type asyncFire struct {
+	cmd            *exec.Cmd
+	exited         chan error
+	stdout, stderr *lockedBuffer
+}
+
+func (b *secretBox) startFire(t *testing.T) *asyncFire {
+	t.Helper()
+	f := &asyncFire{exited: make(chan error, 1), stdout: &lockedBuffer{}, stderr: &lockedBuffer{}}
+	f.cmd = exec.Command(satelleBin, "remote", "fire", "docker-secret-probe", b.task)
+	f.cmd.Dir, f.cmd.Stdout, f.cmd.Stderr = b.s.dir, f.stdout, f.stderr
+	f.cmd.Env = append(b.s.environ(), secretName+"="+b.value)
+	if err := f.cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { f.exited <- f.cmd.Wait() }()
+	t.Cleanup(func() { _ = f.cmd.Process.Kill() })
+	return f
+}
+
+func (f *asyncFire) waitFor(t *testing.T, file string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	if d, ok := t.Deadline(); ok {
+		deadline = d.Add(-30 * time.Second)
+	}
+	for {
+		if _, err := os.Stat(file); err == nil {
+			return
+		}
+		select {
+		case err := <-f.exited:
+			f.exited <- err
+			t.Fatalf("the fire returned before %s: %v\n%s%s", file, err, f.stdout.String(), f.stderr.String())
+		case <-time.After(200 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no %s before the deadline\n%s%s", file, f.stdout.String(), f.stderr.String())
+		}
+	}
+}
+
+func (f *asyncFire) wait(t *testing.T) result {
+	t.Helper()
+	err := <-f.exited
+	r := result{out: f.stdout.String(), err: f.stderr.String()}
+	if ee, ok := err.(*exec.ExitError); ok {
+		r.code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func labelledNodes(t *testing.T, fake, node string) []string {
+	t.Helper()
+	labels, _ := filepath.Glob(filepath.Join(fake, "*", ".label"))
+	var left []string
+	for _, l := range labels {
+		if b, err := os.ReadFile(l); err == nil && strings.TrimSpace(string(b)) == "satelle.node="+node {
+			left = append(left, filepath.Dir(l))
+		}
+	}
+	return left
+}
+
+func (b *secretBox) assertNodeRemoved(t *testing.T, r result) {
+	t.Helper()
+	if r.code == 0 {
+		t.Fatalf("a failed fire exited 0:\n%s", r.out)
+	}
+	m := nodeLine.FindStringSubmatch(r.out)
+	if m == nil {
+		t.Fatalf("fire output names no node:\n%s%s", r.out, r.err)
+	}
+	assertRemoved(t, b.fake, m[2], r.out)
+	if strings.Contains(r.out, "left to inspect") {
+		t.Errorf("a node that was given a secret was left to inspect:\n%s", r.out)
+	}
+	if left := labelledNodes(t, b.fake, m[1]); len(left) != 0 {
+		t.Errorf("containers labelled with the node remain: %v", left)
+	}
+	if st := b.s.must("remote", "status", "docker-secret-probe", b.task); !strings.Contains(st, ": stopped (node "+m[1]+")") {
+		t.Errorf("status:\n%s", st)
+	}
+	if strings.Contains(r.out+r.err, b.value) {
+		t.Error("the fire's output holds the value")
+	}
+}
+
+func TestDockerLocalFireSecretRemovedOnFailure(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	writeFile(t, filepath.Join(b.fake, "fail-run-local"), "", 0o644)
+	b.assertNodeRemoved(t, b.fire())
+}
+
+func TestDockerLocalFireSecretRemovedOnInterrupt(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, nil)
+	writeFile(t, filepath.Join(b.fake, "hold-run-local"), "", 0o644)
+	f := b.startFire(t)
+	f.waitFor(t, filepath.Join(b.fake, "held"))
+	if err := f.cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+	b.assertNodeRemoved(t, f.wait(t))
+}
+
+func TestDockerLocalSecretJobScopeRefused(t *testing.T) {
+	t.Parallel()
+	b := secretSandbox(t, true, func(def string) string {
+		return strings.Replace(def, `scope = "run"`, `scope = "job"`, 1)
+	})
+	names := func(what, s, where string) {
+		t.Helper()
+		for _, want := range []string{where, "lifecycle.scope", "[lifecycle] scope", "[secrets]"} {
+			if !strings.Contains(s, want) {
+				t.Errorf("%s misses %q:\n%s", what, want, s)
+			}
+		}
+	}
+	v := b.s.run("validate")
+	if v.code == 0 {
+		t.Fatalf("validate accepted [secrets] with scope job:\n%s", v.out)
+	}
+	names("validate", v.out+v.err, "remotes/docker-secret-probe/remote.toml")
+	r := b.fire()
+	if r.code == 0 {
+		t.Fatalf("the fire accepted [secrets] with scope job:\n%s", r.out)
+	}
+	names("the fire", r.err, "remote docker-secret-probe: remote.toml")
+	if log, _ := os.ReadFile(filepath.Join(b.fake, "log")); strings.Contains(string(log), "run -d") || strings.Contains(string(log), "build") {
+		t.Fatalf("docker ran for a refused fire:\n%s", log)
+	}
+}
+
+func TestDockerLocalFireSecretFailureOnDaemon(t *testing.T) {
+	real, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("docker is not installed")
+	}
+	if out, err := exec.Command(real, "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
+		t.Skipf("docker daemon unavailable: %v: %s", err, out)
+	}
+	repo, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := secretSandbox(t, false, func(def string) string {
+		return regexp.MustCompile(`(?m)^on_create = .*$`).ReplaceAllLiteralString(def, `on_create = ["exit 1"]`)
+	})
+	daemonGate(t, b, real, repo)
+	r := b.fire()
+	m := nodeLine.FindStringSubmatch(r.out)
+	if m != nil {
+		t.Cleanup(func() { _ = exec.Command(real, "rm", "-f", m[2]).Run() })
+	}
+	if r.code == 0 || m == nil {
+		t.Fatalf("a fire whose setup fails: exit %d\n%s%s", r.code, r.out, r.err)
+	}
+	if !strings.Contains(r.out, "the container "+m[2]+" is removed") {
+		t.Errorf("the fire did not say the container is removed:\n%s", r.out)
+	}
+	assertNoNodeOnDaemon(t, real, m[1])
 }

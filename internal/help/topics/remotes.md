@@ -53,8 +53,13 @@ runs: inspect the container while it runs. `[lifecycle] scope = "job"` keeps
 the container after the run, as does a failed run; `docker rm -f
 satelle-node-<node>` removes it. With `scope = "run"` a concluded run's
 container is removed, accepted or rejected. A run that stopped (the node
-failed and wrote no outcome) is left to inspect, as is every run with
-`scope = "job"`.
+failed and wrote no outcome) is left to inspect, with the printed `docker rm
+-f` line, as is every run with `scope = "job"`, unless the definition declares
+`[secrets]`: such a node's container, and its egress container and network,
+are removed however the run ends, concluded, failed, cancelled, timed out or
+interrupted (Ctrl-C on `satelle remote fire`). `[lifecycle] scope = "job"` is
+refused for a definition that declares `[secrets]`, by `satelle validate
+--session <session>` and by the fire, before any node starts.
 
 A docker-local task remote may set `[drive] checkout = true`: the fire bundles
 the firing tree's HEAD commit and checks it out, detached, at the node's work
@@ -84,7 +89,8 @@ read from the environment of the shell that fires and handed to the node
 process over its stdin, never in argv, the container's configuration, the
 ledger or on disk; a name not set there refuses the fire before any container
 starts, the node replaces each value in what it reports, and a node record
-that carries a declared value is not imported. `[network] allow` is enforced on docker through satelle's egress proxy: the node's only route out is the proxy, which reaches only the hosts the list names, and a fire or gate check that cannot enforce the list refuses before the node starts.
+that carries a declared value is not imported. A node that was given secrets
+never outlives its run (see `[lifecycle] scope` above). `[network] allow` is enforced on docker through satelle's egress proxy: the node's only route out is the proxy, which reaches only the hosts the list names, and a fire or gate check that cannot enforce the list refuses before the node starts.
 `[secrets.override]` and `[[repo]]` are refused locally. Where a value comes
 from is yours: wrap the fire in whatever sets the name (a keyring, a secrets
 manager); `docker-secret-probe` proves the path. `max_nodes`, `idle_destroy`

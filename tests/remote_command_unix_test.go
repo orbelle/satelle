@@ -286,8 +286,8 @@ func TestCommandRemoteSecretOnStdin(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := strings.NewReplacer(`name = "docker-secret-probe"`, `name = "command-secret-probe"`,
-		`provider = "docker-local"`, `provider = "command"`, `scope = "run"`, `scope = "job"`).Replace(string(def)) + commandConnect
-	if !strings.Contains(body, `provider = "command"`) || !strings.Contains(body, `scope = "job"`) {
+		`provider = "docker-local"`, `provider = "command"`).Replace(string(def)) + commandConnect
+	if !strings.Contains(body, `provider = "command"`) || !strings.Contains(body, `scope = "run"`) {
 		t.Fatalf("the definition was not rewritten:\n%s", body)
 	}
 	overlay, err := os.ReadFile(filepath.Join(s.dir, ".satelle", "remotes", "docker-secret-probe", "satelle.toml"))
@@ -337,9 +337,11 @@ func TestCommandRemoteSecretOnStdin(t *testing.T) {
 		t.Fatalf("the fixture recorded no environment of the node's run: %v", err)
 	}
 	sb.assertEnvLogsClean(t, filepath.Join(root, "env.log"))
-	setup, err := os.ReadFile(filepath.Join(root, node, "home", ".satelle-secret-probe-setup.sha256"))
-	if err != nil || strings.TrimSpace(string(setup)) != want {
-		t.Fatalf("the node's setup file = %q, %v", setup, err)
+	if !strings.Contains(string(log), "stop "+node+"\n") {
+		t.Fatalf("the node that was given a secret was not stopped:\n%s", log)
+	}
+	if _, err := os.Stat(filepath.Join(root, node)); err == nil {
+		t.Fatalf("the node %s that was given a secret outlived its run", node)
 	}
 	sb.assertNowhere(t, map[string]string{"the fixture node's files": root, "the sandbox": s.dir, "the sandbox home": s.home})
 	ledger := s.must("ledger", "list", executionsOf(s, sb.task)[0].ID, "--json") + s.must("ledger", "list", sb.task, "--json")

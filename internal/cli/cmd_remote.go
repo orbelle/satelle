@@ -153,7 +153,9 @@ func remoteFireCmd() *cobra.Command {
 				return err
 			}
 			if local {
-				run, err := remotenode.FireLocal(cmd.Context(), remotenode.FireOptions{
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				run, err := remotenode.FireLocal(ctx, remotenode.FireOptions{
 					Kernel: k, Tree: r.Tree, DataDir: r.DataDir, Runs: localRuns(r),
 					Remote: args[0], Definition: def, Bundle: bundle, Item: args[1], Steps: steps, Actor: actor(),
 					Out: cmd.OutOrStdout(), Secrets: secrets, Docker: provider.DockerLocal{Egress: firingBinary()},

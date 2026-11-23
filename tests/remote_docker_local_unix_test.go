@@ -35,11 +35,14 @@ case "$cmd" in
   run)
     [ -f "$FAKE/fail-run" ] && { echo "Error: the fake daemon refused the run" >&2; exit 1; }
     name=""
+    label=""
     while [ $# -gt 0 ]; do
       [ "$1" = --name ] && name=$2
+      [ "$1" = --label ] && label=$2
       shift
     done
     mkdir -p "$FAKE/$name"
+    echo "$label" > "$FAKE/$name/.label"
     echo "$name" ;;
   container) [ -d "$FAKE/$(last "$@")" ] ;;
   rm) rm -rf "$FAKE/$(last "$@")" ;;
@@ -61,6 +64,7 @@ case "$cmd" in
     if [ "$prog" = satelle ] && [ "$1 $2" = "node run-local" ]; then
       [ -f "$FAKE/fail-run-local" ] && { echo "the node broke" >&2; exit 1; }
       [ -f "$FAKE/crash-run-local" ] && { kill -9 $PPID; exit 1; }
+      [ -f "$FAKE/hold-run-local" ] && { : > "$FAKE/held"; exec sleep 120; }
     fi
     [ "$prog" = satelle ] && prog=$SATELLE
     n=$#
@@ -289,6 +293,9 @@ func TestDockerLocalFireReleasesOnFailure(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(fake, name)); err != nil {
 		t.Fatalf("the container is gone: %v", err)
 	}
+	if want := "the container " + name + " is left to inspect; remove it with docker rm -f " + name; !strings.Contains(r.out, want) {
+		t.Fatalf("fire output misses %q:\n%s", want, r.out)
+	}
 	s.must("ledger", "verify")
 }
 
@@ -378,6 +385,10 @@ fi
 if [ "$1" = exec ] && { [ "$3 $4 $5" = "satelle node run-local" ] || [ "$4 $5 $6" = "satelle node run-local" ]; }; then
   if [ "$2" = -i ]; then echo "$3" > "$GATE/running"; else echo "$2" > "$GATE/running"; fi
   while [ ! -f "$GATE/release" ]; do sleep 0.2; done
+fi
+if [ "$1" = rm ] && [ -f "$GATE/hold-rm" ]; then
+  : > "$GATE/removing"
+  while [ ! -f "$GATE/rm-release" ]; do sleep 0.2; done
 fi
 exec "$REAL" "$@"
 `
